@@ -450,7 +450,7 @@ export function capturePostHogCompositeUsage({ slug, upstreamUsd, ok, priceUsd }
   } catch { /* never throw */ }
 }
 
-export function capturePostHogGatewayUsage({ tier, model, priceUsd, upstreamUsd, promptTokens, completionTokens, serviceTier }) {
+export function capturePostHogGatewayUsage({ tier, model, priceUsd, upstreamUsd, promptTokens, completionTokens, serviceTier, serverToolCalls, serverToolSearches }) {
   if (!active()) return;
   const price = Number(priceUsd) || 0;
   const upstream = Number(upstreamUsd) || 0;
@@ -466,6 +466,10 @@ export function capturePostHogGatewayUsage({ tier, model, priceUsd, upstreamUsd,
     upstreamReported: upstreamUsd != null,
     promptTokens: Number(promptTokens) || 0,
     completionTokens: Number(completionTokens) || 0,
+    // Server-tool execution counts (OpenRouter's usage.server_tool_use_details).
+    // The dollars are already inside upstreamUsd; these say why a margin moved.
+    serverToolCalls: Number(serverToolCalls) || 0,
+    serverToolSearches: Number(serverToolSearches) || 0,
   });
 }
 

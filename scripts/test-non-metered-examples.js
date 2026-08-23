@@ -81,6 +81,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const METERED_SLUGS = new Set([
   // Brave Search subscription
   "search", "search-news", "search-images", "search-videos", "search-suggest", "answer", "multi-search",
+  "llm-context",      // Brave /llm/context - same subscription, billed per call
   "research-company", // calls search-news handler in-process
   // OpenAI
   "llm", "llm-pro", "llm-premium",

@@ -2,7 +2,7 @@
 // layer that gates what reaches the paid OpenRouter upstream: model → tier
 // routing (incl. bare-name mapping and self-correcting cross-tier errors),
 // input/output caps, stream rejection, and the env-gated 503. No network.
-import { TIERS, canonicalModel, tierAllows, tierFor, validateRequest, modelsList, LLM_GATEWAY_TOOLS, stableStringify, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, AUTO_RANKINGS, classifyPrompt, validateEmbeddingsRequest, embeddingsCacheKey, EMBEDDINGS_PATH, isEmptyRefusal } from "../src/tools/llm-gateway-kit.js";
+import { TIERS, canonicalModel, tierAllows, tierFor, validateRequest, modelsList, LLM_GATEWAY_TOOLS, stableStringify, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, AUTO_RANKINGS, classifyPrompt, validateEmbeddingsRequest, embeddingsCacheKey, EMBEDDINGS_PATH, isEmptyRefusal, tokenizerFactor, NEW_TOKENIZER_FACTOR } from "../src/tools/llm-gateway-kit.js";
 
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log(`ok - ${msg}`); } else { fail++; console.error(`FAIL - ${msg}`); } };
@@ -488,7 +488,16 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
     const b = { model: "anthropic/claude-sonnet-5", messages: msg1(), max_tokens: 64 };
     const withCache = worstCaseUpstreamCost(b, TIERS["v1-chat-premium"]);
     const plain = (withCache.inTokens / 1e6) * withCache.cost.prompt;
-    ok(Math.abs(withCache.inUsd - plain * 1.25) < 1e-12, "worst-case input cost prices the Anthropic cache write at 1.25x (the clamp stays an honest bound)");
+    // TWO factors, not one. 1.25x is the Anthropic cache-write premium; 1.35x is
+    // the newer tokenizer Claude 4.7 and later use, which their own pricing page
+    // says produces "approximately 30% more tokens for the same text" than the
+    // o200k count this clamp does. Dropping either makes the bound dishonest in
+    // the unsafe direction.
+    ok(Math.abs(withCache.inUsd - plain * 1.25 * NEW_TOKENIZER_FACTOR) < 1e-12, "worst-case input prices BOTH the cache write (1.25x) and the newer tokenizer (the clamp stays an honest bound)");
+    ok(tokenizerFactor("anthropic/claude-sonnet-4.6") === 1 && tokenizerFactor("anthropic/claude-opus-4.1") === 1 && tokenizerFactor("openai/gpt-4o") === 1,
+      "models on the OLD tokenizer, and every non-Anthropic model, take no correction");
+    ok(tokenizerFactor("anthropic/claude-opus-5") === NEW_TOKENIZER_FACTOR && tokenizerFactor("anthropic/claude-sonnet-5") === NEW_TOKENIZER_FACTOR,
+      "Claude 4.7 and later take the newer-tokenizer correction");
   }
   ok(JSON.stringify(vr({ model: "deepseek/deepseek-chat", messages: msg1(), cache_control: false }, "v1-chat-nano")) === JSON.stringify(vr({ model: "deepseek/deepseek-chat", messages: msg1() }, "v1-chat-nano")), "cache_control never reaches the normalized body (same cache key either way)");
   seen = null;

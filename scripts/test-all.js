@@ -39,6 +39,13 @@ const BRAVE_ROUTES = new Set([
   // Brave slug" sees nothing in either, which is why test-brave-leak.js now
   // resolves reach through kits rather than by slug name.
   "/api/research-company", "/api/skill/financial-research",
+  // Added 2026-08-22 with the llm-context kit. It is not a search TOOL and it
+  // does not call one - it spends the SAME Brave subscription directly, on
+  // Brave's /llm/context endpoint. Unskipped, every CI run would buy one live
+  // grounding-context request. test-brave-leak.js now resolves that reach
+  // structurally (a kit that names the Brave host, or imports the search kit's
+  // meter, is Brave-reaching) so this entry cannot be forgotten quietly.
+  "/api/llm-context",
 ]);
 const skipBrave = process.env.BRAVE_LIVE_TEST !== "1";
 
@@ -69,6 +76,7 @@ const NETWORK = new Set([
   "/api/extract", "/api/meta", "/api/dns", "/api/render", "/api/screenshot", "/api/pdf",
   "/api/http-check", "/api/tls-cert", "/api/whois", "/api/robots-check", "/api/sitemap",
   "/api/email-validate", "/api/ip-info", "/api/search", "/api/search-news", "/api/search-images", "/api/search-videos", "/api/search-suggest", "/api/answer", "/api/multi-search",
+  "/api/llm-context",  // llm-context-kit.js (Brave grounding context - live egress, skipped by BRAVE_ROUTES)
   // Web-content kit: archive.org (archive-snapshot), caller feed URLs
   // (feed-parse), caller redirect chains (unshorten-url) — all live egress.
   "/api/archive-snapshot", "/api/feed-parse", "/api/unshorten-url",

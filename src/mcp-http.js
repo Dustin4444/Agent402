@@ -22,6 +22,11 @@ import {
 import {
   MCP_PAYMENT_REQUIRED_CODE, MCP_RECEIPT_META, credentialHeaderFromMeta, challengesFromHeader, receiptFromHeader, challengeIdFromMeta,
 } from "./mcp-mpp.js";
+import {
+  TASKS_EXTENSION, TASK_INVALID_PARAMS, TASK_MISSING_CAPABILITY, TASK_INTERNAL_ERROR,
+  mcpTasksEnabled, clientDeclaresTasks, createTaskStore, createTaskResult, detailedTask, taskAck, isTaskMethod,
+} from "./mcp-tasks.js";
+import { EXPENSIVE_COMPOSITE_SLUGS } from "./composite-spend-guard.js";
 import { findTools, findRelatedSellers, applyFrontDoorTerms } from "./find.js";
 import { routableSellerSummaries } from "./x402-index.js";
 import { logSafe } from "./log-safe.js";
@@ -90,6 +95,11 @@ const MCP_REQ_DEADLINE_MS = Number(process.env.AGENT402_MCP_REQ_DEADLINE_MS) || 
 // terminate before releasing its in-flight slot (audit F14). Bounds a wedged
 // handler so it can't hold a slot forever.
 const MCP_DRAIN_MS = Number(process.env.AGENT402_MCP_DRAIN_MS) || 5_000;
+// How long a task-eligible composite may run before we answer with a task
+// handle instead of blocking. Sized well under MCP_REQ_DEADLINE_MS so the
+// synchronous answer always fits, and well over the time a paywall needs to
+// decide a 402 (which is settled before the handler runs).
+const TASK_GATE_MS = Number(process.env.AGENT402_MCP_TASK_GATE_MS) || 8_000;
 let mcpInFlight = 0;
 
 /**
@@ -98,7 +108,7 @@ let mcpInFlight = 0;
  * decides the free set. `opts.onServed(slug, { latencyMs, errored })` feeds
  * both the stats counters and the analytics dashboard with full per-call meta.
  */
-export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = () => {}, getLeaderboard = null, getMppLeaderboard = null, mppLoopback = null }) {
+export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = () => {}, getLeaderboard = null, getMppLeaderboard = null, mppLoopback = null, taskStore = null, taskStoreDir = null }) {
   // Live per-tool prices for the skill-pack a la carte comparison. Built once
   // from the same catalog this connector serves, so the number an agent sees
   // next to a pack is the price it would actually pay for the steps.
@@ -115,6 +125,34 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
   const freeCount = [...tools.values()].filter((t) => t.free).length;
   const freeSlugs = new Set([...tools.entries()].filter(([, t]) => t.free).map(([slug]) => slug));
   const mcpClients = new Map(); // "name@version" -> initialize count since boot
+
+  // MCP Tasks (io.modelcontextprotocol/tasks). Armed only when tasks are enabled
+  // AND the MPP loopback exists: the whole point is selling the long-running
+  // composites, every one of which is wallet-only, so with no paid path there is
+  // nothing a task could carry. Construction runs the boot sweep, which resolves
+  // any run orphaned by the previous process BEFORE the first tasks/get.
+  const tasks = mcpTasksEnabled() && mppLoopback
+    ? (taskStore || createTaskStore({
+      dir: taskStoreDir,
+      // A settled 200 whose result we could not retain is the one charged-but-
+      // undelivered case this path can produce. The refund ledger demands
+      // POSITIVE proof of a charge, so an unreadable receipt records nothing.
+      onChargedFailure: async ({ slug, receipt, priceUsd }) => {
+        try {
+          const { recordRefundOwed, receiptProvesCharge } = await import("./refund-ledger.js");
+          if (!receiptProvesCharge(receipt)) return;
+          recordRefundOwed({
+            slug,
+            network: receipt?.network ?? null,
+            payer: receipt?.payer ?? receipt?.from ?? null,
+            priceUsd,
+            tx: receipt?.transaction ?? receipt?.tx ?? null,
+            httpStatus: 500,
+          });
+        } catch { /* recording a debt must never break the serving path */ }
+      },
+    }))
+    : null;
 
   // Flagship first-class tools: demand SKUs agents should see without a
   // find_tool round-trip (search/answer front door + render/data/STT/memory).
@@ -229,7 +267,20 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
         description: MCP_SERVER_DESCRIPTION,
         websiteUrl: baseUrl || MCP_SERVER_WEBSITE,
       },
-      { capabilities: { tools: {}, prompts: {} }, instructions: mcpInitializeInstructions(baseUrl) },
+      {
+        capabilities: {
+          tools: {},
+          prompts: {},
+          // MCP Tasks extension (io.modelcontextprotocol/tasks). The 2026-07-28
+          // spec has servers advertise extensions in the capabilities returned
+          // by `server/discover`; this connector still speaks the initialize
+          // handshake, so the same capabilities object is where it goes. Only
+          // advertised when the extension is armed AND paid calls are actually
+          // possible here - a task only exists to carry a PAID composite run.
+          ...(tasks ? { extensions: { [TASKS_EXTENSION]: {} } } : {}),
+        },
+        instructions: mcpInitializeInstructions(baseUrl),
+      },
     );
 
     // Skill packs are exposed as MCP prompts: each pack becomes a discoverable
@@ -402,7 +453,18 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
       ],
     }));
 
-    /** Paid tool over native MPP: loopback to the real paid route. */
+    /** Paid tool over native MPP: loopback to the real paid route.
+     *
+     *  For the expensive composites this also decides, per request, whether to
+     *  answer with a task handle instead of blocking (MCP Tasks extension). The
+     *  decision is ours alone - the spec makes the server the sole decider - and
+     *  is taken only when the client declared the extension ON THIS REQUEST.
+     *
+     *  SETTLEMENT IS UNMOVED. The loopback IS the paid request; a task just lets
+     *  it outlive the MCP HTTP response that handed back the handle. Money still
+     *  settles after the handler, only on a <400, on that same request. So a
+     *  failed, cancelled, timed-out or restart-orphaned task produced no 200 and
+     *  therefore CANCELLED settlement: the buyer is not charged. */
     async function payOverMpp(entry, reqParams, args, isNamed, ip, signal) {
       const meta = reqParams?._meta;
       const credentialHeader = credentialHeaderFromMeta(meta);
@@ -412,7 +474,25 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
       if (typeof params === "string") { try { params = JSON.parse(params); } catch { params = {}; } }
       if (!params || typeof params !== "object" || Array.isArray(params)) { const { slug: _drop, ...rest } = args || {}; params = rest && Object.keys(rest).length ? rest : {}; }
       const startedAt = Date.now();
-      const r = await mppLoopback({ def: entry.def, params, credentialHeader, ip, signal, idempotencyKey: meta?.["org.agent402/idempotency-key"] });
+      const idempotencyKey = meta?.["org.agent402/idempotency-key"];
+
+      const taskEligible = Boolean(tasks) && EXPENSIVE_COMPOSITE_SLUGS.has(entry.def.slug) && clientDeclaresTasks(reqParams);
+      if (taskEligible) {
+        const handle = await runAsTask(entry, meta, params, credentialHeader, ip, isNamed, startedAt, idempotencyKey);
+        if (handle) return handle;
+        // Fell through: the run finished (or was refused) inside the gate window,
+        // so answer synchronously exactly as a blocking call would.
+      }
+
+      const r = await mppLoopback({ def: entry.def, params, credentialHeader, ip, signal, idempotencyKey });
+      return translateMppResponse(entry, meta, params, startedAt, isNamed, r);
+    }
+
+    /** Turn a completed loopback response into the MCP answer. Shared by the
+     *  blocking path and the task path, so a task result is byte-identical to
+     *  what the blocking call would have returned (an ext-tasks MUST). Throws
+     *  McpError(-32042) for a payment ask. */
+    function translateMppResponse(entry, meta, params, startedAt, isNamed, r) {
       if (r.status === 402) {
         const challenges = challengesFromHeader(r.headers.get("www-authenticate"));
         if (!challenges.length) {
@@ -448,6 +528,97 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
         structuredContent: { slug: entry.def.slug, result },
         ...(receipt ? { _meta: receiptMeta } : {}),
       };
+    }
+
+    /**
+     * Start a composite as a task. Returns a CreateTaskResult, or null when the
+     * caller should just answer synchronously.
+     *
+     * The GATE WINDOW is what keeps payment honest. A 402 is decided BEFORE the
+     * handler runs (@x402/express verifies first), so it comes back in
+     * milliseconds. We therefore start the paid loopback and wait a short window
+     * for it to settle one way or the other:
+     *   - it resolves inside the window (402, a fast 4xx/5xx, or a quick 200)
+     *     -> return null and let the caller answer synchronously, unchanged;
+     *   - the window elapses with no response -> the payment gate has passed and
+     *     the handler is genuinely running, so a task is the right answer.
+     * A task is never minted for a call that has not cleared the paywall, and no
+     * work is started twice: the SAME in-flight request becomes the task's run.
+     */
+    async function runAsTask(entry, meta, params, credentialHeader, ip, isNamed, startedAt, idempotencyKey) {
+      // Capacity is checked BEFORE anything is spent. Over the ceiling we refuse
+      // cheaply rather than starting a run we cannot hand back.
+      if (tasks.atCapacity()) {
+        return {
+          content: [{ type: "text", text: `Agent402 is at capacity for long-running ${entry.def.slug} runs right now - nothing was started and you were not charged. Retry shortly.` }],
+          isError: true,
+        };
+      }
+      // The run must OUTLIVE this HTTP response, so it gets its own abort
+      // controller (the request's signal fires on res "close", which is exactly
+      // what returning the handle causes) - and that controller is what
+      // tasks/cancel aborts.
+      const controller = new AbortController();
+      const run = mppLoopback({
+        def: entry.def, params, credentialHeader, ip,
+        signal: controller.signal, idempotencyKey,
+        timeoutMs: tasks.RUN_TIMEOUT_MS,
+      });
+      // Never leave an unhandled rejection while the gate window races.
+      const settled = run.then((r) => ({ r }), (e) => ({ e }));
+
+      let gateTimer = null;
+      const gate = await Promise.race([
+        settled,
+        new Promise((resolve) => { gateTimer = setTimeout(() => resolve(null), TASK_GATE_MS); }),
+      ]).finally(() => { if (gateTimer) clearTimeout(gateTimer); });
+      if (gate) {
+        // Finished inside the window. Hand the outcome back to the blocking path
+        // rather than making the client poll for something already done.
+        if (gate.e) throw gate.e;
+        return translateMppResponse(entry, meta, params, startedAt, isNamed, gate.r);
+      }
+
+      const rec = tasks.create({ slug: entry.def.slug, controller });
+      if (!rec) {
+        // Durability failed, so we cannot promise a handle. Abort the run (a
+        // non-200 cancels settlement, nobody is charged) and say so.
+        try { controller.abort(); } catch { /* already aborted */ }
+        return {
+          content: [{ type: "text", text: `Agent402 could not durably record this ${entry.def.slug} run, so it was cancelled before completing. You were not charged. Retry shortly.` }],
+          isError: true,
+        };
+      }
+
+      settled.then(({ r, e }) => {
+        if (e) {
+          const aborted = e?.name === "AbortError" || e?.name === "TimeoutError";
+          if (aborted && tasks.get(rec.taskId)?.status === "cancelled") return; // cancel() already wrote the terminal state
+          onServed(entry.def.slug, { latencyMs: Date.now() - startedAt, errored: true, statusCode: 504, errorMessage: aborted ? "task run aborted" : "task run failed", inputKeys: Object.keys(params || {}) });
+          // Never relay an upstream/internal error body to the buyer.
+          tasks.fail(rec.taskId, { code: TASK_INTERNAL_ERROR, message: aborted ? "The run was stopped before it completed." : "The run did not complete." },
+            "The run did not complete. You were not charged: payment settles only on a delivered result.");
+          return;
+        }
+        let out;
+        try {
+          out = translateMppResponse(entry, meta, params, startedAt, isNamed, r);
+        } catch (err) {
+          // A 402 decided after the gate window (a slow verify). It is a
+          // JSON-RPC error on the underlying request, so the task FAILED - and
+          // the challenges ride along so the client can pay and call again.
+          const code = err instanceof McpError ? err.code : TASK_INTERNAL_ERROR;
+          tasks.fail(rec.taskId, { code, message: err?.message || "Payment required.", ...(err?.data ? { data: err.data } : {}) }, "Payment was required for this call. You were not charged.");
+          return;
+        }
+        // Spec: `failed` is for JSON-RPC errors only. A tool result that
+        // completed carrying isError:true is a COMPLETED task whose result says
+        // it went wrong (and our text already says "not charged"), so a caller
+        // can never mistake it for a silent empty success.
+        tasks.complete(rec.taskId, out, { receipt: receiptFromHeader(r.headers?.get?.("payment-receipt")), priceUsd: toolPriceUsd(entry.def.slug) });
+      }).catch(() => { /* settled never rejects; belt and braces */ });
+
+      return createTaskResult(rec);
     }
 
     server.setRequestHandler(CallToolRequestSchema, async (req) => {
@@ -852,6 +1023,50 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
   // credentials combination is rejected by the browser anyway. There is no
   // cookie/session authority on /mcp; abuse is bounded by the per-IP/per-minute
   // and per-hour rate limits (AGENT402_MCP_MAX_PER_MIN / _PER_HOUR), not by
+  /**
+   * tasks/get, tasks/update and tasks/cancel, in the ext-tasks wire shape.
+   * Returns a complete JSON-RPC response object (never throws).
+   *
+   * Access control: this connector is authless, so there is no authorization
+   * context to bind a task to. The spec's instruction for exactly that case is
+   * a high-entropy task id treated as the bearer (24 random bytes here) plus a
+   * short TTL - the same model as /r/:sessionId. The 2026-07-28 extension has
+   * no tasks/list, so there is no enumeration surface to withhold.
+   */
+  function handleTaskRpc(body) {
+    const id = body?.id ?? null;
+    const err = (code, message, data) => ({ jsonrpc: "2.0", id, error: { code, message, ...(data ? { data } : {}) } });
+    const okResult = (result) => ({ jsonrpc: "2.0", id, result });
+
+    // A client that did not declare the extension on THIS request has no
+    // business driving tasks (spec: servers MUST return -32021).
+    if (!clientDeclaresTasks(body?.params)) {
+      return err(TASK_MISSING_CAPABILITY, "Missing required client capability", {
+        requiredCapabilities: { extensions: { [TASKS_EXTENSION]: {} } },
+      });
+    }
+    const taskId = body?.params?.taskId;
+    if (typeof taskId !== "string" || !taskId) return err(TASK_INVALID_PARAMS, "Failed to retrieve task: taskId is required and must be a string");
+
+    let rec;
+    try { rec = tasks.get(taskId); } catch { return err(TASK_INTERNAL_ERROR, "Internal error reading task state"); }
+    if (rec === "expired") return err(TASK_INVALID_PARAMS, "Failed to retrieve task: Task has expired");
+    if (!rec) return err(TASK_INVALID_PARAMS, "Failed to retrieve task: Task not found");
+
+    if (body.method === "tasks/get") return okResult(detailedTask(rec));
+    if (body.method === "tasks/cancel") {
+      // Cooperative and eventually consistent: we abort the live run, which
+      // makes the paid request a non-200 and CANCELS settlement.
+      try { tasks.cancel(taskId); } catch { return err(TASK_INTERNAL_ERROR, "Internal error cancelling task"); }
+      return okResult(taskAck());
+    }
+    // tasks/update: this connector never elicits, so it never surfaces
+    // inputRequests and a task never reaches input_required. Every
+    // inputResponses key is therefore for an unknown request, which the spec
+    // says to ignore. Acknowledge so a client is not left retrying.
+    return okResult(taskAck());
+  }
+
   // origin. DO NOT add Access-Control-Allow-Credentials here.
   app.use("/mcp", (req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
@@ -874,6 +1089,17 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
     // R-11 outer gate #1: per-IP raw-request cap, BEFORE allocating anything.
     if (mcpReqLimiter.check(ip).limited) {
       return res.status(429).json({ jsonrpc: "2.0", error: { code: -32000, message: "Too many requests to /mcp - slow down and retry shortly." }, id: req.body?.id ?? null });
+    }
+    // MCP Tasks (io.modelcontextprotocol/tasks). Answered here, ahead of the SDK
+    // transport, for two reasons: polling must not consume a transport slot (it
+    // is cheap and frequent), and the installed SDK implements the older
+    // 2025-11-25 CORE tasks wire (tasks/result + tasks/list, nested `task`,
+    // ttl/pollInterval), which is not the shape this extension puts on the wire.
+    // It stays behind the per-IP request limiter above - the spec asks for rate
+    // limiting on task operations to bound polling and id enumeration.
+    if (tasks && isTaskMethod(req.body?.method)) {
+      const handled = handleTaskRpc(req.body);
+      return res.status(200).json(handled);
     }
     // R-11 outer gate #2: global in-flight transport ceiling, BEFORE building
     // the server/transport (bounds allocation under an initialize/malformed flood).

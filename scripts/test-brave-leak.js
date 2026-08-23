@@ -44,12 +44,28 @@ const DIRECT_BRAVE_SLUGS = new Set(SEARCH_TOOLS.map((t) => t.slug));
 // sibling tool in the same kit that never searches - and over-approximating is
 // the correct direction: the cost of a false skip is one untested example, and
 // the cost of a false clear is a recurring bill nobody sees.
+//
+// SECOND SHAPE, added 2026-08-22 with llm-context-kit.js: a kit that spends the
+// SAME Brave subscription WITHOUT being or calling a search tool - it hits a
+// different Brave endpoint (/llm/context) directly. The import-based detector
+// alone cannot see that, so reach is also resolved by the upstream HOST: a kit
+// whose source names api.search.brave.com bills the subscription, whatever it
+// calls itself. Matching the HOST rather than the env var name is deliberate -
+// several kits mention BRAVE_API_KEY only in a comment ("same pattern as the
+// BRAVE_API_KEY-backed search tool"), and treating those as Brave-reaching
+// would flood this set with false positives and train the next person to
+// delete entries.
 const kitFiles = readdirSync(new URL("../src/tools", import.meta.url))
   .filter((f) => f.endsWith(".js") && f !== "search.js");
+const BRAVE_HOST_RE = /api\.search\.brave\.com/;
 const INDIRECT_BRAVE_SLUGS = new Set();
+const hostReachingKits = [];
 for (const f of kitFiles) {
   const src = readFileSync(new URL(`../src/tools/${f}`, import.meta.url), "utf8");
-  if (!/from\s+["'][./]*search\.js["']|SEARCH_TOOLS/.test(src)) continue;
+  const importsSearchKit = /from\s+["'][./]*search\.js["']|SEARCH_TOOLS/.test(src);
+  const namesBraveHost = BRAVE_HOST_RE.test(src);
+  if (!importsSearchKit && !namesBraveHost) continue;
+  if (namesBraveHost) hostReachingKits.push(f);
   for (const m of src.matchAll(/slug:\s*["']([a-z0-9-]+)["']/g)) INDIRECT_BRAVE_SLUGS.add(m[1]);
 }
 const BRAVE_SLUGS = new Set([...DIRECT_BRAVE_SLUGS, ...INDIRECT_BRAVE_SLUGS]);
@@ -66,10 +82,14 @@ for (const t of SEARCH_TOOLS) {
   ok(skipBlock.includes(`"${route}"`), `direct route ${route} is in BRAVE_ROUTES`);
 }
 ok(INDIRECT_BRAVE_SLUGS.size > 0,
-  `the indirect detector found ${INDIRECT_BRAVE_SLUGS.size} tool(s) in kits that import the search tools (sanity: it is not blind)`);
+  `the indirect detector found ${INDIRECT_BRAVE_SLUGS.size} tool(s) in kits that import the search tools or name the Brave host (sanity: it is not blind)`);
+// The host detector must actually see something, or the second shape is
+// silently unguarded and a green run means nothing.
+ok(hostReachingKits.length > 0,
+  `the Brave-host detector found ${hostReachingKits.length} kit(s) hitting api.search.brave.com directly: ${hostReachingKits.join(", ") || "NONE"}`);
 for (const slug of INDIRECT_BRAVE_SLUGS) {
   ok(skipBlock.includes(`"/api/${slug}"`),
-    `"${slug}" lives in a kit that calls a search handler in-process - its route must be in BRAVE_ROUTES`);
+    `"${slug}" lives in a kit that calls a search handler in-process or names the Brave host itself - its route must be in BRAVE_ROUTES`);
 }
 
 // 2. THE REGRESSION THAT KEEPS HAPPENING: every skill pack whose steps invoke a

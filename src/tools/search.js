@@ -39,6 +39,15 @@ function meterBrave(path, caller) {
     console.log(`[brave-meter] ${braveMeter.total} outbound calls since ${braveMeter.since} - byPath ${JSON.stringify(braveMeter.byPath)} byCaller ${JSON.stringify(braveMeter.byCaller)}`);
   }
 }
+/** Record one outbound Brave request made from ANOTHER kit against the same
+ *  subscription (llm-context-kit.js). Every kit that spends this subscription
+ *  must count through here, or /__operator/stats reports a total smaller than
+ *  the invoice - which is exactly how the July 2026 gap stayed invisible.
+ *  `path` is the upstream path, `caller` the tool slug that spent it. */
+export function meterBraveCall(path, caller) {
+  meterBrave(path, caller || "unattributed");
+}
+
 /** Operator-visible outbound Brave usage (see /__operator/stats). The number
  *  to compare against the Brave dashboard's daily CSV. */
 export function braveCallMeter() {
