@@ -24,7 +24,7 @@ import {
   PERSISTENT as memoryPersistent,
 } from "./tools/memory.js";
 import { payerFromRequest, payerFromPaymentResponse, paymentHeaderOf, paymentIdentifierOf } from "./payer.js";
-import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpendFailure, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS, _compositeGuardState } from "./composite-spend-guard.js";
+import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpendFailure, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS, _compositeGuardState, compositeUsageSnapshot } from "./composite-spend-guard.js";
 // Single-upstream-call routes that run long (40 s+): EVM exact only, like the
 // composites (settle-after on SVM/AVM/Tempo is work done, never charged), but
 // not composite-spend-guarded (one bounded upstream price).
@@ -33,7 +33,7 @@ import Stripe from "stripe";
 import { createHumanCheckout, humanCheckoutEnabled, HUMAN_PRODUCTS } from "./human-checkout.js";
 import { humanReportsPage, reportDeliveryPage } from "./human-reports-page.js";
 import { createStripeSubscriptions, subscriptionsEnabled, MONITOR_PRODUCTS } from "./stripe-subscriptions.js";
-import { createMppSubscriptions, mppSubscriptionsEnabled } from "./mpp-subscriptions.js";
+import { createMppSubscriptions, mppSubscriptionsEnabled, subscriptionFeePayerStatus } from "./mpp-subscriptions.js";
 import { mppProblem, sendMppProblem } from "./mpp-problem.js";
 import { monitorsPage, monitorThanksPage } from "./monitors-page.js";
 import { insiderPage, fundPage, dossierPage, hubPage, loadTeaser, normalizeTicker, normalizeManagerSlug, isSeededTicker, seededManager } from "./programmatic-pages.js";
@@ -1545,8 +1545,8 @@ app.get("/api/gateway-status", async (_req, res) => {
   // Top-level fields stay the OpenRouter gateway status (heartbeat reads
   // .status); upstreamBuyer adds the x402 spending wallet's bucketed status
   // (blockscout-kit) — same alarm pattern, same numbers-never-leave rule.
-  const [gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo] = await Promise.all([gatewayCreditsStatus(), upstreamBuyerStatus(), avmBuyerStatus(), tempoBuyerStatus()]);
-  res.set("Cache-Control", "public, max-age=60").json({ ...gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo });
+  const [gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, subscriptionFeePayer] = await Promise.all([gatewayCreditsStatus(), upstreamBuyerStatus(), avmBuyerStatus(), tempoBuyerStatus(), subscriptionFeePayerStatus()]);
+  res.set("Cache-Control", "public, max-age=60").json({ ...gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, subscriptionFeePayer });
 });
 // Static SAMPLE A2A Agent Card — the self-answering example target for the
 // a2a-card-fetch tool. Explicitly a sample (fictional weather agent), NOT an
@@ -1924,7 +1924,7 @@ if (humanCheckoutEnabled()) {
     _sweep.unref?.();
     app.get("/__operator/human-checkout.json", (req, res) => {
       if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
-      res.set("Cache-Control", "no-store").json({ ...(_humanCheckout.listIssues()), compositeGuard: _compositeGuardState() });
+      res.set("Cache-Control", "no-store").json({ ...(_humanCheckout.listIssues()), compositeUsage: compositeUsageSnapshot(), compositeGuard: _compositeGuardState() });
     });
     app.post("/api/buy", async (req, res) => {
       if (checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });

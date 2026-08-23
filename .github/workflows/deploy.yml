@@ -1252,6 +1252,9 @@ jobs:
       - name: workflow_run references name a workflow that exists (GitHub matches on name:, a mismatch never fires - offline)
         run: node scripts/test-workflow-run-refs.js
 
+      - name: Composite cap enforcement (maxUpstreamUsd is checked at the shared chokepoint, not merely declared - offline)
+        run: node scripts/test-composite-cap-enforcement.js
+
       - name: Leaderboard RPC failures never carry the Alchemy key (host-only naming + redaction on the public lastError path — offline)
         run: node scripts/test-leaderboard-redaction.js
 
