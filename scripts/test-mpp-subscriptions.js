@@ -11,7 +11,7 @@
 // The key authorizations here are REAL: signed with viem accounts and verified
 // through mppx's own verifySubscriptionKeyAuthorization, so the payer this
 // engine records is cryptographically recovered, not asserted by the test.
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Challenge, Credential } from "mppx";
@@ -590,6 +590,18 @@ let liveSubId = null, liveHeader = null, liveToken = null, liveBuyer = null;
   const { engine: sponsored } = makeEngine({ name: "feepolicy" });
   ok(sponsored._feePayer && sponsored._feePayerPolicy?.maxGas === SUB_FEE_PAYER_MAX_GAS,
     "the engine actually hands that policy to mppx alongside the fee payer, rather than resolving it and dropping it");
+
+  // The RENEWAL path needs the sponsor passed separately: mppx's
+  // renewSubscription is a standalone entry point that builds its own context
+  // from its own parameters, so a fee payer configured on the method does not
+  // reach it. The live canary activated fine and then failed every renewal with
+  // the zero-gas-price error the activation leg had already been fixed for, so
+  // this is read from the source rather than trusted.
+  const src = readFileSync(new URL("../src/mpp-subscriptions.js", import.meta.url), "utf8");
+  const renewCall = src.slice(src.indexOf("tempoServer.renewSubscription({"));
+  const renewArgs = renewCall.slice(0, renewCall.indexOf("});"));
+  ok(/feePayer/.test(renewArgs) && /feePayerPolicy/.test(renewArgs),
+    "renewSubscription is passed the fee payer AND its policy: without them the renewal takes mppx's unsponsored path and is signed with a zero gas price");
 
   const prev = process.env.MPP_SUB_FEE_PAYER_MAX_GAS;
   process.env.MPP_SUB_FEE_PAYER_MAX_GAS = "9000000";
