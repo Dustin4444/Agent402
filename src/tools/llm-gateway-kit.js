@@ -2526,6 +2526,13 @@ function makeHandler(tierSlug) {
           delete data.usage.is_byok;
           delete data.usage.cache_discount; // a USD saving is a billing number too
           await recordUsage(data.usage, upstreamUsd, data.model || model, data.service_tier || (flex ? "flex" : "default"));
+          // METERED SETTLEMENT: hand the real cost to the route binder, which
+          // settles that plus the markup instead of the flat tier price when
+          // the buyer paid over `upto`. Stripped before the body is returned,
+          // exactly like the billing fields above - a buyer never sees our
+          // upstream bill, only what they were charged. A non-number (upstream
+          // did not report) deliberately means "no meter", not "free".
+          if (typeof upstreamUsd === "number") data.__meterUpstreamUsd = upstreamUsd;
         }
         // Routed requests disclose the decision: additive key, OpenAI wire
         // shape otherwise untouched (the standard `model` field already names

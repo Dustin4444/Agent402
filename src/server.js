@@ -34,6 +34,12 @@ import { createHumanCheckout, humanCheckoutEnabled, HUMAN_PRODUCTS } from "./hum
 import { humanReportsPage, reportDeliveryPage } from "./human-reports-page.js";
 import { createStripeSubscriptions, subscriptionsEnabled, MONITOR_PRODUCTS } from "./stripe-subscriptions.js";
 import { createMppSubscriptions, mppSubscriptionsEnabled, subscriptionFeePayerStatus } from "./mpp-subscriptions.js";
+import { meteredUsd, isMeterable } from "./gateway-meter.js";
+import { setSettlementOverrides } from "@x402/express";
+// Metered settlement ships DARK, like the upto scheme it rides on: it changes
+// what a buyer is charged, so it turns on deliberately and can be turned off
+// without a deploy. Off means every settle is the flat ceiling, as today.
+const GATEWAY_METER_ON = String(process.env.GATEWAY_METERED_BILLING || "").toLowerCase() === "on";
 import { mppProblem, sendMppProblem } from "./mpp-problem.js";
 import { monitorsPage, monitorThanksPage } from "./monitors-page.js";
 import { insiderPage, fundPage, dossierPage, hubPage, loadTeaser, normalizeTicker, normalizeManagerSlug, isSeededTicker, seededManager } from "./programmatic-pages.js";
@@ -5747,6 +5753,30 @@ for (const tool of ALL_KIT) {
       if (cachePolicy) {
         noteCacheOutcome(cacheKey ? "miss" : "skip");
         res.setHeader("X-Cache", cacheKey ? "miss" : "skip");
+      }
+      // METERED SETTLEMENT (upto only). The handler reports what the call
+      // actually cost upstream; we name that, plus the markup, as the settled
+      // amount instead of the flat tier price the buyer authorized as a
+      // ceiling. Must run BEFORE the body is sent: the override rides a
+      // response HEADER that @x402/express reads at settle time.
+      //
+      // Fails SAFE in every direction. Not an upto payment, no reported cost,
+      // metering disabled, or anything thrown here: no override is set and the
+      // buyer settles at the ceiling exactly as before.
+      if (result && typeof result.__meterUpstreamUsd !== "undefined") {
+        const upstream = result.__meterUpstreamUsd;
+        delete result.__meterUpstreamUsd;
+        try {
+          if (GATEWAY_METER_ON && isMeterable(req)) {
+            const amount = meteredUsd({ upstreamUsd: upstream, ceilingUsd: Number(def.price?.toString().replace(/[^0-9.]/g, "")) });
+            if (amount != null && !res.headersSent) {
+              setSettlementOverrides(res, { amount: `$${amount.toFixed(6)}` });
+              res.setHeader("X-Metered-Usd", amount.toFixed(6));
+            }
+          }
+        } catch (e) {
+          console.warn(`[meter] ${def.slug}: not metered (${String(e?.message || e).slice(0, 120)}) - settling at the ceiling`);
+        }
       }
       if (result && result.__binary) return res.type(result.contentType).send(result.__binary);
       // SSE escape hatch (LLM gateway streaming): the handler returns a
