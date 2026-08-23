@@ -41,8 +41,11 @@ function safeUser(req) { try { return req ? upstreamUserId(req) : undefined; } c
 const SYNTH = "anthropic/claude-opus-5";
 export const TOKEN_BRIEF_MODELS = [SYNTH];
 
-// $9 product, one synthesis call. Worst case at 6,000 output tokens on Opus is
-// well under the cap; every other leg is keyless (zero upstream cost).
+// One synthesis call; every other leg is keyless (zero upstream cost). The cap
+// is the MEASURED worst case for an opus-5 synthesis, not a nominal figure:
+// PostHog $ai_generation over 30 days puts opus-5 at avg $0.107, p95 $0.195,
+// max $0.311. A cap below that is fiction, and in research-deep (the one kit
+// that reads its own field) it would also downgrade the model on a normal run.
 export const TOKEN_BRIEF_TIERS = {
   "token-brief": {
     // NOTE: `maxUpstreamUsd` is a DECLARED bound, not an enforced one - only
@@ -50,7 +53,7 @@ export const TOKEN_BRIEF_TIERS = {
     // real bound here is structural: one call, one locked model, `synthMaxTokens`
     // below, and the keyless probes cost nothing. Keep this number honest so the
     // margin review can compare it against the price.
-    price: "$0.35", maxUpstreamUsd: 0.17,
+    price: "$0.60", maxUpstreamUsd: 0.35,
     holders: 15, pairs: 8, markets: 6, lockers: 6, risks: 20,
     synthMaxTokens: 6000, words: "~2,000",
   },

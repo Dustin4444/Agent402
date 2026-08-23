@@ -21,37 +21,37 @@ import { join } from "node:path";
 // `slug` = the paid report handler the scheduler runs; price in cents, monthly.
 export const MONITOR_PRODUCTS = {
   "domain-monitor": {
-    label: "Domain security monitor", price: 300, kind: "domain", slug: "domain-audit",
+    label: "Domain security monitor", price: 500, kind: "domain", slug: "domain-audit",
     inputField: "domain", inputLabel: "a domain, e.g. example.com",
     blurb: "Monthly re-audit of your domain's email auth, TLS and security headers, with an alert the moment your certificate is expiring or your config drifts.",
   },
   "filing-monitor": {
-    label: "SEC filing watch", price: 300, kind: "filing", slug: "filing-report",
+    label: "SEC filing watch", price: 500, kind: "filing", slug: "filing-report",
     inputField: "ticker", inputLabel: "a US stock ticker",
     blurb: "We check this company's SEC filings index every day and email you a fresh cited report the moment anything new lands, an 8-K, a 10-Q, a 10-K, a proxy or a registration statement, with the new document read and explained in plain language.",
   },
   "token-monitor": {
-    label: "Solana token safety watch", price: 300, kind: "token", slug: "token-brief",
+    label: "Solana token safety watch", price: 500, kind: "token", slug: "token-brief",
     inputField: "mint", inputLabel: "a Solana token mint address",
     blurb: "We re-check this token's mint and freeze authorities, LP lock, holder concentration and risk flags every day, and email you a fresh cited brief the moment any of them changes.",
   },
   "fund-monitor": {
-    label: "Fund 13F watch", price: 300, kind: "fund", slug: "fund-report",
+    label: "Fund 13F watch", price: 500, kind: "fund", slug: "fund-report",
     inputField: "manager", inputLabel: "a fund name, ticker, or CIK",
     blurb: "We watch this manager's SEC 13F filings and email you a fresh holdings + changes report each time they file.",
   },
   "recall-monitor": {
-    label: "FDA recall watch", price: 300, kind: "recall", slug: "recall-report",
+    label: "FDA recall watch", price: 500, kind: "recall", slug: "recall-report",
     inputField: "query", inputLabel: "a drug, food, brand or device, e.g. losartan",
     blurb: "We check the FDA drug, food and device recall feeds for your term every day and email you a fresh cited report the moment a new recall appears.",
   },
   "insider-monitor": {
-    label: "Insider flow watch", price: 300, kind: "insider", slug: "insider-report",
+    label: "Insider flow watch", price: 500, kind: "insider", slug: "insider-report",
     inputField: "ticker", inputLabel: "a US stock ticker",
     blurb: "We watch Form 4 filings against this company every day and email you a fresh insider-flow report - buys, sells, who and how much - each time a new filing lands.",
   },
   "ipo-monitor": {
-    label: "IPO pipeline watch", price: 300, kind: "ipo", slug: "ipo-report",
+    label: "IPO pipeline watch", price: 500, kind: "ipo", slug: "ipo-report",
     inputField: "keyword", inputLabel: "a keyword in the filer's name, or \"all\"",
     blurb: "A weekly digest of every IPO that priced (424B4) and every new S-1 registration on SEC EDGAR, filtered to your keyword or the whole market. Filing facts only, no guessing.",
   },
