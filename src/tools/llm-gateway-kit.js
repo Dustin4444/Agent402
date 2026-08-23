@@ -2285,7 +2285,9 @@ export const LLM_GATEWAY_TOOLS = [
     price: "$0.002",
     description:
       "OpenAI-compatible chat completions served by Ox Alpha (stealth/ox-alpha), a reasoning model with a 1,048,576-token " +
-      "context window - $0.002 per call in USDC over x402, no API key, no signup. The model is locked to this route " +
+      "context window. FREE TO USE while the model's own upstream is free: add ?trial=1 and no wallet, key or signup is "
+      + "needed (a per-client allowance, and the response says how much is left). $0.002 per call in USDC over x402 when "
+      + "you want it without an allowance. The model is locked to this route " +
       "(sending a different model returns a 400 naming its tier). Reasoning is always on; the gateway sets effort \"low\" " +
       "by default and you can raise it with reasoning.effort (\"low\", \"high\" or \"max\"). Text and image input, up to " +
       "80,000 chars per request (the HTTP body limit, not the model's context) and 8,000 output tokens. Streaming " +

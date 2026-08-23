@@ -294,7 +294,17 @@ const trialIpLimiter = createRateLimiter("trial-ip", { perMin: TRIAL_IP_MIN, per
 // exists so the per-tool trial counter has a key, and it never reaches the
 // proof-of-work redemption path (that path keys off POW_ROUTES).
 const OX_TRIAL_SLUG = "v1-chat-ox";
+// Per-slug trial budgets. The default (1 per tool per hour) is a TASTE: enough
+// to see a tool work before paying. The Ox tier is different in kind - its
+// upstream is free while the stealth preview lasts - so it gets a real
+// allowance rather than a taste, and the cost of abuse there is our egress and
+// OpenRouter's rate limit, not our money. If the model is ever repriced,
+// `oxUpstreamIsFree()` goes false and the trial stops being offered at all,
+// which is what makes a generous number safe here.
+const OX_TRIAL_PER_HOUR = Math.max(1, Number(process.env.OX_TRIAL_PER_IP_PER_HOUR) || 25);
+const OX_TRIAL_PER_DAY = Math.max(OX_TRIAL_PER_HOUR, Number(process.env.OX_TRIAL_PER_IP_PER_DAY) || 100);
 const TRIAL_LIMITS_LABEL = `${TRIAL_PER_TOOL_HOUR} per tool per hour, ${TRIAL_IP_HOUR} per hour per client`;
+const OX_TRIAL_LIMITS_LABEL = `${OX_TRIAL_PER_HOUR} per hour, ${OX_TRIAL_PER_DAY} per day per client (free while the model's upstream is free)`;
 import { recordRefundOwed, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals } from "./refund-ledger.js";
 import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent, getDailyCalls, dailyCallsRecordingSince, getDailyUpstreamCalls, getSellerRegistrations } from "./stats.js";
 import { timingSafeEqual, createHash, randomUUID, randomBytes } from "node:crypto";
@@ -5000,25 +5010,37 @@ if (FREE_MODE) {
         // not offered and the caller pays. Failing the other way would turn a
         // Redis outage into unmetered free access.
         if (sharedLimitEnabled()) {
-          const toolHit = await sharedSpend("trial-tool", perTool, TRIAL_PER_TOOL_HOUR, 3600);
+          // The per-TOOL budget is what makes the Ox tier a usable free tier
+          // rather than a single taste; every other tool keeps the default.
+          const isOx = slug === OX_TRIAL_SLUG;
+          const toolBudget = isOx ? OX_TRIAL_PER_HOUR : TRIAL_PER_TOOL_HOUR;
+          const toolHit = await sharedSpend("trial-tool", perTool, toolBudget, 3600);
           if (toolHit.limited) {
             res.setHeader("X-Trial-Exhausted", "true");
-            res.setHeader("X-Trial-Limits", TRIAL_LIMITS_LABEL);
+            res.setHeader("X-Trial-Limits", slug === OX_TRIAL_SLUG ? OX_TRIAL_LIMITS_LABEL : TRIAL_LIMITS_LABEL);
           } else {
-            const ipHit = await sharedSpend("trial-ip", tip, TRIAL_IP_HOUR, 3600);
+            // Ox rides its own per-IP DAY bucket so a wallet-less caller can
+            // actually use it, while the shared hourly bucket still stops a
+            // single address from monopolising every other tool's trial.
+            const ipHit = isOx
+              ? await sharedSpend("trial-ip-ox", tip, OX_TRIAL_PER_DAY, 86_400)
+              : await sharedSpend("trial-ip", tip, TRIAL_IP_HOUR, 3600);
             if (ipHit.limited) {
               // Give the per-tool unit back: the caller never received a trial,
               // so it must not count against the tool they were refused.
               await sharedRefund("trial-tool", perTool, 3600);
               res.setHeader("X-Trial-Exhausted", "true");
-              res.setHeader("X-Trial-Limits", TRIAL_LIMITS_LABEL);
+              res.setHeader("X-Trial-Limits", slug === OX_TRIAL_SLUG ? OX_TRIAL_LIMITS_LABEL : TRIAL_LIMITS_LABEL);
             } else {
               res.setHeader("X-Trial-Accepted", "true");
-              res.setHeader("X-Trial-Limits", TRIAL_LIMITS_LABEL);
+              res.setHeader("X-Trial-Limits", slug === OX_TRIAL_SLUG ? OX_TRIAL_LIMITS_LABEL : TRIAL_LIMITS_LABEL);
               res.on("finish", () => {
                 if (res.statusCode >= 400) {
                   sharedRefund("trial-tool", perTool, 3600).catch(() => {});
-                  sharedRefund("trial-ip", tip, 3600).catch(() => {});
+                  // Refund the SAME bucket the request spent from, or an Ox
+                  // failure would credit a bucket it never charged.
+                  if (isOx) sharedRefund("trial-ip-ox", tip, 86_400).catch(() => {});
+                  else sharedRefund("trial-ip", tip, 3600).catch(() => {});
                 }
               });
               return next();
@@ -5028,7 +5050,7 @@ if (FREE_MODE) {
           trialToolLimiter.check(perTool);
           trialIpLimiter.check(tip);
           res.setHeader("X-Trial-Accepted", "true");
-          res.setHeader("X-Trial-Limits", TRIAL_LIMITS_LABEL);
+          res.setHeader("X-Trial-Limits", slug === OX_TRIAL_SLUG ? OX_TRIAL_LIMITS_LABEL : TRIAL_LIMITS_LABEL);
           // REFUND on failure. The trial is charged at GRANT time, so without
           // this a malformed first probe returned a self-explaining 400 AND
           // burned the caller's one free call — their first CORRECT call then
@@ -5046,7 +5068,7 @@ if (FREE_MODE) {
           return next(); // trial granted — skip the USDC paywall
         }
         res.setHeader("X-Trial-Exhausted", "true");
-        res.setHeader("X-Trial-Limits", TRIAL_LIMITS_LABEL);
+        res.setHeader("X-Trial-Limits", slug === OX_TRIAL_SLUG ? OX_TRIAL_LIMITS_LABEL : TRIAL_LIMITS_LABEL);
       }
       res.setHeader("X-Pow-Challenge", `${BASE_URL}/api/pow/challenge?slug=${slug}`);
       // Advertise the trial ONLY when it is actually available. This header used

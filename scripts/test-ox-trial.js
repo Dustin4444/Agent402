@@ -50,5 +50,20 @@ ok(/const solution = powSlug \? req\.header\("x-pow-solution"\) : null;/.test(se
 ok(/oxAlphaAvailable\(\) && oxUpstreamIsFree\(\)/.test(server),
   "the trial is gated on BOTH availability and a proven-free upstream");
 
+// --- 3. the widened allowance is real, and still bounded ----------------------
+// The Ox trial is generous ON PURPOSE (its upstream is free), but "generous"
+// must still mean "bounded", and it must spend and refund the SAME bucket -
+// crediting a bucket the request never charged would hand out free calls.
+ok(/const OX_TRIAL_PER_HOUR = Math\.max\(1, Number\(process\.env\.OX_TRIAL_PER_IP_PER_HOUR\) \|\| \d+\)/.test(server),
+  "the Ox hourly allowance is a bounded, operator-overridable number");
+ok(/const OX_TRIAL_PER_DAY = Math\.max\(OX_TRIAL_PER_HOUR,/.test(server),
+  "the daily allowance can never be smaller than the hourly one");
+ok(/sharedSpend\("trial-ip-ox", tip, OX_TRIAL_PER_DAY, 86_400\)/.test(server),
+  "Ox spends its own per-IP daily bucket, not the shared hourly one");
+ok(/if \(isOx\) sharedRefund\("trial-ip-ox", tip, 86_400\)/.test(server),
+  "a failed Ox trial refunds the SAME bucket it spent from");
+ok(/const toolBudget = isOx \? OX_TRIAL_PER_HOUR : TRIAL_PER_TOOL_HOUR;/.test(server),
+  "every other tool keeps the taste-sized per-tool budget");
+
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
