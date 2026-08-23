@@ -112,7 +112,7 @@ function inlineViewer(html) {
 }
 const pageHtml = reportDeliveryPage("cs_test", { baseUrl: "https://agent402.tools" });
 ok(/data-monitors="/.test(pageHtml), "the delivery page carries the kind -> monitor map as data");
-const mapAttr = JSON.parse(pageHtml.match(/data-monitors="([^"]*)"/)[1].replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">"));
+const mapAttr = JSON.parse(pageHtml.match(/data-monitors="([^"]*)"/)[1].replace(/&(quot|amp|lt|gt|#39);/g, (_, e) => ({ quot: '"', amp: "&", lt: "<", gt: ">", "#39": "'" }[e])));
 ok(Object.keys(mapAttr).length === new Set(Object.values(MONITOR_PRODUCTS).map((p) => p.kind)).size, "every monitor kind is in the delivered map");
 ok(mapAttr.domain.product === "domain-monitor" && mapAttr.domain.priceUsd === priceUsd(MONITOR_PRODUCTS["domain-monitor"].price) && mapAttr.domain.label === MONITOR_PRODUCTS["domain-monitor"].label,
   "the delivered map carries the table's product key, label and price");

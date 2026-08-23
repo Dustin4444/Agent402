@@ -335,7 +335,14 @@ for (const [name, html] of Object.entries(pages)) {
   ok((html.match(/<h1[\s>]/g) || []).length === 1, `${name}: exactly one h1`);
   ok((html.match(/<main[\s>]/g) || []).length === 1, `${name}: exactly one main landmark`);
   ok(!/—/.test(html), `${name}: no em dashes in the copy`);
-  ok(!/<script>/.test(html), `${name}: no inline <script> (site CSP drops it)`);
+  // Case-insensitive and attribute-tolerant: an inline block can be <SCRIPT>,
+  // <script >, or <script type="...">, and a bare /<script>/ misses all three.
+  // What must never appear is EXECUTABLE inline script: no src, and not one of
+  // the data types a browser never runs (ld+json carries our structured data).
+  const inlineExec = [...html.matchAll(/<script\b([^>]*)>/gi)]
+    .map((m) => m[1])
+    .filter((attrs) => !/\bsrc\s*=/i.test(attrs) && !/type\s*=\s*["']application\/(ld\+)?json["']/i.test(attrs));
+  ok(inlineExec.length === 0, `${name}: no inline executable script (site CSP drops it)${inlineExec.length ? ` - found ${inlineExec.length}` : ""}`);
   ok(html.includes('<script src="/js/report-buy.js">') || name.startsWith("hub"), `${name}: the buy button ships as an external script`);
   titles.add(t); descs.add(d); canons.add(c);
   for (const raw of ldOf(html)) {
