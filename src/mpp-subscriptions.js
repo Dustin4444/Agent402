@@ -349,20 +349,27 @@ export function checkSubscriptionBinding(authorizationHeader, { secretKey, realm
  *  Buyer-facing text is unchanged: the caller still gets the generic
  *  "did not settle" message, because an RPC body can quote a node's words.
  */
-function diagnoseError(err, max = 900) {
+function diagnoseError(err, max = 1200) {
   const seen = new Set();
   const parts = [];
   for (let e = err, depth = 0; e && depth < 5; e = e.cause, depth++) {
     if (typeof e !== "object" || seen.has(e)) break;
     seen.add(e);
     const bit = [];
+    // Order matters, and the first version got it wrong: viem puts the SERVER's
+    // own words in `details` and the whole outbound request in `message`, so
+    // leading with the message spent the whole budget on a raw transaction hex
+    // and truncated away the one line that says why. Cause first, bulk last.
     if (e.name) bit.push(e.name);
-    if (e.message) bit.push(String(e.message));
     if (e.code !== undefined) bit.push(`code=${JSON.stringify(e.code)}`);
-    if (e.data !== undefined) bit.push(`data=${JSON.stringify(e.data)}`);
-    if (e.details) bit.push(`details=${String(e.details)}`);
-    if (e.shortMessage && e.shortMessage !== e.message) bit.push(`short=${String(e.shortMessage)}`);
-    if (e.metaMessages) bit.push(`meta=${JSON.stringify(e.metaMessages)}`);
+    if (e.data !== undefined) bit.push(`data=${JSON.stringify(e.data).slice(0, 300)}`);
+    if (e.details) bit.push(`details=${String(e.details).slice(0, 300)}`);
+    if (e.shortMessage) bit.push(`short=${String(e.shortMessage).slice(0, 200)}`);
+    if (e.metaMessages) bit.push(`meta=${JSON.stringify(e.metaMessages).slice(0, 300)}`);
+    if (e.status !== undefined) bit.push(`status=${e.status}`);
+    // The message can carry a full serialized transaction; keep it, keep it last,
+    // and keep it short. Its useful head is the first line.
+    if (e.message) bit.push(`msg=${String(e.message).split("\n")[0].slice(0, 200)}`);
     if (bit.length) parts.push(bit.join(" "));
   }
   const out = parts.join(" <- ") || String(err);
