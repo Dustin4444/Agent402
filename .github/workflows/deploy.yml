@@ -816,6 +816,9 @@ jobs:
       - name: Monitor scheduler (welcome/scheduled/change/TLS/filing delivery, paid-run bounds, backoff, lock)
         run: node scripts/test-monitor-scheduler.js
 
+      - name: Report -> monitor upgrade loop (kind mapping, table-driven price, escaping, prefill-only deep link)
+        run: node scripts/test-report-upgrade.js
+
       - name: Prepaid card credits (mint-once, exact micro-dollar balances, gate debits only on 200, 402 on insufficient, operator view)
         run: node scripts/test-credits.js
 
@@ -871,6 +874,9 @@ jobs:
 
       - name: LLM gateway validation (OpenAI-compat tiers, caps, env-gated 503)
         run: node scripts/test-llm-gateway.js
+
+      - name: Ox Alpha tier (locked stealth model, zdr refusal, zero-cost clamp, reasoning floor, vanish gate - offline)
+        run: node scripts/test-ox-tier.js
 
       - name: LLM gateway model tables vs the LIVE OpenRouter catalog (dead/renamed ids, MODEL_COST floors, TTS chain, expirations)
         # Network test against OpenRouter's public /models (no key). Fails on a
@@ -1529,6 +1535,32 @@ jobs:
         run: node scripts/test-b2b-enrich-kit.js
       - name: solana-intel kit (offline)
         run: node scripts/test-solana-intel-kit.js
+      - name: Ox Alpha free-trial safety (fails closed on a repriced upstream, offline)
+        run: node scripts/test-ox-trial.js
+      - name: OpenRouter attribution + composite accounting guard (offline)
+        run: node scripts/test-openrouter-attribution.js
+      - name: filing watch kit (offline)
+        run: node scripts/test-filing-watch-kit.js
+      - name: token brief kit (offline)
+        run: node scripts/test-token-brief-kit.js
+      - name: ticker pack kit (offline)
+        run: node scripts/test-ticker-pack-kit.js
+      - name: programmatic report pages (offline)
+        run: node scripts/test-programmatic-pages.js
+      - name: images-fast kit (offline)
+        run: node scripts/test-images-fast-kit.js
+      - name: alchemy-data kit (offline)
+        run: node scripts/test-alchemy-data-kit.js
+      - name: farcaster-social kit (offline)
+        run: node scripts/test-farcaster-social-kit.js
+      - name: crypto-markets kit (offline)
+        run: node scripts/test-crypto-markets-kit.js
+      - name: defi kit (offline)
+        run: node scripts/test-defi-kit.js
+      - name: crypto-signals kit (offline)
+        run: node scripts/test-crypto-signals-kit.js
+      - name: crawl kit (offline)
+        run: node scripts/test-crawl-kit.js
 
       - name: Paid-upstream leak guard (Brave + E2B — every metered route/pack must be skipped — offline)
         run: node scripts/test-brave-leak.js

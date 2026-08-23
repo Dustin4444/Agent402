@@ -15,16 +15,49 @@
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
   function notFound() { return '<div class="status"><h2>Report not found</h2><p><a href="/reports">Start a new report</a></p></div>'; }
 
+  // Per-line inline markdown. Input is ALREADY entity-escaped, so a quote can
+  // never break out of an href; each class stops at an escaped quote or angle.
+  function inline(l) {
+    l = l.replace(/\[(\d+)\]/g, '<span class="cite">[$1]</span>');
+    l = l.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    // [label](https://…) before the bare-URL autolink, or the bare rule would
+    // eat the URL out of the parentheses and leave the label stranded.
+    l = l.replace(/\[([^\]<>]+)\]\((https?:\/\/[^\s)<>"']+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    l = l.replace(/(^|[\s(])(https?:\/\/[^\s)<>"']+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+    return l;
+  }
+
+  // A markdown pipe table: a header row, a |---|---| separator, then body rows.
+  // Everything here is already entity-escaped by the caller.
+  function isTableSep(l) { return /^\s*\|?[\s:-]*-[\s|:-]*\|[\s|:-]*$/.test(l) && l.indexOf("|") >= 0; }
+  function tableCells(l) {
+    var t = l.trim().replace(/^\|/, "").replace(/\|$/, "");
+    return t.split("|").map(function (c) { return c.trim(); });
+  }
+
   function mdToHtml(md) {
     var lines = esc(md).split(/\r?\n/), out = [], inList = false;
     for (var i = 0; i < lines.length; i++) {
       var l = lines[i];
-      l = l.replace(/\[(\d+)\]/g, '<span class="cite">[$1]</span>');
-      l = l.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+      // Tables first: a header line followed by a separator line. Reports that
+      // carry tabular evidence (filings, holders) render as real tables rather
+      // than as literal pipe characters.
+      if (l.indexOf("|") >= 0 && i + 1 < lines.length && isTableSep(lines[i + 1])) {
+        if (inList) { out.push("</ul>"); inList = false; }
+        var head = tableCells(l), rows = [];
+        i += 2;
+        for (; i < lines.length && lines[i].indexOf("|") >= 0 && lines[i].trim() !== ""; i++) rows.push(tableCells(lines[i]));
+        i--;
+        out.push('<div class="tablewrap"><table><thead><tr>' + head.map(function (c) { return "<th>" + inline(c) + "</th>"; }).join("") + "</tr></thead><tbody>"
+          + rows.map(function (r) { return "<tr>" + r.map(function (c) { return "<td>" + inline(c) + "</td>"; }).join("") + "</tr>"; }).join("")
+          + "</tbody></table></div>");
+        continue;
+      }
+      l = inline(l);
       // Text is already entity-escaped here, so a quote can never break out of
       // href; the class also stops at an escaped quote/angle so the link text
       // does not swallow trailing markup.
-      l = l.replace(/(https?:\/\/[^\s)<>"']+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+
       if (/^### /.test(l)) { out.push("<h3>" + l.slice(4) + "</h3>"); continue; }
       if (/^## /.test(l)) { out.push("<h2>" + l.slice(3) + "</h2>"); continue; }
       if (/^# /.test(l)) { out.push("<h1>" + l.slice(2) + "</h1>"); continue; }
@@ -38,13 +71,15 @@
   }
 
   function productLabel(kind) {
-    return kind === "dossier" ? "Company Due-Diligence Dossier"
-      : kind === "fund" ? "Fund Portfolio Report (13F)"
-      : kind === "domain" ? "Domain Security Audit"
-      : "Deep Research Report";
+    // Every report KIND we sell needs a row here: a missing one silently prints
+    // "Deep Research Report" on someone else's delivered report.
+    return { dossier: "Company Due-Diligence Dossier", fund: "Fund Portfolio Report (13F)",
+      domain: "Domain Security Audit", recall: "FDA Recall Report", insider: "Insider Flow Report (Form 4)",
+      filing: "SEC Filing Report", token: "Solana Token Due-Diligence Brief", ipo: "IPO Pipeline Digest", ticker: "Ticker Pack",
+      research: "Deep Research Report" }[kind] || "Deep Research Report";
   }
   function reasonLabel(r) {
-    return { welcome: "first report", scheduled: "scheduled re-run", change: "change detected", "tls-expiring": "certificate expiring", filing: "new 13F filing" }[r] || r;
+    return { welcome: "first report", scheduled: "scheduled re-run", change: "change detected", "tls-expiring": "certificate expiring", filing: "new 13F filing", recall: "new recall activity", "safety-change": "token safety changed", "filing-new": "new SEC filing", digest: "weekly digest", problem: "we could not complete this run" }[r] || r;
   }
   function fmtDate(iso) {
     try { var d = new Date(iso); if (isNaN(d)) return ""; return d.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" }); }
@@ -72,6 +107,62 @@
       a.href = url; a.download = filename; document.body.appendChild(a); a.click();
       setTimeout(function () { URL.revokeObjectURL(url); if (a.parentNode) a.parentNode.removeChild(a); }, 1200);
     } catch (e) { /* download best-effort */ }
+  }
+
+  // The retention loop: a buyer who paid once for a report on a target is the
+  // natural subscriber for the monitor that watches it. The kind -> monitor
+  // map (product key, label, price) is delivered as a data attribute by the
+  // server from MONITOR_PRODUCTS - never hardcoded here, so a price change
+  // cannot drift. A kind with no monitor (research, dossier) shows nothing, and
+  // a report that IS a monitor delivery never offers what the reader already
+  // has. Clicking POSTs to the same /api/subscribe the storefront uses.
+  function monitorFor(kind) {
+    try {
+      var map = JSON.parse((app && app.getAttribute("data-monitors")) || "{}");
+      var m = map && Object.prototype.hasOwnProperty.call(map, kind) ? map[kind] : null;
+      return m && m.product && m.label && m.priceUsd ? m : null;
+    } catch (e) { return null; }
+  }
+  function upgradeBlock(s) {
+    if (s.monitor) return "";
+    var m = monitorFor(s.kind);
+    var target = String(s.input == null ? "" : s.input).trim();
+    if (!m || !target) return "";
+    var shown = target.length > 80 ? target.slice(0, 80) + "…" : target;
+    return '<div class="upsell no-print" id="upsell" data-product="' + esc(m.product) + '" data-target="' + esc(target) + '">' +
+      '<div class="k">Keep it current</div>' +
+      "<h3>Watch " + esc(shown) + " and get a fresh brief the moment it changes</h3>" +
+      "<p>" + esc(m.label) + ", " + esc(m.priceUsd) + " a month. We re-check it for you on a schedule and email you a new cited report when something moves. Cancel any time, no account needed.</p>" +
+      '<div class="row">' +
+        '<button class="btn btn-primary" id="up-go">Start monitoring, ' + esc(m.priceUsd) + " a month →</button>" +
+        '<a class="btn btn-ghost" href="/monitors?product=' + encodeURIComponent(m.product) + "&amp;target=" + encodeURIComponent(target) + '">See what is included</a>' +
+      "</div>" +
+      '<div class="err" id="up-err"></div>' +
+    "</div>";
+  }
+  function wireUpgrade() {
+    var box = document.getElementById("upsell");
+    var btn = document.getElementById("up-go");
+    if (!box || !btn) return;
+    var errEl = document.getElementById("up-err");
+    btn.addEventListener("click", async function () {
+      if (errEl) errEl.textContent = "";
+      var label = btn.textContent;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spin"></span>Redirecting to checkout…';
+      try {
+        var r = await fetch("/api/subscribe", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ product: box.getAttribute("data-product"), target: box.getAttribute("data-target") }),
+        });
+        var j = await r.json();
+        if (j && j.url) { window.location = j.url; return; }
+        if (errEl) errEl.textContent = (j && j.error) || "Could not start checkout.";
+      } catch (e) {
+        if (errEl) errEl.textContent = "Network error, please try again.";
+      }
+      btn.disabled = false; btn.textContent = label;
+    });
   }
 
   function renderDone(s) {
@@ -113,7 +204,8 @@
         (ch.length ? "<ul>" + ch.map(function (c) { return "<li>" + esc(c) + "</li>"; }).join("") + "</ul>" : "") +
         ' Manage or cancel from the link in your email.</div>';
     }
-    app.innerHTML = actions + mon + '<div class="report" id="report-body">' + head + mdToHtml(s.report || "") + "</div>";
+    app.innerHTML = actions + mon + '<div class="report" id="report-body">' + head + mdToHtml(s.report || "") + "</div>" + upgradeBlock(s);
+    wireUpgrade();
 
     var pdf = document.getElementById("dl-pdf");
     if (pdf) pdf.addEventListener("click", function () { window.print(); });

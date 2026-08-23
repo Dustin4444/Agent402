@@ -174,6 +174,23 @@ export const TOOLS = [
     check: (r) => isExactOkReply(r.choices?.[0]?.message?.content) || `expected an exact "OK" reply, got ${JSON.stringify(r).slice(0, 100)}`,
   },
   {
+    // Ox Alpha tier - the stealth model, and the one leg whose upstream is
+    // free. Two things only a real buy can prove: that `provider.max_price`
+    // (which we ride on every call) actually ADMITS a $0-priced endpoint
+    // rather than refusing the bound outright, and that the model is still
+    // listed. A withdrawn model answers 503 before any upstream call, so this
+    // leg failing is the alarm that the preview ended. `max_tokens` is well
+    // above the tier's floor because this is a mandatory-reasoning model: a
+    // small budget returns an empty answer with finish_reason "length", which
+    // the chain walks into a 502 rather than a paid empty 200.
+    kit: "llm-ox",
+    path: "/v1/ox/chat/completions",
+    method: "POST",
+    body: { messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 2000 },
+    priceUsd: 0.002,
+    check: (r) => isExactOkReply(r.choices?.[0]?.message?.content) || `expected an exact "OK" reply, got ${JSON.stringify(r).slice(0, 120)}`,
+  },
+  {
     // Nano tier — the loop-priced gateway. Same upstream path as the base
     // tier; this leg proves the tier constants + model allowlist against a
     // REAL completion daily (gpt-4.1-nano already served via v1-chat before
@@ -332,6 +349,30 @@ export const TOOLS = [
     body: { chain: "base", address: "0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0" },
     priceUsd: 0.005,
     check: (r) => (r.address === "0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0" && typeof r.isContract === "boolean" && r.untrustedContent === true) || `expected treasury profile with untrustedContent, got ${JSON.stringify(r).slice(0, 120)}`,
+  },
+  {
+    // Derivatives leg (2026-08-22) - a keyless public upstream, so the only cost
+    // is the settle itself. Two jobs: it seeds the new family into the
+    // settlement-driven explorers (they index routes that get PAID, the way the
+    // gov tools were seeded), and it proves daily that the upstream venue is
+    // still answering and the response still carries live numbers.
+    kit: "derivatives",
+    path: "/api/perp-funding",
+    method: "POST",
+    body: { coin: "BTC", points: 5 },
+    priceUsd: 0.003,
+    check: (r) => (r.coin === "BTC" && typeof r.funding?.hourlyPct === "number" && typeof r.source === "string") || `expected BTC funding numbers, got ${JSON.stringify(r).slice(0, 120)}`,
+  },
+  {
+    // Solana intel leg (2026-08-22) - same reasoning as the derivatives leg, on
+    // the other new keyless family. Uses a well-known mint so the answer is
+    // stable and the check can assert real fields rather than mere shape.
+    kit: "solana-intel",
+    path: "/api/sol-token-safety",
+    method: "POST",
+    body: { mint: "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN" },
+    priceUsd: 0.005,
+    check: (r) => (typeof r.riskLevel === "string" && (typeof r.score === "number" || typeof r.normalizedScore === "number") && r.untrustedContent === true) || `expected a graded safety verdict, got ${JSON.stringify(r).slice(0, 120)}`,
   },
   {
     // Route-and-execute — the SOR's executing surface. Dispatches internally

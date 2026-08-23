@@ -37,6 +37,8 @@ export const DOMAIN_CHECK_MS = DAY;
 export const DOMAIN_FULL_MS = 30 * DAY;
 export const FUND_CHECK_MS = DAY;
 export const RECALL_CHECK_MS = DAY;
+export const TOKEN_CHECK_MS = DAY;
+export const FILING_CHECK_MS = DAY;
 export const INSIDER_CHECK_MS = DAY;
 export const IPO_DIGEST_MS = 7 * DAY;
 export const MIN_FULL_GAP_MS = 12 * HOUR;
@@ -45,7 +47,12 @@ export const MAX_FULL_PER_TICK = 10;
 export const MAX_BACKOFF_MS = DAY;
 export const LOCK_STALE_MS = 20 * 60_000;
 export const TICK_MS = 10 * 60_000;
-export const MAX_FULL_PER_SUB_30D = 8;   // welcome + scheduled + up to 6 change runs; beyond = alert-only
+export const MAX_FULL_PER_SUB_30D = 4;   // welcome + scheduled + up to 4 change runs; beyond = alert-only.
+// Bounds a $3/month subscription against its own upstream. MEASURED cost of one
+// report is ~$0.10-0.30 (Opus synthesis p50 $0.075/call plus cheap planning), so
+// 4 runs is ~$1.20 against the $3 fee ($2.61 net of card fees). The tier's own `maxUpstreamUsd`
+// (0.15-0.30 on the monitor slugs) is a circuit breaker that downgrades the synthesis model, not
+// the normal cost; a run that hit it every time would still be capped here at 4.
 export const PERMANENT_FAIL_NOTICE_AT = 5; // consecutive failures before the subscriber is told (once)
 const REPORTS_PER_SUB = 12;
 const MAX_RUNS_KEPT = 24;
@@ -77,6 +84,8 @@ function inputFor(kind, target, st) {
   if (kind === "recall") return { query: target, allowEmpty: true }; // a welcome report may find nothing yet
   if (kind === "ipo") return { days: 7, keyword: target === "all" ? "" : target };
   if (kind === "insider") return { ticker: target, days: 90 };
+  if (kind === "token") return { mint: target };
+  if (kind === "filing") return { ticker: target, days: 30, allowEmpty: true, ...(st?.filingNew?.length ? { focus: st.filingNew } : {}) };
   return target;
 }
 
@@ -115,7 +124,7 @@ export function describeDomainChanges(prev, next) {
  * @param {(s:string)=>void} [deps.log]
  * @param {(ms:number)=>Promise<void>} [deps.sleep]
  */
-export function createMonitorScheduler({ subs, generate, probeDomain, normDomain, latestFiling, resolveManager, notify, baseUrl, storePath, now = () => Date.now(), ownerId, log = console.log, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), manageUrlFor = () => `${baseUrl}/monitors`, refreshStatus = null, probeRecalls = null, probeIpos = null, probeInsiderFilings = null }) {
+export function createMonitorScheduler({ subs, generate, probeDomain, normDomain, latestFiling, resolveManager, notify, baseUrl, storePath, now = () => Date.now(), ownerId, log = console.log, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), manageUrlFor = () => `${baseUrl}/monitors`, refreshStatus = null, probeRecalls = null, probeIpos = null, probeInsiderFilings = null, probeTokenBrief = null, describeTokenChanges = null, probeCompanyFilings = null, describeFilingChanges = null }) {
   const path = storePath || STORE_PATH();
   let store = loadStore(path);
   const me = ownerId || `${process.env.RAILWAY_REPLICA_ID || "local"}:${process.pid}:${randomBytes(3).toString("hex")}`;
@@ -307,6 +316,62 @@ export function createMonitorScheduler({ subs, generate, probeDomain, normDomain
   // recall: welcome report on first sight; every RECALL_CHECK_MS a FREE probe
   // of the FDA feeds; a recall number not seen before = paid re-run + "recall"
   // email listing the new records. The seen-set advances only after success.
+  // token: a welcome brief on first sight; then a FREE keyless probe every
+  // TOKEN_CHECK_MS. A changed safety fingerprint (authority flipped, LP lock
+  // bucket moved, concentration bucket moved, risk band changed) triggers one
+  // paid re-run and a "safety-change" email. The baseline advances only after a
+  // filing: welcome report on first sight; then a FREE one-request probe of the
+  // company's EDGAR submissions index every FILING_CHECK_MS. An accession not
+  // seen before means a paid re-run plus a "filing-new" email naming what
+  // landed. The seen-set advances only after a SUCCESSFUL run, so a failed run
+  // re-detects the same filings on the retry.
+  async function processFiling(rec, st, { force, budget }) {
+    if (typeof probeCompanyFilings !== "function") return "skip";
+    const retryPending = (st.failures || 0) > 0;
+    const checkDue = force || retryPending || !st.lastCheckAt || now() - st.lastCheckAt >= FILING_CHECK_MS || !st.filingKeys;
+    if (!checkDue) return "skip";
+    let pf;
+    try { pf = await probeCompanyFilings(rec.target); }
+    catch (e) { fail(st, e, rec); return "error"; }
+    st.lastCheckAt = now();
+    const first = !st.filingKeys;
+    const seen = new Set(st.filingKeys || []);
+    const fresh = first ? [] : (pf.filings || []).filter((f) => !seen.has(`${f.accession}|${String(f.form || "").toUpperCase()}`));
+    if (!first && !fresh.length) { recovered(st); persist(); return "checked"; }
+    const changes = first || typeof describeFilingChanges !== "function" ? [] : describeFilingChanges({ keys: st.filingKeys }, pf);
+    if (!first && capReached(st)) { await alertOnly(rec, st, "filing-new", changes); st.filingKeys = pf.keys; recovered(st); persist(); return "alert"; }
+    if (!budget.allow()) { persist(); return "skip"; }
+    st.filingNew = fresh.slice(0, 3).map((f) => f.accession);   // read what just landed FIRST
+    try {
+      await runFull(rec, st, first ? "welcome" : "filing-new", changes);
+      st.filingKeys = pf.keys; st.filingNew = null; persist();
+      return "full";
+    } catch (e) { fail(st, e, rec); return "error"; }
+  }
+
+  // SUCCESSFUL run, so a failed run re-detects the change on the retry.
+  async function processToken(rec, st, { force, budget }) {
+    if (typeof probeTokenBrief !== "function") return "skip";
+    const retryPending = (st.failures || 0) > 0;
+    const checkDue = force || retryPending || !st.lastCheckAt || now() - st.lastCheckAt >= TOKEN_CHECK_MS || !st.tokenFingerprint;
+    if (!checkDue) return "skip";
+    let pr;
+    try { pr = await probeTokenBrief(rec.target); }
+    catch (e) { fail(st, e, rec); return "error"; }
+    st.lastCheckAt = now();
+    const prevSignals = st.tokenSignals || null, prevFp = st.tokenFingerprint || null;
+    const first = !prevFp;
+    const changed = !first && pr.fingerprint !== prevFp;
+    st.tokenSignals = pr.signals; st.tokenFingerprint = pr.fingerprint;
+    if (!first && !changed) { recovered(st); persist(); return "checked"; }
+    const changes = first || typeof describeTokenChanges !== "function" ? [] : describeTokenChanges(prevSignals, pr.signals);
+    if (!first && capReached(st)) { await alertOnly(rec, st, "safety-change", changes); recovered(st); persist(); return "alert"; }
+    const gapOk = !st.lastFullAt || now() - st.lastFullAt >= MIN_FULL_GAP_MS;
+    if (!gapOk || !budget.allow()) { recovered(st); if (!first) await alertOnly(rec, st, "safety-change", changes); persist(); return "alert"; }
+    try { await runFull(rec, st, first ? "welcome" : "safety-change", changes); persist(); return "full"; }
+    catch (e) { st.tokenSignals = prevSignals; st.tokenFingerprint = prevFp; fail(st, e, rec); return "error"; }
+  }
+
   async function processRecall(rec, st, { force, budget }) {
     if (typeof probeRecalls !== "function") return "skip";
     const retryPending = (st.failures || 0) > 0;
@@ -393,6 +458,8 @@ export function createMonitorScheduler({ subs, generate, probeDomain, normDomain
     if (!opts.force && st.nextAttemptAt && now() < st.nextAttemptAt) return "skip";
     if (p.kind === "domain") return processDomain(rec, st, opts);
     if (p.kind === "fund") return processFund(rec, st, opts);
+    if (p.kind === "filing") return processFiling(rec, st, opts);
+    if (p.kind === "token") return processToken(rec, st, opts);
     if (p.kind === "recall") return processRecall(rec, st, opts);
     if (p.kind === "ipo") return processIpo(rec, st, opts);
     if (p.kind === "insider") return processInsider(rec, st, opts);

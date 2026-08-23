@@ -86,16 +86,16 @@ export const LEDGER_CSS = `
    working. Wide data tables get their own internal scroll below; everything
    else is made to wrap/fit at mobile widths in the media queries. */
 html { overflow-x: clip; }
-/* TWO themes, dark is the DEFAULT (2026-08-22): the dark palette sits directly
-   on bare :root so the first paint is already dark - no flash, no pre-paint
-   inline script (CSP forbids inline scripts anyway). The light "milled" palette
-   is an override under :root[data-theme="light"], set by /js/site-chrome.js
+/* TWO themes, light is the DEFAULT (2026-08-22, second pass): the light "milled"
+   palette sits directly on bare :root so the first paint is already light - no
+   flash, no pre-paint inline script (CSP forbids inline scripts anyway). The
+   obsidian dark palette is an override under :root[data-theme="dark"], set by /js/site-chrome.js
    (synchronous in <head>) from the stored preference BEFORE body paints, and
    toggled by the .ml-theme-toggle button. No OS media query decides the theme.
    Every page-level class that needs a theme-specific surface (milled card,
    obsidian panel, primary button, nav glass, brand mark) goes through the
    tokens below - never a hardcoded hex - so both themes render every page. */
-:root {
+:root[data-theme="dark"] {
   --accent: #34A877;
   --accent-lit: #9EF0B0;
   --on-accent: #0B0C0E;
@@ -135,11 +135,13 @@ html { overflow-x: clip; }
   --card-inset: rgba(255,255,255,.04);
   --chip-bg: rgba(255,255,255,.04);
   --shadow-lg: 0 18px 40px rgba(0,0,0,.35);
+}
+:root { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+:root {
+  /* Typography is theme-independent: declared once on the default root. */
   --font-body: 'Geist', 'Geist Fallback', system-ui, sans-serif;
   --font-mono: 'Geist Mono', 'Geist Mono Fallback', monospace;
-}
-:root { color-scheme: dark; }
-:root[data-theme="light"] {
   --accent: #0F5E43;
   --accent-lit: #9EF0B0;
   --on-accent: #FFFFFF;
@@ -186,7 +188,7 @@ body { transition: background-color .18s ease, color .18s ease; }
 .ml-burger { display:none; align-items:center; justify-content:center; width:38px; height:34px; padding:0; border:1px solid var(--hairline); border-radius:8px; background:var(--card); color:var(--ink); cursor:pointer; }
 .ml-burger .ml-burger-close { display:none; }
 .ml-theme-toggle { display:inline-flex; align-items:center; justify-content:center; width:36px; height:34px; padding:0; border:1px solid var(--hairline); border-radius:999px; background:var(--card); color:var(--ink); cursor:pointer; }
-.ml-theme-toggle .ml-sun { display:none; } :root[data-theme="light"] .ml-theme-toggle .ml-sun { display:inline; } :root[data-theme="light"] .ml-theme-toggle .ml-moon { display:none; }
+.ml-theme-toggle .ml-moon { display:none; } :root[data-theme="dark"] .ml-theme-toggle .ml-moon { display:inline; } :root[data-theme="dark"] .ml-theme-toggle .ml-sun { display:none; }
 .ml-mobile-menu { display:none; border-top:1px solid var(--hairline); background:var(--paper); max-height:calc(100vh - 62px); overflow-y:auto; -webkit-overflow-scrolling:touch; }
 .ml-mm-h { padding:12px 20px 4px; font-family:var(--font-mono); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--faint); }
 .ml-mm-group { display:flex; flex-direction:column; }
@@ -530,6 +532,8 @@ function ourToolsPanelNav() {
                 <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">OUR 500+ TOOL CATALOG</span>
                 <a href="/tools" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">catalog</span><span style="color:var(--faint);">browse by category</span></a>
                 <a href="/skills" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">skill packs</span><span style="color:var(--faint);">one payment, N tools</span></a>
+                <a href="/tools/category/crypto" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">crypto, DeFi &amp; Solana</span><span style="color:var(--faint);">perps · yields · token risk</span></a>
+                <a href="/tools/category/llm" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">images &amp; video</span><span style="color:var(--faint);">flat per picture or clip</span></a>
                 <a href="/playground" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">playground</span><span style="color:var(--faint);">try free · PoW</span></a>
                 <a href="/pricing" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--surface);color:var(--on-dark);"><span style="font-weight:700;">pricing →</span><span style="color:var(--dk-muted);">/pricing</span></a>
               </span>
@@ -593,13 +597,15 @@ function mobileMenuHtml(chainInfo, activePath) {
     <div class="ml-mm-h">For people</div>
     <div class="ml-mm-group">
       ${mmLink("/reports", "reports · card or USDC", activePath === "/reports")}
-      ${mmLink("/monitors", "monitors · $5 / month", activePath === "/monitors")}
+      ${mmLink("/monitors", "monitors · $3 / month", activePath === "/monitors")}
       ${mmLink("/credits", "credits · pay by card, use every tool", activePath === "/credits")}
     </div>
     <div class="ml-mm-h">Buy</div>
     <div class="ml-mm-group">
       ${mmLink("/tools", "our tools · 500+", activePath === "/tools")}
       ${mmLink("/skills", "skill packs", activePath === "/skills")}
+      ${mmLink("/tools/category/crypto", "crypto, DeFi & Solana", activePath === "/tools/category/crypto")}
+      ${mmLink("/tools/category/llm", "images, video & LLM gateway", activePath === "/tools/category/llm")}
       ${mmLink("/playground", "playground · free", activePath === "/playground")}
       ${mmLink("/pricing", "pricing", activePath === "/pricing")}
     </div>
@@ -857,8 +863,15 @@ export function ledgerShell({ title, description, canonical, baseUrl, activePath
     url: baseUrl,
   };
   const allLd = [baseEcosystemLd, ...(jsonLd ? (Array.isArray(jsonLd) ? jsonLd : [jsonLd]) : [])];
+  // Every "<" is escaped as \u003c, exactly as jsonScriptTag does and for the
+  // same reason: JSON.stringify never escapes it, so a string field carrying
+  // the literal text "</script>" would close this tag early and let whatever
+  // follows execute as markup. Any page whose JSON-LD embeds text we did not
+  // author (a crawled seller description, a filer name off an SEC filing) is
+  // exactly that case. "<" is valid inside a JSON string and round-trips
+  // through JSON.parse unchanged, so this is lossless for consumers.
   const jsonLdBlock = allLd
-    .map((j) => `<script type="application/ld+json">${JSON.stringify(j)}</script>`)
+    .map((j) => `<script type="application/ld+json">${JSON.stringify(j).replace(/</g, "\\u003c")}</script>`)
     .join("\n");
   return `<!DOCTYPE html>
 <html lang="en">

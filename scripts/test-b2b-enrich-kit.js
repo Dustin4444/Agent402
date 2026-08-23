@@ -165,21 +165,21 @@ globalThis.fetch = async (url, init) => { fetchCalls++; lastUrl = new URL(String
   const e0 = out.emails[0];
   ok(e0.email === "jane@stripe.com" && e0.type === "personal" && e0.confidence === 92 && e0.firstName === "Jane" && e0.position === "Engineering Manager" && e0.seniority === "senior" && e0.department === "it" && e0.verification.status === "valid" && e0.sourceCount === 2, "domain-search: email row shaped");
   const flat = JSON.stringify(out);
-  ok(!flat.includes("+1 555 0100") && !flat.includes("linkedin.com/in/janedoe") && !flat.includes("janedoe") && !flat.includes("https://x.com/1"), "domain-search: phone, personal social handles and source URLs stripped");
+  ok(!flat.includes("+1 555 0100") && !/"[^"]*linkedin\.com\/in\/janedoe"/.test(flat) && !flat.includes("janedoe") && !/"[^"]*x\.com\/1"/.test(flat), "domain-search: phone, personal social handles and source URLs stripped");
   ok(out.emails[1].firstName === null && out.emails[1].verification.status === null, "domain-search: generic row nulls preserved");
   ok(fetchCalls === 1, "domain-search: one upstream call");
 }
 
-const FINDER_FIXTURE = { data: { first_name: "Patrick", last_name: "Collison", email: "patrick@stripe.com", score: 97, domain: "stripe.com", accept_all: false, position: "CEO", twitter: "patrickc", linkedin_url: "https://linkedin.com/in/patrickcollison", phone_number: "+1 555 0199", company: "Stripe", sources: [{ uri: "https://z.com" }], verification: { date: "2026-08-01", status: "valid" } }, meta: { params: {} } };
+const FINDER_FIXTURE = { data: { first_name: "Jane", last_name: "Doe", email: "jane@example.com", score: 97, domain: "stripe.com", accept_all: false, position: "CEO", twitter: "exampleuser", linkedin_url: "https://linkedin.com/in/example-user", phone_number: "+1 555 0199", company: "Stripe", sources: [{ uri: "https://z.com" }], verification: { date: "2026-08-01", status: "valid" } }, meta: { params: {} } };
 globalThis.fetch = async (url) => { fetchCalls++; lastUrl = new URL(String(url)); return jsonRes(200, FINDER_FIXTURE); };
 {
-  const out = await h("hunter-email-finder")({ domain: "stripe.com", first_name: "Patrick", last_name: "Collison" });
-  ok(lastUrl.pathname === "/v2/email-finder" && lastUrl.searchParams.get("first_name") === "Patrick" && lastUrl.searchParams.get("last_name") === "Collison" && lastUrl.searchParams.get("domain") === "stripe.com" && lastUrl.searchParams.get("full_name") === null, "email-finder: /v2/email-finder with first/last/domain");
-  ok(out.email === "patrick@stripe.com" && out.score === 97 && out.position === "CEO" && out.company === "Stripe" && out.verification.status === "valid" && out.found === true, "email-finder: shaped");
+  const out = await h("hunter-email-finder")({ domain: "stripe.com", first_name: "Jane", last_name: "Doe" });
+  ok(lastUrl.pathname === "/v2/email-finder" && lastUrl.searchParams.get("first_name") === "Jane" && lastUrl.searchParams.get("last_name") === "Doe" && lastUrl.searchParams.get("domain") === "stripe.com" && lastUrl.searchParams.get("full_name") === null, "email-finder: /v2/email-finder with first/last/domain");
+  ok(out.email === "jane@example.com" && out.score === 97 && out.position === "CEO" && out.company === "Stripe" && out.verification.status === "valid" && out.found === true, "email-finder: shaped");
   const flat = JSON.stringify(out);
-  ok(!flat.includes("+1 555 0199") && !flat.includes("patrickc") && !flat.includes("linkedin.com/in/") && !flat.includes("z.com"), "email-finder: phone/social/source stripped");
-  await h("hunter-email-finder")({ domain: "stripe.com", full_name: "Patrick Collison" });
-  ok(lastUrl.searchParams.get("full_name") === "Patrick Collison" && lastUrl.searchParams.get("first_name") === null, "email-finder: full_name alternative on the wire");
+  ok(!flat.includes("+1 555 0199") && !flat.includes("exampleuser") && !/"[^"]*linkedin\.com\/in\/[^"]*"/.test(flat) && !/"[^"]*z\.com[^"]*"/.test(flat), "email-finder: phone/social/source stripped");
+  await h("hunter-email-finder")({ domain: "stripe.com", full_name: "Jane Doe" });
+  ok(lastUrl.searchParams.get("full_name") === "Jane Doe" && lastUrl.searchParams.get("first_name") === null, "email-finder: full_name alternative on the wire");
 }
 globalThis.fetch = async () => jsonRes(200, { data: { first_name: "No", last_name: "Body", email: null, score: null, domain: "stripe.com", position: null, verification: null }, meta: {} });
 {
@@ -231,7 +231,7 @@ globalThis.fetch = async (url, init) => { fetchCalls++; lastUrl = new URL(String
   ok(p.id === "5f1a" && p.name === "Jane Doe" && p.title === "Engineering Manager" && p.seniority === "manager" && p.departments[0] === "engineering" && p.city === "Seattle" && p.linkedinUrl === "https://www.linkedin.com/in/janedoe" && p.emailStatus === "verified", "people-search: person shaped");
   ok(p.organization.name === "Stripe" && p.organization.domain === "stripe.com" && p.organization.estimatedEmployees === 8000, "people-search: organization brief");
   const flat = JSON.stringify(out);
-  ok(!("email" in p) && !flat.includes("jane@stripe.com") && !flat.includes("img/x.jpg") && !flat.includes("twitter.com/janedoe") && !flat.includes("facebook.com") && !flat.includes("Old Co") && !flat.includes("+1 555 0100"), "people-search: email, photo, social handles, employment history and org phone stripped");
+  ok(!("email" in p) && !flat.includes("jane@stripe.com") && !flat.includes("img/x.jpg") && !/"[^"]*twitter\.com\/janedoe"/.test(flat) && !/"[^"]*facebook\.com[^"]*"/.test(flat) && !flat.includes("Old Co") && !flat.includes("+1 555 0100"), "people-search: email, photo, social handles, employment history and org phone stripped");
   ok(fetchCalls === 1, "people-search: one upstream call");
   const out2 = await h("apollo-people-search")({ domains: ["stripe.com"] });
   const body2 = JSON.parse(lastInit.body);
@@ -252,21 +252,21 @@ globalThis.fetch = async (url, init) => { lastUrl = new URL(String(url)); lastIn
 globalThis.fetch = async () => jsonRes(200, { organization: null });
 await throws(h("apollo-org-enrich")({ domain: "nobody.example" }), 404, "org-enrich: 200 with null organization -> 404");
 
-const MATCH_FIXTURE = { person: { id: "5f1a", first_name: "Patrick", last_name: "Collison", name: "Patrick Collison", linkedin_url: "https://www.linkedin.com/in/patrickcollison", title: "CEO", email_status: "verified", email: "patrick@stripe.com", headline: "CEO at Stripe", photo_url: "https://img/p.jpg", twitter_url: "https://twitter.com/patrickc", personal_emails: ["patrick@personal.example"], phone_numbers: [{ raw_number: "+1 555 0111" }], city: "San Francisco", state: "California", country: "United States", seniority: "c_suite", departments: ["c_suite"], functions: ["entrepreneurship"], organization: { id: "5e66", name: "Stripe", primary_domain: "stripe.com", website_url: "http://www.stripe.com", linkedin_url: "http://www.linkedin.com/company/stripe", industry: "financial services", estimated_num_employees: 8000 } } };
+const MATCH_FIXTURE = { person: { id: "5f1a", first_name: "Jane", last_name: "Doe", name: "Jane Doe", linkedin_url: "https://www.linkedin.com/in/example-user", title: "CEO", email_status: "verified", email: "jane@example.com", headline: "CEO at Stripe", photo_url: "https://img/p.jpg", twitter_url: "https://twitter.com/exampleuser", personal_emails: ["jane.personal@example.net"], phone_numbers: [{ raw_number: "+1 555 0111" }], city: "San Francisco", state: "California", country: "United States", seniority: "c_suite", departments: ["c_suite"], functions: ["entrepreneurship"], organization: { id: "5e66", name: "Stripe", primary_domain: "stripe.com", website_url: "http://www.stripe.com", linkedin_url: "http://www.linkedin.com/company/stripe", industry: "financial services", estimated_num_employees: 8000 } } };
 globalThis.fetch = async (url, init) => { lastUrl = new URL(String(url)); lastInit = init; return jsonRes(200, MATCH_FIXTURE); };
 {
-  const out = await h("apollo-person-match")({ first_name: "Patrick", last_name: "Collison", domain: "stripe.com", organization_name: "Stripe" });
+  const out = await h("apollo-person-match")({ first_name: "Jane", last_name: "Doe", domain: "stripe.com", organization_name: "Stripe" });
   ok(lastUrl.pathname === "/api/v1/people/match" && lastInit.method === "POST", "person-match: POST /api/v1/people/match");
   ok(lastUrl.searchParams.get("reveal_personal_emails") === "false" && lastUrl.searchParams.get("reveal_phone_number") === "false", "person-match: personal emails + phone numbers never requested");
   const body = JSON.parse(lastInit.body);
-  ok(body.first_name === "Patrick" && body.last_name === "Collison" && body.domain === "stripe.com" && body.organization_name === "Stripe" && !("email" in body), "person-match: name + domain body");
+  ok(body.first_name === "Jane" && body.last_name === "Doe" && body.domain === "stripe.com" && body.organization_name === "Stripe" && !("email" in body), "person-match: name + domain body");
   const p = out.person;
-  ok(out.matched === true && p.name === "Patrick Collison" && p.title === "CEO" && p.email === "patrick@stripe.com" && p.emailStatus === "verified" && p.seniority === "c_suite" && p.linkedinUrl === "https://www.linkedin.com/in/patrickcollison" && p.organization.domain === "stripe.com", "person-match: person shaped with work email");
+  ok(out.matched === true && p.name === "Jane Doe" && p.title === "CEO" && p.email === "jane@example.com" && p.emailStatus === "verified" && p.seniority === "c_suite" && p.linkedinUrl === "https://www.linkedin.com/in/example-user" && p.organization.domain === "stripe.com", "person-match: person shaped with work email");
   const flat = JSON.stringify(out);
-  ok(!flat.includes("patrick@personal.example") && !flat.includes("+1 555 0111") && !flat.includes("img/p.jpg") && !flat.includes("twitter.com/patrickc"), "person-match: personal emails, phones, photo, social handles stripped");
-  await h("apollo-person-match")({ email: "Patrick@Stripe.com" });
+  ok(!flat.includes("jane.personal@example.net") && !flat.includes("+1 555 0111") && !flat.includes("img/p.jpg") && !/"[^"]*twitter\.com\/exampleuser"/.test(flat), "person-match: personal emails, phones, photo, social handles stripped");
+  await h("apollo-person-match")({ email: "Jane@Example.com" });
   const body2 = JSON.parse(lastInit.body);
-  ok(body2.email === "patrick@stripe.com" && !("domain" in body2) && !("first_name" in body2), "person-match: email-only body");
+  ok(body2.email === "jane@example.com" && !("domain" in body2) && !("first_name" in body2), "person-match: email-only body");
 }
 globalThis.fetch = async () => jsonRes(200, { person: null });
 await throws(h("apollo-person-match")({ email: "nobody@stripe.com" }), 404, "person-match: 200 with null person -> 404");

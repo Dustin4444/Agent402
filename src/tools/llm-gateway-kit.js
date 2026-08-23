@@ -47,6 +47,127 @@ export function bad(message, statusCode = 400) {
 }
 
 // ---------------------------------------------------------------------------
+// Stealth (cloaked) model listings - models a lab runs on OpenRouter under a
+// pseudonym while it collects real traffic. TWO properties follow from that,
+// and both are load-bearing here:
+//
+//   1. They are FREE (prompt/completion priced at 0 upstream) because the
+//      provider is paid in DATA: prompts and completions are logged and used
+//      by the lab. That is a disclosure obligation, not a footnote - the tier
+//      description says it plainly and `zdr:true` is REFUSED (we cannot honour
+//      zero-data-retention on a model whose whole deal is retention).
+//   2. They VANISH without notice when the lab unmasks the model. So the id
+//      must never be able to fail CI (scripts/test-gateway-model-ids.js treats
+//      STEALTH_MODEL_IDS as a loud warning, not a failure) and must never
+//      surface to a buyer as a 500.
+//
+// Vanish tolerance is two layers:
+//   • OX_ALPHA_ENABLED=off - synchronous operator kill switch, read when the
+//     catalog is built (server.js), same shape as OPENROUTER_TTS_ENABLED. The
+//     tier disappears from the catalog entirely on the next boot: no route, no
+//     402, no /v1/models entry, no /api/pricing row.
+//   • probeOxAlphaAvailability() - a single non-blocking boot read of the live
+//     OpenRouter catalog. If the id is GONE it logs loudly, drops the model
+//     from GET /v1/models, and makes the tier answer 503 before any upstream
+//     round-trip. @x402/express settles only a <400 response, so that 503 is
+//     never charged. It FAILS OPEN on an unreadable catalog (the boot
+//     /supported guard's lesson: our own egress being down is
+//     indistinguishable from an upstream deletion, and wiping a working tier
+//     on it would be self-inflicted).
+export const OX_MODEL = "stealth/ox-alpha";
+export const OX_ROUTE = "/v1/ox/chat/completions";
+/** Ids the live-catalog CI guard must tolerate losing. */
+export const STEALTH_MODEL_IDS = Object.freeze([OX_MODEL]);
+const OX_MODELS_CATALOG_URL = "https://openrouter.ai/api/v1/models";
+const OX_ENABLED = () => String(process.env.OX_ALPHA_ENABLED || "on").toLowerCase() !== "off";
+// Set true ONLY by a successful catalog read that did not list the id. An
+// unreadable catalog never sets it (fail open).
+let oxUpstreamMissing = false;
+export function oxAlphaAvailable() { return OX_ENABLED() && !oxUpstreamMissing; }
+export function _setOxUpstreamMissingForTest(v) { oxUpstreamMissing = !!v; oxPricing = null; }
+
+// --- upstream-price proof, for the free-trial exception -------------------
+// The trial path is otherwise limited to pure-CPU routes so a free call can
+// never give away upstream money. Offering a metered /v1 route there is only
+// safe while we can PROVE the upstream bill is $0 - and a stealth listing can
+// be repriced without notice, so this must FAIL CLOSED in every direction:
+//
+//   • before the first successful probe            -> false
+//   • probe errored / catalog unreadable           -> false once stale
+//   • the record is gone from the catalog          -> false (cleared)
+//   • pricing is anything other than "0" / "0"     -> false
+//
+// Only the most recent SUCCESSFUL read counts, and it must still be FRESH.
+// The probe runs hourly, so the default window tolerates two consecutive
+// failures before the trial switches itself off; a sustained outage closes it.
+// The comparison is on the RAW strings OpenRouter returns ("0"), then on the
+// parsed number, so neither "0.0000001" nor a non-numeric value can read as free.
+const OX_PRICING_MAX_AGE_MS = () => Number(process.env.OX_PRICING_MAX_AGE_MS) || 3 * 60 * 60_000; // call-time read
+let oxPricing = null; // { prompt, completion, checkedAt } from the last successful read, or null
+
+/** Last-seen upstream pricing for the stealth model: {prompt, completion,
+ *  checkedAt} as reported by OpenRouter, or null when never read / the record
+ *  is gone. For operator surfaces - it explains WHY the trial is or is not
+ *  being offered. Never an assertion of freeness on its own; use
+ *  oxUpstreamIsFree() for that. */
+/** Test seam: set the last-seen pricing directly, so a guard can prove the
+ *  freeness check fails closed without reaching the network. */
+export const __oxTest = { setPricing(v) { oxPricing = v; } };
+
+export function oxUpstreamPricing() {
+  return oxPricing ? { ...oxPricing } : null;
+}
+
+/** True ONLY when the last successful catalog read saw stealth/ox-alpha priced
+ *  at exactly 0 prompt AND 0 completion, and that reading is still fresh.
+ *  False on any error, any missing record, any non-zero price, and before the
+ *  first successful probe. */
+export function oxUpstreamIsFree() {
+  if (!oxPricing) return false;
+  if (!(Date.now() - oxPricing.checkedAt < OX_PRICING_MAX_AGE_MS())) return false;
+  const zero = (v) => (typeof v === "string" || typeof v === "number") && String(v).trim() !== "" && Number(v) === 0;
+  return zero(oxPricing.prompt) && zero(oxPricing.completion);
+}
+
+/** One-shot boot probe: is the stealth id still listed upstream? Returns true
+ *  (live), false (gone - tier disabled in-process) or null (unreadable - left
+ *  as-is). `fetchImpl` is the test seam. */
+export async function probeOxAlphaAvailability({ fetchImpl } = {}) {
+  const f = fetchImpl || globalThis.fetch;
+  try {
+    const res = await f(OX_MODELS_CATALOG_URL, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(15_000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const j = await res.json();
+    // A catalog that shrinks below the floor is a READ FAILURE, not a verdict
+    // (same rule as the CI guard) - refuse to delist on it.
+    if (!Array.isArray(j?.data) || j.data.length < 100) throw new Error(`implausible catalog (${j?.data?.length} entries)`);
+    const record = j.data.find((m) => m?.id === OX_MODEL) || null;
+    const live = !!record;
+    oxUpstreamMissing = !live;
+    // Price proof rides the SAME read - no second network call. A successful
+    // read is the only thing that may set it, and a missing record clears it.
+    oxPricing = record
+      ? { prompt: record.pricing?.prompt, completion: record.pricing?.completion, checkedAt: Date.now() }
+      : null;
+    if (!live) {
+      console.warn(
+        `WARNING: ${OX_MODEL} is GONE from the live OpenRouter catalog. ${OX_ROUTE} now answers 503 ` +
+        "before any upstream call (a >=400 cancels settlement, so no buyer is charged) and the model is " +
+        "dropped from GET /v1/models. This is the EXPECTED end of a stealth listing: set OX_ALPHA_ENABLED=off " +
+        "to remove the route from the catalog on the next boot, or repoint the tier at the unmasked model id."
+      );
+    }
+    return live;
+  } catch (e) {
+    console.warn(
+      `WARNING: could not verify ${OX_MODEL} against the live OpenRouter catalog ` +
+      `(${String(e?.message || e).slice(0, 140)}) - leaving ${OX_ROUTE} exactly as it is (fail open).`
+    );
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Auto tier — eval-ranked model routing. The buyer sends messages and NO
 // model; the gateway classifies the prompt and serves it with the top-ranked
 // budget model for that task type. The classification is lexical-signal only
@@ -302,6 +423,64 @@ export const TIERS = {
     // Two attempts bound the fixed part at $0.014 (cost audit 2026-08-19).
     maxAttempts: 2,
   },
+  // Ox Alpha tier - ONE locked model (stealth/ox-alpha), $0.002.
+  //
+  // Verified against the live OpenRouter catalog 2026-08-22: pricing
+  // prompt "0" / completion "0", context_length 1,048,576,
+  // max_completion_tokens 131,072, is_moderated false, modality
+  // text+image+video->text, reasoning {mandatory:true, default_enabled:true,
+  // supported_efforts:["max","high","low"], default_effort:"max"}.
+  //
+  // The model is FREE upstream, so this is the cheapest chat tier we sell and
+  // essentially pure margin - and the reason it is free is that the provider
+  // logs prompts (see the STEALTH_MODEL_IDS note above). That is disclosed in
+  // the tool description, on /api/pricing, and on GET /v1/models, and `zdr` is
+  // refused here (logsPrompts below).
+  //
+  // Cost discipline WITHOUT a live price to clamp against: MODEL_COST prices
+  // it 0/0 (true today) so the margin clamp is a no-op, which means the ONLY
+  // thing standing between us and a surprise bill is `maxPrice` riding
+  // upstream as provider.max_price. It is set at $0.005/M on BOTH sides -
+  // below every real model on OpenRouter - so the day Ox Alpha stops being
+  // free, OpenRouter refuses the provider, the call surfaces as an upstream
+  // error (502), settlement is cancelled and nobody is charged. Fails closed,
+  // loudly, on the safe side. (scripts/test-ox-tier.js pins the worst case AT
+  // that bound under MARGIN x price, which is the bound the runtime clamp
+  // cannot compute while the list price is 0.)
+  //
+  // Reasoning: mandatory and default_effort "max", i.e. the model will happily
+  // spend an entire small budget thinking and answer nothing. Measured: a
+  // 32-token budget returned content:null + finish_reason "length"; an
+  // 800-token budget answered in ~10s. So (a) reasoningDefault "lowest" injects
+  // effort "low" (the lowest non-"none" effort it supports), (b) minTokens
+  // raises an absurdly small buyer budget to a floor that can actually answer,
+  // (c) defaultMaxTokens is generous when the buyer sends no cap, and (d)
+  // isEmptyLength still walks/502s if it produces nothing anyway - never a
+  // paid empty 200.
+  //
+  // maxTokens 8,000 is bounded by the 90s upstream timeout, not by cost: at
+  // the ~80 tok/s measured above, 8k output is already at that ceiling. A
+  // timeout is a 504, which cancels settlement.
+  //
+  // maxInputChars 80,000: the model's context is 1M TOKENS, but server.js's
+  // global express.json({limit:"100kb"}) rejects a bigger body first, so
+  // anything past ~90k chars is unreachable regardless (the same ceiling
+  // documented on the premium tier). Advertise what is actually servable.
+  "v1-chat-ox": {
+    route: `POST ${OX_ROUTE}`,
+    price: 0.002,
+    lockedModel: OX_MODEL,
+    stealth: true,
+    logsPrompts: true,          // provider retains prompts -> `zdr` is refused, not silently ignored
+    available: () => oxAlphaAvailable(),
+    reasoningDefault: "lowest", // -> effort "low"; default_effort "max" would eat the budget
+    maxInputChars: 80_000,
+    maxTokens: 8_000,
+    defaultMaxTokens: 4_096,    // generous default: a reasoning model needs room before it speaks
+    minTokens: 1_024,           // floor: below this the measured answer is empty + finish_reason "length"
+    maxPrice: { prompt: 0.005, completion: 0.005 }, // free today; ANY real price is refused upstream
+    prefixes: [OX_MODEL],
+  },
 };
 
 // Drop-in compatibility: bare OpenAI-style names map to their OpenRouter ids,
@@ -322,6 +501,13 @@ export function canonicalModel(model) {
   if (/^grok/i.test(m)) return `x-ai/${m}`;
   if (/^deepseek/i.test(m)) return `deepseek/${m}`;
   return m;
+}
+
+/** Display price for a tier in an error message. toFixed(2) alone renders the
+ *  $0.002 stealth tier as "$0.00" - a free-looking price in a self-correcting
+ *  400 is worse than no price at all. */
+export function tierPriceLabel(price) {
+  return price < 0.01 ? price.toFixed(3) : price.toFixed(2);
 }
 
 export function tierAllows(tierSlug, model) {
@@ -428,6 +614,12 @@ export const MODEL_COST = [
   ["mistralai/", { prompt: 2, completion: 7.5 }], // mistral-medium-3-5 $1.5/$7.5 (live 2026-08-19)
   ["qwen/", { prompt: 2, completion: 6.4 }], // qwen3.8-max / -2.4t-a95b $2/$6 (live 2026-08-19)
   ["poolside/", { prompt: 0.15, completion: 0.3 }], // laguna xs/s: $0.06-0.09/$0.12-0.18
+  // Stealth listing: genuinely $0/$0 upstream (verified on the live catalog
+  // 2026-08-22 - pricing.prompt "0", pricing.completion "0", and a real call
+  // returned usage.cost 0). A zero row makes the margin clamp a NO-OP by
+  // design (see clampToMargin's zero-cost branch); the v1-chat-ox maxPrice
+  // bound is what actually holds the margin if the model is ever repriced.
+  ["stealth/ox-alpha", { prompt: 0, completion: 0 }],
 ];
 
 /** Upstream list price for a model (longest matching prefix), or null when
@@ -536,6 +728,24 @@ export function clampToMargin(body, tier, imageCount) {
   const { inUsd, fixedUsd, inTokens, cost } = worstCaseUpstreamCost(body, tier, imageCount);
   const budgetUsd = tier.price * MARGIN;
   const n = body.n || 1;
+  // ZERO-COST MODEL (a free/stealth listing priced 0/0 in MODEL_COST): the
+  // affordable-output division would be x/0 = Infinity, or 0/0 = NaN when the
+  // input happens to consume the budget exactly - and NaN silently fails both
+  // comparisons below, so it would neither clamp nor reject. Handle it
+  // explicitly: output tokens genuinely cost nothing, so the only remaining
+  // bound is the tier's own maxTokens cap (already applied in
+  // validateRequest). The INPUT side still has to clear the budget - a tier
+  // with a fixed per-call upstream fee (fixedUpstreamUsd) can bust it even at
+  // a zero token rate - so that check is kept.
+  if (!(cost.completion > 0)) {
+    if (inUsd + fixedUsd > budgetUsd) {
+      throw bad(
+        `Input is too large for "${body.model}" at this tier's price (est. ${inTokens} input tokens). ` +
+        `Shrink the input, lower "n", or use a cheaper model - GET /v1/models lists every model and its tier.`
+      );
+    }
+    return;
+  }
   const affordableOut = Math.floor(((budgetUsd - inUsd - fixedUsd) * 1e6) / cost.completion / n);
   if (affordableOut < MIN_OUT_TOKENS) {
     throw bad(
@@ -601,6 +811,22 @@ export function validateRequest(input, tierSlug) {
   if (input == null || typeof input !== "object") throw bad("Request body must be a JSON object");
 
   let model = canonicalModel(input.model);
+  // Locked-model tiers (the stealth tier): the route IS the model. A buyer
+  // sending a different model gets a self-explaining 400 naming where that
+  // model lives, exactly like the cross-tier errors below - never a silent
+  // substitution.
+  if (tier.lockedModel) {
+    if (model && model !== tier.lockedModel) {
+      const home = tierFor(model);
+      throw bad(
+        `${tier.route.split(" ")[1]} serves only "${tier.lockedModel}" - the model is locked to this route. ` +
+        (home && home !== tierSlug
+          ? `"${model}" is served by the ${home} tier: call ${TIERS[home].route.split(" ")[1]} (price $${tierPriceLabel(TIERS[home].price)}/call).`
+          : `Omit "model" (or send "${tier.lockedModel}"); GET /v1/models lists every model and its tier.`)
+      );
+    }
+    model = tier.lockedModel;
+  }
   if (tier.router === true && (!model || model === "auto")) {
     // Auto tier, no model (or model:"auto") → deterministic eval-ranked pick
     // from the requested quality band (default balanced). Resolving HERE (not
@@ -629,7 +855,7 @@ export function validateRequest(input, tierSlug) {
     const home = tierFor(model);
     throw bad(
       home
-        ? `Model "${model}" is served by the ${home} tier - call ${TIERS[home].route.split(" ")[1]} (price $${TIERS[home].price.toFixed(2)}/call) instead.`
+        ? `Model "${model}" is served by the ${home} tier - call ${TIERS[home].route.split(" ")[1]} (price $${tierPriceLabel(TIERS[home].price)}/call) instead.`
         : `Model "${model}" is not in the gateway allowlist. GET /v1/models lists every supported model and its tier.`
     );
   }
@@ -655,9 +881,22 @@ export function validateRequest(input, tierSlug) {
   // OpenAI's newer SDKs send max_completion_tokens (reasoning-model wire);
   // honour it as the alias it is instead of silently defaulting the cap.
   const requestedMax = input.max_tokens != null ? input.max_tokens : input.max_completion_tokens;
-  let maxTokens = requestedMax != null ? parseInt(requestedMax, 10) : Math.min(1024, tier.maxTokens);
-  if (Number.isNaN(maxTokens) || maxTokens < 1) maxTokens = Math.min(1024, tier.maxTokens);
+  // `defaultMaxTokens` lets a tier whose model REASONS before it speaks hand
+  // out a bigger default than the historical 1024 (see v1-chat-ox).
+  const tierDefaultMax = Math.min(tier.defaultMaxTokens || 1024, tier.maxTokens);
+  let maxTokens = requestedMax != null ? parseInt(requestedMax, 10) : tierDefaultMax;
+  if (Number.isNaN(maxTokens) || maxTokens < 1) maxTokens = tierDefaultMax;
   if (maxTokens > tier.maxTokens) maxTokens = tier.maxTokens; // clamp, don't reject - drop-in friendliness
+  // Output-token FLOOR, only on tiers that declare one. On a mandatory-
+  // reasoning model, reasoning tokens are output tokens: a tiny budget is
+  // spent thinking and the answer comes back empty with finish_reason
+  // "length" (measured on stealth/ox-alpha at 32 tokens). isEmptyLength
+  // already stops that becoming a paid empty 200 - it walks the chain and
+  // ends in a 502 that cancels settlement - but a 502 is not a service. So
+  // raise a too-small budget to a floor that can actually answer instead
+  // (raising is safe here: the floor lives on a tier whose output is free,
+  // and the margin clamp still runs afterwards on every tier).
+  if (tier.minTokens && maxTokens < tier.minTokens) maxTokens = Math.min(tier.minTokens, tier.maxTokens);
 
   const body = { model, messages, max_tokens: maxTokens };
   for (const k of PASSTHROUGH) if (input[k] !== undefined) body[k] = input[k];
@@ -711,7 +950,22 @@ export function validateRequest(input, tierSlug) {
   // top-level or as provider.zdr. This is the ONLY provider field a buyer may
   // set — everything else (notably max_price) stays server-owned. Part of the
   // normalized body, so zdr and non-zdr responses never share a cache entry.
-  if (input.zdr === true || input.provider?.zdr === true) body.zdr = true;
+  if (input.zdr === true || input.provider?.zdr === true) {
+    // A stealth/cloaked listing is free BECAUSE the provider keeps the data.
+    // Silently dropping zdr here would be the worst outcome: the buyer asked
+    // for zero data retention, believed they got it, and their prompt was
+    // logged anyway. Refuse with the reason and name a tier that can honour it.
+    if (tier.logsPrompts) {
+      throw bad(
+        `"zdr" is not available on ${tier.route.split(" ")[1]}. "${tier.lockedModel || "This tier's model"}" is a stealth ` +
+        "(cloaked) preview listing: the provider serves it at no cost in exchange for RETAINING and reviewing prompts and " +
+        "completions, so zero-data-retention routing cannot be honoured here at any price. Send confidential input to a " +
+        "priced tier instead - /v1/nano/chat/completions ($0.003), /v1/chat/completions ($0.02), /v1/pro/chat/completions " +
+        "($0.10) and /v1/premium/chat/completions ($0.50) all accept zdr:true."
+      );
+    }
+    body.zdr = true;
+  }
   cacheControlPref(input); // shape-validate only (400 on a bad value); the preference is call-time, not in the normalized body
   clampToMargin(body, tier, totalImages);
   return body;
@@ -787,6 +1041,12 @@ export const REASONING_MODELS = [
   { id: "google/gemini-3.6-flash", efforts: ["minimal", "low", "medium", "high"] },
   { id: "anthropic/claude-sonnet-5", efforts: ["low", "medium", "high", "xhigh", "max"] },
   { id: "anthropic/claude-opus-5", efforts: ["low", "medium", "high", "xhigh", "max"] },
+  // stealth/ox-alpha: reasoning.mandatory true, default_effort "max" (live
+  // catalog 2026-08-22). Without this row defaultReasoningFor returns null,
+  // the model reasons at "max" by default and a small budget comes back empty
+  // (measured at 32 tokens). Supported efforts are exactly low/high/max - no
+  // "minimal", no "medium" - so "lowest" resolves to "low".
+  { id: "stealth/ox-alpha", efforts: ["low", "high", "max"] },
 ];
 export function reasoningRowMatches(row, id) {
   const m = String(id || "").toLowerCase();
@@ -873,6 +1133,15 @@ export function upstreamUserId(req) {
     const cred = paymentHeaderOf(req) || (typeof req.header === "function" ? req.header("authorization") : null);
     if (cred) basis = `credential:${cred}`;
   }
+  // A free-trial call has no payer and no credential, and it is the ONLY path
+  // that reaches an upstream without one. Sending no `user` there would leave
+  // the single unauthenticated route as the only one with no abuse isolation,
+  // which is exactly how one caller gets provider policy applied to the whole
+  // account. Fall back to the client address so trial traffic is still scoped.
+  if (!basis) {
+    const ip = typeof req.ip === "string" ? req.ip : (typeof req.header === "function" ? req.header("x-forwarded-for") : null);
+    if (ip) basis = `trial:${String(ip).split(",")[0].trim()}`;
+  }
   if (!basis) return null;
   return `a402:${createHash("sha256").update(basis).digest("hex").slice(0, 32)}`;
 }
@@ -933,6 +1202,20 @@ export function createSseUsageScrubber({ onUsage } = {}) {
   };
 }
 
+/**
+ * Attribution headers for EVERY OpenRouter request we make. OpenRouter files a
+ * call under this app name; without it the call shows up unattributed on the
+ * activity export, which is how upstream spend goes missing from a margin
+ * review. `scripts/test-openrouter-attribution.js` fails if any call site in
+ * src/ reaches openrouter.ai without them.
+ */
+export const OPENROUTER_ATTRIBUTION = Object.freeze({
+  "HTTP-Referer": "https://agent402.tools",
+  "X-Title": "Agent402.Tools x402 gateway",
+  "X-OpenRouter-Title": "Agent402.Tools x402 gateway",
+  "X-OpenRouter-Categories": "personal-agent,api",
+});
+
 export async function fetchOpenRouter(body, { timeoutMs, signal, url = OPENROUTER_URL } = {}) {
   const key = OPENROUTER_KEY();
   if (!key) throw bad("LLM gateway not configured (OPENROUTER_API_KEY unset)", 503);
@@ -942,10 +1225,7 @@ export async function fetchOpenRouter(body, { timeoutMs, signal, url = OPENROUTE
       headers: {
         Authorization: `Bearer ${key}`,
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://agent402.tools",
-        "X-Title": "Agent402.Tools x402 gateway",
-        "X-OpenRouter-Title": "Agent402.Tools x402 gateway",
-        "X-OpenRouter-Categories": "personal-agent,api",
+        ...OPENROUTER_ATTRIBUTION,
       },
       body: JSON.stringify(body),
       signal: signal ?? AbortSignal.timeout(timeoutMs ?? 90_000),
@@ -1380,7 +1660,7 @@ async function rerankHandler(input, req) {
   try {
     res = await fetch(RERANK_URL, {
       method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", "HTTP-Referer": "https://agent402.tools", "X-Title": "Agent402.Tools x402 gateway", "X-OpenRouter-Title": "Agent402.Tools x402 gateway", "X-OpenRouter-Categories": "personal-agent,api" },
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", ...OPENROUTER_ATTRIBUTION },
       body: JSON.stringify({ ...body, ...(user ? { user } : {}) }),
       signal: AbortSignal.timeout(30_000),
     });
@@ -1693,8 +1973,7 @@ async function speechHandler(input) {
           headers: {
             Authorization: `Bearer ${key}`,
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://agent402.tools",
-            "X-Title": "Agent402.Tools x402 gateway",
+            ...OPENROUTER_ATTRIBUTION,
           },
           body: JSON.stringify(body),
           signal: AbortSignal.timeout(60_000),
@@ -1729,6 +2008,19 @@ function countImages(messages) {
 
 function makeHandler(tierSlug) {
   return async (input, req) => {
+    // Availability gate (stealth tiers): the boot probe found the id gone
+    // upstream, so answer BEFORE spending a round-trip on a model that no
+    // longer exists. 503 is >=400, and @x402/express cancels settlement for
+    // any >=400 response - the buyer is not charged.
+    const avail = TIERS[tierSlug].available;
+    if (typeof avail === "function" && !avail()) {
+      throw bad(
+        `"${TIERS[tierSlug].lockedModel || tierSlug}" is no longer served upstream. It was a stealth (cloaked) preview ` +
+        "listing and has been withdrawn by its provider; nothing was charged for this call. GET /v1/models lists every " +
+        "model the gateway currently serves.",
+        503
+      );
+    }
     const body = validateRequest(input, tierSlug);
     // NB: @x402/express settles AFTER this handler and cancels settlement for a
     // >=400 response, so an upstream failure that we let surface as a 5xx is NOT
@@ -1995,6 +2287,44 @@ export const LLM_GATEWAY_TOOLS = [
     handler: makeHandler("v1-chat-grounded"),
   },
   {
+    route: `POST ${OX_ROUTE}`,
+    name: "Chat completions - Ox Alpha (stealth preview, prompts shared)",
+    slug: "v1-chat-ox",
+    category: "llm",
+    price: "$0.002",
+    description:
+      "OpenAI-compatible chat completions served by Ox Alpha (stealth/ox-alpha), a reasoning model with a 1,048,576-token " +
+      "context window. FREE TO USE while the model's own upstream is free: add ?trial=1 and no wallet, key or signup is "
+      + "needed (a per-client allowance, and the response says how much is left). $0.002 per call in USDC over x402 when "
+      + "you want it without an allowance. The model is locked to this route " +
+      "(sending a different model returns a 400 naming its tier). Reasoning is always on; the gateway sets effort \"low\" " +
+      "by default and you can raise it with reasoning.effort (\"low\", \"high\" or \"max\"). Text and image input, up to " +
+      "80,000 chars per request (the HTTP body limit, not the model's context) and 8,000 output tokens. Streaming " +
+      "supported (stream: true). " +
+      "PROMPTS ARE SHARED WITH THE MODEL PROVIDER: this is a stealth (cloaked) preview listing, served at no upstream " +
+      "cost in exchange for the provider RETAINING and reviewing the prompts and completions sent through it. Do not send " +
+      "confidential or personal data on this route; zdr:true is refused here and works on every priced tier instead. " +
+      "The model can also be withdrawn by its provider at any time, at which point this route answers 503 (never a charge).",
+    tags: [...SHARED_TAGS, "reasoning", "long-context", "stealth", "preview", "prompts-shared"],
+    discovery: {
+      bodyType: "json",
+      input: { messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 1024 },
+      inputSchema: {
+        properties: {
+          messages: INPUT_SCHEMA.properties.messages,
+          model: { type: "string", description: `Optional - locked to ${OX_MODEL}; any other value is a 400 naming the tier that serves it.` },
+          max_tokens: { type: "number", description: "Output token cap (default 4096, floor 1024, tier maximum 8000). Reasoning tokens count against it, which is why the floor exists." },
+          reasoning: { type: "object", description: 'Optional - {effort: "low"|"high"|"max"}. Defaults to "low" so the budget is not spent thinking. This model always reasons; "none"/"minimal"/"medium" are not supported by it.' },
+          cache_control: INPUT_SCHEMA.properties.cache_control,
+          max_completion_tokens: INPUT_SCHEMA.properties.max_completion_tokens,
+        },
+        required: ["messages"],
+      },
+      output: { example: { ...EXAMPLE_OUT, model: OX_MODEL } },
+    },
+    handler: makeHandler("v1-chat-ox"),
+  },
+  {
     route: "POST /v1/chat/completions",
     name: "Chat completions (OpenAI-compatible)",
     slug: "v1-chat",
@@ -2147,12 +2477,25 @@ const ADVERTISED_MAX_INPUT_CHARS = 85_000;
 export function modelsList() {
   const data = [];
   for (const [slug, tier] of Object.entries(TIERS)) {
+    // A tier whose upstream model has been withdrawn stops being advertised
+    // here within seconds of boot (see probeOxAlphaAvailability) - /v1/models
+    // is the machine-readable surface agents pick models from, and pointing
+    // one at a dead id is the exact class the live-catalog CI guard exists for.
+    if (typeof tier.available === "function" && !tier.available()) continue;
     for (const p of tier.prefixes) {
       data.push({
         id: p.endsWith("/") ? `${p}*` : p,
         object: "model",
         owned_by: p.split("/")[0],
-        x402: { tier: slug, endpoint: tier.route.split(" ")[1], priceUsd: tier.price, maxTokens: tier.maxTokens, maxInputChars: Math.min(tier.maxInputChars, ADVERTISED_MAX_INPUT_CHARS) },
+        x402: {
+          tier: slug, endpoint: tier.route.split(" ")[1], priceUsd: tier.price, maxTokens: tier.maxTokens,
+          maxInputChars: Math.min(tier.maxInputChars, ADVERTISED_MAX_INPUT_CHARS),
+          // Disclosure rides on the machine surface too, not only in prose:
+          // an agent choosing a model must be able to SEE that this one shares
+          // prompts and cannot be routed zero-data-retention.
+          ...(tier.logsPrompts ? { dataRetention: "provider-retains-prompts", zdr: false } : {}),
+          ...(tier.stealth ? { stealth: true } : {}),
+        },
       });
     }
   }

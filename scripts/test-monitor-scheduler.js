@@ -11,7 +11,7 @@
 //   - failure = backoff, no email, retried later; per-tick paid cap defers;
 //   - canceled subs are not processed; reports are served by id; the shared
 //     lock makes a second owner skip; state persists across instances.
-import { createMonitorScheduler, describeDomainChanges, DOMAIN_CHECK_MS, DOMAIN_FULL_MS, MIN_FULL_GAP_MS, MAX_FULL_PER_TICK, LOCK_STALE_MS } from "../src/monitor-scheduler.js";
+import { createMonitorScheduler, describeDomainChanges, DOMAIN_CHECK_MS, DOMAIN_FULL_MS, MIN_FULL_GAP_MS, MAX_FULL_PER_TICK, LOCK_STALE_MS, MAX_FULL_PER_SUB_30D } from "../src/monitor-scheduler.js";
 import { MONITOR_PRODUCTS } from "../src/stripe-subscriptions.js";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
@@ -215,7 +215,7 @@ for (let i = 0; i < 12; i++) {
   fulls += rr.full || 0;
 }
 const capRow = capSch.status().subs.find((x) => x.subId === "sub_c");
-ok(fulls === 8 && capRow.capReached === true && capRow.fullsLast30d === 8, "a flapping target is capped at 8 paid runs per 30 days; further changes are alert-only");
+ok(fulls === MAX_FULL_PER_SUB_30D && capRow.capReached === true && capRow.fullsLast30d === MAX_FULL_PER_SUB_30D, `a flapping target is capped at ${MAX_FULL_PER_SUB_30D} paid runs per 30 days; further changes are alert-only`);
 active.delete("sub_c");
 
 // --- permanent failure notice (once) -----------------------------------------------------------

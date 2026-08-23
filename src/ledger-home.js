@@ -53,6 +53,41 @@ function externalLeaderboardRows(leaderboardSnapshot, limit = 6) {
     }));
 }
 
+// Capability chips - a concrete row of what the catalog answers, each chip a
+// direct internal link to that tool's own page (the pages search engines and
+// LLM crawlers actually land on). Labels are ours; every PRICE is read from
+// the live catalog, never typed here: a hand-typed price on the homepage is
+// the same rot class test-docs-truth exists to catch in the docs. A slug the
+// running server does not serve (env-gated kit, self-host without a key)
+// simply drops its chip rather than linking to a 404.
+const CAPABILITY_CHIPS = [
+  ["perp-funding", "Perp funding rates"],
+  ["perp-markets", "Every listed perp"],
+  ["crypto-options-chain", "Options chain"],
+  ["defi-yields", "DeFi yield screener"],
+  ["stablecoins", "Stablecoin supply"],
+  ["sol-token-safety", "Solana token safety"],
+  ["sol-token-report", "Solana risk report"],
+  ["crypto-market-pulse", "Crypto market pulse"],
+  ["coin-profile", "Coin profile"],
+  ["asset-transfers", "Wallet transfers"],
+  ["site-crawl", "Crawl a site to markdown"],
+  ["v1-images-fast", "Text to image"],
+  ["v1-videos", "Text to video"],
+];
+
+function capabilityChipsHtml(tools) {
+  const bySlug = new Map(tools.map((t) => [t.slug, t]));
+  return CAPABILITY_CHIPS
+    .map(([slug, label]) => {
+      const t = bySlug.get(slug);
+      if (!t) return "";
+      return `<a href="/tools/${esc(slug)}" class="hm-chip"><span style="color:var(--ink);">${esc(label)}</span><span style="color:var(--faint);">${esc(t.price)}</span></a>`;
+    })
+    .filter(Boolean)
+    .join("");
+}
+
 export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, skillPacks) {
   const tools = toolList(catalog);
   const count = tools.length;
@@ -67,6 +102,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   const rails = railsByVolume(stats);
   const attributed = rails.reduce((sum, r) => sum + r.n, 0);
   const board = externalLeaderboardRows(leaderboardSnapshot);
+  const chipsHtml = capabilityChipsHtml(tools);
 
   const canonical = baseUrl + "/";
   const title = `Agent402.Tools - 500+ pay-per-call tools for AI agents, finished reports by card, the open x402 + MPP index`;
@@ -74,7 +110,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
 
   const orgLd = { "@type": "Organization", "@id": `${baseUrl}/#organization`, name: "Agent402", alternateName: "Agent402.Tools", url: baseUrl, knowsAbout: ["Agentic Finance", "AIFI", "x402", "Machine Payments Protocol (MPP)", "agentic payments", "AI agents"], logo: { "@type": "ImageObject", url: `${baseUrl}/logo.png` }, email: "mike@agent402.tools", parentOrganization: { "@type": "Organization", name: "Havok Holdings LLC" }, sameAs: ["https://github.com/MikeyPetrillo/Agent402", "https://x.com/Agent402Tools", "https://www.npmjs.com/package/agent402-mcp", "https://www.npmjs.com/package/agent402-client", "https://www.npmjs.com/package/agent402-tollbooth", "https://pypi.org/project/agent402-langchain/", "https://www.x402scan.com/server/07eb3020-932a-436d-a739-557b6e47101d"] };
   const websiteLd = { "@type": "WebSite", "@id": `${baseUrl}/#website`, name: "Agent402.Tools", alternateName: "Agent402 - applied layer of Agentic Finance", url: baseUrl, publisher: { "@id": `${baseUrl}/#organization` }, description: "The applied layer of Agentic Finance: open index, Smart Order Router and on-chain ranking for agents paying and getting paid over x402 and MPP.", about: { "@type": "DefinedTerm", name: "Agentic Finance", alternateName: "AIFI", url: `${baseUrl}/agentic-finance` }, potentialAction: { "@type": "SearchAction", target: `${baseUrl}/api/find?q={search_term_string}`, "query-input": "required name=search_term_string" } };
-  const appLd = { "@type": "SoftwareApplication", "@id": `${baseUrl}/#app`, name: "Agent402", url: baseUrl, applicationCategory: "DeveloperApplication", operatingSystem: RAILS.map((r) => r.name).join(", "), license: "https://www.gnu.org/licenses/agpl-3.0.html", description: `Open-source, self-hostable Agentic Finance server for x402 + MPP: ${fmtNum(count)} deterministic pay-per-call tools and ${packCount}+ skill packs for AI agents, plus an open index, Smart Order Router and on-chain seller leaderboard.`, offers: { "@type": "AggregateOffer", offerCount: String(count), lowPrice: "0.001", highPrice: "19", priceCurrency: "USD", description: "Per-call micropayments in USDC on eleven chains plus USDG on Robinhood Chain, free with proof-of-work, or by card: finished reports $5 to $39, prepaid credits from $20" } };
+  const appLd = { "@type": "SoftwareApplication", "@id": `${baseUrl}/#app`, name: "Agent402", url: baseUrl, applicationCategory: "DeveloperApplication", operatingSystem: RAILS.map((r) => r.name).join(", "), license: "https://www.gnu.org/licenses/agpl-3.0.html", description: `Open-source, self-hostable Agentic Finance server for x402 + MPP: ${fmtNum(count)} deterministic pay-per-call tools and ${packCount}+ skill packs for AI agents, plus an open index, Smart Order Router and on-chain seller leaderboard.`, offers: { "@type": "AggregateOffer", offerCount: String(count), lowPrice: "0.001", highPrice: "1.50", priceCurrency: "USD", description: "Per-call micropayments in USDC on eleven chains plus USDG on Robinhood Chain, free with proof-of-work, or by card: finished reports $1 to $2, monitors $3 a month, prepaid credits from $20" } };
   const datasetLd = { "@type": "Dataset", "@id": `${baseUrl}/#leaderboard`, name: "x402 seller leaderboard - Base USDC settled volume", description: "Hourly on-chain snapshot ranking every indexed x402 seller by Base USDC settled volume: calls settled, total USD, unique buyers per seller.", creator: { "@id": `${baseUrl}/#organization` }, license: "https://www.gnu.org/licenses/agpl-3.0.html", isAccessibleForFree: true, distribution: { "@type": "DataDownload", encodingFormat: "application/json", contentUrl: `${baseUrl}/api/leaderboard` } };
   const surfacesLd = { "@type": "ItemList", "@id": `${baseUrl}/#surfaces`, name: "Free x402 discovery primitives", itemListElement: [
     { "@type": "ListItem", position: 1, name: "Find - resolve a task to the best-matching tool", url: `${baseUrl}/api/find` },
@@ -86,7 +122,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
     { q: "What is agentic finance?", a: "Agentic finance (AIFI for short) is software agents transacting on their own: discovering a service, paying per request from a non-custodial wallet over open protocols such as x402 and MPP, receiving a verifiable receipt, and earning per request in return. Agent402 is its applied layer: the tools agents buy, the index and Smart Order Router that find and pay the best seller, the tollbooth that lets any site earn from agents, and on-chain transparency for all of it. Full explainer at /agentic-finance." },
     { q: "How do I sell my API for USDC per call?", a: "Register your origin in the \"Sell into the agent economy\" section above, or read the full seller guide at /sell for pricing, routing and health details. If your site is not x402-native yet, agent402-tollbooth is an open pay-per-crawl gate you can install instead." },
     { q: "Do I need a wallet to try it?", a: "No. The pure-CPU tools are payable in compute: your own machine solves a single-use, slug-scoped sha256 proof-of-work instead of paying, which costs about a second of CPU. A wallet only matters for tools that cost real money to run, and those quote their price in the 402 challenge before anything is charged." },
-    { q: "Can I pay by card instead of crypto?", a: "Yes. Finished, cited reports at /reports ($3 to $19, auto-refunded if a report fails), monitors at /monitors ($5 a month, cancel anytime), and prepaid credits at /credits: buy $20, $50 or $100 once, get a key, and call any tool with Authorization: Bearer a402_..., debited only when a call succeeds. Agents keep paying per call in USDC over x402 or MPP - same endpoints, same price list." },
+    { q: "Can I pay by card instead of crypto?", a: "Yes. Finished, cited reports at /reports ($1, or $2 for the deepest three, auto-refunded if a report fails), monitors at /monitors ($3 a month, cancel anytime), and prepaid credits at /credits: buy $20, $50 or $100 once, get a key, and call any tool with Authorization: Bearer a402_..., debited only when a call succeeds. The card price includes payment processing: Stripe charges 2.9% + $0.30 per charge, so under about a dollar the fee costs more than the report. An agent paying per call in USDC over x402 or MPP pays the lower tool price for the same report, $0.20 to $1.10." },
     { q: "What is a report, and what if it fails?", a: "A report is a finished deliverable, not a chat answer: live data (SEC EDGAR, openFDA, your domain's DNS and TLS, grounded web search) composed and synthesized with every claim cited, plus a downloadable data appendix and PDF. Payment is verified before anything is generated; if generation fails after payment, the card is refunded automatically and the x402 settlement is cancelled." },
     { q: "Is it open source, and can I run my own?", a: "Yes. The server is AGPL-3.0 and self-hostable; the client SDK, MCP connector and tollbooth packages are MIT. Clone it and run FREE_MODE=true npm start for all tools as an HTTP API plus MCP, with no payments and no keys." },
   ];
@@ -203,11 +239,11 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
       <h2 class="hm-h2" style="font-size:30px;">A finished report, not a chat answer.</h2>
       <p class="hm-lede" style="margin:0;font-size:15.5px;">Due-diligence dossier, 13F fund report, domain security audit, deep research. Every claim cited to a live source, PDF and data appendix included, refunded if it fails. Or subscribe and get the re-run in your inbox when something moves.</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;">
-        <a href="/reports" class="hm-chip" style="font-family:var(--font-body);font-size:13px;border-radius:999px;">Dossier $9</a>
-        <a href="/reports" class="hm-chip" style="font-family:var(--font-body);font-size:13px;border-radius:999px;">Fund 13F $4</a>
-        <a href="/reports" class="hm-chip" style="font-family:var(--font-body);font-size:13px;border-radius:999px;">Domain audit $3</a>
-        <a href="/reports" class="hm-chip" style="font-family:var(--font-body);font-size:13px;border-radius:999px;">Research $3</a>
-        <a href="/monitors" class="hm-chip" style="font-family:var(--font-body);font-size:13px;border-radius:999px;">Monitor $5/mo</a>
+        <a href="/reports" class="hm-chip" style="font-family:var(--font-body);font-size:13px;border-radius:999px;">Dossier $1</a>
+        <a href="/reports" class="hm-chip" style="font-family:var(--font-body);font-size:13px;border-radius:999px;">Fund 13F $1</a>
+        <a href="/reports" class="hm-chip" style="font-family:var(--font-body);font-size:13px;border-radius:999px;">Domain audit $1</a>
+        <a href="/reports" class="hm-chip" style="font-family:var(--font-body);font-size:13px;border-radius:999px;">Deep research $1</a>
+        <a href="/monitors" class="hm-chip" style="font-family:var(--font-body);font-size:13px;border-radius:999px;">Monitor $3/mo</a>
         <a href="/credits" class="hm-chip" style="font-family:var(--font-body);font-size:13px;border-radius:999px;">Credits for any tool, from $20</a>
       </div>
       <a href="/reports" style="margin-top:6px;font-size:14.5px;font-weight:500;color:var(--ink);text-decoration:none;">Browse reports →</a>
@@ -219,7 +255,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
       <div style="font-family:var(--font-mono);display:flex;flex-direction:column;border:1px solid rgba(255,255,255,.08);border-radius:12px;overflow:hidden;font-size:12.5px;">
         <a href="/api/find?q=whois" style="display:flex;justify-content:space-between;padding:11px 16px;border-bottom:1px solid rgba(255,255,255,.07);text-decoration:none;color:var(--on-dark2);"><span>GET /api/find?q=</span><span style="color:var(--accent-lit);">free</span></a>
         <a href="/tools" style="display:flex;justify-content:space-between;padding:11px 16px;border-bottom:1px solid rgba(255,255,255,.07);text-decoration:none;color:var(--on-dark2);"><span>GET /api/&lt;tool&gt;</span><span style="color:var(--accent-lit);">from $0.001</span></a>
-        <a href="/tools/dossier" style="display:flex;justify-content:space-between;padding:11px 16px;border-bottom:1px solid rgba(255,255,255,.07);text-decoration:none;color:var(--on-dark2);"><span>POST /v1/dossier</span><span style="color:var(--accent-lit);">$9</span></a>
+        <a href="/tools/dossier" style="display:flex;justify-content:space-between;padding:11px 16px;border-bottom:1px solid rgba(255,255,255,.07);text-decoration:none;color:var(--on-dark2);"><span>POST /v1/dossier</span><span style="color:var(--accent-lit);">$0.55</span></a>
         <a href="/guides/smart-order-router" style="display:flex;justify-content:space-between;padding:11px 16px;text-decoration:none;color:var(--on-dark2);"><span>POST /api/route/execute</span><span style="color:var(--accent-lit);">$0.01 + seller</span></a>
       </div>
       <div style="display:flex;gap:18px;font-family:var(--font-mono);font-size:12.5px;color:var(--dk-muted);flex-wrap:wrap;"><span title="POST-only JSON-RPC endpoint - not a browsable page">/mcp</span><a href="/api/pricing" style="color:var(--dk-muted);text-decoration:none;">/api/pricing</a><a href="/playground" style="color:var(--dk-muted);text-decoration:none;">playground · free</a></div>
@@ -235,6 +271,15 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
     <div style="display:flex;flex-direction:column;gap:4px;"><span style="font-family:var(--font-mono);font-size:26px;letter-spacing:-.02em;color:var(--accent);">0%</span><span style="font-size:13px;color:var(--faint);">deducted from sellers · open source</span></div>
   </div>
 </section>
+
+${chipsHtml ? `<section style="max-width:1180px;margin:0 auto;padding:34px 30px 0;">
+  <div style="display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:14px;">
+    <span class="hm-kicker" style="margin:0;">$ GET /api/find?q=funding+rate</span>
+    <span style="font-size:13.5px;color:var(--muted);">Live derivatives, DeFi, Solana and market data as deterministic JSON. Flat price per call, no exchange account and no data-vendor contract.</span>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:10px;">${chipsHtml}</div>
+  <div style="margin-top:14px;font-family:var(--font-mono);font-size:13px;"><a href="/tools/category/crypto" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--ink);padding-bottom:1px;">all crypto and DeFi tools →</a></div>
+</section>` : ""}
 
 <section style="max-width:1180px;margin:0 auto;padding:64px 30px 0;">
   <div class="hm-kicker">$ GET /api/pow/challenge?slug=hash</div>

@@ -122,7 +122,12 @@ export function validateMessagesRequest(input, tierSlug) {
     if (!model) throw bad(`"model" is required (e.g. anthropic/claude-sonnet-5). This tier serves: ${tier.prefixes?.slice(0, 6).join(", ") || "see /v1/models"}`);
     if (!tierAllows(tierSlug, model)) {
       const home = tierFor(model);
-      throw bad(home && home !== tierSlug ? `"${model}" is served on ${TIERS[home].route.split(" ")[1].replace(/\/chat\/completions$/, "/messages")} (${home})` : `"model" ${model} is not served on this tier - GET /v1/models lists every model and its tier`);
+      // Not every chat tier has a Messages twin (MESSAGES_PATH_BY_TIER is an
+      // explicit map, not a derivation) - a tier added to TIERS alone would
+      // otherwise be advertised here at a path that does not exist. Point at
+      // the tier's real chat route in that case.
+      const homePath = home ? (MESSAGES_PATH_BY_TIER[home] || TIERS[home].route.split(" ")[1]) : null;
+      throw bad(home && home !== tierSlug ? `"${model}" is served on ${homePath} (${home})` : `"model" ${model} is not served on this tier - GET /v1/models lists every model and its tier`);
     }
   }
   if (!Array.isArray(input.messages) || input.messages.length === 0) throw bad('"messages" must be a non-empty array');

@@ -402,7 +402,7 @@ export const B2B_ENRICH_TOOLS = [
     tags: ["b2b", "enrichment", "email", "hunter", "finder", "contact"],
     discovery: {
       bodyType: "json",
-      input: { domain: "stripe.com", first_name: "Patrick", last_name: "Collison" },
+      input: { domain: "stripe.com", first_name: "Jane", last_name: "Doe" },
       inputSchema: {
         properties: {
           domain: { type: "string", description: "Company domain, e.g. stripe.com." },
@@ -417,9 +417,9 @@ export const B2B_ENRICH_TOOLS = [
           source: "hunter",
           fetchedAt: EXAMPLE_AT,
           domain: "stripe.com",
-          firstName: "Patrick",
-          lastName: "Collison",
-          email: "patrick@stripe.com",
+          firstName: "Jane",
+          lastName: "Doe",
+          email: "jane@example.com",
           score: 97,
           position: "CEO",
           company: "Stripe",
@@ -593,7 +593,7 @@ export const B2B_ENRICH_TOOLS = [
           numPages: 28,
           partialResultsOnly: false,
           count: 1,
-          people: [{ id: "5f1a...", name: "Jane Doe", firstName: "Jane", lastName: "Doe", title: "Engineering Manager", headline: "Engineering Manager at Stripe", seniority: "manager", departments: ["engineering"], functions: ["engineering"], city: "Seattle", state: "Washington", country: "United States", linkedinUrl: "https://www.linkedin.com/in/janedoe", emailStatus: "verified", organization: { id: "5e66...", name: "Stripe", domain: "stripe.com", websiteUrl: "http://www.stripe.com", linkedinUrl: "http://www.linkedin.com/company/stripe", industry: "financial services", estimatedEmployees: 8000 } }],
+          people: [{ id: "5f1a...", name: "Jane Doe", firstName: "Jane", lastName: "Doe", title: "Engineering Manager", headline: "Engineering Manager at Stripe", seniority: "manager", departments: ["engineering"], functions: ["engineering"], city: "Seattle", state: "Washington", country: "United States", linkedinUrl: "https://www.linkedin.com/in/example-user", emailStatus: "verified", organization: { id: "5e66...", name: "Stripe", domain: "stripe.com", websiteUrl: "http://www.stripe.com", linkedinUrl: "http://www.linkedin.com/company/stripe", industry: "financial services", estimatedEmployees: 8000 } }],
         },
       },
     },
@@ -659,7 +659,7 @@ export const B2B_ENRICH_TOOLS = [
           fetchedAt: EXAMPLE_AT,
           domain: "stripe.com",
           organization: {
-            id: "5e66...", name: "Stripe", domain: "stripe.com", websiteUrl: "http://www.stripe.com", linkedinUrl: "http://www.linkedin.com/company/stripe", twitterUrl: "https://twitter.com/stripe", crunchbaseUrl: null,
+            id: "5e66...", name: "Stripe", domain: "stripe.com", websiteUrl: "http://www.stripe.com", linkedinUrl: "http://www.linkedin.com/company/stripe", twitterUrl: "https://twitter.com/exampleuser", crunchbaseUrl: null,
             foundedYear: 2010, industry: "financial services", industries: ["financial services"], keywords: ["payments", "developer tools"], shortDescription: "Stripe builds financial infrastructure for the internet.",
             estimatedEmployees: 8000, location: { city: "South San Francisco", state: "California", country: "United States" },
             annualRevenue: 16000000000, annualRevenuePrinted: "16B", totalFunding: 8700000000, totalFundingPrinted: "8.7B", latestFundingStage: "Series I", latestFundingRoundDate: "2023-03-15T00:00:00.000+00:00",
@@ -688,7 +688,7 @@ export const B2B_ENRICH_TOOLS = [
     tags: ["b2b", "enrichment", "person", "apollo", "email", "contact", "match"],
     discovery: {
       bodyType: "json",
-      input: { first_name: "Patrick", last_name: "Collison", domain: "stripe.com" },
+      input: { first_name: "Jane", last_name: "Doe", domain: "stripe.com" },
       inputSchema: {
         properties: {
           email: { type: "string", description: "Work email to match (alternative to name + domain)." },
@@ -703,7 +703,7 @@ export const B2B_ENRICH_TOOLS = [
           source: "apollo",
           fetchedAt: EXAMPLE_AT,
           matched: true,
-          person: { id: "5f1a...", name: "Patrick Collison", firstName: "Patrick", lastName: "Collison", title: "CEO", headline: "CEO at Stripe", seniority: "c_suite", departments: ["c_suite"], functions: ["entrepreneurship"], city: "San Francisco", state: "California", country: "United States", linkedinUrl: "https://www.linkedin.com/in/patrickcollison", emailStatus: "verified", email: "patrick@stripe.com", organization: { id: "5e66...", name: "Stripe", domain: "stripe.com", websiteUrl: "http://www.stripe.com", linkedinUrl: "http://www.linkedin.com/company/stripe", industry: "financial services", estimatedEmployees: 8000 } },
+          person: { id: "5f1a...", name: "Jane Doe", firstName: "Jane", lastName: "Doe", title: "CEO", headline: "CEO at Stripe", seniority: "c_suite", departments: ["c_suite"], functions: ["entrepreneurship"], city: "San Francisco", state: "California", country: "United States", linkedinUrl: "https://www.linkedin.com/in/example-user", emailStatus: "verified", email: "jane@example.com", organization: { id: "5e66...", name: "Stripe", domain: "stripe.com", websiteUrl: "http://www.stripe.com", linkedinUrl: "http://www.linkedin.com/company/stripe", industry: "financial services", estimatedEmployees: 8000 } },
         },
       },
     },

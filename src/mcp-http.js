@@ -689,7 +689,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           return mcpJsonResult({
             connector: "hosted free tier - no wallet is held on this connector (authless)",
             credits: { how: "prepaid card credits: buy a pack at /credits, then Authorization: Bearer a402_<key> on any paid HTTP route, or AGENT402_CREDITS_KEY on the agent402-mcp npm server; the list price is held before the call and debited only on success", buy: `${baseUrl}/credits`, balance: `${baseUrl}/api/credits/balance` },
-            reports: { what: "finished, cited report products with a data appendix - research $3-$12, dossier $9/$19, fund 13F $4/$9, domain audit $3/$5, FDA recall $3, insider flow $4, market brief $7, token risk $3/$6 - same endpoints over x402/MPP or by card", human: `${baseUrl}/reports`, monitors: `${baseUrl}/monitors` },
+            reports: { what: "finished, cited report products with a data appendix - research $0.35/$0.65/$1.10, dossier $0.55/$0.95, ticker pack $0.75, fund 13F $0.25/$0.50, SEC filing $0.25, domain audit $0.20/$0.30, FDA recall $0.20, insider flow $0.25, market brief $0.35, token brief $0.35, token risk $0.30/$0.60 - the same endpoints over x402/MPP or by card", human: `${baseUrl}/reports`, humanPricing: "people pay $1 by card, or $2 for research max, dossier max and the ticker pack; the card price includes payment processing (2.9% + $0.30 a charge), so an agent paying per call pays the lower tool price above for the same report", monitors: `${baseUrl}/monitors`, monitorPricing: "$3 a month per target" },
             freeTier: {
               pureCpuToolsFree: freeCount,
               how: "pure-CPU tools run free here (rate-limited); wallet-only tools are payable on this connector over MPP (JSON-RPC -32042 carries the challenges; send the credential in _meta[\"org.paymentauth/credential\"], receipt returns in _meta[\"org.paymentauth/receipt\"] - mppx's McpClient.wrap() handles it) or via the npm server with a wallet",
@@ -700,7 +700,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
               mpp: `every paid endpoint also accepts MPP (Machine Payments Protocol, the Payment HTTP auth scheme): the same 402 carries a WWW-Authenticate: Payment challenge, an mppx client pays out of the box, settling USDC on Base/Celo or USDC.e (and PathUSD) natively on Tempo - see ${baseUrl}/what-is-mpp`,
               rails: RAILS_PAREN,
               setup: "run the agent402-mcp npm server: `npx agent402-mcp` with AGENT_KEY=0x<private key> for EVM (USDC on Base/Polygon/Arbitrum, USDG on Robinhood via AGENT402_NETWORKS) and/or SOLANA_AGENT_KEY=<base58 secret> for Solana. No signup, no API key.",
-              prices: "most tools $0.001–$0.02 per call, LLM gateway tiers $0.002–$0.50, multi-tool skill packs up to $1.50, report products $3–$19 - see each tool's exact price in catalog.search results",
+              prices: "most tools $0.001–$0.02 per call, LLM gateway tiers $0.002–$0.50, multi-tool skill packs up to $1.50, report products $0.20–$1.10 - see each tool's exact price in catalog.search results",
               llmGateway: `the /v1 OpenAI-compatible endpoints (chat nano $0.003, auto $0.01, embeddings $0.002) settle the same way - point any OpenAI SDK at ${baseUrl}/v1 through an x402-paying fetch; no API key, the wallet is the account`,
             },
             spendControls: { perCall: "AGENT402_MAX_PER_CALL caps any single call", totalBudget: "AGENT402_BUDGET caps cumulative spend for the session" },

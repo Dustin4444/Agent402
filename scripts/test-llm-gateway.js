@@ -98,10 +98,10 @@ await gatewayTool.handler({ model: "gpt-4o-mini", messages: msg1(), max_tokens: 
 const list = modelsList();
 ok(list.object === "list" && Array.isArray(list.data) && list.data.length > 10, "models list has OpenAI shape");
 ok(list.data.every((m) => m.object === "model" && m.x402?.priceUsd > 0 && m.x402?.endpoint?.startsWith("/v1")), "every model entry carries x402 tier metadata");
-ok(new Set(list.data.map((m) => m.x402.tier)).size === 9, "all five chat tiers + grounded + embeddings + images + speech represented");
+ok(new Set(list.data.map((m) => m.x402.tier)).size === 10, "all five chat tiers + grounded + ox + embeddings + images + speech represented");
 
 // Catalog invariants: wallet-only-priced routes at OpenAI wire paths.
-ok(LLM_GATEWAY_TOOLS.length === 10, "ten gateway routes (five chat tiers + grounded, embeddings, rerank, images, speech)");
+ok(LLM_GATEWAY_TOOLS.length === 11, "eleven gateway routes (five chat tiers + grounded + ox, embeddings, rerank, images, speech)");
 
 // Nano tier — priced for loops; nano models keep working on the base tier
 // (drop-in callers can overpay) but tierFor leads with the cheapest home.
@@ -293,7 +293,7 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   ok(promptCacheGet(k3) === null, "different key misses");
 
   ok(GATEWAY_TIER_BY_PATH["/v1/nano/chat/completions"] === "v1-chat-nano", "path -> tier map covers nano");
-  ok(Object.keys(GATEWAY_TIER_BY_PATH).length === 6, "path -> tier map covers the five tiers + grounded");
+  ok(Object.keys(GATEWAY_TIER_BY_PATH).length === 7, "path -> tier map covers the five tiers + grounded + ox");
 
   // The handler writes the cache ONLY when the buyer opted in.
   process.env.OPENROUTER_API_KEY = "test-key";

@@ -14,8 +14,20 @@
 // It FAILS on network error rather than skipping: a skipped guard is the same
 // silent green that let every one of those ship.
 import {
-  TIERS, AUTO_RANKINGS, SPEECH_MODELS, MODEL_COST, FLEX_MODELS, REASONING_MODELS, reasoningRowMatches, costFor, tierFor, tierAllows,
+  TIERS, AUTO_RANKINGS, SPEECH_MODELS, MODEL_COST, FLEX_MODELS, REASONING_MODELS, reasoningRowMatches, costFor, tierFor, tierAllows, STEALTH_MODEL_IDS,
 } from "../src/tools/llm-gateway-kit.js";
+
+// STEALTH listings (stealth/ox-alpha) are the ONE id class this guard must not
+// fail on. A cloaked model is published under a pseudonym while a lab collects
+// traffic and is DELETED without notice the moment it is unmasked - that is
+// the expected end of its life, not a defect in our tables, and failing CI on
+// it would block every unrelated change on somebody else's release schedule.
+// Losing one is still reported loudly (and production drops the tier on its
+// own - see probeOxAlphaAvailability in llm-gateway-kit.js), just not as a
+// failure. Nothing else gets this treatment: every other dead id is a bug.
+const STEALTH = new Set(STEALTH_MODEL_IDS);
+const isStealth = (p) => STEALTH.has(p);
+const warn = (m) => console.log(`WARN - ${m}`);
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
@@ -50,7 +62,12 @@ const resolves = (p) => p.endsWith("/")
   ? [...ids].some((id) => id.startsWith(p))
   : ids.has(p) || [...ids].some((id) => id.startsWith(p + "-") || id.startsWith(p + ":"));
 for (const [slug, tier] of Object.entries(TIERS)) {
-  const dead = tier.prefixes.filter((p) => !resolves(p));
+  const allDead = tier.prefixes.filter((p) => !resolves(p));
+  const deadStealth = allDead.filter(isStealth);
+  const dead = allDead.filter((p) => !isStealth(p));
+  for (const p of deadStealth) {
+    warn(`${slug}: stealth listing ${p} is GONE from the live catalog - EXPECTED for a cloaked model. Not a CI failure. Production drops the tier at boot (503 + off /v1/models, never a charge); set OX_ALPHA_ENABLED=off to remove the route, or repoint the tier at the unmasked id.`);
+  }
   ok(dead.length === 0, `${slug}: every advertised model id resolves upstream${dead.length ? ` (dead: ${dead.join(", ")})` : ""}`);
   const deadFb = (tier.fallbacks || []).filter((m) => !ids.has(m));
   ok(deadFb.length === 0, `${slug}: every failover link exists upstream${deadFb.length ? ` (dead: ${deadFb.join(", ")})` : ""}`);
@@ -122,6 +139,10 @@ for (const id of FLEX_MODELS) {
 for (const row of REASONING_MODELS) {
   const label = row.id || row.prefix;
   const matches = models.filter((m) => reasoningRowMatches(row, m.id));
+  if (matches.length === 0 && isStealth(label)) {
+    warn(`reasoning: stealth listing ${label} is gone from the live catalog - EXPECTED, not a CI failure (see above).`);
+    continue;
+  }
   ok(matches.length > 0, `reasoning: ${label} matches at least one live model`);
   for (const m of matches) {
     const r = m.reasoning || {};

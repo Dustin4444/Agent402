@@ -54,6 +54,13 @@ const E2B_ROUTES = new Set([
 const skipE2b = process.env.E2B_LIVE_TEST !== "1";
 
 const NETWORK = new Set([
+  "/v1/images/fast", "/v1/images/pro", "/v1/videos/generations",  // llm-images-fast-kit.js
+  "/api/asset-transfers", "/api/token-balances", "/api/token-allowance", "/api/tx-receipt", "/api/block-receipts", "/api/token-price-history",  // alchemy-data-kit.js
+  "/api/fc-cast-search", "/api/fc-channel-feed", "/api/fc-trending", "/api/fc-user-casts", "/api/fc-cast", "/api/fc-cast-replies", "/api/fc-channel", "/api/fc-user-search", "/api/fc-cast-metrics",  // farcaster-social-kit.js
+  "/api/coin-price-by-contract", "/api/coin-profile", "/api/coin-history", "/api/coin-ohlc", "/api/coin-market-chart-range", "/api/coin-categories", "/api/global-defi", "/api/exchanges", "/api/exchange-tickers", "/api/exchange-rates", "/api/coin-search", "/api/coins-list",  // crypto-markets-kit.js
+  "/api/defi-yields", "/api/defi-yield-history", "/api/defi-protocols", "/api/defi-protocol", "/api/defi-chains", "/api/defi-chain-tvl-history", "/api/stablecoins", "/api/stablecoin-supply-history", "/api/defi-fees", "/api/defi-dex-volume",  // defi-kit.js
+  "/api/crypto-news", "/api/crypto-indicators", "/api/crypto-market-pulse",  // crypto-signals-kit.js
+  "/api/site-map", "/api/site-crawl",  // crawl-kit.js
   "/api/perp-markets", "/api/perp-funding", "/api/perp-funding-screener", "/api/perp-open-interest", "/api/perp-klines", "/api/perp-orderbook", "/api/perp-basis",
   "/api/options-summary", "/api/crypto-options-chain", "/api/options-ticker", "/api/options-volume",
   "/api/sol-token-safety", "/api/sol-token-report", "/api/sol-token-holders", "/api/sol-token-pairs", "/api/sol-token-search", "/api/sol-trending", "/api/sol-price", "/api/sol-swap-quote", "/api/sol-token-lookup",
@@ -257,7 +264,7 @@ const NETWORK = new Set([
   "/api/llm", "/api/llm-pro", "/api/llm-premium",
   // OpenAI-compatible gateway: every call hits OpenRouter upstream. Returns
   // 503 without OPENROUTER_API_KEY — same tolerance as the LLM proxy.
-  "/v1/nano/chat/completions", "/v1/auto/chat/completions", "/v1/grounded/chat/completions", "/v1/chat/completions", "/v1/pro/chat/completions", "/v1/premium/chat/completions",
+  "/v1/nano/chat/completions", "/v1/auto/chat/completions", "/v1/grounded/chat/completions", "/v1/ox/chat/completions", "/v1/chat/completions", "/v1/pro/chat/completions", "/v1/premium/chat/completions",
   // Embeddings wire path: hits OpenAI upstream. 503 without OPENAI_API_KEY —
   // same tolerance as the LLM proxy.
   "/v1/embeddings",
@@ -274,7 +281,10 @@ const NETWORK = new Set([
   "/v1/domain-audit", "/v1/domain-audit/pro",
   // recall-report (openFDA + synthesis, 503 without OPENROUTER_API_KEY) and the
   // deterministic ipo-report (EDGAR full-text search) - live upstreams.
-  "/v1/recall-report", "/v1/ipo-report", "/v1/insider-report", "/v1/research/market-brief",
+  "/v1/token-brief", "/v1/filing-report", "/v1/recall-report", "/v1/ipo-report", "/v1/insider-report", "/v1/research/market-brief",
+  // ticker-pack: the bundle - runs the dossier + insider composites in-process
+  // plus live SEC EDGAR reads; 503 without OPENROUTER_API_KEY, same tolerance.
+  "/v1/ticker-pack",
   // token-risk composites: Blockscout x402 buys + synthesis; 503 without the
   // upstream-buyer wallet / OPENROUTER_API_KEY, same NETWORK tolerance.
   "/v1/token-risk", "/v1/token-risk/pro",

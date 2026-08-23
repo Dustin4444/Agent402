@@ -32,7 +32,7 @@ Agent402 accepts USDC payments on Stellar via the x402 protocol through an x402 
 - **Open source** - https://github.com/MikeyPetrillo/Agent402
 - **Buyer SDK** - `agent402-client` (npm) with auto-payment via PoW or x402
 - **Tollbooth** - `agent402-tollbooth` lets site owners charge AI crawlers per page (x402 + MPP)
-- **Report products** - deep research, company dossier, 13F fund report, domain audit, token risk, FDA recall and insider flow reports ($3-$19) on the same paid endpoints, also sold by card at https://agent402.tools/reports; $5/month monitors at /monitors; prepaid card credits at /credits
+- **Report products** - deep research, company dossier, 13F fund report, SEC filing report, domain audit, token risk, FDA recall and insider flow reports ($0.20-$1.10) on the same paid endpoints, also sold by card at https://agent402.tools/reports for $1-$2 (the card price includes payment processing); $3/month monitors at /monitors; prepaid card credits at /credits
 
 ## Why Stellar?
 

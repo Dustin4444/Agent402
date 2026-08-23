@@ -88,7 +88,7 @@ const METERED_SLUGS = new Set([
   "tts", "tts-hd", "transcribe", "transcribe-pro",
   "embed", "embed-large", "moderate",
   // OpenRouter gateway
-  "v1-chat-nano", "v1-chat-auto", "v1-chat-grounded", "v1-chat", "v1-chat-pro", "v1-chat-premium",
+  "v1-chat-nano", "v1-chat-auto", "v1-chat-grounded", "v1-chat-ox", "v1-chat", "v1-chat-pro", "v1-chat-premium",
   "v1-embeddings", "v1-rerank", "v1-images", "v1-audio-speech",
   "v1-chat-nano-messages", "v1-chat-auto-messages", "v1-chat-messages", "v1-chat-pro-messages", "v1-chat-premium-messages",
   "v1-chat-nano-responses", "v1-chat-auto-responses", "v1-chat-responses", "v1-chat-pro-responses", "v1-chat-premium-responses",
@@ -104,7 +104,9 @@ const METERED_SLUGS = new Set([
   // domain-audit composites — live probes + Opus synthesis over OpenRouter.
   "domain-audit", "domain-audit-pro",
   // recall-report - openFDA probes + Opus synthesis over OpenRouter.
-  "recall-report", "insider-report", "market-brief",
+  "recall-report", "insider-report", "market-brief", "token-brief", "filing-report",
+  // ticker-pack - runs the dossier + insider composites in-process.
+  "ticker-pack",
   // token-risk composites — Blockscout x402 buys (upstream-buyer wallet) +
   // Opus synthesis over OpenRouter; metered upstream both ways.
   "token-risk", "token-risk-pro",
@@ -124,8 +126,19 @@ const METERED_SLUGS = new Set([
   "fred-release-observations",
   // Neynar / Farcaster
   "farcaster-profile", "farcaster-by-address",
+  "fc-cast-search", "fc-channel-feed", "fc-trending", "fc-user-casts", "fc-cast",
+  "fc-cast-replies", "fc-channel", "fc-user-search", "fc-cast-metrics",
+  // X API v2 app-only bearer (per-post read billing) and the enrichment
+  // providers - each lists only with its own key, and 503s without it.
+  "x-search-recent", "x-user", "x-user-tweets", "x-tweet", "x-users-lookup",
+  "hunter-domain-search", "hunter-email-finder", "hunter-email-verify", "hunter-company",
+  "apollo-people-search", "apollo-org-enrich", "apollo-person-match",
+  // OpenRouter Image + Video APIs (flat per-image / per-second upstream price).
+  "v1-images-fast", "v1-images-pro", "v1-videos",
   // Alchemy hard-require (compute units) — publicJsonRpc-backed tools stay IN
   "wallet-balance", "token-metadata", "token-price", "wallet-transactions",
+  "asset-transfers", "token-balances", "token-allowance", "tx-receipt",
+  "block-receipts", "token-price-history",
   "nft-holdings", "nft-metadata", "gas-snapshot", "eth-call",
   "dex-pair", "dex-pool", "dex-quote",
   "nft-collection", "nft-floor",
@@ -209,6 +222,17 @@ function isUpstreamMediaSourceFlake(slug, status, body, threw) {
 /** Free price-feed hosts occasionally return non-JSON bodies → 502. Narrow match only. */
 function isTransientMalformedPriceFeed(status, body, threw) {
   return status === 502 && /Price feed upstream returned malformed JSON/i.test(errText(body, threw));
+}
+
+/**
+ * crt.sh (the free Certificate Transparency mirror behind cert-transparency)
+ * relays its own 5xx through our handler as a quoted upstream status. That is a
+ * third-party outage on a free public service, not a dead tool: the message
+ * names crt.sh AND the status it returned, which a permanently retired endpoint
+ * cannot produce (that shape is a bare 502). Soft-skip LOUDLY after the retry.
+ */
+function isCertTransparencyUpstreamFlake(slug, status, body, threw) {
+  return slug === "cert-transparency" && status === 502 && /crt\.sh returned HTTP \d{3}/i.test(errText(body, threw));
 }
 
 /** Client AbortSignal / connect flake (status 0). Server 502/504 stay hard fails. */
@@ -413,6 +437,7 @@ async function main() {
   let skippedRateLimit = 0;
   let skippedMediaSource = 0;
   let skippedPriceFeed = 0;
+  let skippedCertTransparency = 0;
   let skippedClientTimeout = 0;
   const liveFails = [];
 
@@ -451,6 +476,12 @@ async function main() {
       return;
     }
 
+    if (isCertTransparencyUpstreamFlake(t.slug, r.status, r.body, r.threw)) {
+      skippedCertTransparency++;
+      console.log(`\nskip - ${t.slug}: crt.sh (free public CT mirror) is returning 5xx after retry (${errText(r.body, r.threw).slice(0, 80)})`);
+      return;
+    }
+
     if (isClientTimeoutFlake(r.status, r.body, r.threw)) {
       skippedClientTimeout++;
       console.log(`\nskip - ${t.slug}: client timeout after retry (${errText(r.body, r.threw).slice(0, 100)})`);
@@ -472,6 +503,9 @@ async function main() {
   if (skippedMediaSource) {
     console.log(`skip - ${skippedMediaSource} media tool(s) soft-skipped after upstream media-source flake (handlers covered by test-media.js)`);
   }
+  if (skippedCertTransparency) {
+    console.log(`skip - ${skippedCertTransparency} cert-transparency call(s) soft-skipped: crt.sh outage`);
+  }
   if (skippedPriceFeed) {
     console.log(`skip - ${skippedPriceFeed} price-feed tool(s) soft-skipped after malformed-JSON upstream flake`);
   }
@@ -479,7 +513,7 @@ async function main() {
     console.log(`skip - ${skippedClientTimeout} tool(s) soft-skipped after client timeout (retry exhausted)`);
   }
 
-  const softSkipped = skippedBrowser + skippedRateLimit + skippedMediaSource + skippedPriceFeed + skippedClientTimeout;
+  const softSkipped = skippedBrowser + skippedRateLimit + skippedMediaSource + skippedPriceFeed + skippedClientTimeout + skippedCertTransparency;
   const asserted = work.length - softSkipped;
   ok(liveFails.length === 0,
     liveFails.length

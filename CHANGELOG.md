@@ -3,17 +3,22 @@
 ## Unreleased - 2026-08-22 - Reports, monitors, prepaid credits, MPP on Tempo
 
 - **Finished report products on `/v1`** - one paid call returns a complete, cited report:
-  `POST /v1/research` ($3) / `/v1/research/pro` ($7) / `/v1/research/max` ($12) /
-  `/v1/research/market-brief` ($7), `/v1/dossier` ($9) / `/v1/dossier/max` ($19),
-  `/v1/fund` ($4) / `/v1/fund/max` ($9), `/v1/domain-audit` ($3) / `/v1/domain-audit/pro` ($5),
-  `/v1/recall-report` ($3), `/v1/insider-report` ($4), `/v1/token-risk` ($3) / `/v1/token-risk/pro` ($6),
+  `POST /v1/research` ($0.35) / `/v1/research/pro` ($0.65) / `/v1/research/max` ($1.10) /
+  `/v1/research/market-brief` ($0.35), `/v1/dossier` ($0.55) / `/v1/dossier/max` ($0.95),
+  `/v1/fund` ($0.25) / `/v1/fund/max` ($0.50), `/v1/domain-audit` ($0.20) / `/v1/domain-audit/pro` ($0.30),
+  `/v1/recall-report` ($0.20), `/v1/insider-report` ($0.25), `/v1/filing-report` ($0.25),
+  `/v1/token-brief` ($0.35), `/v1/ticker-pack` ($0.75),
+  `/v1/token-risk` ($0.30) / `/v1/token-risk/pro` ($0.60),
   and the deterministic `/v1/ipo-report` ($0.05). Grounded in primary data fetched by the server
   (EDGAR, openFDA, DNS/TLS, on-chain reads, live web search) before synthesis; wallet-only.
 - **Card front door for people** - `/reports` (Stripe Checkout, `POST /api/buy`, delivery at
-  `/r/:sessionId`; a report is generated once per paid session, a failed generation is refunded),
-  `/monitors` ($5/month subscriptions: domain security, fund 13F, FDA recall, insider flow, IPO
-  pipeline - cheap daily probes, a paid re-run and an email only on change, reports at `/m/:id`,
-  Stripe Customer Portal at `/monitors/manage`), and `/credits` (prepaid $20 / $50 / $100 packs,
+  `/r/:sessionId`; $1 a report, $2 for the deepest three, because the card price carries Stripe's
+  2.9% + $0.30 per charge while an agent paying per call pays the lower tool price for the same
+  report; a report is generated once per paid session, a failed generation is refunded),
+  `/monitors` ($3/month subscriptions: domain security, SEC filings, Solana token safety, fund 13F,
+  FDA recall, insider flow, IPO pipeline - cheap daily probes, a paid re-run and an email only on
+  change, reports at `/m/:id`, Stripe Customer Portal at `/monitors/manage`), and `/credits`
+  (prepaid $20 / $50 / $100 packs,
   one `a402_` key, `Authorization: Bearer a402_...` on any priced route, debited only on a
   successful response, never expires, `GET /api/credits/balance`; identity-bound routes refuse it).
   All of it mounts only with `STRIPE_SECRET_KEY`. `agent402-mcp` 0.13.0 reads

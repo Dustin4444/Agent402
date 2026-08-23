@@ -6,6 +6,7 @@
 // (keep the class names stable - the scripts select on them).
 import { HUMAN_PRODUCTS } from "./human-checkout.js";
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
+import { monitorMapJson } from "./report-upgrade.js";
 
 // Shared by /reports, /r/:id, /m/:id and the monitors pages.
 export const REPORTS_CSS = `
@@ -22,6 +23,14 @@ export const REPORTS_CSS = `
   .pcard{border:1px solid var(--hairline);border-radius:18px;background:var(--card);padding:24px;box-shadow:inset 0 1px 0 var(--card-inset),0 1px 2px rgba(0,0,0,.08)}
   .pcard h3{font-weight:500;font-size:21px;letter-spacing:-.02em;margin:0;color:var(--ink)}.pcard .k{font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:8px}
   .pcard p{color:var(--muted);font-size:15px;line-height:1.5;margin:8px 0 16px;font-weight:300}
+  /* Report bodies can carry markdown tables (filings, holders). Wide tables get
+     their own scroll so the page body never scrolls sideways. */
+  .tablewrap{overflow-x:auto;margin:14px 0;border:1px solid var(--hairline);border-radius:12px}
+  .tablewrap table{width:100%;border-collapse:collapse;font-size:14px}
+  .tablewrap th{text-align:left;font-weight:500;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);padding:9px 12px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+  .tablewrap td{padding:9px 12px;border-bottom:1px solid var(--hairline);vertical-align:top;font-variant-numeric:tabular-nums}
+  .tablewrap tr:last-child td{border-bottom:0}
+  .pcard.sel{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink)}
   .field{display:flex;gap:8px;background:var(--paper);border:1px solid var(--dash);border-radius:12px;padding:6px 6px 6px 14px;margin-bottom:12px}
   .field:focus-within{border-color:var(--ink)}
   .field input{flex:1;border:0;background:transparent;color:var(--ink);font-family:var(--font-body);font-size:16px;outline:none;min-width:0}
@@ -51,6 +60,11 @@ export const REPORTS_CSS = `
   .rpt-brand .n{font-weight:500;color:var(--ink);font-size:15px}.rpt-brand .s{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint)}
   .rpt-title{font-weight:500;font-size:34px;letter-spacing:-.03em;line-height:1.08;margin:0;color:var(--ink);text-wrap:balance}
   .rpt-meta{font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:10px}
+  .upsell{border:1px solid var(--hairline);border-radius:18px;background:var(--card);padding:24px 26px;margin-top:24px;box-shadow:inset 0 1px 0 var(--card-inset)}
+  .upsell .k{font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:8px}
+  .upsell h3{font-weight:500;font-size:21px;letter-spacing:-.02em;margin:0;color:var(--ink)}
+  .upsell p{color:var(--muted);font-size:15px;line-height:1.5;margin:8px 0 16px;font-weight:300}
+  .upsell .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   @media print{
     @page{margin:18mm 16mm}
     nav,footer,.no-print,.ml-mobile-menu{display:none!important}
@@ -70,16 +84,25 @@ export const REPORTS_CSS = `
 
 export function humanReportsPage(baseUrl) {
   const R = HUMAN_PRODUCTS;
+    // Price on the BUTTON, from the product table. A card with a single tier had
+  // no price anywhere until the Stripe page, which is the worst place to learn
+  // one. `data-price` also lets the tier buttons update it without a reload.
+  const usd = (cents) => (cents % 100 === 0 ? `$${cents / 100}` : `$${(cents / 100).toFixed(2)}`);
+  const buyBtn = (kind, key, label) => `<button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="${esc(kind)}" data-price-for="${esc(kind)}">${esc(label)} <span class="bprice">${usd(R[key].price)}</span></button>`;
   const tierBtn = (key, label, sel) => `<button class="tierbtn${sel ? " sel" : ""}" data-p="${esc(key)}"><div class="nm">${esc(label)}</div><div class="pr">$${(R[key].price / 100).toFixed(0)}</div></button>`;
   const body = `
 <div class="wrap">
+  <div id="checkout-note" hidden class="note" style="margin:0 0 18px;padding:12px 16px;border:1px solid var(--hairline);border-radius:12px;background:var(--card);">
+    Checkout canceled, nothing was charged. Pick a report below whenever you are ready. Every price is on its button.
+  </div>
   <section class="hero">
-    <div class="eyebrow">Cited reports · pay per report · no subscription</div>
+    <div class="eyebrow">Cited reports · pay per report · no subscription · price on every button</div>
     <h1>A finished report, <em>not a chat answer.</em></h1>
     <p class="lede">Deep research on any question, due diligence on any public company, a 13F breakdown of any fund, a graded audit of any domain. Grounded in live sources, fully cited, in about two minutes. <b>No account, no subscription.</b> Pay by card, get your report.</p>
     <div class="trust"><span><span class="dot"></span> Every claim cited</span><span><span class="dot"></span> If a report fails, you're auto-refunded</span><span><span class="dot"></span> Secured by Stripe</span><span><span class="dot"></span> PDF + data appendix</span></div>
   </section>
   <section>
+    <p class="note" style="margin:0 0 16px;">Card prices include payment processing, which has a fixed cost per charge. An agent paying per call over x402 or MPP pays the tool's own price instead, which sits just above what the report costs us to produce. Both buy the same report.</p>
     <div class="products">
       <div class="pcard" data-kind="research">
         <div class="k">Deep research</div>
@@ -88,7 +111,7 @@ export function humanReportsPage(baseUrl) {
         <div class="field"><input id="in-research" type="text" placeholder="e.g. How do AI agents pay for APIs in 2026?"></div>
         <div class="tiers">${tierBtn("research", "Standard", true)}${tierBtn("research-pro", "Pro", false)}${tierBtn("research-max", "Max", false)}</div>
         <div class="err" id="err-research"></div>
-        <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="research">Get report →</button>
+        ${buyBtn("research", "research", "Get report")}
         <div class="note" style="margin-top:10px;"><a href="/tools/research" style="color:var(--muted);">Sample output + API docs →</a></div>
       </div>
       <div class="pcard" data-kind="dossier">
@@ -98,8 +121,35 @@ export function humanReportsPage(baseUrl) {
         <div class="field"><input id="in-dossier" type="text" placeholder="A US ticker, e.g. AAPL" style="text-transform:uppercase"></div>
         <div class="tiers">${tierBtn("dossier", "Dossier", true)}${tierBtn("dossier-max", "Max", false)}</div>
         <div class="err" id="err-dossier"></div>
-        <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="dossier">Get dossier →</button>
+        ${buyBtn("dossier", "dossier", "Get dossier")}
         <div class="note" style="margin-top:10px;"><a href="/tools/dossier" style="color:var(--muted);">Sample output + API docs →</a></div>
+      </div>
+      <div class="pcard" data-kind="filing">
+        <div class="k">SEC filing report</div>
+        <h3>What did they just file</h3>
+        <p>The company's newest SEC filings, with the document itself read and explained in plain language, cited to the filing.</p>
+        <div class="field"><input id="in-filing" type="text" placeholder="A US ticker, e.g. AAPL" style="text-transform:uppercase"></div>
+        <div class="err" id="err-filing"></div>
+        ${buyBtn("filing", "filing-report", "Get the report")}
+        <div class="note" style="margin-top:10px;"><a href="/tools/filing-report" style="color:var(--muted);">Sample output + API docs &rarr;</a></div>
+      </div>
+      <div class="pcard" data-kind="ticker">
+        <div class="k">Ticker pack</div>
+        <h3>One ticker, the whole picture</h3>
+        <p>Company dossier, recent SEC filings, insider buying and selling, and which institutions hold it, in one cited report. Cheaper than buying the parts.</p>
+        <div class="field"><input id="in-ticker" type="text" placeholder="A US ticker, e.g. AAPL" style="text-transform:uppercase"></div>
+        <div class="err" id="err-ticker"></div>
+        ${buyBtn("ticker", "ticker-pack", "Get the pack")}
+        <div class="note" style="margin-top:10px;"><a href="/tools/ticker-pack" style="color:var(--muted);">Sample output + API docs &rarr;</a></div>
+      </div>
+      <div class="pcard" data-kind="token">
+        <div class="k">Token due diligence</div>
+        <h3>Is this Solana token safe to touch</h3>
+        <p>Mint and freeze authority, LP lock, holder concentration, liquidity and every named risk flag, graded and cited from on-chain sources.</p>
+        <div class="field"><input id="in-token" type="text" placeholder="A Solana mint address"></div>
+        <div class="err" id="err-token"></div>
+        ${buyBtn("token", "token-brief", "Get the brief")}
+        <div class="note" style="margin-top:10px;"><a href="/tools/token-brief" style="color:var(--muted);">Sample output + API docs &rarr;</a></div>
       </div>
       <div class="pcard" data-kind="fund">
         <div class="k">Fund tracker</div>
@@ -108,7 +158,7 @@ export function humanReportsPage(baseUrl) {
         <div class="field"><input id="in-fund" type="text" placeholder="A fund, e.g. Berkshire Hathaway"></div>
         <div class="tiers">${tierBtn("fund-report", "Standard", true)}${tierBtn("fund-report-max", "Deep", false)}</div>
         <div class="err" id="err-fund"></div>
-        <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="fund">Get report →</button>
+        ${buyBtn("fund", "fund-report", "Get report")}
         <div class="note" style="margin-top:10px;"><a href="/tools/fund-report" style="color:var(--muted);">Sample output + API docs →</a></div>
       </div>
       <div class="pcard" data-kind="insider">
@@ -118,7 +168,7 @@ export function humanReportsPage(baseUrl) {
         <div class="field"><input id="in-insider" type="text" placeholder="A US ticker, e.g. AAPL" style="text-transform:uppercase"></div>
         <div class="tiers">${tierBtn("insider-report", "Report", true)}</div>
         <div class="err" id="err-insider"></div>
-        <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="insider">Get report →</button>
+        ${buyBtn("insider", "insider-report", "Get report")}
         <div class="note" style="margin-top:10px;"><a href="/tools/insider-report" style="color:var(--muted);">Sample output + API docs →</a></div>
       </div>
       <div class="pcard" data-kind="market">
@@ -128,7 +178,7 @@ export function humanReportsPage(baseUrl) {
         <div class="field"><input id="in-market" type="text" placeholder="A market, category or company, e.g. AI agent payment rails"></div>
         <div class="tiers">${tierBtn("market-brief", "Brief", true)}</div>
         <div class="err" id="err-market"></div>
-        <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="market">Get brief →</button>
+        ${buyBtn("market", "market-brief", "Get brief")}
         <div class="note" style="margin-top:10px;"><a href="/tools/market-brief" style="color:var(--muted);">Sample output + API docs →</a></div>
       </div>
       <div class="pcard" data-kind="recall">
@@ -138,7 +188,7 @@ export function humanReportsPage(baseUrl) {
         <div class="field"><input id="in-recall" type="text" placeholder="A drug, food, brand or device, e.g. losartan"></div>
         <div class="tiers">${tierBtn("recall-report", "Report", true)}</div>
         <div class="err" id="err-recall"></div>
-        <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="recall">Get report →</button>
+        ${buyBtn("recall", "recall-report", "Get report")}
         <div class="note" style="margin-top:10px;"><a href="/tools/recall-report" style="color:var(--muted);">Sample output + API docs →</a></div>
       </div>
       <div class="pcard" data-kind="domain">
@@ -148,18 +198,19 @@ export function humanReportsPage(baseUrl) {
         <div class="field"><input id="in-domain" type="text" placeholder="A domain, e.g. example.com"></div>
         <div class="tiers">${tierBtn("domain-audit", "Standard", true)}${tierBtn("domain-audit-pro", "Pro", false)}</div>
         <div class="err" id="err-domain"></div>
-        <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="domain">Get audit →</button>
+        ${buyBtn("domain", "domain-audit", "Get audit")}
         <div class="note" style="margin-top:10px;"><a href="/tools/domain-audit" style="color:var(--muted);">Sample output + API docs →</a></div>
       </div>
     </div>
     <p class="note">One-time charge · card or Link · no subscription, no auto-renew · agents buy the same reports over x402 / MPP in USDC · want it re-run on change? <a href="/monitors" style="color:var(--ink);">Monitors</a></p>
+    <p class="note">Free SEC filing pages, no card needed: <a href="/reports/insider" style="color:var(--ink);">insider filings by ticker</a> · <a href="/reports/fund" style="color:var(--ink);">13F holdings by fund</a> · <a href="/reports/dossier" style="color:var(--ink);">company profiles by ticker</a></p>
   </section>
 </div>
 ${ledgerFooterCompact()}
 <script src="/js/reports.js"></script>`;
   return ledgerShell({
     title: "Agent402 Reports: research, dossiers, 13F, insider flow, audits",
-    description: "Cited reports by card or USDC, $3 to $19: deep research, company dossier, fund 13F, insider flow, market brief, FDA recall, domain audit. No account, refunded if it fails.",
+    description: "Cited reports, $1 or $2 by card and $0.20 to $1.10 for an agent paying per call: deep research, company dossier, fund 13F, insider flow, market brief, FDA recall, domain audit. No account, refunded if it fails.",
     canonical: `${baseUrl}/reports`, baseUrl, activePath: "/reports", extraCss: REPORTS_CSS, body,
     jsonLd: { "@context": "https://schema.org", "@type": "ItemList", "@id": `${baseUrl}/reports#products`, name: "Agent402 reports", itemListElement: Object.entries(R).map(([key, p], i) => ({ "@type": "ListItem", position: i + 1, item: { "@type": "Product", name: p.label, url: `${baseUrl}/reports`, brand: { "@type": "Brand", name: "Agent402" }, offers: { "@type": "Offer", price: (p.price / 100).toFixed(2), priceCurrency: "USD", availability: "https://schema.org/InStock", url: `${baseUrl}/reports`, seller: { "@type": "Organization", name: "Havok Holdings LLC" } } } })) },
   });
@@ -169,7 +220,7 @@ ${ledgerFooterCompact()}
 export function reportDeliveryPage(sessionId, { api = "/api/r/", waitCopy = "This takes about a minute. Please keep this page open - it will appear here automatically.", baseUrl = "https://agent402.tools", robots = "noindex, nofollow" } = {}) {
   const body = `
 <div class="wrap" style="padding-top:28px;">
-  <div id="app" data-session="${esc(sessionId)}" data-api="${esc(api)}"><div class="status"><h2><span class="spin"></span>Preparing your report…</h2><p>${esc(waitCopy)}</p></div></div>
+  <div id="app" data-session="${esc(sessionId)}" data-api="${esc(api)}" data-monitors="${esc(monitorMapJson())}"><div class="status"><h2><span class="spin"></span>Preparing your report…</h2><p>${esc(waitCopy)}</p></div></div>
   <p class="note no-print">Your report is yours to keep - bookmark this page or use the link we emailed you.</p>
 </div>
 ${ledgerFooterCompact()}

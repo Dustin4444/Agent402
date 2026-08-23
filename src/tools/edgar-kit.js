@@ -19,6 +19,8 @@
 //     so we use assertPublicUrl + native fetch for the EDGAR-specific UA.
 import { assertPublicUrl } from "./fetch-guard.js";
 
+// Hard per-request socket bound for every EDGAR read (undici defaults to 300 s).
+const EDGAR_FETCH_TIMEOUT_MS = Math.max(2_000, parseInt(process.env.EDGAR_FETCH_TIMEOUT_MS || "12000", 10) || 12_000);
 function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
 }
@@ -41,6 +43,11 @@ async function edgarGetJson(url) {
         "User-Agent": edgarUserAgent(),
         Accept: "application/json",
       },
+      // Without this the socket has no bound of its own: a caller-side deadline
+      // (the programmatic pages use 12 s) frees its concurrency slot while the
+      // request keeps running, so a throttling SEC grows in-flight sockets far
+      // past whatever gate is supposed to be holding the line.
+      signal: AbortSignal.timeout(EDGAR_FETCH_TIMEOUT_MS),
     });
   } catch (e) {
     throw bad(`EDGAR request failed: ${e.message}`, 504);
@@ -50,10 +57,15 @@ async function edgarGetJson(url) {
     // 404 from data.sec.gov usually means "unknown CIK" or "no XBRL for this
     // tag/period" — surface as 422 (caller-attributable) so the dashboard
     // counts it correctly. 5xx is a real upstream outage.
+    // `upstreamStatus` rides along so a caller can tell "EDGAR says this does
+    // not exist" (404) from "EDGAR refused to answer us" (403 rate limit, 429).
+    // Both map to 422 for the paid tools, but a free page that negative-caches
+    // a throttle as "no such company" would 404 a real ticker for as long as
+    // that cache lives.
     const status = res.status;
-    if (status === 404) throw bad("EDGAR returned 404 - unknown CIK, ticker, or tag/period combination", 422);
-    if (status >= 500) throw bad(`EDGAR upstream HTTP ${status} - try again later`, 502);
-    throw bad(`EDGAR upstream HTTP ${status}: ${text.slice(0, 200)}`, 422);
+    if (status === 404) throw Object.assign(bad("EDGAR returned 404 - unknown CIK, ticker, or tag/period combination", 422), { upstreamStatus: 404 });
+    if (status >= 500) throw Object.assign(bad(`EDGAR upstream HTTP ${status} - try again later`, 502), { upstreamStatus: status });
+    throw Object.assign(bad(`EDGAR upstream HTTP ${status}: ${text.slice(0, 200)}`, 422), { upstreamStatus: status });
   }
   try {
     return JSON.parse(text);
@@ -573,7 +585,13 @@ function parse13fInformationTable(xml, reportDate) {
   return rows;
 }
 
-async function fetchInformationTableUrl(cikInt, accession) {
+// Locate a 13F-HR filing's information table AND report its declared byte size.
+// The size matters to any caller that is not being paid for the read: the
+// largest filers (index complexes with thousands of positions) publish tables
+// in the tens of megabytes, so a free surface must be able to decline the fetch
+// rather than pull it into memory. fetchInformationTableUrl() below keeps the
+// old url-only contract for the paid path.
+export async function findInformationTable(cikInt, accession) {
   const accDir = accession.replace(/-/g, "");
   const indexUrl = `https://www.sec.gov/Archives/edgar/data/${cikInt}/${accDir}/index.json`;
   const idx = await edgarGetJson(indexUrl);
@@ -594,14 +612,19 @@ async function fetchInformationTableUrl(cikInt, accession) {
     return n.includes("informationtable") || n.includes("infotable");
   });
   if (namedHit) {
-    return `https://www.sec.gov/Archives/edgar/data/${cikInt}/${accDir}/${namedHit.name}`;
+    return { name: namedHit.name, size: parseInt(namedHit.size, 10) || 0, url: `https://www.sec.gov/Archives/edgar/data/${cikInt}/${accDir}/${namedHit.name}` };
   }
   const candidates = xmls
     .filter((it) => String(it.name).toLowerCase() !== "primary_doc.xml")
     .map((it) => ({ name: it.name, size: parseInt(it.size, 10) || 0 }))
     .sort((a, b) => b.size - a.size);
   if (!candidates.length) return null;
-  return `https://www.sec.gov/Archives/edgar/data/${cikInt}/${accDir}/${candidates[0].name}`;
+  return { ...candidates[0], url: `https://www.sec.gov/Archives/edgar/data/${cikInt}/${accDir}/${candidates[0].name}` };
+}
+
+async function fetchInformationTableUrl(cikInt, accession) {
+  const hit = await findInformationTable(cikInt, accession);
+  return hit ? hit.url : null;
 }
 
 async function fetchXmlText(url) {
@@ -610,13 +633,14 @@ async function fetchXmlText(url) {
   try {
     res = await fetch(safeUrl, {
       headers: { "User-Agent": edgarUserAgent(), Accept: "application/xml,text/xml,*/*" },
+      signal: AbortSignal.timeout(EDGAR_FETCH_TIMEOUT_MS),
     });
   } catch (e) {
     throw bad(`EDGAR XML fetch failed: ${e.message}`, 504);
   }
   if (!res.ok) {
-    if (res.status === 404) throw bad("EDGAR XML attachment not found (filing may not have the expected layout)", 422);
-    throw bad(`EDGAR XML HTTP ${res.status}`, res.status >= 500 ? 502 : 422);
+    if (res.status === 404) throw Object.assign(bad("EDGAR XML attachment not found (filing may not have the expected layout)", 422), { upstreamStatus: 404 });
+    throw Object.assign(bad(`EDGAR XML HTTP ${res.status}`, res.status >= 500 ? 502 : 422), { upstreamStatus: res.status });
   }
   return await res.text();
 }
@@ -1050,4 +1074,4 @@ export async function resolveManager({ cik, ticker, name }) {
 
 // Shared EDGAR primitives for the composite report kits (insider-flow, ipo):
 // same User-Agent policy, same politeness, one implementation.
-export { resolveCompany, eftsSearch, fetchXmlText, edgarGetJson };
+export { resolveCompany, eftsSearch, fetchXmlText, edgarGetJson, parse13fInformationTable };

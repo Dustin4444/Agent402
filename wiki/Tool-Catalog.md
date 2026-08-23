@@ -35,9 +35,36 @@ These exist because an agent mid-task cannot give itself a browser, a paid searc
 | `edgar-company-lookup`, `edgar-filings`, `edgar-company-concept`, `edgar-company-facts`, `edgar-xbrl-frame`, `edgar-insider-trades`, `edgar-13f-holdings`, `edgar-recent-ipos`, `edgar-search` | $0.005–$0.025 | **edgar-kit**, SEC EDGAR: ticker→CIK, filings, XBRL company facts and concepts, cross-company XBRL frames, insider Form 4, 13F holdings, recent IPOs, full-text search |
 | `image-resize`, `image-convert`, `image-thumbnail`, `barcode-decode` | $0.003–$0.005 | Pure-CPU image transforms + barcode/QR decode (jimp / zxing) |
 
+## Crypto derivatives, DeFi and Solana intel
+
+Market structure an agent can read directly, keyless and deterministic, at per-call prices. Every one is on the same x402 / MPP 402 as the rest of the catalog.
+
+| Tools | Price | What you get |
+|---|---|---|
+| `perp-markets`, `perp-funding`, `perp-funding-screener`, `perp-basis`, `perp-open-interest`, `perp-klines`, `perp-orderbook` | $0.002 to $0.003 | Live perpetuals: every listed market with mark and oracle price, funding now and hourly history, the funding screener across the whole book, premium and predicted funding, open interest, OHLCV candles and order-book depth |
+| `options-summary`, `crypto-options-chain`, `options-ticker`, `options-volume` | $0.002 to $0.005 | The options book: index price and the implied-volatility index, call/put open interest and put-call ratio, a full chain by expiry with mark IV, per-instrument greeks (delta, gamma, vega, theta, rho), and onchain options protocols ranked by notional volume |
+| `defi-yields`, `defi-yield-history`, `defi-protocols`, `defi-protocol`, `defi-chains`, `defi-chain-tvl-history`, `defi-fees`, `defi-dex-volume`, `stablecoins`, `stablecoin-supply-history` | $0.002 to $0.003 | DeFi: screen yield pools by chain, project, token and TVL (stablecoin-only filter included), rank protocols and chains by TVL, read fees and revenue, DEX volume, and stablecoin supply with peg deviation, each with a history sibling |
+| `sol-token-safety`, `sol-token-report`, `sol-token-holders`, `sol-token-pairs`, `sol-token-search`, `sol-trending`, `sol-price`, `sol-swap-quote`, `sol-token-lookup` | $0.002 to $0.010 | Solana token due diligence: a graded safety check (mint and freeze authority, liquidity, holder concentration), the full risk write-up, holders, pairs, trending mints, live prices and a swap quote with the route |
+| `crypto-news`, `crypto-indicators`, `crypto-market-pulse` | $0.004 to $0.005 | Market context: headlines from major outlets normalized and deduplicated, technical indicators computed here from candles (RSI, MACD, EMA, SMA, Bollinger, ATR, VWAP), and a one-call breadth snapshot across every listed perp |
+| `coin-price-by-contract`, `coin-profile`, `coin-history`, `coin-ohlc`, `coin-market-chart-range`, `coin-categories`, `global-defi`, `exchanges`, `exchange-tickers`, `exchange-rates`, `coin-search`, `coins-list` | $0.005 to $0.008 | Broad market coverage, including price by token **contract address** on a named chain when an agent holds an address and no coin id |
+| `asset-transfers`, `token-balances`, `token-allowance`, `tx-receipt`, `block-receipts`, `token-price-history` | $0.002 to $0.005 | Indexed chain reads across the major EVM chains: a filtered transfer log, balances for named contracts, an ERC-20 allowance, a decoded receipt, a whole block summarised, and historical token prices |
+| `fc-cast-search`, `fc-channel-feed`, `fc-trending`, `fc-user-casts`, `fc-cast`, `fc-cast-replies`, `fc-channel`, `fc-user-search`, `fc-cast-metrics` | $0.003 to $0.005 | Farcaster: search casts, read channel and user feeds, pull a thread, and measure engagement on the onchain social graph |
+| `site-map`, `site-crawl` | $0.005, $0.02 | Whole-site structure on demand: enumerate a site's URLs from robots.txt, its sitemaps and internal links, then crawl breadth-first to clean markdown under hard page, depth and time budgets |
+
+## Images and video (flat per call)
+
+Generation priced per picture or per clip rather than per token, on the OpenAI wire, so the cost of a call is known before it is made. Point any OpenAI SDK at base_url `https://agent402.tools/v1`.
+
+| Endpoint | Price | What you get |
+|---|---|---|
+| `POST /v1/images/fast` | $0.02 | Budget text-to-image, about two seconds a picture, inline base64 out |
+| `POST /v1/images/pro` | $0.05 | Higher-fidelity text-to-image, one picture a call |
+| `POST /v1/images/generations` | $0.08 | The flagship image route |
+| `POST /v1/videos/generations` | $0.20 | One silent 4-second 720p clip, MP4 inline base64, 16:9 or 9:16. A failed or timed-out generation is never charged |
+
 ## Report products (outcome-priced, same 402)
 
-When the job is a whole report rather than a call, the `/v1` report routes sell one finished, cited report per payment - `POST /v1/research` ($3, pro $7, max $12), `/v1/research/market-brief` ($7), `/v1/dossier` ($9, max $19), `/v1/fund` ($4, max $9), `/v1/domain-audit` ($3, pro $5), `/v1/recall-report` ($3), `/v1/insider-report` ($4), `/v1/token-risk` ($3, pro $6), and the deterministic `/v1/ipo-report` digest ($0.05). Same x402 / MPP 402 as every other route, plus prepaid card credits; people buy the same reports by card at `/reports`. Inputs, cadences and the $5/month monitors are on [[Reports, Monitors and Credits|Reports-and-Monitors]].
+When the job is a whole report rather than a call, the `/v1` report routes sell one finished, cited report per payment - `POST /v1/research` ($0.35, pro $0.65, max $1.10), `/v1/research/market-brief` ($0.35), `/v1/dossier` ($0.55, max $0.95), `/v1/ticker-pack` ($0.75), `/v1/fund` ($0.25, max $0.50), `/v1/filing-report` ($0.25), `/v1/domain-audit` ($0.20, pro $0.30), `/v1/recall-report` ($0.20), `/v1/insider-report` ($0.25), `/v1/token-brief` ($0.35), `/v1/token-risk` ($0.30, pro $0.60), and the deterministic `/v1/ipo-report` digest ($0.05). Same x402 / MPP 402 as every other route, plus prepaid card credits; people buy the same reports by card at `/reports` for $1 to $2, a price that includes payment processing. Inputs, cadences and the $3/month monitors are on [[Reports, Monitors and Credits|Reports-and-Monitors]].
 
 ## The long tail (pure-CPU, also payable with compute)
 

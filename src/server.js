@@ -25,11 +25,16 @@ import {
 } from "./tools/memory.js";
 import { payerFromRequest, payerFromPaymentResponse, paymentHeaderOf, paymentIdentifierOf } from "./payer.js";
 import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpendFailure, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS, _compositeGuardState } from "./composite-spend-guard.js";
+// Single-upstream-call routes that run long (40 s+): EVM exact only, like the
+// composites (settle-after on SVM/AVM/Tempo is work done, never charged), but
+// not composite-spend-guarded (one bounded upstream price).
+const LONG_RUNNING_SLUGS = new Set(["v1-videos"]);
 import Stripe from "stripe";
 import { createHumanCheckout, humanCheckoutEnabled, HUMAN_PRODUCTS } from "./human-checkout.js";
 import { humanReportsPage, reportDeliveryPage } from "./human-reports-page.js";
 import { createStripeSubscriptions, subscriptionsEnabled, MONITOR_PRODUCTS } from "./stripe-subscriptions.js";
 import { monitorsPage, monitorThanksPage } from "./monitors-page.js";
+import { insiderPage, fundPage, dossierPage, hubPage, loadTeaser, normalizeTicker, normalizeManagerSlug, isSeededTicker, seededManager } from "./programmatic-pages.js";
 import { createMonitorScheduler } from "./monitor-scheduler.js";
 import { createCredits, CREDIT_PACKS } from "./credits.js";
 import { creditsPage, creditsThanksPage } from "./credits-page.js";
@@ -67,7 +72,7 @@ import { agenticFinancePage } from "./agentic-finance.js";
 import { glossaryPage } from "./glossary.js";
 import { x402101Page } from "./x402-101.js";
 import { aifiCardSvg } from "./aifi-card.js";
-import { robotsTxt, sitemapXml, llmsTxt, sitemapIndex, sitemapPages, sitemapTools, sitemapGuides, sitemapSkills } from "./seo.js";
+import { robotsTxt, sitemapXml, llmsTxt, sitemapIndex, sitemapPages, sitemapTools, sitemapGuides, sitemapSkills, sitemapReports } from "./seo.js";
 import { skillMd } from "./skill-md.js";
 import { createMcpMppLoopback } from "./mcp-mpp.js";
 import { serviceManifest, reliabilityReport } from "./discovery.js";
@@ -128,10 +133,13 @@ import { RESEARCH_DEEP_TOOLS } from "./tools/research-deep-kit.js";
 import { FUND_TOOLS } from "./tools/fund-report-kit.js";
 import { DOMAIN_AUDIT_TOOLS } from "./tools/domain-audit-kit.js";
 import { RECALL_TOOLS, probeRecalls, normRecallQuery } from "./tools/recall-report-kit.js";
+import { TOKEN_BRIEF_TOOLS, probeTokenBrief, describeTokenChanges } from "./tools/token-brief-kit.js";
 import { IPO_TOOLS, probeIpos, normIpoKeyword } from "./tools/ipo-report-kit.js";
 import { INSIDER_TOOLS, probeInsiderFilings } from "./tools/insider-flow-kit.js";
+import { FILING_WATCH_TOOLS, probeCompanyFilings, describeFilingChanges } from "./tools/filing-watch-kit.js";
 import { TOKEN_RISK_TOOLS } from "./tools/token-risk-kit.js";
 import { DOSSIER_TOOLS } from "./tools/dossier-kit.js";
+import { TICKER_PACK_TOOLS } from "./tools/ticker-pack-kit.js";
 import { NETWORK_TOOLS } from "./tools/network-kit.js";
 import { NETWORK_TOOLS2 } from "./tools/network-kit2.js";
 import { HTML_TOOLS } from "./tools/html-kit.js";
@@ -162,7 +170,7 @@ import { CALENDAR_TOOLS } from "./tools/calendar-kit.js";
 import { LLM_TOOLS } from "./tools/llm-kit.js";
 import { LLM_MESSAGES_TOOLS } from "./tools/llm-messages-kit.js";
 import { LLM_RESPONSES_TOOLS } from "./tools/llm-responses-kit.js";
-import { LLM_GATEWAY_TOOLS, modelsList, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, rerankCacheKey, RERANK_PATH, gatewayCreditsStatus } from "./tools/llm-gateway-kit.js";
+import { LLM_GATEWAY_TOOLS, modelsList, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, rerankCacheKey, RERANK_PATH, gatewayCreditsStatus, oxAlphaAvailable, probeOxAlphaAvailability, OX_ROUTE, oxUpstreamIsFree } from "./tools/llm-gateway-kit.js";
 // /v1/audio/speech stays behind OPENROUTER_TTS_ENABLED as a rollout gate:
 // @x402/express (v2.16) runs the handler first and settles only a <400
 // response, so a 502 is never charged — but an UNLISTED route returns no 402
@@ -174,8 +182,16 @@ import { LLM_GATEWAY_TOOLS, modelsList, promptCacheKey, promptCacheGet, promptCa
 // Railway var to true after this ships, then run the paid canary — its
 // llm-speech leg is the standing proof. If the flag is ever pulled again,
 // also pull the canary leg, or every canary run goes red.
+// The Ox Alpha tier (v1-chat-ox) rides the same kind of switch, for the
+// opposite reason: its model is a STEALTH listing that will be withdrawn when
+// the lab unmasks it, so OX_ALPHA_ENABLED=off removes the route from the
+// catalog outright (no route, no 402, no /api/pricing row) with no code
+// change. Default is on - the id was verified live on 2026-08-22. Between a
+// withdrawal and that switch being flipped, the boot probe below downgrades
+// the tier in-process (503 + dropped from /v1/models); a >=400 cancels
+// settlement, so a withdrawn model can never produce a charge.
 const GATEWAY_TOOLS_ENABLED = [
-  ...LLM_GATEWAY_TOOLS.filter((t) => t.slug !== "v1-audio-speech" || process.env.OPENROUTER_TTS_ENABLED === "true"),
+  ...LLM_GATEWAY_TOOLS.filter((t) => (t.slug !== "v1-audio-speech" || process.env.OPENROUTER_TTS_ENABLED === "true") && (t.slug !== "v1-chat-ox" || oxAlphaAvailable())),
   // Anthropic Messages wire on the same five tiers (src/tools/llm-messages-kit.js).
   ...LLM_MESSAGES_TOOLS,
   // OpenAI Responses wire on the same five tiers (src/tools/llm-responses-kit.js).
@@ -187,6 +203,15 @@ import { TTS_TOOLS } from "./tools/tts-kit.js";
 // 2026-08-22 seller-landscape builds: keyless derivatives data + env-gated X data / B2B enrichment.
 import { DERIVATIVES_TOOLS } from "./tools/derivatives-kit.js";
 import { SOLANA_INTEL_TOOLS } from "./tools/solana-intel-kit.js";
+import { IMAGES_FAST_TOOLS } from "./tools/llm-images-fast-kit.js";
+import { ALCHEMY_DATA_TOOLS } from "./tools/alchemy-data-kit.js";
+import { FARCASTER_SOCIAL_TOOLS, farcasterSocialEnabled } from "./tools/farcaster-social-kit.js";
+// Listed only when a Neynar/Warpcast key is present (same rule as the X data kit).
+const FARCASTER_SOCIAL_TOOLS_ENABLED = farcasterSocialEnabled() ? FARCASTER_SOCIAL_TOOLS : [];
+import { CRYPTO_MARKETS_TOOLS } from "./tools/crypto-markets-kit.js";
+import { DEFI_TOOLS } from "./tools/defi-kit.js";
+import { CRYPTO_SIGNALS_TOOLS } from "./tools/crypto-signals-kit.js";
+import { CRAWL_TOOLS } from "./tools/crawl-kit.js";
 import { X_DATA_TOOLS, xDataEnabled } from "./tools/x-data-kit.js";
 import { b2bEnrichEnabled } from "./tools/b2b-enrich-kit.js";
 const X_DATA_TOOLS_ENABLED = xDataEnabled() ? X_DATA_TOOLS : [];
@@ -236,7 +261,7 @@ import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
 import { ledgerIntegrationsPage } from "./ledger-integrations.js";
 
-const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZE_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...RECALL_TOOLS, ...IPO_TOOLS, ...INSIDER_TOOLS, ...TOKEN_RISK_TOOLS, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...BLOCKSCOUT_TOOLS, ...CAPTCHA_TOOLS, ...SQL_GUARD_TOOLS, ...ACTION_GATE_TOOLS, ...DERIVATIVES_TOOLS, ...SOLANA_INTEL_TOOLS, ...X_DATA_TOOLS_ENABLED, ...B2B_ENRICH_TOOLS_ENABLED];
+const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZE_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...RECALL_TOOLS, ...IPO_TOOLS, ...INSIDER_TOOLS, ...TOKEN_RISK_TOOLS, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...BLOCKSCOUT_TOOLS, ...CAPTCHA_TOOLS, ...SQL_GUARD_TOOLS, ...ACTION_GATE_TOOLS, ...DERIVATIVES_TOOLS, ...SOLANA_INTEL_TOOLS, ...X_DATA_TOOLS_ENABLED, ...B2B_ENRICH_TOOLS_ENABLED, ...CRAWL_TOOLS, ...CRYPTO_SIGNALS_TOOLS, ...DEFI_TOOLS, ...CRYPTO_MARKETS_TOOLS, ...FARCASTER_SOCIAL_TOOLS_ENABLED, ...ALCHEMY_DATA_TOOLS, ...IMAGES_FAST_TOOLS, ...TOKEN_BRIEF_TOOLS, ...TICKER_PACK_TOOLS, ...FILING_WATCH_TOOLS];
 import { buildSkillTools } from "./tools/skill-runner.js";
 import { buildRouteExecuteTool, EXEC_TIERS } from "./tools/route-execute.js";
 import { buildSellerTrustTool } from "./tools/seller-trust.js";
@@ -265,7 +290,37 @@ const TRIAL_IP_MIN = Math.max(1, Number(process.env.TRIAL_PER_IP_PER_MIN) || 3);
 const TRIAL_IP_HOUR = Math.max(1, Number(process.env.TRIAL_PER_IP_PER_HOUR) || 10);
 const trialToolLimiter = createRateLimiter("trial-tool", { perMin: TRIAL_PER_TOOL_HOUR, perHour: TRIAL_PER_TOOL_HOUR });
 const trialIpLimiter = createRateLimiter("trial-ip", { perMin: TRIAL_IP_MIN, perHour: TRIAL_IP_HOUR });
+// Slug the Ox Alpha trial is metered under. It is NOT a PoW-eligible slug: it
+// exists so the per-tool trial counter has a key, and it never reaches the
+// proof-of-work redemption path (that path keys off POW_ROUTES).
+const OX_TRIAL_SLUG = "v1-chat-ox";
+// Per-slug trial budgets. The default (1 per tool per hour) is a TASTE: enough
+// to see a tool work before paying. The Ox tier is different in kind - its
+// upstream is free while the stealth preview lasts - so it gets a real
+// allowance rather than a taste, and the cost of abuse there is our egress and
+// OpenRouter's rate limit, not our money. If the model is ever repriced,
+// `oxUpstreamIsFree()` goes false and the trial stops being offered at all,
+// which is what makes a generous number safe here.
+const OX_TRIAL_PER_HOUR = Math.max(1, Number(process.env.OX_TRIAL_PER_IP_PER_HOUR) || 25);
+const OX_TRIAL_PER_DAY = Math.max(OX_TRIAL_PER_HOUR, Number(process.env.OX_TRIAL_PER_IP_PER_DAY) || 100);
+// Server-wide daily ceiling on the Ox trial. Per-IP alone is not a bound: an
+// IPv6 allocation is a /64 or larger, so rotating addresses inside it is free.
+// The per-client key is therefore the /64 rather than the full address, and
+// this global cap is the backstop for everything that rotation still buys.
+// Past it the route simply asks for payment - it never breaks.
+const OX_TRIAL_GLOBAL_PER_DAY = Math.max(OX_TRIAL_PER_DAY, Number(process.env.OX_TRIAL_GLOBAL_PER_DAY) || 5000);
+// An IPv6 client is bucketed on its /64 (the smallest routinely-assigned
+// allocation); IPv4 keeps the full address.
+function trialClientKey(ip) {
+  const raw = String(ip || "unknown").trim();
+  if (!raw.includes(":")) return raw;
+  const hex = raw.replace(/^\[|\]$/g, "").split("%")[0];
+  const parts = hex.split(":");
+  if (parts.length < 3) return hex;
+  return parts.slice(0, 4).join(":") + "::/64";
+}
 const TRIAL_LIMITS_LABEL = `${TRIAL_PER_TOOL_HOUR} per tool per hour, ${TRIAL_IP_HOUR} per hour per client`;
+const OX_TRIAL_LIMITS_LABEL = `${OX_TRIAL_PER_HOUR} per hour, ${OX_TRIAL_PER_DAY} per day per client (free while the model's upstream is free)`;
 import { recordRefundOwed, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals } from "./refund-ledger.js";
 import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent, getDailyCalls, dailyCallsRecordingSince, getDailyUpstreamCalls, getSellerRegistrations } from "./stats.js";
 import { timingSafeEqual, createHash, randomUUID, randomBytes } from "node:crypto";
@@ -1037,7 +1092,7 @@ for (const def of Object.values(CATALOG)) {
   if (isIdentityBoundRoute(def)) def.identityBound = true;
   // Long-running composites settle AFTER a 2-4 min handler: EVM exact only
   // (see acceptsForItem) and no Tempo challenge (see mpp-tempo).
-  if (EXPENSIVE_COMPOSITE_SLUGS.has(def.slug)) def.longRunning = true;
+  if (EXPENSIVE_COMPOSITE_SLUGS.has(def.slug) || LONG_RUNNING_SLUGS.has(def.slug)) def.longRunning = true;
 }
 
 // Boot-time guard: the retired pairwise-converter 410 handler (see the
@@ -1126,12 +1181,19 @@ try {
     stripe: new Stripe(process.env.STRIPE_SECRET_KEY), baseUrl: BASE_URL,
     // Validate targets BEFORE the recurring charge: a domain must parse; a fund
     // manager must resolve on EDGAR (the resolved registered name is stored).
+    // Our own validator messages are safe to show a buyer; anything thrown from
+    // an upstream helper is not (it can quote the upstream body), which is why
+    // the subscribe route only relays `buyerSafe` messages.
     validateTarget: {
       domain: (t) => normDomain({ domain: t }),
       fund: async (t) => { const r = /^\d{1,10}$/.test(t) ? await edgarResolveManager({ cik: t }) : await edgarResolveManager({ name: t }); return r?.name || t; },
       recall: (t) => normRecallQuery(t),
       ipo: (t) => normIpoKeyword(t) || "all",
-      insider: (t) => { const k = String(t).trim().toUpperCase(); if (!/^[A-Z][A-Z0-9.\-]{0,9}$/.test(k)) { const e = new Error(`"${t}" is not a valid US ticker`); e.statusCode = 400; throw e; } return k; },
+      filing: (t) => { const k = String(t).trim().toUpperCase(); if (!/^[A-Z][A-Z0-9.\-]{0,9}$/.test(k)) { const e = new Error(`"${t}" is not a valid US ticker`); e.statusCode = 400; e.buyerSafe = true; throw e; } return k; },
+      // Validates base58 AND that the mint actually resolves upstream, so a
+      // recurring charge never starts against a target we cannot watch.
+      token: async (t) => (await probeTokenBrief(String(t).trim())).mint,
+      insider: (t) => { const k = String(t).trim().toUpperCase(); if (!/^[A-Z][A-Z0-9.\-]{0,9}$/.test(k)) { const e = new Error(`"${t}" is not a valid US ticker`); e.statusCode = 400; e.buyerSafe = true; throw e; } return k; },
     },
     onInvoicePaid: ({ invoiceId, product, amountUsd }) => recordSale({ slug: product || "monitor", priceUsd: amountUsd, rail: "card", network: "stripe", payer: null, tx: invoiceId, wire: "stripe-subscription" }),
     // Credit-pack sessions: mint + email the key from the webhook too (claim is
@@ -1549,6 +1611,20 @@ if (process.env.X402_INDEX_CRAWL !== "off" && process.env.X402_SYNC_ON_START !==
   setTimeout(() => { revenueSnapshot(revenueWallets()).catch(() => {}); }, 4_000).unref();
   setInterval(() => { revenueSnapshot(revenueWallets()).catch(() => {}); }, 5 * 60_000).unref();
 }
+
+// Stealth-model availability probe (v1-chat-ox / stealth/ox-alpha). ONE
+// non-blocking read of the public OpenRouter catalog, a few seconds after
+// boot: never on the request path, never blocking listen(), and skipped under
+// X402_SYNC_ON_START=false for the same reason every other boot probe is
+// (offline tests must not reach the network). If the stealth id has been
+// withdrawn upstream, the tier drops out of GET /v1/models and answers 503
+// before any upstream call - see probeOxAlphaAvailability. It fails OPEN on an
+// unreadable catalog and re-checks hourly, so a withdrawal is caught without a
+// redeploy and a transient egress failure never disables a working tier.
+if (process.env.X402_SYNC_ON_START !== "false" && GATEWAY_TOOLS_ENABLED.some((t) => t.slug === "v1-chat-ox")) {
+  setTimeout(() => { probeOxAlphaAvailability().catch(() => {}); }, 6_000).unref();
+  setInterval(() => { probeOxAlphaAvailability().catch(() => {}); }, 60 * 60_000).unref();
+}
 app.get("/api/revenue", async (_req, res) => {
   try {
     const snap = await revenueSnapshot(revenueWallets());
@@ -1647,11 +1723,11 @@ app.get("/revenue", async (_req, res) => {
 // monitor scheduler (recurring): slug -> the SAME handler agents buy over x402.
 // `input` is a string (wrapped per kind) or an object passed straight through
 // (the scheduler pins a resolved CIK for fund monitors that way).
-const _premiumHandlers = Object.fromEntries([...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...RECALL_TOOLS, ...IPO_TOOLS, ...INSIDER_TOOLS].map((t) => [t.slug, t.handler]));
+const _premiumHandlers = Object.fromEntries([...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...RECALL_TOOLS, ...IPO_TOOLS, ...INSIDER_TOOLS, ...FILING_WATCH_TOOLS, ...TICKER_PACK_TOOLS].map((t) => [t.slug, t.handler]));
 const _humanGenerate = async (kind, slug, input, ctx = {}) => {
     const h = _premiumHandlers[slug];
     if (!h) throw new Error("no handler for " + slug);
-    const argOf = { dossier: (v) => ({ ticker: v }), fund: (v) => ({ manager: v }), domain: (v) => ({ domain: v }), research: (v) => ({ query: v }), recall: (v) => ({ query: v }), ipo: (v) => ({ days: 7, keyword: v }), insider: (v) => ({ ticker: v, days: 90 }) };
+    const argOf = { dossier: (v) => ({ ticker: v }), fund: (v) => ({ manager: v }), domain: (v) => ({ domain: v }), research: (v) => ({ query: v }), recall: (v) => ({ query: v }), ipo: (v) => ({ days: 7, keyword: v }), insider: (v) => ({ ticker: v, days: 90 }), ticker: (v) => ({ ticker: v, days: 90 }), filing: (v) => ({ ticker: v, days: 30 }), token: (v) => ({ mint: v }) };
     const arg = (input && typeof input === "object") ? input : (argOf[kind] || argOf.research)(input);
     // A minimal request-shaped context so upstreamUserId() scopes OpenRouter's
     // per-user provider policy to THIS buyer (session / subscription), instead
@@ -1665,7 +1741,7 @@ const _humanGenerate = async (kind, slug, input, ctx = {}) => {
     // appendix (sources always; financials + insider tables on dossiers, holdings
     // + changes on fund reports, checks + headers on domain audits).
     const fallbackTitle = typeof input === "string" ? input : (input?.manager || input?.cik || input?.domain || input?.ticker || input?.query || input?.keyword || "");
-    const titleOf = { dossier: () => (out?.company ? `${out.company} (${out.ticker})` : fallbackTitle), fund: () => out?.manager || fallbackTitle, domain: () => out?.domain || fallbackTitle, recall: () => (out?.query ? `FDA recalls: ${out.query}` : fallbackTitle), ipo: () => out?.title || "IPO pipeline", insider: () => (out?.company ? `Insider flow: ${out.company} (${out.ticker})` : fallbackTitle) };
+    const titleOf = { filing: () => (out?.company ? `SEC filings: ${out.company}${out.ticker ? ` (${out.ticker})` : ""}` : fallbackTitle), ticker: () => (out?.company ? `${out.company} (${out.ticker})` : fallbackTitle), dossier: () => (out?.company ? `${out.company} (${out.ticker})` : fallbackTitle), fund: () => out?.manager || fallbackTitle, domain: () => out?.domain || fallbackTitle, recall: () => (out?.query ? `FDA recalls: ${out.query}` : fallbackTitle), ipo: () => out?.title || "IPO pipeline", insider: () => (out?.company ? `Insider flow: ${out.company} (${out.ticker})` : fallbackTitle) };
     return {
       report,
       kind,
@@ -1679,8 +1755,90 @@ const _humanGenerate = async (kind, slug, input, ctx = {}) => {
 // /api/subscribe, /api/r/:id, confirm/manage) mount only with
 // STRIPE_SECRET_KEY. Without it a buy click gets a clear 503 from the API.
 app.get("/reports", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(humanReportsPage(BASE_URL)));
-app.get("/monitors", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(monitorsPage(BASE_URL)));
+// `?product=&target=` PREFILLS the form (the deep link a delivered report and a
+// delivery email carry, so the upgrade survives an email client with no JS).
+// Prefill only: it fills a field in, it never creates a Stripe session, and the
+// prefilled variant is not cached (it carries someone's target).
+app.get("/monitors", (req, res) => {
+  const product = String(req.query.product || "").slice(0, 64);
+  const target = String(req.query.target || "").slice(0, 200);
+  const prefill = product ? { product, target } : null;
+  res.set("Cache-Control", prefill ? "no-store" : "public, max-age=120").type("html").send(monitorsPage(BASE_URL, prefill));
+});
 app.get("/monitors/thanks", (req, res) => res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html").send(monitorThanksPage(String(req.query.session || ""), BASE_URL)));
+// Programmatic SEO landing pages for the SEC-filing products: one free,
+// crawlable page per ticker (insider / dossier) and per 13F manager (fund),
+// each showing real filing data and converting to the paid report. Only the
+// curated seed list is advertised (sitemap + hubs); an off-list slug renders
+// when it genuinely resolves on EDGAR and 404s when it does not. Cost control
+// lives in src/programmatic-pages.js (bounded cache, negative cache, EDGAR
+// concurrency gate, per-page deadline); the per-IP limiter is the same
+// sessionReadLimiter the other unauthenticated read routes use.
+// Its OWN bucket, not sessionReadLimiter's: that one guards the Stripe-reading
+// routes a paying buyer polls (/api/r/:id), and a crawler walking a few hundred
+// free SEO pages must never be able to starve a checkout. The real cost bound
+// for these pages is the EDGAR concurrency gate plus the 12-hour cache, so this
+// limit only has to stop the absurd case.
+// Generous on purpose: these are cheap cached HTML renders and a legitimate
+// full-sitemap crawl is ~250 requests in one burst. The UPSTREAM bound is the
+// EDGAR gate inside programmatic-pages.js (2 concurrent, queue of 8, 12-hour
+// cache), not this limit, which only stops the absurd case.
+// Sized so ONE legitimate full-sitemap crawl (253 pages, cold, 2 units each)
+// fits comfortably, while a 50 rps spray trips within seconds. The upstream
+// bound is the EDGAR gate, not this.
+const programmaticLimiter = createRateLimiter("programmatic-pages", { perMin: 1200, perHour: 12000 });
+// A 429 to a search-engine crawler costs us the page in the index, which is the
+// whole point of these URLs, so the limiter answers 429 only with `Retry-After`
+// (crawlers back off and return rather than dropping the URL), and a request the
+// cache can already serve never spends budget - see `_pgLimited(req, res, free)`
+// below, where the page builders report whether they touched EDGAR at all.
+// PEEK, never spend: a page served from cache costs nothing upstream, so a
+// crawler walking the whole sitemap must not be throttled for it. Budget is
+// spent only by a build that actually reaches EDGAR (`_pgSpend` below).
+const _pgLimited = (req, res) => {
+  if (!programmaticLimiter.peek(clientIp(req)).limited) return false;
+  res.set("Retry-After", "30");
+  res.status(429).type("text").send("Too many requests, retry shortly");
+  return true;
+};
+// Every request spends 1 (a cached hit still re-renders the page synchronously),
+// and a build that reached EDGAR spends a larger amount, so the budget tracks
+// real cost rather than only upstream calls.
+const _pgSpend = (req, n = 1) => { try { for (let i = 0; i < n; i++) programmaticLimiter.check(clientIp(req)); } catch { /* limiter never breaks a page */ } };
+// `next()` on an unresolvable slug falls through to the branded shell 404 at
+// the bottom of this file - one 404 page for the whole site.
+async function _programmaticEntity(req, res, next, kind) {
+  if (_pgLimited(req, res)) return;
+  const isFund = kind === "fund";
+  const raw = isFund ? String(req.params.manager || "") : String(req.params.ticker || "");
+  const slug = isFund ? normalizeManagerSlug(raw) : normalizeTicker(raw);
+  if (!slug) return next();
+  // One page per entity, one URL per page: /reports/insider/aapl redirects to
+  // the canonical /reports/insider/AAPL rather than rendering a second copy.
+  if (raw !== slug) return res.redirect(301, `/reports/${kind}/${encodeURIComponent(slug)}`);
+  const seeded = isFund ? Boolean(seededManager(slug)) : isSeededTicker(slug);
+  let r;
+  try { r = await loadTeaser(kind, slug, { seeded }); }
+  catch { r = seeded ? { status: "degraded" } : { status: "missing" }; }
+  _pgSpend(req, r.cached ? 1 : 2);  // a cached render is cheap, an EDGAR build is not
+  if (r.status === "missing") return next();
+  const degraded = r.status === "degraded";
+  // A degraded page states no numbers; keep it out of the index rather than let
+  // a bad minute be what a crawler records for this entity.
+  if (degraded) res.set("X-Robots-Tag", "noindex");
+  const html = isFund
+    ? fundPage({ slug, data: r.data || null, baseUrl: BASE_URL, degraded })
+    : kind === "insider"
+      ? insiderPage({ ticker: slug, data: r.data || null, baseUrl: BASE_URL, degraded })
+      : dossierPage({ ticker: slug, data: r.data || null, baseUrl: BASE_URL, degraded });
+  res.set("Cache-Control", degraded ? "public, max-age=60" : "public, max-age=900").type("html").send(html);
+}
+app.get("/reports/insider", (req, res) => { if (_pgLimited(req, res)) return; res.set("Cache-Control", "public, max-age=600").type("html").send(hubPage({ kind: "insider", baseUrl: BASE_URL })); });
+app.get("/reports/fund", (req, res) => { if (_pgLimited(req, res)) return; res.set("Cache-Control", "public, max-age=600").type("html").send(hubPage({ kind: "fund", baseUrl: BASE_URL })); });
+app.get("/reports/dossier", (req, res) => { if (_pgLimited(req, res)) return; res.set("Cache-Control", "public, max-age=600").type("html").send(hubPage({ kind: "dossier", baseUrl: BASE_URL })); });
+app.get("/reports/insider/:ticker", (req, res, next) => { _programmaticEntity(req, res, next, "insider").catch(next); });
+app.get("/reports/fund/:manager", (req, res, next) => { _programmaticEntity(req, res, next, "fund").catch(next); });
+app.get("/reports/dossier/:ticker", (req, res, next) => { _programmaticEntity(req, res, next, "dossier").catch(next); });
 app.get("/credits", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(creditsPage(BASE_URL)));
 app.get("/credits/thanks", (req, res) => res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html").send(creditsThanksPage(String(req.query.session || ""), BASE_URL)));
 if (_credits) {
@@ -1832,6 +1990,8 @@ if (_subs) {
       manageUrlFor: (reportId) => `${BASE_URL}/monitors/manage?report=${encodeURIComponent(reportId)}&k=${_manageToken(reportId)}`,
       refreshStatus: (subId) => _subs.refreshStatus(subId),
       probeRecalls, probeIpos, probeInsiderFilings,
+      probeTokenBrief, describeTokenChanges,
+      probeCompanyFilings, describeFilingChanges,
     });
   } catch (e) { console.warn("[monitors] scheduler failed to initialize:", String(e?.message || e)); _monitors = null; }
 }
@@ -1943,6 +2103,7 @@ app.get("/docs/adapters/:slug", (req, res) => { const html = adapterDocPage(BASE
 app.get("/changelog.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=600"); res.type("application/rss+xml").send(changelogRss(BASE_URL)); });
 app.get("/sitemapindex.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapIndex(BASE_URL)); });
 app.get("/sitemap-pages.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapPages(BASE_URL, CATALOG)); });
+app.get("/sitemap-reports.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapReports(BASE_URL)); });
 app.get("/sitemap-tools.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapTools(BASE_URL, CATALOG)); });
 app.get("/sitemap-guides.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapGuides(BASE_URL)); });
 app.get("/sitemap-skills.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapSkills(BASE_URL)); });
@@ -3818,6 +3979,47 @@ const cardSvg = (width = 1200, height = 630) => {
   </g>
 </svg>`;
 };
+// X (Twitter) profile header, 1500x500 - the platform's own spec. Designed for
+// how X actually crops it: the avatar sits over the BOTTOM-LEFT, the sides are
+// shaved on narrow viewports, and the bottom strip is covered by profile text
+// on some clients. So everything that must be readable lives in the middle band
+// and away from the lower left; the corners carry only texture.
+const xHeaderSvg = (width = 1500, height = 500) => {
+  const n = Object.keys(CATALOG).length;
+  const mono = JSON.stringify(BRAND.mono);
+  const display = JSON.stringify(BRAND.display);
+  // LAYOUT IS DICTATED BY X'S CHROME, not by taste. The avatar is a circle that
+  // hangs over the BOTTOM-LEFT (roughly x < 400, y > 330 in these coordinates)
+  // and the buttons sit bottom-right, so the readable band is the top two
+  // thirds. Type is sized for that band: at profile width the header renders
+  // about 1160px wide, so anything under ~30px here reads as fine print.
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 1500 500">${BRAND_FONT_STYLE}${BRAND_DEFS}
+  <rect width="1500" height="500" fill="${BRAND.paper}"/>
+  <defs><linearGradient id="xfade" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="${BRAND.milledA}" stop-opacity="0"/>
+    <stop offset="1" stop-color="${BRAND.milledA}" stop-opacity="0.13"/>
+  </linearGradient></defs>
+  <rect x="760" y="0" width="740" height="500" fill="url(#xfade)"/>
+  <rect x="88" y="66" width="62" height="62" rx="16" fill="url(#milled)"/>
+  <text x="170" y="115" font-size="50" font-weight="600" font-family=${display} letter-spacing="-1" fill="${BRAND.ink}">Agent402</text>
+  <text x="88" y="238" font-size="80" font-weight="600" font-family=${display} letter-spacing="-3" fill="${BRAND.ink}">The web, priced per call.</text>
+  <text x="88" y="292" font-size="30" font-family=${display} fill="${BRAND.muted}">${n.toLocaleString("en-US")} tools an agent can pay for and use, in one call.</text>
+  <text x="88" y="336" font-size="23" font-family=${mono} fill="${BRAND.faint}">x402 · MPP · prepaid card · ${RAILS.length} chains · USDC &amp; USDG</text>
+  <text x="1412" y="112" font-size="23" font-family=${mono} text-anchor="end" fill="${BRAND.faint}">agent402.tools</text>
+  <text x="1412" y="238" font-size="30" font-family=${mono} text-anchor="end" fill="${BRAND.amber}">HTTP/2 402</text>
+  <text x="1412" y="288" font-size="30" font-family=${mono} text-anchor="end" fill="${BRAND.accent}">HTTP/2 200</text>
+</svg>`;
+};
+app.get("/x-header.svg", (_req, res) => res.type("image/svg+xml").set("Cache-Control", "public, max-age=86400").send(xHeaderSvg()));
+let xHeaderPngCache = null;
+app.get("/x-header.png", async (_req, res) => {
+  try {
+    xHeaderPngCache ??= await rasterizeSvg(xHeaderSvg(), { width: 1500, height: 500 });
+    res.type("image/png").set("Cache-Control", "public, max-age=86400").send(xHeaderPngCache);
+  } catch {
+    res.redirect(302, "/x-header.svg");
+  }
+});
 app.get("/card.svg", (_req, res) => res.type("image/svg+xml").set("Cache-Control", "public, max-age=86400").send(cardSvg()));
 let cardPngCache = null;
 app.get("/card.png", async (_req, res) => {
@@ -4299,7 +4501,7 @@ if (!FREE_MODE) {
       if (!def) return null;
       const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
       if (!priceUsd) return null;
-      return { priceUsd, description: def.name, identityBound: isIdentityBoundRoute(def), longRunning: EXPENSIVE_COMPOSITE_SLUGS.has(def.slug) };
+      return { priceUsd, description: def.name, identityBound: isIdentityBoundRoute(def), longRunning: EXPENSIVE_COMPOSITE_SLUGS.has(def.slug) || LONG_RUNNING_SLUGS.has(def.slug) };
     },
   });
   if (tempoAppender) app.use(tempoAppender);
@@ -4315,7 +4517,7 @@ if (!FREE_MODE) {
       if (!def) return null;
       const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
       if (!priceUsd) return null;
-      return { priceUsd, description: def.name, identityBound: isIdentityBoundRoute(def), longRunning: EXPENSIVE_COMPOSITE_SLUGS.has(def.slug) };
+      return { priceUsd, description: def.name, identityBound: isIdentityBoundRoute(def), longRunning: EXPENSIVE_COMPOSITE_SLUGS.has(def.slug) || LONG_RUNNING_SLUGS.has(def.slug) };
     },
   });
   if (stripeAppender) app.use(stripeAppender);
@@ -4761,11 +4963,28 @@ if (FREE_MODE) {
     // kept offering one. They redeem against the unit-convert slug because
     // that is literally the tool being performed; verifySolution is
     // slug-scoped, so a challenge minted for unit-convert is the right one.
-    const slug =
+    // The trial's safety property is normally STRUCTURAL: `slug` is set only for
+    // PoW-eligible (pure-CPU) routes, so a trial can never give away upstream
+    // money. The Ox Alpha tier is the one deliberate exception, and it is made
+    // safe DYNAMICALLY instead: `oxUpstreamIsFree()` is true only while a fresh
+    // read of the live catalog shows the model priced at exactly 0/0, and it
+    // fails closed on any error, any staleness, and any non-zero price. Stealth
+    // models get repriced without notice; when that happens the trial stops
+    // being offered on the next probe and the route stays paid.
+    const oxTrialSlug = (req.method === "POST" && req.path === OX_ROUTE && oxAlphaAvailable() && oxUpstreamIsFree())
+      ? OX_TRIAL_SLUG
+      : undefined;
+    // PoW REDEMPTION stays keyed strictly on PoW-eligible routes. The Ox trial
+    // must never widen it: proof-of-work is cheap and repeatable, so honouring a
+    // solved challenge on an upstream-calling route would be an unmetered free
+    // proxy. `powSlug` gates redemption; `slug` (which may be the Ox trial slug)
+    // gates only the trial counter below.
+    const powSlug =
       POW_ROUTES.get(`${req.method} ${req.path}`) ??
       (isRetiredConvertPath(req.path) ? RETIRED_CONVERT_POW_SLUG : undefined);
+    const slug = powSlug ?? oxTrialSlug;
     if (slug) {
-      const solution = req.header("x-pow-solution");
+      const solution = powSlug ? req.header("x-pow-solution") : null;
       if (solution) {
         const result = verifySolution(solution, slug);
         if (result.ok) {
@@ -4807,25 +5026,47 @@ if (FREE_MODE) {
         // not offered and the caller pays. Failing the other way would turn a
         // Redis outage into unmetered free access.
         if (sharedLimitEnabled()) {
-          const toolHit = await sharedSpend("trial-tool", perTool, TRIAL_PER_TOOL_HOUR, 3600);
+          // The per-TOOL budget is what makes the Ox tier a usable free tier
+          // rather than a single taste; every other tool keeps the default.
+          const isOx = slug === OX_TRIAL_SLUG;
+          const toolBudget = isOx ? OX_TRIAL_PER_HOUR : TRIAL_PER_TOOL_HOUR;
+          const toolHit = await sharedSpend("trial-tool", perTool, toolBudget, 3600);
           if (toolHit.limited) {
             res.setHeader("X-Trial-Exhausted", "true");
-            res.setHeader("X-Trial-Limits", TRIAL_LIMITS_LABEL);
+            res.setHeader("X-Trial-Limits", slug === OX_TRIAL_SLUG ? OX_TRIAL_LIMITS_LABEL : TRIAL_LIMITS_LABEL);
           } else {
-            const ipHit = await sharedSpend("trial-ip", tip, TRIAL_IP_HOUR, 3600);
-            if (ipHit.limited) {
+            // Ox rides its own per-IP DAY bucket so a wallet-less caller can
+            // actually use it, while the shared hourly bucket still stops a
+            // single address from monopolising every other tool's trial.
+            const ipHit = isOx
+              ? await sharedSpend("trial-ip-ox", trialClientKey(tip), OX_TRIAL_PER_DAY, 86_400)
+              : await sharedSpend("trial-ip", tip, TRIAL_IP_HOUR, 3600);
+            // Global backstop, spent only after the per-client check passed.
+            const globalHit = isOx && !ipHit.limited
+              ? await sharedSpend("trial-ox-global", "all", OX_TRIAL_GLOBAL_PER_DAY, 86_400)
+              : { limited: false };
+            if (ipHit.limited || globalHit.limited) {
               // Give the per-tool unit back: the caller never received a trial,
               // so it must not count against the tool they were refused.
               await sharedRefund("trial-tool", perTool, 3600);
+              // And the per-client unit if only the GLOBAL cap refused them:
+              // they passed their own allowance, so it must not be consumed.
+              if (isOx && !ipHit.limited) await sharedRefund("trial-ip-ox", trialClientKey(tip), 86_400);
               res.setHeader("X-Trial-Exhausted", "true");
-              res.setHeader("X-Trial-Limits", TRIAL_LIMITS_LABEL);
+              res.setHeader("X-Trial-Limits", slug === OX_TRIAL_SLUG ? OX_TRIAL_LIMITS_LABEL : TRIAL_LIMITS_LABEL);
             } else {
               res.setHeader("X-Trial-Accepted", "true");
-              res.setHeader("X-Trial-Limits", TRIAL_LIMITS_LABEL);
+              res.setHeader("X-Trial-Limits", slug === OX_TRIAL_SLUG ? OX_TRIAL_LIMITS_LABEL : TRIAL_LIMITS_LABEL);
               res.on("finish", () => {
                 if (res.statusCode >= 400) {
                   sharedRefund("trial-tool", perTool, 3600).catch(() => {});
-                  sharedRefund("trial-ip", tip, 3600).catch(() => {});
+                  // Refund the SAME bucket the request spent from, or an Ox
+                  // failure would credit a bucket it never charged.
+                  if (isOx) {
+                    sharedRefund("trial-ip-ox", trialClientKey(tip), 86_400).catch(() => {});
+                    sharedRefund("trial-ox-global", "all", 86_400).catch(() => {});
+                  }
+                  else sharedRefund("trial-ip", tip, 3600).catch(() => {});
                 }
               });
               return next();
@@ -4835,7 +5076,7 @@ if (FREE_MODE) {
           trialToolLimiter.check(perTool);
           trialIpLimiter.check(tip);
           res.setHeader("X-Trial-Accepted", "true");
-          res.setHeader("X-Trial-Limits", TRIAL_LIMITS_LABEL);
+          res.setHeader("X-Trial-Limits", slug === OX_TRIAL_SLUG ? OX_TRIAL_LIMITS_LABEL : TRIAL_LIMITS_LABEL);
           // REFUND on failure. The trial is charged at GRANT time, so without
           // this a malformed first probe returned a self-explaining 400 AND
           // burned the caller's one free call — their first CORRECT call then
@@ -4853,9 +5094,14 @@ if (FREE_MODE) {
           return next(); // trial granted — skip the USDC paywall
         }
         res.setHeader("X-Trial-Exhausted", "true");
-        res.setHeader("X-Trial-Limits", TRIAL_LIMITS_LABEL);
+        res.setHeader("X-Trial-Limits", slug === OX_TRIAL_SLUG ? OX_TRIAL_LIMITS_LABEL : TRIAL_LIMITS_LABEL);
       }
-      res.setHeader("X-Pow-Challenge", `${BASE_URL}/api/pow/challenge?slug=${slug}`);
+      // Only a PoW-ELIGIBLE route has a challenge to offer. The Ox trial reaches
+      // this block with a wallet-only slug, and /api/pow/challenge 404s for
+      // those, so advertising it here would hand the caller a link that cannot
+      // work - the same self-contradiction the X-Trial-Available note below was
+      // written to stop.
+      if (powSlug) res.setHeader("X-Pow-Challenge", `${BASE_URL}/api/pow/challenge?slug=${powSlug}`);
       // Advertise the trial ONLY when it is actually available. This header used
       // to ride on every 402, including the one that had just REFUSED a trial —
       // so a caller that had exhausted its allowance was handed a link back to

@@ -29,6 +29,19 @@
 // by the coordinator in src/pow.js). Covered offline by
 // scripts/test-solana-intel-kit.js (stubbed fetch).
 
+import { markUntrusted } from "./provenance.js";
+const MAX_BODY_BYTES = 24 * 1024 * 1024;  // DefiLlama bulk docs run ~11MB; this is the hard ceiling.
+// Refuse an over-large body BEFORE reading it into a string: `res.text()` has
+// no cap of its own, so a broken or hostile upstream could push an unbounded
+// buffer into memory once per concurrent call.
+function assertBodyWithinCap(res, capBytes, label) {
+  const declared = Number(res.headers?.get?.("content-length") || 0);
+  if (declared && declared > capBytes) {
+    const e = new Error(`${label} response is larger than the ${Math.round(capBytes / 1048576)}MB cap`);
+    e.statusCode = 502; throw e;
+  }
+}
+
 const TIMEOUT_MS = 10_000;
 const UA = "Mozilla/5.0 (compatible; Agent402/1.0; +https://agent402.tools)";
 
@@ -110,6 +123,7 @@ async function upstreamJson(url, { label, method = "GET", body, notFound } = {})
   }
   if (!res.ok) throw bad(`${label} refused the request (HTTP ${res.status})`, 502);
   let text;
+  assertBodyWithinCap(res, MAX_BODY_BYTES, label);
   try { text = await res.text(); } catch { throw bad(`${label} response could not be read`, 502); }
   try { return JSON.parse(text); } catch { throw bad(`${label} returned non-JSON`, 502); }
 }
@@ -874,3 +888,14 @@ export const SOLANA_INTEL_TOOLS = [
 
 // Exported for offline unit tests (pure shaping, no network).
 export const __test = { takeMint, takeLimit, shapeHolders, shapeMarkets, shapePair, shapeJupToken, authorityState, riskCounts, BASE58_RE };
+
+// Free text in these results is written by third parties (headlines, posts,
+// casts, token names and descriptions, page titles). Anyone can mint a token or
+// publish a post, so this is the cheapest prompt-injection delivery vehicle in
+// the catalog: flag it as data, never instructions, the way site-crawl does.
+const UNTRUSTED_TEXT_SLUGS = new Set(["sol-trending", "sol-token-search", "sol-token-pairs", "sol-token-lookup", "sol-token-report", "sol-token-safety"]);
+for (const t of SOLANA_INTEL_TOOLS) {
+  if (!UNTRUSTED_TEXT_SLUGS.has(t.slug)) continue;
+  const inner = t.handler;
+  t.handler = async (...args) => markUntrusted(await inner(...args));
+}

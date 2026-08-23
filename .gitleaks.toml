@@ -74,6 +74,22 @@ regexes = [
   # not a credential; gitleaks' generic-api-key rule trips on the 64-hex
   # string sitting next to a quoted field.
   '''0xaf2caa1c2ca1d027f1ac823b529d0a67cd144264b2789fa2ea4d63a67c7103cc''',
+  # 2026-08-22 kit test fixtures (offline tests with a stubbed fetch): fake
+  # provider keys and fake pagination cursors / tweet ids, each allowlisted
+  # EXACTLY. None has a live counterpart (checked by hash against the real
+  # keys before allowlisting). New fixtures should use the LEAKCANARY
+  # convention instead of adding rows here.
+  '''test-key-0123456789abcdef''',
+  '''hunter-test-key-0123456789''',
+  '''apollo-test-key-0123456789''',
+  '''test-key-123456789''',
+  '''1f449b0c-09ee-48dd-a5ec-5c7c98038a31''',
+  '''b26v89c19zqg8o3fpzbl7''',
+  '''b26v89c19zqg8o3fpzbl7xxxxx''',
+  '''7140dibdnow9c7btw4''',
+  '''7140dibdnow9c7btw4xxxxx''',
+  '''1800000000000000001''',
+  '''1800000000000000002''',
 ]
 # The standard demo JWT ({"alg":"HS256","typ":"JWT"} header) used as the
 # decode-jwt tool's worked example in kit.js / kit2.js / skills.js. Stopwords

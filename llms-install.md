@@ -127,8 +127,10 @@ Solana/Polygon/Arbitrum/Monad/Celo/Avalanche/Sei/Optimism/Stellar/Algorand
  - plus USDG on Robinhood Chain, 12 chains in all); multi-tool skill packs
 run up to $1.50; the finished report products under `/v1` (deep research,
 company dossier, 13F fund report, domain audit, FDA recall, insider flow,
-token risk) cost $3 to $19 and are the same reports people buy by card at
-`https://agent402.tools/reports`. See `https://agent402.tools/api/pricing`
+SEC filings, Solana token brief, token risk) cost $0.20 to $1.10 and are the
+same reports people buy by card for $1 to $2 at
+`https://agent402.tools/reports` (the card price includes payment processing;
+an agent paying per call pays the lower tool price for the same report). See `https://agent402.tools/api/pricing`
 for exact prices.
 
 ## Verifying it works

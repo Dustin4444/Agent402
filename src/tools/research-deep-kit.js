@@ -43,12 +43,12 @@ const M = {
 // product is top-quality too. Tiers differentiate by research breadth
 // (searches/sources/length), not model.
 export const RESEARCH_TIERS = {
-  "research": { price: "$3", maxUpstreamUsd: 1.5, subQ: 3, searches: 3, topK: 15, synth: M.synthPrem, synthMaxTokens: 5000, words: "~1,500" },
-  "research-pro": { price: "$7", maxUpstreamUsd: 4.5, subQ: 6, searches: 8, topK: 30, synth: M.synthPrem, synthMaxTokens: 7000, words: "~2,200" },
-  "research-max": { price: "$12", maxUpstreamUsd: 9.0, subQ: 12, searches: 12, topK: 40, synth: M.synthPrem, synthMaxTokens: 8000, words: "~2,800" },
+  "research": { price: "$0.40", maxUpstreamUsd: 0.19, subQ: 3, searches: 3, topK: 15, synth: M.synthPrem, synthMaxTokens: 5000, words: "~1,500" },
+  "research-pro": { price: "$0.60", maxUpstreamUsd: 0.28, subQ: 6, searches: 8, topK: 30, synth: M.synthPrem, synthMaxTokens: 7000, words: "~2,200" },
+  "research-max": { price: "$0.70", maxUpstreamUsd: 0.34, subQ: 12, searches: 12, topK: 40, synth: M.synthPrem, synthMaxTokens: 8000, words: "~2,800" },
   // Market / competitor brief: the research pipeline with a competitive-
   // intelligence PLAN frame and a fixed brief structure (thesis product #3).
-  "market-brief": { price: "$7", maxUpstreamUsd: 4.5, subQ: 6, searches: 8, topK: 30, synth: M.synthPrem, synthMaxTokens: 7000, words: "~2,200",
+  "market-brief": { price: "$0.40", maxUpstreamUsd: 0.28, subQ: 6, searches: 8, topK: 30, synth: M.synthPrem, synthMaxTokens: 7000, words: "~2,200",
     planFrame: "You are a competitive-intelligence analyst planning a MARKET / COMPETITOR BRIEF. Cover, across the sub-questions: how the market is defined and sized; the key players and what each offers; pricing and packaging; recent moves (funding, launches, M&A, partnerships, exits); how the players differentiate and what switching costs exist; risks, regulation and open questions.",
     synthFrame: "Structure the brief as: MARKET AT A GLANCE (definition, size/growth only where sourced), KEY PLAYERS (one short grounded paragraph or bullet per player: what it does, who it serves, pricing where sourced), RECENT MOVES, HOW THEY DIFFER (positioning, moat, switching costs), RISKS & OPEN QUESTIONS, BOTTOM LINE (2-4 sentences). Only include a player or a number the sources support." },
 };

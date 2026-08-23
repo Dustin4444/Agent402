@@ -910,7 +910,10 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   protection; the `max-age=120` on the response is a browser-only hint. Contract pinned by
   `scripts/test-x402-economy.js` (dedup + warm-cache identity, never-throws).
 - **Site redesign 2026-08-22 ("milled + obsidian", approved from the Agent402 Site Directions canvas):**
-  TWO themes, DARK IS THE DEFAULT (same day, Mike): the dark palette sits on bare `:root` (first paint
+  TWO themes, LIGHT IS THE DEFAULT (flipped back the same day, Mike): the light "milled" palette sits on bare `:root`, the
+  obsidian dark palette is the `:root[data-theme="dark"]` override, `site-chrome.js` stamps `data-theme="dark"` pre-paint
+  only when the stored preference is dark, and typography tokens live on the default root (they are theme-independent - a
+  font token stranded in the override block fails `test-css-tokens-resolve`). The earlier dark-default note follows: the dark palette sits on bare `:root` (first paint
   dark, no script, no flash); the light "milled" palette is `:root[data-theme="light"]`, applied by
   `assets/js/site-chrome.js` (synchronous in `<head>`, reads `localStorage a402-theme` pre-paint) and
   flipped by the nav `.ml-theme-toggle`; no OS media query. Theme-specific surfaces ride tokens
@@ -1308,6 +1311,78 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   are the legacy push-trigger path; card PNGs under docs/announcements/media are
   fine to commit). No posted-tweet log or conversation state in this file.
 
+- **Programmatic SEC pages + token brief (2026-08-22, reviewed same day):** `/reports/insider/:ticker`,
+  `/reports/fund/:manager`, `/reports/dossier/:ticker` plus three crawlable hubs (`src/programmatic-pages.js`,
+  `src/programmatic-seeds.js`: 100 tickers + 50 managers, each verified against EDGAR, 253 seeded URLs in
+  `/sitemap-reports.xml`). Free teaser from real filings, paid CTA priced from HUMAN_PRODUCTS, Dataset +
+  Breadcrumb + Product JSON-LD. **Cost design is the whole game here (free public pages on a paid egress):**
+  shape regex before any upstream call; insider/dossier resolve against the 1h-cached `company_tickers.json` so a
+  random ticker costs ZERO EDGAR calls; **an off-list FUND slug builds nothing at all** (it would otherwise be one
+  live EDGAR full-text-search per unique slug on an unbounded slug space, aimed at the same egress the paid EDGAR
+  products use - a builder returning null is a 404 plus a negative-cache entry); positive and negative caches are
+  SEPARATE bounded maps (one shared map let a spray of bad slugs evict every seeded page, which then rebuilt
+  through a saturated gate and served crawlers "could not be read"); an EDGAR gate of 2 concurrent with a queue of
+  8, `while` not `if` so a resumed waiter cannot barge; `EDGAR_FETCH_TIMEOUT_MS` (12s) on every EDGAR socket,
+  because a caller-side deadline frees its gate slot while an unbounded fetch keeps running; the limiter PEEKS to
+  refuse and spends 1 per render / 2 per EDGAR build at 1200/min, sized so one full-sitemap crawl fits and a spray
+  does not, and a 429 carries `Retry-After` (a 429 to Googlebot costs the page in the index); a `degraded` page
+  sends `X-Robots-Tag: noindex`; a `partial` page says the filings could not be READ rather than "no filings".
+  **`ledgerShell`'s JSON-LD now escapes `<` as `\u003c`** like `jsonScriptTag` already did - a filer name containing
+  `</script>` broke out of the block, and that affects every page that puts third-party text in JSON-LD.
+  `/api/subscribe` no longer relays a validator's message unless we minted it (`err.buyerSafe`): an EDGAR helper
+  puts a slice of the UPSTREAM BODY in there and that route is unauthenticated.
+  `src/tools/token-brief-kit.js`: `token-brief` $9 (`POST /v1/token-brief`), one Opus synthesis over five keyless
+  Solana probes, grounding-strict, thin-evidence refusals (<2 of 5 sources, or no market AND no holder data);
+  WALLET_ONLY + EXPENSIVE_COMPOSITE (so longRunning = EVM exact only) + METERED. Card product `token-brief` $9 and
+  `token-monitor` $5/mo (kind `token`, daily free probe, paid re-run only on a changed safety fingerprint;
+  liquidity-derived risk NAMES are excluded from the fingerprint or a thin token flaps daily and burns its cap).
+- **Review round on the seller-landscape kits (2026-08-22, three lenses: leaks/SSRF/PII, money/economics, abuse/DoS/hygiene):**
+  no HIGH left open. PII: served discovery examples for the enrichment + Farcaster tools named a REAL person with a work email,
+  title and social handle (same class as the Form 4 example) - all placeholders now, and the offline fixtures with them.
+  Prompt injection: third-party free text (RSS headlines, posts, casts, token names/descriptions, page titles) now rides
+  `markUntrusted` in crypto-signals / x-data / farcaster-social / solana-intel / site-map (site-crawl already did) via a
+  wrap pass at the end of each kit. Money: the price cut left every `maxUpstreamUsd` where it was (research-max was 75% of
+  price) - all rescaled to <= 40%; monitors at $5/mo cut `MAX_FULL_PER_SUB_30D` 8 -> 4 (measured report cost ~$0.10-0.30, so
+  4 runs is ~$1.20 against a $4.56 net fee); `v1-images-fast`/`v1-images-pro`/`v1-videos` joined `EXPENSIVE_COMPOSITE_SLUGS`
+  (spend guard + longRunning = EVM exact only: settle-after on SVM/AVM/Tempo is work done, never charged), per-link image
+  timeout 120s -> 45s so a timeout precedes billing, `VIDEOS_MAX_WAIT_MS` 240s -> 180s (under x402's 300s
+  `maxTimeoutSeconds`), and `SLOW_TOOL_SECONDS` gained the media tiers + site-crawl/site-map. Bounds: site-crawl page cap
+  2MB -> 300KB and a global 2-in-flight gate (JSDOM parse is synchronous - the image-pool lesson), CoinGecko a 25/min token
+  bucket (Demo is 30/min shared), RSS feeds an in-flight map (a cold burst fanned out N times per publisher), and
+  `content-length` refused before `res.text()` in three kits. X page size capped at 25 posts (X bills per post RETURNED, so
+  the page size is the cost lever). Hygiene: a literal NUL byte in a test made the file invisible to grep and secret
+  scanners; gitleaks allowlist rows pinned to literals.
+- **Second seller-landscape wave (2026-08-22, Mike: "build everything we can serve right away and profitably; existing keys
+  are fair game"):** seven more kits, all wallet-only, offline tests in CI. KEYLESS: `crawl-kit.js` (`CRAWL_TOOLS`: site-map
+  $0.005 robots+sitemap+homepage links <= 6 fetches; site-crawl $0.02 BFS <= 20 pages/depth 2, robots honoured, SSRF guard on
+  every hop incl. redirects, 200+truncated once a page succeeded else 504), `crypto-signals-kit.js` (`CRYPTO_SIGNALS_TOOLS`:
+  crypto-news $0.004 from 8 public RSS/Atom feeds with a dependency-free parser + 5-min per-source cache; crypto-indicators
+  $0.005 RSI/MACD/EMA/SMA/Bollinger/ATR/VWAP on Hyperliquid candles; crypto-market-pulse $0.004 breadth/OI/funding snapshot),
+  `defi-kit.js` (`DEFI_TOOLS`, 10 tools $0.002-$0.003 on DefiLlama's FREE endpoints - yields, yield history, protocols,
+  protocol, chains, chain TVL history, stablecoins, stablecoin supply history, fees, dex volume; bulk docs (pools 11MB,
+  protocols 8.6MB) fetched once per 5 min and trimmed; `/bridges` and `/overview/derivatives` are 402-paywalled, not built).
+  EXISTING KEYS: `crypto-markets-kit.js` (`CRYPTO_MARKETS_TOOLS`, 12 CoinGecko Demo-plan gaps at $0.005-$0.008 vs a reseller's
+  $0.06 - token price by contract, coin profile/history/ohlc/range, categories, global-defi, exchanges/tickers/rates, search,
+  coins-list; `top_gainers_losers` is Pro-only, skipped; 60s-10min caches), `alchemy-data-kit.js` (`ALCHEMY_DATA_TOOLS`, 6 tools
+  $0.002-$0.005 on `ALCHEMY_API_KEY`: asset-transfers, token-balances (named list + capped metadata fan-out), token-allowance,
+  tx-receipt (one batched RPC, transfer events decoded locally), block-receipts, token-price-history; one request per call,
+  CU-bounded), `farcaster-social-kit.js` (`FARCASTER_SOCIAL_TOOLS` + `farcasterSocialEnabled()` on NEYNAR_API_KEY |
+  WARPCAST_API_KEY - prod has WARPCAST only, the alias is load-bearing; listed only with a key: fc-cast-search, fc-channel-feed,
+  fc-trending (trending CHANNELS - Neynar's /feed/trending no longer exists), fc-user-casts, fc-cast, fc-cast-replies,
+  fc-channel, fc-user-search, fc-cast-metrics, $0.003-$0.005), and `llm-images-fast-kit.js` (`IMAGES_FAST_TOOLS` on
+  OpenRouter's dedicated Image + Video APIs, flat per-image pricing, all-or-nothing billing: `/v1/images/fast` $0.02
+  (flux.2-klein-4b $0.014 -> gpt-image-1-mini medium), `/v1/images/pro` $0.05 (flux.2-pro $0.03 -> qwen-image-3 1K),
+  `/v1/videos/generations` $0.20 (veo-3.1-lite, 4 s locked, 720p, no audio, $0.12; submit -> poll <= 240 s -> authed
+  download -> inline b64 mp4); each link re-checks the model's LIVE listed price against the bound it was priced from and is
+  skipped when repriced, chain repriced end to end -> 503 with nothing spent; `v1-videos` is in `LONG_RUNNING_SLUGS`
+  (server.js: EVM exact only like the composites, since it runs 40 s+ settle-after). Live measured before pricing: klein
+  $0.014 / 2 s, flux.2-pro $0.030, veo-lite 4 s $0.12 / 40 s. Registration helper pattern for a new kit: import + spread in
+  ALL_KIT, slugs in WALLET_ONLY_SLUGS, routes in test-all NETWORK, test step in deploy.yml; a `slug:` regex over a kit file also
+  matches example INPUTS named slug (defi-kit) - derive slugs from routes.
+  A key-gated tool ALSO needs its slug in `METERED_SLUGS` (`scripts/test-non-metered-examples.js`): that sweep treats a 503 as a
+  HARD failure (the lenient-NETWORK hole that once hid gov-data), so a tool whose key CI deliberately lacks fails the run until it
+  is excluded there like every other keyed tool. Nine such failures (alchemy-data x6, images/video x3) blocked the 2026-08-22
+  wave-2 deploy.
 - **Seller-landscape builds (2026-08-22, from the x402scan/MPPScan top-seller research):** four kits. KEYLESS and listed:
   `src/tools/derivatives-kit.js` (`DERIVATIVES_TOOLS`, 11 tools $0.002-$0.005: perp-markets/funding/funding-screener/
   open-interest/klines/orderbook/basis on Hyperliquid's public info API, options-summary / crypto-options-chain / options-ticker on Deribit public (finance-kit already owns `options-chain` for equities),

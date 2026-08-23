@@ -8,6 +8,7 @@ import { RAILS, RAILS_OR } from "./rails.js";
 import { CHAIN_PAGES } from "./market-page.js";
 import { EXEC_TIERS } from "./tools/route-execute.js";
 import { stripeEnabled } from "./mpp-stripe.js";
+import { seededProgrammaticPaths } from "./programmatic-seeds.js";
 
 // Computed ONCE when this module loads (i.e. once per deploy, since Railway
 // restarts the process), not per-request. Every sitemap lastmod below reuses
@@ -16,6 +17,13 @@ import { stripeEnabled } from "./mpp-stripe.js";
 // on day N+1 of the same deploy claimed everything had "just changed," a
 // signal crawlers learn to discount.
 const BOOT_DATE = new Date().toISOString().slice(0, 10);
+
+// Programmatic SEO landing pages (one per seeded ticker / 13F manager). ONLY
+// the curated seeds are advertised: an off-list slug still renders when it
+// resolves on EDGAR, but a sitemap that enumerated an open URL space would
+// invite crawlers to mint upstream requests forever. The hub pages get a
+// higher priority than the entity pages that hang off them.
+const programmaticUrls = (baseUrl) => seededProgrammaticPaths().map((p) => ({ loc: `${baseUrl}${p}`, priority: p.split("/").length === 3 ? "0.8" : "0.6" }));
 
 export function robotsTxt(baseUrl) {
   // Explicitly welcome AI/agent crawlers and search engines; point them at the
@@ -148,7 +156,7 @@ export function sitemapXml(baseUrl, catalog) {
     ...skillSlugs().map((s) => ({ loc: `${baseUrl}/skills/${s}`, priority: "0.8" })),
   ];
   const toolUrls = toolList(catalog).map((t) => ({ loc: `${baseUrl}/tools/${t.slug}`, priority: "0.8" }));
-  const entries = [...staticUrls, ...guideUrls, ...skillUrls, ...toolUrls]
+  const entries = [...staticUrls, ...programmaticUrls(baseUrl), ...guideUrls, ...skillUrls, ...toolUrls]
     .map((u) => `  <url><loc>${u.loc}</loc><lastmod>${lastmod}</lastmod><changefreq>weekly</changefreq><priority>${u.priority}</priority></url>`)
     .join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -166,7 +174,7 @@ function subSitemap(urls, lastmod) {
 }
 export function sitemapIndex(baseUrl) {
   const lastmod = BOOT_DATE;
-  const subs = ["sitemap-pages.xml", "sitemap-tools.xml", "sitemap-guides.xml", "sitemap-skills.xml"];
+  const subs = ["sitemap-pages.xml", "sitemap-reports.xml", "sitemap-tools.xml", "sitemap-guides.xml", "sitemap-skills.xml"];
   const entries = subs.map((s) => `  <sitemap><loc>${baseUrl}/${s}</loc><lastmod>${lastmod}</lastmod></sitemap>`).join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${entries}\n</sitemapindex>`;
 }
@@ -230,6 +238,9 @@ export function sitemapPages(baseUrl, catalog) {
 export function sitemapTools(baseUrl, catalog) {
   const lastmod = BOOT_DATE;
   return subSitemap(toolList(catalog).map((t) => ({ loc: `${baseUrl}/tools/${t.slug}`, priority: "0.8" })), lastmod);
+}
+export function sitemapReports(baseUrl) {
+  return subSitemap(programmaticUrls(baseUrl), BOOT_DATE);
 }
 export function sitemapGuides(baseUrl) {
   const lastmod = BOOT_DATE;
@@ -326,7 +337,11 @@ Base URL: ${baseUrl}
 
 **No wallet, need the paid tools? Pay with prepaid card credits.** Buy $20, $50 or $100 at ${baseUrl}/credits (card, no account), get an a402_ key once, and send it as \`Authorization: Bearer a402_...\` on any paid tool - the list price is held before the call and debited only on a successful (200) response; \`X-Credits-Balance\` rides on every answer and \`GET ${baseUrl}/api/credits/balance\` reports the key. agent402-mcp (AGENT402_CREDITS_KEY) and agent402-client ({ creditsKey }) support it. Identity-bound tools (memory, my-usage) still need an x402 wallet - the payment is the identity there.
 
-**Finished reports, for agents and people.** Cited, grounded report products with a data appendix - the same endpoint over x402/MPP or by card (humans buy at ${baseUrl}/reports). Deep research: POST /v1/research ($3), POST /v1/research/pro ($7), POST /v1/research/max ($12). Company due-diligence dossier: POST /v1/dossier ($9), POST /v1/dossier/max ($19). Fund 13F report: POST /v1/fund ($4), POST /v1/fund/max ($9). Domain security audit: POST /v1/domain-audit ($3), POST /v1/domain-audit/pro ($5). FDA recall report: POST /v1/recall-report ($3). Insider flow report: POST /v1/insider-report ($4). Market / competitor brief: POST /v1/research/market-brief ($7). Token risk: POST /v1/token-risk ($3), POST /v1/token-risk/pro ($6). Monitors ($5/month by card at ${baseUrl}/monitors) re-run a report on change and email the diff - domain security, fund 13F, FDA recall, insider flow, IPO pipeline.
+**Finished reports, for agents and people.** Cited, grounded report products with a data appendix - the same endpoint over x402/MPP or by card. An agent pays the tool price per call, $0.20 to $1.10. Deep research: POST /v1/research ($0.35), POST /v1/research/pro ($0.65), POST /v1/research/max ($1.10). Company due-diligence dossier: POST /v1/dossier ($0.55), POST /v1/dossier/max ($0.95). Ticker pack, three reports in one run: POST /v1/ticker-pack ($0.75). Fund 13F report: POST /v1/fund ($0.25), POST /v1/fund/max ($0.50). SEC filing report: POST /v1/filing-report ($0.25). Domain security audit: POST /v1/domain-audit ($0.20), POST /v1/domain-audit/pro ($0.30). FDA recall report: POST /v1/recall-report ($0.20). Insider flow report: POST /v1/insider-report ($0.25). Market / competitor brief: POST /v1/research/market-brief ($0.35). Solana token brief: POST /v1/token-brief ($0.35). Token risk: POST /v1/token-risk ($0.30), POST /v1/token-risk/pro ($0.60). IPO pipeline digest, deterministic: POST /v1/ipo-report ($0.05). People buy the same reports by card at ${baseUrl}/reports for $1, or $2 for research max, dossier max and the ticker pack: the card price includes payment processing (Stripe takes 2.9% + $0.30 a charge, more than the report under about a dollar), so an agent paying per call pays the lower tool price for the same report. Monitors ($3/month by card at ${baseUrl}/monitors) re-run a report on change and email the diff - domain security, SEC filings, Solana token safety, fund 13F, FDA recall, insider flow, IPO pipeline.
+
+**Crypto derivatives, DeFi and Solana intel.** Live perpetuals and options, no exchange account: \`POST /api/perp-markets\` ($0.003) snapshots every listed perp, \`POST /api/perp-funding\` ($0.003) and \`POST /api/perp-funding-screener\` ($0.003) read funding rates now and across the book, and \`POST /api/perp-basis\` ($0.003), \`POST /api/perp-open-interest\` ($0.002), \`POST /api/perp-klines\` ($0.003) and \`POST /api/perp-orderbook\` ($0.002) cover premium, OI, candles and depth; the options book is \`POST /api/options-summary\` ($0.005), \`POST /api/crypto-options-chain\` ($0.004), \`POST /api/options-ticker\` ($0.002) and \`POST /api/options-volume\` ($0.002). DeFi: \`POST /api/defi-yields\` ($0.003) screens pools by chain, project and TVL, with \`POST /api/defi-protocols\` ($0.003), \`POST /api/defi-protocol\` ($0.002), \`POST /api/defi-chains\` ($0.002), \`POST /api/defi-fees\` ($0.003), \`POST /api/defi-dex-volume\` ($0.003), \`POST /api/stablecoins\` ($0.003) and history siblings for pools, chains and stablecoin supply. Solana: \`POST /api/sol-token-safety\` ($0.005) grades a mint (authorities, liquidity, holder concentration), \`POST /api/sol-token-report\` ($0.010) is the full risk write-up, and \`POST /api/sol-token-holders\` ($0.005), \`POST /api/sol-token-pairs\` ($0.003), \`POST /api/sol-trending\` ($0.003), \`POST /api/sol-price\` ($0.002), \`POST /api/sol-swap-quote\` ($0.003) and \`POST /api/sol-token-lookup\` ($0.002) cover concentration, pairs, trending, prices and routing. Market context: \`POST /api/crypto-news\` ($0.004), \`POST /api/crypto-indicators\` ($0.005), \`POST /api/crypto-market-pulse\` ($0.004), \`GET /api/coin-profile\` ($0.008), \`GET /api/coin-price-by-contract\` ($0.005) and \`GET /api/coin-ohlc\` ($0.008). Raw chain reads: \`POST /api/asset-transfers\` ($0.003), \`POST /api/token-balances\` ($0.002), \`POST /api/tx-receipt\` ($0.003) and \`POST /api/token-price-history\` ($0.004). Whole-site structure on demand: \`POST /api/site-map\` ($0.005) and \`POST /api/site-crawl\` ($0.02).
+
+**Images and video, flat per call.** Text-to-image and text-to-video on the OpenAI wire, priced per picture or per clip rather than per token: \`POST /v1/images/fast\` ($0.02, budget), \`POST /v1/images/pro\` ($0.05, higher fidelity), \`POST /v1/images/generations\` ($0.08, flagship) and \`POST /v1/videos/generations\` ($0.20, one silent 4-second 720p clip, MP4 inline base64). Point any OpenAI SDK at base_url ${baseUrl}/v1 and call the path you want; a failed or timed-out generation is never charged.
 
 **A failed call is not charged - structurally, and you can check it per response rather than trust us.** Settlement runs AFTER the tool handler and only completes for a successful (under-400) response: an error, a capacity 503, or an upstream 502 cancels settlement inside the payment middleware itself, so no money moves and there is nothing to claim.
 

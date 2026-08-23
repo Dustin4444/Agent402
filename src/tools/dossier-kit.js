@@ -26,8 +26,8 @@ const GROUND = "google/gemini-2.5-flash"; // grounded web search + read
 // dossier at ~2,540 words). Caps held at a provider-safe 8,000; word targets are
 // what those budgets complete; the source list is appended in code (no budget).
 export const DOSSIER_TIERS = {
-  "dossier": { price: "$9", maxUpstreamUsd: 4, filings: 3, insiderDays: 120, searches: 4, topWeb: 20, synthMaxTokens: 7000, words: "~2,400" },
-  "dossier-max": { price: "$19", maxUpstreamUsd: 8, filings: 6, insiderDays: 365, searches: 8, topWeb: 32, synthMaxTokens: 8000, words: "~2,800" },
+  "dossier": { price: "$0.55", maxUpstreamUsd: 0.27, filings: 3, insiderDays: 120, searches: 4, topWeb: 20, synthMaxTokens: 7000, words: "~2,400" },
+  "dossier-max": { price: "$0.70", maxUpstreamUsd: 0.33, filings: 6, insiderDays: 365, searches: 8, topWeb: 32, synthMaxTokens: 8000, words: "~2,800" },
 };
 // Models routed to - exported so the live-catalog guard checks them.
 export const DOSSIER_MODELS = [SYNTH, GROUND];
@@ -287,7 +287,11 @@ Write a thorough, well-structured dossier of up to ${t.words} words, with these 
       ? { dossier, company, ticker, sources: numbered, tables, meta }
       : { dossier, company, ticker, sources: numbered, tables, meta };
     if (process.env.RESEARCH_DEBUG === "1") out._debug = { webAnswers: webGood.map((r) => ({ q: r.q, answer: r.answer })), quoteBlock, insiderBlock, financialsBlock, webSources: numbered.filter((s) => !s.title.includes("SEC EDGAR")).map((s) => ({ n: s.n, snippet: s.snippet })) };
-    recordCompositeUsage({ slug: tierSlug, upstreamUsd: spent, ok: true, priceUsd: priceUsdOf(DOSSIER_TIERS[tierSlug]) });
+    // A composite that CALLS this one in-process passes `accountAs`, so the sale is
+    // booked once against the product the buyer actually paid for; the caller folds
+    // this leg's spend into its own. Direct callers are unaffected.
+    if (input?.accountAs) input.accountAs(spent);
+    else recordCompositeUsage({ slug: tierSlug, upstreamUsd: spent, ok: true, priceUsd: priceUsdOf(DOSSIER_TIERS[tierSlug]) });
     return out;
   };
 }

@@ -33,6 +33,13 @@ export const SLOW_TOOL_SECONDS = {
   "research": 300, "research-pro": 300, "research-max": 300, "dossier": 300, "dossier-max": 300,
   "fund-report": 300, "fund-report-max": 300, "domain-audit": 300, "domain-audit-pro": 300,
   "token-risk": 300, "token-risk-pro": 300,
+  // The rest of the long composites. Each is EVM-exact only, but a hand-built
+  // AVM payment must still be refused up front rather than burn the run.
+  "ticker-pack": 300, "token-brief": 300, "recall-report": 300, "insider-report": 300, "filing-report": 300, "market-brief": 300,
+  // Media tiers + the crawler. The media ones are EVM-only (longRunning), but a
+  // hand-built AVM payment must still be refused up front rather than burn the run.
+  "v1-images-fast": 240, "v1-images-pro": 240, "v1-videos": 300,
+  "site-crawl": 40, "site-map": 20,
 };
 
 export const requiredSecondsFor = (slug) => SLOW_TOOL_SECONDS[slug] ?? DEFAULT_REQUIRED_SECONDS;

@@ -32,22 +32,29 @@ import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync, unlinkS
 import { join } from "node:path";
 import { sendReportReadyEmail } from "./email.js";
 
-// The premium products the human door sells. All >= $3 (the card floor); the
+// The products the human door sells by card. The CARD price is not the agent
+// price: Stripe takes 2.9% + $0.30 per charge, so anything under about $1 loses
+// money on the fee alone no matter how cheap the report is. Agents paying over
+// x402 or MPP have no fixed fee and pay the tier price in the kit, which is set
+// just above measured upstream cost. $1 floor, $2 for the deep tiers.
 // cheap agent tools stay crypto/agent-only. `slug` maps to the paid endpoint's
 // handler so humans and agents run the identical pipeline.
 export const HUMAN_PRODUCTS = {
-  "research": { label: "Deep research report", price: 300, kind: "research", slug: "research", inputField: "query", inputLabel: "your research question" },
-  "research-pro": { label: "Deep research report - Pro", price: 700, kind: "research", slug: "research-pro", inputField: "query", inputLabel: "your research question" },
-  "research-max": { label: "Deep research report - Max", price: 1200, kind: "research", slug: "research-max", inputField: "query", inputLabel: "your research question" },
-  "dossier": { label: "Company due-diligence dossier", price: 900, kind: "dossier", slug: "dossier", inputField: "ticker", inputLabel: "a US stock ticker" },
-  "dossier-max": { label: "Due-diligence dossier - Max", price: 1900, kind: "dossier", slug: "dossier-max", inputField: "ticker", inputLabel: "a US stock ticker" },
-  "fund-report": { label: "Fund portfolio report (13F)", price: 400, kind: "fund", slug: "fund-report", inputField: "manager", inputLabel: "a fund name, ticker, or CIK" },
-  "fund-report-max": { label: "Fund portfolio report - Deep", price: 900, kind: "fund", slug: "fund-report-max", inputField: "manager", inputLabel: "a fund name, ticker, or CIK" },
-  "domain-audit": { label: "Domain security audit", price: 300, kind: "domain", slug: "domain-audit", inputField: "domain", inputLabel: "a domain, e.g. example.com" },
-  "domain-audit-pro": { label: "Domain security audit - Pro", price: 500, kind: "domain", slug: "domain-audit-pro", inputField: "domain", inputLabel: "a domain, e.g. example.com" },
-  "recall-report": { label: "FDA recall report", price: 300, kind: "recall", slug: "recall-report", inputField: "query", inputLabel: "a drug, food, brand or device, e.g. losartan" },
-  "insider-report": { label: "Insider flow report (Form 4)", price: 400, kind: "insider", slug: "insider-report", inputField: "ticker", inputLabel: "a US stock ticker" },
-  "market-brief": { label: "Market / competitor brief", price: 700, kind: "research", slug: "market-brief", inputField: "query", inputLabel: "a market, category or company" },
+  "research": { label: "Deep research report", price: 100, kind: "research", slug: "research", inputField: "query", inputLabel: "your research question" },
+  "research-pro": { label: "Deep research report - Pro", price: 100, kind: "research", slug: "research-pro", inputField: "query", inputLabel: "your research question" },
+  "research-max": { label: "Deep research report - Max", price: 200, kind: "research", slug: "research-max", inputField: "query", inputLabel: "your research question" },
+  "dossier": { label: "Company due-diligence dossier", price: 100, kind: "dossier", slug: "dossier", inputField: "ticker", inputLabel: "a US stock ticker" },
+  "dossier-max": { label: "Due-diligence dossier - Max", price: 200, kind: "dossier", slug: "dossier-max", inputField: "ticker", inputLabel: "a US stock ticker" },
+  "fund-report": { label: "Fund portfolio report (13F)", price: 100, kind: "fund", slug: "fund-report", inputField: "manager", inputLabel: "a fund name, ticker, or CIK" },
+  "fund-report-max": { label: "Fund portfolio report - Deep", price: 100, kind: "fund", slug: "fund-report-max", inputField: "manager", inputLabel: "a fund name, ticker, or CIK" },
+  "domain-audit": { label: "Domain security audit", price: 100, kind: "domain", slug: "domain-audit", inputField: "domain", inputLabel: "a domain, e.g. example.com" },
+  "domain-audit-pro": { label: "Domain security audit - Pro", price: 100, kind: "domain", slug: "domain-audit-pro", inputField: "domain", inputLabel: "a domain, e.g. example.com" },
+  "filing-report": { label: "SEC filing report", price: 100, kind: "filing", slug: "filing-report", inputField: "ticker", inputLabel: "a US stock ticker" },
+  "token-brief": { label: "Solana token due-diligence brief", price: 100, kind: "token", slug: "token-brief", inputField: "mint", inputLabel: "a Solana token mint address" },
+  "recall-report": { label: "FDA recall report", price: 100, kind: "recall", slug: "recall-report", inputField: "query", inputLabel: "a drug, food, brand or device, e.g. losartan" },
+  "insider-report": { label: "Insider flow report (Form 4)", price: 100, kind: "insider", slug: "insider-report", inputField: "ticker", inputLabel: "a US stock ticker" },
+  "market-brief": { label: "Market / competitor brief", price: 100, kind: "research", slug: "market-brief", inputField: "query", inputLabel: "a market, category or company" },
+  "ticker-pack": { label: "Ticker pack: dossier, insider flow and holders", price: 200, kind: "ticker", slug: "ticker-pack", inputField: "ticker", inputLabel: "a US stock ticker" },
 };
 
 // Stripe metadata: <= 50 keys, value <= 500 chars. Inputs are capped at 2000
@@ -227,7 +234,10 @@ export function createHumanCheckout({ stripe, generate, baseUrl, storeDir, onSal
         writeRec(sessionId, rec);
         patchIndex(INFLIGHT, sessionId, null);
         const email = session.customer_details?.email || session.customer_email;
-        if (email) sendReportReadyEmail({ to: email, reportUrl: `${baseUrl}/r/${sessionId}`, productLabel: p.label, subjectOf: input }).catch(() => {});
+        // `kind` + baseUrl let the email carry the matching MONITOR offer with
+        // this target prefilled (the retention loop); a kind with no monitor
+        // simply gets no offer. See src/report-upgrade.js.
+        if (email) sendReportReadyEmail({ to: email, reportUrl: `${baseUrl}/r/${sessionId}`, productLabel: p.label, subjectOf: input, kind: p.kind, baseUrl }).catch(() => {});
         try { onSale?.({ sessionId, product: p.slug, priceUsd: p.price / 100, paymentIntent: typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null }); } catch { /* accounting never breaks delivery */ }
         return rec;
       } catch (err) {
