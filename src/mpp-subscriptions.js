@@ -336,6 +336,39 @@ export function checkSubscriptionBinding(authorizationHeader, { secretKey, realm
  * @param {function} [deps.chargePeriod] injected renewal charge (tests); default is mppx's renewSubscription
  * @param {()=>number} [deps.now]
  */
+/** Everything an RPC/mppx failure actually carries, for OUR LOG ONLY.
+ *
+ *  A bare `err.message` is not enough here and the charge rail already taught us
+ *  why: mppx and its RPC layer put the real verdict somewhere other than the
+ *  message, and a wrapper's default text then reads as the diagnosis. The live
+ *  subscription canary's first run failed with ox's placeholder "Missing or
+ *  invalid parameters." - which is only what ox prints when a JSON-RPC error
+ *  arrives with code -32000 and NO message; the actual reason was in `data`,
+ *  and we were discarding it.
+ *
+ *  Buyer-facing text is unchanged: the caller still gets the generic
+ *  "did not settle" message, because an RPC body can quote a node's words.
+ */
+function diagnoseError(err, max = 900) {
+  const seen = new Set();
+  const parts = [];
+  for (let e = err, depth = 0; e && depth < 5; e = e.cause, depth++) {
+    if (typeof e !== "object" || seen.has(e)) break;
+    seen.add(e);
+    const bit = [];
+    if (e.name) bit.push(e.name);
+    if (e.message) bit.push(String(e.message));
+    if (e.code !== undefined) bit.push(`code=${JSON.stringify(e.code)}`);
+    if (e.data !== undefined) bit.push(`data=${JSON.stringify(e.data)}`);
+    if (e.details) bit.push(`details=${String(e.details)}`);
+    if (e.shortMessage && e.shortMessage !== e.message) bit.push(`short=${String(e.shortMessage)}`);
+    if (e.metaMessages) bit.push(`meta=${JSON.stringify(e.metaMessages)}`);
+    if (bit.length) parts.push(bit.join(" "));
+  }
+  const out = parts.join(" <- ") || String(err);
+  return out.length > max ? `${out.slice(0, max)}...` : out;
+}
+
 export function createMppSubscriptions({
   secretKey, realm, storePath, validateTarget = {}, onCharge,
   activate: injectedActivate = null, chargePeriod: injectedChargePeriod = null,
@@ -618,7 +651,7 @@ export function createMppSubscriptions({
       // Never relay an upstream body: mppx errors are its own text, but a
       // transport failure can carry an RPC response, so it is truncated and
       // never re-served verbatim as a hint. Full text goes to our log only.
-      log(`[mpp-subs] activation failed for ${b.product}: ${String(err?.message || err).slice(0, 300)}`);
+      log(`[mpp-subs] activation failed for ${b.product}: ${diagnoseError(err)}`);
       const e = new Error("The first subscription payment did not settle. Nothing was charged; request a fresh challenge and try again.");
       e.statusCode = 402;
       throw e;
@@ -777,7 +810,7 @@ export function createMppSubscriptions({
         ...(givenUp ? { canceledAt: new Date(at).toISOString(), canceledReason: "unpaid" } : {}),
       };
       await writeRec(next);
-      log(`[mpp-subs] period charge failed for ${subId} (attempt ${failures}${givenUp ? ", giving up: past the grace window" : `, retry in ${Math.round(backoff / 60000)}m`}): ${next.lastChargeError}`);
+      log(`[mpp-subs] period charge failed for ${subId} (attempt ${failures}${givenUp ? ", giving up: past the grace window" : `, retry in ${Math.round(backoff / 60000)}m`}): ${diagnoseError(err)}`);
       return next.status;
     } finally { inFlight.delete(subId); }
   }

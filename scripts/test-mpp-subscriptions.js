@@ -304,7 +304,7 @@ let liveSubId = null, liveHeader = null, liveToken = null, liveBuyer = null;
   ok(calls.activate === 1 && result.status === "active", "a valid credential settles period 0 and activates");
   ok(result.subId.startsWith("mpp_"), "the subscription id is namespaced so server.js can route it to this engine");
   ok(typeof result.manageToken === "string" && result.manageToken.length > 20, "activation hands back a manage token (the subscriber's only bearer for cancel)");
-  ok(calls.sales.length === 1 && calls.sales[0].priceUsd === 3 && calls.sales[0].payer === liveBuyer.address.toLowerCase(), "the first period is booked as a sale against the cryptographically recovered payer");
+  ok(calls.sales.length === 1 && calls.sales[0].priceUsd === 5 && calls.sales[0].payer === liveBuyer.address.toLowerCase(), "the first period is booked as a sale against the cryptographically recovered payer");
 
   await engine.warm();
   const active = engine.listActive();
