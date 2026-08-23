@@ -1484,6 +1484,18 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   that "the tx sends from THEIR account so they pay their own gas" was wrong about who funds it. `mppSubscriptionsEnabled()`
   now REQUIRES the sponsor: with no key the routes do not mount at all, because every subscribe would 402 forever and
   `/api/mpp/monitors` would be advertising a product we cannot deliver. Mike owes the funded key before this rail is live.
+  **Sponsored-gas policy:** mppx's default fee-payer policy caps `maxGas` at 2,000,000 and its own docs point at the
+  override when the access-key tx needs more; an ACTIVATION installs the key as well as moving the first period, so we
+  pass `feePayerPolicy: { maxGas: 6_000_000 }` (`SUB_FEE_PAYER_MAX_GAS`, env knob `MPP_SUB_FEE_PAYER_MAX_GAS`, a
+  malformed/zero value falls back rather than widening or voiding the policy). Deliberately generous, because the gas
+  ceiling is NOT the money bound - mppx's untouched `maxTotalFee` is, refusing anything over $0.05/tx however far gas
+  moves. **What sponsoring actually costs, measured on-chain, not estimated:** fees settle in USDC.e (the receipt's
+  `feeToken`) and gas x price converts to token units at ~1e12 - a real charge tx used 46,575 gas at 0.6 gwei and was
+  charged **28 units, $0.000028**. So a renewal costs us ~$0.00003 and the 6M ceiling is worth $0.0036; against $5/mo
+  that is noise, and the earlier framing of this as a meaningful ongoing cost was wrong. Note also that the receipt's
+  `feePayer` equals `from` on the working charge rail (the buyer self-pays; Tempo's relay does NOT sponsor), and that
+  Tempo's `eth_getBalance` returns a SENTINEL (`4242...` repeating) - native gas is abstracted, so the sponsor wallet
+  needs USDC.e, not a native balance.
   Diagnostics lesson, the third time on this rail: viem puts the server's words in `details` and the whole outbound
   request in `message`, so a message-first log truncated the one line that mattered (`diagnoseError`, cause first).
   **LIVE CANARY (2026-08-22, `scripts/tempo-subscription-canary.js` + `tempo-subscription-canary.yml`,

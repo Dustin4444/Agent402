@@ -189,6 +189,41 @@ function envCurrency() {
  * rail: the earlier note that "the tx sends from THEIR account so they pay
  * their own gas" was wrong about who funds it.
  */
+/**
+ * Gas ceiling for a sponsored subscription transaction.
+ *
+ * mppx's default fee-payer policy caps `maxGas` at 2,000,000, and its own docs
+ * point at this override "when the access key renewal tx requires more gas than
+ * the default policy allows". An ACTIVATION does more than a renewal: it
+ * installs the access key as well as moving the first period, and a plain
+ * transferWithMemo already costs 46,575 gas measured on-chain, so the 2M default
+ * is the wrong shape for the activation leg.
+ *
+ * 6,000,000 is deliberately generous rather than tuned, because the gas ceiling
+ * is NOT the money bound here - `maxTotalFee` is. Fees settle in USDC.e (the
+ * receipt's `feeToken`), and gas*price converts to token units at ~1e12: the
+ * measured charge tx paid 28 units, i.e. $0.000028. At the live 0.6 gwei basefee
+ * this ceiling is worth $0.0036 per transaction, while mppx's untouched
+ * `maxTotalFee` still refuses anything over $0.05 however far the gas price
+ * moves. Against a $5/mo subscription both are noise.
+ *
+ * The ~4M figure for an access-key install is an UNVERIFIED note carried in
+ * project docs, not something measured here, which is the other reason to leave
+ * headroom instead of pinning the number to it.
+ */
+export const SUB_FEE_PAYER_MAX_GAS = 6_000_000n;
+export function subscriptionFeePayerPolicy() {
+  const raw = (process.env.MPP_SUB_FEE_PAYER_MAX_GAS || "").trim();
+  let maxGas = SUB_FEE_PAYER_MAX_GAS;
+  if (raw) {
+    try {
+      const v = BigInt(raw);
+      if (v > 0n) maxGas = v;
+    } catch { /* keep the default: a malformed knob must never widen or void the policy */ }
+  }
+  return { maxGas };
+}
+
 export function subscriptionFeePayer() {
   const raw = (process.env.TEMPO_SUBSCRIPTION_FEE_PAYER_KEY || "").trim();
   if (!raw) return null;
@@ -473,7 +508,7 @@ export function createMppSubscriptions({
     store: kv,
     // Makes mppx build the transaction through prepareTransactionRequest, which
     // is the ONLY path that populates gas and fee fields. See subscriptionFeePayer().
-    ...(feePayer ? { feePayer } : {}),
+    ...(feePayer ? { feePayer, feePayerPolicy: subscriptionFeePayerPolicy() } : {}),
     ...clientOverride(),
     resolve: ({ request, source }) => {
       const ak = String(request?.methodDetails?.accessKey?.accessKeyAddress || "").toLowerCase();
@@ -976,6 +1011,7 @@ export function createMppSubscriptions({
     offerInfo, mintOffer, activateFromCredential, refreshStatus, cancel, isCanarySub,
     listActive, get, isMine, status, warm, warmSync, manageToken, manageTokenOk, publicView,
     _store: kv, _subStore: subStore, _method: method,
+    _feePayer: feePayer, _feePayerPolicy: feePayer ? subscriptionFeePayerPolicy() : null,
     _currentPeriodIndex: currentPeriodIndex, _paidThroughAt: paidThroughAt, _readRec: readRec, _writeRec: writeRec,
   };
 }
