@@ -556,9 +556,9 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `openai/gpt-5.6-luna` ($0.10/$0.60) + `gemini-2.5-flash-lite` entered; new tier
   prefixes gpt-5.6 terra/sol, gemini-3.x, laguna; `MODEL_COST` prices
   `claude-sonnet-5` at STANDARD $3/$15 (intro $2/$10 dies 2026-08-31 — never enter
-  intro rates). Two gateway guards added in the same sweep: buyer `tools` entries must
-  be `type:"function"` (OpenRouter's `openrouter:subagent`/`advisor` server tools
-  create spend bounded by neither `max_tokens` nor `max_price`), and an EMPTY
+  intro rates). Two gateway guards added in the same sweep: buyer `tools` entries were limited to
+  `type:"function"` because server tools had no spend bound; that is NO LONGER the whole
+  rule - see the server-tools entry below, and an EMPTY
   safety-refusal 200 (finish_reason `content_filter` / native `refusal`, no content —
   Claude-5-class models) walks the failover chain instead of reaching the buyer as a
   paid empty answer; a chain refusing end-to-end surfaces 502 (settlement cancelled).
@@ -1429,6 +1429,78 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   for one; the two figures it surfaces are top-level and survive (probed live), so it stops requesting the block.
   `railway.toml` gained `overlapSeconds = 20` - Railway's default is 0, which lets a request reach a container that
   is already going away, the residual cause of the deploy blips that turned /status amber.
+
+- **MCP tasks for the long products (2026-08-23, `src/mcp-tasks.js`):** the report composites run 30 s to 4 min,
+  which a blocking `tools/call` cannot hold, so they were effectively unsellable on the connector. The connector now
+  speaks the CURRENT spec's tasks EXTENSION (`io.modelcontextprotocol/tasks`, revision 2026-07-28): a long call
+  returns a handle, the client polls `tasks/get`. Implemented BY HAND: the installed SDK (1.30.0) is on
+  `2025-11-25` and ships the older CORE tasks feature (`tasks/result`, nested `task`, `params.task` opt-in), which
+  is wire-incompatible with the extension (flat shapes, `resultType` discriminator, result inlined into
+  `tasks/get`, `ttlMs`/`pollIntervalMs`, no `tasks/result`). The server decides; a client opts in per request via
+  `_meta` and a server MUST NOT hand a task to one that did not.
+  **Settlement does not move:** the loopback IS the paid request, so a failed/cancelled/orphaned task produced a
+  non-200 and settlement was cancelled - nobody is charged, and the refund ledger is deliberately NOT wired to
+  ordinary failures because nothing was taken. A ~8 s gate window runs first so a 402 is always answered
+  synchronously: **a task is never minted for a call that has not cleared the paywall.** The record is on the
+  volume, the RUN is in one process, so a boot sweep resolves orphans to `failed` truthfully. Per the extension,
+  a tool error is `completed` + `isError` (never a silent empty success); only JSON-RPC errors are `failed`.
+  Composites only, `AGENT402_MCP_TASKS=off`. `scripts/test-mcp-tasks.js` (77, 5 mutations killed - two of which
+  initially SURVIVED because the test calls finished inside the gate window and so proved nothing).
+- **MPP subscriptions (2026-08-23, `src/mpp-subscriptions.js`):** monitors were card-only; a wallet can now
+  subscribe over `tempo/subscription`. Three things the docs got wrong and the code did not: `chargeModes` belongs
+  to tempo/CHARGE, not subscription (a subscription is always a server PULL); `periodUnit` has no `month`, so
+  $3/month is `periodCount 30, periodUnit "day"`; and **there is no relay path** - a subscription charge is a
+  `transferWithMemo` signed by a server-held ACCESS KEY straight to a Tempo RPC, so "we hold no Tempo signing key"
+  is no longer true and this module is the exception. The buyer's own signature scopes that key to one token, one
+  selector, our payTo, a per-period limit and an on-chain expiry, and the tx sends from THEIR account so they pay
+  their own gas. Measured hazard: `verifySubscriptionKeyAuthorization` accepts a signature over an
+  ATTACKER-CHOSEN access key when you do not pass one (it falls back to the credential's echoed key), so we always
+  pass the key we hold the private half of. Billing is pulled from `refreshStatus()` - the same gate the scheduler
+  already calls before every paid run, so "are they paid up" and "charge them" are one answer. A failed period is
+  `past_due` (free probes continue, no paid report), 1h backoff doubling to 24h, `canceled` after a 7-day grace.
+  Every unpaid 402 mints a keypair, so unclaimed offers are swept and minting refuses past a ceiling.
+  `MPP_SUBSCRIPTIONS=off`; gated on MPP_SECRET_KEY + a recipient, NOT on TEMPO_API_KEY (no relay involved).
+  **NOT yet proven on-chain:** activation and renewal both need a funded Tempo buyer and a real RPC, and the
+  activation tx installs an access key (~4M gas). A dispatchable live canary is owed before this is trusted, for
+  exactly the reason the charge rail learned twice: a stub proves nothing about the wire.
+- **Server tools under a server-owned bound (2026-08-23, supersedes the 2026-08-04 blanket refusal):** the chat wire
+  now allows exactly three OpenRouter server tools on the PRO and PREMIUM tiers - `openrouter:web_search`,
+  `web_fetch` and `datetime` - because each has a published per-use price AND a hard `max_uses` count cap. We pin
+  every cost-bearing field ourselves (`engine:"exa"` on search, never `auto`, which falls through to a
+  provider-priced native path; `engine:"openrouter"` on fetch, the only free one; `max_uses`, `max_results`,
+  `max_characters`, `max_content_tokens`) and the pinned object REPLACES the buyer's rather than merging, so
+  widening is structurally impossible. Buyer `stop_server_tools_when` and `max_tool_calls` are refused by name, not
+  silently dropped - a caller must never believe they set a budget they did not.
+  **`max_cost` is a belt, not the bound:** OpenRouter's own schema says it stops the loop once cumulative cost
+  "exceeds" the threshold and then still executes pending tool calls plus one final turn, so it OVERSHOOTS. The
+  real bound is the count cap times the published per-use price, folded into `fixedUsd`, with `turns = steps + 1`
+  multiplying both the re-billed transcript and the output side. Still refused, each with its reason:
+  `subagent`/`advisor`/`fusion` (they spawn model calls on a model the CALLER names), `mcp` (buyer-supplied
+  `server_url` returns arbitrarily large payloads with no content cap, from our account), `files` (reads our own
+  key's workspace), `shell`/`bash`/`apply_patch` and anything with no published price, and the OpenAI shorthand
+  `web_search`, which converts upstream into a form that hands the engine back to the caller. Server-tool requests
+  are never cached (the web moves). Base/nano/auto tiers 400 with guidance: one Exa search is $0.007, which is the
+  entire 70% budget of a $0.02 request. `scripts/test-server-tools.js` (117).
+- **Grounding context (2026-08-23):** `llm-context` $0.02 (`POST /api/llm-context`, `src/tools/llm-context-kit.js`)
+  on Brave's LLM Context API, using the SUBSCRIPTION TOKEN WE ALREADY HOLD - one call returns ranked, pre-extracted
+  grounding chunks instead of links to fetch. Verified live 2026-08-23: 18 chunks from 10 hosts in 425 ms. Chunks
+  are third-party web text so the result rides `markUntrusted`. UNCONFIRMED whether it bills as a Search unit or a
+  separate plan; priced at $0.02 to match `search`, which is safe under either reading - re-price from the invoice.
+  It also exposed a hole in `test-brave-leak.js`: reach was resolved only by IMPORT of search.js, so a new
+  Brave-backed kit would have slipped the CI-spend guard and bought live queries on every run. The guard now also
+  resolves by upstream HOST, mutation-tested both ways.
+- **Stripe shadow ledger (2026-08-23, `src/stripe-shadow-ledger.js`, OFF by default):** records settled on-chain
+  payments into Stripe as `transaction_verification` PaymentIntents so card and crypto revenue could eventually
+  share one set of books. NOT a source of truth and structurally unable to become one: `record()` is synchronous
+  and returns undefined (cannot be awaited into a request), disabled means no db file and no timer, every network
+  call is on an unref'd drain, and a test asserts a request's status and body are identical across five worlds
+  (disabled, success, Stripe 402, fetch throws, store broken). Idempotent on the tx hash. **Expect rejections:**
+  Stripe's docs say payments should land on a Stripe-controlled deposit address and our payTo is our own treasury
+  wallet, so the first week is an experiment, not an integration - a wall of one rejection code is the ANSWER, and
+  it would mean unifying the books requires changing our payTo, a treasury decision. Also: Stripe's floor is $0.01
+  so most of the $0.001 catalog is unpostable (never rounded up - that would fabricate an amount), only base,
+  solana and tempo of our twelve rails are supported, and synthetic canary traffic is skipped as internal.
+  `GET /__operator/shadow-ledger.json` reports both sides for the week-long comparison. `STRIPE_SHADOW_LEDGER=on`.
 
 ## Environment / ops (set on Railway, not in repo)
 `WALLET_ADDRESS`, `WALLET_ENS`, `NETWORK`, `CDP_API_KEY_ID/SECRET`, `FACILITATOR_URL`,

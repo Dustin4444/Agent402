@@ -822,6 +822,9 @@ jobs:
       - name: Prepaid card credits (mint-once, exact micro-dollar balances, gate debits only on 200, 402 on insufficient, operator view)
         run: node scripts/test-credits.js
 
+      - name: Stripe shadow ledger (off by default and inert, idempotent on tx hash, failures swallowed, restart-durable, caller unchanged in every world)
+        run: node scripts/test-stripe-shadow-ledger.js
+
       - name: Fetch-guard error attribution (upstream 4xx→422, 5xx→502; media Content-Type fail-fast)
         run: node scripts/test-fetch-guard.js
 
@@ -842,6 +845,9 @@ jobs:
 
       - name: Native MPP on /mcp (stock MCP SDK client + mppx McpClient pays a wallet-only tool via the real gates; stub facilitator; -32042 wire; RFC 9457 problem on tamper - offline)
         run: node scripts/test-mcp-mpp.js
+
+      - name: MCP Tasks on /mcp (io.modelcontextprotocol/tasks - handle then poll to completed, failures never a silent empty success, cancel aborts the paid run, restart resolves orphans, composites only, no task without payment - offline)
+        run: node scripts/test-mcp-tasks.js
 
       - name: Anthropic Messages wire on the five tiers (validation, probe clamp, outbound prefs, billing strip, failover, paid-empty guard, SSE scrub - offline)
         run: node scripts/test-llm-messages.js
@@ -874,6 +880,8 @@ jobs:
 
       - name: LLM gateway validation (OpenAI-compat tiers, caps, env-gated 503)
         run: node scripts/test-llm-gateway.js
+      - name: Server tools (pinned engines, buyer cannot widen the cap, loop priced into the margin - offline)
+        run: node scripts/test-server-tools.js
 
       - name: Ox Alpha tier (locked stealth model, zdr refusal, zero-cost clamp, reasoning floor, vanish gate - offline)
         run: node scripts/test-ox-tier.js
@@ -1232,6 +1240,9 @@ jobs:
       - name: Tempo chain-truth confirm (relay says failed but the credential's tx settled -> serve the buyer; pinned on the real incident tx — offline)
         run: node scripts/test-tempo-confirm.js
 
+      - name: MPP recurring subscriptions (tempo/subscription challenge shape, binding refuses forged/foreign/expired/underpriced before any settlement, period accounting, dunning, cancellation - offline)
+        run: node scripts/test-mpp-subscriptions.js
+
       - name: Leaderboard RPC failures never carry the Alchemy key (host-only naming + redaction on the public lastError path — offline)
         run: node scripts/test-leaderboard-redaction.js
 
@@ -1561,6 +1572,8 @@ jobs:
         run: node scripts/test-crypto-signals-kit.js
       - name: crawl kit (offline)
         run: node scripts/test-crawl-kit.js
+      - name: llm-context kit (Brave grounding context, stubbed fetch, no live Brave call, offline)
+        run: node scripts/test-llm-context-kit.js
 
       - name: Paid-upstream leak guard (Brave + E2B — every metered route/pack must be skipped — offline)
         run: node scripts/test-brave-leak.js

@@ -328,6 +328,21 @@ export const TIERS = {
     maxInputChars: 48_000,
     maxTokens: 4096,
     maxPrice: { prompt: 6, completion: 20 }, // priciest allowlisted: grok ~$3/$15 (claude sonnet 5 is $2/$10, permanent as of 2026-08-10)
+    // Server tools (see SERVER_TOOL_POLICY): pro is the CHEAPEST tier that can
+    // absorb a bounded agent loop. One Exa search is $0.007 - on the $0.02
+    // base tier two of them are the entire 70% margin budget with nothing left
+    // for tokens, so the budget tiers refuse server tools outright and the 400
+    // names this route. One step here bounds the loop at $0.007 of execution
+    // and two model turns; worst case is priced by serverToolWorstCase and
+    // clamped like every other cost.
+    serverTools: {
+      maxSteps: 1,
+      tools: {
+        "openrouter:web_search": { max_uses: 1, max_results: 3, max_characters: 800 },
+        "openrouter:web_fetch": { max_uses: 1, max_content_tokens: 1200 },
+        "openrouter:datetime": { max_uses: 1 },
+      },
+    },
     prefixes: [
       "openai/gpt-4o", "openai/gpt-4.1",
       // claude-sonnet prefix covers claude-sonnet-5, $2/$10 — see MODEL_COST
@@ -368,6 +383,18 @@ export const TIERS = {
     maxInputChars: 200_000,
     maxTokens: 8192,
     maxPrice: { prompt: 20, completion: 100 }, // priciest allowlisted: claude opus ~$15/$75
+    // Server tools (see SERVER_TOOL_POLICY): the $0.50 price buys two search
+    // steps and richer results. The clamp still decides per request - premium
+    // models are the priciest per token, so a long prompt PLUS a tool loop is
+    // refused pre-spend rather than served at a loss.
+    serverTools: {
+      maxSteps: 2,
+      tools: {
+        "openrouter:web_search": { max_uses: 2, max_results: 4, max_characters: 1000 },
+        "openrouter:web_fetch": { max_uses: 2, max_content_tokens: 2000 },
+        "openrouter:datetime": { max_uses: 1 },
+      },
+    },
     prefixes: [
       // gpt-5.6-sol needs its own entry: prefix matching is boundary-aware
       // ("openai/gpt-5" matches gpt-5-*, not gpt-5.6-*). claude-opus covers
@@ -714,6 +741,182 @@ export function imageTokensFor(model) {
 }
 const TOKEN_SAFETY = 1.15;   // headroom for BPE drift across vendors
 
+// ---------------------------------------------------------------------------
+// SERVER TOOLS - OpenRouter-executed tools inside an agent loop.
+//
+// History: every `tools` entry whose type was not "function" was refused
+// (2026-08-04) because server-tool spend was "bounded by NEITHER max_tokens
+// nor provider.max_price". That was correct at the time. OpenRouter has since
+// shipped a per-request loop budget, verified against their live OpenAPI
+// document and docs on 2026-08-22:
+//
+//   StopServerToolsWhenMaxCost: "Stop once cumulative cost across the loop
+//   exceeds this dollar threshold." -> {type:"max_cost", max_cost_in_dollars}
+//   StopServerToolsWhenStepCountIs: "Stop after the agent loop has executed
+//   this many steps."               -> {type:"step_count_is", step_count}
+//   StopServerToolsWhen (array, minItems 1) sits on ChatRequest,
+//   MessagesRequest and ResponsesRequest as `stop_server_tools_when`, and
+//   "When set, this overrides `max_tool_calls`" (default 30, max 30).
+//
+// READ THE WORD "exceeds". max_cost is a stop-AFTER-exceed condition, and the
+// schema adds: "When a condition fires while the model is still emitting tool
+// calls, the pending tool calls are executed and one final turn is made with
+// tool calls disabled." So a request can overshoot max_cost by one step plus
+// one model turn. A bound we cannot verify is not a bound, so max_cost is NOT
+// what this margin arithmetic rests on. It rides as a belt.
+//
+// THE BOUND is deterministic and per-tool:
+//   * `max_uses` - "Once the limit is reached, further search calls return an
+//     error result instead of executing" (web_search and web_fetch). A hard
+//     count, enforced at the tool, so parallel tool calls in one step cannot
+//     overshoot the DOLLAR side.
+//   * a PINNED engine with a published per-call price, so a use costs a known
+//     number of dollars. Verified 2026-08-22:
+//       web_search, Exa: instant/fast/auto $0.007, deep-lite/deep $0.012,
+//         deep-reasoning $0.015 per request. (Native provider search is billed
+//         by the provider at rates we do not control and forwards `max_uses`
+//         only to Anthropic - so `engine` is pinned to "exa", never "auto".)
+//       web_fetch, engine "openrouter" (direct HTTP fetch): "Free". Exa and
+//         Parallel are $1 per 1,000 fetches; Firecrawl is BYOK.
+//       datetime: "no additional cost beyond standard token usage".
+//   * `max_characters` / `max_content_tokens` - a hard per-result content cap,
+//     which is what bounds the TOKEN side.
+//
+// REFUSED, and why (each of these would be a spend we cannot bound):
+//   openrouter:subagent, openrouter:advisor, openrouter:fusion - each spawns
+//     further model calls, on a model the CALLER names ("any OpenRouter
+//     model"), with `max_completion_tokens` defaulting to the provider default
+//     and no evidence our provider.max_price reaches the inner call. A $0.10
+//     request could delegate to claude-opus.
+//   openrouter:image_generation - per-image upstream spend at image-model
+//     rates; we sell images at $0.08 on their own route with their own bound.
+//   openrouter:shell, openrouter:bash, openrouter:apply_patch,
+//     openrouter:tool_search, openrouter:experimental__search_models -
+//     sandbox/compute or catalog surfaces with no published per-call price.
+//   openrouter:files - "files come from the API key's workspace", i.e. OUR
+//     workspace. A read/write surface on our own account is not a thing a
+//     buyer gets for $0.10.
+//   mcp, code_interpreter, computer_use_preview, file_search - not accepted in
+//     a Chat Completions `tools` array by OpenRouter anyway, and `mcp` would
+//     let a buyer point our account at an arbitrary server_url with arbitrary
+//     headers. Refused explicitly so the answer does not depend on upstream.
+//   web_search / web_search_preview (the OpenAI-syntax shorthand) - it is
+//     "automatically converted to openrouter:web_search" upstream, which would
+//     hand the ENGINE choice back to the buyer. Refused with a pointer to the
+//     bounded spelling.
+//
+// tokensPerUse is what one use injects back into the prompt, with headroom.
+// Every subsequent model turn re-bills the whole accumulated transcript, so
+// the arithmetic below charges the full injected budget on EVERY turn - a
+// deliberate over-estimate of the true triangular growth.
+export const SERVER_TOOL_POLICY = {
+  "openrouter:web_search": {
+    feeUsdPerUse: 0.007, // Exa, mode auto - the published request price
+    // Cost-neutral narrowing a buyer may still ask for. Domain filters only
+    // ever shrink the result set and never change the per-request price.
+    buyerParams: ["allowed_domains", "excluded_domains"],
+    // Everything a buyer must NOT set: each of these moves either the dollar
+    // price (engine/mode) or the token volume (results/characters/uses).
+    pin(limits) {
+      return {
+        engine: "exa",   // never "auto": native search is priced by the provider
+        mode: "auto",    // $0.007; deep-lite/deep are $0.012, deep-reasoning $0.015
+        max_uses: limits.max_uses,
+        max_results: limits.max_results,
+        max_total_results: limits.max_uses * limits.max_results,
+        max_characters: limits.max_characters,
+      };
+    },
+    // Exa highlights: max_results x max_characters, ~4 chars/token, plus
+    // framing (title/url/JSON) and BPE headroom.
+    tokensPerUse: (l) => Math.ceil((l.max_results * l.max_characters / 4) * TOKEN_SAFETY) + 200,
+  },
+  "openrouter:web_fetch": {
+    feeUsdPerUse: 0, // engine "openrouter" is priced "Free" (Exa/Parallel are $0.001)
+    buyerParams: ["allowed_domains", "blocked_domains"],
+    pin(limits) {
+      return {
+        engine: "openrouter", // never "auto": that falls back to Exa/native, both priced
+        max_uses: limits.max_uses,
+        max_content_tokens: limits.max_content_tokens,
+      };
+    },
+    tokensPerUse: (l) => Math.ceil(l.max_content_tokens * TOKEN_SAFETY) + 200,
+  },
+  "openrouter:datetime": {
+    feeUsdPerUse: 0, // "no additional cost beyond standard token usage"
+    buyerParams: ["timezone"], // a string, cost-neutral
+    pin: () => ({}),
+    tokensPerUse: () => 200,
+  },
+};
+
+/** Server-tool types OpenRouter accepts that we deliberately do not sell, with
+ *  the reason a buyer gets back. Anything not listed here and not in
+ *  SERVER_TOOL_POLICY falls through to the generic refusal. */
+const SERVER_TOOL_REFUSALS = {
+  "openrouter:subagent": "it delegates to another model of your choosing, whose spend is not bounded by this tier's price",
+  "openrouter:advisor": "it consults another model of your choosing, whose spend is not bounded by this tier's price",
+  "openrouter:fusion": "it fans out to a panel of models, whose spend is not bounded by this tier's price",
+  "openrouter:image_generation": "image generation is metered per image - POST /v1/images/generations sells it with its own bound",
+  "openrouter:shell": "sandboxed compute has no per-call price we can bound",
+  "openrouter:bash": "sandboxed compute has no per-call price we can bound",
+  "openrouter:apply_patch": "it operates on a hosted workspace, not on your request",
+  "openrouter:files": "it reads and writes files in the API key's workspace, which is ours, not yours",
+  "openrouter:tool_search": "deferred tool loading has no per-call price we can bound",
+  "openrouter:experimental__search_models": "it is an experimental catalog surface with no per-call price we can bound",
+  mcp: "a buyer-supplied MCP server URL is an unbounded outbound call from our account",
+  code_interpreter: "hosted code execution has no per-call price we can bound",
+  computer_use_preview: "hosted computer use has no per-call price we can bound",
+  file_search: "it reads vector stores on our account, not yours",
+  web_search: 'the OpenAI-syntax shorthand hands the search ENGINE back to the caller - use {type:"openrouter:web_search"} instead, which we bound',
+  web_search_preview: 'the OpenAI-syntax shorthand hands the search ENGINE back to the caller - use {type:"openrouter:web_search"} instead, which we bound',
+};
+
+/** The server-tool entries in a validated body, paired with the tier limits
+ *  that were pinned onto them. Empty for every request that carries none, so
+ *  every number below collapses to today's arithmetic. */
+export function serverToolsIn(body, tier) {
+  const cfg = tier?.serverTools;
+  if (!cfg || !Array.isArray(body?.tools)) return [];
+  return body.tools
+    .filter((t) => t && typeof t === "object" && Object.hasOwn(SERVER_TOOL_POLICY, t.type) && Object.hasOwn(cfg.tools, t.type))
+    .map((t) => ({ type: t.type, limits: cfg.tools[t.type], policy: SERVER_TOOL_POLICY[t.type] }));
+}
+
+/** The server-owned `stop_server_tools_when` array for an outbound body, or
+ *  null when the request carries no server tool (the field is then absent and
+ *  the request is byte-identical to today's). Verified against OpenRouter's
+ *  live OpenAPI document 2026-08-22: StopServerToolsWhen is an array of
+ *  discriminated conditions on ChatRequest.stop_server_tools_when, and
+ *  "When set, this overrides `max_tool_calls`". */
+export function stopServerToolsFor(body, tier) {
+  const st = serverToolWorstCase(body, tier);
+  if (!st.steps) return null;
+  return [
+    { type: "step_count_is", step_count: st.steps },
+    { type: "max_cost", max_cost_in_dollars: +(tier.price * MARGIN).toFixed(6) },
+  ];
+}
+
+/** Worst-case server-tool footprint for an outbound body: the dollar fee we
+ *  may be billed for tool execution, the tokens the results inject, and the
+ *  number of MODEL turns the loop can make. `turns` is 1 (today's behaviour)
+ *  whenever the request carries no server tool. */
+export function serverToolWorstCase(body, tier) {
+  const entries = serverToolsIn(body, tier);
+  if (!entries.length) return { feeUsd: 0, injectedTokens: 0, turns: 1, steps: 0 };
+  let feeUsd = 0, injectedTokens = 0;
+  for (const { limits, policy } of entries) {
+    feeUsd += policy.feeUsdPerUse * limits.max_uses;
+    injectedTokens += policy.tokensPerUse(limits) * limits.max_uses;
+  }
+  // The loop halts after maxSteps steps and makes one final turn with tools
+  // disabled (the documented behaviour when a stop condition fires).
+  const steps = tier.serverTools.maxSteps;
+  return { feeUsd, injectedTokens, turns: steps + 1, steps };
+}
+
 function estimateInputTokens(body, imageCount) {
   // Price the ENTIRE outbound body - messages, tools, response_format, stop
   // sequences - so a giant tool schema is input like any other input. Image
@@ -743,17 +946,25 @@ export function worstCaseUpstreamCost(body, tier, imageCount = 0) {
   // carry a fixed per-call upstream fee (the search itself, billed per
   // request on top of tokens). Both are the tier's cost, not the buyer's
   // input, and both are priced here so the clamp stays an honest bound.
-  const inTokens = estimateInputTokens(body, imageCount) + (tier.extraInputTokens || 0);
+  // Server tools (see SERVER_TOOL_POLICY) turn one call into a bounded agent
+  // loop: up to `turns` model turns, each re-billing the whole accumulated
+  // transcript, plus a per-use execution fee. `st` is all-zero / turns:1 for
+  // every request that carries none, so the numbers below are byte-identical
+  // to the pre-server-tools arithmetic on those.
+  const st = serverToolWorstCase(body, tier);
+  const inTokens = (estimateInputTokens(body, imageCount) + (tier.extraInputTokens || 0) + st.injectedTokens) * st.turns;
   // Prompt caching rides by default (top-level cache_control, see
   // cacheControlPref): on Anthropic a cache WRITE bills 1.25x list input
   // (reads 0.1x), so the worst case for a first-seen long prompt is 1.25x -
   // priced in here so the clamp stays an honest bound; every other provider
   // caches implicitly at list price or below.
   const inUsd = (inTokens / 1e6) * cost.prompt * cacheWriteFactor(body.model) * tokenizerFactor(body.model);
-  const fixedUsd = Number(tier.fixedUpstreamUsd) || 0;
+  const fixedUsd = (Number(tier.fixedUpstreamUsd) || 0) + st.feeUsd;
   const n = body.n || 1;
-  const outUsd = ((Number(body.max_tokens) || 0) / 1e6) * cost.completion * n;
-  return { inTokens, inUsd, fixedUsd, outUsd, totalUsd: inUsd + fixedUsd + outUsd, cost };
+  // Every turn of the loop can produce a full output cap, so the output side
+  // scales with turns exactly like the input side.
+  const outUsd = ((Number(body.max_tokens) || 0) / 1e6) * cost.completion * n * st.turns;
+  return { inTokens, inUsd, fixedUsd, outUsd, totalUsd: inUsd + fixedUsd + outUsd, cost, serverTools: st };
 }
 
 /** Shrinks body.max_tokens so the worst-case upstream bill stays ≤ MARGIN ×
@@ -761,9 +972,13 @@ export function worstCaseUpstreamCost(body, tier, imageCount = 0) {
  *  the budget. Exported for the failover chain walk (each fallback model is
  *  re-clamped at its own cost) and for the pricing-margin CI test. */
 export function clampToMargin(body, tier, imageCount) {
-  const { inUsd, fixedUsd, inTokens, cost } = worstCaseUpstreamCost(body, tier, imageCount);
+  const { inUsd, fixedUsd, inTokens, cost, serverTools } = worstCaseUpstreamCost(body, tier, imageCount);
   const budgetUsd = tier.price * MARGIN;
   const n = body.n || 1;
+  // A server-tool loop can produce a full output cap on every turn, so the
+  // affordable output is divided by turns as well as by n. `turns` is 1 for
+  // every request that carries no server tool.
+  const turns = serverTools.turns;
   // ZERO-COST MODEL (a free/stealth listing priced 0/0 in MODEL_COST): the
   // affordable-output division would be x/0 = Infinity, or 0/0 = NaN when the
   // input happens to consume the budget exactly - and NaN silently fails both
@@ -782,11 +997,12 @@ export function clampToMargin(body, tier, imageCount) {
     }
     return;
   }
-  const affordableOut = Math.floor(((budgetUsd - inUsd - fixedUsd) * 1e6) / cost.completion / n);
+  const affordableOut = Math.floor(((budgetUsd - inUsd - fixedUsd) * 1e6) / cost.completion / n / turns);
   if (affordableOut < MIN_OUT_TOKENS) {
     throw bad(
-      `Input is too large for "${body.model}" at this tier's price (est. ${inTokens} input tokens). ` +
-      `Shrink the input, lower "n", or use a cheaper model - GET /v1/models lists every model and its tier.`
+      `Input is too large for "${body.model}" at this tier's price (est. ${inTokens} input tokens` +
+      `${turns > 1 ? `, across up to ${turns} server-tool loop turns` : ""}). ` +
+      `Shrink the input${turns > 1 ? ', drop the "tools" server-tool entries' : ""}, lower "n", or use a cheaper model - GET /v1/models lists every model and its tier.`
     );
   }
   if (body.max_tokens > affordableOut) body.max_tokens = affordableOut;
@@ -842,6 +1058,75 @@ export function refuseCostVariants(model) {
   if (variant === "online") throw bad(`Model variant ":online" is not offered - web search is billed per request on top of token pricing and is outside this tier's price. Use "${String(model).slice(0, String(model).indexOf(":"))}" instead (or POST /v1/grounded/chat/completions for grounded answers).`);
   if (variant === "batch") throw bad(`Model variant ":batch" is not offered - batch ids are asynchronous (24h window) and not served on a synchronous path. Use "${String(model).slice(0, String(model).indexOf(":"))}" instead.`);
 }
+/** Which routes currently sell a given server tool - used so a refusal on the
+ *  budget tiers names where the tool DOES live instead of just saying no. */
+function tiersOfferingServerTool(type) {
+  return Object.values(TIERS)
+    .filter((t) => t.serverTools && Object.hasOwn(t.serverTools.tools, type))
+    .map((t) => `${t.route.split(" ")[1]} ($${t.price})`);
+}
+
+/** One `tools` entry. Function tools pass through unchanged. An allowlisted
+ *  server tool is REWRITTEN with the tier's server-owned limits pinned onto
+ *  it - a buyer may narrow (domain filters) but can never widen, because the
+ *  pinned object replaces theirs rather than merging into it. Everything else
+ *  is a self-explaining 400. */
+export function validateToolEntry(t, tier) {
+  if (t && typeof t === "object" && t.type === "function") {
+    if (!t.function || typeof t.function !== "object") {
+      throw bad('Unsupported tools entry (type "function"). An OpenAI function tool is {type:"function", function:{name, description, parameters}}.');
+    }
+    return t;
+  }
+  const type = t && typeof t === "object" ? String(t.type ?? "") : "";
+  const shown = type.slice(0, 60);
+  const policy = Object.hasOwn(SERVER_TOOL_POLICY, type) ? SERVER_TOOL_POLICY[type] : null;
+  if (policy) {
+    const limits = tier.serverTools && Object.hasOwn(tier.serverTools.tools, type) ? tier.serverTools.tools[type] : null;
+    if (!limits) {
+      const homes = tiersOfferingServerTool(type);
+      throw bad(
+        `Server tool "${shown}" is not available on ${tier.route.split(" ")[1]}. ` +
+        `A server-tool loop runs extra model turns and (for search) a per-request execution fee, which this tier's price does not cover. ` +
+        (homes.length ? `It is available on ${homes.join(" and ")}.` : "It is not currently available on any tier.")
+      );
+    }
+    // Buyer parameters: only the cost-neutral ones, and only in the shapes we
+    // can check. Anything else is refused by name - a caller who sends
+    // max_uses:50 or engine:"native" is trying to change what this costs.
+    const params = t.parameters;
+    if (params !== undefined) {
+      if (!params || typeof params !== "object" || Array.isArray(params)) {
+        throw bad(`"parameters" on server tool "${shown}" must be an object`);
+      }
+      for (const k of Object.keys(params)) {
+        if (!policy.buyerParams.includes(k)) {
+          throw bad(
+            `"${k}" is not accepted on server tool "${shown}" - it changes what the call costs, and the loop budget is server-owned. ` +
+            (policy.buyerParams.length ? `Accepted here: ${policy.buyerParams.join(", ")}.` : "No parameters are accepted here.")
+          );
+        }
+        const v = params[k];
+        const okShape = k === "timezone"
+          ? typeof v === "string" && v.length <= 64
+          : Array.isArray(v) && v.length <= 20 && v.every((d) => typeof d === "string" && d.length <= 253);
+        if (!okShape) throw bad(`"${k}" on server tool "${shown}" must be ${k === "timezone" ? "an IANA timezone string" : "an array of at most 20 domain strings"}`);
+      }
+    }
+    const kept = {};
+    for (const k of policy.buyerParams) if (params && params[k] !== undefined) kept[k] = params[k];
+    return { type, parameters: { ...kept, ...policy.pin(limits) } };
+  }
+  const why = Object.hasOwn(SERVER_TOOL_REFUSALS, type) ? SERVER_TOOL_REFUSALS[type] : null;
+  const allowed = tier.serverTools ? Object.keys(tier.serverTools.tools) : [];
+  throw bad(
+    `Unsupported tools entry${type ? ` (type "${shown}")` : ""}. ` +
+    (why ? `"${shown}" is not offered: ${why}. ` : "") +
+    'The gateway accepts OpenAI function tools ({type:"function", function:{name, description, parameters}})' +
+    (allowed.length ? ` and these server tools on ${tier.route.split(" ")[1]}: ${allowed.join(", ")}.` : ". Server-side tool types (openrouter:*) are not available on this tier - their upstream spend is not covered by the flat per-call price.")
+  );
+}
+
 export function validateRequest(input, tierSlug) {
   const tier = TIERS[tierSlug];
   if (input == null || typeof input !== "object") throw bad("Request body must be a JSON object");
@@ -948,16 +1233,19 @@ export function validateRequest(input, tierSlug) {
   // input tokens; only type:"function" keeps "input tokens" the whole story.
   if (body.tools !== undefined) {
     if (!Array.isArray(body.tools) || body.tools.length === 0) {
-      throw bad('"tools" must be a non-empty array of {type:"function", function:{...}} entries');
+      throw bad('"tools" must be a non-empty array of {type:"function", ...} or {type:"openrouter:..."} entries');
     }
-    for (const t of body.tools) {
-      if (!t || typeof t !== "object" || t.type !== "function" || !t.function || typeof t.function !== "object") {
-        throw bad(
-          `Unsupported tools entry${t?.type ? ` (type "${String(t.type).slice(0, 40)}")` : ""}. ` +
-          'The gateway accepts OpenAI function tools only: {type:"function", function:{name, description, parameters}}. ' +
-          "Server-side tool types (openrouter:*) are not available - their upstream spend is not covered by the flat per-call price."
-        );
-      }
+    body.tools = body.tools.map((t) => validateToolEntry(t, tier));
+  }
+  // The server-tool loop budget is SERVER-OWNED, exactly like
+  // provider.max_price: it is what stands between a flat price and an agent
+  // loop. A buyer-supplied value is refused, never merged and never honoured -
+  // silently dropping it would leave a buyer believing they had set a budget.
+  // (Both fields are outside PASSTHROUGH, so they were already being dropped;
+  // this makes the answer explicit instead of silent.)
+  for (const k of ["stop_server_tools_when", "max_tool_calls"]) {
+    if (input[k] !== undefined) {
+      throw bad(`"${k}" is set by the gateway, not by the caller - the server-tool loop budget is what keeps this route's flat price honest. Remove it; the per-tool limits that apply are on GET /v1/models.`);
     }
   }
   // tool_choice mirrors the tools guard. Today it can only select a tool the
@@ -1389,6 +1677,11 @@ export function promptCacheKey(tierSlug, input) {
   if (TIERS[tierSlug]?.noCache) return null; // grounded tier: the web moves, never replay
   const body = validateRequest(input, tierSlug);
   if (body.stream === true) return null;
+  // Same reason as the grounded tier: a server-tool answer is built from a
+  // live search or fetch, so replaying it 10 minutes later serves stale web
+  // content as if it were fresh. Covers the read AND the deferred write - the
+  // handler keys both off this function.
+  if (serverToolsIn(body, TIERS[tierSlug]).length) return null;
   return createHash("sha256").update(`${tierSlug}\n${stableStringify(body)}`).digest("hex");
 }
 
@@ -2133,8 +2426,16 @@ function makeHandler(tierSlug) {
         ...(TIERS[tierSlug].web ? [{ ...TIERS[tierSlug].web }] : []),
         ...(structured && body.stream !== true ? [{ id: "response-healing" }] : []),
       ];
+      // Server-owned loop budget. Call-time injection like provider.max_price:
+      // deterministic given the tier, so it never belongs in a cache key, and
+      // a buyer value can never reach it (validateRequest refuses the field).
+      // step_count_is is the bound the margin arithmetic uses; max_cost is a
+      // belt - it stops AFTER cumulative spend exceeds the threshold, so it is
+      // set to the whole margin budget and relied on for nothing.
+      const stopServerTools = stopServerToolsFor(attempt, TIERS[tierSlug]);
       return {
         ...attempt, zdr: undefined, cache_control: undefined,
+        ...(stopServerTools ? { stop_server_tools_when: stopServerTools } : {}),
         ...(reasoning ? { reasoning } : {}),
         ...(providerForLink ? { provider: providerForLink } : {}), ...(user ? { user, session_id: user } : {}),
         ...(cacheControl ? { cache_control: cacheControl } : {}),
@@ -2142,10 +2443,18 @@ function makeHandler(tierSlug) {
         ...(flex ? { service_tier: "flex" } : {}),
       };
     };
+    // Server-tool execution is upstream spend, so it has to be visible to a
+    // margin review. OpenRouter reports the loop's counts as
+    // usage.server_tool_use_details {tool_calls_executed, tool_calls_requested,
+    // web_search_requests} (and usage.cost is documented as "the total amount
+    // charged to your account", i.e. the fee is already inside upstreamUsd -
+    // the counts are what say WHY a margin moved).
     const recordUsage = (usage, upstreamUsd, served, serviceTier) => import("../posthog.js")
       .then(({ capturePostHogGatewayUsage }) => capturePostHogGatewayUsage({
         tier: tierSlug, model: served, priceUsd: TIERS[tierSlug].price, upstreamUsd,
         promptTokens: usage?.prompt_tokens, completionTokens: usage?.completion_tokens, serviceTier,
+        serverToolCalls: usage?.server_tool_use_details?.tool_calls_executed ?? usage?.server_tool_use?.tool_calls_executed,
+        serverToolSearches: usage?.server_tool_use_details?.web_search_requests ?? usage?.server_tool_use?.web_search_requests,
       }))
       .catch(() => { /* telemetry must never fail a served response */ });
     // Flex-eligible links are tried on the flex tier first, then default (see
@@ -2261,6 +2570,7 @@ const INPUT_SCHEMA = {
     cache_control: { description: 'Optional - prompt caching preference. Default ON ({type:"ephemeral"}, 5-minute TTL): repeated prefixes across your turns are served from the provider cache (same price to you). Send false to disable. ttl:"1h" is not offered.' },
     reasoning: { type: "object", description: 'Optional - reasoning control for reasoning models: {effort: "none"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max", max_tokens?: int, exclude?: bool, enabled?: bool}. Reasoning tokens count against max_tokens. When omitted, reasoning-by-default models get a low effort on the budget tiers (so the cap is not spent thinking) and the model default on premium. OpenAI\'s reasoning_effort string is accepted too.' },
     max_completion_tokens: { type: "integer", description: "Optional - alias of max_tokens (newer OpenAI SDKs send this)." },
+    tools: { type: "array", description: 'Optional - OpenAI function tools {type:"function", function:{...}}. The pro and premium routes also accept the bounded server tools {type:"openrouter:web_search"}, {type:"openrouter:web_fetch"} and {type:"openrouter:datetime"}, which OpenRouter executes in an agent loop; GET /v1/models lists the per-tier step and per-tool limits. Those limits and the loop budget are server-owned - stop_server_tools_when and max_tool_calls are refused. A request carrying a server tool is never served from the prompt cache.' },
   },
   required: ["model", "messages"],
 };
@@ -2531,6 +2841,16 @@ export function modelsList() {
           // prompts and cannot be routed zero-data-retention.
           ...(tier.logsPrompts ? { dataRetention: "provider-retains-prompts", zdr: false } : {}),
           ...(tier.stealth ? { stealth: true } : {}),
+          // Server tools and the exact server-owned limits that ride on them.
+          // An agent picking a route must be able to SEE the loop budget it
+          // gets, and that the per-tool caps are not negotiable.
+          ...(tier.serverTools ? {
+            serverTools: {
+              maxSteps: tier.serverTools.maxSteps,
+              tools: Object.fromEntries(Object.entries(tier.serverTools.tools).map(([type, limits]) => [type, { ...limits, ...SERVER_TOOL_POLICY[type].pin(limits) }])),
+              note: "Server-owned. stop_server_tools_when and max_tool_calls are set by the gateway and refused on the request.",
+            },
+          } : {}),
         },
       });
     }

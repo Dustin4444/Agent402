@@ -66,7 +66,10 @@ export function challengeIdFromMeta(meta) {
 export function createMcpMppLoopback({ port, host = "127.0.0.1", fetchImpl = fetch, timeoutMs = 60_000 } = {}) {
   if (!port) throw new Error("createMcpMppLoopback: port is required");
   const base = `http://${host}:${port}`;
-  return async function payCall({ def, params, credentialHeader, ip, signal, idempotencyKey } = {}) {
+  // `timeoutMs` may be overridden PER CALL: a task-shaped composite run outlives
+  // the default 60s bound (30s to 4 min), and the loopback is the paid request,
+  // so cutting it short would abort work the buyer is waiting for.
+  return async function payCall({ def, params, credentialHeader, ip, signal, idempotencyKey, timeoutMs: callTimeoutMs } = {}) {
     const [method, path] = String(def.route || "POST /").split(" ");
     const m = (method || "POST").toUpperCase();
     let url = base + path;
@@ -83,7 +86,8 @@ export function createMcpMppLoopback({ port, host = "127.0.0.1", fetchImpl = fet
       headers["Content-Type"] = "application/json";
       body = JSON.stringify(params || {});
     }
-    const signals = [AbortSignal.timeout(timeoutMs)];
+    const effectiveTimeout = Number(callTimeoutMs) > 0 ? Number(callTimeoutMs) : timeoutMs;
+    const signals = [AbortSignal.timeout(effectiveTimeout)];
     if (signal) signals.push(signal);
     const res = await fetchImpl(url, { method: m, headers, body, signal: AbortSignal.any(signals), redirect: "manual" });
     const contentType = res.headers.get("content-type") || "";

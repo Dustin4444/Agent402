@@ -33,6 +33,8 @@ import Stripe from "stripe";
 import { createHumanCheckout, humanCheckoutEnabled, HUMAN_PRODUCTS } from "./human-checkout.js";
 import { humanReportsPage, reportDeliveryPage } from "./human-reports-page.js";
 import { createStripeSubscriptions, subscriptionsEnabled, MONITOR_PRODUCTS } from "./stripe-subscriptions.js";
+import { createMppSubscriptions, mppSubscriptionsEnabled } from "./mpp-subscriptions.js";
+import { mppProblem, sendMppProblem } from "./mpp-problem.js";
 import { monitorsPage, monitorThanksPage } from "./monitors-page.js";
 import { insiderPage, fundPage, dossierPage, hubPage, loadTeaser, normalizeTicker, normalizeManagerSlug, isSeededTicker, seededManager } from "./programmatic-pages.js";
 import { createMonitorScheduler } from "./monitor-scheduler.js";
@@ -97,6 +99,7 @@ import { KIT } from "./tools/kit.js";
 import { KIT2 } from "./tools/kit2.js";
 import { UNIT_CATEGORIES, convertAnyUnit } from "./tools/convert-gen.js";
 import { SEARCH_TOOLS, braveCallMeter } from "./tools/search.js";
+import { LLM_CONTEXT_TOOLS } from "./tools/llm-context-kit.js";
 import { PDF_TOOLS } from "./tools/pdf-kit.js";
 import { PDF_SUMMARIZE_TOOLS } from "./tools/pdf-summarize-kit.js";
 import { ACTION_GATE_TOOLS } from "./tools/action-gate-kit.js";
@@ -256,12 +259,13 @@ import { x402EconomySnapshot, economySnapshotCached } from "./x402-economy.js";
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate } from "./settlement-proof.js";
 import { spend as sharedSpend, refund as sharedRefund, sharedLimitEnabled } from "./shared-limit.js";
 import { recordSale, salesSummary, mppSales, mppTxHashes, txFromPaymentResponse, tempoDailyRevenue, tempoDailyRecordingSince } from "./sales-ledger.js";
+import { recordShadowSettlement, startShadowLedger, shadowLedgerReport, shadowLedgerEnabled } from "./stripe-shadow-ledger.js";
 import { reconcileSettlements } from "./settlement-reconcile.js";
 import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
 import { ledgerIntegrationsPage } from "./ledger-integrations.js";
 
-const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZE_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...RECALL_TOOLS, ...IPO_TOOLS, ...INSIDER_TOOLS, ...TOKEN_RISK_TOOLS, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...BLOCKSCOUT_TOOLS, ...CAPTCHA_TOOLS, ...SQL_GUARD_TOOLS, ...ACTION_GATE_TOOLS, ...DERIVATIVES_TOOLS, ...SOLANA_INTEL_TOOLS, ...X_DATA_TOOLS_ENABLED, ...B2B_ENRICH_TOOLS_ENABLED, ...CRAWL_TOOLS, ...CRYPTO_SIGNALS_TOOLS, ...DEFI_TOOLS, ...CRYPTO_MARKETS_TOOLS, ...FARCASTER_SOCIAL_TOOLS_ENABLED, ...ALCHEMY_DATA_TOOLS, ...IMAGES_FAST_TOOLS, ...TOKEN_BRIEF_TOOLS, ...TICKER_PACK_TOOLS, ...FILING_WATCH_TOOLS];
+const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZE_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...RECALL_TOOLS, ...IPO_TOOLS, ...INSIDER_TOOLS, ...TOKEN_RISK_TOOLS, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...BLOCKSCOUT_TOOLS, ...CAPTCHA_TOOLS, ...SQL_GUARD_TOOLS, ...ACTION_GATE_TOOLS, ...DERIVATIVES_TOOLS, ...SOLANA_INTEL_TOOLS, ...X_DATA_TOOLS_ENABLED, ...B2B_ENRICH_TOOLS_ENABLED, ...CRAWL_TOOLS, ...CRYPTO_SIGNALS_TOOLS, ...DEFI_TOOLS, ...CRYPTO_MARKETS_TOOLS, ...FARCASTER_SOCIAL_TOOLS_ENABLED, ...ALCHEMY_DATA_TOOLS, ...IMAGES_FAST_TOOLS, ...TOKEN_BRIEF_TOOLS, ...TICKER_PACK_TOOLS, ...FILING_WATCH_TOOLS, ...LLM_CONTEXT_TOOLS];
 import { buildSkillTools } from "./tools/skill-runner.js";
 import { buildRouteExecuteTool, EXEC_TIERS } from "./tools/route-execute.js";
 import { buildSellerTrustTool } from "./tools/seller-trust.js";
@@ -1175,26 +1179,29 @@ const clientIp = (req) => (req.ip || req.socket?.remoteAddress || "?").trim();
 // Recurring subscriptions engine (Phase 2). Initialized EARLY so the Stripe
 // webhook route can mount with a RAW body parser BEFORE the global express.json()
 // below - webhook signature verification needs the unparsed body.
+// Validate targets BEFORE the recurring charge: a domain must parse; a fund
+// manager must resolve on EDGAR (the resolved registered name is stored).
+// Our own validator messages are safe to show a buyer; anything thrown from
+// an upstream helper is not (it can quote the upstream body), which is why the
+// subscribe routes only relay `buyerSafe` messages. Shared by BOTH recurring
+// engines (card and wallet) so a target can never be watchable on one rail and
+// not the other.
+const _monitorTargetValidators = {
+  domain: (t) => normDomain({ domain: t }),
+  fund: async (t) => { const r = /^\d{1,10}$/.test(t) ? await edgarResolveManager({ cik: t }) : await edgarResolveManager({ name: t }); return r?.name || t; },
+  recall: (t) => normRecallQuery(t),
+  ipo: (t) => normIpoKeyword(t) || "all",
+  filing: (t) => { const k = String(t).trim().toUpperCase(); if (!/^[A-Z][A-Z0-9.\-]{0,9}$/.test(k)) { const e = new Error(`"${t}" is not a valid US ticker`); e.statusCode = 400; e.buyerSafe = true; throw e; } return k; },
+  // Validates base58 AND that the mint actually resolves upstream, so a
+  // recurring charge never starts against a target we cannot watch.
+  token: async (t) => (await probeTokenBrief(String(t).trim())).mint,
+  insider: (t) => { const k = String(t).trim().toUpperCase(); if (!/^[A-Z][A-Z0-9.\-]{0,9}$/.test(k)) { const e = new Error(`"${t}" is not a valid US ticker`); e.statusCode = 400; e.buyerSafe = true; throw e; } return k; },
+};
 let _subs = null;
 try {
   _subs = subscriptionsEnabled() ? createStripeSubscriptions({
     stripe: new Stripe(process.env.STRIPE_SECRET_KEY), baseUrl: BASE_URL,
-    // Validate targets BEFORE the recurring charge: a domain must parse; a fund
-    // manager must resolve on EDGAR (the resolved registered name is stored).
-    // Our own validator messages are safe to show a buyer; anything thrown from
-    // an upstream helper is not (it can quote the upstream body), which is why
-    // the subscribe route only relays `buyerSafe` messages.
-    validateTarget: {
-      domain: (t) => normDomain({ domain: t }),
-      fund: async (t) => { const r = /^\d{1,10}$/.test(t) ? await edgarResolveManager({ cik: t }) : await edgarResolveManager({ name: t }); return r?.name || t; },
-      recall: (t) => normRecallQuery(t),
-      ipo: (t) => normIpoKeyword(t) || "all",
-      filing: (t) => { const k = String(t).trim().toUpperCase(); if (!/^[A-Z][A-Z0-9.\-]{0,9}$/.test(k)) { const e = new Error(`"${t}" is not a valid US ticker`); e.statusCode = 400; e.buyerSafe = true; throw e; } return k; },
-      // Validates base58 AND that the mint actually resolves upstream, so a
-      // recurring charge never starts against a target we cannot watch.
-      token: async (t) => (await probeTokenBrief(String(t).trim())).mint,
-      insider: (t) => { const k = String(t).trim().toUpperCase(); if (!/^[A-Z][A-Z0-9.\-]{0,9}$/.test(k)) { const e = new Error(`"${t}" is not a valid US ticker`); e.statusCode = 400; e.buyerSafe = true; throw e; } return k; },
-    },
+    validateTarget: _monitorTargetValidators,
     onInvoicePaid: ({ invoiceId, product, amountUsd }) => recordSale({ slug: product || "monitor", priceUsd: amountUsd, rail: "card", network: "stripe", payer: null, tx: invoiceId, wire: "stripe-subscription" }),
     // Credit-pack sessions: mint + email the key from the webhook too (claim is
     // idempotent; the thanks page then shows "claimed"). _credits is wired below.
@@ -1202,6 +1209,25 @@ try {
     onChargeReversed: (paymentIntent, type) => (_credits ? _credits.disableByPaymentIntent(paymentIntent, type === "charge.dispute.created" ? "disputed" : "refunded") : null),
   }) : null;
 } catch (e) { console.warn("[monitors] subscriptions init failed:", String(e?.message || e).slice(0, 200)); _subs = null; }
+// The SAME monitor products, subscribed to with a WALLET instead of a card
+// (src/mpp-subscriptions.js). Independent of Stripe entirely: its rollout
+// switch is MPP_SECRET_KEY + a Tempo recipient + the mppx tempo/subscription
+// method being present, so an operator with no Stripe account can still sell
+// recurring monitors to agents. validateTarget/onCharge mirror the card path
+// so a target is proven watchable BEFORE a recurring authorization is signed,
+// and every confirmed period lands in the same sales ledger.
+let _mppSubs = null;
+try {
+  _mppSubs = mppSubscriptionsEnabled() ? createMppSubscriptions({
+    secretKey: process.env.MPP_SECRET_KEY || "",
+    realm: new URL(BASE_URL).host,
+    validateTarget: _monitorTargetValidators,
+    // Rail "usdc" / network "tempo" is what a settled tempo/charge records, so
+    // a subscription period reconciles against the same rows on /revenue.
+    onCharge: ({ product, priceUsd, payer, tx }) => recordSale({ slug: product || "monitor", priceUsd, rail: "usdc", network: "tempo", payer, tx, wire: "mpp-tempo-subscription" }),
+  }) : null;
+  if (_mppSubs) console.log("MPP recurring subscriptions enabled (native tempo/subscription, pull billing)");
+} catch (e) { console.warn("[mpp-subs] init failed:", String(e?.message || e).slice(0, 200)); _mppSubs = null; }
 // Prepaid card credits (src/credits.js): same rollout switch
 // as the human checkout. The GATE mounts inside the paywall block below
 // (before x402mw); the routes/pages mount with the other storefront routes.
@@ -1978,26 +2004,120 @@ if (_subs) {
     res.json(v || { status: "not_found" });
   });
 }
+// Recurring monitors paid with a WALLET over MPP (src/mpp-subscriptions.js) -
+// the crypto-native counterpart of the Stripe checkout above. Same products,
+// same fulfilment engine, different rail. Registered ONLY when the engine is
+// up: no engine, no route, no challenge, exactly like the tempo/charge gate.
+if (_mppSubs) {
+  // Free discovery surface: what an agent can subscribe to, in what currency,
+  // on what period, and the four steps to do it.
+  app.get("/api/mpp/monitors", (_req, res) => res.set("Cache-Control", "public, max-age=300").json(_mppSubs.offerInfo(BASE_URL)));
+
+  // The subscribe endpoint is the challenge/credential pair in one route, the
+  // shape every MPP client already knows: no Authorization header -> 402 with a
+  // tempo/subscription challenge; the signed credential -> the first period
+  // settles and the subscription exists.
+  app.post("/api/mpp/monitors/subscribe", async (req, res) => {
+    if (checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
+    res.set("Cache-Control", "no-store");
+    const auth = req.headers.authorization;
+    const mint = () => _mppSubs.mintOffer({ product: req.body?.product, target: req.body?.target, email: req.body?.email });
+    if (!auth || !/^payment\s/i.test(auth)) {
+      try {
+        const offer = await mint();
+        // A bare unpaid 402 stays body-less by house convention: the challenge
+        // is in WWW-Authenticate and GET /api/mpp/monitors explains the rest.
+        return res.status(402).set("WWW-Authenticate", offer.header).json({});
+      } catch (e) {
+        if (e?.statusCode && e.statusCode < 500) return res.status(e.statusCode).json({ error: String(e.message).slice(0, 200) });
+        console.warn("[mpp-subs] mintOffer failed:", String(e?.message || e).slice(0, 200));
+        return res.status(500).json({ error: "Could not start a subscription right now." });
+      }
+    }
+    try {
+      const r = await _mppSubs.activateFromCredential(auth);
+      if (r.receipt) res.set("Payment-Receipt", r.receipt);
+      return res.json(r);
+    } catch (e) {
+      if (e?.statusCode === 402) {
+        // Spec shape for a rejected credential: 402 + a FRESH challenge + an
+        // RFC 9457 problem saying why, same as the tempo/charge gate answers.
+        try { res.set("WWW-Authenticate", (await mint()).header); } catch { /* the caller can GET the offer */ }
+        const kind = e.binding ? "invalid-challenge" : "verification-failed";
+        return sendMppProblem(res, mppProblem(kind, `Subscription was not accepted: ${String(e.message).slice(0, 200)}`));
+      }
+      if (e?.statusCode && e.statusCode < 500) return res.status(e.statusCode).json({ error: String(e.message).slice(0, 200) });
+      console.warn("[mpp-subs] activation failed:", String(e?.message || e).slice(0, 200));
+      return res.status(500).json({ error: "Could not complete the subscription right now." });
+    }
+  });
+
+  // Self-serve status + cancel. The manage token minted at activation is the
+  // bearer: the subscription id alone is deliberately NOT enough, the same rule
+  // the Stripe portal link follows (subscribers are told to share report links).
+  app.get("/api/mpp/monitors/:subId", (req, res) => {
+    if (sessionReadLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
+    res.set("Cache-Control", "no-store");
+    const subId = String(req.params.subId || "");
+    const rec = _mppSubs.isMine(subId) ? _mppSubs.get(subId) : null;
+    if (!rec || !_mppSubs.manageTokenOk(subId, req.query.token)) return res.status(404).json({ error: "Unknown subscription" });
+    const reports = _monitors ? (_monitors.status().subs.find((r) => r.subId === subId) || null) : null;
+    res.json({ ..._mppSubs.publicView(rec), lastReportId: reports?.lastReportId || null, reportUrl: reports?.lastReportId ? `${BASE_URL}/m/${reports.lastReportId}` : null });
+  });
+  app.post("/api/mpp/monitors/:subId/cancel", async (req, res) => {
+    if (sessionReadLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
+    res.set("Cache-Control", "no-store");
+    try { res.json(await _mppSubs.cancel(String(req.params.subId || ""), req.body?.token || req.query.token)); }
+    catch (e) {
+      if (e?.statusCode && e.statusCode < 500) return res.status(e.statusCode).json({ error: String(e.message).slice(0, 200) });
+      console.warn("[mpp-subs] cancel failed:", String(e?.message || e).slice(0, 200));
+      res.status(500).json({ error: "Could not cancel right now." });
+    }
+  });
+}
 // Monitor scheduler (Phase 2b): the recurring fulfilment engine. Runs only when
 // subscriptions are enabled (Stripe key) - it reuses the premium pipeline.
 let _monitors = null;
-if (_subs) {
+// One fulfilment engine, two subscriber sources. The scheduler asks for exactly
+// three things - listActive(kind), get(id) and refreshStatus(id) - so a facade
+// that dispatches on the id namespace is the whole integration: monitor-
+// scheduler.js is unchanged, and a card subscriber and a wallet subscriber are
+// served by the same code path.
+const _allSubs = (_subs || _mppSubs) ? {
+  listActive: (kind) => [...(_subs ? _subs.listActive(kind) : []), ...(_mppSubs ? _mppSubs.listActive(kind) : [])],
+  get: (subId) => (_mppSubs && _mppSubs.isMine(subId) ? _mppSubs.get(subId) : _subs ? _subs.get(subId) : null),
+  // The gate before every paid run. On the MPP side this is also where a due
+  // period is PULLED, so "are they paid up" and "charge them" are one answer:
+  // anything other than active/trialing and the scheduler produces no report.
+  refreshStatus: (subId) => (_mppSubs && _mppSubs.isMine(subId) ? _mppSubs.refreshStatus(subId) : _subs ? _subs.refreshStatus(subId) : null),
+} : null;
+if (_allSubs) {
   try {
     _monitors = createMonitorScheduler({
-      subs: _subs, generate: _humanGenerate, probeDomain, normDomain,
+      subs: _allSubs, generate: _humanGenerate, probeDomain, normDomain,
       latestFiling: latest13fFiling, resolveManager: edgarResolveManager,
       notify: sendMonitorEmail, baseUrl: BASE_URL,
-      manageUrlFor: (reportId) => `${BASE_URL}/monitors/manage?report=${encodeURIComponent(reportId)}&k=${_manageToken(reportId)}`,
-      refreshStatus: (subId) => _subs.refreshStatus(subId),
+      // A wallet subscriber has no Stripe customer and no billing portal: their
+      // manage link is the MPP status endpoint, keyed by the manage token they
+      // were handed at activation.
+      manageUrlFor: (reportId) => {
+        const subId = _monitors?.subIdOfReport(reportId);
+        if (_mppSubs && subId && _mppSubs.isMine(subId)) return `${BASE_URL}/api/mpp/monitors/${encodeURIComponent(subId)}?token=${_mppSubs.manageToken(subId)}`;
+        return `${BASE_URL}/monitors/manage?report=${encodeURIComponent(reportId)}&k=${_manageToken(reportId)}`;
+      },
+      refreshStatus: (subId) => _allSubs.refreshStatus(subId),
       probeRecalls, probeIpos, probeInsiderFilings,
       probeTokenBrief, describeTokenChanges,
       probeCompanyFilings, describeFilingChanges,
     });
   } catch (e) { console.warn("[monitors] scheduler failed to initialize:", String(e?.message || e)); _monitors = null; }
 }
-app.get("/__operator/monitors.json", (req, res) => {
+app.get("/__operator/monitors.json", async (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
-  res.set("Cache-Control", "no-store").json(_monitors ? _monitors.status() : { enabled: false });
+  // The wallet-billed subscribers carry billing state the scheduler never sees
+  // (paid period, charge failures, next retry), so they get their own block.
+  const mpp = _mppSubs ? await _mppSubs.status().catch((e) => ({ enabled: true, error: String(e?.message || e).slice(0, 200) })) : { enabled: false };
+  res.set("Cache-Control", "no-store").json({ ...(_monitors ? _monitors.status() : { enabled: false }), mppSubscriptions: mpp });
 });
 // Manual tick (all due subs, or ?sub=<id> with force): paid re-runs + email, so
 // it takes the heavy-route limiter like the other upstream-reaching operator
@@ -2581,6 +2701,18 @@ app.get("/__operator/refunds.json", (req, res) => {
 // stays up - a stalled value IS the churn signal). last_settled_seen: last
 // cycle its leaderboard row showed a real settled payment (conversion, not
 // just liveness) - null means it has never been observed settling.
+// Stripe SHADOW ledger reconciliation (src/stripe-shadow-ledger.js). READ-ONLY
+// mirror of on-chain settlements into Stripe PaymentIntents; NOT a source of
+// truth and never read by /revenue. Both sides are reported so a human can sit
+// on it for a week before anyone trusts it: our own settlement count/USD, the
+// PaymentIntents Stripe actually accepted, and every skip/failure reason.
+// Reasons are codes only - a Stripe error message is an upstream body and is
+// never stored or relayed. Off unless STRIPE_SHADOW_LEDGER=on.
+app.get("/__operator/shadow-ledger.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  if (operatorHeavyLimited(req, res)) return;
+  res.set("Cache-Control", "no-store").json(shadowLedgerReport({ limit: Math.min(500, parseInt(req.query.limit, 10) || 50) }));
+});
 app.get("/__operator/seller-registrations.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   const now = Date.now();
@@ -5256,13 +5388,23 @@ app.use((req, res, next) => {
           // Sales ledger — the same sale, BY NAME, persisted on /data with the
           // verified payer + settle tx so "what do external wallets actually
           // buy" is answerable forever (the question the odometer can't).
+          const settleTx = req.tempoSettled ? tempoTxFromReceiptHeader(res.getHeader("Payment-Receipt")) : req.stripeSettled ? stripeTxFromReceiptHeader(res.getHeader("Payment-Receipt")) : txFromPaymentResponse(settleReceipt);
           if (rail !== "credits") recordSale({ // credits debits are booked by src/credits.js onDebit (exact charged amount)
             slug: def.slug, priceUsd, rail, network,
             payer,
-            tx: req.tempoSettled ? tempoTxFromReceiptHeader(res.getHeader("Payment-Receipt")) : req.stripeSettled ? stripeTxFromReceiptHeader(res.getHeader("Payment-Receipt")) : txFromPaymentResponse(settleReceipt),
+            tx: settleTx,
             synthetic,
             wire: rail === "usdc" ? wireFor() : null,
           });
+          // Stripe SHADOW ledger - a read-only mirror of this on-chain settlement
+          // into Stripe, so card and crypto revenue can eventually be read from
+          // one set of books. LAST on purpose: it runs after the response is
+          // gone and after our own books are written, it is a synchronous void
+          // enqueue that cannot throw, and every network call happens later on
+          // an unref'd timer. OFF unless STRIPE_SHADOW_LEDGER=on. Nothing here
+          // can change what the buyer was charged, what was served, or what
+          // /revenue reports - see src/stripe-shadow-ledger.js.
+          recordShadowSettlement({ slug: def.slug, priceUsd, rail, network, tx: settleTx, synthetic });
         }
       } else if (settleReceipt) {
         // A non-200 carrying the settle-receipt header. The receipt's `success`
@@ -5813,6 +5955,18 @@ if (String(process.env.X402_INDEX_CRAWL || "").toLowerCase() === "off") {
   console.log("[index] crawler disabled (X402_INDEX_CRAWL=off)");
 } else {
   startCrawler({ selfOrigin: BASE_URL });
+}
+
+// Stripe SHADOW ledger drain (src/stripe-shadow-ledger.js). Arms the unref'd
+// timer that posts queued on-chain settlements to Stripe as PaymentIntents in
+// transaction_verification mode. Started at boot rather than lazily so a queue
+// left pending by a restart drains even if no new sale arrives. Inert unless
+// STRIPE_SHADOW_LEDGER=on AND STRIPE_SECRET_KEY is set - and inert means no
+// database file, no timer, no fetch. It is a MIRROR: nothing it does can
+// affect a charge, a response, or /revenue.
+if (shadowLedgerEnabled()) {
+  startShadowLedger();
+  console.log("[stripe-shadow] read-only settlement mirror armed (shadow only, not a source of truth)");
 }
 
 // MPP Index crawler: an independent seller directory for the MPP protocol,
