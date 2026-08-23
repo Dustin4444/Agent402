@@ -174,6 +174,23 @@ export const TOOLS = [
     check: (r) => isExactOkReply(r.choices?.[0]?.message?.content) || `expected an exact "OK" reply, got ${JSON.stringify(r).slice(0, 100)}`,
   },
   {
+    // Ox Alpha tier — the stealth model, and the one leg whose upstream is
+    // free. Two things only a real buy can prove: that `provider.max_price`
+    // (which we ride on every call) actually ADMITS a $0-priced endpoint
+    // rather than refusing the bound outright, and that the model is still
+    // listed. A withdrawn model answers 503 before any upstream call, so this
+    // leg failing is the alarm that the preview ended. `max_tokens` is well
+    // above the tier's floor because this is a mandatory-reasoning model: a
+    // small budget returns an empty answer with finish_reason "length", which
+    // the chain walks into a 502 rather than a paid empty 200.
+    kit: "llm-ox",
+    path: "/v1/ox/chat/completions",
+    method: "POST",
+    body: { messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 2000 },
+    priceUsd: 0.002,
+    check: (r) => isExactOkReply(r.choices?.[0]?.message?.content) || `expected an exact "OK" reply, got ${JSON.stringify(r).slice(0, 120)}`,
+  },
+  {
     // Nano tier — the loop-priced gateway. Same upstream path as the base
     // tier; this leg proves the tier constants + model allowlist against a
     // REAL completion daily (gpt-4.1-nano already served via v1-chat before
