@@ -95,3 +95,54 @@ export function meteredUsd({ upstreamUsd, ceilingUsd }) {
 export function isMeterable(req) {
   return paymentSchemeOf(req) === "upto";
 }
+
+/**
+ * Apply metered settlement to a response, or leave it settling at the ceiling.
+ *
+ * WHY THIS IS A FUNCTION AND NOT AN INLINE BLOCK. It used to be twelve lines
+ * inside server.js's route-binding loop, where no test could execute it, and it
+ * shipped two defects that CI could not see:
+ *
+ *   1. it could never run at all (isMeterable read a request property nothing
+ *      sets), and a skipped branch logs nothing, so two live buys settled at
+ *      the full ceiling with no signal anywhere; then
+ *   2. the moment it DID run it threw ReferenceError - it named `def` for the
+ *      tool, which does not exist in that scope, and the catch named `def` too,
+ *      so the fail-safe raised the same error it existed to absorb and a 500
+ *      reached the buyer.
+ *
+ * Both are the kind of thing one real call finds instantly and no amount of
+ * source-grepping finds at all. So the logic lives here, where a test can call
+ * it with a fake request, tool and response.
+ *
+ * Everything is injected (`enabled`, `setOverrides`) rather than imported so
+ * this stays a pure decision with no module-load side effects.
+ *
+ * FAILS SAFE IN EVERY DIRECTION. Not an upto payment, no reported cost,
+ * metering off, headers already sent, or anything thrown: no override is set
+ * and the buyer settles at the ceiling they authorized. The sentinel is ALWAYS
+ * stripped first, so an internal cost figure can never reach a buyer even on
+ * the paths that decline to meter.
+ *
+ * @returns {number|null} the metered USD amount, or null when not metered.
+ */
+export function applyMeteredSettlement({ result, req, tool, res, enabled, setOverrides, log = console.warn }) {
+  if (!result || typeof result !== "object" || typeof result.__meterUpstreamUsd === "undefined") return null;
+  const upstream = result.__meterUpstreamUsd;
+  delete result.__meterUpstreamUsd; // strip before anything else can fail
+  // Read once, into a local the catch cannot throw on. A recovery path that can
+  // raise the error it is recovering from is not a recovery path.
+  const slug = tool?.slug;
+  try {
+    if (!enabled || !isMeterable(req)) return null;
+    const ceilingUsd = Number(String(tool?.price ?? "").replace(/[^0-9.]/g, ""));
+    const amount = meteredUsd({ upstreamUsd: upstream, ceilingUsd });
+    if (amount == null || res?.headersSent) return null;
+    setOverrides(res, { amount: `$${amount.toFixed(6)}` });
+    res.setHeader("X-Metered-Usd", amount.toFixed(6));
+    return amount;
+  } catch (e) {
+    log(`[meter] ${slug}: not metered (${String(e?.message || e).slice(0, 120)}) - settling at the ceiling`);
+    return null;
+  }
+}

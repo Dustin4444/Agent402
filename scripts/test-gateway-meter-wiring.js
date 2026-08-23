@@ -12,20 +12,38 @@ const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { conso
 
 const kit = readFileSync("src/tools/llm-gateway-kit.js", "utf8");
 const server = readFileSync("src/server.js", "utf8");
+const meter = readFileSync("src/gateway-meter.js", "utf8");
 
 ok(/data\.__meterUpstreamUsd = upstreamUsd/.test(kit), "the gateway reports its real upstream cost on the response sentinel");
 ok(/typeof upstreamUsd === "number"/.test(kit),
   "and only when upstream actually reported a number: a missing cost must mean 'no meter', never 'free'");
 
-ok(/__meterUpstreamUsd/.test(server), "the route binder consumes the sentinel");
-ok(/delete result\.__meterUpstreamUsd/.test(server),
-  "the binder DELETES it before the body is sent: it is our upstream bill, and the gateway strips every other billing field for the same reason");
+// The decision itself moved OUT of server.js into applyMeteredSettlement, so
+// that it could be executed by a test rather than only grepped. It was grepped
+// for weeks and shipped twice broken - unable to run at all, then throwing
+// ReferenceError with a catch that named the same undefined identifier, so the
+// fail-safe raised the error it existed to absorb and a 500 reached the buyer.
+// Its BEHAVIOUR is now covered for real in test-gateway-meter.js; what remains
+// here is the wiring a unit test cannot see.
+const call = server.slice(server.indexOf("applyMeteredSettlement({"), server.indexOf("if (result && result.__binary)"));
+ok(/applyMeteredSettlement/.test(server), "the route binder invokes the meter");
+ok(/\bresult\b/.test(call) && /\breq\b/.test(call) && /\btool\b/.test(call) && /\bres\b/.test(call),
+  "and passes it the result, the request, the tool and the response");
+ok(/enabled:\s*GATEWAY_METER_ON/.test(call),
+  "it is behind a switch, so changing what buyers are charged is a deliberate act");
+ok(/setOverrides:\s*setSettlementOverrides/.test(call),
+  "the override is the real @x402/express one, not a stub that would silently never settle");
+// `tool` is this loop's variable. Naming anything else here is the exact defect
+// that reached production: `def` does not exist in that scope, so the first
+// request to reach the branch threw and the buyer got a 500.
+ok(!/\bdef\./.test(call), "it names `tool`, the binder's own loop variable, and never an identifier that is not in scope");
 
-const block = server.slice(server.indexOf("if (result && typeof result.__meterUpstreamUsd"), server.indexOf("if (result && result.__binary)"));
-ok(/isMeterable\(req\)/.test(block), "it only meters an upto payment (an exact payment fixed its amount at the 402)");
-ok(/GATEWAY_METER_ON/.test(block), "it is behind a switch, so changing what buyers are charged is a deliberate act");
-ok(/!res\.headersSent/.test(block), "it refuses once headers are sent: the override rides a response header and a late write is silently lost");
-ok(/catch/.test(block) && /settling at the ceiling/.test(block),
+ok(/delete result\.__meterUpstreamUsd/.test(meter),
+  "the meter DELETES the sentinel before the body is sent: it is our upstream bill, and the gateway strips every other billing field for the same reason");
+ok(/isMeterable\(req\)/.test(meter), "it only meters an upto payment (an exact payment fixed its amount at the 402)");
+ok(/!enabled/.test(meter), "a disabled meter sets no override");
+ok(/headersSent/.test(meter), "it refuses once headers are sent: the override rides a response header and a late write is silently lost");
+ok(/catch/.test(meter) && /settling at the ceiling/.test(meter),
   "anything thrown leaves NO override, so the buyer settles at the ceiling they authorized rather than an accidental amount");
 
 // The switch must default OFF. A metering default that flips on with a deploy

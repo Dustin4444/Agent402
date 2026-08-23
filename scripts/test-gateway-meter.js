@@ -1,5 +1,5 @@
 // The metered-settlement pricing rule.
-import { meteredUsd, METER_MARKUP, METER_FLOOR_USD, isMeterable } from "../src/gateway-meter.js";
+import { meteredUsd, METER_MARKUP, METER_FLOOR_USD, isMeterable, applyMeteredSettlement } from "../src/gateway-meter.js";
 
 let pass = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { console.error("FAIL:", m); process.exit(1); } };
@@ -110,5 +110,73 @@ ok(isMeterable(reqWith({ "payment-signature": paymentHeader({ x402Version: 2, ac
 // The shape the dead version believed in must not resurrect it.
 ok(isMeterable({ x402: { scheme: "upto" } }) === false && isMeterable({ _x402Scheme: "upto" }) === false,
   "a decorated request property is NOT the source of truth: nothing sets those, and trusting them is what made this dead");
+
+// --- applyMeteredSettlement: the block that reached production twice broken ---
+//
+// It lived inline in server.js's route loop where nothing could execute it, and
+// shipped (1) unable to run at all, then (2) throwing ReferenceError the moment
+// it did - with a catch that named the same undefined identifier, so the
+// fail-safe raised the error it existed to absorb and a 500 reached the buyer.
+// These call it for real.
+{
+  const uptoReq = reqWith({ "payment-signature": paymentHeader(v2Payload("upto")) });
+  const exactReq = reqWith({ "payment-signature": paymentHeader(v2Payload("exact")) });
+  const mkRes = () => {
+    const headers = {}; 
+    return { headersSent: false, headers, setHeader: (k, v) => { headers[k.toLowerCase()] = v; } };
+  };
+  const tool = { slug: "v1-chat", price: "$0.02" };
+  const mk = (cost) => ({ ok: true, __meterUpstreamUsd: cost });
+
+  // The happy path, end to end: upstream $0.001 -> $0.00115 at 15%.
+  let overrides = null; let res = mkRes();
+  let amt = applyMeteredSettlement({ result: mk(0.001), req: uptoReq, tool, res, enabled: true, setOverrides: (r, o) => { overrides = o; } });
+  ok(amt === 0.00115, `meters an upto call at upstream + markup (got ${amt})`);
+  ok(overrides && overrides.amount === "$0.001150", "sets the settlement override to the metered amount");
+  ok(res.headers["x-metered-usd"] === "0.001150", "reports the metered amount on the response header");
+
+  // The sentinel NEVER reaches a buyer, on any path.
+  const r1 = mk(0.001);
+  applyMeteredSettlement({ result: r1, req: uptoReq, tool, res: mkRes(), enabled: true, setOverrides: () => {} });
+  ok(!("__meterUpstreamUsd" in r1), "strips the internal cost sentinel when it meters");
+  const r2 = mk(0.001);
+  applyMeteredSettlement({ result: r2, req: exactReq, tool, res: mkRes(), enabled: true, setOverrides: () => {} });
+  ok(!("__meterUpstreamUsd" in r2), "strips the sentinel even when it does NOT meter - a buyer must never see our upstream cost");
+  const r3 = mk(0.001);
+  applyMeteredSettlement({ result: r3, req: uptoReq, tool, res: mkRes(), enabled: false, setOverrides: () => {} });
+  ok(!("__meterUpstreamUsd" in r3), "strips the sentinel even when metering is switched off");
+
+  // Every refusal path leaves the ceiling standing.
+  const noOverride = (opts) => { let o = null; applyMeteredSettlement({ ...opts, setOverrides: (r, x) => { o = x; } }); return o; };
+  ok(noOverride({ result: mk(0.001), req: exactReq, tool, res: mkRes(), enabled: true }) === null,
+    "an exact payment is never metered");
+  ok(noOverride({ result: mk(0.001), req: uptoReq, tool, res: mkRes(), enabled: false }) === null,
+    "the switch off means no override, so the buyer settles at the ceiling");
+  ok(noOverride({ result: mk(0.001), req: uptoReq, tool, res: { ...mkRes(), headersSent: true } }) === null,
+    "headers already sent means no override - a late header write is silently lost");
+  ok(noOverride({ result: { ok: true }, req: uptoReq, tool, res: mkRes(), enabled: true }) === null,
+    "no reported cost means no metering");
+  ok(noOverride({ result: mk(0.001), req: uptoReq, tool: { slug: "x", price: undefined }, res: mkRes(), enabled: true }) === null,
+    "a tool with no price cannot be metered");
+
+  // THE 500. A throw inside must be absorbed, and the absorbing path must not
+  // itself throw - which is exactly how a ReferenceError became a buyer's 500.
+  let logged = null;
+  const boom = { headersSent: false, setHeader: () => { throw new Error("header exploded"); } };
+  let threw = null;
+  try {
+    amt = applyMeteredSettlement({ result: mk(0.001), req: uptoReq, tool, res: boom, enabled: true, setOverrides: () => {}, log: (m) => { logged = m; } });
+  } catch (e) { threw = e; }
+  ok(threw === null, "a throw inside NEVER escapes to the caller - that is what turned a metering bug into a 500 for the buyer");
+  ok(amt === null, "a throw means no metered amount, so the buyer settles at the ceiling");
+  ok(logged && logged.includes("v1-chat") && logged.includes("settling at the ceiling"),
+    "the failure is logged with the tool slug, read BEFORE the try so the catch cannot fail on it");
+
+  // The catch must survive a tool object that is missing entirely.
+  threw = null;
+  try { applyMeteredSettlement({ result: mk(0.001), req: uptoReq, tool: undefined, res: boom, enabled: true, setOverrides: () => {}, log: () => {} }); }
+  catch (e) { threw = e; }
+  ok(threw === null, "no tool object at all still cannot throw out of the metering path");
+}
 
 console.log(`\n${pass} passed, 0 failed`);
