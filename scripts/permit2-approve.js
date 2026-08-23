@@ -39,7 +39,7 @@ const eth = await pub.getBalance({ address: account.address });
 const gasPrice = await pub.getGasPrice();
 console.log(`ETH on Base: ${formatEther(eth)}   gas price: ${gasPrice} wei`);
 
-const tx = createPermit2ApprovalTx({ tokenAddress: USDC });
+const tx = createPermit2ApprovalTx(USDC);
 let gas;
 try {
   gas = await pub.estimateGas({ account: account.address, to: tx.to, data: tx.data });

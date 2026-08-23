@@ -372,6 +372,17 @@ function buildGetUrl(path, op) {
 }
 
 let braveSkipped = 0, e2bSkipped = 0;
+const timings = [];
+// The sweep used to be one serial await-fetch per endpoint. Locally that is
+// ~2 minutes because almost nothing reaches the network; in CI, where the real
+// API keys are present, network tools make REAL upstream calls and the same
+// sweep took over 35 minutes - enough that every change today queued behind it,
+// and a push during a run cancels it.
+//
+// The wall-clock is almost entirely I/O wait, so it parallelises well. Order of
+// RESULTS is preserved (tasks are collected first and aggregated in order), so
+// the report reads identically and a failure list does not shuffle between runs.
+const tasks = [];
 for (const [path, methods] of paths) {
   if (skipBrave && BRAVE_ROUTES.has(path)) { braveSkipped += Object.keys(methods).length; continue; }
   if (skipE2b && E2B_ROUTES.has(path)) { e2bSkipped += Object.keys(methods).length; continue; }
@@ -397,16 +408,46 @@ for (const [path, methods] of paths) {
     // Memory tools need an identity in free mode; give them a demo namespace.
     if (isMemory(path)) url += (url.includes("?") ? "&" : "?") + "ns=smoke-all";
 
-    let status = 0, body = null, threw = null;
-    try {
-      const res = await fetch(url, { ...init, signal: AbortSignal.timeout(20000) });
-      status = res.status;
-      const ct = res.headers.get("content-type") || "";
-      body = ct.includes("application/json") ? await res.json() : (await res.arrayBuffer()).byteLength;
-    } catch (e) {
-      threw = e.message;
-    }
+    tasks.push({ path, method, op, cat, url, init });
+  }
+}
 
+// Bounded pool. 8 by default: high enough to collapse the I/O wait, low enough
+// to stay under our own rate limiter and to leave the 2-worker image pool's
+// 32-deep queue absorbing rather than answering 503, which this sweep would
+// (correctly) read as a failure.
+const CONCURRENCY = Math.max(1, Number(process.env.TEST_ALL_CONCURRENCY) || 8);
+async function runTask(t) {
+  let status = 0, body = null, threw = null;
+  const _t0 = Date.now();
+  try {
+    const res = await fetch(t.url, { ...t.init, signal: AbortSignal.timeout(20000) });
+    status = res.status;
+    const ct = res.headers.get("content-type") || "";
+    body = ct.includes("application/json") ? await res.json() : (await res.arrayBuffer()).byteLength;
+  } catch (e) {
+    threw = e.message;
+  }
+  return { ...t, status, body, threw, ms: Date.now() - _t0 };
+}
+const results = new Array(tasks.length);
+{
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, tasks.length) }, async () => {
+    for (;;) {
+      const i = next++;
+      if (i >= tasks.length) return;
+      results[i] = await runTask(tasks[i]);
+    }
+  }));
+}
+
+// Aggregate IN ORDER, so the counters, the failure list and the report are
+// byte-identical to the serial version.
+for (const r of results) {
+  {
+    const { path, method, op, cat, status, body, threw } = r;
+    timings.push([r.ms, `${method.toUpperCase()} ${path}`]);
     const okStrict = status === 200 && !(body && body.error);
     if (okStrict) checkShape(path, method, op, body);
     if (NETWORK.has(path)) {
@@ -426,6 +467,15 @@ for (const [path, methods] of paths) {
 
 const totalOps = paths.reduce((a, [, m]) => a + Object.keys(m).length, 0);
 console.log(`\nExercised ${totalOps - braveSkipped - e2bSkipped} endpoints at ${TARGET}${braveSkipped ? ` (skipped ${braveSkipped} Brave route(s) — set BRAVE_LIVE_TEST=1 to include; paid-canary covers post-deploy verification)` : ""}${e2bSkipped ? ` (skipped ${e2bSkipped} E2B route(s) — set E2B_LIVE_TEST=1 to include; test-code-run-kit covers live in CI)` : ""}\n`);
+// Where the wall-clock actually went. Printed always: a slow sweep that only
+// reports a total gives the next reader nothing to act on.
+{
+  const total = timings.reduce((a, t) => a + t[0], 0);
+  const slow = [...timings].sort((a, b) => b[0] - a[0]).slice(0, 12);
+  console.log(`\n  wall-clock in requests: ${(total / 1000).toFixed(1)}s across ${timings.length} calls (median ${timings.length ? [...timings].sort((a,b)=>a[0]-b[0])[Math.floor(timings.length/2)][0] : 0}ms)`);
+  console.log("  slowest:");
+  for (const [ms, name] of slow) console.log(`    ${String(ms).padStart(6)}ms  ${name}`);
+}
 for (const [cat, c] of Object.entries(cats).sort()) console.log(`  ${cat.padEnd(12)} ${c.pass}/${c.total} pure-CPU strict-pass`);
 console.log(`\n  strict (pure-CPU): ${strictPass} passed, ${strictFail} failed`);
 console.log(`  lenient (network/memory): ${lenient} exercised, ${serverErr} server errors`);
