@@ -69,8 +69,21 @@ ok(r >= 0.0010001 * METER_MARKUP && Number.isInteger(Math.round(r * 1e6)),
 // same `header()` accessor the middleware uses.
 const reqWith = (headers) => ({ header: (n) => headers[String(n).toLowerCase()] ?? undefined });
 const paymentHeader = (payload) => Buffer.from(JSON.stringify(payload)).toString("base64");
-const uptoPayload = { x402Version: 2, scheme: "upto", network: "eip155:8453", payload: { signature: "0xdead", authorization: {} } };
-const exactPayload = { ...uptoPayload, scheme: "exact" };
+// BOTH wire versions, because they carry the scheme in DIFFERENT places and a
+// v1-only reader returns null for every v2 payment - silently, since the caller
+// reads null as "not this scheme". That is exactly what shipped: the first fix
+// read only the top-level field, the live buy settled at the full ceiling again,
+// and nothing logged. @x402/core's own schemas:
+//   v1 { x402Version, scheme, network, payload }
+//   v2 { x402Version, resource?, accepted: PaymentRequirementsV2, payload }
+const v2Payload = (scheme) => ({
+  x402Version: 2,
+  accepted: { scheme, network: "eip155:8453", amount: "20000", asset: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", payTo: "0xabc", maxTimeoutSeconds: 60 },
+  payload: { signature: "0xdead", authorization: {} },
+});
+const v1Payload = (scheme) => ({ x402Version: 1, scheme, network: "base", payload: { signature: "0xdead", authorization: {} } });
+const uptoPayload = v2Payload("upto");
+const exactPayload = v2Payload("exact");
 
 ok(isMeterable(reqWith({ "payment-signature": paymentHeader(uptoPayload) })) === true,
   "an upto payment is meterable, read from the payment header the middleware settles from");
@@ -84,6 +97,16 @@ ok(isMeterable(reqWith({ "payment-signature": "not base64 json" })) === false,
   "an unparseable payment header is not meterable: it must never DEFAULT to metered");
 ok(isMeterable(reqWith({ "payment-signature": paymentHeader({ x402Version: 2, network: "eip155:8453" }) })) === false,
   "a payload with no scheme at all is not meterable");
+// v1 wire: the scheme is top-level. Dropping this reader would strand v1 buyers.
+ok(isMeterable(reqWith({ "payment-signature": paymentHeader(v1Payload("upto")) })) === true,
+  "a v1 payload carries the scheme TOP-LEVEL and is still read");
+ok(isMeterable(reqWith({ "payment-signature": paymentHeader(v1Payload("exact")) })) === false,
+  "a v1 exact payment is not metered either");
+// v2 wire: the scheme is on `accepted`. This is the one the live buy proved.
+ok(isMeterable(reqWith({ "payment-signature": paymentHeader(v2Payload("upto")) })) === true,
+  "a v2 payload carries the scheme on `accepted` (NO top-level scheme) and is read there");
+ok(isMeterable(reqWith({ "payment-signature": paymentHeader({ x402Version: 2, accepted: { network: "eip155:8453" }, payload: {} }) })) === false,
+  "a v2 payload whose accepted names no scheme is not meterable");
 // The shape the dead version believed in must not resurrect it.
 ok(isMeterable({ x402: { scheme: "upto" } }) === false && isMeterable({ _x402Scheme: "upto" }) === false,
   "a decorated request property is NOT the source of truth: nothing sets those, and trusting them is what made this dead");
