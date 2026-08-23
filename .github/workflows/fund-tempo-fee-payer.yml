@@ -1,0 +1,48 @@
+name: Fund the Tempo subscription gas sponsor (dispatch-only)
+
+# Moves USDC.e on Tempo from the CI burner to the subscription rail's gas
+# sponsor. This is a workflow rather than something done from a wallet because
+# an ordinary EVM wallet CANNOT do it: Tempo transactions are type 0x76 with
+# fees settled in a stablecoin, and eth_getBalance returns a sentinel rather
+# than a real native balance, so a wallet that budgets native gas has nothing
+# real to budget and the send fails before it is even built.
+#
+# DRY RUN by default, like refund.yml. Set live=true to actually send.
+on:
+  workflow_dispatch:
+    inputs:
+      address:
+        description: "Fee-payer address to fund (0x...)"
+        required: true
+      amount_usd:
+        description: "USDC.e to send (cap is 5)"
+        required: false
+        default: "1"
+      live:
+        description: "true to actually send; anything else is a dry run"
+        required: false
+        default: "false"
+
+concurrency:
+  # One funding run at a time: two would race the same burner's nonces.
+  group: fund-tempo-fee-payer
+  cancel-in-progress: false
+
+jobs:
+  fund:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - run: npm ci --ignore-scripts
+      - name: Send
+        env:
+          BURNER_KEY: ${{ secrets.BURNER_KEY }}
+          # Every input rides an env var, never shell interpolation (N-03).
+          FEE_PAYER_ADDRESS: ${{ inputs.address }}
+          FUND_USD: ${{ inputs.amount_usd }}
+          LIVE: ${{ inputs.live }}
+        run: node scripts/fund-tempo-fee-payer.js
