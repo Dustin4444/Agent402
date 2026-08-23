@@ -55,6 +55,14 @@ seenShapes.set("/", "/");
 for (const chain of ["base", "solana", "polygon", "arbitrum", "monad", "celo", "avalanche", "sei", "optimism", "stellar", "algorand", "robinhood"]) {
   seenShapes.set(`/${chain}`, `/${chain}`);
 }
+// Real pages that are NOT in the sitemap, and so had NO CSP coverage at all.
+// The set is derived from sitemap.xml, which is self-maintaining and the right
+// default - but "self-maintaining" silently means a page missing from the
+// sitemap is a page this test has never once loaded. Found by planting an
+// inline script on /terms to check the detector still worked after this file
+// was parallelised: the run stayed green, because /terms was never visited.
+// All three are linked from every footer.
+for (const p of ["/terms", "/privacy", "/transparency"]) seenShapes.set(p, p);
 const pages = [...new Set(seenShapes.values())];
 ok(pages.length >= 30, `deduped to a substantial distinct-template set (got ${pages.length})`);
 console.log(`  crawling ${pages.length} distinct page templates for CSP violations...`);
@@ -91,17 +99,49 @@ async function freshPage() {
 
 const allViolations = [];
 
-for (const path of pages) {
+// The load pass is 321 page templates of almost pure I/O wait - measured at 22%
+// CPU while it ran for over seven minutes, which made it about a quarter of the
+// entire CI test job. Each page is independent (its own browser page, its own
+// violation array), so it pools cleanly. Results are collected BY INDEX and
+// flattened in the original page order, so the failure report reads identically
+// to the serial version rather than in whatever order the pool finished.
+//
+// Concurrency is deliberately modest and the navigation timeout deliberately
+// generous. A CI runner has far fewer cores than a laptop, and a page that
+// times out is recorded as a violation and FAILS the run - so being greedy here
+// would not produce a faster test, it would produce a flaky one that reports
+// CSP failures for pages that were merely slow.
+const LOAD_CONCURRENCY = Number(process.env.CSP_CONCURRENCY || 6);
+const NAV_TIMEOUT_MS = 30000;
+
+async function runPool(items, limit, worker) {
+  const out = new Array(items.length);
+  let next = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      out[i] = await worker(items[i], i);
+    }
+  });
+  await Promise.all(runners);
+  return out;
+}
+
+const t0 = Date.now();
+const perPage = await runPool(pages, LOAD_CONCURRENCY, async (path) => {
   const { page, violations } = await freshPage();
   try {
-    await page.goto(`${BASE}${path}`, { waitUntil: "networkidle", timeout: 20000 });
+    await page.goto(`${BASE}${path}`, { waitUntil: "networkidle", timeout: NAV_TIMEOUT_MS });
     await page.waitForTimeout(300); // let any deferred/polling script fire once
   } catch (e) {
     violations.push({ directive: "(navigation)", blockedURI: String(e && e.message || e), sourceFile: path, lineNumber: 0 });
   }
-  for (const v of violations) allViolations.push({ path, ...v });
   await page.close();
-}
+  return violations.map((v) => ({ path, ...v }));
+});
+for (const list of perPage) for (const v of list) allViolations.push(v);
+console.log(`  load pass: ${pages.length} templates in ${((Date.now() - t0) / 1000).toFixed(1)}s at concurrency ${LOAD_CONCURRENCY}`);
 ok(allViolations.length === 0, `zero CSP violations across ${pages.length} page loads (got ${allViolations.length})`);
 
 // --- Interaction pass: pages whose scripts gate real behavior behind a
@@ -186,6 +226,12 @@ const interactions = [
   },
 ];
 
+// The interaction pass stays SERIAL on purpose. These drive real work against
+// the same local server (the homepage PoW demo, the playground's Run), and
+// their waitForFunction calls swallow their own timeouts - so a server slowed
+// by concurrent load would not fail here, it would quietly stop completing the
+// interactions and reduce the coverage to a page load. Seven pages is not where
+// the time goes anyway.
 for (const { path, run } of interactions) {
   const { page, violations } = await freshPage();
   try {
