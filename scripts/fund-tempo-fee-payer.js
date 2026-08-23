@@ -18,11 +18,22 @@ import { tempo } from "viem/tempo/chains";
 import { prepareTransactionRequest, signTransaction, sendRawTransaction, waitForTransactionReceipt } from "viem/actions";
 
 const RPC = process.env.TEMPO_RPC_URL || "https://rpc.tempo.xyz";
-const USDCE = "0x20C000000000000000000000b9537d11c60E8b50";
+// Tempo ships two TIP-20 stablecoins and they are NOT interchangeable here.
+// A SPONSORED transaction pays its fee in PathUSD unless something specifies
+// otherwise, and mppx's subscription path never does: its `complete()` returns
+// no feeToken, so the chain falls back to the default. Measured live - a
+// sponsor funded only with USDC.e was refused `-32003 insufficient funds for
+// gas * price + value: have 0 want 4859`, 4859 being PathUSD base units.
+// So the gas sponsor needs PATHUSD; USDC.e is what the products are PRICED in.
+const TOKENS = {
+  usdc: "0x20C000000000000000000000b9537d11c60E8b50",
+  pathusd: "0x20c0000000000000000000000000000000000000",
+};
 // A funding transfer is not a spend on anyone's behalf, but it is still money
 // leaving a wallet from CI, so it is bounded the same way refund-run.js is.
 const MAX_USD = Number(process.env.FUND_MAX_USD || 5);
 
+const tokenKey = (process.env.FUND_TOKEN || "pathusd").trim().toLowerCase();
 const to = (process.env.FEE_PAYER_ADDRESS || "").trim();
 const amountUsd = Number(process.env.FUND_USD || 1);
 const live = String(process.env.LIVE || "").toLowerCase() === "true";
@@ -33,6 +44,8 @@ if (!Number.isFinite(amountUsd) || amountUsd <= 0) die(`FUND_USD must be positiv
 if (amountUsd > MAX_USD) die(`FUND_USD ${amountUsd} exceeds the ${MAX_USD} cap`);
 const pk = (process.env.BURNER_KEY || "").trim();
 if (!pk) die("no BURNER_KEY");
+if (!Object.hasOwn(TOKENS, tokenKey)) die(`FUND_TOKEN must be one of ${Object.keys(TOKENS).join(", ")}, got ${JSON.stringify(tokenKey)}`);
+const TOKEN = TOKENS[tokenKey];
 
 const account = privateKeyToAccount(pk.startsWith("0x") ? pk : `0x${pk}`);
 const target = getAddress(to);
@@ -45,31 +58,32 @@ const ERC20 = [
   { name: "transfer", type: "function", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] },
   { name: "balanceOf", type: "function", stateMutability: "view", inputs: [{ name: "a", type: "address" }], outputs: [{ type: "uint256" }] },
 ];
-const bal = (a) => pub.readContract({ address: USDCE, abi: ERC20, functionName: "balanceOf", args: [a] });
+const bal = (a) => pub.readContract({ address: TOKEN, abi: ERC20, functionName: "balanceOf", args: [a] });
 const usd = (u) => (Number(u) / 1e6).toFixed(6);
 
 const units = BigInt(Math.round(amountUsd * 1e6));
 const before = await bal(account.address);
 const beforeTo = await bal(target);
-console.log(`from   ${account.address}  ${usd(before)} USDC.e`);
-console.log(`to     ${target}  ${usd(beforeTo)} USDC.e`);
-console.log(`amount ${usd(units)} USDC.e`);
+console.log(`token  ${tokenKey} ${TOKEN}`);
+console.log(`from   ${account.address}  ${usd(before)}`);
+console.log(`to     ${target}  ${usd(beforeTo)}`);
+console.log(`amount ${usd(units)}`);
 if (before < units) die(`sender holds ${usd(before)}, needs ${usd(units)}`);
 
 const data = encodeFunctionData({ abi: ERC20, functionName: "transfer", args: [target, units] });
 if (!live) {
-  const gas = await pub.estimateGas({ account: account.address, to: USDCE, data });
+  const gas = await pub.estimateGas({ account: account.address, to: TOKEN, data });
   console.log(`DRY RUN (set LIVE=true to send). estimated gas ${gas}`);
   process.exit(0);
 }
 
 // Prepare, do not hand-roll: this is what populates gas and fee fields.
-const prepared = await prepareTransactionRequest(wallet, { account, chainId: tempo.id, calls: [{ to: USDCE, data }] });
+const prepared = await prepareTransactionRequest(wallet, { account, chainId: tempo.id, calls: [{ to: TOKEN, data }] });
 const serialized = await signTransaction(wallet, prepared);
 const hash = await sendRawTransaction(wallet, { serializedTransaction: serialized });
 console.log(`sent ${hash}`);
 const receipt = await waitForTransactionReceipt(pub, { hash });
 console.log(`status ${receipt.status}  gasUsed ${receipt.gasUsed}  feeToken ${receipt.feeToken || "(n/a)"}`);
 if (receipt.status !== "success") die("transfer reverted");
-console.log(`after  ${target}  ${usd(await bal(target))} USDC.e`);
+console.log(`after  ${target}  ${usd(await bal(target))}`);
 console.log("PASS - gas sponsor funded.");

@@ -14,6 +14,10 @@ on:
       address:
         description: "Fee-payer address to fund (0x...)"
         required: true
+      token:
+        description: "pathusd (the SPONSORED-tx fee token, what the gas sponsor needs) or usdc"
+        required: false
+        default: "pathusd"
       amount_usd:
         description: "USDC.e to send (cap is 5)"
         required: false
@@ -43,6 +47,7 @@ jobs:
           BURNER_KEY: ${{ secrets.BURNER_KEY }}
           # Every input rides an env var, never shell interpolation (N-03).
           FEE_PAYER_ADDRESS: ${{ inputs.address }}
+          FUND_TOKEN: ${{ inputs.token }}
           FUND_USD: ${{ inputs.amount_usd }}
           LIVE: ${{ inputs.live }}
         run: node scripts/fund-tempo-fee-payer.js
