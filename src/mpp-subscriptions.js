@@ -80,6 +80,7 @@ import { join } from "node:path";
 import { Challenge, Credential, Method, Receipt } from "mppx";
 import * as Tempo from "mppx/tempo";
 import { tempo as tempoServer } from "mppx/server";
+import { privateKeyToAccount } from "viem/accounts";
 import { MONITOR_PRODUCTS } from "./stripe-subscriptions.js";
 
 // Tempo mainnet. Same constant mpp-tempo.js pins; a subscription authorization
@@ -162,6 +163,74 @@ function envCurrency() {
   const c = raw.toLowerCase() === "usdc" ? USDC_E_ADDRESS : raw.toLowerCase() === "pathusd" ? PATH_USD_ADDRESS : raw;
   return c;
 }
+/**
+ * THE GAS SPONSOR, and why this rail cannot run without one.
+ *
+ * A Tempo subscription charge is signed and broadcast straight to an RPC with
+ * no relay in the path, so nothing sponsors its gas the way api.tempo.xyz
+ * sponsors a tempo/charge. mppx has two code paths for that transaction and
+ * they are not equivalent: WITH a fee payer it builds the transaction through
+ * `prepareTransactionRequest`, which populates gas and fee fields; WITHOUT one
+ * it calls `signTransaction` on a bare request that carries none. viem does not
+ * fill them in, so the unsponsored transaction is signed with a ZERO gas price
+ * and Tempo rejects it - measured live against production, three runs, every
+ * one `-32000 gas price is less than basefee` (basefee 0.6 gwei), and pinned at
+ * the byte level: the serialized transaction reads `821079 80 80 80`, i.e.
+ * chainId 4217 followed by three empty fee fields.
+ *
+ * So the unsponsored path can never settle on a chain with a non-zero basefee.
+ * mppx's fee-payer URL form (a sponsorship service) is wired for tempo/CHARGE
+ * only - `Subscription.createContext` reads `feePayer` and never `feePayerUrl` -
+ * so a URL is not an option here and an ACCOUNT is required.
+ *
+ * `TEMPO_SUBSCRIPTION_FEE_PAYER_KEY` is that account: a dedicated Tempo wallet
+ * holding gas, NEVER the treasury and never the CI burner. We pay the gas for
+ * every activation and every renewal, which is the honest description of this
+ * rail: the earlier note that "the tx sends from THEIR account so they pay
+ * their own gas" was wrong about who funds it.
+ */
+/**
+ * Gas ceiling for a sponsored subscription transaction.
+ *
+ * mppx's default fee-payer policy caps `maxGas` at 2,000,000, and its own docs
+ * point at this override "when the access key renewal tx requires more gas than
+ * the default policy allows". An ACTIVATION does more than a renewal: it
+ * installs the access key as well as moving the first period, and a plain
+ * transferWithMemo already costs 46,575 gas measured on-chain, so the 2M default
+ * is the wrong shape for the activation leg.
+ *
+ * 6,000,000 is deliberately generous rather than tuned, because the gas ceiling
+ * is NOT the money bound here - `maxTotalFee` is. Fees settle in USDC.e (the
+ * receipt's `feeToken`), and gas*price converts to token units at ~1e12: the
+ * measured charge tx paid 28 units, i.e. $0.000028. At the live 0.6 gwei basefee
+ * this ceiling is worth $0.0036 per transaction, while mppx's untouched
+ * `maxTotalFee` still refuses anything over $0.05 however far the gas price
+ * moves. Against a $5/mo subscription both are noise.
+ *
+ * The ~4M figure for an access-key install is an UNVERIFIED note carried in
+ * project docs, not something measured here, which is the other reason to leave
+ * headroom instead of pinning the number to it.
+ */
+export const SUB_FEE_PAYER_MAX_GAS = 6_000_000n;
+export function subscriptionFeePayerPolicy() {
+  const raw = (process.env.MPP_SUB_FEE_PAYER_MAX_GAS || "").trim();
+  let maxGas = SUB_FEE_PAYER_MAX_GAS;
+  if (raw) {
+    try {
+      const v = BigInt(raw);
+      if (v > 0n) maxGas = v;
+    } catch { /* keep the default: a malformed knob must never widen or void the policy */ }
+  }
+  return { maxGas };
+}
+
+export function subscriptionFeePayer() {
+  const raw = (process.env.TEMPO_SUBSCRIPTION_FEE_PAYER_KEY || "").trim();
+  if (!raw) return null;
+  try { return privateKeyToAccount(raw.startsWith("0x") ? raw : `0x${raw}`); }
+  catch { return null; }
+}
+
 function envDecimals() {
   const n = Number(process.env.TEMPO_DECIMALS);
   return Number.isInteger(n) && n >= 0 ? n : 6;
@@ -184,6 +253,11 @@ export function mppSubscriptionsEnabled() {
   if (String(process.env.MPP_SUBSCRIPTIONS || "").toLowerCase() === "off") return false;
   if (!(process.env.MPP_SECRET_KEY || "").trim()) return false;
   if (!/^0x[0-9a-fA-F]{40}$/.test(envRecipient())) return false;
+  // No sponsor, no rail. Without a fee payer every subscribe attempt is signed
+  // with a zero gas price and refused by the chain, so mounting the routes
+  // would advertise a product we provably cannot deliver - the endpoint would
+  // 402 forever and the offer would be a lie. See subscriptionFeePayer().
+  if (!subscriptionFeePayer()) return false;
   return mppSubscriptionMethodAvailable();
 }
 
@@ -349,20 +423,27 @@ export function checkSubscriptionBinding(authorizationHeader, { secretKey, realm
  *  Buyer-facing text is unchanged: the caller still gets the generic
  *  "did not settle" message, because an RPC body can quote a node's words.
  */
-function diagnoseError(err, max = 900) {
+function diagnoseError(err, max = 1200) {
   const seen = new Set();
   const parts = [];
   for (let e = err, depth = 0; e && depth < 5; e = e.cause, depth++) {
     if (typeof e !== "object" || seen.has(e)) break;
     seen.add(e);
     const bit = [];
+    // Order matters, and the first version got it wrong: viem puts the SERVER's
+    // own words in `details` and the whole outbound request in `message`, so
+    // leading with the message spent the whole budget on a raw transaction hex
+    // and truncated away the one line that says why. Cause first, bulk last.
     if (e.name) bit.push(e.name);
-    if (e.message) bit.push(String(e.message));
     if (e.code !== undefined) bit.push(`code=${JSON.stringify(e.code)}`);
-    if (e.data !== undefined) bit.push(`data=${JSON.stringify(e.data)}`);
-    if (e.details) bit.push(`details=${String(e.details)}`);
-    if (e.shortMessage && e.shortMessage !== e.message) bit.push(`short=${String(e.shortMessage)}`);
-    if (e.metaMessages) bit.push(`meta=${JSON.stringify(e.metaMessages)}`);
+    if (e.data !== undefined) bit.push(`data=${JSON.stringify(e.data).slice(0, 300)}`);
+    if (e.details) bit.push(`details=${String(e.details).slice(0, 300)}`);
+    if (e.shortMessage) bit.push(`short=${String(e.shortMessage).slice(0, 200)}`);
+    if (e.metaMessages) bit.push(`meta=${JSON.stringify(e.metaMessages).slice(0, 300)}`);
+    if (e.status !== undefined) bit.push(`status=${e.status}`);
+    // The message can carry a full serialized transaction; keep it, keep it last,
+    // and keep it short. Its useful head is the first line.
+    if (e.message) bit.push(`msg=${String(e.message).split("\n")[0].slice(0, 200)}`);
     if (bit.length) parts.push(bit.join(" "));
   }
   const out = parts.join(" <- ") || String(err);
@@ -411,6 +492,10 @@ export function createMppSubscriptions({
   }
   const clientOverride = () => (process.env.TEMPO_RPC_URL ? { getClient: () => tempoClient() } : {});
 
+  // Resolved once at construction: the engine is only ever created when the
+  // rollout switch passed, and that switch already requires this account.
+  const feePayer = subscriptionFeePayer();
+
   const method = tempoServer.subscription({
     // Every monitor product is priced the same today, and the activation path
     // never reads this default: `verify` works off the CHALLENGE's own request,
@@ -421,6 +506,9 @@ export function createMppSubscriptions({
     periodCount: PERIOD_COUNT, periodUnit: PERIOD_UNIT,
     subscriptionExpires: new Date(Math.floor((Date.now() + SUBSCRIPTION_TERM_MS) / 1000) * 1000),
     store: kv,
+    // Makes mppx build the transaction through prepareTransactionRequest, which
+    // is the ONLY path that populates gas and fee fields. See subscriptionFeePayer().
+    ...(feePayer ? { feePayer, feePayerPolicy: subscriptionFeePayerPolicy() } : {}),
     ...clientOverride(),
     resolve: ({ request, source }) => {
       const ak = String(request?.methodDetails?.accessKey?.accessKeyAddress || "").toLowerCase();
@@ -923,6 +1011,7 @@ export function createMppSubscriptions({
     offerInfo, mintOffer, activateFromCredential, refreshStatus, cancel, isCanarySub,
     listActive, get, isMine, status, warm, warmSync, manageToken, manageTokenOk, publicView,
     _store: kv, _subStore: subStore, _method: method,
+    _feePayer: feePayer, _feePayerPolicy: feePayer ? subscriptionFeePayerPolicy() : null,
     _currentPeriodIndex: currentPeriodIndex, _paidThroughAt: paidThroughAt, _readRec: readRec, _writeRec: writeRec,
   };
 }

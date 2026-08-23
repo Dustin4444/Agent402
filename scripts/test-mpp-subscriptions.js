@@ -24,6 +24,7 @@ import {
   SUBSCRIPTION_TERM_MS, PAST_DUE_GRACE_MS, CHARGE_BACKOFF_MS, TEMPO_MAINNET_CHAIN_ID,
   OFFER_SWEEP_AFTER_MS, MAX_OPEN_OFFERS,
   CANARY_PRODUCT_KEY, CANARY_PRODUCT, CANARY_PERIOD_SECONDS, productDefFor, isCanaryProduct,
+  subscriptionFeePayerPolicy, SUB_FEE_PAYER_MAX_GAS,
 } from "../src/mpp-subscriptions.js";
 import { MONITOR_PRODUCTS } from "../src/stripe-subscriptions.js";
 
@@ -42,6 +43,11 @@ process.env.MPP_SECRET_KEY = SECRET;
 process.env.TEMPO_RECIPIENT_ADDRESS = RECIPIENT;
 process.env.TEMPO_CURRENCY = "usdc";
 process.env.TEMPO_DECIMALS = "6";
+// A throwaway key: this suite never broadcasts, but the rollout switch now
+// requires a gas sponsor because the unsponsored mppx path signs a ZERO gas
+// price and Tempo refuses it (measured live, three runs, -32000 "gas price is
+// less than basefee").
+process.env.TEMPO_SUBSCRIPTION_FEE_PAYER_KEY = "0x" + "11".repeat(32);
 delete process.env.MPP_SUBSCRIPTIONS;
 delete process.env.TEMPO_RPC_URL;
 
@@ -53,7 +59,16 @@ ok(Tempo.Methods.subscription.intent === "subscription" && Tempo.Methods.subscri
 ok(Array.isArray(Tempo.Methods.chargeModes) && !("supportedModes" in (Tempo.Methods.subscription.schema.request ?? {})), "chargeModes belongs to tempo/charge: the subscription request carries no mode field (it is always a server pull)");
 ok(PERIOD === 30 * 24 * 3600 * 1000, `a monthly product is periodCount ${PERIOD_COUNT}/${PERIOD_UNIT} = ${PERIOD / 86400000} days (mppx has no "month" unit)`);
 
-ok(mppSubscriptionsEnabled() === true, "rollout switch: enabled with MPP_SECRET_KEY + a Tempo recipient + the method present");
+ok(mppSubscriptionsEnabled() === true, "rollout switch: enabled with MPP_SECRET_KEY + a Tempo recipient + a fee payer + the method present");
+{
+  const saved = process.env.TEMPO_SUBSCRIPTION_FEE_PAYER_KEY;
+  delete process.env.TEMPO_SUBSCRIPTION_FEE_PAYER_KEY;
+  ok(mppSubscriptionsEnabled() === false,
+    "rollout switch: NO gas sponsor means the rail is not mounted at all - the unsponsored mppx path signs a zero gas price, so every subscribe would 402 forever and advertising it would be a product we cannot deliver");
+  process.env.TEMPO_SUBSCRIPTION_FEE_PAYER_KEY = "not-a-key";
+  ok(mppSubscriptionsEnabled() === false, "rollout switch: an unparseable sponsor key is treated as no sponsor, never as a silent fallback to the unsponsored path");
+  process.env.TEMPO_SUBSCRIPTION_FEE_PAYER_KEY = saved;
+}
 process.env.MPP_SUBSCRIPTIONS = "off";
 ok(mppSubscriptionsEnabled() === false, "rollout switch: MPP_SUBSCRIPTIONS=off disarms it");
 delete process.env.MPP_SUBSCRIPTIONS;
@@ -549,6 +564,43 @@ let liveSubId = null, liveHeader = null, liveToken = null, liveBuyer = null;
     "and the canary product on the real 30-day period is refused too: the period binding is two-sided");
   ok(b.ok !== false || !/no known monitor product/.test(String(b.reason || "")),
     "the binding check resolves the canary product rather than rejecting it as unknown");
+}
+
+// ---------------------------------------------------------------------------
+// Group 10: the sponsored-gas policy. mppx caps maxGas at 2,000,000 by default
+// and an activation installs an access key on top of the transfer, so the
+// default is the wrong shape for this rail's heaviest leg.
+// ---------------------------------------------------------------------------
+{
+  const pol = subscriptionFeePayerPolicy();
+  ok(pol.maxGas === SUB_FEE_PAYER_MAX_GAS && pol.maxGas > 2_000_000n,
+    `the fee-payer policy raises maxGas to ${pol.maxGas}, above mppx's 2,000,000 default (an activation installs the access key as well as moving the first period)`);
+
+  // The gas ceiling is not the money bound; maxTotalFee is, and we leave it
+  // untouched. Recorded here so a future raise cannot quietly become expensive:
+  // fees settle in USDC.e and gas*price converts at ~1e12 (measured: 46,575 gas
+  // at 0.6 gwei was charged 28 units, $0.000028).
+  const usd = (gas, price) => Number((gas * BigInt(price)) / 1_000_000_000_000n) / 1e6;
+  ok(usd(pol.maxGas, 600_000_000) < 0.01,
+    `at the live 0.6 gwei basefee this ceiling is worth $${usd(pol.maxGas, 600_000_000).toFixed(6)} per transaction, well under a cent`);
+
+  // The helper returning the right number proves nothing about the engine using
+  // it, and removing the parameter from the mppx call survived a mutation until
+  // this assertion existed.
+  const { engine: sponsored } = makeEngine({ name: "feepolicy" });
+  ok(sponsored._feePayer && sponsored._feePayerPolicy?.maxGas === SUB_FEE_PAYER_MAX_GAS,
+    "the engine actually hands that policy to mppx alongside the fee payer, rather than resolving it and dropping it");
+
+  const prev = process.env.MPP_SUB_FEE_PAYER_MAX_GAS;
+  process.env.MPP_SUB_FEE_PAYER_MAX_GAS = "9000000";
+  ok(subscriptionFeePayerPolicy().maxGas === 9_000_000n, "the ceiling is a call-time env knob, like every other knob in this repo");
+  // A malformed or zero knob must never widen the policy, void it, or throw:
+  // this value rides into a signing path, so the failure mode has to be inert.
+  for (const bad of ["not-a-number", "0", "-1", ""]) {
+    process.env.MPP_SUB_FEE_PAYER_MAX_GAS = bad;
+    ok(subscriptionFeePayerPolicy().maxGas === SUB_FEE_PAYER_MAX_GAS, `a ${JSON.stringify(bad)} ceiling falls back to the default rather than widening or voiding the policy`);
+  }
+  if (prev === undefined) delete process.env.MPP_SUB_FEE_PAYER_MAX_GAS; else process.env.MPP_SUB_FEE_PAYER_MAX_GAS = prev;
 }
 
 rmSync(tmp, { recursive: true, force: true });

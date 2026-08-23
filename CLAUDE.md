@@ -1471,7 +1471,33 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   already calls before every paid run, so "are they paid up" and "charge them" are one answer. A failed period is
   `past_due` (free probes continue, no paid report), 1h backoff doubling to 24h, `canceled` after a 7-day grace.
   Every unpaid 402 mints a keypair, so unclaimed offers are swept and minting refuses past a ceiling.
-  `MPP_SUBSCRIPTIONS=off`; gated on MPP_SECRET_KEY + a recipient, NOT on TEMPO_API_KEY (no relay involved).
+  `MPP_SUBSCRIPTIONS=off`; gated on MPP_SECRET_KEY + a recipient + **a gas sponsor**, NOT on TEMPO_API_KEY (no relay).
+  **THE RAIL NEEDS A FEE PAYER, proven live 2026-08-23 by the canary's first three runs.** With no relay in the path
+  nothing sponsors the transaction's gas, and mppx's two code paths are NOT equivalent: with a fee payer it builds the
+  tx through `prepareTransactionRequest` (which populates gas + fee fields), without one it calls `signTransaction` on a
+  bare request that carries none. viem does not fill them in, so the unsponsored tx is signed with a ZERO gas price and
+  Tempo refuses it - `-32000 details="gas price is less than basefee"` (basefee 0.6 gwei), pinned at the byte level:
+  the serialized tx reads `821079 80 80 80`, chainId 4217 then three empty fee fields. mppx's fee-payer URL form is
+  wired for tempo/CHARGE only (`Subscription.createContext` reads `feePayer`, never `feePayerUrl`), so a sponsorship
+  URL is not an option and an ACCOUNT is required: `TEMPO_SUBSCRIPTION_FEE_PAYER_KEY`, a dedicated Tempo wallet holding
+  gas, NEVER the treasury or the CI burner. **We pay the gas for every activation and renewal** - the earlier claim here
+  that "the tx sends from THEIR account so they pay their own gas" was wrong about who funds it. `mppSubscriptionsEnabled()`
+  now REQUIRES the sponsor: with no key the routes do not mount at all, because every subscribe would 402 forever and
+  `/api/mpp/monitors` would be advertising a product we cannot deliver. Mike owes the funded key before this rail is live.
+  **Sponsored-gas policy:** mppx's default fee-payer policy caps `maxGas` at 2,000,000 and its own docs point at the
+  override when the access-key tx needs more; an ACTIVATION installs the key as well as moving the first period, so we
+  pass `feePayerPolicy: { maxGas: 6_000_000 }` (`SUB_FEE_PAYER_MAX_GAS`, env knob `MPP_SUB_FEE_PAYER_MAX_GAS`, a
+  malformed/zero value falls back rather than widening or voiding the policy). Deliberately generous, because the gas
+  ceiling is NOT the money bound - mppx's untouched `maxTotalFee` is, refusing anything over $0.05/tx however far gas
+  moves. **What sponsoring actually costs, measured on-chain, not estimated:** fees settle in USDC.e (the receipt's
+  `feeToken`) and gas x price converts to token units at ~1e12 - a real charge tx used 46,575 gas at 0.6 gwei and was
+  charged **28 units, $0.000028**. So a renewal costs us ~$0.00003 and the 6M ceiling is worth $0.0036; against $5/mo
+  that is noise, and the earlier framing of this as a meaningful ongoing cost was wrong. Note also that the receipt's
+  `feePayer` equals `from` on the working charge rail (the buyer self-pays; Tempo's relay does NOT sponsor), and that
+  Tempo's `eth_getBalance` returns a SENTINEL (`4242...` repeating) - native gas is abstracted, so the sponsor wallet
+  needs USDC.e, not a native balance.
+  Diagnostics lesson, the third time on this rail: viem puts the server's words in `details` and the whole outbound
+  request in `message`, so a message-first log truncated the one line that mattered (`diagnoseError`, cause first).
   **LIVE CANARY (2026-08-22, `scripts/tempo-subscription-canary.js` + `tempo-subscription-canary.yml`,
   dispatch-only):** proves BOTH halves against production with the existing EVM canary burner. Activation is
   charge-shaped (402 -> key authorization -> period 0 settles). The half worth proving is the RENEWAL: no buyer is

@@ -27,6 +27,11 @@ let proc = spawn("node", ["src/server.js"], {
     MPP_SECRET_KEY: SECRET, POW_SECRET: POW,
     TEMPO_RECIPIENT_ADDRESS: "0x000000000000000000000000000000000000dEaD",
     TEMPO_CURRENCY: "usdc", TEMPO_DECIMALS: "6",
+    // The rail is gated on a gas sponsor (see subscriptionFeePayer): without one
+    // the unsponsored mppx path signs a zero gas price and the chain refuses it,
+    // so the engine deliberately does not mount. A throwaway key here - this
+    // test never broadcasts.
+    TEMPO_SUBSCRIPTION_FEE_PAYER_KEY: "0x" + "22".repeat(32),
     MONITOR_SCHEDULER: "off", X402_INDEX_CRAWL: "off", MPP_INDEX_CRAWL: "off",
     STRIPE_SECRET_KEY: "", CDP_API_KEY_ID: "", CDP_API_KEY_SECRET: "",
   },
