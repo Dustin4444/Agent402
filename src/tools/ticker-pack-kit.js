@@ -15,13 +15,14 @@
 // and the instruction is to CALL them rather than re-implement their pipelines,
 // so their own synthesis rides along. The bundle therefore reuses both parts'
 // synthesis and adds ONE small pass of its own. Upstream arithmetic:
-//     dossier   cap $0.45   (DOSSIER_TIERS["dossier"].maxUpstreamUsd)
-//   + insider   cap $0.20   (INSIDER_TIERS["insider-report"].maxUpstreamUsd)
+//     dossier   cap $0.50   (DOSSIER_TIERS["dossier"].maxUpstreamUsd)
+//   + insider   cap $0.35   (INSIDER_TIERS["insider-report"].maxUpstreamUsd)
 //   + holders   $0.00       (SEC EDGAR only: 1 full-text query + N XML reads)
 //   + filings   $0.00       (SEC EDGAR submissions JSON, 1 read)
-//   + pack pass cap $0.30   (PACK_SYNTH_MAX_UPSTREAM_USD, 1,800 output tokens)
-//   = $5.50 worst case against a $15 price = 36.7%. Measured typical spend is
-//     far lower (each part's realistic run is a fraction of its own cap).
+//   + pack pass cap $0.35   (PACK_SYNTH_MAX_UPSTREAM_USD, 1,800 output tokens)
+//   = $1.20 worst case against a $2.00 price = 60%. Every part cap is the
+//     MEASURED opus-5 worst case (max $0.311 over 30 days of $ai_generation),
+//     because three syntheses is where an optimistic cap compounds fastest.
 //
 // HOLDERS: "which institutional managers hold this ticker" IS cheaply possible
 // from EDGAR full-text search - efts.sec.gov indexes the 13F-HR INFORMATION
@@ -50,12 +51,12 @@ export const TICKER_PACK_MODELS = [SYNTH];
 
 // The bundle's own synthesis budget. Small on purpose: it writes the executive
 // summary and the check-next list, not the report.
-const PACK_SYNTH_MAX_UPSTREAM_USD = 0.3;
+const PACK_SYNTH_MAX_UPSTREAM_USD = 0.35;
 const round2 = (n) => Number(n.toFixed(2));
 
 export const TICKER_PACK_TIERS = {
   "ticker-pack": {
-    price: "$1.20",
+    price: "$2.00",
     // Derived, never hand-typed: if a part's cap moves, this moves with it and
     // scripts/test-ticker-pack-kit.js fails the <= $5.50 bound.
     maxUpstreamUsd: round2(

@@ -1343,8 +1343,9 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   Prompt injection: third-party free text (RSS headlines, posts, casts, token names/descriptions, page titles) now rides
   `markUntrusted` in crypto-signals / x-data / farcaster-social / solana-intel / site-map (site-crawl already did) via a
   wrap pass at the end of each kit. Money: the price cut left every `maxUpstreamUsd` where it was (research-max was 75% of
-  price) - all rescaled to <= 40%; monitors at $5/mo cut `MAX_FULL_PER_SUB_30D` 8 -> 4 (measured report cost ~$0.10-0.30, so
-  4 runs is ~$1.20 against a $4.56 net fee); `v1-images-fast`/`v1-images-pro`/`v1-videos` joined `EXPENSIVE_COMPOSITE_SLUGS`
+  price) - rescaled then, but to figures that were still BELOW measured cost; superseded 2026-08-23 by the measured ladder
+  above, which is the one to trust. Monitors at $5/mo cut `MAX_FULL_PER_SUB_30D` 8 -> 4 (measured report cost ~$0.10-0.31, so
+  4 runs is <= $1.40 against a $4.56 net fee); `v1-images-fast`/`v1-images-pro`/`v1-videos` joined `EXPENSIVE_COMPOSITE_SLUGS`
   (spend guard + longRunning = EVM exact only: settle-after on SVM/AVM/Tempo is work done, never charged), per-link image
   timeout 120s -> 45s so a timeout precedes billing, `VIDEOS_MAX_WAIT_MS` 240s -> 180s (under x402's 300s
   `maxTimeoutSeconds`), and `SLOW_TOOL_SECONDS` gained the media tiers + site-crawl/site-map. Bounds: site-crawl page cap
@@ -1398,13 +1399,24 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   on `APOLLO_API_KEY`; PII-stripped; $0.02-$0.05). All 32 slugs in WALLET_ONLY_SLUGS + test-all NETWORK; offline tests
   `test-derivatives-kit` (327), `test-solana-intel-kit` (169), `test-x-data-kit` (102), `test-b2b-enrich-kit` (164) in CI.
   The env keys are Mike's call (X paid plan bearer exists only in Actions secrets today; Hunter/Apollo need signups).
-- **Report re-pricing (2026-08-22, Mike: "too high, be competitive"):** research $3 / pro $7 / max $12, market-brief $7,
-  dossier $9 / max $19, fund $4 / max $9, domain-audit $3 / pro $5, recall $3, insider $4, token-risk $3 / pro $6, every
-  monitor $5/mo. Cost basis measured in PostHog `$ai_generation` (OpenRouter): Opus synthesis p50 $0.075 / p95 $0.195 /
-  max $0.31 per call, Gemini planning $0.01, so a full report costs well under $1 upstream; the kits' `maxUpstreamUsd`
-  caps (1-9) are circuit breakers, all still below price. Prices live in THREE places that must move together: kit
+- **Report pricing, re-derived from MEASURED spend (2026-08-23, `scripts/test-report-margins.js`):** the earlier cut had
+  been set against the kits' DECLARED `maxUpstreamUsd` figures, which were fiction. PostHog `$ai_generation` over 30 days
+  (114 opus-5 synthesis calls, the model every report kit uses) measures **avg $0.107, p95 $0.195, MAX $0.311**, plus
+  ~$0.01 per gemini planning call. Every declared cap at the time ($0.13-$0.34) sat at or BELOW the p95, and three
+  products were priced BELOW the observed maximum - recall $0.25, domain-audit $0.30, token-risk $0.30 - so a worst-case
+  run LOST money. A fictional cap is not merely cosmetic: research-deep is the one kit that reads its own field, and it
+  downgrades the synthesis model when spend exceeds it, so an under-set cap silently degrades the product too.
+  **Ladder now (agent price / cap):** base $0.60 / $0.35, pro $0.85 / $0.50, max $1.10 / $0.65, ticker-pack $2.00 / $1.20
+  (three syntheses). base = recall, domain-audit, token-risk, token-brief, fund-report, insider-report, research;
+  pro = domain-audit-pro, token-risk-pro, fund-report-max, dossier, research-pro, market-brief, filing-report;
+  max = research-max, dossier-max. **Card** must clear Stripe's 2.9% + $0.30 BEFORE the report is paid for (a $1 charge
+  nets $0.671, which the deep tiers ate), so the card floor is **$2**, $3 for max tiers, $4 for the pack. **Monitors $5/mo**:
+  one fee funds up to `MAX_FULL_PER_SUB_30D` (4) paid runs, so the rule is net >= 2x the worst-case month, not a percentage.
+  Every rail now clears 40%+ at measured worst case. Prices live in THREE places that must move together: kit
   `*_TIERS[...].price` (x402/MPP list), `HUMAN_PRODUCTS[...].price` cents (card), `MONITOR_PRODUCTS[...].price`; docs are
-  checked by `test-docs-truth` (price per slug vs live catalog). Card floor comment/test now >= $3 (Stripe min is $0.50).
+  checked by `test-docs-truth` (price per slug vs live catalog) and the economics by `test-report-margins` (in CI,
+  4 mutations killed). The measured figures in that file are OBSERVATIONS: when the model mix or model pricing moves,
+  re-measure and update them - never tune them to make a price look acceptable.
 - **Machine-surface sync for products + credits (2026-08-22, batch A):** `/api/pricing` carries `credits`
   (packs) + `humanProducts` (reports/monitors) next to the catalog; `/openapi.json` is 2.1.0 with
   `securitySchemes` x402 / mpp / creditsKey (bearer `a402_…`) + `x-guidance`; `/llms.txt` has credits + reports

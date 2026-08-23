@@ -33,28 +33,32 @@ import { join } from "node:path";
 import { sendReportReadyEmail } from "./email.js";
 
 // The products the human door sells by card. The CARD price is not the agent
-// price: Stripe takes 2.9% + $0.30 per charge, so anything under about $1 loses
-// money on the fee alone no matter how cheap the report is. Agents paying over
-// x402 or MPP have no fixed fee and pay the tier price in the kit, which is set
-// just above measured upstream cost. $1 floor, $2 for the deep tiers.
+// price: Stripe takes 2.9% + $0.30 per charge, so a $1 charge nets $0.671 and a
+// $2 charge nets $1.642. The card price must clear the fee AND the report's
+// MEASURED worst-case upstream, which is $0.33 for one opus-5 synthesis and
+// $1.20 for the three-synthesis pack (PostHog $ai_generation, 30 days: opus-5
+// avg $0.107, p95 $0.195, max $0.311). A $1 card price left the deep tiers
+// under water once the fee came out, so the floor is $2, $3 for the max tiers
+// and $4 for the pack. Agents paying over x402 or MPP have no fixed fee and pay
+// the tier price in the kit, which is set to the same measured worst case.
 // cheap agent tools stay crypto/agent-only. `slug` maps to the paid endpoint's
 // handler so humans and agents run the identical pipeline.
 export const HUMAN_PRODUCTS = {
-  "research": { label: "Deep research report", price: 100, kind: "research", slug: "research", inputField: "query", inputLabel: "your research question" },
-  "research-pro": { label: "Deep research report - Pro", price: 100, kind: "research", slug: "research-pro", inputField: "query", inputLabel: "your research question" },
-  "research-max": { label: "Deep research report - Max", price: 200, kind: "research", slug: "research-max", inputField: "query", inputLabel: "your research question" },
-  "dossier": { label: "Company due-diligence dossier", price: 100, kind: "dossier", slug: "dossier", inputField: "ticker", inputLabel: "a US stock ticker" },
-  "dossier-max": { label: "Due-diligence dossier - Max", price: 200, kind: "dossier", slug: "dossier-max", inputField: "ticker", inputLabel: "a US stock ticker" },
-  "fund-report": { label: "Fund portfolio report (13F)", price: 100, kind: "fund", slug: "fund-report", inputField: "manager", inputLabel: "a fund name, ticker, or CIK" },
-  "fund-report-max": { label: "Fund portfolio report - Deep", price: 100, kind: "fund", slug: "fund-report-max", inputField: "manager", inputLabel: "a fund name, ticker, or CIK" },
-  "domain-audit": { label: "Domain security audit", price: 100, kind: "domain", slug: "domain-audit", inputField: "domain", inputLabel: "a domain, e.g. example.com" },
-  "domain-audit-pro": { label: "Domain security audit - Pro", price: 100, kind: "domain", slug: "domain-audit-pro", inputField: "domain", inputLabel: "a domain, e.g. example.com" },
-  "filing-report": { label: "SEC filing report", price: 100, kind: "filing", slug: "filing-report", inputField: "ticker", inputLabel: "a US stock ticker" },
-  "token-brief": { label: "Solana token due-diligence brief", price: 100, kind: "token", slug: "token-brief", inputField: "mint", inputLabel: "a Solana token mint address" },
-  "recall-report": { label: "FDA recall report", price: 100, kind: "recall", slug: "recall-report", inputField: "query", inputLabel: "a drug, food, brand or device, e.g. losartan" },
-  "insider-report": { label: "Insider flow report (Form 4)", price: 100, kind: "insider", slug: "insider-report", inputField: "ticker", inputLabel: "a US stock ticker" },
-  "market-brief": { label: "Market / competitor brief", price: 100, kind: "research", slug: "market-brief", inputField: "query", inputLabel: "a market, category or company" },
-  "ticker-pack": { label: "Ticker pack: dossier, insider flow and holders", price: 200, kind: "ticker", slug: "ticker-pack", inputField: "ticker", inputLabel: "a US stock ticker" },
+  "research": { label: "Deep research report", price: 200, kind: "research", slug: "research", inputField: "query", inputLabel: "your research question" },
+  "research-pro": { label: "Deep research report - Pro", price: 200, kind: "research", slug: "research-pro", inputField: "query", inputLabel: "your research question" },
+  "research-max": { label: "Deep research report - Max", price: 300, kind: "research", slug: "research-max", inputField: "query", inputLabel: "your research question" },
+  "dossier": { label: "Company due-diligence dossier", price: 200, kind: "dossier", slug: "dossier", inputField: "ticker", inputLabel: "a US stock ticker" },
+  "dossier-max": { label: "Due-diligence dossier - Max", price: 300, kind: "dossier", slug: "dossier-max", inputField: "ticker", inputLabel: "a US stock ticker" },
+  "fund-report": { label: "Fund portfolio report (13F)", price: 200, kind: "fund", slug: "fund-report", inputField: "manager", inputLabel: "a fund name, ticker, or CIK" },
+  "fund-report-max": { label: "Fund portfolio report - Deep", price: 200, kind: "fund", slug: "fund-report-max", inputField: "manager", inputLabel: "a fund name, ticker, or CIK" },
+  "domain-audit": { label: "Domain security audit", price: 200, kind: "domain", slug: "domain-audit", inputField: "domain", inputLabel: "a domain, e.g. example.com" },
+  "domain-audit-pro": { label: "Domain security audit - Pro", price: 200, kind: "domain", slug: "domain-audit-pro", inputField: "domain", inputLabel: "a domain, e.g. example.com" },
+  "filing-report": { label: "SEC filing report", price: 200, kind: "filing", slug: "filing-report", inputField: "ticker", inputLabel: "a US stock ticker" },
+  "token-brief": { label: "Solana token due-diligence brief", price: 200, kind: "token", slug: "token-brief", inputField: "mint", inputLabel: "a Solana token mint address" },
+  "recall-report": { label: "FDA recall report", price: 200, kind: "recall", slug: "recall-report", inputField: "query", inputLabel: "a drug, food, brand or device, e.g. losartan" },
+  "insider-report": { label: "Insider flow report (Form 4)", price: 200, kind: "insider", slug: "insider-report", inputField: "ticker", inputLabel: "a US stock ticker" },
+  "market-brief": { label: "Market / competitor brief", price: 200, kind: "research", slug: "market-brief", inputField: "query", inputLabel: "a market, category or company" },
+  "ticker-pack": { label: "Ticker pack: dossier, insider flow and holders", price: 400, kind: "ticker", slug: "ticker-pack", inputField: "ticker", inputLabel: "a US stock ticker" },
 };
 
 // Stripe metadata: <= 50 keys, value <= 500 chars. Inputs are capped at 2000
