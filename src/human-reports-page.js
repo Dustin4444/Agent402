@@ -107,7 +107,7 @@ export function humanReportsPage(baseUrl) {
   <section class="hero">
     <div class="eyebrow">Cited reports · pay per report · no subscription · price on every button</div>
     <h1>A finished report, <em>not a chat answer.</em></h1>
-    <p class="lede">Deep research on any question, due diligence on any public company, a 13F breakdown of any fund, a graded audit of any domain. Grounded in live sources, fully cited, in about two minutes. <b>No account, no subscription.</b> Pay by card, get your report.</p>
+    <p class="lede">Deep research on any question, due diligence on any public company, a 13F breakdown of any fund, a graded audit of any domain. Grounded in live sources, fully cited, in about two minutes. <b>Nothing to sign up for, nothing recurring.</b> Pay by card at checkout and the report is yours. Agents skip the card and pay per call over x402 or MPP.</p>
     <div class="trust"><span><span class="dot"></span> Every claim cited</span><span><span class="dot"></span> If a report fails, you're auto-refunded</span><span><span class="dot"></span> Secured by Stripe</span><span><span class="dot"></span> PDF + data appendix</span></div>
   </section>
   <section>

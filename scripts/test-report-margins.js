@@ -113,4 +113,27 @@ for (const [key, p] of Object.entries(HUMAN_PRODUCTS)) {
     `${key}: card net $${stripeNet(p.price / 100).toFixed(3)} is at or above the agent price $${usd(t.price).toFixed(2)} for the same work`);
 }
 
+// 6. The card ladder must MIRROR the agent ladder. Hand-setting it shipped a
+//    storefront where Standard and Pro were both $2: three distinct agent tiers
+//    collapsed onto two card prices, so the page offered an upgrade that cost
+//    the same as not upgrading. A buyer cannot tell those tiers apart, and
+//    nothing in the margin checks above would ever notice.
+{
+  const pairs = Object.values(HUMAN_PRODUCTS)
+    .map((p) => ({ slug: p.slug, agent: usd(TIERS[p.slug]?.price ?? "0"), card: p.price / 100 }))
+    .filter((r) => r.agent > 0);
+  const byAgent = new Map();
+  for (const r of pairs) {
+    const seen = byAgent.get(r.agent);
+    ok(seen === undefined || seen === r.card,
+      `every product on the $${r.agent.toFixed(2)} agent tier shares one card price (${r.slug} is $${r.card})`);
+    byAgent.set(r.agent, r.card);
+  }
+  const tiers = [...byAgent.entries()].sort((a, b) => a[0] - b[0]);
+  for (let i = 1; i < tiers.length; i++) {
+    ok(tiers[i][1] > tiers[i - 1][1],
+      `card price rises with the agent tier: $${tiers[i - 1][0].toFixed(2)} agent -> $${tiers[i - 1][1]} card, then $${tiers[i][0].toFixed(2)} agent -> $${tiers[i][1]} card (a flat step means a paid upgrade that costs the same as not upgrading)`);
+  }
+}
+
 console.log(`\n${pass} passed, 0 failed`);
