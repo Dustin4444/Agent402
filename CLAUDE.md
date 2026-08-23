@@ -1491,7 +1491,12 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   ceiling is NOT the money bound - mppx's untouched `maxTotalFee` is, refusing anything over $0.05/tx however far gas
   moves. **What sponsoring actually costs, measured on-chain, not estimated:** fees settle in USDC.e (the receipt's
   `feeToken`) and gas x price converts to token units at ~1e12 - a real charge tx used 46,575 gas at 0.6 gwei and was
-  charged **28 units, $0.000028**. So a renewal costs us ~$0.00003 and the 6M ceiling is worth $0.0036; against $5/mo
+  charged **28 units, $0.000028**. **The sponsor wallet must hold PATHUSD, not USDC.e** (measured: a sponsor funded with
+  1 USDC.e and 0 PathUSD was refused `-32003 insufficient funds for gas * price + value: have 0 want 4859`). A SPONSORED
+  transaction pays its fee in Tempo's default token because mppx's subscription `complete()` returns no `feeToken`, so
+  nothing overrides the default - USDC.e is what the PRODUCTS are priced in, PathUSD is what the GAS is paid in, and
+  funding the wrong one looks exactly like an empty wallet. `fund-tempo-fee-payer.yml` takes a `token` input and
+  defaults to pathusd for this reason. Activation measured ~4,859 units = $0.0049; a renewal is far less. So a renewal costs us ~$0.00003 and the 6M ceiling is worth $0.0036; against $5/mo
   that is noise, and the earlier framing of this as a meaningful ongoing cost was wrong. Note also that the receipt's
   `feePayer` equals `from` on the working charge rail (the buyer self-pays; Tempo's relay does NOT sponsor), and that
   Tempo's `eth_getBalance` returns a SENTINEL (`4242...` repeating) - native gas is abstracted, so the sponsor wallet
