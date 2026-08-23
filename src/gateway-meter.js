@@ -18,11 +18,19 @@ import { paymentSchemeOf } from "./payer.js";
 //
 // THE MARKUP IS THE PRODUCT, and it is deliberately thin: 15%, which is the
 // margin the operator asked for. Be honest about what that does and does not
-// buy. It is MUCH cheaper than a subscription for anyone under the monthly
-// break-even, and roughly 40x cheaper than the flat tier it replaces. It is NOT
-// cheaper than an agent calling OpenRouter with its own key - that agent pays
-// upstream and we pay upstream plus 15%. Anyone claiming otherwise on a served
-// page is making a claim the numbers do not support.
+// buy. It is cheaper than a subscription for anyone under the monthly
+// break-even. It is NOT cheaper than an agent calling OpenRouter with its own
+// key - that agent pays upstream and we pay upstream plus 15%. Anyone claiming
+// otherwise on a served page is making a claim the numbers do not support.
+//
+// HOW MUCH CHEAPER THAN THE FLAT TIER IS NOT OURS TO DECIDE. This once said
+// "roughly 40x cheaper", which was the markup arithmetic alone and true only in
+// a world with no floor. The binding constraint is METER_MIN_SETTLE_USD below:
+// the facilitator refuses to settle small amounts, so on a $0.02 tier with a
+// $0.01 rail floor a small call is 2x cheaper, not 40x, and tiers priced at or
+// under that floor are not metered at all. Read any multiple quoted publicly
+// off these constants at the current floor, and re-read it when the floor
+// moves.
 //
 // What the buyer gets for the 15% is access without credentials and a hard
 // per-call ceiling (see below), not a lower token price.
@@ -37,6 +45,30 @@ export const METER_MARKUP = 1.15;
 // facilitator would rather not move. If we ever measure the real number, move
 // this to it rather than defending the guess.
 export const METER_FLOOR_USD = 0.0002;
+
+// THE FACILITATOR HAS ITS OWN FLOOR, AND IT IS NOT OURS TO CHOOSE.
+//
+// Measured live 2026-08-23: a metered settle of 1,150 atomic units ($0.00115)
+// on Base was refused by CDP with `amount_too_low`. Neither CDP's facilitator
+// documentation nor the upto spec states a minimum - the spec explicitly allows
+// a settled amount of 0 - so this is undocumented facilitator behaviour that
+// only a real settle reveals. Our own `exact` routes settle at $0.001 through
+// the same facilitator every day, so the floor appears to be specific to upto's
+// Permit2 path, which costs more gas than EIP-3009.
+//
+// WHY THIS MATTERS MORE THAN THE MARKUP. A refused settle is not a smaller
+// payment, it is NO payment: @x402/express turns it into a 402, the buyer is
+// charged nothing, and we have already done the work and paid upstream. So
+// proposing an amount below the facilitator's floor is strictly worse than
+// proposing the ceiling. METER_FLOOR_USD (above) is about what a request is
+// worth to us; this is about what the rail will actually accept.
+//
+// Set ABOVE the only rejection we have measured, not at it, because we do not
+// know where the real floor sits and the error direction is asymmetric: too
+// high costs a buyer a fraction of a cent, too low costs us the entire call.
+// Lower it only with evidence from a live settle, never to make a number look
+// better.
+export const METER_MIN_SETTLE_USD = Number(process.env.GATEWAY_METER_MIN_SETTLE_USD || 0.01);
 
 /**
  * What to settle for a metered call.
@@ -59,11 +91,27 @@ export function meteredUsd({ upstreamUsd, ceilingUsd }) {
   // calls where we do not know what we spent.
   if (typeof upstreamUsd !== "number" || !Number.isFinite(upstreamUsd) || upstreamUsd < 0) return null;
   const up = upstreamUsd;
-  const metered = Math.max(METER_FLOOR_USD, up * METER_MARKUP);
+  // Our floor (what a request is worth) and the rail's floor (what it will
+  // accept) are different things and both apply.
+  const metered = Math.max(METER_FLOOR_USD, METER_MIN_SETTLE_USD, up * METER_MARKUP);
   // Never above what the buyer authorized. The margin clamp already holds
   // upstream at or under 70% of the tier price, so metered <= 0.91 x ceiling
   // and this cap should never bind - it is here because "should never" is not
   // an argument to skip the check on something that moves money.
+  // A ceiling AT OR BELOW the facilitator's floor cannot be metered: every
+  // amount we could name is either above what the buyer authorized or below
+  // what the rail accepts. Decline, and the buyer settles at the ceiling - the
+  // one outcome that is certain to work. Silently clamping to the ceiling here
+  // would be the same number but a worse story, since "metered" would then mean
+  // "charged the maximum" on those tiers.
+  //
+  // The comparison is >=, not >, so that METERING ALWAYS MEANS STRICTLY LESS
+  // THAN THE CEILING. At equality the settle would land exactly on the
+  // authorized maximum, which buys the buyer nothing and would fail the live
+  // canary's one real assertion - that the amount which moved is less than the
+  // amount authorized. A feature that reports success while charging the
+  // maximum is the thing that assertion exists to catch.
+  if (METER_MIN_SETTLE_USD >= ceiling) return null;
   const capped = Math.min(metered, ceiling);
   // Settle in whole atomic units of a 6-decimal stablecoin, rounding UP so a
   // rounding error can only favour the seller.

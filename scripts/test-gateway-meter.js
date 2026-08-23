@@ -1,25 +1,39 @@
 // The metered-settlement pricing rule.
-import { meteredUsd, METER_MARKUP, METER_FLOOR_USD, isMeterable, applyMeteredSettlement } from "../src/gateway-meter.js";
+import { meteredUsd, METER_MARKUP, METER_FLOOR_USD, METER_MIN_SETTLE_USD, isMeterable, applyMeteredSettlement } from "../src/gateway-meter.js";
 
 let pass = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { console.error("FAIL:", m); process.exit(1); } };
 
 // The measured reality this exists to fix: v1-chat charges $0.02 against
-// $0.0001 of real spend, i.e. 170x. Metered, the same call bills the floor.
+// $0.0001 of real spend, i.e. 170x. Metered, the same call bills whichever
+// floor is higher - ours, or the one the rail will actually accept.
+const smallFloor = Math.max(METER_FLOOR_USD, METER_MIN_SETTLE_USD);
 const chat = meteredUsd({ upstreamUsd: 0.0001, ceilingUsd: 0.02 });
-ok(chat === METER_FLOOR_USD, `a typical v1-chat call ($0.0001 upstream) bills $${chat} instead of the $0.02 flat price`);
-ok(chat < 0.02 / 20, "which is more than 20x cheaper for the buyer than the flat tier");
+ok(chat === smallFloor, `a typical v1-chat call ($0.0001 upstream) bills $${chat} instead of the $0.02 flat price`);
+ok(chat < 0.02, "which is still cheaper for the buyer than the flat tier");
+
+// HOW MUCH CHEAPER IS SET BY THE FACILITATOR, NOT BY US, and the honest number
+// moves when METER_MIN_SETTLE_USD does. At a $0.01 rail floor a $0.02 call is
+// 2x cheaper, not the 17x the markup alone would give - CDP refused $0.00115 as
+// amount_too_low, and a refused settle pays us NOTHING while we have already
+// done the work. Anyone quoting a multiple on a page must read it from here.
+ok(chat >= METER_MIN_SETTLE_USD, "a metered amount is never below what the facilitator will settle");
+
+// A tier whose whole price is under the rail's floor cannot be metered at all:
+// every nameable amount is either over what the buyer authorized or under what
+// the rail accepts. It settles at its ceiling, exactly as before metering.
+ok(meteredUsd({ upstreamUsd: 0.0001, ceilingUsd: METER_MIN_SETTLE_USD / 2 }) === null,
+  "a ceiling below the facilitator floor is not metered at all - it settles at the ceiling");
 
 // The FLOOR dominates small calls, and that is worth stating rather than
-// hiding: below about $0.00017 of model spend the bill is the fixed per-request
-// component, not the markup. So a tiny call is still several times what a
-// direct API caller pays - just in absolute terms a fifth of a thousandth of a
-// dollar. Any claim of "cheaper than calling the API yourself" is false and
-// this is the arithmetic that makes it false.
-const breakeven = METER_FLOOR_USD / METER_MARKUP;
-ok(meteredUsd({ upstreamUsd: breakeven * 0.5, ceilingUsd: 0.02 }) === METER_FLOOR_USD,
+// hiding: below the breakeven the bill is the fixed per-request component, not
+// the markup. So a tiny call is still several times what a direct API caller
+// pays. Any claim of "cheaper than calling the API yourself" is false and this
+// is the arithmetic that makes it false.
+const breakeven = smallFloor / METER_MARKUP;
+ok(meteredUsd({ upstreamUsd: breakeven * 0.5, ceilingUsd: 0.1 }) === smallFloor,
   `below the $${breakeven.toFixed(6)} breakeven the bill is the flat floor, not the markup`);
-ok(meteredUsd({ upstreamUsd: breakeven * 2, ceilingUsd: 0.02 }) > METER_FLOOR_USD,
+ok(meteredUsd({ upstreamUsd: breakeven * 2, ceilingUsd: 0.1 }) > smallFloor,
   "above it the markup governs");
 
 // A real, large call bills its cost plus the markup, still under the ceiling.
@@ -31,6 +45,13 @@ ok(big < 0.02, "and still lands under the ceiling the buyer authorized");
 // upstream at or under 70% of the tier price, so metered <= 0.91 x ceiling.
 for (const ceiling of [0.003, 0.01, 0.02, 0.10, 0.50]) {
   const worst = meteredUsd({ upstreamUsd: ceiling * 0.7, ceilingUsd: ceiling });
+  // Tiers at or under the rail's floor are declined outright (null), which is
+  // the honest answer: they settle at their ceiling as they always did. The
+  // invariant is about tiers we DO meter.
+  if (worst === null) {
+    ok(METER_MIN_SETTLE_USD >= ceiling, `$${ceiling} is not metered because the facilitator floor ($${METER_MIN_SETTLE_USD}) is not below it`);
+    continue;
+  }
   ok(worst < ceiling, `at the margin clamp's own bound (70% of $${ceiling}), the metered amount $${worst} is still under the ceiling, so the cap never binds`);
 }
 
@@ -52,7 +73,7 @@ for (const bad of [0, -1, null, NaN]) {
 
 // A free call still bills the floor: a request costs us something before any
 // model runs, and a $0 settle is not a payment.
-ok(meteredUsd({ upstreamUsd: 0, ceilingUsd: 0.02 }) === METER_FLOOR_USD, "a zero-cost call still bills the floor, never $0");
+ok(meteredUsd({ upstreamUsd: 0, ceilingUsd: 0.02 }) === smallFloor, "a zero-cost call still bills the floor, never $0");
 
 // Rounding favours the seller, so a rounding error can never underbill.
 const r = meteredUsd({ upstreamUsd: 0.0010001, ceilingUsd: 0.02 });
@@ -125,15 +146,19 @@ ok(isMeterable({ x402: { scheme: "upto" } }) === false && isMeterable({ _x402Sch
     const headers = {}; 
     return { headersSent: false, headers, setHeader: (k, v) => { headers[k.toLowerCase()] = v; } };
   };
-  const tool = { slug: "v1-chat", price: "$0.02" };
+  const tool = { slug: "v1-chat", price: "$0.02" };  // ceiling above the rail floor, so it IS meterable
   const mk = (cost) => ({ ok: true, __meterUpstreamUsd: cost });
 
   // The happy path, end to end: upstream $0.001 -> $0.00115 at 15%.
   let overrides = null; let res = mkRes();
-  let amt = applyMeteredSettlement({ result: mk(0.001), req: uptoReq, tool, res, enabled: true, setOverrides: (r, o) => { overrides = o; } });
-  ok(amt === 0.00115, `meters an upto call at upstream + markup (got ${amt})`);
-  ok(overrides && overrides.amount === "$0.001150", "sets the settlement override to the metered amount");
-  ok(res.headers["x-metered-usd"] === "0.001150", "reports the metered amount on the response header");
+  // Upstream large enough that the markup, not a floor, governs - so this
+  // asserts the arithmetic rather than whichever floor happens to be highest.
+  const bigUp = Math.max(0.001, METER_MIN_SETTLE_USD);           // > every floor
+  const expect = Math.ceil(bigUp * METER_MARKUP * 1e6 - 1e-9) / 1e6;
+  let amt = applyMeteredSettlement({ result: mk(bigUp), req: uptoReq, tool: { slug: "v1-chat-pro", price: "$0.10" }, res, enabled: true, setOverrides: (r, o) => { overrides = o; } });
+  ok(amt === expect, `meters an upto call at upstream + markup (got ${amt}, expected ${expect})`);
+  ok(overrides && overrides.amount === `$${expect.toFixed(6)}`, "sets the settlement override to the metered amount");
+  ok(res.headers["x-metered-usd"] === expect.toFixed(6), "reports the metered amount on the response header");
 
   // The sentinel NEVER reaches a buyer, on any path.
   const r1 = mk(0.001);
