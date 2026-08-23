@@ -1349,9 +1349,15 @@ function mppRailsSection(mpp) {
     const meta = MPP_RAIL_META[n] || { label: mppRailLabel(n), asset: "USDC", how: "" };
     const live = true; // offered rails are live by construction; a rail only appears here because it is offered or has settled
     const dot = `<span style="display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:11px;color:var(--green);"><span style="width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;"></span>${live ? "live" : ""}</span>`;
-    const txLinks = (r.txs || []).slice(0, 8).map((tx, i) => {
+    // Three, labelled by their actual hash. Eight links called tx1..tx8 is not
+    // evidence anyone can use: the label carries no information, nobody opens
+    // the eighth, and the row reads as filler on a page whose whole argument is
+    // "check us on-chain". A short hash is checkable at a glance and matches
+    // what an explorer shows.
+    const txLinks = (r.txs || []).slice(0, 3).map((tx) => {
+      const short = String(tx).slice(0, 10);
       const href = txHref(n, tx);
-      return href ? `<a href="${esc(href)}" rel="noopener">tx${i + 1}</a>` : `<span>${esc(String(tx).slice(0, 10))}…</span>`;
+      return href ? `<a href="${esc(href)}" rel="noopener" title="${esc(String(tx))}">${esc(short)}…</a>` : `<span>${esc(short)}…</span>`;
     }).join(" · ");
     return `
     <div style="border:1px solid var(--hairline);background:var(--card);padding:18px 20px;min-width:0;">

@@ -7,6 +7,7 @@
 import { HUMAN_PRODUCTS } from "./human-checkout.js";
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 import { monitorMapJson } from "./report-upgrade.js";
+import { priceUsdFor } from "./report-tiers.js";
 
 // Shared by /reports, /r/:id, /m/:id and the monitors pages.
 export const REPORTS_CSS = `
@@ -83,6 +84,14 @@ export const REPORTS_CSS = `
 `;
 
 export function humanReportsPage(baseUrl) {
+  // DERIVED, never typed: this string is the meta + og description, i.e. what
+  // Google and every link preview show. It said "$1 or $2 by card and $0.20 to
+  // $1.10" for a full day after the 2026-08-23 repricing, because prices moved
+  // in three places and the prose that quotes them was not one of them.
+  const cardCents = Object.values(HUMAN_PRODUCTS).map((p) => p.price).filter((n) => Number.isFinite(n));
+  const cardLo = Math.min(...cardCents) / 100, cardHi = Math.max(...cardCents) / 100;
+  const agent = Object.values(HUMAN_PRODUCTS).map((p) => priceUsdFor(p.slug)).filter((n) => Number.isFinite(n));
+  const agentLo = Math.min(...agent).toFixed(2), agentHi = Math.max(...agent).toFixed(2);
   const R = HUMAN_PRODUCTS;
     // Price on the BUTTON, from the product table. A card with a single tier had
   // no price anywhere until the Stripe page, which is the worst place to learn
@@ -98,7 +107,7 @@ export function humanReportsPage(baseUrl) {
   <section class="hero">
     <div class="eyebrow">Cited reports · pay per report · no subscription · price on every button</div>
     <h1>A finished report, <em>not a chat answer.</em></h1>
-    <p class="lede">Deep research on any question, due diligence on any public company, a 13F breakdown of any fund, a graded audit of any domain. Grounded in live sources, fully cited, in about two minutes. <b>No account, no subscription.</b> Pay by card, get your report.</p>
+    <p class="lede">Deep research on any question, due diligence on any public company, a 13F breakdown of any fund, a graded audit of any domain. Grounded in live sources, fully cited, in about two minutes. <b>Nothing to sign up for, nothing recurring.</b> Pay by card at checkout and the report is yours. Agents skip the card and pay per call over x402 or MPP.</p>
     <div class="trust"><span><span class="dot"></span> Every claim cited</span><span><span class="dot"></span> If a report fails, you're auto-refunded</span><span><span class="dot"></span> Secured by Stripe</span><span><span class="dot"></span> PDF + data appendix</span></div>
   </section>
   <section>
@@ -210,7 +219,7 @@ ${ledgerFooterCompact()}
 <script src="/js/reports.js"></script>`;
   return ledgerShell({
     title: "Agent402 Reports: research, dossiers, 13F, insider flow, audits",
-    description: "Cited reports, $1 or $2 by card and $0.20 to $1.10 for an agent paying per call: deep research, company dossier, fund 13F, insider flow, market brief, FDA recall, domain audit. No account, refunded if it fails.",
+    description: `Cited reports, $${cardLo} to $${cardHi} by card and $${agentLo} to $${agentHi} for an agent paying per call: deep research, company dossier, fund 13F, insider flow, market brief, SEC filings, domain security, Solana token safety, FDA recalls.`,
     canonical: `${baseUrl}/reports`, baseUrl, activePath: "/reports", extraCss: REPORTS_CSS, body,
     jsonLd: { "@context": "https://schema.org", "@type": "ItemList", "@id": `${baseUrl}/reports#products`, name: "Agent402 reports", itemListElement: Object.entries(R).map(([key, p], i) => ({ "@type": "ListItem", position: i + 1, item: { "@type": "Product", name: p.label, url: `${baseUrl}/reports`, brand: { "@type": "Brand", name: "Agent402" }, offers: { "@type": "Offer", price: (p.price / 100).toFixed(2), priceCurrency: "USD", availability: "https://schema.org/InStock", url: `${baseUrl}/reports`, seller: { "@type": "Organization", name: "Havok Holdings LLC" } } } })) },
   });

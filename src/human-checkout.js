@@ -43,6 +43,33 @@ import { sendReportReadyEmail } from "./email.js";
 // the tier price in the kit, which is set to the same measured worst case.
 // cheap agent tools stay crypto/agent-only. `slug` maps to the paid endpoint's
 // handler so humans and agents run the identical pipeline.
+// The CARD ladder is DERIVED from the agent tier, never typed per product.
+//
+// Hand-setting it produced a storefront where Standard and Pro were both $2:
+// three distinct agent tiers ($0.60 / $0.85 / $1.10) collapsed onto two card
+// prices, so the page offered an upgrade that cost the same as not upgrading.
+// Deriving it means the card ladder mirrors the work ladder by construction.
+//
+// The floor is set by Stripe, not by cost: 2.9% + $0.30 means a $1 charge nets
+// $0.671, and the deep tiers eat most of that. Every rung below clears its
+// measured worst-case upstream by well over 40% (scripts/test-report-margins.js).
+// Read lazily through a tiny shim rather than importing the tier registry at
+// module scope: that registry imports every report kit, and this module is
+// imported by pages the kits do not know about.
+import { priceUsdFor as agentPriceUsdFor } from "./report-tiers.js";
+
+const CARD_LADDER = [
+  { maxAgentUsd: 0.60, cents: 200 },
+  { maxAgentUsd: 0.85, cents: 300 },
+  { maxAgentUsd: 1.10, cents: 400 },
+  { maxAgentUsd: Infinity, cents: 500 },
+];
+export function cardCentsForAgentPrice(agentUsd) {
+  const n = Number(agentUsd);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return (CARD_LADDER.find((r) => n <= r.maxAgentUsd + 1e-9) ?? CARD_LADDER.at(-1)).cents;
+}
+
 export const HUMAN_PRODUCTS = {
   "research": { label: "Deep research report", price: 200, kind: "research", slug: "research", inputField: "query", inputLabel: "your research question" },
   "research-pro": { label: "Deep research report - Pro", price: 200, kind: "research", slug: "research-pro", inputField: "query", inputLabel: "your research question" },
@@ -60,6 +87,14 @@ export const HUMAN_PRODUCTS = {
   "market-brief": { label: "Market / competitor brief", price: 200, kind: "research", slug: "market-brief", inputField: "query", inputLabel: "a market, category or company" },
   "ticker-pack": { label: "Ticker pack: dossier, insider flow and holders", price: 400, kind: "ticker", slug: "ticker-pack", inputField: "ticker", inputLabel: "a US stock ticker" },
 };
+
+// Applied at module load: each product's card price comes from its agent tier,
+// so the two ladders cannot drift apart again. Products with no agent tier
+// (none today) keep whatever the table declared.
+for (const p of Object.values(HUMAN_PRODUCTS)) {
+  const cents = cardCentsForAgentPrice(agentPriceUsdFor(p.slug));
+  if (cents) p.price = cents;
+}
 
 // Stripe metadata: <= 50 keys, value <= 500 chars. Inputs are capped at 2000
 // chars (createSession), so four 500-char chunks always suffice.
