@@ -47,13 +47,13 @@ export function bad(message, statusCode = 400) {
 }
 
 // ---------------------------------------------------------------------------
-// Stealth (cloaked) model listings — models a lab runs on OpenRouter under a
+// Stealth (cloaked) model listings - models a lab runs on OpenRouter under a
 // pseudonym while it collects real traffic. TWO properties follow from that,
 // and both are load-bearing here:
 //
 //   1. They are FREE (prompt/completion priced at 0 upstream) because the
 //      provider is paid in DATA: prompts and completions are logged and used
-//      by the lab. That is a disclosure obligation, not a footnote — the tier
+//      by the lab. That is a disclosure obligation, not a footnote - the tier
 //      description says it plainly and `zdr:true` is REFUSED (we cannot honour
 //      zero-data-retention on a model whose whole deal is retention).
 //   2. They VANISH without notice when the lab unmasks the model. So the id
@@ -62,11 +62,11 @@ export function bad(message, statusCode = 400) {
 //      surface to a buyer as a 500.
 //
 // Vanish tolerance is two layers:
-//   • OX_ALPHA_ENABLED=off — synchronous operator kill switch, read when the
+//   • OX_ALPHA_ENABLED=off - synchronous operator kill switch, read when the
 //     catalog is built (server.js), same shape as OPENROUTER_TTS_ENABLED. The
 //     tier disappears from the catalog entirely on the next boot: no route, no
 //     402, no /v1/models entry, no /api/pricing row.
-//   • probeOxAlphaAvailability() — a single non-blocking boot read of the live
+//   • probeOxAlphaAvailability() - a single non-blocking boot read of the live
 //     OpenRouter catalog. If the id is GONE it logs loudly, drops the model
 //     from GET /v1/models, and makes the tier answer 503 before any upstream
 //     round-trip. @x402/express settles only a <400 response, so that 503 is
@@ -130,7 +130,7 @@ export function oxUpstreamIsFree() {
 }
 
 /** One-shot boot probe: is the stealth id still listed upstream? Returns true
- *  (live), false (gone — tier disabled in-process) or null (unreadable — left
+ *  (live), false (gone - tier disabled in-process) or null (unreadable - left
  *  as-is). `fetchImpl` is the test seam. */
 export async function probeOxAlphaAvailability({ fetchImpl } = {}) {
   const f = fetchImpl || globalThis.fetch;
@@ -139,7 +139,7 @@ export async function probeOxAlphaAvailability({ fetchImpl } = {}) {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const j = await res.json();
     // A catalog that shrinks below the floor is a READ FAILURE, not a verdict
-    // (same rule as the CI guard) — refuse to delist on it.
+    // (same rule as the CI guard) - refuse to delist on it.
     if (!Array.isArray(j?.data) || j.data.length < 100) throw new Error(`implausible catalog (${j?.data?.length} entries)`);
     const record = j.data.find((m) => m?.id === OX_MODEL) || null;
     const live = !!record;
@@ -1132,6 +1132,15 @@ export function upstreamUserId(req) {
   else {
     const cred = paymentHeaderOf(req) || (typeof req.header === "function" ? req.header("authorization") : null);
     if (cred) basis = `credential:${cred}`;
+  }
+  // A free-trial call has no payer and no credential, and it is the ONLY path
+  // that reaches an upstream without one. Sending no `user` there would leave
+  // the single unauthenticated route as the only one with no abuse isolation,
+  // which is exactly how one caller gets provider policy applied to the whole
+  // account. Fall back to the client address so trial traffic is still scoped.
+  if (!basis) {
+    const ip = typeof req.ip === "string" ? req.ip : (typeof req.header === "function" ? req.header("x-forwarded-for") : null);
+    if (ip) basis = `trial:${String(ip).split(",")[0].trim()}`;
   }
   if (!basis) return null;
   return `a402:${createHash("sha256").update(basis).digest("hex").slice(0, 32)}`;

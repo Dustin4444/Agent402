@@ -26,8 +26,8 @@ const GROUND = "google/gemini-2.5-flash"; // grounded web search + read
 // dossier at ~2,540 words). Caps held at a provider-safe 8,000; word targets are
 // what those budgets complete; the source list is appended in code (no budget).
 export const DOSSIER_TIERS = {
-  "dossier": { price: "$0.55", maxUpstreamUsd: 0.45, filings: 3, insiderDays: 120, searches: 4, topWeb: 20, synthMaxTokens: 7000, words: "~2,400" },
-  "dossier-max": { price: "$0.95", maxUpstreamUsd: 0.80, filings: 6, insiderDays: 365, searches: 8, topWeb: 32, synthMaxTokens: 8000, words: "~2,800" },
+  "dossier": { price: "$0.55", maxUpstreamUsd: 0.27, filings: 3, insiderDays: 120, searches: 4, topWeb: 20, synthMaxTokens: 7000, words: "~2,400" },
+  "dossier-max": { price: "$0.70", maxUpstreamUsd: 0.33, filings: 6, insiderDays: 365, searches: 8, topWeb: 32, synthMaxTokens: 8000, words: "~2,800" },
 };
 // Models routed to - exported so the live-catalog guard checks them.
 export const DOSSIER_MODELS = [SYNTH, GROUND];

@@ -39,7 +39,7 @@ export const FILING_MODELS = [SYNTH];
 
 export const FILING_TIERS = {
   "filing-report": {
-    price: "$0.25",
+    price: "$0.60",
     // Worst case, priced with the margin clamp's CONSERVATIVE opus row
     // ($15/$75 per M, MODEL_COST["anthropic/claude-opus"]):
     //   input  3 docs x 36,000 chars + <=40 index rows + instructions
@@ -48,7 +48,7 @@ export const FILING_TIERS = {
     //   total  ~= $0.84 against a $1.60 cap (40% of the $4 price).
     // At claude-opus-5's real $5/$25 the same call is ~$0.28. Measured on live
     // EDGAR: AAPL ~$0.17, a small-cap proxy season ~$0.20 (opus-5 list).
-    maxUpstreamUsd: 0.20,
+    maxUpstreamUsd: 0.29,
     probeLimit: 40,        // filings in the fingerprint
     scanLimit: 250,        // raw rows read from the submissions index before filtering
     maxDocs: 3,            // primary documents fetched per paid report

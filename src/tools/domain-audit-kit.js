@@ -22,8 +22,8 @@ const SYNTH = "anthropic/claude-opus-5";
 export const DOMAIN_AUDIT_MODELS = [SYNTH];
 
 export const DOMAIN_AUDIT_TIERS = {
-  "domain-audit": { price: "$0.20", maxUpstreamUsd: 0.15, pro: false, synthMaxTokens: 3500, words: "~1,200" },
-  "domain-audit-pro": { price: "$0.30", maxUpstreamUsd: 0.25, pro: true, synthMaxTokens: 5000, words: "~1,900" },
+  "domain-audit": { price: "$0.30", maxUpstreamUsd: 0.14, pro: false, synthMaxTokens: 3500, words: "~1,200" },
+  "domain-audit-pro": { price: "$0.40", maxUpstreamUsd: 0.19, pro: true, synthMaxTokens: 5000, words: "~1,900" },
 };
 
 const SYNTH_TIMEOUT_MS = 120_000;

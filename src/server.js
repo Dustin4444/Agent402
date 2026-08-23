@@ -303,6 +303,22 @@ const OX_TRIAL_SLUG = "v1-chat-ox";
 // which is what makes a generous number safe here.
 const OX_TRIAL_PER_HOUR = Math.max(1, Number(process.env.OX_TRIAL_PER_IP_PER_HOUR) || 25);
 const OX_TRIAL_PER_DAY = Math.max(OX_TRIAL_PER_HOUR, Number(process.env.OX_TRIAL_PER_IP_PER_DAY) || 100);
+// Server-wide daily ceiling on the Ox trial. Per-IP alone is not a bound: an
+// IPv6 allocation is a /64 or larger, so rotating addresses inside it is free.
+// The per-client key is therefore the /64 rather than the full address, and
+// this global cap is the backstop for everything that rotation still buys.
+// Past it the route simply asks for payment - it never breaks.
+const OX_TRIAL_GLOBAL_PER_DAY = Math.max(OX_TRIAL_PER_DAY, Number(process.env.OX_TRIAL_GLOBAL_PER_DAY) || 5000);
+// An IPv6 client is bucketed on its /64 (the smallest routinely-assigned
+// allocation); IPv4 keeps the full address.
+function trialClientKey(ip) {
+  const raw = String(ip || "unknown").trim();
+  if (!raw.includes(":")) return raw;
+  const hex = raw.replace(/^\[|\]$/g, "").split("%")[0];
+  const parts = hex.split(":");
+  if (parts.length < 3) return hex;
+  return parts.slice(0, 4).join(":") + "::/64";
+}
 const TRIAL_LIMITS_LABEL = `${TRIAL_PER_TOOL_HOUR} per tool per hour, ${TRIAL_IP_HOUR} per hour per client`;
 const OX_TRIAL_LIMITS_LABEL = `${OX_TRIAL_PER_HOUR} per hour, ${OX_TRIAL_PER_DAY} per day per client (free while the model's upstream is free)`;
 import { recordRefundOwed, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals } from "./refund-ledger.js";
@@ -5023,12 +5039,19 @@ if (FREE_MODE) {
             // actually use it, while the shared hourly bucket still stops a
             // single address from monopolising every other tool's trial.
             const ipHit = isOx
-              ? await sharedSpend("trial-ip-ox", tip, OX_TRIAL_PER_DAY, 86_400)
+              ? await sharedSpend("trial-ip-ox", trialClientKey(tip), OX_TRIAL_PER_DAY, 86_400)
               : await sharedSpend("trial-ip", tip, TRIAL_IP_HOUR, 3600);
-            if (ipHit.limited) {
+            // Global backstop, spent only after the per-client check passed.
+            const globalHit = isOx && !ipHit.limited
+              ? await sharedSpend("trial-ox-global", "all", OX_TRIAL_GLOBAL_PER_DAY, 86_400)
+              : { limited: false };
+            if (ipHit.limited || globalHit.limited) {
               // Give the per-tool unit back: the caller never received a trial,
               // so it must not count against the tool they were refused.
               await sharedRefund("trial-tool", perTool, 3600);
+              // And the per-client unit if only the GLOBAL cap refused them:
+              // they passed their own allowance, so it must not be consumed.
+              if (isOx && !ipHit.limited) await sharedRefund("trial-ip-ox", trialClientKey(tip), 86_400);
               res.setHeader("X-Trial-Exhausted", "true");
               res.setHeader("X-Trial-Limits", slug === OX_TRIAL_SLUG ? OX_TRIAL_LIMITS_LABEL : TRIAL_LIMITS_LABEL);
             } else {
@@ -5039,7 +5062,10 @@ if (FREE_MODE) {
                   sharedRefund("trial-tool", perTool, 3600).catch(() => {});
                   // Refund the SAME bucket the request spent from, or an Ox
                   // failure would credit a bucket it never charged.
-                  if (isOx) sharedRefund("trial-ip-ox", tip, 86_400).catch(() => {});
+                  if (isOx) {
+                    sharedRefund("trial-ip-ox", trialClientKey(tip), 86_400).catch(() => {});
+                    sharedRefund("trial-ox-global", "all", 86_400).catch(() => {});
+                  }
                   else sharedRefund("trial-ip", tip, 3600).catch(() => {});
                 }
               });
@@ -5070,7 +5096,12 @@ if (FREE_MODE) {
         res.setHeader("X-Trial-Exhausted", "true");
         res.setHeader("X-Trial-Limits", slug === OX_TRIAL_SLUG ? OX_TRIAL_LIMITS_LABEL : TRIAL_LIMITS_LABEL);
       }
-      res.setHeader("X-Pow-Challenge", `${BASE_URL}/api/pow/challenge?slug=${slug}`);
+      // Only a PoW-ELIGIBLE route has a challenge to offer. The Ox trial reaches
+      // this block with a wallet-only slug, and /api/pow/challenge 404s for
+      // those, so advertising it here would hand the caller a link that cannot
+      // work - the same self-contradiction the X-Trial-Available note below was
+      // written to stop.
+      if (powSlug) res.setHeader("X-Pow-Challenge", `${BASE_URL}/api/pow/challenge?slug=${powSlug}`);
       // Advertise the trial ONLY when it is actually available. This header used
       // to ride on every 402, including the one that had just REFUSED a trial —
       // so a caller that had exhausted its allowance was handed a link back to

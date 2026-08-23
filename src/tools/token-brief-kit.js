@@ -50,7 +50,7 @@ export const TOKEN_BRIEF_TIERS = {
     // real bound here is structural: one call, one locked model, `synthMaxTokens`
     // below, and the keyless probes cost nothing. Keep this number honest so the
     // margin review can compare it against the price.
-    price: "$0.35", maxUpstreamUsd: 0.30,
+    price: "$0.35", maxUpstreamUsd: 0.17,
     holders: 15, pairs: 8, markets: 6, lockers: 6, risks: 20,
     synthMaxTokens: 6000, words: "~2,000",
   },

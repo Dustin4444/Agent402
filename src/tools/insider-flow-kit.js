@@ -22,7 +22,7 @@ function safeUser(req) { try { return req ? upstreamUserId(req) : undefined; } c
 const SYNTH = "anthropic/claude-opus-5";
 export const INSIDER_MODELS = [SYNTH];
 export const INSIDER_TIERS = {
-  "insider-report": { price: "$0.25", maxUpstreamUsd: 0.20, maxFilings: 40, synthMaxTokens: 4500, words: "~1,500" },
+  "insider-report": { price: "$0.35", maxUpstreamUsd: 0.18, maxFilings: 40, synthMaxTokens: 4500, words: "~1,500" },
 };
 const SYNTH_TIMEOUT_MS = 120_000;
 const XML_CONCURRENCY = 4;

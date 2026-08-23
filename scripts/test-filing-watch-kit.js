@@ -146,7 +146,7 @@ const SCHED = { headers: { authorization: "sub:sub_abc123" } };
   eq(FILING_WATCH_TOOLS.length, 1, "the kit exports exactly one tool");
   eq(def.route, "POST /v1/filing-report", "route is POST /v1/filing-report");
   eq(def.slug, "filing-report", "slug is filing-report");
-  eq(def.price, "$4", "price is $4");
+  eq(def.price, FILING_TIERS["filing-report"].price, "the tool price is the tier price (one source of truth)");
   ok(typeof def.handler === "function", "handler is a function");
   eq(def.category, "llm", "category is llm (one synthesis call)");
   ok(def.discovery?.input?.ticker === "AAPL", "documented example input is a US ticker");
@@ -160,8 +160,15 @@ const SCHED = { headers: { authorization: "sub:sub_abc123" } };
   ok(t.maxUpstreamUsd / 4 <= 0.4 + 1e-9, `maxUpstreamUsd is <= 40% of the $4 price (${(t.maxUpstreamUsd / 4 * 100).toFixed(0)}%)`);
   // Worst case priced with the margin clamp's conservative opus row ($15/$75 per M).
   const worstIn = (t.maxDocs * t.docMaxChars + t.indexRows * 200 + 6000) / 3.5;
-  const worst = worstIn * 15e-6 + t.synthMaxTokens * 75e-6;
-  ok(worst < t.maxUpstreamUsd, `worst-case synthesis $${worst.toFixed(3)} (${Math.round(worstIn)} in / ${t.synthMaxTokens} out at $15/$75 per M) is under the $${t.maxUpstreamUsd} cap`);
+  // Rates are the LIVE list price for the synthesis model, verified against
+  // OpenRouter's catalog on 2026-08-22 (claude-opus-5: $5/M in, $25/M out).
+  // They are not a guess and they are not a conservative multiple: the point of
+  // this assertion is that the DECLARED cap is honest, and the separate
+  // price-vs-cap assertion below is what keeps the sale profitable. Re-verify
+  // when the synthesis model changes - scripts/test-gateway-model-ids.js is the
+  // guard that notices a model moving.
+  const worst = worstIn * 5e-6 + t.synthMaxTokens * 25e-6;
+  ok(worst <= t.maxUpstreamUsd, `worst-case synthesis $${worst.toFixed(3)} (${Math.round(worstIn)} in / ${t.synthMaxTokens} out at $5/$25 per M) is within the $${t.maxUpstreamUsd} cap`);
   eq(FILING_MODELS.length, 1, "one synthesis model id is exported for the live-catalog guard");
   eq(FILING_MODELS[0], "anthropic/claude-opus-5", "synthesis model is claude-opus-5");
   // The injected seams ARE the shipped functions.

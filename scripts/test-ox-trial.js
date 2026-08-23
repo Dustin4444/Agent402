@@ -58,12 +58,23 @@ ok(/const OX_TRIAL_PER_HOUR = Math\.max\(1, Number\(process\.env\.OX_TRIAL_PER_I
   "the Ox hourly allowance is a bounded, operator-overridable number");
 ok(/const OX_TRIAL_PER_DAY = Math\.max\(OX_TRIAL_PER_HOUR,/.test(server),
   "the daily allowance can never be smaller than the hourly one");
-ok(/sharedSpend\("trial-ip-ox", tip, OX_TRIAL_PER_DAY, 86_400\)/.test(server),
+ok(/sharedSpend\("trial-ip-ox", trialClientKey\(tip\), OX_TRIAL_PER_DAY, 86_400\)/.test(server),
   "Ox spends its own per-IP daily bucket, not the shared hourly one");
-ok(/if \(isOx\) sharedRefund\("trial-ip-ox", tip, 86_400\)/.test(server),
+ok(/sharedRefund\("trial-ip-ox", trialClientKey\(tip\), 86_400\)/.test(server),
   "a failed Ox trial refunds the SAME bucket it spent from");
 ok(/const toolBudget = isOx \? OX_TRIAL_PER_HOUR : TRIAL_PER_TOOL_HOUR;/.test(server),
   "every other tool keeps the taste-sized per-tool budget");
+
+// --- 4. rotation and a global ceiling -----------------------------------------
+// Per-IP alone is not a bound on IPv6: a /64 is the smallest routinely assigned
+// allocation, so an address inside it rotates for free. The client key is the
+// /64, and a server-wide daily cap backstops whatever rotation still buys.
+ok(/function trialClientKey\(ip\)/.test(server), "trial buckets go through a client-key function, not the raw address");
+ok(/parts\.slice\(0, 4\)\.join\(":"\) \+ "::\/64"/.test(server), "an IPv6 client is bucketed on its /64");
+ok(/const OX_TRIAL_GLOBAL_PER_DAY = Math\.max\(OX_TRIAL_PER_DAY,/.test(server), "a server-wide daily ceiling exists and is never below one client's allowance");
+ok(/sharedSpend\("trial-ox-global", "all", OX_TRIAL_GLOBAL_PER_DAY, 86_400\)/.test(server), "the global ceiling is actually spent");
+ok(/if \(isOx && !ipHit\.limited\) await sharedRefund\("trial-ip-ox", trialClientKey\(tip\), 86_400\)/.test(server),
+  "a caller refused only by the GLOBAL cap keeps their own allowance");
 
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -5,8 +5,9 @@
 // from `X-Title`. A call site that fetches openrouter.ai directly - or that
 // spreads its own header object instead of the shared constant - still WORKS,
 // so nothing fails, but its cost lands in the export unattributed and drops out
-// of any margin review. Measured 2026-08-22: 153 of 1,236 calls in a 30-day
-// export carried no app name, $5.56 of spend that a review could not place.
+// of any margin review. This has already happened once: a month of activity
+// contained a block of calls with no app name at all, which a margin review
+// could not place against any product.
 //
 // The second half is the composite-accounting rule. A composite that calls
 // ANOTHER composite in-process (ticker-pack calls dossier + insider) must not

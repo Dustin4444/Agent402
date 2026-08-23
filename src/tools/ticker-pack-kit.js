@@ -55,7 +55,7 @@ const round2 = (n) => Number(n.toFixed(2));
 
 export const TICKER_PACK_TIERS = {
   "ticker-pack": {
-    price: "$0.75",
+    price: "$1.20",
     // Derived, never hand-typed: if a part's cap moves, this moves with it and
     // scripts/test-ticker-pack-kit.js fails the <= $5.50 bound.
     maxUpstreamUsd: round2(

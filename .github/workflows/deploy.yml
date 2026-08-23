@@ -875,7 +875,7 @@ jobs:
       - name: LLM gateway validation (OpenAI-compat tiers, caps, env-gated 503)
         run: node scripts/test-llm-gateway.js
 
-      - name: Ox Alpha tier (locked stealth model, zdr refusal, zero-cost clamp, reasoning floor, vanish gate — offline)
+      - name: Ox Alpha tier (locked stealth model, zdr refusal, zero-cost clamp, reasoning floor, vanish gate - offline)
         run: node scripts/test-ox-tier.js
 
       - name: LLM gateway model tables vs the LIVE OpenRouter catalog (dead/renamed ids, MODEL_COST floors, TTS chain, expirations)

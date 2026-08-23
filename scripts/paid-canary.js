@@ -174,7 +174,7 @@ export const TOOLS = [
     check: (r) => isExactOkReply(r.choices?.[0]?.message?.content) || `expected an exact "OK" reply, got ${JSON.stringify(r).slice(0, 100)}`,
   },
   {
-    // Ox Alpha tier — the stealth model, and the one leg whose upstream is
+    // Ox Alpha tier - the stealth model, and the one leg whose upstream is
     // free. Two things only a real buy can prove: that `provider.max_price`
     // (which we ride on every call) actually ADMITS a $0-priced endpoint
     // rather than refusing the bound outright, and that the model is still
