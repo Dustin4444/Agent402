@@ -67,7 +67,30 @@ const receipt = await pub.waitForTransactionReceipt({ hash });
 console.log(`status: ${receipt.status}  gasUsed: ${receipt.gasUsed}`);
 if (receipt.status !== "success") die("the approval reverted");
 
-const after = await pub.readContract(getPermit2AllowanceReadParams({ tokenAddress: USDC, ownerAddress: account.address }));
+// Read the allowance AT THE BLOCK THE APPROVAL LANDED IN, not at `latest`.
+// Base preconfirms through flashblocks, so waitForTransactionReceipt returns in
+// a few hundred milliseconds - well before the containing block is visible on
+// every node behind the RPC load balancer. Reading at `latest` therefore raced
+// the head and reported zero for an approval that had demonstrably succeeded,
+// which is a false alarm on the one check that exists to catch a real one.
+let after = 0n;
+for (let attempt = 1; attempt <= 5; attempt++) {
+  try {
+    after = BigInt(await pub.readContract({
+      ...getPermit2AllowanceReadParams({ tokenAddress: USDC, ownerAddress: account.address }),
+      blockNumber: receipt.blockNumber,
+    }));
+    if (after > 0n) break;
+  } catch (e) {
+    // A node that has not caught up to that block yet answers with an error
+    // rather than a stale value. Both mean "ask again", never "the approval failed".
+    console.log(`allowance read at block ${receipt.blockNumber} not served yet (${String(e?.message || e).slice(0, 80)})`);
+  }
+  await new Promise((r) => setTimeout(r, 2000));
+}
 console.log(`allowance now: ${after}`);
-if (BigInt(after) <= 0n) die("the approval landed but the allowance is still zero");
+if (after <= 0n) {
+  die(`the approval landed in block ${receipt.blockNumber} (tx ${hash}) but the allowance still reads zero. ` +
+      `Check the allowance directly before re-sending - a second approval costs gas and fixes nothing if the first one worked.`);
+}
 console.log("PASS - Permit2 approved; the burner can now sign upto payments.");

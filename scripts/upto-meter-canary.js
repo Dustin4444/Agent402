@@ -69,11 +69,20 @@ try {
 }
 
 // --- 2. pay it over upto ----------------------------------------------------
-const [{ x402Client }, { wrapFetchWithPayment }, { UptoEvmScheme }] = await Promise.all([
-  import("@x402/core/client"), import("@x402/fetch"), import("@x402/evm/upto/client"),
+const [{ x402Client }, { wrapFetchWithPayment }, { UptoEvmScheme }, { toClientEvmSigner }] = await Promise.all([
+  import("@x402/core/client"), import("@x402/fetch"), import("@x402/evm/upto/client"), import("@x402/evm"),
 ]);
 const client = new x402Client();
-client.register("eip155:8453", new UptoEvmScheme({ account }));
+// UptoEvmScheme takes the signer POSITIONALLY - `new UptoEvmScheme(signer, options?)`.
+// The exact scheme is registered through a HELPER that takes an options object
+// (`registerExactEvmScheme(client, { signer })`), and pattern-matching that shape
+// onto this constructor passes an object whose signTypedData is undefined, which
+// fails at signing time rather than at registration. Same class as passing an
+// options object to createPermit2ApprovalTx, which takes its token positionally.
+//
+// toClientEvmSigner composes the account with a public client so the scheme can
+// also read on-chain state, which upto needs for Permit2 extension enrichment.
+client.register("eip155:8453", new UptoEvmScheme(toClientEvmSigner(account, pub)));
 const payFetch = wrapFetchWithPayment(fetch, client);
 
 let res;
