@@ -29,7 +29,7 @@ let globalPausedUntil = 0;
 // Upstream usage telemetry for composites (the most expensive calls we make,
 // invisible to the gateway's per-call margin event): running totals here, and
 // a PostHog event per run when PostHog is configured.
-const usage = { runs: 0, ok: 0, failed: 0, upstreamUsd: 0, bySlug: {} };
+const usage = { runs: 0, ok: 0, failed: 0, upstreamUsd: 0, overCap: 0, lastOverCap: null, bySlug: {} };
 
 /** Slugs whose handlers run long, expensive upstream work before settlement.
  * Every composite that fans out to metered upstream (OpenRouter synthesis, and
@@ -88,20 +88,75 @@ export function recordCompositeSpendSuccess(payer) {
   if (payer) fails.delete(payer);
 }
 
-/** A composite finished: account its upstream spend (PostHog when configured). */
+/** A composite finished: account its upstream spend (PostHog when configured),
+ *  and CHECK IT AGAINST THE TIER'S DECLARED CEILING.
+ *
+ *  Every report kit already reports through here, which makes this the one
+ *  place that can enforce `maxUpstreamUsd` without touching ten kits. It was a
+ *  declared bound in 8 of them - only research-deep and ticker-pack read their
+ *  own field at runtime - so the number was a comment nothing checked, which is
+ *  how it drifted below measured cost and how three products ended up priced
+ *  under their own worst case.
+ *
+ *  It cannot ABORT: a single-synthesis report only knows its cost once the call
+ *  has returned and been paid for, so aborting would throw away work already
+ *  bought. What it can do is refuse to let a breach be silent - the run is
+ *  counted, logged once with the numbers, and shipped to telemetry flagged, so
+ *  drift shows up as a rising count instead of a surprise on an invoice. The
+ *  structural bounds (one locked model, a bounded synthMaxTokens, bounded
+ *  inputs) remain the thing that stops a runaway call.
+ */
 export function recordCompositeUsage({ slug, upstreamUsd, ok, priceUsd }) {
   const usd = Number(upstreamUsd) || 0;
   usage.runs++; if (ok) usage.ok++; else usage.failed++;
   usage.upstreamUsd += usd;
   const b = (usage.bySlug[slug] ||= { runs: 0, ok: 0, upstreamUsd: 0 });
   b.runs++; if (ok) b.ok++; b.upstreamUsd += usd;
-  import("./posthog.js").then((ph) => {
-    try { ph.capturePostHogCompositeUsage?.({ slug, upstreamUsd: usd, ok: !!ok, priceUsd: Number(priceUsd) || null }); } catch { /* telemetry never throws */ }
-  }).catch(() => {});
+  // The cap lookup is DEFERRED, not because it is slow but because the registry
+  // imports every report kit and the kits import this module: a static import
+  // here is a cycle, and the symptom is a TDZ error at boot rather than
+  // anything that looks like a cycle. Same deferred shape the telemetry below
+  // already uses, so nothing about billing waits on it.
+  _settled = (async () => {
+    let cap = null;
+    try { const rt = await import("./report-tiers.js"); cap = rt.capUsdFor(slug); }
+    catch { cap = null; }
+    const overCap = cap != null && usd > cap;
+    if (overCap) {
+      usage.overCap++;
+      b.overCap = (b.overCap || 0) + 1;
+      usage.lastOverCap = { slug, upstreamUsd: +usd.toFixed(6), capUsd: cap, at: new Date().toISOString() };
+      console.warn(`[composite] ${slug} spent $${usd.toFixed(4)} upstream, OVER its declared cap of $${cap} - re-measure the tier or raise the cap, and check the price still clears it (scripts/test-report-margins.js)`);
+    }
+    try {
+      const ph = await import("./posthog.js");
+      ph.capturePostHogCompositeUsage?.({ slug, upstreamUsd: usd, ok: !!ok, priceUsd: Number(priceUsd) || null, capUsd: cap, overCap });
+    } catch { /* telemetry never throws */ }
+  })().catch(() => {});
+}
+
+/** Resolves once the deferred cap check + telemetry for the last recorded run
+ *  have finished. Tests await this; nothing in the serving path does. */
+let _settled = Promise.resolve();
+export function _compositeUsageSettled() { return _settled; }
+
+/** Upstream spend totals, including cap breaches. Operator-visible so a rising
+ *  `overCap` is something a human can see without a PostHog query. */
+export function compositeUsageSnapshot() {
+  return {
+    runs: usage.runs, ok: usage.ok, failed: usage.failed,
+    upstreamUsd: +usage.upstreamUsd.toFixed(6),
+    overCap: usage.overCap, lastOverCap: usage.lastOverCap,
+    bySlug: Object.fromEntries(Object.entries(usage.bySlug).map(([k, v]) => [k, { ...v, upstreamUsd: +v.upstreamUsd.toFixed(6) }])),
+  };
 }
 
 /** Test/ops introspection. */
 export function _compositeGuardState() {
   return { fails: fails.size, blocked: blockedUntil.size, WINDOW_MS, MAX_FAILS, BLOCK_MS, globalFails: globalFails.length, globalPausedUntil, GLOBAL_MAX_FAILS, GLOBAL_PAUSE_MS, usage: { ...usage, upstreamUsd: Math.round(usage.upstreamUsd * 1e4) / 1e4 } };
 }
-export function _compositeGuardReset() { fails.clear(); blockedUntil.clear(); globalFails = []; globalPausedUntil = 0; }
+export function _compositeGuardReset() {
+  fails.clear(); blockedUntil.clear(); globalFails = []; globalPausedUntil = 0;
+  usage.runs = 0; usage.ok = 0; usage.failed = 0; usage.upstreamUsd = 0;
+  usage.overCap = 0; usage.lastOverCap = null; usage.bySlug = {};
+}

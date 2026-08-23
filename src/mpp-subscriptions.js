@@ -224,6 +224,52 @@ export function subscriptionFeePayerPolicy() {
   return { maxGas };
 }
 
+/**
+ * Low-water status for the gas sponsor, for `/api/gateway-status` + heartbeat.
+ *
+ * Watches PATHUSD, not USDC.e, and that distinction is the whole point: a
+ * sponsored transaction pays its fee in Tempo's default token, so a sponsor
+ * holding plenty of USDC.e and no PathUSD is EMPTY for this purpose and the
+ * chain reports it as `insufficient funds ... have 0`. Funding the wrong token
+ * is the mistake this alarm exists to catch, because it looks identical to
+ * having no wallet at all.
+ *
+ * An empty sponsor does not error loudly: activations fail 402 (nobody is
+ * charged, fine) but RENEWALS just go past_due, which means existing
+ * subscribers are served for FREE until their grace window ends. That is a
+ * silent revenue leak, hence a balance alarm rather than relying on the canary.
+ *
+ * Unreadable is "unknown", never "ok" - the same rule the gateway balance
+ * follows, because a balance we cannot read is its own alarm.
+ */
+export async function subscriptionFeePayerStatus() {
+  const acct = subscriptionFeePayer();
+  if (!acct) return { status: "unconfigured" };
+  const low = Number(process.env.TEMPO_SUBSCRIPTION_FEE_PAYER_LOW_USD ?? 0.25);
+  const rpcUrl = (process.env.TEMPO_RPC_URL || "https://rpc.tempo.xyz").trim();
+  try {
+    const data = "0x70a08231" + acct.address.toLowerCase().slice(2).padStart(64, "0");
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 8000);
+    let hex;
+    try {
+      const res = await fetch(rpcUrl, {
+        method: "POST", signal: ctrl.signal,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: PATH_USD_ADDRESS, data }, "latest"] }),
+      });
+      const j = await res.json();
+      hex = j?.result;
+    } finally { clearTimeout(t); }
+    if (typeof hex !== "string" || !hex.startsWith("0x")) return { status: "unknown", asset: "PathUSD", chain: `eip155:${TEMPO_MAINNET_CHAIN_ID}` };
+    const usd = Number(BigInt(hex)) / 1e6;
+    // Bucketed, never the number: this rides a PUBLIC surface.
+    return { status: usd < low ? "low" : "ok", asset: "PathUSD", chain: `eip155:${TEMPO_MAINNET_CHAIN_ID}` };
+  } catch {
+    return { status: "unknown", asset: "PathUSD", chain: `eip155:${TEMPO_MAINNET_CHAIN_ID}` };
+  }
+}
+
 export function subscriptionFeePayer() {
   const raw = (process.env.TEMPO_SUBSCRIPTION_FEE_PAYER_KEY || "").trim();
   if (!raw) return null;

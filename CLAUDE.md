@@ -1522,8 +1522,15 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   override keys off the RESOLVED product, never the caller's flag - the first draft keyed off the flag, which would
   have put a real $9 monitor on a 60-second period for any token holder, and `scripts/test-mpp-subscriptions.js`
   caught it before it ran once. `scripts/test-mpp-subscription-canary-gate.js` (10, boots a real server, in CI)
-  covers the route half the engine test cannot see. Not scheduled yet: promote to a paid-canary leg after a few
-  green runs.
+  covers the route half the engine test cannot see. **PROVEN END TO END 2026-08-23** (run 32653047928): activation
+  tx `0xaaf929549236534372664f73d6a7dce08f29b9877cdd48972809beae0a8b6594`, renewal pulled with no buyer present
+  tx `0x2d32927aa891d70dcafa232e77bc67af78c60652314f0c2df59e60a910d981cf`. **Now SCHEDULED daily** (06:37 UTC),
+  paging heartbeat-style, because a broken renewal does not error loudly - it serves a subscriber for free until
+  their grace window ends. Four defects preceded that green run and every one needed the LIVE rail to surface: the
+  unsponsored zero-gas-price path, mppx's 2M `maxGas` default, funding the sponsor in USDC.e when gas is paid in
+  PathUSD, and `renewSubscription` never receiving the sponsor at all (a standalone entry point that builds its own
+  context, so the fee payer configured on the method did not reach it). 122 offline assertions were green
+  throughout: stub-proven is not proven.
 - **Server tools under a server-owned bound (2026-08-23, supersedes the 2026-08-04 blanket refusal):** the chat wire
   now allows exactly three OpenRouter server tools on the PRO and PREMIUM tiers - `openrouter:web_search`,
   `web_fetch` and `datetime` - because each has a published per-use price AND a hard `max_uses` count cap. We pin
@@ -1562,6 +1569,45 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   so most of the $0.001 catalog is unpostable (never rounded up - that would fabricate an amount), only base,
   solana and tempo of our twelve rails are supported, and synthetic canary traffic is skipped as internal.
   `GET /__operator/shadow-ledger.json` reports both sides for the week-long comparison. `STRIPE_SHADOW_LEDGER=on`.
+
+- **Published packages are verified against LIVE prod (2026-08-23, `scripts/verify-published-packages.js` +
+  `verify-published-packages.yml`):** every other package test runs from the WORKING TREE, which proves the source
+  is good and cannot prove that what people `npm install` works - publishing is a separate act with its own failure
+  modes (a missing `files` entry, a stale registry version, a dependency resolving differently outside this repo, a
+  package never republished after the surface it talks to moved), all invisible to a source test and visible to the
+  first user. This installs `agent402-mcp@latest` + `agent402-client@latest` FROM THE REGISTRY into a scratch dir
+  and drives real prod: MCP `initialize` over stdio, `tools/list`, the catalog tools an agent needs, a live
+  `catalog.search`, and the SDK's `find()`. Read-only and free (it never buys, so it can be scheduled; the paid
+  path stays the paid canary's job). Daily 07:23 UTC, after every successful Deploy, and on dispatch; pages
+  heartbeat-style. First run: agent402-mcp@0.13.0 + agent402-client@0.7.0 both green, the server reporting 627
+  tools - confirming the packages embed no tool list (`toolCount` is derived), so new tools reach users with no
+  release. **`scripts/test-workflow-run-refs.js`** guards a class this shipped with: GitHub matches
+  `workflow_run.workflows` on a workflow's `name:`, not its filename, so a mismatch NEVER FIRES and does so
+  silently - the verifier first referenced "Deploy" when the workflow is "Deploy to Railway".
+
+- **`maxUpstreamUsd` is now ENFORCED, not merely declared (2026-08-23, `src/report-tiers.js` +
+  `recordCompositeUsage`):** it was a declared bound in 8 of the 10 report kits - only research-deep and
+  ticker-pack read their own field at runtime - so the number was a comment nothing checked, which is how it
+  drifted below measured cost and how three products ended up priced under their own worst case. Every report kit
+  already reports through `recordCompositeUsage`, so the check lives THERE: one place, no per-kit wiring to forget.
+  A breach increments `overCap` (total and per-slug), records what was spent AND the ceiling it broke, logs once
+  with both numbers, and rides PostHog `composite_usage` flagged; totals are on `GET /__operator/human-checkout.json`
+  as `compositeUsage`. It deliberately CANNOT abort - a single-synthesis report only knows its cost once the call has
+  returned and been paid for, so aborting would discard work already bought; the structural bounds (one locked model,
+  bounded `synthMaxTokens`, bounded inputs) remain what stops a runaway call, and this stops a breach being SILENT.
+  Spend exactly AT the cap is not a breach, and a non-report slug is never flagged. The lookup is DEFERRED because
+  the registry imports every kit and the kits import the guard: a static import is a cycle whose symptom is a TDZ
+  error at boot rather than anything that looks like one. `scripts/test-composite-cap-enforcement.js` (21, in CI,
+  2 mutations killed).
+- **Subscription gas sponsor has a low-water alarm (2026-08-23):** `subscriptionFeePayerStatus()` on
+  `/api/gateway-status` as `subscriptionFeePayer`, plus a heartbeat leg opening "Subscription gas sponsor LOW
+  (PathUSD)". It watches **PathUSD, not USDC.e**, and that is the whole point: a sponsored tx pays its fee in
+  Tempo's default token, so a sponsor full of USDC.e and empty of PathUSD is EMPTY for this purpose and the chain
+  says `insufficient funds ... have 0`. It matters more than it looks - an empty sponsor fails ACTIVATIONS loudly
+  (402, nobody charged) but sends RENEWALS to past_due, so existing subscribers keep being served for free until
+  their grace window ends. Bucketed like every other balance (numbers never leave), unreadable is "unknown" never
+  "ok", low-water `TEMPO_SUBSCRIPTION_FEE_PAYER_LOW_USD` (default $0.25). Top up with `fund-tempo-fee-payer.yml`
+  and `token=pathusd`.
 
 ## Environment / ops (set on Railway, not in repo)
 `WALLET_ADDRESS`, `WALLET_ENS`, `NETWORK`, `CDP_API_KEY_ID/SECRET`, `FACILITATOR_URL`,
