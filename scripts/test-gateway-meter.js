@@ -60,8 +60,32 @@ ok(r >= 0.0010001 * METER_MARKUP && Number.isInteger(Math.round(r * 1e6)),
   `settles in whole atomic units, rounded UP ($${r}), so rounding can only favour the seller`);
 
 // Only an `upto` payment may be metered.
-ok(isMeterable({ x402: { scheme: "upto" } }) === true, "an upto payment is meterable");
-ok(isMeterable({ x402: { scheme: "exact" } }) === false, "an EXACT payment is never metered: that scheme fixed the amount at the 402 and cannot express a lower settle");
-ok(isMeterable({}) === false && isMeterable(null) === false, "no scheme means no metering");
+//
+// These build a REQUEST, not a scheme. The previous version passed
+// `{ x402: { scheme: "upto" } }` - a shape nothing ever produces - so it proved
+// the comparison while the derivation was missing entirely, and the metered path
+// was dead in production with both tests green. The input here is what an
+// express request actually carries: a base64 payment header, read through the
+// same `header()` accessor the middleware uses.
+const reqWith = (headers) => ({ header: (n) => headers[String(n).toLowerCase()] ?? undefined });
+const paymentHeader = (payload) => Buffer.from(JSON.stringify(payload)).toString("base64");
+const uptoPayload = { x402Version: 2, scheme: "upto", network: "eip155:8453", payload: { signature: "0xdead", authorization: {} } };
+const exactPayload = { ...uptoPayload, scheme: "exact" };
+
+ok(isMeterable(reqWith({ "payment-signature": paymentHeader(uptoPayload) })) === true,
+  "an upto payment is meterable, read from the payment header the middleware settles from");
+ok(isMeterable(reqWith({ "x-payment": paymentHeader(uptoPayload) })) === true,
+  "the x-payment fallback header is read too, since the middleware falls back to it");
+ok(isMeterable(reqWith({ "payment-signature": paymentHeader(exactPayload) })) === false,
+  "an EXACT payment is never metered: that scheme fixed the amount at the 402 and cannot express a lower settle");
+ok(isMeterable(reqWith({})) === false && isMeterable({}) === false && isMeterable(null) === false,
+  "no payment header means no metering");
+ok(isMeterable(reqWith({ "payment-signature": "not base64 json" })) === false,
+  "an unparseable payment header is not meterable: it must never DEFAULT to metered");
+ok(isMeterable(reqWith({ "payment-signature": paymentHeader({ x402Version: 2, network: "eip155:8453" }) })) === false,
+  "a payload with no scheme at all is not meterable");
+// The shape the dead version believed in must not resurrect it.
+ok(isMeterable({ x402: { scheme: "upto" } }) === false && isMeterable({ _x402Scheme: "upto" }) === false,
+  "a decorated request property is NOT the source of truth: nothing sets those, and trusting them is what made this dead");
 
 console.log(`\n${pass} passed, 0 failed`);

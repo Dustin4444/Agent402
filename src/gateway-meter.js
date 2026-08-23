@@ -1,3 +1,5 @@
+import { paymentSchemeOf } from "./payer.js";
+
 // METERED SETTLEMENT for the LLM gateway: bill what a call actually cost,
 // not the flat tier price.
 //
@@ -75,7 +77,21 @@ export function meteredUsd({ upstreamUsd, ceilingUsd }) {
 
 /** True when this request may be metered: it paid over `upto`, so the amount is
  *  ours to name. An `exact` payment fixed the amount at the 402 and overriding
- *  it is not something the scheme can express. */
+ *  it is not something the scheme can express.
+ *
+ *  THE SCHEME MUST BE DERIVED FROM THE PAYMENT ITSELF. The first version read
+ *  `req.x402?.scheme || req._x402Scheme`, and NOTHING sets either: @x402/express
+ *  does not decorate the request, and no code of ours ever assigned
+ *  `_x402Scheme`. So this returned false for every request ever made and the
+ *  whole metered path was dead - a live buy settled at the full ceiling with
+ *  GATEWAY_METERED_BILLING=on and no warning anywhere, because a skipped branch
+ *  logs nothing.
+ *
+ *  Both tests passed throughout: the unit test handed it `{x402:{scheme:"upto"}}`,
+ *  which is precisely the shape the caller has to derive and never did, and the
+ *  wiring test only grepped server.js for the call. A test that supplies the
+ *  input under test proves the function, never the caller - so the test below
+ *  now builds a real request carrying a real encoded payment header. */
 export function isMeterable(req) {
-  return String(req?.x402?.scheme || req?._x402Scheme || "").toLowerCase() === "upto";
+  return paymentSchemeOf(req) === "upto";
 }

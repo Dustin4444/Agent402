@@ -106,3 +106,29 @@ export function paymentIdentifierOf(req) {
     return id;
   } catch { return null; }
 }
+
+/** The x402 SCHEME the middleware will settle this request under.
+ *
+ *  Read from the SAME header @x402/express settles from (paymentHeaderOf), and
+ *  from the payload's own top-level `scheme` - a required field on both the v1
+ *  and v2 PaymentPayload schemas, and the field the middleware itself dispatches
+ *  on when it picks a scheme verifier. So this cannot disagree with what is
+ *  actually settled: a payload naming `upto` is verified as `upto` (which
+ *  requires a Permit2 signature) or it does not verify at all. That is why
+ *  reading it off an as-yet-unverified payload is safe HERE, while reading an
+ *  identity field the same way would not be - see payerFromRequest.
+ *
+ *  Returns lowercase, or null when there is no payment header or it will not
+ *  parse. Callers must treat null as "not this scheme", never as a default.
+ */
+export function paymentSchemeOf(req) {
+  const header = paymentHeaderOf(req);
+  if (!header) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(header, "base64").toString("utf-8"));
+    const scheme = payload?.scheme;
+    return typeof scheme === "string" && scheme ? scheme.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
