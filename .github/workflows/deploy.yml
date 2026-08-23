@@ -1249,6 +1249,9 @@ jobs:
       - name: Report economics (every card/agent/monitor price clears MEASURED worst-case upstream, not a declared cap - offline)
         run: node scripts/test-report-margins.js
 
+      - name: workflow_run references name a workflow that exists (GitHub matches on name:, a mismatch never fires - offline)
+        run: node scripts/test-workflow-run-refs.js
+
       - name: Leaderboard RPC failures never carry the Alchemy key (host-only naming + redaction on the public lastError path — offline)
         run: node scripts/test-leaderboard-redaction.js
 

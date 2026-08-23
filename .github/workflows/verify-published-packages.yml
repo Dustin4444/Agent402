@@ -1,0 +1,57 @@
+name: Verify the PUBLISHED npm packages against live prod
+
+# Everything else in CI tests the packages from the working tree, which proves
+# the source is good and cannot prove that what people actually `npm install`
+# works. Publishing is a separate act with its own failure modes: a missing
+# `files` entry, a stale version on the registry, a dependency that resolves
+# differently outside this repo, or a package never republished after the
+# surface it talks to moved. Those are invisible to a source test and visible
+# to the first user who hits them.
+#
+# Read-only and free: it lists tools, resolves the catalog and reads public
+# surfaces. It never buys, so it can run on a schedule without spending. The
+# paid path stays the paid canary's job.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 7 * * *"
+  # Also after a publish, which is the moment a broken package is created.
+  workflow_run:
+    workflows: ["Deploy to Railway"]
+    types: [completed]
+
+concurrency:
+  group: verify-published-packages
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    # On the workflow_run trigger, only bother when the upstream run succeeded.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: Install from the registry and drive live prod
+        run: node scripts/verify-published-packages.js
+
+      - name: Page on failure / recover on success
+        if: always() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OUTCOME: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          TITLE="Published npm package BROKEN against prod"
+          OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$TITLE in:title" --json number -q '.[0].number' || true)
+          if [ "$OUTCOME" = "success" ]; then
+            [ -n "$OPEN" ] && gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" \
+              --comment "Recovered: the published packages drive live prod again at $(date -u +%FT%TZ). $RUN_URL" || true
+          else
+            [ -n "$OPEN" ] || gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" \
+              --body "What is on the npm registry no longer works against production. This is what users get from \`npm install\`, so it is broken for them even though the working-tree tests pass. $RUN_URL"
+          fi
