@@ -64,7 +64,7 @@ Generation priced per picture or per clip rather than per token, on the OpenAI w
 
 ## Report products (outcome-priced, same 402)
 
-When the job is a whole report rather than a call, the `/v1` report routes sell one finished, cited report per payment - `POST /v1/research` ($3, pro $7, max $12), `/v1/research/market-brief` ($7), `/v1/dossier` ($9, max $19), `/v1/fund` ($4, max $9), `/v1/domain-audit` ($3, pro $5), `/v1/recall-report` ($3), `/v1/insider-report` ($4), `/v1/token-risk` ($3, pro $6), and the deterministic `/v1/ipo-report` digest ($0.05). Same x402 / MPP 402 as every other route, plus prepaid card credits; people buy the same reports by card at `/reports`. Inputs, cadences and the $5/month monitors are on [[Reports, Monitors and Credits|Reports-and-Monitors]].
+When the job is a whole report rather than a call, the `/v1` report routes sell one finished, cited report per payment - `POST /v1/research` ($0.35, pro $0.65, max $1.10), `/v1/research/market-brief` ($0.35), `/v1/dossier` ($0.55, max $0.95), `/v1/ticker-pack` ($0.75), `/v1/fund` ($0.25, max $0.50), `/v1/filing-report` ($0.25), `/v1/domain-audit` ($0.20, pro $0.30), `/v1/recall-report` ($0.20), `/v1/insider-report` ($0.25), `/v1/token-brief` ($0.35), `/v1/token-risk` ($0.30, pro $0.60), and the deterministic `/v1/ipo-report` digest ($0.05). Same x402 / MPP 402 as every other route, plus prepaid card credits; people buy the same reports by card at `/reports` for $1 to $2, a price that includes payment processing. Inputs, cadences and the $3/month monitors are on [[Reports, Monitors and Credits|Reports-and-Monitors]].
 
 ## The long tail (pure-CPU, also payable with compute)
 

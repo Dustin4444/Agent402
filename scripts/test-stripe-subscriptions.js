@@ -37,7 +37,7 @@ const subs = createStripeSubscriptions({
 });
 
 // products
-ok(Object.values(MONITOR_PRODUCTS).every((p) => p.price >= 500 && p.kind), "every monitor product is >= $5 and has a kind");
+ok(Object.values(MONITOR_PRODUCTS).every((p) => p.price >= 300 && p.kind), "every monitor product clears the Stripe fee floor ($3) and has a kind");
 
 // createCheckout
 const c = await subs.createCheckout("domain-monitor", "example.com");

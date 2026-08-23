@@ -40,7 +40,7 @@ ${ledgerFooterCompact()}
 <script src="/js/monitors.js"></script>`;
   return ledgerShell({
     title: "Agent402 Monitors: domain, 13F, recall, insider, IPO watch",
-    description: "$5 a month monitors: domain security, fund 13F, FDA recall, insider flow, IPO pipeline. Re-run on their own, emailed on change, card via Stripe, cancel anytime.",
+    description: "$3 a month monitors: domain security, SEC filings, Solana token safety, fund 13F, FDA recall, insider flow, IPO pipeline. Re-run on their own, emailed on change, card via Stripe, cancel anytime.",
     canonical: `${baseUrl}/monitors`, baseUrl, activePath: "/monitors", extraCss: REPORTS_CSS, body,
     // A prefilled variant is the same page with a form filled in: keep one
     // canonical URL and keep the variants out of the index.

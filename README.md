@@ -19,15 +19,20 @@
 > [`agent402-tollbooth`](tollbooth) - an open pay-per-crawl gate for the other
 > side of x402.
 >
-> **Two doors, one price list.** Agents pay per call in USDC (x402 / MPP) or
-> free via proof-of-work. People pay by card: finished, cited **reports** at
+> **Two doors, two price lists.** Agents pay per call in USDC (x402 / MPP) or
+> free via proof-of-work, and a finished **report** costs $0.20 to $1.10 that
+> way. People pay by card: the same reports at
 > [agent402.tools/reports](https://agent402.tools/reports) (company dossier, 13F fund
-> report, insider flow, market brief, deep research, FDA recall, domain audit),
-> **monitors** that re-run on change at [/monitors](https://agent402.tools/monitors),
-> and **prepaid credits** at [/credits](https://agent402.tools/credits) - one
-> `a402_` key that pays every tool by card (`Authorization: Bearer a402_…`,
-> debited per successful call; supported by `agent402-mcp` via
-> `AGENT402_CREDITS_KEY` and `agent402-client` via `{ creditsKey }`).
+> report, insider flow, market brief, deep research, FDA recall, domain audit)
+> are $1, or $2 for the deepest three, **monitors** that re-run on change at
+> [/monitors](https://agent402.tools/monitors) are $3 a month, and **prepaid
+> credits** at [/credits](https://agent402.tools/credits) are one `a402_` key
+> that pays every tool by card (`Authorization: Bearer a402_…`, debited per
+> successful call; supported by `agent402-mcp` via `AGENT402_CREDITS_KEY` and
+> `agent402-client` via `{ creditsKey }`). The card price includes payment
+> processing: Stripe charges 2.9% + $0.30 per charge, so under about a dollar
+> the fee costs more than the report. An agent paying per call pays the lower
+> tool price for the same report.
 >
 > **Two payment wires, one URL.** Every paid endpoint accepts **x402**
 > (`PAYMENT-SIGNATURE`, USDC on 12 chains) **and MPP** (Machine Payments
@@ -140,7 +145,7 @@ Boots straight from the repo's `railway.toml` + `Dockerfile`. Optional plugins a
 | **Site crawling** | `site-map` (enumerate a site's URLs) and `site-crawl` (breadth-first crawl to clean markdown, robots-respecting, hard page/depth/time budgets) - the deterministic pair behind any "read this whole site" task |
 | **Macro (FRED + more)** | yield curve, treasury, fiscal, Fed funds, CPI, unemployment, Sahm rule, ECB FX, World Bank, FRED bulk release observations |
 | **SEC EDGAR** | ticker→CIK, filing list, 10-K/10-Q text, XBRL frames, insider transactions, 13F holdings, IPO calendar, full-text search |
-| **Finished reports (cited)** | `research`/`research-pro`/`research-max` (grounded deep research), `market-brief`, `dossier`/`dossier-max` (company due diligence), `fund-report`/`fund-report-max` (13F portfolio), `domain-audit`/`domain-audit-pro` (graded security + deliverability), `recall-report` (FDA), `insider-report` (Form 4 flow), `token-risk`/`token-risk-pro` (on-chain contract risk), `ipo-report` (S-1 + 424B4 digest, deterministic) - $3 to $19 per report, same price by wallet or by card at [/reports](https://agent402.tools/reports); see the `/v1` table below |
+| **Finished reports (cited)** | `research`/`research-pro`/`research-max` (grounded deep research), `market-brief`, `dossier`/`dossier-max` (company due diligence), `fund-report`/`fund-report-max` (13F portfolio), `domain-audit`/`domain-audit-pro` (graded security + deliverability), `recall-report` (FDA), `insider-report` (Form 4 flow), `token-risk`/`token-risk-pro` (on-chain contract risk), `filing-report` (latest SEC filing), `token-brief` (Solana mint due diligence), `ticker-pack` (dossier + insider flow + holders), `ipo-report` (S-1 + 424B4 digest, deterministic) - $0.20 to $1.10 per report over x402 / MPP, or $1 to $2 by card at [/reports](https://agent402.tools/reports); see the `/v1` table below |
 | **Network truth** | `dns`, `dns-lookup`, `tls-cert`, `whois`, `http-check`, `robots-check`, `email-validate`, `ip-info` |
 | **Crypto & payments** | `usdc-balance`, `tx-status`, `gas-estimate`, `ens-resolve`, `x402-quote`, `x402-verify`, `transfer-authorization` - non-custodial, multi-chain (Base/Polygon/Arbitrum/Optimism/Ethereum) |
 | **Agent memory** | wallet-keyed KV + TTL, atomic counters, cross-wallet grants, hash-chained audit log, similarity recall |
@@ -200,19 +205,24 @@ synthesis; `ipo-report` is fully deterministic (no model at all):
 
 | Endpoint | Price | Report |
 |---|---|---|
-| `POST /v1/research` · `/v1/research/pro` · `/v1/research/max` | $3 · $7 · $12 | deep research report (`{query}`) - grounded multi-search, rerank, cited synthesis |
-| `POST /v1/research/market-brief` | $7 | market / competitor brief (`{query}`) |
-| `POST /v1/dossier` · `/v1/dossier/max` | $9 · $19 | company due-diligence dossier (`{ticker}`) - filings, insider flow, web |
-| `POST /v1/fund` · `/v1/fund/max` | $4 · $9 | fund portfolio report from the latest 13F (`{manager}`) - bought/sold last quarter |
-| `POST /v1/domain-audit` · `/v1/domain-audit/pro` | $3 · $5 | graded domain security + deliverability audit (`{domain}`) |
-| `POST /v1/recall-report` | $3 | FDA recall report, drug/food/device (`{query}`) |
-| `POST /v1/insider-report` | $4 | insider flow report from parsed Form 4 filings (`{ticker}`) |
-| `POST /v1/token-risk` · `/v1/token-risk/pro` | $3 · $6 | token and contract risk report from on-chain evidence (`{address, chain}`) |
+| `POST /v1/research` · `/v1/research/pro` · `/v1/research/max` | $0.35 · $0.65 · $1.10 | deep research report (`{query}`) - grounded multi-search, rerank, cited synthesis |
+| `POST /v1/research/market-brief` | $0.35 | market / competitor brief (`{query}`) |
+| `POST /v1/dossier` · `/v1/dossier/max` | $0.55 · $0.95 | company due-diligence dossier (`{ticker}`) - filings, insider flow, web |
+| `POST /v1/fund` · `/v1/fund/max` | $0.25 · $0.50 | fund portfolio report from the latest 13F (`{manager}`) - bought/sold last quarter |
+| `POST /v1/domain-audit` · `/v1/domain-audit/pro` | $0.20 · $0.30 | graded domain security + deliverability audit (`{domain}`) |
+| `POST /v1/recall-report` | $0.20 | FDA recall report, drug/food/device (`{query}`) |
+| `POST /v1/insider-report` | $0.25 | insider flow report from parsed Form 4 filings (`{ticker}`) |
+| `POST /v1/filing-report` | $0.25 | latest SEC filing read and summarized with the facts that moved (`{ticker}`) |
+| `POST /v1/token-brief` | $0.35 | Solana token due-diligence brief from on-chain and market evidence (`{mint}`) |
+| `POST /v1/ticker-pack` | $0.75 | one ticker, three reports: dossier, insider flow and 13F holders |
+| `POST /v1/token-risk` · `/v1/token-risk/pro` | $0.30 · $0.60 | token and contract risk report from on-chain evidence (`{address, chain}`) |
 | `POST /v1/ipo-report` | $0.05 | IPO pipeline digest, S-1 + 424B4 from EDGAR full-text search (`{days, keyword}`), deterministic |
 
 Reports are wallet-only (x402 / MPP / prepaid credits, never proof-of-work) and
 take a few minutes to generate. The same reports are sold to people by card at
-[agent402.tools/reports](https://agent402.tools/reports), at the same prices.
+[agent402.tools/reports](https://agent402.tools/reports) for $1, or $2 for the
+three biggest. The card price includes payment processing; an agent paying per
+call over x402 or MPP pays the lower tool price for the same report.
 
 Two companion tools close the loop: `POST /api/route/execute` ($0.01, with
 `execute-plus` $0.05 and `execute-max` $0.55 tiers for pricier tools) resolves a task description to the
@@ -232,8 +242,8 @@ enables it with `STRIPE_SECRET_KEY`, otherwise these pages simply do not mount):
 
 | Page | What you get |
 |---|---|
-| [agent402.tools/reports](https://agent402.tools/reports) | Buy any finished report from the table above by card (`POST /api/buy`), delivered at `/r/<session>` - no wallet, no account. A report is generated only against a Stripe-verified paid session, once; a failed generation is refunded automatically. |
-| [agent402.tools/monitors](https://agent402.tools/monitors) | $5/month subscriptions that re-run a report when something changes and email you: **domain security monitor** (free daily re-probe, full paid re-run on a security change, a certificate inside 14 days of expiry, or every 30 days), **fund 13F watch** (new filing), **FDA recall watch** (new recall number), **insider flow watch** (new Form 4), **IPO pipeline watch** (weekly digest). Reports land at `/m/<id>`; manage or cancel through the Stripe Customer Portal at `/monitors/manage`. |
+| [agent402.tools/reports](https://agent402.tools/reports) | Buy any finished report from the table above by card (`POST /api/buy`) for $1, or $2 for the deepest three (research max, dossier max, ticker pack), delivered at `/r/<session>` - no wallet, no account. The card price includes payment processing; an agent paying per call pays the lower tool price for the same report. A report is generated only against a Stripe-verified paid session, once; a failed generation is refunded automatically. |
+| [agent402.tools/monitors](https://agent402.tools/monitors) | $3/month subscriptions that re-run a report when something changes and email you: **domain security monitor** (free daily re-probe, full paid re-run on a security change, a certificate inside 14 days of expiry, or every 30 days), **SEC filing watch** (new filing), **Solana token safety watch** (changed safety facts), **fund 13F watch** (new filing), **FDA recall watch** (new recall number), **insider flow watch** (new Form 4), **IPO pipeline watch** (weekly digest). Reports land at `/m/<id>`; manage or cancel through the Stripe Customer Portal at `/monitors/manage`. |
 | [agent402.tools/credits](https://agent402.tools/credits) | Prepaid credits in $20 / $50 / $100 packs. You get one `a402_…` key (shown once on the thanks page and emailed); send it as `Authorization: Bearer a402_…` on any priced route and the call is paid from the balance - **debited only on a successful response**, integer micro-dollars so sub-cent prices are exact, never expires. `GET /api/credits/balance` (same header) reads the balance; a 402 with `{reason, balanceUsd, topup}` means insufficient. Identity-bound tools (`/api/memory*`, `my-usage`) refuse credits because the payment is the identity there; pay those over an x402 rail. |
 
 The credits key is understood by the SDKs: `agent402-mcp` reads
@@ -505,7 +515,7 @@ with no x402 middleware at all.
 | `src/x402-index.js` | x402 Index + Smart Order Router: cross-seller crawl, auto-discovery, health-aware routing, per-chain marketplace pages (`/stellar`, `/algorand`) |
 | `src/sell.js` | `/sell` - the seller front door: free self-serve listing (`POST /api/index/register`) or `agent402-tollbooth` for pay-per-crawl |
 | `src/human-checkout.js` | Card front door for the report products: `/reports` (page in `src/human-reports-page.js`), `POST /api/buy`, delivery at `/r/:sessionId` (Stripe Checkout, generate-once, auto-refund on failure) |
-| `src/stripe-subscriptions.js` | `/monitors` - $5/month monitor subscriptions (`MONITOR_PRODUCTS`: domain, fund, recall, insider, ipo), signature-verified webhook, Customer Portal |
+| `src/stripe-subscriptions.js` | `/monitors` - $3/month monitor subscriptions (`MONITOR_PRODUCTS`: domain, filing, token, fund, recall, insider, ipo), signature-verified webhook, Customer Portal |
 | `src/monitor-scheduler.js` | Fulfilment for the monitors: cheap daily probes, paid re-runs on change, email delivery, reports at `/m/:id` |
 | `src/credits.js` | Prepaid card credits: `/credits`, `a402_` bearer keys, the authorize-then-debit gate in front of every priced route |
 | `mcp/` | The `agent402-mcp` npm package (stdio MCP server) |

@@ -52,7 +52,7 @@ const def = TICKER_PACK_TOOLS[0];
 eq(TICKER_PACK_TOOLS.length, 1, "the kit exports exactly one tool");
 eq(def.route, "POST /v1/ticker-pack", "route is POST /v1/ticker-pack");
 eq(def.slug, "ticker-pack", "slug is ticker-pack");
-eq(def.price, "$15", "price is $15");
+eq(def.price, TICKER_PACK_TIERS["ticker-pack"].price, "the tool price is the tier price (one source of truth)");
 eq(def.price, TICKER_PACK_TIERS["ticker-pack"].price, "the catalog price comes from the tier table");
 ok(typeof def.handler === "function", "the tool has a handler");
 ok(def.discovery?.inputSchema?.required?.includes("ticker"), "the schema requires a ticker");

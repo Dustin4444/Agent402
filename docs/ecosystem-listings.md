@@ -34,17 +34,22 @@ claim below is served live; verify prices against `/api/pricing` before pasting.
   free proof-of-work on the pure-CPU tools, or **prepaid card credits** -
   $20 / $50 / $100 packs at https://agent402.tools/credits, spent on any priced
   route with `Authorization: Bearer a402_…`, debited only on a successful call, never expire.
-- **Report products** (same endpoint over x402/MPP, or by card at
-  https://agent402.tools/reports): deep research `POST /v1/research` $3,
-  `/v1/research/pro` $7, `/v1/research/max` $12, market brief
-  `/v1/research/market-brief` $7; company dossier `/v1/dossier` $9,
-  `/v1/dossier/max` $19; 13F fund report `/v1/fund` $4, `/v1/fund/max` $9;
-  domain audit `/v1/domain-audit` $3, `/v1/domain-audit/pro` $5; FDA recall
-  `/v1/recall-report` $3; insider flow `/v1/insider-report` $4; token risk
-  `/v1/token-risk` $3, `/v1/token-risk/pro` $6.
-- **Monitors** ($5/month each, card, https://agent402.tools/monitors): domain
-  security, 13F fund, FDA recall, insider flow, IPO pipeline - a cheap daily probe,
-  a full paid re-run and an email only when something changes.
+- **Report products** ($0.20 to $1.10 over x402/MPP, or $1 to $2 by card at
+  https://agent402.tools/reports - the card price includes payment processing,
+  an agent paying per call pays the lower tool price for the same report):
+  deep research `POST /v1/research` $0.35,
+  `/v1/research/pro` $0.65, `/v1/research/max` $1.10, market brief
+  `/v1/research/market-brief` $0.35; company dossier `/v1/dossier` $0.55,
+  `/v1/dossier/max` $0.95; ticker pack `/v1/ticker-pack` $0.75; 13F fund report
+  `/v1/fund` $0.25, `/v1/fund/max` $0.50; SEC filing report `/v1/filing-report`
+  $0.25; domain audit `/v1/domain-audit` $0.20, `/v1/domain-audit/pro` $0.30;
+  FDA recall `/v1/recall-report` $0.20; insider flow `/v1/insider-report` $0.25;
+  Solana token brief `/v1/token-brief` $0.35; token risk
+  `/v1/token-risk` $0.30, `/v1/token-risk/pro` $0.60.
+- **Monitors** ($3/month each, card, https://agent402.tools/monitors): domain
+  security, SEC filings, Solana token safety, 13F fund, FDA recall, insider flow,
+  IPO pipeline - a cheap daily probe, a full paid re-run and an email only when
+  something changes.
 - **MCP:** hosted connector `https://agent402.tools/mcp` (dotted tools:
   `catalog.search`, `catalog.find`, `catalog.call`, `payment.info`,
   `server.describe`, `sellers.list`, `demand.request`, plus flagships `web.search`,

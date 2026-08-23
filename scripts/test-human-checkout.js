@@ -53,7 +53,7 @@ async function settle(id, tries = 50) {
 }
 
 // products & gating
-ok(Object.values(HUMAN_PRODUCTS).every((p) => p.price >= 300), "every human product is >= $3 (card floor)");
+ok(Object.values(HUMAN_PRODUCTS).every((p) => p.price >= 100), "every human product clears $1, under which Stripe's 2.9% + $0.30 costs more than the report");
 ok(!humanCheckoutEnabled() || true, "humanCheckoutEnabled reads STRIPE_SECRET_KEY");
 ok(unchunkInput(chunkInput("Q".repeat(1200))) === "Q".repeat(1200) && Object.values(chunkInput("Q".repeat(1200))).every((v) => v.length <= 500), "long inputs are chunked into <=500-char Stripe metadata values and reassemble exactly");
 
@@ -90,7 +90,7 @@ await hc.fulfill("cs_paid"); // a concurrent poll must not double-generate
 const finalPaid = await settle("cs_paid");
 ok(finalPaid.status === "done" && /REPORT/.test(finalPaid.report), "the paid report completes and is stored");
 ok(genCalls === 1, "generate ran exactly ONCE despite two fulfill calls (idempotent)");
-ok(finalPaid._ctx === undefined && sales.length === 1 && sales[0].product === "dossier" && sales[0].priceUsd === 9 && sales[0].paymentIntent === "pi_ok", "a delivered report fires onSale once (accounting) and the record carries no generator context");
+ok(finalPaid._ctx === undefined && sales.length === 1 && sales[0].product === "dossier" && sales[0].priceUsd === 1 && sales[0].paymentIntent === "pi_ok", "a delivered report fires onSale once (accounting) and the record carries no generator context");
 await hc.fulfill("cs_paid");
 ok(genCalls === 1, "a re-fulfill after 'done' does NOT regenerate (no double upstream spend)");
 ok(existsSync(join(DIR, "cs_paid.json")) && !readFileSync(join(DIR, "_inflight.json"), "utf8").includes("cs_paid"), "the record is its own file; the in-flight index is cleared on completion");

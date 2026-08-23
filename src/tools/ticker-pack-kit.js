@@ -15,8 +15,8 @@
 // and the instruction is to CALL them rather than re-implement their pipelines,
 // so their own synthesis rides along. The bundle therefore reuses both parts'
 // synthesis and adds ONE small pass of its own. Upstream arithmetic:
-//     dossier   cap $3.60   (DOSSIER_TIERS["dossier"].maxUpstreamUsd)
-//   + insider   cap $1.60   (INSIDER_TIERS["insider-report"].maxUpstreamUsd)
+//     dossier   cap $0.45   (DOSSIER_TIERS["dossier"].maxUpstreamUsd)
+//   + insider   cap $0.20   (INSIDER_TIERS["insider-report"].maxUpstreamUsd)
 //   + holders   $0.00       (SEC EDGAR only: 1 full-text query + N XML reads)
 //   + filings   $0.00       (SEC EDGAR submissions JSON, 1 read)
 //   + pack pass cap $0.30   (PACK_SYNTH_MAX_UPSTREAM_USD, 1,800 output tokens)
@@ -55,7 +55,7 @@ const round2 = (n) => Number(n.toFixed(2));
 
 export const TICKER_PACK_TIERS = {
   "ticker-pack": {
-    price: "$15",
+    price: "$0.75",
     // Derived, never hand-typed: if a part's cap moves, this moves with it and
     // scripts/test-ticker-pack-kit.js fails the <= $5.50 bound.
     maxUpstreamUsd: round2(

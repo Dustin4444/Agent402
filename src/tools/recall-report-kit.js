@@ -20,7 +20,7 @@ function safeUser(req) { try { return req ? upstreamUserId(req) : undefined; } c
 const SYNTH = "anthropic/claude-opus-5";
 export const RECALL_MODELS = [SYNTH];
 export const RECALL_TIERS = {
-  "recall-report": { price: "$3", maxUpstreamUsd: 1.2, perFeed: 20, synthMaxTokens: 3200, words: "~1,100" },
+  "recall-report": { price: "$0.20", maxUpstreamUsd: 0.15, perFeed: 20, synthMaxTokens: 3200, words: "~1,100" },
 };
 const SYNTH_TIMEOUT_MS = 120_000;
 const PROBE_TIMEOUT_MS = 25_000;

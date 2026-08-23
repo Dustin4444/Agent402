@@ -597,7 +597,7 @@ function mobileMenuHtml(chainInfo, activePath) {
     <div class="ml-mm-h">For people</div>
     <div class="ml-mm-group">
       ${mmLink("/reports", "reports · card or USDC", activePath === "/reports")}
-      ${mmLink("/monitors", "monitors · $5 / month", activePath === "/monitors")}
+      ${mmLink("/monitors", "monitors · $3 / month", activePath === "/monitors")}
       ${mmLink("/credits", "credits · pay by card, use every tool", activePath === "/credits")}
     </div>
     <div class="ml-mm-h">Buy</div>

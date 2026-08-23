@@ -90,7 +90,11 @@ export function validateResponsesRequest(input, tierSlug) {
     if (!model) throw bad(`"model" is required (e.g. openai/gpt-4o-mini). This tier serves: ${tier.prefixes?.slice(0, 6).join(", ") || "see /v1/models"}`);
     if (!tierAllows(tierSlug, model)) {
       const home = tierFor(model);
-      throw bad(home && home !== tierSlug ? `"${model}" is served on ${RESPONSES_PATH_BY_TIER[home]} (${home})` : `"model" ${model} is not served on this tier - GET /v1/models lists every model and its tier`);
+      // RESPONSES_PATH_BY_TIER is an explicit map: a chat tier with no
+      // Responses twin would render as "served on undefined". Fall back to
+      // that tier's real chat route.
+      const homePath = home ? (RESPONSES_PATH_BY_TIER[home] || TIERS[home].route.split(" ")[1]) : null;
+      throw bad(home && home !== tierSlug ? `"${model}" is served on ${homePath} (${home})` : `"model" ${model} is not served on this tier - GET /v1/models lists every model and its tier`);
     }
   }
   const acc = { chars: 0, images: 0 };

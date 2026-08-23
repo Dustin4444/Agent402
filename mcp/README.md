@@ -77,7 +77,7 @@ the server runs in proof-of-work mode (pure-CPU tools stay free). Use dedicated
 low-value wallets for `AGENT_KEY` / `SOLANA_AGENT_KEY`, funded only with what
 you intend to spend. Most tools cost $0.001–$0.02. The routing tiers top out
 at $0.55 (`route-execute-max`); multi-tool skill packs run up to $1.50; and the
-report products run $3 to $19 per report (research $3 up to dossier-max $19),
+report products run $0.20 to $1.10 per report (domain-audit $0.20 up to research-max $1.10),
 so set `AGENT402_MAX_PER_CALL` if you want a hard per-call ceiling.
 
 ## How it works
@@ -98,7 +98,7 @@ so set `AGENT402_MAX_PER_CALL` if you want a hard per-call ceiling.
   | ≤ $0.50 | $0.55 | `POST /api/route/execute-max` |
 
   A tool priced above the tier's ceiling returns a self-correcting 409 naming its direct route.
-- **Report products** are catalog slugs like any other, so `catalog.call` runs them with a wallet or a credits key: `research` ($3), `research-pro` ($7), `research-max` ($12), `market-brief` ($7), `dossier` ($9), `dossier-max` ($19), `fund-report` ($4), `fund-report-max` ($9), `domain-audit` ($3), `domain-audit-pro` ($5), `token-risk` ($3), `token-risk-pro` ($6), `recall-report` ($3), `insider-report` ($4). The same reports are sold by card at https://agent402.tools/reports, and the recurring monitors (domain, fund, recall, insider, IPO - $5/month) at https://agent402.tools/monitors.
+- **Report products** are catalog slugs like any other, so `catalog.call` runs them with a wallet or a credits key: `research` ($0.35), `research-pro` ($0.65), `research-max` ($1.10), `market-brief` ($0.35), `dossier` ($0.55), `dossier-max` ($0.95), `fund-report` ($0.25), `fund-report-max` ($0.50), `domain-audit` ($0.20), `domain-audit-pro` ($0.30), `token-risk` ($0.30), `token-risk-pro` ($0.60), `token-brief` ($0.35), `recall-report` ($0.20), `insider-report` ($0.25), `filing-report` ($0.25), `ticker-pack` ($0.75). The same reports are sold to people by card at https://agent402.tools/reports for $1, or $2 for the deepest three: the card price includes payment processing, and an agent paying per call pays the lower tool price for the same report. The recurring monitors (domain, SEC filing, token, fund, recall, insider, IPO - $3/month) are at https://agent402.tools/monitors.
 
 ## Workflows (skill packs)
 

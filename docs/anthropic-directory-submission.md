@@ -41,8 +41,8 @@ privacy policy, public docs, and a no-auth streamable-HTTP endpoint.
 > the npm server with a funded wallet or a prepaid card-credits key. No LLM is
 > involved in serving deterministic tools: same input, same output, with full
 > input schemas. Report products (deep research, company dossier, 13F fund
-> report, domain audit, token risk, FDA recall, insider flow) are catalog slugs
-> too. Open source. Also reachable over the x402 and MPP payment protocols for
+> report, SEC filing report, domain audit, token risk, FDA recall, insider flow,
+> $0.20 to $1.10 each) are catalog slugs too. Open source. Also reachable over the x402 and MPP payment protocols for
 > autonomous agents with their own wallets.
 
 ## Tools exposed (15, each with title + safety annotations)

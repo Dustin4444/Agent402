@@ -66,7 +66,7 @@ instead - different mechanism, same price.
 
 ## The same 402 sells report products and takes card credits
 
-The outcome-priced report routes (`POST /v1/research`, `/v1/dossier`, `/v1/fund`, `/v1/domain-audit`, `/v1/recall-report`, `/v1/insider-report`, `/v1/token-risk`; $3 to $19) answer the identical 402, so any client that pays a $0.001 tool pays a $9 dossier the same way. Buyers with a card and no wallet can load prepaid credits at [`/credits`](https://agent402.tools/credits) and send `Authorization: Bearer a402_…` instead of a payment header; the credits gate holds the list price and debits only on a final `200`. Details on [[Reports, Monitors and Credits|Reports-and-Monitors]].
+The outcome-priced report routes (`POST /v1/research`, `/v1/dossier`, `/v1/fund`, `/v1/filing-report`, `/v1/domain-audit`, `/v1/recall-report`, `/v1/insider-report`, `/v1/token-brief`, `/v1/token-risk`; $0.20 to $1.10) answer the identical 402, so any client that pays a $0.001 tool pays a $0.55 dossier the same way. People without a wallet buy the same reports by card at [`/reports`](https://agent402.tools/reports) for $1 to $2, where the price includes payment processing. Buyers with a card and no wallet can load prepaid credits at [`/credits`](https://agent402.tools/credits) and send `Authorization: Bearer a402_…` instead of a payment header; the credits gate holds the list price and debits only on a final `200`. Details on [[Reports, Monitors and Credits|Reports-and-Monitors]].
 
 ## Command line: Stripe's `purl`
 

@@ -170,7 +170,7 @@ import { CALENDAR_TOOLS } from "./tools/calendar-kit.js";
 import { LLM_TOOLS } from "./tools/llm-kit.js";
 import { LLM_MESSAGES_TOOLS } from "./tools/llm-messages-kit.js";
 import { LLM_RESPONSES_TOOLS } from "./tools/llm-responses-kit.js";
-import { LLM_GATEWAY_TOOLS, modelsList, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, rerankCacheKey, RERANK_PATH, gatewayCreditsStatus } from "./tools/llm-gateway-kit.js";
+import { LLM_GATEWAY_TOOLS, modelsList, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, rerankCacheKey, RERANK_PATH, gatewayCreditsStatus, oxAlphaAvailable, probeOxAlphaAvailability, OX_ROUTE, oxUpstreamIsFree } from "./tools/llm-gateway-kit.js";
 // /v1/audio/speech stays behind OPENROUTER_TTS_ENABLED as a rollout gate:
 // @x402/express (v2.16) runs the handler first and settles only a <400
 // response, so a 502 is never charged — but an UNLISTED route returns no 402
@@ -182,8 +182,16 @@ import { LLM_GATEWAY_TOOLS, modelsList, promptCacheKey, promptCacheGet, promptCa
 // Railway var to true after this ships, then run the paid canary — its
 // llm-speech leg is the standing proof. If the flag is ever pulled again,
 // also pull the canary leg, or every canary run goes red.
+// The Ox Alpha tier (v1-chat-ox) rides the same kind of switch, for the
+// opposite reason: its model is a STEALTH listing that will be withdrawn when
+// the lab unmasks it, so OX_ALPHA_ENABLED=off removes the route from the
+// catalog outright (no route, no 402, no /api/pricing row) with no code
+// change. Default is on - the id was verified live on 2026-08-22. Between a
+// withdrawal and that switch being flipped, the boot probe below downgrades
+// the tier in-process (503 + dropped from /v1/models); a >=400 cancels
+// settlement, so a withdrawn model can never produce a charge.
 const GATEWAY_TOOLS_ENABLED = [
-  ...LLM_GATEWAY_TOOLS.filter((t) => t.slug !== "v1-audio-speech" || process.env.OPENROUTER_TTS_ENABLED === "true"),
+  ...LLM_GATEWAY_TOOLS.filter((t) => (t.slug !== "v1-audio-speech" || process.env.OPENROUTER_TTS_ENABLED === "true") && (t.slug !== "v1-chat-ox" || oxAlphaAvailable())),
   // Anthropic Messages wire on the same five tiers (src/tools/llm-messages-kit.js).
   ...LLM_MESSAGES_TOOLS,
   // OpenAI Responses wire on the same five tiers (src/tools/llm-responses-kit.js).
@@ -282,6 +290,10 @@ const TRIAL_IP_MIN = Math.max(1, Number(process.env.TRIAL_PER_IP_PER_MIN) || 3);
 const TRIAL_IP_HOUR = Math.max(1, Number(process.env.TRIAL_PER_IP_PER_HOUR) || 10);
 const trialToolLimiter = createRateLimiter("trial-tool", { perMin: TRIAL_PER_TOOL_HOUR, perHour: TRIAL_PER_TOOL_HOUR });
 const trialIpLimiter = createRateLimiter("trial-ip", { perMin: TRIAL_IP_MIN, perHour: TRIAL_IP_HOUR });
+// Slug the Ox Alpha trial is metered under. It is NOT a PoW-eligible slug: it
+// exists so the per-tool trial counter has a key, and it never reaches the
+// proof-of-work redemption path (that path keys off POW_ROUTES).
+const OX_TRIAL_SLUG = "v1-chat-ox";
 const TRIAL_LIMITS_LABEL = `${TRIAL_PER_TOOL_HOUR} per tool per hour, ${TRIAL_IP_HOUR} per hour per client`;
 import { recordRefundOwed, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals } from "./refund-ledger.js";
 import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent, getDailyCalls, dailyCallsRecordingSince, getDailyUpstreamCalls, getSellerRegistrations } from "./stats.js";
@@ -1572,6 +1584,20 @@ const revenueWallets = () => ({
 if (process.env.X402_INDEX_CRAWL !== "off" && process.env.X402_SYNC_ON_START !== "false") {
   setTimeout(() => { revenueSnapshot(revenueWallets()).catch(() => {}); }, 4_000).unref();
   setInterval(() => { revenueSnapshot(revenueWallets()).catch(() => {}); }, 5 * 60_000).unref();
+}
+
+// Stealth-model availability probe (v1-chat-ox / stealth/ox-alpha). ONE
+// non-blocking read of the public OpenRouter catalog, a few seconds after
+// boot: never on the request path, never blocking listen(), and skipped under
+// X402_SYNC_ON_START=false for the same reason every other boot probe is
+// (offline tests must not reach the network). If the stealth id has been
+// withdrawn upstream, the tier drops out of GET /v1/models and answers 503
+// before any upstream call - see probeOxAlphaAvailability. It fails OPEN on an
+// unreadable catalog and re-checks hourly, so a withdrawal is caught without a
+// redeploy and a transient egress failure never disables a working tier.
+if (process.env.X402_SYNC_ON_START !== "false" && GATEWAY_TOOLS_ENABLED.some((t) => t.slug === "v1-chat-ox")) {
+  setTimeout(() => { probeOxAlphaAvailability().catch(() => {}); }, 6_000).unref();
+  setInterval(() => { probeOxAlphaAvailability().catch(() => {}); }, 60 * 60_000).unref();
 }
 app.get("/api/revenue", async (_req, res) => {
   try {
@@ -3927,6 +3953,47 @@ const cardSvg = (width = 1200, height = 630) => {
   </g>
 </svg>`;
 };
+// X (Twitter) profile header, 1500x500 - the platform's own spec. Designed for
+// how X actually crops it: the avatar sits over the BOTTOM-LEFT, the sides are
+// shaved on narrow viewports, and the bottom strip is covered by profile text
+// on some clients. So everything that must be readable lives in the middle band
+// and away from the lower left; the corners carry only texture.
+const xHeaderSvg = (width = 1500, height = 500) => {
+  const n = Object.keys(CATALOG).length;
+  const mono = JSON.stringify(BRAND.mono);
+  const display = JSON.stringify(BRAND.display);
+  // LAYOUT IS DICTATED BY X'S CHROME, not by taste. The avatar is a circle that
+  // hangs over the BOTTOM-LEFT (roughly x < 400, y > 330 in these coordinates)
+  // and the buttons sit bottom-right, so the readable band is the top two
+  // thirds. Type is sized for that band: at profile width the header renders
+  // about 1160px wide, so anything under ~30px here reads as fine print.
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 1500 500">${BRAND_FONT_STYLE}${BRAND_DEFS}
+  <rect width="1500" height="500" fill="${BRAND.paper}"/>
+  <defs><linearGradient id="xfade" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="${BRAND.milledA}" stop-opacity="0"/>
+    <stop offset="1" stop-color="${BRAND.milledA}" stop-opacity="0.13"/>
+  </linearGradient></defs>
+  <rect x="760" y="0" width="740" height="500" fill="url(#xfade)"/>
+  <rect x="88" y="66" width="62" height="62" rx="16" fill="url(#milled)"/>
+  <text x="170" y="115" font-size="50" font-weight="600" font-family=${display} letter-spacing="-1" fill="${BRAND.ink}">Agent402</text>
+  <text x="88" y="238" font-size="80" font-weight="600" font-family=${display} letter-spacing="-3" fill="${BRAND.ink}">The web, priced per call.</text>
+  <text x="88" y="292" font-size="30" font-family=${display} fill="${BRAND.muted}">${n.toLocaleString("en-US")} tools an agent can pay for and use, in one call.</text>
+  <text x="88" y="336" font-size="23" font-family=${mono} fill="${BRAND.faint}">x402 · MPP · prepaid card · ${RAILS.length} chains · USDC &amp; USDG</text>
+  <text x="1412" y="112" font-size="23" font-family=${mono} text-anchor="end" fill="${BRAND.faint}">agent402.tools</text>
+  <text x="1412" y="238" font-size="30" font-family=${mono} text-anchor="end" fill="${BRAND.amber}">HTTP/2 402</text>
+  <text x="1412" y="288" font-size="30" font-family=${mono} text-anchor="end" fill="${BRAND.accent}">HTTP/2 200</text>
+</svg>`;
+};
+app.get("/x-header.svg", (_req, res) => res.type("image/svg+xml").set("Cache-Control", "public, max-age=86400").send(xHeaderSvg()));
+let xHeaderPngCache = null;
+app.get("/x-header.png", async (_req, res) => {
+  try {
+    xHeaderPngCache ??= await rasterizeSvg(xHeaderSvg(), { width: 1500, height: 500 });
+    res.type("image/png").set("Cache-Control", "public, max-age=86400").send(xHeaderPngCache);
+  } catch {
+    res.redirect(302, "/x-header.svg");
+  }
+});
 app.get("/card.svg", (_req, res) => res.type("image/svg+xml").set("Cache-Control", "public, max-age=86400").send(cardSvg()));
 let cardPngCache = null;
 app.get("/card.png", async (_req, res) => {
@@ -4870,11 +4937,28 @@ if (FREE_MODE) {
     // kept offering one. They redeem against the unit-convert slug because
     // that is literally the tool being performed; verifySolution is
     // slug-scoped, so a challenge minted for unit-convert is the right one.
-    const slug =
+    // The trial's safety property is normally STRUCTURAL: `slug` is set only for
+    // PoW-eligible (pure-CPU) routes, so a trial can never give away upstream
+    // money. The Ox Alpha tier is the one deliberate exception, and it is made
+    // safe DYNAMICALLY instead: `oxUpstreamIsFree()` is true only while a fresh
+    // read of the live catalog shows the model priced at exactly 0/0, and it
+    // fails closed on any error, any staleness, and any non-zero price. Stealth
+    // models get repriced without notice; when that happens the trial stops
+    // being offered on the next probe and the route stays paid.
+    const oxTrialSlug = (req.method === "POST" && req.path === OX_ROUTE && oxAlphaAvailable() && oxUpstreamIsFree())
+      ? OX_TRIAL_SLUG
+      : undefined;
+    // PoW REDEMPTION stays keyed strictly on PoW-eligible routes. The Ox trial
+    // must never widen it: proof-of-work is cheap and repeatable, so honouring a
+    // solved challenge on an upstream-calling route would be an unmetered free
+    // proxy. `powSlug` gates redemption; `slug` (which may be the Ox trial slug)
+    // gates only the trial counter below.
+    const powSlug =
       POW_ROUTES.get(`${req.method} ${req.path}`) ??
       (isRetiredConvertPath(req.path) ? RETIRED_CONVERT_POW_SLUG : undefined);
+    const slug = powSlug ?? oxTrialSlug;
     if (slug) {
-      const solution = req.header("x-pow-solution");
+      const solution = powSlug ? req.header("x-pow-solution") : null;
       if (solution) {
         const result = verifySolution(solution, slug);
         if (result.ok) {
