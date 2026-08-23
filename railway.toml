@@ -9,6 +9,12 @@ dockerfilePath = "Dockerfile"
 # ["docker-entrypoint.sh"] + CMD ["node","src/server.js"] now drive startup, so
 # the server runs non-root. (Behaviourally identical to the old startCommand for
 # the plain-CMD image, verified on a Railway preview 2026-07-18.)
+# Old and new deployments serve concurrently for this long before the old one
+# is drained. Railway's default is 0, which means a request can arrive at a
+# container that is already going away - the residual cause of the deploy blips
+# that turned /status amber on an otherwise healthy service. Pairs with
+# RAILWAY_DEPLOYMENT_DRAINING_SECONDS=90, which the deploy job sets.
+overlapSeconds = 20
 healthcheckPath = "/health"
 healthcheckTimeout = 60
 restartPolicyType = "ON_FAILURE"

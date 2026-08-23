@@ -576,6 +576,19 @@ export const MODEL_COST = [
   ["openai/gpt-4.1", { prompt: 2, completion: 8 }],
   // claude-opus covers claude-opus-5 ($5/$25) and -fast ($10/$50) — the $15/$75
   // legacy-opus bound overestimates both, which is the safe direction.
+  // Longest prefix wins, so the specific rows below beat the legacy blanket.
+  // Verified live on OpenRouter 2026-08-22. The "-fast" variants cost MORE than
+  // their base model, so each needs its own row or the base row would
+  // UNDERPRICE them.
+  ["anthropic/claude-opus-5-fast", { prompt: 10, completion: 50 }],
+  ["anthropic/claude-opus-5", { prompt: 5, completion: 25 }],
+  ["anthropic/claude-opus-4.7-fast", { prompt: 30, completion: 150 }],
+  ["anthropic/claude-opus-4.8-fast", { prompt: 10, completion: 50 }],
+  ["anthropic/claude-opus-4.5", { prompt: 5, completion: 25 }],
+  ["anthropic/claude-opus-4.6", { prompt: 5, completion: 25 }],
+  ["anthropic/claude-opus-4.7", { prompt: 5, completion: 25 }],
+  ["anthropic/claude-opus-4.8", { prompt: 5, completion: 25 }],
+  // opus-4 and 4.1 genuinely still list at $15/$75.
   ["anthropic/claude-opus", { prompt: 15, completion: 75 }],
   // claude-sonnet covers claude-sonnet-5 — was priced at an anticipated
   // STANDARD $3/$15 to guard against a scheduled 2026-09-01 increase from the
@@ -638,6 +651,29 @@ export function costFor(model) {
  *  refused). Everyone else caches implicitly at <= list. */
 export function cacheWriteFactor(model) {
   return canonicalModel(model).toLowerCase().startsWith("anthropic/") ? 1.25 : 1;
+}
+
+/** Tokenizer correction for the margin clamp.
+ *
+ *  The clamp prices the outbound body with an o200k BPE count, which is the
+ *  right shape for OpenAI-family models. Anthropic states plainly that "Claude
+ *  4.7 and later models and Claude Mythos Preview use a newer tokenizer... This
+ *  tokenizer produces approximately 30% more tokens for the same text" (their
+ *  own pricing page, read 2026-08-22). Claude Sonnet 4.6 and earlier use the
+ *  previous tokenizer.
+ *
+ *  Without this the clamp UNDERCOUNTS input on every Opus-5 / Fable-5 call by
+ *  roughly a third, which is the unsafe direction: it lets a body through that
+ *  costs more than the bound we computed for it. 1.35 leaves a little room over
+ *  the stated 30%, since the real increase "depends on the content".
+ */
+export const NEW_TOKENIZER_FACTOR = 1.35;
+export function tokenizerFactor(model) {
+  const m = canonicalModel(model).toLowerCase();
+  if (!m.startsWith("anthropic/")) return 1;
+  // The models on the OLD tokenizer, by their own documentation.
+  if (/claude-(3|3\.5|3\.7|sonnet-4|opus-4(\.[0-6])?|haiku-4)/.test(m)) return 1;
+  return NEW_TOKENIZER_FACTOR;
 }
 
 /** Buyer's prompt-cache preference (top-level OpenRouter `cache_control`):
@@ -713,7 +749,7 @@ export function worstCaseUpstreamCost(body, tier, imageCount = 0) {
   // (reads 0.1x), so the worst case for a first-seen long prompt is 1.25x -
   // priced in here so the clamp stays an honest bound; every other provider
   // caches implicitly at list price or below.
-  const inUsd = (inTokens / 1e6) * cost.prompt * cacheWriteFactor(body.model);
+  const inUsd = (inTokens / 1e6) * cost.prompt * cacheWriteFactor(body.model) * tokenizerFactor(body.model);
   const fixedUsd = Number(tier.fixedUpstreamUsd) || 0;
   const n = body.n || 1;
   const outUsd = ((Number(body.max_tokens) || 0) / 1e6) * cost.completion * n;

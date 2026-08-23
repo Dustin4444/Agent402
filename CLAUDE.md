@@ -96,7 +96,8 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
 - Raise the MCP free-tier limit for sweeps: `AGENT402_MCP_MAX_PER_MIN=999999 AGENT402_MCP_MAX_PER_HOUR=9999999`.
 
 ## x402 settlement ordering (CRITICAL — get this right)
-The installed **`@x402/express` v2.16 runs the handler FIRST, then settles**, and
+The installed **`@x402/express` (2.22.0 as of 2026-08-23, NOT the 2.16 this note
+long claimed) runs the handler FIRST, then settles**, and
 ONLY settles a `<400` response — for any handler `statusCode >= 400` it CANCELS
 settlement (`reason: "handler_failed"`) so the buyer is **NOT charged**; if
 settlement of a `<400` response fails, it discards the buffered body and returns a
@@ -1413,6 +1414,21 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   sitemap lists /reports /monitors /credits; homepage FAQ is 6 Q&As (visible == JSON-LD, pinned by
   test-home-page + test-index-page); hosted (`src/mcp-flagship.js`) and stdio (`mcp/output-schemas.js`)
   initialize instructions are separate copies that `test-surface-copy` requires byte-identical - edit both.
+
+- **Margin-clamp corrections (2026-08-23, from a platform sweep):** two errors in our own cost model, both
+  verified against primary sources the same day. (1) `MODEL_COST` carried a blanket `anthropic/claude-opus` at
+  $15/$75; live pricing is $5/$25 for opus-5 and 4.5-4.8, and only opus-4 / 4.1 are still $15/$75, so the premium
+  tier was shrinking `max_tokens` about 3x more than needed. Specific rows added (longest prefix wins) INCLUDING
+  the `-fast` twins, which cost MORE than their base model (opus-5-fast $10/$50, opus-4.7-fast $30/$150) and would
+  otherwise be underpriced by a shorter row. (2) The clamp counts the outbound body with o200k BPE, but Anthropic
+  states "Claude 4.7 and later models ... use a newer tokenizer [that] produces approximately 30% more tokens for
+  the same text" (their pricing page, read 2026-08-23), so we were UNDERCOUNTING input on exactly the priciest
+  models - loose in the unsafe direction. `tokenizerFactor()` (1.35, a little over the stated 30%) now rides beside
+  `cacheWriteFactor` and applies only to Claude 4.7+; Sonnet 4.6 and earlier and every non-Anthropic model take 1.
+  Also: CoinGecko removes the `community_data` / `developer_data` BLOCKS on 2026-08-28, and crypto-markets asked
+  for one; the two figures it surfaces are top-level and survive (probed live), so it stops requesting the block.
+  `railway.toml` gained `overlapSeconds = 20` - Railway's default is 0, which lets a request reach a container that
+  is already going away, the residual cause of the deploy blips that turned /status amber.
 
 ## Environment / ops (set on Railway, not in repo)
 `WALLET_ADDRESS`, `WALLET_ENS`, `NETWORK`, `CDP_API_KEY_ID/SECRET`, `FACILITATOR_URL`,

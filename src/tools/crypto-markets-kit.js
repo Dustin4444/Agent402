@@ -375,7 +375,13 @@ export const CRYPTO_MARKETS_TOOLS = [
       const coin = takeId(i.coin, "coin");
       const currency = takeCurrency(i.currency);
       const { data: d, fetchedAt, cached } = await cgGet(`/coins/${encodeURIComponent(coin)}`, {
-        localization: "false", tickers: "false", market_data: "true", community_data: "true", developer_data: "false", sparkline: "false",
+    // CoinGecko removes the community_data and developer_data BLOCKS on
+    // 2026-08-28 (their changelog, 2026-08-14). The two figures this tool
+    // surfaces are top-level fields that survive the removal - probed live
+    // 2026-08-22: sentiment_votes_up_percentage and watchlist_portfolio_users
+    // both answer with community_data off - so we stop asking for a block that
+    // is about to stop existing.
+        localization: "false", tickers: "false", market_data: "true", community_data: "false", developer_data: "false", sparkline: "false",
       }, TTL.list);
       if (!d || typeof d !== "object" || !d.id) throw bad("Market data upstream returned an unexpected shape", 502);
       const md = d.market_data || {};

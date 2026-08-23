@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 // scripts/test-crypto-markets-kit.js
 // Offline tests for src/tools/crypto-markets-kit.js. No network: globalThis.fetch
 // is stubbed. Covers the catalog envelope (12 tools, prices, GET routes, no
@@ -383,6 +384,18 @@ ok(calls.length === __test.MAX_ENTRIES + 6, "cache: bounded (oldest entry evicte
   ok(last && last.statusCode === 503, "rate bucket: past the per-minute budget the caller gets 503, never a charge");
   delete process.env.COINGECKO_MAX_PER_MIN;
   resetCgRateLimit();
+}
+
+// --- the coin profile does not depend on a block CoinGecko is removing --------
+// community_data and developer_data disappear from /coins/{id} on 2026-08-28.
+// Our two figures are top-level and survive; this pins that we neither ask for
+// the doomed block nor read from it.
+{
+  const src = readFileSync(new URL("../src/tools/crypto-markets-kit.js", import.meta.url), "utf8");
+  ok(!/community_data: "true"/.test(src), "the profile call does not request the community_data block");
+  ok(!/\.community_data\b/.test(src), "no field is read out of community_data");
+  ok(/sentiment_votes_up_percentage/.test(src) && /watchlist_portfolio_users/.test(src),
+    "sentiment and watchlist come from the TOP-LEVEL fields that survive the removal");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
