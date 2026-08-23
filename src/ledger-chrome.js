@@ -752,18 +752,32 @@ export function ledgerFooterFull() {
 // ---------------------------------------------------------------------------
 
 export function ledgerFooterCompact() {
+  // Three rows, deliberately. The previous compact footer carried 31 links in
+  // one undifferentiated wall, which is the same failure as labelling eight
+  // transactions tx1..tx8: with no hierarchy nothing reads as important and
+  // nothing gets clicked.
+  //
+  // What was dropped is still reachable - playground, skills, leaderboard,
+  // integrations, transactions, glossary, agentic finance and what-is-x402 are
+  // all in the sitemap and in the nav, so this costs discoverability nowhere
+  // that matters. `transparency` is the exception and stays: it is NOT in the
+  // sitemap, so removing its only link would orphan the page outright.
+  //
+  // The agent row is untouched on purpose. Those are machine surfaces, and
+  // test-mcp-self-consistency reads our published text to check an agent can
+  // find what we say exists.
   return `<footer style="border-top:1px solid var(--hairline);background:var(--footer-bg);">
   <div style="max-width:1180px;margin:0 auto;padding:26px 30px;font-family:var(--font-mono);font-size:12px;color:var(--faint);">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
-      <a href="/" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);"><span aria-hidden="true" style="width:18px;height:18px;border-radius:5px;background:var(--brand-mark);display:inline-block;"></span><span style="font-weight:600;font-family:var(--font-body);font-size:14px;">Agent402</span></a>
-      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/reports" style="color:var(--muted);text-decoration:none;">reports</a><a href="/monitors" style="color:var(--muted);text-decoration:none;">monitors</a><a href="/credits" style="color:var(--muted);text-decoration:none;">credits</a><a href="/playground" style="color:var(--muted);text-decoration:none;">playground</a><a href="/tools" style="color:var(--muted);text-decoration:none;">catalog</a><a href="/skills" style="color:var(--muted);text-decoration:none;">skills</a><a href="/pricing" style="color:var(--muted);text-decoration:none;">pricing</a><a href="/marketplace" style="color:var(--muted);text-decoration:none;">marketplace</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">leaderboard</a><a href="/sell" style="color:var(--muted);text-decoration:none;">sell</a><a href="/docs" style="color:var(--muted);text-decoration:none;">docs</a><a href="/integrations" style="color:var(--muted);text-decoration:none;">integrations</a></span>
+      <a href="/" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);"><span aria-hidden="true" style="width:18px;height:18px;border-radius:5px;background:var(--brand-mark);display:inline-block;"></span><span style="font-weight:600;font-size:14px;font-family:var(--font-sans);letter-spacing:-.01em;">Agent402</span></a>
+      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/reports" style="color:var(--muted);text-decoration:none;">reports</a><a href="/monitors" style="color:var(--muted);text-decoration:none;">monitors</a><a href="/credits" style="color:var(--muted);text-decoration:none;">credits</a><a href="/tools" style="color:var(--muted);text-decoration:none;">catalog</a><a href="/pricing" style="color:var(--muted);text-decoration:none;">pricing</a><a href="/marketplace" style="color:var(--muted);text-decoration:none;">marketplace</a><a href="/sell" style="color:var(--muted);text-decoration:none;">sell</a><a href="/docs" style="color:var(--muted);text-decoration:none;">docs</a></span>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--hairline);">
       <span>© 2026 Havok Holdings LLC · <a href="mailto:mike@agent402.tools" style="color:var(--muted);text-decoration:underline;">mike@agent402.tools</a></span>
-      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/revenue" style="color:var(--muted);text-decoration:none;">transactions</a><a href="/status" style="color:var(--muted);text-decoration:none;">status</a><a href="/agentic-finance" style="color:var(--muted);text-decoration:none;">agentic finance</a><a href="/glossary" style="color:var(--muted);text-decoration:none;">glossary</a><a href="/what-is-x402" style="color:var(--muted);text-decoration:none;">what is x402/MPP</a><a href="/privacy" style="color:var(--muted);text-decoration:none;">privacy</a><a href="/terms" style="color:var(--muted);text-decoration:none;">terms</a><a href="/transparency" style="color:var(--muted);text-decoration:none;">transparency</a><a href="/contact" style="color:var(--muted);text-decoration:none;">contact</a><a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" style="color:var(--muted);text-decoration:none;">github</a><a href="https://x.com/Agent402Tools" rel="noopener" style="color:var(--muted);text-decoration:none;">𝕏</a></span>
+      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/status" style="color:var(--muted);text-decoration:none;">status</a><a href="/transparency" style="color:var(--muted);text-decoration:none;">transparency</a><a href="/privacy" style="color:var(--muted);text-decoration:none;">privacy</a><a href="/terms" style="color:var(--muted);text-decoration:none;">terms</a><a href="/contact" style="color:var(--muted);text-decoration:none;">contact</a><a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" style="color:var(--muted);text-decoration:none;">github</a><a href="https://x.com/Agent402Tools" rel="noopener" style="color:var(--muted);text-decoration:none;">𝕏</a></span>
     </div>
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--hairline);">
-      <span style="letter-spacing:.08em;text-transform:uppercase;font-size:10px;">For agents</span>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:10px;">
+      <span style="letter-spacing:.1em;text-transform:uppercase;">for agents</span>
       <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/llms.txt" style="color:var(--muted);text-decoration:none;">llms.txt</a><a href="/openapi.json" style="color:var(--muted);text-decoration:none;">openapi.json</a><a href="/.well-known/x402" style="color:var(--muted);text-decoration:none;">.well-known/x402</a><a href="/api/pricing" style="color:var(--muted);text-decoration:none;">/api/pricing</a><a href="/api/stats" style="color:var(--muted);text-decoration:none;">/api/stats</a><a href="/api/status" style="color:var(--muted);text-decoration:none;">/api/status</a></span>
     </div>
   </div>
