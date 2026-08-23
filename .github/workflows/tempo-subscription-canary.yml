@@ -1,4 +1,4 @@
-name: Tempo subscription canary - live verification (dispatch-only)
+name: Tempo subscription canary - live verification (daily + dispatch)
 
 # LIVE proof of the MPP recurring subscription rail (tempo/subscription) against
 # production. Offline tests prove our logic against injected stubs; the charge

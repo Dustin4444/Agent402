@@ -1255,6 +1255,9 @@ jobs:
       - name: Composite cap enforcement (maxUpstreamUsd is checked at the shared chokepoint, not merely declared - offline)
         run: node scripts/test-composite-cap-enforcement.js
 
+      - name: Prices quoted in PROSE match real prices (meta + og descriptions, which docs-truth cannot see - offline)
+        run: node scripts/test-price-prose.js
+
       - name: Leaderboard RPC failures never carry the Alchemy key (host-only naming + redaction on the public lastError path — offline)
         run: node scripts/test-leaderboard-redaction.js
 

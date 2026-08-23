@@ -12,6 +12,11 @@ import { REPORTS_CSS } from "./human-reports-page.js";
 // nothing here touches Stripe. The target is escaped into the value attribute,
 // and only the matching product's field is filled.
 export function monitorsPage(baseUrl = "https://agent402.tools", prefill = null) {
+  // DERIVED, never typed: this is the meta + og description. It said "$3 a
+  // month" for a full day after the 2026-08-23 repricing moved every monitor to
+  // $5, because the prose that quotes a price is not where prices live.
+  const monthly = Object.values(MONITOR_PRODUCTS).map((p) => p.price / 100).filter((n) => Number.isFinite(n));
+  const monthlyLo = Math.min(...monthly), monthlyHi = Math.max(...monthly);
   const wanted = prefill && Object.hasOwn(MONITOR_PRODUCTS, String(prefill.product || "")) ? String(prefill.product) : null;
   const wantedTarget = wanted ? String(prefill.target ?? "").trim().slice(0, 200) : "";
   const cards = Object.entries(MONITOR_PRODUCTS).map(([key, p]) => `
@@ -40,7 +45,7 @@ ${ledgerFooterCompact()}
 <script src="/js/monitors.js"></script>`;
   return ledgerShell({
     title: "Agent402 Monitors: domain, 13F, recall, insider, IPO watch",
-    description: "$3 a month monitors: domain security, SEC filings, Solana token safety, fund 13F, FDA recall, insider flow, IPO pipeline. Re-run on their own, emailed on change, card via Stripe, cancel anytime.",
+    description: `$${monthlyLo}${monthlyLo === monthlyHi ? "" : ` to $${monthlyHi}`} a month monitors: domain security, SEC filings, Solana token safety, fund 13F, FDA recall, insider flow, IPO pipeline. Re-run on their own, emailed on change, card via Stripe, cancel anytime.`,
     canonical: `${baseUrl}/monitors`, baseUrl, activePath: "/monitors", extraCss: REPORTS_CSS, body,
     // A prefilled variant is the same page with a form filled in: keep one
     // canonical URL and keep the variants out of the index.
