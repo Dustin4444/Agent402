@@ -80,6 +80,7 @@ import { join } from "node:path";
 import { Challenge, Credential, Method, Receipt } from "mppx";
 import * as Tempo from "mppx/tempo";
 import { tempo as tempoServer } from "mppx/server";
+import { privateKeyToAccount } from "viem/accounts";
 import { MONITOR_PRODUCTS } from "./stripe-subscriptions.js";
 
 // Tempo mainnet. Same constant mpp-tempo.js pins; a subscription authorization
@@ -162,6 +163,39 @@ function envCurrency() {
   const c = raw.toLowerCase() === "usdc" ? USDC_E_ADDRESS : raw.toLowerCase() === "pathusd" ? PATH_USD_ADDRESS : raw;
   return c;
 }
+/**
+ * THE GAS SPONSOR, and why this rail cannot run without one.
+ *
+ * A Tempo subscription charge is signed and broadcast straight to an RPC with
+ * no relay in the path, so nothing sponsors its gas the way api.tempo.xyz
+ * sponsors a tempo/charge. mppx has two code paths for that transaction and
+ * they are not equivalent: WITH a fee payer it builds the transaction through
+ * `prepareTransactionRequest`, which populates gas and fee fields; WITHOUT one
+ * it calls `signTransaction` on a bare request that carries none. viem does not
+ * fill them in, so the unsponsored transaction is signed with a ZERO gas price
+ * and Tempo rejects it - measured live against production, three runs, every
+ * one `-32000 gas price is less than basefee` (basefee 0.6 gwei), and pinned at
+ * the byte level: the serialized transaction reads `821079 80 80 80`, i.e.
+ * chainId 4217 followed by three empty fee fields.
+ *
+ * So the unsponsored path can never settle on a chain with a non-zero basefee.
+ * mppx's fee-payer URL form (a sponsorship service) is wired for tempo/CHARGE
+ * only - `Subscription.createContext` reads `feePayer` and never `feePayerUrl` -
+ * so a URL is not an option here and an ACCOUNT is required.
+ *
+ * `TEMPO_SUBSCRIPTION_FEE_PAYER_KEY` is that account: a dedicated Tempo wallet
+ * holding gas, NEVER the treasury and never the CI burner. We pay the gas for
+ * every activation and every renewal, which is the honest description of this
+ * rail: the earlier note that "the tx sends from THEIR account so they pay
+ * their own gas" was wrong about who funds it.
+ */
+export function subscriptionFeePayer() {
+  const raw = (process.env.TEMPO_SUBSCRIPTION_FEE_PAYER_KEY || "").trim();
+  if (!raw) return null;
+  try { return privateKeyToAccount(raw.startsWith("0x") ? raw : `0x${raw}`); }
+  catch { return null; }
+}
+
 function envDecimals() {
   const n = Number(process.env.TEMPO_DECIMALS);
   return Number.isInteger(n) && n >= 0 ? n : 6;
@@ -184,6 +218,11 @@ export function mppSubscriptionsEnabled() {
   if (String(process.env.MPP_SUBSCRIPTIONS || "").toLowerCase() === "off") return false;
   if (!(process.env.MPP_SECRET_KEY || "").trim()) return false;
   if (!/^0x[0-9a-fA-F]{40}$/.test(envRecipient())) return false;
+  // No sponsor, no rail. Without a fee payer every subscribe attempt is signed
+  // with a zero gas price and refused by the chain, so mounting the routes
+  // would advertise a product we provably cannot deliver - the endpoint would
+  // 402 forever and the offer would be a lie. See subscriptionFeePayer().
+  if (!subscriptionFeePayer()) return false;
   return mppSubscriptionMethodAvailable();
 }
 
@@ -418,6 +457,10 @@ export function createMppSubscriptions({
   }
   const clientOverride = () => (process.env.TEMPO_RPC_URL ? { getClient: () => tempoClient() } : {});
 
+  // Resolved once at construction: the engine is only ever created when the
+  // rollout switch passed, and that switch already requires this account.
+  const feePayer = subscriptionFeePayer();
+
   const method = tempoServer.subscription({
     // Every monitor product is priced the same today, and the activation path
     // never reads this default: `verify` works off the CHALLENGE's own request,
@@ -428,6 +471,9 @@ export function createMppSubscriptions({
     periodCount: PERIOD_COUNT, periodUnit: PERIOD_UNIT,
     subscriptionExpires: new Date(Math.floor((Date.now() + SUBSCRIPTION_TERM_MS) / 1000) * 1000),
     store: kv,
+    // Makes mppx build the transaction through prepareTransactionRequest, which
+    // is the ONLY path that populates gas and fee fields. See subscriptionFeePayer().
+    ...(feePayer ? { feePayer } : {}),
     ...clientOverride(),
     resolve: ({ request, source }) => {
       const ak = String(request?.methodDetails?.accessKey?.accessKeyAddress || "").toLowerCase();

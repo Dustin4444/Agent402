@@ -42,6 +42,11 @@ process.env.MPP_SECRET_KEY = SECRET;
 process.env.TEMPO_RECIPIENT_ADDRESS = RECIPIENT;
 process.env.TEMPO_CURRENCY = "usdc";
 process.env.TEMPO_DECIMALS = "6";
+// A throwaway key: this suite never broadcasts, but the rollout switch now
+// requires a gas sponsor because the unsponsored mppx path signs a ZERO gas
+// price and Tempo refuses it (measured live, three runs, -32000 "gas price is
+// less than basefee").
+process.env.TEMPO_SUBSCRIPTION_FEE_PAYER_KEY = "0x" + "11".repeat(32);
 delete process.env.MPP_SUBSCRIPTIONS;
 delete process.env.TEMPO_RPC_URL;
 
@@ -53,7 +58,16 @@ ok(Tempo.Methods.subscription.intent === "subscription" && Tempo.Methods.subscri
 ok(Array.isArray(Tempo.Methods.chargeModes) && !("supportedModes" in (Tempo.Methods.subscription.schema.request ?? {})), "chargeModes belongs to tempo/charge: the subscription request carries no mode field (it is always a server pull)");
 ok(PERIOD === 30 * 24 * 3600 * 1000, `a monthly product is periodCount ${PERIOD_COUNT}/${PERIOD_UNIT} = ${PERIOD / 86400000} days (mppx has no "month" unit)`);
 
-ok(mppSubscriptionsEnabled() === true, "rollout switch: enabled with MPP_SECRET_KEY + a Tempo recipient + the method present");
+ok(mppSubscriptionsEnabled() === true, "rollout switch: enabled with MPP_SECRET_KEY + a Tempo recipient + a fee payer + the method present");
+{
+  const saved = process.env.TEMPO_SUBSCRIPTION_FEE_PAYER_KEY;
+  delete process.env.TEMPO_SUBSCRIPTION_FEE_PAYER_KEY;
+  ok(mppSubscriptionsEnabled() === false,
+    "rollout switch: NO gas sponsor means the rail is not mounted at all - the unsponsored mppx path signs a zero gas price, so every subscribe would 402 forever and advertising it would be a product we cannot deliver");
+  process.env.TEMPO_SUBSCRIPTION_FEE_PAYER_KEY = "not-a-key";
+  ok(mppSubscriptionsEnabled() === false, "rollout switch: an unparseable sponsor key is treated as no sponsor, never as a silent fallback to the unsponsored path");
+  process.env.TEMPO_SUBSCRIPTION_FEE_PAYER_KEY = saved;
+}
 process.env.MPP_SUBSCRIPTIONS = "off";
 ok(mppSubscriptionsEnabled() === false, "rollout switch: MPP_SUBSCRIPTIONS=off disarms it");
 delete process.env.MPP_SUBSCRIPTIONS;
