@@ -824,6 +824,15 @@ export function createMppSubscriptions({
       subscriptionId: rec.mppxSubscriptionId,
       store: kv,
       recipient,
+      // The sponsor has to be passed HERE TOO. `renewSubscription` is a
+      // standalone entry point: it calls createContext on its OWN parameters
+      // rather than reusing the one the method was built with, so a fee payer
+      // configured on `tempoServer.subscription(...)` does not reach it. Without
+      // this the renewal takes mppx's unsponsored path and is signed with a zero
+      // gas price - the live canary activated fine and then failed every renewal
+      // with the same `-32000 gas price is less than basefee` the activation leg
+      // had already been fixed for.
+      ...(feePayer ? { feePayer, feePayerPolicy: subscriptionFeePayerPolicy() } : {}),
       ...clientOverride(),
     });
     return result ? { reference: result.receipt?.reference || result.subscription?.reference || null } : null;
