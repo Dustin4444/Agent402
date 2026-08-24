@@ -67,5 +67,49 @@ for (const [name, j] of Object.entries(jobs)) {
   if (installs) ok(usesBrowser, `job "${name}" installs Chromium but runs no browser-driven script - pure wasted minutes`);
 }
 
+// --- a job that runs our scripts must be able to run them ------------------
+// tree-gate shipped without an install step and its first real run died on a
+// missing dependency. It failed closed so nothing was released untested, but a
+// guard that cannot execute saves nothing, and nothing here would have noticed
+// - the job simply went red beside a green suite.
+//
+// "Needs node_modules" is read from the SCRIPTS, transitively through their own
+// relative imports, never from the job's name. The first draft asked only "does
+// this job run node scripts/" and flagged `probe`, whose script imports nothing
+// but node:url - the same name-shaped guessing this file already had to remove
+// once for Chromium.
+const bareImportsIn = (file, seen = new Set()) => {
+  const path = new URL(`../${file}`, import.meta.url);
+  if (seen.has(path.href) || !existsSync(path)) return false;
+  seen.add(path.href);
+  const src = readFileSync(path, "utf8");
+  // Static AND dynamic. The first version matched only `from "x"` / `import "x"`
+  // and so missed `await import("x")` - which is exactly how ci-tree-gate.js
+  // loads js-yaml, meaning the guard did not catch the very bug it was written
+  // for. The mutation that removes the gate's install step passed a green run.
+  const specs = [
+    ...[...src.matchAll(/(?:from|import)\s+["']([^"']+)["']/g)].map((m) => m[1]),
+    ...[...src.matchAll(/import\s*\(\s*["']([^"']+)["']\s*\)/g)].map((m) => m[1]),
+    ...[...src.matchAll(/require\s*\(\s*["']([^"']+)["']\s*\)/g)].map((m) => m[1]),
+  ];
+  for (const spec of specs) {
+    if (spec.startsWith("node:")) continue;
+    if (!spec.startsWith(".")) return true;           // a real package
+    const rel = new URL(spec, path);
+    const relFile = rel.pathname.slice(new URL("../", import.meta.url).pathname.length);
+    if (bareImportsIn(relFile, seen)) return true;
+  }
+  return false;
+};
+for (const [name, j] of Object.entries(jobs)) {
+  const steps = j.steps || [];
+  const files = steps.flatMap((s) => [...String(s.run || "").matchAll(/(scripts\/[\w.-]+\.js)/g)].map((m) => m[1]));
+  if (!files.length) continue;
+  const needsModules = files.some((f) => bareImportsIn(f));
+  if (!needsModules) continue;
+  const installs = steps.some((s) => /npm (ci|install)/.test(String(s.run || "")));
+  ok(installs, `job "${name}" runs a script that imports a package but never installs dependencies - it dies on the first import`);
+}
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
