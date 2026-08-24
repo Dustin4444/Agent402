@@ -52,6 +52,27 @@ export const EXPENSIVE_COMPOSITE_SLUGS = new Set([
   "v1-images-fast", "v1-images-pro", "v1-videos",
 ]);
 
+/** Slugs that are long-running for a reason OTHER than composite spend.
+ *  Kept beside the set above because they feed the same rule. */
+export const LONG_RUNNING_SLUGS = new Set(["v1-videos"]);
+
+/** True when a route runs long enough that only EVM `exact` can settle it.
+ *
+ *  A 40 to 240 second run outlives an SVM recent-blockhash, the default AVM
+ *  validity window and a Tempo credential, and settlement happens AFTER the
+ *  handler - so offering those rails would mean the work is done and the buyer
+ *  is never charged.
+ *
+ *  THIS IS THE ONE DEFINITION. server.js used to keep its own local copy of the
+ *  long-running set, so the weekly Algorand sweep - which correctly imports
+ *  isIdentityBoundRoute from the server rather than pattern-matching - had no
+ *  way to know these routes advertise no AVM accept BY DESIGN, and reported
+ *  three of them as a rail that had silently gone away. The sweep was right to
+ *  ask; the answer simply lived somewhere it could not reach. */
+export function isLongRunningSlug(slug) {
+  return EXPENSIVE_COMPOSITE_SLUGS.has(slug) || LONG_RUNNING_SLUGS.has(slug);
+}
+
 /** True if this payer is currently blocked (checked BEFORE the handler spends). */
 export function compositeGuardBlocked(payer) {
   if (!payer) return false;

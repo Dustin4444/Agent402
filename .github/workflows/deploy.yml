@@ -1480,6 +1480,9 @@ jobs:
       - name: Buyer SDK response-size ceiling (refused before parsing; a paid oversize says it was paid - offline)
         run: node scripts/test-client-response-cap.js
 
+      - name: Long-running routes are EVM-exact-only by ONE definition (server and the AVM sweep agree - offline)
+        run: node scripts/test-long-running-parity.js
+
       - name: Buyer SDK spending caps (concurrency reservation + 402-amount inspection — wallet-safety lock — offline)
         run: node scripts/test-client-caps.js
 

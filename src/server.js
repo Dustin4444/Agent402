@@ -24,11 +24,10 @@ import {
   PERSISTENT as memoryPersistent,
 } from "./tools/memory.js";
 import { payerFromRequest, payerFromPaymentResponse, paymentHeaderOf, paymentIdentifierOf } from "./payer.js";
-import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpendFailure, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS, _compositeGuardState, compositeUsageSnapshot } from "./composite-spend-guard.js";
+import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpendFailure, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS, isLongRunningSlug, _compositeGuardState, compositeUsageSnapshot } from "./composite-spend-guard.js";
 // Single-upstream-call routes that run long (40 s+): EVM exact only, like the
 // composites (settle-after on SVM/AVM/Tempo is work done, never charged), but
 // not composite-spend-guarded (one bounded upstream price).
-const LONG_RUNNING_SLUGS = new Set(["v1-videos"]);
 import Stripe from "stripe";
 import { createHumanCheckout, humanCheckoutEnabled, HUMAN_PRODUCTS } from "./human-checkout.js";
 import { humanReportsPage, reportDeliveryPage } from "./human-reports-page.js";
@@ -1112,7 +1111,7 @@ for (const def of Object.values(CATALOG)) {
   if (isIdentityBoundRoute(def)) def.identityBound = true;
   // Long-running composites settle AFTER a 2-4 min handler: EVM exact only
   // (see acceptsForItem) and no Tempo challenge (see mpp-tempo).
-  if (EXPENSIVE_COMPOSITE_SLUGS.has(def.slug) || LONG_RUNNING_SLUGS.has(def.slug)) def.longRunning = true;
+  if (isLongRunningSlug(def.slug)) def.longRunning = true;
 }
 
 // Boot-time guard: the retired pairwise-converter 410 handler (see the
@@ -4664,7 +4663,7 @@ if (!FREE_MODE) {
       if (!def) return null;
       const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
       if (!priceUsd) return null;
-      return { priceUsd, description: def.name, identityBound: isIdentityBoundRoute(def), longRunning: EXPENSIVE_COMPOSITE_SLUGS.has(def.slug) || LONG_RUNNING_SLUGS.has(def.slug) };
+      return { priceUsd, description: def.name, identityBound: isIdentityBoundRoute(def), longRunning: isLongRunningSlug(def.slug) };
     },
   });
   if (tempoAppender) app.use(tempoAppender);
@@ -4680,7 +4679,7 @@ if (!FREE_MODE) {
       if (!def) return null;
       const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
       if (!priceUsd) return null;
-      return { priceUsd, description: def.name, identityBound: isIdentityBoundRoute(def), longRunning: EXPENSIVE_COMPOSITE_SLUGS.has(def.slug) || LONG_RUNNING_SLUGS.has(def.slug) };
+      return { priceUsd, description: def.name, identityBound: isIdentityBoundRoute(def), longRunning: isLongRunningSlug(def.slug) };
     },
   });
   if (stripeAppender) app.use(stripeAppender);
