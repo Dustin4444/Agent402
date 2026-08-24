@@ -2360,75 +2360,6 @@ jobs:
           SOLANA_402=$(jq -r '[.accepts[]? | select((.network // "") | startswith("solana:"))] | length' /tmp/402req.json 2>/dev/null || echo 0)
           [ "$SOLANA_402" -ge 1 ] || { echo "402 accepts is missing the Solana option despite SOLANA_WALLET_ADDRESS being set"; exit 1; }
 
-      - name: Check production is serving the new catalog
-        # Non-blocking: this is a smoke test against live prod, not a pre-deploy
-        # gate. Making it blocking creates a deadlock — if a bad deploy ever
-        # crashes prod, this check fails on the *next* push and prevents the
-        # rescue deploy from running (the deploy job has needs: test). Railway's
-        # own "Verify deployment" step in the deploy job is the real gate.
-        continue-on-error: true
-        run: |
-          PROD=https://agent402.tools
-          # The deploy job and this test job run concurrently, so production may
-          # still be swapping to the new image when we get here. Poll for up to
-          # ~2 min before deciding it's a real failure (avoids rollout-race flakes).
-          N=0; paid=000
-          for i in $(seq 1 12); do
-            N=$(curl -s --max-time 10 "$PROD/api/pricing" | jq '.endpoints | length' 2>/dev/null || echo 0)
-            paid=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST "$PROD/api/hash" -H 'Content-Type: application/json' -H 'Accept: application/json' -d '{"text":"x"}' || echo 000)
-            [ "${N:-0}" -ge 500 ] && [ "$paid" = "402" ] && break
-            echo "  attempt $i: endpoints=$N hash=$paid — production still rolling out, retrying in 10s…"
-            sleep 10
-          done
-          echo "production endpoint count: $N (expect >= 500); hash unpaid → HTTP $paid (expect 402)"
-          [ "${N:-0}" -ge 500 ] && [ "$paid" = "402" ] || { echo "Production not serving the catalog after ~2 min — real problem, investigate."; exit 1; }
-          curl -s "$PROD/api/pricing" | jq -r '.endpoints[] | "\(.method) \(.path) \(.price)"'
-          echo "=== SEO + discovery surfaces on production (hard gate) ==="
-          # These have all been live in production for a while — a miss now is a
-          # real regression, not rollout lag. NOTE: this step runs BEFORE the
-          # deploy job, so it checks the PREVIOUS build's homepage — a fix to
-          # these surfaces goes green on the run AFTER the one that ships it.
-          FAILS=0
-          ck() { if eval "$2"; then echo "  $1 ✓"; else echo "  $1 MISSING"; FAILS=$((FAILS+1)); fi; }
-          HTML=$(curl -s "$PROD/")
-          ck "FAQPage JSON-LD"            'echo "$HTML" | grep -q "\"FAQPage\""'
-          # The ledger homepage renders the FAQ section with a "$ GET /faq"
-          # kicker (its h2 is styled, so the old <h2>FAQ</h2> literal is gone).
-          ck "visible FAQ"               'echo "$HTML" | grep -q "GET /faq"'
-          ck "AggregateOffer"            'echo "$HTML" | grep -q AggregateOffer'
-          ck "robots welcomes AI crawlers" 'curl -s "$PROD/robots.txt" | grep -q GPTBot'
-          ck "MCP connector on landing"  'echo "$HTML" | grep -q agent402-mcp'
-          ck "MCP connector in llms.txt" 'curl -s "$PROD/llms.txt" | grep -q agent402-mcp'
-          ck "unit-convert tool page"    'curl -s "$PROD/tools/unit-convert" | grep -q "Unit convert"'
-          ck "guides with TechArticle JSON-LD" 'curl -s "$PROD/guides/x402-in-5-minutes" | grep -q TechArticle'
-          [ "$FAILS" -eq 0 ] || { echo "$FAILS production surface(s) regressed"; exit 1; }
-          echo "=== proof-of-work tier live on production (no wallet) ==="
-          node --input-type=module -e '
-          const B = "'"$PROD"'";
-          const { createHash } = await import("node:crypto");
-          const lz = (b) => { let t = 0; for (const x of b) { if (!x) { t += 8; continue; } t += Math.clz32(x) - 24; break; } return t; };
-          const cr = await fetch(B + "/api/pow/challenge?slug=hash");
-          const ct = cr.headers.get("content-type") || "";
-          if (!ct.includes("application/json")) { console.error("Production not yet serving /api/pow (still building the new image?) — re-run shortly."); process.exit(1); }
-          const c = await cr.json();
-          let n = 0; while (lz(createHash("sha256").update(c.challenge + ":" + n).digest()) < c.difficulty) n++;
-          const r = await fetch(B + "/api/hash", { method: "POST", headers: { "Content-Type": "application/json", "X-Pow-Solution": c.token + ":" + n }, body: JSON.stringify({ text: "hello world" }) });
-          if (r.status !== 200) { console.error("PoW on production returned " + r.status); process.exit(1); }
-          console.log("solved difficulty " + c.difficulty + " -> /api/hash HTTP 200, X-Pow-Accepted:", r.headers.get("x-pow-accepted"));
-          '
-          echo "=== remote MCP connector live on production (paid mode, real paywall mount order) ==="
-          # /mcp is new — the old image 404s it, so poll through the rollout window.
-          MCP_OK=0
-          for i in $(seq 1 8); do
-            if TARGET_URL=$PROD node scripts/test-mcp-http.js; then MCP_OK=1; break; fi
-            echo "  attempt $i: /mcp not serving yet — retrying in 15s…"; sleep 15
-          done
-          [ "$MCP_OK" = "1" ] || { echo "Remote MCP connector not live on production"; exit 1; }
-          echo "=== watch an agent pay an agent (live, no wallet) ==="
-          TARGET_URL=https://agent402.tools node scripts/demo-payment.js
-          echo "=== live M2M stats (informational; present once deployed) ==="
-          curl -s https://agent402.tools/api/stats | jq '{tools, wallet, onchainRevenueProof, served: .toolCallsServed}' || echo "(/api/stats not live yet — will appear after this image rolls out)"
-
   publish:
     needs: [markers, test, test-unit-a, test-unit-b]
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' || needs.markers.outputs.publish == 'true'
@@ -3589,3 +3520,93 @@ jobs:
         run: |
           if [ -z "$INDEXNOW_KEY" ]; then echo "INDEXNOW_KEY secret not set — skipping"; exit 0; fi
           node scripts/indexnow-submit.js || echo "IndexNow ping failed (non-fatal — the sitemap remains the source of truth)"
+
+      # The moved smoke check runs node against production: demo-payment.js
+      # imports @x402/core, @x402/evm, @x402/fetch and viem at call time, and
+      # the deploy job previously had neither a pinned node nor node_modules
+      # (it only checks out and talks to Railway's API). --ignore-scripts is
+      # correct here: nothing in this job boots our server, so better-sqlite3's
+      # native build is not needed.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: Install dependencies for the production smoke check
+        run: npm ci --ignore-scripts
+
+      - name: Check production is serving the new catalog
+        # MOVED OUT OF THE TEST LANE (2026-08-24). It sat at the end of the
+        # test job, where it cost ~146s of the critical path polling for a
+        # rollout that had not happened yet - deploy needs test, so the image it
+        # checked was the PREVIOUS one. Its own comment said so: "a fix to these
+        # surfaces goes green on the run AFTER the one that ships it". Here it
+        # checks the build this run just shipped, which is what it was always
+        # trying to do.
+        #
+        # STILL NON-BLOCKING, deliberately and unchanged. Note that means the
+        # `exit 1` paths below - the SEO surfaces, PoW, the MCP connector - do
+        # not fail the run today either; they report. Moving it does not change
+        # that, and making it a real gate is a separate decision now that the
+        # deadlock argument for keeping it soft (a failed check blocking the
+        # rescue deploy) no longer applies after the deploy.
+        continue-on-error: true
+        run: |
+          PROD=https://agent402.tools
+          # The deploy job and this test job run concurrently, so production may
+          # still be swapping to the new image when we get here. Poll for up to
+          # ~2 min before deciding it's a real failure (avoids rollout-race flakes).
+          N=0; paid=000
+          for i in $(seq 1 12); do
+            N=$(curl -s --max-time 10 "$PROD/api/pricing" | jq '.endpoints | length' 2>/dev/null || echo 0)
+            paid=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST "$PROD/api/hash" -H 'Content-Type: application/json' -H 'Accept: application/json' -d '{"text":"x"}' || echo 000)
+            [ "${N:-0}" -ge 500 ] && [ "$paid" = "402" ] && break
+            echo "  attempt $i: endpoints=$N hash=$paid — production still rolling out, retrying in 10s…"
+            sleep 10
+          done
+          echo "production endpoint count: $N (expect >= 500); hash unpaid → HTTP $paid (expect 402)"
+          [ "${N:-0}" -ge 500 ] && [ "$paid" = "402" ] || { echo "Production not serving the catalog after ~2 min — real problem, investigate."; exit 1; }
+          curl -s "$PROD/api/pricing" | jq -r '.endpoints[] | "\(.method) \(.path) \(.price)"'
+          echo "=== SEO + discovery surfaces on production (hard gate) ==="
+          # These have all been live in production for a while — a miss now is a
+          # real regression, not rollout lag. NOTE: this step runs BEFORE the
+          # deploy job, so it checks the PREVIOUS build's homepage — a fix to
+          # these surfaces goes green on the run AFTER the one that ships it.
+          FAILS=0
+          ck() { if eval "$2"; then echo "  $1 ✓"; else echo "  $1 MISSING"; FAILS=$((FAILS+1)); fi; }
+          HTML=$(curl -s "$PROD/")
+          ck "FAQPage JSON-LD"            'echo "$HTML" | grep -q "\"FAQPage\""'
+          # The ledger homepage renders the FAQ section with a "$ GET /faq"
+          # kicker (its h2 is styled, so the old <h2>FAQ</h2> literal is gone).
+          ck "visible FAQ"               'echo "$HTML" | grep -q "GET /faq"'
+          ck "AggregateOffer"            'echo "$HTML" | grep -q AggregateOffer'
+          ck "robots welcomes AI crawlers" 'curl -s "$PROD/robots.txt" | grep -q GPTBot'
+          ck "MCP connector on landing"  'echo "$HTML" | grep -q agent402-mcp'
+          ck "MCP connector in llms.txt" 'curl -s "$PROD/llms.txt" | grep -q agent402-mcp'
+          ck "unit-convert tool page"    'curl -s "$PROD/tools/unit-convert" | grep -q "Unit convert"'
+          ck "guides with TechArticle JSON-LD" 'curl -s "$PROD/guides/x402-in-5-minutes" | grep -q TechArticle'
+          [ "$FAILS" -eq 0 ] || { echo "$FAILS production surface(s) regressed"; exit 1; }
+          echo "=== proof-of-work tier live on production (no wallet) ==="
+          node --input-type=module -e '
+          const B = "'"$PROD"'";
+          const { createHash } = await import("node:crypto");
+          const lz = (b) => { let t = 0; for (const x of b) { if (!x) { t += 8; continue; } t += Math.clz32(x) - 24; break; } return t; };
+          const cr = await fetch(B + "/api/pow/challenge?slug=hash");
+          const ct = cr.headers.get("content-type") || "";
+          if (!ct.includes("application/json")) { console.error("Production not yet serving /api/pow (still building the new image?) — re-run shortly."); process.exit(1); }
+          const c = await cr.json();
+          let n = 0; while (lz(createHash("sha256").update(c.challenge + ":" + n).digest()) < c.difficulty) n++;
+          const r = await fetch(B + "/api/hash", { method: "POST", headers: { "Content-Type": "application/json", "X-Pow-Solution": c.token + ":" + n }, body: JSON.stringify({ text: "hello world" }) });
+          if (r.status !== 200) { console.error("PoW on production returned " + r.status); process.exit(1); }
+          console.log("solved difficulty " + c.difficulty + " -> /api/hash HTTP 200, X-Pow-Accepted:", r.headers.get("x-pow-accepted"));
+          '
+          echo "=== remote MCP connector live on production (paid mode, real paywall mount order) ==="
+          # /mcp is new — the old image 404s it, so poll through the rollout window.
+          MCP_OK=0
+          for i in $(seq 1 8); do
+            if TARGET_URL=$PROD node scripts/test-mcp-http.js; then MCP_OK=1; break; fi
+            echo "  attempt $i: /mcp not serving yet — retrying in 15s…"; sleep 15
+          done
+          [ "$MCP_OK" = "1" ] || { echo "Remote MCP connector not live on production"; exit 1; }
+          echo "=== watch an agent pay an agent (live, no wallet) ==="
+          TARGET_URL=https://agent402.tools node scripts/demo-payment.js
+          echo "=== live M2M stats (informational; present once deployed) ==="
+          curl -s https://agent402.tools/api/stats | jq '{tools, wallet, onchainRevenueProof, served: .toolCallsServed}' || echo "(/api/stats not live yet — will appear after this image rolls out)"
