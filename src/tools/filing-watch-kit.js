@@ -287,15 +287,36 @@ export function docToText(raw) {
     out += sep + (gt >= 0 ? seg.slice(gt + 1) : "");
   }
   out = out.replace(/[<>]/g, " ");
-  out = out
-    .replace(/&nbsp;|&#160;|&#xA0;/gi, " ")
-    .replace(/&amp;|&#38;/gi, "&")
-    .replace(/&lt;|&#60;/gi, "(")
-    .replace(/&gt;|&#62;/gi, ")")
-    .replace(/&quot;|&#34;/gi, '"')
-    .replace(/&(?:apos|#39);/gi, "'")
-    .replace(/&#(\d{1,6});/g, (_m, d) => { const n = Number(d); return n > 31 && n < 0x110000 ? String.fromCodePoint(n) : " "; })
-    .replace(/&[a-z]{2,10};/gi, " ");
+  // ONE PASS over the entities, deliberately. A chain of .replace() calls
+  // decodes its own output: `&amp;` became `&` first, so the literal text
+  // `&amp;lt;` was then read as `&lt;` and turned into `(`. That is text the
+  // filing never contained, produced by unescaping twice. A single pass cannot
+  // do it, because what a replacement emits is never rescanned.
+  //
+  // Not a security bug here - this output is report prose and is escaped again
+  // by the viewer, never interpolated into HTML - but the digest is supposed to
+  // quote filings accurately, and quietly rewriting their characters is the
+  // kind of wrong that is invisible until someone checks a quote against the
+  // source.
+  out = out.replace(/&(#x[0-9a-f]{1,6}|#\d{1,6}|[a-z]{2,10});/gi, (m, ent) => {
+    const e = ent.toLowerCase();
+    if (e === "nbsp" || e === "#160" || e === "#xa0") return " ";
+    if (e === "amp" || e === "#38") return "&";
+    if (e === "lt" || e === "#60") return "(";
+    if (e === "gt" || e === "#62") return ")";
+    if (e === "quot" || e === "#34") return '"';
+    if (e === "apos" || e === "#39") return "'";
+    // Decimal numeric references keep their previous behaviour: printable
+    // codepoints decode, control characters become a space.
+    if (/^#\d{1,6}$/.test(e)) {
+      const n = Number(e.slice(1));
+      return n > 31 && n < 0x110000 ? String.fromCodePoint(n) : " ";
+    }
+    // Hex references other than &#xA0; were never decoded before and are left
+    // exactly as they were, so this change alters no output it did not have to.
+    if (e.startsWith("#x")) return m;
+    return " ";   // any other named entity
+  });
   return out.replace(/[ \t ]+/g, " ").replace(/\s*\n\s*/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 

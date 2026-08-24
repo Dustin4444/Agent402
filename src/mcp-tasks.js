@@ -172,7 +172,16 @@ export function createTaskStore({ dir, now = () => Date.now(), log = console.log
   const MAX_ACTIVE = num(process.env.AGENT402_MCP_TASK_MAX_ACTIVE, 64);
   const MAX_RESULT_BYTES = num(process.env.AGENT402_MCP_TASK_MAX_RESULT_BYTES, 8 * 1024 * 1024);
 
-  const recPath = (id) => join(root, `${id}.json`);
+  // THE ID IS VALIDATED HERE, at the one place a path is built from it, not at
+  // each caller. Every current caller does check first, so this changes no
+  // behaviour - but "every caller checks" is an invariant maintained by hand,
+  // and the next caller is the one that forgets. A task id is 48 hex characters
+  // and nothing else, so anything that could traverse (a slash, a dot, "..")
+  // cannot be one, and a mistake here is ours rather than a request's.
+  const recPath = (id) => {
+    if (!TASK_ID_RE.test(id)) throw new Error("refusing to build a task path from a non-task id");
+    return join(root, `${id}.json`);
+  };
   const runs = new Map(); // taskId -> AbortController for the live loopback
 
   const read = (id) => (TASK_ID_RE.test(id) ? readJson(recPath(id)) : null);
@@ -255,6 +264,8 @@ export function createTaskStore({ dir, now = () => Date.now(), log = console.log
   function get(id) {
     const rec = read(id);
     if (!rec) return null;
+    // `rec` exists, so read() already matched TASK_ID_RE - recPath cannot throw
+    // here, and the catch covers the file being gone either way.
     if (expired(rec)) { try { unlinkSync(recPath(id)); } catch { /* gone */ } return "expired"; }
     return rec;
   }
