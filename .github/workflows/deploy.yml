@@ -1725,6 +1725,9 @@ jobs:
       - name: Response delivery observed on OUR paid calls (verdict only, never the buyer's payload - offline)
         run: X402_INDEX_CRAWL=off node scripts/test-response-observation.js
 
+      - name: Seller request contracts (shape not sample - no seller-authored value is ever projected, names allowlisted - offline)
+        run: X402_INDEX_CRAWL=off node scripts/test-request-contract.js
+
       - name: Discovery note (a seller must be able to see the gap)
         run: X402_INDEX_CRAWL=off node scripts/test-discovery-note.js
 
