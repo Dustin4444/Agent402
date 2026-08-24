@@ -1011,7 +1011,11 @@ async function resolveExternalSeller(task, { cap, chain = "base" }) {
     // check is defeated by serving a clean address to the probe and any address
     // to the payer. Carrying it lets the spend re-check the accept it is about
     // to SIGN, which is the same discipline as the F2 accept pin.
-    if (live) return { seller: r.seller, slug: r.slug, url: r.url, method: r.method, price: r.price, networks: r.networks, settled: r.settled, provenPayTo: provenPayToByOrigin?.get(norm(r.seller)) || null };
+    // `route` and `guaranteedPaths` ride along so the paid call can verify the
+    // seller's own declared contract against what actually arrives. Both come
+    // from the row we already resolved; without them the observer has nothing
+    // to check and nothing to key by.
+    if (live) return { seller: r.seller, slug: r.slug, url: r.url, method: r.method, price: r.price, networks: r.networks, settled: r.settled, provenPayTo: provenPayToByOrigin?.get(norm(r.seller)) || null, route: r.route || null, guaranteedPaths: r.responseContract?.guaranteedPaths || [] };
   }
   return null;
 }
