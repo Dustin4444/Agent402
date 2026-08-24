@@ -21,7 +21,14 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 async function testSigterm() {
   const port = 3400 + (process.pid % 500);
   const child = spawn(process.execPath, ["src/server.js"], {
-    env: { ...process.env, FREE_MODE: "true", PORT: String(port) },
+    // Lame duck compressed to 1s. Since 2026-08-24 SIGTERM starts a countdown
+    // rather than a shutdown - the server keeps SERVING for
+    // SHUTDOWN_LAME_DUCK_MS (120s in production) because Railway SIGTERMs the
+    // old container ~108s before the new one can serve, and closing the
+    // listener on arrival was the cause of downtime on every deploy. The drain
+    // semantics this test guards are unchanged and still worth pinning; only
+    // when they BEGIN moved. test-lame-duck-shutdown.js owns the waiting half.
+    env: { ...process.env, FREE_MODE: "true", PORT: String(port), SHUTDOWN_LAME_DUCK_MS: "1000" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let out = "";
@@ -46,7 +53,7 @@ async function testSigterm() {
   const elapsed = Date.now() - t0;
   ok(code === 0, `SIGTERM exits 0 (graceful redeploy) — got ${code}`);
   ok(elapsed < 20_000, `SIGTERM drain completes well under the 75s hard deadline (${elapsed}ms)`);
-  ok(/draining in-flight requests \(exit 0\)/.test(out), "SIGTERM logs the drain with exit 0");
+  ok(/serving for \d+s more, then draining \(exit 0\)/.test(out), "SIGTERM logs the lame duck + drain with exit 0");
   if (code === "timeout") child.kill("SIGKILL");
 }
 
