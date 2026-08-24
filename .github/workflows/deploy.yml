@@ -734,6 +734,13 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
+          # Restores ~/.npm keyed on package-lock.json. `npm ci` still runs and
+          # still installs exactly what the lockfile pins, so this only saves
+          # the network fetch - a stale or poisoned cache cannot change which
+          # versions land. Measured before adding it: 21s/19s/16s across the
+          # three lanes on every single run, all of it re-downloading tarballs
+          # that had not changed.
+          cache: npm
       - name: Install dependencies (secretless)
         # F07: shadow the job-scope provider keys to EMPTY for this step only, so
         # a malicious dependency lifecycle script running during `npm ci` cannot
@@ -744,55 +751,13 @@ jobs:
           FRED_API_KEY_V2: ""
           E2B_API_KEY: ""
         run: npm ci
-      - name: Install Playwright Chromium (+ system deps)
-        # `--with-deps` runs apt-get against the runner's mirror list
-        # (/etc/apt/apt-mirrors.txt), whose first entry is
-        # azure.archive.ubuntu.com. On 2026-08-18 that mirror was bad on SOME
-        # runners and fine on others: two runs stalled with no output for 28 min
-        # until cancelled; later the same commit's push run finished this step
-        # in ~45s while its pull_request twin, started the same second on
-        # another runner, answered InRelease after 30s and crawled at ~295 kB/s
-        # (attempt 3 spent 128s on 21 MB of fonts and never finished) — 3 of 3
-        # attempts lost, because every retry walked the same mirror list. So:
-        # (1) prefer the canonical archive and keep azure as a fallback, (2) an
-        # apt inactivity timeout, so a stalled transfer fails over to the next
-        # mirror instead of eating the attempt (apt's default is 120s, longer
-        # than our per-attempt bound), (3) after a lost attempt drop azure from
-        # the list entirely, and (4) a mirror set that is dead for a full three
-        # attempts fails the step LOUDLY instead of eating the job's timeout.
-        # The only apt payload here is fonts (Chromium's shared libraries are
-        # already on the ubuntu-24.04 image), so a mirror swap changes nothing
-        # about what gets installed.
-        timeout-minutes: 10
-        env:
-          BRAVE_API_KEY: ""
-          FRED_API_KEY: ""
-          FRED_API_KEY_V2: ""
-          E2B_API_KEY: ""
-        run: |
-          printf 'Acquire::http::Timeout "20";\nAcquire::https::Timeout "20";\nAcquire::Retries "2";\n' \
-            | sudo tee /etc/apt/apt.conf.d/99-ci-mirror-timeouts >/dev/null
-          set_mirrors() {  # $1 = "with-azure" | "no-azure"
-            [ -f /etc/apt/apt-mirrors.txt ] || return 0
-            {
-              printf 'https://archive.ubuntu.com/ubuntu/\tpriority:1\n'
-              [ "$1" = "with-azure" ] && printf 'http://azure.archive.ubuntu.com/ubuntu/\tpriority:2\n'
-              printf 'https://security.ubuntu.com/ubuntu/\tpriority:3\n'
-            } | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
-          }
-          set_mirrors with-azure
-          for i in 1 2 3; do
-            if timeout 170 npx playwright install --with-deps chromium; then exit 0; fi
-            echo "playwright install attempt $i failed or stalled (apt mirror?) - retrying without the azure mirror"
-            # A stalled apt-get may outlive the killed npx (sudo can detach it
-            # from the group); clear it so the retry isn't blocked on its lock.
-            # The stall is in apt's fetch phase, so killing it is safe.
-            sudo pkill -TERM -f 'apt-get' 2>/dev/null || true
-            set_mirrors no-azure
-            sleep 10
-          done
-          echo "playwright install failed 3x - the runner's apt mirror is likely down"
-          exit 1
+      # NO Playwright in this lane on purpose: it runs no browser-driven
+      # script. All eight (csp-violations, css-tokens-resolve, focus-visible,
+      # the reveal suite, burger-aria-label, compare-scroll,
+      # non-metered-examples) live in the `test` lane. Installing Chromium
+      # here cost 32s and 22s for nothing, and the slower unit lane IS the
+      # critical path. If a browser-driven script is ever added here, copy
+      # the install step back from the `test` job with it.
       - name: Start server in free mode
         run: |
           # Raise the MCP rate limit so the full-catalog connector test can sweep
@@ -802,9 +767,6 @@ jobs:
           for i in $(seq 1 20); do curl -s localhost:3000/health >/dev/null && break; sleep 1; done
       # Deterministic correctness proofs run FIRST — a flaky live upstream
       # (e.g. data.gov downtime) must never mask whether the tools actually work.
-      - name: Pricing margin invariant (worst-case upstream < price on every gateway tier, failover links included; cap-before-spend; 410 tool_gone telemetry — offline)
-        run: node scripts/test-pricing-margin.js
-
       - name: Ox Alpha tier (locked stealth model, zdr refusal, zero-cost clamp, reasoning floor, vanish gate - offline)
         run: node scripts/test-ox-tier.js
 
@@ -1147,6 +1109,13 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
+          # Restores ~/.npm keyed on package-lock.json. `npm ci` still runs and
+          # still installs exactly what the lockfile pins, so this only saves
+          # the network fetch - a stale or poisoned cache cannot change which
+          # versions land. Measured before adding it: 21s/19s/16s across the
+          # three lanes on every single run, all of it re-downloading tarballs
+          # that had not changed.
+          cache: npm
       - name: Install dependencies (secretless)
         # F07: shadow the job-scope provider keys to EMPTY for this step only, so
         # a malicious dependency lifecycle script running during `npm ci` cannot
@@ -1157,55 +1126,13 @@ jobs:
           FRED_API_KEY_V2: ""
           E2B_API_KEY: ""
         run: npm ci
-      - name: Install Playwright Chromium (+ system deps)
-        # `--with-deps` runs apt-get against the runner's mirror list
-        # (/etc/apt/apt-mirrors.txt), whose first entry is
-        # azure.archive.ubuntu.com. On 2026-08-18 that mirror was bad on SOME
-        # runners and fine on others: two runs stalled with no output for 28 min
-        # until cancelled; later the same commit's push run finished this step
-        # in ~45s while its pull_request twin, started the same second on
-        # another runner, answered InRelease after 30s and crawled at ~295 kB/s
-        # (attempt 3 spent 128s on 21 MB of fonts and never finished) — 3 of 3
-        # attempts lost, because every retry walked the same mirror list. So:
-        # (1) prefer the canonical archive and keep azure as a fallback, (2) an
-        # apt inactivity timeout, so a stalled transfer fails over to the next
-        # mirror instead of eating the attempt (apt's default is 120s, longer
-        # than our per-attempt bound), (3) after a lost attempt drop azure from
-        # the list entirely, and (4) a mirror set that is dead for a full three
-        # attempts fails the step LOUDLY instead of eating the job's timeout.
-        # The only apt payload here is fonts (Chromium's shared libraries are
-        # already on the ubuntu-24.04 image), so a mirror swap changes nothing
-        # about what gets installed.
-        timeout-minutes: 10
-        env:
-          BRAVE_API_KEY: ""
-          FRED_API_KEY: ""
-          FRED_API_KEY_V2: ""
-          E2B_API_KEY: ""
-        run: |
-          printf 'Acquire::http::Timeout "20";\nAcquire::https::Timeout "20";\nAcquire::Retries "2";\n' \
-            | sudo tee /etc/apt/apt.conf.d/99-ci-mirror-timeouts >/dev/null
-          set_mirrors() {  # $1 = "with-azure" | "no-azure"
-            [ -f /etc/apt/apt-mirrors.txt ] || return 0
-            {
-              printf 'https://archive.ubuntu.com/ubuntu/\tpriority:1\n'
-              [ "$1" = "with-azure" ] && printf 'http://azure.archive.ubuntu.com/ubuntu/\tpriority:2\n'
-              printf 'https://security.ubuntu.com/ubuntu/\tpriority:3\n'
-            } | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
-          }
-          set_mirrors with-azure
-          for i in 1 2 3; do
-            if timeout 170 npx playwright install --with-deps chromium; then exit 0; fi
-            echo "playwright install attempt $i failed or stalled (apt mirror?) - retrying without the azure mirror"
-            # A stalled apt-get may outlive the killed npx (sudo can detach it
-            # from the group); clear it so the retry isn't blocked on its lock.
-            # The stall is in apt's fetch phase, so killing it is safe.
-            sudo pkill -TERM -f 'apt-get' 2>/dev/null || true
-            set_mirrors no-azure
-            sleep 10
-          done
-          echo "playwright install failed 3x - the runner's apt mirror is likely down"
-          exit 1
+      # NO Playwright in this lane on purpose: it runs no browser-driven
+      # script. All eight (csp-violations, css-tokens-resolve, focus-visible,
+      # the reveal suite, burger-aria-label, compare-scroll,
+      # non-metered-examples) live in the `test` lane. Installing Chromium
+      # here cost 32s and 22s for nothing, and the slower unit lane IS the
+      # critical path. If a browser-driven script is ever added here, copy
+      # the install step back from the `test` job with it.
       - name: Start server in free mode
         run: |
           # Raise the MCP rate limit so the full-catalog connector test can sweep
@@ -1436,6 +1363,9 @@ jobs:
 
       - name: Crawl cadence copy is derived (served pages cannot advertise a cadence we do not run — offline)
         run: node scripts/test-crawl-cadence.js
+
+      - name: CI lane gating (every test lane blocks deploy/publish; Chromium only where a script needs it — offline)
+        run: node scripts/test-ci-gating.js
 
       - name: Single-resource x402 manifest (spec 402-body shape; chains reach an OpenAPI-sourced row — offline)
         run: node scripts/test-single-resource-manifest.js
@@ -1918,6 +1848,13 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
+          # Restores ~/.npm keyed on package-lock.json. `npm ci` still runs and
+          # still installs exactly what the lockfile pins, so this only saves
+          # the network fetch - a stale or poisoned cache cannot change which
+          # versions land. Measured before adding it: 21s/19s/16s across the
+          # three lanes on every single run, all of it re-downloading tarballs
+          # that had not changed.
+          cache: npm
       - name: Install dependencies (secretless)
         # F07: shadow the job-scope provider keys to EMPTY for this step only, so
         # a malicious dependency lifecycle script running during `npm ci` cannot
@@ -2405,8 +2342,73 @@ jobs:
           SOLANA_402=$(jq -r '[.accepts[]? | select((.network // "") | startswith("solana:"))] | length' /tmp/402req.json 2>/dev/null || echo 0)
           [ "$SOLANA_402" -ge 1 ] || { echo "402 accepts is missing the Solana option despite SOLANA_WALLET_ADDRESS being set"; exit 1; }
 
+
+  test-pricing:
+    # Test job runs on its own [test] marker AND auto-runs whenever a commit
+    # asks to deploy or publish — so deploy/publish can hard-gate on it via
+    # `needs: test`. This makes "ship without running tests" impossible by
+    # design, not by developer discipline.
+    needs: markers
+    # Runs on the [test]/[deploy]/[publish] markers, on the matching
+    # workflow_dispatch modes, on every PR into main (N-04: so the required
+    # `test` status check always reports), AND unconditionally on every push
+    # to main — a merge to main has no marker to scan (see the `on:` block
+    # above) and needs none: it is asked to test-and-deploy regardless.
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    # A healthy run takes 22-25 min. Without this the GitHub default is 360
+    # min, and on 2026-08-18 two consecutive runs sat for 28+ min inside the
+    # Playwright system-deps apt step (see below) — the deploy job hard-gates
+    # on this one, so a hung test job silently blocks every deploy behind it.
+    timeout-minutes: 60
+    # A REAL redis, because until 2026-08-07 nothing in CI ever connected to
+    # one. test-shared-limit.js injects a fake store deliberately (it proves
+    # "two callers share one counter", and a fake proves that exactly), but
+    # that left the redis CLIENT path untested — so Dependabot's redis 4 -> 6
+    # bump arrived with a green CI that could not have caught a client
+    # regression. Prod is not in-memory: REDIS_URL is set there, and the shared
+    # limiter FAILS CLOSED, so a client regression refuses trials.
+    env:
+      BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      FRED_API_KEY_V2: ${{ secrets.FRED_API_KEY_V2 }}
+      E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+      # Raises CoinGecko off the 30/min keyless budget shared per runner IP.
+      # It does NOT make the calls free: the Demo plan has a monthly quota and
+      # CI would burn it on every push, which is the trap the Brave notes in
+      # test-non-metered-examples.js already record. So the sweep still SAMPLES
+      # the family (COINGECKO_SLUGS there). Key plus sampling: the two live
+      # calls per run are reliable, and the quota lasts.
+      COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies (secretless)
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+        run: npm ci
+
+      # OWN LANE on purpose. This single step ran 254s - 42% of the unit-a
+      # lane, and unit-a was the slowest of the three, so it was 42% of the
+      # critical path. It rebuilds a max-size dense-CJK body and BPE-tokenizes
+      # it once PER MODEL, when the text is identical across models in a tier.
+      #
+      # The obvious speedup is memoizing the tokenizer, but this test imports
+      # worstCaseUpstreamCost / clampToMargin FROM PRODUCTION precisely so the
+      # guard and the runtime can never disagree about what a call costs. That
+      # property is worth more than four minutes, so the step is untouched and
+      # moved off the critical path instead, where its duration stops mattering.
+      - name: Pricing margin invariant (worst-case upstream < price on every gateway tier, failover links included; cap-before-spend; 410 tool_gone telemetry — offline)
+        run: node scripts/test-pricing-margin.js
+
   publish:
-    needs: [markers, test, test-unit-a, test-unit-b]
+    needs: [markers, test, test-unit-a, test-unit-b, test-pricing]
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' || needs.markers.outputs.publish == 'true'
     runs-on: ubuntu-latest
     # F01: publishing packages mutates a production artifact — gate it behind the
@@ -3133,7 +3135,7 @@ jobs:
         run: SPAN_BLOCKS=350000 MAX_TXS=80 node scripts/check-builder-attribution.js || true
 
   deploy:
-    needs: [markers, test, test-unit-a, test-unit-b]
+    needs: [markers, test, test-unit-a, test-unit-b, test-pricing]
     # Unconditional on a push to main (same reasoning as the test job above -
     # a merge to main has no marker to scan and needs none), otherwise the
     # existing dispatch/marker gates for the dev branch.
