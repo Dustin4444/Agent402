@@ -727,127 +727,80 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
+      - name: Install dependencies (secretless)
+        # F07: shadow the job-scope provider keys to EMPTY for this step only, so
+        # a malicious dependency lifecycle script running during `npm ci` cannot
+        # read them. No server or tool runs here, so empty keys are harmless.
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+        run: npm ci
+      - name: Install Playwright Chromium (+ system deps)
+        # `--with-deps` runs apt-get against the runner's mirror list
+        # (/etc/apt/apt-mirrors.txt), whose first entry is
+        # azure.archive.ubuntu.com. On 2026-08-18 that mirror was bad on SOME
+        # runners and fine on others: two runs stalled with no output for 28 min
+        # until cancelled; later the same commit's push run finished this step
+        # in ~45s while its pull_request twin, started the same second on
+        # another runner, answered InRelease after 30s and crawled at ~295 kB/s
+        # (attempt 3 spent 128s on 21 MB of fonts and never finished) — 3 of 3
+        # attempts lost, because every retry walked the same mirror list. So:
+        # (1) prefer the canonical archive and keep azure as a fallback, (2) an
+        # apt inactivity timeout, so a stalled transfer fails over to the next
+        # mirror instead of eating the attempt (apt's default is 120s, longer
+        # than our per-attempt bound), (3) after a lost attempt drop azure from
+        # the list entirely, and (4) a mirror set that is dead for a full three
+        # attempts fails the step LOUDLY instead of eating the job's timeout.
+        # The only apt payload here is fonts (Chromium's shared libraries are
+        # already on the ubuntu-24.04 image), so a mirror swap changes nothing
+        # about what gets installed.
+        timeout-minutes: 10
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+        run: |
+          printf 'Acquire::http::Timeout "20";\nAcquire::https::Timeout "20";\nAcquire::Retries "2";\n' \
+            | sudo tee /etc/apt/apt.conf.d/99-ci-mirror-timeouts >/dev/null
+          set_mirrors() {  # $1 = "with-azure" | "no-azure"
+            [ -f /etc/apt/apt-mirrors.txt ] || return 0
+            {
+              printf 'https://archive.ubuntu.com/ubuntu/\tpriority:1\n'
+              [ "$1" = "with-azure" ] && printf 'http://azure.archive.ubuntu.com/ubuntu/\tpriority:2\n'
+              printf 'https://security.ubuntu.com/ubuntu/\tpriority:3\n'
+            } | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          }
+          set_mirrors with-azure
+          for i in 1 2 3; do
+            if timeout 170 npx playwright install --with-deps chromium; then exit 0; fi
+            echo "playwright install attempt $i failed or stalled (apt mirror?) - retrying without the azure mirror"
+            # A stalled apt-get may outlive the killed npx (sudo can detach it
+            # from the group); clear it so the retry isn't blocked on its lock.
+            # The stall is in apt's fetch phase, so killing it is safe.
+            sudo pkill -TERM -f 'apt-get' 2>/dev/null || true
+            set_mirrors no-azure
+            sleep 10
+          done
+          echo "playwright install failed 3x - the runner's apt mirror is likely down"
+          exit 1
+      - name: Start server in free mode
+        run: |
+          # Raise the MCP rate limit so the full-catalog connector test can sweep
+          # every tool (production keeps the default 20/min, 120/hr).
+          AGENT402_MCP_MAX_PER_MIN=1000000 AGENT402_MCP_MAX_PER_HOUR=1000000 \
+            X402_SYNC_ON_START=false FREE_MODE=true X402_PAYWALL_PROBES_PER_CYCLE=0 PORT=3000 node src/server.js &
+          for i in $(seq 1 20); do curl -s localhost:3000/health >/dev/null && break; sleep 1; done
+      # Deterministic correctness proofs run FIRST — a flaky live upstream
+      # (e.g. data.gov downtime) must never mask whether the tools actually work.
       - name: Pricing margin invariant (worst-case upstream < price on every gateway tier, failover links included; cap-before-spend; 410 tool_gone telemetry — offline)
         run: node scripts/test-pricing-margin.js
 
-      - name: Install Playwright Chromium (+ system deps)
-        # `--with-deps` runs apt-get against the runner's mirror list
-        # (/etc/apt/apt-mirrors.txt), whose first entry is
-        # azure.archive.ubuntu.com. On 2026-08-18 that mirror was bad on SOME
-        # runners and fine on others: two runs stalled with no output for 28 min
-        # until cancelled; later the same commit's push run finished this step
-        # in ~45s while its pull_request twin, started the same second on
-        # another runner, answered InRelease after 30s and crawled at ~295 kB/s
-        # (attempt 3 spent 128s on 21 MB of fonts and never finished) — 3 of 3
-        # attempts lost, because every retry walked the same mirror list. So:
-        # (1) prefer the canonical archive and keep azure as a fallback, (2) an
-        # apt inactivity timeout, so a stalled transfer fails over to the next
-        # mirror instead of eating the attempt (apt's default is 120s, longer
-        # than our per-attempt bound), (3) after a lost attempt drop azure from
-        # the list entirely, and (4) a mirror set that is dead for a full three
-        # attempts fails the step LOUDLY instead of eating the job's timeout.
-        # The only apt payload here is fonts (Chromium's shared libraries are
-        # already on the ubuntu-24.04 image), so a mirror swap changes nothing
-        # about what gets installed.
-        timeout-minutes: 10
-        env:
-          BRAVE_API_KEY: ""
-          FRED_API_KEY: ""
-          FRED_API_KEY_V2: ""
-          E2B_API_KEY: ""
-        run: |
-          printf 'Acquire::http::Timeout "20";\nAcquire::https::Timeout "20";\nAcquire::Retries "2";\n' \
-            | sudo tee /etc/apt/apt.conf.d/99-ci-mirror-timeouts >/dev/null
-          set_mirrors() {  # $1 = "with-azure" | "no-azure"
-            [ -f /etc/apt/apt-mirrors.txt ] || return 0
-            {
-              printf 'https://archive.ubuntu.com/ubuntu/\tpriority:1\n'
-              [ "$1" = "with-azure" ] && printf 'http://azure.archive.ubuntu.com/ubuntu/\tpriority:2\n'
-              printf 'https://security.ubuntu.com/ubuntu/\tpriority:3\n'
-            } | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
-          }
-          set_mirrors with-azure
-          for i in 1 2 3; do
-            if timeout 170 npx playwright install --with-deps chromium; then exit 0; fi
-            echo "playwright install attempt $i failed or stalled (apt mirror?) - retrying without the azure mirror"
-            # A stalled apt-get may outlive the killed npx (sudo can detach it
-            # from the group); clear it so the retry isn't blocked on its lock.
-            # The stall is in apt's fetch phase, so killing it is safe.
-            sudo pkill -TERM -f 'apt-get' 2>/dev/null || true
-            set_mirrors no-azure
-            sleep 10
-          done
-          echo "playwright install failed 3x - the runner's apt mirror is likely down"
-          exit 1
-      - name: Install Playwright Chromium (+ system deps)
-        # `--with-deps` runs apt-get against the runner's mirror list
-        # (/etc/apt/apt-mirrors.txt), whose first entry is
-        # azure.archive.ubuntu.com. On 2026-08-18 that mirror was bad on SOME
-        # runners and fine on others: two runs stalled with no output for 28 min
-        # until cancelled; later the same commit's push run finished this step
-        # in ~45s while its pull_request twin, started the same second on
-        # another runner, answered InRelease after 30s and crawled at ~295 kB/s
-        # (attempt 3 spent 128s on 21 MB of fonts and never finished) — 3 of 3
-        # attempts lost, because every retry walked the same mirror list. So:
-        # (1) prefer the canonical archive and keep azure as a fallback, (2) an
-        # apt inactivity timeout, so a stalled transfer fails over to the next
-        # mirror instead of eating the attempt (apt's default is 120s, longer
-        # than our per-attempt bound), (3) after a lost attempt drop azure from
-        # the list entirely, and (4) a mirror set that is dead for a full three
-        # attempts fails the step LOUDLY instead of eating the job's timeout.
-        # The only apt payload here is fonts (Chromium's shared libraries are
-        # already on the ubuntu-24.04 image), so a mirror swap changes nothing
-        # about what gets installed.
-        timeout-minutes: 10
-        env:
-          BRAVE_API_KEY: ""
-          FRED_API_KEY: ""
-          FRED_API_KEY_V2: ""
-          E2B_API_KEY: ""
-        run: |
-          printf 'Acquire::http::Timeout "20";\nAcquire::https::Timeout "20";\nAcquire::Retries "2";\n' \
-            | sudo tee /etc/apt/apt.conf.d/99-ci-mirror-timeouts >/dev/null
-          set_mirrors() {  # $1 = "with-azure" | "no-azure"
-            [ -f /etc/apt/apt-mirrors.txt ] || return 0
-            {
-              printf 'https://archive.ubuntu.com/ubuntu/\tpriority:1\n'
-              [ "$1" = "with-azure" ] && printf 'http://azure.archive.ubuntu.com/ubuntu/\tpriority:2\n'
-              printf 'https://security.ubuntu.com/ubuntu/\tpriority:3\n'
-            } | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
-          }
-          set_mirrors with-azure
-          for i in 1 2 3; do
-            if timeout 170 npx playwright install --with-deps chromium; then exit 0; fi
-            echo "playwright install attempt $i failed or stalled (apt mirror?) - retrying without the azure mirror"
-            # A stalled apt-get may outlive the killed npx (sudo can detach it
-            # from the group); clear it so the retry isn't blocked on its lock.
-            # The stall is in apt's fetch phase, so killing it is safe.
-            sudo pkill -TERM -f 'apt-get' 2>/dev/null || true
-            set_mirrors no-azure
-            sleep 10
-          done
-          echo "playwright install failed 3x - the runner's apt mirror is likely down"
-          exit 1
-      - name: Install dependencies (secretless)
-        # F07: shadow the job-scope provider keys to EMPTY for this step only, so
-        # a malicious dependency lifecycle script running during `npm ci` cannot
-        # read them. No server or tool runs here, so empty keys are harmless.
-        env:
-          BRAVE_API_KEY: ""
-          FRED_API_KEY: ""
-          FRED_API_KEY_V2: ""
-          E2B_API_KEY: ""
-        run: npm ci
-      - name: Install dependencies (secretless)
-        # F07: shadow the job-scope provider keys to EMPTY for this step only, so
-        # a malicious dependency lifecycle script running during `npm ci` cannot
-        # read them. No server or tool runs here, so empty keys are harmless.
-        env:
-          BRAVE_API_KEY: ""
-          FRED_API_KEY: ""
-          FRED_API_KEY_V2: ""
-          E2B_API_KEY: ""
-        run: npm ci
+      - name: Ox Alpha tier (locked stealth model, zdr refusal, zero-cost clamp, reasoning floor, vanish gate - offline)
+        run: node scripts/test-ox-tier.js
+
       - name: Macro-kit tests (FRED yield curve, Treasury debt + avg rates, ECB FX series, World Bank — live keyless APIs)
         run: node scripts/test-macro-kit.js
 
@@ -880,68 +833,70 @@ jobs:
       - name: Economy history unit tests (daily upsert idempotency + week-over-week math — offline)
         run: node scripts/test-x402-economy.js
 
-      - name: /skills/<slug> contract (every pack renders workflow + tools + claudePrompt + JSON-LD)
-        run: node scripts/test-skill-page-contract.js
+      - name: /sitemap.xml coverage (every skill pack, sample tools, static surfaces)
+        run: node scripts/test-sitemap-coverage.js
 
-      - name: /api/skill-packs.json shape (what stdio agent402-mcp consumes at startup)
-        run: node scripts/test-skill-packs-json.js
+      - name: /api/route neutral cross-seller router envelope (per-row shape, include filter, missing-query)
+        run: node scripts/test-route-envelope.js
 
-      - name: /api/stats envelope (M2M economy counters — rail breakdown, revenue proof, tools floor)
-        run: node scripts/test-stats-envelope.js
+      - name: Tool correctness regressions (20 wrong-answer bugs from the review; boots free-mode, TZ=UTC)
+        run: node scripts/test-correctness-fixes.js
 
-      - name: Shared trial counter (a cap of 1 must mean 1 across replicas)
-        run: node scripts/test-shared-limit.js
+      - name: Find ranker — live-catalog smoke test (boots free-mode, locks top-1 for agent queries)
+        run: node scripts/test-find-ranking.js
 
-      - name: Tool pages backlink to the skill packs they belong to
-        run: node scripts/test-tool-page-backlinks.js
+      - name: /openapi.json coverage (every CATALOG tool has a path + operationId + x-price)
+        run: node scripts/test-openapi-coverage.js
 
-      - name: Tool-count sync (static surfaces match the live catalog total — no count drift)
-        run: node scripts/sync-count.js --check
+      - name: MCP prompts/list + prompts/get (one prompt per skill pack; substitution renders)
+        run: node scripts/test-mcp-prompts.js
 
-      - name: Static page renders smoke (every HTML surface returns 200 with the right page-specific title)
-        run: node scripts/test-static-pages.js
+      - name: MCP outer transport limits (R-11 — per-IP cap + concurrency ceiling bound floods before server/transport allocation — spawns child)
+        run: node scripts/test-mcp-limits.js
 
-      - name: Operator auth (A402-07 no ?token= query; session cookie + header; hardened cookie flags — spawns child)
-        run: node scripts/test-operator-auth.js
+      - name: Code-run-kit tests (E2B sandbox — validation always runs; live calls opt-in via E2B_LIVE_TEST=1)
+        run: node scripts/test-code-run-kit.js
+        env:
+          E2B_LIVE_TEST: ${{ secrets.E2B_API_KEY && '1' || '' }}
+          E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
 
-      - name: /openapi.json header parameters (Idempotency-Key on every op, X-Pow-Solution only where PoW-eligible)
-        run: node scripts/test-openapi-header-params.js
+      - name: /llms.txt content lock (tool count + discovery URLs + PoW/MCP/wallet signals)
+        run: node scripts/test-llms-txt.js
 
-      - name: Process lifecycle (A402-10 SIGTERM drains + exits 0; uncaught exception is fatal + exits non-zero — spawns child)
-        run: node scripts/test-shutdown.js
+      - name: Well-known store (operator-published domain-verification docs; traversal impossible, reserved names refused, no shadowing of /.well-known/x402 — offline)
+        run: node scripts/test-well-known-store.js
 
-      - name: /api/pow/challenge envelope (free-tier gate — full shape + slug scoping + 404s)
-        run: node scripts/test-pow-challenge-envelope.js
+      - name: /api/reliability envelope (guarantees claim+verify pairing — every listing portal reads this)
+        run: node scripts/test-reliability-envelope.js
 
-      - name: /api/pricing envelope contract (every scraper reads this — per-endpoint shape, slug uniqueness)
-        run: node scripts/test-pricing-envelope.js
+      - name: PostHog analytics proxy abuse controls (R-17 — method allowlist + per-IP cap before the upstream call — spawns child)
+        run: node scripts/test-posthog-proxy.js
 
-      - name: /health envelope + .flags shape (boolean discipline locks the Yahoo-relay-flap class)
-        run: node scripts/test-health-envelope.js
+      - name: Leaderboard scan memory bound (300k synthetic transfers folded in batches; proves the 7d-OOM fix)
+        run: node scripts/test-leaderboard-memory.js
 
-      - name: EDGAR-kit tests (SEC ticker→CIK, filings, XBRL company-concept/facts/frames — live keyless APIs)
-        run: node scripts/test-edgar-kit.js
+      - name: Conversion tools (~970 endpoints, exact + round-trip)
+        run: node scripts/test-convert.js
 
-      - name: Deploy quiet gate (lull detection, fail-open paths — offline)
-        run: node scripts/test-quiet-gate.js
+      - name: /.well-known/x402 manifest contract (envelope + payment + capabilities + discovery)
+        run: node scripts/test-x402-manifest.js
 
-      - name: Self-check policy (transient-filtering, timeout, unknown-slug — the prod tool-failure alarm — offline)
-        run: node scripts/test-selfcheck.js
+      - name: MPP subscription rail-canary gate (canary product is never advertised and is mintable only for a heartbeat-token caller; boots a real server, spends nothing)
+        run: node scripts/test-mpp-subscription-canary-gate.js
 
-      - name: /robots.txt policy (every LLM bot explicitly allowed + /api/memory disallowed + sitemap)
-        run: node scripts/test-robots-policy.js
+      - name: /api/leaderboard envelope (spec, defaults, per-row shape — MCP top_x402_sellers piggybacks on this)
+        run: node scripts/test-leaderboard-envelope.js
 
-      - name: /api/find envelope + top-1 ranking lock (per-row shape + known queries → known top slugs)
-        run: node scripts/test-find-envelope.js
+      - name: MCP call_tool contract (canonical + flattened + stringified + wallet-refusal + self-correction envelope)
+        run: node scripts/test-mcp-call-tool-contract.js
 
-      - name: Settlement-aware idempotency (FR4-01 — a non-200/unsettled response is NOT cached; @x402/express settles AFTER the handler)
-        run: node scripts/test-idempotency-settlement.js
+      - name: Exposure hardening (A402-11/12/13 no X-Powered-By; security.txt; health gates flags; credential-free MCP CORS — spawns child)
+        run: node scripts/test-security-headers.js
 
-      - name: Image-kit tests (resize, convert, thumbnail — jimp, exact dims)
-        run: node scripts/test-image.js
-
-      - name: MCP search_tools — live-catalog smoke test (locks top-1 for agent queries)
-        run: node scripts/test-mcp-search-ranking.js
+      - name: crawl kit (offline)
+        run: node scripts/test-crawl-kit.js
+      - name: Memory v2 unit tests (grants, counters, audit chain, recall)
+        run: node scripts/test-memory.js
 
       - name: Security regressions (proto-pollution, input-DoS, 500-hardening)
         run: node scripts/test-security.js
@@ -1175,36 +1130,16 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
-      - name: Gate agent402-facilitator (real signed Stellar testnet payments; boots its own servers on 4099-4101)
-        # Had ZERO CI coverage until 2026-08-15, unlike every other package in
-        # this repo - found only after a real production incident (unbounded
-        # /settle hang, then a broken Docker deploy shipped right past every
-        # existing check because none of them looked at this package at all).
-        # TEST_PAYER_STELLAR_SECRET is a persistent testnet-only Stellar
-        # account holding testnet USDC (Circle's faucet is CAPTCHA-gated, so
-        # it can't be minted fresh per run - see facilitator/README.md).
-        # Self-skips LOUDLY if the secret is ever unset, same pattern as the
-        # Robinhood settlement probe - never a silent pass.
-        run: |
-          if [ -z "$TEST_PAYER_STELLAR_SECRET" ]; then
-            echo "TEST_PAYER_STELLAR_SECRET unset - skipping facilitator/test.js (see facilitator/README.md)"
-            exit 0
-          fi
-          cd facilitator
-          npm ci --ignore-scripts
-          node test.js
+      - name: Install dependencies (secretless)
+        # F07: shadow the job-scope provider keys to EMPTY for this step only, so
+        # a malicious dependency lifecycle script running during `npm ci` cannot
+        # read them. No server or tool runs here, so empty keys are harmless.
         env:
-          TEST_PAYER_STELLAR_SECRET: ${{ secrets.TEST_PAYER_STELLAR_SECRET }}
-
-      - name: upto scheme ships dark, refuses what it cannot price
-        run: node scripts/test-upto-scheme.js
-
-      - name: Boot /supported guard (a dead facilitator costs ONE rail, not every paid route — the 2026-08-01 Celo outage; probe-driven drop, fail-open on total blindness, escape hatch — offline)
-        run: node scripts/test-supported-guard.js
-
-      - name: Tempo MPP settlement (native tempo/charge via Tempo's relay — challenge wiring + settlement-ordering proof — offline)
-        run: node scripts/test-mpp-tempo-shim.js
-
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+        run: npm ci
       - name: Install Playwright Chromium (+ system deps)
         # `--with-deps` runs apt-get against the runner's mirror list
         # (/etc/apt/apt-mirrors.txt), whose first entry is
@@ -1254,19 +1189,45 @@ jobs:
           done
           echo "playwright install failed 3x - the runner's apt mirror is likely down"
           exit 1
-      - name: Ox Alpha tier (locked stealth model, zdr refusal, zero-cost clamp, reasoning floor, vanish gate - offline)
-        run: node scripts/test-ox-tier.js
-
-      - name: Install dependencies (secretless)
-        # F07: shadow the job-scope provider keys to EMPTY for this step only, so
-        # a malicious dependency lifecycle script running during `npm ci` cannot
-        # read them. No server or tool runs here, so empty keys are harmless.
+      - name: Start server in free mode
+        run: |
+          # Raise the MCP rate limit so the full-catalog connector test can sweep
+          # every tool (production keeps the default 20/min, 120/hr).
+          AGENT402_MCP_MAX_PER_MIN=1000000 AGENT402_MCP_MAX_PER_HOUR=1000000 \
+            X402_SYNC_ON_START=false FREE_MODE=true X402_PAYWALL_PROBES_PER_CYCLE=0 PORT=3000 node src/server.js &
+          for i in $(seq 1 20); do curl -s localhost:3000/health >/dev/null && break; sleep 1; done
+      # Deterministic correctness proofs run FIRST — a flaky live upstream
+      # (e.g. data.gov downtime) must never mask whether the tools actually work.
+      - name: Gate agent402-facilitator (real signed Stellar testnet payments; boots its own servers on 4099-4101)
+        # Had ZERO CI coverage until 2026-08-15, unlike every other package in
+        # this repo - found only after a real production incident (unbounded
+        # /settle hang, then a broken Docker deploy shipped right past every
+        # existing check because none of them looked at this package at all).
+        # TEST_PAYER_STELLAR_SECRET is a persistent testnet-only Stellar
+        # account holding testnet USDC (Circle's faucet is CAPTCHA-gated, so
+        # it can't be minted fresh per run - see facilitator/README.md).
+        # Self-skips LOUDLY if the secret is ever unset, same pattern as the
+        # Robinhood settlement probe - never a silent pass.
+        run: |
+          if [ -z "$TEST_PAYER_STELLAR_SECRET" ]; then
+            echo "TEST_PAYER_STELLAR_SECRET unset - skipping facilitator/test.js (see facilitator/README.md)"
+            exit 0
+          fi
+          cd facilitator
+          npm ci --ignore-scripts
+          node test.js
         env:
-          BRAVE_API_KEY: ""
-          FRED_API_KEY: ""
-          FRED_API_KEY_V2: ""
-          E2B_API_KEY: ""
-        run: npm ci
+          TEST_PAYER_STELLAR_SECRET: ${{ secrets.TEST_PAYER_STELLAR_SECRET }}
+
+      - name: upto scheme ships dark, refuses what it cannot price
+        run: node scripts/test-upto-scheme.js
+
+      - name: Boot /supported guard (a dead facilitator costs ONE rail, not every paid route — the 2026-08-01 Celo outage; probe-driven drop, fail-open on total blindness, escape hatch — offline)
+        run: node scripts/test-supported-guard.js
+
+      - name: Tempo MPP settlement (native tempo/charge via Tempo's relay — challenge wiring + settlement-ordering proof — offline)
+        run: node scripts/test-mpp-tempo-shim.js
+
       - name: MCP server e2e (catalog, search, proof-of-work settlement, wallet guidance)
         run: |
           npm --prefix mcp ci
@@ -1313,70 +1274,68 @@ jobs:
       - name: /health flag shape contract (every documented flag present + boolean-typed)
         run: node scripts/test-health-flags.js
 
-      - name: /sitemap.xml coverage (every skill pack, sample tools, static surfaces)
-        run: node scripts/test-sitemap-coverage.js
+      - name: /skills/<slug> contract (every pack renders workflow + tools + claudePrompt + JSON-LD)
+        run: node scripts/test-skill-page-contract.js
 
-      - name: /api/route neutral cross-seller router envelope (per-row shape, include filter, missing-query)
-        run: node scripts/test-route-envelope.js
+      - name: /api/skill-packs.json shape (what stdio agent402-mcp consumes at startup)
+        run: node scripts/test-skill-packs-json.js
 
-      - name: Tool correctness regressions (20 wrong-answer bugs from the review; boots free-mode, TZ=UTC)
-        run: node scripts/test-correctness-fixes.js
+      - name: /api/stats envelope (M2M economy counters — rail breakdown, revenue proof, tools floor)
+        run: node scripts/test-stats-envelope.js
 
-      - name: Find ranker — live-catalog smoke test (boots free-mode, locks top-1 for agent queries)
-        run: node scripts/test-find-ranking.js
+      - name: Shared trial counter (a cap of 1 must mean 1 across replicas)
+        run: node scripts/test-shared-limit.js
 
-      - name: /openapi.json coverage (every CATALOG tool has a path + operationId + x-price)
-        run: node scripts/test-openapi-coverage.js
+      - name: Tool pages backlink to the skill packs they belong to
+        run: node scripts/test-tool-page-backlinks.js
 
-      - name: MCP prompts/list + prompts/get (one prompt per skill pack; substitution renders)
-        run: node scripts/test-mcp-prompts.js
+      - name: Tool-count sync (static surfaces match the live catalog total — no count drift)
+        run: node scripts/sync-count.js --check
 
-      - name: MCP outer transport limits (R-11 — per-IP cap + concurrency ceiling bound floods before server/transport allocation — spawns child)
-        run: node scripts/test-mcp-limits.js
+      - name: Static page renders smoke (every HTML surface returns 200 with the right page-specific title)
+        run: node scripts/test-static-pages.js
 
-      - name: Code-run-kit tests (E2B sandbox — validation always runs; live calls opt-in via E2B_LIVE_TEST=1)
-        run: node scripts/test-code-run-kit.js
-        env:
-          E2B_LIVE_TEST: ${{ secrets.E2B_API_KEY && '1' || '' }}
-          E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+      - name: Operator auth (A402-07 no ?token= query; session cookie + header; hardened cookie flags — spawns child)
+        run: node scripts/test-operator-auth.js
 
-      - name: /llms.txt content lock (tool count + discovery URLs + PoW/MCP/wallet signals)
-        run: node scripts/test-llms-txt.js
+      - name: /openapi.json header parameters (Idempotency-Key on every op, X-Pow-Solution only where PoW-eligible)
+        run: node scripts/test-openapi-header-params.js
 
-      - name: Well-known store (operator-published domain-verification docs; traversal impossible, reserved names refused, no shadowing of /.well-known/x402 — offline)
-        run: node scripts/test-well-known-store.js
+      - name: Process lifecycle (A402-10 SIGTERM drains + exits 0; uncaught exception is fatal + exits non-zero — spawns child)
+        run: node scripts/test-shutdown.js
 
-      - name: /api/reliability envelope (guarantees claim+verify pairing — every listing portal reads this)
-        run: node scripts/test-reliability-envelope.js
+      - name: /api/pow/challenge envelope (free-tier gate — full shape + slug scoping + 404s)
+        run: node scripts/test-pow-challenge-envelope.js
 
-      - name: PostHog analytics proxy abuse controls (R-17 — method allowlist + per-IP cap before the upstream call — spawns child)
-        run: node scripts/test-posthog-proxy.js
+      - name: /api/pricing envelope contract (every scraper reads this — per-endpoint shape, slug uniqueness)
+        run: node scripts/test-pricing-envelope.js
 
-      - name: Leaderboard scan memory bound (300k synthetic transfers folded in batches; proves the 7d-OOM fix)
-        run: node scripts/test-leaderboard-memory.js
+      - name: /health envelope + .flags shape (boolean discipline locks the Yahoo-relay-flap class)
+        run: node scripts/test-health-envelope.js
 
-      - name: Conversion tools (~970 endpoints, exact + round-trip)
-        run: node scripts/test-convert.js
+      - name: EDGAR-kit tests (SEC ticker→CIK, filings, XBRL company-concept/facts/frames — live keyless APIs)
+        run: node scripts/test-edgar-kit.js
 
-      - name: /.well-known/x402 manifest contract (envelope + payment + capabilities + discovery)
-        run: node scripts/test-x402-manifest.js
+      - name: Deploy quiet gate (lull detection, fail-open paths — offline)
+        run: node scripts/test-quiet-gate.js
 
-      - name: MPP subscription rail-canary gate (canary product is never advertised and is mintable only for a heartbeat-token caller; boots a real server, spends nothing)
-        run: node scripts/test-mpp-subscription-canary-gate.js
+      - name: Self-check policy (transient-filtering, timeout, unknown-slug — the prod tool-failure alarm — offline)
+        run: node scripts/test-selfcheck.js
 
-      - name: /api/leaderboard envelope (spec, defaults, per-row shape — MCP top_x402_sellers piggybacks on this)
-        run: node scripts/test-leaderboard-envelope.js
+      - name: /robots.txt policy (every LLM bot explicitly allowed + /api/memory disallowed + sitemap)
+        run: node scripts/test-robots-policy.js
 
-      - name: MCP call_tool contract (canonical + flattened + stringified + wallet-refusal + self-correction envelope)
-        run: node scripts/test-mcp-call-tool-contract.js
+      - name: /api/find envelope + top-1 ranking lock (per-row shape + known queries → known top slugs)
+        run: node scripts/test-find-envelope.js
 
-      - name: Exposure hardening (A402-11/12/13 no X-Powered-By; security.txt; health gates flags; credential-free MCP CORS — spawns child)
-        run: node scripts/test-security-headers.js
+      - name: Settlement-aware idempotency (FR4-01 — a non-200/unsettled response is NOT cached; @x402/express settles AFTER the handler)
+        run: node scripts/test-idempotency-settlement.js
 
-      - name: crawl kit (offline)
-        run: node scripts/test-crawl-kit.js
-      - name: Memory v2 unit tests (grants, counters, audit chain, recall)
-        run: node scripts/test-memory.js
+      - name: Image-kit tests (resize, convert, thumbnail — jimp, exact dims)
+        run: node scripts/test-image.js
+
+      - name: MCP search_tools — live-catalog smoke test (locks top-1 for agent queries)
+        run: node scripts/test-mcp-search-ranking.js
 
       - name: Report -> monitor upgrade loop (kind mapping, table-driven price, escaping, prefill-only deep link)
         run: node scripts/test-report-upgrade.js
@@ -1865,19 +1824,19 @@ jobs:
 
 
   test:
-    # UPSTREAM AFFINITY, not just time. The first split balanced by duration
-    # alone and put suites that call the SAME free rate-limited providers
-    # (CoinGecko, DefiLlama, DexScreener, data.gov) into all three lanes. They
-    # had been serial in one job; running them concurrently tripled the load on
-    # providers that limit by IP, and eight tools failed on 504s in the first
-    # real run while both providers answered in under 350ms from a laptop. The
-    # non-metered sweep already caps itself at concurrency 3 for exactly this
-    # reason - "a thundering herd just rate-limits" - and the split had been
-    # undoing that from the outside.
+    # UPSTREAM AFFINITY, not just time. Balancing by duration alone put suites
+    # that call the SAME free rate-limited providers (CoinGecko, DefiLlama,
+    # DexScreener, data.gov) into all three lanes. They had been serial in one
+    # job; running them concurrently tripled the load on providers that limit by
+    # IP, and eight tools failed on 504s in the first real run while both
+    # providers answered in under 350ms from a laptop. The non-metered sweep
+    # already caps itself at concurrency 3 for exactly this reason - "a
+    # thundering herd just rate-limits" - and the split was undoing that from
+    # the outside.
     #
-    # So every suite touching a shared free-public upstream lives in ONE lane,
-    # together with everything that needs the booted server. The other two lanes
-    # are pure-offline suites, balanced by measured time.
+    # So every suite touching a shared free-public upstream lives in THIS lane,
+    # with everything that needs the booted server. The other two lanes are
+    # pure-offline suites balanced by measured time.
     # LANE 3 of 3 - everything that talks to the shared free-mode server or the network. Kept together because they share one booted server.
     # Test job runs on its own [test] marker AND auto-runs whenever a commit
     # asks to deploy or publish — so deploy/publish can hard-gate on it via
@@ -1929,6 +1888,74 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
+      - name: Install dependencies (secretless)
+        # F07: shadow the job-scope provider keys to EMPTY for this step only, so
+        # a malicious dependency lifecycle script running during `npm ci` cannot
+        # read them. No server or tool runs here, so empty keys are harmless.
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+        run: npm ci
+      - name: Install Playwright Chromium (+ system deps)
+        # `--with-deps` runs apt-get against the runner's mirror list
+        # (/etc/apt/apt-mirrors.txt), whose first entry is
+        # azure.archive.ubuntu.com. On 2026-08-18 that mirror was bad on SOME
+        # runners and fine on others: two runs stalled with no output for 28 min
+        # until cancelled; later the same commit's push run finished this step
+        # in ~45s while its pull_request twin, started the same second on
+        # another runner, answered InRelease after 30s and crawled at ~295 kB/s
+        # (attempt 3 spent 128s on 21 MB of fonts and never finished) — 3 of 3
+        # attempts lost, because every retry walked the same mirror list. So:
+        # (1) prefer the canonical archive and keep azure as a fallback, (2) an
+        # apt inactivity timeout, so a stalled transfer fails over to the next
+        # mirror instead of eating the attempt (apt's default is 120s, longer
+        # than our per-attempt bound), (3) after a lost attempt drop azure from
+        # the list entirely, and (4) a mirror set that is dead for a full three
+        # attempts fails the step LOUDLY instead of eating the job's timeout.
+        # The only apt payload here is fonts (Chromium's shared libraries are
+        # already on the ubuntu-24.04 image), so a mirror swap changes nothing
+        # about what gets installed.
+        timeout-minutes: 10
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+        run: |
+          printf 'Acquire::http::Timeout "20";\nAcquire::https::Timeout "20";\nAcquire::Retries "2";\n' \
+            | sudo tee /etc/apt/apt.conf.d/99-ci-mirror-timeouts >/dev/null
+          set_mirrors() {  # $1 = "with-azure" | "no-azure"
+            [ -f /etc/apt/apt-mirrors.txt ] || return 0
+            {
+              printf 'https://archive.ubuntu.com/ubuntu/\tpriority:1\n'
+              [ "$1" = "with-azure" ] && printf 'http://azure.archive.ubuntu.com/ubuntu/\tpriority:2\n'
+              printf 'https://security.ubuntu.com/ubuntu/\tpriority:3\n'
+            } | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          }
+          set_mirrors with-azure
+          for i in 1 2 3; do
+            if timeout 170 npx playwright install --with-deps chromium; then exit 0; fi
+            echo "playwright install attempt $i failed or stalled (apt mirror?) - retrying without the azure mirror"
+            # A stalled apt-get may outlive the killed npx (sudo can detach it
+            # from the group); clear it so the retry isn't blocked on its lock.
+            # The stall is in apt's fetch phase, so killing it is safe.
+            sudo pkill -TERM -f 'apt-get' 2>/dev/null || true
+            set_mirrors no-azure
+            sleep 10
+          done
+          echo "playwright install failed 3x - the runner's apt mirror is likely down"
+          exit 1
+      - name: Start server in free mode
+        run: |
+          # Raise the MCP rate limit so the full-catalog connector test can sweep
+          # every tool (production keeps the default 20/min, 120/hr).
+          AGENT402_MCP_MAX_PER_MIN=1000000 AGENT402_MCP_MAX_PER_HOUR=1000000 \
+            X402_SYNC_ON_START=false FREE_MODE=true X402_PAYWALL_PROBES_PER_CYCLE=0 PORT=3000 node src/server.js &
+          for i in $(seq 1 20); do curl -s localhost:3000/health >/dev/null && break; sleep 1; done
+      # Deterministic correctness proofs run FIRST — a flaky live upstream
+      # (e.g. data.gov downtime) must never mask whether the tools actually work.
       - name: Secret-leak guard (canary keys never reach responses, caches, or errors; gateway cost-strip — offline)
         run: node scripts/test-leak-guard.js
 
@@ -2092,33 +2119,6 @@ jobs:
           curl -s localhost:3000/tools/memory-write | grep -o '<title>[^<]*</title>'
           curl -s localhost:3000/sitemap.xml | grep -c '<loc>'
 
-      - name: Start server in free mode
-        run: |
-          # Raise the MCP rate limit so the full-catalog connector test can sweep
-          # every tool (production keeps the default 20/min, 120/hr).
-          AGENT402_MCP_MAX_PER_MIN=1000000 AGENT402_MCP_MAX_PER_HOUR=1000000 \
-            X402_SYNC_ON_START=false FREE_MODE=true X402_PAYWALL_PROBES_PER_CYCLE=0 PORT=3000 node src/server.js &
-          for i in $(seq 1 20); do curl -s localhost:3000/health >/dev/null && break; sleep 1; done
-      # Deterministic correctness proofs run FIRST — a flaky live upstream
-      # (e.g. data.gov downtime) must never mask whether the tools actually work.
-      - name: Start server in free mode
-        run: |
-          # Raise the MCP rate limit so the full-catalog connector test can sweep
-          # every tool (production keeps the default 20/min, 120/hr).
-          AGENT402_MCP_MAX_PER_MIN=1000000 AGENT402_MCP_MAX_PER_HOUR=1000000 \
-            X402_SYNC_ON_START=false FREE_MODE=true X402_PAYWALL_PROBES_PER_CYCLE=0 PORT=3000 node src/server.js &
-          for i in $(seq 1 20); do curl -s localhost:3000/health >/dev/null && break; sleep 1; done
-      # Deterministic correctness proofs run FIRST — a flaky live upstream
-      # (e.g. data.gov downtime) must never mask whether the tools actually work.
-      - name: Start server in free mode
-        run: |
-          # Raise the MCP rate limit so the full-catalog connector test can sweep
-          # every tool (production keeps the default 20/min, 120/hr).
-          AGENT402_MCP_MAX_PER_MIN=1000000 AGENT402_MCP_MAX_PER_HOUR=1000000 \
-            X402_SYNC_ON_START=false FREE_MODE=true X402_PAYWALL_PROBES_PER_CYCLE=0 PORT=3000 node src/server.js &
-          for i in $(seq 1 20); do curl -s localhost:3000/health >/dev/null && break; sleep 1; done
-      # Deterministic correctness proofs run FIRST — a flaky live upstream
-      # (e.g. data.gov downtime) must never mask whether the tools actually work.
       - name: Rails-copy lock (rails.js ↔ payments.js + every key page renders every rail)
         run: TARGET_URL=http://localhost:3000 node scripts/test-rails.js
 
