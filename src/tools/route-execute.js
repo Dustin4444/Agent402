@@ -20,6 +20,7 @@ import { createHash } from "node:crypto";
 import { paymentHeaderOf, payerFromRequest } from "../payer.js";
 import { maySpend, noteSpend, resolveSpend } from "../external-spend-guard.js";
 import { findTools } from "../find.js";
+import { observeDelivery } from "../response-observation.js";
 import { isIdentityBoundRoute } from "../payments.js";
 
 // Two execution tiers, both from buildRouteExecuteTool. The tier a buyer needs
@@ -337,6 +338,24 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
             throw bad(`External seller "${ext.seller}" failed: ${String(e?.message || e).slice(0, 200)}`, sc);
           }
           const ts = new Date().toISOString();
+          // RUNTIME VERIFICATION. The seller's OpenAPI told us what a success
+          // guarantees; this is the only moment anyone finds out whether that
+          // was true, because we just paid for the answer. Records the verdict
+          // only - never the payload, which is what the buyer paid for.
+          // Never throws, and runs after the money has moved either way.
+          if (ext.guaranteedPaths?.length && ext.route) {
+            observeDelivery({
+              // The SAME (origin, method, route) triple the index projects on,
+              // taken from the resolver's own row. Keying this by slug instead
+              // would record observations nothing could ever read back, since
+              // every reader has the route.
+              origin: ext.seller,
+              method: ext.method || "POST",
+              route: ext.route,
+              guaranteedPaths: ext.guaranteedPaths,
+              body: paid.result,
+            });
+          }
           const underlyingUsd = paid.quote ? paid.quote.usd : extUsd;
           return {
             receipt: {
