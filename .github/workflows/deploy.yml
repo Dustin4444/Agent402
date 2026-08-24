@@ -933,6 +933,9 @@ jobs:
 
       - name: programmatic report pages (offline)
         run: node scripts/test-programmatic-pages.js
+
+      - name: Programmatic page gate wait (a queued EDGAR build cannot hang a crawler; abandoned waiters freed — offline)
+        run: node scripts/test-programmatic-gate-wait.js
       - name: Seller registration conversion/churn table (first_seen immutable, last_settled_seen sticky — offline)
         run: node scripts/test-seller-registrations.js
 
