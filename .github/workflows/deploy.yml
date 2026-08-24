@@ -1284,6 +1284,9 @@ jobs:
       - name: Process lifecycle (A402-10 SIGTERM drains + exits 0; uncaught exception is fatal + exits non-zero — spawns child)
         run: node scripts/test-shutdown.js
 
+      - name: Lame-duck shutdown (SIGTERM keeps SERVING until the replacement can — the deploy-downtime fix; sizing vs the Railway grace)
+        run: node scripts/test-lame-duck-shutdown.js
+
       - name: /api/pow/challenge envelope (free-tier gate — full shape + slug scoping + 404s)
         run: node scripts/test-pow-challenge-envelope.js
 
@@ -3562,10 +3565,18 @@ jobs:
           # RAILWAY_DEPLOYMENT_DRAINING_SECONDS: Railway's default grace between
           # SIGTERM and SIGKILL is 0 seconds — without this, the server's
           # graceful drain never runs and every deploy hard-kills in-flight
-          # (already paid-for) requests. 90s covers the slowest single call
-          # (transcribe's 60s OpenAI timeout) plus the server's 75s deadline.
+          # (already paid-for) requests.
+          #
+          # 240s, raised from 90s, and it is sized against a MEASUREMENT rather
+          # than a guess. Railway SIGTERMs the old container when the new one
+          # STARTS and keeps routing to it until the new one is healthy: on the
+          # 2026-08-24 20:45 deploy that was SIGTERM 20:45:17 and healthy
+          # 20:47:05, a 108s gap. The server now keeps SERVING for
+          # SHUTDOWN_LAME_DUCK_MS (120s) before it closes its listener, so the
+          # grace has to outlast lame duck + drain: 120 + 60 = 180s, inside 240.
+          # Raise both together or the SIGKILL lands mid-drain.
           VARS=$(jq -n --arg w "$WALLET_ADDRESS" --arg n "$NETWORK" --arg f "$FACILITATOR_URL" --arg b "$BASE" \
-            '{WALLET_ADDRESS:$w, NETWORK:$n, FACILITATOR_URL:$f, BASE_URL:$b, RAILWAY_DEPLOYMENT_DRAINING_SECONDS:"90"}')
+            '{WALLET_ADDRESS:$w, NETWORK:$n, FACILITATOR_URL:$f, BASE_URL:$b, RAILWAY_DEPLOYMENT_DRAINING_SECONDS:"240"}')
           if [ -n "$CDP_KEY_ID" ] && [ -n "$CDP_KEY_SECRET" ]; then
             VARS=$(echo "$VARS" | jq --arg i "$CDP_KEY_ID" --arg s "$CDP_KEY_SECRET" '. + {CDP_API_KEY_ID:$i, CDP_API_KEY_SECRET:$s}')
           fi

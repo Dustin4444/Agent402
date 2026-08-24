@@ -6065,23 +6065,61 @@ let shuttingDown = false;
 // `code`/`deadlineMs` default to the graceful-redeploy values (exit 0, 75s to
 // cover the slowest upstream). The fatal path below reuses this with a non-zero
 // code and a short deadline — same drain machinery, different exit semantics.
-function shutdown(signal, { code = 0, deadlineMs = 75_000 } = {}) {
+// LAME DUCK: keep SERVING after SIGTERM instead of closing the door on arrival.
+//
+// Railway sends SIGTERM to the old container when the new deployment STARTS,
+// not when it can serve, and it keeps routing to the old one until the new one
+// passes its health check. Measured on the 2026-08-24 20:45 deploy: SIGTERM at
+// 20:45:17, new deployment healthy at 20:47:05 - 108 seconds later. Calling
+// httpServer.close() on arrival stopped this process accepting new connections
+// for that entire window, and at the 75s deadline it exited outright, so the
+// 502s became hard connection timeouts. That is the production downtime on
+// every single deploy, and it was ours, not Railway's: `overlapSeconds` cannot
+// help when the surviving container is alive but refusing connections.
+//
+// So SIGTERM now starts a countdown rather than a shutdown. The process keeps
+// accepting and serving normally for LAME_DUCK_MS, which must outlast the
+// replacement's boot, and only then closes the listener and drains. Railway
+// SIGKILLs at RAILWAY_DEPLOYMENT_DRAINING_SECONDS regardless, so that grace is
+// raised in the same commit and the two are sized together:
+//
+//   lame duck 120s + drain 60s = 180s, inside a 240s grace.
+//
+// KNOWN TRADE-OFF, stated rather than hidden: this widens the window in which
+// TWO of our processes serve at once, and this service assumes a single writer
+// (SQLite on the volume, the credits in-memory hold cache, MCP task runs). The
+// window is not new - the old container already drained in-flight requests
+// across it - but it is now longer. It is accepted here because the status quo
+// is a guaranteed ~108s outage on every deploy, while this is a bounded overlap
+// of two healthy processes. If replicas are ever scaled, fix the shared-state
+// story first (see numReplicas in railway.toml).
+const LAME_DUCK_MS = Number(process.env.SHUTDOWN_LAME_DUCK_MS ?? 120_000);
+
+function shutdown(signal, { code = 0, deadlineMs = 60_000, lameDuckMs = LAME_DUCK_MS } = {}) {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`${signal} received - draining in-flight requests (exit ${code})`);
+  const duck = Number.isFinite(lameDuckMs) && lameDuckMs > 0 ? lameDuckMs : 0;
+  console.log(
+    `${signal} received - serving for ${Math.round(duck / 1000)}s more, then draining (exit ${code})`
+  );
   // Drain the PostHog paywall_402 rollup + client queue so a redeploy doesn't
   // drop up to a flush window of funnel counts. Fire-and-forget (no-op when
   // PostHog is disabled); the drain deadline below still governs exit.
   shutdownPostHog().catch(() => {});
-  httpServer.close(() => process.exit(code));
-  // server.close() waits for ALL connections, including idle keep-alive
-  // sockets agents hold open between calls. Sweep those now and every few
-  // seconds (a socket goes idle the moment its in-flight response finishes),
-  // so an idle connection can't pin the drain to the hard deadline.
-  httpServer.closeIdleConnections();
-  setInterval(() => httpServer.closeIdleConnections(), 5_000).unref();
-  // Hard deadline so a stuck request can't block the redeploy.
-  setTimeout(() => process.exit(code), deadlineMs).unref();
+  const beginDrain = () => {
+    console.log(`${signal} - lame-duck over, closing listener and draining in-flight requests`);
+    httpServer.close(() => process.exit(code));
+    // server.close() waits for ALL connections, including idle keep-alive
+    // sockets agents hold open between calls. Sweep those now and every few
+    // seconds (a socket goes idle the moment its in-flight response finishes),
+    // so an idle connection can't pin the drain to the hard deadline.
+    httpServer.closeIdleConnections();
+    setInterval(() => httpServer.closeIdleConnections(), 5_000).unref();
+    // Hard deadline so a stuck request can't block the redeploy.
+    setTimeout(() => process.exit(code), deadlineMs).unref();
+  };
+  if (duck === 0) return beginDrain();
+  setTimeout(beginDrain, duck).unref();
 }
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
@@ -6104,7 +6142,9 @@ process.on("unhandledRejection", (reason) => {
 process.on("uncaughtException", (err) => {
   console.error("[uncaughtException] fatal - draining then exiting non-zero:", err?.stack || err);
   try {
-    shutdown("uncaughtException", { code: 1, deadlineMs: 10_000 });
+    // No lame duck on the fatal path: a process whose invariants may already be
+    // broken must stop taking new work immediately, not serve for two more minutes.
+    shutdown("uncaughtException", { code: 1, deadlineMs: 10_000, lameDuckMs: 0 });
   } catch {
     process.exit(1);
   }
