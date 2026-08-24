@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Leak gate for every PUBLIC JSON surface. Requires a booted server:
 //   FREE_MODE=true PORT=3000 node src/server.js
-//   TARGET_URL=http://localhost:3000 node scripts/test-public-surface-leak.js
+//   TARGET_URL=http://127.0.0.1:3000 node scripts/test-public-surface-leak.js
 //
 // WHY: we had a written doctrine - buyer identity is COUNTS ONLY, never
 // addresses; per-tool revenue belongs to the paid tool and the operator - and
@@ -17,7 +17,7 @@
 //
 // If a new public endpoint should be allowed to carry an address (none does
 // today), add it to ADDRESS_ALLOWED with the reason - do not weaken the check.
-const TARGET = (process.env.TARGET_URL || "http://localhost:3000").replace(/\/+$/, "");
+const TARGET = (process.env.TARGET_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
 
 let passed = 0, failed = 0;
 const ok = (cond, msg) => {

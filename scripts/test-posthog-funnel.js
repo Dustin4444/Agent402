@@ -158,7 +158,7 @@ got = take();
 ok(got.length === 999, `discovery capped per rolling hour (got ${got.length} of 1200 — 1 was used above)`);
 
 // --- integration: the real funnel through a paid-mode server ----------------------
-const FAC_PORT = 3082, PORT = 3081, B = `http://localhost:${PORT}`;
+const FAC_PORT = 3082, PORT = 3081, B = `http://127.0.0.1:${PORT}`;
 // Mock facilitator: /supported advertises the exact scheme on Base so the
 // middleware's kind sync succeeds and real 402 challenges build offline.
 const facilitator = createServer((req, res) => {
@@ -177,7 +177,7 @@ const proc = spawn("node", ["src/server.js"], {
     ...process.env,
     WALLET_ADDRESS: "0x000000000000000000000000000000000000dEaD",
     NETWORK: "base",
-    FACILITATOR_URL: `http://localhost:${FAC_PORT}`,
+    FACILITATOR_URL: `http://127.0.0.1:${FAC_PORT}`,
     X402_SYNC_ON_START: "true", // the kind sync MUST run for 402s to build
     POW_DIFFICULTY: "12",
     PORT: String(PORT),

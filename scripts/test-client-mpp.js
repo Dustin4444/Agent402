@@ -12,7 +12,7 @@ import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { Agent402 } from "../client/index.js";
 
 const PORT = 3081; const FAC_PORT = 3082;
-const B = `http://localhost:${PORT}`;
+const B = `http://127.0.0.1:${PORT}`;
 const TREASURY = "0x000000000000000000000000000000000000dEaD";
 const TX = `0x${"cd".repeat(32)}`;
 let pass = 0; let proc = null; let facilitator = null;

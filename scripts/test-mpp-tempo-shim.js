@@ -33,7 +33,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // ---------------------------------------------------------------------------
 const PORT = 3079;
 const FAC_PORT = 3080;
-const B = `http://localhost:${PORT}`;
+const B = `http://127.0.0.1:${PORT}`;
 const SECRET = "test-mpp-secret";
 const TREASURY = "0x000000000000000000000000000000000000dEaD";
 const TEMPO_CURRENCY = "0x2000000000000000000000000000000000000000";

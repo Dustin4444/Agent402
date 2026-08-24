@@ -136,7 +136,7 @@ try {
     const cred = evmCred({ nonce: "0xC0NCURRENT" });
     const results = await Promise.all(
       Array.from({ length: 8 }, () =>
-        fetch(`http://localhost:${port}/api/hash`, { method: "POST", headers: { "x-payment": cred } }).then((r) => r.status)
+        fetch(`http://127.0.0.1:${port}/api/hash`, { method: "POST", headers: { "x-payment": cred } }).then((r) => r.status)
       )
     );
     const granted = results.filter((s) => s === 200).length;
@@ -146,11 +146,11 @@ try {
     ok(stats().handlerCalls === 1, `paywall/facilitator invoked once, not 8× (got ${stats().handlerCalls})`);
 
     // A brand-new authorization still works after the storm.
-    const fresh = await fetch(`http://localhost:${port}/api/hash`, { method: "POST", headers: { "x-payment": evmCred({ nonce: "0xFRESH" }) } });
+    const fresh = await fetch(`http://127.0.0.1:${port}/api/hash`, { method: "POST", headers: { "x-payment": evmCred({ nonce: "0xFRESH" }) } });
     ok(fresh.status === 200, `fresh nonce still granted (got ${fresh.status})`);
 
     // Replaying the already-settled nonce is now refused outright.
-    const replay = await fetch(`http://localhost:${port}/api/hash`, { method: "POST", headers: { "x-payment": cred } });
+    const replay = await fetch(`http://127.0.0.1:${port}/api/hash`, { method: "POST", headers: { "x-payment": cred } });
     ok(replay.status === 409, `settled nonce replay refused (got ${replay.status})`);
     ok(replay.headers.get("x-payment-replay") === "consumed", "replay marked consumed");
     srv.close();
@@ -163,8 +163,8 @@ try {
     const srv = await listen(app);
     const port = srv.address().port;
     const cred = evmCred({ nonce: "0xRETRYABLE" });
-    const r1 = await fetch(`http://localhost:${port}/api/hash`, { method: "POST", headers: { "x-payment": cred } });
-    const r2 = await fetch(`http://localhost:${port}/api/hash`, { method: "POST", headers: { "x-payment": cred } });
+    const r1 = await fetch(`http://127.0.0.1:${port}/api/hash`, { method: "POST", headers: { "x-payment": cred } });
+    const r2 = await fetch(`http://127.0.0.1:${port}/api/hash`, { method: "POST", headers: { "x-payment": cred } });
     ok(r1.status === 402 && r2.status === 402, `both attempts reach the paywall (got ${r1.status}, ${r2.status})`);
     ok(stats().handlerCalls === 2, `failed settle released the nonce — paywall invoked twice (got ${stats().handlerCalls})`);
     srv.close();

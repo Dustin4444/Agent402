@@ -43,7 +43,7 @@ const getFreePort = async () => {
   return port;
 };
 const PORT = await getFreePort();
-const base = `http://localhost:${PORT}`;
+const base = `http://127.0.0.1:${PORT}`;
 let log = "";
 
 // Local stub facilitator (same pattern as scripts/test-mpp-shim.js). A real

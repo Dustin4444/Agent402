@@ -32,7 +32,7 @@ async function testSigterm() {
   let up = false;
   for (let i = 0; i < 80; i++) {
     try {
-      const r = await fetch(`http://localhost:${port}/health`);
+      const r = await fetch(`http://127.0.0.1:${port}/health`);
       if (r.ok) { up = true; break; }
     } catch { /* not up yet */ }
     await wait(250);

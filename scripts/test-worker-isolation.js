@@ -21,7 +21,7 @@ const listen = (app) => new Promise((res) => { const s = app.listen(0, () => res
   process.env.RENDER_WORKER_TOKEN = "test-worker-token";
   const { app, HANDLERS } = await import("../worker/server.js");
   const srv = await listen(app);
-  const base = `http://localhost:${srv.address().port}`;
+  const base = `http://127.0.0.1:${srv.address().port}`;
 
   ok(Object.keys(HANDLERS).includes("render") && Object.keys(HANDLERS).includes("media-info"), "worker exposes render + media handlers");
   const health = await (await fetch(`${base}/health`)).json();
@@ -50,7 +50,7 @@ const listen = (app) => new Promise((res) => { const s = app.listen(0, () => res
     res.status(404).json({ error: "unknown" });
   });
   const srv = await listen(stub);
-  process.env.RENDER_WORKER_URL = `http://localhost:${srv.address().port}`;
+  process.env.RENDER_WORKER_URL = `http://127.0.0.1:${srv.address().port}`;
   process.env.RENDER_WORKER_TOKEN = "client-tok";
   const { workerEnabled, runOnWorker } = await import("../src/worker-client.js");
 

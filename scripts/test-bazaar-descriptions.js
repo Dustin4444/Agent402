@@ -7,7 +7,7 @@ import { BAZAAR_DESCRIPTIONS, BAZAAR_DESCRIPTION_MAX, bazaarCapDescription } fro
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log("ok -", m); } else { fail++; console.log("FAIL -", m); } };
 
-const res = await fetch(`${process.env.TARGET_URL || "http://localhost:3000"}/api/pricing`).then((r) => r.json()).catch(() => null);
+const res = await fetch(`${process.env.TARGET_URL || "http://127.0.0.1:3000"}/api/pricing`).then((r) => r.json()).catch(() => null);
 const slugs = new Set((res?.endpoints || []).map((e) => e.slug));
 ok(slugs.size > 400, `live catalog readable (${slugs.size} slugs) - boot the server or set TARGET_URL`);
 for (const [slug, text] of Object.entries(BAZAAR_DESCRIPTIONS)) {

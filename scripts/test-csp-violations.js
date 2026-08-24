@@ -15,10 +15,10 @@
 // violation that only fires once a user actually does something.
 //
 //   FREE_MODE=true PORT=3000 node src/server.js
-//   TARGET_URL=http://localhost:3000 node scripts/test-csp-violations.js
+//   TARGET_URL=http://127.0.0.1:3000 node scripts/test-csp-violations.js
 import { chromium } from "playwright";
 
-const BASE = process.env.TARGET_URL || "http://localhost:3000";
+const BASE = process.env.TARGET_URL || "http://127.0.0.1:3000";
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log(`ok - ${msg}`); } else { fail++; console.error(`FAIL - ${msg}`); } };
 

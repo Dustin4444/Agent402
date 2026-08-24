@@ -5,7 +5,7 @@
 // /verify failure with CDP's own words (isValid + invalidReason, or the raw
 // thrown error/response).
 //
-//   TARGET_URL=http://localhost:3777 KEY_FILE=/tmp/burner-key \
+//   TARGET_URL=http://127.0.0.1:3777 KEY_FILE=/tmp/burner-key \
 //   CDP_API_KEY_ID=.. CDP_API_KEY_SECRET=.. node scripts/cdp-verify-direct.js
 import { readFileSync } from "node:fs";
 import { privateKeyToAccount } from "viem/accounts";
@@ -15,7 +15,7 @@ import { HTTPFacilitatorClient } from "@x402/core/server";
 import { decodePaymentRequiredHeader } from "@x402/core/http";
 import { createFacilitatorConfig } from "@coinbase/x402";
 
-const TARGET = process.env.TARGET_URL || "http://localhost:3777";
+const TARGET = process.env.TARGET_URL || "http://127.0.0.1:3777";
 const account = privateKeyToAccount(readFileSync(process.env.KEY_FILE, "utf8").trim());
 const client = new x402Client();
 registerExactEvmScheme(client, { signer: account });

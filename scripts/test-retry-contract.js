@@ -2,7 +2,7 @@
 // The retry-safety contract we publish must be TRUE, including its edge case.
 //
 //   FREE_MODE=true PORT=3000 node src/server.js
-//   TARGET_URL=http://localhost:3000 node scripts/test-retry-contract.js
+//   TARGET_URL=http://127.0.0.1:3000 node scripts/test-retry-contract.js
 //
 // WHY: we told agents "a failed call is NEVER charged - structurally". Our own
 // charged-failure alarm exists precisely for the case where that is false: a
@@ -14,7 +14,7 @@
 // The published contract is now derivable by the buyer from the response they
 // already hold. This asserts the four branches stay stated, stay mutually
 // exclusive, and that the copy never re-absolutises.
-const TARGET = (process.env.TARGET_URL || "http://localhost:3000").replace(/\/+$/, "");
+const TARGET = (process.env.TARGET_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };

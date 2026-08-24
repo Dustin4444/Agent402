@@ -12,7 +12,7 @@ import { spawn } from "node:child_process";
 import { createHmac } from "node:crypto";
 
 const PORT = 3079;
-const B = `http://localhost:${PORT}`;
+const B = `http://127.0.0.1:${PORT}`;
 const SECRET = "test-mpp-canary-secret";
 const POW = "test-pow-canary-secret";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

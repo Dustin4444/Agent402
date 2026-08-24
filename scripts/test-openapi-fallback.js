@@ -396,7 +396,7 @@ console.log("openapi-fallback tests passed");
     openapi: "3.1.0",
     servers: [
       { url: "https://www.example.ai/api", description: "Production" },
-      { url: "http://localhost:5000/api", description: "Local development" },
+      { url: "http://127.0.0.1:5000/api", description: "Local development" },
     ],
     paths: {
       "/multi-cloud/explore": {

@@ -2,7 +2,7 @@
 // Every tool must be findable by an agent, on every surface an agent uses.
 //
 //   FREE_MODE=true PORT=3000 node src/server.js
-//   TARGET_URL=http://localhost:3000 node scripts/test-discoverability.js
+//   TARGET_URL=http://127.0.0.1:3000 node scripts/test-discoverability.js
 //
 // WHY: a tool that exists but cannot be found earns nothing, and the failure is
 // silent - the catalog count still looks right. That is not hypothetical here.
@@ -25,7 +25,7 @@
 // Natural-language ranking is a softer property and is covered by
 // scripts/test-find.js; this one is about REACHABILITY, and a tool that cannot
 // be reached by its own name is unreachable by anything.
-const TARGET = (process.env.TARGET_URL || "http://localhost:3000").replace(/\/+$/, "");
+const TARGET = (process.env.TARGET_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
 
 let passed = 0, failed = 0;
 const ok = (cond, msg) => {

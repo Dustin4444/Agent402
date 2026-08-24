@@ -71,7 +71,7 @@ function baseCtx(baseUrl) {
   cache.clear();
   _resetFlatCacheForTest();
   seedSelf();
-  const ctx = baseCtx("http://localhost:3000");
+  const ctx = baseCtx("http://127.0.0.1:3000");
 
   const flat = allIndexedTools({ ourTools: [], excludeOrigin: ctx.baseUrl });
   ok(!flat.results.some((t) => t.seller === "https://agent402.tools"), "allIndexedTools: mismatched baseUrl STILL excludes self (the real bug)");
@@ -105,7 +105,7 @@ function baseCtx(baseUrl) {
     originResponded: true,
     history: [1, 1, 1],
   });
-  const ctx = baseCtx("http://localhost:3000");
+  const ctx = baseCtx("http://127.0.0.1:3000");
 
   const routed = routeQuery({ query: "dns", top: 10, include: "external", ...ctx });
   ok(routed.results.some((r) => r.seller === "https://real-seller.example"), "routeQuery: a genuine third-party seller is still routed (self-exclusion isn't over-broad)");

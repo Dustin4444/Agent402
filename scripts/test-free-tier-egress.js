@@ -32,7 +32,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = Number(process.env.EGRESS_TEST_PORT) || 3231;
-const B = `http://localhost:${PORT}`;
+const B = `http://127.0.0.1:${PORT}`;
 const LOG = join(mkdtempSync(join(tmpdir(), "a402-egress-")), "egress.jsonl");
 
 let passed = 0, failed = 0;

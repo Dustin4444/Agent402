@@ -21,7 +21,7 @@ const ok = (cond, msg) => { cond ? pass++ : fail++; console.log(`${cond ? "ok" :
 
 const initBody = (id) => ({ jsonrpc: "2.0", id, method: "initialize", params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "r11-test", version: "1" } } });
 const post = (body, raw = false) =>
-  fetch(`http://localhost:${PORT}/mcp`, {
+  fetch(`http://127.0.0.1:${PORT}/mcp`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
     body: raw ? body : JSON.stringify(body),
@@ -46,7 +46,7 @@ proc.on("exit", () => { exited = true; });
 try {
   let up = false;
   for (let i = 0; i < 180 && !exited; i++) {
-    try { if ((await fetch(`http://localhost:${PORT}/health`)).ok) { up = true; break; } } catch { /* booting */ }
+    try { if ((await fetch(`http://127.0.0.1:${PORT}/health`)).ok) { up = true; break; } } catch { /* booting */ }
     await new Promise((r) => setTimeout(r, 500));
   }
   if (!up) {

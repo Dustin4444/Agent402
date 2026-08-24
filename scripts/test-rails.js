@@ -12,7 +12,7 @@
 //    embed the claim grammatically instead of importing a constant.
 //
 //   node scripts/test-rails.js                       # offline only
-//   TARGET_URL=http://localhost:3000 node scripts/test-rails.js
+//   TARGET_URL=http://127.0.0.1:3000 node scripts/test-rails.js
 import { RAILS, RAILS_AMP, RAILS_OR, RAILS_PAREN, RAILS_SHORT, RAIL_CHAIN_NAMES, RAILS_OS, RAILS_NOTE } from "../src/rails.js";
 import { NETWORKS } from "../src/payments.js";
 import { railsCoveredByLiveView } from "../src/revenue-live.js";

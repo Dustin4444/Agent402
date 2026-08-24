@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Docs-vs-catalog truth gate. Requires a booted server:
 //   FREE_MODE=true PORT=3000 node src/server.js
-//   TARGET_URL=http://localhost:3000 node scripts/test-docs-truth.js
+//   TARGET_URL=http://127.0.0.1:3000 node scripts/test-docs-truth.js
 //
 // WHY: the single most repeated defect in this repo is a FACT COPIED BY HAND
 // into prose and then left behind when the code moved. One audit found, across
@@ -19,7 +19,7 @@
 // It is deliberately conservative: it only judges a price when the doc puts one
 // adjacent to a specific route, because that is the pattern that misleads a
 // buyer. Prose ranges are left to humans.
-const TARGET = (process.env.TARGET_URL || "http://localhost:3000").replace(/\/+$/, "");
+const TARGET = (process.env.TARGET_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
 import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
 import { join, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";

@@ -2,12 +2,12 @@
 // example and verify a sensible response. Drives itself from /openapi.json over
 // HTTP, so it exercises real routing + handlers for all ~1070 endpoints.
 //
-//   TARGET_URL=http://localhost:3000 node scripts/test-all.js
+//   TARGET_URL=http://127.0.0.1:3000 node scripts/test-all.js
 //
 // Pure-CPU tools must return 200 with no error. Network/browser tools are
 // exercised but tolerant of upstream/sandbox failures (they need real egress;
 // CI has it). Memory tools get a demo namespace and accept their valid 4xx.
-const TARGET = process.env.TARGET_URL || "http://localhost:3000";
+const TARGET = process.env.TARGET_URL || "http://127.0.0.1:3000";
 
 // Tools that reach the network/browser — lenient (need real egress).
 // Brave-backed routes — opt-in via BRAVE_LIVE_TEST=1. Every [test] CI run

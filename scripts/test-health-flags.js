@@ -18,7 +18,7 @@ import { dirname, join } from "node:path";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = 3096;
-const BASE = `http://localhost:${PORT}`;
+const BASE = `http://127.0.0.1:${PORT}`;
 // The detailed flags are operator-gated now (A402-11); boot with a known token
 // so this test can still verify the full flag contract, and separately assert
 // the public response hides it.

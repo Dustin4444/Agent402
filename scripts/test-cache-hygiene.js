@@ -11,7 +11,7 @@
 import { spawn } from "node:child_process";
 
 const PORT = 3091;
-const B = `http://localhost:${PORT}`;
+const B = `http://127.0.0.1:${PORT}`;
 const proc = spawn("node", ["src/server.js"], {
   env: { ...process.env, FREE_MODE: "true", PORT: String(PORT),
     AGENT402_MCP_MAX_PER_MIN: "999999", AGENT402_MCP_MAX_PER_HOUR: "9999999" },

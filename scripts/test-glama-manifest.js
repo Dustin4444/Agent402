@@ -44,7 +44,7 @@ const boot = (port, env) => {
 };
 
 const waitUp = async (port) => {
-  for (let i = 0; i < 40; i++) { try { if ((await fetch(`http://localhost:${port}/health`)).ok) return true; } catch {} await sleep(500); }
+  for (let i = 0; i < 40; i++) { try { if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) return true; } catch {} await sleep(500); }
   return false;
 };
 
@@ -53,7 +53,7 @@ try {
   const FIXTURE = "fixture-maintainer@example.test";
   boot(3090, { GLAMA_MAINTAINER_EMAIL: FIXTURE });
   ok(await waitUp(3090), "server up on :3090 with GLAMA_MAINTAINER_EMAIL set");
-  const overrideRes = await fetch("http://localhost:3090/.well-known/glama.json");
+  const overrideRes = await fetch("http://127.0.0.1:3090/.well-known/glama.json");
   ok(overrideRes.status === 200, `with env: /.well-known/glama.json → 200 (got ${overrideRes.status})`);
   ok((overrideRes.headers.get("content-type") || "").includes("application/json"), "with env: content-type is application/json");
   const overrideManifest = await overrideRes.json();
@@ -84,7 +84,7 @@ try {
   });
   procs.push(p2);
   ok(await waitUp(3089), "server up on :3089 without GLAMA_MAINTAINER_EMAIL");
-  const defaultManifest = await (await fetch("http://localhost:3089/.well-known/glama.json")).json();
+  const defaultManifest = await (await fetch("http://127.0.0.1:3089/.well-known/glama.json")).json();
   ok(
     defaultManifest.maintainers[0]?.email === "mike@agent402.tools",
     `without env: maintainers[0].email falls back to 'mike@agent402.tools' (got ${defaultManifest.maintainers[0]?.email})`

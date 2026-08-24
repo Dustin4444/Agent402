@@ -8,8 +8,8 @@
 //
 // Requires a booted server (same TARGET_URL convention as other page tests):
 //   FREE_MODE=true PORT=3000 node src/server.js
-//   TARGET_URL=http://localhost:3000 node scripts/test-wrong-method-405.js
-const BASE = process.env.TARGET_URL || "http://localhost:3000";
+//   TARGET_URL=http://127.0.0.1:3000 node scripts/test-wrong-method-405.js
+const BASE = process.env.TARGET_URL || "http://127.0.0.1:3000";
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
 

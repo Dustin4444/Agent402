@@ -62,7 +62,7 @@ async function acceptsFor(env, port, facPort, kinds) {
   });
   child.stdout.on("data", (d) => { log += d; });
   child.stderr.on("data", (d) => { log += d; });
-  const base = `http://localhost:${port}`;
+  const base = `http://127.0.0.1:${port}`;
   let up = false;
   for (let i = 0; i < 240; i++) {
     try { if ((await fetch(`${base}/health`)).ok) { up = true; break; } } catch { /* booting */ }
@@ -156,7 +156,7 @@ const P = 3960 + (process.pid % 20);
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
-  const base = `http://localhost:${port}`;
+  const base = `http://127.0.0.1:${port}`;
   let up = false;
   for (let i = 0; i < 240; i++) {
     try { if ((await fetch(`${base}/health`)).ok) { up = true; break; } } catch { /* booting */ }
@@ -212,7 +212,7 @@ const P = 3960 + (process.pid % 20);
   });
   child.stdout.on("data", (d) => { log += d; });
   child.stderr.on("data", (d) => { log += d; });
-  const base = `http://localhost:${port}`;
+  const base = `http://127.0.0.1:${port}`;
   let up = false;
   for (let i = 0; i < 240; i++) {
     try { if ((await fetch(`${base}/health`)).ok) { up = true; break; } } catch { /* booting */ }

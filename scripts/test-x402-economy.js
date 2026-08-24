@@ -161,7 +161,7 @@ ok(!noDay2.includes("Last 24h across the ecosystem"), "missing leaderboard snaps
   try {
     let up = false;
     for (let i = 0; i < 180 && !exited; i++) {
-      try { if ((await fetch(`http://localhost:${PORT}/health`)).ok) { up = true; break; } } catch { /* still booting */ }
+      try { if ((await fetch(`http://127.0.0.1:${PORT}/health`)).ok) { up = true; break; } } catch { /* still booting */ }
       await new Promise((r) => setTimeout(r, 500));
     }
     if (!up) {
@@ -169,7 +169,7 @@ ok(!noDay2.includes("Last 24h across the ecosystem"), "missing leaderboard snaps
     } else {
       for (const path of ["/x402-economy", "/economy"]) {
         try {
-          const res = await fetch(`http://localhost:${PORT}${path}`, { redirect: "manual" });
+          const res = await fetch(`http://127.0.0.1:${PORT}${path}`, { redirect: "manual" });
           ok(res.status === 301, `${path} → 301 (got ${res.status})`);
           ok(res.headers.get("location") === "/marketplace#economy", `${path} Location is /marketplace#economy (got ${res.headers.get("location")})`);
         } catch (e) {

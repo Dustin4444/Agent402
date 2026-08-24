@@ -20,7 +20,7 @@ import { spawn } from "node:child_process";
 import { Jimp, JimpMime } from "jimp";
 
 const PORT = 3221;
-const B = `http://localhost:${PORT}`;
+const B = `http://127.0.0.1:${PORT}`;
 const BURST = 8;
 // Worst single sample across the burst. Total starvation measured 363ms MEDIAN with
 // most probes never landing, so a worst-case bound in the low seconds still catches
