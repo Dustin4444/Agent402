@@ -55,14 +55,14 @@ async function main() {
   try {
     let total = 0;
     for (let i = 0; i < 40; i++) {
-      try { total = (await (await fetch(`http://localhost:${PORT}/health`)).json())?.meta?.toolCount || 0; if (total) break; } catch {}
+      try { total = (await (await fetch(`http://127.0.0.1:${PORT}/health`)).json())?.meta?.toolCount || 0; if (total) break; } catch {}
       await sleep(500);
     }
     if (!total) { console.error("sync-count: could not read the tool count from /health"); process.exit(2); }
 
     let packs = 0;
     try {
-      const sp = await (await fetch(`http://localhost:${PORT}/api/skill-packs.json`)).json();
+      const sp = await (await fetch(`http://127.0.0.1:${PORT}/api/skill-packs.json`)).json();
       packs = (sp?.packs || []).length;
     } catch {}
     if (!packs) { console.error("sync-count: could not read the pack count from /api/skill-packs.json"); process.exit(2); }

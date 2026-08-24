@@ -4,7 +4,7 @@
 // 502/503/504 as green), this suite FAILS on those statuses — that hole is how
 // gov-data stayed green while its upstream was permanently dead (issue #730).
 //
-//   TARGET_URL=http://localhost:3000 node scripts/test-non-metered-examples.js
+//   TARGET_URL=http://127.0.0.1:3000 node scripts/test-non-metered-examples.js
 //   node scripts/test-non-metered-examples.js   # boots its own FREE_MODE server
 //
 // WHY: test-all.js puts free-public tools (gov-data, weather, EDGAR, …) in

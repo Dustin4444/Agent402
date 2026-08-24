@@ -1,5 +1,5 @@
 // Boots free-mode server, asserts the legacy surfaces 301 to /marketplace.
-const base = process.env.TARGET_URL || "http://localhost:3000";
+const base = process.env.TARGET_URL || "http://127.0.0.1:3000";
 let fail = 0;
 for (const p of ["/index", "/marketplaces"]) {
   const r = await fetch(base + p, { redirect: "manual" });

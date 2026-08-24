@@ -5,7 +5,7 @@
 // mode — the /mcp endpoint sits before the paywall either way.
 import { FLAGSHIP_SLUGS, FLAGSHIP_MCP_NAMES } from "../src/mcp-flagship.js";
 
-const BASE = process.env.TARGET_URL || "http://localhost:3000";
+const BASE = process.env.TARGET_URL || "http://127.0.0.1:3000";
 
 let nextId = 1;
 async function rpc(method, params) {

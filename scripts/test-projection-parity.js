@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // The same tool, served by three surfaces, must not have three vocabularies.
 //
-//   TARGET_URL=http://localhost:3000 node scripts/test-projection-parity.js
+//   TARGET_URL=http://127.0.0.1:3000 node scripts/test-projection-parity.js
 //
 // WHY: /api/find, /api/route and /api/index/tools all return tool rows. They
 // disagreed on field names, and a missing key is indistinguishable from a
@@ -23,7 +23,7 @@
 // individually correct.
 import { readFileSync } from "node:fs";
 
-const TARGET = process.env.TARGET_URL || "http://localhost:3000";
+const TARGET = process.env.TARGET_URL || "http://127.0.0.1:3000";
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
 

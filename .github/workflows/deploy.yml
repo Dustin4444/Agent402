@@ -169,6 +169,20 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
+          cache: npm
+      # The gate reads deploy.yml with the real YAML parser rather than a
+      # bespoke regex, so it needs node_modules. Omitting this is what made its
+      # first real run fail: js-yaml is a genuine dependency, it just was not
+      # installed here. The failure was harmless because the whole design fails
+      # closed - every lane ran exactly as it would have without the gate - but
+      # a guard that cannot execute saves nothing.
+      - name: Install dependencies (secretless)
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+        run: npm ci
       - id: gate
         env:
           GH_TOKEN: ${{ github.token }}
@@ -261,11 +275,11 @@ jobs:
           PAYMENT_NETWORKS=base,robinhood NETWORK=base PORT=3795 \
             node src/server.js > /tmp/reg-srv.log 2>&1 &
           SRV=$!
-          for i in $(seq 1 40); do curl -sf http://localhost:3795/health >/dev/null 2>&1 && break; sleep 1; done
+          for i in $(seq 1 40); do curl -sf http://127.0.0.1:3795/health >/dev/null 2>&1 && break; sleep 1; done
           grep -iE 'dropping Robinhood|Accepting USDC|facilitator routing' /tmp/reg-srv.log | head -5 || true
-          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:3795/api/hash \
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:3795/api/hash \
             -H 'Content-Type: application/json' -d '{"text":"x"}')
-          HDR=$(curl -s -D - -o /dev/null -X POST http://localhost:3795/api/hash \
+          HDR=$(curl -s -D - -o /dev/null -X POST http://127.0.0.1:3795/api/hash \
             -H 'Content-Type: application/json' -d '{"text":"x"}' \
             | tr -d '\r' | awk -F': ' 'tolower($1)=="payment-required"{print $2}' | head -1)
           NETS=$(node -e 'const h=process.argv[1]||""; if(!h){console.log("[]");process.exit(0)} const d=JSON.parse(Buffer.from(h,"base64").toString("utf8")); console.log(JSON.stringify((d.accepts||[]).map(a=>a.network)))' "$HDR")
@@ -285,10 +299,10 @@ jobs:
               NETWORK=robinhood PAYMENT_NETWORKS=robinhood PORT=3796 \
               node src/server.js > /tmp/reg-rh.log 2>&1 &
             SRV2=$!
-            for i in $(seq 1 40); do curl -sf http://localhost:3796/health >/dev/null 2>&1 && break; sleep 1; done
-            code2=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:3796/api/hash \
+            for i in $(seq 1 40); do curl -sf http://127.0.0.1:3796/health >/dev/null 2>&1 && break; sleep 1; done
+            code2=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:3796/api/hash \
               -H 'Content-Type: application/json' -d '{"text":"x"}')
-            HDR2=$(curl -s -D - -o /dev/null -X POST http://localhost:3796/api/hash \
+            HDR2=$(curl -s -D - -o /dev/null -X POST http://127.0.0.1:3796/api/hash \
               -H 'Content-Type: application/json' -d '{"text":"x"}' \
               | tr -d '\r' | awk -F': ' 'tolower($1)=="payment-required"{print $2}' | head -1)
             NETS2=$(node -e 'const h=process.argv[1]||""; if(!h){console.log("[]");process.exit(0)} const d=JSON.parse(Buffer.from(h,"base64").toString("utf8")); console.log(JSON.stringify((d.accepts||[]).map(a=>a.network)))' "$HDR2")
@@ -365,9 +379,9 @@ jobs:
               NETWORK=robinhood PAYMENT_NETWORKS=robinhood \
               PORT=3790 node src/server.js > /tmp/rh-settle-srv.log 2>&1 &
             SRV=$!
-            for i in $(seq 1 40); do curl -sf http://localhost:3790/health >/dev/null 2>&1 && break; sleep 1; done
+            for i in $(seq 1 40); do curl -sf http://127.0.0.1:3790/health >/dev/null 2>&1 && break; sleep 1; done
             grep -iE 'facilitator|robinhood|accepting usdc|USDG' /tmp/rh-settle-srv.log | head -4 || true
-            if TARGET_URL=http://localhost:3790 KEY_FILE=/tmp/burner-key node scripts/rh-settle-test.js; then
+            if TARGET_URL=http://127.0.0.1:3790 KEY_FILE=/tmp/burner-key node scripts/rh-settle-test.js; then
               echo ">>> SETTLED with USDG EIP-712 version=$V"; settled=1; kill $SRV 2>/dev/null || true; break
             fi
             echo "--- server-side facilitator/settle log (version=$V) ---"
@@ -397,9 +411,9 @@ jobs:
             FACILITATOR_URL=https://facilitator.payai.network \
             PORT=3791 node src/server.js > /tmp/poly-srv.log 2>&1 &
           SRV=$!
-          for i in $(seq 1 40); do curl -sf http://localhost:3791/health >/dev/null 2>&1 && break; sleep 1; done
+          for i in $(seq 1 40); do curl -sf http://127.0.0.1:3791/health >/dev/null 2>&1 && break; sleep 1; done
           grep -iE 'facilitator|polygon|accepting usdc|multi-chain' /tmp/poly-srv.log | head -4 || true
-          CHAIN=polygon TARGET_URL=http://localhost:3791 KEY_FILE="$RUNNER_TEMP/agent-key" \
+          CHAIN=polygon TARGET_URL=http://127.0.0.1:3791 KEY_FILE="$RUNNER_TEMP/agent-key" \
             node scripts/evm-settle-test.js || true
           kill $SRV 2>/dev/null || true
       # Arbitrum USDC settlement via PayAI facilitator. Same pattern as Polygon
@@ -421,9 +435,9 @@ jobs:
             FACILITATOR_URL=https://facilitator.payai.network \
             PORT=3792 node src/server.js > /tmp/arb-srv.log 2>&1 &
           SRV=$!
-          for i in $(seq 1 40); do curl -sf http://localhost:3792/health >/dev/null 2>&1 && break; sleep 1; done
+          for i in $(seq 1 40); do curl -sf http://127.0.0.1:3792/health >/dev/null 2>&1 && break; sleep 1; done
           grep -iE 'facilitator|arbitrum|accepting usdc|multi-chain' /tmp/arb-srv.log | head -4 || true
-          CHAIN=arbitrum TARGET_URL=http://localhost:3792 KEY_FILE="$RUNNER_TEMP/agent-key" \
+          CHAIN=arbitrum TARGET_URL=http://127.0.0.1:3792 KEY_FILE="$RUNNER_TEMP/agent-key" \
             node scripts/evm-settle-test.js || true
           kill $SRV 2>/dev/null || true
       - name: Shred burner key
@@ -2027,10 +2041,10 @@ jobs:
           node scripts/test-blockscout-kit.js
 
       - name: Non-metered paid examples (strict — 502/503/504 fail; NETWORK leniency hole)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-non-metered-examples.js
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-non-metered-examples.js
 
       - name: Every tool responds to its own example (all ~1070 endpoints)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-all.js
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-all.js
 
       - name: Exercise tools against live sites
         run: |
@@ -2123,70 +2137,70 @@ jobs:
           curl -s localhost:3000/sitemap.xml | grep -c '<loc>'
 
       - name: Rails-copy lock (rails.js ↔ payments.js + every key page renders every rail)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-rails.js
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-rails.js
 
       - name: Discoverability (every tool reachable on every surface an agent reads)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-discoverability.js
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-discoverability.js
 
       - name: Legacy surfaces still redirect (needs the booted server)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-redirects.js
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-redirects.js
 
       - name: Projection parity (one tool, three surfaces, one vocabulary)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-projection-parity.js
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-projection-parity.js
 
       - name: Retry-safety contract is true, verifiable, and not re-absolutised
-        run: TARGET_URL=http://localhost:3000 node scripts/test-retry-contract.js
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-retry-contract.js
 
       - name: Gate integrity (each regression gate must FAIL when its own defect is reintroduced)
         # A gate that cannot fail turns "we never checked" into "we checked and it
         # was fine". This mutates each invariant and requires a non-zero exit,
         # then asserts every mutated file was restored.
-        run: TARGET_URL=http://localhost:3000 node scripts/test-gates.js
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-gates.js
 
       - name: Docs truth (every documented route, slug and price matches the served catalog)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-docs-truth.js
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-docs-truth.js
 
       - name: Public-surface leak gate (no buyer addresses, no per-tool revenue, operator feeds stay 404)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-public-surface-leak.js
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-public-surface-leak.js
 
       - name: Link integrity (every sitemap URL + every crawled internal href resolves; /mcp never a real <a href>)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-link-integrity.js
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-link-integrity.js
 
       - name: Chain page layout stability (no chain's page geometry shifts based on how long its name is)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-chain-page-layout-stability.js
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-chain-page-layout-stability.js
 
       - name: Title clamp coverage (tool/skill page titles never wrap unboundedly based on name length)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-title-clamp-coverage.js
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-title-clamp-coverage.js
 
       - name: Reveal-on-scroll coverage (shared, site-wide - not a per-page opt-in that only ever reached the homepage)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-reveal-coverage.js
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-reveal-coverage.js
 
       - name: CSP violations sitewide (real browser, every distinct page template + real interactions on click-gated pages - script-src has no 'unsafe-inline' since 2026-08-16)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-csp-violations.js
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-csp-violations.js
 
       - name: CSS tokens resolve (every :root custom property must actually resolve in a real browser, not just exist as text)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-css-tokens-resolve.js
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-css-tokens-resolve.js
 
       - name: Focus-visible on search/demo inputs (real browser check - inline style can silently defeat a stylesheet :focus rule)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-focus-visible.js
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-focus-visible.js
 
       - name: Single <main> landmark per page (no page-level renderer may nest a second <main> inside ledgerShell's own)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-single-main-landmark.js
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-single-main-landmark.js
 
       - name: /compare tables scroll independently on narrow viewports (real browser check - scrollWidth>clientWidth alone can't prove overflow-x is enabled)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-compare-scroll.js
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-compare-scroll.js
 
       - name: Wrong-method 405 with Allow header (a known catalog path hit with the wrong verb no longer looks like a dead route)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-wrong-method-405.js
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-wrong-method-405.js
 
       - name: Reveal-on-scroll data-reveal-eager opt-in (a second above-fold section can be exempted explicitly, never leaks to unmarked pages)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-reveal-eager.js
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-reveal-eager.js
 
       - name: Reveal-on-scroll skip-over safety net (a single fast scroll jump must never leave a section permanently invisible — real browser, found live on /marketplace 2026-08-16)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-reveal-scroll-skip.js
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-reveal-scroll-skip.js
 
       - name: Hamburger menu aria-label toggles with aria-expanded (real browser click, not a static string check)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-burger-aria-label.js
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-burger-aria-label.js
 
       - name: Heartbeat probe mapping (FAILS -> per-component status; stubbed curl — offline)
         run: bash scripts/test-heartbeat-probe.sh
@@ -2205,7 +2219,7 @@ jobs:
           PORT=3778 node src/server.js > /tmp/audit-deep-srv.log 2>&1 &
           SRV_PID=$!
           for i in $(seq 1 30); do curl -s localhost:3778/api/pow >/dev/null && break; sleep 1; done
-          BASE_URL=http://localhost:3778 node scripts/audit-deep.mjs; rc=$?
+          BASE_URL=http://127.0.0.1:3778 node scripts/audit-deep.mjs; rc=$?
           kill $SRV_PID 2>/dev/null || true
           exit $rc
 
@@ -2213,27 +2227,27 @@ jobs:
         run: |
           X402_SYNC_ON_START=false FREE_MODE=true PORT=3091 node src/server.js > /tmp/a402-test.log 2>&1 &
           ADAPTER_PID=$!
-          for i in $(seq 1 20); do curl -sf http://localhost:3091/health >/dev/null && break || sleep 0.5; done
-          curl -sf http://localhost:3091/health >/dev/null || { echo "FREE_MODE server failed to boot"; cat /tmp/a402-test.log; kill $ADAPTER_PID; exit 1; }
+          for i in $(seq 1 20); do curl -sf http://127.0.0.1:3091/health >/dev/null && break || sleep 0.5; done
+          curl -sf http://127.0.0.1:3091/health >/dev/null || { echo "FREE_MODE server failed to boot"; cat /tmp/a402-test.log; kill $ADAPTER_PID; exit 1; }
           # Each adapter test self-installs its framework peer (and agent402-client)
           # into its own node_modules; tests verify tool-shape + execute() round-trip.
           # ai-sdk/langchain/openai-agents tests exercise the framework-agnostic
           # spec path (no peer install needed); peer wrappers are checked in
           # consumers' projects via optional peerDeps.
-          AGENT402_BASE_URL=http://localhost:3091 node adapters/openai-tools/test.js
+          AGENT402_BASE_URL=http://127.0.0.1:3091 node adapters/openai-tools/test.js
           ( cd adapters/anthropic-tools && npm install ../../client --no-save --silent )
-          AGENT402_BASE_URL=http://localhost:3091 node adapters/anthropic-tools/test.js
-          AGENT402_BASE_URL=http://localhost:3091 node adapters/ai-sdk/test.js
-          AGENT402_BASE_URL=http://localhost:3091 node adapters/langchain/test.js
-          AGENT402_BASE_URL=http://localhost:3091 node adapters/openai-agents/test.js
-          AGENT402_BASE_URL=http://localhost:3091 node adapters/llamaindex/test.js
-          AGENT402_BASE_URL=http://localhost:3091 node adapters/strands/test.js
-          AGENT402_BASE_URL=http://localhost:3091 node adapters/google-adk/test.js
+          AGENT402_BASE_URL=http://127.0.0.1:3091 node adapters/anthropic-tools/test.js
+          AGENT402_BASE_URL=http://127.0.0.1:3091 node adapters/ai-sdk/test.js
+          AGENT402_BASE_URL=http://127.0.0.1:3091 node adapters/langchain/test.js
+          AGENT402_BASE_URL=http://127.0.0.1:3091 node adapters/openai-agents/test.js
+          AGENT402_BASE_URL=http://127.0.0.1:3091 node adapters/llamaindex/test.js
+          AGENT402_BASE_URL=http://127.0.0.1:3091 node adapters/strands/test.js
+          AGENT402_BASE_URL=http://127.0.0.1:3091 node adapters/google-adk/test.js
           # Python adapter (agent402-langchain): requests-only keeps CI lean; the
           # test skips the langchain-native path gracefully without langchain-core,
           # so this locks the spec + free proof-of-work call behavior.
           python3 -m pip install --quiet requests
-          AGENT402_BASE_URL=http://localhost:3091 python3 adapters/langchain-py/test.py
+          AGENT402_BASE_URL=http://127.0.0.1:3091 python3 adapters/langchain-py/test.py
           kill $ADAPTER_PID 2>/dev/null || true
 
       - name: gov-data Catalog API v4 (retired CKAN v3 proxy 404s on catalog-old)
@@ -2245,16 +2259,16 @@ jobs:
       # while dead; issue #730). Filter never calls metered routes; own-boot
       # strips keys too. Uses the shared FREE_MODE server when TARGET_URL is set.
       - name: Remote MCP connector (/mcp — initialize, search, free call, paid refusal)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-mcp-http.js
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-mcp-http.js
 
       - name: "Every tool through the MCP connector (call_tool — free executes, wallet refuses)"
-        run: TARGET_URL=http://localhost:3000 node scripts/test-mcp-all.js
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-mcp-all.js
 
       - name: "Self-consistency — every tool and route our own text names must exist"
-        run: TARGET_URL=http://localhost:3000 node scripts/test-mcp-self-consistency.js
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-mcp-self-consistency.js
 
       - name: Bazaar listing copy (curated flagship descriptions name real slugs, fit the 500-char cap, say when to use them; generic cap never cuts mid-word)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-bazaar-descriptions.js
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-bazaar-descriptions.js
 
       - name: /api/stats surfaces the M2M economy
         run: |
@@ -2273,7 +2287,7 @@ jobs:
           POW_DIFFICULTY=16 PORT=3001 node src/server.js &
           for i in $(seq 1 20); do curl -s localhost:3001/api/pow >/dev/null && break; sleep 1; done
           node --input-type=module -e '
-          const B = "http://localhost:3001";
+          const B = "http://127.0.0.1:3001";
           const { createHash } = await import("node:crypto");
           const lz = (b) => { let t = 0; for (const x of b) { if (!x) { t += 8; continue; } t += Math.clz32(x) - 24; break; } return t; };
           const solve = (c) => { let n = 0; while (lz(createHash("sha256").update(c.challenge + ":" + n).digest()) < c.difficulty) n++; return n; };
@@ -2317,7 +2331,7 @@ jobs:
           for i in $(seq 1 20); do curl -s localhost:3004/health >/dev/null && break; sleep 1; done
           node --input-type=module -e '
           import { createHmac } from "node:crypto";
-          const B = "http://localhost:3004"; const fail = (m) => { console.error("FAIL:", m); process.exit(1); };
+          const B = "http://127.0.0.1:3004"; const fail = (m) => { console.error("FAIL:", m); process.exit(1); };
           const MASTER = "test-bridge-token";
           const tok = (slug) => createHmac("sha256", MASTER).update(slug).digest("hex").slice(0, 32);
           // the old per-slug bridge URL must not exist (even with the env var still set)
@@ -2842,15 +2856,15 @@ jobs:
           FREE_MODE=true PORT=3090 node src/server.js > /tmp/a402-adapter.log 2>&1 &
           echo $! > /tmp/a402-adapter.pid
           for i in $(seq 1 20); do
-            curl -sf http://localhost:3090/health >/dev/null && { echo "server up"; break; }
+            curl -sf http://127.0.0.1:3090/health >/dev/null && { echo "server up"; break; }
             sleep 0.5
           done
-          curl -sf http://localhost:3090/health >/dev/null || { echo "FREE_MODE server failed to boot"; cat /tmp/a402-adapter.log; exit 1; }
+          curl -sf http://127.0.0.1:3090/health >/dev/null || { echo "FREE_MODE server failed to boot"; cat /tmp/a402-adapter.log; exit 1; }
 
       - name: Gate agent402-openai-tools (tests run with NO npm token in env)
         run: |
           # Gate: tool list builds + execute() returns a real result against the FREE_MODE server.
-          AGENT402_BASE_URL=http://localhost:3090 node adapters/openai-tools/test.js
+          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/openai-tools/test.js
 
       - name: Publish agent402-openai-tools to npm
         run: |
@@ -2868,7 +2882,7 @@ jobs:
         run: |
           # Install agent402-client locally for the test (same self-bootstrap as openai-tools/test.js).
           ( cd adapters/anthropic-tools && npm install ../../client --no-save --silent )
-          AGENT402_BASE_URL=http://localhost:3090 node adapters/anthropic-tools/test.js
+          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/anthropic-tools/test.js
 
       - name: Publish agent402-anthropic-tools to npm
         run: |
@@ -2885,7 +2899,7 @@ jobs:
       - name: Gate agent402-ai-sdk (tests run with NO npm token in env)
         run: |
           # Test self-bootstraps agent402-client + ai (Vercel AI SDK) into its own node_modules.
-          AGENT402_BASE_URL=http://localhost:3090 node adapters/ai-sdk/test.js
+          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/ai-sdk/test.js
 
       - name: Publish agent402-ai-sdk to npm
         run: |
@@ -2901,7 +2915,7 @@ jobs:
       - name: Gate agent402-langchain (tests run with NO npm token in env)
         run: |
           # Test self-bootstraps agent402-client + @langchain/core + zod.
-          AGENT402_BASE_URL=http://localhost:3090 node adapters/langchain/test.js
+          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/langchain/test.js
 
       - name: Publish agent402-langchain to npm
         run: |
@@ -2918,7 +2932,7 @@ jobs:
         run: |
           # Test runs framework-agnostic spec path; @openai/agents is an
           # optional peerDep so consumers install it on their side.
-          AGENT402_BASE_URL=http://localhost:3090 node adapters/openai-agents/test.js
+          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/openai-agents/test.js
 
       - name: Publish agent402-openai-agents to npm
         run: |
@@ -2934,7 +2948,7 @@ jobs:
       - name: Gate agent402-llamaindex (tests run with NO npm token in env)
         run: |
           # Test self-bootstraps agent402-client + llamaindex.
-          AGENT402_BASE_URL=http://localhost:3090 node adapters/llamaindex/test.js
+          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/llamaindex/test.js
 
       - name: Publish agent402-llamaindex to npm
         run: |
@@ -2952,7 +2966,7 @@ jobs:
           # Test self-bootstraps agent402-client + stubs @strands-agents/sdk
           # so we don't pull AWS Bedrock + uuid + yaml transitively just to
           # verify the adapter shape.
-          AGENT402_BASE_URL=http://localhost:3090 node adapters/strands/test.js
+          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/strands/test.js
 
       - name: Publish agent402-strands to npm
         run: |
@@ -2967,7 +2981,7 @@ jobs:
 
       - name: Gate agent402-google-adk (tests run with NO npm token in env)
         run: |
-          AGENT402_BASE_URL=http://localhost:3090 node adapters/google-adk/test.js
+          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/google-adk/test.js
 
       - name: Publish agent402-google-adk to npm
         run: |

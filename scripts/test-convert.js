@@ -128,7 +128,7 @@ catch (e) { ok(e.statusCode === 400 && e.message.includes("length") && e.message
 // ---------------------------------------------------------------------------
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = 3097;
-const BASE = `http://localhost:${PORT}`;
+const BASE = `http://127.0.0.1:${PORT}`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const proc = spawn(process.execPath, [join(ROOT, "src", "server.js")], {

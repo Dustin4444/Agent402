@@ -162,7 +162,7 @@ const BOOT_TIMEOUT_S = Number(process.env.CENSUS_BOOT_TIMEOUT_S || 120);
 let up = false;
 for (let i = 0; i < BOOT_TIMEOUT_S && !up; i++) {
   if (child.exitCode !== null) break;   // died - stop waiting on a corpse
-  try { await fetch(`http://localhost:${PORT}/health`); up = true; } catch { await wait(1000); }
+  try { await fetch(`http://127.0.0.1:${PORT}/health`); up = true; } catch { await wait(1000); }
 }
 if (!up) {
   child.kill("SIGKILL");
@@ -174,7 +174,7 @@ if (!up) {
   process.exit(1);
 }
 
-for (const s of SURFACES) { try { await fetch(`http://localhost:${PORT}${s}`); } catch {} }
+for (const s of SURFACES) { try { await fetch(`http://127.0.0.1:${PORT}${s}`); } catch {} }
 const settle = Number(process.env.CENSUS_SETTLE_MS || 60_000);
 console.log(`exercised ${SURFACES.length} public surfaces; waiting ${settle / 1000}s for background timers…\n`);
 await wait(settle);

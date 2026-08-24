@@ -23,7 +23,7 @@ import { translateCredential, translateCredentialDetailed, challengeHeaderFromPa
 
 const PORT = 3077;
 const FAC_PORT = 3078;
-const B = `http://localhost:${PORT}`;
+const B = `http://127.0.0.1:${PORT}`;
 const SECRET = "test-mpp-secret";
 const TREASURY = "0x000000000000000000000000000000000000dEaD";
 const TX = `0x${"ab".repeat(32)}`;

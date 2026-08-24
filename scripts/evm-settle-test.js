@@ -3,7 +3,7 @@
 // Confirms the burner holds USDC on that chain first, then verifies settlement.
 //
 // Usage:
-//   CHAIN=polygon TARGET_URL=http://localhost:3791 KEY_FILE=/tmp/burner-key \
+//   CHAIN=polygon TARGET_URL=http://127.0.0.1:3791 KEY_FILE=/tmp/burner-key \
 //     node scripts/evm-settle-test.js
 //
 // CHAIN must be "polygon" or "arbitrum". The server should already be booted
@@ -15,7 +15,7 @@ import { registerExactEvmScheme } from "@x402/evm/exact/client";
 import { wrapFetchWithPayment } from "@x402/fetch";
 
 const CHAIN = (process.env.CHAIN || "polygon").toLowerCase();
-const TARGET = process.env.TARGET_URL || "http://localhost:3791";
+const TARGET = process.env.TARGET_URL || "http://127.0.0.1:3791";
 
 const CHAINS = {
   polygon: {

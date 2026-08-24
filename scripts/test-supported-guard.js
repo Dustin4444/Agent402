@@ -90,7 +90,7 @@ async function bootServer(port, extraEnv = {}) {
   });
   proc.stdout.on("data", (c) => { log.text += c; });
   proc.stderr.on("data", (c) => { log.text += c; });
-  const base = `http://localhost:${port}`;
+  const base = `http://127.0.0.1:${port}`;
   for (let i = 0; i < 80; i++) {
     try { if ((await fetch(`${base}/health`)).ok) return { base, log }; } catch {}
     await sleep(500);

@@ -11,7 +11,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const TOKEN = "operator-test-secret-123";
 const PORT = 3480 + (process.pid % 400);
-const base = `http://localhost:${PORT}`;
+const base = `http://127.0.0.1:${PORT}`;
 
 const child = spawn(process.execPath, ["src/server.js"], {
   env: { ...process.env, FREE_MODE: "true", PORT: String(PORT), AGENT402_OPERATOR_TOKEN: TOKEN },

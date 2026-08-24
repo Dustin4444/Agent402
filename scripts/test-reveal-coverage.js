@@ -19,13 +19,13 @@
 //     content), which this test cannot observe from raw HTML alone.
 //
 //   FREE_MODE=true PORT=3000 node src/server.js
-//   TARGET_URL=http://localhost:3000 node scripts/test-reveal-coverage.js
+//   TARGET_URL=http://127.0.0.1:3000 node scripts/test-reveal-coverage.js
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const BASE = process.env.TARGET_URL || "http://localhost:3000";
+const BASE = process.env.TARGET_URL || "http://127.0.0.1:3000";
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log(`ok - ${msg}`); } else { fail++; console.error(`FAIL - ${msg}`); } };
 

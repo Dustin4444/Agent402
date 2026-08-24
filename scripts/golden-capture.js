@@ -3,9 +3,9 @@
 // diffed instead of trusted.
 //
 //   FREE_MODE=true PORT=3200 node src/server.js
-//   TARGET_URL=http://localhost:3200 node scripts/golden-capture.js > /tmp/golden-before.json
+//   TARGET_URL=http://127.0.0.1:3200 node scripts/golden-capture.js > /tmp/golden-before.json
 //   ...change a dependency, reboot...
-//   TARGET_URL=http://localhost:3200 node scripts/golden-capture.js > /tmp/golden-after.json
+//   TARGET_URL=http://127.0.0.1:3200 node scripts/golden-capture.js > /tmp/golden-after.json
 //   node scripts/golden-capture.js --diff /tmp/golden-before.json /tmp/golden-after.json
 //
 // WHY: "the test suite is green" does not mean "the output is the same". A
@@ -18,7 +18,7 @@
 // NON-DETERMINISTIC tools (uuid, time, random, anything with live upstream) are
 // listed and compared on SHAPE only - their values legitimately differ per call,
 // so demanding equality would produce noise that trains you to ignore the diff.
-const TARGET = (process.env.TARGET_URL || "http://localhost:3200").replace(/\/+$/, "");
+const TARGET = (process.env.TARGET_URL || "http://127.0.0.1:3200").replace(/\/+$/, "");
 
 // Values change every call by design; compare key structure, never bytes.
 const NONDET = /^(uuid|ulid|nanoid|password|random|token-gen|time|time-now|timezone-convert|date-diff|business-days|cron-next|add-time|duration|jwt-sign|totp|hmac-time|snowflake)/;

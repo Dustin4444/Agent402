@@ -21,12 +21,12 @@
 // Offline apart from the local server: static-reads the source for the handler
 // branches and the route table, and reads the live tools/list + the free
 // meta-tool payloads. Run against a booted free-mode server:
-//   TARGET_URL=http://localhost:3000 node scripts/test-mcp-self-consistency.js
+//   TARGET_URL=http://127.0.0.1:3000 node scripts/test-mcp-self-consistency.js
 import { readFileSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const TARGET = process.env.TARGET_URL || "http://localhost:3000";
+const TARGET = process.env.TARGET_URL || "http://127.0.0.1:3000";
 const SRC = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
 
 let passed = 0;

@@ -28,7 +28,7 @@ import { dirname, join } from "node:path";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = 3098;
-const BASE = `http://localhost:${PORT}`;
+const BASE = `http://127.0.0.1:${PORT}`;
 // Full envelope is operator-gated now (A402-11); boot with a token to verify it.
 const TOKEN = "healthtest-operator-token";
 

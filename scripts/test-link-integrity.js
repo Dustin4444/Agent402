@@ -6,7 +6,7 @@
 // Requires a booted server (same TARGET_URL convention as test-mcp-http.js /
 // test-docs-truth.js):
 //   FREE_MODE=true PORT=3000 node src/server.js
-//   TARGET_URL=http://localhost:3000 node scripts/test-link-integrity.js
+//   TARGET_URL=http://127.0.0.1:3000 node scripts/test-link-integrity.js
 //
 // Deliberately internal-only: external hrefs (github.com, solscan.io, real
 // crawled third-party seller domains, ...) are collected and reported but
@@ -33,7 +33,7 @@
 // in a <pre> code block elsewhere), not a link.
 import { docsSlugs } from "../src/docs.js";
 
-const BASE = process.env.TARGET_URL || "http://localhost:3000";
+const BASE = process.env.TARGET_URL || "http://127.0.0.1:3000";
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log(`ok - ${msg}`); } else { fail++; console.error(`FAIL - ${msg}`); } };
 

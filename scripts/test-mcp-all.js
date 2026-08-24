@@ -8,8 +8,8 @@
 // any handler runs. Start the server with a raised MCP rate limit, e.g.:
 //   AGENT402_MCP_MAX_PER_MIN=1000000 AGENT402_MCP_MAX_PER_HOUR=1000000 \
 //     FREE_MODE=true PORT=3000 node src/server.js
-//   TARGET_URL=http://localhost:3000 node scripts/test-mcp-all.js
-const TARGET = process.env.TARGET_URL || "http://localhost:3000";
+//   TARGET_URL=http://127.0.0.1:3000 node scripts/test-mcp-all.js
+const TARGET = process.env.TARGET_URL || "http://127.0.0.1:3000";
 
 let idc = 1;
 async function rpc(method, params) {

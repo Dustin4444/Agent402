@@ -18,7 +18,7 @@ import { createServer } from "node:http";
 
 const PORT = 3087;
 const FAC_PORT = 3088;
-const B = `http://localhost:${PORT}`;
+const B = `http://127.0.0.1:${PORT}`;
 
 let pass = 0;
 let facilitator = null;

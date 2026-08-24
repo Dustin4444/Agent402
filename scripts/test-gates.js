@@ -26,7 +26,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const TARGET = (process.env.TARGET_URL || "http://localhost:3000").replace(/\/+$/, "");
+const TARGET = (process.env.TARGET_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
 
 let passed = 0, failed = 0;
 const ok = (cond, msg) => {
@@ -132,7 +132,7 @@ for (const g of GATES) {
     // gate as broken.
     if (g.bootMutatedServer) {
       const port = 3300 + Math.floor(Math.random() * 200);
-      mutantTarget = `http://localhost:${port}`;
+      mutantTarget = `http://127.0.0.1:${port}`;
       mutant = spawn("node", ["src/server.js"], {
         cwd: ROOT, stdio: "ignore",
         env: { ...process.env, FREE_MODE: "true", PORT: String(port), X402_INDEX_CRAWL: "off",

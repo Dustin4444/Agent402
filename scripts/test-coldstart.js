@@ -3,7 +3,7 @@
 // only what we publish.
 //
 //   FREE_MODE=true PORT=3000 node src/server.js
-//   TARGET_URL=http://localhost:3000 node scripts/test-coldstart.js
+//   TARGET_URL=http://127.0.0.1:3000 node scripts/test-coldstart.js
 //
 // WHY: the proof-of-work challenge returns TWO strings — `challenge` (the
 // 32-hex value you hash) and `token` (the signed value you send). Nothing in
@@ -32,7 +32,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 // facilitator does not advertise, and nothing is ever settled here.
 const PORT = 4100 + (process.pid % 90);
 const FAC_PORT = PORT + 100;
-const TARGET = `http://localhost:${PORT}`;
+const TARGET = `http://127.0.0.1:${PORT}`;
 let log = "";
 const facilitator = createServer((req, res) => {
   req.on("data", () => {});

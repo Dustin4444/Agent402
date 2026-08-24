@@ -25,12 +25,12 @@ const log = [];
 proc.stdout.on("data", (d) => log.push(String(d)));
 proc.stderr.on("data", (d) => log.push(String(d)));
 let exited = false; proc.on("exit", () => { exited = true; });
-const status = async (path, opts) => (await fetch(`http://localhost:${PORT}${path}`, opts)).status;
+const status = async (path, opts) => (await fetch(`http://127.0.0.1:${PORT}${path}`, opts)).status;
 
 try {
   let up = false;
   for (let i = 0; i < 120 && !exited; i++) {
-    try { if ((await fetch(`http://localhost:${PORT}/health`)).ok) { up = true; break; } } catch { /* booting */ }
+    try { if ((await fetch(`http://127.0.0.1:${PORT}/health`)).ok) { up = true; break; } } catch { /* booting */ }
     await new Promise((r) => setTimeout(r, 500));
   }
   ok(up, `server booted${up ? "" : ` — tail:\n${log.join("").slice(-1200)}`}`);

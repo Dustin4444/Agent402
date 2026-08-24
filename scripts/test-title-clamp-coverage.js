@@ -26,8 +26,8 @@
 //
 // Requires a booted server (same TARGET_URL convention as the other page tests):
 //   FREE_MODE=true PORT=3000 node src/server.js
-//   TARGET_URL=http://localhost:3000 node scripts/test-title-clamp-coverage.js
-const BASE = process.env.TARGET_URL || "http://localhost:3000";
+//   TARGET_URL=http://127.0.0.1:3000 node scripts/test-title-clamp-coverage.js
+const BASE = process.env.TARGET_URL || "http://127.0.0.1:3000";
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log(`ok - ${msg}`); } else { fail++; console.error(`FAIL - ${msg}`); } };
 
