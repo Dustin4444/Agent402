@@ -151,12 +151,40 @@ const callStr = await rpc("tools/call", {
 const callStrText = callStr.result?.content?.[0]?.text ?? "";
 assert(!callStr.result?.isError && callStrText.includes("26.097590074"), `call_tool accepts params as a JSON string (got ${callStrText.slice(0, 120)})`);
 
-// Flagship wallet-only by name → paid-access guidance (does not execute).
+// Flagship wallet-only by name → refused, never executed for free.
+//
+// TWO LEGITIMATE REFUSAL SHAPES, because the connector answers differently
+// depending on whether the target has MPP_SECRET_KEY set:
+//
+//   • native MPP (prod): JSON-RPC error -32042 carrying payment challenges, so
+//     the caller can pay in-band.
+//   • no MPP (a FREE_MODE instance, a self-host without the key): a result with
+//     isError and prose pointing at agent402-mcp + AGENT_KEY.
+//
+// This asserted ONLY the second, so it failed against production from the day
+// native MPP landed on /mcp (2026-08-19) and nobody saw it for five days: the
+// deploy step that runs it was continue-on-error, so it printed into a green
+// log. It surfaced within one run of that step becoming a real gate.
+//
+// What both shapes must prove is the SAME thing, and it is the only thing that
+// matters here: the tool did not run for free.
 const paid = await rpc("tools/call", { name: "web.search", arguments: { q: "x402" } });
 const paidText = paid.result?.content?.[0]?.text ?? "";
-assert(paid.result?.isError === true, "flagship wallet-only tool (web.search) is refused on the free tier");
-assert(paidText.includes("agent402-mcp") && paidText.includes("AGENT_KEY"), "refusal explains the paid path (agent402-mcp + AGENT_KEY)");
-assert(!paidText.includes("<html"), "wallet-only tool did NOT execute");
+const mppRefusal = paid.error?.code === -32042;
+const legacyRefusal = paid.result?.isError === true;
+assert(mppRefusal || legacyRefusal,
+  `flagship wallet-only tool (web.search) is refused on the free tier (got ${JSON.stringify(paid).slice(0, 140)})`);
+if (mppRefusal) {
+  assert(Array.isArray(paid.error?.data?.challenges) && paid.error.data.challenges.length > 0,
+    "the MPP refusal carries payment challenges, so a caller can actually pay it");
+  assert(paid.error.data?.httpStatus === 402, "and reports the 402 it came from");
+} else {
+  assert(paidText.includes("agent402-mcp") && paidText.includes("AGENT_KEY"),
+    "the non-MPP refusal explains the paid path (agent402-mcp + AGENT_KEY)");
+}
+// The bypass check, and it holds for either shape: no search results came back.
+assert(!paidText.includes("<html") && !/"results"\s*:/.test(paidText),
+  "wallet-only tool did NOT execute");
 
 // describe_server (+ prior describe_agent402 / about_agent402 aliases).
 for (const aboutName of ["server.describe", "describe_server", "describe_agent402", "about_agent402"]) {
