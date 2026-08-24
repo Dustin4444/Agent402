@@ -228,7 +228,7 @@ export async function retryTransient(fn, { retries = 1, backoffMs = 300 } = {}) 
  * Fetch a public http(s) URL with SSRF protection, size cap, and timeout.
  * Returns { finalUrl, html } — or { finalUrl, buffer } with `binary: true`.
  */
-export async function safeFetch(rawUrl, { binary = false, maxBytes = MAX_BYTES, headers = {}, method = "GET", body, timeoutMs = FETCH_TIMEOUT_MS } = {}) {
+export async function safeFetch(rawUrl, { binary = false, maxBytes = MAX_BYTES, headers = {}, method = "GET", body, timeoutMs = FETCH_TIMEOUT_MS, validators = null, allowNotModified = false } = {}) {
   const url = await assertPublicUrl(rawUrl);
 
   const controller = new AbortController();
@@ -247,7 +247,18 @@ export async function safeFetch(rawUrl, { binary = false, maxBytes = MAX_BYTES, 
       dispatcher: ssrfDispatcher,
       // Caller headers (e.g. an upstream API key) merge over the defaults;
       // headers don't change the connection target, so SSRF safety is unaffected.
-      headers: { "User-Agent": USER_AGENT, Accept: "text/html,application/xhtml+xml,*/*", ...headers },
+      // Conditional request. `validators` are an ETag / Last-Modified pair kept
+      // from a previous fetch of this exact URL; sending them lets the origin
+      // answer 304 with no body instead of shipping the whole document again.
+      // Caller headers still win, so an explicit If-None-Match is never
+      // overwritten by a stale stored one.
+      headers: {
+        "User-Agent": USER_AGENT,
+        Accept: "text/html,application/xhtml+xml,*/*",
+        ...(validators?.etag ? { "If-None-Match": validators.etag } : {}),
+        ...(validators?.lastModified ? { "If-Modified-Since": validators.lastModified } : {}),
+        ...headers,
+      },
     });
   } catch (err) {
     if (isSsrfBlock(err)) throw badRequest("URL resolves to a private address");
@@ -267,6 +278,15 @@ export async function safeFetch(rawUrl, { binary = false, maxBytes = MAX_BYTES, 
     );
   } finally {
     clearTimeout(timer);
+  }
+
+  // 304 Not Modified is a SUCCESS, and it must be handled before the !ok check
+  // below - `response.ok` is false for 304, so without this a conditional
+  // request that worked perfectly would be reported as an upstream 4xx.
+  // Only callers that asked for it (and therefore have the previous content to
+  // reuse) get this; everyone else keeps the old behaviour.
+  if (response.status === 304 && allowNotModified) {
+    return { finalUrl: response.url, notModified: true, validators: readValidators(response) };
   }
 
   // Attribute upstream HTTP errors honestly. A 4xx from the upstream means the
@@ -313,6 +333,17 @@ export async function safeFetch(rawUrl, { binary = false, maxBytes = MAX_BYTES, 
   // (text/html when an audio file is expected), instead of burning a worker
   // slot on a doomed ffprobe/parse and returning a less specific error.
   const contentType = response.headers.get("content-type") || "";
-  if (binary) return { finalUrl: response.url, buffer, contentType };
-  return { finalUrl: response.url, html: buffer.toString("utf-8"), contentType };
+  const vals = readValidators(response);
+  if (binary) return { finalUrl: response.url, buffer, contentType, validators: vals };
+  return { finalUrl: response.url, html: buffer.toString("utf-8"), contentType, validators: vals };
+}
+
+/** ETag / Last-Modified off a response, or null when the origin sends neither.
+ *  Returned on every safeFetch so a caller can store them and revalidate next
+ *  time; null means this origin cannot be revalidated and must be re-fetched. */
+function readValidators(response) {
+  const etag = response.headers.get("etag");
+  const lastModified = response.headers.get("last-modified");
+  if (!etag && !lastModified) return null;
+  return { ...(etag ? { etag } : {}), ...(lastModified ? { lastModified } : {}) };
 }

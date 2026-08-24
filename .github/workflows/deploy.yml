@@ -1713,6 +1713,12 @@ jobs:
       - name: Crawl backoff (stop re-probing an origin that keeps saying no)
         run: X402_INDEX_CRAWL=off node scripts/test-crawl-backoff.js
 
+      - name: Crawl revalidates instead of re-downloading (ETag/If-None-Match, 304 is success not an upstream error - offline)
+        run: X402_INDEX_CRAWL=off node scripts/test-crawl-conditional.js
+
+      - name: Crawl honours robots.txt (explicit Disallow enforced, unreadable file fails OPEN, cached per origin - offline)
+        run: X402_INDEX_CRAWL=off node scripts/test-crawl-robots.js
+
       - name: Discovery note (a seller must be able to see the gap)
         run: X402_INDEX_CRAWL=off node scripts/test-discovery-note.js
 

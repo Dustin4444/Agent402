@@ -31,6 +31,7 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 // ever re-enabled. Only http(s) becomes a link; anything else renders inert.
 const safeHref = (u) => (/^https?:\/\//i.test(String(u || "")) ? esc(u) : "#");
 import { safeFetch } from "./tools/fetch-guard.js";
+import { parseRobots, robotsAllows } from "./tools/kit.js";
 import { toolList } from "./pages.js";
 import { fetchAllBazaarItems, isBazaarDiscoveryUrl } from "./bazaar-pager.js";
 import { RAILS, railKey, truncateCaip2 } from "./rails.js";
@@ -1543,6 +1544,16 @@ async function enrichLiveQuotes(tools, originUrl) {
           redirect: "manual",
           signal: AbortSignal.timeout(8000),
         });
+        // A GET that returns 200 has ANSWERED: the route is not paywalled, and
+        // there is nothing a POST can add. Following it with an unpaid POST is
+        // a second request to somebody else's endpoint on the exact shape most
+        // likely to do something - an endpoint that serves on GET and mutates
+        // on POST. We stop.
+        //
+        // Every other status still falls through to POST, because that is what
+        // discovers a POST-only seller: a 404 or 405 on GET is expected there
+        // and is the whole reason the second method is tried.
+        if (method === "GET" && res.status === 200) break;
         if (!isQuoteResponse(res.status)) continue;   // 404 on GET is expected for a POST-only seller
         // The quote lives in the header for x402 v2 and in the body for several
         // real sellers; read a bounded slice of both and let the parser decide.
@@ -1698,19 +1709,126 @@ export function crawlBackoffState() {
   });
 }
 
+// ROBOTS.TXT. We honour it, and until now we did not - while our own tollbooth
+// product and the site-crawl tool both do, which is a double standard we would
+// rightly be called out for and a good way to get null-routed at an edge.
+//
+// The parser is kit.js's, deliberately: it already carries the catastrophic-
+// backtracking guard (a rule with chained wildcards against a long path is
+// exponential, and both sides are third-party text). A second implementation
+// here would be a second place for that to be got wrong.
+//
+// FAILS OPEN. A robots.txt we cannot fetch or parse allows the crawl: this is a
+// politeness control, and dropping thousands of sellers out of the index over a
+// transient 500 on an unrelated file would be a worse outcome than one extra
+// request. An explicit Disallow that matches is honoured, and RECORDED on the
+// entry rather than silently shrinking the index - a seller who has excluded us
+// should be visible as excluded, not absent.
+const ROBOTS_TTL_MS = 24 * 60 * 60 * 1000;  // robots.txt is not a hot document
+const ROBOTS_MAX_BYTES = 512 * 1024;
+const robotsCache = new Map();               // origin -> { groups, at }
+const ROBOTS_UA = "Agent402";
+
+// `fetchText` is injectable so the policy can be tested without a network or a
+// resolvable hostname. The default is the real guarded fetch; a test that
+// stubbed global fetch instead would silently exercise nothing, because
+// assertPublicUrl rejects an unresolvable host before any request is made -
+// which is exactly how the first version of the test passed its fail-open cases
+// and proved nothing about the blocking ones.
+async function robotsGroupsFor(originUrl, fetchText) {
+  const hit = robotsCache.get(originUrl);
+  if (hit && Date.now() - hit.at < ROBOTS_TTL_MS) return hit.groups;
+  let groups = [];
+  try {
+    const text = fetchText
+      ? await fetchText(`${originUrl}/robots.txt`)
+      : (await safeFetch(`${originUrl}/robots.txt`, { maxBytes: ROBOTS_MAX_BYTES })).html;
+    groups = parseRobots(String(text || ""));
+  } catch {
+    groups = [];   // unreachable, 404, oversize: nothing to honour
+  }
+  robotsCache.set(originUrl, { groups, at: Date.now() });
+  return groups;
+}
+
+/** The matched rule when this origin's robots.txt forbids us this path, else null. */
+export async function robotsForbids(originUrl, path, { fetchText } = {}) {
+  const groups = await robotsGroupsFor(originUrl, fetchText);
+  if (!groups.length) return null;
+  const verdict = robotsAllows(groups, ROBOTS_UA, path);
+  return verdict.allowed ? null : (verdict.matchedRule || "Disallow");
+}
+export function __resetRobotsCacheForTest() { robotsCache.clear(); }
+
 /** Fetch `path` on `originUrl` unless it is backed off, recording the outcome.
  *  Every per-origin probe in the crawl goes through here so a new one cannot be
  *  added ungated the way /agents.json and /llms.txt were. */
 async function probePath(originUrl, path, opts) {
   if (!probeDue(originUrl, path)) throw new Error(`probe backed off: ${path}`);
+  // Every per-origin probe already funnels through here, so this is the one
+  // place robots has to be checked for it to be checked everywhere.
+  const forbidden = await robotsForbids(originUrl, path);
+  if (forbidden) throw Object.assign(new Error(`robots.txt forbids ${path} (${forbidden})`), { robotsBlocked: true });
   try {
-    const res = await safeFetch(`${originUrl}${path}`, opts);
+    // CONDITIONAL REQUEST. We visit every seller every CRAWL_INTERVAL_MS, which
+    // is 288 times a day per origin, and re-downloaded the whole document every
+    // time - a manifest capped at 4MB and an openapi at 12MB, for content our
+    // own comments describe as slow-changing. Sending the ETag / Last-Modified
+    // we already hold lets the origin answer 304 with no body. It costs the
+    // seller a header comparison instead of a document, and it is what any
+    // well-behaved crawler does; the only reason it was missing is that nobody
+    // had counted the requests.
+    //
+    // Validators are stored per (origin, path) and a 304 leaves them alone -
+    // RFC 9110 allows a 304 to omit the ETag it matched on, so overwriting them
+    // with a null read would disable revalidation from the second cycle on.
+    const stored = validatorFor(originUrl, path);
+    const res = await safeFetch(`${originUrl}${path}`, { ...opts, validators: stored, allowNotModified: true });
     noteProbeOutcome(originUrl, path, true);
+    if (res.notModified) {
+      if (res.validators) rememberValidator(originUrl, path, res.validators);
+      return res;
+    }
+    rememberValidator(originUrl, path, res.validators || null);
     return res;
   } catch (e) {
     noteProbeOutcome(originUrl, path, false);
     throw e;
   }
+}
+
+// Per (origin, path) ETag / Last-Modified. Memory-only and bounded by the seed
+// set, which is the same population the crawl already visits, so this cannot
+// grow beyond it. Cleared for a path whose fetch produced no validators, so an
+// origin that STOPS sending them stops being revalidated rather than being sent
+// a validator it no longer honours.
+const crawlValidators = new Map();
+const vkey = (originUrl, path) => `${originUrl}${path}`;
+export function validatorFor(originUrl, path) { return crawlValidators.get(vkey(originUrl, path)) || null; }
+export function rememberValidator(originUrl, path, validators) {
+  const k = vkey(originUrl, path);
+  if (validators) crawlValidators.set(k, validators);
+  else crawlValidators.delete(k);
+}
+export function __validatorCountForTest() { return crawlValidators.size; }
+
+/** Fetch and parse a JSON document, honouring 304.
+ *
+ *  A 304 carries no body, so the caller must supply what the previous fetch
+ *  parsed. When that is missing - a restart dropped it, or the entry was
+ *  evicted while the validator survived - we drop the validator and fetch the
+ *  document properly rather than reporting a healthy seller as unreadable
+ *  because of our own bookkeeping. That is the failure mode a naive 304 path
+ *  produces: the origin is fine, we hold a validator, and we have nothing to
+ *  pair it with.
+ */
+async function probeDoc(originUrl, path, opts, prevParsed) {
+  const res = await probePath(originUrl, path, opts);
+  if (!res.notModified) return { parsed: JSON.parse(res.html), reused: false };
+  if (prevParsed != null) return { parsed: prevParsed, reused: true };
+  rememberValidator(originUrl, path, null);
+  const fresh = await probePath(originUrl, path, opts);
+  return { parsed: JSON.parse(fresh.html), reused: false };
 }
 
 async function crawlSeller(originUrl) {
@@ -1720,17 +1838,36 @@ async function crawlSeller(originUrl) {
     // Throwing here drops straight into the fallback chain below, which is the
     // same path a genuine 404 takes - so coverage is identical, we just stop
     // asking a question we already know the answer to.
-    const manifestRes = await probePath(originUrl, WELL_KNOWN_PATH, { maxBytes: MAX_MANIFEST_BYTES });
-    const manifest = JSON.parse(manifestRes.html);
+    const manifestDoc = await probeDoc(originUrl, WELL_KNOWN_PATH, { maxBytes: MAX_MANIFEST_BYTES }, prev?.manifest);
+    const manifest = manifestDoc.parsed;
 
     // OpenAPI is the tool-level detail. Best-effort: a seller without one still
     // shows up in the Index based on their manifest alone.
     let openapi = null;
     let tools = [];
+    // On a 304 we reuse what the last fetch DERIVED, not the document itself.
+    // Keeping a 12MB openapi per origin in memory across ~2,200 origins is not
+    // affordable; the two things the pipeline actually needs from it are the
+    // normalised tool rows and the full operation-route list, and both are
+    // small. So those are what the cache carries.
+    let openapiTools = null, openapiRoutes = null;
     try {
-      const openapiRes = await probePath(originUrl, "/openapi.json", { maxBytes: MAX_OPENAPI_BYTES });
-      openapi = JSON.parse(openapiRes.html);
-      tools = normaliseOpenapiTools(openapi, originUrl);
+      const res = await probePath(originUrl, "/openapi.json", { maxBytes: MAX_OPENAPI_BYTES });
+      if (res.notModified && prev?.openapiTools) {
+        openapiTools = prev.openapiTools;
+        openapiRoutes = prev.openapiRoutes || [];
+        tools = openapiTools;
+        openapi = prev.openapiSummary ? { paths: {} } : null; // presence only; summary carried forward below
+      } else {
+        const body = res.notModified
+          ? (rememberValidator(originUrl, "/openapi.json", null),
+             JSON.parse((await probePath(originUrl, "/openapi.json", { maxBytes: MAX_OPENAPI_BYTES })).html))
+          : JSON.parse(res.html);
+        openapi = body;
+        openapiTools = normaliseOpenapiTools(openapi, originUrl);
+        openapiRoutes = openapiAllOperationRoutes(openapi, originUrl);
+        tools = openapiTools;
+      }
     } catch {
       /* manifest-only seller — fine */
     }
@@ -1743,7 +1880,7 @@ async function crawlSeller(originUrl) {
     // had settled. Openapi metadata still wins per-route; Bazaar rows without
     // an openapi match pass through.
     tools = mergeOpenapiIntoBazaar(tools, bazaarToolsByOrigin.get(originUrl) || [], {
-      allRoutes: openapi ? openapiAllOperationRoutes(openapi, originUrl) : [],
+      allRoutes: openapiRoutes || [],
     });
     // The manifest is folded in LAST and by pathname, so it can only add
     // endpoints nobody else reported or enrich ones already known. It can
@@ -1759,7 +1896,13 @@ async function crawlSeller(originUrl) {
 
     cache.set(originUrl, {
       manifest,
-      openapiSummary: openapi ? { paths: Object.keys(openapi.paths || {}).length } : null,
+      // Kept so a 304 on the next cycle has something to reuse.
+      openapiTools, openapiRoutes,
+      openapiSummary: openapiTools
+        ? (openapi && Object.keys(openapi.paths || {}).length
+            ? { paths: Object.keys(openapi.paths).length }
+            : (prev?.openapiSummary ?? null))
+        : null,
       tools,
       fetchedAt: Date.now(),
       error: null,
@@ -1906,6 +2049,13 @@ async function crawlSeller(originUrl) {
     cache.set(originUrl, {
       ...(prev || {}),
       error: String(e.message || e),
+      // A seller who has excluded us in robots.txt is EXCLUDED, not broken and
+      // not absent. Flagged so /index can say so; reporting it as a crawl
+      // failure would file their deliberate choice under our outage count, and
+      // dropping them silently would make the index quietly smaller with no
+      // explanation - the same "absence reported as absence" rule the discovery
+      // gap and /status already follow.
+      robotsBlocked: Boolean(e?.robotsBlocked) || undefined,
       fetchedAt: Date.now(),
       history: rollHistory(prev, false),
     });
