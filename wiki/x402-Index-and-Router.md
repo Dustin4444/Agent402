@@ -52,7 +52,7 @@ The full walkthrough - tiers, selection mechanics, chain matching, and a real pr
 ## How a seller gets into the Index
 
 1. **Local catalog** - the Agent402 server's own tools are always present (no network).
-2. **Operator seeds** - origins listed in the `X402_INDEX_SEEDS` env (comma-separated) get crawled every 5 minutes.
+2. **Operator seeds** - origins listed in the `X402_INDEX_SEEDS` env (comma-separated) get crawled every 30 minutes.
 3. **Auto-discovery** - every hour, the indexer pulls public x402 registries (currently the [Coinbase CDP Bazaar](https://docs.cdp.coinbase.com/x402/docs/bazaar)) and adds new origins to the crawl set, capped at 50,000 sellers as a sanity guard. Crawls run through a worker pool with a concurrency limit (`CRAWL_CONCURRENCY = 25`) so a large seed list never floods outbound.
 
 Each crawl fetches `<origin>/.well-known/x402` plus the seller's `openapi.json`

@@ -12,7 +12,7 @@
 // How sellers get into the Index:
 //   1. The local Agent402 catalog is always present (no network).
 //   2. Optional seeds via X402_INDEX_SEEDS env (comma-separated origins) get
-//      crawled every 5 minutes. Each crawl fetches /.well-known/x402 + the
+//      crawled every 30 minutes. Each crawl fetches /.well-known/x402 + the
 //      seller's openapi.json (when present) and caches the result.
 //
 // Design notes:
@@ -72,8 +72,36 @@ const LOCAL_SELLER = "self";
 // the full table. The local seller is exempt from the cap — it's always the
 // one row a self-hoster actually cares about finding.
 const INDEX_ROW_CAP = 100;
-const CRAWL_INTERVAL_MS = 5 * 60 * 1000; // 5 min — gentle on third-party sellers
+// One full re-probe of every known origin per cycle, so this constant is the
+// single biggest lever on our outbound footprint - it multiplies the seed
+// count, not adds to it. Measured 2026-08-23 over 25 live seller origins: a
+// revalidating cycle moves ~45.6 KB per document fetched, and 2/3 of sellers
+// send a validator but only 38% of those actually answer 304, so conditional
+// requests save ~15% and NOT the order of magnitude an earlier comment here
+// claimed. At 5 minutes that was ~11.3 GB/day of third-party bandwidth at a
+// 500-origin submission cap - which is what a seller noticed and reported
+// (#886). 30 minutes cuts it 6x for a staleness cost nobody can act on faster
+// than that anyway (a seller who fixes their manifest waits half an hour to
+// see it, versus five minutes, and the churn signals downstream all read in
+// days). Raise the interval BEFORE raising any seed cap: the cap is linear,
+// this is the multiplier.
+const CRAWL_INTERVAL_MS = 30 * 60 * 1000; // 30 min — gentle on third-party sellers
 const DISCOVERY_INTERVAL_MS = 60 * 60 * 1000; // 1 hr — registries don't change fast
+
+/**
+ * Human label for the crawl cadence, DERIVED from CRAWL_INTERVAL_MS so served
+ * copy cannot drift from the timer. Page prose that states a cadence is a
+ * factual claim about our own behaviour toward third parties - the same class
+ * as a price quoted in prose - so it is generated, never typed.
+ */
+export function crawlIntervalLabel() {
+  const mins = Math.round(CRAWL_INTERVAL_MS / 60000);
+  if (mins % 60 === 0 && mins >= 60) {
+    const h = mins / 60;
+    return h === 1 ? "every hour" : `every ${h} hours`;
+  }
+  return `every ${mins} minutes`;
+}
 const MAX_MANIFEST_BYTES = 4 * 1024 * 1024;
 const MAX_OPENAPI_BYTES = 12 * 1024 * 1024; // Agent402's own is ~5 MB; allow headroom
 const MAX_DISCOVERY_BYTES = 64 * 1024 * 1024;
@@ -98,11 +126,28 @@ export const SUBMITTED_SEEDS_FILE = "/data/submitted-seeds.json";
 const submittedSeeds = new Set();
 
 // Manual-submission ceiling — a fetch-amplifier guard: every successful probe
-// is crawled every 5 minutes forever, so unbounded submissions become
+// is re-crawled on every cycle forever, so unbounded submissions become
 // unbounded outbound fan-out + unbounded /data growth (independent of
 // MAX_DISCOVERED_SELLERS, which only guards the registry-discovery path).
 // Legitimate growth beyond this goes through DEFAULT_SEEDS or Bazaar discovery.
-const DEFAULT_MAX_SUBMITTED_SEEDS = 500;
+//
+// Sized from MEASURED bytes, not a feeling (25 live seller origins, 2026-08-23):
+// a revalidating cycle moves ~45.6 KB per document fetched and ~1.9 documents
+// per origin, so one origin costs ~3.8 MB/day at the 30-minute cadence. The
+// old pairing (5-minute cadence, cap 500) put our whole crawl set at roughly
+// 52 GB/day of other people's bandwidth; the cadence change alone takes that
+// to ~8.7 GB/day, and this ceiling adds at most ~5.8 GB/day if every new slot
+// ever fills. Net: a 4x larger front door at a third of the old footprint.
+//
+// The ceiling is NOT a quality gate and there is deliberately no eviction: a
+// submitted origin that is still answering is a real seller, and the crawl set
+// is a union (warm-start and registry discovery both re-seed it), so dropping
+// one from this list would not stop us crawling it - it would only erase the
+// provenance that says the seller came to us. If this fills with live sellers,
+// raise it against the byte budget above; do not start deleting listings.
+// Order of operations when it does: raise CRAWL_INTERVAL_MS first (it is the
+// multiplier), this second (it is linear).
+const DEFAULT_MAX_SUBMITTED_SEEDS = 2000;
 let submittedSeedsCap = DEFAULT_MAX_SUBMITTED_SEEDS;
 
 /** Test hook: set (or, with no arg, reset) the submission cap. */
@@ -1228,7 +1273,7 @@ export function unknownPaymentishKeys(openapi) {
   }
   return [...found].sort();
 }
-// Once per (origin, key) per process — the crawler revisits every 5 minutes
+// Once per (origin, key) per process — the crawler revisits every cycle
 // and a repeated line would be noise, but a NEW key must always surface.
 const loggedAnnotationKeys = new Set();
 // The key name is THIRD-PARTY text headed for our logs: strip control chars
@@ -1454,7 +1499,7 @@ function paywallProbeDue() {
 }
 
 // How many priceless routes we will quote-probe per seller per crawl. The
-// crawl runs every 5 minutes across ~2,200 origins, so this is the difference
+// crawl runs every 30 minutes across ~2,200 origins, so this is the difference
 // between "we learn a catalogue's prices within the hour" and "we hammer a
 // stranger's server". A route that gets priced is never probed again (it has a
 // price); one that cannot be priced backs off through probeDue like every
@@ -1462,7 +1507,7 @@ function paywallProbeDue() {
 const LIVE_QUOTE_PROBES_PER_CRAWL = 5;
 // GLOBAL ceiling per crawl CYCLE, not just per seller. Three per seller sounds
 // gentle until you multiply: roughly a third of indexed rows carry no price, so
-// a per-seller-only limit fires thousands of outbound requests every 5 minutes
+// a per-seller-only limit fires thousands of outbound requests every cycle
 // across the whole index - which is issue #645 rebuilt with a different label.
 // Per-route backoff eventually quiets the sellers who never answer 402, but
 // "eventually" is the first several cycles, and the seller feels those. This
@@ -1665,7 +1710,7 @@ async function probePaywall(tools) {
 
 // BACK OFF FROM AN ORIGIN THAT KEEPS SAYING NO.
 //
-// The crawl runs every 5 minutes and treated an origin that had 404'd hundreds
+// The crawl runs on a fixed cycle and treated an origin that had 404'd hundreds
 // of times exactly like a healthy one. A seller wrote in (#645) to report 686
 // requests in a week to a /.well-known/x402 that returned 404 every single
 // time. They were gracious about it; it was still us hammering someone else's
@@ -1689,7 +1734,7 @@ const CRAWL_BACKOFF_STEPS_MS = [0, 0, 0, 0, 30 * 60 * 1000, 2 * 60 * 60 * 1000, 
 // the crawl asks every origin for four different files. Measured afterwards:
 // 687 indexed sellers reach the fallback chain, an empirical 21 of 25 sampled
 // serve NONE of /openapi.json, /agents.json or /llms.txt, and all three were
-// re-asked every 5 minutes forever. That is ~500,000 404s a day across the
+// re-asked on every cycle forever. That was ~500,000 404s a day across the
 // index, roughly 700x the volume of the report that started this, and two of
 // those three paths were added in the same afternoon as the fix.
 //
@@ -1858,7 +1903,7 @@ async function probeDoc(originUrl, path, opts, prevParsed) {
 async function crawlSeller(originUrl) {
   const prev = cache.get(originUrl);
   try {
-    // A manifest that has 404'd repeatedly is not re-probed every 5 minutes.
+    // A manifest that has 404'd repeatedly is not re-probed every cycle.
     // Throwing here drops straight into the fallback chain below, which is the
     // same path a genuine 404 takes - so coverage is identical, we just stop
     // asking a question we already know the answer to.
@@ -3630,7 +3675,7 @@ export function indexPage(snapshot, { baseUrl, network, economySnap, leaderboard
   const pageBody = `<div class="ix-wrap">
 
 <h1>x402 Index</h1>
-<p class="sub">Live map of the agent payments economy. Every seller below publishes an x402 service manifest at <code>/.well-known/x402</code>; this page crawls them every 5 minutes and shows what's online. Selling on Stellar or Algorand? See <a href="/stellar">the Stellar x402 marketplace</a> or the <a href="/algorand">Algorand x402 marketplace</a> - the same index, filtered per rail.</p>
+<p class="sub">Live map of the agent payments economy. Every seller below publishes an x402 service manifest at <code>/.well-known/x402</code>; this page crawls them ${crawlIntervalLabel()} and shows what's online. Selling on Stellar or Algorand? See <a href="/stellar">the Stellar x402 marketplace</a> or the <a href="/algorand">Algorand x402 marketplace</a> - the same index, filtered per rail.</p>
 
 <div class="chains-label"><span>The index, by chain</span><span>adding a chain adds a cell, not a nav link</span></div>
 <div class="chains ml-mkts">
