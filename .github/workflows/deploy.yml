@@ -3557,13 +3557,26 @@ jobs:
         # checks the build this run just shipped, which is what it was always
         # trying to do.
         #
-        # STILL NON-BLOCKING, deliberately and unchanged. Note that means the
-        # `exit 1` paths below - the SEO surfaces, PoW, the MCP connector - do
-        # not fail the run today either; they report. Moving it does not change
-        # that, and making it a real gate is a separate decision now that the
-        # deadlock argument for keeping it soft (a failed check blocking the
-        # rescue deploy) no longer applies after the deploy.
-        continue-on-error: true
+        # NOW A REAL GATE (2026-08-24). It was `continue-on-error: true` for
+        # years, which meant every `exit 1` below - the SEO surfaces counted
+        # into FAILS, the proof-of-work check, the MCP connector poll - only
+        # ever printed. The comments called them a hard gate; they were not.
+        #
+        # The reason for keeping it soft was a genuine deadlock: it used to run
+        # in the test job, deploy needs test, so a check failing against a
+        # crashed production would block the very deploy that would rescue it.
+        # Running after the deploy removes that entirely - by the time this
+        # executes the new image is already live, so failing here cannot stop a
+        # fix from shipping. It can only tell us the truth about what shipped.
+        #
+        # What a red deploy job means now: the deploy SUCCEEDED and production
+        # is serving this build, and one of these surfaces is wrong. That is
+        # worth waking up to; silently printing it was not.
+        #
+        # Everything here is either idempotent or free: the catalog poll and
+        # the MCP poll retry through any residual rollout lag, and
+        # demo-payment.js takes the proof-of-work path (no wallet, no funds)
+        # because the deploy job sets no AGENT_KEY.
         run: |
           PROD=https://agent402.tools
           # The deploy job and this test job run concurrently, so production may
@@ -3578,7 +3591,7 @@ jobs:
             sleep 10
           done
           echo "production endpoint count: $N (expect >= 500); hash unpaid → HTTP $paid (expect 402)"
-          [ "${N:-0}" -ge 500 ] && [ "$paid" = "402" ] || { echo "Production not serving the catalog after ~2 min — real problem, investigate."; exit 1; }
+          [ "${N:-0}" -ge 500 ] && [ "$paid" = "402" ] || { echo "Production not serving the catalog after ~2 min — the deploy SUCCEEDED and this build is live, so this is a real problem with what shipped."; exit 1; }
           curl -s "$PROD/api/pricing" | jq -r '.endpoints[] | "\(.method) \(.path) \(.price)"'
           echo "=== SEO + discovery surfaces on production (hard gate) ==="
           # These have all been live in production for a while — a miss now is a
