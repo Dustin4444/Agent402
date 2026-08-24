@@ -6083,7 +6083,17 @@ let shuttingDown = false;
 // SIGKILLs at RAILWAY_DEPLOYMENT_DRAINING_SECONDS regardless, so that grace is
 // raised in the same commit and the two are sized together:
 //
-//   lame duck 120s + drain 60s = 180s, inside a 240s grace.
+//   lame duck 300s + drain 60s = 360s, inside a 420s grace.
+//
+// 300s is sized against TWO measurements, not one. The first cut used 120s off
+// a single 108s sample and was promptly proven short: the next deploy's gap was
+// 194s (SIGTERM 23:40:25, new deployment healthy 23:43:39), so the lame duck
+// expired 73s before the replacement could serve and 82s of downtime remained.
+// The mechanism was right and the constant was wrong. Railway SIGTERMs the old
+// container while the new image is still BUILDING, so this gap tracks build and
+// pull time and is inherently variable - it is sized for the worst observed
+// with margin rather than the average, because being early costs nothing and
+// being late costs an outage.
 //
 // KNOWN TRADE-OFF, stated rather than hidden: this widens the window in which
 // TWO of our processes serve at once, and this service assumes a single writer
@@ -6093,7 +6103,7 @@ let shuttingDown = false;
 // is a guaranteed ~108s outage on every deploy, while this is a bounded overlap
 // of two healthy processes. If replicas are ever scaled, fix the shared-state
 // story first (see numReplicas in railway.toml).
-const LAME_DUCK_MS = Number(process.env.SHUTDOWN_LAME_DUCK_MS ?? 120_000);
+const LAME_DUCK_MS = Number(process.env.SHUTDOWN_LAME_DUCK_MS ?? 300_000);
 
 function shutdown(signal, { code = 0, deadlineMs = 60_000, lameDuckMs = LAME_DUCK_MS } = {}) {
   if (shuttingDown) return;
