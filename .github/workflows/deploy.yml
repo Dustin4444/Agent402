@@ -1434,6 +1434,12 @@ jobs:
       - name: Crawl cadence copy is derived (served pages cannot advertise a cadence we do not run — offline)
         run: node scripts/test-crawl-cadence.js
 
+      - name: Single-resource x402 manifest (spec 402-body shape; chains reach an OpenAPI-sourced row — offline)
+        run: node scripts/test-single-resource-manifest.js
+
+      - name: Submission slot release (30d dead, outage guard fails closed, settled sellers never released — offline)
+        run: node scripts/test-submission-release.js
+
       - name: Browser pool admission (A402-08 bounded queue, deadline, disconnect-abort — offline)
         run: node scripts/test-render-queue.js
 
