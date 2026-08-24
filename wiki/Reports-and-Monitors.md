@@ -15,23 +15,23 @@ Each report is a `POST` with a JSON body; the price is the whole outcome, not a 
 
 | Route | Price | Input | What you get |
 |---|---|---|---|
-| `POST /v1/research` | $0.35 | `{ query, focus?, recency?, format? }` | Deep research report: sub-questions planned, multiple live web searches, sources reranked, a ~1,500-word report with inline `[n]` citations and a source list |
-| `POST /v1/research/pro` | $0.65 | same | Deeper tier: more sub-questions and searches, wider source set, ~2,200 words |
+| `POST /v1/research` | $0.60 | `{ query, focus?, recency?, format? }` | Deep research report: sub-questions planned, multiple live web searches, sources reranked, a ~1,500-word report with inline `[n]` citations and a source list |
+| `POST /v1/research/pro` | $0.85 | same | Deeper tier: more sub-questions and searches, wider source set, ~2,200 words |
 | `POST /v1/research/max` | $1.10 | same | Exhaustive tier, ~2,800 words |
-| `POST /v1/research/market-brief` | $0.35 | `{ query }` | Market / competitor brief on a category or company, same pipeline with a competitive-intelligence frame |
-| `POST /v1/dossier` | $0.55 | `{ ticker, focus?, format? }` | Company due-diligence dossier: SEC EDGAR filings (10-K / 10-Q / 8-K), Form 4 filing metadata, a live quote and grounded web research, ~2,400 words |
-| `POST /v1/dossier/max` | $0.95 | same | More filings, a full year of Form 4 activity, wider research, ~2,800 words with a full source table |
-| `POST /v1/ticker-pack` | $0.75 | `{ ticker }` | One ticker, three reports in one run: the dossier, the insider flow and the 13F holders behind it |
-| `POST /v1/fund` | $0.25 | `{ manager \| cik \| ticker, format? }` | 13F portfolio report: what the manager holds and what they bought, added, trimmed and exited last quarter, diffed from their two most recent 13F-HR filings, with a holdings appendix |
-| `POST /v1/fund/max` | $0.50 | same | Full holdings table, wider change analysis, longer report |
-| `POST /v1/filing-report` | $0.25 | `{ ticker \| cik, form? }` | The latest SEC filing read end to end and reported with the facts that moved, with a filing appendix |
-| `POST /v1/domain-audit` | $0.20 | `{ domain, format? }` | Graded domain security and email-deliverability audit: SPF, DMARC, DKIM, MX, security headers, TLS, each from a live probe, with a letter grade and a prioritized fix list |
-| `POST /v1/domain-audit/pro` | $0.30 | same | Plus attack surface from Certificate Transparency logs, detected tech stack and registration data |
-| `POST /v1/recall-report` | $0.20 | `{ query, scope? }` | FDA recall report across the drug, food and device enforcement feeds (openFDA): firm, class, status, reason, distribution, date, with a records appendix |
-| `POST /v1/insider-report` | $0.25 | `{ ticker \| cik, days? }` | Insider flow: every Form 4 in the window with the transactions parsed from the filings, open-market buys and sells separated from awards, exercises and withholding, per insider and net |
-| `POST /v1/token-brief` | $0.35 | `{ mint }` | Solana token due-diligence brief: authorities, liquidity, holder concentration, pairs and market context from live on-chain and market probes |
-| `POST /v1/token-risk` | $0.30 | `{ address, chain, format? }` | Token and contract risk report from on-chain evidence: source verification, holder concentration (pools and contracts told apart from wallets), supply and market context. Evidence, never a "safe" verdict |
-| `POST /v1/token-risk/pro` | $0.60 | same | Plus a deterministic static-pattern scan of the verified source and a web reputation check |
+| `POST /v1/research/market-brief` | $0.85 | `{ query }` | Market / competitor brief on a category or company, same pipeline with a competitive-intelligence frame |
+| `POST /v1/dossier` | $0.85 | `{ ticker, focus?, format? }` | Company due-diligence dossier: SEC EDGAR filings (10-K / 10-Q / 8-K), Form 4 filing metadata, a live quote and grounded web research, ~2,400 words |
+| `POST /v1/dossier/max` | $1.10 | same | More filings, a full year of Form 4 activity, wider research, ~2,800 words with a full source table |
+| `POST /v1/ticker-pack` | $2.00 | `{ ticker }` | One ticker, three reports in one run: the dossier, the insider flow and the 13F holders behind it |
+| `POST /v1/fund` | $0.60 | `{ manager \| cik \| ticker, format? }` | 13F portfolio report: what the manager holds and what they bought, added, trimmed and exited last quarter, diffed from their two most recent 13F-HR filings, with a holdings appendix |
+| `POST /v1/fund/max` | $0.85 | same | Full holdings table, wider change analysis, longer report |
+| `POST /v1/filing-report` | $0.85 | `{ ticker \| cik, form? }` | The latest SEC filing read end to end and reported with the facts that moved, with a filing appendix |
+| `POST /v1/domain-audit` | $0.60 | `{ domain, format? }` | Graded domain security and email-deliverability audit: SPF, DMARC, DKIM, MX, security headers, TLS, each from a live probe, with a letter grade and a prioritized fix list |
+| `POST /v1/domain-audit/pro` | $0.85 | same | Plus attack surface from Certificate Transparency logs, detected tech stack and registration data |
+| `POST /v1/recall-report` | $0.60 | `{ query, scope? }` | FDA recall report across the drug, food and device enforcement feeds (openFDA): firm, class, status, reason, distribution, date, with a records appendix |
+| `POST /v1/insider-report` | $0.60 | `{ ticker \| cik, days? }` | Insider flow: every Form 4 in the window with the transactions parsed from the filings, open-market buys and sells separated from awards, exercises and withholding, per insider and net |
+| `POST /v1/token-brief` | $0.60 | `{ mint }` | Solana token due-diligence brief: authorities, liquidity, holder concentration, pairs and market context from live on-chain and market probes |
+| `POST /v1/token-risk` | $0.60 | `{ address, chain, format? }` | Token and contract risk report from on-chain evidence: source verification, holder concentration (pools and contracts told apart from wallets), supply and market context. Evidence, never a "safe" verdict |
+| `POST /v1/token-risk/pro` | $0.85 | same | Plus a deterministic static-pattern scan of the verified source and a web reputation check |
 | `POST /v1/ipo-report` | $0.05 | `{ days?, keyword? }` | Deterministic IPO pipeline digest: every 424B4 (priced) and S-1 (registering) on SEC EDGAR in the window, optional keyword filter on the filer's name. No synthesis, filing facts only |
 
 Every report route is wallet-only (no proof-of-work tier) and is listed in [`/api/pricing`](https://agent402.tools/api/pricing), `/openapi.json` and on its own `/tools/{slug}` page with a sample output. They are not cached: each call is a fresh run.

@@ -65,6 +65,14 @@ const TIMEOUT_MS = Number(process.env.NON_METERED_TIMEOUT_MS) || 25_000;
 const SKILL_TIMEOUT_MS = Number(process.env.NON_METERED_SKILL_TIMEOUT_MS) || 55_000;
 // Floor so a broken filter that empties the work list cannot pass silently.
 const MIN_IN_SCOPE = Number(process.env.NON_METERED_MIN_IN_SCOPE) || 350;
+// Backoff for the upstream-5xx class. The first entry is the original single
+// retry; the rest are the added time that lets a provider wobble clear.
+const RETRY_BACKOFF_MS = [1500, 8000, 20000];
+// Past this many distinct tools needing escalation, it is an outage rather than
+// a blip and more waiting proves nothing.
+const ESCALATE_MAX = Number(process.env.NON_METERED_ESCALATE_MAX) || 12;
+const escalatedTools = new Set();
+const retryStats = [];
 
 let passed = 0, failed = 0;
 const failures = [];
@@ -241,6 +249,14 @@ function isClientTimeoutFlake(status, body, threw) {
   return status === 0 && /timeout|aborted|AbortError|ETIMEDOUT|UND_ERR_CONNECT|ECONNRESET|fetch failed/i.test(errText(body, threw));
 }
 
+// A 5xx RELAYED FROM A THIRD PARTY, as opposed to one of ours. Deliberately
+// does not try to read intent from the message: a rate limit has its own lane
+// above, and everything else in this class is "their host did not answer".
+function isUpstreamFiveXx(status, body, threw) {
+  if (status === 502 || status === 503 || status === 504) return true;
+  return /timeout|aborted|AbortError|UND_ERR_CONNECT|ECONNRESET|ETIMEDOUT|fetch failed/i.test(errText(body, threw));
+}
+
 function shouldRetry(status, body, threw, slug) {
   // One retry on transient flakes. 503 is included because several free-public
   // handlers surface upstream rate limits as 503 (CoinGecko), not 429.
@@ -284,11 +300,43 @@ async function callExample(path, method, op, slug) {
     }
   };
 
+  // ESCALATING RETRY FOR THE UPSTREAM-5xx CLASS.
+  //
+  // Within one run, a permanently dead upstream and a momentary one are
+  // indistinguishable: both are a 502 or a 504. The ONLY honest discriminator
+  // is time, and the whole budget used to be a single retry 1,500ms later.
+  // That is shorter than a provider wobble. Measured on 2026-08-24: DefiLlama
+  // timed out once mid-run and blocked a merge, and answered in 1.9s when
+  // asked again twenty minutes on; DexScreener, genuinely out for 2.5 hours,
+  // failed every attempt as it should.
+  //
+  // So this spends MORE TIME rather than adding another soft-skip, and that is
+  // the point. Nothing new becomes invisible: a dead upstream still fails every
+  // attempt and still fails the build, which is exactly the gov-data guarantee
+  // this file exists to hold. A blip gets long enough to clear.
+  //
+  // Only failing tools cost anything, and the escalation is capped: past
+  // ESCALATE_MAX distinct tools this is not a blip, it is an outage, and
+  // spending another ten minutes to confirm that helps nobody.
   let r = await attempt();
+  let attempts = 1;
   if (!isStrictPass(r.status, r.body) && shouldRetry(r.status, r.body, r.threw, slug)) {
-    await sleep(1500);
+    await sleep(RETRY_BACKOFF_MS[0]);
     r = await attempt();
+    attempts = 2;
+    const escalate = !isStrictPass(r.status, r.body)
+      && isUpstreamFiveXx(r.status, r.body, r.threw)
+      && escalatedTools.size < ESCALATE_MAX;
+    if (escalate) {
+      escalatedTools.add(slug);
+      for (let i = 1; i < RETRY_BACKOFF_MS.length && !isStrictPass(r.status, r.body); i++) {
+        await sleep(RETRY_BACKOFF_MS[i]);
+        r = await attempt();
+        attempts++;
+      }
+    }
   }
+  if (attempts > 1) retryStats.push({ slug, attempts, recovered: isStrictPass(r.status, r.body) });
   return r;
 }
 
@@ -368,6 +416,25 @@ ok(isTransientMalformedPriceFeed(502, { error: "Price feed upstream returned mal
   "control: price-feed malformed-JSON 502 is a soft-skip");
 ok(isTransientMalformedPriceFeed(502, { error: "data.gov is not returning results" }, null) === false,
   "control: bare dead-upstream 502 is NOT a price-feed soft-skip (gov-data class)");
+// The escalated-retry lane. It adds TIME, never a skip, so the controls that
+// matter are that the dead-upstream class is still in it (it will be retried
+// and still fail, which is the point) and that a rate limit is not dragged in
+// - that has its own lane and its own doctrine.
+ok(isUpstreamFiveXx(502, { error: "data.gov is not returning results" }, null) === true,
+  "control: a bare dead-upstream 502 IS retried longer - and still fails, because a dead upstream fails every attempt");
+ok(isUpstreamFiveXx(504, { error: "DefiLlama request timed out or was unreachable" }, null) === true,
+  "control: a relayed upstream timeout is the class this lane exists for");
+ok(isUpstreamFiveXx(0, null, "The operation was aborted due to timeout") === true,
+  "control: a connection-level failure counts too");
+ok(isUpstreamFiveXx(200, { ok: true }, null) === false,
+  "control: a healthy response is never escalated");
+ok(isUpstreamFiveXx(422, { error: "bad input" }, null) === false,
+  "control: a 4xx is the caller's problem and is not retried for longer");
+ok(RETRY_BACKOFF_MS.length >= 3 && RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1] >= 15000,
+  `control: the escalation actually spends time (${RETRY_BACKOFF_MS.join("/")}ms) - 1.5s was shorter than a provider wobble`);
+ok(ESCALATE_MAX > 0 && ESCALATE_MAX <= 40,
+  `control: escalation is capped at ${ESCALATE_MAX} tools, so an outage does not become a ten-minute wait`);
+
 ok(isClientTimeoutFlake(0, null, "The operation was aborted due to timeout") === true,
   "control: client AbortSignal timeout is a soft-skip");
 ok(isClientTimeoutFlake(504, { error: "timeout" }, null) === false,
@@ -520,6 +587,22 @@ async function main() {
     liveFails.length
       ? `every in-scope example returns 200 without body.error — ${liveFails.length} FAILED:\n     ${liveFails.slice(0, 30).join("\n     ")}${liveFails.length > 30 ? `\n     …and ${liveFails.length - 30} more` : ""}`
       : `every in-scope example returns 200 without body.error (${asserted} asserted, ${skippedBrowser} browser-skipped, ${skippedRateLimit} rate-limit-skipped, ${skippedMediaSource} media-source-skipped, ${skippedPriceFeed} price-feed-skipped, ${skippedClientTimeout} client-timeout-skipped)`);
+  // RETRIES ARE REPORTED, not just spent. A provider that needs three attempts
+  // on every run is degrading, and the run before it goes down is the one where
+  // that is worth seeing. A silent retry buys a green build and tells nobody.
+  if (retryStats.length) {
+    const recovered = retryStats.filter((r) => r.recovered);
+    const escalated = retryStats.filter((r) => r.attempts > 2);
+    console.log(`\nretries - ${retryStats.length} tool(s) needed more than one attempt, ${recovered.length} recovered` +
+      (escalated.length ? `; ${escalated.length} needed the escalated upstream-5xx backoff` : ""));
+    for (const r of escalated.slice(0, 10)) {
+      console.log(`  ${r.recovered ? "recovered" : "still failing"} after ${r.attempts} attempts: ${r.slug}`);
+    }
+    if (escalatedTools.size >= ESCALATE_MAX) {
+      console.log(`  escalation cap hit (${ESCALATE_MAX} tools) - that is an outage, not a blip; the rest were not re-attempted`);
+    }
+  }
+
   // Refuse a vacuous green where almost everything soft-skipped.
   ok(asserted >= Math.floor(MIN_IN_SCOPE * 0.8),
     `enough tools were actually asserted (${asserted}), not soft-skipped away`);

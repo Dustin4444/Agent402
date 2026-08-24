@@ -69,6 +69,18 @@ ok(files.length > 10, `documentation files under test (${files.length})`);
 // Routes that are real but deliberately absent from the paid catalog (free
 // surfaces, operator-only, or protocol paths served outside CATALOG).
 const KNOWN_NON_CATALOG = new Set([
+  // --- /v1, added when the route scan was widened past /api on 2026-08-24 ---
+  // Free and informational, not priced catalog entries (same class as the /api
+  // surfaces below).
+  "/v1/models",
+  // Prose referring to a BASE URL a caller points an SDK at, not a route:
+  // "point the Anthropic SDK at https://agent402.tools/v1 (or /v1/pro,
+  // /v1/premium)".
+  "/v1/", "/v1/pro", "/v1/premium", "/v1/nano", "/v1/auto", "/v1/grounded",
+  // Real and PRICED, but env-gated on OPENROUTER_TTS_ENABLED, so a FREE_MODE
+  // catalog does not carry it and this gate would call it dead. Its price is
+  // therefore NOT checked here; it is checked on prod, where the route exists.
+  "/v1/audio/speech",
   "/api/pricing", "/api/find", "/api/index", "/api/route", "/api/stats", "/api/wishes",
   "/api/sales", "/api/revenue", "/api/revenue/daily", "/api/revenue/mpp", "/api/calls/daily",
   "/api/reliability", "/api/status", "/api/status/probe", "/api/leaderboard", "/api/analytics",
@@ -97,7 +109,12 @@ for (const file of files) {
     const line = rawLine;
     const isSourceRef = /src\/tools\/|github\.com|blob\/main/.test(line);
     const routesOnLine = [];
-    for (const m of line.matchAll(/`?(\/api\/[a-zA-Z0-9/_.-]+?)`?(?=[\s,)|`"'\]]|$)/g)) {
+    // `/api/` AND `/v1/`. This matched only /api/ until 2026-08-24, and every
+    // outcome-priced report lives under /v1/ - so the eleven-row report price
+    // table in the README, and the same prices restated across the wiki, were
+    // invisible to the one gate that exists to catch a price copied by hand and
+    // left behind. They went a day stale through a repricing with this green.
+    for (const m of line.matchAll(/`?(\/(?:api|v1)\/[a-zA-Z0-9/_.-]+?)`?(?=[\s,)|`"'\]]|$)/g)) {
       let path = m[1].replace(/[.,;:]+$/, "");
       if (path.startsWith("/api/skill/")) continue;
       if (path.includes("{") || path.includes("<") || path.includes(":")) continue;
@@ -141,6 +158,28 @@ for (const file of files) {
         if (Number(pricesOnLine[0]) !== Number(real)) {
           priceMismatches++;
           if (priceMismatches <= 12) console.error(`  price: ${rel} -> \`${slugs[0]}\` says $${pricesOnLine[0]}, catalog says $${real}`);
+        }
+      }
+    }
+
+    // N routes and N prices on one row are PAIRED IN ORDER. The one-and-one
+    // rule below is the safe case; a row like
+    //   | `POST /v1/dossier` · `/v1/dossier/max` | $0.85 · $1.10 | ... |
+    // has two of each and was skipped as ambiguous, which is most of the README
+    // report table. It went a day stale through a repricing with this gate
+    // green, and restoring the stale figures still passed. Pairing positionally
+    // is what a reader does with that row, so it is what the check should do.
+    // Only when the counts match and every route is a real one, so a sentence
+    // that happens to mention two routes and two unrelated figures is untouched.
+    const pairable = routesOnLine.length > 1
+      && routesOnLine.length === pricesOnLine.length
+      && routesOnLine.every((r) => routeByPath.has(r));
+    if (pairable) {
+      for (let i = 0; i < routesOnLine.length; i++) {
+        const real = String(routeByPath.get(routesOnLine[i]).price).replace("$", "");
+        if (Number(pricesOnLine[i]) !== Number(real)) {
+          priceMismatches++;
+          if (priceMismatches <= 12) console.error(`  price: ${rel} -> ${routesOnLine[i]} says $${pricesOnLine[i]}, catalog says $${real}`);
         }
       }
     }

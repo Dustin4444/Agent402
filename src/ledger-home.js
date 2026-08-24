@@ -11,6 +11,28 @@ import { CAIP2_NAMES } from "./stats.js";
 import { chainMark, CHAIN_ORDER } from "./chain-logos.js";
 import { railKey } from "./rails.js";
 import { tempoEnabled } from "./mpp-tempo.js";
+import { HUMAN_PRODUCTS } from "./human-checkout.js";
+import { MONITOR_PRODUCTS } from "./stripe-subscriptions.js";
+
+// PRICES IN COPY ARE DERIVED, NEVER TYPED.
+//
+// These chips were hardcoded and went stale at the 2026-08-23 repricing: the
+// homepage advertised "Dossier $1" against a $3 product, and "Monitor $3/mo"
+// against $5. A visitor clicked a price we do not charge. The same class was
+// caught in page meta descriptions the same week and fixed by deriving them;
+// this is the instance that fix did not reach, because test-price-prose only
+// reads a page's description, never its body.
+const usd = (cents) => `$${Number(cents) % 100 === 0 ? Number(cents) / 100 : (Number(cents) / 100).toFixed(2)}`;
+function cardPrice(product) {
+  const p = HUMAN_PRODUCTS?.[product]?.price;
+  return Number.isFinite(p) ? usd(p) : "";
+}
+function monitorPrice() {
+  // Every monitor is the same price today; if that stops being true this reads
+  // the cheapest, so the chip can never advertise less than we charge.
+  const prices = Object.values(MONITOR_PRODUCTS || {}).map((m) => m?.price).filter(Number.isFinite);
+  return prices.length ? usd(Math.min(...prices)) : "";
+}
 
 const fmtNum = (n) => Number(n || 0).toLocaleString("en-US");
 
@@ -239,11 +261,10 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
       <h2 class="hm-h2" style="font-size:30px;">A finished report, not a chat answer.</h2>
       <p class="hm-lede" style="margin:0;font-size:15.5px;">Due-diligence dossier, 13F fund report, domain security audit, deep research. Every claim cited to a live source, PDF and data appendix included, refunded if it fails. Or subscribe and get the re-run in your inbox when something moves.</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;">
-        <a href="/reports" class="hm-chip" style="font-family:var(--font-body);font-size:13px;border-radius:999px;">Dossier $1</a>
-        <a href="/reports" class="hm-chip" style="font-family:var(--font-body);font-size:13px;border-radius:999px;">Fund 13F $1</a>
-        <a href="/reports" class="hm-chip" style="font-family:var(--font-body);font-size:13px;border-radius:999px;">Domain audit $1</a>
-        <a href="/reports" class="hm-chip" style="font-family:var(--font-body);font-size:13px;border-radius:999px;">Deep research $1</a>
-        <a href="/monitors" class="hm-chip" style="font-family:var(--font-body);font-size:13px;border-radius:999px;">Monitor $3/mo</a>
+        ${[["dossier", "Dossier"], ["fund-report", "Fund 13F"], ["domain-audit", "Domain audit"], ["research", "Deep research"]]
+          .map(([product, label]) => `<a href="/reports" class="hm-chip" style="font-family:var(--font-body);font-size:13px;border-radius:999px;">${esc(label)} ${esc(cardPrice(product))}</a>`)
+          .join("\n        ")}
+        <a href="/monitors" class="hm-chip" style="font-family:var(--font-body);font-size:13px;border-radius:999px;">Monitor ${esc(monitorPrice())}/mo</a>
         <a href="/credits" class="hm-chip" style="font-family:var(--font-body);font-size:13px;border-radius:999px;">Credits for any tool, from $20</a>
       </div>
       <a href="/reports" style="margin-top:6px;font-size:14.5px;font-weight:500;color:var(--ink);text-decoration:none;">Browse reports →</a>
