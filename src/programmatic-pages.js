@@ -111,20 +111,74 @@ const MAX_CONCURRENT = Number(process.env.PROGRAMMATIC_EDGAR_CONCURRENCY) || 2;
 // burst that could not be served politely degrades instead of piling up.
 const MAX_QUEUE = Number(process.env.PROGRAMMATIC_QUEUE_MAX) || 8;
 const BUILD_TIMEOUT_MS = Number(process.env.PROGRAMMATIC_TIMEOUT_MS) || 12_000;
+// How long a request may WAIT for a gate slot before it gives up and serves the
+// page without live data.
+//
+// The build had a deadline from the start; the QUEUE did not, and that is a
+// different thing entirely. With 2 concurrent and a queue of 8, the last waiter
+// could sit through four full rounds before its own build even began - up to
+// ~60s on a page that is supposed to answer in one - and nothing capped it. The
+// comment above says a burst "degrades instead of piling up", which was true
+// only for requests turned away PAST the queue; the eight inside it piled up
+// silently.
+//
+// Found 2026-08-24 when a 1062-URL sitemap sweep aborted two fund pages at a
+// 20s client timeout. The affected caller is not the test - it is any crawler
+// walking our sitemap, Googlebot included, and a 60s hang costs the page in
+// the index far more surely than a degraded render does. Seeded entities
+// degrade rather than 404, so the honest answer is available immediately and
+// carries noindex; waiting for a slot was never worth more than that.
+const GATE_WAIT_MS = Number(process.env.PROGRAMMATIC_GATE_WAIT_MS) || 5_000;
 const GATE_BUSY = Object.assign(new Error("programmatic gate saturated"), { gateBusy: true });
 let active = 0;
 const waiters = [];
-export const gateDepth = () => ({ active, waiting: waiters.length });
-async function withGate(fn) {
+export const gateDepth = () => ({ active, waiting: waiters.filter((w) => !w.abandoned).length });
+export const __gateInternals = { withGate, GATE_BUSY };
+async function withGate(fn, { waitMs = GATE_WAIT_MS, now = Date.now } = {}) {
+  const startedAt = now();
   // Loop, do not test once: a request that arrives while a waiter is being
   // resumed would otherwise barge straight past MAX_CONCURRENT.
   while (active >= MAX_CONCURRENT) {
-    if (waiters.length >= MAX_QUEUE) throw GATE_BUSY;
-    await new Promise((r) => waiters.push(r));
+    if (waiters.filter((w) => !w.abandoned).length >= MAX_QUEUE) throw GATE_BUSY;
+    const remaining = waitMs - (now() - startedAt);
+    if (remaining <= 0) throw GATE_BUSY;
+    // A waiter carries its own abandoned flag rather than being spliced out on
+    // timeout, because splicing leaves a race nothing can test: the releaser
+    // can shift and signal a waiter in the window between its timer firing and
+    // its continuation running, handing a permit to someone who has already
+    // left. Recovering from that needs a branch reachable only under a
+    // microtask interleaving - a mutation that deletes it survives every test
+    // you can write. So the releaser skips abandoned waiters instead, and the
+    // situation the branch existed for cannot arise.
+    const w = { resolve: null, abandoned: false };
+    const slot = new Promise((r) => { w.resolve = r; });
+    waiters.push(w);
+    let timer;
+    const expired = await Promise.race([
+      slot.then(() => false),
+      new Promise((r) => { timer = setTimeout(() => r(true), remaining); timer.unref?.(); }),
+    ]);
+    clearTimeout(timer);
+    if (expired) {
+      w.abandoned = true;
+      // Leave it in place; nextWaiter() drops it. Splicing here is what
+      // reintroduces the untestable race above.
+      throw GATE_BUSY;
+    }
   }
   active++;
   try { return await fn(); }
-  finally { active--; const next = waiters.shift(); if (next) next(); }
+  finally { active--; nextWaiter(); }
+}
+// Hand the freed permit to the first waiter that is still waiting. Abandoned
+// entries are discarded here, which is the only place that knows a permit is
+// actually in hand to give away.
+function nextWaiter() {
+  while (waiters.length) {
+    const w = waiters.shift();
+    if (!w.abandoned) { w.resolve(); return true; }
+  }
+  return false;
 }
 const deadline = (p, ms) => Promise.race([p, new Promise((_, rej) => { const t = setTimeout(() => rej(Object.assign(new Error("teaser timeout"), { statusCode: 504 })), ms); t.unref?.(); })]);
 

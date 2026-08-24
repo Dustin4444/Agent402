@@ -7,7 +7,7 @@
 //
 // This guard fails if any served page states a crawl cadence that is not the
 // one derived from the timer constant. Offline; no server boot.
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { crawlIntervalLabel } from "../src/x402-index.js";
 import { mppCrawlIntervalLabel } from "../src/mpp-index.js";
 
@@ -24,15 +24,15 @@ ok(/^every \d+ (minutes|hours)$|^every hour$/.test(mppCrawlIntervalLabel()),
 //    sitting next to crawl language in a string literal, which is exactly the
 //    shape that shipped. A file that interpolates the derived label is fine
 //    because the literal minutes are simply not there to match.
-const PAGE_FILES = [
-  "src/x402-index.js",
-  "src/mpp-market-page.js",
-  "src/mpp-index.js",
-  "src/landing.js",
-  "src/ledger-home.js",
-  "src/pages.js",
-  "src/seo.js",
-];
+// EVERY module under src/, not a hand-kept list. The first version of this
+// guard listed seven files and missed src/market-page.js - the one that
+// actually renders /marketplace and every per-chain page - because it was
+// written against a renderer that turned out to be dead code nothing mounts.
+// A guard whose coverage is a list someone has to remember to extend fails
+// exactly when a new page is added, which is the moment it is needed.
+const PAGE_FILES = readdirSync(new URL("../src", import.meta.url))
+  .filter((f) => f.endsWith(".js"))
+  .map((f) => `src/${f}`);
 // Deliberately keyed on crawl/index language only: the heartbeat and the
 // Cloudflare status observer also state cadences, and those are honest claims
 // about a different system that must not be rewritten by this guard.

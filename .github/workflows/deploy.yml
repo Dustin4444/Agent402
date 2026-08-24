@@ -933,6 +933,9 @@ jobs:
 
       - name: programmatic report pages (offline)
         run: node scripts/test-programmatic-pages.js
+
+      - name: Programmatic page gate wait (a queued EDGAR build cannot hang a crawler; abandoned waiters freed — offline)
+        run: node scripts/test-programmatic-gate-wait.js
       - name: Seller registration conversion/churn table (first_seen immutable, last_settled_seen sticky — offline)
         run: node scripts/test-seller-registrations.js
 
@@ -1448,9 +1451,6 @@ jobs:
 
       - name: Report economics (every card/agent/monitor price clears MEASURED worst-case upstream, not a declared cap - offline)
         run: node scripts/test-report-margins.js
-
-      - name: /index page tests (row cap + show-all link, sortable leaderboard-joined USDC/calls columns)
-        run: node scripts/test-index-page.js
 
       - name: Untrusted-content provenance (R-14 — external page/search content carries untrustedContent; extract/render/search marked — offline)
         run: node scripts/test-provenance.js

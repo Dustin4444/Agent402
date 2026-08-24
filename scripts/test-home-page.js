@@ -1,6 +1,6 @@
 // Offline unit tests for the homepage renderer (src/ledger-home.js, Aug 2026
 // revamp). Fixture data only - no server, no network. Covers what
-// test-index-page.js's smaller homepage block doesn't: real data bindings
+// the removed /index page block did not: real data bindings
 // (rails, leaderboard, router-share disclosure), the commercial-sensitivity
 // rule, JSON-LD honesty, and copy hygiene.
 import { ledgerHomePage } from "../src/ledger-home.js";
