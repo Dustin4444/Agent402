@@ -20,6 +20,11 @@ import { createHash } from "node:crypto";
 // to this SDK. Product token only; nothing about the caller rides along.
 const VERSION = "0.7.0";
 const USER_AGENT = `agent402-client/${VERSION}`;
+// 32MB: about a hundred times any realistic response from this catalog (the
+// largest is a base64 image at a few MB), so it cannot break a legitimate
+// caller, while still stopping the class it exists for. A ceiling that is off
+// by default protects nobody, so this one is on; pass null to disable it.
+const DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
 
 const leadingZeroBits = (buf) => { let n = 0; for (const b of buf) { if (b === 0) { n += 8; continue; } n += Math.clz32(b) - 24; break; } return n; };
 
@@ -35,9 +40,12 @@ export class Agent402 {
    * @param {number} [opts.maxPerHostUsd]    hard ceiling on rolling-24h paid spend to one seller host (USD)
    * @param {string} [opts.creditsKey]       a prepaid card-credits key (a402_...) from agent402.tools/credits -
    *                                         pays wallet-only tools by card when no payFetch is given
+   * @param {number|null} [opts.maxResponseBytes=33554432]
+   *        Hard ceiling on a response body, enforced BEFORE it is parsed. null disables it.
    */
   constructor({ baseUrl = "https://agent402.tools", fetch: payFetch, cache = true, fetchImpl = globalThis.fetch,
-    maxPerCallUsd = null, dailyLimitUsd = null, maxPerHostUsd = null, creditsKey = null } = {}) {
+    maxPerCallUsd = null, dailyLimitUsd = null, maxPerHostUsd = null, creditsKey = null,
+    maxResponseBytes = DEFAULT_MAX_RESPONSE_BYTES } = {}) {
     this.creditsKey = typeof creditsKey === "string" && /^a402_[A-Za-z0-9_-]{32,64}$/.test(creditsKey) ? creditsKey : null;
     if (typeof fetchImpl !== "function") throw new Error("No fetch available — pass { fetchImpl } on Node < 18");
     this.baseUrl = String(baseUrl).replace(/\/$/, "");
@@ -59,6 +67,65 @@ export class Agent402 {
       perHost: numOrNull(maxPerHostUsd),
       log: [], // [{ ts, host, usd }] — settled paid calls in the last 24h
     };
+    // A response-size ceiling, enforced before parsing. See _readJson.
+    this.maxResponseBytes = maxResponseBytes === null ? null : (numOrNull(maxResponseBytes) ?? DEFAULT_MAX_RESPONSE_BYTES);
+  }
+
+  /**
+   * Read a JSON body with a hard byte ceiling.
+   *
+   * WHY THIS LIVES IN THE SDK. Almost everything a buyer might want to check
+   * about a response, they can check themselves in their own code once they
+   * hold it. Not this one: by the time `r.json()` has resolved, a hostile or
+   * broken seller's multi-gigabyte body is already in the agent's memory. The
+   * SDK owns the fetch, so it is the only place the check can happen in time.
+   *
+   * That matters here more than in an ordinary HTTP client, because this SDK
+   * calls STRANGERS and pays them. The seller chooses the response.
+   *
+   * Two gates: the declared content-length is refused before a byte is read,
+   * and the actual stream is counted as it arrives, because content-length is
+   * the seller's claim about their own body and a missing or lying header must
+   * not be the thing standing between an agent and an OOM.
+   */
+  async _readJson(r, { maxBytes, slug, paid = false } = {}) {
+    const cap = maxBytes === undefined ? this.maxResponseBytes : (maxBytes === null ? null : numOrNull(maxBytes));
+    if (cap == null) return r.json();
+
+    const declared = Number(r.headers?.get?.("content-length"));
+    if (Number.isFinite(declared) && declared > cap) {
+      throw new ResponseTooLargeError(declared, cap, { slug, paid, source: "content-length" });
+    }
+    // A response object we cannot measure at all - no stream and no text() -
+    // is a caller-supplied stub or an exotic runtime, never a hostile seller
+    // over a real fetch (a real Response has both). Degrade to an unbounded
+    // read rather than turning "I could not measure this" into a failure of a
+    // call the caller may have already paid for.
+    if ((!r.body || typeof r.body.getReader !== "function") && typeof r.text !== "function") return r.json();
+    // No readable stream but text() is available: bound the PARSE, even though
+    // the bytes have already arrived.
+    if (!r.body || typeof r.body.getReader !== "function") {
+      const text = await r.text();
+      const size = Buffer.byteLength(text, "utf8");
+      if (size > cap) throw new ResponseTooLargeError(size, cap, { slug, paid, source: "body" });
+      return JSON.parse(text);
+    }
+    const reader = r.body.getReader();
+    const chunks = [];
+    let received = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.length;
+      if (received > cap) {
+        // Stop pulling immediately. Reading the rest to "see how big it is" is
+        // the failure this exists to prevent.
+        try { await reader.cancel(); } catch { /* already gone */ }
+        throw new ResponseTooLargeError(received, cap, { slug, paid, source: "stream" });
+      }
+      chunks.push(value);
+    }
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
   }
 
   async _loadCatalog() {
@@ -169,7 +236,7 @@ export class Agent402 {
    * Call a tool by slug; pays automatically (PoW for free tools, x402 for
    * wallet-only) and returns the parsed JSON result.
    */
-  async call(slug, params = {}, { idempotencyKey, cache = true } = {}) {
+  async call(slug, params = {}, { idempotencyKey, cache = true, maxResponseBytes } = {}) {
     const cat = await this._loadCatalog();
     const tool = cat.get(slug);
     if (!tool) throw new Error(`unknown tool "${slug}" — use client.find(task) to discover one`);
@@ -224,7 +291,7 @@ export class Agent402 {
           const r = await send({}, this.payFetch);
           if (!r.ok) throw new Error(`call "${slug}" failed: HTTP ${r.status}`);
           this._spendSettle(reservation); // confirm the reservation as settled spend
-          return this._store(cacheKey, await r.json(), cache);
+          return this._store(cacheKey, await this._readJson(r, { maxBytes: maxResponseBytes, slug, paid: true }), cache);
         } catch (e) {
           this._spendRelease(reservation); // roll back — nothing settled
           throw e;
@@ -245,11 +312,11 @@ export class Agent402 {
           }
           if (!r.ok) throw new Error(`call "${slug}" failed: HTTP ${r.status}`);
           this._spendSettle(reservation);
-          return this._store(cacheKey, await r.json(), cache);
+          return this._store(cacheKey, await this._readJson(r, { maxBytes: maxResponseBytes, slug, paid: true }), cache);
         } catch (e) { this._spendRelease(reservation); throw e; }
       }
       const r = await send(); // no wallet — succeeds only on a FREE_MODE instance
-      if (r.ok) return this._store(cacheKey, await r.json(), cache);
+      if (r.ok) return this._store(cacheKey, await this._readJson(r, { maxBytes: maxResponseBytes, slug, paid: false }), cache);
       throw new Error(`call "${slug}" failed: HTTP ${r.status} — wallet-only tool; construct with { fetch: payFetch } (an @x402/fetch-wrapped fetch) or { creditsKey } (prepaid card credits from ${this.baseUrl}/credits)`);
     }
 
@@ -262,7 +329,7 @@ export class Agent402 {
       r = await send({ "X-Pow-Solution": Agent402.solvePow(chal) });
     }
     if (!r.ok) throw new Error(`call "${slug}" failed after proof-of-work: HTTP ${r.status}`);
-    return this._store(cacheKey, await r.json(), cache);
+    return this._store(cacheKey, await this._readJson(r, { maxBytes: maxResponseBytes, slug, paid: false }), cache);
   }
 
   async _powChallenge(slug) {
@@ -347,6 +414,20 @@ export class Agent402 {
 
 /** Thrown when a paid call would exceed a configured spending ceiling. The call
  *  is refused BEFORE any payment is signed, so no funds move. */
+/** A response body over the ceiling, refused BEFORE it was parsed.
+ *
+ *  `paid` matters: on a wallet-only tool the money has already moved by the
+ *  time the body arrives, so a caller must be able to tell "I was charged and
+ *  the seller sent something unusable" from "nothing happened". Losing that
+ *  distinction would turn a refused response into a silently forgotten spend. */
+export class ResponseTooLargeError extends Error {
+  constructor(size, cap, { slug, paid, source } = {}) {
+    super(`response for "${slug}" is ${size} bytes, over the ${cap}-byte ceiling (${source}) - refused before parsing${paid ? "; this call WAS paid" : ""}`);
+    this.name = "ResponseTooLargeError";
+    Object.assign(this, { size, cap, slug, paid: Boolean(paid), source });
+  }
+}
+
 export class SpendingLimitError extends Error {
   constructor(message, details = {}) {
     super(message);

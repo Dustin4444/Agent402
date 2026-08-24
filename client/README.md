@@ -133,15 +133,35 @@ await a.topSellers({ sort: "calls", include: "all" });
 
 | Method | What |
 |---|---|
-| `new Agent402({ baseUrl?, fetch?, creditsKey?, cache?, fetchImpl?, maxPerCallUsd?, dailyLimitUsd?, maxPerHostUsd? })` | `fetch` is your x402- or MPP-wrapped fetch for paid tools (optional); `creditsKey` is a prepaid card-credits key (`a402_...`) used for paid tools when no `fetch` is given; `cache` (default `true`) memoizes deterministic results; the three USD caps set optional spending limits (see below) |
+| `new Agent402({ baseUrl?, fetch?, creditsKey?, cache?, fetchImpl?, maxPerCallUsd?, dailyLimitUsd?, maxPerHostUsd?, maxResponseBytes? })` | `fetch` is your x402- or MPP-wrapped fetch for paid tools (optional); `creditsKey` is a prepaid card-credits key (`a402_...`) used for paid tools when no `fetch` is given; `cache` (default `true`) memoizes deterministic results; the three USD caps set optional spending limits (see below); `maxResponseBytes` (default 32MB, `null` to disable) refuses an oversized response body before it is parsed |
 | `await a.find(task, { k = 5 })` | Resolve a plain-language task to the best-matching tools (route, price, schema, example) |
 | `await a.findWorkflows(task, { k = 2 })` | Resolve a task to matching multi-tool workflow templates (skill packs) |
 | `await a.getWorkflowPrompt(slug, args)` | Fetch the rendered prompt messages for a skill pack with arguments substituted in |
 | `await a.topSellers({ limit?, sort?, include? })` | Live x402 leaderboard: which sellers are settling the most USDC (primarily on Base) in the last ~24h (free, no payment) |
-| `await a.call(slug, params, { idempotencyKey?, cache? })` | Call a tool; auto-pays (PoW for free tools; your payment `fetch` or the credits key for wallet-only); returns the JSON result |
+| `await a.call(slug, params, { idempotencyKey?, cache?, maxResponseBytes? })` | Call a tool; auto-pays (PoW for free tools; your payment `fetch` or the credits key for wallet-only); returns the JSON result |
 | `Agent402.solvePow(pow)` | Solve a proof-of-work challenge object → an `X-Pow-Solution` value |
 | `a.spendingSummary()` | Rolling-24h paid spend so far: `{ dailyUsd, calls, byHost, limits }` |
 | `a.clearCache()` | Drop the in-memory result cache |
+
+## Response size ceiling
+
+You are calling strangers and paying them, and the seller chooses the response.
+By the time `r.json()` resolves, a multi-gigabyte body is already in your
+agent's memory, so this is one of the few checks that cannot be done after the
+fact in your own code.
+
+Every call is capped at 32MB by default. The declared `content-length` is
+refused before a byte is read, and the stream is counted as it arrives, because
+`content-length` is the seller's claim about their own body.
+
+```js
+const a = new Agent402({ maxResponseBytes: 1_000_000 });   // 1MB everywhere
+await a.call("hash", { text: "x" }, { maxResponseBytes: null });  // or per call
+```
+
+An oversized body throws `ResponseTooLargeError` carrying `size`, `cap`,
+`source` and `paid`. Check `paid`: on a wallet-only tool the money moved before
+the body arrived, so a refused response is still a spend you made.
 
 ## Spending caps (never overpay)
 
