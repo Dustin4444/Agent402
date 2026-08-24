@@ -54,7 +54,13 @@ ok(decideSkip({ ...base, ref: undefined }).skip === false, "skipped without know
 // --- workflow wiring --------------------------------------------------------
 const wf = load(readFileSync(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8"));
 const jobs = wf.jobs;
-const LANES = ["test", "test-unit-a", "test-unit-b", "test-pricing"];
+// Derived, not listed. A hardcoded copy here would have gone stale the moment
+// test-unit-c was added and quietly stopped checking the new lane - the exact
+// drift this file exists to catch in the workflow.
+const LANES = Object.entries(jobs)
+  .filter(([n, j]) => /^test(-|$)/.test(n) &&
+    (j.steps || []).some((s) => /node\s+scripts\/test-[\w.-]+\.js/.test(String(s.run || ""))))
+  .map(([n]) => n);
 
 ok(jobs["tree-gate"], "the tree-gate job is gone");
 ok(String(jobs["tree-gate"].if).includes("refs/heads/main"),
