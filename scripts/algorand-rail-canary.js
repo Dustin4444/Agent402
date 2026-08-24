@@ -52,6 +52,7 @@ import { createHmac } from "node:crypto";
 // only (security audit A402-03). Importing it means this canary can never drift
 // from the server's own definition of an identity-bound route.
 import { isIdentityBoundRoute } from "../src/payments.js";
+import { isLongRunningSlug } from "../src/composite-spend-guard.js";
 
 import { FAST_REJECT_MS, isThrottle, isUpstreamOutage, outcomeOf } from "./avm-canary-classify.js";
 
@@ -228,12 +229,22 @@ for (const t of tools) {
   } catch (e) { report.toolFail.push({ key, slug: t.slug, reason: `challenge: ${String(e.message).slice(0, 120)}` }); continue; }
 
   const accepts = (paymentRequired.accepts || []).filter((a) => String(a.network || "").startsWith(AVM_CAIP2_PREFIX));
-  // Identity-bound tools (the memory family and my-usage) derive the caller
-  // from the signed EIP-3009 authorization, which is EVM-only, so the paywall
-  // deliberately advertises no AVM accept for them — see isIdentityBoundRoute
-  // in src/payments.js. Anything ELSE missing the accept means the rail
-  // silently stopped being offered, which is a real regression.
-  if (!accepts.length) { report.noAvm.push({ key, slug: t.slug, expected: isIdentityBoundRoute(t) }); continue; }
+  // TWO reasons a tool legitimately advertises no AVM accept, and both are
+  // imported from the server rather than restated here, so neither can drift:
+  //
+  //  - IDENTITY-BOUND (the memory family, my-usage) derives the caller from the
+  //    signed EIP-3009 authorization, which is EVM-only.
+  //  - LONG-RUNNING (the report composites and media tiers) takes 40 to 240
+  //    seconds, which outlives the default AVM validity window. Settlement runs
+  //    after the handler, so offering the rail would mean the work is done and
+  //    the buyer is never charged.
+  //
+  // Anything ELSE missing the accept means the rail silently stopped being
+  // offered, which is a real regression. This sweep reported three media tiers
+  // as exactly that on 2026-08-24: it was right to ask, and the answer lived in
+  // a local const inside server.js that it could not reach.
+  const expectedNoAvm = isIdentityBoundRoute(t) || isLongRunningSlug(t.slug);
+  if (!accepts.length) { report.noAvm.push({ key, slug: t.slug, expected: expectedNoAvm }); continue; }
 
   const usd = Number(accepts[0].amount ?? accepts[0].maxAmountRequired) / 1e6;
   if (report.spentUsd + usd > MAX_USD) {
@@ -365,7 +376,7 @@ const unexpectedNoAvm = report.noAvm.filter((n) => !n.expected);
 console.log(`\n=== Algorand rail canary ===`);
 const recovered = report.ok.filter((o) => o.throttledFirst).length;
 console.log(`settled+payload: ${report.ok.length} · rail failures: ${report.railFail.length} · rate-limited: ${report.rateLimited.length} · tool failures: ${report.toolFail.length} · upstream throttles: ${report.throttled.length} · third-party outages: ${report.upstreamFail.length}${recovered ? ` (${recovered} recovered on retry)` : ""}`);
-console.log(`no AVM accept: ${report.noAvm.length} (${report.noAvm.length - unexpectedNoAvm.length} expected identity-bound, ${unexpectedNoAvm.length} unexpected) · skipped: ${report.skipped.length}`);
+console.log(`no AVM accept: ${report.noAvm.length} (${report.noAvm.length - unexpectedNoAvm.length} expected identity-bound or long-running, ${unexpectedNoAvm.length} unexpected) · skipped: ${report.skipped.length}`);
 console.log(`spent (recycles to our own payTo): $${report.spentUsd.toFixed(4)}${capped ? "  [TOTAL CAP REACHED]" : ""}`);
 
 if (report.railFail.length) {
