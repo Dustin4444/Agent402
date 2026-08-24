@@ -92,11 +92,23 @@ const src = readFileSync(new URL("../src/x402-index.js", import.meta.url), "utf8
 const helperStart = src.indexOf("async function probePath(originUrl, path");
 const helperEnd = src.indexOf("\n}", helperStart);
 const outsideHelper = src.slice(0, helperStart) + src.slice(helperEnd);
-const rawProbes = outsideHelper.match(/safeFetch\(`\$\{originUrl\}/g) || [];
+// ONE deliberate exception: the robots.txt fetch cannot go through probePath,
+// because probePath consults robots and that would recurse forever. It is not
+// ungated - it carries its OWN bound, a 24h per-origin cache that also caches
+// FAILURES, which is stricter than the backoff gate it bypasses (at most one
+// request per origin per day, versus 288). Both halves are asserted below, so
+// removing the cache or lengthening it silently is not possible.
+const rawProbes = (outsideHelper.match(/safeFetch\(`\$\{originUrl\}[^`]*`/g) || [])
+  .filter((m) => !m.includes("/robots.txt"));
 ok(rawProbes.length === 0,
-  `every per-origin fetch goes through the backoff gate, none raw (found ${rawProbes.length})`);
-ok((src.match(/safeFetch\(`\$\{originUrl\}/g) || []).length === 1,
-  "and the gated helper itself is the ONE place that fetches an origin path directly");
+  `every per-origin fetch goes through the backoff gate, none raw (found ${rawProbes.length}: ${rawProbes.join(", ")})`);
+ok(/ROBOTS_TTL_MS\s*=\s*24 \* 60 \* 60 \* 1000/.test(src),
+  "the robots.txt exception is bounded by a 24h cache, not by nothing");
+ok(/robotsCache\.set\(originUrl, \{ groups, at: Date\.now\(\) \}\)/.test(src) &&
+   src.indexOf("catch {") < src.indexOf("robotsCache.set(originUrl, { groups, at: Date.now() })", src.indexOf("async function robotsGroupsFor")),
+  "and a FAILED robots fetch is cached too, so an unreachable origin is asked once a day and not once a cycle");
+ok((src.match(/safeFetch\(`\$\{originUrl\}/g) || []).length === 2,
+  "exactly two per-origin fetches exist: the gated helper, and the robots.txt read it depends on");
 ok(/async function probePath\(originUrl, path/.test(src),
   "the single gated helper every probe funnels through still exists");
 
