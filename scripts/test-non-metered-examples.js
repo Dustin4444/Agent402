@@ -71,6 +71,47 @@ const RETRY_BACKOFF_MS = [1500, 8000, 20000];
 // Past this many distinct tools needing escalation, it is an outage rather than
 // a blip and more waiting proves nothing.
 const ESCALATE_MAX = Number(process.env.NON_METERED_ESCALATE_MAX) || 12;
+// COINGECKO IS SAMPLED, NOT SWEPT.
+//
+// Keyless CoinGecko is 30 requests/min SHARED PER IP, and GitHub runners share
+// address space. This sweep drove all 19 CoinGecko-backed examples every run
+// and went straight through that budget - and a blown CoinGecko budget answers
+// with TIMEOUTS rather than 429s, so the rate-limit lane never matched it and
+// the escalated backoff just retried into an allowance that was already spent.
+// Measured 2026-08-24: nine tools escalated to four attempts, four recovered,
+// and the run failed while CoinGecko answered a laptop in 167ms.
+//
+// A key raises the ceiling but does not make it free: CI would then spend the
+// Demo plan's monthly quota on every push, which is the trap the Brave notes at
+// the top of this file already record. So the answer is fewer calls, not more
+// budget: TWO of the family are exercised live per run.
+//
+// The two ROTATE by commit, so every tool is covered across runs rather than
+// the same two forever - and deterministically, so a re-run of the same commit
+// tests the same pair and a failure reproduces. The rest are skipped LOUDLY and
+// named, because a skip nobody can see is how a dead tool hides.
+const COINGECKO_SLUGS = new Set([
+  "crypto-price", "crypto-market", "crypto-history", "crypto-trending", "crypto-global", "stablecoin-peg",
+  "coin-price-by-contract", "coin-profile", "coin-history", "coin-ohlc", "coin-market-chart-range",
+  "coin-categories", "global-defi", "exchanges", "exchange-tickers", "exchange-rates", "coin-search",
+  "coins-list", "price-coingecko",
+]);
+const CG_SAMPLE_SIZE = Number(process.env.NON_METERED_CG_SAMPLE) || 2;
+
+/** The CoinGecko slugs to exercise live on THIS commit. */
+export function coingeckoSample(sha = process.env.GITHUB_SHA || "local", size = CG_SAMPLE_SIZE) {
+  const all = [...COINGECKO_SLUGS].sort();
+  if (size >= all.length) return new Set(all);
+  let h = 0;
+  for (const ch of String(sha)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const start = h % all.length;
+  const out = new Set();
+  for (let i = 0; i < size; i++) out.add(all[(start + i) % all.length]);
+  return out;
+}
+const CG_LIVE = coingeckoSample();
+let skippedCoingecko = 0;
+
 const escalatedTools = new Set();
 const retryStats = [];
 
@@ -435,6 +476,28 @@ ok(RETRY_BACKOFF_MS.length >= 3 && RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1]
 ok(ESCALATE_MAX > 0 && ESCALATE_MAX <= 40,
   `control: escalation is capped at ${ESCALATE_MAX} tools, so an outage does not become a ten-minute wait`);
 
+// CoinGecko sampling. It reduces live coverage per run on purpose, so the
+// controls are about the sample being real, deterministic and honest rather
+// than about it being large.
+{
+  const s1 = coingeckoSample("abc123");
+  const s2 = coingeckoSample("abc123");
+  ok(s1.size === 2, `control: the CoinGecko sample is ${s1.size} tools per run, not the whole family`);
+  ok([...s1].join() === [...s2].join(),
+    "control: the sample is DETERMINISTIC for a commit, so a re-run tests the same pair and a failure reproduces");
+  const others = ["deadbeef", "cafe", "0f0f0f", "12345"].map((x) => [...coingeckoSample(x)].join());
+  ok(new Set(others).size > 1,
+    "control: it ROTATES across commits, so the family is covered over time rather than the same two forever");
+  ok([...s1].every((x) => COINGECKO_SLUGS.has(x)),
+    "control: only CoinGecko-backed slugs are ever sampled");
+  ok(!COINGECKO_SLUGS.has("price-pyth") && !COINGECKO_SLUGS.has("defi-tvl"),
+    "control: Pyth and DefiLlama tools are NOT in the CoinGecko family - they have their own upstreams and stay swept");
+  ok(COINGECKO_SLUGS.has("crypto-price") && COINGECKO_SLUGS.has("coins-list") && COINGECKO_SLUGS.size === 19,
+    `control: the family is the full 19 CoinGecko-backed slugs (got ${COINGECKO_SLUGS.size})`);
+  ok(coingeckoSample("x", 99).size === COINGECKO_SLUGS.size,
+    "control: raising the sample past the family size sweeps all of them, so the cap is a budget and not a lock");
+}
+
 ok(isClientTimeoutFlake(0, null, "The operation was aborted due to timeout") === true,
   "control: client AbortSignal timeout is a soft-skip");
 ok(isClientTimeoutFlake(504, { error: "timeout" }, null) === false,
@@ -510,6 +573,13 @@ async function main() {
   const liveFails = [];
 
   await mapPool(work, CONCURRENCY, async (t) => {
+    // Sampled out of this run's CoinGecko allowance. Skipped BEFORE the call,
+    // because the whole point is not to spend the request.
+    if (COINGECKO_SLUGS.has(t.slug) && !CG_LIVE.has(t.slug)) {
+      skippedCoingecko++;
+      done++;
+      return;
+    }
     const r = await callExample(t.path, t.method, t.op, t.slug);
     done++;
     if (done % 40 === 0 || done === work.length) {
@@ -587,6 +657,12 @@ async function main() {
     liveFails.length
       ? `every in-scope example returns 200 without body.error — ${liveFails.length} FAILED:\n     ${liveFails.slice(0, 30).join("\n     ")}${liveFails.length > 30 ? `\n     …and ${liveFails.length - 30} more` : ""}`
       : `every in-scope example returns 200 without body.error (${asserted} asserted, ${skippedBrowser} browser-skipped, ${skippedRateLimit} rate-limit-skipped, ${skippedMediaSource} media-source-skipped, ${skippedPriceFeed} price-feed-skipped, ${skippedClientTimeout} client-timeout-skipped)`);
+  if (skippedCoingecko) {
+    console.log(`\nskip - ${skippedCoingecko} CoinGecko tool(s) sampled out of this run (keyless is 30/min shared per IP)`);
+    console.log(`  exercised live this commit: ${[...CG_LIVE].join(", ")}`);
+    console.log(`  the sample rotates by commit, so the family is covered across runs rather than in one`);
+  }
+
   // RETRIES ARE REPORTED, not just spent. A provider that needs three attempts
   // on every run is degrading, and the run before it goes down is the one where
   // that is worth seeing. A silent retry buys a green build and tells nobody.
@@ -604,8 +680,16 @@ async function main() {
   }
 
   // Refuse a vacuous green where almost everything soft-skipped.
-  ok(asserted >= Math.floor(MIN_IN_SCOPE * 0.8),
-    `enough tools were actually asserted (${asserted}), not soft-skipped away`);
+  //
+  // CoinGecko sample-outs are ADDED BACK for this floor, and only those. They
+  // are not coverage we lost to a flaky upstream, they are coverage we chose to
+  // spend on a later run - we know exactly which tools and why, the sample
+  // rotates so they are each exercised soon, and the count is printed above.
+  // Every other skip still counts against the floor, because "we do not know
+  // why this did not run" is what the floor exists to catch.
+  const accounted = asserted + skippedCoingecko;
+  ok(accounted >= Math.floor(MIN_IN_SCOPE * 0.8),
+    `enough tools were actually asserted (${asserted} run + ${skippedCoingecko} deliberately sampled out = ${accounted}), not soft-skipped away`);
 
   console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed — in-scope=${work.length} excluded=${excluded.length}`);
   stop();
