@@ -871,6 +871,44 @@ function parseManifestPrice(raw) {
   return null;
 }
 
+/**
+ * Read an x402 v2 SINGLE-RESOURCE manifest: a top-level `resource` plus
+ * `accepts`, and no catalogue array at all.
+ *
+ * This is the spec's own 402 response body served as the manifest, which is a
+ * natural reading of x402 and not an odd one - but every catalogue reader here
+ * looks for an ARRAY (tools/resources/endpoints/services), so a manifest whose
+ * `resource` is a single object fell through all of them and we read the
+ * seller's payment terms not at all. Found live 2026-08-24 on a seller who had
+ * asked to be listed (#907): we listed them from their OpenAPI with 7 tools and
+ * `network: null`, so they appeared on the marketplace but the router could
+ * never chain-match them - listed and unroutable, which is worse than absent
+ * because it looks like it worked.
+ *
+ * `resource` is accepted as a bare URL string or as the spec's object form.
+ * Everything else - the price, the chains, the payTo per chain - is derived by
+ * the same `accepts` reader the Bazaar path uses, so a manifest and a Bazaar
+ * row describing one endpoint cannot disagree about what it costs.
+ */
+export function singleResourceManifestTool(manifest, originUrl) {
+  const r = manifest?.resource;
+  const url = typeof r === "string" ? r : (typeof r?.url === "string" ? r.url : null);
+  if (!url) return null;
+  if (!Array.isArray(manifest?.accepts) || !manifest.accepts.length) return null;
+  const meta = (r && typeof r === "object") ? r : {};
+  const tool = bazaarItemToTool({
+    resource: url,
+    accepts: manifest.accepts,
+    serviceName: meta.serviceName || manifest.serviceName || "",
+    description: meta.description || manifest.description || "",
+    tags: Array.isArray(meta.tags) ? meta.tags : [],
+    method: meta.method || manifest.method,
+  }, originUrl);
+  if (!tool) return null;
+  // Provenance is the seller's own manifest, not a registry that observed them.
+  return { ...tool, provenance: "manifest" };
+}
+
 export function normaliseManifestTools(manifest, originUrl) {
   if (!manifest || typeof manifest !== "object") return [];
   let origin;
@@ -878,7 +916,10 @@ export function normaliseManifestTools(manifest, originUrl) {
   const catalogues = ["tools", "resources", "endpoints", "services"]
     .map((k) => manifest[k])
     .filter((v) => Array.isArray(v) && v.length);
-  if (!catalogues.length) return [];
+  if (!catalogues.length) {
+    const single = singleResourceManifestTool(manifest, originUrl);
+    return single ? [single] : [];
+  }
 
   const byKey = new Map();
   const metaByPath = new Map();
@@ -1126,6 +1167,21 @@ export function mergeManifestIntoTools(manifestTools = [], existing = []) {
     if (!hit.description) hit.description = m.description || "";
     if (!hit.price && m.price) hit.price = m.price;
     if ((!hit.slug || hit.slug === hit.route) && m.slug) hit.slug = m.slug;
+    // Settlement terms too, and this is the half that used to be missing. An
+    // OpenAPI document carries no payment metadata, so a row sourced from one
+    // has no chain and no payTo - and the manifest, which is exactly where the
+    // seller states both, could only supply them on a path nobody else had
+    // reported. A seller who documents their endpoint in OpenAPI AND declares
+    // it in their manifest therefore ended up listed with `network: null`,
+    // invisible to the router's chain match and to every per-chain market page.
+    // Blank-fill only: an observed live 402 outranks a manifest claim, so a row
+    // that already knows its chains keeps them.
+    if (!hit.networks?.length && m.networks?.length) hit.networks = [...m.networks];
+    if (!Object.keys(hit.payToByNetwork || {}).length && Object.keys(m.payToByNetwork || {}).length) {
+      hit.payToByNetwork = { ...m.payToByNetwork };
+    }
+    if (!hit.stellarPayTo && m.stellarPayTo) hit.stellarPayTo = m.stellarPayTo;
+    if (!hit.algorandPayTo && m.algorandPayTo) hit.algorandPayTo = m.algorandPayTo;
   };
   for (const [path, entries] of groups) {
     const indices = indicesByPath.get(path) || [];
