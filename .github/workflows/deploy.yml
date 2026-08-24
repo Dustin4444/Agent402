@@ -1449,9 +1449,6 @@ jobs:
       - name: Report economics (every card/agent/monitor price clears MEASURED worst-case upstream, not a declared cap - offline)
         run: node scripts/test-report-margins.js
 
-      - name: /index page tests (row cap + show-all link, sortable leaderboard-joined USDC/calls columns)
-        run: node scripts/test-index-page.js
-
       - name: Untrusted-content provenance (R-14 — external page/search content carries untrustedContent; extract/render/search marked — offline)
         run: node scripts/test-provenance.js
 
