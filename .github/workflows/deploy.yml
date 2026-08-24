@@ -676,7 +676,7 @@ jobs:
           name: demo-output
           path: demo-output.txt
 
-  test:
+  test-unit-a:
     # Test job runs on its own [test] marker AND auto-runs whenever a commit
     # asks to deploy or publish — so deploy/publish can hard-gate on it via
     # `needs: test`. This makes "ship without running tests" impossible by
@@ -804,17 +804,11 @@ jobs:
       - name: Security regressions (proto-pollution, input-DoS, 500-hardening)
         run: node scripts/test-security.js
 
-      - name: Composite-spend guard (research/dossier upstream-drain protection)
-        run: node scripts/test-composite-guard.js
-
       - name: Human checkout (no free report, generate-once, auto-refund)
         run: node scripts/test-human-checkout.js
 
       - name: Stripe subscriptions (checkout, provisioning, webhook signature discipline)
         run: node scripts/test-stripe-subscriptions.js
-
-      - name: Monitor scheduler (welcome/scheduled/change/TLS/filing delivery, paid-run bounds, backoff, lock)
-        run: node scripts/test-monitor-scheduler.js
 
       - name: Report -> monitor upgrade loop (kind mapping, table-driven price, escaping, prefill-only deep link)
         run: node scripts/test-report-upgrade.js
@@ -828,9 +822,6 @@ jobs:
       - name: Fetch-guard error attribution (upstream 4xx→422, 5xx→502; media Content-Type fail-fast)
         run: node scripts/test-fetch-guard.js
 
-      - name: Cert-transparency crt.sh→certspotter fallback (flaky-upstream resilience)
-        run: node scripts/test-cert-transparency.js
-
       - name: Discovery & trust surfaces (/.well-known/x402, /api/reliability)
         run: node scripts/test-discovery.js
 
@@ -839,12 +830,6 @@ jobs:
 
       - name: Bazaar validate client (catalog method travels, required vs advisory, 429 backoff, unreadable never valid - offline)
         run: node scripts/test-bazaar-validate.js
-
-      - name: Bazaar quality ingestion (30d calls/payers on index sellers + /api/find external rows + ranking tiebreak - offline)
-        run: node scripts/test-bazaar-quality.js
-
-      - name: Native MPP on /mcp (stock MCP SDK client + mppx McpClient pays a wallet-only tool via the real gates; stub facilitator; -32042 wire; RFC 9457 problem on tamper - offline)
-        run: node scripts/test-mcp-mpp.js
 
       - name: MCP Tasks on /mcp (io.modelcontextprotocol/tasks - handle then poll to completed, failures never a silent empty success, cancel aborts the paid run, restart resolves orphans, composites only, no task without payment - offline)
         run: node scripts/test-mcp-tasks.js
@@ -855,14 +840,8 @@ jobs:
       - name: OpenAI Responses wire on the five tiers (validation, server-tool refusal, store:false, reasoning defaults, nested usage scrub - offline)
         run: node scripts/test-llm-responses.js
 
-      - name: Tempo transfer feed (incremental sync, overlap dedupe, coverage gating, leaderboard source A vs RPC fallback - offline)
-        run: node scripts/test-tempo-transfers.js
-
       - name: Manifest resources[] dedup (a tool registered under 2 HTTP methods lists its URL once, not twice)
         run: node scripts/test-manifest-resources-dedup.js
-
-      - name: Revenue detector classification (real x402 buys vs funding/tests)
-        run: node scripts/test-revenue-scan.js
 
       - name: Solana revenue scanner (token-balance decode + classification)
         run: node scripts/test-revenue-scan-solana.js
@@ -878,22 +857,14 @@ jobs:
       - name: Builder Code suffix parser (ERC-8021 round-trip vs @x402/extensions encoder)
         run: node scripts/test-builder-attribution.js
 
-      - name: LLM gateway validation (OpenAI-compat tiers, caps, env-gated 503)
-        run: node scripts/test-llm-gateway.js
       - name: Server tools (pinned engines, buyer cannot widen the cap, loop priced into the margin - offline)
         run: node scripts/test-server-tools.js
-
-      - name: Ox Alpha tier (locked stealth model, zdr refusal, zero-cost clamp, reasoning floor, vanish gate - offline)
-        run: node scripts/test-ox-tier.js
 
       - name: LLM gateway model tables vs the LIVE OpenRouter catalog (dead/renamed ids, MODEL_COST floors, TTS chain, expirations)
         # Network test against OpenRouter's public /models (no key). Fails on a
         # read error rather than skipping - the stale-id class shipped three
         # times behind a green suite that never looked upstream.
         run: node scripts/test-gateway-model-ids.js
-
-      - name: Route-and-execute (SOR executing surface — resolution, caps, receipts — offline)
-        run: node scripts/test-route-execute.js
 
       - name: Usage report (payment-keyed identity, payer-scoped ledger view, spoof lock — offline)
         run: node scripts/test-usage.js
@@ -922,9 +893,6 @@ jobs:
       - name: Refund monitor (stuck sends page, in-flight ones do not, and no address ever reaches a public issue — offline)
         run: node scripts/test-refund-monitor.js
 
-      - name: Revenue daily series (day bucketing, EVM block estimation, canary-vs-funding split — offline)
-        run: node scripts/test-revenue-daily.js
-
       - name: Algorand external router (chain-matched settlement, accept pinning, catalog ranking, AVM buyer gating — offline)
         run: node scripts/test-algorand-router.js
 
@@ -933,9 +901,6 @@ jobs:
 
       - name: External-buy spend cap (reserve before send; release only on a conclusive on-chain miss — offline)
         run: node scripts/test-spend-budget.js
-
-      - name: Status page store (unobserved days are never uptime; stale is never operational — offline)
-        run: node scripts/test-status-store.js
 
       - name: Third-party catalog (disclaimers present, seller strings inert, links nofollowed — offline)
         run: node scripts/test-index-tools-catalog.js
@@ -952,14 +917,9 @@ jobs:
       - name: Burner-key log guard (agent-e2e never prints a private key on funding timeout; no console.* emits a raw key — offline)
         run: node scripts/test-burner-log-guard.js
 
-      - name: Deploy quiet gate (lull detection, fail-open paths — offline)
-        run: node scripts/test-quiet-gate.js
-
       - name: Paid-canary verdict (pages on real buying breaks, warns on upstream)
         run: node scripts/test-paid-canary.js
 
-      - name: New-tool coverage lock (The 500 slugs swept by test-all; canary leg prices honest — offline)
-        run: node scripts/test-canary-coverage.js
       - name: Algorand rail canary classifiers (upstream/edge outage vs real defect — offline)
         run: node scripts/test-algorand-canary-classify.js
 
@@ -972,53 +932,26 @@ jobs:
       - name: Self-check semantic invariants are meaningful (good passes, broken fails)
         run: node scripts/test-invariants.js
 
-      - name: x402-market-pulse category classifier (path-aware, closed taxonomy)
-        run: node scripts/test-ecosystem-category.js
-
-      - name: x402-market-pulse supply-mix per-seller tool cap
-        run: node scripts/test-ecosystem-supply.js
-
       - name: Discovery strict-source filters (testnet + junk origins)
         run: node scripts/test-discovery-filter.js
-
-      - name: Find ranker — live-catalog smoke test (boots free-mode, locks top-1 for agent queries)
-        run: node scripts/test-find-ranking.js
 
       - name: /health flag shape contract (every documented flag present + boolean-typed)
         run: node scripts/test-health-flags.js
 
-      - name: Tool pages backlink to the skill packs they belong to
-        run: node scripts/test-tool-page-backlinks.js
-
       - name: /skills/<slug> contract (every pack renders workflow + tools + claudePrompt + JSON-LD)
         run: node scripts/test-skill-page-contract.js
-
-      - name: /openapi.json coverage (every CATALOG tool has a path + operationId + x-price)
-        run: node scripts/test-openapi-coverage.js
 
       - name: /openapi.json header parameters (Idempotency-Key on every op, X-Pow-Solution only where PoW-eligible)
         run: node scripts/test-openapi-header-params.js
 
-      - name: /.well-known/x402 manifest contract (envelope + payment + capabilities + discovery)
-        run: node scripts/test-x402-manifest.js
-
       - name: /sitemap.xml coverage (every skill pack, sample tools, static surfaces)
         run: node scripts/test-sitemap-coverage.js
-
-      - name: /.well-known/glama.json maintainer email env pass-through (with + without override)
-        run: node scripts/test-glama-manifest.js
 
       - name: /llms.txt content lock (tool count + discovery URLs + PoW/MCP/wallet signals)
         run: node scripts/test-llms-txt.js
 
       - name: /llms.txt MPP/x402 dual-header reading note (issue #794 guidance, offline)
         run: node scripts/test-llms-mpp-header-note.js
-
-      - name: /llms.txt route-execute tier pricing derived from EXEC_TIERS (a future 5th tier can't go silently missing — offline)
-        run: node scripts/test-llms-route-execute-tiers.js
-
-      - name: Rails-copy lock (rails.js ↔ payments.js + every key page renders every rail)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-rails.js
 
       - name: Revenue ledger unit tests (all-time external accounting, idempotent rescans, CI self-gate)
         run: node scripts/test-revenue-ledger.js
@@ -1035,24 +968,6 @@ jobs:
       - name: Analytics redaction (per-tool table never reaches an unauthenticated caller - seeded, DB not required)
         run: node scripts/test-analytics-redaction.js
 
-      - name: Discoverability (every tool reachable on every surface an agent reads)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-discoverability.js
-
-      - name: Legacy surfaces still redirect (needs the booted server)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-redirects.js
-
-      - name: Projection parity (one tool, three surfaces, one vocabulary)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-projection-parity.js
-
-      - name: Retry-safety contract is true, verifiable, and not re-absolutised
-        run: TARGET_URL=http://localhost:3000 node scripts/test-retry-contract.js
-
-      - name: Gate integrity (each regression gate must FAIL when its own defect is reintroduced)
-        # A gate that cannot fail turns "we never checked" into "we checked and it
-        # was fine". This mutates each invariant and requires a non-zero exit,
-        # then asserts every mutated file was restored.
-        run: TARGET_URL=http://localhost:3000 node scripts/test-gates.js
-
       - name: Free tier makes no outbound calls (every compute-payable tool, instrumented)
         # Boots its own instrumented server on 3231. WALLET_ONLY_SLUGS is a
         # hand-maintained list, and a kit whose author forgets to list an
@@ -1066,92 +981,11 @@ jobs:
         # through HTTP, which is where a buyer would feel the stall.
         run: node scripts/test-image-concurrency.js
 
-      - name: Gate agent402-facilitator (real signed Stellar testnet payments; boots its own servers on 4099-4101)
-        # Had ZERO CI coverage until 2026-08-15, unlike every other package in
-        # this repo - found only after a real production incident (unbounded
-        # /settle hang, then a broken Docker deploy shipped right past every
-        # existing check because none of them looked at this package at all).
-        # TEST_PAYER_STELLAR_SECRET is a persistent testnet-only Stellar
-        # account holding testnet USDC (Circle's faucet is CAPTCHA-gated, so
-        # it can't be minted fresh per run - see facilitator/README.md).
-        # Self-skips LOUDLY if the secret is ever unset, same pattern as the
-        # Robinhood settlement probe - never a silent pass.
-        run: |
-          if [ -z "$TEST_PAYER_STELLAR_SECRET" ]; then
-            echo "TEST_PAYER_STELLAR_SECRET unset - skipping facilitator/test.js (see facilitator/README.md)"
-            exit 0
-          fi
-          cd facilitator
-          npm ci --ignore-scripts
-          node test.js
-        env:
-          TEST_PAYER_STELLAR_SECRET: ${{ secrets.TEST_PAYER_STELLAR_SECRET }}
-
-      - name: Docs truth (every documented route, slug and price matches the served catalog)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-docs-truth.js
-
-      - name: Public-surface leak gate (no buyer addresses, no per-tool revenue, operator feeds stay 404)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-public-surface-leak.js
-
-      - name: Link integrity (every sitemap URL + every crawled internal href resolves; /mcp never a real <a href>)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-link-integrity.js
-
-      - name: Chain page layout stability (no chain's page geometry shifts based on how long its name is)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-chain-page-layout-stability.js
-
-      - name: Title clamp coverage (tool/skill page titles never wrap unboundedly based on name length)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-title-clamp-coverage.js
-
-      - name: Reveal-on-scroll coverage (shared, site-wide - not a per-page opt-in that only ever reached the homepage)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-reveal-coverage.js
-
       - name: Reveal-on-scroll no hero flash (the hero must never hide behind opacity:0 waiting on the observer)
         run: node scripts/test-reveal-no-hero-flash.js
 
-      - name: CSP violations sitewide (real browser, every distinct page template + real interactions on click-gated pages - script-src has no 'unsafe-inline' since 2026-08-16)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-csp-violations.js
-
-      - name: CSS tokens resolve (every :root custom property must actually resolve in a real browser, not just exist as text)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-css-tokens-resolve.js
-
-      - name: Focus-visible on search/demo inputs (real browser check - inline style can silently defeat a stylesheet :focus rule)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-focus-visible.js
-
-      - name: Single <main> landmark per page (no page-level renderer may nest a second <main> inside ledgerShell's own)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-single-main-landmark.js
-
-      - name: /compare tables scroll independently on narrow viewports (real browser check - scrollWidth>clientWidth alone can't prove overflow-x is enabled)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-compare-scroll.js
-
-      - name: Wrong-method 405 with Allow header (a known catalog path hit with the wrong verb no longer looks like a dead route)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-wrong-method-405.js
-
-      - name: Reveal-on-scroll data-reveal-eager opt-in (a second above-fold section can be exempted explicitly, never leaks to unmarked pages)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-reveal-eager.js
-
-      - name: Reveal-on-scroll skip-over safety net (a single fast scroll jump must never leave a section permanently invisible — real browser, found live on /marketplace 2026-08-16)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-reveal-scroll-skip.js
-
-      - name: Hamburger menu aria-label toggles with aria-expanded (real browser click, not a static string check)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-burger-aria-label.js
-
-      - name: Self-listing exclusion (crawled agent402.tools origin never appears as an "external" seller — offline)
-        run: node scripts/test-self-listing-exclusion.js
-
-      - name: Economy history unit tests (daily upsert idempotency + week-over-week math — offline)
-        run: node scripts/test-x402-economy.js
-
       - name: Index warm-start (crawl cache survives a redeploy; no half-crawled marketplace — offline)
         run: node scripts/test-index-warmstart.js
-
-      - name: Revenue chart free-tier lane (free calls never priced as revenue; jsdom — offline)
-        run: node scripts/test-revenue-chart.js
-
-      - name: Heartbeat probe mapping (FAILS -> per-component status; stubbed curl — offline)
-        run: bash scripts/test-heartbeat-probe.sh
-
-      - name: Status probe worker (Cloudflare cron observer mapping; stubbed fetch — offline)
-        run: node scripts/test-status-probe-worker.js
 
       - name: Revenue buyers series (distinct-count semantics; seeded ledger — offline)
         run: node scripts/test-revenue-buyers.js
@@ -1171,9 +1005,6 @@ jobs:
       - name: PostHog funnel (discovery→402→settlement capture; paid-mode boot vs mock facilitator — offline)
         run: node scripts/test-posthog-funnel.js
 
-      - name: Self-check policy (transient-filtering, timeout, unknown-slug — the prod tool-failure alarm — offline)
-        run: node scripts/test-selfcheck.js
-
       - name: Payer identity (reads X-PAYMENT + legacy header; rejects unsigned/invalid — money-path regression lock — offline)
         run: node scripts/test-payer.js
 
@@ -1183,20 +1014,11 @@ jobs:
       - name: Process lifecycle (A402-10 SIGTERM drains + exits 0; uncaught exception is fatal + exits non-zero — spawns child)
         run: node scripts/test-shutdown.js
 
-      - name: OCR crash containment (A402-10 malformed image returns clean error, no uncaughtException — tesseract worker)
-        run: node scripts/test-ocr-crash.js
-
       - name: Browser pool admission (A402-08 bounded queue, deadline, disconnect-abort — offline)
         run: node scripts/test-render-queue.js
 
-      - name: Render deadline cancellation (R-09 — timed-out contexts close before the slot frees; live contexts never exceed the limit — offline)
-        run: node scripts/test-render-cancel.js
-
       - name: Render actual-byte budget (F03 — chunked/streamed/headerless/WebSocket bytes counted via CDP, cap not bypassable — offline)
         run: node scripts/test-render-bytebudget.js
-
-      - name: Secretless worker isolation (F02/F04/F06 — worker auth/dispatch, client round-trip, secret-guard refuses to boot with a payment secret — offline)
-        run: node scripts/test-worker-isolation.js
 
       - name: Egress proxy validate+pin (F04 — proxy refuses CONNECT to loopback/RFC1918/metadata/ULA; Chromium can't rebind to a private dest — offline)
         run: node scripts/test-egress-proxy.js
@@ -1207,23 +1029,14 @@ jobs:
       - name: Safe-regex guard (rejects ReDoS patterns for caller-supplied regexes — DoS lock — offline)
         run: node scripts/test-safe-regex.js
 
-      - name: Tool-count sync (static surfaces match the live catalog total — no count drift)
-        run: node scripts/sync-count.js --check
-
       - name: Sales ledger unit tests (named sales, internal/external classification, revenue math — offline)
         run: node scripts/test-sales-ledger.js
 
       - name: "Settlement reconciliation (facilitator said paid vs chain says landed — offline)"
         run: node scripts/test-settlement-reconcile.js
 
-      - name: "Cache hygiene (M5 — Attack III: paid responses no-store, free discovery stays cacheable)"
-        run: node scripts/test-cache-hygiene.js
-
       - name: "Payment-nonce replay guard (M3 — Attack II: concurrent replay collapses to one grant, release-on-failure)"
         run: node scripts/test-replay-guard.js
-
-      - name: MPP dual-stack shim (real mppx client buys over WWW-Authenticate/Authorization wire; single settle; x402 pass-through; HMAC tamper — offline)
-        run: node scripts/test-mpp-shim.js
 
       - name: MPP_CHALLENGE_NETWORKS default verified against installed mppx registry (drift guard — offline)
         run: node scripts/test-mpp-shim-mppx-registry.js
@@ -1231,32 +1044,17 @@ jobs:
       - name: Tempo MPP settlement (native tempo/charge via Tempo's relay — challenge wiring + settlement-ordering proof — offline)
         run: node scripts/test-mpp-tempo-shim.js
 
-      - name: Stripe MPP settlement (stripe/charge cards via SPT — mint/binding/settlement-ordering, $0.50 min — offline)
-        run: node scripts/test-mpp-stripe.js
-
       - name: Tempo relay verdicts are visible (non-2xx relay status + body reach the rejection log, per-request — offline)
         run: node scripts/test-mpp-tempo-relay-errors.js
 
       - name: Tempo chain-truth confirm (relay says failed but the credential's tx settled -> serve the buyer; pinned on the real incident tx — offline)
         run: node scripts/test-tempo-confirm.js
 
-      - name: MPP recurring subscriptions (tempo/subscription challenge shape, binding refuses forged/foreign/expired/underpriced before any settlement, period accounting, dunning, cancellation - offline)
-        run: node scripts/test-mpp-subscriptions.js
-
-      - name: MPP subscription rail-canary gate (canary product is never advertised and is mintable only for a heartbeat-token caller; boots a real server, spends nothing)
-        run: node scripts/test-mpp-subscription-canary-gate.js
-
       - name: Report economics (every card/agent/monitor price clears MEASURED worst-case upstream, not a declared cap - offline)
         run: node scripts/test-report-margins.js
 
       - name: workflow_run references name a workflow that exists (GitHub matches on name:, a mismatch never fires - offline)
         run: node scripts/test-workflow-run-refs.js
-
-      - name: Composite cap enforcement (maxUpstreamUsd is checked at the shared chokepoint, not merely declared - offline)
-        run: node scripts/test-composite-cap-enforcement.js
-
-      - name: Prices quoted in PROSE match real prices (meta + og descriptions, which docs-truth cannot see - offline)
-        run: node scripts/test-price-prose.js
 
       - name: Metered settlement pricing rule (upto only, never above the ceiling, missing cost is not free - offline)
         run: node scripts/test-gateway-meter.js
@@ -1273,37 +1071,17 @@ jobs:
       - name: "Tollbooth x402 middleware mode + MPP (real @x402/express settles after the handler; real mppx client buys over the MPP wire; stub facilitator — offline)"
         run: node scripts/test-tollbooth-mpp.js
 
-      - name: "SOR external leg for MPP sellers on Tempo (catalog from the verified MPP index, asset pin, live-quote cap, proven-seller gate fail-closed, chain mapping — offline)"
-        run: node scripts/test-tempo-router.js
-
       - name: "agent402-client pays over MPP (real mppx fetch as the SDK's fetch; real server + stub facilitator — offline)"
         run: node scripts/test-client-mpp.js
 
       - name: HEAD paywall bypass closed (HEAD on paid GET routes 402s with challenges + empty body; free surfaces untouched — offline)
         run: node scripts/test-head-paywall.js
 
-      - name: Wildcard route bypass closed (@x402/core 2.21.0 dotAll fix — percent-encoded line terminators can't skip payment on /api/convert/* — offline)
-        run: node scripts/test-wildcard-route-bypass.js
-
-      - name: Boot /supported guard (a dead facilitator costs ONE rail, not every paid route — the 2026-08-01 Celo outage; probe-driven drop, fail-open on total blindness, escape hatch — offline)
-        run: node scripts/test-supported-guard.js
-
-      - name: "Live 402 quote (a priceless row learns its price from the challenge; unpriceable never becomes $0; PUT/PATCH/DELETE never probed — offline)"
-        run: node scripts/test-x402-live-quote.js
-
       - name: "Buyer wallet trend (a self-funding wallet that FALLS is unexplained; a transient in-flight dip is not — offline)"
         run: node scripts/test-buyer-balance-trend.js
 
-      - name: "External spend guard (per-payer debt ceiling: an UNSETTLED upstream spend keeps counting, so verify-then-fail-to-settle cannot drain the wallet — offline)"
-        run: node scripts/test-external-spend-guard.js
-
       - name: "Facilitator diagnostics (an HTML error page must name itself: block vs rate limit vs origin failure, and never touch the response — offline)"
         run: node scripts/test-facilitator-diagnostics.js
-
-      - name: "Redis integration (the REAL client against a REAL server — cap-of-1, refund, cache round trip; the gap that made a redis major bump undecidable)"
-        env:
-          REDIS_URL: redis://127.0.0.1:6379
-        run: node scripts/test-redis-integration.js
 
       - name: "Replay guard, cross-replica (REAL redis — two guard instances prove shared claim/settle/release; fails open to local state on a redis outage — 2026-08-16)"
         env:
@@ -1322,14 +1100,6 @@ jobs:
       # run - the question a static self-audit cannot answer. Blocks only on
       # critical/high; a Socket outage or exhausted quota warns loudly and does
       # NOT block (their uptime is not our release gate).
-      - name: Socket supply-chain scan (dependency behaviour, not just versions)
-        env:
-          SOCKET_API_TOKEN: ${{ secrets.SOCKET_API_TOKEN }}
-        run: node scripts/socket-check.js
-
-      - name: Offsite backup (stub S3 — consistent sqlite snapshots, cache excluded, budget holds visibly, bill guard refuses over-cap, retention prunes date prefixes — offline)
-        run: node scripts/test-backup.js
-
       - name: CDP kit live check (real balances + onramp session — skips without secrets)
         env:
           CDP_API_KEY_ID: ${{ secrets.CDP_API_KEY_ID }}
@@ -1342,17 +1112,8 @@ jobs:
       - name: /api/skill-packs.json shape (what stdio agent402-mcp consumes at startup)
         run: node scripts/test-skill-packs-json.js
 
-      - name: /robots.txt policy (every LLM bot explicitly allowed + /api/memory disallowed + sitemap)
-        run: node scripts/test-robots-policy.js
-
-      - name: MCP prompts/list + prompts/get (one prompt per skill pack; substitution renders)
-        run: node scripts/test-mcp-prompts.js
-
       - name: /api/pow/challenge envelope (free-tier gate — full shape + slug scoping + 404s)
         run: node scripts/test-pow-challenge-envelope.js
-
-      - name: /api/leaderboard envelope (spec, defaults, per-row shape — MCP top_x402_sellers piggybacks on this)
-        run: node scripts/test-leaderboard-envelope.js
 
       - name: /api/route neutral cross-seller router envelope (per-row shape, include filter, missing-query)
         run: node scripts/test-route-envelope.js
@@ -1360,44 +1121,23 @@ jobs:
       - name: "Router Sybil resistance (M6 — Attack IV: per-seller diversity cap, metadata-injection listings dropped)"
         run: node scripts/test-router-sybil.js
 
-      - name: "x402-audit grader (deterministic scoring: TLS, cache hygiene, terms, info-leak → letter grade)"
-        run: node scripts/test-x402-audit.js
-
       - name: /api/reliability envelope (guarantees claim+verify pairing — every listing portal reads this)
         run: node scripts/test-reliability-envelope.js
 
       - name: PoW solve roundtrip (paid-mode boot, honest solver unlocks /api/hash, replay rejected)
         run: node scripts/test-pow-solve-roundtrip.js
 
-      - name: Static page renders smoke (every HTML surface returns 200 with the right page-specific title)
-        run: node scripts/test-static-pages.js
-
       - name: /index page tests (row cap + show-all link, sortable leaderboard-joined USDC/calls columns)
         run: node scripts/test-index-page.js
-
-      - name: Agentic Finance glossary (one DefinedTermSet, anchors unique, category term aliased, explainer bodies link it, post + sitemap + llms - offline)
-        run: node scripts/test-glossary.js
 
       - name: Surface copy gate (every package, README, wiki page, connector string and machine surface names Agentic Finance + both wires - offline)
         run: node scripts/test-surface-copy.js
 
-      - name: MPP leaderboard (live-offer recipients via mppx codec, one batched Tempo getLogs per chunk, grouping/ranking/priming, split-on-error + stale-keeps-previous, page badges - offline)
-        run: node scripts/test-mpp-leaderboard.js
-
       - name: /api/stats envelope (M2M economy counters — rail breakdown, revenue proof, tools floor)
         run: node scripts/test-stats-envelope.js
 
-      - name: /api/find envelope + top-1 ranking lock (per-row shape + known queries → known top slugs)
-        run: node scripts/test-find-envelope.js
-
       - name: /api/pricing envelope contract (every scraper reads this — per-endpoint shape, slug uniqueness)
         run: node scripts/test-pricing-envelope.js
-
-      - name: MCP call_tool contract (canonical + flattened + stringified + wallet-refusal + self-correction envelope)
-        run: node scripts/test-mcp-call-tool-contract.js
-
-      - name: MCP outer transport limits (R-11 — per-IP cap + concurrency ceiling bound floods before server/transport allocation — spawns child)
-        run: node scripts/test-mcp-limits.js
 
       - name: MCP Registry find-latest-version helper (used by the publish job to auto-deprecate a superseded version — offline)
         run: node scripts/test-mcp-find-latest-version.js
@@ -1423,23 +1163,11 @@ jobs:
       - name: Bounded rate-limit maps + global waitlist ceiling (F21 — stale one-time-IP keys swept, distributed flood capped — offline)
         run: node scripts/test-rate-sweep.js
 
-      - name: Settlement-aware idempotency (FR4-01 — a non-200/unsettled response is NOT cached; @x402/express settles AFTER the handler)
-        run: node scripts/test-idempotency-settlement.js
-
       - name: /health envelope + .flags shape (boolean discipline locks the Yahoo-relay-flap class)
         run: node scripts/test-health-envelope.js
 
-      - name: Exposure hardening (A402-11/12/13 no X-Powered-By; security.txt; health gates flags; credential-free MCP CORS — spawns child)
-        run: node scripts/test-security-headers.js
-
       - name: Skill-pack invariants (toolSlugs resolve in catalog; substitution renders)
         run: node scripts/test-skill-packs.js
-
-      - name: x402 Bazaar discovery shape (POST→bodyType, GET→queryParams, example types match schema)
-        run: node scripts/check-bazaar.mjs
-
-      - name: x402 Leaderboard pure helpers (offline; Bazaar parsing + ranking)
-        run: node scripts/test-x402-leaderboard.js
 
       - name: Leaderboard scan memory bound (300k synthetic transfers folded in batches; proves the 7d-OOM fix)
         run: node scripts/test-leaderboard-memory.js
@@ -1449,27 +1177,6 @@ jobs:
 
       - name: /data volume contract — stats + memory DBs fail loud in prod when missing
         run: node scripts/test-stats-persistence.js
-
-      - name: Idempotency (opt-in safe retry of paid/proven calls; boots paid-mode)
-        run: node scripts/test-idempotency.js
-
-      - name: Deep security audit (payment gate + PoW replay/slug-bind/tamper + SSRF + attribution; boots paid-mode)
-        env:
-          POW_SECRET: ${{ secrets.POW_SECRET }}
-        run: |
-          # Boot a paid-mode server (x402 paywall ACTIVE) so the gate is real,
-          # then run the deep audit against it. PoW/SSRF/attribution assertions
-          # are facilitator-independent; the unpaid-402 shape check lights up
-          # when the base-sepolia facilitator syncs, and fails CLOSED otherwise
-          # (the audit treats fail-closed as no-bypass, only a 200 is a hard fail).
-          WALLET_ADDRESS=0x0000000000000000000000000000000000000001 NETWORK=base-sepolia \
-          POW_SECRET="${POW_SECRET:-ci-audit-secret}" POW_DIFFICULTY=12 POW_ALLOW_EPHEMERAL=true \
-          PORT=3778 node src/server.js > /tmp/audit-deep-srv.log 2>&1 &
-          SRV_PID=$!
-          for i in $(seq 1 30); do curl -s localhost:3778/api/pow >/dev/null && break; sleep 1; done
-          BASE_URL=http://localhost:3778 node scripts/audit-deep.mjs; rc=$?
-          kill $SRV_PID 2>/dev/null || true
-          exit $rc
 
       - name: Tool correctness regressions (20 wrong-answer bugs from the review; boots free-mode, TZ=UTC)
         run: node scripts/test-correctness-fixes.js
@@ -1486,33 +1193,6 @@ jobs:
       - name: Buyer SDK spending caps (concurrency reservation + 402-amount inspection — wallet-safety lock — offline)
         run: node scripts/test-client-caps.js
 
-      - name: Adapter tests (openai-tools + anthropic-tools + ai-sdk + langchain + openai-agents + llamaindex + strands + google-adk + langchain-py)
-        run: |
-          X402_SYNC_ON_START=false FREE_MODE=true PORT=3091 node src/server.js > /tmp/a402-test.log 2>&1 &
-          ADAPTER_PID=$!
-          for i in $(seq 1 20); do curl -sf http://localhost:3091/health >/dev/null && break || sleep 0.5; done
-          curl -sf http://localhost:3091/health >/dev/null || { echo "FREE_MODE server failed to boot"; cat /tmp/a402-test.log; kill $ADAPTER_PID; exit 1; }
-          # Each adapter test self-installs its framework peer (and agent402-client)
-          # into its own node_modules; tests verify tool-shape + execute() round-trip.
-          # ai-sdk/langchain/openai-agents tests exercise the framework-agnostic
-          # spec path (no peer install needed); peer wrappers are checked in
-          # consumers' projects via optional peerDeps.
-          AGENT402_BASE_URL=http://localhost:3091 node adapters/openai-tools/test.js
-          ( cd adapters/anthropic-tools && npm install ../../client --no-save --silent )
-          AGENT402_BASE_URL=http://localhost:3091 node adapters/anthropic-tools/test.js
-          AGENT402_BASE_URL=http://localhost:3091 node adapters/ai-sdk/test.js
-          AGENT402_BASE_URL=http://localhost:3091 node adapters/langchain/test.js
-          AGENT402_BASE_URL=http://localhost:3091 node adapters/openai-agents/test.js
-          AGENT402_BASE_URL=http://localhost:3091 node adapters/llamaindex/test.js
-          AGENT402_BASE_URL=http://localhost:3091 node adapters/strands/test.js
-          AGENT402_BASE_URL=http://localhost:3091 node adapters/google-adk/test.js
-          # Python adapter (agent402-langchain): requests-only keeps CI lean; the
-          # test skips the langchain-native path gracefully without langchain-core,
-          # so this locks the spec + free proof-of-work call behavior.
-          python3 -m pip install --quiet requests
-          AGENT402_BASE_URL=http://localhost:3091 python3 adapters/langchain-py/test.py
-          kill $ADAPTER_PID 2>/dev/null || true
-
       - name: PDF toolkit tests (merge/split/rotate/info/images-to-pdf)
         run: node scripts/test-pdf.js
 
@@ -1522,23 +1202,14 @@ jobs:
       - name: Media-kit tests (ffprobe, mp4-to-mp3, loudnorm — real ffmpeg)
         run: node scripts/test-media.js
 
-      - name: Agent-kit tests (token-count, text-chunk, json-validate, jsonl)
-        run: node scripts/test-agent-kit.js
-
       - name: Finance-math-kit tests (TVM, Black-Scholes, bonds, CAGR, Sharpe — vs textbook values)
         run: node scripts/test-finance-math-kit.js
 
       - name: Barcode-kit tests (QR/barcode decode round-trip, PNG + JPEG)
         run: node scripts/test-barcode.js
 
-      - name: Image-kit tests (resize, convert, thumbnail — jimp, exact dims)
-        run: node scripts/test-image.js
-
       - name: Data-kit tests (barcode-lookup, fx-rate, weather-forecast — live keyless APIs)
         run: node scripts/test-data-kit.js
-
-      - name: Macro-kit tests (FRED yield curve, Treasury debt + avg rates, ECB FX series, World Bank — live keyless APIs)
-        run: node scripts/test-macro-kit.js
 
       - name: EDGAR-kit tests (SEC ticker→CIK, filings, XBRL company-concept/facts/frames — live keyless APIs)
         run: node scripts/test-edgar-kit.js
@@ -1548,23 +1219,14 @@ jobs:
         env:
           BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
 
-      - name: Finance-kit tests (Yahoo chart quote+history, Nasdaq earnings calendar — keyless live APIs)
-        run: node scripts/test-finance-kit.js
-
       - name: Crypto-kit tests (CoinGecko price/market/history/trending/global — keyless live API)
         run: node scripts/test-crypto-kit.js
-
-      - name: x402-kit tests (transfer-auth typed data + live Base RPC reads)
-        run: node scripts/test-x402-kit.js
 
       - name: x402-trending momentum tool (organic score, sorts, WoW activation, history persistence — offline)
         run: node scripts/test-x402-trending.js
 
       - name: Demand-radar seller intel (signalType, near-threshold, noise flag, wallet-only — offline)
         run: node scripts/test-demand-radar.js
-
-      - name: Bestsellers catalog-demand tool (lenses, trend windows, organic score, window-query filters, wallet-only — offline)
-        run: node scripts/test-bestsellers.js
 
       - name: Util-kit tests (jwt-sign, uuid-v5, group-by, json-to-xml, geo-distance, color-contrast)
         run: node scripts/test-util-kit.js
@@ -1582,26 +1244,16 @@ jobs:
         run: node scripts/test-openrouter-attribution.js
       - name: filing watch kit (offline)
         run: node scripts/test-filing-watch-kit.js
-      - name: token brief kit (offline)
-        run: node scripts/test-token-brief-kit.js
       - name: ticker pack kit (offline)
         run: node scripts/test-ticker-pack-kit.js
       - name: programmatic report pages (offline)
         run: node scripts/test-programmatic-pages.js
-      - name: images-fast kit (offline)
-        run: node scripts/test-images-fast-kit.js
       - name: alchemy-data kit (offline)
         run: node scripts/test-alchemy-data-kit.js
-      - name: farcaster-social kit (offline)
-        run: node scripts/test-farcaster-social-kit.js
-      - name: crypto-markets kit (offline)
-        run: node scripts/test-crypto-markets-kit.js
       - name: defi kit (offline)
         run: node scripts/test-defi-kit.js
       - name: crypto-signals kit (offline)
         run: node scripts/test-crypto-signals-kit.js
-      - name: crawl kit (offline)
-        run: node scripts/test-crawl-kit.js
       - name: llm-context kit (Brave grounding context, stubbed fetch, no live Brave call, offline)
         run: node scripts/test-llm-context-kit.js
 
@@ -1617,9 +1269,6 @@ jobs:
       - name: Whois RDAP bootstrap parser (IANA dns.json → TLD map — offline)
         run: node scripts/test-whois-bootstrap.js
 
-      - name: Nav chain roster (every live rail in dropdown + mobile menu — offline)
-        run: node scripts/test-nav-chains.js
-
       - name: Webhook signature verify (per-provider HMAC vectors, replay tolerance, raw-body guard)
         run: node scripts/test-webhook-verify.js
 
@@ -1629,17 +1278,11 @@ jobs:
       - name: Stellar marketplace page tests (offline, fixture snapshot)
         run: node scripts/test-stellar-page.js
 
-      - name: Algorand marketplace page tests (offline, fixture snapshot)
-        run: node scripts/test-algorand-page.js
-
       - name: Base/Solana/Polygon/Arbitrum/Robinhood marketplace page tests (offline, fixture snapshot)
         run: node scripts/test-market-pages.js
 
       - name: Base activity via CDP SQL — guard/fail-safe paths (offline)
         run: node scripts/test-base-activity.js
-
-      - name: Sell hub page tests (offline, fixture snapshot)
-        run: node scripts/test-sell-page.js
 
       - name: What-is-x402 pillar page tests (offline, fixture snapshot)
         run: node scripts/test-what-is-x402-page.js
@@ -1647,29 +1290,17 @@ jobs:
       - name: Tools catalog page tests (offline, fixture snapshot)
         run: node scripts/test-catalog-page.js
 
-      - name: Homepage tests (offline, fixture snapshot)
-        run: node scripts/test-home-page.js
-
       - name: Leaderboard page tests (offline, fixture snapshot)
         run: node scripts/test-leaderboard-page.js
 
       - name: Skill packs index page tests (offline, live SKILL_PACKS data)
         run: node scripts/test-skills-index-page.js
 
-      - name: Marketplace index page tests (offline, fixture snapshot)
-        run: node scripts/test-marketplace-index-page.js
-
       - name: What-is-MPP page tests (offline)
         run: node scripts/test-what-is-mpp-page.js
 
       - name: Docs GitBook unification tests (offline, real wiki content)
         run: node scripts/test-docs-gitbook.js
-
-      - name: Operator demand-board page tests (verdict rendering, no double-escape, robots disallow — offline)
-        run: node scripts/test-operator-wishes.js
-
-      - name: Operator auth (A402-07 no ?token= query; session cookie + header; hardened cookie flags — spawns child)
-        run: node scripts/test-operator-auth.js
 
       - name: Operator revenue visibility (zero-revenue rail flagging + top-by-revenue vs top-by-calls, offline)
         run: node scripts/test-operator-revenue-visibility.js
@@ -1680,20 +1311,11 @@ jobs:
       - name: MPP index self-serve registration + snapshot honesty tests (offline)
         run: node scripts/test-mpp-index.js
 
-      - name: "MPP self-registration probe hint (optional path/method: validated, probed, kept only on success, persisted with the seed - offline)"
-        run: node scripts/test-mpp-index-hint.js
-
       - name: MPP marketplace page rendering tests (offline)
         run: node scripts/test-mpp-market-page.js
 
       - name: Seller registration conversion/churn table (first_seen immutable, last_settled_seen sticky — offline)
         run: node scripts/test-seller-registrations.js
-
-      - name: Index openapi-fallback crawl tests (payment-signal gate, Bazaar merge, ranking — offline)
-        run: node scripts/test-openapi-fallback.js
-
-      - name: Router alias-collapse tests (redirect aliases, subset guard, Sybil slots — offline)
-        run: node scripts/test-router-alias.js
 
       - name: robots-check ReDoS regression (wildcard cap, normal robots.txt behavior — offline)
         run: node scripts/test-robots-redos.js
@@ -1707,23 +1329,14 @@ jobs:
       - name: Settlement-derived proven-ness + discovery-gap honesty
         run: node scripts/test-settlement-proof.js
 
-      - name: Wallet-free trial (scope, bounds, never counted as revenue)
-        run: node scripts/test-trial.js
-
       - name: Cold start (a wallet-less agent reaches its first call from the docs alone)
         run: node scripts/test-coldstart.js
-
-      - name: Rail self-heal (the facilitator map cannot silently drift)
-        run: node scripts/test-rail-selfheal.js
 
       - name: Crawl backoff (stop re-probing an origin that keeps saying no)
         run: X402_INDEX_CRAWL=off node scripts/test-crawl-backoff.js
 
       - name: Crawl revalidates instead of re-downloading (ETag/If-None-Match, 304 is success not an upstream error - offline)
         run: X402_INDEX_CRAWL=off node scripts/test-crawl-conditional.js
-
-      - name: Crawl honours robots.txt (explicit Disallow enforced, unreadable file fails OPEN, cached per origin - offline)
-        run: X402_INDEX_CRAWL=off node scripts/test-crawl-robots.js
 
       - name: Seller response contracts (intersection across every 2xx variant, composed schemas refused, all three projections - offline)
         run: X402_INDEX_CRAWL=off node scripts/test-response-contract.js
@@ -1737,25 +1350,11 @@ jobs:
       - name: Discovery note (a seller must be able to see the gap)
         run: X402_INDEX_CRAWL=off node scripts/test-discovery-note.js
 
-      - name: Reliability claims (a published guarantee must survive being checked)
-        run: node scripts/test-reliability-claims.js
-
       - name: Chain names (a rail we take money on must not report as a hex id)
         run: node scripts/test-chain-names.js
 
       - name: FX failover (a fallback that only fires on ERROR cannot rescue SLOW)
         run: node scripts/test-fx-failover.js
-
-      - name: gov-data Catalog API v4 (retired CKAN v3 proxy 404s on catalog-old)
-        run: node scripts/test-gov-data.js
-
-      # Strict FREE_MODE sweep of paid tools that do NOT burn Brave/OpenAI/
-      # OpenRouter/E2B/Blockscout-buyer/FRED/Neynar/etc. Fails on 502/503/504
-      # (unlike test-all.js NETWORK leniency — that hole kept gov-data green
-      # while dead; issue #730). Filter never calls metered routes; own-boot
-      # strips keys too. Uses the shared FREE_MODE server when TARGET_URL is set.
-      - name: Non-metered paid examples (strict — 502/503/504 fail; NETWORK leniency hole)
-        run: TARGET_URL=http://localhost:3000 node scripts/test-non-metered-examples.js
 
       - name: Paid scan budget (a public route must not spend without limit)
         run: node scripts/test-paid-scan-budget.js
@@ -1763,11 +1362,455 @@ jobs:
       - name: Metered upstreams (nothing that bills per call is reachable unbounded)
         run: node scripts/test-metered-upstreams.js
 
-      - name: Egress meter (cheap, safe, host-only, never throws on the hot path)
-        run: node scripts/test-egress-meter.js
-
       - name: Ledger-backed rail transfers (empty ledger must fall back, never render zero)
         run: node scripts/test-ledger-recent.js
+
+      - name: Router gate needs breadth, not just a manufacturable count
+        run: node scripts/test-sor-breadth.js
+
+      - name: A registry listing is not a seller answering (origin-responded)
+        run: node scripts/test-origin-responded.js
+
+      - name: "A venue with many payees is not one seller (multi-payTo index — offline)"
+        run: node scripts/test-multi-payto.js
+
+      - name: A settlement rejection is not a charged failure (public stats honesty)
+        run: STATS_ALLOW_EPHEMERAL=true node scripts/test-charged-failure-honesty.js
+
+      - name: Rate limits are per-process; replicas must not multiply them
+        run: node scripts/test-limiter-replicas.js
+
+      - name: Shared trial counter (a cap of 1 must mean 1 across replicas)
+        run: node scripts/test-shared-limit.js
+
+      - name: Every test script is wired into CI (no orphaned suites)
+        run: node scripts/test-ci-coverage.js
+
+      - name: EVM/Solana/Robinhood activity scan tests (offline, fixture Alchemy/RPC/Blockscout records)
+        run: node scripts/test-chain-activity.js
+
+      - name: Html-kit tests (html-select, html-table, html-strip, html-links, html-meta)
+        run: node scripts/test-html-kit.js
+
+      - name: Compression-kit tests (gzip, gunzip, brotli, compress-compare — pure CPU, zip-bomb guard)
+        run: node scripts/test-compression-kit.js
+
+      - name: Stats-kit tests (summary, correlation, regression, moving-average, outliers — pure CPU)
+        run: node scripts/test-stats-kit.js
+
+      - name: Tollbooth tests (pay-per-crawl gate — node + edge/Web-Crypto)
+        run: node tollbooth/test.js && node tollbooth/edge.test.js && node tollbooth/features.test.js && node tollbooth/tempo.test.js
+
+      - name: Tollbooth atomic replay + origin binding (F05/F18 — Durable Object single-use claim + PoW origin/method binding — offline)
+        run: node scripts/test-tollbooth-replay.js
+
+      - name: Tollbooth verifier timeout/cancellation (FR4-10 — x402VerifierFromExpress honors the AbortSignal; a late settle can't grant — offline)
+        run: node scripts/test-tollbooth-verifier.js
+
+      - name: Conversion tools (~970 endpoints, exact + round-trip)
+        run: node scripts/test-convert.js
+
+      - name: Multi-agent coordination demo (two wallets, one namespace)
+        run: node scripts/demo-coordination.js
+
+
+  test-unit-b:
+    # Test job runs on its own [test] marker AND auto-runs whenever a commit
+    # asks to deploy or publish — so deploy/publish can hard-gate on it via
+    # `needs: test`. This makes "ship without running tests" impossible by
+    # design, not by developer discipline.
+    needs: markers
+    # Runs on the [test]/[deploy]/[publish] markers, on the matching
+    # workflow_dispatch modes, on every PR into main (N-04: so the required
+    # `test` status check always reports), AND unconditionally on every push
+    # to main — a merge to main has no marker to scan (see the `on:` block
+    # above) and needs none: it is asked to test-and-deploy regardless.
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    # A healthy run takes 22-25 min. Without this the GitHub default is 360
+    # min, and on 2026-08-18 two consecutive runs sat for 28+ min inside the
+    # Playwright system-deps apt step (see below) — the deploy job hard-gates
+    # on this one, so a hung test job silently blocks every deploy behind it.
+    timeout-minutes: 60
+    # A REAL redis, because until 2026-08-07 nothing in CI ever connected to
+    # one. test-shared-limit.js injects a fake store deliberately (it proves
+    # "two callers share one counter", and a fake proves that exactly), but
+    # that left the redis CLIENT path untested — so Dependabot's redis 4 -> 6
+    # bump arrived with a green CI that could not have caught a client
+    # regression. Prod is not in-memory: REDIS_URL is set there, and the shared
+    # limiter FAILS CLOSED, so a client regression refuses trials.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    # F07: provider keys stay at job scope so every TEST step gates its
+    # expectations on the SAME config the booted server has. But the ONE step
+    # that runs untrusted third-party code — the dependency install, where npm
+    # lifecycle scripts execute — SHADOWS them to empty (below), so a malicious
+    # package cannot read them. That is the real F07 exposure; our own test
+    # steps are trusted code from this repo.
+    env:
+      BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      FRED_API_KEY_V2: ${{ secrets.FRED_API_KEY_V2 }}
+      E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: Install dependencies (secretless)
+        # F07: shadow the job-scope provider keys to EMPTY for this step only, so
+        # a malicious dependency lifecycle script running during `npm ci` cannot
+        # read them. No server or tool runs here, so empty keys are harmless.
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+        run: npm ci
+      - name: Install Playwright Chromium (+ system deps)
+        # `--with-deps` runs apt-get against the runner's mirror list
+        # (/etc/apt/apt-mirrors.txt), whose first entry is
+        # azure.archive.ubuntu.com. On 2026-08-18 that mirror was bad on SOME
+        # runners and fine on others: two runs stalled with no output for 28 min
+        # until cancelled; later the same commit's push run finished this step
+        # in ~45s while its pull_request twin, started the same second on
+        # another runner, answered InRelease after 30s and crawled at ~295 kB/s
+        # (attempt 3 spent 128s on 21 MB of fonts and never finished) — 3 of 3
+        # attempts lost, because every retry walked the same mirror list. So:
+        # (1) prefer the canonical archive and keep azure as a fallback, (2) an
+        # apt inactivity timeout, so a stalled transfer fails over to the next
+        # mirror instead of eating the attempt (apt's default is 120s, longer
+        # than our per-attempt bound), (3) after a lost attempt drop azure from
+        # the list entirely, and (4) a mirror set that is dead for a full three
+        # attempts fails the step LOUDLY instead of eating the job's timeout.
+        # The only apt payload here is fonts (Chromium's shared libraries are
+        # already on the ubuntu-24.04 image), so a mirror swap changes nothing
+        # about what gets installed.
+        timeout-minutes: 10
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+        run: |
+          printf 'Acquire::http::Timeout "20";\nAcquire::https::Timeout "20";\nAcquire::Retries "2";\n' \
+            | sudo tee /etc/apt/apt.conf.d/99-ci-mirror-timeouts >/dev/null
+          set_mirrors() {  # $1 = "with-azure" | "no-azure"
+            [ -f /etc/apt/apt-mirrors.txt ] || return 0
+            {
+              printf 'https://archive.ubuntu.com/ubuntu/\tpriority:1\n'
+              [ "$1" = "with-azure" ] && printf 'http://azure.archive.ubuntu.com/ubuntu/\tpriority:2\n'
+              printf 'https://security.ubuntu.com/ubuntu/\tpriority:3\n'
+            } | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          }
+          set_mirrors with-azure
+          for i in 1 2 3; do
+            if timeout 170 npx playwright install --with-deps chromium; then exit 0; fi
+            echo "playwright install attempt $i failed or stalled (apt mirror?) - retrying without the azure mirror"
+            # A stalled apt-get may outlive the killed npx (sudo can detach it
+            # from the group); clear it so the retry isn't blocked on its lock.
+            # The stall is in apt's fetch phase, so killing it is safe.
+            sudo pkill -TERM -f 'apt-get' 2>/dev/null || true
+            set_mirrors no-azure
+            sleep 10
+          done
+          echo "playwright install failed 3x - the runner's apt mirror is likely down"
+          exit 1
+      - name: Start server in free mode
+        run: |
+          # Raise the MCP rate limit so the full-catalog connector test can sweep
+          # every tool (production keeps the default 20/min, 120/hr).
+          AGENT402_MCP_MAX_PER_MIN=1000000 AGENT402_MCP_MAX_PER_HOUR=1000000 \
+            X402_SYNC_ON_START=false FREE_MODE=true X402_PAYWALL_PROBES_PER_CYCLE=0 PORT=3000 node src/server.js &
+          for i in $(seq 1 20); do curl -s localhost:3000/health >/dev/null && break; sleep 1; done
+      # Deterministic correctness proofs run FIRST — a flaky live upstream
+      # (e.g. data.gov downtime) must never mask whether the tools actually work.
+      - name: Composite-spend guard (research/dossier upstream-drain protection)
+        run: node scripts/test-composite-guard.js
+
+      - name: Monitor scheduler (welcome/scheduled/change/TLS/filing delivery, paid-run bounds, backoff, lock)
+        run: node scripts/test-monitor-scheduler.js
+
+      - name: Cert-transparency crt.sh→certspotter fallback (flaky-upstream resilience)
+        run: node scripts/test-cert-transparency.js
+
+      - name: Bazaar quality ingestion (30d calls/payers on index sellers + /api/find external rows + ranking tiebreak - offline)
+        run: node scripts/test-bazaar-quality.js
+
+      - name: Native MPP on /mcp (stock MCP SDK client + mppx McpClient pays a wallet-only tool via the real gates; stub facilitator; -32042 wire; RFC 9457 problem on tamper - offline)
+        run: node scripts/test-mcp-mpp.js
+
+      - name: Tempo transfer feed (incremental sync, overlap dedupe, coverage gating, leaderboard source A vs RPC fallback - offline)
+        run: node scripts/test-tempo-transfers.js
+
+      - name: Revenue detector classification (real x402 buys vs funding/tests)
+        run: node scripts/test-revenue-scan.js
+
+      - name: LLM gateway validation (OpenAI-compat tiers, caps, env-gated 503)
+        run: node scripts/test-llm-gateway.js
+      - name: Ox Alpha tier (locked stealth model, zdr refusal, zero-cost clamp, reasoning floor, vanish gate - offline)
+        run: node scripts/test-ox-tier.js
+
+      - name: Route-and-execute (SOR executing surface — resolution, caps, receipts — offline)
+        run: node scripts/test-route-execute.js
+
+      - name: Revenue daily series (day bucketing, EVM block estimation, canary-vs-funding split — offline)
+        run: node scripts/test-revenue-daily.js
+
+      - name: Status page store (unobserved days are never uptime; stale is never operational — offline)
+        run: node scripts/test-status-store.js
+
+      - name: Deploy quiet gate (lull detection, fail-open paths — offline)
+        run: node scripts/test-quiet-gate.js
+
+      - name: New-tool coverage lock (The 500 slugs swept by test-all; canary leg prices honest — offline)
+        run: node scripts/test-canary-coverage.js
+      - name: x402-market-pulse category classifier (path-aware, closed taxonomy)
+        run: node scripts/test-ecosystem-category.js
+
+      - name: x402-market-pulse supply-mix per-seller tool cap
+        run: node scripts/test-ecosystem-supply.js
+
+      - name: Find ranker — live-catalog smoke test (boots free-mode, locks top-1 for agent queries)
+        run: node scripts/test-find-ranking.js
+
+      - name: Tool pages backlink to the skill packs they belong to
+        run: node scripts/test-tool-page-backlinks.js
+
+      - name: /openapi.json coverage (every CATALOG tool has a path + operationId + x-price)
+        run: node scripts/test-openapi-coverage.js
+
+      - name: /.well-known/x402 manifest contract (envelope + payment + capabilities + discovery)
+        run: node scripts/test-x402-manifest.js
+
+      - name: /.well-known/glama.json maintainer email env pass-through (with + without override)
+        run: node scripts/test-glama-manifest.js
+
+      - name: /llms.txt route-execute tier pricing derived from EXEC_TIERS (a future 5th tier can't go silently missing — offline)
+        run: node scripts/test-llms-route-execute-tiers.js
+
+      - name: Gate agent402-facilitator (real signed Stellar testnet payments; boots its own servers on 4099-4101)
+        # Had ZERO CI coverage until 2026-08-15, unlike every other package in
+        # this repo - found only after a real production incident (unbounded
+        # /settle hang, then a broken Docker deploy shipped right past every
+        # existing check because none of them looked at this package at all).
+        # TEST_PAYER_STELLAR_SECRET is a persistent testnet-only Stellar
+        # account holding testnet USDC (Circle's faucet is CAPTCHA-gated, so
+        # it can't be minted fresh per run - see facilitator/README.md).
+        # Self-skips LOUDLY if the secret is ever unset, same pattern as the
+        # Robinhood settlement probe - never a silent pass.
+        run: |
+          if [ -z "$TEST_PAYER_STELLAR_SECRET" ]; then
+            echo "TEST_PAYER_STELLAR_SECRET unset - skipping facilitator/test.js (see facilitator/README.md)"
+            exit 0
+          fi
+          cd facilitator
+          npm ci --ignore-scripts
+          node test.js
+        env:
+          TEST_PAYER_STELLAR_SECRET: ${{ secrets.TEST_PAYER_STELLAR_SECRET }}
+
+      - name: Self-listing exclusion (crawled agent402.tools origin never appears as an "external" seller — offline)
+        run: node scripts/test-self-listing-exclusion.js
+
+      - name: Economy history unit tests (daily upsert idempotency + week-over-week math — offline)
+        run: node scripts/test-x402-economy.js
+
+      - name: Revenue chart free-tier lane (free calls never priced as revenue; jsdom — offline)
+        run: node scripts/test-revenue-chart.js
+
+      - name: Status probe worker (Cloudflare cron observer mapping; stubbed fetch — offline)
+        run: node scripts/test-status-probe-worker.js
+
+      - name: Self-check policy (transient-filtering, timeout, unknown-slug — the prod tool-failure alarm — offline)
+        run: node scripts/test-selfcheck.js
+
+      - name: OCR crash containment (A402-10 malformed image returns clean error, no uncaughtException — tesseract worker)
+        run: node scripts/test-ocr-crash.js
+
+      - name: Render deadline cancellation (R-09 — timed-out contexts close before the slot frees; live contexts never exceed the limit — offline)
+        run: node scripts/test-render-cancel.js
+
+      - name: Secretless worker isolation (F02/F04/F06 — worker auth/dispatch, client round-trip, secret-guard refuses to boot with a payment secret — offline)
+        run: node scripts/test-worker-isolation.js
+
+      - name: Tool-count sync (static surfaces match the live catalog total — no count drift)
+        run: node scripts/sync-count.js --check
+
+      - name: "Cache hygiene (M5 — Attack III: paid responses no-store, free discovery stays cacheable)"
+        run: node scripts/test-cache-hygiene.js
+
+      - name: MPP dual-stack shim (real mppx client buys over WWW-Authenticate/Authorization wire; single settle; x402 pass-through; HMAC tamper — offline)
+        run: node scripts/test-mpp-shim.js
+
+      - name: Stripe MPP settlement (stripe/charge cards via SPT — mint/binding/settlement-ordering, $0.50 min — offline)
+        run: node scripts/test-mpp-stripe.js
+
+      - name: MPP recurring subscriptions (tempo/subscription challenge shape, binding refuses forged/foreign/expired/underpriced before any settlement, period accounting, dunning, cancellation - offline)
+        run: node scripts/test-mpp-subscriptions.js
+
+      - name: MPP subscription rail-canary gate (canary product is never advertised and is mintable only for a heartbeat-token caller; boots a real server, spends nothing)
+        run: node scripts/test-mpp-subscription-canary-gate.js
+
+      - name: Composite cap enforcement (maxUpstreamUsd is checked at the shared chokepoint, not merely declared - offline)
+        run: node scripts/test-composite-cap-enforcement.js
+
+      - name: Prices quoted in PROSE match real prices (meta + og descriptions, which docs-truth cannot see - offline)
+        run: node scripts/test-price-prose.js
+
+      - name: "SOR external leg for MPP sellers on Tempo (catalog from the verified MPP index, asset pin, live-quote cap, proven-seller gate fail-closed, chain mapping — offline)"
+        run: node scripts/test-tempo-router.js
+
+      - name: Wildcard route bypass closed (@x402/core 2.21.0 dotAll fix — percent-encoded line terminators can't skip payment on /api/convert/* — offline)
+        run: node scripts/test-wildcard-route-bypass.js
+
+      - name: Boot /supported guard (a dead facilitator costs ONE rail, not every paid route — the 2026-08-01 Celo outage; probe-driven drop, fail-open on total blindness, escape hatch — offline)
+        run: node scripts/test-supported-guard.js
+
+      - name: "Live 402 quote (a priceless row learns its price from the challenge; unpriceable never becomes $0; PUT/PATCH/DELETE never probed — offline)"
+        run: node scripts/test-x402-live-quote.js
+
+      - name: "External spend guard (per-payer debt ceiling: an UNSETTLED upstream spend keeps counting, so verify-then-fail-to-settle cannot drain the wallet — offline)"
+        run: node scripts/test-external-spend-guard.js
+
+      - name: "Redis integration (the REAL client against a REAL server — cap-of-1, refund, cache round trip; the gap that made a redis major bump undecidable)"
+        env:
+          REDIS_URL: redis://127.0.0.1:6379
+        run: node scripts/test-redis-integration.js
+
+      - name: Socket supply-chain scan (dependency behaviour, not just versions)
+        env:
+          SOCKET_API_TOKEN: ${{ secrets.SOCKET_API_TOKEN }}
+        run: node scripts/socket-check.js
+
+      - name: Offsite backup (stub S3 — consistent sqlite snapshots, cache excluded, budget holds visibly, bill guard refuses over-cap, retention prunes date prefixes — offline)
+        run: node scripts/test-backup.js
+
+      - name: /robots.txt policy (every LLM bot explicitly allowed + /api/memory disallowed + sitemap)
+        run: node scripts/test-robots-policy.js
+
+      - name: MCP prompts/list + prompts/get (one prompt per skill pack; substitution renders)
+        run: node scripts/test-mcp-prompts.js
+
+      - name: /api/leaderboard envelope (spec, defaults, per-row shape — MCP top_x402_sellers piggybacks on this)
+        run: node scripts/test-leaderboard-envelope.js
+
+      - name: "x402-audit grader (deterministic scoring: TLS, cache hygiene, terms, info-leak → letter grade)"
+        run: node scripts/test-x402-audit.js
+
+      - name: Static page renders smoke (every HTML surface returns 200 with the right page-specific title)
+        run: node scripts/test-static-pages.js
+
+      - name: Agentic Finance glossary (one DefinedTermSet, anchors unique, category term aliased, explainer bodies link it, post + sitemap + llms - offline)
+        run: node scripts/test-glossary.js
+
+      - name: MPP leaderboard (live-offer recipients via mppx codec, one batched Tempo getLogs per chunk, grouping/ranking/priming, split-on-error + stale-keeps-previous, page badges - offline)
+        run: node scripts/test-mpp-leaderboard.js
+
+      - name: /api/find envelope + top-1 ranking lock (per-row shape + known queries → known top slugs)
+        run: node scripts/test-find-envelope.js
+
+      - name: MCP call_tool contract (canonical + flattened + stringified + wallet-refusal + self-correction envelope)
+        run: node scripts/test-mcp-call-tool-contract.js
+
+      - name: MCP outer transport limits (R-11 — per-IP cap + concurrency ceiling bound floods before server/transport allocation — spawns child)
+        run: node scripts/test-mcp-limits.js
+
+      - name: Settlement-aware idempotency (FR4-01 — a non-200/unsettled response is NOT cached; @x402/express settles AFTER the handler)
+        run: node scripts/test-idempotency-settlement.js
+
+      - name: Exposure hardening (A402-11/12/13 no X-Powered-By; security.txt; health gates flags; credential-free MCP CORS — spawns child)
+        run: node scripts/test-security-headers.js
+
+      - name: x402 Bazaar discovery shape (POST→bodyType, GET→queryParams, example types match schema)
+        run: node scripts/check-bazaar.mjs
+
+      - name: x402 Leaderboard pure helpers (offline; Bazaar parsing + ranking)
+        run: node scripts/test-x402-leaderboard.js
+
+      - name: Idempotency (opt-in safe retry of paid/proven calls; boots paid-mode)
+        run: node scripts/test-idempotency.js
+
+      - name: Agent-kit tests (token-count, text-chunk, json-validate, jsonl)
+        run: node scripts/test-agent-kit.js
+
+      - name: Image-kit tests (resize, convert, thumbnail — jimp, exact dims)
+        run: node scripts/test-image.js
+
+      - name: Macro-kit tests (FRED yield curve, Treasury debt + avg rates, ECB FX series, World Bank — live keyless APIs)
+        run: node scripts/test-macro-kit.js
+
+      - name: Finance-kit tests (Yahoo chart quote+history, Nasdaq earnings calendar — keyless live APIs)
+        run: node scripts/test-finance-kit.js
+
+      - name: x402-kit tests (transfer-auth typed data + live Base RPC reads)
+        run: node scripts/test-x402-kit.js
+
+      - name: Bestsellers catalog-demand tool (lenses, trend windows, organic score, window-query filters, wallet-only — offline)
+        run: node scripts/test-bestsellers.js
+
+      - name: token brief kit (offline)
+        run: node scripts/test-token-brief-kit.js
+      - name: images-fast kit (offline)
+        run: node scripts/test-images-fast-kit.js
+      - name: farcaster-social kit (offline)
+        run: node scripts/test-farcaster-social-kit.js
+      - name: crypto-markets kit (offline)
+        run: node scripts/test-crypto-markets-kit.js
+      - name: crawl kit (offline)
+        run: node scripts/test-crawl-kit.js
+      - name: Nav chain roster (every live rail in dropdown + mobile menu — offline)
+        run: node scripts/test-nav-chains.js
+
+      - name: Algorand marketplace page tests (offline, fixture snapshot)
+        run: node scripts/test-algorand-page.js
+
+      - name: Sell hub page tests (offline, fixture snapshot)
+        run: node scripts/test-sell-page.js
+
+      - name: Homepage tests (offline, fixture snapshot)
+        run: node scripts/test-home-page.js
+
+      - name: Marketplace index page tests (offline, fixture snapshot)
+        run: node scripts/test-marketplace-index-page.js
+
+      - name: Operator demand-board page tests (verdict rendering, no double-escape, robots disallow — offline)
+        run: node scripts/test-operator-wishes.js
+
+      - name: Operator auth (A402-07 no ?token= query; session cookie + header; hardened cookie flags — spawns child)
+        run: node scripts/test-operator-auth.js
+
+      - name: "MPP self-registration probe hint (optional path/method: validated, probed, kept only on success, persisted with the seed - offline)"
+        run: node scripts/test-mpp-index-hint.js
+
+      - name: Index openapi-fallback crawl tests (payment-signal gate, Bazaar merge, ranking — offline)
+        run: node scripts/test-openapi-fallback.js
+
+      - name: Router alias-collapse tests (redirect aliases, subset guard, Sybil slots — offline)
+        run: node scripts/test-router-alias.js
+
+      - name: Wallet-free trial (scope, bounds, never counted as revenue)
+        run: node scripts/test-trial.js
+
+      - name: Rail self-heal (the facilitator map cannot silently drift)
+        run: node scripts/test-rail-selfheal.js
+
+      - name: Crawl honours robots.txt (explicit Disallow enforced, unreadable file fails OPEN, cached per origin - offline)
+        run: X402_INDEX_CRAWL=off node scripts/test-crawl-robots.js
+
+      - name: Reliability claims (a published guarantee must survive being checked)
+        run: node scripts/test-reliability-claims.js
+
+      - name: Egress meter (cheap, safe, host-only, never throws on the hot path)
+        run: node scripts/test-egress-meter.js
 
       - name: upto scheme ships dark, refuses what it cannot price
         run: node scripts/test-upto-scheme.js
@@ -1821,41 +1864,8 @@ jobs:
       - name: Producer/consumer shape contract (no consumer reads a field nothing emits)
         run: node scripts/test-producer-shapes.js
 
-      - name: Router gate needs breadth, not just a manufacturable count
-        run: node scripts/test-sor-breadth.js
-
-      - name: A registry listing is not a seller answering (origin-responded)
-        run: node scripts/test-origin-responded.js
-
-      - name: "A venue with many payees is not one seller (multi-payTo index — offline)"
-        run: node scripts/test-multi-payto.js
-
-      - name: A settlement rejection is not a charged failure (public stats honesty)
-        run: STATS_ALLOW_EPHEMERAL=true node scripts/test-charged-failure-honesty.js
-
-      - name: Rate limits are per-process; replicas must not multiply them
-        run: node scripts/test-limiter-replicas.js
-
-      - name: Shared trial counter (a cap of 1 must mean 1 across replicas)
-        run: node scripts/test-shared-limit.js
-
-      - name: Every test script is wired into CI (no orphaned suites)
-        run: node scripts/test-ci-coverage.js
-
       - name: Stellar activity scan tests (offline, fixture Horizon records)
         run: node scripts/test-stellar-activity.js
-
-      - name: EVM/Solana/Robinhood activity scan tests (offline, fixture Alchemy/RPC/Blockscout records)
-        run: node scripts/test-chain-activity.js
-
-      - name: Html-kit tests (html-select, html-table, html-strip, html-links, html-meta)
-        run: node scripts/test-html-kit.js
-
-      - name: Compression-kit tests (gzip, gunzip, brotli, compress-compare — pure CPU, zip-bomb guard)
-        run: node scripts/test-compression-kit.js
-
-      - name: Stats-kit tests (summary, correlation, regression, moving-average, outliers — pure CPU)
-        run: node scripts/test-stats-kit.js
 
       - name: Code-run-kit tests (E2B sandbox — validation always runs; live calls opt-in via E2B_LIVE_TEST=1)
         run: node scripts/test-code-run-kit.js
@@ -1863,23 +1873,265 @@ jobs:
           E2B_LIVE_TEST: ${{ secrets.E2B_API_KEY && '1' || '' }}
           E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
 
-      - name: Tollbooth tests (pay-per-crawl gate — node + edge/Web-Crypto)
-        run: node tollbooth/test.js && node tollbooth/edge.test.js && node tollbooth/features.test.js && node tollbooth/tempo.test.js
-
-      - name: Tollbooth atomic replay + origin binding (F05/F18 — Durable Object single-use claim + PoW origin/method binding — offline)
-        run: node scripts/test-tollbooth-replay.js
-
-      - name: Tollbooth verifier timeout/cancellation (FR4-10 — x402VerifierFromExpress honors the AbortSignal; a late settle can't grant — offline)
-        run: node scripts/test-tollbooth-verifier.js
-
       - name: Tollbooth dashboard runtime smoke (boots CLI, hits /__tollbooth + /__tollbooth/stats over HTTP)
         run: node scripts/test-tollbooth-runtime.js
 
       - name: Tollbooth CLI settles x402 + MPP from env (real CLI process vs stub facilitator; mppx + @x402/fetch buys settle once each; misconfig fails closed)
         run: node scripts/test-tollbooth-cli.js
 
-      - name: Conversion tools (~970 endpoints, exact + round-trip)
-        run: node scripts/test-convert.js
+      - name: MCP search_tools — live-catalog smoke test (locks top-1 for agent queries)
+        run: node scripts/test-mcp-search-ranking.js
+
+      - name: MCP server e2e (catalog, search, proof-of-work settlement, wallet guidance)
+        run: |
+          npm --prefix mcp ci
+          node mcp/test.js
+
+
+  test:
+    # LANE 3 of 3 - everything that talks to the shared free-mode server or the network. Kept together because they share one booted server.
+    # Test job runs on its own [test] marker AND auto-runs whenever a commit
+    # asks to deploy or publish — so deploy/publish can hard-gate on it via
+    # `needs: test`. This makes "ship without running tests" impossible by
+    # design, not by developer discipline.
+    needs: markers
+    # Runs on the [test]/[deploy]/[publish] markers, on the matching
+    # workflow_dispatch modes, on every PR into main (N-04: so the required
+    # `test` status check always reports), AND unconditionally on every push
+    # to main — a merge to main has no marker to scan (see the `on:` block
+    # above) and needs none: it is asked to test-and-deploy regardless.
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    # A healthy run takes 22-25 min. Without this the GitHub default is 360
+    # min, and on 2026-08-18 two consecutive runs sat for 28+ min inside the
+    # Playwright system-deps apt step (see below) — the deploy job hard-gates
+    # on this one, so a hung test job silently blocks every deploy behind it.
+    timeout-minutes: 60
+    # A REAL redis, because until 2026-08-07 nothing in CI ever connected to
+    # one. test-shared-limit.js injects a fake store deliberately (it proves
+    # "two callers share one counter", and a fake proves that exactly), but
+    # that left the redis CLIENT path untested — so Dependabot's redis 4 -> 6
+    # bump arrived with a green CI that could not have caught a client
+    # regression. Prod is not in-memory: REDIS_URL is set there, and the shared
+    # limiter FAILS CLOSED, so a client regression refuses trials.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    # F07: provider keys stay at job scope so every TEST step gates its
+    # expectations on the SAME config the booted server has. But the ONE step
+    # that runs untrusted third-party code — the dependency install, where npm
+    # lifecycle scripts execute — SHADOWS them to empty (below), so a malicious
+    # package cannot read them. That is the real F07 exposure; our own test
+    # steps are trusted code from this repo.
+    env:
+      BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      FRED_API_KEY_V2: ${{ secrets.FRED_API_KEY_V2 }}
+      E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: Install dependencies (secretless)
+        # F07: shadow the job-scope provider keys to EMPTY for this step only, so
+        # a malicious dependency lifecycle script running during `npm ci` cannot
+        # read them. No server or tool runs here, so empty keys are harmless.
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+        run: npm ci
+      - name: Install Playwright Chromium (+ system deps)
+        # `--with-deps` runs apt-get against the runner's mirror list
+        # (/etc/apt/apt-mirrors.txt), whose first entry is
+        # azure.archive.ubuntu.com. On 2026-08-18 that mirror was bad on SOME
+        # runners and fine on others: two runs stalled with no output for 28 min
+        # until cancelled; later the same commit's push run finished this step
+        # in ~45s while its pull_request twin, started the same second on
+        # another runner, answered InRelease after 30s and crawled at ~295 kB/s
+        # (attempt 3 spent 128s on 21 MB of fonts and never finished) — 3 of 3
+        # attempts lost, because every retry walked the same mirror list. So:
+        # (1) prefer the canonical archive and keep azure as a fallback, (2) an
+        # apt inactivity timeout, so a stalled transfer fails over to the next
+        # mirror instead of eating the attempt (apt's default is 120s, longer
+        # than our per-attempt bound), (3) after a lost attempt drop azure from
+        # the list entirely, and (4) a mirror set that is dead for a full three
+        # attempts fails the step LOUDLY instead of eating the job's timeout.
+        # The only apt payload here is fonts (Chromium's shared libraries are
+        # already on the ubuntu-24.04 image), so a mirror swap changes nothing
+        # about what gets installed.
+        timeout-minutes: 10
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+        run: |
+          printf 'Acquire::http::Timeout "20";\nAcquire::https::Timeout "20";\nAcquire::Retries "2";\n' \
+            | sudo tee /etc/apt/apt.conf.d/99-ci-mirror-timeouts >/dev/null
+          set_mirrors() {  # $1 = "with-azure" | "no-azure"
+            [ -f /etc/apt/apt-mirrors.txt ] || return 0
+            {
+              printf 'https://archive.ubuntu.com/ubuntu/\tpriority:1\n'
+              [ "$1" = "with-azure" ] && printf 'http://azure.archive.ubuntu.com/ubuntu/\tpriority:2\n'
+              printf 'https://security.ubuntu.com/ubuntu/\tpriority:3\n'
+            } | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          }
+          set_mirrors with-azure
+          for i in 1 2 3; do
+            if timeout 170 npx playwright install --with-deps chromium; then exit 0; fi
+            echo "playwright install attempt $i failed or stalled (apt mirror?) - retrying without the azure mirror"
+            # A stalled apt-get may outlive the killed npx (sudo can detach it
+            # from the group); clear it so the retry isn't blocked on its lock.
+            # The stall is in apt's fetch phase, so killing it is safe.
+            sudo pkill -TERM -f 'apt-get' 2>/dev/null || true
+            set_mirrors no-azure
+            sleep 10
+          done
+          echo "playwright install failed 3x - the runner's apt mirror is likely down"
+          exit 1
+      - name: Start server in free mode
+        run: |
+          # Raise the MCP rate limit so the full-catalog connector test can sweep
+          # every tool (production keeps the default 20/min, 120/hr).
+          AGENT402_MCP_MAX_PER_MIN=1000000 AGENT402_MCP_MAX_PER_HOUR=1000000 \
+            X402_SYNC_ON_START=false FREE_MODE=true X402_PAYWALL_PROBES_PER_CYCLE=0 PORT=3000 node src/server.js &
+          for i in $(seq 1 20); do curl -s localhost:3000/health >/dev/null && break; sleep 1; done
+      # Deterministic correctness proofs run FIRST — a flaky live upstream
+      # (e.g. data.gov downtime) must never mask whether the tools actually work.
+      - name: Rails-copy lock (rails.js ↔ payments.js + every key page renders every rail)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-rails.js
+
+      - name: Discoverability (every tool reachable on every surface an agent reads)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-discoverability.js
+
+      - name: Legacy surfaces still redirect (needs the booted server)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-redirects.js
+
+      - name: Projection parity (one tool, three surfaces, one vocabulary)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-projection-parity.js
+
+      - name: Retry-safety contract is true, verifiable, and not re-absolutised
+        run: TARGET_URL=http://localhost:3000 node scripts/test-retry-contract.js
+
+      - name: Gate integrity (each regression gate must FAIL when its own defect is reintroduced)
+        # A gate that cannot fail turns "we never checked" into "we checked and it
+        # was fine". This mutates each invariant and requires a non-zero exit,
+        # then asserts every mutated file was restored.
+        run: TARGET_URL=http://localhost:3000 node scripts/test-gates.js
+
+      - name: Docs truth (every documented route, slug and price matches the served catalog)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-docs-truth.js
+
+      - name: Public-surface leak gate (no buyer addresses, no per-tool revenue, operator feeds stay 404)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-public-surface-leak.js
+
+      - name: Link integrity (every sitemap URL + every crawled internal href resolves; /mcp never a real <a href>)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-link-integrity.js
+
+      - name: Chain page layout stability (no chain's page geometry shifts based on how long its name is)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-chain-page-layout-stability.js
+
+      - name: Title clamp coverage (tool/skill page titles never wrap unboundedly based on name length)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-title-clamp-coverage.js
+
+      - name: Reveal-on-scroll coverage (shared, site-wide - not a per-page opt-in that only ever reached the homepage)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-reveal-coverage.js
+
+      - name: CSP violations sitewide (real browser, every distinct page template + real interactions on click-gated pages - script-src has no 'unsafe-inline' since 2026-08-16)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-csp-violations.js
+
+      - name: CSS tokens resolve (every :root custom property must actually resolve in a real browser, not just exist as text)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-css-tokens-resolve.js
+
+      - name: Focus-visible on search/demo inputs (real browser check - inline style can silently defeat a stylesheet :focus rule)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-focus-visible.js
+
+      - name: Single <main> landmark per page (no page-level renderer may nest a second <main> inside ledgerShell's own)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-single-main-landmark.js
+
+      - name: /compare tables scroll independently on narrow viewports (real browser check - scrollWidth>clientWidth alone can't prove overflow-x is enabled)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-compare-scroll.js
+
+      - name: Wrong-method 405 with Allow header (a known catalog path hit with the wrong verb no longer looks like a dead route)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-wrong-method-405.js
+
+      - name: Reveal-on-scroll data-reveal-eager opt-in (a second above-fold section can be exempted explicitly, never leaks to unmarked pages)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-reveal-eager.js
+
+      - name: Reveal-on-scroll skip-over safety net (a single fast scroll jump must never leave a section permanently invisible — real browser, found live on /marketplace 2026-08-16)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-reveal-scroll-skip.js
+
+      - name: Hamburger menu aria-label toggles with aria-expanded (real browser click, not a static string check)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-burger-aria-label.js
+
+      - name: Heartbeat probe mapping (FAILS -> per-component status; stubbed curl — offline)
+        run: bash scripts/test-heartbeat-probe.sh
+
+      - name: Deep security audit (payment gate + PoW replay/slug-bind/tamper + SSRF + attribution; boots paid-mode)
+        env:
+          POW_SECRET: ${{ secrets.POW_SECRET }}
+        run: |
+          # Boot a paid-mode server (x402 paywall ACTIVE) so the gate is real,
+          # then run the deep audit against it. PoW/SSRF/attribution assertions
+          # are facilitator-independent; the unpaid-402 shape check lights up
+          # when the base-sepolia facilitator syncs, and fails CLOSED otherwise
+          # (the audit treats fail-closed as no-bypass, only a 200 is a hard fail).
+          WALLET_ADDRESS=0x0000000000000000000000000000000000000001 NETWORK=base-sepolia \
+          POW_SECRET="${POW_SECRET:-ci-audit-secret}" POW_DIFFICULTY=12 POW_ALLOW_EPHEMERAL=true \
+          PORT=3778 node src/server.js > /tmp/audit-deep-srv.log 2>&1 &
+          SRV_PID=$!
+          for i in $(seq 1 30); do curl -s localhost:3778/api/pow >/dev/null && break; sleep 1; done
+          BASE_URL=http://localhost:3778 node scripts/audit-deep.mjs; rc=$?
+          kill $SRV_PID 2>/dev/null || true
+          exit $rc
+
+      - name: Adapter tests (openai-tools + anthropic-tools + ai-sdk + langchain + openai-agents + llamaindex + strands + google-adk + langchain-py)
+        run: |
+          X402_SYNC_ON_START=false FREE_MODE=true PORT=3091 node src/server.js > /tmp/a402-test.log 2>&1 &
+          ADAPTER_PID=$!
+          for i in $(seq 1 20); do curl -sf http://localhost:3091/health >/dev/null && break || sleep 0.5; done
+          curl -sf http://localhost:3091/health >/dev/null || { echo "FREE_MODE server failed to boot"; cat /tmp/a402-test.log; kill $ADAPTER_PID; exit 1; }
+          # Each adapter test self-installs its framework peer (and agent402-client)
+          # into its own node_modules; tests verify tool-shape + execute() round-trip.
+          # ai-sdk/langchain/openai-agents tests exercise the framework-agnostic
+          # spec path (no peer install needed); peer wrappers are checked in
+          # consumers' projects via optional peerDeps.
+          AGENT402_BASE_URL=http://localhost:3091 node adapters/openai-tools/test.js
+          ( cd adapters/anthropic-tools && npm install ../../client --no-save --silent )
+          AGENT402_BASE_URL=http://localhost:3091 node adapters/anthropic-tools/test.js
+          AGENT402_BASE_URL=http://localhost:3091 node adapters/ai-sdk/test.js
+          AGENT402_BASE_URL=http://localhost:3091 node adapters/langchain/test.js
+          AGENT402_BASE_URL=http://localhost:3091 node adapters/openai-agents/test.js
+          AGENT402_BASE_URL=http://localhost:3091 node adapters/llamaindex/test.js
+          AGENT402_BASE_URL=http://localhost:3091 node adapters/strands/test.js
+          AGENT402_BASE_URL=http://localhost:3091 node adapters/google-adk/test.js
+          # Python adapter (agent402-langchain): requests-only keeps CI lean; the
+          # test skips the langchain-native path gracefully without langchain-core,
+          # so this locks the spec + free proof-of-work call behavior.
+          python3 -m pip install --quiet requests
+          AGENT402_BASE_URL=http://localhost:3091 python3 adapters/langchain-py/test.py
+          kill $ADAPTER_PID 2>/dev/null || true
+
+      - name: gov-data Catalog API v4 (retired CKAN v3 proxy 404s on catalog-old)
+        run: node scripts/test-gov-data.js
+
+      # Strict FREE_MODE sweep of paid tools that do NOT burn Brave/OpenAI/
+      # OpenRouter/E2B/Blockscout-buyer/FRED/Neynar/etc. Fails on 502/503/504
+      # (unlike test-all.js NETWORK leniency — that hole kept gov-data green
+      # while dead; issue #730). Filter never calls metered routes; own-boot
+      # strips keys too. Uses the shared FREE_MODE server when TARGET_URL is set.
+      - name: Non-metered paid examples (strict — 502/503/504 fail; NETWORK leniency hole)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-non-metered-examples.js
 
       - name: Every tool responds to its own example (all ~1070 endpoints)
         run: TARGET_URL=http://localhost:3000 node scripts/test-all.js
@@ -1889,9 +2141,6 @@ jobs:
 
       - name: "Every tool through the MCP connector (call_tool — free executes, wallet refuses)"
         run: TARGET_URL=http://localhost:3000 node scripts/test-mcp-all.js
-
-      - name: MCP search_tools — live-catalog smoke test (locks top-1 for agent queries)
-        run: node scripts/test-mcp-search-ranking.js
 
       - name: "Self-consistency — every tool and route our own text names must exist"
         run: TARGET_URL=http://localhost:3000 node scripts/test-mcp-self-consistency.js
@@ -1989,9 +2238,6 @@ jobs:
           curl -s localhost:3000/tools/memory-write | grep -o '<title>[^<]*</title>'
           curl -s localhost:3000/sitemap.xml | grep -c '<loc>'
 
-      - name: Multi-agent coordination demo (two wallets, one namespace)
-        run: node scripts/demo-coordination.js
-
       - name: /api/stats surfaces the M2M economy
         run: |
           curl -s localhost:3000/api/hash -X POST -H 'Content-Type: application/json' -d '{"text":"x"}' >/dev/null
@@ -2070,11 +2316,6 @@ jobs:
           console.log("direct unpaid -> " + direct.status + " ✓");
           console.log("bridge removal: all assertions passed");
           '
-
-      - name: MCP server e2e (catalog, search, proof-of-work settlement, wallet guidance)
-        run: |
-          npm --prefix mcp ci
-          node mcp/test.js
 
       - name: Multi-chain USDC — code registers all chains (hard gate) + live 402 (informational)
         run: |
@@ -2189,7 +2430,7 @@ jobs:
           curl -s https://agent402.tools/api/stats | jq '{tools, wallet, onchainRevenueProof, served: .toolCallsServed}' || echo "(/api/stats not live yet — will appear after this image rolls out)"
 
   publish:
-    needs: [markers, test]
+    needs: [markers, test, test-unit-a, test-unit-b]
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' || needs.markers.outputs.publish == 'true'
     runs-on: ubuntu-latest
     # F01: publishing packages mutates a production artifact — gate it behind the
@@ -2916,7 +3157,7 @@ jobs:
         run: SPAN_BLOCKS=350000 MAX_TXS=80 node scripts/check-builder-attribution.js || true
 
   deploy:
-    needs: [markers, test]
+    needs: [markers, test, test-unit-a, test-unit-b]
     # Unconditional on a push to main (same reasoning as the test job above -
     # a merge to main has no marker to scan and needs none), otherwise the
     # existing dispatch/marker gates for the dev branch.
