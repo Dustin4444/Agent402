@@ -26,7 +26,7 @@ process.env.X402_INDEX_CRAWL = "off";
 process.env.X402_SYNC_ON_START = "false";
 
 import express from "express";
-import { mkdtempSync, rmSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Challenge } from "mppx";
@@ -342,5 +342,43 @@ ok(ct.resultType === "task" && ct.result === undefined, "CreateTaskResult carrie
 
 server.close();
 rmSync(TMP, { recursive: true, force: true });
+// --- a task path is only ever built from a real task id ----------------------
+//
+// CodeQL flagged the record path as built from a user-provided value. Every
+// caller did validate first, so it was not exploitable - but the guard lived at
+// the callers, which is an invariant kept by hand, and the next caller is the
+// one that forgets. It now lives at path construction.
+//
+// THIS PLANTS A REAL, READABLE RECORD OUTSIDE THE STORE and asks for it by a
+// traversing id. A test that only asserts `null` proves nothing here, because
+// readJson swallows a failed read and returns null anyway - so an unguarded
+// version passes it while genuinely walking out of the directory. The first
+// version of this test did exactly that and survived the mutation.
+{
+  const outer = mkdtempSync(join(tmpdir(), "a402-taskpath-"));
+  const dir = join(outer, "store");
+  mkdirSync(dir, { recursive: true });
+  const planted = { taskId: "f".repeat(48), status: "completed", result: { secret: "should never be readable" }, createdAtMs: Date.now() };
+  writeFileSync(join(outer, "planted.json"), JSON.stringify(planted));
+  const store = createTaskStore({ dir, log: () => {} });
+
+  // Sanity: the file really is there and really is readable, so a null below
+  // means the guard worked and not that the fixture was wrong.
+  ok(JSON.parse(readFileSync(join(outer, "planted.json"), "utf8")).taskId === planted.taskId,
+    "the planted record outside the store is readable, so the traversal case is real");
+
+  let threw = null, got;
+  try { got = store.get("../planted"); } catch (e) { threw = e; }
+  ok(threw === null && got === null,
+    "a traversing id reads NOTHING - not the planted record, and not an exception either");
+
+  for (const bad of ["../../etc/passwd", "abc/../../../root", "", "/absolute/path", "not-hex-" + "0".repeat(40)]) {
+    let t2 = null, g2;
+    try { g2 = store.get(bad); } catch (e) { t2 = e; }
+    ok(t2 === null && g2 === null, `get(${JSON.stringify(bad.slice(0, 22))}) is a clean null`);
+  }
+  rmSync(outer, { recursive: true, force: true });
+}
+
 console.log(`\ntest-mcp-tasks: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
