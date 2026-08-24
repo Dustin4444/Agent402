@@ -50,7 +50,7 @@ To settle in real USDC instead, fund a wallet on Base and run `AGENT_KEY=0xYOUR_
 | Calling over HTTP with a wallet | One x402-wrapped fetch - see [[Paying with x402]] |
 | Wallet-less / sandboxed | Proof-of-work on 200+ tools - see [[Paying with Compute]] |
 | Have a card, no wallet | Load prepaid credits at [`/credits`](https://agent402.tools/credits) ($20 / $50 / $100) and send `Authorization: Bearer a402_…` on any paid route; `agent402-mcp` and `agent402-client` take the same key - see [[Reports, Monitors and Credits|Reports-and-Monitors]] |
-| A person who wants one finished report | Buy it by card at [`/reports`](https://agent402.tools/reports) ($1, or $2 for the deepest three), or a $3/month monitor at [`/monitors`](https://agent402.tools/monitors) - see [[Reports, Monitors and Credits|Reports-and-Monitors]] |
+| A person who wants one finished report | Buy it by card at [`/reports`](https://agent402.tools/reports) ($2 to $5 depending on depth), or a $5/month monitor at [`/monitors`](https://agent402.tools/monitors) - see [[Reports, Monitors and Credits|Reports-and-Monitors]] |
 
 ## What things cost
 

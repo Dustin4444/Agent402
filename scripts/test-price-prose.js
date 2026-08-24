@@ -48,4 +48,50 @@ for (const [name, html] of [["/reports", humanReportsPage("https://agent402.tool
   }
 }
 
+// --- THE BODY, not only the description ------------------------------------
+//
+// The guard above reads a page's meta and og:description, and that is where the
+// 2026-08-23 defect was found. It was not where the defect ENDED: the homepage
+// carried its own hardcoded chips - "Dossier $1" against a $3 product, "Monitor
+// $3/mo" against $5 - and they survived that whole fix untouched, because a
+// description check cannot see a body. A visitor clicked a price we do not
+// charge for a day and nobody's test could tell.
+//
+// So this reads the rendered homepage BODY. It is deliberately narrow: only
+// price-shaped text inside the product chips, so ordinary copy that happens to
+// contain a number is not dragged in.
+{
+  const { ledgerHomePage } = await import("../src/ledger-home.js");
+  const home = ledgerHomePage("https://agent402.tools", {}, {}, null, []);
+  ok(typeof home === "string" && home.length > 1000, "the homepage rendered for inspection");
+
+  const chips = [...home.matchAll(/class="hm-chip"[^>]*>([^<]{1,60})</g)].map((m) => m[1]);
+  ok(chips.length > 0, `the homepage has ${chips.length} product chips - if this hits zero the check below is vacuous`);
+
+  const quoted = chips.flatMap((c) => [...c.matchAll(/\$(\d+(?:\.\d+)?)/g)].map((m) => Number(m[1]).toFixed(2)));
+  ok(quoted.length > 0, `those chips quote ${quoted.length} price(s)`);
+  const bogus = quoted.filter((q) => !real.has(q));
+  ok(bogus.length === 0,
+    `every price on a homepage chip is a real product price${bogus.length ? ` (not real: ${[...new Set(bogus)].join(", ")})` : ""}`);
+
+  // THE ABOVE IS NOT ENOUGH ON ITS OWN, and finding that out is the point.
+  // Restoring the original bug - "Monitor $3/mo" against a $5 monitor - PASSED
+  // it, because $3 is a real price for other products. "This number appears
+  // somewhere in the price tables" is a much weaker claim than "this chip
+  // states the price of the thing it links to". So each chip is matched to its
+  // own product.
+  const expect = (label, cents) => {
+    const want = Number(cents) % 100 === 0 ? `$${Number(cents) / 100}` : `$${(Number(cents) / 100).toFixed(2)}`;
+    const chip = chips.find((c) => c.trim().startsWith(label));
+    ok(chip, `a homepage chip for "${label}" exists`);
+    ok(chip && chip.includes(want),
+      `the "${label}" chip states ${want}, the price of the product it links to (chip reads "${(chip || "").trim()}")`);
+  };
+  expect("Dossier", HUMAN_PRODUCTS["dossier"].price);
+  expect("Fund 13F", HUMAN_PRODUCTS["fund-report"].price);
+  expect("Domain audit", HUMAN_PRODUCTS["domain-audit"].price);
+  expect("Deep research", HUMAN_PRODUCTS["research"].price);
+  expect("Monitor", Math.min(...Object.values(MONITOR_PRODUCTS).map((m) => m.price)));
+}
+
 console.log(`\n${pass} passed, 0 failed`);
