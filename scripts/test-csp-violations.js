@@ -25,7 +25,17 @@ const ok = (cond, msg) => { if (cond) { pass++; console.log(`ok - ${msg}`); } el
 // Dynamic-slug route families collapse to ONE representative sample each,
 // so this test tracks the sitemap (self-maintaining) without visiting
 // hundreds of near-identical tool/skill/doc pages that share one template.
-const DYNAMIC_PREFIXES = ["/tools/category/", "/tools/", "/skills/", "/blog/", "/docs/adapters/", "/docs/", "/guides/"];
+// The programmatic SEC pages belong here for the same reason every other family
+// does: /reports/insider/:ticker is ONE template with 100 seeded slugs, not 100
+// templates. Leaving them out meant a CSP run loaded 250 of them to re-test
+// three page shapes - and because each builds from EDGAR behind a 2-concurrent
+// gate, that was also 250 EDGAR-backed page builds per CI run, which is load on
+// somebody else's service to learn nothing we did not already know from the
+// first one.
+const DYNAMIC_PREFIXES = [
+  "/tools/category/", "/tools/", "/skills/", "/blog/", "/docs/adapters/", "/docs/", "/guides/",
+  "/reports/insider/", "/reports/fund/", "/reports/dossier/",
+];
 function shapeOf(path) {
   for (const p of DYNAMIC_PREFIXES) {
     if (path.startsWith(p) && path.length > p.length && !path.slice(p.length).includes("/")) return p;
@@ -113,6 +123,8 @@ const allViolations = [];
 // CSP failures for pages that were merely slow.
 const LOAD_CONCURRENCY = Number(process.env.CSP_CONCURRENCY || 6);
 const NAV_TIMEOUT_MS = 30000;
+const EDGAR_CONCURRENCY = 2;        // the gate these pages queue on
+const EDGAR_NAV_TIMEOUT_MS = 90000; // queueing behind a bounded resource is not a stuck page
 
 async function runPool(items, limit, worker) {
   const out = new Array(items.length);
@@ -128,20 +140,41 @@ async function runPool(items, limit, worker) {
   return out;
 }
 
+// PAGES BOUND BY A SHARED EXTERNAL GATE CANNOT BE POOLED WIDER THAN THE GATE.
+//
+// The programmatic SEC pages (/reports/insider|fund|dossier) build from EDGAR
+// behind a 2-concurrent gate with a queue of 8. Loading six at once does not
+// make them finish sooner - they serialise on that gate regardless - but it does
+// make them WAIT in it, and a page that waits past the navigation timeout is
+// recorded as a violation. That is what this test is for, so it correctly
+// failed the build; the defect was the pool, not the pages.
+//
+// So they get their own small pool sized to the gate, and a longer deadline,
+// because queueing behind a bounded external resource is legitimate slowness
+// rather than a stuck page. Locally this passed on a warm cache, which is
+// exactly why the CI failure was the first honest measurement of it.
+const EDGAR_BACKED = /^\/reports\/(insider|fund|dossier)\//;
+const gated = pages.filter((p) => EDGAR_BACKED.test(p));
+const ungated = pages.filter((p) => !EDGAR_BACKED.test(p));
+
 const t0 = Date.now();
-const perPage = await runPool(pages, LOAD_CONCURRENCY, async (path) => {
+const loadPage = async (path, navTimeoutMs) => {
   const { page, violations } = await freshPage();
   try {
-    await page.goto(`${BASE}${path}`, { waitUntil: "networkidle", timeout: NAV_TIMEOUT_MS });
+    await page.goto(`${BASE}${path}`, { waitUntil: "networkidle", timeout: navTimeoutMs });
     await page.waitForTimeout(300); // let any deferred/polling script fire once
   } catch (e) {
     violations.push({ directive: "(navigation)", blockedURI: String(e && e.message || e), sourceFile: path, lineNumber: 0 });
   }
   await page.close();
   return violations.map((v) => ({ path, ...v }));
-});
-for (const list of perPage) for (const v of list) allViolations.push(v);
-console.log(`  load pass: ${pages.length} templates in ${((Date.now() - t0) / 1000).toFixed(1)}s at concurrency ${LOAD_CONCURRENCY}`);
+};
+
+const perPage = await runPool(ungated, LOAD_CONCURRENCY, (path) => loadPage(path, NAV_TIMEOUT_MS));
+const perGated = await runPool(gated, EDGAR_CONCURRENCY, (path) => loadPage(path, EDGAR_NAV_TIMEOUT_MS));
+for (const list of [...perPage, ...perGated]) for (const v of list) allViolations.push(v);
+console.log(`  load pass: ${ungated.length} templates at concurrency ${LOAD_CONCURRENCY}, ` +
+  `${gated.length} EDGAR-backed at ${EDGAR_CONCURRENCY}, in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 ok(allViolations.length === 0, `zero CSP violations across ${pages.length} page loads (got ${allViolations.length})`);
 
 // --- Interaction pass: pages whose scripts gate real behavior behind a
