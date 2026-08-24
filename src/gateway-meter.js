@@ -26,11 +26,12 @@ import { paymentSchemeOf } from "./payer.js";
 // HOW MUCH CHEAPER THAN THE FLAT TIER IS NOT OURS TO DECIDE. This once said
 // "roughly 40x cheaper", which was the markup arithmetic alone and true only in
 // a world with no floor. The binding constraint is METER_MIN_SETTLE_USD below:
-// the facilitator refuses to settle small amounts, so on a $0.02 tier with a
-// $0.01 rail floor a small call is 2x cheaper, not 40x, and tiers priced at or
-// under that floor are not metered at all. Read any multiple quoted publicly
-// off these constants at the current floor, and re-read it when the floor
-// moves.
+// the facilitator refuses to settle small amounts, so the real multiple is
+// ceiling / max(floor, upstream x markup), per tier. At the measured $0.001
+// floor a small call on the $0.02 base tier is 20x cheaper and on the $0.10 pro
+// tier 100x; nano at $0.003 is 3x; auto at $0.01 is 10x. Read any multiple
+// quoted publicly off these constants at the current floor, and re-read it when
+// the floor moves.
 //
 // What the buyer gets for the 15% is access without credentials and a hard
 // per-call ceiling (see below), not a lower token price.
@@ -48,13 +49,28 @@ export const METER_FLOOR_USD = 0.0002;
 
 // THE FACILITATOR HAS ITS OWN FLOOR, AND IT IS NOT OURS TO CHOOSE.
 //
-// Measured live 2026-08-23: a metered settle of 1,150 atomic units ($0.00115)
-// on Base was refused by CDP with `amount_too_low`. Neither CDP's facilitator
-// documentation nor the upto spec states a minimum - the spec explicitly allows
-// a settled amount of 0 - so this is undocumented facilitator behaviour that
-// only a real settle reveals. Our own `exact` routes settle at $0.001 through
-// the same facilitator every day, so the floor appears to be specific to upto's
-// Permit2 path, which costs more gas than EIP-3009.
+// MEASURED, by settling real money on Base against CDP, 2026-08-23:
+//
+//     200 atomic  ($0.0002)   refused, amount_too_low
+//     500 atomic  ($0.0005)   refused, amount_too_low
+//     750 atomic  ($0.00075)  refused, amount_too_low
+//   1,000 atomic  ($0.001)    SETTLED
+//   1,150 / 1,250 / 1,500 / 2,000 / 2,500 / 5,000 / 10,000  all SETTLED
+//
+// So the floor is in (750, 1000] and $0.001 is proven good - the same minimum
+// our `exact` routes have always settled at, which is the likely explanation:
+// it is a facilitator-wide minimum, not something upto-specific.
+//
+// Neither CDP's facilitator documentation nor the upto spec states any minimum
+// - the spec explicitly allows a settled amount of 0 - so this is undocumented
+// behaviour that only a real settle reveals.
+//
+// A correction, because it was briefly recorded as fact: the first failure was
+// reported here (and in a commit message) as a refusal of 1,150 atomic units.
+// It was not. That run proposed 200 - the old METER_FLOOR_USD - and 1,150 was a
+// number I derived from the markup rather than read from the wire. 1,150 in
+// fact settles. The lesson is the one this file keeps relearning: a figure that
+// was computed is not a figure that was observed.
 //
 // WHY THIS MATTERS MORE THAN THE MARKUP. A refused settle is not a smaller
 // payment, it is NO payment: @x402/express turns it into a 402, the buyer is
@@ -63,12 +79,12 @@ export const METER_FLOOR_USD = 0.0002;
 // proposing the ceiling. METER_FLOOR_USD (above) is about what a request is
 // worth to us; this is about what the rail will actually accept.
 //
-// Set ABOVE the only rejection we have measured, not at it, because we do not
-// know where the real floor sits and the error direction is asymmetric: too
-// high costs a buyer a fraction of a cent, too low costs us the entire call.
-// Lower it only with evidence from a live settle, never to make a number look
-// better.
-export const METER_MIN_SETTLE_USD = Number(process.env.GATEWAY_METER_MIN_SETTLE_USD || 0.01);
+// Set to the lowest amount PROVEN to settle, not to the lowest that might.
+// The error is asymmetric - too high costs a buyer a fraction of a cent, too
+// low costs us the entire call - so the default is the measured pass, and the
+// unproven gap below it (751..999) is left alone. Lower it only with evidence
+// from a live settle, never to make a number look better.
+export const METER_MIN_SETTLE_USD = Number(process.env.GATEWAY_METER_MIN_SETTLE_USD || 0.001);
 
 /**
  * What to settle for a metered call.
