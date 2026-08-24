@@ -32,6 +32,7 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 const safeHref = (u) => (/^https?:\/\//i.test(String(u || "")) ? esc(u) : "#");
 import { safeFetch } from "./tools/fetch-guard.js";
 import { parseRobots, robotsAllows } from "./tools/kit.js";
+import { responseContractOf, packResponseContract, responseContractProjection } from "./response-contract.js";
 import { toolList } from "./pages.js";
 import { fetchAllBazaarItems, isBazaarDiscoveryUrl } from "./bazaar-pager.js";
 import { RAILS, railKey, truncateCaip2 } from "./rails.js";
@@ -729,6 +730,19 @@ export function normaliseOpenapiTools(openapi, originUrl) {
         tags,
         price: op["x-price"] || op["x-x402-price"] || op["x-payment-info"]?.price?.amount || op["x-x402-price-usdc"] || null,
         ...(documentDistinguishesPaidOperations ? { paid: annotated } : {}),
+        // What this operation's own document GUARANTEES on success. Stored as
+        // a compact tuple (the public object repeats a constant source string
+        // and a constant false on every one of tens of thousands of rows), and
+        // omitted entirely when there is nothing to report. A parse failure
+        // here must never cost the seller their listing, so it is caught per
+        // operation rather than escaping into crawlSeller's manifest-only
+        // handler.
+        ...(() => {
+          try {
+            const packed = packResponseContract(responseContractOf(op));
+            return packed ? { responseContract: packed } : {};
+          } catch { return {}; }
+        })(),
       });
     }
   }
@@ -2699,6 +2713,10 @@ export function sellerDetail(originOrHost) {
         price: t.price ?? null,
         ...priceConflictProjection(t),
         ...(t.paid !== undefined ? { paid: t.paid } : {}),
+        // What the seller's own OpenAPI guarantees on success. Omitted rather
+        // than nulled when there is nothing to report: most rows have no
+        // contract and this surface serves up to 500 of them.
+        ...responseContractProjection(t),
         networks: t.networks || undefined,
       })),
     };
@@ -3101,6 +3119,10 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
       // distinct payers, last call) - absent for our own rows and for sellers
       // the Bazaar does not list. A third-party measurement, shown as such.
       ...(external && bazaarQualityFor(t.seller) ? { bazaar: bazaarQualityFor(t.seller) } : {}),
+      // Seller-declared response evidence, EXTERNAL rows only: our own catalog
+      // is documented by us and a buyer does not need to be told what we
+      // promise. Reporting only - it never re-ranks and never gates payment.
+      ...(external ? responseContractProjection(t) : {}),
       // The deciding factors, in the order the sort applies them, so a seller
       // who loses a routing decision can fix the actual reason.
       //
@@ -3840,6 +3862,11 @@ function flattenedThirdPartyTools(excludeOrigin = "") {
         // same afternoon as a fix for it. It belongs wherever a tool row is
         // served.
         payable: payabilityOf(t),
+        // Same evidence as seller detail and /api/route. Added to all three at
+        // once on purpose - this file's own header records shipping a field on
+        // two of three surfaces twice, where it is inert on whichever one the
+        // caller happens to read.
+        ...responseContractProjection(t),
         networks: Array.isArray(t?.networks) ? t.networks : [],
       });
     }

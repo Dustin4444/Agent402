@@ -1719,6 +1719,9 @@ jobs:
       - name: Crawl honours robots.txt (explicit Disallow enforced, unreadable file fails OPEN, cached per origin - offline)
         run: X402_INDEX_CRAWL=off node scripts/test-crawl-robots.js
 
+      - name: Seller response contracts (intersection across every 2xx variant, composed schemas refused, all three projections - offline)
+        run: X402_INDEX_CRAWL=off node scripts/test-response-contract.js
+
       - name: Discovery note (a seller must be able to see the gap)
         run: X402_INDEX_CRAWL=off node scripts/test-discovery-note.js
 
