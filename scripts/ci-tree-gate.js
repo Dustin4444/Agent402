@@ -128,6 +128,14 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split("/").pop()
   // simply drops that candidate instead of poisoning the comparison.
   const passedTrees = [];
   for (const sha of shas) {
+    // Shape-check before this value is ever an argv entry. Everything here goes
+    // through execFileSync with no shell, so there is no injection today, and
+    // GitHub returns real 40-hex SHAs - but `git fetch ... origin <sha>` would
+    // read a leading-dash value as a FLAG rather than a ref, so the safety of
+    // this loop rests on an upstream output format instead of on anything we
+    // check. Raised as hardening in the 2026-08-24 security review; one line,
+    // and it makes the property structural.
+    if (!isSha(sha)) continue;
     if (!git("cat-file", "-e", `${sha}^{commit}`)) sh("git", "fetch", "--quiet", "--depth", "1", "origin", sha);
     const t = git("rev-parse", `${sha}^{tree}`);
     if (t) passedTrees.push(t);

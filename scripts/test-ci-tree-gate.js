@@ -93,5 +93,18 @@ for (const gate of ["deploy", "publish"]) {
   }
 }
 
+// --- a candidate SHA must be shape-checked before it becomes an argv entry --
+// Nothing here is injectable today (execFileSync, no shell) and GitHub returns
+// real 40-hex SHAs, but `git fetch ... origin <value>` reads a leading-dash
+// value as a FLAG, so without this the safety of that call rests on an upstream
+// output format rather than on anything we verify. Raised as hardening in the
+// 2026-08-24 security review.
+const gateSrc = readFileSync(new URL("./ci-tree-gate.js", import.meta.url), "utf8");
+const loop = gateSrc.slice(gateSrc.indexOf("const passedTrees = []"), gateSrc.indexOf("const verdict = decideSkip"));
+ok(/if \(!isSha\(sha\)\) continue;/.test(loop),
+  "candidate SHAs reach `git fetch`/`git rev-parse` without a shape check");
+ok(loop.indexOf("isSha(sha)") < loop.indexOf("git(\"cat-file\""),
+  "the shape check must run BEFORE the value is passed to git, not after");
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
