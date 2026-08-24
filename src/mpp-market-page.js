@@ -8,6 +8,7 @@
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 import { mppChallengeRails } from "./mpp-shim.js";
 import { tempoEnabled } from "./mpp-tempo.js";
+import { mppCrawlIntervalLabel } from "./mpp-index.js";
 
 // Crawled seller data is third-party input: only http(s) may become an href,
 // same rule market-page.js uses for the exact same reason.
@@ -166,7 +167,7 @@ export function mppMarketPage(baseUrl, snapshot, leaderboard = null) {
     .join("");
 
   const honesty = sellers.length === 0
-    ? `<p style="color:var(--muted);font-size:13.5px;">No sellers verified yet - the crawler runs every 5 minutes and this page updates as soon as one clears live verification. Discovery has found ${discoveredTotal.toLocaleString("en-US")} candidate origin${discoveredTotal === 1 ? "" : "s"} so far.</p>`
+    ? `<p style="color:var(--muted);font-size:13.5px;">No sellers verified yet - the crawler runs ${mppCrawlIntervalLabel()} and this page updates as soon as one clears live verification. Discovery has found ${discoveredTotal.toLocaleString("en-US")} candidate origin${discoveredTotal === 1 ? "" : "s"} so far.</p>`
     : "";
 
   const gapNote = discoveredTotal > verifiedCount
@@ -218,7 +219,7 @@ export function mppMarketPage(baseUrl, snapshot, leaderboard = null) {
       "Discovery: the public mpp.dev services registry, MPPScan's origin list, and anyone who self-registers at POST /api/mpp-index/register.",
       "Every listed origin gets a real, unpaid request to one of its actual advertised endpoints (from the registry, the seller's own /openapi.json discovery document, or the submitter's hint) - a registry claim alone never counts.",
       "A listing counts as verified only when that request genuinely comes back with a WWW-Authenticate: Payment challenge.",
-      "A crawl cycle re-probes every known origin every 5 minutes; a seller that stops answering drops out of the verified count on its own.",
+      `A crawl cycle re-probes every known origin ${mppCrawlIntervalLabel()}; a seller that stops answering drops out of the verified count on its own.`,
     ].map((body_, i) => `<div style="display:grid;grid-template-columns:26px 1fr;gap:12px;padding:11px 0;border-bottom:1px solid var(--hairline);"><span style="font-family:var(--font-mono);font-size:12px;color:var(--accent);">${String(i + 1).padStart(2, "0")}</span><span style="font-size:13.5px;line-height:1.55;color:var(--muted);">${esc(body_)}</span></div>`).join("")}</div>
     <p style="font-size:13px;line-height:1.6;color:var(--faint);margin:14px 0 0;">Two known scope limits, disclosed rather than hidden: sellers hosted as per-tenant paths on one shared gateway domain aren't discoverable yet, and self-serve registration for a seller not already in the mpp.dev registry probes the bare origin root unless the submitter names the priced path (the optional path field, or a path property in the POST body) - MPP has no standard discovery path the way x402's /.well-known/x402 is.</p>
   </div>`;

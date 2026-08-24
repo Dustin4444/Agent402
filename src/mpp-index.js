@@ -52,7 +52,17 @@ const MPPSCAN_MAX_PAGES = 10;
 // the probe hits a paywalled endpoint instead of the bare root.
 const MAX_DISCOVERY_DOC_BYTES = 2 * 1024 * 1024;
 const DISCOVERY_DOC_TTL_MS = 60 * 60 * 1000;
-const MPP_CRAWL_INTERVAL_MS = 5 * 60 * 1000; // 5 min - same politeness as the x402 crawler
+const MPP_CRAWL_INTERVAL_MS = 30 * 60 * 1000; // 30 min - same politeness as the x402 crawler
+
+/** Human label for the MPP crawl cadence, derived so served copy cannot drift. */
+export function mppCrawlIntervalLabel() {
+  const mins = Math.round(MPP_CRAWL_INTERVAL_MS / 60000);
+  if (mins % 60 === 0 && mins >= 60) {
+    const h = mins / 60;
+    return h === 1 ? "every hour" : `every ${h} hours`;
+  }
+  return `every ${mins} minutes`;
+}
 const MPP_DISCOVERY_INTERVAL_MS = 60 * 60 * 1000; // 1 hr - registries don't change fast
 const MPP_CRAWL_CONCURRENCY = 10; // ~150 known services total; no need for x402's 25
 const MAX_REGISTRY_BYTES = 8 * 1024 * 1024;
@@ -74,7 +84,7 @@ const submittedSeeds = new Set();
 // probed at "/" only - the follow-up pickProbeTarget's comment asked for.
 // Persisted with the seed; a hint is only ever recorded once it verified.
 const submittedHints = new Map();
-const DEFAULT_MAX_SUBMITTED_SEEDS = 500; // same ceiling/reasoning as the x402 side
+const DEFAULT_MAX_SUBMITTED_SEEDS = 2000; // same ceiling/reasoning as the x402 side
 
 /** Validate a submitter-supplied probe path/method. Pure; exported for tests. */
 export function validateProbeHint({ path, method } = {}) {
