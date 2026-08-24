@@ -44,7 +44,7 @@ import { acceptsFromLive402, quoteFromAccepts, probeMethodsFor, isQuoteResponse 
 import { summarize, fmtUsd, fmtPct } from "./economy.js";
 import { rankBy, canonicalHost, getLeaderboardSnapshot } from "./leaderboard.js";
 import { routeExecuteHint } from "./tools/route-execute.js";
-import { recordSellerRegistrationSeen } from "./stats.js";
+import { recordSellerRegistrationSeen, getSellerRegistrations } from "./stats.js";
 
 // RAILS caip2 -> CHAIN_PAGES key, same join the homepage's by-chain strip uses
 // (see ledger-home.js) so /index's own row derives the same way: page
@@ -139,14 +139,23 @@ const submittedSeeds = new Set();
 // to ~8.7 GB/day, and this ceiling adds at most ~5.8 GB/day if every new slot
 // ever fills. Net: a 4x larger front door at a third of the old footprint.
 //
-// The ceiling is NOT a quality gate and there is deliberately no eviction: a
-// submitted origin that is still answering is a real seller, and the crawl set
-// is a union (warm-start and registry discovery both re-seed it), so dropping
-// one from this list would not stop us crawling it - it would only erase the
-// provenance that says the seller came to us. If this fills with live sellers,
-// raise it against the byte budget above; do not start deleting listings.
-// Order of operations when it does: raise CRAWL_INTERVAL_MS first (it is the
-// multiplier), this second (it is linear).
+// The ceiling is NOT a quality gate, and it is no longer a lifetime bucket.
+// Three separate bounds do three separate jobs, and conflating them is what
+// made the front door fill once and stay full:
+//
+//   * the register route's rate caps (5/hour/IP, 30/hour global) stop one
+//     actor consuming the whole door in a burst - the fairness bound;
+//   * this ceiling bounds steady-state outbound cost against the byte budget
+//     above - the money bound;
+//   * selectReleasableOrigins gives a slot back after 30 days with no
+//     successful probe - the continuity bound, so the queue moves forward.
+//
+// A release is not a deletion: the seller_registrations row survives, so the
+// provenance saying a seller came to us through /sell outlives the listing,
+// and a seller who comes back re-registers into a free slot. An origin that
+// has ever settled a payment is never released, however long it has been down.
+// If this fills with LIVE sellers, raise CRAWL_INTERVAL_MS first (it is the
+// multiplier), then this (it is linear).
 const DEFAULT_MAX_SUBMITTED_SEEDS = 2000;
 let submittedSeedsCap = DEFAULT_MAX_SUBMITTED_SEEDS;
 
@@ -209,7 +218,7 @@ export async function registerOrigin(origin, { crawl } = {}) {
   // already on the list (retrying after a prior failure) is not new growth,
   // so it's exempt — it can still probe and update its own entry at cap.
   if (!submittedSeeds.has(origin) && submittedSeeds.size >= submittedSeedsCap) {
-    return { listed: false, origin, error: "submission list is full - open a GitHub issue to get seeded" };
+    return { listed: false, origin, error: "submission list is full - slots free up after 30 days with no successful probe; open a GitHub issue to get seeded sooner" };
   }
   const doCrawl = crawl || (async (o) => { await crawlSeller(o); return cache.get(o); });
   let v;
@@ -2391,9 +2400,119 @@ async function runCrawl() {
     const ordered = seeds.length ? [...seeds.slice(start), ...seeds.slice(0, start)] : seeds;
     await runPool(ordered, CRAWL_CONCURRENCY, crawlSeller);
     recordSubmittedSellerObservations();
+    releaseDeadSubmissions(cycleOkFraction(ordered));
   } finally {
     crawlInFlight = false;
   }
+}
+
+// How long an origin may go without a single successful crawl before its
+// submission slot is released. 30 days is deliberately far past any outage a
+// seller could be having: it is not a health signal, it is "this address has
+// been gone for a month".
+const RELEASE_AFTER_MS = Number(process.env.INDEX_RELEASE_AFTER_DAYS || 30) * 86_400_000;
+
+// The submission ceiling used to be a lifetime bucket: an origin entered and
+// nothing ever took it out, so the front door filled once and stayed full, and
+// a seller arriving later got "submission list is full" no matter how many of
+// the origins ahead of them had gone dark. The rate caps on the register route
+// (5/hour/IP, 30/hour global) already stop one actor consuming the door in a
+// burst; what was missing is the door moving forward at all.
+//
+// Releasing a slot is NOT deleting a seller. The seller_registrations row -
+// first_seen, last_routable_seen, last_settled_seen - is untouched, so the
+// provenance saying they came to us through /sell outlives the listing, and a
+// seller who comes back re-registers into a free slot.
+//
+// Decides from DURABLE state on purpose. The crawl cache never persists failed
+// entries, so consecutive-failure counts reset on every redeploy and would
+// have made this pass unable to ever fire in production. last_routable_seen is
+// written to SQLite on the volume and advances only on a successful probe,
+// which is exactly the question being asked.
+//
+// @param registrations  rows from getSellerRegistrations()
+// @param isSubmitted    is this origin still holding a submission slot?
+// @param hasSettled     has this origin ever settled a payment through us?
+// @param cycleOkFraction  share of THIS cycle's crawls that succeeded, or null
+export function selectReleasableOrigins({
+  registrations = [],
+  isSubmitted = () => false,
+  hasSettled = () => false,
+  now = Date.now(),
+  maxIdleMs = RELEASE_AFTER_MS,
+  cycleOkFraction = null,
+  minCycleOkFraction = 0.5,
+} = {}) {
+  // OUTAGE GUARD. Every seller looks dead when the failure is ours - a blocked
+  // egress IP, a DNS problem, a bad deploy - and a month of that would release
+  // the entire list in one pass. If most of this cycle failed, release nothing
+  // and let the next healthy cycle decide. Fails closed: an unknown fraction
+  // releases nothing.
+  if (cycleOkFraction === null || !(cycleOkFraction >= minCycleOkFraction)) return [];
+  const out = [];
+  for (const row of registrations) {
+    const origin = row?.origin;
+    if (typeof origin !== "string" || !origin) continue;
+    if (!isSubmitted(origin)) continue;
+    // A seller who has ever been PAID through us is not a stale submission,
+    // however long they have been down. Money is a stronger claim on a slot
+    // than liveness, and releasing one would quietly drop a real counterparty.
+    if (row.last_settled_seen || hasSettled(origin)) continue;
+    // No successful probe ever recorded falls back to first_seen, so a row
+    // that predates this column cannot be immortal.
+    const lastOk = Number(row.last_routable_seen || row.first_seen || 0);
+    if (!lastOk) continue;
+    if (now - lastOk < maxIdleMs) continue;
+    out.push(origin);
+  }
+  return out;
+}
+
+// Share of the origins visited this cycle that came back without an error.
+// Read from the cache the crawl just wrote, so it measures THIS pass and not a
+// warm-started memory of a healthier one. Returns null when nothing was
+// visited, which the release pass treats as "do not release".
+function cycleOkFraction(visited = []) {
+  if (!visited.length) return null;
+  let ok = 0, seen = 0;
+  for (const origin of visited) {
+    const entry = cache.get(origin);
+    if (!entry) continue;      // never reached (budgeted probe, abort) - not a vote
+    seen++;
+    if (!entry.error) ok++;
+  }
+  return seen ? ok / seen : null;
+}
+
+// Release submission slots held by origins that have been gone for a month.
+// Called once per crawl cycle, after the observation pass has advanced
+// last_routable_seen for everything that answered - so an origin released here
+// definitively did not answer this cycle either.
+function releaseDeadSubmissions(okFraction) {
+  let releasable;
+  try {
+    releasable = selectReleasableOrigins({
+      registrations: getSellerRegistrations(),
+      isSubmitted: (o) => submittedSeeds.has(o),
+      hasSettled: (o) => originHasSettled(o),
+      cycleOkFraction: okFraction,
+    });
+  } catch { return 0; }
+  if (!releasable.length) return 0;
+  for (const origin of releasable) {
+    submittedSeeds.delete(origin);
+    // Stop crawling it too, otherwise the slot is free but the fetches are not.
+    // Discovery may legitimately re-add it within the hour if a registry still
+    // lists it - that is correct: it is then a discovered seller, not a
+    // submission, and it no longer holds anyone's slot.
+    discoveredSeeds.delete(origin);
+    cache.delete(origin);
+  }
+  persistSubmittedSeeds();
+  // Loud on purpose: this is the only path that removes a listing, so it must
+  // never happen quietly. seller_registrations still holds every one of them.
+  console.log(`[x402-index] released ${releasable.length} submission slot(s) after ${Math.round(RELEASE_AFTER_MS / 86400000)}d with no successful probe: ${releasable.slice(0, 10).join(", ")}${releasable.length > 10 ? ", ..." : ""}`);
+  return releasable.length;
 }
 
 // Post-cycle churn/conversion pass over ONLY self-serve-submitted origins
