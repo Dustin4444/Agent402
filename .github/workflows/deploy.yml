@@ -1477,6 +1477,9 @@ jobs:
       - name: Buyer SDK (agent402-client — resolve + auto-pay via PoW; boots paid-mode)
         run: node client/test.js
 
+      - name: Buyer SDK response-size ceiling (refused before parsing; a paid oversize says it was paid - offline)
+        run: node scripts/test-client-response-cap.js
+
       - name: Buyer SDK spending caps (concurrency reservation + 402-amount inspection — wallet-safety lock — offline)
         run: node scripts/test-client-caps.js
 
