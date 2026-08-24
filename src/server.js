@@ -343,7 +343,7 @@ const NETWORK = process.env.NETWORK || "base";
 const FREE_MODE = process.env.FREE_MODE === "true";
 // FR4-06: fail fast on a partial render-worker config (one of URL/token set).
 assertWorkerConfig();
-const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+const BASE_URL = process.env.BASE_URL || `http://127.0.0.1:${PORT}`;
 
 const CATALOG = {
   "POST /api/extract": {
