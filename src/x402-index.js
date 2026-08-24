@@ -34,6 +34,7 @@ import { safeFetch } from "./tools/fetch-guard.js";
 import { parseRobots, robotsAllows } from "./tools/kit.js";
 import { responseContractOf, packResponseContract, responseContractProjection } from "./response-contract.js";
 import { deliveryProjection } from "./response-observation.js";
+import { requestContractOf, packRequestContract, requestContractProjection } from "./request-contract.js";
 import { toolList } from "./pages.js";
 import { fetchAllBazaarItems, isBazaarDiscoveryUrl } from "./bazaar-pager.js";
 import { RAILS, railKey, truncateCaip2 } from "./rails.js";
@@ -742,6 +743,14 @@ export function normaliseOpenapiTools(openapi, originUrl) {
           try {
             const packed = packResponseContract(responseContractOf(op));
             return packed ? { responseContract: packed } : {};
+          } catch { return {}; }
+        })(),
+        // What a buyer must SEND. Same per-operation try/catch: a parse failure
+        // must cost this operation its tuple, never the seller their listing.
+        ...(() => {
+          try {
+            const packed = packRequestContract(requestContractOf(op));
+            return packed ? { requestContract: packed } : {};
           } catch { return {}; }
         })(),
       });
@@ -2718,6 +2727,7 @@ export function sellerDetail(originOrHost) {
         // than nulled when there is nothing to report: most rows have no
         // contract and this surface serves up to 500 of them.
         ...responseContractProjection(t),
+        ...requestContractProjection(t),
         // This loop's own origin, not t.seller: the row's origin is the key
         // the observer recorded under.
         ...deliveryProjection(origin, t.method, t.route),
@@ -3127,6 +3137,10 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
       // is documented by us and a buyer does not need to be told what we
       // promise. Reporting only - it never re-ranks and never gates payment.
       ...(external ? responseContractProjection(t) : {}),
+      // External rows only: our own catalog rows already carry a worked
+      // `example`, and two descriptions of the same input that can disagree is
+      // worse than one.
+      ...(external ? requestContractProjection(t) : {}),
       ...(external ? deliveryProjection(t.seller, t.method, t.route) : {}),
       // The deciding factors, in the order the sort applies them, so a seller
       // who loses a routing decision can fix the actual reason.
@@ -3872,6 +3886,7 @@ function flattenedThirdPartyTools(excludeOrigin = "") {
         // two of three surfaces twice, where it is inert on whichever one the
         // caller happens to read.
         ...responseContractProjection(t),
+        ...requestContractProjection(t),
         // The loop's own origin/route, which are what this surface keys on -
         // t.seller is not set on every row source.
         ...deliveryProjection(origin, t?.method, route),
