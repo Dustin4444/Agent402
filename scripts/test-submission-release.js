@@ -7,7 +7,7 @@
 // This pins the policy that gives a slot back. Everything here is about
 // REFUSING to release, because a wrong release drops a real seller's listing
 // and the pass runs unattended every cycle.
-import { selectReleasableOrigins } from "../src/x402-index.js";
+import { selectReleasableOrigins, cycleOkFraction } from "../src/x402-index.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.error("FAIL:", m); } };
@@ -79,6 +79,41 @@ ok(run({ registrations: [] }).length === 0, "empty input produced releases");
 // --- the window is configurable and actually read ---------------------------
 ok(run({ registrations: [row("https://x.example", { last_routable_seen: NOW - 10 * DAY })], maxIdleMs: 5 * DAY })
   .join() === "https://x.example", "maxIdleMs was ignored");
+
+// --- what counts as evidence that the failure is OURS ----------------------
+// cycleOkFraction answers exactly one question, and only outcomes that could
+// indicate our own breakage may vote on it.
+const cache = new Map([
+  ["ok1", {}],
+  ["ok2", {}],
+  ["down", { error: "timeout" }],
+  ["blocked", { robotsBlocked: true, error: "robots.txt disallows" }],
+]);
+const look = (o) => cache.get(o);
+ok(cycleOkFraction(["ok1", "ok2", "down"], look) === 2 / 3, "plain success/failure ratio is wrong");
+
+// A seller excluding us in robots.txt is a deliberate choice this module
+// already refuses to file under our outage count. Counting it as a failure
+// drags the fraction down and blocks releases that should proceed.
+ok(cycleOkFraction(["ok1", "blocked"], look) === 1,
+  "a robots-blocked seller was scored as our failure");
+ok(cycleOkFraction(["down", "blocked"], look) === 0,
+  "a robots-blocked seller was scored as a success");
+ok(cycleOkFraction(["blocked"], look) === null,
+  "a cycle of nothing but robots-blocked sellers reported a health number instead of null");
+
+// An origin never reached this cycle (budgeted probe, abort) is not a vote
+// either - scoring absence as failure would block releases after a quiet pass.
+ok(cycleOkFraction(["ok1", "never-visited"], look) === 1, "an unvisited origin was scored");
+ok(cycleOkFraction([], look) === null, "an empty cycle reported a health number");
+
+// The two compose: an all-robots-blocked cycle yields null, which the release
+// policy must treat as unknown and release nothing.
+ok(selectReleasableOrigins({
+  now: NOW, isSubmitted: () => true, hasSettled: () => false,
+  registrations: [row("https://gone.example", { last_routable_seen: NOW - 90 * DAY })],
+  cycleOkFraction: cycleOkFraction(["blocked"], look),
+}).length === 0, "a cycle with no scoreable outcomes released anyway");
 
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

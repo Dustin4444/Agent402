@@ -2472,12 +2472,26 @@ export function selectReleasableOrigins({
 // Read from the cache the crawl just wrote, so it measures THIS pass and not a
 // warm-started memory of a healthier one. Returns null when nothing was
 // visited, which the release pass treats as "do not release".
-function cycleOkFraction(visited = []) {
+//
+// This exists to answer ONE question - "is the failure ours?" - so only
+// outcomes that could indicate our own breakage get a vote. A seller who has
+// excluded us in robots.txt is neither a success nor evidence of an outage;
+// they are a deliberate choice this module already refuses to file under our
+// failure count, and counting them here would drag the fraction down and make
+// the guard block releases that should proceed. They are left out of the
+// denominator entirely rather than scored either way.
+//
+// (Such a seller still stops advancing last_routable_seen, so a submitted
+// origin that blocks us does eventually give its slot back. That is the
+// intended outcome and not an oversight: releasing it frees the slot AND
+// stops us fetching them, which is what their robots.txt asked for.)
+export function cycleOkFraction(visited = [], lookup = (o) => cache.get(o)) {
   if (!visited.length) return null;
   let ok = 0, seen = 0;
   for (const origin of visited) {
-    const entry = cache.get(origin);
+    const entry = lookup(origin);
     if (!entry) continue;      // never reached (budgeted probe, abort) - not a vote
+    if (entry.robotsBlocked) continue;  // their choice, not our outage
     seen++;
     if (!entry.error) ok++;
   }
