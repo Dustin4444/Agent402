@@ -6053,157 +6053,58 @@ revenueSnapshot(revenueWallets()).catch(() => { /* first pageview warms instead 
 // Bazaar walk can't delay boot or /health.
 startLeaderboardRefresh();
 
-// Graceful shutdown: a Railway redeploy sends SIGTERM. Stop accepting new
-// connections but let in-flight (already paid-for) requests finish before
-// exiting — a hard kill would take an agent's money and return nothing.
-// This only works if the platform grants a grace period: Railway defaults to
-// 0 seconds between SIGTERM and SIGKILL, so the deploy pipeline sets
-// RAILWAY_DEPLOYMENT_DRAINING_SECONDS=90 (self-hosters: set it too, or this
-// drain never runs). The hard deadline below stays under that grace and
-// above the slowest single-call upstream timeout (transcribe: 60s OpenAI).
+// Graceful shutdown: a Railway redeploy sends SIGTERM. Close the listener at
+// once and let in-flight (already paid-for) requests finish before exiting -
+// a hard kill would take an agent's money and return nothing.
+//
+// THERE IS NO OVERLAP TO SERVE THROUGH, so do not add one. This service has a
+// volume (/data), and Railway cannot run two deployments of a volume-backed
+// service at once (docs.railway.com, "Roll Back a Bad Deploy": "a volume-backed
+// service has a brief window of downtime on every deploy even with a healthcheck
+// configured"). Measured on the 2026-08-25 01:54 deploy from both containers'
+// logs: image pushed 01:54:14, the OLD container got SIGTERM at 01:54:30, and the
+// NEW container was not started until the old one exited at 02:08. Railway stops
+// the old container FIRST, then starts the new one; `overlapSeconds` is inert.
+//
+// The 2026-08-24/25 "lame duck" (keep serving after SIGTERM until a window
+// elapsed, then until traffic stopped) was built on the opposite belief and was
+// the whole reason deploys took 16 minutes: the replacement could not start
+// until this process exited, so every second of lame duck was a second added to
+// the deploy, the "gap" it kept measuring was its own previous setting (grace
+// 90s -> 108s, 600s -> 595s, 900s -> 906s), and the traffic-driven variant served
+// until SIGKILL because traffic never stops when nothing else can take it.
+//
+// What a deploy costs now: this process exits within seconds of SIGTERM when
+// idle (DRAIN_DEADLINE_MS at worst, sized above the slowest single-call
+// upstream, transcribe's 60s), then Railway starts the replacement and our boot
+// plus its health check takes ~55s. That ~60-90s is the floor for a volume-backed
+// single replica; it shrinks only by moving state off the volume or by a faster
+// boot, never by lingering here. RAILWAY_DEPLOYMENT_DRAINING_SECONDS (set by the
+// deploy job; self-hosters set it too, Railway's default is 0) only has to
+// exceed the deadline below so the SIGKILL never lands mid-drain.
+const DRAIN_DEADLINE_MS = 75_000;
 let shuttingDown = false;
-// `code`/`deadlineMs` default to the graceful-redeploy values (exit 0, 75s to
-// cover the slowest upstream). The fatal path below reuses this with a non-zero
-// code and a short deadline — same drain machinery, different exit semantics.
-// LAME DUCK: keep SERVING after SIGTERM instead of closing the door on arrival.
-//
-// Railway sends SIGTERM to the old container when the new deployment STARTS,
-// not when it can serve, and it keeps routing to the old one until the new one
-// passes its health check. Measured on the 2026-08-24 20:45 deploy: SIGTERM at
-// 20:45:17, new deployment healthy at 20:47:05 - 108 seconds later. Calling
-// httpServer.close() on arrival stopped this process accepting new connections
-// for that entire window, and at the 75s deadline it exited outright, so the
-// 502s became hard connection timeouts. That is the production downtime on
-// every single deploy, and it was ours, not Railway's: `overlapSeconds` cannot
-// help when the surviving container is alive but refusing connections.
-//
-// So SIGTERM now starts a countdown rather than a shutdown. The process keeps
-// accepting and serving normally for LAME_DUCK_MS, which must outlast the
-// replacement's boot, and only then closes the listener and drains. Railway
-// SIGKILLs at RAILWAY_DEPLOYMENT_DRAINING_SECONDS regardless, so that grace is
-// raised in the same commit and the two are sized together:
-//
-//   lame duck = grace - drain - margin, so it always fits by construction.
-//
-// 300s is sized against THREE measured gaps, not one. Every deploy so far:
-//
-//   SIGTERM -> new deployment healthy     lame duck     downtime
-//   20:45   108s                          none          103s
-//   23:40   194s                          120s           82s
-//   00:05   246s                          120s          123s
-//   00:33   373s                          300s           68s
-//   00:58   -                             300s           54s
-//
-// The first cut used 120s off the single 108s sample and was promptly proven
-// short twice over. Note the gap GROWING across those three: each of those
-// deploys also changed RAILWAY_DEPLOYMENT_DRAINING_SECONDS, and a variable
-// write makes Railway auto-redeploy the connected branch's head against the
-// pinned deploy (see the deploy job's own notes), so some of that growth is
-// churn we caused rather than a trend in build time. That value is stable now.
-// If a clean deploy's gap ever exceeds this window, the fixed timer is the
-// wrong shape and the old container should serve until SIGKILL instead.
-// The mechanism was right and the constant was wrong. Railway SIGTERMs the old
-// container while the new image is still BUILDING, so this gap tracks build and
-// pull time and is inherently variable - it is sized for the worst observed
-// with margin rather than the average, because being early costs nothing and
-// being late costs an outage.
-//
-// KNOWN TRADE-OFF, stated rather than hidden: this widens the window in which
-// TWO of our processes serve at once, and this service assumes a single writer
-// (SQLite on the volume, the credits in-memory hold cache, MCP task runs). The
-// window is not new - the old container already drained in-flight requests
-// across it - but it is now longer. It is accepted here because the status quo
-// is a guaranteed ~108s outage on every deploy, while this is a bounded overlap
-// of two healthy processes. If replicas are ever scaled, fix the shared-state
-// story first (see numReplicas in railway.toml).
-// SELF-SIZED, not a literal. The gap this has to cover grew on every single
-// measurement - 108s, 194s, 246s, 373s - including a deploy that changed no
-// Railway variable, which killed the theory that the growth was churn we caused.
-// A number picked from the last sample was short twice running, so the constant
-// is gone: the window is derived from the grace Railway actually gives us, minus
-// what the drain needs, minus a margin. That uses every second available by
-// construction and cannot be short unless the grace itself is.
-//
-// SHUTDOWN_LAME_DUCK_MS still overrides (the tests compress it to seconds).
-const DRAIN_DEADLINE_MS = 60_000;
-// LAME DUCK UNTIL TRAFFIC STOPS - no window to size, ever again.
-//
-// The previous two shapes were a literal (120s, then 300s) and then a value
-// derived from the Railway grace (510s). All three were beaten by the gap
-// between SIGTERM and the replacement serving, which measured 108s, 194s,
-// 246s, 373s and then 539s - past even the derived window - because it is
-// dominated by an uncached image build and is not a constant any clock can
-// chase. Every one of those sizes was right when written and wrong by the
-// next deploy.
-//
-// So SIGTERM no longer starts a countdown. It flips a flag and nothing else:
-// the listener stays open and every request is served exactly as before.
-// The trigger to drain is the one signal Railway does give us, implicitly -
-// once the new container passes its health check the router stops sending
-// requests HERE. We watch for that: after SIGTERM, if no request has arrived
-// for LAME_DUCK_QUIET_MS, the swap has happened and we drain. That is
-// observed, not guessed, and it is true regardless of how long the build took.
-//
-// RAILWAY_DEPLOYMENT_DRAINING_SECONDS is now only a backstop: it must be
-// large enough that Railway never SIGKILLs a still-serving old container, and
-// the sizing test holds it above the worst gap ever measured with margin.
-// A grace that is too small is the one remaining way this can drop traffic.
-//
-// SHUTDOWN_LAME_DUCK_MS is kept as an override for tests, which need a fixed
-// short window rather than waiting for traffic to stop.
-const LAME_DUCK_QUIET_MS = Number(process.env.LAME_DUCK_QUIET_MS ?? 15_000);
-const LAME_DUCK_MS = process.env.SHUTDOWN_LAME_DUCK_MS != null
-  ? Number(process.env.SHUTDOWN_LAME_DUCK_MS)
-  : null;  // null = drain on quiet, not on a clock
-let lastRequestAt = Date.now();
-// Hooked on the raw http.Server, NOT as Express middleware. This block sits at
-// the end of the file, and Express runs middleware in registration order, so an
-// app.use() here would run AFTER every route - i.e. never, because the route
-// already ended the response. The first version did exactly that: lastRequestAt
-// never updated, the "quiet" check was true on its first tick, and the server
-// drained under live traffic - the one thing this exists to prevent. The test
-// caught it. The 'request' event fires for every connection before routing.
-
-function shutdown(signal, { code = 0, deadlineMs = DRAIN_DEADLINE_MS, lameDuckMs = LAME_DUCK_MS } = {}) {
+// `code`/`deadlineMs` default to the graceful-redeploy values. The fatal path
+// below reuses this with a non-zero code and a short deadline - same drain
+// machinery, different exit semantics.
+function shutdown(signal, { code = 0, deadlineMs = DRAIN_DEADLINE_MS } = {}) {
   if (shuttingDown) return;
   shuttingDown = true;
   // Drain the PostHog paywall_402 rollup + client queue so a redeploy doesn't
   // drop up to a flush window of funnel counts. Fire-and-forget (no-op when
   // PostHog is disabled); the drain deadline below still governs exit.
   shutdownPostHog().catch(() => {});
-  const beginDrain = (why) => {
-    console.log(`${signal} - ${why}, closing listener and draining in-flight requests`);
-    httpServer.close(() => process.exit(code));
-    // server.close() waits for ALL connections, including idle keep-alive
-    // sockets agents hold open between calls. Sweep those now and every few
-    // seconds (a socket goes idle the moment its in-flight response finishes),
-    // so an idle connection can't pin the drain to the hard deadline.
-    httpServer.closeIdleConnections();
-    setInterval(() => httpServer.closeIdleConnections(), 5_000).unref();
-    // Hard deadline so a stuck request can't block the redeploy.
-    setTimeout(() => process.exit(code), deadlineMs).unref();
-  };
-  // Fatal path and tests: a fixed window (0 = drain at once).
-  if (lameDuckMs != null) {
-    const duck = Number.isFinite(lameDuckMs) && lameDuckMs > 0 ? lameDuckMs : 0;
-    console.log(`${signal} received - serving for ${Math.round(duck / 1000)}s more, then draining (exit ${code})`);
-    if (duck === 0) return beginDrain("lame-duck over");
-    setTimeout(() => beginDrain("lame-duck over"), duck).unref();
-    return;
-  }
-  // Production path: serve until traffic stops arriving.
-  console.log(`${signal} received - serving until traffic stops (quiet ${LAME_DUCK_QUIET_MS / 1000}s), then draining (exit ${code})`);
-  lastRequestAt = Date.now();
-  const tick = setInterval(() => {
-    const quietFor = Date.now() - lastRequestAt;
-    if (quietFor >= LAME_DUCK_QUIET_MS) {
-      clearInterval(tick);
-      beginDrain(`no request for ${Math.round(quietFor / 1000)}s, swap observed`);
-    }
-  }, 1_000);
-  tick.unref();
+  console.log(`${signal} received - closing listener, draining in-flight requests (exit ${code})`);
+  httpServer.close(() => process.exit(code));
+  // server.close() waits for ALL connections, including idle keep-alive
+  // sockets agents hold open between calls. Sweep those now and every few
+  // seconds (a socket goes idle the moment its in-flight response finishes),
+  // so an idle connection can't pin the drain to the hard deadline.
+  httpServer.closeIdleConnections();
+  setInterval(() => httpServer.closeIdleConnections(), 5_000).unref();
+  // Hard deadline so a stuck request can't block the redeploy.
+  setTimeout(() => process.exit(code), deadlineMs).unref();
 }
-httpServer.on("request", () => { lastRequestAt = Date.now(); });
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
 
@@ -6225,9 +6126,7 @@ process.on("unhandledRejection", (reason) => {
 process.on("uncaughtException", (err) => {
   console.error("[uncaughtException] fatal - draining then exiting non-zero:", err?.stack || err);
   try {
-    // No lame duck on the fatal path: a process whose invariants may already be
-    // broken must stop taking new work immediately, not serve for two more minutes.
-    shutdown("uncaughtException", { code: 1, deadlineMs: 10_000, lameDuckMs: 0 });
+    shutdown("uncaughtException", { code: 1, deadlineMs: 10_000 });
   } catch {
     process.exit(1);
   }

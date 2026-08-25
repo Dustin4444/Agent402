@@ -537,10 +537,15 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   steps. Either merge to main first, or set the variable BEFORE the [deploy] job runs its
   pinned deploy (during the test job is safe — the pinned deploy then carries both), and
   re-read `/health` `build` afterwards rather than assuming the flip was inert. Deploy also sets
-  `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=90` — Railway's default SIGTERM→SIGKILL grace is **0s**,
+  `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=120` — Railway's default SIGTERM→SIGKILL grace is **0s**,
   so without it the server's graceful drain never runs. Drain (`src/server.js` shutdown):
   `closeIdleConnections()` sweep every 5s + 75s hard deadline (covers transcribe's 60s
-  upstream timeout).
+  upstream timeout). **The service is volume-backed, so Railway stops the old container
+  BEFORE starting the new one (no overlap possible, `overlapSeconds` inert; verified from
+  container logs 2026-08-25): every deploy has a ~60-90s no-container window, and any
+  "keep serving after SIGTERM" logic only lengthens the deploy by exactly its own duration
+  (the 08-24/25 lame duck took deploys to 16 min measuring its own setting as "Railway's
+  gap"). Drain immediately; `scripts/test-drain-on-sigterm.js` pins it.**
 - **AVM validity guard (`src/avm-validity.js`):** Algorand payments are rejected 422
   BEFORE the handler when the signed txn's validity window can't outlive the tool
   (settlement is post-handler, so a dead txn = buyer refunded but our upstream spend
