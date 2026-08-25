@@ -6091,6 +6091,8 @@ let shuttingDown = false;
 //   20:45   108s                          none          103s
 //   23:40   194s                          120s           82s
 //   00:05   246s                          120s          123s
+//   00:33   373s                          300s           68s
+//   00:58   -                             300s           54s
 //
 // The first cut used 120s off the single 108s sample and was promptly proven
 // short twice over. Note the gap GROWING across those three: each of those
