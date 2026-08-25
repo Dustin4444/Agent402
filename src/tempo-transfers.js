@@ -25,6 +25,7 @@
 // transfer seen, minus a small overlap on the next sync; ids dedupe the
 // overlap). Persisted to /data so a redeploy does not start blind.
 import { readFileSync, writeFileSync } from "node:fs";
+import { timedSync } from "./boot-timing.js";
 import { writeFile } from "node:fs/promises";
 import { redactSecrets } from "./tools/redact.js";
 
@@ -194,6 +195,9 @@ export async function persistFeedStateAsync(state, file = TEMPO_TRANSFERS_CACHE_
   try { await writeFile(file, JSON.stringify(state)); return true; } catch { return false; }
 }
 export function loadFeedState(file = TEMPO_TRANSFERS_CACHE_FILE) {
+  return timedSync("Tempo transfer feed warm-start", file, () => _loadFeedState(file));
+}
+function _loadFeedState(file = TEMPO_TRANSFERS_CACHE_FILE) {
   try {
     const s = JSON.parse(readFileSync(file, "utf8"));
     if (s && typeof s === "object" && s.buckets && typeof s.buckets === "object") return { ...emptyFeedState(), ...s, recentIds: Array.isArray(s.recentIds) ? s.recentIds : [] };

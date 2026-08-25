@@ -25,6 +25,7 @@
 // backoff matrix (one representative endpoint per seller, not four candidate
 // manifest paths) - grow this only if a second real MPP registry surfaces.
 import { readFileSync, writeFileSync } from "node:fs";
+import { timedSync } from "./boot-timing.js";
 import { safeFetch, assertPublicUrl, ssrfDispatcher } from "./tools/fetch-guard.js";
 import { validateOriginInput, isMppChallenge, mppDualStackOrigins } from "./x402-index.js";
 
@@ -604,6 +605,9 @@ export function persistMppIndexCache(file = MPP_INDEX_CACHE_FILE) {
 }
 
 export function loadPersistedMppIndexCache(file = MPP_INDEX_CACHE_FILE) {
+  return timedSync("MPP index warm-start", file, () => _loadPersistedMppIndexCache(file));
+}
+function _loadPersistedMppIndexCache(file = MPP_INDEX_CACHE_FILE) {
   try {
     const parsed = JSON.parse(readFileSync(file, "utf8"));
     const entries = Array.isArray(parsed?.entries) ? parsed.entries : [];

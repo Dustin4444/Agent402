@@ -24,6 +24,7 @@
 //   • The router uses the same lexical scoring shape as /api/find so rankings
 //     are consistent whether a buyer searches local-only or cross-seller.
 import { readFileSync, writeFileSync } from "node:fs";
+import { timedSync } from "./boot-timing.js";
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 // F23: seller-manifest homepages are external, attacker-controlled URLs. esc()
 // escapes HTML but does NOT constrain the scheme, so a `javascript:`/`data:`
@@ -2605,6 +2606,9 @@ export function persistIndexCache(file = INDEX_CACHE_FILE) {
 /** Warm the cache from the last persisted crawl. Never clobbers an entry the
  *  live crawler has already refreshed in this process. Returns rows loaded. */
 export function loadPersistedIndexCache(file = INDEX_CACHE_FILE) {
+  return timedSync("x402 index warm-start", file, () => _loadPersistedIndexCache(file));
+}
+function _loadPersistedIndexCache(file = INDEX_CACHE_FILE) {
   try {
     const parsed = JSON.parse(readFileSync(file, "utf8"));
     const entries = Array.isArray(parsed?.entries) ? parsed.entries : [];
