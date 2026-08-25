@@ -18,6 +18,7 @@
 //     blow up disk. IP + UA are recorded for spam triage.
 import pg from "pg";
 import { dbSsl } from "./db-ssl.js";
+import { probeDbHost } from "./db-probe.js";
 
 const { Pool } = pg;
 
@@ -86,6 +87,7 @@ export async function initLeadsDb() {
     return { ok: true };
   } catch (e) {
     console.error("[leads-db] init failed:", e.message);
+    probeDbHost("leads-db", DATABASE_URL).catch(() => {});
     return { ok: false, reason: "init-failed" };
   }
 }

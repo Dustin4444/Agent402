@@ -17,6 +17,7 @@
 //     timing + flags. The dashboard is meant to be public.
 import pg from "pg";
 import { dbSsl } from "./db-ssl.js";
+import { probeDbHost } from "./db-probe.js";
 
 const { Pool } = pg;
 
@@ -99,6 +100,7 @@ export async function initAnalyticsDb() {
     return { ok: true };
   } catch (e) {
     console.error("[analytics-db] init failed:", e.message);
+    probeDbHost("analytics-db", ANALYTICS_URL).catch(() => {});
     unavailable = true;
     return { ok: false, reason: "init-failed" };
   }
