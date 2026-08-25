@@ -37,7 +37,7 @@ function getPool() {
     ssl: dbSsl(DATABASE_URL),
     max: 4,
     idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 8_000,
+    connectionTimeoutMillis: 20_000, // outlives the ~10 s post-listen boot stall (2026-08-25)
   });
   pool.on("error", (err) => {
     // Don't crash the server on a dropped idle client — Postgres on Railway
@@ -90,6 +90,16 @@ export async function initLeadsDb() {
     probeDbHost("leads-db", DATABASE_URL).catch(() => {});
     return { ok: false, reason: "init-failed" };
   }
+}
+
+// Live reachability probe for src/db-status.js: SELECT 1 through the pool,
+// null when no database is configured. Throws on any failure - the caller
+// buckets it; nothing about the failure leaves this process.
+export async function pingLeadsDb() {
+  const p = getPool();
+  if (!p) return null;
+  await p.query("SELECT 1");
+  return true;
 }
 
 export async function insertLead(lead) {

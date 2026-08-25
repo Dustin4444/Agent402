@@ -64,6 +64,8 @@ import { operatorWishesPage } from "./operator-wishes.js";
 import { initLeadsDb, insertLead, listLeads, countLeads, leadsDbEnabled } from "./leads-db.js";
 import { cacheEnabled, cacheGet, cacheSet, cacheKeyFor, CACHEABLE_ROUTES, noteCacheOutcome, cacheCounters } from "./cache.js";
 import { initAnalyticsDb, recordToolCall, getAnalytics, analyticsEnabled, redactAnalytics } from "./analytics-db.js";
+import { databasesStatus } from "./db-status.js";
+import { initWithRetry } from "./db-init-retry.js";
 import { baseNotificationsEnabled } from "./base-notifications.js";
 import { initSentry, captureToolError, sentryEnabled } from "./sentry.js";
 import { initPostHog, capturePostHogToolError, capturePostHogToolCall, capturePostHogDiscovery, capturePostHogPaywall, capturePostHogPowChallenge, capturePostHogSettlement, capturePostHogChargedFailure, capturePostHogSettleFailed, capturePostHogToolGone, shutdownPostHog, posthogEnabled } from "./posthog.js";
@@ -1579,8 +1581,10 @@ app.get("/api/gateway-status", async (_req, res) => {
   // Top-level fields stay the OpenRouter gateway status (heartbeat reads
   // .status); upstreamBuyer adds the x402 spending wallet's bucketed status
   // (blockscout-kit) — same alarm pattern, same numbers-never-leave rule.
-  const [gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, subscriptionFeePayer] = await Promise.all([gatewayCreditsStatus(), upstreamBuyerStatus(), avmBuyerStatus(), tempoBuyerStatus(), subscriptionFeePayerStatus()]);
-  res.set("Cache-Control", "public, max-age=60").json({ ...gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, subscriptionFeePayer });
+  const [gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, subscriptionFeePayer, databases] = await Promise.all([gatewayCreditsStatus(), upstreamBuyerStatus(), avmBuyerStatus(), tempoBuyerStatus(), subscriptionFeePayerStatus(), databasesStatus().catch(() => null)]);
+  // `databases`: leads/analytics Postgres reachability, status words only
+  // (src/db-status.js) - the heartbeat pages on "unreachable".
+  res.set("Cache-Control", "public, max-age=60").json({ ...gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, subscriptionFeePayer, databases });
 });
 // Static SAMPLE A2A Agent Card — the self-answering example target for the
 // a2a-card-fetch tool. Explicitly a sample (fictional weather agent), NOT an
@@ -5985,21 +5989,16 @@ startRevenueLedger(revenueWallets());
 // that case /api/tollbooth/waitlist returns 503 and the form falls back to the
 // GitHub pre-fill flow. Status is surfaced via /health so we can verify the
 // Railway DATABASE_URL wiring without poking the live leads table.
+// Init RETRIES after the post-listen boot stall (src/db-init-retry.js): the
+// first attempt's handshake timer expires inside the stall on every boot.
 let leadsDbReady = false;
-initLeadsDb().then((r) => {
-  leadsDbReady = !!r.ok;
-  if (r.ok) console.log("[leads-db] tollbooth_leads schema ready");
-  else console.log(`[leads-db] disabled (${r.reason || "unknown"})`);
-});
+initWithRetry("leads-db", initLeadsDb, { onResult: (r) => { leadsDbReady = !!r.ok; } });
 
 // Tool-call analytics — lazy Postgres init. Same pattern as leads-db: if no
 // ANALYTICS_DATABASE_URL (and no DATABASE_URL to fall back to) it's a no-op.
 // Powers the public /analytics dashboard. Boot fire-and-forget so a slow DB
 // can't hold up /health.
-initAnalyticsDb().then((r) => {
-  if (r.ok) console.log("[analytics-db] tool_calls schema ready");
-  else console.log(`[analytics-db] disabled (${r.reason || "unknown"})`);
-});
+initWithRetry("analytics-db", initAnalyticsDb);
 
 // Sentry — opt-in via SENTRY_DSN. Same env-gated, fire-and-forget pattern
 // as the other optional infra. Captures tool errors with slug + status + the
