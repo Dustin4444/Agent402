@@ -100,26 +100,44 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split("/").pop()
     process.exit(0);
   }
   console.log(`  lanes required: ${LANES.join(", ")}`);
-  let runs = [];
-  try {
+  // Diagnostics (2026-08-25): the #942 merge re-ran every lane with "0 from 0
+  // run(s)" while the same queries from a laptop found the green run - and this
+  // log said nothing about WHY each run was rejected. Every rejection is now
+  // named, an empty listing is retried once after 20 s (an API blip must not
+  // cost a full suite), and jobs are read through the paginated API so a run
+  // with more jobs than one page can never lose a lane to truncation.
+  const listRuns = () => {
     const raw = sh("gh", "run", "list", "--workflow", workflow, "--branch", devBranch,
       "--event", "push", "--limit", "15", "--json", "databaseId,headSha");
-    runs = JSON.parse(raw || "[]");
-  } catch { runs = []; }
+    return JSON.parse(raw || "[]");
+  };
+  let runs = [];
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try { runs = listRuns(); } catch (e) { runs = []; console.log(`  run list failed (attempt ${attempt}): ${String(e?.stderr || e?.message || e).slice(0, 200)}`); }
+    if (runs.length) break;
+    if (attempt === 1) { console.log("  no push runs listed - retrying in 20 s"); execFileSync("sleep", ["20"]); }
+  }
+  console.log(`  push runs listed: ${runs.length}`);
+  const repo = process.env.GITHUB_REPOSITORY || sh("gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner").trim();
 
   const shas = [];
   for (const r of runs) {
     let jobs = [];
     try {
-      const raw = sh("gh", "run", "view", String(r.databaseId), "--json", "jobs");
-      jobs = JSON.parse(raw || "{}").jobs || [];
-    } catch { continue; }
+      const raw = sh("gh", "api", "--paginate", `repos/${repo}/actions/runs/${Number(r.databaseId)}/jobs?per_page=100`, "--jq", ".jobs[] | {name, conclusion}");
+      jobs = raw.split("\n").filter(Boolean).map((l) => JSON.parse(l));
+    } catch (e) { console.log(`  run ${r.databaseId} (${String(r.headSha).slice(0, 8)}): jobs unreadable - ${String(e?.stderr || e?.message || e).slice(0, 160)}`); continue; }
     const byName = new Map(jobs.map((j) => [j.name, j.conclusion]));
     // Every lane must be present AND successful. A lane that did not run at all
     // is not a lane that passed - that is how a gate learns to trust a run in
     // which the suite was itself skipped.
-    if (LANES.every((l) => byName.get(l) === "success") && typeof r.headSha === "string") {
+    const bad = LANES.filter((l) => byName.get(l) !== "success");
+    if (bad.length === 0 && typeof r.headSha === "string") {
+      console.log(`  run ${r.databaseId} (${r.headSha.slice(0, 8)}): all ${LANES.length} lanes green`);
       shas.push(r.headSha);
+    } else {
+      const first = bad[0];
+      console.log(`  run ${r.databaseId} (${String(r.headSha).slice(0, 8)}): rejected - ${bad.length} lane(s) not green, e.g. ${first}=${byName.has(first) ? byName.get(first) : "absent"} (${jobs.length} jobs read)`);
     }
   }
 
