@@ -91,6 +91,7 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
 
 ## Testing (run locally)
 - Boot free mode: `FREE_MODE=true PORT=3000 node src/server.js` then `TARGET_URL=http://localhost:3000 node scripts/test-all.js` (every tool answers its example) and `scripts/test-mcp-all.js`.
+- CI runs SIX parallel test lanes (`test`, `test-sweeps`, `test-unit-a/b/c`, `test-pricing`), balanced by measured step time to ~4 min wall-clock (2026-08-25); the two catalog sweeps + every browser page check live in `test-sweeps` (the only lane with Chromium, cached by playwright-core version). In that lane `test-all` runs with `TEST_ALL_SKIP_STRICT_COVERED=1` and hands the ~450 routes the strict non-metered sweep asserts on to it (one hit per endpoint; the strict sweep carries the documented-keys shape check too) - locally without the flag `test-all` still covers everything. `test-ci-gating.js` derives the lanes and requires each to gate deploy/publish.
 - Paid-mode tests boot their own server (PoW path): `scripts/test-idempotency.js`, `client/test.js`.
 - Unit/offline: `scripts/test-memory.js`, `test-find.js`, `test-revenue-scan.js`, `test-util-kit.js`, `test-discovery.js`, `tollbooth/test.js`+`edge.test.js`+`features.test.js`.
 - Raise the MCP free-tier limit for sweeps: `AGENT402_MCP_MAX_PER_MIN=999999 AGENT402_MCP_MAX_PER_HOUR=9999999`.

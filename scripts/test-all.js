@@ -7,6 +7,8 @@
 // Pure-CPU tools must return 200 with no error. Network/browser tools are
 // exercised but tolerant of upstream/sandbox failures (they need real egress;
 // CI has it). Memory tools get a demo namespace and accept their valid 4xx.
+import { missingDocumentedKeys } from "./sweep-shape.js";
+
 const TARGET = process.env.TARGET_URL || "http://127.0.0.1:3000";
 
 // Tools that reach the network/browser — lenient (need real egress).
@@ -343,24 +345,32 @@ const cats = {};
 // them with placeholder inputs that legitimately produce a smaller "not found"
 // response shape. These are NOT bugs — the happy-path example is the
 // user-facing documentation; the test just can't supply real inputs.
-const SHAPE_HAPPY_PATH_ONLY = new Set([
-  "/api/x402-quote",   // example shows 402-detected case; placeholder URL may not 402
-  "/api/x402-audit",   // example shows a graded 402; live target's grade/checks vary by seller
-  "/api/tx-status",    // example shows success; 0x0…0 hash returns {status:"not_found"}
-  "/api/x402-verify",  // example shows verified settlement; 0x0…0 hash returns {status:"not_found"}
-  "/api/mev-block-payment", // example shows found=true; placeholder block 22000000 returns {found:false}
-  "/api/x402-market-pulse", // example shows populated providers/categories; a cold test boot (crawler + leaderboard not warm) returns empty arrays
-]);
 function checkShape(path, method, op, body) {
-  if (SHAPE_HAPPY_PATH_ONLY.has(path)) return;
-  if (!body || typeof body !== "object" || Array.isArray(body)) return;
-  const example = op.responses?.["200"]?.content?.["application/json"]?.example;
-  if (!example || typeof example !== "object" || Array.isArray(example)) return;
-  const expected = Object.keys(example);
-  if (!expected.length) return;
-  const actual = Object.keys(body);
-  const missing = expected.filter((k) => !actual.includes(k));
+  const missing = missingDocumentedKeys(path, op, body);
   if (missing.length) shapeMismatches.push(`${method} ${path} → missing documented keys: ${missing.join(",")}`);
+}
+
+// ONE HIT PER ENDPOINT ACROSS THE TWO SWEEPS. scripts/test-non-metered-examples.js
+// drives every priced, non-metered route with a STRICTER grade than this file
+// (502/503/504 fail there, pass here) and, since 2026-08-25, the same
+// documented-keys shape check. Driving those routes again here proved nothing
+// the strict sweep had not, and cost ~65 s of the lane plus a second round of
+// hits on the free-public upstreams that rate-limit by IP. So when the CI lane
+// runs both sweeps (TEST_ALL_SKIP_STRICT_COVERED=1) this one skips the routes
+// the strict sweep will assert on this commit - reported by count, never
+// silently - and keeps everything else: free routes, metered routes (skipped or
+// lenient here, excluded there), workflows, and the CoinGecko tools the strict
+// sweep sampled out this run. Default off, so a local `test-all` alone still
+// covers the whole catalog.
+let strictCovered = new Set();
+if (process.env.TEST_ALL_SKIP_STRICT_COVERED === "1") {
+  const { strictScopeKeys } = await import("./test-non-metered-examples.js");
+  const pricing = await (await fetch(`${TARGET}/api/pricing`)).json();
+  strictCovered = strictScopeKeys(spec, pricing);
+  if (strictCovered.size < 300) {
+    console.error(`TEST_ALL_SKIP_STRICT_COVERED is set but the strict sweep's scope is only ${strictCovered.size} routes - the hand-over is broken; sweeping everything here instead`);
+    strictCovered = new Set();
+  }
 }
 
 function buildGetUrl(path, op) {
@@ -371,7 +381,7 @@ function buildGetUrl(path, op) {
   return `${TARGET}${path}${[...qs].length ? `?${qs}` : ""}`;
 }
 
-let braveSkipped = 0, e2bSkipped = 0;
+let braveSkipped = 0, e2bSkipped = 0, strictSkipped = 0;
 const timings = [];
 // The sweep used to be one serial await-fetch per endpoint. Locally that is
 // ~2 minutes because almost nothing reaches the network; in CI, where the real
@@ -393,6 +403,7 @@ for (const [path, methods] of paths) {
     // take a path param (slug) the generic sweep can't substitute. The
     // dedicated skill-pack tests in test-mcp-all.js exercise the prompts.
     if (cat === "workflows") continue;
+    if (strictCovered.has(`${method} ${path}`)) { strictSkipped++; continue; }
     cats[cat] = cats[cat] || { pass: 0, total: 0 };
     cats[cat].total++;
 
@@ -466,7 +477,7 @@ for (const r of results) {
 }
 
 const totalOps = paths.reduce((a, [, m]) => a + Object.keys(m).length, 0);
-console.log(`\nExercised ${totalOps - braveSkipped - e2bSkipped} endpoints at ${TARGET}${braveSkipped ? ` (skipped ${braveSkipped} Brave route(s) — set BRAVE_LIVE_TEST=1 to include; paid-canary covers post-deploy verification)` : ""}${e2bSkipped ? ` (skipped ${e2bSkipped} E2B route(s) — set E2B_LIVE_TEST=1 to include; test-code-run-kit covers live in CI)` : ""}\n`);
+console.log(`\nExercised ${totalOps - braveSkipped - e2bSkipped - strictSkipped} endpoints at ${TARGET}${strictSkipped ? ` (handed ${strictSkipped} route(s) to the strict non-metered sweep - TEST_ALL_SKIP_STRICT_COVERED)` : ""}${braveSkipped ? ` (skipped ${braveSkipped} Brave route(s) — set BRAVE_LIVE_TEST=1 to include; paid-canary covers post-deploy verification)` : ""}${e2bSkipped ? ` (skipped ${e2bSkipped} E2B route(s) — set E2B_LIVE_TEST=1 to include; test-code-run-kit covers live in CI)` : ""}\n`);
 // Where the wall-clock actually went. Printed always: a slow sweep that only
 // reports a total gives the next reader nothing to act on.
 {

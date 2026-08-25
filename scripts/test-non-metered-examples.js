@@ -50,9 +50,10 @@
 // refused (floor on in-scope count).
 import { spawn } from "node:child_process";
 import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { SKILL_PACKS } from "../src/skills.js";
 import { WALLET_ONLY_SLUGS } from "../src/pow.js";
+import { missingDocumentedKeys } from "./sweep-shape.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = Number(process.env.NON_METERED_PORT) || 3143;
@@ -441,93 +442,94 @@ function stop() {
   }
 }
 
-// ── Offline controls (run before any live call) ─────────────────────────────
-// Pin the NETWORK hole: a handler 502 MUST fail this suite.
-ok(isStrictFailure(502, { error: "data.gov is not returning results" }, null) === true,
-  "control: HTTP 502 is a hard fail (the NETWORK-lenient hole that hid gov-data)");
-ok(isRateLimited(502, { error: "data.gov is not returning results right now (upstream outage)" }, null) === false,
-  "control: bare dead-upstream 502 is NOT a rate-limit soft-skip");
-ok(isRateLimited(502, { error: "Source URL returned HTTP 429" }, null) === true,
-  "control: fetch-guard 429 wording is recognized as rate-limit");
-ok(isUpstreamMediaSourceFlake("media-info", 422, { error: "media could not be processed (is the input a valid audio/video file?)" }, null) === true,
-  "control: Wikimedia media-source 422 is a soft-skip for media example slugs");
-ok(isUpstreamMediaSourceFlake("gov-data", 422, { error: "media could not be processed (is the input a valid audio/video file?)" }, null) === false,
-  "control: media-source soft-skip does NOT apply outside media example slugs");
-ok(isTransientMalformedPriceFeed(502, { error: "Price feed upstream returned malformed JSON" }, null) === true,
-  "control: price-feed malformed-JSON 502 is a soft-skip");
-ok(isTransientMalformedPriceFeed(502, { error: "data.gov is not returning results" }, null) === false,
-  "control: bare dead-upstream 502 is NOT a price-feed soft-skip (gov-data class)");
-// The escalated-retry lane. It adds TIME, never a skip, so the controls that
-// matter are that the dead-upstream class is still in it (it will be retried
-// and still fail, which is the point) and that a rate limit is not dragged in
-// - that has its own lane and its own doctrine.
-ok(isUpstreamFiveXx(502, { error: "data.gov is not returning results" }, null) === true,
-  "control: a bare dead-upstream 502 IS retried longer - and still fails, because a dead upstream fails every attempt");
-ok(isUpstreamFiveXx(504, { error: "DefiLlama request timed out or was unreachable" }, null) === true,
-  "control: a relayed upstream timeout is the class this lane exists for");
-ok(isUpstreamFiveXx(0, null, "The operation was aborted due to timeout") === true,
-  "control: a connection-level failure counts too");
-ok(isUpstreamFiveXx(200, { ok: true }, null) === false,
-  "control: a healthy response is never escalated");
-ok(isUpstreamFiveXx(422, { error: "bad input" }, null) === false,
-  "control: a 4xx is the caller's problem and is not retried for longer");
-ok(RETRY_BACKOFF_MS.length >= 3 && RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1] >= 15000,
-  `control: the escalation actually spends time (${RETRY_BACKOFF_MS.join("/")}ms) - 1.5s was shorter than a provider wobble`);
-ok(ESCALATE_MAX > 0 && ESCALATE_MAX <= 40,
-  `control: escalation is capped at ${ESCALATE_MAX} tools, so an outage does not become a ten-minute wait`);
+// Control assertions: the graders must fail what they claim to fail before
+// any live result is believed. Run from main(), never at import time, so the
+// lenient sweep can import this file's scope without running a sweep.
+function runControls() {
+  // ── Offline controls (run before any live call) ─────────────────────────────
+  // Pin the NETWORK hole: a handler 502 MUST fail this suite.
+  ok(isStrictFailure(502, { error: "data.gov is not returning results" }, null) === true,
+    "control: HTTP 502 is a hard fail (the NETWORK-lenient hole that hid gov-data)");
+  ok(isRateLimited(502, { error: "data.gov is not returning results right now (upstream outage)" }, null) === false,
+    "control: bare dead-upstream 502 is NOT a rate-limit soft-skip");
+  ok(isRateLimited(502, { error: "Source URL returned HTTP 429" }, null) === true,
+    "control: fetch-guard 429 wording is recognized as rate-limit");
+  ok(isUpstreamMediaSourceFlake("media-info", 422, { error: "media could not be processed (is the input a valid audio/video file?)" }, null) === true,
+    "control: Wikimedia media-source 422 is a soft-skip for media example slugs");
+  ok(isUpstreamMediaSourceFlake("gov-data", 422, { error: "media could not be processed (is the input a valid audio/video file?)" }, null) === false,
+    "control: media-source soft-skip does NOT apply outside media example slugs");
+  ok(isTransientMalformedPriceFeed(502, { error: "Price feed upstream returned malformed JSON" }, null) === true,
+    "control: price-feed malformed-JSON 502 is a soft-skip");
+  ok(isTransientMalformedPriceFeed(502, { error: "data.gov is not returning results" }, null) === false,
+    "control: bare dead-upstream 502 is NOT a price-feed soft-skip (gov-data class)");
+  // The escalated-retry lane. It adds TIME, never a skip, so the controls that
+  // matter are that the dead-upstream class is still in it (it will be retried
+  // and still fail, which is the point) and that a rate limit is not dragged in
+  // - that has its own lane and its own doctrine.
+  ok(isUpstreamFiveXx(502, { error: "data.gov is not returning results" }, null) === true,
+    "control: a bare dead-upstream 502 IS retried longer - and still fails, because a dead upstream fails every attempt");
+  ok(isUpstreamFiveXx(504, { error: "DefiLlama request timed out or was unreachable" }, null) === true,
+    "control: a relayed upstream timeout is the class this lane exists for");
+  ok(isUpstreamFiveXx(0, null, "The operation was aborted due to timeout") === true,
+    "control: a connection-level failure counts too");
+  ok(isUpstreamFiveXx(200, { ok: true }, null) === false,
+    "control: a healthy response is never escalated");
+  ok(isUpstreamFiveXx(422, { error: "bad input" }, null) === false,
+    "control: a 4xx is the caller's problem and is not retried for longer");
+  ok(RETRY_BACKOFF_MS.length >= 3 && RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1] >= 15000,
+    `control: the escalation actually spends time (${RETRY_BACKOFF_MS.join("/")}ms) - 1.5s was shorter than a provider wobble`);
+  ok(ESCALATE_MAX > 0 && ESCALATE_MAX <= 40,
+    `control: escalation is capped at ${ESCALATE_MAX} tools, so an outage does not become a ten-minute wait`);
 
-// CoinGecko sampling. It reduces live coverage per run on purpose, so the
-// controls are about the sample being real, deterministic and honest rather
-// than about it being large.
-{
-  const s1 = coingeckoSample("abc123");
-  const s2 = coingeckoSample("abc123");
-  ok(s1.size === 2, `control: the CoinGecko sample is ${s1.size} tools per run, not the whole family`);
-  ok([...s1].join() === [...s2].join(),
-    "control: the sample is DETERMINISTIC for a commit, so a re-run tests the same pair and a failure reproduces");
-  const others = ["deadbeef", "cafe", "0f0f0f", "12345"].map((x) => [...coingeckoSample(x)].join());
-  ok(new Set(others).size > 1,
-    "control: it ROTATES across commits, so the family is covered over time rather than the same two forever");
-  ok([...s1].every((x) => COINGECKO_SLUGS.has(x)),
-    "control: only CoinGecko-backed slugs are ever sampled");
-  ok(!COINGECKO_SLUGS.has("price-pyth") && !COINGECKO_SLUGS.has("defi-tvl"),
-    "control: Pyth and DefiLlama tools are NOT in the CoinGecko family - they have their own upstreams and stay swept");
-  ok(COINGECKO_SLUGS.has("crypto-price") && COINGECKO_SLUGS.has("coins-list") && COINGECKO_SLUGS.size === 19,
-    `control: the family is the full 19 CoinGecko-backed slugs (got ${COINGECKO_SLUGS.size})`);
-  ok(coingeckoSample("x", 99).size === COINGECKO_SLUGS.size,
-    "control: raising the sample past the family size sweeps all of them, so the cap is a budget and not a lock");
+  // CoinGecko sampling. It reduces live coverage per run on purpose, so the
+  // controls are about the sample being real, deterministic and honest rather
+  // than about it being large.
+  {
+    const s1 = coingeckoSample("abc123");
+    const s2 = coingeckoSample("abc123");
+    ok(s1.size === 2, `control: the CoinGecko sample is ${s1.size} tools per run, not the whole family`);
+    ok([...s1].join() === [...s2].join(),
+      "control: the sample is DETERMINISTIC for a commit, so a re-run tests the same pair and a failure reproduces");
+    const others = ["deadbeef", "cafe", "0f0f0f", "12345"].map((x) => [...coingeckoSample(x)].join());
+    ok(new Set(others).size > 1,
+      "control: it ROTATES across commits, so the family is covered over time rather than the same two forever");
+    ok([...s1].every((x) => COINGECKO_SLUGS.has(x)),
+      "control: only CoinGecko-backed slugs are ever sampled");
+    ok(!COINGECKO_SLUGS.has("price-pyth") && !COINGECKO_SLUGS.has("defi-tvl"),
+      "control: Pyth and DefiLlama tools are NOT in the CoinGecko family - they have their own upstreams and stay swept");
+    ok(COINGECKO_SLUGS.has("crypto-price") && COINGECKO_SLUGS.has("coins-list") && COINGECKO_SLUGS.size === 19,
+      `control: the family is the full 19 CoinGecko-backed slugs (got ${COINGECKO_SLUGS.size})`);
+    ok(coingeckoSample("x", 99).size === COINGECKO_SLUGS.size,
+      "control: raising the sample past the family size sweeps all of them, so the cap is a budget and not a lock");
+  }
+
+  ok(isClientTimeoutFlake(0, null, "The operation was aborted due to timeout") === true,
+    "control: client AbortSignal timeout is a soft-skip");
+  ok(isClientTimeoutFlake(504, { error: "timeout" }, null) === false,
+    "control: server HTTP 504 timeout is NOT a client-timeout soft-skip");
+  ok(isStrictFailure(503, { error: "capacity" }, null) === true,
+    "control: HTTP 503 is a hard fail");
+  ok(isStrictFailure(504, { error: "timeout" }, null) === true,
+    "control: HTTP 504 is a hard fail");
+  ok(isStrictPass(200, { query: "ok" }) === true, "control: HTTP 200 without body.error is a pass");
+  ok(isStrictPass(200, { error: "nope" }) === false, "control: HTTP 200 with body.error is a fail");
+  ok(excludeReason("gov-data", "/api/gov-data") === null,
+    "control: gov-data is NOT metered (DEMO_KEY / DATA_GOV — must stay in-scope)");
+  ok(excludeReason("search", "/api/search") === "metered_upstream_key_or_buyer",
+    "control: Brave search is excluded from this suite");
+  ok(excludeReason("llm", "/api/llm") === "metered_upstream_key_or_buyer",
+    "control: OpenAI llm is excluded");
+  ok(excludeReason("code-run", "/api/code-run") === "metered_upstream_key_or_buyer",
+    "control: E2B code-run is excluded");
+  ok(WALLET_ONLY_SLUGS.has("gov-data"),
+    "control: gov-data is WALLET_ONLY (wallet-gated live) yet still in THIS suite's scope");
 }
 
-ok(isClientTimeoutFlake(0, null, "The operation was aborted due to timeout") === true,
-  "control: client AbortSignal timeout is a soft-skip");
-ok(isClientTimeoutFlake(504, { error: "timeout" }, null) === false,
-  "control: server HTTP 504 timeout is NOT a client-timeout soft-skip");
-ok(isStrictFailure(503, { error: "capacity" }, null) === true,
-  "control: HTTP 503 is a hard fail");
-ok(isStrictFailure(504, { error: "timeout" }, null) === true,
-  "control: HTTP 504 is a hard fail");
-ok(isStrictPass(200, { query: "ok" }) === true, "control: HTTP 200 without body.error is a pass");
-ok(isStrictPass(200, { error: "nope" }) === false, "control: HTTP 200 with body.error is a fail");
-ok(excludeReason("gov-data", "/api/gov-data") === null,
-  "control: gov-data is NOT metered (DEMO_KEY / DATA_GOV — must stay in-scope)");
-ok(excludeReason("search", "/api/search") === "metered_upstream_key_or_buyer",
-  "control: Brave search is excluded from this suite");
-ok(excludeReason("llm", "/api/llm") === "metered_upstream_key_or_buyer",
-  "control: OpenAI llm is excluded");
-ok(excludeReason("code-run", "/api/code-run") === "metered_upstream_key_or_buyer",
-  "control: E2B code-run is excluded");
-ok(WALLET_ONLY_SLUGS.has("gov-data"),
-  "control: gov-data is WALLET_ONLY (wallet-gated live) yet still in THIS suite's scope");
 
-async function main() {
-  console.log(`[non-metered] target=${TARGET} external=${EXTERNAL} concurrency=${CONCURRENCY}`);
-  console.log(`[non-metered] metered slugs=${METERED_SLUGS.size} metered packs=${METERED_PACK_SLUGS.size}`);
-
-  await boot();
-  ok(true, `server healthy at ${TARGET}`);
-
-  const pricing = await (await fetch(`${TARGET}/api/pricing`)).json();
-  const spec = await (await fetch(`${TARGET}/openapi.json`)).json();
+/** The strict sweep's work list from a served spec + pricing: every priced
+ *  endpoint whose example spends no metered key. Exported so test-all.js can
+ *  hand these routes over instead of driving them a second time. */
+export function strictScope(spec, pricing) {
   const endpoints = pricing.endpoints || [];
   const byPath = new Map();
   for (const e of endpoints) byPath.set(e.path, e);
@@ -551,6 +553,28 @@ async function main() {
       work.push({ slug, path, method, op, priceUsd });
     }
   }
+  return { work, excluded };
+}
+
+/** "METHOD /path" keys this sweep will actually assert on THIS commit - the
+ *  CoinGecko tools sampled out of the run are deliberately NOT in the set, so
+ *  the lenient sweep keeps exercising them rather than nobody doing so. */
+export function strictScopeKeys(spec, pricing) {
+  const { work } = strictScope(spec, pricing);
+  return new Set(work.filter((t) => !(COINGECKO_SLUGS.has(t.slug) && !CG_LIVE.has(t.slug))).map((t) => `${t.method} ${t.path}`));
+}
+
+async function main() {
+  runControls();
+  console.log(`[non-metered] target=${TARGET} external=${EXTERNAL} concurrency=${CONCURRENCY}`);
+  console.log(`[non-metered] metered slugs=${METERED_SLUGS.size} metered packs=${METERED_PACK_SLUGS.size}`);
+
+  await boot();
+  ok(true, `server healthy at ${TARGET}`);
+
+  const pricing = await (await fetch(`${TARGET}/api/pricing`)).json();
+  const spec = await (await fetch(`${TARGET}/openapi.json`)).json();
+  const { work, excluded } = strictScope(spec, pricing);
 
   ok(work.length >= MIN_IN_SCOPE,
     `in-scope count is substantial (${work.length} ≥ ${MIN_IN_SCOPE}) — filter is not vacuous`);
@@ -571,6 +595,11 @@ async function main() {
   let skippedCertTransparency = 0;
   let skippedClientTimeout = 0;
   const liveFails = [];
+  // Documented-output-keys check on every strict pass. This used to live only
+  // in test-all.js; now that the lenient sweep hands these routes over, the
+  // check rides here so a route is never left with a status check but no
+  // shape check.
+  const shapeMismatches = [];
 
   await mapPool(work, CONCURRENCY, async (t) => {
     // Sampled out of this run's CoinGecko allowance. Skipped BEFORE the call,
@@ -592,7 +621,13 @@ async function main() {
       return;
     }
 
-    if (isStrictPass(r.status, r.body)) return;
+    if (isStrictPass(r.status, r.body)) {
+      // A binary response is recorded here as { __bytes } - not a body to hold
+      // against a JSON example (test-all.js records it as a byte count).
+      const missing = r.body && r.body.__bytes !== undefined ? [] : missingDocumentedKeys(t.path, t.op, r.body);
+      if (missing.length) shapeMismatches.push(`${t.method} ${t.path} → missing documented keys: ${missing.join(",")}`);
+      return;
+    }
 
     // Rate-limit after retry = soft skip (test-gov-data DEMO_KEY doctrine). A
     // bare 502 with no rate-limit wording still fails — that is the dead-tool class.
@@ -687,6 +722,10 @@ async function main() {
   // rotates so they are each exercised soon, and the count is printed above.
   // Every other skip still counts against the floor, because "we do not know
   // why this did not run" is what the floor exists to catch.
+  ok(shapeMismatches.length === 0,
+    `every strict pass carries its documented output keys (${shapeMismatches.length} mismatch(es))`);
+  for (const m of shapeMismatches.slice(0, 40)) console.error(`  shape - ${m}`);
+
   const accounted = asserted + skippedCoingecko;
   ok(accounted >= Math.floor(MIN_IN_SCOPE * 0.8),
     `enough tools were actually asserted (${asserted} run + ${skippedCoingecko} deliberately sampled out = ${accounted}), not soft-skipped away`);
@@ -696,8 +735,13 @@ async function main() {
   process.exit(failed ? 1 : 0);
 }
 
-main().catch((e) => {
-  console.error(e);
-  stop();
-  process.exit(1);
-});
+// Run only when executed directly. test-all.js imports strictScopeKeys() from
+// this file to hand over the routes covered here; an import must never boot a
+// server or start a sweep.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((e) => {
+    console.error(e);
+    stop();
+    process.exit(1);
+  });
+}
