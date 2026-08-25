@@ -3728,7 +3728,7 @@ jobs:
       !cancelled()
       && (
         needs.tree-gate.outputs.skip == 'true'
-        || ( needs.test.result == 'success' && needs.test-sweeps.result == 'success' && needs.test-paid.result == 'success' && needs.test-paid2.result == 'success' && needs.test-unit-a.result == 'success' && needs.test-unit-a2.result == 'success' && needs.test-unit-b.result == 'success' && needs.test-unit-b2.result == 'success' && needs.test-unit-c.result == 'success' && needs.test-unit-c2.result == 'success' && needs.test-unit-d.result == 'success' && needs.test-pricing.result == 'success' )
+        || ( needs.test.result == 'success' && needs.test-sweeps.result == 'success' && needs.test-paid.result == 'success' && needs.test-paid2.result == 'success' && needs.test-unit-a.result == 'success' && needs.test-unit-a2.result == 'success' && needs.test-unit-b.result == 'success' && needs.test-unit-b2.result == 'success' && needs.test-unit-c.result == 'success' && needs.test-unit-c2.result == 'success' && needs.test-unit-a3.result == 'success' && needs.test-unit-a4.result == 'success' && needs.test-unit-b3.result == 'success' && needs.test-unit-b4.result == 'success' && needs.test-sweeps2.result == 'success' && needs.test-unit-d.result == 'success' && needs.test-pricing.result == 'success' )
       )
       && (
         github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' || needs.markers.outputs.publish == 'true'
@@ -4472,7 +4472,7 @@ jobs:
       !cancelled()
       && (
         needs.tree-gate.outputs.skip == 'true'
-        || ( needs.test.result == 'success' && needs.test-sweeps.result == 'success' && needs.test-paid.result == 'success' && needs.test-paid2.result == 'success' && needs.test-unit-a.result == 'success' && needs.test-unit-a2.result == 'success' && needs.test-unit-b.result == 'success' && needs.test-unit-b2.result == 'success' && needs.test-unit-c.result == 'success' && needs.test-unit-c2.result == 'success' && needs.test-unit-d.result == 'success' && needs.test-pricing.result == 'success' )
+        || ( needs.test.result == 'success' && needs.test-sweeps.result == 'success' && needs.test-paid.result == 'success' && needs.test-paid2.result == 'success' && needs.test-unit-a.result == 'success' && needs.test-unit-a2.result == 'success' && needs.test-unit-b.result == 'success' && needs.test-unit-b2.result == 'success' && needs.test-unit-c.result == 'success' && needs.test-unit-c2.result == 'success' && needs.test-unit-a3.result == 'success' && needs.test-unit-a4.result == 'success' && needs.test-unit-b3.result == 'success' && needs.test-unit-b4.result == 'success' && needs.test-sweeps2.result == 'success' && needs.test-unit-d.result == 'success' && needs.test-pricing.result == 'success' )
       )
       && (
         (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' && inputs.mode == 'deploy' || needs.markers.outputs.deploy == 'true'
