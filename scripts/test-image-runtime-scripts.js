@@ -40,6 +40,11 @@ const REFS = [
   /from\s+["'][^"']*\/scripts\/([\w.-]+\.js)["']/g,
   /import\s*\(\s*["'][^"']*\/scripts\/([\w.-]+\.js)["']\s*\)/g,
   /new URL\(\s*["'][^"']*\/scripts\/([\w.-]+\.js)["']/g,
+  // path.join(..., "scripts", "x.js") / resolve(...) and a bare "scripts/x.js"
+  // string handed to readFileSync - the shapes a name-only scan of the three
+  // above would miss (raised in the 2026-08-25 review; no instance today).
+  /["']scripts["']\s*,\s*["']([\w.-]+\.js)["']/g,
+  /readFileSync\(\s*["'](?:\.\/)?scripts\/([\w.-]+\.js)["']/g,
 ];
 const needed = new Map(); // file -> where it was referenced
 for (const f of runtimeFiles) {

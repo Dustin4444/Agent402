@@ -50,7 +50,8 @@
 // refused (floor on in-scope count).
 import { spawn } from "node:child_process";
 import { join, dirname } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
+import { realpathSync } from "node:fs";
 import { SKILL_PACKS } from "../src/skills.js";
 import { WALLET_ONLY_SLUGS } from "../src/pow.js";
 import { missingDocumentedKeys } from "./sweep-shape.js";
@@ -616,6 +617,14 @@ async function main() {
     }
 
     if (BROWSER_SLUGS.has(t.slug) && isBrowserUnavailable(r.status, r.body, r.threw)) {
+      // Locally a missing Chromium is a fact of the machine; in CI the lane
+      // that runs this sweep installs it, so "unavailable" there is a broken
+      // install (or a cache hit on a browser that cannot launch) and must fail
+      // rather than quietly leave render/screenshot asserted by nobody.
+      if (process.env.CI) {
+        liveFails.push(`${t.method.toUpperCase()} ${t.path} (${t.slug}) → Chromium unavailable in CI: ${errText(r.body, r.threw).slice(0, 160)}`);
+        return;
+      }
       skippedBrowser++;
       console.log(`\nskip - ${t.slug}: Playwright Chromium unavailable locally (${errText(r.body, r.threw).slice(0, 120)})`);
       return;
@@ -626,6 +635,17 @@ async function main() {
       // against a JSON example (test-all.js records it as a byte count).
       const missing = r.body && r.body.__bytes !== undefined ? [] : missingDocumentedKeys(t.path, t.op, r.body);
       if (missing.length) shapeMismatches.push(`${t.method} ${t.path} → missing documented keys: ${missing.join(",")}`);
+      return;
+    }
+
+    // A pure-CPU tool has no upstream to flake. Every soft-skip below exists
+    // for a free-public provider wobbling; a hang or a 429 on a tool that
+    // talks to nobody is OUR defect and must fail. Before the hand-over from
+    // test-all.js (2026-08-25) that file graded these routes strictly; this
+    // keeps that grade now that it no longer drives them. WALLET_ONLY_SLUGS is
+    // the egress set, CI-proven by test-free-tier-egress.js.
+    if (!WALLET_ONLY_SLUGS.has(t.slug)) {
+      liveFails.push(`${t.method.toUpperCase()} ${t.path} (${t.slug}, pure-CPU) → ${r.status || "threw"} ${errText(r.body, r.threw).slice(0, 160)}`);
       return;
     }
 
@@ -738,7 +758,11 @@ async function main() {
 // Run only when executed directly. test-all.js imports strictScopeKeys() from
 // this file to hand over the routes covered here; an import must never boot a
 // server or start a sweep.
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// realpath on both sides: Node resolves symlinks for import.meta.url but not
+// for argv[1], so a run from a symlinked checkout (macOS /tmp -> /private/tmp)
+// would otherwise exit 0 having run nothing.
+const isMain = (() => { try { return Boolean(process.argv[1]) && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url); } catch { return false; } })();
+if (isMain) {
   main().catch((e) => {
     console.error(e);
     stop();

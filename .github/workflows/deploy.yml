@@ -1256,6 +1256,9 @@ jobs:
       - name: SIGTERM closes the listener at once and drains in-flight (volume-backed service, nothing to overlap with; deadline fits the Railway grace)
         run: node scripts/test-drain-on-sigterm.js
 
+      - name: A composite report is refused (503, not charged) while draining - a late request on a busy keep-alive socket must not start a 4-minute run into the deadline
+        run: node scripts/test-drain-refuses-composites.js
+
       - name: Production image carries every script the server needs at runtime (derived from source, not listed)
         run: node scripts/test-image-runtime-scripts.js
 
@@ -1416,6 +1419,62 @@ jobs:
       - name: robots-check ReDoS regression (wildcard cap, normal robots.txt behavior — offline)
         run: node scripts/test-robots-redos.js
 
+  test-unit-d:
+    # The second half of test-unit-b (2026-08-25). That lane was 200 steps
+    # and its 310 s was runner overhead per step, not work - removing four
+    # heavy steps barely moved it - so it is split down the middle. Same
+    # header, same booted server, same env; only the step list differs.
+    needs: [markers, tree-gate]
+    if: >-
+      !cancelled()
+      && (
+        github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
+      )
+      && needs.tree-gate.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      FRED_API_KEY_V2: ${{ secrets.FRED_API_KEY_V2 }}
+      E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+      COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          # Restores ~/.npm keyed on package-lock.json. `npm ci` still runs and
+          # still installs exactly what the lockfile pins, so this only saves
+          # the network fetch - a stale or poisoned cache cannot change which
+          # versions land. Measured before adding it: 21s/19s/16s across the
+          # three lanes on every single run, all of it re-downloading tarballs
+          # that had not changed.
+          cache: npm
+      - name: Install dependencies (secretless)
+        # F07: shadow the job-scope provider keys to EMPTY for this step only, so
+        # a malicious dependency lifecycle script running during `npm ci` cannot
+        # read them. No server or tool runs here, so empty keys are harmless.
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+        run: npm ci
+      # NO Playwright in this lane on purpose: it runs no browser-driven
+      # script. All eight (csp-violations, css-tokens-resolve, focus-visible,
+      # the reveal suite, burger-aria-label, compare-scroll,
+      # non-metered-examples) live in the `test` lane. Installing Chromium
+      # here cost 32s and 22s for nothing, and the slower unit lane IS the
+      # critical path. If a browser-driven script is ever added here, copy
+      # the install step back from the `test` job with it.
+      - name: Start server in free mode
+        run: |
+          # Raise the MCP rate limit so the full-catalog connector test can sweep
+          # every tool (production keeps the default 20/min, 120/hr).
+          AGENT402_MCP_MAX_PER_MIN=1000000 AGENT402_MCP_MAX_PER_HOUR=1000000 \
+            X402_SYNC_ON_START=false FREE_MODE=true X402_PAYWALL_PROBES_PER_CYCLE=0 PORT=3000 node src/server.js &
+          for i in $(seq 1 20); do curl -s localhost:3000/health >/dev/null && break; sleep 1; done
       - name: Paid scan budget (a public route must not spend without limit)
         run: node scripts/test-paid-scan-budget.js
 
@@ -1788,8 +1847,6 @@ jobs:
       - name: Multi-agent coordination demo (two wallets, one namespace)
         run: node scripts/demo-coordination.js
 
-
-
   test:
     # UPSTREAM AFFINITY, not just time. Balancing by duration alone put suites
     # that call the SAME free rate-limited providers (CoinGecko, DefiLlama,
@@ -1843,22 +1900,6 @@ jobs:
     # bump arrived with a green CI that could not have caught a client
     # regression. Prod is not in-memory: REDIS_URL is set there, and the shared
     # limiter FAILS CLOSED, so a client regression refuses trials.
-    services:
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 20
-    # F07: provider keys stay at job scope so every TEST step gates its
-    # expectations on the SAME config the booted server has. But the ONE step
-    # that runs untrusted third-party code — the dependency install, where npm
-    # lifecycle scripts execute — SHADOWS them to empty (below), so a malicious
-    # package cannot read them. That is the real F07 exposure; our own test
-    # steps are trusted code from this repo.
     env:
       BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
       FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
@@ -2011,6 +2052,73 @@ jobs:
       - name: Heartbeat probe mapping (FAILS -> per-component status; stubbed curl — offline)
         run: bash scripts/test-heartbeat-probe.sh
 
+      # Strict FREE_MODE sweep of paid tools that do NOT burn Brave/OpenAI/
+      # OpenRouter/E2B/Blockscout-buyer/FRED/Neynar/etc. Fails on 502/503/504
+      # (unlike test-all.js NETWORK leniency — that hole kept gov-data green
+      # while dead; issue #730). Filter never calls metered routes; own-boot
+      # strips keys too. Uses the shared FREE_MODE server when TARGET_URL is set.
+      - name: Remote MCP connector (/mcp — initialize, search, free call, paid refusal)
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-mcp-http.js
+
+      - name: "Every tool through the MCP connector (call_tool — free executes, wallet refuses)"
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-mcp-all.js
+
+      - name: "Self-consistency — every tool and route our own text names must exist"
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-mcp-self-consistency.js
+
+      - name: Bazaar listing copy (curated flagship descriptions name real slugs, fit the 500-char cap, say when to use them; generic cap never cuts mid-word)
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-bazaar-descriptions.js
+
+      - name: /api/stats surfaces the M2M economy
+        run: |
+          curl -s localhost:3000/api/hash -X POST -H 'Content-Type: application/json' -d '{"text":"x"}' >/dev/null
+          curl -s localhost:3000/api/stats | jq -e '.tools >= 500 and .toolCallsServed.total >= 1 and (.summary | test("machine-to-machine"))' >/dev/null \
+            && echo "/api/stats OK" || { echo "/api/stats wrong"; curl -s localhost:3000/api/stats; exit 1; }
+
+  test-paid:
+    # Suites that boot their OWN paid-mode or stub-facilitator server (PoW gate,
+    # bridge routes, multi-chain 402, deep security audit, adapters, MCP e2e /
+    # tasks / native MPP, PostHog funnel). Split out of `test` on 2026-08-25:
+    # none of them touch the shared free-mode server, and together they were
+    # ~130 s of that lane, which had become the critical path once the sweeps
+    # moved out. No redis service: nothing here sets REDIS_URL.
+    needs: [markers, tree-gate]
+    if: >-
+      !cancelled()
+      && (
+        github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
+      )
+      && needs.tree-gate.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      FRED_API_KEY_V2: ${{ secrets.FRED_API_KEY_V2 }}
+      E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+      COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          # Restores ~/.npm keyed on package-lock.json. `npm ci` still runs and
+          # still installs exactly what the lockfile pins, so this only saves
+          # the network fetch - a stale or poisoned cache cannot change which
+          # versions land. Measured before adding it: 21s/19s/16s across the
+          # three lanes on every single run, all of it re-downloading tarballs
+          # that had not changed.
+          cache: npm
+      - name: Install dependencies (secretless)
+        # F07: shadow the job-scope provider keys to EMPTY for this step only, so
+        # a malicious dependency lifecycle script running during `npm ci` cannot
+        # read them. No server or tool runs here, so empty keys are harmless.
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+        run: npm ci
       - name: Deep security audit (payment gate + PoW replay/slug-bind/tamper + SSRF + attribution; boots paid-mode)
         env:
           POW_SECRET: ${{ secrets.POW_SECRET }}
@@ -2056,29 +2164,6 @@ jobs:
           AGENT402_BASE_URL=http://127.0.0.1:3091 python3 adapters/langchain-py/test.py
           kill $ADAPTER_PID 2>/dev/null || true
 
-      # Strict FREE_MODE sweep of paid tools that do NOT burn Brave/OpenAI/
-      # OpenRouter/E2B/Blockscout-buyer/FRED/Neynar/etc. Fails on 502/503/504
-      # (unlike test-all.js NETWORK leniency — that hole kept gov-data green
-      # while dead; issue #730). Filter never calls metered routes; own-boot
-      # strips keys too. Uses the shared FREE_MODE server when TARGET_URL is set.
-      - name: Remote MCP connector (/mcp — initialize, search, free call, paid refusal)
-        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-mcp-http.js
-
-      - name: "Every tool through the MCP connector (call_tool — free executes, wallet refuses)"
-        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-mcp-all.js
-
-      - name: "Self-consistency — every tool and route our own text names must exist"
-        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-mcp-self-consistency.js
-
-      - name: Bazaar listing copy (curated flagship descriptions name real slugs, fit the 500-char cap, say when to use them; generic cap never cuts mid-word)
-        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-bazaar-descriptions.js
-
-      - name: /api/stats surfaces the M2M economy
-        run: |
-          curl -s localhost:3000/api/hash -X POST -H 'Content-Type: application/json' -d '{"text":"x"}' >/dev/null
-          curl -s localhost:3000/api/stats | jq -e '.tools >= 500 and .toolCallsServed.total >= 1 and (.summary | test("machine-to-machine"))' >/dev/null \
-            && echo "/api/stats OK" || { echo "/api/stats wrong"; curl -s localhost:3000/api/stats; exit 1; }
-
       - name: Proof-of-work tier (gate bypass with payments enabled)
         run: |
           # Start a second instance with the x402 paywall ACTIVE so the PoW gate
@@ -2118,8 +2203,26 @@ jobs:
           const c2 = await (await fetch(B + "/api/pow/challenge?slug=hash")).json();
           const n2 = solve(c2);
           const walletOnly = await fetch(B + "/api/render", { method: "POST", headers: { "Content-Type": "application/json", "X-Pow-Solution": c2.token + ":" + n2 }, body: JSON.stringify({ url: "https://example.com" }) });
-          if (walletOnly.status === 200) fail("PoW must NOT bypass the wallet-only /api/render");
-          console.log("PoW on wallet-only render -> " + walletOnly.status + " ✓");
+          // The PAYWALL must be what answered, never the handler. "!== 200" used
+          // to be enough when this lane had Chromium; without it the handler
+          // answers 503 even with the gate wide open, and the assertion proved
+          // nothing (2026-08-25). This boot never contacts a facilitator
+          // (X402_SYNC_ON_START=false), so the paywall cannot mint a 402 here:
+          // it fails CLOSED with the x402 route-config 500 ("Facilitator does
+          // not support exact on ..."), and that is the paywall speaking too.
+          // Anything else - 200, the browser 503, an upstream 502 - means the
+          // request reached the handler, i.e. the gate was bypassed.
+          // (No apostrophes in this block: it lives inside a single-quoted
+          // bash heredoc, and one ended the script on the first run.)
+          // The fail-closed 500 carries a generic body (the facilitator wording
+          // is in the server log only), so it is recognised by what it is NOT:
+          // a bypass here can only surface as 200 or the browser-unavailable
+          // 503 (this lane has no Chromium), never as a 500 from the handler
+          // that answered 200 on /api/hash a moment ago.
+          const wText = await walletOnly.text();
+          const paywalled = walletOnly.status === 402 || (walletOnly.status === 500 && !/browser|chromium|render/i.test(wText));
+          if (!paywalled) fail("PoW must NOT bypass the wallet-only /api/render (expected the paywall 402 or its fail-closed 500, got " + walletOnly.status + ": " + wText.slice(0, 120) + ")");
+          console.log("PoW on wallet-only render -> " + walletOnly.status + " ✓ (paywall answered)");
           console.log("proof-of-work gate: all assertions passed");
           '
 
@@ -2215,7 +2318,6 @@ jobs:
       - name: Native MPP on /mcp (stock MCP SDK client + mppx McpClient pays a wallet-only tool via the real gates; stub facilitator; -32042 wire; RFC 9457 problem on tamper - offline)
         run: node scripts/test-mcp-mpp.js
 
-
   test-sweeps:
     # The two catalog sweeps and every browser-driven page check, on one booted
     # server with Chromium. Split out of `test` on 2026-08-25 because that lane
@@ -2234,16 +2336,6 @@ jobs:
       && needs.tree-gate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    services:
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 20
     env:
       BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
       FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
@@ -2680,7 +2772,7 @@ jobs:
 
 
   publish:
-    needs: [markers, tree-gate, test, test-sweeps, test-unit-a, test-unit-b, test-unit-c, test-pricing]
+    needs: [markers, tree-gate, test, test-sweeps, test-paid, test-unit-a, test-unit-b, test-unit-c, test-unit-d, test-pricing]
     # The lanes are `needs:`, so this used to inherit an implicit success() and
     # nothing else was required. !cancelled() removes that implicit check, so
     # the success requirement is written out - and the ONLY accepted alternative
@@ -2691,7 +2783,7 @@ jobs:
       !cancelled()
       && (
         needs.tree-gate.outputs.skip == 'true'
-        || ( needs.test.result == 'success' && needs.test-sweeps.result == 'success' && needs.test-unit-a.result == 'success' && needs.test-unit-b.result == 'success' && needs.test-unit-c.result == 'success' && needs.test-pricing.result == 'success' )
+        || ( needs.test.result == 'success' && needs.test-sweeps.result == 'success' && needs.test-paid.result == 'success' && needs.test-unit-a.result == 'success' && needs.test-unit-b.result == 'success' && needs.test-unit-c.result == 'success' && needs.test-unit-d.result == 'success' && needs.test-pricing.result == 'success' )
       )
       && (
         github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' || needs.markers.outputs.publish == 'true'
@@ -3421,7 +3513,7 @@ jobs:
         run: SPAN_BLOCKS=350000 MAX_TXS=80 node scripts/check-builder-attribution.js || true
 
   deploy:
-    needs: [markers, tree-gate, test, test-sweeps, test-unit-a, test-unit-b, test-unit-c, test-pricing]
+    needs: [markers, tree-gate, test, test-sweeps, test-paid, test-unit-a, test-unit-b, test-unit-c, test-unit-d, test-pricing]
     # Unconditional on a push to main (same reasoning as the test job above -
     # a merge to main has no marker to scan and needs none), otherwise the
     # existing dispatch/marker gates for the dev branch.
@@ -3435,7 +3527,7 @@ jobs:
       !cancelled()
       && (
         needs.tree-gate.outputs.skip == 'true'
-        || ( needs.test.result == 'success' && needs.test-sweeps.result == 'success' && needs.test-unit-a.result == 'success' && needs.test-unit-b.result == 'success' && needs.test-unit-c.result == 'success' && needs.test-pricing.result == 'success' )
+        || ( needs.test.result == 'success' && needs.test-sweeps.result == 'success' && needs.test-paid.result == 'success' && needs.test-unit-a.result == 'success' && needs.test-unit-b.result == 'success' && needs.test-unit-c.result == 'success' && needs.test-unit-d.result == 'success' && needs.test-pricing.result == 'success' )
       )
       && (
         (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' && inputs.mode == 'deploy' || needs.markers.outputs.deploy == 'true'
@@ -3540,6 +3632,12 @@ jobs:
           ENV_ID=$(jq -n --arg id "$PROJECT_ID" '{query:"query($id:String!) { project(id: $id) { environments { edges { node { id name } } } } }", variables:{id:$id}}' | gql \
             | jq -r '.data.project.environments.edges[] | select(.node.name=="production") | .node.id' | head -1)
           [ -n "$ENV_ID" ] || { echo "No production environment found"; exit 1; }
+          # Shape-checked before they become step outputs: outputs are template-
+          # interpolated into later run: scripts, so an API answer that was not
+          # a UUID would otherwise be executed as shell.
+          UUID='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          [[ "$PROJECT_ID" =~ $UUID ]] || { echo "project id is not a UUID: $(printf '%s' "$PROJECT_ID" | head -c 80)"; exit 1; }
+          [[ "$ENV_ID" =~ $UUID ]] || { echo "environment id is not a UUID: $(printf '%s' "$ENV_ID" | head -c 80)"; exit 1; }
           echo "project_id=$PROJECT_ID" >> "$GITHUB_OUTPUT"
           echo "env_id=$ENV_ID" >> "$GITHUB_OUTPUT"
           echo "Project: $PROJECT_ID  Environment: $ENV_ID"
@@ -3562,6 +3660,7 @@ jobs:
             SERVICE_ID=$(echo "$RESP" | jq -r '.data.serviceCreate.id // empty')
           fi
           [ -n "$SERVICE_ID" ] || { echo "Could not find or create service. If the error above mentions GitHub, install the Railway GitHub app: https://railway.com/account/integrations"; exit 1; }
+          [[ "$SERVICE_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || { echo "service id is not a UUID: $(printf '%s' "$SERVICE_ID" | head -c 80)"; exit 1; }
           echo "service_id=$SERVICE_ID" >> "$GITHUB_OUTPUT"
           echo "Service: $SERVICE_ID"
 
@@ -3627,15 +3726,19 @@ jobs:
           fi
           if [ -z "$DOMAIN" ] && [ "$READABLE" = "1" ]; then
             RESP=$(jq -n --arg e "$ENV_ID" --arg s "$SERVICE_ID" \
-              '{query:"mutation($e:String!, $s:String!) { serviceDomainCreate(input: { environmentId: $e, serviceId: $s }) { domain } }", variables:{e:$e,s:$s}}' | gql)
-            echo "$RESP"
-            DOMAIN=$(echo "$RESP" | jq -r '.data.serviceDomainCreate.domain // empty')
+              '{query:"mutation($e:String!, $s:String!) { serviceDomainCreate(input: { environmentId: $e, serviceId: $s }) { domain } }", variables:{e:$e,s:$s}}' | gql || true)
+            echo "$RESP" | head -c 300; echo
+            DOMAIN=$(printf '%s' "$RESP" | jq -r '.data.serviceDomainCreate.domain // empty' 2>/dev/null || true)
           fi
           # The public Railway domain is only used to poll /health below; the
           # real address is the custom domain. Fall back to it so a domain quirk
           # never blocks the actual deploy (env vars + trigger come after).
           [ -z "$DOMAIN" ] && DOMAIN="${CUSTOM_DOMAIN}"
           [ -n "$DOMAIN" ] || { echo "No domain available to verify against"; exit 1; }
+          # A hostname and nothing else - this value is interpolated into later
+          # run: scripts, so anything the API returned that is not a hostname
+          # must stop here rather than execute there.
+          [[ "$DOMAIN" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]] || { echo "domain is not a hostname: $(printf '%s' "$DOMAIN" | head -c 80)"; exit 1; }
           echo "domain=$DOMAIN" >> "$GITHUB_OUTPUT"
           echo "PUBLIC URL: https://$DOMAIN"
 
@@ -3673,13 +3776,15 @@ jobs:
         run: node scripts/deploy-quiet-gate.js
 
       - name: Set environment variables (triggers deploy)
+        env:
+          RAILWAY_DOMAIN: ${{ steps.domain.outputs.domain }}
         run: |
           gql() {
             curl -s -X POST https://backboard.railway.app/graphql/v2 \
               -H "Authorization: Bearer $RAILWAY_API_TOKEN" -H "Content-Type: application/json" \
               --data @-
           }
-          BASE="https://${CUSTOM_DOMAIN:-${{ steps.domain.outputs.domain }}}"
+          BASE="https://${CUSTOM_DOMAIN:-$RAILWAY_DOMAIN}"
           # RAILWAY_DEPLOYMENT_DRAINING_SECONDS: Railway's default grace between
           # SIGTERM and SIGKILL is 0 seconds - without this, the server's
           # graceful drain never runs and every deploy hard-kills in-flight
@@ -3837,8 +3942,10 @@ jobs:
           exit 1
 
       - name: Verify deployment
+        env:
+          RAILWAY_DOMAIN: ${{ steps.domain.outputs.domain }}
         run: |
-          URL='${{ steps.domain.outputs.domain }}'
+          URL="$RAILWAY_DOMAIN"
           # The Railway hostname now 301-redirects to the canonical domain
           # (see "Redirect Railway hostname to canonical domain"), so probing it
           # returns 301, never 200, and the gate below would false-fail every

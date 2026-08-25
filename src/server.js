@@ -1402,6 +1402,28 @@ if (BASE_URL.includes("agent402.tools")) {
   });
 }
 
+
+// Set by shutdown() on SIGTERM. Declared HERE, above the first middleware that
+// reads it: app.listen() runs before the shutdown block at the bottom of this
+// file, so a request arriving during the rest of module evaluation would hit
+// the temporal dead zone of a `let` declared further down ("draining is not
+// defined" on /health - caught by test-drain-refuses-composites.js).
+let draining = false;
+// Redeploy drain: refuse to START a long composite BEFORE any gate runs, so
+// a buyer never spends a signature (or a card hold) on a run this process
+// could not finish - it exits within DRAIN_DEADLINE_MS of SIGTERM and these
+// run 30 s to 4 min. Sits ahead of the paywall AND the free-mode binder, so
+// it holds in every mode; the dispatcher carries the same check as a
+// belt for anything that reaches it another way. 503 = never charged.
+const COMPOSITE_METHOD_PATHS = new Set(
+  Object.entries(CATALOG).filter(([, d]) => EXPENSIVE_COMPOSITE_SLUGS.has(d.slug)).map(([route]) => route)
+);
+app.use((req, res, next) => {
+  if (!draining || !COMPOSITE_METHOD_PATHS.has(`${req.method} ${req.path}`)) return next();
+  res.set("Cache-Control", "no-store").set("Retry-After", "60");
+  return res.status(503).json({ error: "This server is redeploying; premium report generation restarts on the new build in about a minute. Not charged - please retry." });
+});
+
 app.use((_req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "SAMEORIGIN");
@@ -5695,6 +5717,13 @@ for (const tool of ALL_KIT) {
       // a paid 200 clears it). Registered before the handler so it fires even if
       // the handler throws. Same doctrine as the external-spend guard below.
       if (EXPENSIVE_COMPOSITE_SLUGS.has(tool.slug)) {
+        // Belt for the global drain middleware: a composite that reaches the
+        // dispatcher while draining is refused here too (503, not charged).
+        if (draining) {
+          const e = new Error("This server is redeploying; premium report generation restarts on the new build in about a minute. Not charged - please retry.");
+          e.statusCode = 503;
+          throw e;
+        }
         // Guard key: the signed EVM payer when present; otherwise the Tempo
         // payer the gate verified, or the client IP (card/SPT buyers and any
         // rail whose payer is only known post-settlement) - nobody is unkeyed.
@@ -6035,23 +6064,55 @@ if (String(process.env.MPP_INDEX_CRAWL || "").toLowerCase() === "off") {
 
 // Nightly offsite backup of /data (src/backup.js). No-op without the
 // BACKUP_S3_* creds; the timer is unref'd so it never holds the process.
-startBackupScheduler();
+// BOOT STALL INSTRUMENTATION (2026-08-25). Prod's deploy log shows the listener
+// bound and then ~18 s with no answer to Railway's healthcheck and no log line,
+// timers due at ~15 s firing at ~27 s - the signature of something synchronous
+// on the event loop after the last warm-start log, which local boots (no /data)
+// never reproduce. The candidates are the sync prefixes of the calls below, so
+// each is timed, and an event-loop lag sampler covers the first 60 s so a stall
+// that lives somewhere else still gets a timestamp. Cost: one timer for a
+// minute, nothing on the request path.
+const bootStep = (name, fn) => {
+  const t0 = performance.now();
+  try { return fn(); }
+  finally {
+    const ms = Math.round(performance.now() - t0);
+    if (ms > 200) console.warn(`[boot] ${name} held the event loop for ${ms}ms after listen`);
+  }
+};
+{
+  let last = performance.now(), worst = 0, worstAt = null;
+  const lag = setInterval(() => {
+    const now = performance.now(), drift = now - last - 100;
+    if (drift > worst) { worst = drift; worstAt = new Date().toISOString(); }
+    last = now;
+  }, 100);
+  lag.unref();
+  const report = setTimeout(() => {
+    clearInterval(lag);
+    if (worst > 250) console.warn(`[boot] worst event-loop stall in the first 60s: ${Math.round(worst)}ms at ${worstAt}`);
+    else console.log(`[boot] no event-loop stall over 250ms in the first 60s (worst ${Math.round(worst)}ms)`);
+  }, 60_000);
+  report.unref();
+}
+
+bootStep("startBackupScheduler", () => startBackupScheduler());
 
 // Monitor scheduler timer (recurring report fulfilment). MONITOR_SCHEDULER=off
 // keeps the manual operator run available while disarming the timer.
-if (_monitors && process.env.MONITOR_SCHEDULER !== "off") _monitors.start();
+if (_monitors && process.env.MONITOR_SCHEDULER !== "off") bootStep("monitors.start", () => _monitors.start());
 
 // Warm the revenue snapshot at boot (fire-and-forget): revenueSnapshot serves
 // stale-while-revalidating, so the only request that could ever block on the
 // full seven-rail RPC scan is the very first one after a deploy — this warm
 // takes even that hit off buyers' pageviews.
-revenueSnapshot(revenueWallets()).catch(() => { /* first pageview warms instead */ });
+bootStep("revenueSnapshot", () => revenueSnapshot(revenueWallets()).catch(() => { /* first pageview warms instead */ }));
 
 // x402 Leaderboard cache: warms once at boot, refreshes hourly. Failures keep
 // the previous good snapshot rather than wiping it — a transient RPC outage
 // shouldn't make /api/leaderboard return nothing. Fire-and-forget so a slow
 // Bazaar walk can't delay boot or /health.
-startLeaderboardRefresh();
+bootStep("startLeaderboardRefresh", () => startLeaderboardRefresh());
 
 // Graceful shutdown: a Railway redeploy sends SIGTERM. Close the listener at
 // once and let in-flight (already paid-for) requests finish before exiting -
@@ -6090,6 +6151,7 @@ let shuttingDown = false;
 function shutdown(signal, { code = 0, deadlineMs = DRAIN_DEADLINE_MS } = {}) {
   if (shuttingDown) return;
   shuttingDown = true;
+  draining = true;
   // Drain the PostHog paywall_402 rollup + client queue so a redeploy doesn't
   // drop up to a flush window of funnel counts. Fire-and-forget (no-op when
   // PostHog is disabled); the drain deadline below still governs exit.
