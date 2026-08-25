@@ -916,7 +916,7 @@ jobs:
       # runs in its own process, in the same order; `t` groups its log and names it
       # with its elapsed time, and a failure prints the failing script as an error.
       # The original step names ride above each script so the WHY stays here.
-      - name: Offline suites (14 scripts, one process each)
+      - name: Offline suites (6 scripts, one process each)
         run: |
           set -euo pipefail
           t() { local s=$SECONDS; echo "::group::$*"; "$@" || { echo "::endgroup::"; echo "::error::failed: $*"; exit 1; }; echo "::endgroup::"; echo "ok  $* ($((SECONDS - s))s)"; }
@@ -932,6 +932,92 @@ jobs:
           t node scripts/test-leaderboard-memory.js
           # Conversion tools (~970 endpoints, exact + round-trip)
           t node scripts/test-convert.js
+
+  test-unit-a2:
+    # Second half of test-unit-a (2026-08-25), split by the seconds each script
+    # measured in its own log line - not by count. Same header, same setup, same
+    # order within each half; only the list differs.
+    needs: [markers, tree-gate]
+    if: >-
+      !cancelled()
+      && (
+        (github.event_name == 'pull_request' && !(github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'claude/sweet-brown-i99jl3')) || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/sweet-brown-i99jl3')) || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
+      )
+      && needs.tree-gate.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      FRED_API_KEY_V2: ${{ secrets.FRED_API_KEY_V2 }}
+      E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+      COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          # Restores ~/.npm keyed on package-lock.json. `npm ci` still runs and
+          # still installs exactly what the lockfile pins, so this only saves
+          # the network fetch - a stale or poisoned cache cannot change which
+          # versions land. Measured before adding it: 21s/19s/16s across the
+          # three lanes on every single run, all of it re-downloading tarballs
+          # that had not changed.
+          cache: npm
+      # node_modules restored by lockfile hash (2026-08-25): npm ci was 13-17 s in
+      # every lane. On a hit the install is skipped outright, so no install script
+      # runs at all - stricter than the secretless-env install below. Native
+      # modules (better-sqlite3) ship prebuilt per Node ABI, hence node22 in the key.
+      - name: Restore node_modules
+        id: nm-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+      - name: Install dependencies (secretless)
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        # F07: shadow the job-scope provider keys to EMPTY for this step only, so
+        # a malicious dependency lifecycle script running during `npm ci` cannot
+        # read them. No server or tool runs here, so empty keys are harmless.
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+        run: npm ci
+      # NO Playwright in this lane on purpose: it runs no browser-driven
+      # script. All eight (csp-violations, css-tokens-resolve, focus-visible,
+      # the reveal suite, burger-aria-label, compare-scroll,
+      # non-metered-examples) live in the `test` lane. Installing Chromium
+      # here cost 32s and 22s for nothing, and the slower unit lane IS the
+      # critical path. If a browser-driven script is ever added here, copy
+      # the install step back from the `test` job with it.
+      - name: Start server in free mode
+        run: |
+          # Raise the MCP rate limit so the full-catalog connector test can sweep
+          # every tool (production keeps the default 20/min, 120/hr).
+          AGENT402_MCP_MAX_PER_MIN=1000000 AGENT402_MCP_MAX_PER_HOUR=1000000 \
+            X402_SYNC_ON_START=false FREE_MODE=true X402_PAYWALL_PROBES_PER_CYCLE=0 PORT=3000 node src/server.js &
+          for i in $(seq 1 20); do curl -s localhost:3000/health >/dev/null && break; sleep 1; done
+      # ONE STEP, MANY SCRIPTS (2026-08-25): GitHub spends ~0.7 s of runner setup
+      # per step and this lane had over a hundred one-line steps. Each script still
+      # runs in its own process, in the same order; `t` groups its log and names it
+      # with its elapsed time, and a failure prints the failing script as an error.
+      # The original step names ride above each script so the WHY stays here.
+      - name: Offline suites (8 scripts, one process each)
+        run: |
+          set -euo pipefail
+          t() { local s=$SECONDS; echo "::group::$*"; "$@" || { echo "::endgroup::"; echo "::error::failed: $*"; exit 1; }; echo "::endgroup::"; echo "ok  $* ($((SECONDS - s))s)"; }
           # /.well-known/x402 manifest contract (envelope + payment + capabilities + discovery)
           t node scripts/test-x402-manifest.js
           # MPP subscription rail-canary gate (canary product is never advertised and is mintable only for a heartbeat-token caller; boots a real server, spends nothing)
@@ -1314,7 +1400,7 @@ jobs:
       # runs in its own process, in the same order; `t` groups its log and names it
       # with its elapsed time, and a failure prints the failing script as an error.
       # The original step names ride above each script so the WHY stays here.
-      - name: Offline suites (32 scripts, one process each)
+      - name: Offline suites (6 scripts, one process each)
         run: |
           set -euo pipefail
           t() { local s=$SECONDS; echo "::group::$*"; "$@" || { echo "::endgroup::"; echo "::error::failed: $*"; exit 1; }; echo "::endgroup::"; echo "ok  $* ($((SECONDS - s))s)"; }
@@ -1330,6 +1416,92 @@ jobs:
           t node scripts/test-drain-on-sigterm.js
           # A composite report is refused (503, not charged) while draining - a late request on a busy keep-alive socket must not start a 4-minute run into the deadline
           t node scripts/test-drain-refuses-composites.js
+
+  test-unit-b2:
+    # Second half of test-unit-b (2026-08-25), split by the seconds each script
+    # measured in its own log line - not by count. Same header, same setup, same
+    # order within each half; only the list differs.
+    needs: [markers, tree-gate]
+    if: >-
+      !cancelled()
+      && (
+        (github.event_name == 'pull_request' && !(github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'claude/sweet-brown-i99jl3')) || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/sweet-brown-i99jl3')) || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
+      )
+      && needs.tree-gate.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      FRED_API_KEY_V2: ${{ secrets.FRED_API_KEY_V2 }}
+      E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+      COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          # Restores ~/.npm keyed on package-lock.json. `npm ci` still runs and
+          # still installs exactly what the lockfile pins, so this only saves
+          # the network fetch - a stale or poisoned cache cannot change which
+          # versions land. Measured before adding it: 21s/19s/16s across the
+          # three lanes on every single run, all of it re-downloading tarballs
+          # that had not changed.
+          cache: npm
+      # node_modules restored by lockfile hash (2026-08-25): npm ci was 13-17 s in
+      # every lane. On a hit the install is skipped outright, so no install script
+      # runs at all - stricter than the secretless-env install below. Native
+      # modules (better-sqlite3) ship prebuilt per Node ABI, hence node22 in the key.
+      - name: Restore node_modules
+        id: nm-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+      - name: Install dependencies (secretless)
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        # F07: shadow the job-scope provider keys to EMPTY for this step only, so
+        # a malicious dependency lifecycle script running during `npm ci` cannot
+        # read them. No server or tool runs here, so empty keys are harmless.
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+        run: npm ci
+      # NO Playwright in this lane on purpose: it runs no browser-driven
+      # script. All eight (csp-violations, css-tokens-resolve, focus-visible,
+      # the reveal suite, burger-aria-label, compare-scroll,
+      # non-metered-examples) live in the `test` lane. Installing Chromium
+      # here cost 32s and 22s for nothing, and the slower unit lane IS the
+      # critical path. If a browser-driven script is ever added here, copy
+      # the install step back from the `test` job with it.
+      - name: Start server in free mode
+        run: |
+          # Raise the MCP rate limit so the full-catalog connector test can sweep
+          # every tool (production keeps the default 20/min, 120/hr).
+          AGENT402_MCP_MAX_PER_MIN=1000000 AGENT402_MCP_MAX_PER_HOUR=1000000 \
+            X402_SYNC_ON_START=false FREE_MODE=true X402_PAYWALL_PROBES_PER_CYCLE=0 PORT=3000 node src/server.js &
+          for i in $(seq 1 20); do curl -s localhost:3000/health >/dev/null && break; sleep 1; done
+      # ONE STEP, MANY SCRIPTS (2026-08-25): GitHub spends ~0.7 s of runner setup
+      # per step and this lane had over a hundred one-line steps. Each script still
+      # runs in its own process, in the same order; `t` groups its log and names it
+      # with its elapsed time, and a failure prints the failing script as an error.
+      # The original step names ride above each script so the WHY stays here.
+      - name: Offline suites (26 scripts, one process each)
+        run: |
+          set -euo pipefail
+          t() { local s=$SECONDS; echo "::group::$*"; "$@" || { echo "::endgroup::"; echo "::error::failed: $*"; exit 1; }; echo "::endgroup::"; echo "ok  $* ($((SECONDS - s))s)"; }
           # Production image carries every script the server needs at runtime (derived from source, not listed)
           t node scripts/test-image-runtime-scripts.js
           # /api/pow/challenge envelope (free-tier gate — full shape + slug scoping + 404s)
@@ -2308,7 +2480,72 @@ jobs:
           SOLANA_402=$(jq -r '[.accepts[]? | select((.network // "") | startswith("solana:"))] | length' /tmp/402req.json 2>/dev/null || echo 0)
           [ "$SOLANA_402" -ge 1 ] || { echo "402 accepts is missing the Solana option despite SOLANA_WALLET_ADDRESS being set"; exit 1; }
 
+      # ONE STEP, MANY SCRIPTS (2026-08-25): GitHub spends ~0.7 s of runner setup
+      # per step and this lane had over a hundred one-line steps. Each script still
+      # runs in its own process, in the same order; `t` groups its log and names it
+      # with its elapsed time, and a failure prints the failing script as an error.
+      # The original step names ride above each script so the WHY stays here.
+      - name: Offline suites (2 scripts, one process each)
+        run: |
+          set -euo pipefail
+          t() { local s=$SECONDS; echo "::group::$*"; "$@" || { echo "::endgroup::"; echo "::error::failed: $*"; exit 1; }; echo "::endgroup::"; echo "ok  $* ($((SECONDS - s))s)"; }
+          # MCP Tasks on /mcp (io.modelcontextprotocol/tasks - handle then poll to completed, failures never a silent empty success, cancel aborts the paid run, restart resolves orphans, composites only, no task without payment - offline)
+          t node scripts/test-mcp-tasks.js
+          # PostHog funnel (discovery→402→settlement capture; paid-mode boot vs mock facilitator — offline)
+          t node scripts/test-posthog-funnel.js
 
+  test-paid2:
+    # Second half of test-paid (2026-08-25), split by the seconds each script
+    # measured in its own log line - not by count. Same header, same setup, same
+    # order within each half; only the list differs.
+    needs: [markers, tree-gate]
+    if: >-
+      !cancelled()
+      && (
+        (github.event_name == 'pull_request' && !(github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'claude/sweet-brown-i99jl3')) || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/sweet-brown-i99jl3')) || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
+      )
+      && needs.tree-gate.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      FRED_API_KEY_V2: ${{ secrets.FRED_API_KEY_V2 }}
+      E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+      COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          # Restores ~/.npm keyed on package-lock.json. `npm ci` still runs and
+          # still installs exactly what the lockfile pins, so this only saves
+          # the network fetch - a stale or poisoned cache cannot change which
+          # versions land. Measured before adding it: 21s/19s/16s across the
+          # three lanes on every single run, all of it re-downloading tarballs
+          # that had not changed.
+          cache: npm
+      # node_modules restored by lockfile hash (2026-08-25): npm ci was 13-17 s in
+      # every lane. On a hit the install is skipped outright, so no install script
+      # runs at all - stricter than the secretless-env install below. Native
+      # modules (better-sqlite3) ship prebuilt per Node ABI, hence node22 in the key.
+      - name: Restore node_modules
+        id: nm-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+      - name: Install dependencies (secretless)
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        # F07: shadow the job-scope provider keys to EMPTY for this step only, so
+        # a malicious dependency lifecycle script running during `npm ci` cannot
+        # read them. No server or tool runs here, so empty keys are harmless.
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+        run: npm ci
       # Moved here from test-unit-b (2026-08-25 rebalance): self-booting suites
       # that need no shared server; test-unit-b was the next-slowest lane.
       # Deterministic correctness proofs run FIRST — a flaky live upstream
@@ -2324,16 +2561,13 @@ jobs:
       # runs in its own process, in the same order; `t` groups its log and names it
       # with its elapsed time, and a failure prints the failing script as an error.
       # The original step names ride above each script so the WHY stays here.
-      - name: Offline suites (3 scripts, one process each)
+      - name: Offline suites (1 scripts, one process each)
         run: |
           set -euo pipefail
           t() { local s=$SECONDS; echo "::group::$*"; "$@" || { echo "::endgroup::"; echo "::error::failed: $*"; exit 1; }; echo "::endgroup::"; echo "ok  $* ($((SECONDS - s))s)"; }
-          # MCP Tasks on /mcp (io.modelcontextprotocol/tasks - handle then poll to completed, failures never a silent empty success, cancel aborts the paid run, restart resolves orphans, composites only, no task without payment - offline)
-          t node scripts/test-mcp-tasks.js
-          # PostHog funnel (discovery→402→settlement capture; paid-mode boot vs mock facilitator — offline)
-          t node scripts/test-posthog-funnel.js
           # Native MPP on /mcp (stock MCP SDK client + mppx McpClient pays a wallet-only tool via the real gates; stub facilitator; -32042 wire; RFC 9457 problem on tamper - offline)
           t node scripts/test-mcp-mpp.js
+
 
   test-sweeps:
     # The two catalog sweeps and every browser-driven page check, on one booted
@@ -2820,19 +3054,85 @@ jobs:
       # runs in its own process, in the same order; `t` groups its log and names it
       # with its elapsed time, and a failure prints the failing script as an error.
       # The original step names ride above each script so the WHY stays here.
-      - name: Offline suites (3 scripts, one process each)
+      - name: Offline suites (1 scripts, one process each)
         run: |
           set -euo pipefail
           t() { local s=$SECONDS; echo "::group::$*"; "$@" || { echo "::endgroup::"; echo "::error::failed: $*"; exit 1; }; echo "::endgroup::"; echo "ok  $* ($((SECONDS - s))s)"; }
           # upto scheme ships dark, refuses what it cannot price
           t node scripts/test-upto-scheme.js
+
+  test-unit-c2:
+    # Second half of test-unit-c (2026-08-25), split by the seconds each script
+    # measured in its own log line - not by count. Same header, same setup, same
+    # order within each half; only the list differs.
+    needs: [markers, tree-gate]
+    if: >-
+      !cancelled()
+      && (
+        (github.event_name == 'pull_request' && !(github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'claude/sweet-brown-i99jl3')) || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/sweet-brown-i99jl3')) || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
+      )
+      && needs.tree-gate.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      FRED_API_KEY_V2: ${{ secrets.FRED_API_KEY_V2 }}
+      E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+      COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      # node_modules restored by lockfile hash (2026-08-25): npm ci was 13-17 s in
+      # every lane. On a hit the install is skipped outright, so no install script
+      # runs at all - stricter than the secretless-env install below. Native
+      # modules (better-sqlite3) ship prebuilt per Node ABI, hence node22 in the key.
+      - name: Restore node_modules
+        id: nm-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+      - name: Install dependencies (secretless)
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+        run: npm ci
+
+      # A free-mode server for the link-integrity sweep below. This lane had
+      # no server until now; it gets one so the 66s sweep can leave `test`,
+      # which was the critical path at 409s. Unlike `test`, nothing here needs
+      # Chromium, so the lane stays Playwright-free - that install is the
+      # expensive part, and non-metered (which does need it) deliberately
+      # stays where the browser already is.
+      - name: Start server in free mode
+        run: |
+          X402_SYNC_ON_START=false FREE_MODE=true X402_INDEX_CRAWL=off X402_PAYWALL_PROBES_PER_CYCLE=0 PORT=3000 node src/server.js > /tmp/unit-c-srv.log 2>&1 &
+          for i in $(seq 1 40); do curl -sf http://127.0.0.1:3000/health >/dev/null 2>&1 && break; sleep 1; done
+          curl -sf http://127.0.0.1:3000/health >/dev/null || { echo "server never became healthy"; tail -40 /tmp/unit-c-srv.log; exit 1; }
+
+      # ONE STEP, MANY SCRIPTS (2026-08-25): GitHub spends ~0.7 s of runner setup
+      # per step and this lane had over a hundred one-line steps. Each script still
+      # runs in its own process, in the same order; `t` groups its log and names it
+      # with its elapsed time, and a failure prints the failing script as an error.
+      # The original step names ride above each script so the WHY stays here.
+      - name: Offline suites (2 scripts, one process each)
+        run: |
+          set -euo pipefail
+          t() { local s=$SECONDS; echo "::group::$*"; "$@" || { echo "::endgroup::"; echo "::error::failed: $*"; exit 1; }; echo "::endgroup::"; echo "ok  $* ($((SECONDS - s))s)"; }
           # Boot /supported guard (a dead facilitator costs ONE rail, not every paid route — the 2026-08-01 Celo outage; probe-driven drop, fail-open on total blindness, escape hatch — offline)
           t node scripts/test-supported-guard.js
           # Tempo MPP settlement (native tempo/charge via Tempo's relay — challenge wiring + settlement-ordering proof — offline)
           t node scripts/test-mpp-tempo-shim.js
 
   publish:
-    needs: [markers, tree-gate, test, test-sweeps, test-paid, test-unit-a, test-unit-b, test-unit-c, test-unit-d, test-pricing]
+    needs: [markers, tree-gate, test, test-sweeps, test-paid, test-paid2, test-unit-a, test-unit-a2, test-unit-b, test-unit-b2, test-unit-c, test-unit-c2, test-unit-d, test-pricing]
     # The lanes are `needs:`, so this used to inherit an implicit success() and
     # nothing else was required. !cancelled() removes that implicit check, so
     # the success requirement is written out - and the ONLY accepted alternative
@@ -2843,7 +3143,7 @@ jobs:
       !cancelled()
       && (
         needs.tree-gate.outputs.skip == 'true'
-        || ( needs.test.result == 'success' && needs.test-sweeps.result == 'success' && needs.test-paid.result == 'success' && needs.test-unit-a.result == 'success' && needs.test-unit-b.result == 'success' && needs.test-unit-c.result == 'success' && needs.test-unit-d.result == 'success' && needs.test-pricing.result == 'success' )
+        || ( needs.test.result == 'success' && needs.test-sweeps.result == 'success' && needs.test-paid.result == 'success' && needs.test-paid2.result == 'success' && needs.test-unit-a.result == 'success' && needs.test-unit-a2.result == 'success' && needs.test-unit-b.result == 'success' && needs.test-unit-b2.result == 'success' && needs.test-unit-c.result == 'success' && needs.test-unit-c2.result == 'success' && needs.test-unit-d.result == 'success' && needs.test-pricing.result == 'success' )
       )
       && (
         github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' || needs.markers.outputs.publish == 'true'
@@ -3573,7 +3873,7 @@ jobs:
         run: SPAN_BLOCKS=350000 MAX_TXS=80 node scripts/check-builder-attribution.js || true
 
   deploy:
-    needs: [markers, tree-gate, test, test-sweeps, test-paid, test-unit-a, test-unit-b, test-unit-c, test-unit-d, test-pricing]
+    needs: [markers, tree-gate, test, test-sweeps, test-paid, test-paid2, test-unit-a, test-unit-a2, test-unit-b, test-unit-b2, test-unit-c, test-unit-c2, test-unit-d, test-pricing]
     # Unconditional on a push to main (same reasoning as the test job above -
     # a merge to main has no marker to scan and needs none), otherwise the
     # existing dispatch/marker gates for the dev branch.
@@ -3587,7 +3887,7 @@ jobs:
       !cancelled()
       && (
         needs.tree-gate.outputs.skip == 'true'
-        || ( needs.test.result == 'success' && needs.test-sweeps.result == 'success' && needs.test-paid.result == 'success' && needs.test-unit-a.result == 'success' && needs.test-unit-b.result == 'success' && needs.test-unit-c.result == 'success' && needs.test-unit-d.result == 'success' && needs.test-pricing.result == 'success' )
+        || ( needs.test.result == 'success' && needs.test-sweeps.result == 'success' && needs.test-paid.result == 'success' && needs.test-paid2.result == 'success' && needs.test-unit-a.result == 'success' && needs.test-unit-a2.result == 'success' && needs.test-unit-b.result == 'success' && needs.test-unit-b2.result == 'success' && needs.test-unit-c.result == 'success' && needs.test-unit-c2.result == 'success' && needs.test-unit-d.result == 'success' && needs.test-pricing.result == 'success' )
       )
       && (
         (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' && inputs.mode == 'deploy' || needs.markers.outputs.deploy == 'true'
