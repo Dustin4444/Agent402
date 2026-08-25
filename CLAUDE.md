@@ -74,12 +74,12 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
   was removed 2026-08-11; it can't be scoped per-branch in one `push:` block, and it made `main`
   effectively un-triggerable since a PR merge commit never touches one):
   - `[test]` → full test job · `[deploy]` → Railway deploy · `[publish]` → npm + MCP Registry.
-    **Since 2026-08-25 every push to the dev branch runs all 8 test lanes with or without `[test]`** (a
+    **Since 2026-08-25 every push to the dev branch runs all test lanes with or without `[test]`** (a
     skipped lane satisfies a GitHub required check, so marker-less pushes were a loophole); `[deploy]` /
     `[publish]` still gate their jobs. A PR from our own dev branch does NOT run lanes on the
     `pull_request` event (the push run of the same commit provides the check runs); forks and other
-    branches keep full PR lanes. The "protect main" ruleset requires all 8 lanes + markers + gitleaks +
-    CodeQL + Socket. Merge with `scripts/merge-on-green.sh <pr>` (push-event run, every lane green,
+    branches keep full PR lanes. The "protect main" ruleset requires every lane + markers + gitleaks +
+    CodeQL + Socket (add new lane names there when splitting). Merge with `scripts/merge-on-green.sh <pr>` (push-event run, every lane green,
     pinned to the tested SHA). One-line test steps are collapsed into per-lane blocks (original step
     names ride as comments; the guards read the literal `node scripts/test-*.js` lines); `node_modules`
     is cache-restored by lockfile hash and `npm ci` skipped on a hit.
@@ -108,7 +108,7 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
 
 ## Testing (run locally)
 - Boot free mode: `FREE_MODE=true PORT=3000 node src/server.js` then `TARGET_URL=http://localhost:3000 node scripts/test-all.js` (every tool answers its example) and `scripts/test-mcp-all.js`.
-- CI runs TWELVE parallel test lanes (`test`, `test-sweeps`, `test-paid`/`paid2`, `test-unit-a`/`a2`, `b`/`b2`, `c`/`c2`, `d`, `test-pricing`), split by the seconds each script prints in its own log line (2026-08-25; sweeps ~170 s is the ceiling); the two catalog sweeps + every browser page check live in `test-sweeps` (the only lane with Chromium, cached by playwright-core version). In that lane `test-all` runs with `TEST_ALL_SKIP_STRICT_COVERED=1` and hands the ~450 routes the strict non-metered sweep asserts on to it (one hit per endpoint; the strict sweep carries the documented-keys shape check too) - locally without the flag `test-all` still covers everything. `test-ci-gating.js` derives the lanes and requires each to gate deploy/publish.
+- CI runs SEVENTEEN parallel test lanes (`test`, `test-sweeps`/`sweeps2`, `test-paid`/`paid2`, `test-unit-a`/`a2`/`a3`/`a4`, `b`/`b2`/`b3`/`b4`, `c`/`c2`, `d`, `test-pricing`), split by the seconds each script prints in its own log line (2026-08-25; the split is mechanical - a contiguous cut of each heavy lane's step list at half its measured seconds, so a re-split from a fresh run's log is a script, not hand work); the facilitator gate (~60 s of real Stellar testnet payments) is PATH-SCOPED to `facilitator/**` changes, fail-open on an unreadable diff, honest only while `facilitator/test.js` imports nothing outside `facilitator/` (`test-ci-facilitator-scope.js` pins the import closure); the two catalog sweeps + every browser page check live in `test-sweeps` (the only lane with Chromium, cached by playwright-core version). In that lane `test-all` runs with `TEST_ALL_SKIP_STRICT_COVERED=1` and hands the ~450 routes the strict non-metered sweep asserts on to it (one hit per endpoint; the strict sweep carries the documented-keys shape check too) - locally without the flag `test-all` still covers everything. `test-ci-gating.js` derives the lanes and requires each to gate deploy/publish.
 - Paid-mode tests boot their own server (PoW path): `scripts/test-idempotency.js`, `client/test.js`.
 - Unit/offline: `scripts/test-memory.js`, `test-find.js`, `test-revenue-scan.js`, `test-util-kit.js`, `test-discovery.js`, `tollbooth/test.js`+`edge.test.js`+`features.test.js`.
 - Raise the MCP free-tier limit for sweeps: `AGENT402_MCP_MAX_PER_MIN=999999 AGENT402_MCP_MAX_PER_HOUR=9999999`.
