@@ -6085,10 +6085,21 @@ let shuttingDown = false;
 //
 //   lame duck 300s + drain 60s = 360s, inside a 420s grace.
 //
-// 300s is sized against TWO measurements, not one. The first cut used 120s off
-// a single 108s sample and was promptly proven short: the next deploy's gap was
-// 194s (SIGTERM 23:40:25, new deployment healthy 23:43:39), so the lame duck
-// expired 73s before the replacement could serve and 82s of downtime remained.
+// 300s is sized against THREE measured gaps, not one. Every deploy so far:
+//
+//   SIGTERM -> new deployment healthy     lame duck     downtime
+//   20:45   108s                          none          103s
+//   23:40   194s                          120s           82s
+//   00:05   246s                          120s          123s
+//
+// The first cut used 120s off the single 108s sample and was promptly proven
+// short twice over. Note the gap GROWING across those three: each of those
+// deploys also changed RAILWAY_DEPLOYMENT_DRAINING_SECONDS, and a variable
+// write makes Railway auto-redeploy the connected branch's head against the
+// pinned deploy (see the deploy job's own notes), so some of that growth is
+// churn we caused rather than a trend in build time. That value is stable now.
+// If a clean deploy's gap ever exceeds this window, the fixed timer is the
+// wrong shape and the old container should serve until SIGKILL instead.
 // The mechanism was right and the constant was wrong. Railway SIGTERMs the old
 // container while the new image is still BUILDING, so this gap tracks build and
 // pull time and is inherently variable - it is sized for the worst observed
