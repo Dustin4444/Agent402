@@ -3516,20 +3516,33 @@ jobs:
           }
           ENV_ID='${{ steps.project.outputs.env_id }}'
           SERVICE_ID='${{ steps.service.outputs.service_id }}'
+          # Two answers have to stay distinguishable here: "the service has no
+          # domain" and "we could not READ whether it has one". The first
+          # version folded both into an empty string and created a domain on
+          # either, so every Railway API blip during a deploy minted another
+          # *.up.railway.app hostname - 20 of them had accumulated by
+          # 2026-08-25, each a public route to prod (all 301 to the canonical
+          # domain, so harmless, but unbounded). Only a readable, well-formed
+          # answer that says "none" may create one; an unreadable answer falls
+          # through to the custom domain below, which is what the poll needs.
           queryDomain() {
             jq -n --arg e "$ENV_ID" --arg s "$SERVICE_ID" \
-              '{query:"query($e:String!, $s:String!) { domains(environmentId: $e, serviceId: $s) { serviceDomains { domain } } }", variables:{e:$e,s:$s}}' | gql \
-              | jq -r '.data.domains.serviceDomains[0].domain // empty'
+              '{query:"query($e:String!, $s:String!) { domains(environmentId: $e, serviceId: $s) { serviceDomains { domain } } }", variables:{e:$e,s:$s}}' | gql
           }
-          DOMAIN=$(queryDomain)
-          if [ -z "$DOMAIN" ]; then
+          RAW=$(queryDomain || true)
+          DOMAIN=""
+          READABLE=0
+          if printf '%s' "$RAW" | jq -e '.data.domains.serviceDomains | type == "array"' >/dev/null 2>&1; then
+            READABLE=1
+            DOMAIN=$(printf '%s' "$RAW" | jq -r '.data.domains.serviceDomains[0].domain // empty')
+          else
+            echo "::warning::could not read the service's domain list (not creating one): $(printf '%s' "$RAW" | head -c 300)"
+          fi
+          if [ -z "$DOMAIN" ] && [ "$READABLE" = "1" ]; then
             RESP=$(jq -n --arg e "$ENV_ID" --arg s "$SERVICE_ID" \
               '{query:"mutation($e:String!, $s:String!) { serviceDomainCreate(input: { environmentId: $e, serviceId: $s }) { domain } }", variables:{e:$e,s:$s}}' | gql)
             echo "$RESP"
             DOMAIN=$(echo "$RESP" | jq -r '.data.serviceDomainCreate.domain // empty')
-            # If creation failed (e.g. plan domain-limit reached because one
-            # already exists), re-query and reuse it rather than failing.
-            [ -z "$DOMAIN" ] && DOMAIN=$(queryDomain)
           fi
           # The public Railway domain is only used to poll /health below; the
           # real address is the custom domain. Fall back to it so a domain quirk
