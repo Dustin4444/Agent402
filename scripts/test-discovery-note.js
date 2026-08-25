@@ -442,8 +442,11 @@ ok(!/if \(seller === LOCAL_SELLER\) \{ picked\.push\(entry\); continue; \}/.test
   "our catalog is NO LONGER exempt from the per-seller diversity cap");
 ok(!/t\.seller !== LOCAL_SELLER && looksLikeListingInjection/.test(src),
   "the listing-injection filter is NO LONGER external-only");
-ok(/if \(looksLikeListingInjection\(hay\)\) continue;/.test(src),
-  "...it runs against every row, ours included");
+// The verdict is computed once per tool object (memoized statics, 2026-08-25)
+// and consulted for EVERY row in routeQuery's scoring loop - local and remote
+// alike. Both halves are asserted: the memo computes it, the loop honours it.
+ok(/injected: looksLikeListingInjection\(hay\)/.test(src) && /if \(st\.injected\) continue;/.test(src),
+  "router drops any listing that trips the injection check - it runs against every row, ours included");
 
 // Each disclosed advantage must still EXIST in the code. Removing one without
 // updating the disclosure is the same drift in the other direction.

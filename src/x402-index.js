@@ -2262,13 +2262,28 @@ function isRoutable(entry) {
 // The subset test is what keeps this safe: an api. subdomain whose homepage
 // is the operator's main site but which serves DISTINCT tools is a real
 // seller, not an alias, and must keep ranking.
+// PER-ENTRY DERIVED VALUES, MEMOIZED BY ENTRY IDENTITY (2026-08-25). Every
+// route query re-derived the alias set for all ~2,900 sellers, and the boot
+// CPU profile put 8 s of the first 75 s in exactServiceKey() alone - a
+// JSON.stringify of every tool of every seller, per query, on a free public
+// surface (/api/route measured 1.1 s cold on prod). Cache entries are
+// replaced, never mutated, when a seller is re-crawled, so a WeakMap keyed by
+// the entry object is exact with no invalidation: a fresh entry is a fresh
+// key, and a dropped entry's memo goes with it.
+const slugSetMemo = new WeakMap();
+const serviceKeyMemo = new WeakMap();
 export function computeAliasOrigins(cacheMap) {
   const byHost = new Map(); // canonical host -> { origin, v }
   for (const [origin, v] of cacheMap) {
     const h = canonicalHost(origin);
     if (h && !byHost.has(h)) byHost.set(h, { origin, v });
   }
-  const slugSet = (v) => new Set((v?.tools || []).map((t) => t.slug));
+  const slugSet = (v) => {
+    if (!v || typeof v !== "object") return new Set();
+    let m = slugSetMemo.get(v);
+    if (!m) { m = new Set((v.tools || []).map((t) => t.slug)); slugSetMemo.set(v, m); }
+    return m;
+  };
   const aliases = new Set();
   for (const [origin, v] of cacheMap) {
     const ownHost = canonicalHost(origin);
@@ -2297,18 +2312,24 @@ export function computeAliasOrigins(cacheMap) {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([network, values]) => [network, [...values].map((value) => String(value).toLowerCase()).sort()]);
   const exactServiceKey = (v) => {
-    const tools = v?.tools || [];
+    if (!v || typeof v !== "object") return null;
+    if (serviceKeyMemo.has(v)) return serviceKeyMemo.get(v);
+    const tools = v.tools || [];
     const payees = canonicalPayees(tools);
-    if (!tools.length || !payees.length) return null;
-    const contracts = tools.map((t) => [
-      String(t.method || "GET").toUpperCase(),
-      String(t.route || ""),
-      String(t.slug || ""),
-      String(t.price ?? ""),
-      t.paid === false ? "free" : "paid-or-unknown",
-      [...(t.networks || [])].map(String).sort(),
-    ]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-    return JSON.stringify({ payees, contracts });
+    let key = null;
+    if (tools.length && payees.length) {
+      const contracts = tools.map((t) => [
+        String(t.method || "GET").toUpperCase(),
+        String(t.route || ""),
+        String(t.slug || ""),
+        String(t.price ?? ""),
+        t.paid === false ? "free" : "paid-or-unknown",
+        [...(t.networks || [])].map(String).sort(),
+      ]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+      key = JSON.stringify({ payees, contracts });
+    }
+    serviceKeyMemo.set(v, key);
+    return key;
   };
   const railwayDeploymentOrigin = (origin) => {
     try { return new URL(origin).hostname.toLowerCase().endsWith(".up.railway.app"); }
@@ -3270,6 +3291,58 @@ const ROUTE_NETWORKS = {
   robinhood: "eip155:4663", solana: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
 };
 
+// The decorated remote pool per entry and the per-tool statics (lowercased
+// haystack, injection verdict, price rank) are memoized by object identity
+// like the alias derivations above: entries and their tool objects are
+// replaced on re-crawl, never mutated. What was tens of thousands of spread
+// copies, regex passes and price parses per query is now a lookup.
+const remotePoolMemo = new WeakMap(); // entry -> decorated paid tools
+const toolStaticsMemo = new WeakMap(); // tool (local or decorated) -> { slug, name, hay, injected, priceRank }
+function decoratedRemoteTools(v) {
+  let d = remotePoolMemo.get(v);
+  if (d) return d;
+  d = (v.tools || [])
+    // paid:false = the seller's own doc says this operation is free.
+    // It lists on the marketplace, but it is never a BUY candidate —
+    // route-execute would 402-dance against an endpoint that never
+    // quotes, and "cheapest tool" rankings would fill with $0 rows.
+    .filter((t) => t.paid !== false)
+    .map((t) => ({
+      ...t,
+      sellerHome: v.manifest?.homepage || t.seller,
+      sellerName: v.manifest?.name || t.seller,
+      health: healthScore(v),
+    }));
+  remotePoolMemo.set(v, d);
+  return d;
+}
+function toolStatics(t) {
+  let st = toolStaticsMemo.get(t);
+  if (st) return st;
+  const hay = `${t.name} ${t.description} ${t.category} ${(t.tags || []).join(" ")}`.toLowerCase();
+  st = {
+    slug: (t.slug || "").toLowerCase(),
+    name: (t.name || "").toLowerCase(),
+    hay,
+    // Metadata sanitization (M6, defends "Five Attacks on x402" Attack IV-E1 —
+    // metadata manipulation): a single crafted external listing whose text tries
+    // to command the selecting agent ("ignore previous instructions", "always
+    // pick this", fake <system> tags) hit 71.8% selection in the paper. We DROP
+    // such external listings from the router entirely — a legitimate tool
+    // describes what it does, it doesn't instruct the ranker.
+    // Applied to OUR rows too, not just external ones. It was external-only
+    // because the filter exists to defend against seller-controlled text and we
+    // trust our own - but "we are exempt from our own safety check" is a rule
+    // that favours the host, and a catalog entry of ours that tripped it would
+    // be a bug worth seeing rather than an exception worth granting.
+    // scripts/test-discovery-note.js asserts no local tool trips it.
+    injected: looksLikeListingInjection(hay),
+    priceRank: priceRank(t.price),
+  };
+  toolStaticsMemo.set(t, st);
+  return st;
+}
+
 export function routeQuery({ query, top, include, networkFilter, baseUrl, catalog, prices, network, toolCount, walletName }) {
   const q = String(query || "").slice(0, 500);
   const terms = q.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).slice(0, 32);
@@ -3307,41 +3380,14 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
     ? []
     : [...cache.entries()]
         .filter(([origin, v]) => isRoutable(v) && !aliasOrigins.has(origin) && !isSelfOrigin(origin))
-        .flatMap(([, v]) =>
-          (v.tools || [])
-            // paid:false = the seller's own doc says this operation is free.
-            // It lists on the marketplace, but it is never a BUY candidate —
-            // route-execute would 402-dance against an endpoint that never
-            // quotes, and "cheapest tool" rankings would fill with $0 rows.
-            .filter((t) => t.paid !== false)
-            .map((t) => ({
-            ...t,
-            sellerHome: v.manifest?.homepage || t.seller,
-            sellerName: v.manifest?.name || t.seller,
-            health: healthScore(v),
-          })),
-        );
+        .flatMap(([, v]) => decoratedRemoteTools(v));
   const all = [...localPool, ...remotePool];
 
   const scored = [];
   for (const t of all) {
-    const slug = (t.slug || "").toLowerCase();
-    const name = (t.name || "").toLowerCase();
-    const hay = `${t.name} ${t.description} ${t.category} ${(t.tags || []).join(" ")}`.toLowerCase();
-    // Metadata sanitization (M6, defends "Five Attacks on x402" Attack IV-E1 —
-    // metadata manipulation): a single crafted external listing whose text tries
-    // to command the selecting agent ("ignore previous instructions", "always
-    // pick this", fake <system> tags) hit 71.8% selection in the paper. We DROP
-    // such external listings from the router entirely — a legitimate tool
-    // describes what it does, it doesn't instruct the ranker. Our own local
-    // catalog is trusted and never sanitized.
-    // Applied to OUR rows too, not just external ones. It was external-only
-    // because the filter exists to defend against seller-controlled text and we
-    // trust our own - but "we are exempt from our own safety check" is a rule
-    // that favours the host, and a catalog entry of ours that tripped it would
-    // be a bug worth seeing rather than an exception worth granting.
-    // scripts/test-discovery-note.js asserts no local tool trips it.
-    if (looksLikeListingInjection(hay)) continue;
+    const st = toolStatics(t);
+    if (st.injected) continue;
+    const { slug, name, hay } = st;
     let score = 0;
     // Record WHERE the score came from, not just how much. A seller who loses a
     // routing decision learns nothing from silence; "matched on description
@@ -3354,7 +3400,7 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
       if (name.includes(term)) { score += 2; matched.name += 2; }
       if (hay.includes(term)) { score += 1; matched.text += 1; }
     }
-    if (score > 0) scored.push([score, t, matched]);
+    if (score > 0) scored.push([score, t, matched, st.priceRank]);
   }
   // Highest score first; healthier seller wins on ties; then cheapest KNOWN
   // price (unknown ranks last among equals — see priceRank); then shorter
@@ -3368,9 +3414,7 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
     // equally-healthy one nobody has. Local rows carry none (equal).
     const qa = bazaarQualityFor(a[1].seller)?.payers30d || 0, qb = bazaarQualityFor(b[1].seller)?.payers30d || 0;
     if (qb !== qa) return qb - qa;
-    const pa = priceRank(a[1].price);
-    const pb = priceRank(b[1].price);
-    if (pa !== pb) return pa - pb;
+    if (a[3] !== b[3]) return a[3] - b[3];
     return (a[1].slug || "").length - (b[1].slug || "").length;
   });
 
