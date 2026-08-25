@@ -775,7 +775,15 @@ export function startLeaderboardRefresh(opts = {}) {
   // failed" while the full-catalog example test hammered every endpoint. The
   // interval timer still schedules refreshes, and getLeaderboardSnapshot serves
   // the "warming" placeholder (with the correct window label) until one lands.
-  if (process.env.X402_SYNC_ON_START !== "false") refreshOnce(opts).catch(() => {});
+  // First refresh deferred past boot (2026-08-25): its RPC calls (~0.8 s of
+  // self-time in the boot profile) competed with the first health check, and
+  // the disk snapshot above serves the page meanwhile. opts.firstDelayMs: 0
+  // keeps the old behaviour for callers that need the refresh at once.
+  if (process.env.X402_SYNC_ON_START !== "false") {
+    const firstDelayMs = Number.isFinite(opts.firstDelayMs) ? opts.firstDelayMs : Number(process.env.LEADERBOARD_FIRST_REFRESH_DELAY_MS ?? 20_000);
+    const first = setTimeout(() => refreshOnce(opts).catch(() => {}), Math.max(0, firstDelayMs));
+    if (typeof first.unref === "function") first.unref();
+  }
   refreshTimer = setInterval(() => refreshOnce(opts).catch(() => {}), intervalMs);
   // Don't keep the event loop alive on shutdown.
   if (typeof refreshTimer.unref === "function") refreshTimer.unref();
