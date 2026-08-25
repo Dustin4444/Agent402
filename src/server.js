@@ -6083,7 +6083,7 @@ let shuttingDown = false;
 // SIGKILLs at RAILWAY_DEPLOYMENT_DRAINING_SECONDS regardless, so that grace is
 // raised in the same commit and the two are sized together:
 //
-//   lame duck 300s + drain 60s = 360s, inside a 420s grace.
+//   lame duck = grace - drain - margin, so it always fits by construction.
 //
 // 300s is sized against THREE measured gaps, not one. Every deploy so far:
 //
@@ -6114,9 +6114,24 @@ let shuttingDown = false;
 // is a guaranteed ~108s outage on every deploy, while this is a bounded overlap
 // of two healthy processes. If replicas are ever scaled, fix the shared-state
 // story first (see numReplicas in railway.toml).
-const LAME_DUCK_MS = Number(process.env.SHUTDOWN_LAME_DUCK_MS ?? 300_000);
+// SELF-SIZED, not a literal. The gap this has to cover grew on every single
+// measurement - 108s, 194s, 246s, 373s - including a deploy that changed no
+// Railway variable, which killed the theory that the growth was churn we caused.
+// A number picked from the last sample was short twice running, so the constant
+// is gone: the window is derived from the grace Railway actually gives us, minus
+// what the drain needs, minus a margin. That uses every second available by
+// construction and cannot be short unless the grace itself is.
+//
+// SHUTDOWN_LAME_DUCK_MS still overrides (the tests compress it to seconds).
+const DRAIN_DEADLINE_MS = 60_000;
+const SHUTDOWN_MARGIN_MS = 30_000;
+const RAILWAY_GRACE_MS = Number(process.env.RAILWAY_DEPLOYMENT_DRAINING_SECONDS || 0) * 1000;
+const LAME_DUCK_MS = Number(
+  process.env.SHUTDOWN_LAME_DUCK_MS
+  ?? Math.max(0, RAILWAY_GRACE_MS - DRAIN_DEADLINE_MS - SHUTDOWN_MARGIN_MS)
+);
 
-function shutdown(signal, { code = 0, deadlineMs = 60_000, lameDuckMs = LAME_DUCK_MS } = {}) {
+function shutdown(signal, { code = 0, deadlineMs = DRAIN_DEADLINE_MS, lameDuckMs = LAME_DUCK_MS } = {}) {
   if (shuttingDown) return;
   shuttingDown = true;
   const duck = Number.isFinite(lameDuckMs) && lameDuckMs > 0 ? lameDuckMs : 0;

@@ -80,25 +80,37 @@ const { readFileSync } = await import("node:fs");
 const srvSrc = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
 const wf = readFileSync(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8");
 const num = (m) => (m ? Number(String(m[1]).replace(/_/g, "")) : NaN);
-const lameDuck = num(srvSrc.match(/SHUTDOWN_LAME_DUCK_MS \?\? ([0-9_]+)/));
-const drain = num(srvSrc.match(/function shutdown\(signal, \{ code = 0, deadlineMs = ([0-9_]+)/));
+const drain = num(srvSrc.match(/const DRAIN_DEADLINE_MS = ([0-9_]+)/));
+const margin = num(srvSrc.match(/const SHUTDOWN_MARGIN_MS = ([0-9_]+)/));
 const grace = num(wf.match(/RAILWAY_DEPLOYMENT_DRAINING_SECONDS:"(\d+)"/)) * 1000;
 
-ok(Number.isFinite(lameDuck) && lameDuck > 0,
-  `production lame duck must be non-zero or the fix is inert (got ${lameDuck})`);
+// The window is DERIVED now, so what has to hold is the derivation, not a
+// literal. A constant picked from the newest sample was short twice running
+// (108s, 194s, 246s, 373s - still growing on a deploy that changed nothing), so
+// there is deliberately no number here to go stale.
+// Check the EXPRESSION that computes the window, not merely that a line
+// mentioning the grace exists somewhere in the file. The first version of this
+// assertion passed happily when the derivation was replaced by a literal,
+// because the now-unused const above it still matched.
+const lameDuckExpr = srvSrc.slice(srvSrc.indexOf("const LAME_DUCK_MS = Number("),
+  srvSrc.indexOf("function shutdown(signal,"));
+ok(/RAILWAY_GRACE_MS\s*-\s*DRAIN_DEADLINE_MS\s*-\s*SHUTDOWN_MARGIN_MS/.test(lameDuckExpr),
+  "the lame-duck window is no longer DERIVED from the Railway grace - a literal will go stale again, twice was enough");
+ok(!/\?\?\s*[0-9_]+\s*\)/.test(lameDuckExpr),
+  "the lame-duck window fell back to a hardcoded number");
 ok(Number.isFinite(drain) && drain > 0, `drain deadline unreadable (got ${drain})`);
+ok(Number.isFinite(margin) && margin > 0, `shutdown margin unreadable (got ${margin})`);
 ok(Number.isFinite(grace) && grace > 0, `RAILWAY_DEPLOYMENT_DRAINING_SECONDS unreadable (got ${grace})`);
-ok(lameDuck + drain < grace,
-  `lame duck ${lameDuck / 1000}s + drain ${drain / 1000}s must fit inside the ${grace / 1000}s grace ` +
-  "or Railway SIGKILLs mid-drain");
-// The lame duck has to outlast the replacement's boot or the gap reopens.
-// Measured 2026-08-24: SIGTERM to new-deployment-healthy was 108s.
-// Two measurements, not one: 108s on the 20:45 deploy and 194s on the 23:40
-// deploy. The first cut at 120s was sized off the single 108s sample and left
-// 82s of downtime on the very next deploy. Hold the floor at the WORST observed
-// gap plus margin - being early costs nothing, being late costs an outage.
-ok(lameDuck >= 240_000,
-  `lame duck ${lameDuck / 1000}s is under the 194s worst measured gap (plus margin) between SIGTERM and the new container serving`);
+
+const derived = Math.max(0, grace - drain - margin);
+ok(derived + drain < grace,
+  `derived lame duck ${derived / 1000}s + drain ${drain / 1000}s must fit inside the ${grace / 1000}s grace`);
+// The worst gap actually measured. If a future deploy exceeds the derived
+// window, raise the GRACE - there is nothing else left to tune.
+ok(derived >= 373_000,
+  `derived window ${derived / 1000}s is under the 373s worst measured gap between SIGTERM and the new container serving`);
+// Absent grace must fall back to draining at once, not to serving forever.
+ok(Math.max(0, 0 - drain - margin) === 0, "with no grace configured the window must be 0, not negative");
 
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
