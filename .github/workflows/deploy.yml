@@ -2169,9 +2169,6 @@ jobs:
       - name: Public-surface leak gate (no buyer addresses, no per-tool revenue, operator feeds stay 404)
         run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-public-surface-leak.js
 
-      - name: Link integrity (every sitemap URL + every crawled internal href resolves; /mcp never a real <a href>)
-        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-link-integrity.js
-
       - name: Chain page layout stability (no chain's page geometry shifts based on how long its name is)
         run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-chain-page-layout-stability.js
 
@@ -2536,6 +2533,21 @@ jobs:
           FRED_API_KEY_V2: ""
           E2B_API_KEY: ""
         run: npm ci
+
+      # A free-mode server for the link-integrity sweep below. This lane had
+      # no server until now; it gets one so the 66s sweep can leave `test`,
+      # which was the critical path at 409s. Unlike `test`, nothing here needs
+      # Chromium, so the lane stays Playwright-free - that install is the
+      # expensive part, and non-metered (which does need it) deliberately
+      # stays where the browser already is.
+      - name: Start server in free mode
+        run: |
+          X402_SYNC_ON_START=false FREE_MODE=true X402_INDEX_CRAWL=off X402_PAYWALL_PROBES_PER_CYCLE=0 PORT=3000 node src/server.js > /tmp/unit-c-srv.log 2>&1 &
+          for i in $(seq 1 40); do curl -sf http://127.0.0.1:3000/health >/dev/null 2>&1 && break; sleep 1; done
+          curl -sf http://127.0.0.1:3000/health >/dev/null || { echo "server never became healthy"; tail -40 /tmp/unit-c-srv.log; exit 1; }
+
+      - name: Link integrity (every sitemap URL + every crawled internal href resolves; /mcp never a real <a href>)
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-link-integrity.js
 
       # These four were 210s of test-unit-b's 506s of work, and they share a
       # real property rather than an arbitrary place in the list: each BOOTS ITS
@@ -3788,9 +3800,15 @@ jobs:
       # (it only checks out and talks to Railway's API). --ignore-scripts is
       # correct here: nothing in this job boots our server, so better-sqlite3's
       # native build is not needed.
+      # The npm ci below looks removable - the smoke check is mostly curl + jq -
+      # and it is NOT: it runs scripts/test-mcp-http.js against production, which
+      # imports src/mcp-flagship.js, which imports a package. Removing it passed
+      # a first glance and was caught by test-ci-gating's transitive import walk
+      # before it shipped (2026-08-25). Cache the fetch instead of skipping it.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
+          cache: npm
       - name: Install dependencies for the production smoke check
         run: npm ci --ignore-scripts
 
