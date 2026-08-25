@@ -820,25 +820,11 @@ jobs:
           AGENT402_MCP_MAX_PER_MIN=1000000 AGENT402_MCP_MAX_PER_HOUR=1000000 \
             X402_SYNC_ON_START=false FREE_MODE=true X402_PAYWALL_PROBES_PER_CYCLE=0 PORT=3000 node src/server.js &
           for i in $(seq 1 20); do curl -s localhost:3000/health >/dev/null && break; sleep 1; done
-      # Deterministic correctness proofs run FIRST — a flaky live upstream
-      # (e.g. data.gov downtime) must never mask whether the tools actually work.
-      - name: Ox Alpha tier (locked stealth model, zdr refusal, zero-cost clamp, reasoning floor, vanish gate - offline)
-        run: node scripts/test-ox-tier.js
-
-      - name: Macro-kit tests (FRED yield curve, Treasury debt + avg rates, ECB FX series, World Bank — live keyless APIs)
-        run: node scripts/test-macro-kit.js
-
       - name: CDP kit live check (real balances + onramp session — skips without secrets)
         env:
           CDP_API_KEY_ID: ${{ secrets.CDP_API_KEY_ID }}
           CDP_API_KEY_SECRET: ${{ secrets.CDP_API_KEY_SECRET }}
         run: node scripts/test-cdp-live.js
-
-      - name: MPP dual-stack shim (real mppx client buys over WWW-Authenticate/Authorization wire; single settle; x402 pass-through; HMAC tamper — offline)
-        run: node scripts/test-mpp-shim.js
-
-      - name: HEAD paywall bypass closed (HEAD on paid GET routes 402s with challenges + empty body; free surfaces untouched — offline)
-        run: node scripts/test-head-paywall.js
 
       - name: Buyer SDK (agent402-client — resolve + auto-pay via PoW; boots paid-mode)
         run: node client/test.js
@@ -1206,23 +1192,6 @@ jobs:
           AGENT402_MCP_MAX_PER_MIN=1000000 AGENT402_MCP_MAX_PER_HOUR=1000000 \
             X402_SYNC_ON_START=false FREE_MODE=true X402_PAYWALL_PROBES_PER_CYCLE=0 PORT=3000 node src/server.js &
           for i in $(seq 1 20); do curl -s localhost:3000/health >/dev/null && break; sleep 1; done
-      # Deterministic correctness proofs run FIRST — a flaky live upstream
-      # (e.g. data.gov downtime) must never mask whether the tools actually work.
-      - name: MCP server e2e (catalog, search, proof-of-work settlement, wallet guidance)
-        run: |
-          npm --prefix mcp ci
-          node mcp/test.js
-
-
-      - name: MCP Tasks on /mcp (io.modelcontextprotocol/tasks - handle then poll to completed, failures never a silent empty success, cancel aborts the paid run, restart resolves orphans, composites only, no task without payment - offline)
-        run: node scripts/test-mcp-tasks.js
-
-      - name: PostHog funnel (discovery→402→settlement capture; paid-mode boot vs mock facilitator — offline)
-        run: node scripts/test-posthog-funnel.js
-
-      - name: Native MPP on /mcp (stock MCP SDK client + mppx McpClient pays a wallet-only tool via the real gates; stub facilitator; -32042 wire; RFC 9457 problem on tamper - offline)
-        run: node scripts/test-mcp-mpp.js
-
       - name: Image work stays off the event loop (concurrent transforms must not stall /health)
         # Boots its own server on 3221. The offline probe in scripts/test-image.js
         # guards the same property, but only this one proves it end to end
@@ -1835,7 +1804,10 @@ jobs:
     # So every suite touching a shared free-public upstream lives in THIS lane,
     # with everything that needs the booted server. The other two lanes are
     # pure-offline suites balanced by measured time.
-    # LANE 3 of 3 - everything that talks to the shared free-mode server or the network. Kept together because they share one booted server.
+    # Everything else that talks to the shared free-mode server, plus the
+    # self-booting suites moved in from test-unit-b. The two catalog sweeps and
+    # the browser page checks moved to `test-sweeps` (2026-08-25) - see that
+    # lane's comment for why they stay together there.
     # Test job runs on its own [test] marker AND auto-runs whenever a commit
     # asks to deploy or publish — so deploy/publish can hard-gate on it via
     # `needs: test`. This makes "ship without running tests" impossible by
@@ -1921,55 +1893,6 @@ jobs:
           FRED_API_KEY_V2: ""
           E2B_API_KEY: ""
         run: npm ci
-      - name: Install Playwright Chromium (+ system deps)
-        # `--with-deps` runs apt-get against the runner's mirror list
-        # (/etc/apt/apt-mirrors.txt), whose first entry is
-        # azure.archive.ubuntu.com. On 2026-08-18 that mirror was bad on SOME
-        # runners and fine on others: two runs stalled with no output for 28 min
-        # until cancelled; later the same commit's push run finished this step
-        # in ~45s while its pull_request twin, started the same second on
-        # another runner, answered InRelease after 30s and crawled at ~295 kB/s
-        # (attempt 3 spent 128s on 21 MB of fonts and never finished) — 3 of 3
-        # attempts lost, because every retry walked the same mirror list. So:
-        # (1) prefer the canonical archive and keep azure as a fallback, (2) an
-        # apt inactivity timeout, so a stalled transfer fails over to the next
-        # mirror instead of eating the attempt (apt's default is 120s, longer
-        # than our per-attempt bound), (3) after a lost attempt drop azure from
-        # the list entirely, and (4) a mirror set that is dead for a full three
-        # attempts fails the step LOUDLY instead of eating the job's timeout.
-        # The only apt payload here is fonts (Chromium's shared libraries are
-        # already on the ubuntu-24.04 image), so a mirror swap changes nothing
-        # about what gets installed.
-        timeout-minutes: 10
-        env:
-          BRAVE_API_KEY: ""
-          FRED_API_KEY: ""
-          FRED_API_KEY_V2: ""
-          E2B_API_KEY: ""
-        run: |
-          printf 'Acquire::http::Timeout "20";\nAcquire::https::Timeout "20";\nAcquire::Retries "2";\n' \
-            | sudo tee /etc/apt/apt.conf.d/99-ci-mirror-timeouts >/dev/null
-          set_mirrors() {  # $1 = "with-azure" | "no-azure"
-            [ -f /etc/apt/apt-mirrors.txt ] || return 0
-            {
-              printf 'https://archive.ubuntu.com/ubuntu/\tpriority:1\n'
-              [ "$1" = "with-azure" ] && printf 'http://azure.archive.ubuntu.com/ubuntu/\tpriority:2\n'
-              printf 'https://security.ubuntu.com/ubuntu/\tpriority:3\n'
-            } | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
-          }
-          set_mirrors with-azure
-          for i in 1 2 3; do
-            if timeout 170 npx playwright install --with-deps chromium; then exit 0; fi
-            echo "playwright install attempt $i failed or stalled (apt mirror?) - retrying without the azure mirror"
-            # A stalled apt-get may outlive the killed npx (sudo can detach it
-            # from the group); clear it so the retry isn't blocked on its lock.
-            # The stall is in apt's fetch phase, so killing it is safe.
-            sudo pkill -TERM -f 'apt-get' 2>/dev/null || true
-            set_mirrors no-azure
-            sleep 10
-          done
-          echo "playwright install failed 3x - the runner's apt mirror is likely down"
-          exit 1
       - name: Start server in free mode
         run: |
           # Raise the MCP rate limit so the full-catalog connector test can sweep
@@ -1984,9 +1907,6 @@ jobs:
 
       - name: Paid-canary verdict (pages on real buying breaks, warns on upstream)
         run: node scripts/test-paid-canary.js
-
-      - name: Crypto-kit tests (CoinGecko price/market/history/trending/global — keyless live API)
-        run: node scripts/test-crypto-kit.js
 
       - name: derivatives kit (offline)
         run: node scripts/test-derivatives-kit.js
@@ -2046,102 +1966,6 @@ jobs:
           node scripts/test-enrich-kit.js
           node scripts/test-blockscout-kit.js
 
-      - name: Non-metered paid examples (strict — 502/503/504 fail; NETWORK leniency hole)
-        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-non-metered-examples.js
-
-      - name: Every tool responds to its own example (all ~1070 endpoints)
-        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-all.js
-
-      - name: Exercise tools against live sites
-        run: |
-          echo "=== extract: BBC News article ==="
-          curl -s -X POST localhost:3000/api/extract -H 'Content-Type: application/json' \
-            -d '{"url":"https://www.bbc.com/news"}' | jq '{title, siteName, wordCount, sample: (.markdown | .[0:400])}'
-          echo "=== extract: Wikipedia x402-adjacent page ==="
-          curl -s -X POST localhost:3000/api/extract -H 'Content-Type: application/json' \
-            -d '{"url":"https://en.wikipedia.org/wiki/List_of_HTTP_status_codes"}' | jq '{title, wordCount, sample: (.markdown | .[0:400])}'
-          echo "=== meta: github.com ==="
-          curl -s 'localhost:3000/api/meta?url=https://github.com' | jq .
-          echo "=== dns: MX for gmail.com ==="
-          curl -s 'localhost:3000/api/dns?name=gmail.com&type=MX' | jq .
-          echo "=== dns: TXT for openai.com ==="
-          curl -s 'localhost:3000/api/dns?name=openai.com&type=TXT' | jq '.records | length as $n | {records_found: $n}'
-          echo "=== SSRF guard: cloud metadata endpoint must be blocked ==="
-          curl -s -X POST localhost:3000/api/extract -H 'Content-Type: application/json' \
-            -d '{"url":"http://169.254.169.254/latest/meta-data"}' | jq .
-          echo "=== render: JS-only page (plain extract cannot read this) ==="
-          curl -s -X POST localhost:3000/api/render -H 'Content-Type: application/json' \
-            -d '{"url":"https://react.dev"}' | jq '{title, wordCount, rendered, sample: (.markdown | .[0:300])}'
-          echo "=== screenshot: example.com ==="
-          curl -s 'localhost:3000/api/screenshot?url=https://example.com' -o shot.png
-          file shot.png && ls -la shot.png
-          echo "=== pdf: arXiv 'Attention Is All You Need' ==="
-          curl -s -X POST localhost:3000/api/pdf -H 'Content-Type: application/json' \
-            -d '{"url":"https://arxiv.org/pdf/1706.03762"}' | jq 'if .error then . else {pages, wordCount, sample: (.text | .[0:150])} end'
-          echo "=== memory: write/read/isolation ==="
-          curl -s -X POST 'localhost:3000/api/memory?ns=ci' -H 'Content-Type: application/json' -d '{"key":"a","value":{"n":1}}' | jq .
-          curl -s 'localhost:3000/api/memory?ns=ci&key=a' | jq .
-          curl -s 'localhost:3000/api/memory?ns=other&key=a' | jq .
-          echo "=== memory v2: counter / recall / audit log ==="
-          curl -s -X POST 'localhost:3000/api/memory/incr?ns=ci' -H 'Content-Type: application/json' -d '{"key":"jobs","by":3}' | jq -c .
-          curl -s -X POST 'localhost:3000/api/memory/remember?ns=ci' -H 'Content-Type: application/json' -d '{"text":"The Railway deploy failed: build out of memory"}' | jq -c '{stored}'
-          curl -s -X POST 'localhost:3000/api/memory/remember?ns=ci' -H 'Content-Type: application/json' -d '{"text":"pineapple pizza recipe"}' | jq -c '{stored}'
-          curl -s -X POST 'localhost:3000/api/memory/recall?ns=ci' -H 'Content-Type: application/json' -d '{"query":"deployment ran out of memory","k":1}' | jq -c '.results[0].text'
-          curl -s 'localhost:3000/api/memory/log?ns=ci&limit=3' | jq -c '.entries|map(.action)'
-          echo "=== kit: encoding/data/text/time/validation ==="
-          curl -s -X POST localhost:3000/api/hash -H 'Content-Type: application/json' -d '{"text":"hello"}' | jq -c .
-          curl -s -X POST localhost:3000/api/json-to-csv -H 'Content-Type: application/json' -d '{"json":[{"a":1,"b":{"c":2}}]}' | jq -c .
-          curl -s -X POST localhost:3000/api/cron-next -H 'Content-Type: application/json' -d '{"expr":"0 9 * * 1-5","count":2}' | jq -c .
-          curl -s -X POST localhost:3000/api/email-validate -H 'Content-Type: application/json' -d '{"email":"test@gmail.com"}' | jq -c '{syntaxValid, deliverableDomain}'
-          curl -s 'localhost:3000/api/uuid?version=7&count=2' | jq -c .
-          curl -s 'localhost:3000/api/qr?text=https://agent402.tools' -o qr.png && file qr.png
-          echo "=== brand assets ==="
-          curl -s localhost:3000/logo.svg | grep -q '<svg' && echo "logo.svg ✓"
-          curl -sL localhost:3000/logo.png -o logo.png && file logo.png | grep -q 'PNG image' && echo "logo.png ✓"
-          curl -s localhost:3000/card.svg | grep -q '<svg' && echo "card.svg ✓"
-          curl -sL localhost:3000/card.png -o card.png && file card.png | grep -q 'PNG image' && echo "card.png (1200x630 social card) ✓"
-          echo "=== search: live web search (opt-in via BRAVE_LIVE_TEST=1) ==="
-          # Every [test] run otherwise burns the Brave subscription with calls the
-          # daily paid-canary (scripts/paid-canary.js) already covers post-deploy.
-          # When the key is set but BRAVE_LIVE_TEST!=1, just verify the route is
-          # registered (route returns either 200 or a structured 503 — never 404).
-          if [ "$BRAVE_LIVE_TEST" = "1" ] && [ -n "$BRAVE_API_KEY" ]; then
-            curl -s 'localhost:3000/api/search?q=x402+payment+protocol&count=3' | jq '{query, count, top: .results[0].url}'
-            curl -s 'localhost:3000/api/search?q=x402+payment+protocol&count=3' | jq -e '.count >= 1' >/dev/null || { echo "search returned no results"; exit 1; }
-          elif [ -z "$BRAVE_API_KEY" ]; then
-            echo "(BRAVE_API_KEY secret not set — verifying the unconfigured 503 path)"
-            code=$(curl -s -o /dev/null -w '%{http_code}' 'localhost:3000/api/search?q=test')
-            [ "$code" = "503" ] || { echo "expected 503 without key, got $code"; exit 1; }
-          else
-            echo "(BRAVE_LIVE_TEST!=1 — skipping live Brave call; route registration is covered by the /openapi.json + test-search-kit.js validation paths, and paid-canary covers post-deploy live verification)"
-          fi
-          echo "=== demand kit: live (pdf-to-markdown) ==="
-          curl -s -X POST localhost:3000/api/pdf-to-markdown -H 'Content-Type: application/json' \
-            -d '{"url":"https://arxiv.org/pdf/1706.03762"}' | jq '{pages, wordCount, md: (.markdown | .[0:160])}'
-          echo "=== live public data (data.gov / NWS / USGS) ==="
-          # data.gov has frequent upstream outages — exercise gov-data but don't
-          # hard-fail the suite on its availability (the tool returns an honest
-          # 502 when data.gov is down). NWS + USGS below are reliable and strict.
-          GD=$(curl -s 'localhost:3000/api/gov-data?q=electric+vehicle+charging&rows=3')
-          echo "$GD" | jq '{totalFound, top: .results[0].title, error}'
-          echo "$GD" | jq -e '.totalFound >= 1' >/dev/null && echo "  gov-data OK" || echo "  (gov-data upstream flaky right now — not failing the suite)"
-          curl -s 'localhost:3000/api/weather-alerts?area=CA' | jq '{count, top: .alerts[0].event}'
-          curl -s 'localhost:3000/api/weather-alerts?area=CA' | jq -e 'has("alerts")' >/dev/null || { echo "weather-alerts malformed"; exit 1; }
-          curl -s 'localhost:3000/api/earthquakes?minMag=2.5&period=day' | jq '{count, top: .quakes[0].place}'
-          curl -s 'localhost:3000/api/earthquakes?minMag=2.5&period=day' | jq -e '.count >= 1' >/dev/null || { echo "earthquakes returned nothing"; exit 1; }
-          echo "=== kit: live network tools ==="
-          curl -s -X POST localhost:3000/api/http-check -H 'Content-Type: application/json' -d '{"url":"https://example.com"}' | jq -c '{up, status, latencyMs}'
-          curl -s -X POST localhost:3000/api/tls-cert -H 'Content-Type: application/json' -d '{"host":"github.com"}' | jq -c '{subject, issuer, daysRemaining, chainTrusted}'
-          curl -s -X POST localhost:3000/api/whois -H 'Content-Type: application/json' -d '{"domain":"github.com"}' | jq -c '{registrar, created, expires}'
-          curl -s -X POST localhost:3000/api/robots-check -H 'Content-Type: application/json' -d '{"url":"https://www.google.com/search","userAgent":"TestBot"}' | jq -c '{allowed, matchedRule}'
-          curl -s -X POST localhost:3000/api/sitemap -H 'Content-Type: application/json' -d '{"url":"https://www.sitemaps.org/sitemap.xml"}' | jq -c '{type, count}'
-          echo "=== discovery surfaces ==="
-          N=$(curl -s localhost:3000/api/pricing | jq '.endpoints | length'); echo "catalog endpoints: $N (expect >= 500)"; [ "$N" -ge 500 ]
-          curl -s localhost:3000/openapi.json | jq '{paths: (.paths | length)}'
-          curl -s localhost:3000/tools | grep -oiE -m1 '<h1[^>]*>'
-          curl -s localhost:3000/tools/memory-write | grep -o '<title>[^<]*</title>'
-          curl -s localhost:3000/sitemap.xml | grep -c '<loc>'
-
       - name: Rails-copy lock (rails.js ↔ payments.js + every key page renders every rail)
         run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-rails.js
 
@@ -2178,32 +2002,11 @@ jobs:
       - name: Reveal-on-scroll coverage (shared, site-wide - not a per-page opt-in that only ever reached the homepage)
         run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-reveal-coverage.js
 
-      - name: CSP violations sitewide (real browser, every distinct page template + real interactions on click-gated pages - script-src has no 'unsafe-inline' since 2026-08-16)
-        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-csp-violations.js
-
-      - name: CSS tokens resolve (every :root custom property must actually resolve in a real browser, not just exist as text)
-        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-css-tokens-resolve.js
-
-      - name: Focus-visible on search/demo inputs (real browser check - inline style can silently defeat a stylesheet :focus rule)
-        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-focus-visible.js
-
       - name: Single <main> landmark per page (no page-level renderer may nest a second <main> inside ledgerShell's own)
         run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-single-main-landmark.js
 
-      - name: /compare tables scroll independently on narrow viewports (real browser check - scrollWidth>clientWidth alone can't prove overflow-x is enabled)
-        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-compare-scroll.js
-
       - name: Wrong-method 405 with Allow header (a known catalog path hit with the wrong verb no longer looks like a dead route)
         run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-wrong-method-405.js
-
-      - name: Reveal-on-scroll data-reveal-eager opt-in (a second above-fold section can be exempted explicitly, never leaks to unmarked pages)
-        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-reveal-eager.js
-
-      - name: Reveal-on-scroll skip-over safety net (a single fast scroll jump must never leave a section permanently invisible — real browser, found live on /marketplace 2026-08-16)
-        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-reveal-scroll-skip.js
-
-      - name: Hamburger menu aria-label toggles with aria-expanded (real browser click, not a static string check)
-        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-burger-aria-label.js
 
       - name: Heartbeat probe mapping (FAILS -> per-component status; stubbed curl — offline)
         run: bash scripts/test-heartbeat-probe.sh
@@ -2252,9 +2055,6 @@ jobs:
           python3 -m pip install --quiet requests
           AGENT402_BASE_URL=http://127.0.0.1:3091 python3 adapters/langchain-py/test.py
           kill $ADAPTER_PID 2>/dev/null || true
-
-      - name: gov-data Catalog API v4 (retired CKAN v3 proxy 404s on catalog-old)
-        run: node scripts/test-gov-data.js
 
       # Strict FREE_MODE sweep of paid tools that do NOT burn Brave/OpenAI/
       # OpenRouter/E2B/Blockscout-buyer/FRED/Neynar/etc. Fails on 502/503/504
@@ -2396,6 +2196,279 @@ jobs:
           [ "$SOLANA_402" -ge 1 ] || { echo "402 accepts is missing the Solana option despite SOLANA_WALLET_ADDRESS being set"; exit 1; }
 
 
+      # Moved here from test-unit-b (2026-08-25 rebalance): self-booting suites
+      # that need no shared server; test-unit-b was the next-slowest lane.
+      # Deterministic correctness proofs run FIRST — a flaky live upstream
+      # (e.g. data.gov downtime) must never mask whether the tools actually work.
+      - name: MCP server e2e (catalog, search, proof-of-work settlement, wallet guidance)
+        run: |
+          npm --prefix mcp ci
+          node mcp/test.js
+
+
+      - name: MCP Tasks on /mcp (io.modelcontextprotocol/tasks - handle then poll to completed, failures never a silent empty success, cancel aborts the paid run, restart resolves orphans, composites only, no task without payment - offline)
+        run: node scripts/test-mcp-tasks.js
+
+      - name: PostHog funnel (discovery→402→settlement capture; paid-mode boot vs mock facilitator — offline)
+        run: node scripts/test-posthog-funnel.js
+
+      - name: Native MPP on /mcp (stock MCP SDK client + mppx McpClient pays a wallet-only tool via the real gates; stub facilitator; -32042 wire; RFC 9457 problem on tamper - offline)
+        run: node scripts/test-mcp-mpp.js
+
+
+  test-sweeps:
+    # The two catalog sweeps and every browser-driven page check, on one booted
+    # server with Chromium. Split out of `test` on 2026-08-25 because that lane
+    # was the critical path at 7.4 min and these steps were 4 min of it while
+    # test-unit-c idled after 3.3. Kept TOGETHER here, not spread further: the
+    # sweeps share free-public upstreams that rate-limit by IP (the affinity
+    # rule in the `test` lane's comment), and the strict sweep needs Chromium
+    # behind the server it drives (render/screenshot) - the only lane that
+    # installs it, so the browser page checks ride along.
+    needs: [markers, tree-gate]
+    if: >-
+      !cancelled()
+      && (
+        github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
+      )
+      && needs.tree-gate.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      FRED_API_KEY_V2: ${{ secrets.FRED_API_KEY_V2 }}
+      E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+      COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          # Restores ~/.npm keyed on package-lock.json. `npm ci` still runs and
+          # still installs exactly what the lockfile pins, so this only saves
+          # the network fetch - a stale or poisoned cache cannot change which
+          # versions land. Measured before adding it: 21s/19s/16s across the
+          # three lanes on every single run, all of it re-downloading tarballs
+          # that had not changed.
+          cache: npm
+      - name: Install dependencies (secretless)
+        # F07: shadow the job-scope provider keys to EMPTY for this step only, so
+        # a malicious dependency lifecycle script running during `npm ci` cannot
+        # read them. No server or tool runs here, so empty keys are harmless.
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+        run: npm ci
+      # Chromium is ~150 MB from Playwright's CDN plus an apt round for fonts,
+      # 30 s on a good day and the step that stalled two runs for 28 min on a
+      # bad apt mirror (2026-08-18, see the install step). The browser bundle
+      # keys on the installed playwright-core version, so a dependency bump
+      # re-downloads and everything else hits. On a hit the install step is
+      # skipped outright: Chromium's shared libraries are already on the
+      # ubuntu-24.04 image and the fonts it pulls are not what any browser test
+      # here measures.
+      - name: Cache Playwright Chromium
+        id: pw-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('node_modules/playwright-core/package.json') }}
+      - name: Install Playwright Chromium (+ system deps)
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        # `--with-deps` runs apt-get against the runner's mirror list
+        # (/etc/apt/apt-mirrors.txt), whose first entry is
+        # azure.archive.ubuntu.com. On 2026-08-18 that mirror was bad on SOME
+        # runners and fine on others: two runs stalled with no output for 28 min
+        # until cancelled; later the same commit's push run finished this step
+        # in ~45s while its pull_request twin, started the same second on
+        # another runner, answered InRelease after 30s and crawled at ~295 kB/s
+        # (attempt 3 spent 128s on 21 MB of fonts and never finished) — 3 of 3
+        # attempts lost, because every retry walked the same mirror list. So:
+        # (1) prefer the canonical archive and keep azure as a fallback, (2) an
+        # apt inactivity timeout, so a stalled transfer fails over to the next
+        # mirror instead of eating the attempt (apt's default is 120s, longer
+        # than our per-attempt bound), (3) after a lost attempt drop azure from
+        # the list entirely, and (4) a mirror set that is dead for a full three
+        # attempts fails the step LOUDLY instead of eating the job's timeout.
+        # The only apt payload here is fonts (Chromium's shared libraries are
+        # already on the ubuntu-24.04 image), so a mirror swap changes nothing
+        # about what gets installed.
+        timeout-minutes: 10
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+        run: |
+          printf 'Acquire::http::Timeout "20";\nAcquire::https::Timeout "20";\nAcquire::Retries "2";\n' \
+            | sudo tee /etc/apt/apt.conf.d/99-ci-mirror-timeouts >/dev/null
+          set_mirrors() {  # $1 = "with-azure" | "no-azure"
+            [ -f /etc/apt/apt-mirrors.txt ] || return 0
+            {
+              printf 'https://archive.ubuntu.com/ubuntu/\tpriority:1\n'
+              [ "$1" = "with-azure" ] && printf 'http://azure.archive.ubuntu.com/ubuntu/\tpriority:2\n'
+              printf 'https://security.ubuntu.com/ubuntu/\tpriority:3\n'
+            } | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          }
+          set_mirrors with-azure
+          for i in 1 2 3; do
+            if timeout 170 npx playwright install --with-deps chromium; then exit 0; fi
+            echo "playwright install attempt $i failed or stalled (apt mirror?) - retrying without the azure mirror"
+            # A stalled apt-get may outlive the killed npx (sudo can detach it
+            # from the group); clear it so the retry isn't blocked on its lock.
+            # The stall is in apt's fetch phase, so killing it is safe.
+            sudo pkill -TERM -f 'apt-get' 2>/dev/null || true
+            set_mirrors no-azure
+            sleep 10
+          done
+          echo "playwright install failed 3x - the runner's apt mirror is likely down"
+          exit 1
+      - name: Start server in free mode
+        run: |
+          # Raise the MCP rate limit so the full-catalog connector test can sweep
+          # every tool (production keeps the default 20/min, 120/hr).
+          AGENT402_MCP_MAX_PER_MIN=1000000 AGENT402_MCP_MAX_PER_HOUR=1000000 \
+            X402_SYNC_ON_START=false FREE_MODE=true X402_PAYWALL_PROBES_PER_CYCLE=0 PORT=3000 node src/server.js &
+          for i in $(seq 1 20); do curl -s localhost:3000/health >/dev/null && break; sleep 1; done
+      - name: Crypto-kit tests (CoinGecko price/market/history/trending/global — keyless live API)
+        run: node scripts/test-crypto-kit.js
+
+      # The strict sweep runs FIRST so its sampled CoinGecko calls land before
+      # the lenient sweep touches that shared 30/min budget; then test-all hands
+      # it every route it covers (TEST_ALL_SKIP_STRICT_COVERED) and sweeps the rest.
+      - name: Non-metered paid examples (strict — 502/503/504 fail; NETWORK leniency hole)
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-non-metered-examples.js
+
+      - name: Every tool responds to its own example (all ~1070 endpoints)
+        run: TEST_ALL_SKIP_STRICT_COVERED=1 TARGET_URL=http://127.0.0.1:3000 node scripts/test-all.js
+
+      - name: Exercise tools against live sites
+        run: |
+          echo "=== extract: BBC News article ==="
+          curl -s -X POST localhost:3000/api/extract -H 'Content-Type: application/json' \
+            -d '{"url":"https://www.bbc.com/news"}' | jq '{title, siteName, wordCount, sample: (.markdown | .[0:400])}'
+          echo "=== extract: Wikipedia x402-adjacent page ==="
+          curl -s -X POST localhost:3000/api/extract -H 'Content-Type: application/json' \
+            -d '{"url":"https://en.wikipedia.org/wiki/List_of_HTTP_status_codes"}' | jq '{title, wordCount, sample: (.markdown | .[0:400])}'
+          echo "=== meta: github.com ==="
+          curl -s 'localhost:3000/api/meta?url=https://github.com' | jq .
+          echo "=== dns: MX for gmail.com ==="
+          curl -s 'localhost:3000/api/dns?name=gmail.com&type=MX' | jq .
+          echo "=== dns: TXT for openai.com ==="
+          curl -s 'localhost:3000/api/dns?name=openai.com&type=TXT' | jq '.records | length as $n | {records_found: $n}'
+          echo "=== SSRF guard: cloud metadata endpoint must be blocked ==="
+          curl -s -X POST localhost:3000/api/extract -H 'Content-Type: application/json' \
+            -d '{"url":"http://169.254.169.254/latest/meta-data"}' | jq .
+          echo "=== render: JS-only page (plain extract cannot read this) ==="
+          curl -s -X POST localhost:3000/api/render -H 'Content-Type: application/json' \
+            -d '{"url":"https://react.dev"}' | jq '{title, wordCount, rendered, sample: (.markdown | .[0:300])}'
+          echo "=== screenshot: example.com ==="
+          curl -s 'localhost:3000/api/screenshot?url=https://example.com' -o shot.png
+          file shot.png && ls -la shot.png
+          echo "=== pdf: arXiv 'Attention Is All You Need' ==="
+          curl -s -X POST localhost:3000/api/pdf -H 'Content-Type: application/json' \
+            -d '{"url":"https://arxiv.org/pdf/1706.03762"}' | jq 'if .error then . else {pages, wordCount, sample: (.text | .[0:150])} end'
+          echo "=== memory: write/read/isolation ==="
+          curl -s -X POST 'localhost:3000/api/memory?ns=ci' -H 'Content-Type: application/json' -d '{"key":"a","value":{"n":1}}' | jq .
+          curl -s 'localhost:3000/api/memory?ns=ci&key=a' | jq .
+          curl -s 'localhost:3000/api/memory?ns=other&key=a' | jq .
+          echo "=== memory v2: counter / recall / audit log ==="
+          curl -s -X POST 'localhost:3000/api/memory/incr?ns=ci' -H 'Content-Type: application/json' -d '{"key":"jobs","by":3}' | jq -c .
+          curl -s -X POST 'localhost:3000/api/memory/remember?ns=ci' -H 'Content-Type: application/json' -d '{"text":"The Railway deploy failed: build out of memory"}' | jq -c '{stored}'
+          curl -s -X POST 'localhost:3000/api/memory/remember?ns=ci' -H 'Content-Type: application/json' -d '{"text":"pineapple pizza recipe"}' | jq -c '{stored}'
+          curl -s -X POST 'localhost:3000/api/memory/recall?ns=ci' -H 'Content-Type: application/json' -d '{"query":"deployment ran out of memory","k":1}' | jq -c '.results[0].text'
+          curl -s 'localhost:3000/api/memory/log?ns=ci&limit=3' | jq -c '.entries|map(.action)'
+          echo "=== kit: encoding/data/text/time/validation ==="
+          curl -s -X POST localhost:3000/api/hash -H 'Content-Type: application/json' -d '{"text":"hello"}' | jq -c .
+          curl -s -X POST localhost:3000/api/json-to-csv -H 'Content-Type: application/json' -d '{"json":[{"a":1,"b":{"c":2}}]}' | jq -c .
+          curl -s -X POST localhost:3000/api/cron-next -H 'Content-Type: application/json' -d '{"expr":"0 9 * * 1-5","count":2}' | jq -c .
+          curl -s -X POST localhost:3000/api/email-validate -H 'Content-Type: application/json' -d '{"email":"test@gmail.com"}' | jq -c '{syntaxValid, deliverableDomain}'
+          curl -s 'localhost:3000/api/uuid?version=7&count=2' | jq -c .
+          curl -s 'localhost:3000/api/qr?text=https://agent402.tools' -o qr.png && file qr.png
+          echo "=== brand assets ==="
+          curl -s localhost:3000/logo.svg | grep -q '<svg' && echo "logo.svg ✓"
+          curl -sL localhost:3000/logo.png -o logo.png && file logo.png | grep -q 'PNG image' && echo "logo.png ✓"
+          curl -s localhost:3000/card.svg | grep -q '<svg' && echo "card.svg ✓"
+          curl -sL localhost:3000/card.png -o card.png && file card.png | grep -q 'PNG image' && echo "card.png (1200x630 social card) ✓"
+          echo "=== search: live web search (opt-in via BRAVE_LIVE_TEST=1) ==="
+          # Every [test] run otherwise burns the Brave subscription with calls the
+          # daily paid-canary (scripts/paid-canary.js) already covers post-deploy.
+          # When the key is set but BRAVE_LIVE_TEST!=1, just verify the route is
+          # registered (route returns either 200 or a structured 503 — never 404).
+          if [ "$BRAVE_LIVE_TEST" = "1" ] && [ -n "$BRAVE_API_KEY" ]; then
+            curl -s 'localhost:3000/api/search?q=x402+payment+protocol&count=3' | jq '{query, count, top: .results[0].url}'
+            curl -s 'localhost:3000/api/search?q=x402+payment+protocol&count=3' | jq -e '.count >= 1' >/dev/null || { echo "search returned no results"; exit 1; }
+          elif [ -z "$BRAVE_API_KEY" ]; then
+            echo "(BRAVE_API_KEY secret not set — verifying the unconfigured 503 path)"
+            code=$(curl -s -o /dev/null -w '%{http_code}' 'localhost:3000/api/search?q=test')
+            [ "$code" = "503" ] || { echo "expected 503 without key, got $code"; exit 1; }
+          else
+            echo "(BRAVE_LIVE_TEST!=1 — skipping live Brave call; route registration is covered by the /openapi.json + test-search-kit.js validation paths, and paid-canary covers post-deploy live verification)"
+          fi
+          echo "=== demand kit: live (pdf-to-markdown) ==="
+          curl -s -X POST localhost:3000/api/pdf-to-markdown -H 'Content-Type: application/json' \
+            -d '{"url":"https://arxiv.org/pdf/1706.03762"}' | jq '{pages, wordCount, md: (.markdown | .[0:160])}'
+          echo "=== live public data (data.gov / NWS / USGS) ==="
+          # data.gov has frequent upstream outages — exercise gov-data but don't
+          # hard-fail the suite on its availability (the tool returns an honest
+          # 502 when data.gov is down). NWS + USGS below are reliable and strict.
+          GD=$(curl -s 'localhost:3000/api/gov-data?q=electric+vehicle+charging&rows=3')
+          echo "$GD" | jq '{totalFound, top: .results[0].title, error}'
+          echo "$GD" | jq -e '.totalFound >= 1' >/dev/null && echo "  gov-data OK" || echo "  (gov-data upstream flaky right now — not failing the suite)"
+          curl -s 'localhost:3000/api/weather-alerts?area=CA' | jq '{count, top: .alerts[0].event}'
+          curl -s 'localhost:3000/api/weather-alerts?area=CA' | jq -e 'has("alerts")' >/dev/null || { echo "weather-alerts malformed"; exit 1; }
+          curl -s 'localhost:3000/api/earthquakes?minMag=2.5&period=day' | jq '{count, top: .quakes[0].place}'
+          curl -s 'localhost:3000/api/earthquakes?minMag=2.5&period=day' | jq -e '.count >= 1' >/dev/null || { echo "earthquakes returned nothing"; exit 1; }
+          echo "=== kit: live network tools ==="
+          curl -s -X POST localhost:3000/api/http-check -H 'Content-Type: application/json' -d '{"url":"https://example.com"}' | jq -c '{up, status, latencyMs}'
+          curl -s -X POST localhost:3000/api/tls-cert -H 'Content-Type: application/json' -d '{"host":"github.com"}' | jq -c '{subject, issuer, daysRemaining, chainTrusted}'
+          curl -s -X POST localhost:3000/api/whois -H 'Content-Type: application/json' -d '{"domain":"github.com"}' | jq -c '{registrar, created, expires}'
+          curl -s -X POST localhost:3000/api/robots-check -H 'Content-Type: application/json' -d '{"url":"https://www.google.com/search","userAgent":"TestBot"}' | jq -c '{allowed, matchedRule}'
+          curl -s -X POST localhost:3000/api/sitemap -H 'Content-Type: application/json' -d '{"url":"https://www.sitemaps.org/sitemap.xml"}' | jq -c '{type, count}'
+          echo "=== discovery surfaces ==="
+          N=$(curl -s localhost:3000/api/pricing | jq '.endpoints | length'); echo "catalog endpoints: $N (expect >= 500)"; [ "$N" -ge 500 ]
+          curl -s localhost:3000/openapi.json | jq '{paths: (.paths | length)}'
+          curl -s localhost:3000/tools | grep -oiE -m1 '<h1[^>]*>'
+          curl -s localhost:3000/tools/memory-write | grep -o '<title>[^<]*</title>'
+          curl -s localhost:3000/sitemap.xml | grep -c '<loc>'
+
+      - name: CSP violations sitewide (real browser, every distinct page template + real interactions on click-gated pages - script-src has no 'unsafe-inline' since 2026-08-16)
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-csp-violations.js
+
+      - name: CSS tokens resolve (every :root custom property must actually resolve in a real browser, not just exist as text)
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-css-tokens-resolve.js
+
+      - name: Focus-visible on search/demo inputs (real browser check - inline style can silently defeat a stylesheet :focus rule)
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-focus-visible.js
+
+      - name: /compare tables scroll independently on narrow viewports (real browser check - scrollWidth>clientWidth alone can't prove overflow-x is enabled)
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-compare-scroll.js
+
+      - name: Reveal-on-scroll data-reveal-eager opt-in (a second above-fold section can be exempted explicitly, never leaks to unmarked pages)
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-reveal-eager.js
+
+      - name: Reveal-on-scroll skip-over safety net (a single fast scroll jump must never leave a section permanently invisible — real browser, found live on /marketplace 2026-08-16)
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-reveal-scroll-skip.js
+
+      - name: Hamburger menu aria-label toggles with aria-expanded (real browser click, not a static string check)
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-burger-aria-label.js
+
+      - name: gov-data Catalog API v4 (retired CKAN v3 proxy 404s on catalog-old)
+        run: node scripts/test-gov-data.js
+
   test-pricing:
     # Test job runs on its own [test] marker AND auto-runs whenever a commit
     # asks to deploy or publish — so deploy/publish can hard-gate on it via
@@ -2457,6 +2530,23 @@ jobs:
           FRED_API_KEY_V2: ""
           E2B_API_KEY: ""
         run: npm ci
+
+      # Moved here from test-unit-a (2026-08-25 rebalance): the pricing lane was
+      # one 4.5-minute test; with that test bounded (see countTokensBounded in
+      # llm-gateway-kit.js) it had four minutes of headroom.
+      # Deterministic correctness proofs run FIRST — a flaky live upstream
+      # (e.g. data.gov downtime) must never mask whether the tools actually work.
+      - name: Ox Alpha tier (locked stealth model, zdr refusal, zero-cost clamp, reasoning floor, vanish gate - offline)
+        run: node scripts/test-ox-tier.js
+
+      - name: Macro-kit tests (FRED yield curve, Treasury debt + avg rates, ECB FX series, World Bank — live keyless APIs)
+        run: node scripts/test-macro-kit.js
+
+      - name: MPP dual-stack shim (real mppx client buys over WWW-Authenticate/Authorization wire; single settle; x402 pass-through; HMAC tamper — offline)
+        run: node scripts/test-mpp-shim.js
+
+      - name: HEAD paywall bypass closed (HEAD on paid GET routes 402s with challenges + empty body; free surfaces untouched — offline)
+        run: node scripts/test-head-paywall.js
 
       # OWN LANE on purpose. This single step ran 254s - 42% of the unit-a
       # lane, and unit-a was the slowest of the three, so it was 42% of the
@@ -2590,7 +2680,7 @@ jobs:
 
 
   publish:
-    needs: [markers, tree-gate, test, test-unit-a, test-unit-b, test-unit-c, test-pricing]
+    needs: [markers, tree-gate, test, test-sweeps, test-unit-a, test-unit-b, test-unit-c, test-pricing]
     # The lanes are `needs:`, so this used to inherit an implicit success() and
     # nothing else was required. !cancelled() removes that implicit check, so
     # the success requirement is written out - and the ONLY accepted alternative
@@ -2601,7 +2691,7 @@ jobs:
       !cancelled()
       && (
         needs.tree-gate.outputs.skip == 'true'
-        || ( needs.test.result == 'success' && needs.test-unit-a.result == 'success' && needs.test-unit-b.result == 'success' && needs.test-unit-c.result == 'success' && needs.test-pricing.result == 'success' )
+        || ( needs.test.result == 'success' && needs.test-sweeps.result == 'success' && needs.test-unit-a.result == 'success' && needs.test-unit-b.result == 'success' && needs.test-unit-c.result == 'success' && needs.test-pricing.result == 'success' )
       )
       && (
         github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' || needs.markers.outputs.publish == 'true'
@@ -3331,7 +3421,7 @@ jobs:
         run: SPAN_BLOCKS=350000 MAX_TXS=80 node scripts/check-builder-attribution.js || true
 
   deploy:
-    needs: [markers, tree-gate, test, test-unit-a, test-unit-b, test-unit-c, test-pricing]
+    needs: [markers, tree-gate, test, test-sweeps, test-unit-a, test-unit-b, test-unit-c, test-pricing]
     # Unconditional on a push to main (same reasoning as the test job above -
     # a merge to main has no marker to scan and needs none), otherwise the
     # existing dispatch/marker gates for the dev branch.
@@ -3345,7 +3435,7 @@ jobs:
       !cancelled()
       && (
         needs.tree-gate.outputs.skip == 'true'
-        || ( needs.test.result == 'success' && needs.test-unit-a.result == 'success' && needs.test-unit-b.result == 'success' && needs.test-unit-c.result == 'success' && needs.test-pricing.result == 'success' )
+        || ( needs.test.result == 'success' && needs.test-sweeps.result == 'success' && needs.test-unit-a.result == 'success' && needs.test-unit-b.result == 'success' && needs.test-unit-c.result == 'success' && needs.test-pricing.result == 'success' )
       )
       && (
         (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' && inputs.mode == 'deploy' || needs.markers.outputs.deploy == 'true'

@@ -917,16 +917,42 @@ export function serverToolWorstCase(body, tier) {
   return { feeUsd, injectedTokens, turns: steps + 1, steps };
 }
 
+// BPE in bounded pieces. gpt-tokenizer's merge loop is quadratic in the length
+// of a single pre-token chunk, and the pre-tokenizer only splits on spaces,
+// punctuation and script changes - so one unbroken run of CJK is ONE chunk.
+// Measured 2026-08-25: 100k chars of unbroken CJK took 23.8 s to count whole
+// and 0.19 s in 4 KB pieces, for the SAME token count; 100k chars of English
+// took 4 ms either way and counted 21 tokens MORE in pieces (a merge lost at
+// each boundary). Splitting can only lose merges, never gain them, so the
+// piecewise count is >= the exact one: safe for a margin bound, off by well
+// under 0.1% on prose, and it turns the clamp's CPU cost into O(n) - which
+// matters because this runs on the request path and a buyer chooses the text.
+// Pieces are cut on code-point boundaries so a surrogate pair is never split.
+const TOKEN_COUNT_PIECE = 4096;
+function countTokensBounded(text) {
+  if (text.length <= TOKEN_COUNT_PIECE) return countTokens(text);
+  let n = 0;
+  for (let i = 0; i < text.length;) {
+    let j = Math.min(text.length, i + TOKEN_COUNT_PIECE);
+    const c = text.charCodeAt(j - 1);
+    if (c >= 0xd800 && c <= 0xdbff && j < text.length) j++;
+    n += countTokens(text.slice(i, j));
+    i = j;
+  }
+  return n;
+}
+
 function estimateInputTokens(body, imageCount) {
   // Price the ENTIRE outbound body - messages, tools, response_format, stop
   // sequences - so a giant tool schema is input like any other input. Image
   // URLs are excluded from the text count (a data: URL is not prompt text)
-  // and billed flat per image instead. Exact-BPE via gpt-tokenizer (o200k);
-  // deterministic, so the prompt-cache key stays stable.
+  // and billed flat per image instead. Exact-BPE via gpt-tokenizer (o200k),
+  // counted in bounded pieces (see countTokensBounded); deterministic, so the
+  // prompt-cache key stays stable.
   const probe = { ...body };
   delete probe.max_tokens;
   const text = JSON.stringify(probe, (k, v) => (k === "image_url" ? undefined : v));
-  return Math.ceil(countTokens(text) * TOKEN_SAFETY) + imageCount * imageTokensFor(body.model);
+  return Math.ceil(countTokensBounded(text) * TOKEN_SAFETY) + imageCount * imageTokensFor(body.model);
 }
 
 /** Worst-case upstream bill (USD) for an outbound body at this tier:
