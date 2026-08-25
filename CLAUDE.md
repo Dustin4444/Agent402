@@ -45,6 +45,13 @@ Hosted at https://agent402.tools. Maintained by Havok Holdings LLC (the operatin
   "answers its own example" CI check (`scripts/test-all.js`).
 - Pure-CPU tools are PoW-eligible (free tier) automatically unless in `WALLET_ONLY_SLUGS`.
 - **Catalog floor: 400 entries, CI-checked by `sync-count.js --check`** (counts derive live from the booted server, never from a doc). No upper bound — additions must meet the bar: answers its own example, priced to market, live-verified.
+- **Retirement rule (2026-08-25):** a free-tier tool named on no marketing surface with zero external use in 30
+  days (paid or PoW, from `/__operator/sales.json`) is a candidate to retire; a kit that empties is deleted
+  outright. First cut: 40 tools + 29 skill packs (627 -> 558 catalog entries): `encoding-kit`, `math-kit`,
+  `string-kit`, `color-kit` deleted; `date-time`/`validation`/`crypto-hash`/`util`/`text-analysis` kits kept only
+  the tools a live pack or the test corpus depends on (timezone-convert, date-format, csv-lint, checksum,
+  geo-distance, readability-score). Measured before cutting: 20 of 627 priced tools had ANY external use in
+  30 days; free-tier use was 5 tools. Never retire below the 500 the "500+" claim check enforces.
 - **Counts on marketing/static surfaces are evergreen — “500+ tools”, never an exact number** (README, wiki, docs, adapters, package descriptions, served-page copy). Adding tools requires NO doc sweep. `node scripts/sync-count.js` (and `--check` in CI) verifies, live from the booted server: the 400-entry floor, that the “500+” claim is honest (total ≥ 500), and that the README H1 still carries “500+ tools”. The old repo-wide numeric rewrite is RETIRED (it once corrupted HTTP 500s/font-weights/prices — see sync-count.js header); never reintroduce it. Runtime surfaces (`/api/pricing`, `/openapi.json`, `/health`, `docs.js`) derive the exact count — leave those exact.
 - Memory tools (`/api/memory*`) are wallet-keyed (payment = identity), routed via `memHandler`, and must be in `WALLET_ONLY_SLUGS`. Per-namespace
   quotas: 10k keys (`MEMORY_MAX_NS_KEYS`, call-time read, default 10000) AND a 32MB
@@ -1244,7 +1251,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   a >=400 cancels settlement so a retry costs nothing unless it succeeds, and this sweep
   makes ~500 sequential paid buys over ~55 min, so three NON-defects otherwise fail the whole
   weekly gate on first sight — an edge `502 "upstream error"` (Railway swapping a container
-  mid-sweep; it hits pure-CPU tools like `xml-validate` too), a THIRD-PARTY upstream 5xx/timeout
+  mid-sweep; it hits pure-CPU tools like `hash` too), a THIRD-PARTY upstream 5xx/timeout
   (Blockscout/GLEIF/OpenRouter, or a router `"Seller rejected the paid retry"`), and a
   `409 "authorization already used"` (two equal-priced AVM buys inside one ~50-min validity
   window can sign to the same txid; a fresh signature in a later round is a new txid). Only what

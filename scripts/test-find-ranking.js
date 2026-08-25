@@ -105,10 +105,10 @@ const TOPN = [
 // intent-pack out of the top slot.
 const PACK_TOP1 = [
   ["scrape a website",              "structured-scrape"],
-  ["decode a JWT",                  "jwt-toolkit"],
+  ["decode a JWT",                  "decode-blob"],
   ["convert anything to markdown",  "any-to-markdown"],
   ["trip planning",                 "trip-planner"],
-  ["investment decision",           "investment-decision"],
+  ["investment decision",           "macro-context"],
   ["site status snapshot",          "status-snapshot"],
   // The contract-audit pack is the whole-workflow answer to audit-shaped
   // contract queries — it must ride along as the top pack, including for the

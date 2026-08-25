@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased - 2026-08-25 - First catalog retirement
+
+- **Retired 40 free-tier tools and 29 skill packs** that were named on no marketing surface and had zero
+  external use (paid or proof-of-work) in the preceding 30 days. Kits `encoding`, `math`, `string` and
+  `color` are gone; `date-time`, `validation`, `crypto-hash`, `util` and `text-analysis` keep only the tools
+  a live pack or the test corpus depends on. The catalog stays above 500 entries. Removed routes answer 404.
+
 ## Unreleased - 2026-08-22 - Reports, monitors, prepaid credits, MPP on Tempo
 
 - **Finished report products on `/v1`** - one paid call returns a complete, cited report:
