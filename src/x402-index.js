@@ -2365,6 +2365,7 @@ export function looksLikeListingInjection(text) {
 }
 
 let crawlerTimer = null;
+let firstCrawlTimer = null;
 let discoveryTimer = null;
 let crawlInFlight = false;
 
@@ -2641,7 +2642,13 @@ export async function persistIndexCacheAsync(file = INDEX_CACHE_FILE) {
     const t0 = performance.now();
     const json = JSON.stringify({ savedAt: Date.now(), entries });
     const ms = Math.round(performance.now() - t0);
-    if (ms > 500) console.warn(`[x402-index] persisting ${(json.length / 1_048_576).toFixed(1)} MB took ${ms}ms to serialize (${entries.length} origins)`);
+    // Always say how big it is, and which origins carry it: the file was 91 MB
+    // before the slim projection and 48 MB after, and what remains is tool
+    // arrays. Naming the five largest origins each cycle is how the next cut
+    // gets sized from data instead of a guess.
+    const top = entries.map(([o, v]) => [o, JSON.stringify(v).length]).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    console.log(`[x402-index] persisted ${(json.length / 1_048_576).toFixed(1)} MB for ${entries.length} origins in ${ms}ms; largest: ` +
+      top.map(([o, n]) => `${o} ${(n / 1024).toFixed(0)}KB/${(cache.get(o)?.tools || []).length} tools`).join(", "));
     const { writeFile } = await import("node:fs/promises");
     await writeFile(file, json);
     return true;
@@ -2695,7 +2702,17 @@ export function startCrawler(opts = {}) {
   const { selfOrigin = null } = opts;
   // Kick off discovery first so the first crawl has registry-sourced seeds in
   // hand (best-effort — if discovery is slow, the first crawl just uses env seeds).
-  runDiscovery(selfOrigin).then(() => runCrawl()).then(() => persistIndexCacheAsync()).catch(() => {});
+  // The first cycle is DEFERRED past boot. Starting it on the spot put the
+  // crawler's TLS handshakes and JSON parsing (~1.7 s of self-time in the
+  // 2026-08-25 boot profile) into the same seconds the container needs to
+  // answer its first health check; the warm-started cache already serves every
+  // reader meanwhile. Tests that need it immediately pass firstDelayMs: 0.
+  const firstDelayMs = Number.isFinite(opts.firstDelayMs) ? opts.firstDelayMs : Number(process.env.INDEX_FIRST_CRAWL_DELAY_MS ?? 30_000);
+  firstCrawlTimer = setTimeout(() => {
+    firstCrawlTimer = null;
+    runDiscovery(selfOrigin).then(() => runCrawl()).then(() => persistIndexCacheAsync()).catch(() => {});
+  }, Math.max(0, firstDelayMs));
+  if (typeof firstCrawlTimer.unref === "function") firstCrawlTimer.unref();
   crawlerTimer = setInterval(() => { runCrawl().then(() => persistIndexCacheAsync()).catch(() => {}); }, CRAWL_INTERVAL_MS);
   discoveryTimer = setInterval(() => runDiscovery(selfOrigin), DISCOVERY_INTERVAL_MS);
   // Don't keep the event loop alive on shutdown.
@@ -2705,6 +2722,10 @@ export function startCrawler(opts = {}) {
 
 /** Stop the crawler (used by tests to keep the process exitable). */
 export function stopCrawler() {
+  if (firstCrawlTimer) {
+    clearTimeout(firstCrawlTimer);
+    firstCrawlTimer = null;
+  }
   if (crawlerTimer) {
     clearInterval(crawlerTimer);
     crawlerTimer = null;

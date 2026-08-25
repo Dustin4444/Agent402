@@ -72,6 +72,12 @@ CREATE TABLE IF NOT EXISTS transfers (
   PRIMARY KEY (chain, wallet, txid)
 );
 CREATE INDEX IF NOT EXISTS idx_transfers_ext ON transfers (wallet, external, chain);
+-- ledgerRecent() runs once per rail at boot (revenueSnapshot warm) and asks for
+-- the newest 8 transfers by (chain, wallet) ordered by block, then when_ts. With
+-- only the (wallet, external, chain) index every call sorted a wallet's whole
+-- history: 2.05 s of the boot event loop on prod (first-import CPU profile,
+-- 2026-08-25). This index answers it as an ordered scan of 8 rows.
+CREATE INDEX IF NOT EXISTS idx_transfers_recent ON transfers (chain, wallet, block DESC, when_ts DESC);
 CREATE TABLE IF NOT EXISTS cursors (
   chain      TEXT NOT NULL,
   wallet     TEXT NOT NULL,

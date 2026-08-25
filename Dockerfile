@@ -109,4 +109,11 @@ ENTRYPOINT ["docker-entrypoint.sh"]
 EXPOSE 3000
 # start.js dispatches: WORKER_MODE=true → the secretless worker, else the API.
 # Still `node <script>` so the gosu entrypoint keeps dropping to the node user.
+# V8 young generation 16 MB -> 64 MB per semi-space. Boot parses a ~50 MB JSON
+# cache into ~2,900 seller objects and the first-import CPU profile (2026-08-25)
+# put 4.3 s of the boot stall in the garbage collector: with the default nursery
+# that allocation burst is hundreds of scavenges. A bigger nursery is a few tens
+# of MB of RSS for a shorter, quieter boot; it is a launch flag, not a Railway
+# variable, so it cannot trigger the variable-write redeploy race.
+ENV NODE_OPTIONS="--max-semi-space-size=64"
 CMD ["node", "start.js"]
