@@ -29,6 +29,27 @@ is_sha() { [[ "$1" =~ ^[0-9a-f]{40}$ ]]; }
 
 SHA=$(gh pr view "$PR" --json headRefOid -q .headRefOid || true)
 is_sha "$SHA" || { echo "could not read a head SHA for PR #$PR (got '${SHA}')"; exit 1; }
+
+# The PR's head lags the push by a few seconds. Run right after `git push`
+# (2026-08-25) this read the PREVIOUS head, judged its run, and refused - the
+# fix was pushed and never merged. When the local checkout is on the PR branch
+# and already pushed, insist the PR head has caught up with it first.
+if [ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)" = "$BRANCH" ]; then
+  LOCAL=$(git rev-parse HEAD)
+  if is_sha "$LOCAL" && [ "$LOCAL" != "$SHA" ]; then
+    if [ "$(git rev-parse "origin/$BRANCH" 2>/dev/null || true)" = "$LOCAL" ]; then
+      echo "PR head $SHA lags the pushed local head $LOCAL - waiting for GitHub to catch up"
+      for _ in $(seq 1 18); do
+        sleep 5
+        SHA=$(gh pr view "$PR" --json headRefOid -q .headRefOid || true)
+        [ "$SHA" = "$LOCAL" ] && break
+      done
+      [ "$SHA" = "$LOCAL" ] || { echo "PR head ($SHA) never caught up with local HEAD ($LOCAL) - not merging"; exit 1; }
+    else
+      echo "local HEAD $LOCAL is not pushed (origin/$BRANCH differs) - push first, or merge from a clean checkout"; exit 1
+    fi
+  fi
+fi
 echo "PR #$PR head $SHA on $BRANCH"
 
 # The push run can take a few seconds to appear after a push.
