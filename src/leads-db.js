@@ -37,7 +37,7 @@ function getPool() {
     ssl: dbSsl(DATABASE_URL),
     max: 4,
     idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 8_000,
+    connectionTimeoutMillis: 20_000, // outlives the ~10 s post-listen boot stall (2026-08-25)
   });
   pool.on("error", (err) => {
     // Don't crash the server on a dropped idle client — Postgres on Railway

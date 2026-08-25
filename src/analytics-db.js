@@ -43,7 +43,7 @@ function getPool() {
     ssl: dbSsl(ANALYTICS_URL), // F11: verified TLS on public hosts, relaxed only on the private railway.internal mesh
     max: 4,
     idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 8_000,
+    connectionTimeoutMillis: 20_000, // outlives the ~10 s post-listen boot stall (2026-08-25)
   });
   pool.on("error", (err) => {
     console.error("[analytics-db] pool error:", err.message);
@@ -119,8 +119,10 @@ function getPoolIgnoringBackoff() {
 
 export async function initAnalyticsDb() {
   if (!ANALYTICS_URL) return { ok: false, reason: "no-db" };
+  unavailableUntil = 0; // an explicit init is a deliberate retry
   try {
-    await ensureSchema();
+    const ok = await ensureSchema();
+    if (!ok) return { ok: false, reason: "init-failed" };
     return { ok: true };
   } catch (e) {
     console.error("[analytics-db] init failed:", e.message);
