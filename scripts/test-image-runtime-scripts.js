@@ -51,7 +51,13 @@ for (const f of runtimeFiles) {
 ok(needed.size > 0, "detector found no scripts/ references at all - it has gone blind");
 
 for (const [file, where] of needed) {
-  ok(new RegExp(`COPY[^\\n]*scripts/${file.replace(/\./g, "\\.")}`).test(dockerfile),
+  // Escape EVERY regex metacharacter, not only '.'. The capture pattern admits
+  // [\w.-] so '-' is the only other char that can appear, and it is inert here,
+  // but a partial escape is the shape CodeQL flags (js/incomplete-sanitization)
+  // and it is right to: the next person to widen the capture would silently
+  // inherit a regex injection. Escape fully and the class is closed.
+  const esc = file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  ok(new RegExp(`COPY[^\\n]*scripts/${esc}`).test(dockerfile),
     `${where} uses scripts/${file} at runtime but the Dockerfile does not COPY it - ` +
     "the image boots without it and crashes in production");
 }
