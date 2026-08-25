@@ -938,7 +938,11 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   reached 91.4 MB on prod (full seller manifests, up to 4 MB each) and cost 3 s of boot parse plus a
   synchronous re-stringify after every crawl cycle; `persistedEntries()` keeps a manifest projection
   (name/description/homepage/capabilities.tools/synthesized, `slimmed:true`) and bounded tool scalars, the
-  crawler writes via `persistIndexCacheAsync()`, and a serialize over 500 ms logs its size. Safe because the
+  crawler writes via `persistIndexCacheAsync()` (which also writes an NDJSON twin, `*.ndjson`, one seller per
+  line; every persist logs size + the five largest origins), and boot loads the twin INCREMENTALLY
+  (`loadPersistedIndexCacheAsync`, 250 lines per turn with a `setImmediate` between batches, legacy one-shot JSON
+  as fallback; `indexWarmStartInProgress()` keeps `getIndexSnapshot` from pinning a half-loaded cache for 30 s;
+  `test-index-ndjson-warmstart.js`: 7 ms longest hold vs 68 ms one-shot on the same data). Safe because the
   ETag cache is memory-only: the first crawl after a boot re-fetches every manifest in full. Note the two seller counts on
   `/marketplace` are deliberately different populations: the stat card counts **distinct
   payees** (rows after collapsing origins sharing a leaderboard payTo gid) and the chain
