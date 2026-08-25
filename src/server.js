@@ -1,3 +1,4 @@
+import "./boot-profile.js"; // diagnostic boot CPU profile - must stay the FIRST import (see the file)
 import { RAILS_OR, RAILS_SHORT, RAILS } from "./rails.js";
 // Railway's egress has NO working IPv6 (every AAAA is ENETUNREACH). Node's
 // happy-eyeballs races the IPv6 address on dual-stack upstreams and fails ~15% of
@@ -6094,51 +6095,6 @@ const bootStep = (name, fn) => {
     else console.log(`[boot] no event-loop stall over 250ms in the first 60s (worst ${Math.round(worst)}ms)`);
   }, 60_000);
   report.unref();
-}
-
-// ONE-SHOT BOOT CPU PROFILE (2026-08-25, diagnostic). The lag sampler above
-// says WHEN the loop stalled (14-17 s, ending as the listener's callback
-// finally runs) but not WHERE; the timed loaders cleared the five /data cache
-// parsers. A sampling profile of the first 45 s names the frames. Overhead is
-// a few percent for that window and nothing after; BOOT_CPU_PROFILE=off
-// disables. Remove once the stall is fixed.
-// Railway only (RAILWAY_DEPLOYMENT_ID is set there and nowhere else): an open
-// inspector session keeps the event loop alive, so a test that waits for its
-// spawned server to exit on its own never returns - test-supported-guard hung
-// for 27 minutes on the first run that carried this. BOOT_CPU_PROFILE=on forces
-// it elsewhere.
-// Never awaited at module level: everything after this line (the post-listen
-// starts, the SIGTERM handler) must register even if the inspector never
-// answers, so the whole thing is a detached async task.
-if (process.env.BOOT_CPU_PROFILE !== "off" && (process.env.RAILWAY_DEPLOYMENT_ID || process.env.BOOT_CPU_PROFILE === "on")) {
-  (async () => {
-    const { Session } = await import("node:inspector");
-    const session = new Session();
-    session.connect();
-    const post = (m, p) => new Promise((res, rej) => session.post(m, p, (e, r) => (e ? rej(e) : res(r))));
-    await post("Profiler.enable");
-    await post("Profiler.setSamplingInterval", { interval: 2000 });
-    await post("Profiler.start");
-    const done = setTimeout(async () => {
-      try {
-        const { profile } = await post("Profiler.stop");
-        const byId = new Map(profile.nodes.map((n) => [n.id, n]));
-        const self = new Map();
-        const dt = profile.timeDeltas || [];
-        for (let i = 0; i < profile.samples.length; i++) {
-          const n = byId.get(profile.samples[i]);
-          if (!n) continue;
-          const cf = n.callFrame;
-          const key = `${cf.functionName || "(anon)"} ${String(cf.url || "").split("/").slice(-2).join("/")}:${cf.lineNumber + 1}`;
-          self.set(key, (self.get(key) || 0) + (dt[i] || 0));
-        }
-        const top = [...self.entries()].filter(([k]) => !/^\((idle|program|garbage collector)\)/.test(k)).sort((a, b) => b[1] - a[1]).slice(0, 10);
-        console.warn(`[boot] cpu profile, top self-time frames in the first 45s:\n` + top.map(([k, us]) => `  ${String(Math.round(us / 1000)).padStart(6)}ms  ${k}`).join("\n"));
-      } catch (e) { console.warn("[boot] cpu profile failed:", String(e?.message || e).slice(0, 120)); }
-      finally { try { session.disconnect(); } catch { /* done */ } }
-    }, 45_000);
-    done.unref();
-  })().catch((e) => console.warn("[boot] cpu profile unavailable:", String(e?.message || e).slice(0, 120)));
 }
 
 bootStep("startBackupScheduler", () => startBackupScheduler());
