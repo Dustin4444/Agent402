@@ -921,7 +921,13 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   in-flight query for a concurrent burst) runs; only a cold cache (first request after boot)
   awaits the build. Errored reads back-date `cachedAt` so they expire in ~5 min, not 30.
   No visitor request ever blocks on the rebuild — before this, the first visitor after each
-  30-min expiry ate the full ~500ms. `getIndexSnapshot()` is a separate 30s in-memory cache
+  30-min expiry ate the full ~500ms. **`routeQuery` (/api/route, /api/find relatedSellers, the SOR resolution) memoizes per-entry
+  derivations by object identity (2026-08-25):** alias `exactServiceKey`/slug sets, the decorated remote
+  pool and per-tool statics (lowercased haystack, injection verdict, price rank) live in WeakMaps keyed by
+  the cache entry / tool object - entries are replaced on re-crawl, never mutated, so no invalidation;
+  measured 160 → 53 ms per query on a synthetic 2,900-seller cache (prod was 1.1 s cold). A source guard in
+  `test-discovery-note.js` pins that the injection verdict is computed in the statics AND honoured for every
+  row. `getIndexSnapshot()` is a separate 30s in-memory cache
   (`INDEX_SNAPSHOT_TTL_MS`). The **crawl cache itself warm-starts from `/data`**
   (`INDEX_CACHE_FILE`, default `/data/x402-index-cache.json`; persisted after each
   crawl, loaded in `startCrawler`, never clobbers a live-refreshed entry) — it used to
