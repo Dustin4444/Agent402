@@ -1287,6 +1287,9 @@ jobs:
       - name: Lame-duck shutdown (SIGTERM keeps SERVING until the replacement can — the deploy-downtime fix; sizing vs the Railway grace)
         run: node scripts/test-lame-duck-shutdown.js
 
+      - name: Lame duck drains on observed quiet, not a clock (production path; must keep serving under live traffic)
+        run: node scripts/test-lame-duck-quiet.js
+
       - name: Production image carries every script the server needs at runtime (derived from source, not listed)
         run: node scripts/test-image-runtime-scripts.js
 
@@ -3587,9 +3590,12 @@ jobs:
           # STARTS and keeps routing to it until the new one is healthy: on the
           # 2026-08-24 20:45 deploy that was SIGTERM 20:45:17 and healthy
           # 20:47:05, a 108s gap. The server now keeps SERVING for
-          # This grace is now the ONLY number here: the server DERIVES its
-          # lame-duck window from it (grace - drain - margin), so the two can no
-          # longer disagree. The literal it replaced was sized from the latest
+          # BACKSTOP ONLY. The server no longer sizes anything from this: after
+          # SIGTERM it serves until traffic stops arriving (the router stops
+          # sending once the replacement is healthy) and drains then. This
+          # value just has to be large enough that Railway never SIGKILLs a
+          # container that is still the only one serving. 900s clears the 539s
+          # worst gap measured with margin; the sizing test enforces >= 1.5x. The literal it replaced was sized from the latest
           # sample and was short twice running - the gap between SIGTERM and the
           # replacement serving measured 108s, 194s, 246s and then 373s, growing
           # even on a deploy that changed no variable.
@@ -3599,7 +3605,7 @@ jobs:
           # which the Dockerfile change in this commit attacks directly.
           # Raise both together or the SIGKILL lands mid-drain.
           VARS=$(jq -n --arg w "$WALLET_ADDRESS" --arg n "$NETWORK" --arg f "$FACILITATOR_URL" --arg b "$BASE" \
-            '{WALLET_ADDRESS:$w, NETWORK:$n, FACILITATOR_URL:$f, BASE_URL:$b, RAILWAY_DEPLOYMENT_DRAINING_SECONDS:"600"}')
+            '{WALLET_ADDRESS:$w, NETWORK:$n, FACILITATOR_URL:$f, BASE_URL:$b, RAILWAY_DEPLOYMENT_DRAINING_SECONDS:"900"}')
           if [ -n "$CDP_KEY_ID" ] && [ -n "$CDP_KEY_SECRET" ]; then
             VARS=$(echo "$VARS" | jq --arg i "$CDP_KEY_ID" --arg s "$CDP_KEY_SECRET" '. + {CDP_API_KEY_ID:$i, CDP_API_KEY_SECRET:$s}')
           fi
