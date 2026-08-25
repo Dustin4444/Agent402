@@ -94,7 +94,8 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
   - `.github/trigger-tool-alert`, `-charged-alert`, `-heartbeat`, `-announce`, `-b20check`,
     `-x-verify`, `-self-consistency-alert` are unrelated to deploy.yml - each still gates its
     own dedicated workflow's path filter, untouched by the above.
-- **Flow:** commit to the dev branch (with markers) → push → open a **draft PR** → CI runs →
+- **Flow:** commit to the dev branch with `[test]` ONLY (never `[deploy]` - Mike, 2026-08-25: main deploys on
+  merge, so a dev `[deploy]` swaps prod twice for one change) → push → open a **draft PR** → CI runs →
   merge to `main` (deploys on its own now, whether or not the dev branch was ever synced). The
   `create_pull_request` tool auto-appends a session-link footer; **strip it** via
   `update_pull_request` before/after creating (no session links in PR bodies/commits).
