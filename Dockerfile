@@ -59,8 +59,19 @@ COPY src ./src
 # pins every service to Dockerfile); WORKER_MODE unset → the main API server.
 COPY start.js ./
 COPY worker ./worker
-# scripts/demo-payment.js is served at /demo.js (the runnable buyer demo)
-COPY scripts ./scripts
+# Only the two scripts the SERVER actually uses at runtime, never the whole
+# directory. `COPY scripts ./scripts` shipped ~90 test files into the production
+# image and, worse, put a cache-busting layer in front of everything below it:
+# a test-only edit is the most common change in this repo, and each one
+# invalidated this layer and every layer after it. Measured 2026-08-25: a deploy
+# whose only change was one comment in src/ took 391s from creation to serving.
+#
+# Both entries are load-bearing and verified, not guessed:
+#   demo-payment.js       served at /demo.js (src/server.js readFileSync)
+#   revenue-scan-solana.js imported by src/revenue-live.js and revenue-ledger.js
+# Adding a runtime dependency on another script means adding it HERE too, and
+# scripts/test-image-runtime-scripts.js fails the build if one is missing.
+COPY scripts/demo-payment.js scripts/revenue-scan-solana.js ./scripts/
 # wiki/ is the source of truth for /docs (server-rendered) and is CI-synced
 # to the GitHub wiki. Must be in the image or /docs is empty.
 COPY wiki ./wiki

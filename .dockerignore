@@ -1,0 +1,26 @@
+# The build context is uploaded before any layer is evaluated, so anything the
+# image never uses is pure upload time on every deploy. node_modules is the big
+# one (662MB locally) - the image builds its own via `npm ci --omit=dev`, so a
+# developer's copy must never be shipped or, worse, silently used.
+node_modules
+.git
+.github
+
+# Test and ops material. scripts/ is NOT excluded wholesale: the Dockerfile
+# copies the two files the server needs at runtime by name.
+coverage
+test-results
+playwright-report
+*.log
+tmp
+.DS_Store
+
+# Docs that are not served. wiki/ IS copied - it is the source for /docs.
+docs
+README.md
+CLAUDE.md
+CLAUDE.local.md
+
+# Local env must never reach an image layer.
+.env
+.env.*
