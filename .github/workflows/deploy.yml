@@ -884,7 +884,7 @@ jobs:
       # runs in its own process, in the same order; `t` groups its log and names it
       # with its elapsed time, and a failure prints the failing script as an error.
       # The original step names ride above each script so the WHY stays here.
-      - name: Offline suites (8 scripts, one process each)
+      - name: Offline suites (2 scripts, one process each)
         run: |
           set -euo pipefail
           t() { local s=$SECONDS; echo "::group::$*"; "$@" || { echo "::endgroup::"; echo "::error::failed: $*"; exit 1; }; echo "::endgroup::"; echo "ok  $* ($((SECONDS - s))s)"; }
@@ -892,6 +892,130 @@ jobs:
           t node scripts/test-x402-economy.js
           # /sitemap.xml coverage (every skill pack, sample tools, static surfaces)
           t node scripts/test-sitemap-coverage.js
+
+  test-unit-a3:
+    # The second half of test-unit-a (2026-08-25, split by the seconds each item
+    # measured in the previous run so both halves finish together). Same header,
+    # same booted server, same env; only the step list differs.
+    # Test job runs on its own [test] marker AND auto-runs whenever a commit
+    # asks to deploy or publish — so deploy/publish can hard-gate on it via
+    # `needs: test`. This makes "ship without running tests" impossible by
+    # design, not by developer discipline.
+    needs: [markers, tree-gate]
+    # Runs on the [test]/[deploy]/[publish] markers, on the matching
+    # workflow_dispatch modes, on every PR into main (N-04: so the required
+    # `test` status check always reports), AND unconditionally on every push
+    # to main — a merge to main has no marker to scan (see the `on:` block
+    # above) and needs none: it is asked to test-and-deploy regardless.
+    # `!cancelled()` because tree-gate does not run at all outside a push to
+    # main, and a SKIPPED `needs` job skips its dependents unless the dependent
+    # carries a status function - without this, every dev-branch and PR run
+    # would silently stop testing. With tree-gate skipped OR failed its output
+    # is empty, which is not 'true', so the lane runs: the gate can only ever
+    # subtract work by succeeding and saying so.
+    if: >-
+      !cancelled()
+      && (
+        (github.event_name == 'pull_request' && !(github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'claude/sweet-brown-i99jl3')) || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/sweet-brown-i99jl3')) || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
+      )
+      && needs.tree-gate.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    # A healthy run takes 22-25 min. Without this the GitHub default is 360
+    # min, and on 2026-08-18 two consecutive runs sat for 28+ min inside the
+    # Playwright system-deps apt step (see below) — the deploy job hard-gates
+    # on this one, so a hung test job silently blocks every deploy behind it.
+    timeout-minutes: 60
+    # A REAL redis, because until 2026-08-07 nothing in CI ever connected to
+    # one. test-shared-limit.js injects a fake store deliberately (it proves
+    # "two callers share one counter", and a fake proves that exactly), but
+    # that left the redis CLIENT path untested — so Dependabot's redis 4 -> 6
+    # bump arrived with a green CI that could not have caught a client
+    # regression. Prod is not in-memory: REDIS_URL is set there, and the shared
+    # limiter FAILS CLOSED, so a client regression refuses trials.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    # F07: provider keys stay at job scope so every TEST step gates its
+    # expectations on the SAME config the booted server has. But the ONE step
+    # that runs untrusted third-party code — the dependency install, where npm
+    # lifecycle scripts execute — SHADOWS them to empty (below), so a malicious
+    # package cannot read them. That is the real F07 exposure; our own test
+    # steps are trusted code from this repo.
+    env:
+      BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      FRED_API_KEY_V2: ${{ secrets.FRED_API_KEY_V2 }}
+      E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+      # Raises CoinGecko off the 30/min keyless budget shared per runner IP.
+      # It does NOT make the calls free: the Demo plan has a monthly quota and
+      # CI would burn it on every push, which is the trap the Brave notes in
+      # test-non-metered-examples.js already record. So the sweep still SAMPLES
+      # the family (COINGECKO_SLUGS there). Key plus sampling: the two live
+      # calls per run are reliable, and the quota lasts.
+      COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          # Restores ~/.npm keyed on package-lock.json. `npm ci` still runs and
+          # still installs exactly what the lockfile pins, so this only saves
+          # the network fetch - a stale or poisoned cache cannot change which
+          # versions land. Measured before adding it: 21s/19s/16s across the
+          # three lanes on every single run, all of it re-downloading tarballs
+          # that had not changed.
+          cache: npm
+      # node_modules restored by lockfile hash (2026-08-25): npm ci was 13-17 s in
+      # every lane. On a hit the install is skipped outright, so no install script
+      # runs at all - stricter than the secretless-env install below. Native
+      # modules (better-sqlite3) ship prebuilt per Node ABI, hence node22 in the key.
+      - name: Restore node_modules
+        id: nm-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+      - name: Install dependencies (secretless)
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        # F07: shadow the job-scope provider keys to EMPTY for this step only, so
+        # a malicious dependency lifecycle script running during `npm ci` cannot
+        # read them. No server or tool runs here, so empty keys are harmless.
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+        run: npm ci
+      # NO Playwright in this lane on purpose: it runs no browser-driven
+      # script. All eight (csp-violations, css-tokens-resolve, focus-visible,
+      # the reveal suite, burger-aria-label, compare-scroll,
+      # non-metered-examples) live in the `test` lane. Installing Chromium
+      # here cost 32s and 22s for nothing, and the slower unit lane IS the
+      # critical path. If a browser-driven script is ever added here, copy
+      # the install step back from the `test` job with it.
+      - name: Start server in free mode
+        run: |
+          # Raise the MCP rate limit so the full-catalog connector test can sweep
+          # every tool (production keeps the default 20/min, 120/hr).
+          AGENT402_MCP_MAX_PER_MIN=1000000 AGENT402_MCP_MAX_PER_HOUR=1000000 \
+            X402_SYNC_ON_START=false FREE_MODE=true X402_PAYWALL_PROBES_PER_CYCLE=0 PORT=3000 node src/server.js &
+          for i in $(seq 1 20); do curl -s localhost:3000/health >/dev/null && break; sleep 1; done
+      # ONE STEP, MANY SCRIPTS (2026-08-25): GitHub spends ~0.7 s of runner setup
+      # per step and this lane had over a hundred one-line steps. Each script still
+      # runs in its own process, in the same order; `t` groups its log and names it
+      # with its elapsed time, and a failure prints the failing script as an error.
+      # The original step names ride above each script so the WHY stays here.
+      - name: Offline suites (6 scripts, one process each)
+        run: |
+          set -euo pipefail
+          t() { local s=$SECONDS; echo "::group::$*"; "$@" || { echo "::endgroup::"; echo "::error::failed: $*"; exit 1; }; echo "::endgroup::"; echo "ok  $* ($((SECONDS - s))s)"; }
           # /api/route neutral cross-seller router envelope (per-row shape, include filter, missing-query)
           t node scripts/test-route-envelope.js
           # Tool correctness regressions (20 wrong-answer bugs from the review; boots free-mode, TZ=UTC)
@@ -1088,7 +1212,7 @@ jobs:
       # runs in its own process, in the same order; `t` groups its log and names it
       # with its elapsed time, and a failure prints the failing script as an error.
       # The original step names ride above each script so the WHY stays here.
-      - name: Offline suites (6 scripts, one process each)
+      - name: Offline suites (5 scripts, one process each)
         run: |
           set -euo pipefail
           t() { local s=$SECONDS; echo "::group::$*"; "$@" || { echo "::endgroup::"; echo "::error::failed: $*"; exit 1; }; echo "::endgroup::"; echo "ok  $* ($((SECONDS - s))s)"; }
@@ -1102,6 +1226,95 @@ jobs:
           t node scripts/test-tempo-router.js
           # "External spend guard (per-payer debt ceiling: an UNSETTLED upstream spend keeps counting, so verify-then-fail-to-settle cannot drain the wallet — offline)"
           t node scripts/test-external-spend-guard.js
+
+  test-unit-a4:
+    # The second half of test-unit-a2 (2026-08-25, split by the seconds each item
+    # measured in the previous run so both halves finish together). Same header,
+    # same booted server, same env; only the step list differs.
+    # Second half of test-unit-a (2026-08-25), split by the seconds each script
+    # measured in its own log line - not by count. Same header, same setup, same
+    # order within each half; only the list differs.
+    needs: [markers, tree-gate]
+    if: >-
+      !cancelled()
+      && (
+        (github.event_name == 'pull_request' && !(github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'claude/sweet-brown-i99jl3')) || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/sweet-brown-i99jl3')) || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
+      )
+      && needs.tree-gate.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      FRED_API_KEY_V2: ${{ secrets.FRED_API_KEY_V2 }}
+      E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+      COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          # Restores ~/.npm keyed on package-lock.json. `npm ci` still runs and
+          # still installs exactly what the lockfile pins, so this only saves
+          # the network fetch - a stale or poisoned cache cannot change which
+          # versions land. Measured before adding it: 21s/19s/16s across the
+          # three lanes on every single run, all of it re-downloading tarballs
+          # that had not changed.
+          cache: npm
+      # node_modules restored by lockfile hash (2026-08-25): npm ci was 13-17 s in
+      # every lane. On a hit the install is skipped outright, so no install script
+      # runs at all - stricter than the secretless-env install below. Native
+      # modules (better-sqlite3) ship prebuilt per Node ABI, hence node22 in the key.
+      - name: Restore node_modules
+        id: nm-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+      - name: Install dependencies (secretless)
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        # F07: shadow the job-scope provider keys to EMPTY for this step only, so
+        # a malicious dependency lifecycle script running during `npm ci` cannot
+        # read them. No server or tool runs here, so empty keys are harmless.
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+        run: npm ci
+      # NO Playwright in this lane on purpose: it runs no browser-driven
+      # script. All eight (csp-violations, css-tokens-resolve, focus-visible,
+      # the reveal suite, burger-aria-label, compare-scroll,
+      # non-metered-examples) live in the `test` lane. Installing Chromium
+      # here cost 32s and 22s for nothing, and the slower unit lane IS the
+      # critical path. If a browser-driven script is ever added here, copy
+      # the install step back from the `test` job with it.
+      - name: Start server in free mode
+        run: |
+          # Raise the MCP rate limit so the full-catalog connector test can sweep
+          # every tool (production keeps the default 20/min, 120/hr).
+          AGENT402_MCP_MAX_PER_MIN=1000000 AGENT402_MCP_MAX_PER_HOUR=1000000 \
+            X402_SYNC_ON_START=false FREE_MODE=true X402_PAYWALL_PROBES_PER_CYCLE=0 PORT=3000 node src/server.js &
+          for i in $(seq 1 20); do curl -s localhost:3000/health >/dev/null && break; sleep 1; done
+      # ONE STEP, MANY SCRIPTS (2026-08-25): GitHub spends ~0.7 s of runner setup
+      # per step and this lane had over a hundred one-line steps. Each script still
+      # runs in its own process, in the same order; `t` groups its log and names it
+      # with its elapsed time, and a failure prints the failing script as an error.
+      # The original step names ride above each script so the WHY stays here.
+      - name: Offline suites (1 scripts, one process each)
+        run: |
+          set -euo pipefail
+          t() { local s=$SECONDS; echo "::group::$*"; "$@" || { echo "::endgroup::"; echo "::error::failed: $*"; exit 1; }; echo "::endgroup::"; echo "ok  $* ($((SECONDS - s))s)"; }
           # Offsite backup (stub S3 — consistent sqlite snapshots, cache excluded, budget holds visibly, bill guard refuses over-cap, retention prunes date prefixes — offline)
           t node scripts/test-backup.js
 
@@ -1371,7 +1584,7 @@ jobs:
       # runs in its own process, in the same order; `t` groups its log and names it
       # with its elapsed time, and a failure prints the failing script as an error.
       # The original step names ride above each script so the WHY stays here.
-      - name: Offline suites (8 scripts, one process each)
+      - name: Offline suites (4 scripts, one process each)
         run: |
           set -euo pipefail
           t() { local s=$SECONDS; echo "::group::$*"; "$@" || { echo "::endgroup::"; echo "::error::failed: $*"; exit 1; }; echo "::endgroup::"; echo "ok  $* ($((SECONDS - s))s)"; }
@@ -1383,6 +1596,130 @@ jobs:
           t node scripts/test-health-flags.js
           # /skills/<slug> contract (every pack renders workflow + tools + claudePrompt + JSON-LD)
           t node scripts/test-skill-page-contract.js
+
+  test-unit-b3:
+    # The second half of test-unit-b (2026-08-25, split by the seconds each item
+    # measured in the previous run so both halves finish together). Same header,
+    # same booted server, same env; only the step list differs.
+    # Test job runs on its own [test] marker AND auto-runs whenever a commit
+    # asks to deploy or publish — so deploy/publish can hard-gate on it via
+    # `needs: test`. This makes "ship without running tests" impossible by
+    # design, not by developer discipline.
+    needs: [markers, tree-gate]
+    # Runs on the [test]/[deploy]/[publish] markers, on the matching
+    # workflow_dispatch modes, on every PR into main (N-04: so the required
+    # `test` status check always reports), AND unconditionally on every push
+    # to main — a merge to main has no marker to scan (see the `on:` block
+    # above) and needs none: it is asked to test-and-deploy regardless.
+    # `!cancelled()` because tree-gate does not run at all outside a push to
+    # main, and a SKIPPED `needs` job skips its dependents unless the dependent
+    # carries a status function - without this, every dev-branch and PR run
+    # would silently stop testing. With tree-gate skipped OR failed its output
+    # is empty, which is not 'true', so the lane runs: the gate can only ever
+    # subtract work by succeeding and saying so.
+    if: >-
+      !cancelled()
+      && (
+        (github.event_name == 'pull_request' && !(github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'claude/sweet-brown-i99jl3')) || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/sweet-brown-i99jl3')) || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
+      )
+      && needs.tree-gate.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    # A healthy run takes 22-25 min. Without this the GitHub default is 360
+    # min, and on 2026-08-18 two consecutive runs sat for 28+ min inside the
+    # Playwright system-deps apt step (see below) — the deploy job hard-gates
+    # on this one, so a hung test job silently blocks every deploy behind it.
+    timeout-minutes: 60
+    # A REAL redis, because until 2026-08-07 nothing in CI ever connected to
+    # one. test-shared-limit.js injects a fake store deliberately (it proves
+    # "two callers share one counter", and a fake proves that exactly), but
+    # that left the redis CLIENT path untested — so Dependabot's redis 4 -> 6
+    # bump arrived with a green CI that could not have caught a client
+    # regression. Prod is not in-memory: REDIS_URL is set there, and the shared
+    # limiter FAILS CLOSED, so a client regression refuses trials.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    # F07: provider keys stay at job scope so every TEST step gates its
+    # expectations on the SAME config the booted server has. But the ONE step
+    # that runs untrusted third-party code — the dependency install, where npm
+    # lifecycle scripts execute — SHADOWS them to empty (below), so a malicious
+    # package cannot read them. That is the real F07 exposure; our own test
+    # steps are trusted code from this repo.
+    env:
+      BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      FRED_API_KEY_V2: ${{ secrets.FRED_API_KEY_V2 }}
+      E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+      # Raises CoinGecko off the 30/min keyless budget shared per runner IP.
+      # It does NOT make the calls free: the Demo plan has a monthly quota and
+      # CI would burn it on every push, which is the trap the Brave notes in
+      # test-non-metered-examples.js already record. So the sweep still SAMPLES
+      # the family (COINGECKO_SLUGS there). Key plus sampling: the two live
+      # calls per run are reliable, and the quota lasts.
+      COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          # Restores ~/.npm keyed on package-lock.json. `npm ci` still runs and
+          # still installs exactly what the lockfile pins, so this only saves
+          # the network fetch - a stale or poisoned cache cannot change which
+          # versions land. Measured before adding it: 21s/19s/16s across the
+          # three lanes on every single run, all of it re-downloading tarballs
+          # that had not changed.
+          cache: npm
+      # node_modules restored by lockfile hash (2026-08-25): npm ci was 13-17 s in
+      # every lane. On a hit the install is skipped outright, so no install script
+      # runs at all - stricter than the secretless-env install below. Native
+      # modules (better-sqlite3) ship prebuilt per Node ABI, hence node22 in the key.
+      - name: Restore node_modules
+        id: nm-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+      - name: Install dependencies (secretless)
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        # F07: shadow the job-scope provider keys to EMPTY for this step only, so
+        # a malicious dependency lifecycle script running during `npm ci` cannot
+        # read them. No server or tool runs here, so empty keys are harmless.
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+        run: npm ci
+      # NO Playwright in this lane on purpose: it runs no browser-driven
+      # script. All eight (csp-violations, css-tokens-resolve, focus-visible,
+      # the reveal suite, burger-aria-label, compare-scroll,
+      # non-metered-examples) live in the `test` lane. Installing Chromium
+      # here cost 32s and 22s for nothing, and the slower unit lane IS the
+      # critical path. If a browser-driven script is ever added here, copy
+      # the install step back from the `test` job with it.
+      - name: Start server in free mode
+        run: |
+          # Raise the MCP rate limit so the full-catalog connector test can sweep
+          # every tool (production keeps the default 20/min, 120/hr).
+          AGENT402_MCP_MAX_PER_MIN=1000000 AGENT402_MCP_MAX_PER_HOUR=1000000 \
+            X402_SYNC_ON_START=false FREE_MODE=true X402_PAYWALL_PROBES_PER_CYCLE=0 PORT=3000 node src/server.js &
+          for i in $(seq 1 20); do curl -s localhost:3000/health >/dev/null && break; sleep 1; done
+      # ONE STEP, MANY SCRIPTS (2026-08-25): GitHub spends ~0.7 s of runner setup
+      # per step and this lane had over a hundred one-line steps. Each script still
+      # runs in its own process, in the same order; `t` groups its log and names it
+      # with its elapsed time, and a failure prints the failing script as an error.
+      # The original step names ride above each script so the WHY stays here.
+      - name: Offline suites (4 scripts, one process each)
+        run: |
+          set -euo pipefail
+          t() { local s=$SECONDS; echo "::group::$*"; "$@" || { echo "::endgroup::"; echo "::error::failed: $*"; exit 1; }; echo "::endgroup::"; echo "ok  $* ($((SECONDS - s))s)"; }
           # /api/skill-packs.json shape (what stdio agent402-mcp consumes at startup)
           t node scripts/test-skill-packs-json.js
           # /api/stats envelope (M2M economy counters — rail breakdown, revenue proof, tools floor)
@@ -1400,7 +1737,7 @@ jobs:
       # runs in its own process, in the same order; `t` groups its log and names it
       # with its elapsed time, and a failure prints the failing script as an error.
       # The original step names ride above each script so the WHY stays here.
-      - name: Offline suites (6 scripts, one process each)
+      - name: Offline suites (8 scripts, one process each)
         run: |
           set -euo pipefail
           t() { local s=$SECONDS; echo "::group::$*"; "$@" || { echo "::endgroup::"; echo "::error::failed: $*"; exit 1; }; echo "::endgroup::"; echo "ok  $* ($((SECONDS - s))s)"; }
@@ -1416,6 +1753,8 @@ jobs:
           t node scripts/test-drain-on-sigterm.js
           t node scripts/test-db-status.js
           t node scripts/test-db-init-retry.js
+          # Facilitator gate scoping stays honest (its tests import nothing outside facilitator/)
+          t node scripts/test-ci-facilitator-scope.js
           # A composite report is refused (503, not charged) while draining - a late request on a busy keep-alive socket must not start a 4-minute run into the deadline
           t node scripts/test-drain-refuses-composites.js
 
@@ -1500,7 +1839,7 @@ jobs:
       # runs in its own process, in the same order; `t` groups its log and names it
       # with its elapsed time, and a failure prints the failing script as an error.
       # The original step names ride above each script so the WHY stays here.
-      - name: Offline suites (26 scripts, one process each)
+      - name: Offline suites (17 scripts, one process each)
         run: |
           set -euo pipefail
           t() { local s=$SECONDS; echo "::group::$*"; "$@" || { echo "::endgroup::"; echo "::error::failed: $*"; exit 1; }; echo "::endgroup::"; echo "ok  $* ($((SECONDS - s))s)"; }
@@ -1538,6 +1877,95 @@ jobs:
           t node scripts/test-client-mpp.js
           # "Facilitator diagnostics (an HTML error page must name itself: block vs rate limit vs origin failure, and never touch the response — offline)"
           t node scripts/test-facilitator-diagnostics.js
+
+  test-unit-b4:
+    # The second half of test-unit-b2 (2026-08-25, split by the seconds each item
+    # measured in the previous run so both halves finish together). Same header,
+    # same booted server, same env; only the step list differs.
+    # Second half of test-unit-b (2026-08-25), split by the seconds each script
+    # measured in its own log line - not by count. Same header, same setup, same
+    # order within each half; only the list differs.
+    needs: [markers, tree-gate]
+    if: >-
+      !cancelled()
+      && (
+        (github.event_name == 'pull_request' && !(github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'claude/sweet-brown-i99jl3')) || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/sweet-brown-i99jl3')) || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
+      )
+      && needs.tree-gate.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      FRED_API_KEY_V2: ${{ secrets.FRED_API_KEY_V2 }}
+      E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+      COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          # Restores ~/.npm keyed on package-lock.json. `npm ci` still runs and
+          # still installs exactly what the lockfile pins, so this only saves
+          # the network fetch - a stale or poisoned cache cannot change which
+          # versions land. Measured before adding it: 21s/19s/16s across the
+          # three lanes on every single run, all of it re-downloading tarballs
+          # that had not changed.
+          cache: npm
+      # node_modules restored by lockfile hash (2026-08-25): npm ci was 13-17 s in
+      # every lane. On a hit the install is skipped outright, so no install script
+      # runs at all - stricter than the secretless-env install below. Native
+      # modules (better-sqlite3) ship prebuilt per Node ABI, hence node22 in the key.
+      - name: Restore node_modules
+        id: nm-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+      - name: Install dependencies (secretless)
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        # F07: shadow the job-scope provider keys to EMPTY for this step only, so
+        # a malicious dependency lifecycle script running during `npm ci` cannot
+        # read them. No server or tool runs here, so empty keys are harmless.
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+        run: npm ci
+      # NO Playwright in this lane on purpose: it runs no browser-driven
+      # script. All eight (csp-violations, css-tokens-resolve, focus-visible,
+      # the reveal suite, burger-aria-label, compare-scroll,
+      # non-metered-examples) live in the `test` lane. Installing Chromium
+      # here cost 32s and 22s for nothing, and the slower unit lane IS the
+      # critical path. If a browser-driven script is ever added here, copy
+      # the install step back from the `test` job with it.
+      - name: Start server in free mode
+        run: |
+          # Raise the MCP rate limit so the full-catalog connector test can sweep
+          # every tool (production keeps the default 20/min, 120/hr).
+          AGENT402_MCP_MAX_PER_MIN=1000000 AGENT402_MCP_MAX_PER_HOUR=1000000 \
+            X402_SYNC_ON_START=false FREE_MODE=true X402_PAYWALL_PROBES_PER_CYCLE=0 PORT=3000 node src/server.js &
+          for i in $(seq 1 20); do curl -s localhost:3000/health >/dev/null && break; sleep 1; done
+      # ONE STEP, MANY SCRIPTS (2026-08-25): GitHub spends ~0.7 s of runner setup
+      # per step and this lane had over a hundred one-line steps. Each script still
+      # runs in its own process, in the same order; `t` groups its log and names it
+      # with its elapsed time, and a failure prints the failing script as an error.
+      # The original step names ride above each script so the WHY stays here.
+      - name: Offline suites (9 scripts, one process each)
+        run: |
+          set -euo pipefail
+          t() { local s=$SECONDS; echo "::group::$*"; "$@" || { echo "::endgroup::"; echo "::error::failed: $*"; exit 1; }; echo "::endgroup::"; echo "ok  $* ($((SECONDS - s))s)"; }
           # "Router Sybil resistance (M6 — Attack IV: per-seller diversity cap, metadata-injection listings dropped)"
           t node scripts/test-router-sybil.js
           # Data-kit tests (barcode-lookup, fx-rate, weather-forecast — live keyless APIs)
@@ -2711,6 +3139,140 @@ jobs:
       - name: Every tool responds to its own example (all ~1070 endpoints)
         run: TEST_ALL_SKIP_STRICT_COVERED=1 TARGET_URL=http://127.0.0.1:3000 node scripts/test-all.js
 
+      - name: CSS tokens resolve (every :root custom property must actually resolve in a real browser, not just exist as text)
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-css-tokens-resolve.js
+
+  test-sweeps2:
+    # The second half of test-sweeps (2026-08-25, split by the seconds each item
+    # measured in the previous run so both halves finish together). Same header,
+    # same booted server, same env; only the step list differs.
+    # The two catalog sweeps and every browser-driven page check, on one booted
+    # server with Chromium. Split out of `test` on 2026-08-25 because that lane
+    # was the critical path at 7.4 min and these steps were 4 min of it while
+    # test-unit-c idled after 3.3. Kept TOGETHER here, not spread further: the
+    # sweeps share free-public upstreams that rate-limit by IP (the affinity
+    # rule in the `test` lane's comment), and the strict sweep needs Chromium
+    # behind the server it drives (render/screenshot) - the only lane that
+    # installs it, so the browser page checks ride along.
+    needs: [markers, tree-gate]
+    if: >-
+      !cancelled()
+      && (
+        (github.event_name == 'pull_request' && !(github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'claude/sweet-brown-i99jl3')) || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/sweet-brown-i99jl3')) || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
+      )
+      && needs.tree-gate.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      FRED_API_KEY_V2: ${{ secrets.FRED_API_KEY_V2 }}
+      E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+      COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          # Restores ~/.npm keyed on package-lock.json. `npm ci` still runs and
+          # still installs exactly what the lockfile pins, so this only saves
+          # the network fetch - a stale or poisoned cache cannot change which
+          # versions land. Measured before adding it: 21s/19s/16s across the
+          # three lanes on every single run, all of it re-downloading tarballs
+          # that had not changed.
+          cache: npm
+      # node_modules restored by lockfile hash (2026-08-25): npm ci was 13-17 s in
+      # every lane. On a hit the install is skipped outright, so no install script
+      # runs at all - stricter than the secretless-env install below. Native
+      # modules (better-sqlite3) ship prebuilt per Node ABI, hence node22 in the key.
+      - name: Restore node_modules
+        id: nm-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+      - name: Install dependencies (secretless)
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        # F07: shadow the job-scope provider keys to EMPTY for this step only, so
+        # a malicious dependency lifecycle script running during `npm ci` cannot
+        # read them. No server or tool runs here, so empty keys are harmless.
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+        run: npm ci
+      # Chromium is ~150 MB from Playwright's CDN plus an apt round for fonts,
+      # 30 s on a good day and the step that stalled two runs for 28 min on a
+      # bad apt mirror (2026-08-18, see the install step). The browser bundle
+      # keys on the installed playwright-core version, so a dependency bump
+      # re-downloads and everything else hits. On a hit the install step is
+      # skipped outright: Chromium's shared libraries are already on the
+      # ubuntu-24.04 image and the fonts it pulls are not what any browser test
+      # here measures.
+      - name: Cache Playwright Chromium
+        id: pw-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('node_modules/playwright-core/package.json') }}
+      - name: Install Playwright Chromium (+ system deps)
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        # `--with-deps` runs apt-get against the runner's mirror list
+        # (/etc/apt/apt-mirrors.txt), whose first entry is
+        # azure.archive.ubuntu.com. On 2026-08-18 that mirror was bad on SOME
+        # runners and fine on others: two runs stalled with no output for 28 min
+        # until cancelled; later the same commit's push run finished this step
+        # in ~45s while its pull_request twin, started the same second on
+        # another runner, answered InRelease after 30s and crawled at ~295 kB/s
+        # (attempt 3 spent 128s on 21 MB of fonts and never finished) — 3 of 3
+        # attempts lost, because every retry walked the same mirror list. So:
+        # (1) prefer the canonical archive and keep azure as a fallback, (2) an
+        # apt inactivity timeout, so a stalled transfer fails over to the next
+        # mirror instead of eating the attempt (apt's default is 120s, longer
+        # than our per-attempt bound), (3) after a lost attempt drop azure from
+        # the list entirely, and (4) a mirror set that is dead for a full three
+        # attempts fails the step LOUDLY instead of eating the job's timeout.
+        # The only apt payload here is fonts (Chromium's shared libraries are
+        # already on the ubuntu-24.04 image), so a mirror swap changes nothing
+        # about what gets installed.
+        timeout-minutes: 10
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+        run: |
+          printf 'Acquire::http::Timeout "20";\nAcquire::https::Timeout "20";\nAcquire::Retries "2";\n' \
+            | sudo tee /etc/apt/apt.conf.d/99-ci-mirror-timeouts >/dev/null
+          set_mirrors() {  # $1 = "with-azure" | "no-azure"
+            [ -f /etc/apt/apt-mirrors.txt ] || return 0
+            {
+              printf 'https://archive.ubuntu.com/ubuntu/\tpriority:1\n'
+              [ "$1" = "with-azure" ] && printf 'http://azure.archive.ubuntu.com/ubuntu/\tpriority:2\n'
+              printf 'https://security.ubuntu.com/ubuntu/\tpriority:3\n'
+            } | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          }
+          set_mirrors with-azure
+          for i in 1 2 3; do
+            if timeout 170 npx playwright install --with-deps chromium; then exit 0; fi
+            echo "playwright install attempt $i failed or stalled (apt mirror?) - retrying without the azure mirror"
+            # A stalled apt-get may outlive the killed npx (sudo can detach it
+            # from the group); clear it so the retry isn't blocked on its lock.
+            # The stall is in apt's fetch phase, so killing it is safe.
+            sudo pkill -TERM -f 'apt-get' 2>/dev/null || true
+            set_mirrors no-azure
+            sleep 10
+          done
+          echo "playwright install failed 3x - the runner's apt mirror is likely down"
+          exit 1
+      - name: Start server in free mode
+        run: |
+          # Raise the MCP rate limit so the full-catalog connector test can sweep
+          # every tool (production keeps the default 20/min, 120/hr).
+          AGENT402_MCP_MAX_PER_MIN=1000000 AGENT402_MCP_MAX_PER_HOUR=1000000 \
+            X402_SYNC_ON_START=false FREE_MODE=true X402_PAYWALL_PROBES_PER_CYCLE=0 PORT=3000 node src/server.js &
+          for i in $(seq 1 20); do curl -s localhost:3000/health >/dev/null && break; sleep 1; done
       - name: Exercise tools against live sites
         run: |
           echo "=== extract: BBC News article ==="
@@ -2803,9 +3365,6 @@ jobs:
 
       - name: CSP violations sitewide (real browser, every distinct page template + real interactions on click-gated pages - script-src has no 'unsafe-inline' since 2026-08-16)
         run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-csp-violations.js
-
-      - name: CSS tokens resolve (every :root custom property must actually resolve in a real browser, not just exist as text)
-        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-css-tokens-resolve.js
 
       - name: Focus-visible on search/demo inputs (real browser check - inline style can silently defeat a stylesheet :focus rule)
         run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-focus-visible.js
@@ -3040,16 +3599,40 @@ jobs:
         # it can't be minted fresh per run - see facilitator/README.md).
         # Self-skips LOUDLY if the secret is ever unset, same pattern as the
         # Robinhood settlement probe - never a silent pass.
+        # PATH-SCOPED (2026-08-25): ~60 s of real Stellar testnet payments on every
+        # push, and facilitator/test.js imports only facilitator/* (pinned by
+        # scripts/test-ci-facilitator-scope.js - the moment it reaches outside,
+        # this scoping is dishonest and CI fails). So it runs only when the push
+        # touched facilitator/**, Dockerfile.facilitator or its Railway config.
+        # FAIL-OPEN: an unreadable diff (first push, force-push, API error) RUNS it.
         run: |
           if [ -z "$TEST_PAYER_STELLAR_SECRET" ]; then
             echo "TEST_PAYER_STELLAR_SECRET unset - skipping facilitator/test.js (see facilitator/README.md)"
             exit 0
           fi
+          RUN_GATE=yes
+          if [ -n "$DIFF_BASE" ] && ! echo "$DIFF_BASE" | grep -qE '^0+$'; then
+            if CHANGED=$(gh api "repos/$GITHUB_REPOSITORY/compare/$DIFF_BASE...$GITHUB_SHA" --paginate --jq '.files[].filename' 2>/dev/null); then
+              if echo "$CHANGED" | grep -qE '^(facilitator/|Dockerfile\.facilitator$|railway\.facilitator\.json$)'; then
+                echo "facilitator files changed since $DIFF_BASE - running the gate"
+              else
+                echo "no facilitator/** change in $DIFF_BASE...$GITHUB_SHA ($(echo "$CHANGED" | grep -c .) files) - facilitator/test.js imports only facilitator/*, skipping the gate"
+                RUN_GATE=no
+              fi
+            else
+              echo "could not read the diff $DIFF_BASE...$GITHUB_SHA - running the gate (fail-open)"
+            fi
+          else
+            echo "no diff base for this event - running the gate (fail-open)"
+          fi
+          [ "$RUN_GATE" = "yes" ] || exit 0
           cd facilitator
           npm ci --ignore-scripts
           node test.js
         env:
           TEST_PAYER_STELLAR_SECRET: ${{ secrets.TEST_PAYER_STELLAR_SECRET }}
+          GH_TOKEN: ${{ github.token }}
+          DIFF_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
 
       # ONE STEP, MANY SCRIPTS (2026-08-25): GitHub spends ~0.7 s of runner setup
       # per step and this lane had over a hundred one-line steps. Each script still
@@ -3134,7 +3717,7 @@ jobs:
           t node scripts/test-mpp-tempo-shim.js
 
   publish:
-    needs: [markers, tree-gate, test, test-sweeps, test-paid, test-paid2, test-unit-a, test-unit-a2, test-unit-b, test-unit-b2, test-unit-c, test-unit-c2, test-unit-d, test-pricing]
+    needs: [markers, tree-gate, test, test-sweeps, test-sweeps2, test-paid, test-paid2, test-unit-a, test-unit-a2, test-unit-a3, test-unit-a4, test-unit-b, test-unit-b2, test-unit-b3, test-unit-b4, test-unit-c, test-unit-c2, test-unit-d, test-pricing]
     # The lanes are `needs:`, so this used to inherit an implicit success() and
     # nothing else was required. !cancelled() removes that implicit check, so
     # the success requirement is written out - and the ONLY accepted alternative
@@ -3145,7 +3728,7 @@ jobs:
       !cancelled()
       && (
         needs.tree-gate.outputs.skip == 'true'
-        || ( needs.test.result == 'success' && needs.test-sweeps.result == 'success' && needs.test-paid.result == 'success' && needs.test-paid2.result == 'success' && needs.test-unit-a.result == 'success' && needs.test-unit-a2.result == 'success' && needs.test-unit-b.result == 'success' && needs.test-unit-b2.result == 'success' && needs.test-unit-c.result == 'success' && needs.test-unit-c2.result == 'success' && needs.test-unit-d.result == 'success' && needs.test-pricing.result == 'success' )
+        || ( needs.test.result == 'success' && needs.test-sweeps.result == 'success' && needs.test-paid.result == 'success' && needs.test-paid2.result == 'success' && needs.test-unit-a.result == 'success' && needs.test-unit-a2.result == 'success' && needs.test-unit-b.result == 'success' && needs.test-unit-b2.result == 'success' && needs.test-unit-c.result == 'success' && needs.test-unit-c2.result == 'success' && needs.test-unit-a3.result == 'success' && needs.test-unit-a4.result == 'success' && needs.test-unit-b3.result == 'success' && needs.test-unit-b4.result == 'success' && needs.test-sweeps2.result == 'success' && needs.test-unit-d.result == 'success' && needs.test-pricing.result == 'success' )
       )
       && (
         github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' || needs.markers.outputs.publish == 'true'
@@ -3875,7 +4458,7 @@ jobs:
         run: SPAN_BLOCKS=350000 MAX_TXS=80 node scripts/check-builder-attribution.js || true
 
   deploy:
-    needs: [markers, tree-gate, test, test-sweeps, test-paid, test-paid2, test-unit-a, test-unit-a2, test-unit-b, test-unit-b2, test-unit-c, test-unit-c2, test-unit-d, test-pricing]
+    needs: [markers, tree-gate, test, test-sweeps, test-sweeps2, test-paid, test-paid2, test-unit-a, test-unit-a2, test-unit-a3, test-unit-a4, test-unit-b, test-unit-b2, test-unit-b3, test-unit-b4, test-unit-c, test-unit-c2, test-unit-d, test-pricing]
     # Unconditional on a push to main (same reasoning as the test job above -
     # a merge to main has no marker to scan and needs none), otherwise the
     # existing dispatch/marker gates for the dev branch.
@@ -3889,7 +4472,7 @@ jobs:
       !cancelled()
       && (
         needs.tree-gate.outputs.skip == 'true'
-        || ( needs.test.result == 'success' && needs.test-sweeps.result == 'success' && needs.test-paid.result == 'success' && needs.test-paid2.result == 'success' && needs.test-unit-a.result == 'success' && needs.test-unit-a2.result == 'success' && needs.test-unit-b.result == 'success' && needs.test-unit-b2.result == 'success' && needs.test-unit-c.result == 'success' && needs.test-unit-c2.result == 'success' && needs.test-unit-d.result == 'success' && needs.test-pricing.result == 'success' )
+        || ( needs.test.result == 'success' && needs.test-sweeps.result == 'success' && needs.test-paid.result == 'success' && needs.test-paid2.result == 'success' && needs.test-unit-a.result == 'success' && needs.test-unit-a2.result == 'success' && needs.test-unit-b.result == 'success' && needs.test-unit-b2.result == 'success' && needs.test-unit-c.result == 'success' && needs.test-unit-c2.result == 'success' && needs.test-unit-a3.result == 'success' && needs.test-unit-a4.result == 'success' && needs.test-unit-b3.result == 'success' && needs.test-unit-b4.result == 'success' && needs.test-sweeps2.result == 'success' && needs.test-unit-d.result == 'success' && needs.test-pricing.result == 'success' )
       )
       && (
         (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' && inputs.mode == 'deploy' || needs.markers.outputs.deploy == 'true'
