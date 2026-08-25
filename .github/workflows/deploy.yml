@@ -3572,11 +3572,14 @@ jobs:
           # STARTS and keeps routing to it until the new one is healthy: on the
           # 2026-08-24 20:45 deploy that was SIGTERM 20:45:17 and healthy
           # 20:47:05, a 108s gap. The server now keeps SERVING for
-          # SHUTDOWN_LAME_DUCK_MS (120s) before it closes its listener, so the
-          # grace has to outlast lame duck + drain: 120 + 60 = 180s, inside 240.
+          # SHUTDOWN_LAME_DUCK_MS (300s) before it closes its listener, so the
+          # grace has to outlast lame duck + drain: 300 + 60 = 360s, inside 420.
+          # 120s was measured short on the very next deploy (gap 194s, not the
+          # 108s of the first sample) - Railway SIGTERMs the old container while
+          # the new image is still building, so the gap tracks build time.
           # Raise both together or the SIGKILL lands mid-drain.
           VARS=$(jq -n --arg w "$WALLET_ADDRESS" --arg n "$NETWORK" --arg f "$FACILITATOR_URL" --arg b "$BASE" \
-            '{WALLET_ADDRESS:$w, NETWORK:$n, FACILITATOR_URL:$f, BASE_URL:$b, RAILWAY_DEPLOYMENT_DRAINING_SECONDS:"240"}')
+            '{WALLET_ADDRESS:$w, NETWORK:$n, FACILITATOR_URL:$f, BASE_URL:$b, RAILWAY_DEPLOYMENT_DRAINING_SECONDS:"420"}')
           if [ -n "$CDP_KEY_ID" ] && [ -n "$CDP_KEY_SECRET" ]; then
             VARS=$(echo "$VARS" | jq --arg i "$CDP_KEY_ID" --arg s "$CDP_KEY_SECRET" '. + {CDP_API_KEY_ID:$i, CDP_API_KEY_SECRET:$s}')
           fi

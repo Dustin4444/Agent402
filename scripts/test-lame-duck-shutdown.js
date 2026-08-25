@@ -93,8 +93,12 @@ ok(lameDuck + drain < grace,
   "or Railway SIGKILLs mid-drain");
 // The lame duck has to outlast the replacement's boot or the gap reopens.
 // Measured 2026-08-24: SIGTERM to new-deployment-healthy was 108s.
-ok(lameDuck >= 108_000,
-  `lame duck ${lameDuck / 1000}s is under the 108s measured gap between SIGTERM and the new container serving`);
+// Two measurements, not one: 108s on the 20:45 deploy and 194s on the 23:40
+// deploy. The first cut at 120s was sized off the single 108s sample and left
+// 82s of downtime on the very next deploy. Hold the floor at the WORST observed
+// gap plus margin - being early costs nothing, being late costs an outage.
+ok(lameDuck >= 240_000,
+  `lame duck ${lameDuck / 1000}s is under the 194s worst measured gap (plus margin) between SIGTERM and the new container serving`);
 
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
