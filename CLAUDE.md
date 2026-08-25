@@ -928,7 +928,12 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   be memory-only, so every redeploy served a half-crawled ecosystem for the minutes a
   ~2,200-origin re-crawl takes (a visitor saw 569 sellers against a real 2,169). Same
   fix and same reasoning as the leaderboard's own snapshot warm-start.
-  `scripts/test-index-warmstart.js` (offline, in CI). Note the two seller counts on
+  `scripts/test-index-warmstart.js` (offline, in CI). **The persisted cache is SLIM (2026-08-25):** it had
+  reached 91.4 MB on prod (full seller manifests, up to 4 MB each) and cost 3 s of boot parse plus a
+  synchronous re-stringify after every crawl cycle; `persistedEntries()` keeps a manifest projection
+  (name/description/homepage/capabilities.tools/synthesized, `slimmed:true`) and bounded tool scalars, the
+  crawler writes via `persistIndexCacheAsync()`, and a serialize over 500 ms logs its size. Safe because the
+  ETag cache is memory-only: the first crawl after a boot re-fetches every manifest in full. Note the two seller counts on
   `/marketplace` are deliberately different populations: the stat card counts **distinct
   payees** (rows after collapsing origins sharing a leaderboard payTo gid) and the chain
   nav counts **raw origins** — the card names both so they reconcile. Measured live 2026-07-18: `/marketplace` p50 135ms / max 224ms,

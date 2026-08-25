@@ -2573,30 +2573,86 @@ function recordSubmittedSellerObservations() {
 export const INDEX_CACHE_FILE = process.env.INDEX_CACHE_FILE || "/data/x402-index-cache.json";
 
 /** Best-effort persist of the crawl cache. No-op without a /data volume. */
+// WHAT THE PERSISTED CACHE KEEPS, AND WHY IT IS SLIM (2026-08-25). The file
+// had grown to 91.4 MB on prod: full seller manifests (a /.well-known/x402 doc
+// can be 4 MB - registry-style sellers list thousands of resources) for ~2,200
+// origins. Parsing it held the boot event loop for 3 s, and re-stringifying it
+// after every crawl cycle held it for seconds more, on the request path.
+// Nothing that reads a WARM-STARTED entry needs the full manifest: readers use
+// name, description, homepage, capabilities.tools and the synthesized flag,
+// and the crawler's 304 path reuses the previous doc only when its ETag cache
+// (memory-only) says not-modified - after a reboot that cache is empty, so the
+// first crawl re-fetches every manifest in full regardless. Tools keep their
+// scalar fields with the description bounded; anything schema-shaped is dropped.
+const MANIFEST_PERSIST_KEYS = ["name", "description", "homepage", "version", "synthesized", "payTo", "network", "networks", "x402Version"];
+const TOOL_BULKY_KEYS = ["inputSchema", "input", "example", "parameters", "requestBody", "responses", "schema", "outputSchema", "discovery"];
+function slimManifestForPersist(m) {
+  if (!m || typeof m !== "object") return null;
+  const out = {};
+  for (const k of MANIFEST_PERSIST_KEYS) {
+    if (m[k] === undefined) continue;
+    out[k] = k === "description" ? String(m[k]).slice(0, 300) : m[k];
+  }
+  if (m.capabilities && typeof m.capabilities === "object") {
+    const tools = Number(m.capabilities.tools);
+    if (Number.isFinite(tools)) out.capabilities = { tools };
+  }
+  out.slimmed = true;
+  return out;
+}
+function slimToolForPersist(t) {
+  if (!t || typeof t !== "object") return t;
+  const out = { ...t };
+  for (const k of TOOL_BULKY_KEYS) delete out[k];
+  if (typeof out.description === "string" && out.description.length > 400) out.description = out.description.slice(0, 400);
+  if (Array.isArray(out.tags) && out.tags.length > 8) out.tags = out.tags.slice(0, 8);
+  return out;
+}
+
+/** The entries to persist: slim projections of every non-errored origin. */
+function persistedEntries() {
+  const out = [];
+  for (const [origin, v] of cache.entries()) {
+    if (v?.error) continue; // don't re-seed failures; let the crawl re-decide
+    out.push([origin, {
+      manifest: slimManifestForPersist(v.manifest),
+      tools: Array.isArray(v.tools) ? v.tools.map(slimToolForPersist) : [],
+      fetchedAt: v.fetchedAt ?? null,
+      error: null,
+      source: v.source ?? null,
+      history: Array.isArray(v.history) ? v.history.slice(-10) : [],
+      paywall: v.paywall ?? null,
+    }]);
+  }
+  return out;
+}
+
+/** Async persist for the crawler's own cycle: the stringify is still one
+ *  synchronous pass, but the write no longer blocks, and overlapping cycles
+ *  never write twice. */
+let persistInFlight = false;
+export async function persistIndexCacheAsync(file = INDEX_CACHE_FILE) {
+  if (persistInFlight) return false;
+  persistInFlight = true;
+  try {
+    if (cache.size === 0) return false;
+    const entries = persistedEntries();
+    if (!entries.length) return false;
+    const t0 = performance.now();
+    const json = JSON.stringify({ savedAt: Date.now(), entries });
+    const ms = Math.round(performance.now() - t0);
+    if (ms > 500) console.warn(`[x402-index] persisting ${(json.length / 1_048_576).toFixed(1)} MB took ${ms}ms to serialize (${entries.length} origins)`);
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(file, json);
+    return true;
+  } catch { return false; }
+  finally { persistInFlight = false; }
+}
+
 export function persistIndexCache(file = INDEX_CACHE_FILE) {
   try {
     if (cache.size === 0) return false; // never overwrite a good file with nothing
-    const out = [];
-    for (const [origin, v] of cache.entries()) {
-      if (v?.error) continue; // don't re-seed failures; let the crawl re-decide
-      out.push([origin, {
-        manifest: v.manifest ?? null,
-        tools: Array.isArray(v.tools) ? v.tools : [],
-        fetchedAt: v.fetchedAt ?? null,
-        error: null,
-        source: v.source ?? null,
-        history: Array.isArray(v.history) ? v.history.slice(-10) : [],
-        // The paywall probe result rides too - it carries the live MPP
-        // dual-stack flag (`paywall.mpp`) that seeds the MPP index via
-        // mppDualStackOrigins(). Probes are budgeted (PAYWALL_PROBES_PER_CYCLE
-        // per 5-min crawl across ~2,200 origins, ~7h for one full pass), so a
-        // memory-only result was wiped by every deploy and the MPP seed read
-        // ZERO origins after each boot (measured live 2026-08-19: two crawl
-        // cycles after a deploy, `discoveryX402Crawl.origins: 0`). The probe
-        // has its own `at` timestamp; staleness stays the reader's call.
-        paywall: v.paywall ?? null,
-      }]);
-    }
+    const out = persistedEntries();
     if (!out.length) return false;
     writeFileSync(file, JSON.stringify({ savedAt: Date.now(), entries: out }));
     return true;
@@ -2639,8 +2695,8 @@ export function startCrawler(opts = {}) {
   const { selfOrigin = null } = opts;
   // Kick off discovery first so the first crawl has registry-sourced seeds in
   // hand (best-effort — if discovery is slow, the first crawl just uses env seeds).
-  runDiscovery(selfOrigin).then(() => runCrawl()).then(() => persistIndexCache());
-  crawlerTimer = setInterval(() => { runCrawl().then(() => persistIndexCache()).catch(() => {}); }, CRAWL_INTERVAL_MS);
+  runDiscovery(selfOrigin).then(() => runCrawl()).then(() => persistIndexCacheAsync()).catch(() => {});
+  crawlerTimer = setInterval(() => { runCrawl().then(() => persistIndexCacheAsync()).catch(() => {}); }, CRAWL_INTERVAL_MS);
   discoveryTimer = setInterval(() => runDiscovery(selfOrigin), DISCOVERY_INTERVAL_MS);
   // Don't keep the event loop alive on shutdown.
   if (typeof crawlerTimer.unref === "function") crawlerTimer.unref();
