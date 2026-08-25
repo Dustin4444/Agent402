@@ -25,6 +25,7 @@
 // hourly; the endpoint reads from cache so each request is sub-millisecond.
 
 import { readFileSync, writeFileSync } from "node:fs";
+import { timedSync } from "./boot-timing.js";
 import { fetchAllBazaarItems as walkBazaar } from "./bazaar-pager.js";
 import { EVM } from "./revenue-live.js";
 import { redactSecrets } from "./tools/redact.js";
@@ -661,6 +662,9 @@ function persistLeaderboardSnapshot(snapshot, file = LEADERBOARD_SNAPSHOT_FILE) 
 /** Load the last persisted full snapshot from /data, or null. Structurally
  *  complete (origins present) but stale — used only to warm the cache at boot. */
 export function loadPersistedLeaderboardSnapshot(file = LEADERBOARD_SNAPSHOT_FILE) {
+  return timedSync("x402 leaderboard warm-start", file, () => _loadPersistedLeaderboardSnapshot(file));
+}
+function _loadPersistedLeaderboardSnapshot(file = LEADERBOARD_SNAPSHOT_FILE) {
   try {
     const snap = JSON.parse(readFileSync(file, "utf8"));
     if (snap && Array.isArray(snap.leaderboard) && snap.leaderboard.length) return snap;

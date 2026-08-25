@@ -25,6 +25,7 @@
 // proven-seller cache (tempo-buyer.js primeTempoInboundCount) so a routed
 // buy to a ranked seller does not re-scan the chain.
 import { readFileSync, writeFileSync } from "node:fs";
+import { timedSync } from "./boot-timing.js";
 import { redactSecrets } from "./tools/redact.js";
 import { mppIndexSnapshot } from "./mpp-index.js";
 import { TEMPO_USDC, tempoMinSettled, tempoRpc, primeTempoInboundCount } from "./tempo-buyer.js";
@@ -283,6 +284,9 @@ export function persistMppLeaderboard(file = MPP_LB_CACHE_FILE) {
   try { writeFileSync(file, JSON.stringify(current)); return true; } catch { return false; }
 }
 export function loadPersistedMppLeaderboard(file = MPP_LB_CACHE_FILE) {
+  return timedSync("MPP leaderboard warm-start", file, () => _loadPersistedMppLeaderboard(file));
+}
+function _loadPersistedMppLeaderboard(file = MPP_LB_CACHE_FILE) {
   try {
     const j = JSON.parse(readFileSync(file, "utf8"));
     if (j && Array.isArray(j.rows) && Number.isFinite(j.generatedAt)) { current = j; return true; }
