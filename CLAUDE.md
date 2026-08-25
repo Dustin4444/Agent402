@@ -73,7 +73,16 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
   on **commit-message markers** - no `.github/trigger-*` file needs touching (that path filter
   was removed 2026-08-11; it can't be scoped per-branch in one `push:` block, and it made `main`
   effectively un-triggerable since a PR merge commit never touches one):
-  - `[test]` → full test job · `[deploy]` → Railway deploy · `[publish]` → npm + MCP Registry
+  - `[test]` → full test job · `[deploy]` → Railway deploy · `[publish]` → npm + MCP Registry.
+    **Since 2026-08-25 every push to the dev branch runs all 8 test lanes with or without `[test]`** (a
+    skipped lane satisfies a GitHub required check, so marker-less pushes were a loophole); `[deploy]` /
+    `[publish]` still gate their jobs. A PR from our own dev branch does NOT run lanes on the
+    `pull_request` event (the push run of the same commit provides the check runs); forks and other
+    branches keep full PR lanes. The "protect main" ruleset requires all 8 lanes + markers + gitleaks +
+    CodeQL + Socket. Merge with `scripts/merge-on-green.sh <pr>` (push-event run, every lane green,
+    pinned to the tested SHA). One-line test steps are collapsed into per-lane blocks (original step
+    names ride as comments; the guards read the literal `node scripts/test-*.js` lines); `node_modules`
+    is cache-restored by lockfile hash and `npm ci` skipped on a hit.
   - `[probe]` → live prod probe · `[paytest]`/`[drain]`/`[purl]`
   - **A push to `main` tests + deploys unconditionally, no marker required.** A PR merge commit
     (usually just the PR title) never carries our marker convention, so `main` can't be
