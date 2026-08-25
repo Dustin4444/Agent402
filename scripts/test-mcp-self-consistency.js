@@ -27,6 +27,27 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const TARGET = process.env.TARGET_URL || "http://127.0.0.1:3000";
+
+// Every read of the live target goes through ONE retry (the heartbeat's
+// single-retry doctrine, 20 s). Measured 2026-08-25 (#939): the 30-min cron
+// landed inside a production deploy; Railway's edge answered /api/pricing
+// with a parseable JSON error body, `endpoints` came back empty, and the run
+// graded every /api route in the manifest as unregistered - a drift page for
+// a healthy service. A thrown error here (no "assertions passed" line) makes
+// the workflow SKIP; an unreachable prod is the heartbeat's alarm, not this one.
+const RETRY_MS = Number(process.env.SELF_CONSISTENCY_RETRY_MS || 20_000);
+async function fetchLive(path, init) {
+  let last;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const res = await fetch(`${TARGET}${path}`, init);
+      if (res.status < 500) return res;
+      last = new Error(`HTTP ${res.status}`);
+    } catch (e) { last = e; }
+    if (attempt === 1) await new Promise((r) => setTimeout(r, RETRY_MS));
+  }
+  throw new Error(`target unreachable after retry: ${path} (${last?.message || last}) - a deploy in progress or prod down; not a consistency failure`);
+}
 const SRC = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
 
 let passed = 0;
@@ -39,7 +60,7 @@ function assert(cond, msg) {
 
 let nextId = 1;
 async function rpc(method, params) {
-  const res = await fetch(`${TARGET}/mcp`, {
+  const res = await fetchLive("/mcp", {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
     body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method, params }),
@@ -206,14 +227,19 @@ async function routeExists(ref) {
   if (probeCache.has(ref)) return probeCache.get(ref);
   let live = false;
   try {
-    const res = await fetch(`${TARGET}${ref}`, { redirect: "manual" });
+    const res = await fetchLive(ref, { redirect: "manual" });
     live = res.status !== 404;
   } catch { live = false; }
   probeCache.set(ref, live);
   return live;
 }
 
-const pricing = await fetch(`${TARGET}/api/pricing`).then((r) => r.json());
+const pricing = await fetchLive("/api/pricing").then((r) => r.json());
+// Catalog floor (the same 400 sync-count enforces): grading against a thin or
+// empty catalog would fail every route the manifest names, so refuse instead.
+if (!Array.isArray(pricing.endpoints) || pricing.endpoints.length < 400) {
+  throw new Error(`/api/pricing carried ${Array.isArray(pricing.endpoints) ? pricing.endpoints.length : "no"} endpoints (floor 400) - the target answered with something other than the catalog; refusing to grade`);
+}
 const catalogRoutes = new Set((pricing.endpoints || []).map((e) => String(e.path).replace(/\/$/, "")));
 const catalogSlugs = new Set((pricing.endpoints || []).map((e) => e.slug).filter(Boolean));
 
@@ -270,8 +296,8 @@ for (const name of [...listedNames].sort()) {
 const about = await rpc("tools/call", { name: "server.describe", arguments: {} });
 const payment = await rpc("tools/call", { name: "get_payment_info", arguments: {} });
 const textOf = (r) => (r.content || []).map((c) => c.text || "").join("\n");
-const llms = await fetch(`${TARGET}/llms.txt`).then((r) => r.text());
-const manifest = await fetch(`${TARGET}/.well-known/x402`).then((r) => r.text());
+const llms = await fetchLive("/llms.txt").then((r) => r.text());
+const manifest = await fetchLive("/.well-known/x402").then((r) => r.text());
 const init = await rpc("initialize", {
   protocolVersion: "2025-03-26",
   capabilities: {},
