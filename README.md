@@ -269,7 +269,6 @@ A task-shaped query to `catalog.search` (the hosted connector's search tool; the
 | [`forecasting-bake-off`](https://agent402.tools/skills/forecasting-bake-off) | stock-history · fred-series · forecast-eval · forecast-naive · forecast-ses · forecast-holt · forecast-holt-winters | Rank 4 forecasters by RMSE, pick the winner |
 | [`document-intel`](https://agent402.tools/skills/document-intel) | pdf-info · pdf-to-markdown · pdf-extract-pages · image-ocr · barcode-decode · pdf-merge · images-to-pdf | PDF/OCR/barcode pipeline |
 | [`status-snapshot`](https://agent402.tools/skills/status-snapshot) | dns-lookup · http-check · http-headers · tls-cert · robots-check | One-shot service-health sweep |
-| [`webhook-debug`](https://agent402.tools/skills/webhook-debug) | json-format · jwt-decode · hmac · json-validate · time-convert · redact · extract-entities | Triage a webhook payload |
 
 All 100+ packs at [`/skills`](https://agent402.tools/skills) · JSON index at [`/api/skill-packs.json`](https://agent402.tools/api/skill-packs.json) ·
 on MCP the packs appear under `prompts/list` so any MCP-aware client picks them up automatically.

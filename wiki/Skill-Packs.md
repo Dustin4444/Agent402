@@ -31,7 +31,6 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | [**security-audit**](https://agent402.tools/skills/security-audit) | $0.12 | Enumerate a domain's external attack surface: certs, DNS posture, email auth, HTTP headers, tech stack. |
 | [**email-deliverability**](https://agent402.tools/skills/email-deliverability) | $0.10 | Diagnose why a domain's email lands in spam: SPF, DMARC, DKIM strength, MX, composite score. |
 | [**fraud-signals**](https://agent402.tools/skills/fraud-signals) | $0.15 | Is this domain a phishing site / typosquat / scam? Pull the reputation signals before you click. |
-| [**jwt-forensics**](https://agent402.tools/skills/jwt-forensics) | $0.050 | "Is this JWT valid?" Decode, render the time claims, compute expiry, then HMAC-verify against the secret. |
 | [**domain-intel**](https://agent402.tools/skills/domain-intel) | $0.075 | Full domain security + SEO intel: WHOIS, DNS, TLS, headers, tech stack, robots, certificate transparency. |
 | [**ssl-audit**](https://agent402.tools/skills/ssl-audit) | $0.10 | TLS/SSL posture: live certificate inspection, HTTP security headers, and CAA DNS records. |
 | [**email-security**](https://agent402.tools/skills/email-security) | $0.10 | Full email auth posture: SPF, DMARC, DKIM, and a composite deliverability score. |
@@ -59,7 +58,6 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | [**page-audit**](https://agent402.tools/skills/page-audit) | $0.12 | Full page SEO + security audit: content, metadata, HTTP headers, robots policy, and sitemap health. |
 | [**competitor-scan**](https://agent402.tools/skills/competitor-scan) | $0.15 | What's a competitor running? Tech stack, HTTP headers, WHOIS, and page metadata in one call. |
 | [**status-snapshot**](https://agent402.tools/skills/status-snapshot) | $0.070 | "Is this site healthy, addressable, and crawlable - right now?" DNS → HTTP → headers → TLS → robots. |
-| [**content-quality**](https://agent402.tools/skills/content-quality) | $0.050 | Readability scores, keyword density, and a URL-ready slug from a block of text. |
 
 ## Finance (14)
 
@@ -67,17 +65,12 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 |---|---|---|
 | [**financial-research**](https://agent402.tools/skills/financial-research) | $1.50 | SEC filings + real-time quotes + history + macro context for a single ticker. |
 | [**financial-analysis**](https://agent402.tools/skills/financial-analysis) | $0.080 | Quick company snapshot: live quote, 9 key financial metrics, and upcoming earnings. |
-| [**loan-comparison**](https://agent402.tools/skills/loan-comparison) | $0.050 | Compare two or more loan offers on one rubric - monthly payment, total interest, NPV, effective rate. |
-| [**investment-decision**](https://agent402.tools/skills/investment-decision) | $0.050 | Run a capital-allocation decision - NPV at your hurdle rate, IRR, opportunity cost, levered cashflow. |
-| [**retirement-planning**](https://agent402.tools/skills/retirement-planning) | $0.050 | Will my plan work? Project accumulation with compound interest, then model the drawdown phase. |
-| [**savings-goal**](https://agent402.tools/skills/savings-goal) | $0.050 | How much to save each month to hit $X in N years? Pin down the required contribution. |
 | [**company-dossier**](https://agent402.tools/skills/company-dossier) | $0.12 | Comprehensive company research in one call: quote, financials, filings, insider trades, news. |
 | [**earnings-watch**](https://agent402.tools/skills/earnings-watch) | $0.10 | Is this company reporting soon and what's the consensus? Earnings calendar, quote, recent results. |
 | [**earnings-deep-dive**](https://agent402.tools/skills/earnings-deep-dive) | $0.050 | Everything before a company reports: the upcoming date, latest financials, recent filings, live quote, and fresh news in one pass. |
 | [**insider-alert**](https://agent402.tools/skills/insider-alert) | $0.15 | Insider buying/selling for a stock: Form 4 trades, live quote, and recent SEC filings. |
 | [**price-monitor**](https://agent402.tools/skills/price-monitor) | $0.080 | Side-by-side snapshot of a stock and a crypto asset: live quotes, 1-year history, date-stamped compare. |
 | [**options-analytics**](https://agent402.tools/skills/options-analytics) | $0.050 | Price a European option on a live stock: current quote, volatility from recent history, Black-Scholes fair value plus the full greeks, and catalyst news. |
-| [**finance-calc**](https://agent402.tools/skills/finance-calc) | $0.050 | Compound interest, amortization schedule, and loan payment - the three calculators agents need most. |
 | [**market-open**](https://agent402.tools/skills/market-open) | $0.12 | Pre-trade snapshot for one ticker before the bell: live quote, pre-market quote, options surface, dividend posture, and today's earnings calendar. |
 
 ## Macro & SEC (12)
@@ -103,7 +96,6 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 |---|---|---|
 | [**trend-analysis**](https://agent402.tools/skills/trend-analysis) | $0.20 | Take any numeric series and run the full workup - descriptives, moving averages, trend, outliers, forecast. |
 | [**forecasting-bake-off**](https://agent402.tools/skills/forecasting-bake-off) | $0.20 | Backtest all four methods (naive/drift, SES, Holt, Holt-Winters), rank by RMSE, forecast with the winner. |
-| [**number-crunch**](https://agent402.tools/skills/number-crunch) | $0.050 | Descriptive statistics, correlation analysis, and outlier detection on a single dataset. |
 
 ## Crypto & onchain (13)
 
@@ -131,36 +123,23 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | [**api-investigation**](https://agent402.tools/skills/api-investigation) | $0.10 | Point at an unknown API and figure out how to use it: auth, content type, version, rate limits, schema. |
 | [**schema-evolution**](https://agent402.tools/skills/schema-evolution) | $0.060 | "Did this API contract change in a way that breaks us?" - diff two OpenAPI snapshots, lint, validate. |
 | [**api-health**](https://agent402.tools/skills/api-health) | $0.060 | Is this API endpoint healthy? Liveness check, response headers, and TLS certificate status. |
-| [**openapi-audit**](https://agent402.tools/skills/openapi-audit) | $0.060 | Lint an OpenAPI spec and validate a sample payload against it - catch schema errors in one pass. |
-| [**schema-guard**](https://agent402.tools/skills/schema-guard) | $0.050 | Contract-test a JSON payload: validate against your schema, infer the schema the payload implies, diff the two to expose drift, and return a normalized pretty-print. |
 
 ## Data engineering & RAG (7)
 
 | Pack | Price | What it solves |
 |---|---|---|
-| [**csv-profile**](https://agent402.tools/skills/csv-profile) | $0.050 | Hand it a CSV and get a column-by-column profile: stats, outliers, correlations, baseline regression. |
-| [**data-interchange**](https://agent402.tools/skills/data-interchange) | $0.050 | Bring data in from any format, normalize through JSON, merge, diff, and fan out to CSV/YAML/JSON. |
-| [**text-hygiene**](https://agent402.tools/skills/text-hygiene) | $0.050 | Turn dirty text into something downstream code can trust - measure, redact PII, dedupe, sort, extract. |
-| [**rag-prep**](https://agent402.tools/skills/rag-prep) | $0.050 | Turn a raw document into a vector-DB-ready JSONL dataset - chunk, token-count, attach metadata, validate. |
-| [**json-pipeline**](https://agent402.tools/skills/json-pipeline) | $0.050 | Validate, pretty-print, and convert JSON to CSV - the complete JSON processing workflow. |
-| [**data-convert**](https://agent402.tools/skills/data-convert) | $0.050 | CSV → JSON → YAML - convert tabular data through the common interchange formats in one chain. |
-| [**xml-json**](https://agent402.tools/skills/xml-json) | $0.050 | Convert XML to JSON and pretty-print it - the "legacy API response to modern format" workflow. |
 
 ## Decoding & inspection (4)
 
 | Pack | Price | What it solves |
 |---|---|---|
 | [**decode-blob**](https://agent402.tools/skills/decode-blob) | $0.050 | Hand the agent an opaque string - JWT, base64 JSON, gzipped response - and identify + unwrap it layer by layer. |
-| [**webhook-debug**](https://agent402.tools/skills/webhook-debug) | $0.050 | A webhook hit your endpoint - confirm it's authentic, valid, and safe to log. |
-| [**jwt-toolkit**](https://agent402.tools/skills/jwt-toolkit) | $0.050 | Decode and verify a JWT in one pass - see the payload and check the signature. |
-| [**webhook-intake**](https://agent402.tools/skills/webhook-intake) | $0.050 | The production ingest path for an incoming webhook: verify the provider signature (constant-time, replay-window enforced), schema-validate the now-trusted body, fingerprint the raw bytes for redelivery dedup, normalize the timestamp, and redact PII before anything is logged. |
 
 ## Identity & onboarding (4)
 
 | Pack | Price | What it solves |
 |---|---|---|
 | [**user-onboarding**](https://agent402.tools/skills/user-onboarding) | $0.050 | Take a signup form and run onboarding deterministically - validate, score, mint ID, slug, hash, verify 2FA. |
-| [**identity-mint**](https://agent402.tools/skills/identity-mint) | $0.050 | Server-side identity issuance - UUIDv4 + deterministic UUIDv5 + slug + recovery password + session JWT. |
 | [**contact-verify**](https://agent402.tools/skills/contact-verify) | $0.060 | Verify an email is deliverable - syntax validation plus MX record check on the domain. |
 | [**entity-enrich**](https://agent402.tools/skills/entity-enrich) | $0.15 | Company name to verified identity plus web footprint: Wikidata facts, the LEI legal-entity record, the SEC filer, domain registration, tech stack, and brand favicon. |
 
@@ -169,10 +148,8 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | Pack | Price | What it solves |
 |---|---|---|
 | [**location-intel**](https://agent402.tools/skills/location-intel) | $0.10 | Point at an address and assemble the brief - coords, address, nearby, weather, NWS alerts, seismic. |
-| [**meeting-scheduler**](https://agent402.tools/skills/meeting-scheduler) | $0.050 | Schedule across timezones without round-tripping - convert, verify working days, present the slot. |
 | [**trip-planner**](https://agent402.tools/skills/trip-planner) | $0.050 | Plan a multi-stop journey - geocode each stop, sum pairwise distances, add travel time, pull weather. |
 | [**weather-brief**](https://agent402.tools/skills/weather-brief) | $0.060 | Full weather briefing for a location: current conditions, 7-day forecast, and air quality. |
-| [**timezone-planner**](https://agent402.tools/skills/timezone-planner) | $0.050 | Timezone conversion, business-day calculation, and cron schedule preview - scheduling in one pass. |
 | [**locale-brief**](https://agent402.tools/skills/locale-brief) | $0.050 | "Can I reach this counterparty this week?" Country facts, this year's public holidays, working days left this week, and the local time right now. |
 
 ## Media & accessibility (3)
@@ -180,18 +157,12 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | Pack | Price | What it solves |
 |---|---|---|
 | [**media-pipeline**](https://agent402.tools/skills/media-pipeline) | $0.25 | "User uploaded a thing, normalize it before storing." Probe → decode → resize → thumbnail → convert. |
-| [**a11y-audit**](https://agent402.tools/skills/a11y-audit) | $0.050 | Deterministic WCAG 2.x audit of an HTML page from a string and a fg/bg color pair. |
 | [**subtitle-pipeline**](https://agent402.tools/skills/subtitle-pipeline) | $0.10 | Audio URL to finished subtitles: transcribe the audio, emit SRT/WebVTT/JSON cues, and report length, reading time, and word count. |
 
 ## Text & content utilities (5)
 
 | Pack | Price | What it solves |
 |---|---|---|
-| [**text-analyze**](https://agent402.tools/skills/text-analyze) | $0.050 | Full text analysis - word/sentence stats, keyword extraction, and token count. |
-| [**content-clean**](https://agent402.tools/skills/content-clean) | $0.050 | Clean and deduplicate text - redact PII, remove duplicate lines, and sort. |
-| [**markdown-convert**](https://agent402.tools/skills/markdown-convert) | $0.050 | Markdown → HTML and back - a round-trip that proves fidelity and yields both formats. |
-| [**regex-test**](https://agent402.tools/skills/regex-test) | $0.050 | Test a regular expression against text and get matches plus text statistics. |
-| [**validator-suite**](https://agent402.tools/skills/validator-suite) | $0.050 | Validate common identifiers - ISBN (book), IBAN (bank account), and credit card (Luhn). |
 
 ## Search & citations (3)
 

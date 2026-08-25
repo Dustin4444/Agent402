@@ -1768,8 +1768,6 @@ jobs:
       - name: Whois RDAP bootstrap parser (IANA dns.json → TLD map — offline)
         run: node scripts/test-whois-bootstrap.js
 
-      - name: Webhook signature verify (per-provider HMAC vectors, replay tolerance, raw-body guard)
-        run: node scripts/test-webhook-verify.js
 
       - name: B20 decode unit tests (offline, synthetic logs in both indexed layouts)
         run: node scripts/test-b20-decode.js
@@ -1979,10 +1977,7 @@ jobs:
           node scripts/test-api-kit.js
           node scripts/test-captcha-kit.js
           node scripts/test-chain-logos.js
-          node scripts/test-color-kit.js
           node scripts/test-date-time-kit.js
-          node scripts/test-encoding-kit.js
-          node scripts/test-math-kit.js
           node scripts/test-theme.js
           node scripts/test-faint-contrast.js
           node scripts/test-reveal-on-scroll.js
