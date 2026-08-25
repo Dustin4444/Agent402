@@ -225,11 +225,16 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   **Streaming** (`stream:true`): handler returns `{__sse}` sentinel, route binder pipes SSE
   after settlement. **Prompt cache** (`cache:true`, opt-in): byte-identical repeat served
   free pre-paywall within 10 min (`X-Cache: hit`); keys on the tier + normalized body
-  (resolved model included). **Margin protection (two layers, both in `validateRequest`):**
+  (resolved model included) **computed WITHOUT the margin clamp** (`validateRequest(..., {clamp:false})`,
+  2026-08-25) - the clamp is where the tokenizer runs and the key is computed for unauthenticated
+  requests, so it must stay O(body); the clamp runs in the handler after the 402 is cleared. **Margin protection (two layers, both in `validateRequest`):**
   (1) per-tier `maxPrice` rides upstream as `provider.max_price` on every call — buyer-supplied
   `provider` can never loosen it; (2) margin clamp — exact-BPE (`gpt-tokenizer` o200k, static
   import: must stay sync for `promptCacheKey`) prices the FULL outbound body (incl. tools
-  schemas, images flat 1600 tok, `n`≤4 multiplier) against `MODEL_COST` (longest-prefix,
+  schemas, images flat 1600 tok, `n`≤4 multiplier; **counted in 1 KB pieces + 1 token per boundary**
+  (`countInPieces`, 2026-08-25: one unbroken CJK run was a single quadratic BPE chunk, 24 s per 100 KB;
+  the piecewise count is structurally >= exact; embeddings/rerank use the same helper; gpt-tokenizer's
+  merge cache capped at 2,000 entries per encoder so buyer text cannot park gigabytes in it) against `MODEL_COST` (longest-prefix,
   elementwise-min'd with `maxPrice`), then shrinks `max_tokens` so worst-case upstream ≤ 70%
   of tier price; input alone over budget → self-explaining 400. Deterministic → cache-key
   safe; cheap models never feel it. **Margin telemetry:** non-stream calls ride
@@ -546,7 +551,12 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   container logs 2026-08-25): every deploy has a ~60-90s no-container window, and any
   "keep serving after SIGTERM" logic only lengthens the deploy by exactly its own duration
   (the 08-24/25 lame duck took deploys to 16 min measuring its own setting as "Railway's
-  gap"). Drain immediately; `scripts/test-drain-on-sigterm.js` pins it.**
+  gap"). Drain immediately; `scripts/test-drain-on-sigterm.js` pins it.** While draining, a composite report
+  route (`EXPENSIVE_COMPOSITE_SLUGS`) is refused 503 by a global middleware before any gate
+  (`test-drain-refuses-composites.js`), so a 4-minute run is never started into the deadline; the worker
+  (`worker/server.js`) has the same close-then-deadline drain. Boot instrumentation (`[boot]` lines: per-step
+  event-loop hold after listen + worst 60 s stall) exists because prod shows ~18 s with a bound listener
+  answering nothing - read the next deploy's log before guessing.
 - **AVM validity guard (`src/avm-validity.js`):** Algorand payments are rejected 422
   BEFORE the handler when the signed txn's validity window can't outlive the tool
   (settlement is post-handler, so a dead txn = buyer refunded but our upstream spend

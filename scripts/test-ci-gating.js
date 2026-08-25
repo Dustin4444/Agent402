@@ -111,5 +111,22 @@ for (const [name, j] of Object.entries(jobs)) {
   ok(installs, `job "${name}" runs a script that imports a package but never installs dependencies - it dies on the first import`);
 }
 
+// --- the sweep hand-over must be a hand-over, not a drop ---------------------
+// test-all.js skips every route the strict non-metered sweep asserts on when
+// TEST_ALL_SKIP_STRICT_COVERED=1. That is only sound if the strict sweep runs
+// in the SAME job, BEFORE it, against the same server, and can fail the job.
+// Move either step, or give the strict one continue-on-error, and ~450 routes
+// are quietly swept by nobody - so the pairing is asserted here, not assumed.
+for (const [name, j] of Object.entries(jobs)) {
+  const steps = j.steps || [];
+  const idxAll = steps.findIndex((s) => /TEST_ALL_SKIP_STRICT_COVERED=1[^\n]*scripts\/test-all\.js/.test(String(s.run || "")));
+  if (idxAll < 0) continue;
+  const idxStrict = steps.findIndex((s) => /scripts\/test-non-metered-examples\.js/.test(String(s.run || "")));
+  ok(idxStrict >= 0 && idxStrict < idxAll,
+    `job "${name}" runs test-all with the strict hand-over but the strict sweep does not run earlier in the same job`);
+  if (idxStrict >= 0) ok(!steps[idxStrict]["continue-on-error"],
+    `job "${name}": the strict sweep is continue-on-error, so the routes handed to it could fail without failing the lane`);
+}
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -31,11 +31,18 @@ import { createHash } from "node:crypto";
 // Static import (not agent-kit's lazy pattern): validateRequest must stay
 // synchronous because promptCacheKey — called from the pre-paywall cache
 // middleware — normalizes through it.
-import { countTokens } from "gpt-tokenizer/model/gpt-4o";
+import { countTokens, setMergeCacheSize } from "gpt-tokenizer/model/gpt-4o";
+// gpt-tokenizer memoises BPE merges per pre-token chunk, keyed by the chunk
+// STRING, default cap 100k entries. With bounded pieces (below) every piece of
+// buyer text is a chunk, ~50 KB retained each: an unauthenticated caller could
+// park gigabytes in that cache one prompt at a time. 2,000 entries bounds it
+// near 100 MB and costs nothing on real traffic (repeats are rare and cheap).
+setMergeCacheSize(2000);
 // cl100k tokenizer for the embeddings margin clamp — all three supported
 // embeddings models bill cl100k input tokens, not o200k. Static import for
 // the same reason as above: embeddingsCacheKey (pre-paywall) must stay sync.
-import { countTokens as countEmbeddingTokens } from "gpt-tokenizer/model/text-embedding-3-small";
+import { countTokens as countEmbeddingTokens, setMergeCacheSize as setEmbeddingMergeCacheSize } from "gpt-tokenizer/model/text-embedding-3-small";
+setEmbeddingMergeCacheSize(2000); // separate encoder instance, same retention hazard
 import { redactSecrets } from "./redact.js";
 import { payerFromRequest, paymentHeaderOf } from "../payer.js";
 
@@ -920,27 +927,37 @@ export function serverToolWorstCase(body, tier) {
 // BPE in bounded pieces. gpt-tokenizer's merge loop is quadratic in the length
 // of a single pre-token chunk, and the pre-tokenizer only splits on spaces,
 // punctuation and script changes - so one unbroken run of CJK is ONE chunk.
-// Measured 2026-08-25: 100k chars of unbroken CJK took 23.8 s to count whole
-// and 0.19 s in 4 KB pieces, for the SAME token count; 100k chars of English
-// took 4 ms either way and counted 21 tokens MORE in pieces (a merge lost at
-// each boundary). Splitting can only lose merges, never gain them, so the
-// piecewise count is >= the exact one: safe for a margin bound, off by well
-// under 0.1% on prose, and it turns the clamp's CPU cost into O(n) - which
-// matters because this runs on the request path and a buyer chooses the text.
+// Measured 2026-08-25 on 100k chars: unbroken CJK 23.8 s whole vs 0.03 s in
+// 1 KB pieces (same count); random CJK 0.26 s in 1 KB pieces vs 0.8 s in 4 KB
+// (a single 20k-char chunk alone took 0.9 s); English 4 ms either way, +0.34%
+// tokens in pieces. This runs on the request path on text a buyer chooses, so
+// the bound is the point.
+//
+// Piecewise is NOT guaranteed >= exact: BPE is not sub-additive across a cut
+// (merges ranked bc < ab < cd give "abcd" -> 3 tokens but "ab"+"cd" -> 2), and
+// against the o200k table the piecewise count came out ONE token lower on ~1%
+// of random cuts. A buyer cannot choose the cut points, but a margin bound
+// should not rest on that, so one token is added per boundary: the result is
+// then structurally >= exact, and over by at most ~1 token per KB.
 // Pieces are cut on code-point boundaries so a surrogate pair is never split.
-const TOKEN_COUNT_PIECE = 4096;
-function countTokensBounded(text) {
-  if (text.length <= TOKEN_COUNT_PIECE) return countTokens(text);
-  let n = 0;
+const TOKEN_COUNT_PIECE = 1024;
+function countInPieces(count, text) {
+  if (text.length <= TOKEN_COUNT_PIECE) return count(text);
+  let n = 0, pieces = 0;
   for (let i = 0; i < text.length;) {
     let j = Math.min(text.length, i + TOKEN_COUNT_PIECE);
     const c = text.charCodeAt(j - 1);
     if (c >= 0xd800 && c <= 0xdbff && j < text.length) j++;
-    n += countTokens(text.slice(i, j));
+    n += count(text.slice(i, j));
+    pieces++;
     i = j;
   }
-  return n;
+  return n + (pieces - 1);
 }
+const countTokensBounded = (text) => countInPieces(countTokens, text);
+// Same bound for the embeddings encoder (cl100k): one 16k-char unbroken item
+// was a single quadratic chunk, 353 ms measured, on a default-on cache path.
+const countEmbeddingTokensBounded = (text) => countInPieces(countEmbeddingTokens, text);
 
 function estimateInputTokens(body, imageCount) {
   // Price the ENTIRE outbound body - messages, tools, response_format, stop
@@ -1153,7 +1170,15 @@ export function validateToolEntry(t, tier) {
   );
 }
 
-export function validateRequest(input, tierSlug) {
+// `clamp:false` returns the normalized body WITHOUT the margin clamp - for the
+// prompt-cache key only. The clamp is where the tokenizer runs, and the cache
+// key is computed BEFORE the paywall (the free byte-identical replay), so with
+// the clamp inside it an unauthenticated 100 KB body cost the event loop up to
+// ~0.7 s per request (2026-08-25 review). The key never needed max_tokens to be
+// clamped: both the pre-paywall read and the deferred write derive it the same
+// way, so hits are unchanged, and the clamp still runs in the handler, i.e.
+// only once a 402 has been cleared.
+export function validateRequest(input, tierSlug, { clamp = true } = {}) {
   const tier = TIERS[tierSlug];
   if (input == null || typeof input !== "object") throw bad("Request body must be a JSON object");
 
@@ -1317,7 +1342,7 @@ export function validateRequest(input, tierSlug) {
     body.zdr = true;
   }
   cacheControlPref(input); // shape-validate only (400 on a bad value); the preference is call-time, not in the normalized body
-  clampToMargin(body, tier, totalImages);
+  if (clamp) clampToMargin(body, tier, totalImages);
   return body;
 }
 
@@ -1701,7 +1726,7 @@ export function stableStringify(v) {
  *  let the normal path produce the real 402/400. Returns null for streams. */
 export function promptCacheKey(tierSlug, input) {
   if (TIERS[tierSlug]?.noCache) return null; // grounded tier: the web moves, never replay
-  const body = validateRequest(input, tierSlug);
+  const body = validateRequest(input, tierSlug, { clamp: false });
   if (body.stream === true) return null;
   // Same reason as the grounded tier: a server-tool answer is built from a
   // live search or fetch, so replaying it 10 minutes later serves stale web
@@ -1851,7 +1876,7 @@ const EMBEDDINGS_COST = {
  *  imported by the pricing-margin CI test so they can never disagree. */
 export function embeddingsUpstreamCost(body) {
   let tokens = 0;
-  for (const it of body.input) tokens += countEmbeddingTokens(it);
+  for (const it of body.input) tokens += countEmbeddingTokensBounded(it);
   return { tokens, totalUsd: (tokens / 1e6) * EMBEDDINGS_COST[body.model] };
 }
 
@@ -1988,9 +2013,9 @@ export function validateRerankRequest(input) {
   // price (cost audit 2026-08-19). Estimate the chunk count with the o200k
   // tokenizer (+20% for tokenizer drift) and refuse past one unit - a
   // self-explaining 400 instead of a call that upstream bills at list.
-  const qTok = Math.ceil(countTokens(query) * 1.2);
+  const qTok = Math.ceil(countTokensBounded(query) * 1.2);
   let chunks = 0;
-  for (const d of documents) chunks += Math.max(1, Math.ceil((Math.ceil(countTokens(d) * 1.2) + qTok) / RERANK_CHUNK_TOKENS));
+  for (const d of documents) chunks += Math.max(1, Math.ceil((Math.ceil(countTokensBounded(d) * 1.2) + qTok) / RERANK_CHUNK_TOKENS));
   if (chunks > RERANK_MAX_CHUNKS) throw bad(`documents + query tokenize to ~${chunks} rerank chunks (500 tokens each, query included); max ${RERANK_MAX_CHUNKS} per call (one search unit) - shorten the documents or split the set`);
   const body = { model: RERANK_MODEL, query, documents };
   if (input.top_n !== undefined) {

@@ -142,7 +142,24 @@ if (isMain) {
   console.log(`[worker] egress proxy (F04 validate+pin) on ${proxy.url}`);
   // Bind IPv6 `::` (dual-stack) so Railway PRIVATE networking can reach the
   // worker at <service>.railway.internal (its private mesh is IPv6-only).
-  app.listen(PORT, "::", () => console.log(`[worker] secretless browser/media worker on :${PORT} — tools: ${Object.keys(HANDLERS).join(", ")}`));
+  const srv = app.listen(PORT, "::", () => console.log(`[worker] secretless browser/media worker on :${PORT} — tools: ${Object.keys(HANDLERS).join(", ")}`));
+  // Graceful drain (2026-08-25): this process had no SIGTERM handler, so a
+  // redeploy killed it mid-render and the main service saw an upstream failure
+  // for a request it had already accepted. Same shape as the main server's
+  // shutdown: stop accepting, sweep idle keep-alives, let in-flight renders
+  // finish, hard exit at a deadline under the platform grace.
+  let stopping = false;
+  const stop = (signal) => {
+    if (stopping) return;
+    stopping = true;
+    console.log(`[worker] ${signal} received - closing listener, draining in-flight work (exit 0)`);
+    srv.close(() => process.exit(0));
+    srv.closeIdleConnections();
+    setInterval(() => srv.closeIdleConnections(), 5_000).unref();
+    setTimeout(() => process.exit(0), 45_000).unref();
+  };
+  process.on("SIGTERM", () => stop("SIGTERM"));
+  process.on("SIGINT", () => stop("SIGINT"));
 }
 
 export { app, HANDLERS, tokenOk };
