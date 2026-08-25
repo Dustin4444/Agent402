@@ -6126,26 +6126,53 @@ let shuttingDown = false;
 //
 // SHUTDOWN_LAME_DUCK_MS still overrides (the tests compress it to seconds).
 const DRAIN_DEADLINE_MS = 60_000;
-const SHUTDOWN_MARGIN_MS = 30_000;
-const RAILWAY_GRACE_MS = Number(process.env.RAILWAY_DEPLOYMENT_DRAINING_SECONDS || 0) * 1000;
-const LAME_DUCK_MS = Number(
-  process.env.SHUTDOWN_LAME_DUCK_MS
-  ?? Math.max(0, RAILWAY_GRACE_MS - DRAIN_DEADLINE_MS - SHUTDOWN_MARGIN_MS)
-);
+// LAME DUCK UNTIL TRAFFIC STOPS - no window to size, ever again.
+//
+// The previous two shapes were a literal (120s, then 300s) and then a value
+// derived from the Railway grace (510s). All three were beaten by the gap
+// between SIGTERM and the replacement serving, which measured 108s, 194s,
+// 246s, 373s and then 539s - past even the derived window - because it is
+// dominated by an uncached image build and is not a constant any clock can
+// chase. Every one of those sizes was right when written and wrong by the
+// next deploy.
+//
+// So SIGTERM no longer starts a countdown. It flips a flag and nothing else:
+// the listener stays open and every request is served exactly as before.
+// The trigger to drain is the one signal Railway does give us, implicitly -
+// once the new container passes its health check the router stops sending
+// requests HERE. We watch for that: after SIGTERM, if no request has arrived
+// for LAME_DUCK_QUIET_MS, the swap has happened and we drain. That is
+// observed, not guessed, and it is true regardless of how long the build took.
+//
+// RAILWAY_DEPLOYMENT_DRAINING_SECONDS is now only a backstop: it must be
+// large enough that Railway never SIGKILLs a still-serving old container, and
+// the sizing test holds it above the worst gap ever measured with margin.
+// A grace that is too small is the one remaining way this can drop traffic.
+//
+// SHUTDOWN_LAME_DUCK_MS is kept as an override for tests, which need a fixed
+// short window rather than waiting for traffic to stop.
+const LAME_DUCK_QUIET_MS = Number(process.env.LAME_DUCK_QUIET_MS ?? 15_000);
+const LAME_DUCK_MS = process.env.SHUTDOWN_LAME_DUCK_MS != null
+  ? Number(process.env.SHUTDOWN_LAME_DUCK_MS)
+  : null;  // null = drain on quiet, not on a clock
+let lastRequestAt = Date.now();
+// Hooked on the raw http.Server, NOT as Express middleware. This block sits at
+// the end of the file, and Express runs middleware in registration order, so an
+// app.use() here would run AFTER every route - i.e. never, because the route
+// already ended the response. The first version did exactly that: lastRequestAt
+// never updated, the "quiet" check was true on its first tick, and the server
+// drained under live traffic - the one thing this exists to prevent. The test
+// caught it. The 'request' event fires for every connection before routing.
 
 function shutdown(signal, { code = 0, deadlineMs = DRAIN_DEADLINE_MS, lameDuckMs = LAME_DUCK_MS } = {}) {
   if (shuttingDown) return;
   shuttingDown = true;
-  const duck = Number.isFinite(lameDuckMs) && lameDuckMs > 0 ? lameDuckMs : 0;
-  console.log(
-    `${signal} received - serving for ${Math.round(duck / 1000)}s more, then draining (exit ${code})`
-  );
   // Drain the PostHog paywall_402 rollup + client queue so a redeploy doesn't
   // drop up to a flush window of funnel counts. Fire-and-forget (no-op when
   // PostHog is disabled); the drain deadline below still governs exit.
   shutdownPostHog().catch(() => {});
-  const beginDrain = () => {
-    console.log(`${signal} - lame-duck over, closing listener and draining in-flight requests`);
+  const beginDrain = (why) => {
+    console.log(`${signal} - ${why}, closing listener and draining in-flight requests`);
     httpServer.close(() => process.exit(code));
     // server.close() waits for ALL connections, including idle keep-alive
     // sockets agents hold open between calls. Sweep those now and every few
@@ -6156,9 +6183,27 @@ function shutdown(signal, { code = 0, deadlineMs = DRAIN_DEADLINE_MS, lameDuckMs
     // Hard deadline so a stuck request can't block the redeploy.
     setTimeout(() => process.exit(code), deadlineMs).unref();
   };
-  if (duck === 0) return beginDrain();
-  setTimeout(beginDrain, duck).unref();
+  // Fatal path and tests: a fixed window (0 = drain at once).
+  if (lameDuckMs != null) {
+    const duck = Number.isFinite(lameDuckMs) && lameDuckMs > 0 ? lameDuckMs : 0;
+    console.log(`${signal} received - serving for ${Math.round(duck / 1000)}s more, then draining (exit ${code})`);
+    if (duck === 0) return beginDrain("lame-duck over");
+    setTimeout(() => beginDrain("lame-duck over"), duck).unref();
+    return;
+  }
+  // Production path: serve until traffic stops arriving.
+  console.log(`${signal} received - serving until traffic stops (quiet ${LAME_DUCK_QUIET_MS / 1000}s), then draining (exit ${code})`);
+  lastRequestAt = Date.now();
+  const tick = setInterval(() => {
+    const quietFor = Date.now() - lastRequestAt;
+    if (quietFor >= LAME_DUCK_QUIET_MS) {
+      clearInterval(tick);
+      beginDrain(`no request for ${Math.round(quietFor / 1000)}s, swap observed`);
+    }
+  }, 1_000);
+  tick.unref();
 }
+httpServer.on("request", () => { lastRequestAt = Date.now(); });
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
 

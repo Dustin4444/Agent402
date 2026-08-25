@@ -81,36 +81,40 @@ const srvSrc = readFileSync(new URL("../src/server.js", import.meta.url), "utf8"
 const wf = readFileSync(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8");
 const num = (m) => (m ? Number(String(m[1]).replace(/_/g, "")) : NaN);
 const drain = num(srvSrc.match(/const DRAIN_DEADLINE_MS = ([0-9_]+)/));
-const margin = num(srvSrc.match(/const SHUTDOWN_MARGIN_MS = ([0-9_]+)/));
+const quiet = num(srvSrc.match(/LAME_DUCK_QUIET_MS \?\? ([0-9_]+)/));
 const grace = num(wf.match(/RAILWAY_DEPLOYMENT_DRAINING_SECONDS:"(\d+)"/)) * 1000;
 
-// The window is DERIVED now, so what has to hold is the derivation, not a
-// literal. A constant picked from the newest sample was short twice running
-// (108s, 194s, 246s, 373s - still growing on a deploy that changed nothing), so
-// there is deliberately no number here to go stale.
-// Check the EXPRESSION that computes the window, not merely that a line
-// mentioning the grace exists somewhere in the file. The first version of this
-// assertion passed happily when the derivation was replaced by a literal,
-// because the now-unused const above it still matched.
-const lameDuckExpr = srvSrc.slice(srvSrc.indexOf("const LAME_DUCK_MS = Number("),
-  srvSrc.indexOf("function shutdown(signal,"));
-ok(/RAILWAY_GRACE_MS\s*-\s*DRAIN_DEADLINE_MS\s*-\s*SHUTDOWN_MARGIN_MS/.test(lameDuckExpr),
-  "the lame-duck window is no longer DERIVED from the Railway grace - a literal will go stale again, twice was enough");
-ok(!/\?\?\s*[0-9_]+\s*\)/.test(lameDuckExpr),
-  "the lame-duck window fell back to a hardcoded number");
+// There is deliberately NO window to size any more. Three of them (120s, 300s,
+// 510s-derived) were each beaten by the next deploy's gap. The production path
+// drains when traffic STOPS - the one signal Railway gives that the swap is
+// done - so what has to hold is that the production branch is the quiet-driven
+// one and that the grace is a backstop large enough never to SIGKILL a
+// still-serving container.
+const shutdownSrc = srvSrc.slice(srvSrc.indexOf("function shutdown(signal,"), srvSrc.indexOf('process.on("SIGTERM"'));
+ok(/serving until traffic stops/.test(shutdownSrc),
+  "production shutdown path is no longer quiet-driven - a sized window will go stale again");
+// Presence of the quiet branch is not enough: production has to REACH it. It
+// does so only when LAME_DUCK_MS is null (no env override). A mutation that
+// set the default to a literal kept every quiet-path string in the file and
+// silently put production back on a clock - this survived the first draft.
+const dflt = srvSrc.slice(srvSrc.indexOf("const LAME_DUCK_MS ="), srvSrc.indexOf("let lastRequestAt"));
+ok(/:\s*null;/.test(dflt) && !/:\s*[0-9_]+\s*;/.test(dflt),
+  "LAME_DUCK_MS defaults to a number - production takes the fixed-window branch and never the quiet one");
+ok(/lastRequestAt/.test(shutdownSrc) && /LAME_DUCK_QUIET_MS/.test(shutdownSrc),
+  "quiet detection does not read lastRequestAt against LAME_DUCK_QUIET_MS");
+// The timestamp must be fed from the raw server, not Express middleware order
+// (an app.use() at the end of the file never runs - routes end the response).
+ok(/httpServer\.on\("request", \(\) => \{ lastRequestAt = Date\.now\(\); \}\)/.test(srvSrc),
+  "lastRequestAt is not fed from httpServer 'request' - middleware order would leave it stale and drain under live traffic");
 ok(Number.isFinite(drain) && drain > 0, `drain deadline unreadable (got ${drain})`);
-ok(Number.isFinite(margin) && margin > 0, `shutdown margin unreadable (got ${margin})`);
+ok(Number.isFinite(quiet) && quiet >= 5_000 && quiet <= 60_000,
+  `quiet window ${quiet / 1000}s should be seconds, not a build-length guess (5-60s)`);
 ok(Number.isFinite(grace) && grace > 0, `RAILWAY_DEPLOYMENT_DRAINING_SECONDS unreadable (got ${grace})`);
-
-const derived = Math.max(0, grace - drain - margin);
-ok(derived + drain < grace,
-  `derived lame duck ${derived / 1000}s + drain ${drain / 1000}s must fit inside the ${grace / 1000}s grace`);
-// The worst gap actually measured. If a future deploy exceeds the derived
-// window, raise the GRACE - there is nothing else left to tune.
-ok(derived >= 373_000,
-  `derived window ${derived / 1000}s is under the 373s worst measured gap between SIGTERM and the new container serving`);
-// Absent grace must fall back to draining at once, not to serving forever.
-ok(Math.max(0, 0 - drain - margin) === 0, "with no grace configured the window must be 0, not negative");
+// Backstop only: must exceed the worst gap ever measured, with margin. 539s is
+// the worst so far. If a deploy ever beats this, raise the grace - it is the
+// one remaining way the old container can be killed while still serving.
+ok(grace >= 539_000 * 1.5,
+  `grace ${grace / 1000}s is not a safe backstop over the 539s worst measured gap (need >= 1.5x)`);
 
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
