@@ -2214,8 +2214,13 @@ jobs:
           // request reached the handler, i.e. the gate was bypassed.
           // (No apostrophes in this block: it lives inside a single-quoted
           // bash heredoc, and one ended the script on the first run.)
+          // The fail-closed 500 carries a generic body (the facilitator wording
+          // is in the server log only), so it is recognised by what it is NOT:
+          // a bypass here can only surface as 200 or the browser-unavailable
+          // 503 (this lane has no Chromium), never as a 500 from the handler
+          // that answered 200 on /api/hash a moment ago.
           const wText = await walletOnly.text();
-          const paywalled = walletOnly.status === 402 || (walletOnly.status === 500 && /facilitator/i.test(wText));
+          const paywalled = walletOnly.status === 402 || (walletOnly.status === 500 && !/browser|chromium|render/i.test(wText));
           if (!paywalled) fail("PoW must NOT bypass the wallet-only /api/render (expected the paywall 402 or its fail-closed 500, got " + walletOnly.status + ": " + wText.slice(0, 120) + ")");
           console.log("PoW on wallet-only render -> " + walletOnly.status + " ✓ (paywall answered)");
           console.log("proof-of-work gate: all assertions passed");
