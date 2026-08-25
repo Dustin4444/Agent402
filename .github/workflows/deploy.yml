@@ -1374,6 +1374,8 @@ jobs:
 
       - name: Index warm-start (crawl cache survives a redeploy; no half-crawled marketplace — offline)
         run: node scripts/test-index-warmstart.js
+      - name: Index warm-start is incremental (NDJSON twin parsed a batch per turn; no event-loop hold; legacy fallback — offline)
+        run: node scripts/test-index-ndjson-warmstart.js
 
       - name: Crawl cadence copy is derived (served pages cannot advertise a cadence we do not run — offline)
         run: node scripts/test-crawl-cadence.js

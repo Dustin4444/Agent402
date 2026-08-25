@@ -89,7 +89,7 @@ import { installEgressMeter, egressReport } from "./egress-meter.js";
 import { acpFeed, acpManifest } from "./acp.js";
 import { findTools, findRelatedSellers } from "./find.js";
 import { recordWish, getWishesAggregate, annotateServed } from "./wish.js";
-import { indexSnapshot, sellerDetail, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories, bazaarQualityEntries } from "./x402-index.js";
+import { indexSnapshot, sellerDetail, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories, bazaarQualityEntries, indexWarmStartInProgress } from "./x402-index.js";
 import { startMppCrawler, registerMppOrigin, validateOriginInput as validateMppOriginInput, mppIndexSnapshot } from "./mpp-index.js";
 import { startMppLeaderboard, mppLeaderboardSnapshot } from "./mpp-leaderboard.js";
 import { tempoSelfRecipient } from "./mpp-tempo.js";
@@ -3284,7 +3284,12 @@ function refreshIndexSnapshotInBackground() {
 function getIndexSnapshot() {
   if (!indexSnapshotCache.value) {
     // Cold start — block once so the first response isn't empty.
-    indexSnapshotCache = { at: Date.now(), value: indexSnapshot(indexCtx()) };
+    // While the incremental warm-start is still filling the cache (~2 s after
+    // boot), serve a fresh snapshot but do NOT start the 30 s TTL on it: a
+    // half-loaded ecosystem must never be pinned for half a minute.
+    const value = indexSnapshot(indexCtx());
+    if (indexWarmStartInProgress()) return value;
+    indexSnapshotCache = { at: Date.now(), value };
     return indexSnapshotCache.value;
   }
   if (Date.now() - indexSnapshotCache.at >= INDEX_SNAPSHOT_TTL_MS) {
