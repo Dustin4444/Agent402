@@ -2593,6 +2593,17 @@ function recordSubmittedSellerObservations() {
 // ago is almost certainly still reachable, and the next crawl re-verifies it
 // anyway.
 export const INDEX_CACHE_FILE = process.env.INDEX_CACHE_FILE || "/data/x402-index-cache.json";
+// NDJSON twin of the cache (2026-08-25): one seller per line, so the boot can
+// parse it a few hundred lines per event-loop turn instead of one 48 MB
+// JSON.parse that held the loop for 1.4-3 s (and the GC after it for more).
+// The crawler's async persist writes THIS file; the legacy single-JSON path is
+// kept for tests and as the fallback when no NDJSON exists yet.
+export const INDEX_CACHE_NDJSON_FILE = process.env.INDEX_CACHE_NDJSON_FILE || INDEX_CACHE_FILE.replace(/\.json$/, "") + ".ndjson";
+// True while the incremental warm-start is still filling the cache: readers
+// that snapshot the index (server.js getIndexSnapshot, 30 s TTL) must not
+// cache a half-loaded ecosystem for half a minute.
+let warmStartInProgress = false;
+export function indexWarmStartInProgress() { return warmStartInProgress; }
 
 /** Best-effort persist of the crawl cache. No-op without a /data volume. */
 // WHAT THE PERSISTED CACHE KEEPS, AND WHY IT IS SLIM (2026-08-25). The file
@@ -2670,7 +2681,17 @@ export async function persistIndexCacheAsync(file = INDEX_CACHE_FILE) {
     const top = entries.map(([o, v]) => [o, JSON.stringify(v).length]).sort((a, b) => b[1] - a[1]).slice(0, 5);
     console.log(`[x402-index] persisted ${(json.length / 1_048_576).toFixed(1)} MB for ${entries.length} origins in ${ms}ms; largest: ` +
       top.map(([o, n]) => `${o} ${(n / 1024).toFixed(0)}KB/${(cache.get(o)?.tools || []).length} tools`).join(", "));
-    const { writeFile } = await import("node:fs/promises");
+    const { writeFile, rename } = await import("node:fs/promises");
+    // NDJSON for the incremental loader: header line, then one [origin, entry]
+    // per line. Written to a temp path and renamed so a crash mid-write can
+    // never leave a half file for the next boot to read.
+    const ndFile = file === INDEX_CACHE_FILE ? INDEX_CACHE_NDJSON_FILE : file.replace(/\.json$/, "") + ".ndjson";
+    const lines = [JSON.stringify({ savedAt: Date.now(), format: "ndjson-v1", origins: entries.length })];
+    for (const e of entries) lines.push(JSON.stringify(e));
+    await writeFile(`${ndFile}.tmp`, lines.join("\n") + "\n");
+    await rename(`${ndFile}.tmp`, ndFile);
+    // The legacy single-JSON file stays current too, for the sync loader and
+    // for anything that copies it (backups exclude cache files anyway).
     await writeFile(file, json);
     return true;
   } catch { return false; }
@@ -2692,6 +2713,59 @@ export function persistIndexCache(file = INDEX_CACHE_FILE) {
 export function loadPersistedIndexCache(file = INDEX_CACHE_FILE) {
   return timedSync("x402 index warm-start", file, () => _loadPersistedIndexCache(file));
 }
+/** One warm-started entry into the cache (shared by both loaders). */
+function foldWarmEntry(origin, v) {
+  if (typeof origin !== "string" || !origin || cache.has(origin) || !v || typeof v !== "object") return false;
+  cache.set(origin, { ...v, warmStarted: true });
+  // CRITICAL: re-seed the crawler with every warm-started origin (see the
+  // legacy loader below for the incident that made this load-bearing).
+  discoveredSeeds.add(origin);
+  return true;
+}
+
+/** Incremental warm-start from the NDJSON twin: the file is read off the
+ *  loop, then parsed WARM_START_BATCH lines per turn with a setImmediate
+ *  between batches, so /health and buyers are answered throughout. Resolves
+ *  to the number of sellers loaded, 0 when the file is absent or unreadable
+ *  (callers fall back to the legacy loader). */
+const WARM_START_BATCH = Number(process.env.INDEX_WARM_START_BATCH || 250);
+export async function loadPersistedIndexCacheAsync(file = INDEX_CACHE_NDJSON_FILE) {
+  let text;
+  try {
+    const { readFile } = await import("node:fs/promises");
+    text = await readFile(file, "utf8");
+  } catch { return 0; }
+  warmStartInProgress = true;
+  const t0 = performance.now();
+  let n = 0, bad = 0, maxTurnMs = 0;
+  try {
+    let pos = text.indexOf("\n");
+    if (pos < 0) return 0;
+    try { JSON.parse(text.slice(0, pos)); } catch { return 0; } // header must parse: not our file
+    pos++;
+    while (pos < text.length) {
+      const turn0 = performance.now();
+      for (let i = 0; i < WARM_START_BATCH && pos < text.length; i++) {
+        let end = text.indexOf("\n", pos);
+        if (end < 0) end = text.length;
+        const line = text.slice(pos, end);
+        pos = end + 1;
+        if (!line) continue;
+        try {
+          const e = JSON.parse(line);
+          if (Array.isArray(e) && foldWarmEntry(e[0], e[1])) n++;
+        } catch { bad++; }
+      }
+      maxTurnMs = Math.max(maxTurnMs, performance.now() - turn0);
+      if (pos < text.length) await new Promise((r) => setImmediate(r));
+    }
+  } finally {
+    warmStartInProgress = false;
+  }
+  console.log(`[x402-index] warm-started ${n} sellers from ${file} in ${Math.round(performance.now() - t0)}ms (longest turn ${Math.round(maxTurnMs)}ms${bad ? `, ${bad} unreadable line(s)` : ""})`);
+  return n;
+}
+
 function _loadPersistedIndexCache(file = INDEX_CACHE_FILE) {
   try {
     const parsed = JSON.parse(readFileSync(file, "utf8"));
@@ -2718,8 +2792,20 @@ function _loadPersistedIndexCache(file = INDEX_CACHE_FILE) {
 export function startCrawler(opts = {}) {
   if (crawlerTimer) return;
   loadSubmittedSeeds();
-  const warmed = loadPersistedIndexCache();
-  if (warmed) console.log(`[x402-index] warm-started ${warmed} sellers from ${INDEX_CACHE_FILE}`);
+  // Warm start: the NDJSON twin incrementally when it exists (its own log
+  // line says how long and the longest turn), else the legacy JSON in one
+  // synchronous parse. The first crawl is deferred below, so the fill has
+  // finished long before anything re-crawls.
+  if (opts.syncWarmStart) {
+    const warmed = loadPersistedIndexCache();
+    if (warmed) console.log(`[x402-index] warm-started ${warmed} sellers from ${INDEX_CACHE_FILE}`);
+  } else {
+    loadPersistedIndexCacheAsync().then((n) => {
+      if (n) return;
+      const warmed = loadPersistedIndexCache();
+      if (warmed) console.log(`[x402-index] warm-started ${warmed} sellers from ${INDEX_CACHE_FILE} (no NDJSON twin yet)`);
+    }).catch(() => {});
+  }
   const { selfOrigin = null } = opts;
   // Kick off discovery first so the first crawl has registry-sourced seeds in
   // hand (best-effort — if discovery is slow, the first crawl just uses env seeds).
