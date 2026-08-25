@@ -1419,6 +1419,62 @@ jobs:
       - name: robots-check ReDoS regression (wildcard cap, normal robots.txt behavior — offline)
         run: node scripts/test-robots-redos.js
 
+  test-unit-d:
+    # The second half of test-unit-b (2026-08-25). That lane was 200 steps
+    # and its 310 s was runner overhead per step, not work - removing four
+    # heavy steps barely moved it - so it is split down the middle. Same
+    # header, same booted server, same env; only the step list differs.
+    needs: [markers, tree-gate]
+    if: >-
+      !cancelled()
+      && (
+        github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
+      )
+      && needs.tree-gate.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      FRED_API_KEY_V2: ${{ secrets.FRED_API_KEY_V2 }}
+      E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+      COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          # Restores ~/.npm keyed on package-lock.json. `npm ci` still runs and
+          # still installs exactly what the lockfile pins, so this only saves
+          # the network fetch - a stale or poisoned cache cannot change which
+          # versions land. Measured before adding it: 21s/19s/16s across the
+          # three lanes on every single run, all of it re-downloading tarballs
+          # that had not changed.
+          cache: npm
+      - name: Install dependencies (secretless)
+        # F07: shadow the job-scope provider keys to EMPTY for this step only, so
+        # a malicious dependency lifecycle script running during `npm ci` cannot
+        # read them. No server or tool runs here, so empty keys are harmless.
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+        run: npm ci
+      # NO Playwright in this lane on purpose: it runs no browser-driven
+      # script. All eight (csp-violations, css-tokens-resolve, focus-visible,
+      # the reveal suite, burger-aria-label, compare-scroll,
+      # non-metered-examples) live in the `test` lane. Installing Chromium
+      # here cost 32s and 22s for nothing, and the slower unit lane IS the
+      # critical path. If a browser-driven script is ever added here, copy
+      # the install step back from the `test` job with it.
+      - name: Start server in free mode
+        run: |
+          # Raise the MCP rate limit so the full-catalog connector test can sweep
+          # every tool (production keeps the default 20/min, 120/hr).
+          AGENT402_MCP_MAX_PER_MIN=1000000 AGENT402_MCP_MAX_PER_HOUR=1000000 \
+            X402_SYNC_ON_START=false FREE_MODE=true X402_PAYWALL_PROBES_PER_CYCLE=0 PORT=3000 node src/server.js &
+          for i in $(seq 1 20); do curl -s localhost:3000/health >/dev/null && break; sleep 1; done
       - name: Paid scan budget (a public route must not spend without limit)
         run: node scripts/test-paid-scan-budget.js
 
@@ -1496,62 +1552,6 @@ jobs:
       - name: Fetch-guard error attribution (upstream 4xx→422, 5xx→502; media Content-Type fail-fast)
         run: node scripts/test-fetch-guard.js
 
-  test-unit-d:
-    # The second half of test-unit-b (2026-08-25). That lane was 200 steps
-    # and its 310 s was runner overhead per step, not work - removing four
-    # heavy steps barely moved it - so it is split down the middle. Same
-    # header, same booted server, same env; only the step list differs.
-    needs: [markers, tree-gate]
-    if: >-
-      !cancelled()
-      && (
-        github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
-      )
-      && needs.tree-gate.outputs.skip != 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    env:
-      BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
-      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
-      FRED_API_KEY_V2: ${{ secrets.FRED_API_KEY_V2 }}
-      E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
-      COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22
-          # Restores ~/.npm keyed on package-lock.json. `npm ci` still runs and
-          # still installs exactly what the lockfile pins, so this only saves
-          # the network fetch - a stale or poisoned cache cannot change which
-          # versions land. Measured before adding it: 21s/19s/16s across the
-          # three lanes on every single run, all of it re-downloading tarballs
-          # that had not changed.
-          cache: npm
-      - name: Install dependencies (secretless)
-        # F07: shadow the job-scope provider keys to EMPTY for this step only, so
-        # a malicious dependency lifecycle script running during `npm ci` cannot
-        # read them. No server or tool runs here, so empty keys are harmless.
-        env:
-          BRAVE_API_KEY: ""
-          FRED_API_KEY: ""
-          FRED_API_KEY_V2: ""
-          E2B_API_KEY: ""
-        run: npm ci
-      # NO Playwright in this lane on purpose: it runs no browser-driven
-      # script. All eight (csp-violations, css-tokens-resolve, focus-visible,
-      # the reveal suite, burger-aria-label, compare-scroll,
-      # non-metered-examples) live in the `test` lane. Installing Chromium
-      # here cost 32s and 22s for nothing, and the slower unit lane IS the
-      # critical path. If a browser-driven script is ever added here, copy
-      # the install step back from the `test` job with it.
-      - name: Start server in free mode
-        run: |
-          # Raise the MCP rate limit so the full-catalog connector test can sweep
-          # every tool (production keeps the default 20/min, 120/hr).
-          AGENT402_MCP_MAX_PER_MIN=1000000 AGENT402_MCP_MAX_PER_HOUR=1000000 \
-            X402_SYNC_ON_START=false FREE_MODE=true X402_PAYWALL_PROBES_PER_CYCLE=0 PORT=3000 node src/server.js &
-          for i in $(seq 1 20); do curl -s localhost:3000/health >/dev/null && break; sleep 1; done
       - name: Discovery & trust surfaces (/.well-known/x402, /api/reliability)
         run: node scripts/test-discovery.js
 
@@ -2203,11 +2203,19 @@ jobs:
           const c2 = await (await fetch(B + "/api/pow/challenge?slug=hash")).json();
           const n2 = solve(c2);
           const walletOnly = await fetch(B + "/api/render", { method: "POST", headers: { "Content-Type": "application/json", "X-Pow-Solution": c2.token + ":" + n2 }, body: JSON.stringify({ url: "https://example.com" }) });
-          // 402 is the ONLY acceptable answer. "!== 200" used to be enough when
-          // this lane had Chromium; without it the handler answers 503 even with
-          // the gate wide open, and the assertion proved nothing (2026-08-25).
-          if (walletOnly.status !== 402) fail("PoW must NOT bypass the wallet-only /api/render (expected 402, got " + walletOnly.status + ")");
-          console.log("PoW on wallet-only render -> " + walletOnly.status + " ✓");
+          // The PAYWALL must be what answered, never the handler. "!== 200" used
+          // to be enough when this lane had Chromium; without it the handler
+          // answers 503 even with the gate wide open, and the assertion proved
+          // nothing (2026-08-25). This boot never contacts a facilitator
+          // (X402_SYNC_ON_START=false), so the paywall cannot mint a 402 here:
+          // it fails CLOSED with @x402's route-config 500 ("Facilitator does
+          // not support exact on ..."), and that is the paywall speaking too.
+          // Anything else - 200, the browser 503, an upstream 502 - means the
+          // request reached the handler, i.e. the gate was bypassed.
+          const wText = await walletOnly.text();
+          const paywalled = walletOnly.status === 402 || (walletOnly.status === 500 && /facilitator/i.test(wText));
+          if (!paywalled) fail("PoW must NOT bypass the wallet-only /api/render (expected the paywall's 402 or fail-closed 500, got " + walletOnly.status + ": " + wText.slice(0, 120) + ")");
+          console.log("PoW on wallet-only render -> " + walletOnly.status + " ✓ (paywall answered)");
           console.log("proof-of-work gate: all assertions passed");
           '
 
