@@ -1414,6 +1414,7 @@ jobs:
           t node scripts/test-shutdown.js
           # SIGTERM closes the listener at once and drains in-flight (volume-backed service, nothing to overlap with; deadline fits the Railway grace)
           t node scripts/test-drain-on-sigterm.js
+          t node scripts/test-db-status.js
           # A composite report is refused (503, not charged) while draining - a late request on a busy keep-alive socket must not start a 4-minute run into the deadline
           t node scripts/test-drain-refuses-composites.js
 

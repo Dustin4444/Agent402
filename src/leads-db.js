@@ -92,6 +92,16 @@ export async function initLeadsDb() {
   }
 }
 
+// Live reachability probe for src/db-status.js: SELECT 1 through the pool,
+// null when no database is configured. Throws on any failure - the caller
+// buckets it; nothing about the failure leaves this process.
+export async function pingLeadsDb() {
+  const p = getPool();
+  if (!p) return null;
+  await p.query("SELECT 1");
+  return true;
+}
+
 export async function insertLead(lead) {
   if (!DATABASE_URL) return { ok: false, reason: "no-db" };
   try {

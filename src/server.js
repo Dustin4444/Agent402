@@ -64,6 +64,7 @@ import { operatorWishesPage } from "./operator-wishes.js";
 import { initLeadsDb, insertLead, listLeads, countLeads, leadsDbEnabled } from "./leads-db.js";
 import { cacheEnabled, cacheGet, cacheSet, cacheKeyFor, CACHEABLE_ROUTES, noteCacheOutcome, cacheCounters } from "./cache.js";
 import { initAnalyticsDb, recordToolCall, getAnalytics, analyticsEnabled, redactAnalytics } from "./analytics-db.js";
+import { databasesStatus } from "./db-status.js";
 import { baseNotificationsEnabled } from "./base-notifications.js";
 import { initSentry, captureToolError, sentryEnabled } from "./sentry.js";
 import { initPostHog, capturePostHogToolError, capturePostHogToolCall, capturePostHogDiscovery, capturePostHogPaywall, capturePostHogPowChallenge, capturePostHogSettlement, capturePostHogChargedFailure, capturePostHogSettleFailed, capturePostHogToolGone, shutdownPostHog, posthogEnabled } from "./posthog.js";
@@ -1579,8 +1580,10 @@ app.get("/api/gateway-status", async (_req, res) => {
   // Top-level fields stay the OpenRouter gateway status (heartbeat reads
   // .status); upstreamBuyer adds the x402 spending wallet's bucketed status
   // (blockscout-kit) — same alarm pattern, same numbers-never-leave rule.
-  const [gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, subscriptionFeePayer] = await Promise.all([gatewayCreditsStatus(), upstreamBuyerStatus(), avmBuyerStatus(), tempoBuyerStatus(), subscriptionFeePayerStatus()]);
-  res.set("Cache-Control", "public, max-age=60").json({ ...gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, subscriptionFeePayer });
+  const [gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, subscriptionFeePayer, databases] = await Promise.all([gatewayCreditsStatus(), upstreamBuyerStatus(), avmBuyerStatus(), tempoBuyerStatus(), subscriptionFeePayerStatus(), databasesStatus().catch(() => null)]);
+  // `databases`: leads/analytics Postgres reachability, status words only
+  // (src/db-status.js) - the heartbeat pages on "unreachable".
+  res.set("Cache-Control", "public, max-age=60").json({ ...gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, subscriptionFeePayer, databases });
 });
 // Static SAMPLE A2A Agent Card — the self-answering example target for the
 // a2a-card-fetch tool. Explicitly a sample (fictional weather agent), NOT an

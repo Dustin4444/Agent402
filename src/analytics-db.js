@@ -24,10 +24,19 @@ const { Pool } = pg;
 const ANALYTICS_URL = process.env.ANALYTICS_DATABASE_URL || process.env.DATABASE_URL || "";
 let pool = null;
 let schemaReady = false;
-let unavailable = false;
+// After a failed init the database is not retried for RETRY_AFTER_MS. This
+// was a permanent latch (`unavailable = true`) until 2026-08-25: one failed
+// connect at boot switched analytics off until the next redeploy, so a
+// database outage outlived itself by however long the app ran afterwards.
+// Now it backs off and retries; a database that comes back is picked up
+// within five minutes, and a database that stays down costs one bounded
+// connect attempt per five minutes instead of one per call.
+const RETRY_AFTER_MS = 5 * 60_000;
+let unavailableUntil = 0;
+const unavailable = () => Date.now() < unavailableUntil;
 
 function getPool() {
-  if (!ANALYTICS_URL || unavailable) return null;
+  if (!ANALYTICS_URL || unavailable()) return null;
   if (pool) return pool;
   pool = new Pool({
     connectionString: ANALYTICS_URL,
@@ -90,7 +99,22 @@ async function ensureSchema() {
 }
 
 export function analyticsEnabled() {
-  return !!ANALYTICS_URL && !unavailable;
+  return !!ANALYTICS_URL && !unavailable();
+}
+
+// Live reachability probe for src/db-status.js (see pingLeadsDb). Bypasses
+// the backoff on purpose: the alarm must see a database that is down NOW,
+// not the app's memory of it.
+export async function pingAnalyticsDb() {
+  if (!ANALYTICS_URL) return null;
+  const p = pool || getPoolIgnoringBackoff();
+  await p.query("SELECT 1");
+  return true;
+}
+function getPoolIgnoringBackoff() {
+  const saved = unavailableUntil;
+  unavailableUntil = 0;
+  try { return getPool(); } finally { unavailableUntil = saved; }
 }
 
 export async function initAnalyticsDb() {
@@ -101,7 +125,7 @@ export async function initAnalyticsDb() {
   } catch (e) {
     console.error("[analytics-db] init failed:", e.message);
     probeDbHost("analytics-db", ANALYTICS_URL).catch(() => {});
-    unavailable = true;
+    unavailableUntil = Date.now() + RETRY_AFTER_MS;
     return { ok: false, reason: "init-failed" };
   }
 }
@@ -113,10 +137,15 @@ export async function initAnalyticsDb() {
 // or its upstream is broken" — the same `errored: true` would otherwise hide
 // the difference. Defaults to 0 when not provided (older callers).
 export async function recordToolCall({ slug, latencyMs, cached, errored, status, synthetic, probe }) {
-  if (!ANALYTICS_URL || unavailable) return;
+  if (!ANALYTICS_URL || unavailable()) return;
   if (!slug) return;
   try {
-    if (!schemaReady) await ensureSchema();
+    if (!schemaReady) {
+      // A retry after the backoff: on failure, back off again rather than
+      // paying a connect timeout on every call while the database is down.
+      const ok = await ensureSchema().catch(() => { unavailableUntil = Date.now() + RETRY_AFTER_MS; return false; });
+      if (!ok) return;
+    }
     const p = getPool();
     if (!p) return;
     const statusInt = Math.max(0, Math.min(599, status | 0));
@@ -148,7 +177,7 @@ export async function getAnalytics({ windowHours = 24, top = 25, includeSyntheti
   // is asked about. Same rule /status follows for uptime gaps: absence of data
   // is reported as absence, never as a state.
   if (!ANALYTICS_URL) return { ok: false, enabled: false, reason: "not-configured" };
-  if (unavailable) return { ok: false, enabled: false, reason: "init-failed" };
+  if (unavailable()) return { ok: false, enabled: false, reason: "init-failed" };
   try {
     await ensureSchema();
     const p = getPool();

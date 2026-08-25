@@ -573,6 +573,26 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   (`worker/server.js`) has the same close-then-deadline drain. Boot instrumentation (`[boot]` lines: per-step
   event-loop hold after listen + worst 60 s stall) exists because prod shows ~18 s with a bound listener
   answering nothing - read the next deploy's log before guessing.
+  **Railway service settings, set to what they should be 2026-08-25 (dashboard state, not in the repo):** `agent402`
+  runs ONE replica in us-west2 (`railway scale --service agent402 --environment production us-west2=1`; the
+  dashboard had drifted to 2, which with a single volume only doubled boot cost) and `RATE_LIMIT_REPLICAS=1`
+  (it was 2, which silently HALVED every shared rate-limit quota - the limiter divides by replica count);
+  `agent402-worker` has App Sleeping ON (secretless render worker, idle between renders, ~0 cost while asleep -
+  first render after sleep pays a cold start); `healthcheckTimeout` 60 on both. **Any of these writes redeploys
+  MAIN's head** (the var-write race above applies to `railway scale` and MCP `update-service` too - the
+  2026-08-25 scale call produced a second deploy that swapped prod mid-CI-sweep and failed three self-targeting
+  examples: a2a-card-fetch, x402-quote, x402-audit all fetch agent402.tools). Change settings right AFTER a merge
+  lands, never during a CI run. `railway.toml` config-as-code is DEPRECATED by Railway in favour of
+  `.railway/railway.ts` (grace until 2026-12-01) - migrate before then or the toml is ignored.
+  **Postgres was DOWN 54 days and nothing paged (found 2026-08-25):** both Postgres containers had been
+  stopped since 2026-07-02 (`database system was interrupted; last known up at 2026-07-02`) until Railway's own
+  vulnerability-remediation image redeploy restarted them at 02:09 UTC on 08-25; the app degrades quietly (leads +
+  tool-call analytics stop being recorded, buyers unaffected), which is why it went unnoticed. Now
+  `/api/gateway-status.databases` (`src/db-status.js`: live `SELECT 1`, 5 s timeout, 60 s cache, STATUS WORDS
+  ONLY on the public surface) and a heartbeat leg open "Postgres UNREACHABLE (leads/analytics)". Same day:
+  `analytics-db`'s permanent `unavailable` latch (one failed init at boot = analytics off until the next redeploy)
+  became a 5-min backoff with retry. `src/db-probe.js` (#937) logs family/port on init failure, no credentials.
+  `scripts/test-db-status.js` (17, in CI).
 - **AVM validity guard (`src/avm-validity.js`):** Algorand payments are rejected 422
   BEFORE the handler when the signed txn's validity window can't outlive the tool
   (settlement is post-handler, so a dead txn = buyer refunded but our upstream spend
