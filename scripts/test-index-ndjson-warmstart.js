@@ -42,12 +42,15 @@ const childB = `
   const { loadPersistedIndexCacheAsync, indexWarmStartInProgress } = await import(${JSON.stringify(new URL("../src/x402-index.js", import.meta.url).href)});
   let last = performance.now(), worst = 0, ticks = 0;
   const t = setInterval(() => { const now = performance.now(); worst = Math.max(worst, now - last - 10); last = now; ticks++; }, 10);
-  const sawInProgress = [];
-  const p = loadPersistedIndexCacheAsync(${JSON.stringify(ndFile)});
-  setTimeout(() => sawInProgress.push(indexWarmStartInProgress()), 15);
+  // Sample the flag from INSIDE the load's own turns (every loop iteration
+  // until the promise settles), never at a fixed clock offset: on a slow
+  // runner the file read alone can outlast any fixed delay.
+  let sawTrue = false, done = false;
+  const p = loadPersistedIndexCacheAsync(${JSON.stringify(ndFile)}).then((n) => { done = true; return n; });
+  (function sample() { if (done) return; if (indexWarmStartInProgress()) sawTrue = true; setImmediate(sample); })();
   const n = await p;
   clearInterval(t);
-  process.send({ n, worst, ticks, inProgressAfter: indexWarmStartInProgress(), sawInProgress });
+  process.send({ n, worst, ticks, inProgressAfter: indexWarmStartInProgress(), sawTrue });
 `;
 const run = (code) => new Promise((resolve) => {
   const tmp = join(dir, `child-${Math.random().toString(36).slice(2)}.mjs`);
@@ -84,7 +87,7 @@ const childD = `
 const d = await run(childD);
 ok(d.n === 3000 && d.worst > Math.max(40, b.worst * 3),
   `control: the legacy one-shot parse held the loop ${Math.round(d.worst)}ms on the same data (incremental: ${Math.round(b.worst)}ms) - the ticker sees holds`);
-ok(b.sawInProgress.length === 1 && b.sawInProgress[0] === true, "indexWarmStartInProgress() is true mid-load (snapshot readers must not pin a half-loaded cache)");
+ok(b.sawTrue === true, "indexWarmStartInProgress() is true while the load runs (snapshot readers must not pin a half-loaded cache)");
 ok(b.inProgressAfter === false, "indexWarmStartInProgress() is false once the load completes");
 
 // Legacy fallback: no twin -> async loader reports 0 and the sync loader serves.

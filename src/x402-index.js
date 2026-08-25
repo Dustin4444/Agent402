@@ -2730,15 +2730,17 @@ function foldWarmEntry(origin, v) {
  *  (callers fall back to the legacy loader). */
 const WARM_START_BATCH = Number(process.env.INDEX_WARM_START_BATCH || 250);
 export async function loadPersistedIndexCacheAsync(file = INDEX_CACHE_NDJSON_FILE) {
-  let text;
-  try {
-    const { readFile } = await import("node:fs/promises");
-    text = await readFile(file, "utf8");
-  } catch { return 0; }
+  // Raised BEFORE the read, not after: during the read the cache is still
+  // empty, and a snapshot taken then would pin an empty ecosystem for 30 s.
   warmStartInProgress = true;
   const t0 = performance.now();
   let n = 0, bad = 0, maxTurnMs = 0;
   try {
+    let text;
+    try {
+      const { readFile } = await import("node:fs/promises");
+      text = await readFile(file, "utf8");
+    } catch { return 0; }
     let pos = text.indexOf("\n");
     if (pos < 0) return 0;
     try { JSON.parse(text.slice(0, pos)); } catch { return 0; } // header must parse: not our file
