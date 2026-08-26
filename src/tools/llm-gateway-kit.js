@@ -2501,6 +2501,17 @@ function makeHandler(tierSlug) {
       );
     }
     const body = validateRequest(input, tierSlug);
+    // Metered belt: the price this request was gated at (stashed by the x402
+    // price function / the gates) must cover the body actually being served.
+    // The quote and the dispatcher now share one input construction, so a
+    // mismatch means something priced a different object than it served;
+    // refuse with a 4xx (settlement cancelled, hold released, nothing spent).
+    if (TIERS[tierSlug].metered && Number.isFinite(req?.__meteredQuoteUsd)) {
+      const q = meteredQuoteUsd(input);
+      if (q.invalid || q.usd > req.__meteredQuoteUsd * (1 + 1e-6) + 1e-9) {
+        throw bad(`This request was quoted at $${req.__meteredQuoteUsd} but the body being served quotes $${q.usd}${q.invalid ? ` (${q.reason})` : ""}. Nothing was charged; resend the request exactly as it should be served (no query-string or wrapped fields).`, 400);
+      }
+    }
     // NB: @x402/express settles AFTER this handler and cancels settlement for a
     // >=400 response, so an upstream failure that we let surface as a 5xx is NOT
     // charged. We still walk the tier's fallback chain on upstream errors

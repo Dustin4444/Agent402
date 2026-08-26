@@ -72,8 +72,16 @@ const prefix = join(work, "global");       // npm -g prefix for OUR package (bin
 const proxyPort = 18400 + Math.floor(Math.random() * 400);
 const gwPort = 19400 + Math.floor(Math.random() * 400);
 const key = "a402_realinstall00000000000000";
+// Allowlisted env, never `...process.env`: this spawns an UNPINNED third-party
+// package (npm i openclaw@latest, lifecycle scripts included) and then runs its
+// binary with network access, and the CI job that hosts this test carries
+// metered API keys at job scope. The repo's rule (deploy.yml, F07) is that a
+// third-party install must not be able to read them; an allowlist keeps that
+// true here without depending on the workflow remembering to shadow each key.
+const ENV_ALLOW = ["PATH", "HOME", "TMPDIR", "TMP", "TEMP", "SHELL", "USER", "LANG", "LC_ALL", "TZ", "CI", "GITHUB_ACTIONS", "RUNNER_TEMP", "OPENCLAW_SPEC"];
+const baseEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => ENV_ALLOW.includes(k) || /^(npm_config_|NODE_|NVM_|OPENCLAW_)/.test(k)));
 const env = {
-  ...process.env,
+  ...baseEnv,
   OPENCLAW_STATE_DIR: home, OPENCLAW_CONFIG_PATH: join(home, "openclaw.json"),
   AGENT402_OPENCLAW_HOME: home, AGENT402_UPSTREAM: upstream, AGENT402_CREDITS_KEY: key,
   NO_COLOR: "1", FORCE_COLOR: "0",
@@ -90,7 +98,7 @@ process.on("exit", cleanup);
 try {
   // 1. The real host.
   await sh("mkdir", ["-p", host, prefix, home]);
-  const inst = await sh("npm", ["i", OPENCLAW_SPEC, "--no-audit", "--no-fund", "--prefix", host], { cwd: host });
+  const inst = await sh("npm", ["i", OPENCLAW_SPEC, "--no-audit", "--no-fund", "--prefix", host], { cwd: host, env });
   ok(inst.status === 0, `npm i ${OPENCLAW_SPEC} into a scratch dir (${inst.status === 0 ? "ok" : inst.out.slice(-400)})`);
   if (inst.status !== 0) throw new Error("no host");
   const oc = join(host, "node_modules", ".bin", "openclaw");

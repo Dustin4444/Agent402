@@ -63,7 +63,7 @@ ok(b.balanceUsd === 19.999 && b.spentUsd === 0.001 && b.calls === 1 && b.keyId =
 // the Express gate: authorize before, debit only on a 200, pass-through otherwise
 const priceFor = (method, path) => (path === "/api/whois" ? { priceUsd: 0.001, slug: "whois" } : path === "/v1/dossier" ? { priceUsd: 19, slug: "dossier" } : null);
 const gate = cr.gate(priceFor);
-function fakeRes() { const r = new EventEmitter(); r.statusCode = 200; r.headers = {}; r.setHeader = (k, v) => { r.headers[k] = v; }; r.status = (c) => { r.statusCode = c; return r; }; r.json = (j) => { r.body = j; r.emit("finish"); return r; }; return r; }
+function fakeRes() { const r = new EventEmitter(); r.statusCode = 200; r.headers = {}; r.setHeader = (k, v) => { r.headers[k] = v; }; r.getHeader = (k) => r.headers[k]; r.status = (c) => { r.statusCode = c; return r; }; r.json = (j) => { r.body = j; r.emit("finish"); return r; }; return r; }
 let nexted = false; let res = fakeRes();
 gate({ method: "GET", path: "/api/whois", headers: { authorization: `Bearer ${KEY}` } }, res, () => { nexted = true; });
 ok(nexted && res.headers["X-Credits-Balance"] === "19.998", "gate: a funded key on a priced route is authorized (next called, balance header shows the post-hold balance)");
@@ -79,6 +79,18 @@ nexted = false; res = fakeRes();
 gate({ method: "GET", path: "/api/whois", headers: { authorization: `Bearer ${KEY}` } }, res, () => { nexted = true; });
 res.statusCode = 200; res.emit("close");
 ok(cr.balance(KEY).balanceUsd === 19.998 && cr.balance(KEY).heldUsd === 0, "gate: a client abort before finish releases the hold and charges nothing");
+// idempotent REPLAY of a call this key already paid for: the replay middleware
+// answers 200 with X-Idempotent-Replay: true and no handler runs, so the hold
+// is released and the balance is unchanged (a keyed retry never pays twice).
+nexted = false; res = fakeRes();
+gate({ method: "GET", path: "/api/whois", headers: { authorization: `Bearer ${KEY}` } }, res, () => { nexted = true; });
+res.setHeader("X-Idempotent-Replay", "true"); res.statusCode = 200; res.emit("finish");
+ok(nexted && cr.balance(KEY).balanceUsd === 19.998 && cr.balance(KEY).heldUsd === 0 && cr.balance(KEY).calls === 2, "gate: an idempotent replay (X-Idempotent-Replay: true) releases the hold - a keyed retry is never debited twice");
+// an x-pow-solution riding beside the Bearer is stripped on acceptance, so the
+// idempotency key can never bind a paid entry to that public string
+{ const req = { method: "GET", path: "/api/whois", headers: { authorization: `Bearer ${KEY}`, "x-pow-solution": "public-string" } }; res = fakeRes();
+  gate(req, res, () => {}); res.statusCode = 502; res.emit("finish");
+  ok(!("x-pow-solution" in req.headers), "gate: x-pow-solution is stripped on acceptance (same as the unsigned payment headers)"); }
 nexted = false; res = fakeRes();
 const priceFor2 = (m, p) => (p === "/v1/big" ? { priceUsd: 25, slug: "big" } : priceFor(m, p));
 cr.gate(priceFor2)({ method: "POST", path: "/v1/big", headers: { authorization: `Bearer ${KEY}` } }, res, () => { nexted = true; });

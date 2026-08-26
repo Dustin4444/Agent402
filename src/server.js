@@ -35,6 +35,7 @@ import { humanReportsPage, reportDeliveryPage } from "./human-reports-page.js";
 import { createStripeSubscriptions, subscriptionsEnabled, MONITOR_PRODUCTS } from "./stripe-subscriptions.js";
 import { createMppSubscriptions, mppSubscriptionsEnabled, subscriptionFeePayerStatus } from "./mpp-subscriptions.js";
 import { meteredUsd, isMeterable, applyMeteredSettlement } from "./gateway-meter.js";
+import { handlerInputOf } from "./handler-input.js";
 import { setSettlementOverrides } from "@x402/express";
 // Metered settlement ships DARK, like the upto scheme it rides on: it changes
 // what a buyer is charged, so it turns on deliberately and can be turned off
@@ -47,13 +48,14 @@ const GATEWAY_METER_ON = String(process.env.GATEWAY_METERED_BILLING || "").toLow
 // at the catalog floor.
 function quotedPriceUsd(def, req) {
   const flat = Number(String(def?.price ?? "").replace(/[^0-9.]/g, "")) || 0;
-  if (typeof def?.quote !== "function" || !req || !req.body || typeof req.body !== "object") return flat;
+  if (typeof def?.quote !== "function" || !req) return flat;
   // Memoized on the request: payments.js stashes the quote when the x402
   // price function runs, and the gates/appenders reuse it (one tokenization
   // per request, never one per rail).
   if (Number.isFinite(req.__meteredQuoteUsd) && req.__meteredQuoteUsd > 0) return req.__meteredQuoteUsd;
   try {
-    const q = Number(def.quote(req.body));
+    // Quote the object the handler will be SERVED, never the raw body.
+    const q = Number(def.quote(handlerInputOf(req)));
     if (Number.isFinite(q) && q > 0) { req.__meteredQuoteUsd = q; return q; }
     return flat;
   } catch { return flat; }
@@ -4893,7 +4895,10 @@ const idemHashKey = (req) => {
   // the plugin README promised this and the server ignored the header).
   const creditsCred = /^Bearer a402_[A-Za-z0-9_-]{16,80}$/.test(String(req.headers?.authorization || ""))
     ? "credits:" + createHash("sha256").update(req.headers.authorization.slice(7)).digest("hex") : null;
-  const cred = paymentHeaderOf(req) || req.header("x-pow-solution") || creditsCred;
+  // A credits-settled request binds to its key hash FIRST: the gate already
+  // authorized it, and an unverified x-pow-solution riding alongside would
+  // otherwise bind a paid entry to a public string anyone could replay.
+  const cred = paymentHeaderOf(req) || (req.creditsSettled === true ? creditsCred : null) || req.header("x-pow-solution") || creditsCred;
   if (!cred) return null; // nothing to securely bind the key to → don't cache
   // Bind to the exact route AND the request body, so the same key+credential
   // can't be used to retrieve a cached response from a different payload or
@@ -5752,21 +5757,11 @@ for (const tool of ALL_KIT) {
     let probe = false;
     let status = 200;
     try {
-      const input = { ...req.query, ...(req.body ?? {}) };
-      // Accept MCP-style envelopes posted directly to the HTTP route. Agents
-      // frequently mirror the shape they use over /mcp ({slug, params:{…}})
-      // into POST /api/<slug> bodies, or wrap fields in {input:{…}} /
-      // {args:{…}}. Unwrap once at the dispatcher so every tool accepts both
-      // the flat shape AND the wrapped shape without per-tool code. Top-level
-      // fields win on conflict — explicit beats nested.
-      for (const wrap of ["params", "input", "args"]) {
-        const inner = input[wrap];
-        if (inner && typeof inner === "object" && !Array.isArray(inner)) {
-          for (const [k, v] of Object.entries(inner)) {
-            if (input[k] === undefined) input[k] = v;
-          }
-        }
-      }
+      // The SAME object the quote was priced from (src/handler-input.js):
+      // query merged, MCP-style {params|input|args} envelopes unwrapped once,
+      // so every tool accepts the flat AND the wrapped shape and a metered
+      // price can never be computed from a different body than is served.
+      const input = { ...handlerInputOf(req) };
 
       // Composite-abuse guard: research/dossier run ~90s of expensive upstream
       // work BEFORE settlement, and a non-200 releases the (reusable) EIP-3009

@@ -230,7 +230,7 @@ export function createCredits({ stripe, baseUrl, storeDir, onDebit, onLoad, now 
       // UNSIGNED payment headers riding alongside must not survive to a handler
       // that reads authorization.from (payerFromRequest) - strip them, exactly
       // as the Tempo and Stripe gates do on acceptance.
-      for (const h of ["payment-signature", "x-payment", "payment-identifier"]) { if (req.headers && h in req.headers) delete req.headers[h]; }
+      for (const h of ["payment-signature", "x-payment", "payment-identifier", "x-pow-solution"]) { if (req.headers && h in req.headers) delete req.headers[h]; }
       req.creditsSettling = true; req.creditsSettled = true; req.creditsKeyId = a.keyId; req.creditsPriceUsd = item.priceUsd;
       res.setHeader("X-Credits-Balance", String(a.balanceUsd));
       let done = false;
@@ -241,7 +241,15 @@ export function createCredits({ stripe, baseUrl, storeDir, onDebit, onLoad, now 
         if (done) return; done = true;
         // A prompt-cache hit (X-Cache: hit) cost nothing upstream and is served
         // free to x402 buyers pre-paywall - credits buyers get the same.
-        const cacheHit = String(res.getHeader?.("X-Cache") || "").toLowerCase() === "hit";
+        // An idempotent REPLAY (X-Idempotent-Replay: true, server.js) served the
+        // stored body of a call this key already paid for: no handler ran, no
+        // upstream spend, so it is released like a cache hit. Before this the
+        // replay middleware, mounted AFTER this gate, answered 200 into a live
+        // hold and a credits buyer's keyed retry was debited a second time - on
+        // a metered route at the FULL worst-case hold, since no X-Metered-Usd
+        // header exists on a replay (found in the 2026-08-26 security review).
+        const cacheHit = String(res.getHeader?.("X-Cache") || "").toLowerCase() === "hit"
+          || String(res.getHeader?.("X-Idempotent-Replay") || "").toLowerCase() === "true";
         // A metered route reports actual usage x markup on X-Metered-Usd
         // (gateway-meter.js); the debit is that, never more than the hold.
         const metered = Number(res.getHeader?.("X-Metered-Usd"));
