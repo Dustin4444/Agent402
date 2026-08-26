@@ -349,6 +349,20 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   Live-verified on INTC the same day: "That gap is not a mystery: the filing attributes it to a $12.5 billion ... mark-to-
   market loss on the Escrowed Shares derivative liability [4]". Ticker pack inherits it (same handler). Note `fmtUsd` now
   renders negatives as `-$12.58B` (was `$-12.58B`).
+- **Cross-report input review (2026-08-26, three lenses after the INTC dossier miss; round 1 shipped, rest in memory
+  `report-inputs-review-2026-08-26`):** recall-report queried openFDA UNSORTED (relevance order) and headlined the 20
+  rows as the universe - losartan's newest recall (2024-05-07, Ongoing) was absent from the page it called "newest
+  first", and the monitor's fingerprint (recall numbers of that page) could never see a new recall that did not rank
+  into the top 20; now every enforcement fetch carries `sort=recall_initiation_date:desc`, returns `total`, and the
+  composite asks with `full:true` (reason/product/distribution uncapped - 20 of 20 insulin-pump reasons exceeded the
+  220-char public cap; the NDC sits at the END of drug descriptions) plus lots (`code_info`), event id (117 losartan
+  RECORDS = 51 EVENTS), termination date, quantity; the prompt/header say "N most recent of TOTAL" and count events.
+  domain-audit graded a self-signed or wrong-host certificate 100/100 (TLS scored on days alone): `tlsScoreOf(tls,
+  domain)` is 0 when `chainTrusted === false` or the cert does not cover the host (`certCoversHost`, wildcard-aware);
+  tls-cert now returns `authorizationError`/`protocol`/`cipher`; the material shows DMARC sp/aspf/adkim/rua/ruf/fo, MX
+  hosts, header VALUES (300 chars), the DKIM selectors probed. `scripts/test-report-inputs.js` (12, in CI). The
+  warm-start test's timing control is now self-consistent (one-shot hold >= half its own measured parse) - it used to
+  demand 3x the incremental loader's worst tick and a 93 ms GC pause on a runner failed a green build.
 - **agent402-openclaw is tested against a REAL OpenClaw (2026-08-26, `openclaw/test-real-install.js`, in CI):** `npm i
   openclaw@latest` (~90 MB, Node >= 22.22) into a scratch dir, `npm pack` + `npm i -g` (the bin symlink), `openclaw plugins
   install <tgz>`, `setup --write` through the symlink against a stub gateway, `openclaw models list/status`, `openclaw

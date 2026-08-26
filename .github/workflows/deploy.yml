@@ -2069,6 +2069,7 @@ jobs:
           # ticker pack kit (offline)
           t node scripts/test-ticker-pack-kit.js
           t node scripts/test-dossier-inputs.js
+          t node scripts/test-report-inputs.js
           # Stellar marketplace page tests (offline, fixture snapshot)
           t node scripts/test-stellar-page.js
           # What-is-x402 pillar page tests (offline, fixture snapshot)

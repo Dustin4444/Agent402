@@ -79,14 +79,20 @@ const childD = `
   let last = performance.now(), worst = 0;
   const t = setInterval(() => { const now = performance.now(); worst = Math.max(worst, now - last - 10); last = now; }, 10);
   await new Promise((r) => setTimeout(r, 30));
+  const t0 = performance.now();
   const n = loadPersistedIndexCache(${JSON.stringify(jsonFile)});
+  const parseMs = performance.now() - t0;
   await new Promise((r) => setTimeout(r, 30));
   clearInterval(t);
-  process.send({ n, worst });
+  process.send({ n, worst, parseMs });
 `;
 const d = await run(childD);
-ok(d.n === 3000 && d.worst > Math.max(40, b.worst * 3),
-  `control: the legacy one-shot parse held the loop ${Math.round(d.worst)}ms on the same data (incremental: ${Math.round(b.worst)}ms) - the ticker sees holds`);
+// The control is self-consistent: the one-shot parse is synchronous, so the
+// ticker must have seen a hold at least half as long as the parse it timed
+// itself. (It used to demand 3x the incremental loader's worst tick, and one
+// noisy GC pause on a shared runner - 93 ms - failed a green build.)
+ok(d.n === 3000 && d.parseMs > 40 && d.worst > 40 && d.worst >= d.parseMs * 0.5,
+  `control: the legacy one-shot parse took ${Math.round(d.parseMs)}ms and the ticker saw a ${Math.round(d.worst)}ms hold (incremental: ${Math.round(b.worst)}ms) - the ticker sees holds`);
 ok(b.sawTrue === true, "indexWarmStartInProgress() is true while the load runs (snapshot readers must not pin a half-loaded cache)");
 ok(b.inProgressAfter === false, "indexWarmStartInProgress() is false once the load completes");
 

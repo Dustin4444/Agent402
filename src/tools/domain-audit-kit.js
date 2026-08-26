@@ -61,9 +61,24 @@ export function normDomain(input) {
   return d;
 }
 
+// Does the certificate cover this host? subject CN or a SAN, wildcard-aware
+// (one label). Exported for tests.
+export function certCoversHost(tls, domain) {
+  const d = String(domain || "").toLowerCase();
+  const names = [tls?.subject, ...(Array.isArray(tls?.altNames) ? tls.altNames : [])].filter(Boolean).map((n) => String(n).toLowerCase());
+  if (!names.length) return null; // unknown - do not penalise what we did not see
+  return names.some((n) => n === d || (n.startsWith("*.") && d.endsWith(n.slice(1)) && d.slice(0, -n.slice(1).length).indexOf(".") < 0 && d.length > n.length - 1));
+}
+
 // Grade: email auth (40%) + web headers (35%) + TLS (25%).
-function tlsScoreOf(tls) {
+// A certificate the chain does not trust, or one for a different host, is a
+// broken TLS deployment however many days it has left - it used to score
+// 100/100 on days alone (self-signed.badssl.com, wrong.host.badssl.com both
+// graded perfect, measured 2026-08-26). Exported for tests.
+export function tlsScoreOf(tls, domain = null) {
   if (!tls || tls.daysRemaining == null) return null;
+  if (tls.chainTrusted === false) return 0;
+  if (domain && certCoversHost(tls, domain) === false) return 0;
   const d = Number(tls.daysRemaining);
   if (!Number.isFinite(d) || d <= 0) return 0;
   if (d > 30) return 100;
@@ -108,7 +123,7 @@ export async function probeDomain(domain, { pro = false } = {}) {
   // for a domain with broken email auth, nor drag it to F.
   const emailScore = typeof email?.score === "number" ? email.score : null;
   const headerScore = typeof hdr?.security?.score === "number" ? hdr.security.score : null;
-  const tlsScore = tlsScoreOf(tls);
+  const tlsScore = tlsScoreOf(tls, domain);
   const dims = [], assessed = [];
   if (emailScore != null) { dims.push([0.40, emailScore]); assessed.push("email auth"); }
   if (headerScore != null) { dims.push([0.35, headerScore]); assessed.push("security headers"); }
@@ -157,13 +172,13 @@ function makeDomainAuditHandlerInner(tierSlug) {
 
     // 2) GROUNDING BLOCKS (the probe results are the only source of truth).
     const emailBlock = email
-      ? `Score ${emailScore}/100 (${email.summary}). SPF: ${email.spf?.hasRecord ? `present (${email.spf.all || "?"}all, ${email.spf.lookupCount} lookups, valid=${email.spf.valid})` : "MISSING"}. DMARC: ${email.dmarc?.hasRecord ? `p=${email.dmarc.policy} at ${email.dmarc.percent}% (valid=${email.dmarc.valid})` : "MISSING"}. DKIM: ${email.dkim?.found?.length ? email.dkim.found.map((d) => `${d.selector} (${d.bits}-bit, valid=${d.valid})`).join(", ") : `none found (probed ${email.dkim?.probed?.length || 0} selectors)`}. MX: ${email.mx?.count || 0} records. Checks: ${(email.checks || []).map((c) => `${c.check}=${c.status}`).join(", ")}.`
+      ? `Score ${emailScore}/100 (${email.summary}). SPF: ${email.spf?.hasRecord ? `present (${email.spf.all || "?"}all, ${email.spf.lookupCount} top-level lookup mechanisms counted (nested includes not expanded), valid=${email.spf.valid})` : "MISSING"}. DMARC: ${email.dmarc?.hasRecord ? `p=${email.dmarc.policy} at ${email.dmarc.percent}% (valid=${email.dmarc.valid}${email.dmarc.subdomainPolicy ? `; sp=${email.dmarc.subdomainPolicy}` : ""}${email.dmarc.alignment ? `; aspf=${email.dmarc.alignment.spf}, adkim=${email.dmarc.alignment.dkim}` : ""}${email.dmarc.reportingUris ? `; rua=${email.dmarc.reportingUris.aggregate?.length ? email.dmarc.reportingUris.aggregate.join(",") : "NONE"}; ruf=${email.dmarc.reportingUris.failure?.length ? email.dmarc.reportingUris.failure.join(",") : "none"}` : ""}${email.dmarc.failureOptions ? `; fo=${email.dmarc.failureOptions}` : ""})` : "MISSING"}. DKIM: ${email.dkim?.found?.length ? email.dkim.found.map((d) => `${d.selector} (${d.bits}-bit, valid=${d.valid})`).join(", ") : `none found (probed ${email.dkim?.probed?.length || 0} selectors: ${(email.dkim?.probed || []).join(", ")} - a selector outside that list would not be seen)`}. MX: ${email.mx?.count || 0} records${email.mx?.records?.length ? ` (${email.mx.records.slice(0, 8).join(", ")})` : ""}. Checks: ${(email.checks || []).map((c) => `${c.check}=${c.status}`).join(", ")}.`
       : `email-deliverability probe FAILED: ${emailR.error}`;
     const hdrBlock = hdr
-      ? `Security-header score ${headerScore}/100. Findings: ${(hdr.security?.findings || []).map((f) => `${f.header}=${f.present ? "present" : "MISSING"}`).join(", ")}. Warnings: ${(hdr.security?.warnings || []).join("; ") || "none"}. HTTP status ${hdr.status}.`
+      ? `Security-header score ${headerScore}/100. Findings: ${(hdr.security?.findings || []).map((f) => `${f.header}=${f.present ? `present${f.value ? ` [${String(f.value).replace(/\s+/g, " ").slice(0, 300)}]` : ""}` : "MISSING"}`).join(", ")}. Warnings: ${(hdr.security?.warnings || []).join("; ") || "none"}. HTTP status ${hdr.status}.`
       : `http-headers probe FAILED: ${hdrR.error}`;
     const tlsBlock = tls
-      ? `Issuer ${tls.issuer || "?"}, subject ${tls.subject || "?"}, valid to ${tls.validTo || "?"} (${tls.daysRemaining} days remaining), ${(tls.altNames || []).length} SANs.`
+      ? `Chain trusted: ${tls.chainTrusted === true ? "YES" : tls.chainTrusted === false ? `NO (${tls.authorizationError || "untrusted"}) - TLS scored 0` : "unknown"}; covers ${domain}: ${certCoversHost(tls, domain) === false ? "NO (hostname mismatch) - TLS scored 0" : certCoversHost(tls, domain) ? "yes" : "unknown"}. Issuer ${tls.issuer || "?"}, subject ${tls.subject || "?"}, valid to ${tls.validTo || "?"} (${tls.daysRemaining} days remaining), ${(tls.altNames || []).length} SANs${tls.protocol ? `, negotiated ${tls.protocol}${tls.cipher ? ` / ${tls.cipher}` : ""}` : ""}.`
       : `tls-cert probe FAILED: ${tlsR.error}`;
     const proBlock = t.pro ? [
       ct ? `CERTIFICATE TRANSPARENCY: ${ct.total ?? ct.count ?? (ct.subdomains?.length || 0)} certs/subdomains seen. Subdomains: ${(ct.subdomains || ct.names || []).slice(0, 40).join(", ") || "(none parsed)"}.` : "CT probe unavailable.",

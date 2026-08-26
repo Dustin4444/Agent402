@@ -727,7 +727,13 @@ export const NETWORK_TOOLS = [
         score,
         summary,
         spf: { hasRecord: !!spfRaw, all: spfParsed?.all || null, valid: spfValid, lookupCount: spfParsed?.lookupCount ?? 0 },
-        dmarc: { hasRecord: !!dmarcRaw, policy: dmarcParsed?.policy || null, percent: dmarcParsed?.percent ?? 0, valid: dmarcValid },
+        dmarc: {
+          hasRecord: !!dmarcRaw, policy: dmarcParsed?.policy || null, percent: dmarcParsed?.percent ?? 0, valid: dmarcValid,
+          // The tags the parser already had and the tool used to drop: a report
+          // that recommends "the DMARC record to publish" must know whether
+          // reporting (rua/ruf), subdomain policy and alignment are set.
+          ...(dmarcParsed ? { subdomainPolicy: dmarcParsed.subdomainPolicy, alignment: dmarcParsed.alignment, reportingUris: dmarcParsed.reportingUris, failureOptions: dmarcParsed.failureOptions } : {}),
+        },
         dkim: { found: foundDkim, probed: selectors },
         mx: { count: mxHosts.length, records: mxHosts.slice(0, 10) },
         checks,

@@ -2023,8 +2023,11 @@ const networkTools = [
           () => {
             const c = socket.getPeerCertificate();
             const authorized = socket.authorized;
+            const authorizationError = authorized ? null : String(socket.authorizationError?.code || socket.authorizationError || "unknown");
+            const protocol = socket.getProtocol?.() || null;
+            const cipher = socket.getCipher?.()?.name || null;
             socket.end();
-            resolve({ c, authorized });
+            resolve({ c, authorized, authorizationError, protocol, cipher });
           }
         );
         socket.on("timeout", () => {
@@ -2033,7 +2036,7 @@ const networkTools = [
         });
         socket.on("error", (e) => reject(Object.assign(new Error(`TLS error: ${e.message}`), { statusCode: 502 })));
       });
-      const { c, authorized } = cert;
+      const { c, authorized, authorizationError, protocol, cipher } = cert;
       if (!c || !c.valid_to) throw Object.assign(new Error("No certificate presented"), { statusCode: 502 });
       const validTo = new Date(c.valid_to);
       return {
@@ -2045,6 +2048,12 @@ const networkTools = [
         daysRemaining: Math.floor((validTo - Date.now()) / 86_400_000),
         altNames: (c.subjectaltname || "").split(", ").map((s) => s.replace(/^DNS:/, "")).filter(Boolean).slice(0, 50),
         chainTrusted: authorized,
+        // Why the chain is not trusted (SELF_SIGNED_CERT_IN_CHAIN, CERT_HAS_EXPIRED,
+        // ERR_TLS_CERT_ALTNAME_INVALID ...) - null when trusted. Read off the
+        // socket we already opened; zero extra network.
+        authorizationError,
+        protocol,
+        cipher,
         fingerprint256: c.fingerprint256 ?? null,
       };
     },
