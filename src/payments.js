@@ -1,3 +1,4 @@
+import { handlerInputOf } from "./handler-input.js";
 import { paymentMiddleware } from "@x402/express";
 import { HTTPFacilitatorClient, x402ResourceServer } from "@x402/core/server";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
@@ -410,7 +411,10 @@ export function acceptsForItem(item, rails) {
         if (req && Number.isFinite(req.__meteredQuoteUsd)) {
           usd = req.__meteredQuoteUsd;
         } else {
-          const body = typeof ctx?.adapter?.getBody === "function" ? ctx.adapter.getBody() : req?.body;
+          // Price the object the handler will be SERVED (query merged, MCP
+          // envelopes unwrapped), never the raw body: a body the quoter cannot
+          // read must not quote the floor for a call that is then served.
+          const body = req ? handlerInputOf(req) : (typeof ctx?.adapter?.getBody === "function" ? ctx.adapter.getBody() : null);
           usd = Number(item.quote(body && typeof body === "object" ? body : {}));
           if (req && Number.isFinite(usd)) req.__meteredQuoteUsd = usd;
         }

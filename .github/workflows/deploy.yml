@@ -870,6 +870,15 @@ jobs:
       # (configSchema) and the auto-primary context overflow that 0.1.0-0.2.0
       # shipped with. npm registry only; no money moves.
       - name: OpenClaw provider plugin against a REAL OpenClaw install
+        # Unpinned third-party install with lifecycle scripts + its binary run
+        # with network access: shadow the job's metered keys (same class as the
+        # F07 npm ci step); the test also spawns with an allowlisted env.
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+          COINGECKO_API_KEY: ""
         run: node openclaw/test-real-install.js
 
       # ONE STEP, MANY SCRIPTS (2026-08-25): GitHub spends ~0.7 s of runner setup
@@ -2290,6 +2299,7 @@ jobs:
           t node scripts/test-workflow-run-refs.js
           # Metered settlement pricing rule (upto only, never above the ceiling, missing cost is not free - offline)
           t node scripts/test-gateway-meter.js
+          t node scripts/test-metered-quote-binding.js
           # Metered settlement is wired and fails safe (sentinel never reaches a buyer - offline)
           t node scripts/test-gateway-meter-wiring.js
           # Payment scheme is read where @x402/core actually puts it (v1 top-level vs v2 accepted - pins the INSTALLED dep, offline)
