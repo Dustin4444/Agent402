@@ -3050,7 +3050,14 @@ export function modelsList() {
         x402: {
           tier: slug, endpoint: tier.route.split(" ")[1], priceUsd: tier.price, maxTokens: tier.maxTokens,
           ...(slug.startsWith("v1-chat") && !tier.lockedModel && !tier.router && TIERS["v1-chat-metered"]
-            ? { meteredEndpoint: TIERS["v1-chat-metered"].route.split(" ")[1], meteredFromUsd: TIERS["v1-chat-metered"].price }
+            ? {
+              meteredEndpoint: TIERS["v1-chat-metered"].route.split(" ")[1], meteredFromUsd: TIERS["v1-chat-metered"].price,
+              // The metered route validates against ITS caps, not the flat home
+              // tier's: a client deriving a context window from this entry must
+              // not carry the flat cap onto the metered route (agent402-openclaw
+              // did, and OpenClaw refused every turn as a context overflow).
+              meteredMaxInputChars: TIERS["v1-chat-metered"].maxInputChars, meteredMaxTokens: TIERS["v1-chat-metered"].maxTokens,
+            }
             : {}),
           maxInputChars: Math.min(tier.maxInputChars, ADVERTISED_MAX_INPUT_CHARS),
           // Disclosure rides on the machine surface too, not only in prose:

@@ -9,7 +9,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { STATE_DIR, CREDITS_KEY_FILE, resolveCreditsKey, resolvePayFetch } from "./index.js";
 import { startProxy, loadRoutes, DEFAULT_UPSTREAM } from "./proxy.js";
-import { providerModelsConfig, stripTrailingSlashes } from "./models.js";
+import { providerModelsConfig, stripTrailingSlashes, defaultPrimary, AUTO_ID, OPENCLAW_MIN_INPUT_CHARS } from "./models.js";
 import { DEFAULT_PORT, PROVIDER_ID } from "./provider.js";
 
 const args = process.argv.slice(2);
@@ -20,18 +20,26 @@ const out = (s) => process.stdout.write(s + "\n");
 
 /** The provider block for openclaw.json (JSON, so it can be merged; OpenClaw reads JSON5 which is a superset). */
 export function configBlock({ port = DEFAULT_PORT, routes }) {
+  const primary = defaultPrimary(routes);
   return {
-    agents: { defaults: { model: { primary: `${PROVIDER_ID}/auto` } } },
+    agents: { defaults: { model: { primary: `${PROVIDER_ID}/${primary ? primary.id : AUTO_ID}` } } },
     models: { providers: { [PROVIDER_ID]: { ...providerModelsConfig(`http://127.0.0.1:${port}`, routes), timeoutSeconds: 120 } } },
   };
 }
 
-function mergeInto(target, block) {
+function mergeInto(target, block, { port = DEFAULT_PORT } = {}) {
   const t = target && typeof target === "object" ? target : {};
   t.agents = t.agents || {}; t.agents.defaults = t.agents.defaults || {};
   t.agents.defaults.model = { ...(t.agents.defaults.model || {}), primary: block.agents.defaults.model.primary };
   t.models = t.models || {}; t.models.providers = t.models.providers || {};
   t.models.providers[PROVIDER_ID] = block.models.providers[PROVIDER_ID];
+  // The plugin service reads ITS port from plugins.entries.<id>.config, not from
+  // the provider baseUrl - a --port that only moved the baseUrl left the proxy
+  // on 8412 and OpenClaw dialing a port nobody listened on (real-install test).
+  if (port !== DEFAULT_PORT) {
+    t.plugins = t.plugins || {}; t.plugins.entries = t.plugins.entries || {};
+    t.plugins.entries[PROVIDER_ID] = { ...(t.plugins.entries[PROVIDER_ID] || {}), config: { ...(t.plugins.entries[PROVIDER_ID]?.config || {}), port } };
+  }
   return t;
 }
 
@@ -64,6 +72,10 @@ async function main() {
     let routes;
     try { routes = await loadRoutes(upstream, fetch, { pricing }); } catch (e) { console.error(`could not read ${upstream}/v1/models: ${e?.message || e}`); return 2; }
     const block = configBlock({ port, routes });
+    const primary = block.agents.defaults.model.primary;
+    if (primary === `${PROVIDER_ID}/${AUTO_ID}`) {
+      console.error(`WARNING: no model in this catalog (${pricing} pricing) accepts the ~${Math.round(OPENCLAW_MIN_INPUT_CHARS / 1000)}k chars OpenClaw sends before your first word; primary falls back to ${primary}, which will answer "Context overflow" on every turn. Rerun without --flat to use the metered route.`);
+    }
     const cfgPath = join(process.env.AGENT402_OPENCLAW_HOME || join(homedir(), ".openclaw"), "openclaw.json");
     if (has("--write")) {
       let existing = {};
@@ -77,10 +89,10 @@ async function main() {
       let mode = 0o600;
       try { if (existsSync(cfgPath)) mode = statSync(cfgPath).mode & 0o777; } catch { /* keep 0600 */ }
       const tmp = `${cfgPath}.${process.pid}.tmp`;
-      writeFileSync(tmp, JSON.stringify(mergeInto(existing, block), null, 2) + "\n", { mode });
+      writeFileSync(tmp, JSON.stringify(mergeInto(existing, block, { port }), null, 2) + "\n", { mode });
       try { chmodSync(tmp, mode); } catch { /* best effort */ }
       renameSync(tmp, cfgPath);
-      out(`wrote provider "${PROVIDER_ID}" + primary model ${PROVIDER_ID}/auto into ${cfgPath}; run: openclaw gateway restart`);
+      out(`wrote provider "${PROVIDER_ID}" + primary model ${primary} into ${cfgPath}; run: openclaw gateway restart`);
     } else {
       out(`add to ${cfgPath} (or rerun with --write):`);
       out(JSON.stringify(block, null, 2));

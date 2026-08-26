@@ -11,14 +11,23 @@ Guide: https://agent402.tools/guides/openclaw-model-provider
 
 ```bash
 openclaw plugins install agent402-openclaw
-AGENT402_CREDITS_KEY=a402_... agent402-openclaw setup --write   # key by env (or `--credits-key -` on stdin); buy one by card at https://agent402.tools/credits
+AGENT402_CREDITS_KEY=a402_... npx agent402-openclaw setup --write   # key by env (or `--credits-key -` on stdin); buy one by card at https://agent402.tools/credits
 openclaw gateway restart
 ```
 
-`setup` stores the key under `~/.openclaw/agent402/credits.key` (0600) and prints
-the `openclaw.json` block; add `--write` to merge it in (`agent402/auto` becomes
-the primary model). The plugin starts a loopback proxy (`127.0.0.1:8412`) that
+(`openclaw plugins install` copies the plugin into `~/.openclaw/extensions` and
+does not link its CLI, hence `npx`.) `setup` stores the key under
+`~/.openclaw/agent402/credits.key` (0600) and prints the `openclaw.json` block;
+add `--write` to merge it in. The primary model it writes is the cheapest
+metered model that can hold OpenClaw's own prompt: OpenClaw sends roughly 70k
+characters of system prompt and tool schemas before your first word, and the
+routed `auto` tier caps input at 16k, so `auto` stays listed for short one-off
+prompts but is never made primary (OpenClaw would refuse every turn as a
+context overflow). The plugin starts a loopback proxy (`127.0.0.1:8412`) that
 pays Agent402 and forwards; OpenClaw only ever sees a local OpenAI-compatible URL.
+
+Tested in CI against a real `openclaw@latest` install: plugin install, setup,
+model listing, gateway boot and one agent turn (`test-real-install.js`).
 
 No OpenClaw? `agent402-openclaw proxy` runs the proxy alone; point any OpenAI
 client at `http://127.0.0.1:8412/v1` with model `auto`.
@@ -53,7 +62,7 @@ the key.
 
 ## Commands
 
-- `agent402-openclaw setup [--credits-key K | --credits-key - (stdin) | AGENT402_CREDITS_KEY env] [--write] [--port N]`
+- `agent402-openclaw setup [--credits-key K | --credits-key - (stdin) | AGENT402_CREDITS_KEY env] [--write] [--port N] [--flat]`
 - `agent402-openclaw proxy [--port N] [--upstream URL]`
 - `agent402-openclaw doctor`
 

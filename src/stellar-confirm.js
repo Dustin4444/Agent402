@@ -192,7 +192,10 @@ export async function settleWithStellarFallback({ primary, fallback = null, conf
     // 3. Both refused: the primary may still have landed late, or the fallback's.
     found = await confirm({ payer: settlePayerOf(fbErr || fbRes) || payer });
     if (found) return honour(primaryRes, found, "both facilitators reported failure");
-    log(`[stellar] fallback facilitator also failed (${JSON.stringify(fbRes?.errorReason || fbErr?.message || "failed").slice(0, 120)}) - returning the primary failure`);
+    // errorReason alone hid what the fallback objected to (canary run
+    // 32972751838: "unexpected_verify_error" and nothing else) - carry the
+    // facilitator's own message, bounded.
+    log(`[stellar] fallback facilitator also failed (${JSON.stringify(fbRes?.errorReason || fbErr?.message || "failed").slice(0, 120)}${fbRes?.errorMessage ? `: ${String(fbRes.errorMessage).slice(0, 300)}` : ""}${fbRes?.payer ? ` payer=${fbRes.payer}` : ""}) - returning the primary failure`);
   }
   if (primaryErr) throw primaryErr;
   return { ...primaryRes, ...(typeof fallback === "function" ? { fallbackTried: true } : {}) };
