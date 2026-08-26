@@ -181,7 +181,9 @@ export function filingText(html) {
     .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, " ")
     .replace(/<\/(p|div|tr|li|h\d|table|br)>/gi, " \n")
     .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;|&#160;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#8217;|&rsquo;/g, "'").replace(/&#8220;|&#8221;|&ldquo;|&rdquo;/g, '"').replace(/&#\d+;|&[a-z]+;/gi, " ")
+    // Entities: `&amp;` is decoded LAST so an encoded "&amp;lt;" cannot be
+    // double-unescaped into a "<" (CodeQL js/double-escaping).
+    .replace(/&nbsp;|&#160;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#8217;|&rsquo;/g, "'").replace(/&#8220;|&#8221;|&ldquo;|&rdquo;/g, '"').replace(/&#\d+;|&(?!amp;)[a-z]+;/gi, " ").replace(/&amp;/g, "&")
     .replace(/[ \t\r\f\v]+/g, " ").replace(/\s*\n\s*/g, "\n").replace(/\n{2,}/g, "\n").trim();
 }
 

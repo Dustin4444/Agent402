@@ -44,6 +44,7 @@ const facts = {
   ${filler}<script>var x = "mark-to-market";</script><p>Cash flow: Mark-to-market (gains) losses on Escrowed Shares 13,619 &#8212;</p></div></body></html>`;
   const text = filingText(html);
   ok(!/<[a-z]/i.test(text) && !/var x/.test(text) && !/SharesInEscrowMember/.test(text), "filingText strips tags, script bodies and the hidden iXBRL header (context soup)");
+  ok(filingText("<p>R&amp;D &amp;lt;b&amp;gt; &lt;i&gt;</p>") === "R&D &lt;b&gt; <i>", "entity decoding is single-pass: an encoded &amp;lt; never becomes a tag (double-unescape)");
   const ex = extractFilingExcerpts(text, { maxChars: 6_000, extraTerms: ["interest and other"] });
   ok(ex.length >= 3, `excerpts found: ${ex.length}`);
   ok(ex[0].term === "interest and other" && /12,576/.test(ex[0].text), "extraTerms (from the bridge) take the budget first");
