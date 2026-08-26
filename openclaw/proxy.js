@@ -19,7 +19,7 @@
 // paying twice. Streams pass through byte for byte.
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
-import { AUTO_ID, routesFromCatalog } from "./models.js";
+import { AUTO_ID, routesFromCatalog, stripTrailingSlashes } from "./models.js";
 
 export const DEFAULT_UPSTREAM = "https://agent402.tools";
 const MAX_BODY = 2 * 1024 * 1024;
@@ -56,7 +56,7 @@ const json = (res, status, obj, headers = {}) => {
  * @param {(msg:string)=>void} [o.log]
  */
 export async function startProxy({ upstream = DEFAULT_UPSTREAM, creditsKey = null, payFetch = null, fetch: fetchImpl = fetch, port = 0, host = "127.0.0.1", routes = null, log = () => {} } = {}) {
-  upstream = String(upstream).replace(/\/+$/, "");
+  upstream = stripTrailingSlashes(upstream);
   const key = typeof creditsKey === "string" && /^a402_[A-Za-z0-9_-]{16,80}$/.test(creditsKey) ? creditsKey : null;
   const paid = key ? fetchImpl : payFetch;
   const mode = key ? "credits" : payFetch ? "x402" : "unpaid";

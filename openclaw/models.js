@@ -8,6 +8,14 @@
 
 export const AUTO_ID = "auto";
 
+/** Linear trailing-slash strip (a regex like /\/+$/ is polynomial on long runs of "/"). */
+export function stripTrailingSlashes(s) {
+  let str = String(s ?? ""); let end = str.length;
+  while (end > 0 && str.charCodeAt(end - 1) === 47) end--;
+  return str.slice(0, end);
+}
+
+
 /** The raw catalog entry -> { id, endpoint, tier, priceUsd, maxTokens, maxInputChars }. */
 export function routesFromCatalog(catalog) {
   const data = Array.isArray(catalog?.data) ? catalog.data : [];
@@ -59,5 +67,5 @@ export function openclawModels(routes) {
 
 /** OpenClaw ModelProviderConfig pointing at the local proxy. */
 export function providerModelsConfig(baseUrl, routes) {
-  return { baseUrl: `${String(baseUrl).replace(/\/+$/, "")}/v1`, api: "openai-completions", models: openclawModels(routes) };
+  return { baseUrl: `${stripTrailingSlashes(baseUrl)}/v1`, api: "openai-completions", models: openclawModels(routes) };
 }
