@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { buildProvider, setActiveProxy, setCachedRoutes, DEFAULT_PORT, PROVIDER_ID } from "./provider.js";
 import { startProxy, loadRoutes, DEFAULT_UPSTREAM } from "./proxy.js";
+import { stripTrailingSlashes } from "./models.js";
 
 export const STATE_DIR = () => join(process.env.AGENT402_OPENCLAW_HOME || join(homedir(), ".openclaw"), "agent402");
 export const CREDITS_KEY_FILE = () => join(STATE_DIR(), "credits.key");
@@ -49,7 +50,7 @@ const plugin = {
   register(api) {
     const cfg = api.pluginConfig || {};
     const port = Number(cfg.port) || DEFAULT_PORT;
-    const upstream = (cfg.upstream || process.env.AGENT402_UPSTREAM || DEFAULT_UPSTREAM).replace(/\/+$/, "");
+    const upstream = stripTrailingSlashes(cfg.upstream || process.env.AGENT402_UPSTREAM || DEFAULT_UPSTREAM);
     const log = (m) => api.logger?.info?.(m);
     api.registerProvider(buildProvider({ port }));
     if (!registeredOnce) {

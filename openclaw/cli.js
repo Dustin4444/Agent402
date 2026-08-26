@@ -8,7 +8,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { STATE_DIR, CREDITS_KEY_FILE, resolveCreditsKey, resolvePayFetch } from "./index.js";
 import { startProxy, loadRoutes, DEFAULT_UPSTREAM } from "./proxy.js";
-import { providerModelsConfig } from "./models.js";
+import { providerModelsConfig, stripTrailingSlashes } from "./models.js";
 import { DEFAULT_PORT, PROVIDER_ID } from "./provider.js";
 
 const args = process.argv.slice(2);
@@ -39,7 +39,7 @@ async function main() {
     out("agent402-openclaw setup [--credits-key a402_...] [--write] | proxy [--port N] [--upstream URL] | doctor");
     return 0;
   }
-  const upstream = (opt("--upstream") || process.env.AGENT402_UPSTREAM || DEFAULT_UPSTREAM).replace(/\/+$/, "");
+  const upstream = stripTrailingSlashes(opt("--upstream") || process.env.AGENT402_UPSTREAM || DEFAULT_UPSTREAM);
   const port = Number(opt("--port")) || DEFAULT_PORT;
 
   if (cmd === "setup") {
