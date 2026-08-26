@@ -4,7 +4,7 @@
 // only when EVERY explicit 2xx variant guarantees it. Reporting a field that
 // only the 200 promises tells a buyer they are safe on a success path where
 // they are not, which is worse than reporting nothing.
-import { responseContractOf, packResponseContract, unpackResponseContract } from "../src/response-contract.js";
+import { responseContractOf, packResponseContract, unpackResponseContract, responseContractProjection } from "../src/response-contract.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { c ? pass++ : fail++; console.log(`${c ? "ok" : "FAIL"} - ${m}`); };
@@ -48,6 +48,52 @@ const op = (responses) => ({ responses });
   }));
   ok(disjoint.guaranteedPaths.length === 0 && disjoint.state === "partial",
     "variants that guarantee nothing in common guarantee NOTHING, and say so as partial");
+}
+
+// --- every declared success variant participates, or the report fails closed
+{
+  const firstEight = {};
+  for (let i = 0; i < 8; i++) {
+    firstEight[String(200 + i)] = json(obj(["data"], { data: { type: "object" } }));
+  }
+
+  const capped = responseContractOf(op({
+    ...firstEight,
+    208: json(obj([], {})),
+  }));
+  ok(capped.successVariants === 9 && capped.jsonSchemas === 8,
+    `a capped document retains its truthful variant count (got ${capped.successVariants}/${capped.jsonSchemas})`);
+  ok(capped.state === "partial" && capped.guaranteedPaths.length === 0,
+    "a ninth variant that omits a path cannot be sliced away to manufacture a guarantee");
+
+  const unreadableTail = responseContractOf(op({
+    ...firstEight,
+    208: { description: "success without a JSON contract" },
+  }));
+  ok(unreadableTail.state === "partial" && unreadableTail.guaranteedPaths.length === 0,
+    "an unreadable ninth variant also fails closed");
+
+  const inBound = responseContractOf(op(firstEight));
+  ok(inBound.state === "declared" && inBound.guaranteedPaths.join() === "data",
+    "exactly eight admissible variants still report their common guarantee");
+
+  const identicalNine = {};
+  for (let i = 0; i < 9; i++) {
+    identicalNine[String(200 + i)] = json(obj(["data"], { data: { type: "object" } }));
+  }
+  ok(responseContractOf(op(identicalNine)).state === "partial",
+    "the cap is an evidence bound, not permission to assume the unread declarations match");
+
+  const projected = responseContractProjection({ responseContract: packResponseContract(capped) }).responseContract;
+  ok(projected?.state === "partial" && projected.successVariants === 9 && projected.guaranteedPaths.length === 0,
+    "the fail-closed capped report survives cache packing and public projection");
+
+  const ranged = responseContractOf(op({
+    200: json(obj(["data"], { data: { type: "object" } })),
+    "2XX": json(obj([], {})),
+  }));
+  ok(ranged.successVariants === 2 && ranged.state === "partial" && ranged.guaranteedPaths.length === 0,
+    "an OpenAPI 2XX range participates instead of letting a narrower status manufacture a guarantee");
 }
 
 // --- one unreadable variant must not let a strong one speak for the route --
@@ -143,6 +189,22 @@ for (const kw of ["$ref", "allOf", "anyOf", "oneOf", "not", "if", "patternProper
     ok(unpackResponseContract({ responseContract: junk }) === null,
       `a stale or malformed cache value reads as no contract, never a throw (${JSON.stringify(junk)})`);
   }
+
+  const inherited = Object.create({ responseContract: ["declared", 1, 1, ["inherited"]] });
+  ok(unpackResponseContract(inherited) === null,
+    "an inherited tuple is never promoted to seller OpenAPI evidence");
+  let getterRead = false;
+  const accessor = {};
+  Object.defineProperty(accessor, "responseContract", {
+    get() { getterRead = true; return ["declared", 1, 1, ["getter"]]; },
+  });
+  ok(unpackResponseContract(accessor) === null && getterRead === false,
+    "an accessor-backed tuple is refused without executing its getter");
+  const hostile = new Proxy({}, {
+    getOwnPropertyDescriptor() { throw new Error("hostile descriptor trap"); },
+  });
+  ok(unpackResponseContract(hostile) === null,
+    "a hostile descriptor trap fails closed without escaping");
 }
 
 // --- ALL THREE SURFACES, or the field is inert -------------------------------
@@ -178,6 +240,9 @@ for (const kw of ["$ref", "allOf", "anyOf", "oneOf", "not", "if", "patternProper
     /^import \{.*\} from ".\/response-contract.js";$/,
     /^const packed = packResponseContract\(responseContractOf\(op\)\);$/,
     /^return packed \? \{ responseContract: packed \} : \{\};$/,
+    /^if \(key === "requestContract" \|\| key === "responseContract"\) continue;$/,
+    /^const responseContract = ownContractTuple\(o, "responseContract"\);$/,
+    /^\.\.\.\(responseContract \? \{ responseContract \} : \{\}\),$/,
     /^\.\.\.responseContractProjection\(t\),$/,
     /^\.\.\.\(external \? responseContractProjection\(t\) : \{\}\),$/,
   ];
