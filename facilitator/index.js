@@ -18,6 +18,7 @@ import { createSerialQueue } from "./queue.js";
 import { withTimeout } from "./timeout.js";
 import { installRpcDiagnostics } from "./rpc-diagnostics.js";
 import { installRpcRequestTimeout } from "./rpc-timeout.js";
+import { installRpcFailover, resolveFallbackUrls } from "./rpc-failover.js";
 
 // Must install before ExactStellarScheme ever calls getRpcClient() /
 // sendTransaction() - a patch applied after the first real request would
@@ -29,6 +30,8 @@ import { installRpcRequestTimeout } from "./rpc-timeout.js";
 // (2026-08-14 and 2026-08-19, both pre-submission stalls).
 installRpcRequestTimeout(process.env.FACILITATOR_RPC_TIMEOUT_MS === undefined ? 10_000 : Number(process.env.FACILITATOR_RPC_TIMEOUT_MS));
 installRpcDiagnostics();
+// Installed LAST so it wraps the timeout + diagnostics and sees their errors.
+installRpcFailover(resolveFallbackUrls(NETWORK, process.env.FACILITATOR_RPC_FALLBACK_URLS));
 
 const PORT = Number(process.env.PORT) || 4021;
 const AUTH_TOKEN = (process.env.FACILITATOR_AUTH_TOKEN || "").trim();

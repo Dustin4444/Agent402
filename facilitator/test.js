@@ -63,6 +63,7 @@ import { invalidVerify, invalidSettle, normalizeVerify, normalizeSettle } from "
 import { withTimeout, TimeoutError } from "./timeout.js";
 import { decodeErrorResultXdr, describeRpcRejection } from "./rpc-diagnostics.js";
 import { ensureRpcTimeout, installRpcRequestTimeout, RpcRequestTimeoutError } from "./rpc-timeout.js";
+import { installRpcFailover, isTransportFailure, resolveFallbackUrls, DEFAULT_FALLBACKS } from "./rpc-failover.js";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const NETWORK = "stellar:testnet";
@@ -248,6 +249,76 @@ const horizon = getHorizonClient(NETWORK);
   fresh.getLatestLedger().catch(() => {}); // connection refused; we only care that the default was applied on the way out
   ok(fresh.httpClient.defaults.timeout === 10_000, `rpc-timeout: a fresh rpc.Server gets the installed default on first use (${fresh.httpClient.defaults.timeout})`);
   console.log("rpc-timeout.js unit tests ✓");
+}
+
+// ---------------------------------------------------------------------------
+// rpc-failover.js: a stalled primary RPC costs one bounded hop, not the settle.
+// Real rpc.Server instances against local servers; the prototype patch is
+// process-wide (installed AFTER the timeout patch, as index.js does).
+// ---------------------------------------------------------------------------
+{
+  // classification: node failures fail over, transaction answers do not
+  ok(isTransportFailure(Object.assign(new Error("timeout of 300ms exceeded"), { code: "ECONNABORTED" })) && isTransportFailure({ code: "ECONNREFUSED" }) && isTransportFailure({ response: { status: 502 } }) && isTransportFailure({ response: { status: 429 } }) && isTransportFailure(new RpcRequestTimeoutError(10)), "isTransportFailure: timeouts, connection errors, 5xx/429 and the body-less response are node failures");
+  ok(!isTransportFailure({ code: -32602, message: "invalid params" }) && !isTransportFailure(new Error("simulation failed: HostError")) && !isTransportFailure({ response: { status: 400 } }) && !isTransportFailure(null), "isTransportFailure: a JSON-RPC error, a simulation failure, a 4xx are ANSWERS, never failed over");
+  // config
+  ok(resolveFallbackUrls("stellar:pubnet", undefined).join(",") === DEFAULT_FALLBACKS["stellar:pubnet"].join(",") && resolveFallbackUrls("stellar:testnet", "").length === 1, "resolveFallbackUrls: network defaults when the env is unset");
+  ok(resolveFallbackUrls("stellar:pubnet", " https://a.example/ , https://b.example, junk, https://a.example ").join(",") === "https://a.example,https://b.example", "resolveFallbackUrls: env CSV wins, trimmed, deduped, junk dropped");
+  ok(resolveFallbackUrls("stellar:pubnet", "off").length === 0 && resolveFallbackUrls("stellar:pubnet", "none").length === 0, "resolveFallbackUrls: off/none disables");
+
+  const { createServer } = await import("node:http");
+  const { rpc } = await import("@stellar/stellar-sdk");
+  const jsonRpc = (handler) => createServer((req, res) => { let b = ""; req.on("data", (c) => { b += c; }); req.on("end", () => { let j = {}; try { j = JSON.parse(b); } catch { /* ignore */ } const out = handler(j); res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ jsonrpc: "2.0", id: j.id ?? 1, ...out })); }); });
+  let goodHits = 0, fb2Hits = 0;
+  // getHealth is the one RPC method whose result the SDK returns unparsed.
+  const good = jsonRpc((j) => { goodHits++; return { result: { status: "good", latestLedger: 424242, oldestLedger: 1, ledgerRetentionWindow: 1 } }; });
+  const fb2 = jsonRpc(() => { fb2Hits++; return { result: { status: "fb2", latestLedger: 1, oldestLedger: 1, ledgerRetentionWindow: 1 } }; });
+  const rpcErr = jsonRpc((j) => ({ error: { code: -32602, message: "invalid params from primary" } }));
+  const blackhole = createServer(() => { /* never respond */ });
+  for (const s of [good, fb2, rpcErr, blackhole]) await new Promise((r) => s.listen(0, "127.0.0.1", r));
+  const url = (s) => `http://127.0.0.1:${s.address().port}`;
+  const logs = [];
+  const patched = installRpcFailover([url(good), url(fb2)], { log: (m) => logs.push(m), allowHttp: true });
+  ok(patched > 30, `installRpcFailover patched the rpc.Server prototype (${patched} methods)`);
+
+  // (a) primary stalls -> served by the first fallback, within the bound
+  const stalled = new rpc.Server(url(blackhole), { allowHttp: true });
+  stalled.httpClient.defaults.timeout = 300;
+  let t0 = Date.now();
+  const led = await stalled.getHealth();
+  let took = Date.now() - t0;
+  ok(led.status === "good" && goodHits === 1 && fb2Hits === 0 && took < 5_000, `failover: a stalled primary is served by the first fallback (${took}ms, status ${led.status})`);
+  ok(logs.some((m) => /failed \(ECONNABORTED|failed \(timeout/i.test(m) && /trying 127\.0\.0\.1/.test(m)) && logs.some((m) => /served by 127\.0\.0\.1/.test(m)), "failover: the hop is logged with the reason and the node that served");
+
+  // (b) a JSON-RPC error from the primary is an answer: no failover
+  const answered = new rpc.Server(url(rpcErr), { allowHttp: true });
+  let err = null; goodHits = 0;
+  try { await answered.getHealth(); } catch (e) { err = e; }
+  ok(err && /invalid params from primary/.test(String(err?.message || JSON.stringify(err))) && goodHits === 0, `failover: a JSON-RPC error is thrown as-is, the fallback is not asked (${String(err?.message || err).slice(0, 50)})`);
+
+  // (c) a fallback instance never fails over again (no recursion), and the
+  //     second fallback is reached when the first is down
+  const fbDown = createServer(() => { /* stall */ }); await new Promise((r) => fbDown.listen(0, "127.0.0.1", r));
+  logs.length = 0; fb2Hits = 0;
+  const { _resetForTest } = await import("./rpc-failover.js");
+  _resetForTest(); // allow a second install with a different list for this case
+  installRpcFailover([url(fbDown), url(fb2)], { log: (m) => logs.push(m), allowHttp: true, requestTimeoutMs: 300 });
+  const stalled2 = new rpc.Server(url(blackhole), { allowHttp: true });
+  stalled2.httpClient.defaults.timeout = 300;
+  const led2 = await stalled2.getHealth();
+  ok(led2.status === "fb2" && fb2Hits === 1, `failover: first fallback down (bounded), second serves (status ${led2.status})`);
+  ok(logs.filter((m) => /trying/.test(m)).length === 2, "failover: each fallback is tried once, in order, no recursion");
+
+  // (d) everything down: the PRIMARY's error is what the caller sees, with the fallback errors attached
+  _resetForTest();
+  installRpcFailover([url(fbDown)], { log: () => {}, allowHttp: true, requestTimeoutMs: 300 });
+  const stalled3 = new rpc.Server(url(blackhole), { allowHttp: true });
+  stalled3.httpClient.defaults.timeout = 200;
+  err = null; t0 = Date.now();
+  try { await stalled3.getHealth(); } catch (e) { err = e; }
+  took = Date.now() - t0;
+  ok(err && /timeout/i.test(String(err.message)) && Array.isArray(err.fallbackErrors) && err.fallbackErrors.length === 1 && took < 8_000, `failover: all nodes down -> the primary's timeout error, fallbackErrors attached (${took}ms)`);
+  for (const s of [good, fb2, rpcErr, blackhole, fbDown]) { s.closeAllConnections?.(); s.close(); }
+  console.log("rpc-failover.js unit tests ✓");
 }
 
 // Everything above is offline and deterministic; everything below needs
