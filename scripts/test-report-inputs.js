@@ -3,6 +3,11 @@
 // reader would have been misled by, verified live before it was fixed.
 import { recallRow, fdaDate } from "../src/tools/gov-kit.js";
 import { tlsScoreOf, certCoversHost } from "../src/tools/domain-audit-kit.js";
+import { itemLabels, exhibitFromIndexHeaders, sliceForBudget, docMaxBytesFor, PERIODIC_DOC_MAX_BYTES, __test as fw } from "../src/tools/filing-watch-kit.js";
+import { parseForm4 } from "../src/tools/insider-flow-kit.js";
+import { parse13fCover } from "../src/tools/edgar-kit.js";
+import { classifyFromSubmissions } from "../src/tools/ipo-report-kit.js";
+import { parse13GCover } from "../src/tools/ticker-pack-kit.js";
 let pass = 0, fail = 0;
 const ok = (c, m) => { c ? pass++ : fail++; console.log(`${c ? "ok" : "FAIL"} - ${m}`); };
 
@@ -29,6 +34,71 @@ const ok = (c, m) => { c ? pass++ : fail++; console.log(`${c ? "ok" : "FAIL"} - 
   ok(certCoversHost({ subject: "*.example.com", altNames: [] }, "a.b.example.com") === false, "wildcard does not cover two labels");
   ok(certCoversHost({ subject: null, altNames: [] }, "example.com") === null && tlsScoreOf({ chainTrusted: true, daysRemaining: 100 }, "example.com") === 100, "no names seen -> unknown, never penalised");
   ok(tlsScoreOf({ chainTrusted: true, daysRemaining: 0 }) === 0 && tlsScoreOf(null) === null, "expired -> 0; no probe -> null (unassessed)");
+}
+
+// ---- filing-report ----------------------------------------------------------
+{
+  ok(itemLabels("2.02,9.01") === "2.02 results of operations and financial condition; 9.01 financial statements and exhibits" && itemLabels("") === "", "8-K item codes render with their Regulation S-K meaning");
+  ok(docMaxBytesFor("10-Q", 800_000) === PERIODIC_DOC_MAX_BYTES && docMaxBytesFor("10-K/A", 800_000) === PERIODIC_DOC_MAX_BYTES && docMaxBytesFor("8-K", 800_000) === 800_000 && docMaxBytesFor("S-1", 800_000) === 800_000, "periodic reports get the 8 MB byte cap; everything else keeps the small one");
+  ok(["FWP", "424B5", "SCHEDULE 13G/A", "S-8"].every((f) => fw.ROUTINE.has(f)) && fw.SUBSTANTIVE.indexOf("10-Q") < fw.SUBSTANTIVE.indexOf("8-K"), "deal paperwork and ownership schedules are routine; the periodic report outranks the 8-K for a document slot");
+  const hdr = "<pre>&lt;TYPE&gt;8-K\n&lt;FILENAME&gt;intc-20260723.htm\n&lt;TYPE&gt;EX-99.1\n&lt;FILENAME&gt;q226earningsrelease.htm\n&lt;TYPE&gt;EX-101.SCH\n&lt;FILENAME&gt;intc.xsd</pre>";
+  const ex = exhibitFromIndexHeaders(hdr, 50863, "0000050863-26-000155");
+  ok(ex && ex.type === "EX-99.1" && ex.url === "https://www.sec.gov/Archives/edgar/data/50863/000005086326000155/q226earningsrelease.htm", "the EX-99 press release is found in the entity-escaped SGML index headers");
+  ok(exhibitFromIndexHeaders("<TYPE>8-K\n<FILENAME>a.htm\n<TYPE>EX-101.SCH\n<FILENAME>b.xsd", 1, "0000000001-26-000001") === null, "no EX-99 -> null (never a taxonomy file)");
+  // A synthetic 10-Q shaped like INTC's: TOC + glossary decoys for MD&A, page headers repeating "Notes to Financial Statements", the real MD&A late, the index at the END.
+  const filler = (w, n) => Array.from({ length: n }, (_, i) => `${w} ${i} `).join("");
+  const doc = [
+    "Cover page. Table of Contents: Financial Statements 3, Notes to Financial Statements 9, Management's Discussion and Analysis (MD&A) 27, Risk Factors 41, Quantitative and Qualitative Disclosures About Market Risk 41.",
+    filler("statement line", 600),
+    "Notes to Financial Statements 9 Table of Contents Note 1: Basis of presentation. " + filler("note text", 900),
+    "Notes to Financial Statements 13 Table of Contents Escrowed Shares Issued to the U.S. Government. We recognized $12.5 billion of losses related to the net change in fair value of Escrowed Shares. " + filler("more notes", 900),
+    "Note 14: Contingencies Legal Proceedings We are regularly party to various ongoing claims. " + filler("legal text", 400),
+    "Key Terms MD&A Management's Discussion and Analysis Mentee Robotics Mentee Robotics Ltd. " + filler("glossary", 300),
+    "Management's Discussion and Analysis Overview This report should be read in conjunction with our 2025 Form 10-K. " + filler("mdna text", 3000),
+    "Risk Factors The risks described within Risk Factors in our 2025 Form 10-K could materially affect us. " + filler("risk", 150),
+    "Quantitative and Qualitative Disclosures About Market Risk We are affected by changes in currency. " + filler("q", 100),
+    "Form 10-Q Cross-Reference Index Item 2. Management's Discussion and Analysis of Financial Condition and Results of Operations Pages 27-40 Item 3. Quantitative and Qualitative Disclosures About Market Risk Page 41",
+  ].join("\n");
+  const sl = sliceForBudget(doc, 12_000, "10-Q");
+  const labels = sl.sections.map((x) => x.label);
+  ok(sl.excerpted && sl.total === doc.length && sl.text.length <= 13_500, `a periodic report over budget is EXCERPTED by section (${sl.text.length} of ${doc.length} chars)`);
+  ok(labels.some((l) => l.startsWith("management's discussion")) && /Overview This report should be read/.test(sl.text) && !/Mentee Robotics/.test(sl.text.split("management's discussion")[1] || ""), "MD&A is the real late section, not the TOC or glossary decoy");
+  ok(/\$12\.5 billion of losses related to the net change in fair value of Escrowed Shares/.test(sl.text), "the notes windows reach the note that explains the quarter (vocabulary: escrow / fair value)");
+  ok(/regularly party to various ongoing claims/.test(sl.text) && labels.includes("legal proceedings"), "Legal Proceedings is taken from the late note, not the TOC");
+  ok(labels.includes("risk factors") && /could materially affect us/.test(sl.text), "the 10-Q's short Risk Factors item (last late heading) is included");
+  ok(sliceForBudget("short doc", 100, "10-Q").excerpted === false, "a document that fits is returned whole");
+  const s1 = sliceForBudget("x".repeat(5000), 1000, "S-1");
+  ok(s1.excerpted && s1.sections[0].label === "opening portion" && s1.text.length === 1000, "non-periodic forms keep the opening-portion cut");
+}
+
+// ---- Form 4 derivative + holdings -------------------------------------------
+{
+  const xml = `<ownershipDocument><issuer><issuerName>Meta Platforms, Inc.</issuerName><issuerTradingSymbol>META</issuerTradingSymbol></issuer><periodOfReport>2026-06-15</periodOfReport>
+  <reportingOwner><reportingOwnerId><rptOwnerCik>0001736236</rptOwnerCik><rptOwnerName>Alford Peggy</rptOwnerName></reportingOwnerId><reportingOwnerRelationship><isDirector>1</isDirector><isOfficer>0</isOfficer></reportingOwnerRelationship></reportingOwner>
+  <nonDerivativeTable><nonDerivativeHolding><securityTitle><value>Class A Common Stock</value></securityTitle><postTransactionAmounts><sharesOwnedFollowingTransaction><value>4100</value></sharesOwnedFollowingTransaction></postTransactionAmounts><ownershipNature><directOrIndirectOwnership><value>I</value></directOrIndirectOwnership><natureOfOwnership><value>By Trust</value></natureOfOwnership></ownershipNature></nonDerivativeHolding></nonDerivativeTable>
+  <derivativeTable><derivativeTransaction><securityTitle><value>Restricted Stock Units (RSU) (Class A)</value></securityTitle><conversionOrExercisePrice><footnoteId id="F1"/></conversionOrExercisePrice><transactionDate><value>2026-06-15</value></transactionDate><transactionCoding><transactionFormType>4</transactionFormType><transactionCode>A</transactionCode></transactionCoding><transactionAmounts><transactionShares><value>612</value></transactionShares><transactionPricePerShare><value>0</value></transactionPricePerShare><transactionAcquiredDisposedCode><value>A</value></transactionAcquiredDisposedCode></transactionAmounts><expirationDate><footnoteId id="F2"/></expirationDate><underlyingSecurity><underlyingSecurityTitle><value>Class A Common Stock</value></underlyingSecurityTitle><underlyingSecurityShares><value>612</value></underlyingSecurityShares></underlyingSecurity><postTransactionAmounts><sharesOwnedFollowingTransaction><value>612</value></sharesOwnedFollowingTransaction></postTransactionAmounts><ownershipNature><directOrIndirectOwnership><value>D</value></directOrIndirectOwnership></ownershipNature></derivativeTransaction></derivativeTable>
+  <footnotes><footnote id="F1">RSUs convert one-for-one.</footnote></footnotes></ownershipDocument>`;
+  const p = parseForm4(xml);
+  ok(p.transactions.length === 0 && p.derivativeTransactions.length === 1 && p.derivativeCount === 1, "a derivative-only Form 4 yields a derivative row instead of nothing (11 of META's 41 filings were this shape)");
+  const d = p.derivativeTransactions[0];
+  ok(d.code === "A" && d.shares === 612 && d.underlying === "Class A Common Stock" && d.underlyingShares === 612 && d.ownedAfter === 612 && d.derivative === true, "derivative row carries code, units, underlying and owned-after");
+  ok(d.expires === "" && d.exercisePrice === 0, "a footnote reference inside a value never leaks as XML text");
+  ok(p.holdings.length === 1 && p.holdings[0].shares === 4100 && p.holdings[0].ownership === "I" && p.holdings[0].nature === "By Trust", "the holdings table (positions without a transaction) is read");
+}
+
+// ---- 13F cover + 13G cover + IPO classification -----------------------------
+{
+  const c = parse13fCover("<edgarSubmission><headerData><filerInfo><periodOfReport>03-31-2025</periodOfReport></filerInfo></headerData><formData><coverPage><isAmendment>true</isAmendment><amendmentNo>1</amendmentNo><amendmentInfo><amendmentType>NEW HOLDINGS</amendmentType></amendmentInfo></coverPage><summaryPage><otherIncludedManagersCount>2</otherIncludedManagersCount><tableEntryTotal>4</tableEntryTotal><tableValueTotal>1106550356</tableValueTotal><isConfidentialOmitted>false</isConfidentialOmitted></summaryPage></formData></edgarSubmission>");
+  ok(c.isAmendment && c.amendmentType === "NEW HOLDINGS" && c.tableEntryTotal === 4 && c.tableValueTotal === 1106550356 && c.isConfidentialOmitted === false, "13F-HR/A cover: amendment type + totals (Berkshire 2025-08-14)");
+  ok(parse13fCover("<x><isConfidentialOmitted>true</isConfidentialOmitted><tableEntryTotal>110</tableEntryTotal></x>").isConfidentialOmitted === true, "original cover with confidential treatment is flagged");
+  const g = parse13GCover("<edgarSubmission><headerData><issuerInfo><issuerCik>0000050863</issuerCik><issuerName>Intel Corp</issuerName><issuerCusipNumber>458140100</issuerCusipNumber></issuerInfo><submissionType>SCHEDULE 13G/A</submissionType></headerData><formData><coverPageHeader><securitiesClassTitle>Common Stock</securitiesClassTitle><eventDateRequiresFilingThisStatement>03/13/2026</eventDateRequiresFilingThisStatement><designateRulePursuantThisScheduleFiled>Rule 13d-1(b)</designateRulePursuantThisScheduleFiled></coverPageHeader><coverPageHeaderReportingPersonDetails><reportingPersonName>The Vanguard Group</reportingPersonName><reportingPersonBeneficiallyOwnedAggregateNumberOfShares>0</reportingPersonBeneficiallyOwnedAggregateNumberOfShares><classPercent>0</classPercent><typeOfReportingPerson>IA</typeOfReportingPerson></coverPageHeaderReportingPersonDetails></formData></edgarSubmission>");
+  ok(g.filer === "The Vanguard Group" && g.shares === 0 && g.percent === 0 && g.eventDate === "03/13/2026" && g.issuerCik === "0000050863" && g.form === "SCHEDULE 13G/A", "13G/A cover: filer, shares, percent, event date, issuer (Vanguard reporting it fell below 5% of INTC)");
+  const pub = { sic: "3674", filings: { recent: { form: ["10-Q", "8-K", "10-K"], filingDate: ["2026-05-01", "2026-04-02", "2026-02-01"] } } };
+  ok(classifyFromSubmissions(pub, "2026-08-20").klass === "follow-on", "a filer with periodic reports on file BEFORE the filing is already public (follow-on / resale, not an IPO)");
+  ok(classifyFromSubmissions({ sic: "1234", filings: { recent: { form: ["S-1", "S-1/A"], filingDate: ["2026-08-20", "2026-08-01"] } } }, "2026-08-20").klass === "ipo", "a filer with no periodic report before the filing is a first-time registrant (IPO)");
+  ok(classifyFromSubmissions({ sic: "6770", filings: { recent: { form: [], filingDate: [] } } }, "2026-08-20").klass === "spac", "SIC 6770 is a blank-check company");
+  ok(classifyFromSubmissions({ sic: "1234", filings: { recent: { form: ["10-Q"], filingDate: ["2026-09-01"] } } }, "2026-08-20").klass === "ipo", "a periodic report filed AFTER the S-1 (the company listed since) does not make the S-1 a follow-on");
+  ok(classifyFromSubmissions(null, "2026-08-20").klass === "unclassified", "unreadable submissions -> unclassified, never guessed");
 }
 console.log(`${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

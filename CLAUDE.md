@@ -349,6 +349,37 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   Live-verified on INTC the same day: "That gap is not a mystery: the filing attributes it to a $12.5 billion ... mark-to-
   market loss on the Escrowed Shares derivative liability [4]". Ticker pack inherits it (same handler). Note `fmtUsd` now
   renders negatives as `-$12.58B` (was `$-12.58B`).
+- **Report inputs round 2 - the SEC kits (2026-08-26; `scripts/test-report-inputs.js` 36, in CI; every fix verified live
+  on the reviewer's own example):** **filing-report** read 800 KB of a 10-Q (22% of INTC's text, ending before the
+  escrow note) and read an earnings 8-K as its 4k-char shell - now periodic reports (10-K/10-Q/20-F/40-F) are read to
+  8 MB (`docMaxBytesFor`) and the 36k-char budget is spent BY SECTION (`sliceForBudget`: cover+statements, notes opening
+  + vocabulary windows via the dossier's `extractFilingExcerpts`, MD&A opening + windows, Legal Proceedings, Risk Factors;
+  headings found by TEXT and POSITION because a 10-Q carries each heading in its TOC, a glossary and an index at the END -
+  MD&A = the LAST long run, notes = the FIRST, legal/risk >= 15% into the doc); an 8-K whose items are 2.02/7.01/8.01/
+  1.01/2.01/5.02 also gets its EX-99 exhibit read (`exhibitFromIndexHeaders` on the accession's `-index-headers.html`
+  SGML, entity-escaped); 8-K `items` ride from the submissions JSON with `ITEM_LABELS`; SUBSTANTIVE puts the periodic
+  report ahead of the 8-K; FWP/424B5/S-8/SCHEDULE 13G|13D are ROUTINE; doc blocks say EXCERPTED with the sections held.
+  **insider-report** parsed only `nonDerivativeTransaction` (11 of META's 41 Form 4s are derivative-only - those
+  directors vanished) - `parseForm4` now returns `derivativeTransactions` + `holdings` (`nonDerivativeHolding`), the
+  prompt carries DERIVATIVE TRANSACTIONS + REPORTED HOLDINGS blocks and per-insider "direct holding after latest
+  transaction", `val()` strips nested tags (a `<footnoteId/>` leaked into `expires`), `maxFilings` 40 -> 100 (one EFTS
+  page, XML reads only) and the header/totals say "newest N of M, coverage from <oldest read>" when the window holds more.
+  **fund-report** dropped every 13F-HR/A (Berkshire's Q1-2025 NEW HOLDINGS amendment adding D R Horton/Lennar/Nucor
+  after confidential treatment) and wrote "no prior quarter exists" for a read timeout - `get13fHoldings` now reads the
+  cover (`parse13fCover`: isConfidentialOmitted, totals) and folds same-period amendments (NEW HOLDINGS appended,
+  RESTATEMENT replaces; `amendments[]` on the result), the prior read is retried once then 502 (not charged),
+  ADD/TRIM are ranked by the DOLLAR SIZE of the change with % vs prior, `changeRows` 20/30 per bucket, a CAUTION line
+  when either cover declares confidential treatment. **ipo-report** called every 424B4 a "priced IPO" and every S-1 a
+  "company preparing to list" (last week: 5 of 9 and 8 of 10 were follow-ons/resales by public issuers) - each filer is
+  now classified from its OWN submissions index (`classifyFromSubmissions`: periodic report filed BEFORE the filing =>
+  follow-on; SIC 6770 => spac; else ipo; 6h cache, <= 150 filers, concurrency 4), F-1 is a third leg, `edgar-recent-
+  ipos` pages EFTS up to `limit`, the headline says "read N of TOTAL" and tickers/exchanges ride the rows. **ticker-pack**
+  holders were 12 managers by full-text relevance (INTC: Coatue, REX Advisers, none of Vanguard/BlackRock) - `probe13G`
+  (one EFTS query over SCHEDULE 13G/13G-A/13D/13D-A + legacy SC forms, `ciks=` issuer, 400 days; `parse13GCover` on the
+  post-2024 structured `primary_doc.xml`; rows whose cover `issuerCik` is not ours are dropped - EFTS `ciks=` matches ANY
+  CIK on the filing, so Intel's own 13G on Mobileye came back) renders "5%+ holders as disclosed on Schedule 13G/13D"
+  ABOVE the 13F sample; a 0-share/0% row is a filer disclosing it fell below 5% (Vanguard on INTC, 2026-03-13) and is
+  shown as that. Every prompt got the MATERIAL-vs-SUBJECT sentence.
 - **Cross-report input review (2026-08-26, three lenses after the INTC dossier miss; round 1 shipped, rest in memory
   `report-inputs-review-2026-08-26`):** recall-report queried openFDA UNSORTED (relevance order) and headlined the 20
   rows as the universe - losartan's newest recall (2024-05-07, Ongoing) was absent from the page it called "newest

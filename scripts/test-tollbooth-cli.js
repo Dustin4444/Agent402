@@ -96,6 +96,16 @@ let cliLog = "";
 let childExit = null;
 child.stdout.on("data", (d) => { cliLog += d; }); child.stderr.on("data", (d) => { cliLog += d; });
 child.on("exit", (code, signal) => { childExit = { code, signal }; });
+// `exit` fires BEFORE the child's stdio has drained; `close` fires after. The
+// third CI-only occurrence (2026-08-26, run 32981192713) printed the banner and
+// exited 0 with `--trace-exit` on and NO trace line in the log - consistent
+// with the trace having been written to stderr after this test read the log
+// at `exit`. Evidence is read at `close` now, so a fourth occurrence explains
+// itself: an explicit process.exit() prints its stack, a drained loop prints
+// nothing, and the two are finally distinguishable.
+let childClosed = false;
+child.on("close", () => { childClosed = true; });
+const drained = async (ms = 3000) => { const t = Date.now() + ms; while (!childClosed && Date.now() < t) await new Promise((r) => setTimeout(r, 50)); };
 const B = `http://127.0.0.1:${PORT}`;
 // SECOND OCCURRENCE 2026-08-22 (CI only, never locally): the child printed its
 // boot banner - so `app.listen` had already called back - and then EXITED code=0
@@ -115,7 +125,8 @@ const deadline = Date.now() + 30_000;
 while (Date.now() < deadline && !childExit) {
   try { await fetch(`${B}/__tollbooth/stats`); ready = true; break; } catch { await new Promise((r) => setTimeout(r, 100)); }
 }
-const childState = () => `child ${childExit ? `EXITED code=${childExit.code} signal=${childExit.signal}` : `alive pid=${child.pid}`}; log:\n${cliLog.trim() || "(empty)"}`;
+if (childExit) await drained();
+const childState = () => `child ${childExit ? `EXITED code=${childExit.code} signal=${childExit.signal} (stdio ${childClosed ? "drained" : "NOT drained"})` : `alive pid=${child.pid}`}; log:\n${cliLog.trim() || "(empty)"}`;
 ok(ready, `CLI answered /__tollbooth/stats on :${PORT} within 30s (${childState()})`);
 ok(/x402 \+ MPP \(USDC, settling via/.test(cliLog), `boot banner says it settles both wires (log: ${cliLog.trim().split("\n").pop()})`);
 // Any later network failure against the CLI reports the child's fate too.
