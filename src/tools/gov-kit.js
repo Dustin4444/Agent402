@@ -82,7 +82,40 @@ async function getJsonAllowEmpty(url, opts = {}) {
 }
 
 // FDA dates are YYYYMMDD strings; render as ISO YYYY-MM-DD (null if unparseable).
-const fdaDate = (s) => (/^\d{8}$/.test(s || "") ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}` : s || null);
+export const fdaDate = (s) => (/^\d{8}$/.test(s || "") ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}` : s || null);
+
+
+// openFDA enforcement row -> our shape. `full` (set by in-process composites
+// such as recall-report) lifts the per-field caps: the public $0.004 tools keep
+// them small, but a report that quotes "the FDA reason wording" must not
+// reproduce a sentence cut at 220 chars as if it were complete (measured:
+// 20 of 20 insulin-pump reasons exceed 220; the NDC sits at the END of drug
+// product descriptions and was the part cut). Also carried: the lot list
+// (code_info - what a reader checks a bottle against), the event id (117
+// losartan RECORDS are 51 recall EVENTS), termination date and quantity.
+const cut = (v, n) => (v == null ? null : String(v).replace(/\s+/g, " ").slice(0, n));
+export function recallRow(r, full = false) {
+  const n = (short, long) => (full ? long : short);
+  return {
+    firm: r.recalling_firm ?? null,
+    classification: r.classification ?? null,
+    status: r.status ?? null,
+    reason: cut(r.reason_for_recall ?? "", n(220, 1500)),
+    product: cut(r.product_description ?? "", n(180, 900)),
+    distribution: cut(r.distribution_pattern, n(120, 900)),
+    recallInitiated: fdaDate(r.recall_initiation_date),
+    recallNumber: r.recall_number ?? null,
+    eventId: r.event_id ?? null,
+    terminated: fdaDate(r.termination_date),
+    lots: full ? cut(r.code_info, 1500) : undefined,
+    quantity: full ? cut(r.product_quantity, 200) : undefined,
+    voluntary: full ? (r.voluntary_mandated ?? null) : undefined,
+  };
+}
+// openFDA returns rows in RELEVANCE order unless told otherwise; a "most recent
+// recall" read off an unsorted page is wrong (measured: losartan's newest was
+// 2024-05-07 Ongoing, absent from the unsorted top 20 which ended in 2022).
+const FDA_SORT = "&sort=recall_initiation_date:desc";
 
 // Full-name → USPS 2-letter code lookup. Lets weather-alerts accept "California"
 // instead of forcing the agent to know "CA". Includes the 50 states plus DC and
@@ -251,7 +284,8 @@ export const GOV_TOOLS = [
       output: {
         example: {
           query: "losartan", count: 1,
-          recalls: [{ firm: "Torrent Pharmaceuticals", classification: "Class II", status: "Ongoing", reason: "Presence of an impurity", product: "Losartan Potassium Tablets", distribution: "Nationwide", recallInitiated: "2019-11-08", recallNumber: "D-123-2020" }],
+          total: 117,
+          recalls: [{ firm: "Torrent Pharmaceuticals", classification: "Class II", status: "Ongoing", reason: "Presence of an impurity", product: "Losartan Potassium Tablets", distribution: "Nationwide", recallInitiated: "2019-11-08", recallNumber: "D-123-2020", eventId: "84000", terminated: null }],
           source: "api.fda.gov (openFDA, public domain)",
         },
       },
@@ -261,21 +295,13 @@ export const GOV_TOOLS = [
       if (!q) throw bad('"q" (drug name or product term) is required');
       const limit = Math.min(Math.max(parseInt(i.limit, 10) || 5, 1), 20);
       const search = encodeURIComponent(`product_description:"${q}"`);
-      const data = await getJsonAllowEmpty(`https://api.fda.gov/drug/enforcement.json?search=${search}&limit=${limit}${openFdaKeyParam()}`);
+      const data = await getJsonAllowEmpty(`https://api.fda.gov/drug/enforcement.json?search=${search}&limit=${limit}${FDA_SORT}${openFdaKeyParam()}`);
       const results = data?.results ?? [];
       return {
         query: q,
         count: results.length,
-        recalls: results.map((r) => ({
-          firm: r.recalling_firm ?? null,
-          classification: r.classification ?? null,
-          status: r.status ?? null,
-          reason: (r.reason_for_recall ?? "").replace(/\s+/g, " ").slice(0, 220),
-          product: (r.product_description ?? "").replace(/\s+/g, " ").slice(0, 180),
-          distribution: r.distribution_pattern ?? null,
-          recallInitiated: fdaDate(r.recall_initiation_date),
-          recallNumber: r.recall_number ?? null,
-        })),
+        total: data?.meta?.results?.total ?? results.length,
+        recalls: results.map((r) => recallRow(r, i.full === true)),
         source: "api.fda.gov (openFDA, public domain)",
       };
     },
@@ -297,7 +323,8 @@ export const GOV_TOOLS = [
       output: {
         example: {
           query: "undeclared peanut", count: 1,
-          recalls: [{ firm: "Example Foods Inc", classification: "Class I", status: "Ongoing", reason: "Undeclared peanut", product: "Chocolate chip cookies", distribution: "CA, NV, OR", recallInitiated: "2026-05-01", recallNumber: "F-1234-2026" }],
+          total: 12,
+          recalls: [{ firm: "Example Foods Inc", classification: "Class I", status: "Ongoing", reason: "Undeclared peanut", product: "Chocolate chip cookies", distribution: "CA, NV, OR", recallInitiated: "2026-05-01", recallNumber: "F-1234-2026", eventId: "95001", terminated: null }],
           source: "api.fda.gov (openFDA, public domain)",
         },
       },
@@ -309,21 +336,13 @@ export const GOV_TOOLS = [
       // Search both the product description and the reason so "peanut" matches an
       // undeclared-allergen recall even when the product name doesn't say peanut.
       const search = encodeURIComponent(`product_description:"${q}"+reason_for_recall:"${q}"`);
-      const data = await getJsonAllowEmpty(`https://api.fda.gov/food/enforcement.json?search=${search}&limit=${limit}${openFdaKeyParam()}`);
+      const data = await getJsonAllowEmpty(`https://api.fda.gov/food/enforcement.json?search=${search}&limit=${limit}${FDA_SORT}${openFdaKeyParam()}`);
       const results = data?.results ?? [];
       return {
         query: q,
         count: results.length,
-        recalls: results.map((r) => ({
-          firm: r.recalling_firm ?? null,
-          classification: r.classification ?? null,
-          status: r.status ?? null,
-          reason: (r.reason_for_recall ?? "").replace(/\s+/g, " ").slice(0, 220),
-          product: (r.product_description ?? "").replace(/\s+/g, " ").slice(0, 180),
-          distribution: (r.distribution_pattern ?? "").replace(/\s+/g, " ").slice(0, 120),
-          recallInitiated: fdaDate(r.recall_initiation_date),
-          recallNumber: r.recall_number ?? null,
-        })),
+        total: data?.meta?.results?.total ?? results.length,
+        recalls: results.map((r) => recallRow(r, i.full === true)),
         source: "api.fda.gov (openFDA, public domain)",
       };
     },
@@ -481,7 +500,8 @@ export const GOV_TOOLS = [
       output: {
         example: {
           query: "insulin pump", count: 1,
-          recalls: [{ firm: "Example Medical Inc", classification: "Class II", status: "Ongoing", reason: "Software error", product: "Insulin infusion pump", distribution: "Nationwide", recallInitiated: "2025-03-14", recallNumber: "Z-1234-2025" }],
+          total: 83,
+          recalls: [{ firm: "Example Medical Inc", classification: "Class II", status: "Ongoing", reason: "Software error", product: "Insulin infusion pump", distribution: "Nationwide", recallInitiated: "2025-03-14", recallNumber: "Z-1234-2025", eventId: "96001", terminated: null }],
           source: "api.fda.gov (openFDA, public domain)",
         },
       },
@@ -491,21 +511,13 @@ export const GOV_TOOLS = [
       if (!q) throw bad('"q" (device name or product term) is required');
       const limit = Math.min(Math.max(parseInt(i.limit, 10) || 5, 1), 20);
       const search = encodeURIComponent(`product_description:"${q}"`);
-      const data = await getJsonAllowEmpty(`https://api.fda.gov/device/enforcement.json?search=${search}&limit=${limit}${openFdaKeyParam()}`);
+      const data = await getJsonAllowEmpty(`https://api.fda.gov/device/enforcement.json?search=${search}&limit=${limit}${FDA_SORT}${openFdaKeyParam()}`);
       const results = data?.results ?? [];
       return {
         query: q,
         count: results.length,
-        recalls: results.map((r) => ({
-          firm: r.recalling_firm ?? null,
-          classification: r.classification ?? null,
-          status: r.status ?? null,
-          reason: (r.reason_for_recall ?? "").replace(/\s+/g, " ").slice(0, 220),
-          product: (r.product_description ?? "").replace(/\s+/g, " ").slice(0, 180),
-          distribution: (r.distribution_pattern ?? "").replace(/\s+/g, " ").slice(0, 120),
-          recallInitiated: fdaDate(r.recall_initiation_date),
-          recallNumber: r.recall_number ?? null,
-        })),
+        total: data?.meta?.results?.total ?? results.length,
+        recalls: results.map((r) => recallRow(r, i.full === true)),
         source: "api.fda.gov (openFDA, public domain)",
       };
     },

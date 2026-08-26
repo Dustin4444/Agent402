@@ -12,7 +12,7 @@
 // WALLET_ONLY, not cached. Gated on OPENROUTER_API_KEY (503 without it).
 import { fetchOpenRouter, throwUpstreamError, bad, upstreamUserId } from "./llm-gateway-kit.js";
 import { recordCompositeUsage } from "../composite-spend-guard.js";
-import { EDGAR_TOOLS } from "./edgar-kit.js";
+import { EDGAR_TOOLS, fetchXmlText } from "./edgar-kit.js";
 import { FINANCE_TOOLS } from "./finance-kit.js";
 
 // Per-buyer OpenRouter `user` id (OpenRouter abuse isolation); never throws.
@@ -79,28 +79,155 @@ async function settle(fn, input, timeoutMs) {
 
 function fmtUsd(v) {
   if (v == null || !Number.isFinite(Number(v))) return "?";
-  const n = Number(v), a = Math.abs(n);
-  if (a >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
-  if (a >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
-  return `$${n.toLocaleString("en-US")}`;
+  const n = Number(v), a = Math.abs(n), sign = n < 0 ? "-" : "";
+  if (a >= 1e9) return `${sign}$${(a / 1e9).toFixed(2)}B`;
+  if (a >= 1e6) return `${sign}$${(a / 1e6).toFixed(1)}M`;
+  return `${sign}$${a.toLocaleString("en-US")}`;
 }
 // Pull key financial facts from SEC XBRL (data.sec.gov) - so figures come from
 // the FILINGS, not a news article, and are traceable to a 10-K/10-Q. Each concept
 // yields a latest-annual + most-recent datapoint. Revenue has two common tags.
+// The three bridge concepts (non-operating, pre-tax, tax) exist because of a
+// real report (INTC, 2026-08-26): the synthesis was handed operating income
+// +$1.80B and net income -$11.03B with nothing between them and called the
+// quarter's loss "unexplained" as a RED FLAG - the 10-Q explains it in one
+// line (a $12.5B fair-value loss on escrowed shares) and XBRL carries it as
+// NonoperatingIncomeExpense -$12.58B. Headline numbers without the bridge
+// invite exactly that misreading.
 const FIN_CONCEPTS = [
   ["Revenues", "Total revenue"],
   ["RevenueFromContractWithCustomerExcludingAssessedTax", "Total revenue"],
   ["NetIncomeLoss", "Net income"],
   ["OperatingIncomeLoss", "Operating income"],
+  ["NonoperatingIncomeExpense", "Non-operating income (expense)"],
+  ["IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest", "Pre-tax income"],
+  ["IncomeTaxExpenseBenefit", "Income tax expense (benefit)"],
   ["Assets", "Total assets"],
   ["Liabilities", "Total liabilities"],
   ["StockholdersEquity", "Stockholders' equity"],
   ["CashAndCashEquivalentsAtCarryingValue", "Cash & equivalents"],
   ["EarningsPerShareBasic", "EPS (basic)"],
 ];
+
+/** Operating-to-net income bridge for the most recent period the filings
+ *  report both ends of. `facts` = { tag: [{start,end,val,form,fp,fy}] } (the
+ *  XBRL `units.USD` arrays). Returns null when operating and net income agree
+ *  within tolerance (nothing to explain) or when either end is missing.
+ *  Otherwise the reconciling lines the filing reports (non-operating, pre-tax,
+ *  tax) and the remainder those lines leave - so the synthesis is HANDED the
+ *  reconciliation instead of asked to find it. Pure; exported for tests. */
+export function incomeBridge(facts, { tolerance = 0.15, minGapUsd = 5e6 } = {}) {
+  const arr = (tag) => (Array.isArray(facts?.[tag]) ? facts[tag] : []).filter((x) => x && x.end && x.start && Number.isFinite(Number(x.val)));
+  const key = (x) => `${x.start}..${x.end}`;
+  const byPeriod = (tag) => { const m = new Map(); for (const x of arr(tag)) { const k = key(x); const prev = m.get(k); if (!prev || String(x.filed || "") >= String(prev.filed || "")) m.set(k, x); } return m; };
+  const op = byPeriod("OperatingIncomeLoss"), net = byPeriod("NetIncomeLoss");
+  // Most recent period end that has BOTH ends, preferring the shortest span
+  // (a quarter over a year-to-date) at that end date.
+  const candidates = [...op.keys()].filter((k) => net.has(k)).map((k) => ({ k, end: op.get(k).end, span: Date.parse(op.get(k).end) - Date.parse(op.get(k).start) }));
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => b.end.localeCompare(a.end) || a.span - b.span);
+  const period = candidates[0].k;
+  const at = (tag) => byPeriod(tag).get(period);
+  const o = Number(at("OperatingIncomeLoss").val), n = Number(at("NetIncomeLoss").val);
+  const gap = n - o;
+  if (Math.abs(gap) < Math.max(minGapUsd, tolerance * Math.max(Math.abs(o), Math.abs(n)))) return null;
+  const nonop = at("NonoperatingIncomeExpense"), pretax = at("IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest"), tax = at("IncomeTaxExpenseBenefit");
+  const lines = [];
+  let explained = 0;
+  if (nonop) { lines.push({ label: "Non-operating income (expense)", val: Number(nonop.val) }); explained += Number(nonop.val); }
+  if (tax) { lines.push({ label: "Income tax expense (benefit)", val: -Number(tax.val) }); explained -= Number(tax.val); }
+  const remainder = gap - explained;
+  const src = at("NetIncomeLoss");
+  return {
+    period: { start: src.start, end: src.end, form: src.form || null, fp: src.fp || null, fy: src.fy || null },
+    operating: o, net: n, gap,
+    ...(pretax ? { pretax: Number(pretax.val) } : {}),
+    lines, remainder,
+    // "Explained" = the filing's own reported lines account for the gap to
+    // within tolerance; the prose may then say WHAT the non-operating line is
+    // only if the filing excerpts name it.
+    explained: Math.abs(remainder) <= Math.max(minGapUsd, tolerance * Math.abs(gap)),
+  };
+}
+
+export function bridgeLines(b) {
+  if (!b) return [];
+  const when = `${b.period.start} to ${b.period.end}${b.period.form ? `, ${b.period.form}` : ""}`;
+  const out = [`- OPERATING-TO-NET BRIDGE (${when}): operating income ${fmtUsd(b.operating)}; net income ${fmtUsd(b.net)}; gap ${fmtUsd(b.gap)}.`];
+  for (const l of b.lines) out.push(`  - ${l.label}: ${fmtUsd(l.val)}`);
+  if (b.pretax != null) out.push(`  - Pre-tax income as reported: ${fmtUsd(b.pretax)}`);
+  out.push(b.explained
+    ? `  - The reported lines account for the gap (remainder ${fmtUsd(b.remainder)}). The gap between operating and net income is therefore a REPORTED non-operating/tax item, not an unexplained loss - identify WHAT the item is from the FILING EXCERPTS if they name it; otherwise say the excerpts do not name it.`
+    : `  - The reported lines leave ${fmtUsd(b.remainder)} unaccounted for in the XBRL bridge; check the FILING EXCERPTS before characterising it.`);
+  return out;
+}
+
+// Vocabulary for the verbatim filing excerpts: the terms that name the things
+// that make a bottom line diverge from operations, plus the disclosures a
+// diligence reader asks about first. Order = priority when the budget binds.
+export const EXCERPT_TERMS = [
+  "mark-to-market", "fair value of", "escrow", "warrant", "derivative liabilit", "impairment", "restructuring",
+  "gain (loss)", "(gains) losses", "gains (losses)", "loss on", "interest and other, net", "other income (expense)",
+  "going concern", "material weakness", "subsequent event", "litigation", "dilut",
+];
+const EXCERPT_WINDOW = 520;
+
+/** Strip a filing's HTML/iXBRL to readable text. Pure. */
+export function filingText(html) {
+  return String(html || "")
+    // Inline XBRL keeps its context/unit definitions in a hidden <ix:header>;
+    // as text it is member ids and CIKs, not prose.
+    .replace(/<ix:header[^>]*>[\s\S]*?<\/ix:header>/gi, " ")
+    .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<\/(p|div|tr|li|h\d|table|br)>/gi, " \n")
+    .replace(/<[^>]+>/g, " ")
+    // Entities: `&amp;` is decoded LAST so an encoded "&amp;lt;" cannot be
+    // double-unescaped into a "<" (CodeQL js/double-escaping).
+    .replace(/&nbsp;|&#160;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#8217;|&rsquo;/g, "'").replace(/&#8220;|&#8221;|&ldquo;|&rdquo;/g, '"').replace(/&#\d+;|&(?!amp;)[a-z]+;/gi, " ").replace(/&amp;/g, "&")
+    .replace(/[ \t\r\f\v]+/g, " ").replace(/\s*\n\s*/g, "\n").replace(/\n{2,}/g, "\n").trim();
+}
+
+/** Verbatim windows around EXCERPT_TERMS from a filing's text, deduped by
+ *  overlap, bounded by `maxChars`. Terms earlier in the list win the budget.
+ *  `extraTerms` (e.g. the bridge's own line names) go first. Pure. */
+export function extractFilingExcerpts(text, { maxChars = 6_000, perTerm = 2, extraTerms = [] } = {}) {
+  const t = String(text || "");
+  const lower = t.toLowerCase();
+  const taken = []; // [start, end]
+  const out = [];
+  let used = 0;
+  // A hit already inside a taken window is covered; windows may otherwise
+  // overlap at the edges (a short filing would else yield one window).
+  const covered = (i) => taken.some(([s, e]) => i >= s && i < e);
+  // XBRL/context soup guard: a window that is mostly ids (CIKs, prefixed
+  // member names, dates) is not the filing's words.
+  const soupy = (str) => { const toks = str.split(/\s+/); const ids = toks.filter((w) => /^\d{10}$/.test(w) || /^[a-z-]+:[A-Za-z]+$/.test(w) || /^\d{4}-\d{2}-\d{2}$/.test(w)).length; return toks.length > 0 && ids / toks.length > 0.12; };
+  for (const term of [...extraTerms, ...EXCERPT_TERMS]) {
+    const needle = String(term).toLowerCase();
+    if (!needle) continue;
+    let from = 0, hits = 0;
+    while (hits < perTerm && used < maxChars) {
+      const i = lower.indexOf(needle, from);
+      if (i < 0) break;
+      from = i + needle.length;
+      const s = Math.max(0, i - Math.floor(EXCERPT_WINDOW / 3)), e = Math.min(t.length, i + EXCERPT_WINDOW);
+      if (covered(i)) continue;
+      const snippet = t.slice(s, e).replace(/\s+/g, " ").trim();
+      if (snippet.length < 40 || soupy(snippet)) continue;
+      if (out.length && used + snippet.length > maxChars) { used = maxChars; break; }
+      taken.push([s, e]); out.push({ term, text: snippet }); used += snippet.length; hits++;
+    }
+    if (used >= maxChars) break;
+  }
+  return out;
+}
+
 async function pullFinancials(ticker, edgarConcept) {
   const results = await Promise.all(FIN_CONCEPTS.map(([tag, label]) =>
     settle(edgarConcept, { ticker, taxonomy: "us-gaap", tag }, DATA_TIMEOUT_MS).then((r) => ({ tag, label, r }))));
+  const facts = {};
+  for (const { tag, r } of results) { const u = r.ok ? r.data?.units?.USD : null; if (Array.isArray(u)) facts[tag] = u; }
+  const bridge = incomeBridge(facts);
   const seen = new Set(); const lines = []; const rows = [];
   for (const { tag, label, r } of results) {
     if (seen.has(label)) continue;
@@ -128,7 +255,29 @@ async function pullFinancials(ticker, edgarConcept) {
       recentPeriod: (latest && latest !== annual) ? `${latest.end} (${latest.form || "?"})` : "",
     });
   }
-  return { lines, rows };
+  const bridgeText = bridgeLines(bridge);
+  for (const l of bridge?.lines || []) rows.push({ metric: `Bridge: ${l.label}`, latestAnnual: "", annualPeriod: "", mostRecent: fmtUsd(l.val), recentPeriod: `${bridge.period.start}..${bridge.period.end} (${bridge.period.form || "?"})` });
+  return { lines: [...lines, ...bridgeText], rows, bridge };
+}
+
+/** Verbatim excerpts from the newest 10-Q (else 10-K) primary document: the
+ *  filing's OWN words on the items the vocabulary names, handed to the
+ *  synthesis under the filing's source number so it can cite them. One EDGAR
+ *  document read (bounded by EDGAR_FETCH_TIMEOUT_MS; the doc is capped before
+ *  parsing). Never throws - a failed read yields no excerpts, and the prompt
+ *  then says the filing text was not available rather than "not disclosed". */
+async function pullFilingExcerpts(filings, { bridge = null, maxChars = 6_000, maxDocBytes = 6_000_000, fetchText = fetchXmlText } = {}) {
+  const pick = filings.find((f) => f?.form === "10-Q" && f.url) || filings.find((f) => f?.form === "10-K" && f.url);
+  if (!pick) return { filing: null, excerpts: [], note: "no 10-Q/10-K document URL" };
+  try {
+    const html = await fetchText(pick.url);
+    if (typeof html !== "string") return { filing: pick, excerpts: [], note: "unreadable" };
+    const text = filingText(html.length > maxDocBytes ? html.slice(0, maxDocBytes) : html);
+    const extraTerms = bridge && !bridge.explained ? [] : (bridge ? ["interest and other", "non-operating", "nonoperating"] : []);
+    return { filing: pick, excerpts: extractFilingExcerpts(text, { maxChars, extraTerms }), note: null, textChars: text.length };
+  } catch (e) {
+    return { filing: pick, excerpts: [], note: `filing text not readable (${String(e?.message || e).slice(0, 120)})` };
+  }
 }
 
 function makeDossierHandlerInner(tierSlug) {
@@ -167,6 +316,10 @@ function makeDossierHandlerInner(tierSlug) {
     const anyFilings = [k10, q10, k8].some((r) => r.ok && (r.data?.filings?.length || 0) > 0);
     if (!anyFilings) throw bad(`No SEC EDGAR filings found for "${ticker}" - this product covers US-listed companies (try a ticker like AAPL). Not charged.`, 422);
 
+    // 1b) FILING EXCERPTS - the newest 10-Q's own words on the items that move
+    // a bottom line (runs alongside the web search below; one EDGAR read).
+    const excerptsP = pullFilingExcerpts([...(q10.ok ? q10.data?.filings || [] : []), ...(k10.ok ? k10.data?.filings || [] : [])], { bridge: financials.bridge });
+
     // 2) GROUNDED WEB SEARCH - recent developments / risks / analyst view.
     const queries = [
       `${company} (${ticker}) recent news and business developments`,
@@ -190,6 +343,7 @@ function makeDossierHandlerInner(tierSlug) {
     )));
     const webGood = webResults.filter(Boolean);
     for (const r of webGood) spent += r.cost;
+    const excerpts = await excerptsP;
 
     // 3) BUILD A UNIFIED, NUMBERED SOURCE LIST: SEC filings (real EDGAR URLs)
     // first, then deduped web citations. Everything the report cites is [n].
@@ -226,6 +380,11 @@ function makeDossierHandlerInner(tierSlug) {
     const webSourceLines = numbered.filter((s) => !s.title.includes("SEC EDGAR")).map((s) => `[${s.n}] ${s.title}${s.snippet ? `\n    "${s.snippet.slice(0, 320)}"` : ""} - ${s.url}`).join("\n") || "(none)";
     const financialsBlock = financials.lines.length ? financials.lines.join("\n") : "SEC XBRL financial facts unavailable for this issuer.";
     const maxCite = numbered.length;
+    const excerptSrc = excerpts.filing ? numbered.find((s) => s.url === excerpts.filing.url) : null;
+    const excerptBlock = excerpts.excerpts.length
+      ? `Verbatim text from ${excerptSrc ? `source [${excerptSrc.n}]` : "the filing"} (${excerpts.filing.form} filed ${excerpts.filing.filingDate || "?"}). These are the filing's OWN words - cite ${excerptSrc ? `[${excerptSrc.n}]` : "the filing"} for anything taken from them.\n` +
+        excerpts.excerpts.map((x, i) => `(${i + 1}) [${x.term}] "${x.text}"`).join("\n")
+      : `(no filing text available${excerpts.note ? `: ${excerpts.note}` : ""} - the material below does NOT include the filing's own explanations, so where a figure is not explained here, say the material does not explain it; do not call it undisclosed or unexplained by the company)`;
 
     // 5) SYNTHESIZE - grounding-strict cited dossier.
     const synthPrompt = `You are a diligence analyst writing a COMPANY DUE-DILIGENCE DOSSIER on ${company} (${ticker}) that will be SOLD to a paying customer. Accuracy is paramount; a fabricated fact fails the whole report.
@@ -235,6 +394,7 @@ function makeDossierHandlerInner(tierSlug) {
 2. Every SPECIFIC fact - financial figures, dates, share counts, prices, filing references, named events - MUST appear in the provided material. NEVER introduce a number, metric, or claim from your own training/memory. If the material lacks a figure, describe it qualitatively rather than inventing one.
 3. CITATIONS: the sources are numbered [1] to [${maxCite}]. NEVER cite a number outside that range - if you cannot ground a claim in sources [1]-[${maxCite}], do not attach a citation to it. Cite every substantive claim with [n], and ONLY attach [n] to a claim that source's own text supports - for a WEB source, that means the claim appears in that source's quoted snippet or the web research; do NOT infer a source's content from its title alone. A citation is ONLY a bracketed number, e.g. [14] or [3][7] - NEVER put words, notes, ranges, or explanations inside the brackets (not "[14 for the release]", not "[13-adjacent]"), and never use a word-tag or source name like [research]/[web]/[data]/[morningstar]/[reuters] - EVERY citation must be a numbered [n] from the list, never a publication name or domain. The LIVE QUOTE, SEC XBRL FINANCIALS, and FORM 4 INSIDER data are given to you DIRECTLY - reference all three in prose WITHOUT a bracketed citation ("the live quote shows...", "the latest reported revenue was...", "Form 4 filings in the window show..."); do NOT attach a [n] to a financial figure (the specific filing that reported an XBRL fact is often not in the numbered list). The FORM 4 data is FILING METADATA ONLY - who filed and when - with NO buy/sell direction, share count, or price: report only that Form 4s were filed and by whom, and do NOT infer or state whether insiders bought or sold, or any amount.
 4. Do not overstate: reproduce magnitudes and dates exactly as given. Where sources disagree or are silent, say so. Being less specific beats stating something you cannot ground.
+4b. A GAP IN THIS MATERIAL IS NEVER A FINDING ABOUT THE COMPANY. If the material does not explain WHY a figure is what it is, write "the material provided here does not explain ..." - never "unexplained", "undisclosed", "cannot be reconciled" or a red flag, because the filing may explain it in text you were not given. Before characterising any gap between operating and net income, read the OPERATING-TO-NET BRIDGE (reported non-operating and tax lines) and the FILING EXCERPTS (the filing's own words); if they account for it, say what the item is and cite the excerpt's source.
 5. Do NOT write a "Sources" section - a complete numbered source list is appended automatically. Prioritize COMPLETING the dossier (finish your final sentence and section) over length.
 
 Write a thorough, well-structured dossier of up to ${t.words} words, with these sections where the material supports them: an opening SNAPSHOT (what the company is, current quote, one-paragraph bottom line), BUSINESS & RECENT FILINGS (what the latest 10-K/10-Q/8-K disclose), FINANCIAL POSTURE, RECENT DEVELOPMENTS (from the web research), INSIDER ACTIVITY (which insiders filed Form 4s and when - NOT buy/sell direction or amounts, which these filings do not contain), RISKS & RED FLAGS, and a closing DILIGENCE READ (the balanced takeaway). Be specific and analytical, not a data dump; call out what matters for someone deciding whether to trust, invest in, or partner with this company.${focus.length ? `\nEmphasize: ${focus.join(", ")}.` : ""}
@@ -242,6 +402,7 @@ Write a thorough, well-structured dossier of up to ${t.words} words, with these 
 === LIVE QUOTE ===\n${quoteBlock}
 === SEC XBRL FINANCIALS (reported figures - reference in prose, no bracket) ===\n${financialsBlock}
 === SEC FILINGS (numbered sources) ===\n${filingLines}
+=== FILING EXCERPTS (verbatim, from the newest 10-Q/10-K) ===\n${excerptBlock}
 === FORM 4 INSIDER FILINGS (last ${t.insiderDays} days - filing metadata only: NO buy/sell, share count, or price) ===\n${insiderBlock}
 === WEB RESEARCH ===\n${webBlock}
 === WEB SOURCES (numbered, with snippet content) ===\n${webSourceLines}`;
@@ -286,7 +447,7 @@ Write a thorough, well-structured dossier of up to ${t.words} words, with these 
     const out = format === "json"
       ? { dossier, company, ticker, sources: numbered, tables, meta }
       : { dossier, company, ticker, sources: numbered, tables, meta };
-    if (process.env.RESEARCH_DEBUG === "1") out._debug = { webAnswers: webGood.map((r) => ({ q: r.q, answer: r.answer })), quoteBlock, insiderBlock, financialsBlock, webSources: numbered.filter((s) => !s.title.includes("SEC EDGAR")).map((s) => ({ n: s.n, snippet: s.snippet })) };
+    if (process.env.RESEARCH_DEBUG === "1") out._debug = { webAnswers: webGood.map((r) => ({ q: r.q, answer: r.answer })), quoteBlock, insiderBlock, financialsBlock, bridge: financials.bridge, excerptBlock, webSources: numbered.filter((s) => !s.title.includes("SEC EDGAR")).map((s) => ({ n: s.n, snippet: s.snippet })) };
     // A composite that CALLS this one in-process passes `accountAs`, so the sale is
     // booked once against the product the buyer actually paid for; the caller folds
     // this leg's spend into its own. Direct callers are unaffected.

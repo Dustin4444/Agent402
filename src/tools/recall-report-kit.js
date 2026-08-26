@@ -65,18 +65,25 @@ export function normRecallQuery(input) {
  *  numbers and a fingerprint of them (what the monitor compares). */
 export async function probeRecalls(query, { perFeed = 20, scope = "all" } = {}) {
   const feeds = FEEDS.filter((f) => scope === "all" || f.kind === scope);
-  const legs = await Promise.all(feeds.map((f) => settle(H(f.slug)({ q: query, limit: perFeed }), PROBE_TIMEOUT_MS)));
+  // `full: true` lifts the public tools' field caps (a report must not quote a
+  // reason cut mid-sentence as if complete); rows come back NEWEST FIRST with
+  // the feed's TOTAL so the report can say "showing N of TOTAL".
+  const legs = await Promise.all(feeds.map((f) => settle(H(f.slug)({ q: query, limit: perFeed, full: true }), PROBE_TIMEOUT_MS)));
   const items = [];
   const status = {};
+  const totals = {};
   feeds.forEach((f, i) => {
     const r = legs[i];
     status[f.kind] = r.ok ? "ok" : `failed: ${String(r.error).slice(0, 120)}`;
     if (!r.ok) return;
-    for (const x of r.data?.recalls || []) {
+    const rows = r.data?.recalls || [];
+    totals[f.kind] = Number.isFinite(Number(r.data?.total)) ? Number(r.data.total) : rows.length;
+    for (const x of rows) {
       items.push({
         kind: f.kind, recallNumber: x.recallNumber || null, firm: x.firm || null, classification: x.classification || null,
         status: x.status || null, reason: x.reason || "", product: x.product || "", distribution: x.distribution || null,
-        recallInitiated: x.recallInitiated || null,
+        recallInitiated: x.recallInitiated || null, eventId: x.eventId || null, terminated: x.terminated || null,
+        lots: x.lots || null, quantity: x.quantity || null, voluntary: x.voluntary || null,
       });
     }
   });
@@ -87,9 +94,12 @@ export async function probeRecalls(query, { perFeed = 20, scope = "all" } = {}) 
   // Newest first; stable on recall number so the fingerprint is deterministic.
   items.sort((a, b) => String(b.recallInitiated || "").localeCompare(String(a.recallInitiated || "")) || String(a.recallNumber || "").localeCompare(String(b.recallNumber || "")));
   const ids = [...new Set(items.map((x) => x.recallNumber).filter(Boolean))].sort();
-  return { query, items, status, ids, fingerprint: JSON.stringify(ids), sources: feeds.map((f) => ({ title: `${f.label} matching "${query}" - openFDA enforcement`, url: `${f.source}?search=${encodeURIComponent(`product_description:"${query}"`)}&limit=${perFeed}` })) };
+  const totalAll = Object.values(totals).reduce((a, b) => a + b, 0);
+  const events = new Set(items.map((x) => x.eventId).filter(Boolean)).size;
+  return { query, items, status, totals, totalAll, events, ids, fingerprint: JSON.stringify(ids), sources: feeds.map((f) => ({ title: `${f.label} matching "${query}" - openFDA enforcement (newest first)`, url: `${f.source}?search=${encodeURIComponent(`product_description:"${query}"`)}&sort=recall_initiation_date:desc&limit=${perFeed}` })) };
 }
 
+const byKindCount = (items, kind) => items.filter((x) => x.kind === kind).length;
 const priceUsdOf = (t) => Number(String(t?.price ?? "").replace(/[^0-9.]/g, "")) || null;
 
 function makeRecallHandlerInner(tierSlug) {
@@ -115,7 +125,10 @@ function makeRecallHandlerInner(tierSlug) {
     const byKind = {};
     for (const x of pr.items) byKind[x.kind] = (byKind[x.kind] || 0) + 1;
     const ongoing = pr.items.filter((x) => /ongoing/i.test(String(x.status || ""))).length;
-    const lines = pr.items.slice(0, 45).map((x, i) => `${i + 1}. [${x.kind}] ${x.recallInitiated || "?"} · ${x.classification || "?"} · ${x.status || "?"} · ${x.firm || "?"} · PRODUCT: ${x.product || "?"} · REASON: ${x.reason || "?"} · DISTRIBUTION: ${x.distribution || "?"} · ${x.recallNumber || ""}`).join("\n");
+    // Every fetched row is spelled out (<= 3 feeds x perFeed); a silent slice
+    // under a "records: N" total misstated the universe.
+    const lines = pr.items.map((x, i) => `${i + 1}. [${x.kind}] ${x.recallInitiated || "?"}${x.terminated ? ` (terminated ${x.terminated})` : ""} · ${x.classification || "?"} · ${x.status || "?"} · ${x.firm || "?"} · PRODUCT: ${x.product || "?"} · REASON: ${x.reason || "?"} · DISTRIBUTION: ${x.distribution || "?"}${x.quantity ? ` · QUANTITY: ${x.quantity}` : ""}${x.lots ? ` · LOTS: ${x.lots}` : ""} · ${x.recallNumber || ""}${x.eventId ? ` (event ${x.eventId})` : ""}`).join("\n");
+    const shown = Object.entries(pr.totals || {}).map(([k, total]) => `${k}: ${byKindCount(pr.items, k)} of ${total}`).join(", ");
     const feedStatus = Object.entries(pr.status).map(([k, v]) => `${k}: ${v}`).join("; ");
     const numbered = pr.sources.map((s, i) => ({ n: i + 1, ...s }));
 
@@ -128,29 +141,30 @@ function makeRecallHandlerInner(tierSlug) {
 3. CITATIONS: the FDA feeds are numbered [1] to [${numbered.length}] (one per feed). Cite the feed a record came from as [n] - drug = [1]${numbered.length > 1 ? ", food = [2]" : ""}${numbered.length > 2 ? ", device = [3]" : ""}. A citation is ONLY a bracketed number. Do NOT write a "Sources" section - it is appended automatically.
 4. This is NOT medical or legal advice. Where you suggest action, keep it to: check the named product/lot against the FDA record, contact the recalling firm or a pharmacist/physician, and monitor for updates. Never tell a reader to stop or start a medication.
 5. If the records are few or zero, SAY SO plainly and do not pad. Prioritize COMPLETING the report over length.
+6. THE RECORDS BELOW ARE THE NEWEST N PER FEED, NOT THE UNIVERSE: the TOTALS line says how many records each feed holds in total. When a feed's total exceeds the rows shown, say "the N most recent of TOTAL" and never present the shown set as complete or its oldest row as the earliest recall. A record is one product line; several records share one recall EVENT (event id) - count events when you say how many recalls there were. A gap in this material is never a finding about the product or the firm: if something is not in the records shown, say the records shown do not include it.
 
 Write a clear, well-structured report of up to ${t.words} words with these sections where the material supports them: SNAPSHOT (how many records, by feed and by class, how many ongoing, the date range), WHAT IS RECALLED (products and firms, grouped sensibly), WHY (the reasons, grouped - contamination, labeling, impurity, defect, etc.), HOW WIDE (distribution patterns), STATUS & TIMELINE (ongoing vs terminated/completed, the most recent actions), and WHAT TO DO (per rule 4). Be specific; quote the FDA reason wording where useful.
 
 === QUERY ===\n"${query}" (scope: ${scope}). Feeds probed: ${feedStatus}.
-=== TOTALS ===\nrecords: ${pr.items.length}; by feed: ${JSON.stringify(byKind)}; by class: ${JSON.stringify(byClass)}; ongoing: ${ongoing}.
-=== FDA RECORDS (newest first) ===\n${lines || "(no records matched)"}`;
+=== TOTALS ===\nrecords shown: ${pr.items.length} of ${pr.totalAll} matching records in openFDA (${shown || "per-feed totals unavailable"}); distinct recall events among the shown records: ${pr.events}; by class (shown): ${JSON.stringify(byClass)}; ongoing (shown): ${ongoing}.
+=== FDA RECORDS (newest first per feed; ${pr.items.length} of ${pr.totalAll}) ===\n${lines || "(no records matched)"}`;
 
     let spent = 0;
     const sd = await chat({ model: SYNTH, messages: [{ role: "user", content: synthPrompt }], max_tokens: t.synthMaxTokens, reasoning: { enabled: false } }, SYNTH_TIMEOUT_MS, user);
     spent += costOf(sd);
     const prose = textOf(sd);
     if (!prose) throw bad("Recall report synthesis produced nothing - not charged", 502);
-    const header = `# FDA Recall Report: ${query}\n\n**${pr.items.length} record${pr.items.length === 1 ? "" : "s"}** across ${Object.keys(pr.status).length} FDA enforcement feed${Object.keys(pr.status).length === 1 ? "" : "s"} · ${ongoing} ongoing\n`;
+    const header = `# FDA Recall Report: ${query}\n\n**${pr.items.length} most recent of ${pr.totalAll} record${pr.totalAll === 1 ? "" : "s"}** (${pr.events} recall event${pr.events === 1 ? "" : "s"} among those shown) across ${Object.keys(pr.status).length} FDA enforcement feed${Object.keys(pr.status).length === 1 ? "" : "s"} · ${ongoing} of the shown records ongoing\n`;
     const sourceList = numbered.map((s) => `[${s.n}] ${s.title} - ${s.url}`).join("\n");
     const report = `${header}\n${prose}\n\n## Sources\n${sourceList}`;
 
     // 4) DATA APPENDIX.
     const tables = [{
       name: "recalls", label: "FDA recall records",
-      columns: ["Feed", "Initiated", "Class", "Status", "Firm", "Product", "Reason", "Distribution", "Recall number"],
-      rows: pr.items.map((x) => [x.kind, x.recallInitiated || "", x.classification || "", x.status || "", x.firm || "", x.product || "", x.reason || "", x.distribution || "", x.recallNumber || ""]),
+      columns: ["Feed", "Initiated", "Terminated", "Class", "Status", "Firm", "Product", "Reason", "Distribution", "Quantity", "Lots", "Recall number", "Event"],
+      rows: pr.items.map((x) => [x.kind, x.recallInitiated || "", x.terminated || "", x.classification || "", x.status || "", x.firm || "", x.product || "", x.reason || "", x.distribution || "", x.quantity || "", x.lots || "", x.recallNumber || "", x.eventId || ""]),
     }];
-    const meta = { tier: tierSlug, query, scope, records: pr.items.length, by_feed: byKind, by_class: byClass, ongoing, feeds: pr.status, recall_numbers: pr.ids.length, sources_cited: numbered.length, synthesis_model: SYNTH,
+    const meta = { tier: tierSlug, query, scope, records: pr.items.length, records_total: pr.totalAll, totals_by_feed: pr.totals, events_shown: pr.events, by_feed: byKind, by_class: byClass, ongoing, feeds: pr.status, recall_numbers: pr.ids.length, sources_cited: numbered.length, synthesis_model: SYNTH,
       disclaimer: "FDA enforcement records as published by openFDA; not medical or legal advice. Verify the named product and lot against the FDA record." };
     const out = { report, query, sources: numbered, tables, meta };
     recordCompositeUsage({ slug: tierSlug, upstreamUsd: spent, ok: true, priceUsd: priceUsdOf(RECALL_TIERS[tierSlug]) });
