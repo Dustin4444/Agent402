@@ -11,7 +11,7 @@ Guide: https://agent402.tools/guides/openclaw-model-provider
 
 ```bash
 openclaw plugins install agent402-openclaw
-agent402-openclaw setup --credits-key a402_...   # buy a pack by card at https://agent402.tools/credits
+AGENT402_CREDITS_KEY=a402_... agent402-openclaw setup --write   # key by env (or `--credits-key -` on stdin); buy one by card at https://agent402.tools/credits
 openclaw gateway restart
 ```
 
@@ -38,12 +38,17 @@ wallet. The key never leaves the machine.
 `auto` (routed per prompt) plus every id from `GET https://agent402.tools/v1/models`,
 each routed to its home tier. Prices are per call, not per token, so OpenClaw's
 per-token cost fields are zero. A model sent to the wrong tier is answered with a
-400 naming the right one; nothing is charged. Every forwarded call carries an
-`Idempotency-Key`, so retries replay the paid answer instead of paying twice.
+400 naming the right one; nothing is charged. A client-supplied `Idempotency-Key`
+is passed through (an x402 retry with the same key replays the paid answer);
+without one, each call is its own payment.
+
+The proxy answers native clients on loopback only: requests carrying a browser
+`Origin` header or a non-loopback `Host` are refused, so a web page cannot spend
+the key.
 
 ## Commands
 
-- `agent402-openclaw setup [--credits-key K] [--write] [--port N]`
+- `agent402-openclaw setup [--credits-key K | --credits-key - (stdin) | AGENT402_CREDITS_KEY env] [--write] [--port N]`
 - `agent402-openclaw proxy [--port N] [--upstream URL]`
 - `agent402-openclaw doctor`
 

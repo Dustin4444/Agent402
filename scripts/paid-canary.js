@@ -213,8 +213,12 @@ export const TOOLS = [
     kit: "llm-metered",
     path: "/v1/metered/chat/completions",
     method: "POST",
-    body: { model: "openai/gpt-4.1-nano", messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 5 },
-    priceUsd: 0.001,
+    // max_tokens 2000 on gpt-4.1-nano quotes ABOVE the $0.001 floor (the kit
+    // computes the exact figure; test-canary-coverage pins priceUsd to it), so a
+    // quote that silently collapses to the floor - an @x402 adapter change that
+    // hides the body, say - changes what this leg pays and the pin fails.
+    body: { model: "openai/gpt-4.1-nano", messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 2000 },
+    priceUsd: 0.001125,
     check: (r) => isExactOkReply(r.choices?.[0]?.message?.content) || `expected an exact "OK" reply, got ${JSON.stringify(r).slice(0, 100)}`,
   },
   {

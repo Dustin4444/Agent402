@@ -3,7 +3,8 @@
 //   setup [--credits-key a402_...] [--write]   store the key, print (or merge) the openclaw.json block
 //   proxy [--port N] [--upstream URL]          run the local proxy on its own (no OpenClaw needed)
 //   doctor                                     show what is configured and whether the gateway answers
-import { mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, statSync, realpathSync, renameSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { STATE_DIR, CREDITS_KEY_FILE, resolveCreditsKey, resolvePayFetch } from "./index.js";
@@ -43,7 +44,11 @@ async function main() {
   const port = Number(opt("--port")) || DEFAULT_PORT;
 
   if (cmd === "setup") {
-    const key = (opt("--credits-key") || "").trim();
+    // The key may arrive on argv (lands in shell history), via AGENT402_CREDITS_KEY,
+    // or on stdin with `--credits-key -` (the form the docs recommend).
+    let key = (opt("--credits-key") || "").trim();
+    if (key === "-") key = readFileSync(0, "utf8").trim();
+    if (!key && process.env.AGENT402_CREDITS_KEY && !has("--no-env")) key = process.env.AGENT402_CREDITS_KEY.trim();
     if (key) {
       if (!/^a402_[A-Za-z0-9_-]{16,80}$/.test(key)) { console.error("that does not look like an Agent402 credits key (a402_...)"); return 2; }
       mkdirSync(STATE_DIR(), { recursive: true });
@@ -64,9 +69,14 @@ async function main() {
         catch { console.error(`${cfgPath} is not plain JSON (JSON5 comments?); not touching it. Merge this block by hand:`); out(JSON.stringify(block, null, 2)); return 2; }
       }
       mkdirSync(join(cfgPath, ".."), { recursive: true });
+      // Preserve the file's mode (openclaw.json holds other providers' keys and
+      // is often 0600); a fresh file is created 0600. Never loosen it.
+      let mode = 0o600;
+      try { if (existsSync(cfgPath)) mode = statSync(cfgPath).mode & 0o777; } catch { /* keep 0600 */ }
       const tmp = `${cfgPath}.${process.pid}.tmp`;
-      writeFileSync(tmp, JSON.stringify(mergeInto(existing, block), null, 2) + "\n");
-      const { renameSync } = await import("node:fs"); renameSync(tmp, cfgPath);
+      writeFileSync(tmp, JSON.stringify(mergeInto(existing, block), null, 2) + "\n", { mode });
+      try { chmodSync(tmp, mode); } catch { /* best effort */ }
+      renameSync(tmp, cfgPath);
       out(`wrote provider "${PROVIDER_ID}" + primary model ${PROVIDER_ID}/auto into ${cfgPath}; run: openclaw gateway restart`);
     } else {
       out(`add to ${cfgPath} (or rerun with --write):`);
@@ -102,6 +112,13 @@ async function main() {
   console.error(`unknown command: ${cmd}`); return 2;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Entry guard that survives npm's bin SYMLINK and paths with spaces: Node
+// resolves import.meta.url to the real path but leaves process.argv[1] as the
+// symlink, so a plain string compare is false for every `npx`/global install
+// and the CLI silently did nothing (0.1.0 and 0.1.1 shipped that way).
+function invokedDirectly() {
+  try { return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href; } catch { return false; }
+}
+if (invokedDirectly()) {
   main().then((c) => process.exit(c ?? 0), (e) => { console.error(e?.message || e); process.exit(1); });
 }

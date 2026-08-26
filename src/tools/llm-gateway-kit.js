@@ -2520,8 +2520,14 @@ function makeHandler(tierSlug) {
     // an upstream error, which the chain below already walks. The buyer's zdr
     // preference (validated into body.zdr) folds in here — sent upstream as
     // provider.zdr, stripped from the top-level body (zdr: undefined below).
+    // Metered tier: the quote priced THIS model at its MODEL_COST row, so the
+    // upstream bound is that row, not the tier-wide 20/100 - a pricier
+    // provider of the same model is refused upstream instead of served at a
+    // loss the quote never covered (audit 2026-08-26).
+    const meteredBound = TIERS[tierSlug].metered ? costFor(body.model) : null;
     const providerPrefs = {
-      ...(TIERS[tierSlug].maxPrice ? { max_price: TIERS[tierSlug].maxPrice } : {}),
+      ...(meteredBound ? { max_price: { prompt: meteredBound.prompt, completion: meteredBound.completion } }
+        : TIERS[tierSlug].maxPrice ? { max_price: TIERS[tierSlug].maxPrice } : {}),
       ...(body.zdr === true ? { zdr: true } : {}),
       // Cheapest provider under the cap - ONLY on the budget tiers, where
       // price is the product. On the same model, sort-by-price can land on a
@@ -2592,7 +2598,7 @@ function makeHandler(tierSlug) {
     // the counts are what say WHY a margin moved).
     const recordUsage = (usage, upstreamUsd, served, serviceTier) => import("../posthog.js")
       .then(({ capturePostHogGatewayUsage }) => capturePostHogGatewayUsage({
-        tier: tierSlug, model: served, priceUsd: TIERS[tierSlug].price, upstreamUsd,
+        tier: tierSlug, model: served, priceUsd: (TIERS[tierSlug].metered && Number.isFinite(req?.__meteredQuoteUsd) && req.__meteredQuoteUsd > 0) ? req.__meteredQuoteUsd : TIERS[tierSlug].price, upstreamUsd,
         promptTokens: usage?.prompt_tokens, completionTokens: usage?.completion_tokens, serviceTier,
         serverToolCalls: usage?.server_tool_use_details?.tool_calls_executed ?? usage?.server_tool_use?.tool_calls_executed,
         serverToolSearches: usage?.server_tool_use_details?.web_search_requests ?? usage?.server_tool_use?.web_search_requests,

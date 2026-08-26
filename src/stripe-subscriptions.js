@@ -109,10 +109,15 @@ export function createStripeSubscriptions({ stripe, baseUrl, storePath, validate
   const tallyPath = path + TALLY_SUFFIX;
   const tally = loadTally(tallyPath);
   const MAX_TYPES = 64;
+  // Verified events persist at once; the unauthenticated counters (received,
+  // rejected, unconfigured) persist on a 5 s debounce so an unsigned flood costs
+  // memory increments, not a disk write per hit (audit 2026-08-26).
+  let saveTimer = null;
   function bump(kind, extra) {
     tally[kind] += 1;
     Object.assign(tally, extra);
-    saveTally(tallyPath, tally);
+    if (kind === "verified") { if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; } saveTally(tallyPath, tally); return; }
+    if (!saveTimer) { saveTimer = setTimeout(() => { saveTimer = null; saveTally(tallyPath, tally); }, 5000); saveTimer.unref?.(); }
   }
 
   function upsert(subId, patch) {

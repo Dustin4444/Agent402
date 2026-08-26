@@ -3,10 +3,11 @@
 // the real proxy is started against it, and the plugin's register() is driven
 // with a fake OpenClaw api. No network, no keys, no money.
 import { createServer } from "node:http";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, mkdirSync, chmodSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 
 // Async spawn: a synchronous spawn would block this process's event loop, and
 // the stub gateway the CLI needs to reach lives in this process.
@@ -170,6 +171,61 @@ await p.close();
   ok(resolveCreditsKey() === key, "resolveCreditsKey falls back to the stored file");
   const dry = await run(["cli.js", "setup"], env);
   ok(dry.status === 0 && /"primary": "agent402\/auto"/.test(dry.stdout), "setup without --write prints the block");
+  rmSync(home, { recursive: true, force: true });
+}
+
+
+// ---- proxy: browser-hostile on loopback, Idempotency-Key passthrough ----------
+{
+  const b = await startProxy({ upstream, creditsKey: key, port: 0 });
+  const before = seen.length;
+  const r1 = await fetch(`${b.baseUrl}/v1/chat/completions`, { method: "POST", headers: { "content-type": "text/plain", origin: "https://evil.example" }, body: JSON.stringify({ model: "auto", messages: [] }) });
+  ok(r1.status === 403 && seen.length === before, "a request carrying a browser Origin header is refused and nothing is forwarded");
+  // fetch() refuses to set Host, so this probe goes through node:http (which is
+  // also what a DNS-rebinding request looks like on the wire: loopback socket,
+  // foreign Host).
+  const r2 = await new Promise((resolve, reject) => {
+    const { request } = createRequire(import.meta.url)("node:http");
+    const rq = request({ host: "127.0.0.1", port: b.port, method: "POST", path: "/v1/chat/completions", headers: { "content-type": "application/json", host: "attacker.example:8412" } }, (res) => { res.resume(); res.on("end", () => resolve(res.statusCode)); });
+    rq.on("error", reject); rq.end(JSON.stringify({ model: "auto", messages: [] }));
+  });
+  ok(r2 === 403 && seen.length === before, "a non-loopback Host is refused and nothing is forwarded");
+  const r3 = await fetch(`${b.baseUrl}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": "client-key-0001" }, body: JSON.stringify({ model: "auto", messages: [] }) });
+  ok(r3.status === 200 && seen.at(-1).idem === "client-key-0001", "a client-supplied Idempotency-Key is passed through unchanged");
+  const r4 = await fetch(`${b.baseUrl}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": "bad key with spaces" }, body: JSON.stringify({ model: "auto", messages: [] }) });
+  ok(r4.status === 200 && /^[0-9a-f-]{36}$/.test(seen.at(-1).idem), "a malformed client key is replaced by a fresh UUID, never forwarded verbatim");
+  await b.close();
+}
+
+// ---- CLI reachable through npm's bin symlink (0.1.0/0.1.1 shipped a no-op) ----
+{
+  const home = mkdtempSync(join(tmpdir(), "a402-oc-bin-"));
+  const bin = join(home, "node_modules", ".bin"); mkdirSync(bin, { recursive: true });
+  const link = join(bin, "agent402-openclaw");
+  symlinkSync(new URL("./cli.js", import.meta.url).pathname, link);
+  const viaLink = await run([link, "help"], { ...process.env, AGENT402_OPENCLAW_HOME: home });
+  ok(viaLink.status === 0 && /setup/.test(viaLink.stdout), `the CLI runs when invoked through a bin symlink (got status ${viaLink.status}, stdout ${JSON.stringify(viaLink.stdout.slice(0, 40))})`);
+  const spaced = join(home, "sp ace"); mkdirSync(spaced, { recursive: true });
+  const copy = join(spaced, "cli.js"); writeFileSync(copy, readFileSync(new URL("./cli.js", import.meta.url)));
+  for (const f of ["index.js", "proxy.js", "models.js", "provider.js", "package.json"]) writeFileSync(join(spaced, f), readFileSync(new URL(`./${f}`, import.meta.url)));
+  const viaSpace = await run([copy, "help"], { ...process.env, AGENT402_OPENCLAW_HOME: home });
+  ok(viaSpace.status === 0 && /setup/.test(viaSpace.stdout), "the CLI runs from a path containing a space");
+  rmSync(home, { recursive: true, force: true });
+}
+
+// ---- setup: key by env, config mode preserved ---------------------------------
+{
+  const home = mkdtempSync(join(tmpdir(), "a402-oc-mode-"));
+  const cfg = join(home, "openclaw.json");
+  writeFileSync(cfg, JSON.stringify({ models: { providers: { other: { apiKey: "sk-secret" } } } }) + "\n", { mode: 0o600 });
+  const env = { ...process.env, AGENT402_OPENCLAW_HOME: home, AGENT402_UPSTREAM: upstream, AGENT402_CREDITS_KEY: key };
+  const r = await run(["cli.js", "setup", "--write"], env);
+  const mode = statSync(cfg).mode & 0o777;
+  const out = JSON.parse(readFileSync(cfg, "utf8"));
+  ok(r.status === 0 && mode === 0o600, `setup --write preserves the config file mode (got ${mode.toString(8)})`);
+  ok(out.models.providers.other.apiKey === "sk-secret" && out.models.providers.agent402, "existing providers survive the merge");
+  ok(readFileSync(join(home, "agent402", "credits.key"), "utf8").trim() === key, "the key is taken from AGENT402_CREDITS_KEY when no flag is given");
+  ok(!/a402_testkey/.test(r.stdout), "the key is never echoed to stdout");
   rmSync(home, { recursive: true, force: true });
 }
 
