@@ -140,6 +140,21 @@ if (rn) {
   ok(typeof rn.check({ rendered: true, title: "Something Else", markdown: "x" }) === "string", "render leg check rejects an unexpected page (title mismatch)");
 }
 
+// The metered leg proves the per-request exact quote end to end. Its priceUsd
+// must equal what the kit quotes for ITS OWN body: the leg's display price is
+// then the same number the 402 will carry, and a change to the quote
+// arithmetic or the floor fails here instead of drifting silently.
+{
+  const { meteredQuoteUsd, TIERS } = await import("../src/tools/llm-gateway-kit.js");
+  const leg = CANARY_LEGS.find((l) => l.kit === "llm-metered");
+  ok(!!leg && leg.path === "/v1/metered/chat/completions", "canary has an llm-metered leg on the metered tier");
+  if (leg) {
+    const q = meteredQuoteUsd(leg.body);
+    ok(!q.invalid && q.usd === leg.priceUsd, `llm-metered leg priceUsd ($${leg.priceUsd}) equals the kit's quote for its own body ($${q.usd})`);
+    ok(leg.priceUsd === TIERS["v1-chat-metered"].price, "the leg's body quotes the floor (a nano-sized call is the cheapest metered call)");
+  }
+}
+
 // The MPP dual-stack legs prove the native Payment wire (WWW-Authenticate /
 // Authorization: Payment via mppx), not the x402 PAYMENT-SIGNATURE path every
 // other leg already covers. They used to console.warn and exit 0, so a dead

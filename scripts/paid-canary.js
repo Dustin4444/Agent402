@@ -203,6 +203,21 @@ export const TOOLS = [
     check: (r) => isExactOkReply(r.choices?.[0]?.message?.content) || `expected an exact "OK" reply, got ${JSON.stringify(r).slice(0, 100)}`,
   },
   {
+    // METERED tier (2026-08-26): the 402 amount is a per-request QUOTE from the
+    // body, paid over `exact`. This body (nano model, 5 output tokens) quotes
+    // the $0.001 floor, so the leg proves the whole path a stock exact-scheme
+    // client walks: per-request price resolved on both the bare request and
+    // the paid retry, settled, served. test-canary-coverage pins priceUsd to
+    // the quote the kit computes for this exact body, so the display price can
+    // never drift from what the rail is asked for.
+    kit: "llm-metered",
+    path: "/v1/metered/chat/completions",
+    method: "POST",
+    body: { model: "openai/gpt-4.1-nano", messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 5 },
+    priceUsd: 0.001,
+    check: (r) => isExactOkReply(r.choices?.[0]?.message?.content) || `expected an exact "OK" reply, got ${JSON.stringify(r).slice(0, 100)}`,
+  },
+  {
     // Streaming leg — stream: true must settle AND deliver real SSE frames.
     // raw: the check reads the response as text and asserts OpenAI wire
     // framing (data: chunks ending in [DONE]). deepseek-chat is requested
