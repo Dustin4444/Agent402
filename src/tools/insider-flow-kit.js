@@ -51,7 +51,10 @@ const TICKER_RE = /^[A-Z][A-Z0-9.\-]{0,9}$/;
 // --- Form 4 XML parsing (regex over a small, fixed vocabulary; the ownership
 // schema is stable and our needs are a handful of leaf values) ---------------
 const tag = (xml, name) => { const m = xml.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`)); return m ? m[1].trim() : ""; };
-const val = (xml, name) => { const inner = tag(xml, name); const v = inner ? (tag(inner, "value") || inner) : ""; return v.replace(/<[^>]*>/g, "").trim(); };
+// Nested tags inside a value (a <footnoteId/> in expirationDate) are dropped by
+// stripXmlTags - the split-on-"<" walk, not a regex (CodeQL js/incomplete-
+// multi-character-sanitization); it is a function declaration, so hoisted.
+const val = (xml, name) => { const inner = tag(xml, name); const v = inner ? (tag(inner, "value") || inner) : ""; return stripXmlTags(v).replace(/\s+/g, " ").trim(); };
 // Opening tag may carry attributes (Form 4 footnotes are `<footnote id="F1">`).
 const blocks = (xml, name) => [...xml.matchAll(new RegExp(`<${name}(?:\\s[^>]*)?>([\\s\\S]*?)</${name}>`, "g"))].map((m) => m[1]);
 
