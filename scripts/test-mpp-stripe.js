@@ -16,11 +16,11 @@ process.env.BASE_URL = "https://agent402.tools";
 import express from "express";
 import { createHmac } from "node:crypto";
 import Stripe from "stripe";
-import { Challenge, Credential } from "mppx";
+import { Challenge, Credential, Method } from "mppx";
 import { stripe as stripeMethods } from "mppx/server";
 import {
   stripeEnabled, mintStripeChallenge, checkStripeCredentialBinding,
-  createStripeGate, createStripeChallengeAppender,
+  createStripeGate, createStripeChallengeAppender, validateStripeCredential,
 } from "../src/mpp-stripe.js";
 
 let pass = 0;
@@ -134,6 +134,27 @@ const GATE = { secretKey: SECRET, realm: REALM, priceFor };
   const { readFileSync } = await import("node:fs");
   const src = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
   ok(/req\.tempoSettling\s*\|\|\s*req\.stripeSettling/.test(src) || /req\.stripeSettling\s*\|\|\s*req\.tempoSettling/.test(src), "wiring: server.js bypasses the x402 paywall for req.stripeSettling (like req.tempoSettling)");
+}
+
+// ---- the REAL pre-handler validate, unstubbed (2026-08-26 live finding) ----
+// mppx's stripe/charge method has no non-mutating `validate`: its only step is
+// `verify`, which creates the PaymentIntent. The gate used to call
+// Method.validateCredential, which throws for such methods, so EVERY card
+// credential was refused before the handler - unseen here because the gate
+// tests inject validate stubs. Pin the vendor fact and the fixed behaviour.
+{
+  let vendorThrew = "";
+  try { await Method.validateCredential([testMethod], credFor({ spt: "spt_live_abc" })); } catch (e) { vendorThrew = String(e?.message || e); }
+  ok(/non-mutating credential validation/.test(vendorThrew), "vendor: mppx Method.validateCredential refuses stripe/charge (no validate step) - the gate must not call it");
+  const good = await validateStripeCredential(credFor({ spt: "spt_live_abc" }));
+  ok(good.ok === true && good.validation?.spt === "spt_live_abc", "validate: a well-formed unexpired credential carrying an SPT passes WITHOUT touching Stripe");
+  const expiredCh = Challenge.fromMethod(testMethod, { realm: REALM, expires: new Date(Date.now() - 1000), request: { amount: "0.50", currency: "usd", decimals: 2, networkId: PROFILE, paymentMethodTypes: ["card"] }, secretKey: SECRET });
+  const expired = await validateStripeCredential(Credential.serialize({ challenge: expiredCh, payload: { spt: "spt_live_abc" } }));
+  ok(expired.ok === false && /expired/i.test(expired.error), "validate: an expired challenge is refused");
+  const noSpt = await validateStripeCredential(credFor({ spt: "" }));
+  ok(noSpt.ok === false && /Shared Payment Token/.test(noSpt.reason), "validate: a credential without an SPT id is refused");
+  const junk = await validateStripeCredential("Payment not-a-credential");
+  ok(junk.ok === false, "validate: an undecodable credential is refused, never thrown");
 }
 
 console.log(`\n${pass} passed, 0 failed`);

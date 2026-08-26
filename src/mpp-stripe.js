@@ -2,8 +2,12 @@
 // Stripe Shared Payment Tokens (SPTs). The first non-crypto buyer path: an
 // agent presents a Stripe SPT (issued by its Link Agent Wallet), we mint a
 // stripe/charge challenge, and settle a PaymentIntent to our Stripe balance.
-// Docs: https://docs.stripe.com/payments/machine/mpp . Sandbox-validated end
-// to end 2026-08-20 (`npx mppx validate --yes`, Payment [stripe] successful).
+// Docs: https://docs.stripe.com/payments/machine/mpp . The WIRE SHAPE was
+// sandbox-validated 2026-08-20 (`npx mppx validate --yes` against a minimal
+// mppx.charge() server, Payment [stripe] successful) - that proved the
+// challenge/credential shapes, NOT this gate: its first live buy (Link SPT,
+// 2026-08-26) was refused by the pre-handler validate, see
+// validateStripeCredential. Live proof of the gate = the link-cli buy.
 //
 // Structurally the SAME gate as src/mpp-tempo.js (validate before the handler,
 // buffer the response, settle ONLY after a <400, replay with a Payment-Receipt)
@@ -22,7 +26,7 @@
 // Rollout switch = STRIPE_SECRET_KEY + STRIPE_PROFILE_ID both present. Unset =
 // not mounted, no stripe challenge on any 402 (pure evm/tempo/x402).
 import Stripe from "stripe";
-import { Challenge, Credential, Method, Receipt } from "mppx";
+import { Challenge, Credential, Expires, Method, Receipt } from "mppx";
 import { stripe as stripeMethods } from "mppx/server";
 import { createHmac } from "node:crypto";
 import { mppProblem, markMppProblem, sendMppProblem } from "./mpp-problem.js";
@@ -150,12 +154,31 @@ export function checkStripeCredentialBinding(authorizationHeader, { secretKey, r
   return { ok: true, challenge: ch, amountCents: amount, expectedCents: expected };
 }
 
-/** Non-mutating pre-check: does the SPT credential validate for its challenge?
- *  (mppx runs the stripe method's validate — shape/expiry, no charge.) */
+/** Non-mutating pre-check, run BEFORE the handler: is this a well-formed,
+ *  unexpired stripe/charge credential carrying an SPT?
+ *
+ *  Structural only, never touches Stripe. mppx's stripe method has NO
+ *  `validate` step - its only operation is `verify`, which CREATES the
+ *  PaymentIntent (the charge) - so `Method.validateCredential` throws
+ *  "stripe/charge does not support non-mutating credential validation" for
+ *  every credential. That is what the first live Link buy hit (2026-08-26):
+ *  every card credential was refused before the handler ran, and the injected
+ *  stubs in test-mpp-stripe never saw it. The checks mppx would have made
+ *  before charging (method/intent dispatch, expiry, payload schema) are done
+ *  here with its own primitives; HMAC binding + amount are already checked by
+ *  checkStripeCredentialBinding, and the charge itself is settle()'s job. */
 export async function validateStripeCredential(authorizationHeader) {
   try {
-    const validation = await Method.validateCredential([stripeMethod()], authorizationHeader);
-    return { ok: true, validation };
+    const credential = Credential.deserialize(String(authorizationHeader || ""));
+    const method = stripeMethod();
+    if (credential.challenge.method !== method.name || credential.challenge.intent !== method.intent) {
+      return { ok: false, error: `no registered method for ${credential.challenge.method}/${credential.challenge.intent}`, reason: "the credential is not a stripe/charge credential" };
+    }
+    Expires.assert(credential.challenge.expires, credential.challenge.id);
+    const parsed = method.schema.credential.payload.safeParse(credential.payload);
+    if (!parsed.success) return { ok: false, error: "Invalid credential payload: missing or malformed spt", reason: "the credential carries no Shared Payment Token" };
+    if (!/^spt_/.test(String(parsed.data.spt))) return { ok: false, error: "spt does not look like a Shared Payment Token id", reason: "the credential carries no Shared Payment Token" };
+    return { ok: true, validation: { spt: parsed.data.spt, externalId: parsed.data.externalId } };
   } catch (e) {
     return { ok: false, error: String(e?.message || e).slice(0, 300), reason: "the Stripe credential failed validation" };
   }
