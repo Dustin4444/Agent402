@@ -29,7 +29,7 @@ const seen = [];
 const catalog = { object: "list", data: [
   { id: "openai/gpt-5-nano", object: "model", x402: { tier: "v1-chat-nano", endpoint: "/v1/nano/chat/completions", priceUsd: 0.003, maxTokens: 768, maxInputChars: 48_000 } },
   { id: "openai/gpt-4o-mini", object: "model", x402: { tier: "v1-chat-auto", endpoint: "/v1/auto/chat/completions", priceUsd: 0.01, maxTokens: 1024, maxInputChars: 32_000 } },
-  { id: "openai/gpt-5", object: "model", x402: { tier: "v1-chat-premium", endpoint: "/v1/premium/chat/completions", priceUsd: 0.5, maxTokens: 8192, maxInputChars: 200_000 } },
+  { id: "openai/gpt-5", object: "model", x402: { tier: "v1-chat-premium", endpoint: "/v1/premium/chat/completions", priceUsd: 0.5, maxTokens: 8192, maxInputChars: 200_000, meteredEndpoint: "/v1/metered/chat/completions", meteredFromUsd: 0.001 } },
   { id: "deepseek/*", object: "model", x402: { tier: "v1-chat", endpoint: "/v1/chat/completions", priceUsd: 0.02, maxTokens: 2048, maxInputChars: 64_000 } },
   { id: "x/stealth", object: "model", x402: { tier: "v1-chat-ox", endpoint: "/v1/ox/chat/completions", priceUsd: 0.002, maxTokens: 8000, maxInputChars: 32_000, stealth: true } },
 ] };
@@ -89,7 +89,7 @@ ok(p.mode === "credits" && p.baseUrl.startsWith("http://127.0.0.1:"), `proxy sta
 {
   const r = await fetch(`${p.baseUrl}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: "agent402/openai/gpt-5", messages: [] }) });
   const s = seen.at(-1);
-  ok(r.status === 200 && s.url === "/v1/premium/chat/completions" && s.body.model === "openai/gpt-5", "explicit model routes to its home tier, provider prefix stripped");
+  ok(r.status === 200 && s.url === "/v1/metered/chat/completions" && s.body.model === "openai/gpt-5", "explicit model routes to the metered route by default, provider prefix stripped");
   const first = seen.at(-2).idem;
   ok(s.idem !== first, "each call gets its own Idempotency-Key");
 }
@@ -227,6 +227,28 @@ await p.close();
   ok(readFileSync(join(home, "agent402", "credits.key"), "utf8").trim() === key, "the key is taken from AGENT402_CREDITS_KEY when no flag is given");
   ok(!/a402_testkey/.test(r.stdout), "the key is never echoed to stdout");
   rmSync(home, { recursive: true, force: true });
+}
+
+
+// ---- metered routing (0.2.0): explicit models go to the metered route by default ----
+{
+  const m = routesFromCatalog(catalog);
+  ok(m.get("openai/gpt-5").endpoint === "/v1/metered/chat/completions" && m.get("openai/gpt-5").metered === true && m.get("openai/gpt-5").priceUsd === 0.001, "a model whose catalog row advertises meteredEndpoint routes there by default, priced from the metered floor");
+  ok(m.get("openai/gpt-5-nano").endpoint === "/v1/nano/chat/completions" && !m.get("openai/gpt-5-nano").metered, "a row without meteredEndpoint keeps its home tier");
+  ok(m.get(AUTO_ID).endpoint === "/v1/auto/chat/completions" && !m.get(AUTO_ID).metered, "auto stays on the routed tier (the metered route needs an explicit model)");
+  const flat = routesFromCatalog(catalog, { pricing: "flat" });
+  ok(flat.get("openai/gpt-5").endpoint === "/v1/premium/chat/completions" && flat.get("openai/gpt-5").priceUsd === 0.5, "pricing: flat keeps every model on its home tier");
+  ok(/metered, from \$0\.001\/call/.test(openclawModels(m).find((x) => x.id === "openai/gpt-5").name), "the OpenClaw display name says metered and the floor");
+  const p2 = await startProxy({ upstream, creditsKey: key, port: 0 });
+  const r = await fetch(`${p2.baseUrl}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: "openai/gpt-5", messages: [] }) });
+  ok(r.status === 200 && seen.at(-1).url === "/v1/metered/chat/completions" && seen.at(-1).body.model === "openai/gpt-5", "the proxy forwards an explicit model to the metered route with the model set");
+  const h = await (await fetch(`${p2.baseUrl}/health`)).json();
+  ok(h.pricing === "metered", "health reports the pricing mode");
+  await p2.close();
+  const p3 = await startProxy({ upstream, creditsKey: key, port: 0, pricing: "flat" });
+  await fetch(`${p3.baseUrl}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: "openai/gpt-5", messages: [] }) });
+  ok(seen.at(-1).url === "/v1/premium/chat/completions", "pricing: flat forwards to the home tier");
+  await p3.close();
 }
 
 stub.close();

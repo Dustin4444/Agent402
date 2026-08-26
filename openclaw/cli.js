@@ -37,11 +37,14 @@ function mergeInto(target, block) {
 
 async function main() {
   if (cmd === "help" || has("--help")) {
-    out("agent402-openclaw setup [--credits-key a402_...] [--write] | proxy [--port N] [--upstream URL] | doctor");
+    out("agent402-openclaw setup [--credits-key a402_...|-] [--write] [--flat] | proxy [--port N] [--upstream URL] [--flat] | doctor");
     return 0;
   }
   const upstream = stripTrailingSlashes(opt("--upstream") || process.env.AGENT402_UPSTREAM || DEFAULT_UPSTREAM);
   const port = Number(opt("--port")) || DEFAULT_PORT;
+  // Pricing: metered by default (explicit models pay a per-request quote, from
+  // $0.001); --flat (or AGENT402_PRICING=flat) keeps every model on its flat tier.
+  const pricing = has("--flat") || String(process.env.AGENT402_PRICING || "").toLowerCase() === "flat" ? "flat" : "metered";
 
   if (cmd === "setup") {
     // The key may arrive on argv (lands in shell history), via AGENT402_CREDITS_KEY,
@@ -59,7 +62,7 @@ async function main() {
       out(`no credits key yet: buy a pack by card at ${upstream}/credits, then rerun with --credits-key a402_...`);
     }
     let routes;
-    try { routes = await loadRoutes(upstream); } catch (e) { console.error(`could not read ${upstream}/v1/models: ${e?.message || e}`); return 2; }
+    try { routes = await loadRoutes(upstream, fetch, { pricing }); } catch (e) { console.error(`could not read ${upstream}/v1/models: ${e?.message || e}`); return 2; }
     const block = configBlock({ port, routes });
     const cfgPath = join(process.env.AGENT402_OPENCLAW_HOME || join(homedir(), ".openclaw"), "openclaw.json");
     if (has("--write")) {
@@ -88,8 +91,8 @@ async function main() {
   if (cmd === "proxy") {
     const creditsKey = resolveCreditsKey();
     const payFetch = creditsKey ? null : await resolvePayFetch({}, (m) => console.error(m));
-    const p = await startProxy({ upstream, creditsKey, payFetch, port, log: (m) => console.error(m) });
-    out(`${p.baseUrl}/v1 (${p.mode})`);
+    const p = await startProxy({ upstream, creditsKey, payFetch, port, pricing, log: (m) => console.error(m) });
+    out(`${p.baseUrl}/v1 (${p.mode}, ${p.pricing} pricing)`);
     await new Promise(() => {}); // run until killed
   }
 
@@ -98,7 +101,7 @@ async function main() {
     out(`upstream: ${upstream}`);
     out(`credits key: ${key ? `present (${key.slice(0, 8)}…)` : "none"}`);
     out(`wallet key: ${/^0x[0-9a-fA-F]{64}$/.test(process.env.AGENT402_WALLET_KEY || "") ? "present" : "none"}`);
-    try { const r = await loadRoutes(upstream); out(`gateway: ok, ${r.size} models`); } catch (e) { out(`gateway: unreachable (${e?.message || e})`); return 1; }
+    try { const r = await loadRoutes(upstream, fetch, { pricing }); out(`gateway: ok, ${r.size} models (${pricing} pricing: ${[...r.values()].filter((x) => x.metered).length} metered)`); } catch (e) { out(`gateway: unreachable (${e?.message || e})`); return 1; }
     if (key) {
       try {
         const r = await fetch(`${upstream}/api/credits/balance`, { headers: { authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(15_000) });

@@ -977,7 +977,9 @@ Every tier answers an x402 \`402\` (${RAILS_OR}) and an MPP challenge, so any
 x402-capable client can pay per call with no key at all. For OpenClaw the
 [\`agent402-openclaw\`](https://www.npmjs.com/package/agent402-openclaw) plugin
 runs a loopback proxy that pays and forwards, with a credits key or an x402
-wallet, and writes the provider block for you:
+wallet, and writes the provider block for you. Explicit models go to the metered
+route by default (each request quoted from its body, from
+$${TIERS["v1-chat-metered"].price}); \`--flat\` keeps the flat tiers:
 
 \`\`\`bash
 openclaw plugins install agent402-openclaw

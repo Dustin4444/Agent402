@@ -34,10 +34,10 @@ export const DEFAULT_UPSTREAM = "https://agent402.tools";
 export const PKG_VERSION = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version;
 const MAX_BODY = 2 * 1024 * 1024;
 
-export async function loadRoutes(upstream, fetchImpl = fetch) {
+export async function loadRoutes(upstream, fetchImpl = fetch, { pricing = "metered" } = {}) {
   const r = await fetchImpl(`${upstream}/v1/models`, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(15_000) });
   if (!r.ok) throw new Error(`GET /v1/models -> HTTP ${r.status}`);
-  return routesFromCatalog(await r.json());
+  return routesFromCatalog(await r.json(), { pricing });
 }
 
 function readBody(req, limit = MAX_BODY) {
@@ -63,14 +63,16 @@ const json = (res, status, obj, headers = {}) => {
  * @param {number} [o.port]          0 = ephemeral
  * @param {string} [o.host]          default 127.0.0.1 (loopback only: anyone who can reach the port spends your key)
  * @param {Map} [o.routes]           pre-loaded routes (tests); else loaded from upstream
+ * @param {"metered"|"flat"} [o.pricing]  metered (default): explicit models pay per-request quotes; flat: home tiers
  * @param {(msg:string)=>void} [o.log]
  */
-export async function startProxy({ upstream = DEFAULT_UPSTREAM, creditsKey = null, payFetch = null, fetch: fetchImpl = fetch, port = 0, host = "127.0.0.1", routes = null, log = () => {} } = {}) {
+export async function startProxy({ upstream = DEFAULT_UPSTREAM, creditsKey = null, payFetch = null, fetch: fetchImpl = fetch, port = 0, host = "127.0.0.1", routes = null, pricing = "metered", log = () => {} } = {}) {
   upstream = stripTrailingSlashes(upstream);
+  pricing = pricing === "flat" ? "flat" : "metered";
   const key = typeof creditsKey === "string" && /^a402_[A-Za-z0-9_-]{16,80}$/.test(creditsKey) ? creditsKey : null;
   const paid = key ? fetchImpl : payFetch;
   const mode = key ? "credits" : payFetch ? "x402" : "unpaid";
-  let table = routes || await loadRoutes(upstream, fetchImpl);
+  let table = routes || await loadRoutes(upstream, fetchImpl, { pricing });
   const stats = { requests: 0, forwarded: 0, errors: 0, startedAt: new Date().toISOString() };
 
   const server = createServer(async (req, res) => {
@@ -85,10 +87,10 @@ export async function startProxy({ upstream = DEFAULT_UPSTREAM, creditsKey = nul
         return json(res, 403, { error: { message: `Host "${hostName.slice(0, 64)}" is not loopback; refused.`, type: "forbidden" } });
       }
       if (req.method === "GET" && url.pathname === "/health") {
-        return json(res, 200, { ok: true, upstream, mode, models: table.size, stats });
+        return json(res, 200, { ok: true, upstream, mode, pricing, models: table.size, stats });
       }
       if (req.method === "GET" && url.pathname === "/v1/models") {
-        return json(res, 200, { object: "list", data: [...table.values()].filter((r) => !r.stealth).map((r) => ({ id: r.id, object: "model", owned_by: "agent402", agent402: { endpoint: r.endpoint, priceUsd: r.priceUsd, tier: r.tier } })) });
+        return json(res, 200, { object: "list", data: [...table.values()].filter((r) => !r.stealth).map((r) => ({ id: r.id, object: "model", owned_by: "agent402", agent402: { endpoint: r.endpoint, priceUsd: r.priceUsd, tier: r.tier, metered: !!r.metered } })) });
       }
       if (req.method === "POST" && url.pathname === "/v1/chat/completions") {
         const raw = await readBody(req);
@@ -130,11 +132,11 @@ export async function startProxy({ upstream = DEFAULT_UPSTREAM, creditsKey = nul
   await new Promise((resolve, reject) => { server.once("error", reject); server.listen(port, host, resolve); });
   const actualPort = server.address().port;
   const baseUrl = `http://${host}:${actualPort}`;
-  log(`[agent402-openclaw] proxy on ${baseUrl}/v1 -> ${upstream} (${mode}, ${table.size} models)`);
+  log(`[agent402-openclaw] proxy on ${baseUrl}/v1 -> ${upstream} (${mode}, ${pricing} pricing, ${table.size} models)`);
   return {
-    baseUrl, port: actualPort, mode, upstream,
+    baseUrl, port: actualPort, mode, upstream, pricing,
     stats: () => ({ ...stats }),
-    refreshModels: async () => { table = await loadRoutes(upstream, fetchImpl); return table.size; },
+    refreshModels: async () => { table = await loadRoutes(upstream, fetchImpl, { pricing }); return table.size; },
     close: () => new Promise((resolve) => server.close(() => resolve())),
   };
 }

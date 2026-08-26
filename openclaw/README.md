@@ -33,11 +33,16 @@ export AGENT402_WALLET_KEY=0x...     # an EVM key holding USDC on Base
 With no credits key present the proxy signs an x402 payment per call from that
 wallet. The key never leaves the machine.
 
-## Models
+## Models and pricing
 
-`auto` (routed per prompt) plus every id from `GET https://agent402.tools/v1/models`,
-each routed to its home tier. Prices are per call, not per token, so OpenClaw's
-per-token cost fields are zero. A model sent to the wrong tier is answered with a
+`auto` (routed per prompt, flat $0.01/call) plus every id from
+`GET https://agent402.tools/v1/models`. Explicit models are **metered by default**:
+the proxy sends them to the gateway's metered route, where each request is quoted
+from its body (exact-BPE input plus your `max_tokens` at the model's list price,
+times 1.15, from $0.001, capped at $2 per call), so a short call costs a fraction
+of a cent and a long one pays for what it asks. `--flat` (or
+`AGENT402_PRICING=flat`) keeps every model on its flat per-call tier instead.
+Either way OpenClaw's per-token cost fields stay zero; the price is per call. A model sent to the wrong tier is answered with a
 400 naming the right one; nothing is charged. A client-supplied `Idempotency-Key`
 is passed through (an x402 retry with the same key replays the paid answer);
 without one, each call is its own payment.

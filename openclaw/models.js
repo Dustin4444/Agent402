@@ -16,19 +16,30 @@ export function stripTrailingSlashes(s) {
 }
 
 
-/** The raw catalog entry -> { id, endpoint, tier, priceUsd, maxTokens, maxInputChars }. */
-export function routesFromCatalog(catalog) {
+/** The raw catalog entry -> { id, endpoint, tier, priceUsd, maxTokens, maxInputChars }.
+ *
+ *  `pricing`: "metered" (default) routes every explicit model to the gateway's
+ *  metered endpoint when the catalog advertises one (`x402.meteredEndpoint`):
+ *  the 402 quotes each request from its body, from `meteredFromUsd`, instead
+ *  of the tier's flat price - a short call costs a fraction of a cent, a long
+ *  one pays for what it asks. "flat" keeps every model on its home tier.
+ *  `auto` always stays on the routed tier (the metered route needs an explicit
+ *  model). */
+export function routesFromCatalog(catalog, { pricing = "metered" } = {}) {
   const data = Array.isArray(catalog?.data) ? catalog.data : [];
   const routes = new Map();
+  const metered = pricing !== "flat";
   for (const m of data) {
     const x = m?.x402;
     if (!m?.id || !x?.endpoint || typeof x.priceUsd !== "number") continue;
     if (String(m.id).endsWith("*")) continue; // family wildcard, not an id
+    const useMetered = metered && typeof x.meteredEndpoint === "string" && x.meteredEndpoint.startsWith("/");
     routes.set(m.id, {
       id: m.id,
-      endpoint: x.endpoint,
-      tier: x.tier || null,
-      priceUsd: x.priceUsd,
+      endpoint: useMetered ? x.meteredEndpoint : x.endpoint,
+      tier: useMetered ? "v1-chat-metered" : (x.tier || null),
+      priceUsd: useMetered ? (Number(x.meteredFromUsd) || x.priceUsd) : x.priceUsd,
+      metered: useMetered,
       maxTokens: Number(x.maxTokens) || 1024,
       maxInputChars: Number(x.maxInputChars) || 32_000,
       stealth: !!x.stealth,
@@ -55,7 +66,7 @@ export function openclawModels(routes) {
   rows.sort((a, b) => (a.id === AUTO_ID ? -1 : b.id === AUTO_ID ? 1 : a.priceUsd - b.priceUsd || a.id.localeCompare(b.id)));
   return rows.map((r) => ({
     id: r.id,
-    name: r.id === AUTO_ID ? `Agent402 auto (routed, ${priceLabel(r.priceUsd)}/call)` : `${r.id} (${priceLabel(r.priceUsd)}/call)`,
+    name: r.id === AUTO_ID ? `Agent402 auto (routed, ${priceLabel(r.priceUsd)}/call)` : r.metered ? `${r.id} (metered, from ${priceLabel(r.priceUsd)}/call)` : `${r.id} (${priceLabel(r.priceUsd)}/call)`,
     reasoning: false,
     input: ["text"],
     // Flat per-call billing: OpenClaw's per-token cost display does not apply.
