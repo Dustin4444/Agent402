@@ -590,7 +590,7 @@ The chain you pay on decides where the router spends: pay on **Base** and it
 pays Base sellers; pay on **Algorand** and it pays Algorand sellers from its
 AVM wallet. The buyer's settlement funds the float on the same rail - and if
 you pay on a chain without a spending wallet behind it, you get an honest 409
-naming the supported chains, and **you are never charged** (a rejected request
+naming the supported chains, and **you are not charged** (a rejected request
 cancels x402 settlement by design).
 
 ## A real receipt
@@ -619,7 +619,7 @@ provenance stays explicit.
 
 ## Why this is safe to build on
 
-- **Failures are never charged.** Any 4xx/5xx - no match, over-cap, seller
+- **Failures are not charged.** Any 4xx/5xx - no match, over-cap, seller
   down - cancels your settlement. You pay only for delivered results.
 - **Spend is bounded on our side** by per-window budgets and per-quote caps,
   so the router cannot be drained into misbehavior.
@@ -1027,8 +1027,8 @@ receipt shape:
 
 Why pay here rather than anywhere else, in one page with the proof links:
 [agent402.tools/why](https://agent402.tools/why). The short version: usage is
-priced under a ceiling you see before you pay, a failed call is never charged, a
-keyed retry never pays twice, and uptime and transactions are published from
+priced under a ceiling you see before you pay, a failed call is not charged and the
+receipt proves it, a keyed retry never pays twice, and uptime and transactions are published from
 outside production.
 `,
   },

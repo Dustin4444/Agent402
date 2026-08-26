@@ -90,8 +90,8 @@ domain audits, token risk, deep research) and monitors, plus routing that buys
 from proven external sellers on the agent's behalf.
 
 Why pay here, with every claim linked to its proof: https://agent402.tools/why.
-Usage is priced under a ceiling quoted before you pay, a failed call is never
-charged, a keyed retry never pays twice, and uptime and transactions are
+Usage is priced under a ceiling quoted before you pay, a failed call is not
+charged and the receipt proves it, a keyed retry never pays twice, and uptime and transactions are
 published from outside production.
 
 Zero dependencies. MIT. Maintained by Havok Holdings LLC.

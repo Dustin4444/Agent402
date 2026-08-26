@@ -10,35 +10,35 @@ export const WHY_POINTS = [
     id: "actual",
     kicker: "01 / PRICE",
     h: "Pay for what the model used, with the ceiling quoted first.",
-    p: "On the metered gateway every 402 quotes this exact request from its own body. A wallet that can pay upto settles the actual usage under that ceiling; prompt-cache and off-peak savings pass through at cost. Every response carries a receipt.",
+    p: "On the metered gateway every 402 quotes this exact request from its own body. A wallet that can pay upto settles the actual usage under that ceiling; provider discounts such as prompt-cache reads pass through at cost. Every settled x402 or MPP response carries a receipt.",
     links: [["/tools/v1-chat-metered", "the metered tier"], ["/guides/openclaw-model-provider", "OpenClaw setup"]],
   },
   {
     id: "never-charged",
     kicker: "02 / FAILURE",
-    h: "A failed call is never charged.",
-    p: "Settlement happens after the handler answers, and any error status cancels it. A retry that carries an idempotency key replays the paid answer instead of paying again. The rare charged-but-failed case is ledgered as a debt and repaid, never written off silently.",
+    h: "A failed call is not charged, and the response proves it.",
+    p: "Settlement runs after the handler answers and an error status cancels it, so a response with no payment receipt, or a receipt marked success:false, moved no money. A retry that carries an idempotency key replays the paid answer instead of paying again. The one residual case, a settled receipt on an error response, is detected by our own alarm and recorded as a debt in a refund ledger, never written off silently.",
     links: [["/status", "uptime measured from outside"], ["/guides/x402-and-mpp", "how the paywall settles"]],
   },
   {
     id: "one-key",
     kicker: "03 / ONE KEY",
     h: "One key buys everything.",
-    p: "The same wallet or credits key pays for five LLM tiers on three wires (OpenAI chat, OpenAI Responses, Anthropic Messages), embeddings, rerank, images, video, speech, transcription, grounded answers with citations, 500+ deterministic tools, wallet-keyed memory and finished reports. One 402 shape, one receipt shape.",
+    p: "The same wallet or credits key pays for five LLM tiers on three wires (OpenAI chat, OpenAI Responses, Anthropic Messages), embeddings, rerank, images, video, speech, transcription, grounded answers with citations, 500+ deterministic tools, wallet-keyed memory and finished reports. One paywall, one key.",
     links: [["/tools", "the catalog"], ["/v1/models", "gateway models"], ["/reports", "reports"]],
   },
   {
     id: "no-wallet",
     kicker: "04 / NO WALLET",
     h: "No wallet required.",
-    p: "Prepaid credits by card, cards over MPP, and card checkout for reports sit beside USDC on twelve chains and native MPP on Tempo. An agent with no crypto can be buying in five minutes; an agent with a wallet never needs an account.",
+    p: "Prepaid credits by card, cards over MPP, and card checkout for reports sit beside USDC or USDG on twelve chains and native MPP on Tempo. An agent with no crypto can be buying in minutes; an agent with a wallet never needs an account.",
     links: [["/credits", "prepaid credits"], ["/reports", "buy a report by card"]],
   },
   {
     id: "deliverables",
     kicker: "05 / DELIVERABLES",
     h: "Finished work, not only tokens.",
-    p: "Company dossiers, insider flow, 13F holdings, filing reports, IPO digests, domain audits, token risk, deep research, market briefs, recall watch and a LinkedIn article package, each cited from primary sources with a data appendix. Monitors re-run a report only when the underlying facts change.",
+    p: "Company dossiers, insider flow, 13F holdings, filing reports, IPO digests, domain audits, token risk, deep research, market briefs, recall watch and a LinkedIn article package, grounded in primary sources with a data appendix. Monitors probe daily for free and re-run the paid report when the facts change.",
     links: [["/reports", "report products"], ["/monitors", "monitors"]],
   },
   {
@@ -66,7 +66,7 @@ export function whyPage(baseUrl) {
   const canonical = `${baseUrl}/why`;
   const title = "Why pay here: seven things that are different about Agent402";
   const description =
-    "What is different about buying tools, models and reports from Agent402: pay actual usage under a quoted ceiling, failed calls never charged, one key for everything, no wallet needed, finished reports, routing that buys on your behalf, and proof you can check.";
+    "What is different about buying tools, models and reports from Agent402: pay actual usage under a quoted ceiling, failed calls not charged with the receipt as proof, one key for everything, no wallet needed, finished reports, routing that buys on your behalf, and proof you can check.";
 
   const breadcrumbLd = { "@type": "BreadcrumbList", itemListElement: [
     { "@type": "ListItem", position: 1, name: "Agent402", item: `${baseUrl}/` },
