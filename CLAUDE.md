@@ -453,8 +453,12 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   it, exact (the quote) as before, with a one-line hint. `agent402-openclaw permit2-approve` sends the one-time USDC ->
   Permit2 approval (viem wallet client; the wallet needs a little ETH on Base for gas); `doctor` reports the mode.
   Why: BlockRun bills actual tokens + 5%; with (1)+(2) every buyer of ours pays actual x 1.15 + the $0.001 facilitator
-  floor, and the remaining gap is the markup, a pricing call. NOT yet proven by a live upto buy from the plugin (the CI
-  burner has no Permit2 allowance; adding one is a real approval tx from CI - do it deliberately, once).
+  floor, and the remaining gap is the markup, a pricing call. Live proof = the paid canary's `metered-upto` rail leg (2026-08-26): the CI burner ALREADY held a max Permit2
+  allowance on Base USDC (read on-chain: 2^256-1 minus 64,400 units, so ~$0.064 had flowed through it before the leg existed -
+  the earlier note here that it had none was wrong), so `permit2-approve` was a no-op and no approval tx was sent; the leg
+  registers `UptoEvmScheme` beside exact with the plugin's selector, buys the llm-metered body, and fails the run unless the
+  OUTGOING credential was scheme `upto`, `X-Metered-Usd` is strictly under the quote, and a receipt settled (a client that
+  quietly fell back to exact still gets a 200, which is why the sent scheme is asserted). Pinned in `test-canary-coverage`.
 - **agent402-openclaw is tested against a REAL OpenClaw (2026-08-26, `openclaw/test-real-install.js`, in CI):** `npm i
   openclaw@latest` (~90 MB, Node >= 22.22) into a scratch dir, `npm pack` + `npm i -g` (the bin symlink), `openclaw plugins
   install <tgz>`, `setup --write` through the symlink against a stub gateway, `openclaw models list/status`, `openclaw
