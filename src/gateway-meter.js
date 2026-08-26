@@ -199,7 +199,11 @@ export function applyMeteredSettlement({ result, req, tool, res, enabled, setOve
   const slug = tool?.slug;
   try {
     if (!enabled || !isMeterable(req)) return null;
-    const ceilingUsd = Number(String(tool?.price ?? "").replace(/[^0-9.]/g, ""));
+    // Metered tier: the ceiling the buyer authorized is the per-request quote
+    // (stashed by payments.js when the 402 price was resolved), not the
+    // catalog floor. Flat tiers keep the tier price.
+    const quoted = Number(req?.__meteredQuoteUsd);
+    const ceilingUsd = Number.isFinite(quoted) && quoted > 0 ? quoted : Number(String(tool?.price ?? "").replace(/[^0-9.]/g, ""));
     const amount = meteredUsd({ upstreamUsd: upstream, ceilingUsd });
     if (amount == null || res?.headersSent) return null;
     setOverrides(res, { amount: `$${amount.toFixed(6)}` });

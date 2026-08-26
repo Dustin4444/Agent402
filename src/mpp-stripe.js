@@ -125,7 +125,7 @@ const isStripeCredential = (auth) => {
  *  unexpired, at >= this route's price. Same defense as the tempo gate: without
  *  it a buyer could forge a $0.50 challenge to any networkId and be served any
  *  route. Pure/synchronous/never throws. Exported for tests. */
-export function checkStripeCredentialBinding(authorizationHeader, { secretKey, realm, priceFor, method, path, now = Date.now() } = {}) {
+export function checkStripeCredentialBinding(authorizationHeader, { secretKey, realm, priceFor, method, path, req = null, now = Date.now() } = {}) {
   const bad = (reason) => ({ ok: false, reason });
   let credential;
   try { credential = Credential.deserialize(authorizationHeader); } catch { return bad("credential does not deserialize"); }
@@ -142,7 +142,7 @@ export function checkStripeCredentialBinding(authorizationHeader, { secretKey, r
   if (String(r.currency || "").toLowerCase() !== "usd") return bad("challenge currency is not usd");
   const networkId = r.methodDetails?.networkId ?? r.networkId;
   if (String(networkId || "") !== stripeProfileId()) return bad("challenge networkId is not this server's Stripe profile");
-  const item = typeof priceFor === "function" ? priceFor(method, path) : null;
+  const item = typeof priceFor === "function" ? priceFor(method, path, req) : null;
   const priceUsd = Number(item?.priceUsd);
   if (!(priceUsd >= STRIPE_MIN_USD)) return bad(`route price ${priceUsd} is below the $${STRIPE_MIN_USD} card minimum - stripe/charge is not offered here`);
   if (item.identityBound) return bad("this route is wallet-identity bound; Stripe credentials carry no verified wallet payer - pay it over an x402 rail");
@@ -218,7 +218,7 @@ export function createStripeChallengeAppender({ realm, secretKey, priceFor } = {
     res.writeHead = function stripeWriteHead(...args) {
       try {
         if (res.statusCode === 402) {
-          const item = typeof priceFor === "function" ? priceFor(req.method, req.path) : null;
+          const item = typeof priceFor === "function" ? priceFor(req.method, req.path, req) : null;
           const priceUsd = Number(item?.priceUsd);
           if (item && !item.identityBound && priceUsd >= STRIPE_MIN_USD) {
             const header = mintStripeChallenge({ priceUsd, realm, secretKey });
@@ -251,7 +251,7 @@ export function createStripeGate({ validate = validateStripeCredential, settle =
     const auth = req.headers.authorization;
     if (!isStripeCredential(auth)) return next();
 
-    const binding = checkStripeCredentialBinding(auth, { secretKey: sk, realm, priceFor, method: req.method, path: req.path });
+    const binding = checkStripeCredentialBinding(auth, { secretKey: sk, realm, priceFor, method: req.method, path: req.path, req });
     if (!binding.ok) {
       console.warn(`[mpp-stripe] credential rejected before settle(): ${binding.reason}`);
       if (binding.reason !== "not a stripe/charge challenge") {

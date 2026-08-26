@@ -207,7 +207,7 @@ export function createCredits({ stripe, baseUrl, storeDir, onDebit, onLoad, now 
       const auth = String(req.headers?.authorization || "");
       if (!/^Bearer a402_/.test(auth)) return next();
       const key = auth.slice(7).trim();
-      const item = priceFor(req.method, req.path);
+      const item = priceFor(req.method, req.path, req);
       if (!item) return next(); // not a priced catalog route - let the site handle it
       // Identity-bound routes (wallet-keyed memory, my-usage) derive the caller
       // from a SIGNED x402 payer; a credits key carries no verified wallet, so

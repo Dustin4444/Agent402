@@ -303,7 +303,7 @@ export function isTempoCredential(authorizationHeader) {
  *      path-bound on the wire, so the price is the binding),
  *    - the route HAS a price (a tempo credential buys nothing on a free route).
  *  Pure, synchronous, never throws. Exported for tests. */
-export function checkTempoCredentialBinding(authorizationHeader, { secretKey, realm, priceFor, method, path, now = Date.now() } = {}) {
+export function checkTempoCredentialBinding(authorizationHeader, { secretKey, realm, priceFor, method, path, req = null, now = Date.now() } = {}) {
   const bad = (reason) => ({ ok: false, reason });
   let credential;
   try { credential = Credential.deserialize(authorizationHeader); } catch { return bad("credential does not deserialize"); }
@@ -322,7 +322,7 @@ export function checkTempoCredentialBinding(authorizationHeader, { secretKey, re
   if (String(r.recipient || "").toLowerCase() !== String(envRecipient()).toLowerCase()) return bad("challenge recipient is not this server's payTo");
   const chainId = Number(r.methodDetails?.chainId ?? r.chainId);
   if (chainId !== TEMPO_MAINNET_CHAIN_ID) return bad(`challenge chainId ${chainId} is not Tempo mainnet`);
-  const item = typeof priceFor === "function" ? priceFor(method, path) : null;
+  const item = typeof priceFor === "function" ? priceFor(method, path, req) : null;
   const priceUsd = Number(item?.priceUsd);
   if (!(priceUsd > 0)) return bad("route has no price - a tempo credential buys nothing here");
   // Security review 2026-08-19: the memory family / my-usage derive the
@@ -426,7 +426,7 @@ export function createTempoChallengeAppender({ realm, secretKey, priceFor }) {
     res.writeHead = function tempoWriteHead(...args) {
       try {
         if (res.statusCode === 402) {
-          const item = priceFor(req.method, req.path);
+          const item = priceFor(req.method, req.path, req);
           // Identity-bound routes (wallet-keyed memory, my-usage) are paid
           // with the payer AS the identity; a tempo credential carries no
           // verified payer, so no tempo challenge is offered for them.
@@ -490,7 +490,7 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
     // minted, unexpired, for our payTo, in a currency we offer, on Tempo
     // mainnet, for at least this route's price? Anything else falls through
     // to a fresh 402 exactly like an invalid evm credential.
-    const binding = checkTempoCredentialBinding(auth, { secretKey, realm, priceFor, method: req.method, path: req.path });
+    const binding = checkTempoCredentialBinding(auth, { secretKey, realm, priceFor, method: req.method, path: req.path, req });
     if (!binding.ok) {
       console.warn(`[mpp-tempo] credential rejected before validate(): ${binding.reason}`);
       // Not a tempo credential at all -> not our verdict to give (the evm

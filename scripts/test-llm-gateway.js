@@ -2,7 +2,7 @@
 // layer that gates what reaches the paid OpenRouter upstream: model → tier
 // routing (incl. bare-name mapping and self-correcting cross-tier errors),
 // input/output caps, stream rejection, and the env-gated 503. No network.
-import { TIERS, canonicalModel, PREFIX_CANONICAL, tierAllows, tierFor, validateRequest, modelsList, LLM_GATEWAY_TOOLS, stableStringify, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, AUTO_RANKINGS, classifyPrompt, validateEmbeddingsRequest, embeddingsCacheKey, EMBEDDINGS_PATH, isEmptyRefusal, tokenizerFactor, NEW_TOKENIZER_FACTOR } from "../src/tools/llm-gateway-kit.js";
+import { TIERS, canonicalModel, PREFIX_CANONICAL, meteredQuoteUsd, METERED_MAX_QUOTE_USD, tierAllows, tierFor, validateRequest, modelsList, LLM_GATEWAY_TOOLS, stableStringify, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, AUTO_RANKINGS, classifyPrompt, validateEmbeddingsRequest, embeddingsCacheKey, EMBEDDINGS_PATH, isEmptyRefusal, tokenizerFactor, NEW_TOKENIZER_FACTOR } from "../src/tools/llm-gateway-kit.js";
 
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log(`ok - ${msg}`); } else { fail++; console.error(`FAIL - ${msg}`); } };
@@ -114,7 +114,7 @@ ok(list.data.every((m) => m.object === "model" && m.x402?.priceUsd > 0 && m.x402
 ok(new Set(list.data.map((m) => m.x402.tier)).size === 10, "all five chat tiers + grounded + ox + embeddings + images + speech represented");
 
 // Catalog invariants: wallet-only-priced routes at OpenAI wire paths.
-ok(LLM_GATEWAY_TOOLS.length === 11, "eleven gateway routes (five chat tiers + grounded + ox, embeddings, rerank, images, speech)");
+ok(LLM_GATEWAY_TOOLS.length === 12, "twelve gateway routes (five chat tiers + grounded + ox + metered, embeddings, rerank, images, speech)");
 
 // Nano tier — priced for loops; nano models keep working on the base tier
 // (drop-in callers can overpay) but tierFor leads with the cheapest home.
@@ -306,7 +306,7 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   ok(promptCacheGet(k3) === null, "different key misses");
 
   ok(GATEWAY_TIER_BY_PATH["/v1/nano/chat/completions"] === "v1-chat-nano", "path -> tier map covers nano");
-  ok(Object.keys(GATEWAY_TIER_BY_PATH).length === 7, "path -> tier map covers the five tiers + grounded + ox");
+  ok(Object.keys(GATEWAY_TIER_BY_PATH).length === 8, "path -> tier map covers the five tiers + grounded + ox + metered");
 
   // The handler writes the cache ONLY when the buyer opted in.
   process.env.OPENROUTER_API_KEY = "test-key";
@@ -1122,6 +1122,29 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   );
   globalThis.fetch = realFetch;
   delete process.env.OPENROUTER_API_KEY;
+}
+
+
+// ---- metered tier: the 402 price is a per-request quote (2026-08-26) ----
+{
+  const M = TIERS["v1-chat-metered"];
+  ok(M.metered === true && M.route === "POST /v1/metered/chat/completions" && Object.keys(TIERS).at(-1) === "v1-chat-metered", "metered tier exists and is listed LAST (tierFor keeps home tiers first)");
+  ok(tierFor("anthropic/claude-opus-5") === "v1-chat-premium" && tierAllows("v1-chat-metered", "anthropic/claude-opus-5") && tierAllows("v1-chat-metered", "openai/gpt-4.1-nano"), "explicit models still resolve to their home tier, and the metered tier admits every flat-tier model");
+  const tiny = meteredQuoteUsd({ model: "openai/gpt-4.1-nano", messages: [{ role: "user", content: "hi" }], max_tokens: 5 });
+  ok(tiny.usd === M.price && !tiny.invalid, `a nano "hi" quotes the floor ($${M.price})`);
+  const mid = meteredQuoteUsd({ model: "anthropic/claude-opus-5", messages: [{ role: "user", content: "write an essay" }], max_tokens: 2000 });
+  const more = meteredQuoteUsd({ model: "anthropic/claude-opus-5", messages: [{ role: "user", content: "write an essay" }], max_tokens: 4000 });
+  ok(mid.usd > M.price && more.usd > mid.usd, `the quote grows with max_tokens on a priced model ($${mid.usd} -> $${more.usd})`);
+  const huge = meteredQuoteUsd({ model: "anthropic/claude-opus-4.7-fast", messages: [{ role: "user", content: "x ".repeat(95000) }], max_tokens: 8192, n: 2 });
+  ok(huge.overCap === true && huge.usd === METERED_MAX_QUOTE_USD, `a body over the cap quotes the cap ($${METERED_MAX_QUOTE_USD}) and is flagged`);
+  let refused = null; try { validateRequest({ model: "anthropic/claude-opus-4.7-fast", messages: [{ role: "user", content: "x ".repeat(95000) }], max_tokens: 8192, n: 2 }, "v1-chat-metered"); } catch (e) { refused = e; }
+  ok(refused?.statusCode === 400 && /per-call cap/.test(refused.message), "the handler refuses an over-cap body with a 400 (nothing charged) naming the cap");
+  const bad = meteredQuoteUsd({ model: "nope/x", messages: [{ role: "user", content: "hi" }] });
+  ok(bad.invalid === true && bad.usd === M.price, "an invalid body quotes the floor and is flagged (the handler's own 400 refuses it)");
+  const tool = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-chat-metered");
+  ok(typeof tool.quote === "function" && tool.quote({ model: "openai/gpt-4.1-nano", messages: [{ role: "user", content: "hi" }], max_tokens: 5 }) === M.price, "the catalog entry exposes quote() for payments.js");
+  const listed = modelsList().data;
+  ok(!listed.some((m) => m.x402.tier === "v1-chat-metered") && listed.filter((m) => m.x402.meteredEndpoint === "/v1/metered/chat/completions").length > 30, "/v1/models lists no duplicate metered ids; chat entries carry meteredEndpoint instead");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

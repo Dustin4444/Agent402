@@ -35,7 +35,9 @@ const {
   IMAGES_MAX_TOKENS,
   IMAGES_MAX_PRICE,
   IMAGES_MAX_PROMPT_CHARS,
+  meteredQuoteUsd,
 } = await import("../src/tools/llm-gateway-kit.js");
+const { METER_MARKUP } = await import("../src/gateway-meter.js");
 const { countTokens } = await import("gpt-tokenizer/model/gpt-4o");
 const { assertWithinDurationCap, probeDurationSeconds } = await import("../src/tools/stt-kit.js");
 const { capturePostHogToolGone, _testEventsForTest } = await import("../src/posthog.js");
@@ -99,7 +101,15 @@ for (const [slug, tier] of Object.entries(TIERS)) {
       try { v = validateRequest(input, slug); }
       catch (e) { if (e.statusCode !== 400) throw e; rejected++; continue; } // clamp refused pre-spend — invariant upheld
       const wc = worstCaseUpstreamCost(v, tier, images);
-      ok(wc.totalUsd < tier.price, `${slug} ${v.model} worst-case ${usd(wc.totalUsd)} < price $${tier.price}`);
+      if (tier.metered) {
+        // Metered: no flat price to stay under. The invariant is that the per-request
+        // QUOTE covers the worst case with the markup on top (an over-cap body never
+        // reaches here: validateRequest refused it pre-spend).
+        const q = meteredQuoteUsd(v);
+        ok(!q.invalid && q.usd >= wc.totalUsd * METER_MARKUP - 1e-9, `${slug} ${v.model} quote ${usd(q.usd)} covers worst-case ${usd(wc.totalUsd)} x ${METER_MARKUP}`);
+      } else {
+        ok(wc.totalUsd < tier.price, `${slug} ${v.model} worst-case ${usd(wc.totalUsd)} < price $${tier.price}`);
+      }
       if (wc.totalUsd > worst) { worst = wc.totalUsd; worstLabel = v.model; }
       if (!body.n) acceptedFull++;
     }
@@ -155,7 +165,7 @@ console.log("\n# failover chain — every candidate model re-clamped at its own 
       try { clampToMargin(attempt, tier, 0); }
       catch (e) { if (e.statusCode !== 400) throw e; ok(true, `${slug} chain ${model}: clamp-rejected pre-spend`); continue; }
       const wc = worstCaseUpstreamCost(attempt, tier, 0);
-      ok(wc.totalUsd < tier.price, `${slug} chain ${model} re-clamped worst-case ${usd(wc.totalUsd)} < price $${tier.price}`);
+      if (!tier.metered) ok(wc.totalUsd < tier.price, `${slug} chain ${model} re-clamped worst-case ${usd(wc.totalUsd)} < price $${tier.price}`);
     }
   }
 }

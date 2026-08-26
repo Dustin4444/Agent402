@@ -40,6 +40,16 @@ import { setSettlementOverrides } from "@x402/express";
 // what a buyer is charged, so it turns on deliberately and can be turned off
 // without a deploy. Off means every settle is the flat ceiling, as today.
 const GATEWAY_METER_ON = String(process.env.GATEWAY_METERED_BILLING || "").toLowerCase() === "on";
+// The USD a catalog def charges for THIS request: the static catalog price,
+// or - for a tool with a `quote` (the metered gateway tier) - the per-request
+// quote from the parsed body. Every non-x402 gate (Tempo, Stripe, credits)
+// prices through here so a metered call is held/bound at its quote, never
+// at the catalog floor.
+function quotedPriceUsd(def, req) {
+  const flat = Number(String(def?.price ?? "").replace(/[^0-9.]/g, "")) || 0;
+  if (typeof def?.quote !== "function" || !req || !req.body || typeof req.body !== "object") return flat;
+  try { const q = Number(def.quote(req.body)); return Number.isFinite(q) && q > 0 ? q : flat; } catch { return flat; }
+}
 import { mppProblem, sendMppProblem } from "./mpp-problem.js";
 import { monitorsPage, monitorThanksPage } from "./monitors-page.js";
 import { insiderPage, fundPage, dossierPage, hubPage, loadTeaser, normalizeTicker, normalizeManagerSlug, isSeededTicker, seededManager } from "./programmatic-pages.js";
@@ -4686,10 +4696,10 @@ if (!FREE_MODE) {
   const tempoAppender = createTempoChallengeAppender({
     realm: new URL(BASE_URL).host,
     secretKey: process.env.MPP_SECRET_KEY || "",
-    priceFor: (method, path) => {
+    priceFor: (method, path, req) => {
       const def = CATALOG[`${method} ${path}`];
       if (!def) return null;
-      const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
+      const priceUsd = quotedPriceUsd(def, req);
       if (!priceUsd) return null;
       return { priceUsd, description: def.name, identityBound: isIdentityBoundRoute(def), longRunning: isLongRunningSlug(def.slug) };
     },
@@ -4702,10 +4712,10 @@ if (!FREE_MODE) {
   // STRIPE_SECRET_KEY + STRIPE_PROFILE_ID (unset -> not mounted).
   const stripeAppender = createStripeChallengeAppender({
     realm: new URL(BASE_URL).host,
-    priceFor: (method, path) => {
+    priceFor: (method, path, req) => {
       const def = CATALOG[`${method} ${path}`];
       if (!def) return null;
-      const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
+      const priceUsd = quotedPriceUsd(def, req);
       if (!priceUsd) return null;
       return { priceUsd, description: def.name, identityBound: isIdentityBoundRoute(def), longRunning: isLongRunningSlug(def.slug) };
     },
@@ -4741,10 +4751,10 @@ if (!FREE_MODE) {
     confirmSettlement: confirmTempoSettlement,
     secretKey: process.env.MPP_SECRET_KEY || "",
     realm: new URL(BASE_URL).host,
-    priceFor: (method, path) => {
+    priceFor: (method, path, req) => {
       const def = CATALOG[`${method} ${path}`];
       if (!def) return null;
-      const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
+      const priceUsd = quotedPriceUsd(def, req);
       return priceUsd ? { priceUsd, identityBound: isIdentityBoundRoute(def) } : null;
     },
   });
@@ -4764,10 +4774,10 @@ if (!FREE_MODE) {
   const stripeGate = createStripeGate({
     replayGuard: stripeReplayGuard,
     realm: new URL(BASE_URL).host,
-    priceFor: (method, path) => {
+    priceFor: (method, path, req) => {
       const def = CATALOG[`${method} ${path}`];
       if (!def) return null;
-      const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
+      const priceUsd = quotedPriceUsd(def, req);
       return priceUsd ? { priceUsd, identityBound: isIdentityBoundRoute(def) } : null;
     },
   });
@@ -4780,10 +4790,10 @@ if (!FREE_MODE) {
   // on a final 200 (src/credits.js). Mounted before x402mw like the tempo and
   // stripe gates; the dispatcher below bypasses x402 for req.creditsSettling.
   if (_credits) {
-    app.use(_credits.gate((method, path) => {
+    app.use(_credits.gate((method, path, req) => {
       const def = CATALOG[`${method} ${path}`];
       if (!def) return null;
-      const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
+      const priceUsd = quotedPriceUsd(def, req);
       return priceUsd ? { priceUsd, slug: def.slug, identityBound: isIdentityBoundRoute(def) } : null;
     }));
     console.log("Prepaid card credits enabled (Bearer a402_ keys)");

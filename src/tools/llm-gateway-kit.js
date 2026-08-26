@@ -27,6 +27,7 @@
 // the stream finishes.) Streamed responses are not idempotency-replayable (the
 // cache hooks res.json only).
 
+import { METER_MARKUP, METER_FLOOR_USD, METER_MIN_SETTLE_USD } from "../gateway-meter.js";
 import { createHash } from "node:crypto";
 // Static import (not agent-kit's lazy pattern): validateRequest must stay
 // synchronous because promptCacheKey — called from the pre-paywall cache
@@ -516,6 +517,57 @@ export const TIERS = {
     prefixes: [OX_MODEL],
   },
 };
+
+// ---------------------------------------------------------------------------
+// METERED TIER (2026-08-26): pay what the call costs, quoted per request.
+//
+// The flat tiers fix the amount in the 402 before the handler runs, so a
+// 5-token "hi" on the base tier costs the same $0.02 as a 2k-token answer -
+// measured 170x-2,162x upstream on the chat tiers (see gateway-meter.js). The
+// `upto` meter already fixes that for buyers whose client speaks upto: they
+// authorize the tier price as a ceiling and settle actual usage + 15%. But
+// most x402 clients (ClawRouter and every stock exact-scheme client among
+// them) pay `exact`, and for them the price IS what the 402 says.
+//
+// So this tier quotes the 402 amount FROM THE REQUEST BODY: @x402/core
+// resolves a `price` function per request (payments.js acceptsForItem hands
+// it the parsed body), and the quote is the same worst-case arithmetic the
+// margin clamp uses - exact-BPE input + the output cap at the model's list
+// price - times METER_MARKUP, plus the per-request floor, never below the
+// facilitator's minimum settle. Small calls get small quotes (a nano "hi"
+// lands on the $0.001 floor); a buyer who sets max_tokens honestly pays for
+// what they asked for. An upto buyer on this tier gets the same quote as
+// their CEILING and then settles actual usage, exactly as on the flat tiers.
+//
+// Safety of a per-request price on `exact`: the price function runs on EVERY
+// request, including the paid retry, against THAT request's body - so a
+// payment authorized for a small quote cannot be replayed with a bigger body
+// (the requirements no longer match and the paywall answers 402 again). A
+// body that quotes above `maxQuoteUsd` is refused with a 400 before any
+// upstream spend, and the 402 for it carries the cap so nobody pays for a
+// request the handler will refuse (>= 400 cancels settlement).
+//
+// Listed LAST: its prefixes are the union of every flat tier's, and tierFor()
+// takes the first match, so explicit models keep resolving to their home
+// tiers for the self-correcting 400s and /v1/models stays de-duplicated.
+export const METERED_MAX_QUOTE_USD = Number(process.env.GATEWAY_METERED_MAX_QUOTE_USD || 2);
+const METERED_PREFIXES = [...new Set(Object.values(TIERS)
+  .filter((t) => !t.router && !t.lockedModel && !t.stealth)
+  .flatMap((t) => t.prefixes || []))];
+TIERS["v1-chat-metered"] = {
+  metered: true,
+  reasoningDefault: "lowest", // the buyer pays for reasoning tokens: default to the cheapest effort, opt up explicitly
+  route: "POST /v1/metered/chat/completions",
+  price: METER_MIN_SETTLE_USD,            // the FLOOR: what the catalog shows as "from"; the 402 quotes per request
+  maxQuoteUsd: METERED_MAX_QUOTE_USD,
+  maxInputChars: 200_000,
+  maxTokens: 8192,
+  defaultMaxTokens: 1024,
+  maxPrice: { prompt: 20, completion: 100 },
+  prefixes: METERED_PREFIXES,
+};
+TIERS["v1-chat-metered"].prefixes = METERED_PREFIXES;
+
 
 // Drop-in compatibility: bare OpenAI-style names map to their OpenRouter ids,
 // so `model: "gpt-4o-mini"` from an unmodified OpenAI SDK works unchanged.
@@ -1040,6 +1092,10 @@ export function worstCaseUpstreamCost(body, tier, imageCount = 0) {
  *  the budget. Exported for the failover chain walk (each fallback model is
  *  re-clamped at its own cost) and for the pricing-margin CI test. */
 export function clampToMargin(body, tier, imageCount) {
+  // Metered tier: the 402 quote IS the worst case times the markup, so there
+  // is nothing to clamp against - the ceiling grows with the request. The
+  // per-call cap (maxQuoteUsd) is enforced in validateRequest instead.
+  if (tier.metered) return;
   const { inUsd, fixedUsd, inTokens, cost, serverTools } = worstCaseUpstreamCost(body, tier, imageCount);
   const budgetUsd = tier.price * MARGIN;
   const n = body.n || 1;
@@ -1368,6 +1424,15 @@ export function validateRequest(input, tierSlug, { clamp = true } = {}) {
   }
   cacheControlPref(input); // shape-validate only (400 on a bad value); the preference is call-time, not in the normalized body
   if (clamp) clampToMargin(body, tier, totalImages);
+  if (clamp && tier.metered) {
+    // Refuse pre-spend anything the tier would quote above its per-call cap:
+    // the 402 for such a body carries the cap (payments.js), the handler
+    // answers this 400, and >= 400 cancels settlement, so nobody pays for it.
+    const q = meteredQuoteFromNormalized(body, totalImages);
+    if (q > tier.maxQuoteUsd) {
+      throw bad(`This request would cost $${q.toFixed(4)} metered, above the $${tier.maxQuoteUsd} per-call cap of ${tier.route.split(" ")[1]} - lower max_tokens or the input, or use a flat tier (GET /v1/models).`);
+    }
+  }
   return body;
 }
 
@@ -2636,6 +2701,36 @@ function makeHandler(tierSlug) {
   };
 }
 
+
+// ---- metered quote --------------------------------------------------------
+function imageCountOf(input) {
+  let n = 0;
+  for (const m of Array.isArray(input?.messages) ? input.messages : []) {
+    if (Array.isArray(m?.content)) for (const part of m.content) if (part && part.type === "image_url") n++;
+  }
+  return n;
+}
+/** Quote for an already-normalized metered body (validateRequest output). */
+function meteredQuoteFromNormalized(body, imageCount) {
+  const wc = worstCaseUpstreamCost(body, TIERS["v1-chat-metered"], imageCount);
+  const raw = Math.max(METER_MIN_SETTLE_USD, wc.totalUsd * METER_MARKUP + METER_FLOOR_USD);
+  return Math.ceil(raw * 1e6) / 1e6; // round UP to a micro-dollar: never quote below the arithmetic
+}
+/** The per-request price of the metered tier, from the RAW request body.
+ *  Never throws: an invalid body quotes the floor (the handler's own 400
+ *  refuses it, uncharged), and a body over the cap quotes the cap (same). */
+export function meteredQuoteUsd(input) {
+  const tier = TIERS["v1-chat-metered"];
+  try {
+    const v = validateRequest(input, "v1-chat-metered", { clamp: false });
+    const usd = meteredQuoteFromNormalized(v, imageCountOf(input));
+    if (usd > tier.maxQuoteUsd) return { usd: tier.maxQuoteUsd, overCap: true, model: v.model };
+    return { usd, model: v.model };
+  } catch (e) {
+    return { usd: tier.price, invalid: true, reason: String(e?.message || e).slice(0, 160) };
+  }
+}
+
 const SHARED_TAGS = ["llm", "ai", "inference", "chat", "gateway", "openai-compatible", "openrouter"];
 const EXAMPLE = { model: "openai/gpt-4o-mini", messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 5 };
 const EXAMPLE_OUT = {
@@ -2669,6 +2764,20 @@ const AUTO_INPUT_SCHEMA = {
 };
 
 export const LLM_GATEWAY_TOOLS = [
+  {
+    route: "POST /v1/metered/chat/completions",
+    name: "Chat completions - metered (pay what the call costs)",
+    slug: "v1-chat-metered",
+    category: "llm",
+    price: `$${METER_MIN_SETTLE_USD}`,
+    // payments.js: a `quote` makes the x402 price a per-request function of the body.
+    quote: (body) => meteredQuoteUsd(body).usd,
+    description:
+      `OpenAI-compatible chat completions billed per request from what the call costs: the 402 quotes exact-BPE input plus your max_tokens at the model's list price, times ${METER_MARKUP}, from $${METER_MIN_SETTLE_USD} up to a $${METERED_MAX_QUOTE_USD} per-call cap. Any model from the flat tiers (GET /v1/models). Pay the quote over x402 exact, or authorize it as a ceiling over upto and settle actual usage. Set max_tokens to what you need: it is what you pay for.`,
+    tags: [...["llm", "ai", "inference", "chat", "gateway", "openai-compatible", "openrouter"], "metered", "pay-per-token"],
+    discovery: { bodyType: "json", input: { model: "openai/gpt-4o-mini", messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 5 }, inputSchema: INPUT_SCHEMA, output: { example: { ...EXAMPLE_OUT, model: "openai/gpt-4o-mini" } } },
+    handler: makeHandler("v1-chat-metered"),
+  },
   {
     route: "POST /v1/nano/chat/completions",
     name: "Chat completions - nano tier",
@@ -2911,6 +3020,10 @@ export function modelsList() {
     // is the machine-readable surface agents pick models from, and pointing
     // one at a dead id is the exact class the live-catalog CI guard exists for.
     if (typeof tier.available === "function" && !tier.available()) continue;
+    // The metered tier's prefixes are the union of the flat tiers' - listing
+    // them again would duplicate every id. Instead each chat entry carries
+    // `meteredEndpoint`, the route that quotes the same model per request.
+    if (tier.metered) continue;
     for (const p of tier.prefixes) {
       data.push({
         // A family prefix that is not itself an upstream id is advertised as
@@ -2921,6 +3034,9 @@ export function modelsList() {
         owned_by: p.split("/")[0],
         x402: {
           tier: slug, endpoint: tier.route.split(" ")[1], priceUsd: tier.price, maxTokens: tier.maxTokens,
+          ...(slug.startsWith("v1-chat") && !tier.lockedModel && !tier.router && TIERS["v1-chat-metered"]
+            ? { meteredEndpoint: TIERS["v1-chat-metered"].route.split(" ")[1], meteredFromUsd: TIERS["v1-chat-metered"].price }
+            : {}),
           maxInputChars: Math.min(tier.maxInputChars, ADVERTISED_MAX_INPUT_CHARS),
           // Disclosure rides on the machine surface too, not only in prose:
           // an agent choosing a model must be able to SEE that this one shares

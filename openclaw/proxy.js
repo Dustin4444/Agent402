@@ -87,7 +87,7 @@ export async function startProxy({ upstream = DEFAULT_UPSTREAM, creditsKey = nul
         }
         const outbound = { ...body };
         if (requested === AUTO_ID) delete outbound.model; else outbound.model = route.id;
-        const headers = { "content-type": "application/json", accept: req.headers.accept || "application/json", "idempotency-key": randomUUID(), "user-agent": "agent402-openclaw/0.1.0" };
+        const headers = { "content-type": "application/json", accept: req.headers.accept || "application/json", "idempotency-key": randomUUID(), "user-agent": "agent402-openclaw/0.1.1" };
         if (key) headers.authorization = `Bearer ${key}`;
         const up = await paid(`${upstream}${route.endpoint}`, { method: "POST", headers, body: JSON.stringify(outbound), signal: AbortSignal.timeout(300_000) });
         stats.forwarded++;
