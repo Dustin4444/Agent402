@@ -4,6 +4,7 @@
 import { marked } from "marked";
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 import { RAILS_OR, RAILS_AMP } from "./rails.js";
+import { TIERS } from "./tools/llm-gateway-kit.js";
 
 const GUIDES = [
   {
@@ -884,6 +885,110 @@ for a successful response, and you can verify that from the headers you hold
 (no \`PAYMENT-RESPONSE\` = nothing settled). Prefer MPP? The same 402 also
 carries a \`WWW-Authenticate: Payment\` challenge - see
 [x402 and MPP on the same paywall](/guides/x402-and-mpp).
+`,
+  },
+  {
+    slug: "openclaw-model-provider",
+    title: "Use Agent402 as your OpenClaw model provider - pay by card, no wallet",
+    description:
+      "Point OpenClaw at Agent402's OpenAI-compatible gateway with a prepaid credits key: one config block, auto-routed models at a flat per-call price, paid by card. Or pay per call in USDC from a wallet over x402.",
+    md: `
+[OpenClaw](https://openclaw.ai) talks to any OpenAI-compatible provider through
+one block in \`openclaw.json\`. Agent402's LLM gateway is one of those, with a
+twist: it can be paid **by card**, through a prepaid credits key, so an agent
+runs without a crypto wallet. USDC over x402 works too, if you'd rather.
+
+## 1. Get a credits key (card, two minutes)
+
+Buy a pack at [agent402.tools/credits](https://agent402.tools/credits) by card.
+The key (\`a402_…\`) is shown once on the thanks page and emailed. It spends on
+any paid route, including every gateway tier below, and
+\`GET /api/credits/balance\` (Bearer) reports what is left.
+
+Put it in the environment OpenClaw runs in:
+
+\`\`\`bash
+export AGENT402_CREDITS_KEY=a402_…
+\`\`\`
+
+## 2. Add the provider
+
+\`\`\`json5
+// ~/.openclaw/openclaw.json
+{
+  agents: {
+    defaults: {
+      model: { primary: "agent402/auto" },
+    },
+  },
+  models: {
+    providers: {
+      agent402: {
+        baseUrl: "https://agent402.tools/v1/auto",
+        apiKey: "\${AGENT402_CREDITS_KEY}",
+        api: "openai-completions",
+        timeoutSeconds: 120,
+        models: [
+          {
+            id: "auto",
+            name: "Agent402 auto (routed, $${TIERS["v1-chat-auto"].price.toFixed(2)}/call)",
+            reasoning: false,
+            input: ["text"],
+            // Agent402 bills a flat $${TIERS["v1-chat-auto"].price.toFixed(2)} per call, not per token, so
+            // OpenClaw's per-token cost display does not apply and stays at zero.
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 4000,
+            maxTokens: ${TIERS["v1-chat-auto"].maxTokens},
+          },
+        ],
+      },
+    },
+  },
+}
+\`\`\`
+
+Restart the gateway (\`openclaw gateway restart\`). Every model call now goes to
+\`POST /v1/auto/chat/completions\` with your credits key, and \`auto\` picks the
+model per prompt (code, reasoning, long-context or general) from a ranked
+table, with failover if the first choice is down.
+
+## Explicit models and the other tiers
+
+The gateway has 6 chat tiers, each a flat price per call:
+
+| tier | baseUrl path | per call | max output tokens |
+|---|---|---|---|
+| nano | \`/v1/nano\` | $0.003 | 768 |
+| auto (routed) | \`/v1/auto\` | $0.01 | 1024 |
+| base | \`/v1\` | $0.02 | 2048 |
+| grounded (web search on every call) | \`/v1/grounded\` | $0.03 | 1024 |
+| pro | \`/v1/pro\` | $0.10 | 4096 |
+| premium | \`/v1/premium\` | $0.50 | 8192 |
+
+To pin a model, add a second provider whose \`baseUrl\` is that tier's path and
+whose \`models[]\` list ids from [\`/v1/models\`](https://agent402.tools/v1/models),
+for example \`baseUrl: "https://agent402.tools/v1/premium"\` with
+\`{ id: "openai/gpt-5" }\` and \`{ id: "anthropic/claude-opus-5" }\`. A model sent
+to the wrong tier is answered with a 400 that names its home tier; nothing is
+charged.
+
+## Pay from a wallet instead
+
+Every tier answers an x402 \`402\` (${RAILS_OR}) and an MPP challenge, so any
+x402-capable client can pay per call with no key at all. For OpenClaw that
+means a local proxy that signs the payment and forwards the request, the same
+pattern other x402 routers use; \`agent402-client\` already does the paying half
+(x402, MPP, credits, free tier), and an OpenClaw plugin that wraps it as a
+provider is in progress. Until it ships, the credits-key block above is the
+supported path.
+
+## What you get that a plain router does not
+
+The same key and the same base URL reach the rest of the catalog: 500+
+deterministic tools (search, extract, render, PDF, EDGAR, openFDA, on-chain
+data), the [smart order router](https://agent402.tools/guides/smart-order-router)
+that pays other x402 sellers on your agent's behalf, and receipts for every
+call. Prices on this page are read from the live gateway configuration.
 `,
   },
 ];

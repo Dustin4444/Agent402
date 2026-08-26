@@ -1,0 +1,59 @@
+{
+  "name": "agent402-openclaw",
+  "version": "0.1.0",
+  "description": "OpenClaw model provider for Agent402: auto-routed and explicit LLM models at a flat per-call price, paid by card (prepaid credits key) or in USDC over x402 through a local proxy. Zero dependencies; x402 wallet payment is an optional peer.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./proxy": "./proxy.js",
+    "./models": "./models.js"
+  },
+  "bin": {
+    "agent402-openclaw": "./cli.js"
+  },
+  "files": [
+    "index.js",
+    "provider.js",
+    "models.js",
+    "proxy.js",
+    "cli.js",
+    "openclaw.plugin.json",
+    "README.md"
+  ],
+  "openclaw": {
+    "extensions": ["./index.js"]
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node test.js"
+  },
+  "peerDependencies": {
+    "@x402/evm": ">=2.20.0",
+    "@x402/fetch": ">=2.20.0"
+  },
+  "peerDependenciesMeta": {
+    "@x402/evm": { "optional": true },
+    "@x402/fetch": { "optional": true }
+  },
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin",
+    "llm-router",
+    "x402",
+    "mpp",
+    "ai-agents",
+    "usdc",
+    "agent402"
+  ],
+  "author": "Havok Holdings LLC",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MikeyPetrillo/Agent402.git",
+    "directory": "openclaw"
+  },
+  "homepage": "https://agent402.tools/guides/openclaw-model-provider"
+}

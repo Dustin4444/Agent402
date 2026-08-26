@@ -1,0 +1,107 @@
+#!/usr/bin/env node
+// agent402-openclaw <command>
+//   setup [--credits-key a402_...] [--write]   store the key, print (or merge) the openclaw.json block
+//   proxy [--port N] [--upstream URL]          run the local proxy on its own (no OpenClaw needed)
+//   doctor                                     show what is configured and whether the gateway answers
+import { mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { STATE_DIR, CREDITS_KEY_FILE, resolveCreditsKey, resolvePayFetch } from "./index.js";
+import { startProxy, loadRoutes, DEFAULT_UPSTREAM } from "./proxy.js";
+import { providerModelsConfig } from "./models.js";
+import { DEFAULT_PORT, PROVIDER_ID } from "./provider.js";
+
+const args = process.argv.slice(2);
+const cmd = args[0] || "help";
+const opt = (k) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : null; };
+const has = (k) => args.includes(k);
+const out = (s) => process.stdout.write(s + "\n");
+
+/** The provider block for openclaw.json (JSON, so it can be merged; OpenClaw reads JSON5 which is a superset). */
+export function configBlock({ port = DEFAULT_PORT, routes }) {
+  return {
+    agents: { defaults: { model: { primary: `${PROVIDER_ID}/auto` } } },
+    models: { providers: { [PROVIDER_ID]: { ...providerModelsConfig(`http://127.0.0.1:${port}`, routes), timeoutSeconds: 120 } } },
+  };
+}
+
+function mergeInto(target, block) {
+  const t = target && typeof target === "object" ? target : {};
+  t.agents = t.agents || {}; t.agents.defaults = t.agents.defaults || {};
+  t.agents.defaults.model = { ...(t.agents.defaults.model || {}), primary: block.agents.defaults.model.primary };
+  t.models = t.models || {}; t.models.providers = t.models.providers || {};
+  t.models.providers[PROVIDER_ID] = block.models.providers[PROVIDER_ID];
+  return t;
+}
+
+async function main() {
+  if (cmd === "help" || has("--help")) {
+    out("agent402-openclaw setup [--credits-key a402_...] [--write] | proxy [--port N] [--upstream URL] | doctor");
+    return 0;
+  }
+  const upstream = (opt("--upstream") || process.env.AGENT402_UPSTREAM || DEFAULT_UPSTREAM).replace(/\/+$/, "");
+  const port = Number(opt("--port")) || DEFAULT_PORT;
+
+  if (cmd === "setup") {
+    const key = (opt("--credits-key") || "").trim();
+    if (key) {
+      if (!/^a402_[A-Za-z0-9_-]{16,80}$/.test(key)) { console.error("that does not look like an Agent402 credits key (a402_...)"); return 2; }
+      mkdirSync(STATE_DIR(), { recursive: true });
+      writeFileSync(CREDITS_KEY_FILE(), key + "\n", { mode: 0o600 });
+      try { chmodSync(CREDITS_KEY_FILE(), 0o600); } catch { /* best effort */ }
+      out(`stored credits key at ${CREDITS_KEY_FILE()} (0600)`);
+    } else if (!resolveCreditsKey()) {
+      out(`no credits key yet: buy a pack by card at ${upstream}/credits, then rerun with --credits-key a402_...`);
+    }
+    let routes;
+    try { routes = await loadRoutes(upstream); } catch (e) { console.error(`could not read ${upstream}/v1/models: ${e?.message || e}`); return 2; }
+    const block = configBlock({ port, routes });
+    const cfgPath = join(process.env.AGENT402_OPENCLAW_HOME || join(homedir(), ".openclaw"), "openclaw.json");
+    if (has("--write")) {
+      let existing = {};
+      if (existsSync(cfgPath)) {
+        try { existing = JSON.parse(readFileSync(cfgPath, "utf8")); }
+        catch { console.error(`${cfgPath} is not plain JSON (JSON5 comments?); not touching it. Merge this block by hand:`); out(JSON.stringify(block, null, 2)); return 2; }
+      }
+      mkdirSync(join(cfgPath, ".."), { recursive: true });
+      const tmp = `${cfgPath}.${process.pid}.tmp`;
+      writeFileSync(tmp, JSON.stringify(mergeInto(existing, block), null, 2) + "\n");
+      const { renameSync } = await import("node:fs"); renameSync(tmp, cfgPath);
+      out(`wrote provider "${PROVIDER_ID}" + primary model ${PROVIDER_ID}/auto into ${cfgPath}; run: openclaw gateway restart`);
+    } else {
+      out(`add to ${cfgPath} (or rerun with --write):`);
+      out(JSON.stringify(block, null, 2));
+    }
+    return 0;
+  }
+
+  if (cmd === "proxy") {
+    const creditsKey = resolveCreditsKey();
+    const payFetch = creditsKey ? null : await resolvePayFetch({}, (m) => console.error(m));
+    const p = await startProxy({ upstream, creditsKey, payFetch, port, log: (m) => console.error(m) });
+    out(`${p.baseUrl}/v1 (${p.mode})`);
+    await new Promise(() => {}); // run until killed
+  }
+
+  if (cmd === "doctor") {
+    const key = resolveCreditsKey();
+    out(`upstream: ${upstream}`);
+    out(`credits key: ${key ? `present (${key.slice(0, 8)}…)` : "none"}`);
+    out(`wallet key: ${/^0x[0-9a-fA-F]{64}$/.test(process.env.AGENT402_WALLET_KEY || "") ? "present" : "none"}`);
+    try { const r = await loadRoutes(upstream); out(`gateway: ok, ${r.size} models`); } catch (e) { out(`gateway: unreachable (${e?.message || e})`); return 1; }
+    if (key) {
+      try {
+        const r = await fetch(`${upstream}/api/credits/balance`, { headers: { authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(15_000) });
+        const j = await r.json().catch(() => ({}));
+        out(`balance: ${r.ok ? `$${j.balanceUsd ?? j.balance ?? "?"}` : `HTTP ${r.status} ${j.reason || j.error || ""}`}`);
+      } catch (e) { out(`balance: unreadable (${e?.message || e})`); }
+    }
+    return 0;
+  }
+
+  console.error(`unknown command: ${cmd}`); return 2;
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().then((c) => process.exit(c ?? 0), (e) => { console.error(e?.message || e); process.exit(1); });
+}
