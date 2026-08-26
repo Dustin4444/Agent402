@@ -6,7 +6,7 @@ import { ExactSvmScheme } from "@x402/svm/exact/server";
 import { ExactStellarScheme } from "@x402/stellar/exact/server";
 import { ExactAvmScheme } from "@x402/avm/exact/server";
 import { convertToTokenAmount, numberToDecimalString } from "@x402/core/utils";
-import { confirmStellarTransfer, settlePayerOf } from "./stellar-confirm.js";
+import { confirmStellarTransfer, settlePayerOf, settleWithStellarFallback } from "./stellar-confirm.js";
 import { clarifySvmSettleFailure } from "./svm-clarify.js";
 import {
   bazaarResourceServerExtension,
@@ -819,34 +819,36 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   // cannot double-charge. confirmStellarTransfer returns null on any error or
   // timeout, leaving the original failure exactly as it was - the only unsafe
   // direction is claiming a payment that did not occur, and it never guesses.
+  // Plus a FALLBACK facilitator (2026-08-26): when the primary fails and the
+  // transfer is NOT on-chain, the same signed payload is re-submitted through
+  // it (settleWithStellarFallback, src/stellar-confirm.js - the decision is a
+  // pure function so the test can drive every path). Configured by
+  // STELLAR_FALLBACK_FACILITATOR_URL + _KEY (an OpenZeppelin /gen token); it is
+  // NOT in facilitatorClients, so @x402 never tries it as a peer and the boot
+  // /supported guard does not reason about it - it is probed separately, loud
+  // but non-fatal.
+  const stellarFallbackUrl = (process.env.STELLAR_FALLBACK_FACILITATOR_URL || "").trim();
+  const stellarFallbackKey = (process.env.STELLAR_FALLBACK_FACILITATOR_KEY || "").trim();
+  const stellarFallbackClient = stellarFallbackUrl && stellarFallbackKey && stellarFallbackUrl !== stellarFacilitatorUrl
+    ? new HTTPFacilitatorClient({ url: stellarFallbackUrl, createAuthHeaders: async () => { const h = { Authorization: `Bearer ${stellarFallbackKey}` }; return { verify: h, settle: h, supported: h }; } })
+    : null;
   class StellarConfirmingFacilitatorClient extends HTTPFacilitatorClient {
     async settle(paymentPayload, paymentRequirements) {
       const startedAt = Date.now() - 5_000;   // skew allowance for Horizon clocks
       const payTo = paymentRequirements?.payTo || stellarWallet;
+      const network = paymentRequirements?.network || "stellar:pubnet";
       // The payer comes from the FACILITATOR's own settle result/error, never
       // from the payload — see settlePayerOf(). Reading it from the payload is
       // what made the first version of this a no-op in production.
-      try {
-        const res = await super.settle(paymentPayload, paymentRequirements);
-        if (res?.success !== false) return res;
-        const payer = settlePayerOf(res);
-        const found = await confirmStellarTransfer({ payer, payTo, sinceMs: startedAt });
-        if (!found) return res;
-        console.warn(`[stellar] facilitator said ${JSON.stringify(res.errorReason || "failed")} but ${found.transaction} is confirmed on-chain - honouring the settlement`);
-        return { ...res, success: true, errorReason: undefined, errorMessage: undefined, transaction: found.transaction };
-      } catch (e) {
-        const payer = settlePayerOf(e);
-        const found = await confirmStellarTransfer({ payer, payTo, sinceMs: startedAt });
-        if (!found) throw e;
-        console.warn(`[stellar] settle threw (${(e?.message || String(e)).slice(0, 120)}) but ${found.transaction} is confirmed on-chain - honouring the settlement`);
-        return {
-          success: true,
-          transaction: found.transaction,
-          network: paymentRequirements?.network || "stellar:pubnet",
-          payer: payer || undefined,
-          amount: found.amount || undefined,
-        };
-      }
+      const res = await settleWithStellarFallback({
+        primary: () => super.settle(paymentPayload, paymentRequirements),
+        fallback: stellarFallbackClient ? () => stellarFallbackClient.settle(paymentPayload, paymentRequirements) : null,
+        confirm: ({ payer }) => confirmStellarTransfer({ payer, payTo, sinceMs: startedAt }),
+      });
+      // A thrown primary that the chain later confirmed comes back as a bare
+      // success object; give it the wire shape @x402 expects.
+      if (res && res.success === true && !res.network) return { ...res, network };
+      return res;
     }
   }
   if (stellarEnabled) {
@@ -855,7 +857,15 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
       url: stellarFacilitatorUrl,
       createAuthHeaders: async () => ({ verify: stellarAuthHeaders, settle: stellarAuthHeaders, supported: stellarAuthHeaders }),
     }));
-    console.log(`Stellar: settling USDC via facilitator ${stellarFacilitatorUrl} → ${stellarWallet}`);
+    console.log(`Stellar: settling USDC via facilitator ${stellarFacilitatorUrl} → ${stellarWallet}${stellarFallbackClient ? ` (fallback on pre-broadcast failure: ${stellarFallbackUrl})` : ""}`);
+    if (stellarFallbackClient && process.env.X402_SYNC_ON_START !== "false") {
+      // Loud, non-fatal: a fallback that cannot answer /supported would only
+      // fail at the moment it is needed, which is the worst time to learn it.
+      stellarFallbackClient.getSupported().then((s) => {
+        const okKind = (s?.kinds || []).some((k) => String(k?.scheme) === "exact" && String(k?.network || "").startsWith("stellar:"));
+        if (!okKind) console.warn(`WARNING: Stellar fallback facilitator ${stellarFallbackUrl} does not advertise exact on stellar - it will not be able to settle`);
+      }).catch((e) => console.warn(`WARNING: Stellar fallback facilitator ${stellarFallbackUrl} unreachable at boot (${String(e?.message || e).slice(0, 120)})`));
+    }
   } else if (stellarCaip2.length && !stellarWallet) {
     console.warn(
       "WARNING: PAYMENT_NETWORKS enables `stellar` but STELLAR_WALLET_ADDRESS is unset - " +
