@@ -245,7 +245,8 @@ function makeTokenBriefHandlerInner(tierSlug) {
       topHolders: concentrationBucket(top10),
       riskLevel: safety?.riskLevel || "unknown",
     };
-    const risks = (safety?.risks?.length ? safety.risks : report?.risks || []).slice(0, t.risks);
+    const allRisks = safety?.risks?.length ? safety.risks : report?.risks || [];
+    const risks = allRisks.slice(0, t.risks);
 
     // 4) GROUNDING BLOCKS - every line is a fetched fact or a plainly marked
     //    probe failure. A failed leg NEVER becomes a silent zero.
@@ -258,6 +259,8 @@ function makeTokenBriefHandlerInner(tierSlug) {
       `Launchpad ${report?.launchpad ?? jup?.launchpad ?? "none reported"}; first detected ${report?.detectedAt || "unknown"}; first pool ${jup?.firstPool?.id || "unknown"} created ${jup?.firstPool?.createdAt || "unknown"}`,
       `Price ${priceUsd == null ? "unknown" : `$${priceUsd}`}${priceRow?.blockId ? ` (Jupiter, block ${priceRow.blockId})` : ""}; 24h change ${priceRow?.priceChange24hPct ?? jup?.stats24h?.priceChangePct ?? "unknown"}%`,
       `Market cap ${jup?.marketCapUsd ?? "unknown"}; FDV ${jup?.fdvUsd ?? "unknown"}`,
+      `Verification: Jupiter verified ${report?.verification ? String(report.verification.jupVerified) : (jup ? String(jup.isVerified) : "unknown")}, Jupiter strict list ${report?.verification ? String(report.verification.jupStrict) : "unknown"}`,
+      `Links: website ${jup?.website || (pairRows.find((p) => p.websites?.length)?.websites?.[0]) || "none listed"}; twitter ${jup?.twitter || "none listed"}; socials on DexScreener ${[...new Set(pairRows.flatMap((p) => p.socials || []))].slice(0, 3).join(", ") || "none listed"}`,
       probes.report ? "" : `NOTE: RugCheck report probe FAILED: ${String(reportR.error).slice(0, 120)}`,
       probes.lookup ? "" : `NOTE: Jupiter lookup probe FAILED: ${String(lookupR.error).slice(0, 120)}`,
     ].filter(Boolean).join("\n");
@@ -271,9 +274,10 @@ function makeTokenBriefHandlerInner(tierSlug) {
     ].join("\n");
 
     const marketLines = marketRows.slice(0, t.markets).map((m, i) => `${i + 1}. ${m.type || "?"} pool ${m.pool || "?"} - liquidity ${usd(m.liquidityUsd)}, LP locked ${pct(m.lpLockedPct)} (${usd(m.lpLockedUsd)}), LP providers ${m.lpProviders ?? "?"}`).join("\n");
-    const pairLines = pairRows.slice(0, t.pairs).map((p, i) => `${i + 1}. ${p.dex || "?"} ${p.base?.symbol || "?"}/${p.quote?.symbol || "?"} ${p.pairAddress || "?"} - liquidity ${usd(p.liquidityUsd)}, 24h volume ${usd(p.volume?.h24)}, 24h change ${p.priceChangePct?.h24 ?? "?"}%, 24h buys/sells ${p.txns24h?.buys ?? "?"}/${p.txns24h?.sells ?? "?"}, age ${p.ageHours ?? "?"}h, profile ${p.hasProfile ? "yes" : "no"}`).join("\n");
+    const pairLines = pairRows.slice(0, t.pairs).map((p, i) => `${i + 1}. ${p.dex || "?"} ${p.base?.symbol || "?"}/${p.quote?.symbol || "?"} ${p.pairAddress || "?"} - liquidity ${usd(p.liquidityUsd)}, volume 24h ${usd(p.volume?.h24)} / 6h ${usd(p.volume?.h6)} / 1h ${usd(p.volume?.h1)}, price change 24h ${p.priceChangePct?.h24 ?? "?"}% / 1h ${p.priceChangePct?.h1 ?? "?"}%, buys/sells 24h ${p.txns24h?.buys ?? "?"}/${p.txns24h?.sells ?? "?"}, 6h ${p.txns6h?.buys ?? "?"}/${p.txns6h?.sells ?? "?"}, 1h ${p.txns1h?.buys ?? "?"}/${p.txns1h?.sells ?? "?"}, age ${p.ageHours ?? "?"}h, profile ${p.hasProfile ? "yes" : "no"}`).join("\n");
+    const jupFlow = (label, st) => (st ? `Jupiter ${label}: buy ${usd(st.buyVolumeUsd)} (organic ${usd(st.buyOrganicVolumeUsd)}), sell ${usd(st.sellVolumeUsd)} (organic ${usd(st.sellOrganicVolumeUsd)}), ${st.numBuys ?? "?"} buys / ${st.numSells ?? "?"} sells, ${st.numTraders ?? "?"} traders (${st.numOrganicBuyers ?? "?"} organic buyers), net buyers ${st.numNetBuyers ?? "?"}, price ${st.priceChangePct ?? "?"}%, holders ${st.holderChangePct ?? "?"}%, liquidity ${st.liquidityChangePct ?? "?"}%, volume ${st.volumeChangePct ?? "?"}%` : "");
     const lockerRows = Array.isArray(report?.lockers?.rows) ? report.lockers.rows.slice(0, t.lockers) : [];
-    const lockerLines = lockerRows.map((l, i) => `${i + 1}. ${l.type || "?"} ${l.account || "?"} - ${usd(l.usdLocked)} locked until ${l.unlockDate || "unknown"}`).join("\n");
+    const lockerLines = lockerRows.map((l, i) => `${i + 1}. ${l.type || "?"} ${l.account || "?"} - ${usd(l.usdLocked)} locked until ${l.unlockDate || "unknown"}`).join("\n") + (report?.lockers?.total > lockerRows.length ? `\n(${lockerRows.length} of ${report.lockers.total} lockers shown)` : "");
     const liquidityBlock = [
       `Total market liquidity (RugCheck): ${usd(report?.totalMarketLiquidityUsd)}; stable-pair liquidity ${usd(report?.totalStableLiquidityUsd)}; LP providers ${report?.totalLpProviders ?? "unknown"}`,
       `LP locked overall: ${pct(lpLockedPct)} [bucket: ${buckets.lpLocked}]`,
@@ -282,7 +286,8 @@ function makeTokenBriefHandlerInner(tierSlug) {
       lockerLines ? `Lockers:\n${lockerLines}` : `Lockers: ${report?.lockers?.total ? `${report.lockers.total} reported, no rows returned` : "none reported"}`,
       pairs ? `DexScreener pairs: ${pairs.totalPairs ?? 0} total, combined liquidity ${usd(pairs.totals?.liquidityUsd)}, 24h volume ${usd(pairs.totals?.volume24hUsd)}, 24h transactions ${pairs.totals?.txns24h ?? "unknown"}` : `DexScreener probe FAILED: ${String(pairsR.error).slice(0, 120)}`,
       pairLines ? `Pairs (deepest first):\n${pairLines}` : "",
-      jup?.stats24h ? `Jupiter 24h: buy volume ${usd(jup.stats24h.buyVolumeUsd)}, sell volume ${usd(jup.stats24h.sellVolumeUsd)}, ${jup.stats24h.numBuys ?? "?"} buys / ${jup.stats24h.numSells ?? "?"} sells, ${jup.stats24h.numTraders ?? "?"} traders, net buyers ${jup.stats24h.numNetBuyers ?? "?"}, holder change ${jup.stats24h.holderChangePct ?? "?"}%, liquidity change ${jup.stats24h.liquidityChangePct ?? "?"}%` : "",
+      jupFlow("24h", jup?.stats24h), jupFlow("6h", jup?.stats6h), jupFlow("1h", jup?.stats1h),
+      jup?.stats24h && jup.stats24h.buyVolumeUsd != null && jup.stats24h.buyOrganicVolumeUsd != null && jup.stats24h.buyVolumeUsd > 0 ? `Organic share of 24h buy volume (Jupiter's wash-trade signal): ${Math.round((jup.stats24h.buyOrganicVolumeUsd / jup.stats24h.buyVolumeUsd) * 100)}% - a low share means most volume is not from organic buyers.` : "",
     ].filter(Boolean).join("\n");
 
     const holderLines = holderRows.slice(0, t.holders).map((h, i) => `${i + 1}. owner ${h.owner || "?"} (account ${h.tokenAccount || "?"}) - ${pct(h.pct)}${h.label ? ` [${h.label.type || "labelled"}: ${h.label.name || ""}]` : " [unlabelled wallet]"}${h.insider ? " [INSIDER-FLAGGED]" : ""}`).join("\n");
@@ -294,7 +299,7 @@ function makeTokenBriefHandlerInner(tierSlug) {
     const riskBlock = [
       safety ? `RugCheck score ${safety.score ?? "unknown"} (normalised ${safety.scoreNormalised ?? "unknown"} of 100, LOWER is safer); banded risk level "${safety.riskLevel || "unknown"}"; danger ${safety.riskCounts?.danger ?? 0} / warn ${safety.riskCounts?.warn ?? 0} / info ${safety.riskCounts?.info ?? 0}` : `RugCheck safety probe FAILED: ${String(safetyR.error).slice(0, 120)}`,
       `Rugged flag: ${report ? String(report.rugged) : "unknown"}; insider networks detected ${report?.insiderNetworks ?? "unknown"}`,
-      riskLines ? `Named risk flags:\n${riskLines}` : "Named risk flags: none returned",
+      riskLines ? `Named risk flags (${risks.length} of ${allRisks.length} returned${allRisks.length > risks.length ? "; the rest are in the data appendix" : ""}):\n${riskLines}` : "Named risk flags: none returned",
     ].join("\n");
 
     // 5) NUMBERED SOURCES - only legs that actually answered.

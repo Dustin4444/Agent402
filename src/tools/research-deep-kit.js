@@ -11,6 +11,7 @@
 // NETWORK test set, never cached (the web moves). Gated on OPENROUTER_API_KEY
 // (503 without it), independent of Stripe keys.
 import { fetchOpenRouter, throwUpstreamError, RERANK_MODEL, bad, upstreamUserId } from "./llm-gateway-kit.js";
+import { extractArticle } from "./extract.js";
 import { recordCompositeUsage } from "../composite-spend-guard.js";
 
 // Per-buyer OpenRouter `user` id, so one abusive buyer can't get our whole
@@ -43,12 +44,12 @@ const M = {
 // product is top-quality too. Tiers differentiate by research breadth
 // (searches/sources/length), not model.
 export const RESEARCH_TIERS = {
-  "research": { price: "$0.60", maxUpstreamUsd: 0.35, subQ: 3, searches: 3, topK: 15, synth: M.synthPrem, synthMaxTokens: 5000, words: "~1,500" },
-  "research-pro": { price: "$0.85", maxUpstreamUsd: 0.5, subQ: 6, searches: 8, topK: 30, synth: M.synthPrem, synthMaxTokens: 7000, words: "~2,200" },
-  "research-max": { price: "$1.10", maxUpstreamUsd: 0.65, subQ: 12, searches: 12, topK: 40, synth: M.synthPrem, synthMaxTokens: 8000, words: "~2,800" },
+  "research": { price: "$0.60", maxUpstreamUsd: 0.35, subQ: 3, searches: 3, topK: 15, bodies: 5, synth: M.synthPrem, synthMaxTokens: 5000, words: "~1,500" },
+  "research-pro": { price: "$0.85", maxUpstreamUsd: 0.5, subQ: 6, searches: 8, topK: 30, bodies: 8, synth: M.synthPrem, synthMaxTokens: 7000, words: "~2,200" },
+  "research-max": { price: "$1.10", maxUpstreamUsd: 0.65, subQ: 12, searches: 12, topK: 40, bodies: 10, synth: M.synthPrem, synthMaxTokens: 8000, words: "~2,800" },
   // Market / competitor brief: the research pipeline with a competitive-
   // intelligence PLAN frame and a fixed brief structure (thesis product #3).
-  "market-brief": { price: "$0.85", maxUpstreamUsd: 0.5, subQ: 6, searches: 8, topK: 30, synth: M.synthPrem, synthMaxTokens: 7000, words: "~2,200",
+  "market-brief": { price: "$0.85", maxUpstreamUsd: 0.5, subQ: 6, searches: 8, topK: 30, bodies: 8, synth: M.synthPrem, synthMaxTokens: 7000, words: "~2,200",
     planFrame: "You are a competitive-intelligence analyst planning a MARKET / COMPETITOR BRIEF. Cover, across the sub-questions: how the market is defined and sized; the key players and what each offers; pricing and packaging; recent moves (funding, launches, M&A, partnerships, exits); how the players differentiate and what switching costs exist; risks, regulation and open questions.",
     synthFrame: "Structure the brief as: MARKET AT A GLANCE (definition, size/growth only where sourced), KEY PLAYERS (one short grounded paragraph or bullet per player: what it does, who it serves, pricing where sourced), RECENT MOVES, HOW THEY DIFFER (positioning, moat, switching costs), RISKS & OPEN QUESTIONS, BOTTOM LINE (2-4 sentences). Only include a player or a number the sources support." },
 };
@@ -56,6 +57,70 @@ export const RESEARCH_TIERS = {
 export const RESEARCH_MODELS = [M.plan, M.ground, M.synthStd, M.synthPrem];
 
 const MAX_QUERY_CHARS = 2000;
+// Page bodies for the top-ranked sources: the synthesis used to see 500-char
+// snippets and was told to treat them as its only knowledge, so "the source
+// is silent" meant "the excerpt is silent". extractArticle is the existing
+// SSRF-guarded, size-capped reader; bodies are capped so the added synthesis
+// input stays ~1.5k tokens per source (measured avg synthesis $0.107 vs caps
+// of $0.35+, so +$0.04-0.08 fits every tier).
+const BODY_CHARS = 6_000;
+const BODY_TIMEOUT_MS = 15_000;
+const BODY_CONCURRENCY = 3;
+async function readBodies(sources, n, fetchBody = extractArticle) {
+  const targets = sources.slice(0, n);
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(BODY_CONCURRENCY, targets.length) }, async () => {
+    while (i < targets.length) {
+      const s = targets[i++];
+      try {
+        const a = await Promise.race([fetchBody(s.url), new Promise((_, r) => setTimeout(() => r(new Error("timeout")), BODY_TIMEOUT_MS))]);
+        const text = String(a?.markdown || a?.text || "").replace(/\s+/g, " ").trim();
+        if (text.length >= 200) { s.body = text.slice(0, BODY_CHARS); s.bodyTruncated = text.length > BODY_CHARS; s.bodyChars = text.length; }
+      } catch { /* the snippet stands; the label says EXCERPT ONLY */ }
+    }
+  }));
+  return sources;
+}
+// Post-check, deterministic: strip [n] tags outside the source range (a
+// hallucinated number would point a reader at the wrong source), and count
+// which sources the prose actually cites - `sources_cited` used to be the
+// LISTED count. Numeric claims: a sentence carrying [n] and a number whose
+// digits appear in neither source n's text nor the sub-answers is recorded
+// in meta (never silently rewritten).
+export function auditCitations(prose, sources, subAnswersText = "") {
+  const max = sources.length;
+  const cited = new Set();
+  let stripped = 0;
+  const out = String(prose || "").replace(/\[(\d{1,3})(?:\s*[-,–]\s*(\d{1,3}))?\]/g, (m, a, b) => {
+    const nums = b ? Array.from({ length: Math.max(0, Number(b) - Number(a) + 1) }, (_, k) => Number(a) + k) : [Number(a)];
+    const ok = nums.filter((n) => n >= 1 && n <= max);
+    if (!ok.length) { stripped++; return ""; }
+    ok.forEach((n) => cited.add(n));
+    return ok.map((n) => `[${n}]`).join("");
+  });
+  const unverified = [];
+  const norm = (t) => String(t || "").replace(/[,\s]/g, "").toLowerCase();
+  const pool = norm(subAnswersText);
+  for (const sent of out.split(/(?<=[.!?])\s+/)) {
+    const tags = [...sent.matchAll(/\[(\d{1,3})\]/g)].map((m) => Number(m[1]));
+    const nums = [...sent.matchAll(/\$?\d[\d,]*(?:\.\d+)?%?/g)].map((m) => m[0]).filter((x) => x.replace(/\D/g, "").length >= 2);
+    if (!tags.length || !nums.length) continue;
+    const hay = tags.map((n) => norm(`${sources[n - 1]?.body || ""} ${sources[n - 1]?.snippet || ""} ${sources[n - 1]?.title || ""}`)).join(" ") + " " + pool;
+    const missing = nums.filter((x) => !hay.includes(norm(x).replace(/^\$/, "").replace(/%$/, "")));
+    if (missing.length && unverified.length < 40) unverified.push({ sentence: sent.trim().slice(0, 240), numbers: [...new Set(missing)].slice(0, 6), sources: tags });
+  }
+  return { prose: out, cited: [...cited].sort((a, b) => a - b), stripped, unverified };
+}
+// The grounded-search model cites inline as [domain](url) / [domain.com];
+// the synthesizer must cite our numbered list, so those tags are stripped
+// from the sub-answers (dossier and fund already did this).
+function stripInlineCites(str) {
+  return String(str || "")
+    .replace(/\[([^\]]+)\]\((?:https?:)?\/\/[^)]+\)/g, "$1")
+    .replace(/\[[a-z0-9][a-z0-9.\-]*\.[a-z]{2,}(?:\s*,\s*[a-z0-9][a-z0-9.\-]*\.[a-z]{2,})*\]/gi, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
 const SEARCH_TIMEOUT_MS = 60_000;
 const SYNTH_TIMEOUT_MS = 120_000;
 
@@ -88,7 +153,7 @@ function sourcesFrom(data) {
 
 function makeResearchHandlerInner(tierSlug) {
   const t = RESEARCH_TIERS[tierSlug];
-  return async (input, req) => {
+  return async (input, req, deps = {}) => {
     if (!input || typeof input !== "object") throw bad('Body must be a JSON object: {"query": "…"}');
     const query = typeof input.query === "string" ? input.query.trim() : "";
     if (!query) throw bad('"query" (string) is required — the research question to investigate');
@@ -130,17 +195,18 @@ function makeResearchHandlerInner(tierSlug) {
       (d) => ({ q, answer: textOf(d), sources: sourcesFrom(d), cost: costOf(d) }),
       () => null,
     )));
-    const good = results.filter(Boolean);
-    for (const r of good) spent += r.cost;
-    // Minimum evidence: a report sold as multi-angle research must rest on a
-    // real share of its searches, not one survivor of twelve - under a third
-    // answering is an upstream incident, and a thin report is not charged.
+    const answered = results.filter(Boolean);
+    for (const r of answered) spent += r.cost;
+    // Minimum evidence, counted as EVIDENCE: a search counts only if it came
+    // back with at least one cited source carrying text - a call that returned
+    // "I could not find" with no annotations used to count as success, and on
+    // the base tier one such survivor of three could carry a charged report.
+    const good = answered.filter((r) => r.sources.some((s) => s.url && s.snippet) && r.answer);
     const need = Math.max(1, Math.ceil(toRun.length / 3));
-    if (good.length < need) throw bad(`Only ${good.length} of ${toRun.length} grounded searches succeeded upstream - not enough evidence for this report. Not charged; please retry.`, 502);
-
     // Dedupe sources by URL across all searches.
     const byUrl = new Map();
-    for (const r of good) for (const s of r.sources) if (!byUrl.has(s.url)) byUrl.set(s.url, s);
+    for (const r of good) for (const s of r.sources) if (s.url && !byUrl.has(s.url)) byUrl.set(s.url, s);
+    if (good.length < need || byUrl.size < Math.min(3, toRun.length)) throw bad(`Only ${good.length} of ${toRun.length} grounded searches returned cited evidence (${byUrl.size} distinct sources) - not enough for this report. Not charged; please retry.`, 502);
     let sources = [...byUrl.values()];
 
     // 3) RERANK the pooled sources against the ORIGINAL question, keep top-K.
@@ -154,13 +220,16 @@ function makeResearchHandlerInner(tierSlug) {
       } catch { /* rerank is best-effort; keep the unranked pooled sources */ }
     }
     sources = sources.slice(0, t.topK).map((s, i) => ({ n: i + 1, ...s }));
+    // 3b) PAGE BODIES for the top-ranked sources (the rest stay excerpts, and
+    // are LABELLED as such so "the source is silent" is never said of a snippet).
+    await readBodies(sources, t.bodies || 0, deps.fetchBody);
 
     // 4) SYNTHESIZE — cited long-form report. Downgrade to the cheaper model if
     // we've already spent past the tier's upstream cap (circuit breaker; the
     // fixed pipeline shape means this effectively never fires).
     const synthModel = spent > t.maxUpstreamUsd ? M.synthStd : t.synth;
-    const sourceBlock = sources.map((s) => `[${s.n}] ${s.title} (${s.url})\n${s.snippet}`).join("\n\n");
-    const subAnswers = good.map((r, i) => `Q${i + 1}: ${r.q}\n${r.answer}`).join("\n\n");
+    const sourceBlock = sources.map((s) => `[${s.n}] ${s.title} (${s.url})${s.body ? ` - FULL TEXT${s.bodyTruncated ? ` (first ${BODY_CHARS.toLocaleString("en-US")} of ${Number(s.bodyChars).toLocaleString("en-US")} chars)` : ""}` : " - EXCERPT ONLY (a short search snippet; the page says more than this)"}\n${s.body || s.snippet}`).join("\n\n");
+    const subAnswers = good.map((r, i) => `Q${i + 1}: ${r.q}\n${stripInlineCites(r.answer)}`).join("\n\n");
     // The model writes the PROSE only; we append the "## Sources" list in code
     // from the structured `sources` array (below). Asking the model to retype
     // every [n] title/url wastes output tokens (it truncated the list at [11]
@@ -175,6 +244,7 @@ function makeResearchHandlerInner(tierSlug) {
 4. PRECISION - do not overstate: state magnitudes, dates, and comparisons EXACTLY as the sources give them (if a source says "more than tripled", do not write "nearly quadrupled"; reproduce dates exactly as sourced). Do NOT add evaluative characterizations ("well-powered", "rigorous", "landmark", "well-conducted", "robust") unless a source explicitly makes that judgment. Present overlapping or uncertain ranges as uncertain, not as settled fact.
 5. STRUCTURE: only write a section or heading you can fill with grounded material - never create a heading (a region, subtopic, or comparison) you have no sources for and then leave it empty or padded.
 6. Where sources disagree or are silent, say so plainly. Being less specific is always better than stating something you cannot ground.
+7. MATERIAL vs SUBJECT: what you were given is EVIDENCE COLLECTED, not the whole record. A source marked EXCERPT ONLY is a search snippet - you have a fragment of that page. If something is missing from the material, write "the material provided here does not include X" - NEVER "X is not disclosed", "unclear", "unexplained" or "could not be determined", and never list a gap in the material as a risk or a finding about the subject. Reserve those words for a FULL TEXT source that addresses the point and says it is unknown. Put unresolved gaps in one short "Not covered by the material" note at the end, not in the analysis.
 
 ${t.synthFrame ? `${t.synthFrame}\n\n` : ""}Write a thorough, well-structured, well-organized report of up to ${t.words} words${outline.length && !t.synthFrame ? `, following this outline where the material supports it: ${outline.join("; ")}` : ""}. Open with a short, direct answer to the question (the key takeaway in 2-3 sentences), then develop it. Go BEYOND summarizing each source in turn: compare and reconcile what the sources say, weigh the strength and limits of the evidence, draw out the implications, and make the trade-offs and disagreements explicit - this analytical synthesis is what the report is being paid for. Do NOT pad toward the word count with invented specifics - a shorter fully-grounded report is the goal, and the length is a ceiling, not a target. Prioritize COMPLETING the report (finish your final sentence and closing paragraph) over length. Do NOT write a "Sources" or "References" section - a complete source list is appended automatically, so end with your final analytical paragraph.\n\n=== SUB-ANSWERS ===\n${subAnswers}\n\n=== SOURCES ===\n${sourceBlock}`;
     // reasoning OFF: the synthesis models (Claude Sonnet/Opus) reason by
@@ -183,19 +253,23 @@ ${t.synthFrame ? `${t.synthFrame}\n\n` : ""}Write a thorough, well-structured, w
     // report now…" stub that still 200'd). We want every token on the report.
     const sd = await chat({ model: synthModel, messages: [{ role: "user", content: synthPrompt }], max_tokens: t.synthMaxTokens, reasoning: { enabled: false } }, SYNTH_TIMEOUT_MS, user);
     spent += costOf(sd);
-    const prose = textOf(sd);
-    if (!prose) throw bad("Synthesis produced no report - not charged", 502);
+    const prose0 = textOf(sd);
+    if (!prose0) throw bad("Synthesis produced no report - not charged", 502);
+    const audit = auditCitations(prose0, sources, good.map((r) => r.answer).join(" "));
+    const prose = audit.prose;
     // Append the complete, deterministic source list from the structured array
     // (the model was told not to write one). Always complete and correct, never
     // truncated by the token budget.
-    const sourceList = sources.map((s) => `[${s.n}] ${s.title} - ${s.url}`).join("\n");
+    const sourceList = sources.map((s) => `[${s.n}] ${s.title}${s.body ? "" : " (excerpt only)"} - ${s.url}`).join("\n");
     const report = sourceList ? `${prose}\n\n## Sources\n${sourceList}` : prose;
 
-    const meta = { tier: tierSlug, searches_run: good.length, sources_consulted: byUrl.size, sources_cited: sources.length, synthesis_model: synthModel };
+    const meta = { tier: tierSlug, searches_run: good.length, sources_consulted: byUrl.size, sources_listed: sources.length, sources_cited: audit.cited.length, sources_with_full_text: sources.filter((s) => s.body).length,
+      citations_stripped: audit.stripped, unverified_numeric_claims: audit.unverified.length, ...(audit.unverified.length ? { unverified_numeric_claims_detail: audit.unverified } : {}), synthesis_model: synthModel };
     // Cost is NEVER returned to the buyer (same rule as the gateway).
+    const pubSources = sources.map(({ body, bodyTruncated, bodyChars, ...rest }) => ({ ...rest, fullText: !!body, ...(bodyChars ? { bodyChars } : {}) }));
     const out = format === "json"
-      ? { report, sources, sub_questions: subQuestions, outline, meta }
-      : { report, sources, sub_questions: subQuestions, meta };
+      ? { report, sources: pubSources, sub_questions: subQuestions, outline, meta }
+      : { report, sources: pubSources, sub_questions: subQuestions, meta };
     // Debug seam (never in prod): expose the grounding material so an eval can
     // check that every specific in the report traces to retrieved content.
     if (process.env.RESEARCH_DEBUG === "1") out._debug = { subAnswers: good.map((r) => ({ q: r.q, answer: r.answer })), snippets: sources.map((s) => ({ n: s.n, snippet: s.snippet })) };

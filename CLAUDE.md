@@ -349,6 +349,30 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   Live-verified on INTC the same day: "That gap is not a mystery: the filing attributes it to a $12.5 billion ... mark-to-
   market loss on the Escrowed Shares derivative liability [4]". Ticker pack inherits it (same handler). Note `fmtUsd` now
   renders negatives as `-$12.58B` (was `$-12.58B`).
+- **Report inputs round 3 (2026-08-26; `scripts/test-report-inputs.js` 44, in CI):** **token-risk** told buyers owner
+  privileges/upgradeability were "not visible here" - now three keyless legs run beside the paid Blockscout ones:
+  `probeGoPlus` (token_security: proxy, mintable, honeypot, owner + renounced, hidden owner, taxes, pausable, blacklist,
+  LP holders/lock share, DEX liquidity; chain-id map in `GOPLUS_CHAIN_IDS`), `probeDexPairs` (DexScreener pairs: depth,
+  24h/1h volume + buys/sells, profile), Blockscout `address-profile` (proxy type/implementations/is_scam) and the
+  Sourcify ABI through `privilegedFunctions()` (a fixed vocabulary of owner-privilege names: mint/pause/blacklist/
+  setFee/enableTrading/upgradeTo ...); CONTROL & UPGRADEABILITY + LIQUIDITY & TRADING blocks; rule 2 disclaims ONLY
+  what a probe marked FAILED. Verified on BRETT/Base. **token-brief**: `shapeJupStats` keeps Jupiter's ORGANIC buy/sell
+  volumes + organic buyers (their wash-trade signal) for 24h/6h/1h, pairs print 6h/1h flow, websites/socials and the
+  jup verified/strict flags reach the identity block, risks and lockers say "N of M". **domain-audit**:
+  `probeDnsPosture` (CAA via resolveCaa, MTA-STS/TLS-RPT/BIMI TXT, DNSSEC via cloudflare-dns.com dns-json AD flag - a
+  failed leg is "unknown", never "not configured"), SPF lookups counted RECURSIVELY through include/redirect in
+  `countSpfLookupsRecursive` (network-kit; github.com 8 top-level -> 10, stripe.com 3 -> 7; `valid` uses the recursive
+  count; both the composite and the standalone spf tool carry `lookupCountRecursive` + `lookupTree`), whois
+  status/nameservers/dnssec and CT `truncated` reach the material, signals carry dnssec/caa/mta-sts/tls-rpt.
+  **research-deep / market-brief**: `readBodies` fetches the top 5/8/10 reranked sources' page bodies through the
+  SSRF-guarded `extractArticle` (6k chars each, +$0.04-0.08 per report) and labels every source FULL TEXT or EXCERPT
+  ONLY in the prompt and the appended list; the thin-evidence guard counts searches that returned CITED evidence (not
+  call success) and requires >= 3 distinct sources; sub-answers ride through `stripInlineCites`; rule 7 is the
+  MATERIAL-vs-SUBJECT sentence; `auditCitations()` (pure, exported) strips [n] outside the source range, expands
+  ranges, sets `meta.sources_cited` to the DISTINCT n actually used (was the listed count), and records
+  `unverified_numeric_claims` (a sentence's number found in neither the cited source's text/snippet nor the
+  sub-answers) in meta - never rewrites prose; `sources[]` returned to the buyer carry `fullText`/`bodyChars`, bodies
+  themselves stay server-side. Handler takes `deps.fetchBody` for tests.
 - **Report inputs round 2 - the SEC kits (2026-08-26; `scripts/test-report-inputs.js` 36, in CI; every fix verified live
   on the reviewer's own example):** **filing-report** read 800 KB of a 10-Q (22% of INTC's text, ending before the
   escrow note) and read an earnings 8-K as its 4k-char shell - now periodic reports (10-K/10-Q/20-F/40-F) are read to

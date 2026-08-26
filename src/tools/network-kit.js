@@ -81,6 +81,26 @@ function joinTxtRecords(arr) {
 // We tokenize, classify each token by mechanism + qualifier, and count the
 // DNS lookups (include/a/mx/ptr/exists/redirect each cost 1 — the famous
 // "10 DNS lookup" SPF limit).
+// Recursive lookup count (RFC 7208 §4.6.4): each include:/redirect= target's
+// own record is fetched and its querying mechanisms counted, depth-limited and
+// capped at 10 (past the limit the exact number no longer matters). Returns
+// the count and a flat tree for the report.
+async function countSpfLookupsRecursive(domain, raw, { depth = 0, maxDepth = 5, budget = { n: 0 }, tree = [] } = {}) {
+  const parsed = parseSpf(raw);
+  for (const m of parsed.mechanisms) {
+    if (["a", "mx", "ptr", "exists"].includes(m.type)) { budget.n++; continue; }
+    if (m.type === "include" || m.type === "redirect") {
+      budget.n++;
+      const target = String(m.value || "").replace(/^%\{[^}]*\}\.?/, "").trim();
+      if (!target || depth >= maxDepth || budget.n > 10) { tree.push({ domain: target || "?", depth: depth + 1, skipped: true }); continue; }
+      const { records } = await resolveType(target, "TXT", 3000);
+      const sub = joinTxtRecords(records).find((r) => /^v=spf1\b/i.test(r));
+      tree.push({ domain: target, depth: depth + 1, hasRecord: !!sub });
+      if (sub) await countSpfLookupsRecursive(target, sub, { depth: depth + 1, maxDepth, budget, tree });
+    }
+  }
+  return { count: budget.n, tree };
+}
 function parseSpf(raw) {
   const tokens = raw.trim().split(/\s+/);
   if (tokens.shift().toLowerCase() !== "v=spf1") return null;
@@ -419,8 +439,13 @@ export const NETWORK_TOOLS = [
         };
       }
       const parsed = parseSpf(spf);
+      // RFC 7208 counts DNS-querying mechanisms RECURSIVELY through include:
+      // and redirect=; the top-level count under-reports (github.com: 9
+      // top-level vs 10 recursive - zero headroom reported as one to spare).
+      const rec = await countSpfLookupsRecursive(domain, spf);
       const warnings = [];
-      if (parsed.lookupCount > 10) warnings.push(`SPF lookup count (${parsed.lookupCount}) exceeds the RFC 7208 limit of 10 - receivers will return PermError`);
+      if (rec.count > 10) warnings.push(`SPF lookup count (${rec.count}, counted recursively through include/redirect) exceeds the RFC 7208 limit of 10 - receivers will return PermError`);
+      else if (parsed.lookupCount > 10) warnings.push(`SPF lookup count (${parsed.lookupCount}) exceeds the RFC 7208 limit of 10 - receivers will return PermError`);
       if (parsed.all === "pass") warnings.push('Qualifier on "all" is "+pass" - accepts mail from any sender, defeats the purpose of SPF');
       if (parsed.all === "neutral") warnings.push('Qualifier on "all" is "?neutral" - receivers will not act on SPF failures');
       if (!parsed.all && !parsed.redirect) warnings.push('No "all" mechanism and no redirect - receivers may interpret as PermError');
@@ -430,9 +455,11 @@ export const NETWORK_TOOLS = [
         raw: spf,
         mechanisms: parsed.mechanisms,
         lookupCount: parsed.lookupCount,
+        lookupCountRecursive: rec.count,
+        lookupTree: rec.tree,
         all: parsed.all,
         ...(parsed.redirect ? { redirect: parsed.redirect } : {}),
-        valid: parsed.lookupCount <= 10 && (!!parsed.all || !!parsed.redirect),
+        valid: rec.count <= 10 && (!!parsed.all || !!parsed.redirect),
         warnings,
       };
     },
@@ -681,6 +708,10 @@ export const NETWORK_TOOLS = [
       // SPF
       const spfRaw = joinTxtRecords(spfTxt.records).find((r) => /^v=spf1\b/i.test(r));
       const spfParsed = spfRaw ? parseSpf(spfRaw) : null;
+      // Recursive (RFC 7208) count, the one receivers enforce; the top-level
+      // figure stays in the output for comparison.
+      const spfRec = spfRaw ? await countSpfLookupsRecursive(domain, spfRaw) : null;
+      if (spfParsed && spfRec) { spfParsed.lookupCountTopLevel = spfParsed.lookupCount; spfParsed.lookupCount = spfRec.count; spfParsed.lookupTree = spfRec.tree; }
       const spfValid = !!(spfParsed && spfParsed.lookupCount <= 10 && (spfParsed.all || spfParsed.redirect));
       // DMARC
       const dmarcRaw = joinTxtRecords(dmarcTxt.records).find((r) => /^v=DMARC1\b/i.test(r));
@@ -726,7 +757,7 @@ export const NETWORK_TOOLS = [
         domain,
         score,
         summary,
-        spf: { hasRecord: !!spfRaw, all: spfParsed?.all || null, valid: spfValid, lookupCount: spfParsed?.lookupCount ?? 0 },
+        spf: { hasRecord: !!spfRaw, all: spfParsed?.all || null, valid: spfValid, lookupCount: spfParsed?.lookupCountTopLevel ?? spfParsed?.lookupCount ?? 0, lookupCountRecursive: spfParsed?.lookupCount ?? 0, lookupTree: spfParsed?.lookupTree || [] },
         dmarc: {
           hasRecord: !!dmarcRaw, policy: dmarcParsed?.policy || null, percent: dmarcParsed?.percent ?? 0, valid: dmarcValid,
           // The tags the parser already had and the tool used to drop: a report

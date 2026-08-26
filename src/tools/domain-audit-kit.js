@@ -15,6 +15,7 @@ import { KIT } from "./kit.js";
 import { recordCompositeUsage } from "../composite-spend-guard.js";
 import { NETWORK_TOOLS } from "./network-kit.js";
 import { NETWORK_TOOLS2 } from "./network-kit2.js";
+import { promises as dnsPromises } from "node:dns";
 
 function safeUser(req) { try { return req ? upstreamUserId(req) : undefined; } catch { return undefined; } }
 
@@ -70,6 +71,42 @@ export function certCoversHost(tls, domain) {
   return names.some((n) => n === d || (n.startsWith("*.") && d.endsWith(n.slice(1)) && d.slice(0, -n.slice(1).length).indexOf(".") < 0 && d.length > n.length - 1));
 }
 
+// The DNS posture a "security & deliverability" buyer asks about and the
+// core probes never fetched: CAA (who may issue certificates), MTA-STS and
+// TLS-RPT (mail transport TLS enforcement + reporting), BIMI, and DNSSEC
+// (validated through a DoH resolver's AD flag - node:dns cannot ask). Keyless,
+// five small reads; a failed leg is "unknown", never "not configured".
+const DNS_TIMEOUT_MS = 4000;
+const dnsErrOk = (e) => e?.code === "ENOTFOUND" || e?.code === "ENODATA";
+async function txtAt(name) {
+  try {
+    const recs = await Promise.race([dnsPromises.resolveTxt(name), new Promise((_, r) => setTimeout(() => r(new Error("DNS timeout")), DNS_TIMEOUT_MS))]);
+    return { ok: true, records: (recs || []).map((chunks) => chunks.join("")) };
+  } catch (e) { return { ok: dnsErrOk(e), records: [], error: e.code || e.message }; }
+}
+export async function probeDnsPosture(domain) {
+  const [caaR, sts, rpt, bimi, sec] = await Promise.all([
+    (async () => { try { const r = await Promise.race([dnsPromises.resolveCaa(domain), new Promise((_, rj) => setTimeout(() => rj(new Error("DNS timeout")), DNS_TIMEOUT_MS))]); return { ok: true, records: r || [] }; } catch (e) { return { ok: dnsErrOk(e), records: [], error: e.code || e.message }; } })(),
+    txtAt(`_mta-sts.${domain}`), txtAt(`_smtp._tls.${domain}`), txtAt(`default._bimi.${domain}`),
+    (async () => {
+      try {
+        const res = await fetch(`https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(domain)}&type=SOA&do=1`, { headers: { accept: "application/dns-json" }, signal: AbortSignal.timeout(DNS_TIMEOUT_MS) });
+        const j = await res.json();
+        return { ok: true, ad: j?.AD === true, status: j?.Status };
+      } catch (e) { return { ok: false, error: String(e?.message || e) }; }
+    })(),
+  ]);
+  const pick = (r, re) => (r.ok ? (r.records.find((x) => re.test(x)) || null) : null);
+  return {
+    caa: caaR.ok ? caaR.records.map((c) => ({ tag: c.issue ? "issue" : c.issuewild ? "issuewild" : c.iodef ? "iodef" : "other", value: c.issue || c.issuewild || c.iodef || JSON.stringify(c), critical: c.critical || 0 })) : null,
+    caaError: caaR.ok ? null : caaR.error,
+    mtaSts: pick(sts, /^v=STSv1/i), mtaStsError: sts.ok ? null : sts.error,
+    tlsRpt: pick(rpt, /^v=TLSRPTv1/i), tlsRptError: rpt.ok ? null : rpt.error,
+    bimi: pick(bimi, /^v=BIMI1/i), bimiError: bimi.ok ? null : bimi.error,
+    dnssec: sec.ok ? sec.ad : null, dnssecError: sec.ok ? null : sec.error,
+  };
+}
+
 // Grade: email auth (40%) + web headers (35%) + TLS (25%).
 // A certificate the chain does not trust, or one for a different host, is a
 // broken TLS deployment however many days it has left - it used to score
@@ -99,12 +136,14 @@ export async function probeDomain(domain, { pro = false } = {}) {
     settle(emailH({ domain }), PROBE_TIMEOUT_MS),
     settle(tlsH({ host: domain }), PROBE_TIMEOUT_MS),
     settle(hdrH({ url: `https://${domain}` }), PROBE_TIMEOUT_MS),
+    settle(probeDnsPosture(domain), PROBE_TIMEOUT_MS),
   ]);
-  const [emailR, tlsR, hdrR] = core;
+  const [emailR, tlsR, hdrR, dnsR] = core;
+  const dnsx = dnsR.ok ? dnsR.data : null;
   let ct = null, tech = null, whois = null;
   if (pro) {
     const proTools = await Promise.all([
-      settle(H("cert-transparency")({ domain }), PROBE_TIMEOUT_MS),
+      settle(H("cert-transparency")({ domain, limit: 200 }), PROBE_TIMEOUT_MS),
       settle(H("tech-stack")({ url: `https://${domain}` }), PROBE_TIMEOUT_MS),
       settle(H("whois")({ domain }), PROBE_TIMEOUT_MS),
     ]);
@@ -145,6 +184,10 @@ export async function probeDomain(domain, { pro = false } = {}) {
     dmarc: email ? (email.dmarc?.hasRecord ? `p=${email.dmarc.policy}:pct=${email.dmarc.percent}:valid=${!!email.dmarc.valid}` : "missing") : null,
     dkim: email ? (email.dkim?.found || []).map((d) => `${d.selector}:${d.bits}`).sort() : null,
     mx: email ? (email.mx?.count ?? 0) : null,
+    dnssec: dnsx ? dnsx.dnssec : null,
+    caa: dnsx ? (dnsx.caa || []).map((c) => `${c.tag}:${c.value}`).sort() : null,
+    mtaSts: dnsx ? !!dnsx.mtaSts : null,
+    tlsRpt: dnsx ? !!dnsx.tlsRpt : null,
     headers: hdr ? (hdr.security?.findings || []).filter((f) => f.present).map((f) => String(f.header || "").toLowerCase()).sort() : null,
     tls_issuer: tls?.issuer || null,
     tls_valid_to: tls?.validTo || null,
@@ -157,7 +200,7 @@ export async function probeDomain(domain, { pro = false } = {}) {
   const { tls_days_remaining: _d, tls_issuer: _i, tls_valid_to: _v, ...stable } = signals;
   const fingerprint = JSON.stringify(stable);
 
-  return { domain, emailR, tlsR, hdrR, email, tls, hdr, ct, tech, whois, emailScore, headerScore, tlsScore, composite, grade, assessed, gradeCaveat, signals, fingerprint };
+  return { domain, emailR, tlsR, hdrR, dnsR, dnsx, email, tls, hdr, ct, tech, whois, emailScore, headerScore, tlsScore, composite, grade, assessed, gradeCaveat, signals, fingerprint };
 }
 
 function makeDomainAuditHandlerInner(tierSlug) {
@@ -168,11 +211,11 @@ function makeDomainAuditHandlerInner(tierSlug) {
     const user = safeUser(req);
 
     // 1) LIVE PROBES + GRADE (shared with the monitor scheduler's free re-probe).
-    const { emailR, tlsR, hdrR, email, tls, hdr, ct, tech, whois, emailScore, headerScore, composite, grade, assessed, gradeCaveat } = await probeDomain(domain, { pro: t.pro });
+    const { emailR, tlsR, hdrR, dnsR, dnsx, email, tls, hdr, ct, tech, whois, emailScore, headerScore, composite, grade, assessed, gradeCaveat } = await probeDomain(domain, { pro: t.pro });
 
     // 2) GROUNDING BLOCKS (the probe results are the only source of truth).
     const emailBlock = email
-      ? `Score ${emailScore}/100 (${email.summary}). SPF: ${email.spf?.hasRecord ? `present (${email.spf.all || "?"}all, ${email.spf.lookupCount} top-level lookup mechanisms counted (nested includes not expanded), valid=${email.spf.valid})` : "MISSING"}. DMARC: ${email.dmarc?.hasRecord ? `p=${email.dmarc.policy} at ${email.dmarc.percent}% (valid=${email.dmarc.valid}${email.dmarc.subdomainPolicy ? `; sp=${email.dmarc.subdomainPolicy}` : ""}${email.dmarc.alignment ? `; aspf=${email.dmarc.alignment.spf}, adkim=${email.dmarc.alignment.dkim}` : ""}${email.dmarc.reportingUris ? `; rua=${email.dmarc.reportingUris.aggregate?.length ? email.dmarc.reportingUris.aggregate.join(",") : "NONE"}; ruf=${email.dmarc.reportingUris.failure?.length ? email.dmarc.reportingUris.failure.join(",") : "none"}` : ""}${email.dmarc.failureOptions ? `; fo=${email.dmarc.failureOptions}` : ""})` : "MISSING"}. DKIM: ${email.dkim?.found?.length ? email.dkim.found.map((d) => `${d.selector} (${d.bits}-bit, valid=${d.valid})`).join(", ") : `none found (probed ${email.dkim?.probed?.length || 0} selectors: ${(email.dkim?.probed || []).join(", ")} - a selector outside that list would not be seen)`}. MX: ${email.mx?.count || 0} records${email.mx?.records?.length ? ` (${email.mx.records.slice(0, 8).join(", ")})` : ""}. Checks: ${(email.checks || []).map((c) => `${c.check}=${c.status}`).join(", ")}.`
+      ? `Score ${emailScore}/100 (${email.summary}). SPF: ${email.spf?.hasRecord ? `present (${email.spf.all || "?"}all, ${email.spf.lookupCountRecursive ?? email.spf.lookupCount} DNS lookups counted recursively through include/redirect (RFC 7208 limit 10; top-level ${email.spf.lookupCount}), valid=${email.spf.valid})` : "MISSING"}. DMARC: ${email.dmarc?.hasRecord ? `p=${email.dmarc.policy} at ${email.dmarc.percent}% (valid=${email.dmarc.valid}${email.dmarc.subdomainPolicy ? `; sp=${email.dmarc.subdomainPolicy}` : ""}${email.dmarc.alignment ? `; aspf=${email.dmarc.alignment.spf}, adkim=${email.dmarc.alignment.dkim}` : ""}${email.dmarc.reportingUris ? `; rua=${email.dmarc.reportingUris.aggregate?.length ? email.dmarc.reportingUris.aggregate.join(",") : "NONE"}; ruf=${email.dmarc.reportingUris.failure?.length ? email.dmarc.reportingUris.failure.join(",") : "none"}` : ""}${email.dmarc.failureOptions ? `; fo=${email.dmarc.failureOptions}` : ""})` : "MISSING"}. DKIM: ${email.dkim?.found?.length ? email.dkim.found.map((d) => `${d.selector} (${d.bits}-bit, valid=${d.valid})`).join(", ") : `none found (probed ${email.dkim?.probed?.length || 0} selectors: ${(email.dkim?.probed || []).join(", ")} - a selector outside that list would not be seen)`}. MX: ${email.mx?.count || 0} records${email.mx?.records?.length ? ` (${email.mx.records.slice(0, 8).join(", ")})` : ""}. Checks: ${(email.checks || []).map((c) => `${c.check}=${c.status}`).join(", ")}.`
       : `email-deliverability probe FAILED: ${emailR.error}`;
     const hdrBlock = hdr
       ? `Security-header score ${headerScore}/100. Findings: ${(hdr.security?.findings || []).map((f) => `${f.header}=${f.present ? `present${f.value ? ` [${String(f.value).replace(/\s+/g, " ").slice(0, 300)}]` : ""}` : "MISSING"}`).join(", ")}. Warnings: ${(hdr.security?.warnings || []).join("; ") || "none"}. HTTP status ${hdr.status}.`
@@ -180,10 +223,13 @@ function makeDomainAuditHandlerInner(tierSlug) {
     const tlsBlock = tls
       ? `Chain trusted: ${tls.chainTrusted === true ? "YES" : tls.chainTrusted === false ? `NO (${tls.authorizationError || "untrusted"}) - TLS scored 0` : "unknown"}; covers ${domain}: ${certCoversHost(tls, domain) === false ? "NO (hostname mismatch) - TLS scored 0" : certCoversHost(tls, domain) ? "yes" : "unknown"}. Issuer ${tls.issuer || "?"}, subject ${tls.subject || "?"}, valid to ${tls.validTo || "?"} (${tls.daysRemaining} days remaining), ${(tls.altNames || []).length} SANs${tls.protocol ? `, negotiated ${tls.protocol}${tls.cipher ? ` / ${tls.cipher}` : ""}` : ""}.`
       : `tls-cert probe FAILED: ${tlsR.error}`;
+    const dnsBlock = dnsx
+      ? `DNSSEC: ${dnsx.dnssec === true ? "validated (AD)" : dnsx.dnssec === false ? "NOT signed/validated" : `unknown (${dnsx.dnssecError || "resolver unreadable"})`}. CAA: ${dnsx.caa ? (dnsx.caa.length ? dnsx.caa.map((c) => `${c.tag} ${c.value}`).join("; ") : "none published (any CA may issue)") : `unknown (${dnsx.caaError})`}. MTA-STS: ${dnsx.mtaSts ? `present (${dnsx.mtaSts})` : dnsx.mtaStsError ? `unknown (${dnsx.mtaStsError})` : "not published"}. TLS-RPT: ${dnsx.tlsRpt ? `present (${dnsx.tlsRpt})` : dnsx.tlsRptError ? `unknown (${dnsx.tlsRptError})` : "not published"}. BIMI: ${dnsx.bimi ? "present" : dnsx.bimiError ? `unknown (${dnsx.bimiError})` : "not published"}.`
+      : `DNS posture probe FAILED: ${dnsR.error} - DNSSEC/CAA/MTA-STS/TLS-RPT/BIMI were NOT checked.`;
     const proBlock = t.pro ? [
-      ct ? `CERTIFICATE TRANSPARENCY: ${ct.total ?? ct.count ?? (ct.subdomains?.length || 0)} certs/subdomains seen. Subdomains: ${(ct.subdomains || ct.names || []).slice(0, 40).join(", ") || "(none parsed)"}.` : "CT probe unavailable.",
+      ct ? `CERTIFICATE TRANSPARENCY: ${ct.count ?? (ct.certs?.length || 0)} certificates read${ct.truncated ? " (MORE exist - the log was truncated at the read limit)" : ""}, ${(ct.subdomains || []).length} distinct subdomains among them. Subdomains: ${(ct.subdomains || ct.names || []).slice(0, 40).join(", ") || "(none parsed)"}${(ct.subdomains || []).length > 40 ? ` (+${(ct.subdomains || []).length - 40} more)` : ""}.` : "CT probe unavailable.",
       tech ? `TECH STACK: ${(tech.technologies || tech.stack || tech.detected || []).map((x) => (typeof x === "string" ? x : x.name || x.technology)).filter(Boolean).slice(0, 40).join(", ") || "(none detected)"}.` : "Tech-stack probe unavailable.",
-      whois ? `REGISTRATION: registrar ${whois.registrar || "?"}, created ${whois.created || whois.creationDate || "?"}, expires ${whois.expires || whois.expiryDate || "?"}.` : "WHOIS probe unavailable.",
+      whois ? `REGISTRATION: registrar ${whois.registrar || "?"}, created ${whois.created || whois.creationDate || "?"}, expires ${whois.expires || whois.expiryDate || "?"}; status ${(Array.isArray(whois.status) ? whois.status : [whois.status]).filter(Boolean).join(", ") || "unknown"} (transfer lock = clientTransferProhibited); nameservers ${(whois.nameservers || []).slice(0, 6).join(", ") || "unknown"}; DNSSEC per RDAP ${whois.dnssec == null ? "unknown" : whois.dnssec ? "signed" : "unsigned"}.` : "WHOIS probe unavailable.",
     ].join("\n") : "";
 
     // 3) SYNTHESIZE - grounded, graded, actionable.
@@ -200,7 +246,9 @@ Do NOT write a sources section. Ground every claim in the probe data; where a pr
 
 === EMAIL AUTH PROBE ===\n${emailBlock}
 === WEB SECURITY HEADERS PROBE ===\n${hdrBlock}
-=== TLS CERTIFICATE PROBE ===\n${tlsBlock}${t.pro ? `\n=== ATTACK SURFACE / STACK / REGISTRATION ===\n${proBlock}` : ""}`;
+=== TLS CERTIFICATE PROBE ===\n${tlsBlock}
+=== DNS POSTURE (DNSSEC, CAA, MTA-STS, TLS-RPT, BIMI) ===\n${dnsBlock}
+NOTE: a gap in this material is never a finding about the domain - a probe marked FAILED or unknown was not checked here; say so instead of "not configured".${t.pro ? `\n=== ATTACK SURFACE / STACK / REGISTRATION ===\n${proBlock}` : ""}`;
 
     let spent = 0;
     const sd = await chat({ model: SYNTH, messages: [{ role: "user", content: synthPrompt }], max_tokens: t.synthMaxTokens, reasoning: { enabled: false } }, SYNTH_TIMEOUT_MS, user);

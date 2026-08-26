@@ -248,6 +248,10 @@ function shapePair(p) {
     priceChangePct: { m5: num(p?.priceChange?.m5), h1: num(p?.priceChange?.h1), h6: num(p?.priceChange?.h6), h24: num(p?.priceChange?.h24) },
     txns24h: { buys: num(p?.txns?.h24?.buys), sells: num(p?.txns?.h24?.sells) },
     txns1h: { buys: num(p?.txns?.h1?.buys), sells: num(p?.txns?.h1?.sells) },
+    txns6h: { buys: num(p?.txns?.h6?.buys), sells: num(p?.txns?.h6?.sells) },
+    txns5m: { buys: num(p?.txns?.m5?.buys), sells: num(p?.txns?.m5?.sells) },
+    websites: Array.isArray(p?.info?.websites) ? p.info.websites.map((w) => w?.url).filter(Boolean).slice(0, 2) : [],
+    socials: Array.isArray(p?.info?.socials) ? p.info.socials.map((x) => x?.url || (x?.type && x?.handle ? `${x.type}:${x.handle}` : null)).filter(Boolean).slice(0, 3) : [],
     pairCreatedAt: created ? new Date(created).toISOString() : null,
     ageHours: created ? round((Date.now() - created) / 3_600_000, 1) : null,
     // A filled-in DexScreener profile (image/website/socials). Impostor
@@ -286,6 +290,14 @@ function authorityDisabled(auditFlag, t, field) {
   return null;
 }
 
+function shapeJupStats(x) {
+  if (!x) return null;
+  return {
+    priceChangePct: round(x.priceChange, 2), holderChangePct: round(x.holderChange, 2), liquidityChangePct: round(x.liquidityChange, 2), volumeChangePct: round(x.volumeChange, 2),
+    buyVolumeUsd: round(x.buyVolume, 2), sellVolumeUsd: round(x.sellVolume, 2), buyOrganicVolumeUsd: round(x.buyOrganicVolume, 2), sellOrganicVolumeUsd: round(x.sellOrganicVolume, 2),
+    numBuys: num(x.numBuys), numSells: num(x.numSells), numTraders: num(x.numTraders), numOrganicBuyers: num(x.numOrganicBuyers), numNetBuyers: num(x.numNetBuyers),
+  };
+}
 function shapeJupToken(t) {
   if (!t) return null;
   return {
@@ -316,17 +328,14 @@ function shapeJupToken(t) {
     launchpad: t.launchpad ?? null,
     dev: t.dev ?? null,
     firstPool: t.firstPool ? { id: t.firstPool.id ?? null, createdAt: t.firstPool.createdAt ?? null } : null,
-    stats24h: t.stats24h ? {
-      priceChangePct: round(t.stats24h.priceChange, 2),
-      holderChangePct: round(t.stats24h.holderChange, 2),
-      liquidityChangePct: round(t.stats24h.liquidityChange, 2),
-      buyVolumeUsd: round(t.stats24h.buyVolume, 2),
-      sellVolumeUsd: round(t.stats24h.sellVolume, 2),
-      numBuys: num(t.stats24h.numBuys),
-      numSells: num(t.stats24h.numSells),
-      numTraders: num(t.stats24h.numTraders),
-      numNetBuyers: num(t.stats24h.numNetBuyers),
-    } : null,
+    stats24h: shapeJupStats(t.stats24h),
+    // Intraday flow (Jupiter serves 5m/1h/6h too): a 24h total hides a dump
+    // in the last hour, and the ORGANIC split is Jupiter's own wash-trade
+    // signal - buyOrganicVolume vs buyVolume.
+    stats1h: shapeJupStats(t.stats1h),
+    stats6h: shapeJupStats(t.stats6h),
+    website: t.website ?? null,
+    twitter: t.twitter ?? null,
     createdAt: t.createdAt ?? null,
   };
 }
