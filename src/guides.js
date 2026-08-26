@@ -975,12 +975,20 @@ charged.
 ## Pay from a wallet instead
 
 Every tier answers an x402 \`402\` (${RAILS_OR}) and an MPP challenge, so any
-x402-capable client can pay per call with no key at all. For OpenClaw that
-means a local proxy that signs the payment and forwards the request, the same
-pattern other x402 routers use; \`agent402-client\` already does the paying half
-(x402, MPP, credits, free tier), and an OpenClaw plugin that wraps it as a
-provider is in progress. Until it ships, the credits-key block above is the
-supported path.
+x402-capable client can pay per call with no key at all. For OpenClaw the
+[\`agent402-openclaw\`](https://www.npmjs.com/package/agent402-openclaw) plugin
+runs a loopback proxy that pays and forwards, with a credits key or an x402
+wallet, and writes the provider block for you:
+
+\`\`\`bash
+openclaw plugins install agent402-openclaw
+npx agent402-openclaw setup --credits-key a402_... --write   # or set AGENT402_WALLET_KEY for x402
+openclaw gateway restart
+\`\`\`
+
+Every forwarded call carries an \`Idempotency-Key\`, so a retry replays the paid
+answer instead of paying twice. The plain config block above needs no plugin and
+stays the simplest path for a credits key.
 
 ## What you get that a plain router does not
 
