@@ -183,7 +183,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   // Price-feed-kit: keyless public upstreams (Pyth Hermes, CoinGecko, DeFiLlama)
   // but the rate limits are shared per-IP. PoW would let one client exhaust the
   // shared quota for every other caller.
-  "price-pyth", "price-coingecko", "defi-tvl",
+  "price-coingecko", "defi-tvl",
   // Dex-kit: 3 Alchemy-backed (dex-pair, dex-pool, dex-quote share the same
   // compute-unit quota as chain-kit) and 1 DeFiLlama-backed (dex-top-pools
   // shares the per-IP quota with defi-tvl). All wallet-only for the same
