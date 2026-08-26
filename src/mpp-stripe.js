@@ -172,7 +172,8 @@ export async function validateStripeCredential(authorizationHeader) {
     const credential = Credential.deserialize(String(authorizationHeader || ""));
     const method = stripeMethod();
     if (credential.challenge.method !== method.name || credential.challenge.intent !== method.intent) {
-      return { ok: false, error: `no registered method for ${credential.challenge.method}/${credential.challenge.intent}`, reason: "the credential is not a stripe/charge credential" };
+      const m = String(credential.challenge.method).replace(/[^\w.-]/g, "").slice(0, 32), it = String(credential.challenge.intent).replace(/[^\w.-]/g, "").slice(0, 32);
+      return { ok: false, error: `no registered method for ${m}/${it}`, reason: "the credential is not a stripe/charge credential" };
     }
     Expires.assert(credential.challenge.expires, credential.challenge.id);
     const parsed = method.schema.credential.payload.safeParse(credential.payload);

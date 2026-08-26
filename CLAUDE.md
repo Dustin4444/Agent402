@@ -334,6 +334,32 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   (their live 402 quotes $0.002 for a 50-token gpt-4o-mini call). `test-pricing-margin` asserts quote >= worst
   case x markup on this tier instead of "< price"; `test-price-premium` pins the function price; `test-llm-gateway`
   pins floor/growth/cap/refusal.
+- **Security + cost review of the 2026-08-25/26 builds (2026-08-26, four lenses: leaks / bypass / money / claims+CI;
+  fixes in the same-day audit PR):** HIGH (process) `scripts/merge-on-green.sh` gated only the `test*` lanes and merged
+  with `--admin`, which bypasses the ruleset's required checks - #949 merged with CodeQL red; it now reads the ruleset's
+  required contexts and refuses unless each is SUCCESS on the PR head (`--admin` stays: the ruleset needs a code-owner
+  review and there is one owner). HIGH (product) `agent402-openclaw` 0.1.0/0.1.1 were NO-OPS through npm's bin symlink
+  (`import.meta.url === file://${process.argv[1]}` is false when argv[1] is the symlink) - the registry smoke ran cli.js
+  by direct path and never saw it; 0.1.2 compares against `pathToFileURL(realpathSync(argv[1]))` and the test invokes
+  the CLI through a symlink and from a path with a space. HIGH the metered quote was recomputed ~15x per unauthenticated
+  POST (13 rails + 2 appenders, ~1.5 s of event loop on a 33 KB CJK body) - memoized on the request
+  (`req.__meteredQuoteUsd`, payments.js + `quotedPriceUsd`). HIGH (accounting) metered sales were booked at the $0.001
+  catalog floor - `settledPriceUsd(def, req, res)` (X-Metered-Usd override > quote > catalog) feeds the ledger/PostHog/
+  shadow ledger, and `gateway_usage.priceUsd` is the quote. MED metered + card was loss-making under ~$3 (Stripe 2.9% +
+  $0.30 on a 1.15x quote) - `cardPriceUsd` grosses the fee up on QUOTED routes only (flat routes unchanged). MED the
+  metered tier sent `provider.max_price` 20/100 - now the quoted model's MODEL_COST row. MED "retries never pay twice" was
+  false: the idempotency cache ignored credits buyers (no payment header) and the plugin minted a fresh key per call -
+  the cache now binds a credits key's HASH as the credential (`req.creditsSettled` counts as paid for seeding) and the
+  proxy passes a client Idempotency-Key through. MED the plugin proxy spent the user's key on any browser no-cors POST to
+  loopback - requests with an `Origin` header or a non-loopback `Host` are refused. MED three typed claims on the
+  2026-08-26 X cards were wrong or loose ("USDC on 12 chains" = 11 + USDG; the MPP evm row implied 12 chains when the
+  evm challenge is Base+Celo; stripe shown on a $0.02 route) - script corrected for reuse; the posts stand (a
+  correction is Mike's call). LOW: `setup --write` rewrote openclaw.json at 0644 (mode now preserved, 0600 when new);
+  credits key accepted via env/stdin; unsigned webhook hits no longer cost a disk write each (5 s debounce, verified
+  events persist at once); guide tier table rendered from TIERS; stripe log slices buyer strings; canary metered leg
+  quotes ABOVE the floor so a collapsed quote is visible. **First real metered settlement:** paid-canary run
+  32962953735, `llm-metered -> settled $0.001` (2026-08-26 11:28Z). Card rail first live settlement:
+  pi_3U8VOXRaPcokjIwV0WvAvBAb (2026-08-26 01:12Z) - recorded here because the repo carried no evidence of it.
 - **Route-and-execute (`POST /api/route/execute`, $0.01, `src/tools/route-execute.js`):**
   resolves a task/slug via `findTools`, dispatches the underlying internal tool (underlying
   price cap $0.005), returns `{result, receipt}`; underlying errors pass through.

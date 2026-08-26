@@ -73,6 +73,32 @@ if echo "$LANES" | grep -vq '=success$'; then
   exit 1
 fi
 
+# --admin is unavoidable (the ruleset requires a code-owner review and there is
+# one owner), so it also bypasses the ruleset's REQUIRED STATUS CHECKS - which
+# is how #949 merged with CodeQL red (2026-08-26). Enforce them here: read the
+# required contexts from the ruleset and refuse unless each has a SUCCESS
+# check run on the PR head and none is FAILURE/ERROR. Waits for pending ones.
+REQUIRED=$(gh api "repos/{owner}/{repo}/rules/branches/main" -q '.[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context' 2>/dev/null || true)
+[ -n "$REQUIRED" ] || { echo "could not read the ruleset's required checks - not merging"; exit 1; }
+for i in $(seq 1 60); do
+  ROLLUP=$(gh pr view "$PR" --json statusCheckRollup -q '.statusCheckRollup[] | "\(.name // .context)=\(.conclusion // .state)"' 2>/dev/null || true)
+  MISSING=""; BAD=""
+  while IFS= read -r ctx; do
+    [ -n "$ctx" ] || continue
+    line=$(echo "$ROLLUP" | grep -F "$ctx=" | tail -1)
+    case "$line" in
+      *=SUCCESS|*=success) ;;
+      *=FAILURE*|*=failure*|*=ERROR*|*=error*|*=CANCELLED*|*=cancelled*|*=TIMED_OUT*) BAD="$BAD $ctx" ;;
+      *) MISSING="$MISSING $ctx" ;;
+    esac
+  done <<< "$REQUIRED"
+  if [ -n "$BAD" ]; then echo "required check(s) FAILED on PR $PR:$BAD - not merging"; exit 1; fi
+  [ -z "$MISSING" ] && break
+  echo "waiting for required check(s):$MISSING"; sleep 30
+done
+[ -z "$MISSING" ] || { echo "required check(s) never completed:$MISSING - not merging"; exit 1; }
+echo "every ruleset-required check is green on PR $PR"
+
 gh pr ready "$PR" >/dev/null 2>&1 || true
 # Pinned to the tested SHA: if the branch moved since, gh refuses and we stop.
 gh pr merge "$PR" --merge --admin --match-head-commit "$SHA"

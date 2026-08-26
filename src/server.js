@@ -48,7 +48,36 @@ const GATEWAY_METER_ON = String(process.env.GATEWAY_METERED_BILLING || "").toLow
 function quotedPriceUsd(def, req) {
   const flat = Number(String(def?.price ?? "").replace(/[^0-9.]/g, "")) || 0;
   if (typeof def?.quote !== "function" || !req || !req.body || typeof req.body !== "object") return flat;
-  try { const q = Number(def.quote(req.body)); return Number.isFinite(q) && q > 0 ? q : flat; } catch { return flat; }
+  // Memoized on the request: payments.js stashes the quote when the x402
+  // price function runs, and the gates/appenders reuse it (one tokenization
+  // per request, never one per rail).
+  if (Number.isFinite(req.__meteredQuoteUsd) && req.__meteredQuoteUsd > 0) return req.__meteredQuoteUsd;
+  try {
+    const q = Number(def.quote(req.body));
+    if (Number.isFinite(q) && q > 0) { req.__meteredQuoteUsd = q; return q; }
+    return flat;
+  } catch { return flat; }
+}
+// The USD a metered call was actually settled/held at, for the books: the upto
+// meter's override (settled actual x markup), else the per-request quote, else
+// the catalog price. Flat tiers fall through to the catalog price unchanged.
+function settledPriceUsd(def, req, res) {
+  const flat = Number(String(def?.price ?? "").replace(/[^0-9.]/g, "")) || 0;
+  const metered = Number(res?.getHeader?.("X-Metered-Usd"));
+  if (Number.isFinite(metered) && metered > 0) return metered;
+  if (typeof def?.quote === "function" && Number.isFinite(req?.__meteredQuoteUsd) && req.__meteredQuoteUsd > 0) return req.__meteredQuoteUsd;
+  return flat;
+}
+// Card price for a QUOTED route: the metered quote is worst-case upstream x 1.15,
+// which Stripe's 2.9% + $0.30 would turn into a loss on every card charge under
+// ~$3 (audit 2026-08-26), so the stripe/charge challenge on a quoted route
+// carries the fee grossed up (ceil to a cent), the same way per-chain premiums
+// price fee-charging rails. Flat routes keep their listed price.
+const CARD_FEE_RATE = 0.029, CARD_FEE_FIXED_USD = 0.30;
+function cardPriceUsd(def, req) {
+  const q = quotedPriceUsd(def, req);
+  if (typeof def?.quote !== "function" || !(q > 0)) return q;
+  return Math.ceil(((q + CARD_FEE_FIXED_USD) / (1 - CARD_FEE_RATE)) * 100) / 100;
 }
 import { mppProblem, sendMppProblem } from "./mpp-problem.js";
 import { monitorsPage, monitorThanksPage } from "./monitors-page.js";
@@ -4715,7 +4744,7 @@ if (!FREE_MODE) {
     priceFor: (method, path, req) => {
       const def = CATALOG[`${method} ${path}`];
       if (!def) return null;
-      const priceUsd = quotedPriceUsd(def, req);
+      const priceUsd = cardPriceUsd(def, req);
       if (!priceUsd) return null;
       return { priceUsd, description: def.name, identityBound: isIdentityBoundRoute(def), longRunning: isLongRunningSlug(def.slug) };
     },
@@ -4777,7 +4806,7 @@ if (!FREE_MODE) {
     priceFor: (method, path, req) => {
       const def = CATALOG[`${method} ${path}`];
       if (!def) return null;
-      const priceUsd = quotedPriceUsd(def, req);
+      const priceUsd = cardPriceUsd(def, req);
       return priceUsd ? { priceUsd, identityBound: isIdentityBoundRoute(def) } : null;
     },
   });
@@ -4850,7 +4879,13 @@ const idemHashKey = (req) => {
   // that string (the payer can simply publish it) could replay the same
   // Idempotency-Key + that string + the same body and hit the cache BEFORE
   // the paywall middleware below ever runs, with no payment of their own.
-  const cred = paymentHeaderOf(req) || req.header("x-pow-solution");
+  // A prepaid credits key is a credential too (it authorizes and debits the
+  // call): bind its HASH so a credits buyer's retry replays the paid answer
+  // instead of re-debiting, exactly like an x402 buyer's (audit 2026-08-26 -
+  // the plugin README promised this and the server ignored the header).
+  const creditsCred = /^Bearer a402_[A-Za-z0-9_-]{16,80}$/.test(String(req.headers?.authorization || ""))
+    ? "credits:" + createHash("sha256").update(req.headers.authorization.slice(7)).digest("hex") : null;
+  const cred = paymentHeaderOf(req) || req.header("x-pow-solution") || creditsCred;
   if (!cred) return null; // nothing to securely bind the key to → don't cache
   // Bind to the exact route AND the request body, so the same key+credential
   // can't be used to retrieve a cached response from a different payload or
@@ -4900,7 +4935,7 @@ app.use((req, res, next) => {
     // dev/test only, so it keeps caching.)
     if (res.getHeader("X-Trial-Accepted") === "true") return;
     const powVerified = res.getHeader("X-Pow-Accepted") === "true";
-    const paid = Boolean(paymentHeaderOf(req));
+    const paid = Boolean(paymentHeaderOf(req)) || req.creditsSettled === true;
     if (!FREE_MODE && !paid && !powVerified) return;
     let bytes = 0;
     try { bytes = Buffer.byteLength(JSON.stringify(captured), "utf8"); } catch { bytes = 0; }
@@ -5428,7 +5463,7 @@ app.use((req, res, next) => {
         if (!FREE_MODE) {
           const rail = method;
           const network = method === "usdc" ? networkFor() : method === "credits" ? "stripe" : null;
-          const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
+          const priceUsd = settledPriceUsd(def, req, res);
           const synthetic = method === "heartbeat" || isSyntheticRequest(req);
           // Request-payload attribution covers EVM (EIP-3009 authorization.from);
           // SVM/Stellar payloads carry no such field, so fall back to the

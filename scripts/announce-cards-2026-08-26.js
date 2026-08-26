@@ -58,7 +58,7 @@ function cardsSvg() {
   // The live 402's WWW-Authenticate shape, verbatim in spirit: one Payment
   // challenge per rail; the stripe one is the addition.
   const rows = [
-    ["evm", "USDC on Base, Polygon, Arbitrum, and nine more", false],
+    ["evm", "USDC on Base and Celo (x402 accepts cover 12 chains)", false],
     ["tempo", "USDC.e on Tempo, MPP native", false],
     ["stripe", "card from a Link wallet, settled by Stripe", true],
   ];
@@ -80,7 +80,7 @@ function cardsSvg() {
     headline: "Agents can pay by card now.",
     sub: "same HTTP 402, one more offer: a card in a Link wallet, paid over MPP, no crypto wallet",
     body,
-    footerLeft: `first live card settlement <tspan font-weight="700" fill="${B.ink}">${DATE}</tspan> · USDC on 12 chains unchanged`,
+    footerLeft: `first live card settlement <tspan font-weight="700" fill="${B.ink}">${DATE}</tspan> (pi_3U8VOX…) · stablecoin rails unchanged`,
     footerRight: "500+ deterministic tools",
   });
 }
@@ -155,9 +155,9 @@ function mcpSvg() {
     ["←", "task", `{ taskId, status: "working", pollIntervalMs }`, "", false],
     ["→", "tasks/get", `taskId`, "", false],
     ["←", "result", `{ status: "completed", report, sources }`, "minutes later, no held socket", true],
-    ["→", "tools/call", `web.search`, "wallet-only tool", false],
-    ["←", "-32042", `Payment Required · data.challenges: [evm, tempo, stripe]`, "", false],
-    ["→", "tools/call", `web.search`, `_meta["org.paymentauth/credential"]`, false],
+    ["→", "tools/call", `catalog.call research-deep`, "wallet-only tool, $0.60+", false],
+    ["←", "-32042", `Payment Required · data.challenges: [evm, tempo, stripe]`, "stripe from $0.50", false],
+    ["→", "tools/call", `catalog.call research-deep`, `_meta["org.paymentauth/credential"]`, false],
     ["←", "result", `+ _meta["org.paymentauth/receipt"]`, "settled by the same paid route", true],
   ];
   const lines = L.map(([dir, verb, rest, note, hi], i) => {

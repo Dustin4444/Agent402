@@ -402,9 +402,18 @@ export function acceptsForItem(item, rails) {
       let usd = null;
       try {
         const req = ctx?.adapter?.req;
-        const body = typeof ctx?.adapter?.getBody === "function" ? ctx.adapter.getBody() : req?.body;
-        usd = Number(item.quote(body && typeof body === "object" ? body : {}));
-        if (req && Number.isFinite(usd)) req.__meteredQuoteUsd = usd;
+        // ONE quote per request: @x402/core resolves every option's price on
+        // every request (13 rails on prod) and the Tempo/Stripe appenders ask
+        // again on the 402, and each quote is a full tokenization of the body.
+        // Every closure shares the request object, so the first one computes
+        // and the rest read the stash (audit 2026-08-26: ~15x per POST before).
+        if (req && Number.isFinite(req.__meteredQuoteUsd)) {
+          usd = req.__meteredQuoteUsd;
+        } else {
+          const body = typeof ctx?.adapter?.getBody === "function" ? ctx.adapter.getBody() : req?.body;
+          usd = Number(item.quote(body && typeof body === "object" ? body : {}));
+          if (req && Number.isFinite(usd)) req.__meteredQuoteUsd = usd;
+        }
       } catch { usd = null; }
       const price = Number.isFinite(usd) && usd > 0 ? "$" + usd.toFixed(6).replace(/0+$/, "").replace(/\.$/, "") : item.price;
       return priceWithPremium(price, caip2);

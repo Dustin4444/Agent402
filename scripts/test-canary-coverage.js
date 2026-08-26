@@ -151,7 +151,7 @@ if (rn) {
   if (leg) {
     const q = meteredQuoteUsd(leg.body);
     ok(!q.invalid && q.usd === leg.priceUsd, `llm-metered leg priceUsd ($${leg.priceUsd}) equals the kit's quote for its own body ($${q.usd})`);
-    ok(leg.priceUsd === TIERS["v1-chat-metered"].price, "the leg's body quotes the floor (a nano-sized call is the cheapest metered call)");
+    ok(leg.priceUsd > TIERS["v1-chat-metered"].price, "the leg's body quotes ABOVE the floor, so a quote collapsing to the floor is visible as a price change");
   }
 }
 

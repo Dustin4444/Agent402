@@ -14,14 +14,24 @@
 // gateway's own GET /v1/models at start (never a hand-typed table). "auto"
 // goes to the routed tier with the model field omitted.
 //
-// Retries are safe: every forwarded request carries a fresh Idempotency-Key,
-// so a client retry of the same request replays the paid response instead of
-// paying twice. Streams pass through byte for byte.
+// Idempotency: a client-supplied Idempotency-Key is passed through so an
+// x402 retry with the same key replays the paid answer server-side; without
+// one each forwarded call gets a fresh key (a safety for the fetch layer's
+// own 402->pay retry), which does NOT make two client calls one payment.
+// Streams pass through byte for byte.
+//
+// Loopback only, and browser-hostile on purpose: any web page can POST to
+// 127.0.0.1 with a "simple" no-cors request, and this proxy spends the
+// user's key, so a request carrying an Origin header (browsers always send
+// one on cross-origin POSTs; native clients send none) or a Host that is
+// not loopback is refused before anything is forwarded.
 import { createServer } from "node:http";
+import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { AUTO_ID, routesFromCatalog, stripTrailingSlashes } from "./models.js";
 
 export const DEFAULT_UPSTREAM = "https://agent402.tools";
+export const PKG_VERSION = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version;
 const MAX_BODY = 2 * 1024 * 1024;
 
 export async function loadRoutes(upstream, fetchImpl = fetch) {
@@ -67,6 +77,13 @@ export async function startProxy({ upstream = DEFAULT_UPSTREAM, creditsKey = nul
     stats.requests++;
     const url = new URL(req.url, "http://localhost");
     try {
+      if (req.headers.origin !== undefined) {
+        return json(res, 403, { error: { message: "Browser-origin requests are refused: this proxy spends a payment key and answers native clients only.", type: "forbidden" } });
+      }
+      const hostName = String(req.headers.host || "").replace(/:\d+$/, "").replace(/^\[|\]$/g, "");
+      if (hostName && !["127.0.0.1", "localhost", "::1"].includes(hostName)) {
+        return json(res, 403, { error: { message: `Host "${hostName.slice(0, 64)}" is not loopback; refused.`, type: "forbidden" } });
+      }
       if (req.method === "GET" && url.pathname === "/health") {
         return json(res, 200, { ok: true, upstream, mode, models: table.size, stats });
       }
@@ -87,7 +104,8 @@ export async function startProxy({ upstream = DEFAULT_UPSTREAM, creditsKey = nul
         }
         const outbound = { ...body };
         if (requested === AUTO_ID) delete outbound.model; else outbound.model = route.id;
-        const headers = { "content-type": "application/json", accept: req.headers.accept || "application/json", "idempotency-key": randomUUID(), "user-agent": "agent402-openclaw/0.1.1" };
+        const clientIdem = typeof req.headers["idempotency-key"] === "string" && /^[\w.:-]{8,128}$/.test(req.headers["idempotency-key"]) ? req.headers["idempotency-key"] : null;
+        const headers = { "content-type": "application/json", accept: req.headers.accept || "application/json", "idempotency-key": clientIdem || randomUUID(), "user-agent": `agent402-openclaw/${PKG_VERSION}` };
         if (key) headers.authorization = `Bearer ${key}`;
         const up = await paid(`${upstream}${route.endpoint}`, { method: "POST", headers, body: JSON.stringify(outbound), signal: AbortSignal.timeout(300_000) });
         stats.forwarded++;

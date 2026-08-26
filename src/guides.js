@@ -5,6 +5,12 @@ import { marked } from "marked";
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 import { RAILS_OR, RAILS_AMP } from "./rails.js";
 import { TIERS } from "./tools/llm-gateway-kit.js";
+// Derived at module load from the live tier table so the guide can never say a
+// price the gateway does not charge (the first version typed these).
+const FLAT_TIER_ROWS = Object.entries(TIERS)
+  .filter(([slug, t]) => slug.startsWith("v1-chat") && !t.stealth && !t.lockedModel && !t.metered)
+  .map(([slug, t]) => ({ slug, label: slug === "v1-chat" ? "base" : slug.replace("v1-chat-", "") + (t.router ? (slug.endsWith("grounded") ? " (web search on every call)" : " (routed)") : ""), path: t.route.split(" ")[1].replace("/chat/completions", ""), price: t.price < 0.01 ? t.price.toFixed(3) : t.price.toFixed(2), maxTokens: t.maxTokens }));
+const FLAT_TIER_TABLE = "| tier | baseUrl path | per call | max output tokens |\n|---|---|---|---|\n" + FLAT_TIER_ROWS.map((r) => `| ${r.label} | \`${r.path}\` | $${r.price} | ${r.maxTokens} |`).join("\n");
 
 const GUIDES = [
   {
@@ -954,16 +960,9 @@ table, with failover if the first choice is down.
 
 ## Explicit models and the other tiers
 
-The gateway has 6 chat tiers, each a flat price per call:
+The gateway has ${FLAT_TIER_ROWS.length} flat chat tiers, each a fixed price per call, plus a metered route, \`${TIERS["v1-chat-metered"].route.split(" ")[1].replace("/chat/completions", "")}\`, that quotes each request from its body (from $${TIERS["v1-chat-metered"].price} per call):
 
-| tier | baseUrl path | per call | max output tokens |
-|---|---|---|---|
-| nano | \`/v1/nano\` | $0.003 | 768 |
-| auto (routed) | \`/v1/auto\` | $0.01 | 1024 |
-| base | \`/v1\` | $0.02 | 2048 |
-| grounded (web search on every call) | \`/v1/grounded\` | $0.03 | 1024 |
-| pro | \`/v1/pro\` | $0.10 | 4096 |
-| premium | \`/v1/premium\` | $0.50 | 8192 |
+${FLAT_TIER_TABLE}
 
 To pin a model, add a second provider whose \`baseUrl\` is that tier's path and
 whose \`models[]\` list ids from [\`/v1/models\`](https://agent402.tools/v1/models),
@@ -996,7 +995,7 @@ The same key and the same base URL reach the rest of the catalog: 500+
 deterministic tools (search, extract, render, PDF, EDGAR, openFDA, on-chain
 data), the [smart order router](https://agent402.tools/guides/smart-order-router)
 that pays other x402 sellers on your agent's behalf, and receipts for every
-call. Prices on this page are read from the live gateway configuration.
+call. Every price on this page is rendered from the live gateway configuration.
 `,
   },
 ];
