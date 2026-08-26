@@ -273,7 +273,11 @@ ${t.synthFrame ? `${t.synthFrame}\n\n` : ""}Write a thorough, well-structured, w
     // Debug seam (never in prod): expose the grounding material so an eval can
     // check that every specific in the report traces to retrieved content.
     if (process.env.RESEARCH_DEBUG === "1") out._debug = { subAnswers: good.map((r) => ({ q: r.q, answer: r.answer })), snippets: sources.map((s) => ({ n: s.n, snippet: s.snippet })) };
-    recordCompositeUsage({ slug: tierSlug, upstreamUsd: spent, ok: true, priceUsd: priceUsdOf(RESEARCH_TIERS[tierSlug]) });
+    // A composite that CALLS this in-process passes `accountAs` (a function -
+    // never reachable from a JSON body) so the spend is booked once against the
+    // product the buyer paid for, the way ticker-pack folds the dossier.
+    if (typeof input.accountAs === "function") input.accountAs(spent);
+    else recordCompositeUsage({ slug: tierSlug, upstreamUsd: spent, ok: true, priceUsd: priceUsdOf(RESEARCH_TIERS[tierSlug]) });
     return out;
   };
 }

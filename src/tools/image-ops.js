@@ -135,6 +135,16 @@ export async function runImageOp({ op, buffer, maxPixels = FREE_MAX_SRC_PIXELS, 
   if (op === "convert") {
     return toBuffer(img, params.format, params.quality);
   }
+  if (op === "cover") {
+    // Crop-to-fill an exact WxH (the LinkedIn sizes): scale so the image
+    // covers the box, then centre-crop. Both dimensions required.
+    let w = posInt(params.width), h = posInt(params.height);
+    if (!w || !h) throw bad("cover needs width and height");
+    if (w > MAX_DIM) w = MAX_DIM;
+    if (h > MAX_DIM) h = MAX_DIM;
+    img.cover({ w, h });
+    return toBuffer(img, params.format, params.quality);
+  }
   if (op === "thumbnail") {
     const size = Math.min(Math.max(posInt(params.size) || 128, 1), 1024);
     img.cover({ w: size, h: size });

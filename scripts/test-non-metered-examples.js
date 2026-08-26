@@ -130,6 +130,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // identity surface. Keep in sync with the class of spend — adding a new keyed
 // upstream means listing its slugs here (and skill packs resolve transitively).
 const METERED_SLUGS = new Set([
+  // Pyth Hermes: Bearer key required since 2026-08-26 16:00 UTC (keyless = 401); listed only with PYTH_API_KEY
+  "price-pyth",
   // Brave Search subscription
   "search", "search-news", "search-images", "search-videos", "search-suggest", "answer", "multi-search",
   "llm-context",      // Brave /llm/context - same subscription, billed per call
@@ -156,7 +158,7 @@ const METERED_SLUGS = new Set([
   // domain-audit composites — live probes + Opus synthesis over OpenRouter.
   "domain-audit", "domain-audit-pro",
   // recall-report - openFDA probes + Opus synthesis over OpenRouter.
-  "recall-report", "insider-report", "market-brief", "token-brief", "filing-report",
+  "recall-report", "insider-report", "market-brief", "token-brief", "filing-report", "linkedin-article",
   // ticker-pack - runs the dossier + insider composites in-process.
   "ticker-pack",
   // token-risk composites — Blockscout x402 buys (upstream-buyer wallet) +

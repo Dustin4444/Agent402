@@ -76,7 +76,7 @@
     return { dossier: "Company Due-Diligence Dossier", fund: "Fund Portfolio Report (13F)",
       domain: "Domain Security Audit", recall: "FDA Recall Report", insider: "Insider Flow Report (Form 4)",
       filing: "SEC Filing Report", token: "Solana Token Due-Diligence Brief", ipo: "IPO Pipeline Digest", ticker: "Ticker Pack",
-      research: "Deep Research Report" }[kind] || "Deep Research Report";
+      research: "Deep Research Report", linkedin: "LinkedIn Article" }[kind] || "Deep Research Report";
   }
   function reasonLabel(r) {
     return { welcome: "first report", scheduled: "scheduled re-run", change: "change detected", "tls-expiring": "certificate expiring", filing: "new 13F filing", recall: "new recall activity", "safety-change": "token safety changed", "filing-new": "new SEC filing", digest: "weekly digest", problem: "we could not complete this run" }[r] || r;
@@ -169,6 +169,7 @@
     var base = slugify(s.title);
     var tables = Array.isArray(s.tables) ? s.tables : [];
     var sources = Array.isArray(s.sources) ? s.sources : [];
+    var images = Array.isArray(s.images) ? s.images : [];
 
     // Header / letterhead (prints too).
     var head =
@@ -184,6 +185,7 @@
     }).join("");
     var included = [];
     if (sources.length) included.push(sources.length + " cited sources");
+    if (images.length) included.push(images.reduce(function (n, im) { return n + (im.files ? im.files.length : 0); }, 0) + " image files");
     tables.forEach(function (t) { included.push((t.rows ? t.rows.length : 0) + " " + esc(t.label.toLowerCase()) + " rows"); });
     var actions =
       '<div class="report-actions no-print">' +
@@ -204,7 +206,29 @@
         (ch.length ? "<ul>" + ch.map(function (c) { return "<li>" + esc(c) + "</li>"; }).join("") + "</ul>" : "") +
         ' Manage or cancel from the link in your email.</div>';
     }
-    app.innerHTML = actions + mon + '<div class="report" id="report-body">' + head + mdToHtml(s.report || "") + "</div>" + upgradeBlock(s);
+    // Generated images (LinkedIn article): a preview of each slot and one
+    // download per size, as real files at the stated pixel dimensions.
+    var imgHtml = images.length ? '<div class="rpt-images"><h2>Images</h2>' + images.map(function (im, i) {
+      var first = im.files && im.files[0];
+      var prev = first ? '<img src="data:' + esc(first.media_type || "image/jpeg") + ';base64,' + first.b64 + '" alt="' + esc(im.alt || "") + '" style="max-width:100%;height:auto;border:1px solid var(--hairline);">' : "";
+      var files = (im.files || []).map(function (f, j) {
+        return '<button class="btn btn-ghost dl-img" data-i="' + i + '" data-j="' + j + '">' + esc(f.name) + " " + f.width + "x" + f.height + " (" + Math.round((f.bytes || 0) / 1024) + " KB)</button>";
+      }).join(" ");
+      return '<div class="rpt-image"><div class="rpt-meta">' + esc(im.slot || "image") + (im.alt ? " · " + esc(im.alt) : "") + "</div>" + prev + '<div class="report-actions no-print">' + files + "</div></div>";
+    }).join("") + "</div>" : "";
+    app.innerHTML = actions + mon + '<div class="report" id="report-body">' + head + mdToHtml(s.report || "") + imgHtml + "</div>" + upgradeBlock(s);
+    var imgBtns = app.querySelectorAll(".dl-img");
+    for (var k = 0; k < imgBtns.length; k++) {
+      imgBtns[k].addEventListener("click", function (e) {
+        var im = images[Number(e.currentTarget.getAttribute("data-i"))];
+        var f = im && im.files ? im.files[Number(e.currentTarget.getAttribute("data-j"))] : null;
+        if (!f) return;
+        var bin = atob(f.b64); var bytes = new Uint8Array(bin.length);
+        for (var q = 0; q < bin.length; q++) bytes[q] = bin.charCodeAt(q);
+        var blob = new Blob([bytes], { type: f.media_type || "image/jpeg" });
+        var a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = base + "-" + f.name + "-" + f.width + "x" + f.height + ".jpg"; document.body.appendChild(a); a.click(); a.remove();
+      });
+    }
     wireUpgrade();
 
     var pdf = document.getElementById("dl-pdf");
@@ -219,7 +243,7 @@
     }
     var json = document.getElementById("dl-json");
     if (json) json.addEventListener("click", function () {
-      var bundle = { title: s.title, product: productLabel(s.kind), generatedAt: s.at, report: s.report, sources: sources, tables: tables };
+      var bundle = { title: s.title, product: productLabel(s.kind), generatedAt: s.at, report: s.report, sources: sources, tables: tables, images: images };
       download(base + "-bundle.json", JSON.stringify(bundle, null, 2), "application/json");
     });
     var cl = document.getElementById("copy-link");

@@ -45,6 +45,8 @@ export const EXPENSIVE_COMPOSITE_SLUGS = new Set([
   "ticker-pack",
   // filing-report reads up to 3 EDGAR documents then synthesizes; minutes long.
   "filing-report",
+  // linkedin-article = the research pipeline + synthesis + image generation.
+  "linkedin-article",
   // Media tiers: one upstream call each, but a flat $0.014-$0.12 is spent BEFORE
   // settlement, so an unsettled repeat is free to the caller and real to us.
   // Being in this set also marks them longRunning (EVM exact only) - a 40-240 s
