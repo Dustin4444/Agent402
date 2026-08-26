@@ -83,6 +83,20 @@ function saveKeys(path, map, keys) {
   } catch { /* best-effort */ }
 }
 
+// Webhook receipt tally. The handler is otherwise silent on success, so
+// nothing on our side could say whether Stripe is DELIVERING events at all
+// (the restricted prod key deliberately lacks webhook_read, so the dashboard
+// is the only other witness). Persisted beside the store so a deploy does not
+// reset it to a reassuring-looking zero. Counts only, never event bodies.
+const TALLY_SUFFIX = ".webhooks.json";
+const emptyTally = () => ({ received: 0, verified: 0, rejected: 0, unconfigured: 0, byType: {}, lastAt: null, lastType: null, lastRejectAt: null, lastRejectReason: null, since: new Date().toISOString() });
+function loadTally(path) {
+  try { const t = JSON.parse(readFileSync(path, "utf8")); return { ...emptyTally(), ...t, byType: t.byType || {} }; } catch { return emptyTally(); }
+}
+function saveTally(path, t) {
+  try { const tmp = `${path}.${process.pid}.tmp`; writeFileSync(tmp, JSON.stringify(t)); renameSync(tmp, path); } catch { /* best-effort */ }
+}
+
 /**
  * @param {object} deps
  * @param {import("stripe")} deps.stripe
@@ -92,6 +106,14 @@ function saveKeys(path, map, keys) {
 export function createStripeSubscriptions({ stripe, baseUrl, storePath, validateTarget = {}, onInvoicePaid, onPaymentSession, onChargeReversed }) {
   const path = storePath || STORE_PATH();
   const store = loadStore(path);          // subId -> record
+  const tallyPath = path + TALLY_SUFFIX;
+  const tally = loadTally(tallyPath);
+  const MAX_TYPES = 64;
+  function bump(kind, extra) {
+    tally[kind] += 1;
+    Object.assign(tally, extra);
+    saveTally(tallyPath, tally);
+  }
 
   function upsert(subId, patch) {
     if (!subId) return;
@@ -183,10 +205,15 @@ export function createStripeSubscriptions({ stripe, baseUrl, storePath, validate
   // secret it refuses (401), and a bad signature 400s.
   async function handleWebhook(rawBody, signature) {
     const secret = webhookSecret();
-    if (!secret) { const e = new Error("Webhook not configured (STRIPE_WEBHOOK_SECRET unset)"); e.statusCode = 401; throw e; }
+    const now = new Date().toISOString();
+    bump("received");
+    if (!secret) { bump("unconfigured", { lastRejectAt: now, lastRejectReason: "unconfigured" }); const e = new Error("Webhook not configured (STRIPE_WEBHOOK_SECRET unset)"); e.statusCode = 401; throw e; }
     let event;
     try { event = stripe.webhooks.constructEvent(rawBody, signature, secret); }
-    catch (err) { const e = new Error(`Webhook signature verification failed: ${err.message}`); e.statusCode = 400; throw e; }
+    catch (err) { bump("rejected", { lastRejectAt: now, lastRejectReason: "bad-signature" }); const e = new Error(`Webhook signature verification failed: ${err.message}`); e.statusCode = 400; throw e; }
+    const type = String(event.type || "unknown").slice(0, 64);
+    if (Object.hasOwn(tally.byType, type) || Object.keys(tally.byType).length < MAX_TYPES) tally.byType[type] = (tally.byType[type] || 0) + 1;
+    bump("verified", { lastAt: now, lastType: type });
     switch (event.type) {
       case "checkout.session.completed": {
         const s = event.data.object;
@@ -280,5 +307,11 @@ export function createStripeSubscriptions({ stripe, baseUrl, storePath, validate
   }
   const get = (subId) => store.get(subId) || null;
 
-  return { createCheckout, recordFromSession, handleWebhook, portalSession, listActive, get, refreshStatus, _store: store };
+  // Operator surface: is Stripe delivering, and are we accepting? A snapshot
+  // (never the live object), counts + timestamps only.
+  function webhookStats() {
+    return { ...tally, byType: { ...tally.byType }, configured: Boolean(webhookSecret()) };
+  }
+
+  return { createCheckout, recordFromSession, handleWebhook, portalSession, listActive, get, refreshStatus, webhookStats, _store: store };
 }
