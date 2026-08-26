@@ -1,6 +1,6 @@
 # Paying with x402 (USDC)
 
-[x402](https://x402.org) is an open HTTP payment standard (the `402 Payment Required` status, finally used). Settlement infrastructure exists from **Coinbase** (CDP facilitator - what this service uses) and **Stripe**. x402 is one of the two wires underneath [[Agentic Finance]] - the other is [[Paying with MPP|MPP]], answered on the same 402.
+[x402](https://x402.org) is an open HTTP payment standard (the `402 Payment Required` status, finally used). Settlement infrastructure exists from **Coinbase** (the CDP facilitator settles Base for this service) and client tooling from **Stripe** (`purl`, below). x402 is one of the two wires underneath [[Agentic Finance]] - the other is [[Paying with MPP|MPP]], answered on the same 402.
 
 ## The flow
 
@@ -66,7 +66,7 @@ instead - different mechanism, same price.
 
 ## The same 402 sells report products and takes card credits
 
-The outcome-priced report routes (`POST /v1/research`, `/v1/dossier`, `/v1/fund`, `/v1/filing-report`, `/v1/domain-audit`, `/v1/recall-report`, `/v1/insider-report`, `/v1/token-brief`, `/v1/token-risk`; $0.20 to $1.10) answer the identical 402, so any client that pays a $0.001 tool pays a $0.55 dossier the same way. People without a wallet buy the same reports by card at [`/reports`](https://agent402.tools/reports) for $1 to $2, where the price includes payment processing. Buyers with a card and no wallet can load prepaid credits at [`/credits`](https://agent402.tools/credits) and send `Authorization: Bearer a402_…` instead of a payment header; the credits gate holds the list price and debits only on a final `200`. Details on [[Reports, Monitors and Credits|Reports-and-Monitors]].
+The outcome-priced report routes (`POST /v1/research`, `/v1/dossier`, `/v1/ticker-pack`, `/v1/fund`, `/v1/filing-report`, `/v1/domain-audit`, `/v1/recall-report`, `/v1/insider-report`, `/v1/token-brief`, `/v1/token-risk`, `/v1/linkedin-article`; $0.60 to $2.00, and $0.05 for the `/v1/ipo-report` digest) answer the identical 402, so any client that pays a $0.001 tool pays a $0.85 dossier the same way. People without a wallet buy the same reports by card at [`/reports`](https://agent402.tools/reports) for $2 to $5, where the price includes payment processing. Buyers with a card and no wallet can load prepaid credits at [`/credits`](https://agent402.tools/credits) and send `Authorization: Bearer a402_…` instead of a payment header; the credits gate holds the list price and debits only on a final `200`. Details on [[Reports, Monitors and Credits|Reports-and-Monitors]].
 
 ## Command line: Stripe's `purl`
 

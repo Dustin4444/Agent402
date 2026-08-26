@@ -16,7 +16,7 @@ We publish a runnable sample: [`examples/agentcore-x402-buyer`](https://github.c
 
 ## What you get out of the box
 
-- 500+ deterministic, pay-per-call tools + 100+ multi-tool skill packs from Agent402, callable from an AgentCore-hosted agent
+- 500+ deterministic, pay-per-call tools + 70+ multi-tool skill packs from Agent402, callable from an AgentCore-hosted agent
 - Free tier with **no wallet** (proof-of-work; AgentCore Identity is optional for that path)
 - USDC-on-Base settlement for wallet-only tools, via AgentCore's `PaymentCredentialProvider` + CDP
 - CloudWatch observability for every payment (AgentCore handles this)
@@ -54,7 +54,7 @@ const agent = new Agent({ tools });
 const out = await agent.invoke("Extract the article at https://example.com/post");
 ```
 
-Free-tier tools (200+ of them) pay automatically via proof-of-work - **no wallet required**. For the 300+ wallet-only tools, pass an `@x402/fetch`-wrapped `fetch`; AgentCore Payments signs with the CDP-backed key in Identity, so you never see private keys in your code.
+Free-tier tools (150+ of them) pay automatically via proof-of-work - **no wallet required**. For the wallet-only tools (most of the catalog), pass an `@x402/fetch`-wrapped `fetch`; AgentCore Payments signs with the CDP-backed key in Identity, so you never see private keys in your code.
 
 ```ts
 const { tools } = await agent402Tools({

@@ -2,7 +2,7 @@
 
 > **Payment wires:** every paid endpoint accepts **x402** and **MPP** (Machine Payments Protocol) on the same 402 - see [[Paying with x402]] and [[Paying with MPP]]. Agent402 is the applied layer of [[Agentic Finance]]: agents that pay and get paid on their own.
 
-**100+ curated multi-tool workflows.** Each pack solves a real job that no single tool covers - auditing a domain, working up a time series, decoding an opaque blob, pulling the macro backdrop - and ships as a single MCP **prompt**. An agent calls `prompts/get { name: "<pack>", arguments: { … } }` and gets back a ready-to-run plan with the right Agent402 tools wired in (in the right order, with the right inputs).
+**70+ curated multi-tool workflows.** Each pack solves a real job that no single tool covers - auditing a domain, working up a time series, decoding an opaque blob, pulling the macro backdrop - and ships as a single MCP **prompt**. An agent calls `prompts/get { name: "<pack>", arguments: { … } }` and gets back a ready-to-run plan with the right Agent402 tools wired in (in the right order, with the right inputs).
 
 - **Browse on the live site:** [`agent402.tools/skills`](https://agent402.tools/skills) (full templates, arguments, examples)
 - **MCP discovery:** every MCP-aware client picks them up via `prompts/list` → `prompts/get`
@@ -24,7 +24,7 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 
 ---
 
-## Security & trust (9)
+## Security & trust (8)
 
 | Pack | Price | What it solves |
 |---|---|---|
@@ -37,7 +37,7 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | [**brand-protection**](https://agent402.tools/skills/brand-protection) | $0.20 | Is this domain legitimate? WHOIS age, DNS, scam/phishing search, and HTTP headers for a trust read. |
 | [**domain-age**](https://agent402.tools/skills/domain-age) | $0.060 | How old and legit is this domain? WHOIS registration, DNS resolution, and TLS certificate in one pass. |
 
-## Web extraction & document intelligence (8)
+## Web extraction & document intelligence (9)
 
 | Pack | Price | What it solves |
 |---|---|---|
@@ -49,8 +49,9 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | [**pdf-pipeline**](https://agent402.tools/skills/pdf-pipeline) | $0.060 | Full PDF pipeline - metadata, markdown conversion, and first-page extraction in one call. |
 | [**url-inspector**](https://agent402.tools/skills/url-inspector) | $0.060 | Quick URL health + metadata - parse the structure, verify reachability, and pull page metadata. |
 | [**content-grade**](https://agent402.tools/skills/content-grade) | $0.080 | Grade a page's content quality - extract the readable content then analyze keyword density. |
+| [**document-brief**](https://agent402.tools/skills/document-brief) | $0.050 | Metadata, an AI-written summary, and a preview of the opening pages of a PDF - understand what a document says without reading the whole thing. |
 
-## SEO & site audit (5)
+## SEO & site audit (4)
 
 | Pack | Price | What it solves |
 |---|---|---|
@@ -59,7 +60,7 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | [**competitor-scan**](https://agent402.tools/skills/competitor-scan) | $0.15 | What's a competitor running? Tech stack, HTTP headers, WHOIS, and page metadata in one call. |
 | [**status-snapshot**](https://agent402.tools/skills/status-snapshot) | $0.070 | "Is this site healthy, addressable, and crawlable - right now?" DNS → HTTP → headers → TLS → robots. |
 
-## Finance (14)
+## Finance (9)
 
 | Pack | Price | What it solves |
 |---|---|---|
@@ -90,7 +91,7 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | [**world-data**](https://agent402.tools/skills/world-data) | $0.080 | GDP and population for a country - two key World Bank indicators. |
 | [**macro-dashboard**](https://agent402.tools/skills/macro-dashboard) | $0.10 | The full macro plus crypto dashboard in one call: 5 FRED series, 5 Treasury reads, the curve spread, crypto market/trending/global, and live gas. |
 
-## Time series & forecasting (3)
+## Time series & forecasting (2)
 
 | Pack | Price | What it solves |
 |---|---|---|
@@ -115,7 +116,7 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | [**cheapest-rail**](https://agent402.tools/skills/cheapest-rail) | $0.050 | Where should an agent transact this minute? Live gas across L2s, a fee estimate, and ETH spot. |
 | [**contract-audit**](https://agent402.tools/skills/contract-audit) | $0.15 | Triage a smart contract before an agent touches it: verified source, heuristic vulnerability scan, known-address check, selector resolution, and a read-only dry-run of the exact call. |
 
-## Network, DevOps & API work (6)
+## Network, DevOps & API work (4)
 
 | Pack | Price | What it solves |
 |---|---|---|
@@ -124,18 +125,13 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | [**schema-evolution**](https://agent402.tools/skills/schema-evolution) | $0.060 | "Did this API contract change in a way that breaks us?" - diff two OpenAPI snapshots, lint, validate. |
 | [**api-health**](https://agent402.tools/skills/api-health) | $0.060 | Is this API endpoint healthy? Liveness check, response headers, and TLS certificate status. |
 
-## Data engineering & RAG (7)
-
-| Pack | Price | What it solves |
-|---|---|---|
-
-## Decoding & inspection (4)
+## Decoding & inspection (1)
 
 | Pack | Price | What it solves |
 |---|---|---|
 | [**decode-blob**](https://agent402.tools/skills/decode-blob) | $0.050 | Hand the agent an opaque string - JWT, base64 JSON, gzipped response - and identify + unwrap it layer by layer. |
 
-## Identity & onboarding (4)
+## Identity & onboarding (3)
 
 | Pack | Price | What it solves |
 |---|---|---|
@@ -143,7 +139,7 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | [**contact-verify**](https://agent402.tools/skills/contact-verify) | $0.060 | Verify an email is deliverable - syntax validation plus MX record check on the domain. |
 | [**entity-enrich**](https://agent402.tools/skills/entity-enrich) | $0.15 | Company name to verified identity plus web footprint: Wikidata facts, the LEI legal-entity record, the SEC filer, domain registration, tech stack, and brand favicon. |
 
-## Location & time (6)
+## Location & time (4)
 
 | Pack | Price | What it solves |
 |---|---|---|
@@ -152,17 +148,12 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | [**weather-brief**](https://agent402.tools/skills/weather-brief) | $0.060 | Full weather briefing for a location: current conditions, 7-day forecast, and air quality. |
 | [**locale-brief**](https://agent402.tools/skills/locale-brief) | $0.050 | "Can I reach this counterparty this week?" Country facts, this year's public holidays, working days left this week, and the local time right now. |
 
-## Media & accessibility (3)
+## Media & accessibility (2)
 
 | Pack | Price | What it solves |
 |---|---|---|
 | [**media-pipeline**](https://agent402.tools/skills/media-pipeline) | $0.25 | "User uploaded a thing, normalize it before storing." Probe → decode → resize → thumbnail → convert. |
 | [**subtitle-pipeline**](https://agent402.tools/skills/subtitle-pipeline) | $0.10 | Audio URL to finished subtitles: transcribe the audio, emit SRT/WebVTT/JSON cues, and report length, reading time, and word count. |
-
-## Text & content utilities (5)
-
-| Pack | Price | What it solves |
-|---|---|---|
 
 ## Search & citations (3)
 

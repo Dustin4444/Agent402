@@ -32,6 +32,7 @@ Each report is a `POST` with a JSON body; the price is the whole outcome, not a 
 | `POST /v1/token-brief` | $0.60 | `{ mint }` | Solana token due-diligence brief: authorities, liquidity, holder concentration, pairs and market context from live on-chain and market probes |
 | `POST /v1/token-risk` | $0.60 | `{ address, chain, format? }` | Token and contract risk report from on-chain evidence: source verification, holder concentration (pools and contracts told apart from wallets), supply and market context. Evidence, never a "safe" verdict |
 | `POST /v1/token-risk/pro` | $0.85 | same | Plus a deterministic static-pattern scan of the verified source and a web reputation check |
+| `POST /v1/linkedin-article` | $1.10 | `{ topic, angle?, audience?, tone?, author?, cta?, length?, images?, hashtags? }` | LinkedIn article package, ready to publish: grounded web research with cited sources, three headline options, a hook-first body under subheads with facts linked to their sources, key takeaways, a companion post with hashtags, and generated images delivered at LinkedIn's own sizes (article cover 1920x1080, link-share 1200x627, feed square and portrait, in-article 16:9). It delivers the package; it never posts |
 | `POST /v1/ipo-report` | $0.05 | `{ days?, keyword? }` | Deterministic IPO pipeline digest: every 424B4 (priced) and S-1 (registering) on SEC EDGAR in the window, optional keyword filter on the filer's name. No synthesis, filing facts only |
 
 Every report route is wallet-only (no proof-of-work tier) and is listed in [`/api/pricing`](https://agent402.tools/api/pricing), `/openapi.json` and on its own `/tools/{slug}` page with a sample output. They are not cached: each call is a fresh run.
@@ -49,7 +50,7 @@ Over the MCP connector, `catalog.find` resolves a task like "audit example.com's
 
 ## Reports for people (`/reports`)
 
-[`/reports`](https://agent402.tools/reports) sells the same products by card through Stripe Checkout: pick a product, type the input (a question, a ticker, a fund, a domain, a recall term), pay, and the report renders at a private link `/r/<session>` (also emailed when the instance has email configured). Every product is **$1**, except research max, dossier max and the ticker pack, which are **$2**.
+[`/reports`](https://agent402.tools/reports) sells the same products by card through Stripe Checkout: pick a product, type the input (a question, a ticker, a fund, a domain, a recall term, an article topic), pay, and the report renders at a private link `/r/<session>` (also emailed when the instance has email configured). The card price is derived from the agent price: **$2** for the base tier (research, fund report, domain audit, token brief, recall report, insider report), **$3** for the pro tier (research pro, market brief, dossier, fund report deep, domain audit pro, filing report), **$4** for the max tier (research max, dossier max, LinkedIn article) and **$5** for the ticker pack.
 
 The card price is not the agent price, and that is deliberate: Stripe charges 2.9% + $0.30 per charge, so under about a dollar the processing fee costs more than the report. An agent paying per call over x402, MPP or prepaid credits pays the lower tool price in the table above for the same report. The token-risk and IPO reports are agent-facing routes and are not on the card page.
 
@@ -59,7 +60,7 @@ Guarantees enforced in code rather than promised in copy:
 - A run that fails is **refunded automatically**; a refund that could not be issued is recorded as owed and retried, never reported as done.
 - Report pages are private links (`noindex`, no listing anywhere); the link is the bearer.
 
-## Monitors (`/monitors`, $3 per month each)
+## Monitors (`/monitors`, $5 per month each)
 
 A monitor is a Stripe subscription that keeps one report fresh for one target. The scheduler (`src/monitor-scheduler.js`) does a cheap, free check on a cadence and spends a full paid run only when the cadence says so or something actually changed, then emails a durable report link (`/m/<id>`).
 
@@ -96,7 +97,7 @@ Credits are the card-native equivalent of a wallet for the long tail; the report
 
 | | Per-call tools | Report products | Monitors |
 |---|---|---|---|
-| Price | $0.001 and up per call | $0.20 to $1.10 per report over x402 / MPP ($0.05 for the IPO digest), or $1 to $2 by card | $3 per month per target |
+| Price | $0.001 and up per call | $0.60 to $2.00 per report over x402 / MPP ($0.05 for the IPO digest), or $2 to $5 by card | $5 per month per target |
 | Pay with | x402, MPP, proof-of-work (pure-CPU), credits | x402, MPP, credits, or card at `/reports` | card subscription at `/monitors` |
 | Who | agents | agents and people | people (agents call the underlying report directly) |
 | Serving path | deterministic, no language model | deterministic evidence + grounded synthesis (IPO digest: deterministic only) | the same report kits on a schedule |
