@@ -18,11 +18,12 @@ import { TOKEN_RISK_TIERS } from "./tools/token-risk-kit.js";
 import { TOKEN_BRIEF_TIERS } from "./tools/token-brief-kit.js";
 import { FILING_TIERS } from "./tools/filing-watch-kit.js";
 import { TICKER_PACK_TIERS } from "./tools/ticker-pack-kit.js";
+import { LINKEDIN_TIERS } from "./tools/linkedin-article-kit.js";
 
 export const REPORT_TIERS = {
   ...RESEARCH_TIERS, ...DOSSIER_TIERS, ...FUND_TIERS, ...DOMAIN_AUDIT_TIERS,
   ...RECALL_TIERS, ...INSIDER_TIERS, ...TOKEN_RISK_TIERS, ...TOKEN_BRIEF_TIERS,
-  ...FILING_TIERS, ...TICKER_PACK_TIERS,
+  ...FILING_TIERS, ...TICKER_PACK_TIERS, ...LINKEDIN_TIERS,
 };
 
 /** The declared upstream ceiling for a slug, or null when it is not a report. */

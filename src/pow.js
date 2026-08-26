@@ -49,6 +49,7 @@ const pruneStmt = db.prepare("DELETE FROM pow_used WHERE exp < ?");
 // they stay wallet-only so PoW can't be used to farm Chromium/egress/storage.
 export const WALLET_ONLY_SLUGS = new Set([
   "token-brief", "filing-report",  // token-brief-kit.js: keyless Solana egress + Opus synthesis, metered
+  "linkedin-article",              // linkedin-article-kit.js: research + Opus + image generation, metered
   "v1-images-fast", "v1-images-pro", "v1-videos",  // llm-images-fast-kit.js (OpenRouter spend)
   "asset-transfers", "token-balances", "token-allowance", "tx-receipt", "block-receipts", "token-price-history",  // alchemy-data-kit.js (egress)
   "fc-cast-search", "fc-channel-feed", "fc-trending", "fc-user-casts", "fc-cast", "fc-cast-replies", "fc-channel", "fc-user-search", "fc-cast-metrics",  // farcaster-social-kit.js (egress)

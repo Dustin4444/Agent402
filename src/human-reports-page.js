@@ -190,6 +190,16 @@ export function humanReportsPage(baseUrl) {
         ${buyBtn("market", "market-brief", "Get brief")}
         <div class="note" style="margin-top:10px;"><a href="/tools/market-brief" style="color:var(--muted);">Sample output + API docs →</a></div>
       </div>
+      <div class="pcard" data-kind="linkedin">
+        <div class="k">LinkedIn article</div>
+        <h3>A publish-ready LinkedIn article, with the images</h3>
+        <p>Grounded research with cited sources, three headline options, a hook-first body with facts linked to their sources, key takeaways, a companion post with hashtags, and generated images at LinkedIn's own sizes: cover 1920x1080, link-share 1200x627, feed square and portrait. Paste and publish.</p>
+        <div class="field"><input id="in-linkedin" type="text" placeholder="Your topic, e.g. why AI agents will pay for APIs with stablecoins"></div>
+        <div class="tiers">${tierBtn("linkedin-article", "Article + images", true)}</div>
+        <div class="err" id="err-linkedin"></div>
+        ${buyBtn("linkedin", "linkedin-article", "Get the article")}
+        <div class="note" style="margin-top:10px;"><a href="/tools/linkedin-article" style="color:var(--muted);">Sample output + API docs →</a></div>
+      </div>
       <div class="pcard" data-kind="recall">
         <div class="k">FDA recall report</div>
         <h3>Is it recalled?</h3>

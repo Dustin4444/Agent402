@@ -349,6 +349,25 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   Live-verified on INTC the same day: "That gap is not a mystery: the filing attributes it to a $12.5 billion ... mark-to-
   market loss on the Escrowed Shares derivative liability [4]". Ticker pack inherits it (same handler). Note `fmtUsd` now
   renders negatives as `-$12.58B` (was `$-12.58B`).
+- **LinkedIn article product (2026-08-26, `src/tools/linkedin-article-kit.js`, `linkedin-article`, `POST /v1/linkedin-article`
+  $1.10 agent / $4 card (the derived ladder rung for $1.10), cap $0.65):** topic (+ angle, audience, tone, author byline,
+  CTA, length short/standard/long, images {cover, inline 0-1, style}, hashtags 0-5) -> the research-deep pipeline
+  in-process (`makeResearchHandler("research")` with the new `accountAs` seam so the spend books once under this slug)
+  -> one Opus JSON synthesis in LinkedIn's shape (3 headlines <= 100 chars, subtitle, hook-first body under ## subheads
+  with facts as markdown LINKS to their sources - LinkedIn keeps links, has no [n] - takeaways, companion post <= 3,000
+  chars with hashtags, image briefs) -> one budget image per brief (`v1-images-fast` handler in-process, ~$0.014) crop-
+  filled in-process (`image-ops` new `cover` op, off-thread via the image pool) to LinkedIn's OWN sizes: article cover
+  1920x1080 (LinkedIn help: "optimal image size for the cover photo is 1920 (w) x 1080 (h)", max 7680x4320), post /
+  link-share 1200x627 (1.91:1), feed square 1200x1200, feed portrait 1080x1350, in-article 1200x675 - JPEG, under the
+  3 MB cap, dimensions re-read from the JPEG header. Deliverable = markdown `report` (article, takeaways, linked
+  sources, companion post, alternative headlines, image manifest, publishing notes) + structured `article`/`post`/
+  `images[{slot, alt, prompt, files[{name, use, width, height, bytes, b64}]}]`; `_humanGenerate` carries `images` into
+  the card bundle, `human-checkout` stores it, `report-view.js` previews each slot and downloads each size as a real
+  file. House style enforced in code (em/en dashes replaced). A failed cover = 502 not charged; a failed inline image
+  is named in the report. Registered: ALL_KIT, `_premiumHandlers` + kind `linkedin`, HUMAN_PRODUCTS, /reports card,
+  WALLET_ONLY, EXPENSIVE_COMPOSITE (long-running: EVM exact only), REPORT_TIERS, margins ladder, test-all NETWORK,
+  non-metered METERED_SLUGS. `scripts/test-linkedin-article-kit.js` (25, in CI: stubbed upstreams, REAL resizing).
+  LinkedIn has no public API for personal articles: the product delivers the package, never posts.
 - **Report inputs round 3 (2026-08-26; `scripts/test-report-inputs.js` 44, in CI):** **token-risk** told buyers owner
   privileges/upgradeability were "not visible here" - now three keyless legs run beside the paid Blockscout ones:
   `probeGoPlus` (token_security: proxy, mintable, honeypot, owner + renounced, hidden owner, taxes, pausable, blacklist,

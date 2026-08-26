@@ -28,6 +28,7 @@ import { TOKEN_RISK_TIERS } from "../src/tools/token-risk-kit.js";
 import { TOKEN_BRIEF_TIERS } from "../src/tools/token-brief-kit.js";
 import { FILING_TIERS } from "../src/tools/filing-watch-kit.js";
 import { TICKER_PACK_TIERS } from "../src/tools/ticker-pack-kit.js";
+import { LINKEDIN_TIERS } from "../src/tools/linkedin-article-kit.js";
 import { HUMAN_PRODUCTS } from "../src/human-checkout.js";
 import { MONITOR_PRODUCTS } from "../src/stripe-subscriptions.js";
 import { MAX_FULL_PER_SUB_30D } from "../src/monitor-scheduler.js";
@@ -55,7 +56,7 @@ const usd = (s) => Number(String(s).replace(/[^0-9.]/g, ""));
 const TIERS = {
   ...RESEARCH_TIERS, ...DOSSIER_TIERS, ...FUND_TIERS, ...DOMAIN_AUDIT_TIERS,
   ...RECALL_TIERS, ...INSIDER_TIERS, ...TOKEN_RISK_TIERS, ...TOKEN_BRIEF_TIERS,
-  ...FILING_TIERS, ...TICKER_PACK_TIERS,
+  ...FILING_TIERS, ...TICKER_PACK_TIERS, ...LINKEDIN_TIERS,
 };
 
 // 1. Every declared cap must be at or above the measured worst case for the
