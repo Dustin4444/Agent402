@@ -18,7 +18,7 @@ const run = (cliArgs, env) => new Promise((resolve) => {
   child.on("close", (status) => resolve({ status, stdout, stderr }));
 });
 import { startProxy } from "./proxy.js";
-import { routesFromCatalog, openclawModels, AUTO_ID } from "./models.js";
+import { routesFromCatalog, openclawModels, AUTO_ID, defaultPrimary, METERED_MAX_INPUT_CHARS, METERED_MAX_TOKENS } from "./models.js";
 import plugin, { resolveCreditsKey } from "./index.js";
 
 let pass = 0, fail = 0;
@@ -29,7 +29,7 @@ const seen = [];
 const catalog = { object: "list", data: [
   { id: "openai/gpt-5-nano", object: "model", x402: { tier: "v1-chat-nano", endpoint: "/v1/nano/chat/completions", priceUsd: 0.003, maxTokens: 768, maxInputChars: 48_000 } },
   { id: "openai/gpt-4o-mini", object: "model", x402: { tier: "v1-chat-auto", endpoint: "/v1/auto/chat/completions", priceUsd: 0.01, maxTokens: 1024, maxInputChars: 32_000 } },
-  { id: "openai/gpt-5", object: "model", x402: { tier: "v1-chat-premium", endpoint: "/v1/premium/chat/completions", priceUsd: 0.5, maxTokens: 8192, maxInputChars: 200_000 } },
+  { id: "openai/gpt-5", object: "model", x402: { tier: "v1-chat-premium", endpoint: "/v1/premium/chat/completions", priceUsd: 0.5, maxTokens: 8192, maxInputChars: 200_000, meteredEndpoint: "/v1/metered/chat/completions", meteredFromUsd: 0.001 } },
   { id: "deepseek/*", object: "model", x402: { tier: "v1-chat", endpoint: "/v1/chat/completions", priceUsd: 0.02, maxTokens: 2048, maxInputChars: 64_000 } },
   { id: "x/stealth", object: "model", x402: { tier: "v1-chat-ox", endpoint: "/v1/ox/chat/completions", priceUsd: 0.002, maxTokens: 8000, maxInputChars: 32_000, stealth: true } },
 ] };
@@ -57,6 +57,26 @@ const upstream = `http://127.0.0.1:${stub.address().port}`;
 
 // ---- models.js ------------------------------------------------------------
 {
+  {
+    const r = routesFromCatalog(catalog);
+    ok(r.get("openai/gpt-5").maxInputChars === METERED_MAX_INPUT_CHARS && r.get("openai/gpt-5").maxTokens === METERED_MAX_TOKENS, "metered route carries the metered tier's caps (catalog without meteredMax* fields)");
+    ok(r.get("openai/gpt-5-nano").maxInputChars === 48_000, "a flat route keeps its own cap");
+    const withCaps = routesFromCatalog({ data: [{ id: "a/b", object: "model", x402: { tier: "v1-chat", endpoint: "/v1/chat/completions", priceUsd: 0.02, maxTokens: 2048, maxInputChars: 32_000, meteredEndpoint: "/v1/metered/chat/completions", meteredFromUsd: 0.001, meteredMaxInputChars: 150_000, meteredMaxTokens: 4096 } }] });
+    ok(withCaps.get("a/b").maxInputChars === 150_000 && withCaps.get("a/b").maxTokens === 4096, "catalog-advertised meteredMax* fields win over the built-in defaults");
+    ok(defaultPrimary(r).id === "openai/gpt-5", "defaultPrimary: the only route that can hold OpenClaw's prompt");
+    ok(defaultPrimary(routesFromCatalog(catalog, { pricing: "flat" })).id === "openai/gpt-5", "defaultPrimary under flat pricing: the premium row (200k chars here) still fits");
+    const small = routesFromCatalog({ data: [
+      { id: "openai/gpt-4o-mini", object: "model", x402: { tier: "v1-chat-auto", endpoint: "/v1/auto/chat/completions", priceUsd: 0.01, maxTokens: 1024, maxInputChars: 16_000 } },
+      { id: "openai/gpt-5-nano", object: "model", x402: { tier: "v1-chat-nano", endpoint: "/v1/nano/chat/completions", priceUsd: 0.003, maxTokens: 768, maxInputChars: 12_000 } },
+    ] });
+    ok(defaultPrimary(small) === null && small.has(AUTO_ID), "defaultPrimary: null when nothing can hold OpenClaw's prompt - never auto, however cheap");
+    const pref = routesFromCatalog({ data: [
+      { id: "openai/gpt-5", object: "model", x402: { tier: "v1-chat-premium", endpoint: "/v1/premium/chat/completions", priceUsd: 0.5, maxTokens: 8192, maxInputChars: 200_000, meteredEndpoint: "/v1/metered/chat/completions", meteredFromUsd: 0.001 } },
+      { id: "anthropic/claude-haiku-4.5", object: "model", x402: { tier: "v1-chat", endpoint: "/v1/chat/completions", priceUsd: 0.02, maxTokens: 2048, maxInputChars: 32_000, meteredEndpoint: "/v1/metered/chat/completions", meteredFromUsd: 0.001 } },
+      { id: "x/stealth", object: "model", x402: { tier: "v1-chat-ox", endpoint: "/v1/ox/chat/completions", priceUsd: 0.002, maxTokens: 8000, maxInputChars: 200_000, stealth: true } },
+    ] });
+    ok(defaultPrimary(pref).id === "anthropic/claude-haiku-4.5", "defaultPrimary: preferred tool-caller wins over a pricier fit; stealth rows never chosen");
+  }
   const routes = routesFromCatalog(catalog);
   ok(routes.has(AUTO_ID) && routes.get(AUTO_ID).endpoint === "/v1/auto/chat/completions", "catalog -> routes exposes \"auto\" on the routed tier");
   ok(!routes.has("deepseek/*"), "family wildcards are not model ids");
@@ -89,7 +109,7 @@ ok(p.mode === "credits" && p.baseUrl.startsWith("http://127.0.0.1:"), `proxy sta
 {
   const r = await fetch(`${p.baseUrl}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: "agent402/openai/gpt-5", messages: [] }) });
   const s = seen.at(-1);
-  ok(r.status === 200 && s.url === "/v1/premium/chat/completions" && s.body.model === "openai/gpt-5", "explicit model routes to its home tier, provider prefix stripped");
+  ok(r.status === 200 && s.url === "/v1/metered/chat/completions" && s.body.model === "openai/gpt-5", "explicit model routes to the metered route by default, provider prefix stripped");
   const first = seen.at(-2).idem;
   ok(s.idem !== first, "each call gets its own Idempotency-Key");
 }
@@ -163,14 +183,21 @@ await p.close();
   const good = await run(["cli.js", "setup", "--credits-key", key, "--write"], env);
   if (good.status !== 0) console.log("setup --write:", good.status, good.stdout, good.stderr);
   const cfg = JSON.parse(readFileSync(join(home, "openclaw.json"), "utf8"));
-  ok(good.status === 0 && cfg.agents.defaults.model.primary === "agent402/auto" && cfg.models.providers.agent402.api === "openai-completions", "setup --write stores the key and writes provider + primary into openclaw.json");
+  // The primary is a model that can hold OpenClaw's own prompt (~70k chars before
+  // the user's first word): in this catalog only the metered gpt-5 route can.
+  // `auto` (routed tier, 32k-char cap here, 16k on prod) would fail every turn.
+  ok(good.status === 0 && cfg.agents.defaults.model.primary === "agent402/openai/gpt-5" && cfg.models.providers.agent402.api === "openai-completions", "setup --write stores the key and writes provider + a primary that fits OpenClaw's prompt (metered, never auto) into openclaw.json");
+  const gpt5Row = cfg.models.providers.agent402.models.find((m) => m.id === "openai/gpt-5");
+  ok(gpt5Row.contextWindow === Math.floor(METERED_MAX_INPUT_CHARS / 4) && gpt5Row.maxTokens === METERED_MAX_TOKENS, "a metered model advertises the METERED route's caps to OpenClaw, not its flat home tier's");
   ok(cfg.models.providers.agent402.models[0].id === "auto" && cfg.models.providers.agent402.models.some((m) => m.id === "openai/gpt-5"), "written models come from the live catalog");
   const stored = readFileSync(join(home, "agent402", "credits.key"), "utf8").trim();
   ok(stored === key, "credits key is stored under the OpenClaw home");
   process.env.AGENT402_OPENCLAW_HOME = home; delete process.env.AGENT402_CREDITS_KEY;
   ok(resolveCreditsKey() === key, "resolveCreditsKey falls back to the stored file");
   const dry = await run(["cli.js", "setup"], env);
-  ok(dry.status === 0 && /"primary": "agent402\/auto"/.test(dry.stdout), "setup without --write prints the block");
+  ok(dry.status === 0 && /"primary": "agent402\/openai\/gpt-5"/.test(dry.stdout), "setup without --write prints the block");
+  const flat = await run(["cli.js", "setup", "--flat"], env);
+  ok(flat.status === 0 && /"primary": "agent402\/openai\/gpt-5"/.test(flat.stdout) && !/Context overflow/.test(flat.stderr), "setup --flat picks the flat premium row here (it fits) with no warning");
   rmSync(home, { recursive: true, force: true });
 }
 
@@ -227,6 +254,28 @@ await p.close();
   ok(readFileSync(join(home, "agent402", "credits.key"), "utf8").trim() === key, "the key is taken from AGENT402_CREDITS_KEY when no flag is given");
   ok(!/a402_testkey/.test(r.stdout), "the key is never echoed to stdout");
   rmSync(home, { recursive: true, force: true });
+}
+
+
+// ---- metered routing (0.2.0): explicit models go to the metered route by default ----
+{
+  const m = routesFromCatalog(catalog);
+  ok(m.get("openai/gpt-5").endpoint === "/v1/metered/chat/completions" && m.get("openai/gpt-5").metered === true && m.get("openai/gpt-5").priceUsd === 0.001, "a model whose catalog row advertises meteredEndpoint routes there by default, priced from the metered floor");
+  ok(m.get("openai/gpt-5-nano").endpoint === "/v1/nano/chat/completions" && !m.get("openai/gpt-5-nano").metered, "a row without meteredEndpoint keeps its home tier");
+  ok(m.get(AUTO_ID).endpoint === "/v1/auto/chat/completions" && !m.get(AUTO_ID).metered, "auto stays on the routed tier (the metered route needs an explicit model)");
+  const flat = routesFromCatalog(catalog, { pricing: "flat" });
+  ok(flat.get("openai/gpt-5").endpoint === "/v1/premium/chat/completions" && flat.get("openai/gpt-5").priceUsd === 0.5, "pricing: flat keeps every model on its home tier");
+  ok(/metered, from \$0\.001\/call/.test(openclawModels(m).find((x) => x.id === "openai/gpt-5").name), "the OpenClaw display name says metered and the floor");
+  const p2 = await startProxy({ upstream, creditsKey: key, port: 0 });
+  const r = await fetch(`${p2.baseUrl}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: "openai/gpt-5", messages: [] }) });
+  ok(r.status === 200 && seen.at(-1).url === "/v1/metered/chat/completions" && seen.at(-1).body.model === "openai/gpt-5", "the proxy forwards an explicit model to the metered route with the model set");
+  const h = await (await fetch(`${p2.baseUrl}/health`)).json();
+  ok(h.pricing === "metered", "health reports the pricing mode");
+  await p2.close();
+  const p3 = await startProxy({ upstream, creditsKey: key, port: 0, pricing: "flat" });
+  await fetch(`${p3.baseUrl}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: "openai/gpt-5", messages: [] }) });
+  ok(seen.at(-1).url === "/v1/premium/chat/completions", "pricing: flat forwards to the home tier");
+  await p3.close();
 }
 
 stub.close();

@@ -51,6 +51,7 @@ const plugin = {
     const cfg = api.pluginConfig || {};
     const port = Number(cfg.port) || DEFAULT_PORT;
     const upstream = stripTrailingSlashes(cfg.upstream || process.env.AGENT402_UPSTREAM || DEFAULT_UPSTREAM);
+    const pricing = String(cfg.pricing || process.env.AGENT402_PRICING || "metered").toLowerCase() === "flat" ? "flat" : "metered";
     const log = (m) => api.logger?.info?.(m);
     api.registerProvider(buildProvider({ port }));
     if (!registeredOnce) {
@@ -61,8 +62,8 @@ const plugin = {
           if (started) return;
           const creditsKey = resolveCreditsKey(cfg);
           const payFetch = creditsKey ? null : await resolvePayFetch(cfg, log);
-          try { setCachedRoutes(await loadRoutes(upstream)); } catch (e) { log(`[agent402-openclaw] could not read ${upstream}/v1/models yet: ${e?.message || e}`); }
-          started = await startProxy({ upstream, creditsKey, payFetch, port, log });
+          try { setCachedRoutes(await loadRoutes(upstream, fetch, { pricing })); } catch (e) { log(`[agent402-openclaw] could not read ${upstream}/v1/models yet: ${e?.message || e}`); }
+          started = await startProxy({ upstream, creditsKey, payFetch, port, pricing, log });
           setActiveProxy(started);
           if (started.mode === "unpaid") log("[agent402-openclaw] no payment configured: run `agent402-openclaw setup` (card credits key) - paid calls will answer 402 until then");
         },

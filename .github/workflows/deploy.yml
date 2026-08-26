@@ -863,6 +863,15 @@ jobs:
       - name: OpenClaw provider plugin (agent402-openclaw — offline, stub gateway)
         run: node openclaw/test.js
 
+      # The plugin against a REAL OpenClaw (npm openclaw@latest): plugins install,
+      # setup through the bin symlink, models list, gateway boot, ONE agent turn to
+      # a stub gateway. test.js proves the plugin against our model of OpenClaw;
+      # this proves it against OpenClaw. It found the manifest refusal
+      # (configSchema) and the auto-primary context overflow that 0.1.0-0.2.0
+      # shipped with. npm registry only; no money moves.
+      - name: OpenClaw provider plugin against a REAL OpenClaw install
+        run: node openclaw/test-real-install.js
+
       # ONE STEP, MANY SCRIPTS (2026-08-25): GitHub spends ~0.7 s of runner setup
       # per step and this lane had over a hundred one-line steps. Each script still
       # runs in its own process, in the same order; `t` groups its log and names it

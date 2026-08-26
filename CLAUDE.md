@@ -334,6 +334,23 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   (their live 402 quotes $0.002 for a 50-token gpt-4o-mini call). `test-pricing-margin` asserts quote >= worst
   case x markup on this tier instead of "< price"; `test-price-premium` pins the function price; `test-llm-gateway`
   pins floor/growth/cap/refusal.
+- **agent402-openclaw is tested against a REAL OpenClaw (2026-08-26, `openclaw/test-real-install.js`, in CI):** `npm i
+  openclaw@latest` (~90 MB, Node >= 22.22) into a scratch dir, `npm pack` + `npm i -g` (the bin symlink), `openclaw plugins
+  install <tgz>`, `setup --write` through the symlink against a stub gateway, `openclaw models list/status`, `openclaw
+  gateway run` (the plugin service must start the loopback proxy), then ONE `openclaw agent` turn asserted at the stub
+  (metered route, credits Bearer, answer echoed back). Its first run found THREE defects every stub-based test had passed:
+  (1) `openclaw plugins install` REFUSED every published version 0.1.0-0.2.0 (`plugin manifest requires configSchema`) -
+  the manifest now carries `configSchema` + `uiHints`; (2) `agent402/auto` as primary could never complete a turn:
+  OpenClaw sends ~70k chars of system prompt + tool schemas before the user's first word (measured 33,476 + 37,210 on
+  2026.7.1) and its precheck refuses "Context overflow" against `auto`'s 16k-char input cap - `setup` now writes the
+  cheapest preferred metered model that fits (`defaultPrimary`, `OPENCLAW_MIN_INPUT_CHARS` 80k; haiku-4.5 > gpt-4.1-mini >
+  gemini-2.5-flash > gpt-4o-mini, else cheapest fitting, else `auto` + a loud warning), metered routes advertise the METERED
+  tier's caps (`/v1/models` now carries `meteredMaxInputChars`/`meteredMaxTokens`; the plugin defaults to 200k/8192 on
+  older gateways), and the guide's hand-written block points at `/v1/metered` with an explicit model; (3) `setup --port N`
+  moved only the provider baseUrl while the plugin service read its port from `plugins.entries.agent402.config` (stayed on
+  8412). Also: `openclaw plugins install` does not link the package bin, so the docs say `npx agent402-openclaw setup`.
+  Lesson (third time on this package): stub-proven is not proven; the host is the oracle. Note for that test file: spawns
+  must be ASYNC because the stub gateway lives in the test process (a sync spawn starves it). 0.2.1 published.
 - **Security + cost review of the 2026-08-25/26 builds (2026-08-26, four lenses: leaks / bypass / money / claims+CI;
   fixes in the same-day audit PR):** HIGH (process) `scripts/merge-on-green.sh` gated only the `test*` lanes and merged
   with `--admin`, which bypasses the ruleset's required checks - #949 merged with CodeQL red; it now reads the ruleset's

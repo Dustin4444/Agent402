@@ -4,7 +4,7 @@
 import { marked } from "marked";
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 import { RAILS_OR, RAILS_AMP } from "./rails.js";
-import { TIERS } from "./tools/llm-gateway-kit.js";
+import { TIERS, METERED_MAX_QUOTE_USD } from "./tools/llm-gateway-kit.js";
 // Derived at module load from the live tier table so the guide can never say a
 // price the gateway does not charge (the first version typed these).
 const FLAT_TIER_ROWS = Object.entries(TIERS)
@@ -919,32 +919,39 @@ export AGENT402_CREDITS_KEY=a402_…
 
 ## 2. Add the provider
 
+OpenClaw sends roughly 70k characters of system prompt and tool schemas before
+your first word, so the model it talks to must accept that much input. The
+routed \`auto\` tier caps input at ${TIERS["v1-chat-auto"].maxInputChars.toLocaleString("en-US")} characters and OpenClaw refuses it
+as a context overflow before any call is made; the metered route
+(\`${TIERS["v1-chat-metered"].route.split(" ")[1].replace("/chat/completions", "")}\`, up to ${TIERS["v1-chat-metered"].maxInputChars.toLocaleString("en-US")} characters, each request quoted from its
+body from $${TIERS["v1-chat-metered"].price}) is the one to point OpenClaw at:
+
 \`\`\`json5
 // ~/.openclaw/openclaw.json
 {
   agents: {
     defaults: {
-      model: { primary: "agent402/auto" },
+      model: { primary: "agent402/anthropic/claude-haiku-4.5" },
     },
   },
   models: {
     providers: {
       agent402: {
-        baseUrl: "https://agent402.tools/v1/auto",
+        baseUrl: "https://agent402.tools${TIERS["v1-chat-metered"].route.split(" ")[1].replace("/chat/completions", "")}",
         apiKey: "\${AGENT402_CREDITS_KEY}",
         api: "openai-completions",
         timeoutSeconds: 120,
         models: [
           {
-            id: "auto",
-            name: "Agent402 auto (routed, $${TIERS["v1-chat-auto"].price.toFixed(2)}/call)",
+            id: "anthropic/claude-haiku-4.5",
+            name: "Claude Haiku 4.5 via Agent402 (metered, from $${TIERS["v1-chat-metered"].price}/call)",
             reasoning: false,
             input: ["text"],
-            // Agent402 bills a flat $${TIERS["v1-chat-auto"].price.toFixed(2)} per call, not per token, so
-            // OpenClaw's per-token cost display does not apply and stays at zero.
+            // Agent402 bills per call (the 402 quotes each request), not per token,
+            // so OpenClaw's per-token cost display does not apply and stays at zero.
             cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-            contextWindow: 4000,
-            maxTokens: ${TIERS["v1-chat-auto"].maxTokens},
+            contextWindow: ${Math.floor(TIERS["v1-chat-metered"].maxInputChars / 4)},
+            maxTokens: ${TIERS["v1-chat-metered"].maxTokens},
           },
         ],
       },
@@ -954,9 +961,10 @@ export AGENT402_CREDITS_KEY=a402_…
 \`\`\`
 
 Restart the gateway (\`openclaw gateway restart\`). Every model call now goes to
-\`POST /v1/auto/chat/completions\` with your credits key, and \`auto\` picks the
-model per prompt (code, reasoning, long-context or general) from a ranked
-table, with failover if the first choice is down.
+\`${TIERS["v1-chat-metered"].route}\` with your credits key, paying what
+that call costs (exact-BPE input plus \`max_tokens\` at the model's list price,
+times 1.15, capped at $${METERED_MAX_QUOTE_USD} per call). Any id from
+[\`/v1/models\`](https://agent402.tools/v1/models) can take Haiku's place.
 
 ## Explicit models and the other tiers
 
@@ -977,7 +985,9 @@ Every tier answers an x402 \`402\` (${RAILS_OR}) and an MPP challenge, so any
 x402-capable client can pay per call with no key at all. For OpenClaw the
 [\`agent402-openclaw\`](https://www.npmjs.com/package/agent402-openclaw) plugin
 runs a loopback proxy that pays and forwards, with a credits key or an x402
-wallet, and writes the provider block for you:
+wallet, and writes the provider block for you. Explicit models go to the metered
+route by default (each request quoted from its body, from
+$${TIERS["v1-chat-metered"].price}); \`--flat\` keeps the flat tiers:
 
 \`\`\`bash
 openclaw plugins install agent402-openclaw

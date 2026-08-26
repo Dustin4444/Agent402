@@ -6,5 +6,48 @@
     "onStartup": true
   },
   "enabledByDefault": true,
-  "providers": ["agent402"]
+  "providers": [
+    "agent402"
+  ],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "creditsKey": {
+        "type": "string",
+        "description": "Agent402 prepaid credits key (a402_...). Precedence: this, then AGENT402_CREDITS_KEY, then ~/.openclaw/agent402/credits.key."
+      },
+      "walletKey": {
+        "type": "string",
+        "description": "Optional EVM private key for x402 USDC payment (needs @x402/fetch + @x402/evm + viem installed)."
+      },
+      "port": {
+        "type": "number",
+        "description": "Loopback proxy port (default 8412)."
+      },
+      "upstream": {
+        "type": "string",
+        "description": "Agent402 gateway base URL (default https://agent402.tools)."
+      },
+      "pricing": {
+        "type": "string",
+        "enum": [
+          "metered",
+          "flat"
+        ],
+        "description": "metered (default): explicit models pay a per-request quote; flat: every model on its flat tier."
+      }
+    }
+  },
+  "uiHints": {
+    "creditsKey": {
+      "label": "Credits key",
+      "help": "Buy by card at https://agent402.tools/credits",
+      "sensitive": true
+    },
+    "walletKey": {
+      "label": "Wallet key",
+      "sensitive": true
+    }
+  }
 }
