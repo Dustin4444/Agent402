@@ -6,7 +6,7 @@
 // every "yes" must be backed by a payer debit AND a credit to our payTo in the
 // SAME successful transaction. Missing a real payment only costs us the sale,
 // which is already the status quo, so null is always the safe answer.
-import { confirmStellarTransfer, settlePayerOf } from "../src/stellar-confirm.js";
+import { confirmStellarTransfer, settlePayerOf, settleWithStellarFallback } from "../src/stellar-confirm.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
@@ -201,6 +201,43 @@ const run = (opts, extra = {}) => confirmStellarTransfer({
   ok(typeof e._links.operation.href === "string" && /\/operations\/\d+$/.test(e._links.operation.href),
     "the hash is reachable only through _links.operation");
   ok(/^\d+-\d+$/.test(e.id), "the effect id is <opId>-<index>, which is the operation-id fallback");
+}
+
+
+// ---- settleWithStellarFallback: same signed payload, second facilitator ----
+{
+  const FAIL = { success: false, errorReason: "settle_exact_stellar_transaction_submission_failed", payer: "GPAYER" };
+  const OKP = { success: true, transaction: "txPRIMARY", network: "stellar:pubnet" };
+  const OKF = { success: true, transaction: "txFALLBACK", network: "stellar:pubnet" };
+  const logs = []; const log = (m) => logs.push(m);
+  const calls = () => ({ p: 0, f: 0, c: 0 });
+  // primary succeeds: fallback and chain never consulted
+  { const n = calls(); const r = await settleWithStellarFallback({ primary: async () => { n.p++; return OKP; }, fallback: async () => { n.f++; return OKF; }, confirm: async () => { n.c++; return null; }, log });
+    ok(r.transaction === "txPRIMARY" && n.f === 0 && n.c === 0, "primary success: fallback and Horizon never consulted"); }
+  // primary fails, not on chain, fallback settles the SAME payload
+  { const n = calls(); const r = await settleWithStellarFallback({ primary: async () => { n.p++; return FAIL; }, fallback: async () => { n.f++; return OKF; }, confirm: async () => { n.c++; return null; }, log });
+    ok(r.success === true && r.transaction === "txFALLBACK" && r.viaFallback === true && n.f === 1 && n.c === 1, "primary pre-broadcast failure + nothing on chain -> the fallback settles (Horizon checked first)"); }
+  // primary fails but the transfer landed: honoured, fallback NOT tried (never re-broadcast a landed tx)
+  { const n = calls(); const r = await settleWithStellarFallback({ primary: async () => { n.p++; return FAIL; }, fallback: async () => { n.f++; return OKF; }, confirm: async () => { n.c++; return { transaction: "txLATE", amount: "0.001" }; }, log });
+    ok(r.success === true && r.transaction === "txLATE" && n.f === 0, "settle-late race: the landed transfer is honoured and the fallback is never called"); }
+  // both fail, then the chain shows it (primary landed late after all): honoured
+  { let checks = 0; const r = await settleWithStellarFallback({ primary: async () => FAIL, fallback: async () => ({ success: false, errorReason: "tx_bad_seq" }), confirm: async () => (++checks === 2 ? { transaction: "txLATE2" } : null), log });
+    ok(r.success === true && r.transaction === "txLATE2" && checks === 2, "both facilitators refuse but Horizon shows the transfer on the second look -> honoured"); }
+  // both fail, nothing on chain: the ORIGINAL failure is returned, flagged
+  { const r = await settleWithStellarFallback({ primary: async () => FAIL, fallback: async () => ({ success: false, errorReason: "oz_down" }), confirm: async () => null, log });
+    ok(r.success === false && r.errorReason === FAIL.errorReason && r.fallbackTried === true, "both fail, nothing on chain -> the primary's own failure comes back (never a claimed payment)"); }
+  // primary throws: same rules; a thrown primary with no fallback re-throws
+  { let threw = null; try { await settleWithStellarFallback({ primary: async () => { throw new Error("boom"); }, fallback: null, confirm: async () => null, log }); } catch (e) { threw = e; }
+    ok(threw?.message === "boom", "no fallback configured + primary throws + nothing on chain -> the throw propagates unchanged"); }
+  { const r = await settleWithStellarFallback({ primary: async () => { throw Object.assign(new Error("settle failed (502)"), { payer: "GPAYER" }); }, fallback: async () => OKF, confirm: async () => null, log });
+    ok(r.success === true && r.viaFallback === true, "primary throws (facilitator 5xx) + nothing on chain -> fallback settles"); }
+  // fallback throws: treated as a failure, original failure returned
+  { const r = await settleWithStellarFallback({ primary: async () => FAIL, fallback: async () => { throw new Error("oz 500"); }, confirm: async () => null, log });
+    ok(r.success === false && r.fallbackTried === true, "a throwing fallback is a failed fallback, not a crash"); }
+  // no fallback configured: exact pre-existing behaviour
+  { const r = await settleWithStellarFallback({ primary: async () => FAIL, fallback: null, confirm: async () => null, log });
+    ok(r.success === false && r.fallbackTried === undefined, "without a fallback the result is the primary's, untouched"); }
+  ok(logs.some((l) => /re-submitting the same payload via the fallback/.test(l)) && logs.some((l) => /fallback facilitator settled/.test(l)), "every fallback use is logged loudly, both the attempt and the outcome");
 }
 
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);

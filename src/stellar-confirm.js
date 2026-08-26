@@ -142,3 +142,58 @@ export async function confirmStellarTransfer({
     await new Promise((r) => setTimeout(r, stepMs));
   }
 }
+
+
+/**
+ * Settle a Stellar payment through the PRIMARY facilitator, and when it fails
+ * WITHOUT the transfer landing on-chain, re-submit the SAME signed payload
+ * through a FALLBACK facilitator (2026-08-26: our own facilitator's RPC
+ * rejected a submission with `status=ERROR` and no result XDR; OpenZeppelin's
+ * channel service was up the whole time).
+ *
+ * Why this cannot double-charge: the payload is one signed Stellar envelope,
+ * so it can land at most once whichever facilitator submits it - a second
+ * submission of a landed tx is refused by the network. And every failure is
+ * checked against Horizon BEFORE the fallback is tried and again AFTER it, so a
+ * primary submission that landed late is honoured, never re-broadcast. The
+ * only unsafe direction is claiming a payment that did not occur, and every
+ * path here returns the original failure unless a facilitator succeeded or the
+ * chain shows the transfer.
+ *
+ * @param {object} p
+ * @param {() => Promise<object>} p.primary          settle via the primary
+ * @param {(() => Promise<object>)|null} p.fallback  settle via the fallback (null = none configured)
+ * @param {(o:{payer:string|null}) => Promise<object|null>} p.confirm  Horizon check for a confirmed transfer
+ * @param {(msg:string) => void} [p.log]
+ * @returns {Promise<object>} an x402 settle result
+ */
+export async function settleWithStellarFallback({ primary, fallback = null, confirm, log = console.warn }) {
+  const honour = (res, found, why) => {
+    log(`[stellar] ${why} but ${found.transaction} is confirmed on-chain - honouring the settlement`);
+    return { ...(res && typeof res === "object" ? res : {}), success: true, errorReason: undefined, errorMessage: undefined, transaction: found.transaction, ...(found.amount ? { amount: found.amount } : {}) };
+  };
+  let primaryRes = null, primaryErr = null;
+  try { primaryRes = await primary(); } catch (e) { primaryErr = e; }
+  if (primaryRes && primaryRes.success !== false) return primaryRes;
+  const failure = primaryErr || primaryRes;
+  const payer = settlePayerOf(failure);
+  // 1. Did the primary's submission land anyway? (the settle-late race)
+  let found = await confirm({ payer });
+  if (found) return honour(primaryRes, found, primaryErr ? `settle threw (${String(primaryErr?.message || primaryErr).slice(0, 120)})` : `facilitator said ${JSON.stringify(primaryRes?.errorReason || "failed")}`);
+  // 2. Not on chain: same signed envelope through the fallback facilitator.
+  if (typeof fallback === "function") {
+    log(`[stellar] primary facilitator failed (${JSON.stringify(primaryRes?.errorReason || primaryErr?.message || "failed").slice(0, 120)}) and no transfer is on-chain - re-submitting the same payload via the fallback facilitator`);
+    let fbRes = null, fbErr = null;
+    try { fbRes = await fallback(); } catch (e) { fbErr = e; }
+    if (fbRes && fbRes.success !== false) {
+      log(`[stellar] fallback facilitator settled ${fbRes.transaction || "(no tx id)"} - primary failure was a facilitator fault, not a payment fault`);
+      return { ...fbRes, viaFallback: true };
+    }
+    // 3. Both refused: the primary may still have landed late, or the fallback's.
+    found = await confirm({ payer: settlePayerOf(fbErr || fbRes) || payer });
+    if (found) return honour(primaryRes, found, "both facilitators reported failure");
+    log(`[stellar] fallback facilitator also failed (${JSON.stringify(fbRes?.errorReason || fbErr?.message || "failed").slice(0, 120)}) - returning the primary failure`);
+  }
+  if (primaryErr) throw primaryErr;
+  return { ...primaryRes, ...(typeof fallback === "function" ? { fallbackTried: true } : {}) };
+}
