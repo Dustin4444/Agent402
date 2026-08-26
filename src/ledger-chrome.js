@@ -716,7 +716,7 @@ export function ledgerFooterFull() {
       </div>
       <div>
         <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">for people</div>
-        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/reports" style="color:var(--muted);text-decoration:none;">Reports</a><a href="/monitors" style="color:var(--muted);text-decoration:none;">Monitors</a><a href="/credits" style="color:var(--muted);text-decoration:none;">Credits</a><a href="/faq" style="color:var(--muted);text-decoration:none;">FAQ</a></div>
+        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/why" style="color:var(--muted);text-decoration:none;">Why pay here</a><a href="/reports" style="color:var(--muted);text-decoration:none;">Reports</a><a href="/monitors" style="color:var(--muted);text-decoration:none;">Monitors</a><a href="/credits" style="color:var(--muted);text-decoration:none;">Credits</a><a href="/faq" style="color:var(--muted);text-decoration:none;">FAQ</a></div>
       </div>
       <div>
         <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">for agents</div>

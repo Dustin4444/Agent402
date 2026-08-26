@@ -170,8 +170,8 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
 .hm-row { display: grid; grid-template-columns: 170px 1fr 200px; gap: 24px; padding: 22px 0; border-bottom: 1px solid var(--hairline); align-items: baseline; }
 .hm-chip { display: inline-flex; align-items: center; gap: 7px; font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); padding: 8px 12px; border: 1px solid var(--dash); border-radius: 8px; background: var(--chip-bg); text-decoration: none; }
 .hm-term { font-family: var(--font-mono); font-size: 12.5px; line-height: 1.8; color: var(--on-dark2); white-space: pre-wrap; word-break: break-word; margin: 0; }
-@media (max-width: 900px) { .hm-hero, .hm-2col, .hm-doors { grid-template-columns: minmax(0,1fr) !important; } .hm-proof { grid-template-columns: 1fr 1fr !important; } .hm-row { grid-template-columns: 1fr !important; gap: 6px; } .hm-h2 { font-size: 32px; } }
-@media (max-width: 480px) { .hm-reg-row { flex-direction: column !important; } .hm-reg-row button { width: 100%; } .hm-proof { grid-template-columns: 1fr !important; } }
+@media (max-width: 900px) { .hm-hero, .hm-2col, .hm-doors { grid-template-columns: minmax(0,1fr) !important; } .hm-proof, .hm-why { grid-template-columns: 1fr 1fr !important; } .hm-row { grid-template-columns: 1fr !important; gap: 6px; } .hm-h2 { font-size: 32px; } }
+@media (max-width: 480px) { .hm-reg-row { flex-direction: column !important; } .hm-reg-row button { width: 100%; } .hm-proof, .hm-why { grid-template-columns: 1fr !important; } }
 #hm-demo-in { border: 1px solid var(--dash); border-radius: 10px; }
 #hm-demo-in:focus { border-color: var(--accent); outline: none; }
 `;
@@ -291,6 +291,22 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
     <div style="display:flex;flex-direction:column;gap:4px;"><span style="font-family:var(--font-mono);font-size:26px;letter-spacing:-.02em;color:var(--ink);font-variant-numeric:tabular-nums;">${RAILS.length}</span><span style="font-size:13px;color:var(--faint);">settlement rails · x402 + MPP</span></div>
     <div style="display:flex;flex-direction:column;gap:4px;"><span style="font-family:var(--font-mono);font-size:26px;letter-spacing:-.02em;color:var(--accent);">0%</span><span style="font-size:13px;color:var(--faint);">deducted from sellers · open source</span></div>
   </div>
+</section>
+
+<section style="max-width:1180px;margin:0 auto;padding:34px 30px 0;">
+  <div style="display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:14px;">
+    <span class="hm-kicker" style="margin:0;">$ GET /why</span>
+    <span style="font-size:13.5px;color:var(--muted);">What is different about paying here. Every claim links to the surface that proves it.</span>
+  </div>
+  <div class="hm-why" style="display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1px solid var(--hairline);background:var(--card);">
+    ${[
+      ["Pay for what the model used", "The metered gateway quotes each request from its own body; upto settles the actual usage under that ceiling, with a receipt on every response.", "/why#actual"],
+      ["A failed call is not charged", "Settlement runs after the answer and an error cancels it, so a response with no receipt moved no money; a keyed retry replays the paid answer instead of paying twice.", "/why#never-charged"],
+      ["One key buys everything", "Models on three wires, embeddings, images, speech, 500+ tools, memory and finished reports, all on the same wallet or credits key.", "/why#one-key"],
+      ["No wallet required", "Prepaid credits by card and card checkout for reports, beside USDC or USDG on twelve chains and native MPP.", "/why#no-wallet"],
+    ].map(([h3, p, href]) => `<a href="${href}" style="display:block;padding:20px 22px;border-right:1px solid var(--hairline);text-decoration:none;color:inherit;"><div style="font-weight:700;font-size:15.5px;color:var(--ink);margin-bottom:8px;">${h3}</div><div style="font-size:13.5px;line-height:1.55;color:var(--muted);">${p}</div></a>`).join("")}
+  </div>
+  <div style="margin-top:14px;font-family:var(--font-mono);font-size:13px;"><a href="/why" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--ink);padding-bottom:1px;">all seven, with proof →</a></div>
 </section>
 
 ${chipsHtml ? `<section style="max-width:1180px;margin:0 auto;padding:34px 30px 0;">

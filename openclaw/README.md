@@ -79,4 +79,19 @@ the key.
 - `agent402-openclaw doctor`
 - `agent402-openclaw permit2-approve [--rpc URL]` (one-time USDC approval so the wallet pays actual usage over upto)
 
+## What else the same key buys
+
+The key or wallet that pays for chat also pays for the rest of the gateway and
+the catalog, with one 402 shape and one receipt shape: OpenAI Responses and
+Anthropic Messages wires, embeddings, rerank, images, video, speech,
+transcription, grounded answers with citations, 500+ deterministic tools over
+MCP or HTTP, wallet-keyed memory, finished reports (dossiers, insider flow, 13F,
+domain audits, token risk, deep research) and monitors, plus routing that buys
+from proven external sellers on the agent's behalf.
+
+Why pay here, with every claim linked to its proof: https://agent402.tools/why.
+Usage is priced under a ceiling quoted before you pay, a failed call is not
+charged and the receipt proves it, a keyed retry never pays twice, and uptime and transactions are
+published from outside production.
+
 Zero dependencies. MIT. Maintained by Havok Holdings LLC.

@@ -590,7 +590,7 @@ The chain you pay on decides where the router spends: pay on **Base** and it
 pays Base sellers; pay on **Algorand** and it pays Algorand sellers from its
 AVM wallet. The buyer's settlement funds the float on the same rail - and if
 you pay on a chain without a spending wallet behind it, you get an honest 409
-naming the supported chains, and **you are never charged** (a rejected request
+naming the supported chains, and **you are not charged** (a rejected request
 cancels x402 settlement by design).
 
 ## A real receipt
@@ -619,7 +619,7 @@ provenance stays explicit.
 
 ## Why this is safe to build on
 
-- **Failures are never charged.** Any 4xx/5xx - no match, over-cap, seller
+- **Failures are not charged.** Any 4xx/5xx - no match, over-cap, seller
   down - cancels your settlement. You pay only for delivered results.
 - **Spend is bounded on our side** by per-window budgets and per-quote caps,
   so the router cannot be drained into misbehavior.
@@ -1006,6 +1006,30 @@ deterministic tools (search, extract, render, PDF, EDGAR, openFDA, on-chain
 data), the [smart order router](https://agent402.tools/guides/smart-order-router)
 that pays other x402 sellers on your agent's behalf, and receipts for every
 call. Every price on this page is rendered from the live gateway configuration.
+
+## What else the same key buys
+
+The credits key (or the wallet) that pays for chat is the same one that pays
+for everything else on the gateway and the catalog, with one 402 shape and one
+receipt shape:
+
+- **Three wires on every tier**: OpenAI chat, OpenAI Responses and Anthropic
+  Messages, plus streaming, embeddings, rerank, images, video, speech and
+  transcription, and a grounded tier that cites the web on every answer.
+- **500+ deterministic tools** over MCP or HTTP: web search, news, cited
+  answers, browser render, market quotes, SEC filings, crypto and DeFi data,
+  PDFs, OCR, DNS and TLS checks, a code sandbox, wallet-keyed memory.
+- **Finished reports and monitors**: dossiers, insider flow, 13F holdings,
+  domain audits, token risk, deep research, market briefs, a LinkedIn article
+  package; monitors that re-run a report only when the facts change.
+- **Routing that buys on your behalf**: \`POST /api/route/execute\` pays the
+  best proven external seller for a task and relays the result.
+
+Why pay here, in one page with the proof links:
+[agent402.tools/why](https://agent402.tools/why). The short version: usage is
+priced under a ceiling you see before you pay, a failed call is not charged and the
+receipt proves it, a keyed retry never pays twice, and uptime and transactions are published from
+outside production.
 `,
   },
 ];
