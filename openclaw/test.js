@@ -1,0 +1,178 @@
+// Offline test for agent402-openclaw: a stub gateway on loopback stands in for
+// agent402.tools (GET /v1/models + two tier endpoints that require a Bearer),
+// the real proxy is started against it, and the plugin's register() is driven
+// with a fake OpenClaw api. No network, no keys, no money.
+import { createServer } from "node:http";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { spawn } from "node:child_process";
+
+// Async spawn: a synchronous spawn would block this process's event loop, and
+// the stub gateway the CLI needs to reach lives in this process.
+const run = (cliArgs, env) => new Promise((resolve) => {
+  const child = spawn(process.execPath, cliArgs, { cwd: new URL(".", import.meta.url).pathname, env });
+  let stdout = "", stderr = "";
+  child.stdout.on("data", (c) => { stdout += c; }); child.stderr.on("data", (c) => { stderr += c; });
+  child.on("close", (status) => resolve({ status, stdout, stderr }));
+});
+import { startProxy } from "./proxy.js";
+import { routesFromCatalog, openclawModels, AUTO_ID } from "./models.js";
+import plugin, { resolveCreditsKey } from "./index.js";
+
+let pass = 0, fail = 0;
+const ok = (c, m) => { c ? pass++ : fail++; console.log(`${c ? "ok" : "FAIL"} - ${m}`); };
+
+// ---- stub gateway ----------------------------------------------------------
+const seen = [];
+const catalog = { object: "list", data: [
+  { id: "openai/gpt-5-nano", object: "model", x402: { tier: "v1-chat-nano", endpoint: "/v1/nano/chat/completions", priceUsd: 0.003, maxTokens: 768, maxInputChars: 48_000 } },
+  { id: "openai/gpt-4o-mini", object: "model", x402: { tier: "v1-chat-auto", endpoint: "/v1/auto/chat/completions", priceUsd: 0.01, maxTokens: 1024, maxInputChars: 32_000 } },
+  { id: "openai/gpt-5", object: "model", x402: { tier: "v1-chat-premium", endpoint: "/v1/premium/chat/completions", priceUsd: 0.5, maxTokens: 8192, maxInputChars: 200_000 } },
+  { id: "deepseek/*", object: "model", x402: { tier: "v1-chat", endpoint: "/v1/chat/completions", priceUsd: 0.02, maxTokens: 2048, maxInputChars: 64_000 } },
+  { id: "x/stealth", object: "model", x402: { tier: "v1-chat-ox", endpoint: "/v1/ox/chat/completions", priceUsd: 0.002, maxTokens: 8000, maxInputChars: 32_000, stealth: true } },
+] };
+const stub = createServer((req, res) => {
+  let raw = "";
+  req.on("data", (c) => { raw += c; });
+  req.on("end", () => {
+    if (req.method === "GET" && req.url === "/v1/models") { res.writeHead(200, { "content-type": "application/json" }); return res.end(JSON.stringify(catalog)); }
+    const body = raw ? JSON.parse(raw) : {};
+    seen.push({ url: req.url, auth: req.headers.authorization || null, idem: req.headers["idempotency-key"] || null, body });
+    if (!req.headers.authorization) { res.writeHead(402, { "content-type": "application/json" }); return res.end(JSON.stringify({ error: "Payment required" })); }
+    if (req.headers.authorization === "Bearer a402_deadkey00000000000000") { res.writeHead(402, { "content-type": "application/json" }); return res.end(JSON.stringify({ error: "Insufficient credits", reason: "insufficient", balanceUsd: 0 })); }
+    if (body.stream) {
+      res.writeHead(200, { "content-type": "text/event-stream", "x-credits-balance": "19.99" });
+      res.write('data: {"choices":[{"delta":{"content":"O"}}]}\n\n');
+      setTimeout(() => { res.write('data: {"choices":[{"delta":{"content":"K"}}]}\n\ndata: [DONE]\n\n'); res.end(); }, 30);
+      return;
+    }
+    res.writeHead(200, { "content-type": "application/json", "x-credits-balance": "19.99" });
+    res.end(JSON.stringify({ id: "gen-1", model: body.model || "routed", choices: [{ message: { role: "assistant", content: "OK" } }] }));
+  });
+});
+await new Promise((r) => stub.listen(0, "127.0.0.1", r));
+const upstream = `http://127.0.0.1:${stub.address().port}`;
+
+// ---- models.js ------------------------------------------------------------
+{
+  const routes = routesFromCatalog(catalog);
+  ok(routes.has(AUTO_ID) && routes.get(AUTO_ID).endpoint === "/v1/auto/chat/completions", "catalog -> routes exposes \"auto\" on the routed tier");
+  ok(!routes.has("deepseek/*"), "family wildcards are not model ids");
+  const m = openclawModels(routes);
+  ok(m[0].id === AUTO_ID && /\$0\.01\/call/.test(m[0].name), "OpenClaw models list leads with auto and states the per-call price");
+  ok(m.every((x) => x.cost.input === 0 && x.cost.output === 0), "per-token cost fields stay zero (flat per-call billing)");
+  ok(!m.some((x) => x.id === "x/stealth"), "stealth listings are not advertised to OpenClaw");
+  ok(m.find((x) => x.id === "openai/gpt-5").maxTokens === 8192, "maxTokens comes from the tier");
+}
+
+// ---- proxy: credits mode ---------------------------------------------------
+const key = "a402_testkey0000000000000000";
+const p = await startProxy({ upstream, creditsKey: key, port: 0 });
+ok(p.mode === "credits" && p.baseUrl.startsWith("http://127.0.0.1:"), `proxy starts in credits mode on loopback (${p.baseUrl})`);
+{
+  const h = await (await fetch(`${p.baseUrl}/health`)).json();
+  ok(h.ok === true && h.models === 5, "GET /health reports mode + model count");
+  const list = await (await fetch(`${p.baseUrl}/v1/models`)).json();
+  ok(list.data.some((m) => m.id === "auto") && !list.data.some((m) => m.id === "x/stealth"), "GET /v1/models serves the routed catalog without stealth rows");
+}
+{
+  const r = await fetch(`${p.baseUrl}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: "auto", messages: [{ role: "user", content: "hi" }] }) });
+  const j = await r.json(); const s = seen.at(-1);
+  ok(r.status === 200 && j.choices[0].message.content === "OK", "auto: forwarded and answered");
+  ok(s.url === "/v1/auto/chat/completions" && !("model" in s.body), "auto: routed tier endpoint, model field omitted");
+  ok(s.auth === `Bearer ${key}`, "credits key rides as the Bearer upstream");
+  ok(typeof s.idem === "string" && s.idem.length >= 32, "every forwarded call carries an Idempotency-Key");
+  ok(r.headers.get("x-credits-balance") === "19.99", "X-Credits-Balance passes through to the client");
+}
+{
+  const r = await fetch(`${p.baseUrl}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: "agent402/openai/gpt-5", messages: [] }) });
+  const s = seen.at(-1);
+  ok(r.status === 200 && s.url === "/v1/premium/chat/completions" && s.body.model === "openai/gpt-5", "explicit model routes to its home tier, provider prefix stripped");
+  const first = seen.at(-2).idem;
+  ok(s.idem !== first, "each call gets its own Idempotency-Key");
+}
+{
+  const r = await fetch(`${p.baseUrl}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: "nope/x", messages: [] }) });
+  const j = await r.json();
+  ok(r.status === 400 && j.error.code === "model_not_found" && seen.at(-1).body.model !== "nope/x", "unknown model is a local 400, nothing forwarded");
+}
+{
+  const r = await fetch(`${p.baseUrl}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: "auto", stream: true, messages: [] }) });
+  const text = await r.text();
+  ok(r.status === 200 && r.headers.get("content-type").startsWith("text/event-stream") && text.includes('"O"') && text.includes("[DONE]"), "streams pass through byte for byte");
+}
+{
+  const r = await fetch(`${p.baseUrl}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json" }, body: "{not json" });
+  ok(r.status === 400, "malformed JSON is a local 400");
+}
+await p.close();
+
+// ---- proxy: unpaid + insufficient ----------------------------------------
+{
+  const u = await startProxy({ upstream, port: 0 });
+  ok(u.mode === "unpaid", "no key and no payFetch -> unpaid mode");
+  const r = await fetch(`${u.baseUrl}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: [] }) });
+  const j = await r.json();
+  ok(r.status === 402 && j.error.code === "agent402_unconfigured" && /credits/.test(j.topup) && j.priceUsd === 0.01, "unpaid call answers a 402 that says how to set up, and nothing is forwarded");
+  await u.close();
+  const d = await startProxy({ upstream, creditsKey: "a402_deadkey00000000000000", port: 0 });
+  const r2 = await fetch(`${d.baseUrl}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: [] }) });
+  const j2 = await r2.json();
+  ok(r2.status === 402 && j2.reason === "insufficient", "the gateway's own 402 (insufficient credits) passes through unchanged");
+  await d.close();
+}
+
+// ---- proxy: x402 wallet mode via injected payFetch --------------------------
+{
+  let paid = 0;
+  const payFetch = async (url, init) => { paid++; return fetch(url, { ...init, headers: { ...init.headers, authorization: `Bearer ${key}` } }); };
+  const w = await startProxy({ upstream, payFetch, port: 0 });
+  ok(w.mode === "x402", "payFetch without a credits key -> x402 mode");
+  const r = await fetch(`${w.baseUrl}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: [] }) });
+  ok(r.status === 200 && paid === 1, "the paying fetch is what reaches upstream");
+  await w.close();
+}
+
+// ---- plugin register() with a fake OpenClaw api ----------------------------
+{
+  const calls = { providers: [], services: [] };
+  const api = { id: "agent402", name: "Agent402", config: {}, pluginConfig: { upstream, creditsKey: key, port: 0 }, logger: { info() {}, warn() {}, error() {} },
+    registerProvider: (p) => calls.providers.push(p), registerService: (s) => calls.services.push(s), registerTool() {}, registerHook() {}, registerHttpRoute() {}, registerCommand() {}, resolvePath: (x) => x, on() {} };
+  plugin.register(api); plugin.register(api);
+  ok(calls.providers.length === 2 && calls.services.length === 1, "register() is idempotent: provider each time, proxy service once");
+  const prov = calls.providers[0];
+  ok(prov.id === "agent402" && prov.models.api === "openai-completions" && /^http:\/\/127\.0\.0\.1:\d+\/v1$/.test(prov.models.baseUrl), "provider points OpenClaw at the loopback proxy, openai-completions API");
+  ok(prov.models.models[0].id === "auto" && prov.auth.length === 0, "provider lists auto first and needs no OpenClaw auth");
+  await calls.services[0].start();
+  const live = calls.providers[0].models;
+  ok(/^http:\/\/127\.0\.0\.1:\d+\/v1$/.test(live.baseUrl) && live.models.some((m) => m.id === "openai/gpt-5"), "after start, the provider's models come from the gateway catalog");
+  const r = await fetch(`${live.baseUrl}/chat/completions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: "auto", messages: [] }) });
+  ok(r.status === 200, "OpenClaw-shaped call through the registered baseUrl succeeds");
+  await calls.services[0].stop();
+}
+
+// ---- credits key resolution + CLI setup ------------------------------------
+{
+  const home = mkdtempSync(join(tmpdir(), "a402-oc-"));
+  const env = { ...process.env, AGENT402_OPENCLAW_HOME: home, AGENT402_UPSTREAM: upstream };
+  delete env.AGENT402_CREDITS_KEY;
+  const bad = await run(["cli.js", "setup", "--credits-key", "nope"], env);
+  ok(bad.status === 2 && /does not look like/.test(bad.stderr), "setup refuses a malformed credits key");
+  const good = await run(["cli.js", "setup", "--credits-key", key, "--write"], env);
+  if (good.status !== 0) console.log("setup --write:", good.status, good.stdout, good.stderr);
+  const cfg = JSON.parse(readFileSync(join(home, "openclaw.json"), "utf8"));
+  ok(good.status === 0 && cfg.agents.defaults.model.primary === "agent402/auto" && cfg.models.providers.agent402.api === "openai-completions", "setup --write stores the key and writes provider + primary into openclaw.json");
+  ok(cfg.models.providers.agent402.models[0].id === "auto" && cfg.models.providers.agent402.models.some((m) => m.id === "openai/gpt-5"), "written models come from the live catalog");
+  const stored = readFileSync(join(home, "agent402", "credits.key"), "utf8").trim();
+  ok(stored === key, "credits key is stored under the OpenClaw home");
+  process.env.AGENT402_OPENCLAW_HOME = home; delete process.env.AGENT402_CREDITS_KEY;
+  ok(resolveCreditsKey() === key, "resolveCreditsKey falls back to the stored file");
+  const dry = await run(["cli.js", "setup"], env);
+  ok(dry.status === 0 && /"primary": "agent402\/auto"/.test(dry.stdout), "setup without --write prints the block");
+  rmSync(home, { recursive: true, force: true });
+}
+
+stub.close();
+console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);

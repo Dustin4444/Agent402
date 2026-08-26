@@ -1,0 +1,122 @@
+// Local OpenAI-compatible proxy: OpenClaw (or any client) talks to
+// http://127.0.0.1:<port>/v1, the proxy pays Agent402 and forwards.
+//
+// Two ways to pay, chosen at start:
+//   creditsKey  - a prepaid card-credits key (a402_...) sent as a Bearer; the
+//                 gateway authorizes against the balance before the handler and
+//                 debits only on a final 200. No wallet, no chain.
+//   payFetch    - an x402-paying fetch (e.g. @x402/fetch wrapped around a
+//                 wallet signer) used for the upstream call; the gateway's 402
+//                 is settled per call in USDC. The proxy never sees a key.
+// With neither, paid calls answer a 402-shaped JSON that says how to set up.
+//
+// Routing: the model id decides the upstream tier endpoint, read from the
+// gateway's own GET /v1/models at start (never a hand-typed table). "auto"
+// goes to the routed tier with the model field omitted.
+//
+// Retries are safe: every forwarded request carries a fresh Idempotency-Key,
+// so a client retry of the same request replays the paid response instead of
+// paying twice. Streams pass through byte for byte.
+import { createServer } from "node:http";
+import { randomUUID } from "node:crypto";
+import { AUTO_ID, routesFromCatalog } from "./models.js";
+
+export const DEFAULT_UPSTREAM = "https://agent402.tools";
+const MAX_BODY = 2 * 1024 * 1024;
+
+export async function loadRoutes(upstream, fetchImpl = fetch) {
+  const r = await fetchImpl(`${upstream}/v1/models`, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(15_000) });
+  if (!r.ok) throw new Error(`GET /v1/models -> HTTP ${r.status}`);
+  return routesFromCatalog(await r.json());
+}
+
+function readBody(req, limit = MAX_BODY) {
+  return new Promise((resolve, reject) => {
+    const chunks = []; let n = 0;
+    req.on("data", (c) => { n += c.length; if (n > limit) { reject(new Error("body too large")); req.destroy(); return; } chunks.push(c); });
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
+  });
+}
+
+const json = (res, status, obj, headers = {}) => {
+  res.writeHead(status, { "content-type": "application/json; charset=utf-8", ...headers });
+  res.end(JSON.stringify(obj));
+};
+
+/**
+ * @param {object} o
+ * @param {string} [o.upstream]      gateway origin (default https://agent402.tools)
+ * @param {string} [o.creditsKey]    prepaid credits key (a402_...)
+ * @param {Function} [o.payFetch]    x402-paying fetch for wallet payment
+ * @param {Function} [o.fetch]       plain fetch (tests inject one)
+ * @param {number} [o.port]          0 = ephemeral
+ * @param {string} [o.host]          default 127.0.0.1 (loopback only: anyone who can reach the port spends your key)
+ * @param {Map} [o.routes]           pre-loaded routes (tests); else loaded from upstream
+ * @param {(msg:string)=>void} [o.log]
+ */
+export async function startProxy({ upstream = DEFAULT_UPSTREAM, creditsKey = null, payFetch = null, fetch: fetchImpl = fetch, port = 0, host = "127.0.0.1", routes = null, log = () => {} } = {}) {
+  upstream = String(upstream).replace(/\/+$/, "");
+  const key = typeof creditsKey === "string" && /^a402_[A-Za-z0-9_-]{16,80}$/.test(creditsKey) ? creditsKey : null;
+  const paid = key ? fetchImpl : payFetch;
+  const mode = key ? "credits" : payFetch ? "x402" : "unpaid";
+  let table = routes || await loadRoutes(upstream, fetchImpl);
+  const stats = { requests: 0, forwarded: 0, errors: 0, startedAt: new Date().toISOString() };
+
+  const server = createServer(async (req, res) => {
+    stats.requests++;
+    const url = new URL(req.url, "http://localhost");
+    try {
+      if (req.method === "GET" && url.pathname === "/health") {
+        return json(res, 200, { ok: true, upstream, mode, models: table.size, stats });
+      }
+      if (req.method === "GET" && url.pathname === "/v1/models") {
+        return json(res, 200, { object: "list", data: [...table.values()].filter((r) => !r.stealth).map((r) => ({ id: r.id, object: "model", owned_by: "agent402", agent402: { endpoint: r.endpoint, priceUsd: r.priceUsd, tier: r.tier } })) });
+      }
+      if (req.method === "POST" && url.pathname === "/v1/chat/completions") {
+        const raw = await readBody(req);
+        let body;
+        try { body = JSON.parse(raw.toString("utf8") || "{}"); } catch { return json(res, 400, { error: { message: "Request body must be JSON", type: "invalid_request_error" } }); }
+        const requested = typeof body.model === "string" && body.model.trim() ? body.model.trim().replace(/^agent402\//, "") : AUTO_ID;
+        const route = table.get(requested);
+        if (!route) {
+          return json(res, 400, { error: { message: `Unknown model "${requested}". Use "auto" or an id from GET /v1/models (${table.size} available).`, type: "invalid_request_error", code: "model_not_found" } });
+        }
+        if (!paid) {
+          return json(res, 402, { error: { message: "No payment method configured. Set AGENT402_CREDITS_KEY (buy a pack by card at agent402.tools/credits) or configure an x402 wallet (agent402-openclaw setup --wallet).", type: "payment_required", code: "agent402_unconfigured" }, topup: `${upstream}/credits`, priceUsd: route.priceUsd });
+        }
+        const outbound = { ...body };
+        if (requested === AUTO_ID) delete outbound.model; else outbound.model = route.id;
+        const headers = { "content-type": "application/json", accept: req.headers.accept || "application/json", "idempotency-key": randomUUID(), "user-agent": "agent402-openclaw/0.1.0" };
+        if (key) headers.authorization = `Bearer ${key}`;
+        const up = await paid(`${upstream}${route.endpoint}`, { method: "POST", headers, body: JSON.stringify(outbound), signal: AbortSignal.timeout(300_000) });
+        stats.forwarded++;
+        const passthrough = {};
+        for (const h of ["content-type", "x-credits-balance", "payment-receipt", "x-cache", "cache-control"]) { const v = up.headers.get(h); if (v) passthrough[h] = v; }
+        res.writeHead(up.status, passthrough);
+        if (!up.body) return res.end();
+        const reader = up.body.getReader();
+        req.on("close", () => { reader.cancel().catch(() => {}); });
+        for (;;) { const { done, value } = await reader.read(); if (done) break; res.write(Buffer.from(value)); }
+        return res.end();
+      }
+      return json(res, 404, { error: { message: `No route for ${req.method} ${url.pathname}`, type: "invalid_request_error" } });
+    } catch (e) {
+      stats.errors++;
+      log(`[agent402-openclaw] ${req.method} ${url.pathname}: ${e?.message || e}`);
+      if (!res.headersSent) return json(res, 502, { error: { message: `Upstream error: ${String(e?.message || e).slice(0, 200)}`, type: "upstream_error" } });
+      try { res.end(); } catch { /* ignore */ }
+    }
+  });
+
+  await new Promise((resolve, reject) => { server.once("error", reject); server.listen(port, host, resolve); });
+  const actualPort = server.address().port;
+  const baseUrl = `http://${host}:${actualPort}`;
+  log(`[agent402-openclaw] proxy on ${baseUrl}/v1 -> ${upstream} (${mode}, ${table.size} models)`);
+  return {
+    baseUrl, port: actualPort, mode, upstream,
+    stats: () => ({ ...stats }),
+    refreshModels: async () => { table = await loadRoutes(upstream, fetchImpl); return table.size; },
+    close: () => new Promise((resolve) => server.close(() => resolve())),
+  };
+}

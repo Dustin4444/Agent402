@@ -860,6 +860,9 @@ jobs:
       - name: Buyer SDK (agent402-client — resolve + auto-pay via PoW; boots paid-mode)
         run: node client/test.js
 
+      - name: OpenClaw provider plugin (agent402-openclaw — offline, stub gateway)
+        run: node openclaw/test.js
+
       # ONE STEP, MANY SCRIPTS (2026-08-25): GitHub spends ~0.7 s of runner setup
       # per step and this lane had over a hundred one-line steps. Each script still
       # runs in its own process, in the same order; `t` groups its log and names it
