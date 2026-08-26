@@ -1117,6 +1117,73 @@ async function main() {
   })();
   }
 
+  // Metered tier over `upto` — the settle-ACTUAL path (2026-08-26). The daily
+  // llm-metered TOOL leg pays the per-request EXACT quote; this leg buys the
+  // same body through the upto scheme (Permit2 allowance on the burner, granted
+  // once), so the quote becomes a ceiling and the gateway settles actual usage
+  // x 1.15. It is the only live proof of what agent402-openclaw's upto path
+  // does for a real buyer: the OUTGOING credential must be scheme "upto" (a
+  // client that quietly fell back to exact would still get a 200), the
+  // response must carry X-Metered-Usd strictly UNDER the quote, and the
+  // receipt must settle. The selector mirrors the plugin's selectAccept
+  // (openclaw/index.js). Own try/catch, own rail key.
+  await (async () => {
+    const path = "/v1/metered/chat/completions";
+    const body = { model: "openai/gpt-4.1-nano", messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 2000 };
+    const init = () => ({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    try {
+      const [{ UptoEvmScheme, getPermit2AllowanceReadParams }, { createPublicClient, http }, { base }] = await Promise.all([
+        import("@x402/evm/upto/client"), import("viem"), import("viem/chains"),
+      ]);
+      const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+      const pub = createPublicClient({ chain: base, transport: http(process.env.BASE_RPC_URL || "https://mainnet.base.org") });
+      const allowance = await pub.readContract(getPermit2AllowanceReadParams({ tokenAddress: USDC_BASE, ownerAddress: account.address }));
+      if (BigInt(allowance) < 10n ** 12n) {
+        railFail("metered-upto", `burner ${account.address} has no Permit2 allowance on Base USDC (${allowance}) — run \`agent402-openclaw permit2-approve\` with the burner key once`);
+        return;
+      }
+      const bare = await fetch(`${TARGET}${path}`, init());
+      await bare.text().catch(() => "");
+      const pr = bare.headers.get("payment-required");
+      let accepts = [];
+      try { accepts = JSON.parse(Buffer.from(pr || "", "base64").toString("utf8"))?.accepts || []; } catch { /* no challenge */ }
+      const upto = accepts.find((a) => a?.scheme === "upto" && a?.network === "eip155:8453");
+      if (bare.status !== 402 || !upto) {
+        railFail("metered-upto", `live 402 offers no upto accept on eip155:8453 (HTTP ${bare.status}, offered ${JSON.stringify(accepts.map((a) => `${a?.scheme}@${a?.network}`))})`);
+        return;
+      }
+      const quotedUsd = Number(upto.amount) / 1e6;
+      const uptoClient = new x402Client((_v, list) => list.find((a) => a?.scheme === "upto" && a?.network === "eip155:8453") || list[0]);
+      registerExactEvmScheme(uptoClient, { signer: account });
+      uptoClient.register("eip155:8453", new UptoEvmScheme(account));
+      let sentScheme = null;
+      const capture = (input, reqInit) => {
+        const req = new Request(input, reqInit);
+        const sig = req.headers.get("payment-signature") || req.headers.get("x-payment");
+        if (sig) { try { sentScheme = JSON.parse(Buffer.from(sig, "base64").toString("utf8"))?.accepted?.scheme ?? null; } catch { /* stays null */ } }
+        return synthFetch(req);
+      };
+      const uptoFetch = wrapFetchWithPayment(capture, uptoClient);
+      const res = await uptoFetch(`${TARGET}${path}`, init());
+      const out = await res.json().catch(() => ({}));
+      if (res.status !== 200) { railFail("metered-upto", `HTTP ${res.status} ${JSON.stringify(settleRejectReason(res.headers) ?? out).slice(0, 160)}`); return; }
+      const meteredHdr = res.headers.get("x-metered-usd");
+      const metered = Number(meteredHdr);
+      const receipt = res.headers.get("payment-response") || res.headers.get("x-payment-response");
+      const okReply = isExactOkReply(out.choices?.[0]?.message?.content);
+      if (sentScheme !== "upto") railFail("metered-upto", `paid over scheme ${JSON.stringify(sentScheme)}, not upto — the settle-actual path was never exercised`);
+      else if (!receipt) railFail("metered-upto", "200 with no PAYMENT-RESPONSE receipt");
+      else if (okReply !== true) railFail("metered-upto", `settled but the reply was not "OK": ${JSON.stringify(out).slice(0, 100)}`);
+      else if (!(metered > 0) || metered >= quotedUsd) railFail("metered-upto", `X-Metered-Usd ${JSON.stringify(meteredHdr)} is not strictly under the quote $${quotedUsd} — actual-usage settlement did not apply`);
+      else {
+        console.log(`OK    metered-upto ${path}  → settled $${metered.toFixed(6)} ACTUAL over upto (quote ceiling $${quotedUsd}, payer ${account.address})`);
+        noteRail("metered-upto", true);
+      }
+    } catch (e) {
+      railFail("metered-upto", `errored: ${(e?.message || String(e)).slice(0, 160)}`);
+    }
+  })();
+
   // Tempo — MPP's OWN native method (src/mpp-tempo.js), architecturally
   // distinct from the mpp/mpp-celo legs above: those settle via
   // @x402/express (translated PAYMENT-SIGNATURE, EIP-3009). Tempo settles

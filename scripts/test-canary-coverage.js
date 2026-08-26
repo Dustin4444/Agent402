@@ -197,6 +197,16 @@ if (rn) {
   ok(tempoBlock.length > 500, "located the Tempo leg block for scoped assertions");
   ok(!/railFail\(\s*["']mpp["']/.test(tempoBlock),
     "the Tempo leg's own catch block never attributes a failure to the mpp key (own try/catch, own rail identity)");
+
+  // Metered-upto: the settle-ACTUAL path. A leg that pays exact by accident
+  // still gets a 200, so the pin is on the three things that distinguish it:
+  // the outgoing credential's scheme, X-Metered-Usd under the quote, railFail.
+  ok(/railFail\(\s*["']metered-upto["']/.test(canarySrc),
+    "metered-upto failures go through railFail so a broken upto path fails the run");
+  ok(/UptoEvmScheme/.test(canarySrc) && /sentScheme !== "upto"/.test(canarySrc),
+    "the metered-upto leg registers the upto scheme AND asserts the credential it sent was upto");
+  ok(/x-metered-usd/.test(canarySrc) && /metered >= quotedUsd/.test(canarySrc),
+    "the metered-upto leg asserts X-Metered-Usd is strictly under the quote");
 }
 
 // --- the canary must actually RUN on the days it claims to ------------------
