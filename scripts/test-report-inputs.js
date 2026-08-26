@@ -8,6 +8,8 @@ import { parseForm4 } from "../src/tools/insider-flow-kit.js";
 import { parse13fCover } from "../src/tools/edgar-kit.js";
 import { classifyFromSubmissions } from "../src/tools/ipo-report-kit.js";
 import { parse13GCover } from "../src/tools/ticker-pack-kit.js";
+import { shapeGoPlus, privilegedFunctions } from "../src/tools/token-risk-kit.js";
+import { auditCitations } from "../src/tools/research-deep-kit.js";
 let pass = 0, fail = 0;
 const ok = (c, m) => { c ? pass++ : fail++; console.log(`${c ? "ok" : "FAIL"} - ${m}`); };
 
@@ -99,6 +101,23 @@ const ok = (c, m) => { c ? pass++ : fail++; console.log(`${c ? "ok" : "FAIL"} - 
   ok(classifyFromSubmissions({ sic: "6770", filings: { recent: { form: [], filingDate: [] } } }, "2026-08-20").klass === "spac", "SIC 6770 is a blank-check company");
   ok(classifyFromSubmissions({ sic: "1234", filings: { recent: { form: ["10-Q"], filingDate: ["2026-09-01"] } } }, "2026-08-20").klass === "ipo", "a periodic report filed AFTER the S-1 (the company listed since) does not make the S-1 a follow-on");
   ok(classifyFromSubmissions(null, "2026-08-20").klass === "unclassified", "unreadable submissions -> unclassified, never guessed");
+}
+
+// ---- token-risk control plane + research citation audit (round 3) ----------
+{
+  const g = shapeGoPlus({ is_open_source: "1", is_proxy: "0", is_mintable: "0", is_honeypot: "0", owner_address: "0x0000000000000000000000000000000000000000", hidden_owner: "0", buy_tax: "0.05", sell_tax: "0", transfer_pausable: "1", is_blacklisted: "0", lp_holder_count: "39", lp_holders: [{ address: "0xa", percent: "0.4", is_locked: 1 }, { address: "0xb", percent: "0.1", is_locked: 0 }], dex: [{ name: "UniswapV3", liquidity_type: "UniV3", liquidity: "120348.9", pair: "0xp" }], creator_percent: "0.02", fake_token: { value: 0 } });
+  ok(g.proxy === false && g.mintable === false && g.honeypot === false && g.ownerRenounced === true && g.buyTaxPct === 5 && g.sellTaxPct === 0 && g.transferPausable === true, "GoPlus flags are typed booleans and taxes are percentages (BRETT-shaped record)");
+  ok(g.lpLockedPct === 40 && g.lpHolderCount === 39 && g.dexes[0].liquidityUsd > 120000 && g.creatorPct === 2, "LP lock share is summed from locked LP holders; DEX liquidity and creator share ride along");
+  ok(shapeGoPlus({ is_proxy: "", owner_address: "" }).proxy === null && shapeGoPlus({ is_proxy: "" }).ownerRenounced === null, "an absent flag is unknown, never false");
+  const abi = [{ type: "function", name: "transfer", stateMutability: "nonpayable" }, { type: "function", name: "balanceOf", stateMutability: "view" }, { type: "function", name: "excludeFromFees", stateMutability: "nonpayable" }, { type: "function", name: "enableTrading" }, { type: "function", name: "upgradeTo" }, { type: "event", name: "Transfer" }];
+  const pf = privilegedFunctions(abi);
+  ok(pf.total === 5 && pf.writable === 4 && pf.privileged.join(",") === "enableTrading,excludeFromFees,upgradeTo", "privileged function names are read off the ABI (the owner privileges the prompt used to call invisible)");
+  ok(privilegedFunctions(null).total === 0, "no ABI -> empty, never a claim");
+  const src = [{ n: 1, title: "A", url: "https://a", snippet: "Revenue grew 23% to $1.2 billion in 2025." }, { n: 2, title: "B", url: "https://b", snippet: "no numbers here", body: "Gross margin was 41 percent in the quarter." }];
+  const r = auditCitations("Revenue grew 23% to $1.2 billion [1]. Margin was 41% [2]. Users hit 5,000,000 [2]. Bogus [7] and range [1-2].", src, "");
+  ok(r.cited.join(",") === "1,2" && r.stripped === 1 && !/\[7\]/.test(r.prose) && /\[1\]\[2\]/.test(r.prose), "citations outside the source range are stripped, ranges expand, and cited = the set actually used");
+  ok(r.unverified.length === 1 && r.unverified[0].numbers.includes("5,000,000") && !r.unverified.some((u) => u.numbers.includes("41%")), "a number absent from the cited source's text is flagged; one present in its FULL TEXT is not");
+  ok(auditCitations("Revenue grew 23% [1].", src, "sub-answer says 23% growth").unverified.length === 0, "a number supported by the sub-answers passes");
 }
 console.log(`${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
