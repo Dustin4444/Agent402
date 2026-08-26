@@ -110,6 +110,21 @@ const evInv = JSON.stringify({ type: "invoice.paid", data: { object: { id: "in_1
 await subs.handleWebhook(Buffer.from(evInv), "goodsig");
 ok(invoices.length === 1 && invoices[0].amountUsd === 9 && invoices[0].product === "domain-monitor" && invoices[0].invoiceId === "in_1", "a paid invoice reaches the accounting hook with product + amount");
 
+// Webhook receipt tally: the only on-server evidence that Stripe is delivering.
+{
+  const w = subs.webhookStats();
+  ok(w.configured === true && w.received === w.verified + w.rejected + w.unconfigured, `tally reconciles: received ${w.received} = verified ${w.verified} + rejected ${w.rejected} + unconfigured ${w.unconfigured}`);
+  ok(w.rejected >= 1 && w.lastRejectReason === "bad-signature" && w.unconfigured >= 1, "bad signature and missing secret are counted separately, with the reason");
+  ok(w.byType["invoice.paid"] === 1 && w.byType["customer.subscription.updated"] >= 1 && w.lastType === "invoice.paid" && typeof w.lastAt === "string", "verified events are counted by type and stamp lastAt/lastType");
+  w.byType.forged = 99; w.received = 0;
+  ok(subs.webhookStats().received > 0 && !subs.webhookStats().byType.forged, "webhookStats returns a snapshot, not the live tally");
+  // Persisted: a fresh engine on the same store path reads the same counts (a deploy must not reset it to zero).
+  const again = createStripeSubscriptions({ stripe, baseUrl: "https://example.test", storePath: STORE, onInvoicePaid: () => {} });
+  const w2 = again.webhookStats();
+  ok(w2.received === subs.webhookStats().received && w2.byType["invoice.paid"] === 1, "the tally survives a process restart (persisted beside the store)");
+  try { rmSync(STORE + ".webhooks.json"); } catch { /* ignore */ }
+}
+
 try { rmSync(STORE); } catch { /* ignore */ }
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

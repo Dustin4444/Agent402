@@ -1962,7 +1962,7 @@ if (humanCheckoutEnabled()) {
     _sweep.unref?.();
     app.get("/__operator/human-checkout.json", (req, res) => {
       if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
-      res.set("Cache-Control", "no-store").json({ ...(_humanCheckout.listIssues()), compositeUsage: compositeUsageSnapshot(), compositeGuard: _compositeGuardState() });
+      res.set("Cache-Control", "no-store").json({ ...(_humanCheckout.listIssues()), compositeUsage: compositeUsageSnapshot(), compositeGuard: _compositeGuardState(), stripeWebhooks: _subs?.webhookStats?.() || null });
     });
     app.post("/api/buy", async (req, res) => {
       if (checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
