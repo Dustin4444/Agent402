@@ -57,7 +57,7 @@ Every tier returns the same envelope:
 
 ## Curl examples
 
-### Standard tier ($0.03 -- GPT Image mini, low quality)
+### Standard tier ($0.03 -- GPT Image 2, low quality)
 
 ```bash
 curl -X POST https://agent402.tools/api/image-gen \
@@ -67,7 +67,7 @@ curl -X POST https://agent402.tools/api/image-gen \
   }'
 ```
 
-### HD tier ($0.10 -- GPT Image mini, medium quality)
+### HD tier ($0.10 -- GPT Image 2, medium quality)
 
 ```bash
 curl -X POST https://agent402.tools/api/image-gen-hd \

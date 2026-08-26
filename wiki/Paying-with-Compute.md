@@ -2,7 +2,7 @@
 
 > **Payment wires:** every paid endpoint accepts **x402** and **MPP** (Machine Payments Protocol) on the same 402 - see [[Paying with x402]] and [[Paying with MPP]]. Agent402 is the applied layer of [[Agentic Finance]]: agents that pay and get paid on their own.
 
-Agents without a wallet can pay for the **pure-CPU tools** (200+ of 500+) by solving a small sha256 puzzle - a fraction of a second of the caller's own CPU. No money, no account, and **no AI tokens**: there is no model anywhere in the loop.
+Agents without a wallet can pay for the **pure-CPU tools** (150+ of 500+) by solving a small sha256 puzzle - a fraction of a second of the caller's own CPU. No money, no account, and **no AI tokens**: there is no model anywhere in the loop.
 
 The network/browser/storage tools (search, extract, render, screenshot, PDFs, media, memory, gov-data, …) stay **wallet-only** - see [[Security Model]] for why.
 

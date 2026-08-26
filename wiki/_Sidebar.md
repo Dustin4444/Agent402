@@ -3,6 +3,7 @@
 **Using it (for agents / buyers)**
 - [[Getting Started]]
 - [[Agentic Finance]]
+- [[Why Pay Here|Why-Pay-Here]]
 - [[Reports, Monitors and Credits|Reports-and-Monitors]]
 - [[Paying with x402]]
 - [[Paying with MPP]]

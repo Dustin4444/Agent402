@@ -27,12 +27,27 @@ Because tiers are flat-priced while upstream bills per token, every request is a
 | `POST /v1/auto/chat/completions` | $0.01 | **model optional** - deterministic eval-ranked routing (see below) | 16k chars | 1,024 tokens |
 | `POST /v1/chat/completions` | $0.02 | budget/mid models (gpt-4o-mini, claude haiku, gemini flash, deepseek, llama, mistral, qwen) | 32k chars | 2,048 tokens |
 | `POST /v1/pro/chat/completions` | $0.10 | mid-frontier (gpt-4o, gpt-4.1, claude sonnet incl. sonnet-5, gemini pro and 3.x flash, grok) | 48k chars | 4,096 tokens |
-| `POST /v1/premium/chat/completions` | $0.50 | frontier (gpt-5, o3/o4, claude opus) | 64k chars | 8,192 tokens |
+| `POST /v1/premium/chat/completions` | $0.50 | frontier (gpt-5, o3/o4, claude opus) | 85k chars | 8,192 tokens |
 | `POST /v1/embeddings` | $0.002 | text-embedding-3-small (default), 3-large, ada-002 - batch up to 64 inputs | 16k chars | - |
 | `POST /v1/images/generations` | $0.08 | Gemini 2.5 Flash Image (nano banana) - one image per call, inline base64 out | 4k-char prompt | 1 image |
 | `POST /v1/audio/speech` | $0.06 | a five-model failover chain on OpenRouter's audio API; raw mp3/pcm bytes out, the 11 OpenAI voice names plus each model's native voices | 2k-char input | - |
 
-Bare OpenAI-style names (`gpt-4o-mini`) are accepted and mapped; requesting a model on the wrong tier returns a self-correcting 400 naming the right endpoint and price. All tiers are **wallet-only** - every call burns real upstream credit, so there is no proof-of-work free tier (see [[Security Model]]).
+Bare OpenAI-style names (`gpt-4o-mini`) are accepted and mapped; requesting a model on the wrong tier returns a self-correcting 400 naming the right endpoint and price. All tiers are **wallet-only** - every call burns real upstream credit, so there is no proof-of-work free tier (see [[Security Model]]). The pro and premium chat tiers also accept three upstream server tools under a server-owned bound (`openrouter:web_search`, `openrouter:web_fetch`, `openrouter:datetime`, each with a hard use cap that `GET /v1/models` lists per tier); other server tools are refused by name.
+
+## Metered tier - pay per request, quoted first
+
+`POST /v1/metered/chat/completions` (`v1-chat-metered`) serves every explicit model the flat chat tiers serve (the same allowlists; `GET /v1/models` names it beside each chat model as `meteredEndpoint`, with `meteredMaxInputChars` 200k and `meteredMaxTokens` 8,192), but the price is not flat: **the 402 quotes this exact request from its own body**. The quote is the request's worst case (input counted exactly, plus your `max_tokens`, at the model's list price) times 1.15, never below the $0.001 settlement floor, rounded up to a micro-dollar; a request whose quote would exceed $2 is refused with a `400` naming the cap (a `4xx` cancels settlement, so nothing is charged). Because the price is derived from the body actually served, a payment authorized for a small quote cannot ride a bigger request. Set `max_tokens` to what you need: it is what you pay for.
+
+Two ways to pay it:
+
+- **Exact clients** (most stock x402 clients) pay the quote. A short call costs a fraction of a cent; a long one pays for what it asks.
+- **`upto` clients** (an x402 client with the `upto` scheme registered, which on Base needs a one-time USDC approval to Permit2) authorize the quote as a ceiling and settle **actual usage x 1.15** under it. Prepaid-credits buyers get the same treatment automatically: the quote is held, and only actual usage x 1.15 is debited on a `200`.
+
+The catalog lists the tier at its $0.001 floor ("from"), and every chat model on `GET /v1/models` carries `meteredFromUsd`. Use the flat tiers when you want a known price per call regardless of length; use the metered tier when calls vary a lot in size and you want to pay for the size you send.
+
+## OpenClaw provider plugin (`agent402-openclaw`)
+
+[OpenClaw](https://openclaw.ai) talks to any OpenAI-compatible provider through one block in `openclaw.json`, and the [`agent402-openclaw`](https://www.npmjs.com/package/agent402-openclaw) npm plugin writes that block for this gateway: `AGENT402_CREDITS_KEY=a402_... npx agent402-openclaw setup --write` stores a prepaid credits key (bought by card at [`/credits`](https://agent402.tools/credits)) and starts a loopback proxy that carries it, so OpenClaw itself never holds a payment credential. `auto` (routed per prompt, flat $0.01 per call) is offered beside every id on `GET /v1/models`; explicit models ride the metered route by default (`--flat` keeps them on their flat tiers), and `setup` picks the cheapest preferred metered model whose input cap holds OpenClaw's own system prompt as the primary. A wallet can pay instead of a credits key (`AGENT402_WALLET_KEY`, an EVM key holding USDC on Base): exact by default, or `upto` after a one-time `agent402-openclaw permit2-approve`, so the wallet settles actual usage; `agent402-openclaw doctor` reports which mode it is in. Full guide: [agent402.tools/guides/openclaw-model-provider](https://agent402.tools/guides/openclaw-model-provider).
 
 ## Image generation
 
@@ -84,7 +99,7 @@ Keys are computed over the *normalized* body (model aliases and field order coll
 
 ## Related paid surfaces
 
-- `POST /api/route/execute` ($0.01; `execute-plus` $0.05 and `execute-max` $0.55 for pricier tools) - resolve a task description to the best-matching tool and run it in the same call, returning `{result, receipt}`. With `include:"external"` it can pay a proven external x402 seller on your behalf and relay the result. See [[x402 Index and Router|x402-Index-and-Router]].
+- `POST /api/route/execute` ($0.01; `execute-plus` $0.05, `execute-max` $0.55 and `execute-pro` $3.30 for pricier tools) - resolve a task description to the best-matching tool and run it in the same call, returning `{result, receipt}`. With `include:"external"` it can pay a proven external x402 seller on your behalf and relay the result. See [[x402 Index and Router|x402-Index-and-Router]].
 - `POST /api/my-usage` ($0.005) - your wallet's own purchase history (totals, per-tool counts, per-chain breakdown, receipts with settle txs). No wallet parameter: the x402 payment that buys the report determines whose report it is - nobody can read another wallet's profile.
 - The older custom-JSON proxies remain available: [[LLM Proxy Gateway|LLM-Proxy]] (`/api/llm*`) and [[Text Embeddings|Embeddings]] (`/api/embed*`).
 

@@ -210,7 +210,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
       <div class="ml-stagger" style="display:flex;flex-direction:column;gap:26px;">
         <div class="ml-hero-eyebrow" style="font-family:var(--font-mono);font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--faint);">Pay per call. Pay per report. Nothing else.</div>
         <h1 class="ml-hero-h1" style="font-weight:500;font-size:72px;line-height:.98;letter-spacing:-.04em;margin:0;color:var(--ink);text-wrap:balance;">The web's paid door, <span style="color:var(--faint);">finally open.</span></h1>
-        <p class="hm-lede" style="font-size:19px;max-width:560px;margin:0;">HTTP reserved <span style="font-family:var(--font-mono);font-size:16px;color:var(--ink);">402 Payment Required</span> in 1997. Behind it now: 500+ deterministic tools priced in cents and finished reports priced in dollars. Agents pay USDC per call over <a href="/what-is-x402" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--dash);">x402</a> or <a href="/what-is-mpp" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--dash);">MPP</a>, no keys, no signup. People pay by card. Same pipeline, same price list - the applied layer of <a href="/agentic-finance" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--dash);">agentic finance</a>.</p>
+        <p class="hm-lede" style="font-size:19px;max-width:560px;margin:0;">HTTP reserved <span style="font-family:var(--font-mono);font-size:16px;color:var(--ink);">402 Payment Required</span> in 1997. Behind it now: 500+ deterministic tools priced in cents and finished reports priced in dollars. Agents pay USDC per call over <a href="/what-is-x402" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--dash);">x402</a> or <a href="/what-is-mpp" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--dash);">MPP</a>, no keys, no signup. People pay by card. Same pipeline, same price list, usage priced under a ceiling you see first and a receipt on every settled call - the applied layer of <a href="/agentic-finance" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--dash);">agentic finance</a>.</p>
         <div class="ml-hero-ctas" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;">
           <a class="hm-btn hm-btn-dark" href="/reports">Buy a report</a>
           <a class="hm-btn hm-btn-ghost" href="/docs#add" style="font-family:var(--font-mono);font-size:13.5px;">Add to Claude</a>
@@ -258,7 +258,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   <div class="hm-doors">
     <div class="hm-milled" style="padding:32px;display:flex;flex-direction:column;gap:16px;">
       <div style="font-family:var(--font-mono);font-size:11.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--faint);">For people</div>
-      <h2 class="hm-h2" style="font-size:30px;">A finished report, not a chat answer.</h2>
+      <h2 class="hm-h2" style="font-size:30px;">A finished report, cited and delivered.</h2>
       <p class="hm-lede" style="margin:0;font-size:15.5px;">Due-diligence dossier, 13F fund report, domain security audit, deep research. Every claim cited to a live source, PDF and data appendix included, refunded if it fails. Or subscribe and get the re-run in your inbox when something moves.</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;">
         ${[["dossier", "Dossier"], ["fund-report", "Fund 13F"], ["domain-audit", "Domain audit"], ["research", "Deep research"]]
@@ -408,7 +408,7 @@ curl -X POST /api/hash \\
   <div class="hm-obsidian" style="padding:48px 40px;">
     <div class="hm-kicker" style="color:var(--accent-lit);">$ GET /api/leaderboard?include=external</div>
     <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:14px;">
-      <h2 class="hm-h2" style="color:var(--on-dark);">The index, not just a seller.</h2>
+      <h2 class="hm-h2" style="color:var(--on-dark);">The open index for every seller.</h2>
       <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--dk-muted3);">hourly on-chain snapshot · Bazaar → eth_getLogs → aggregate by payTo</span>
     </div>
     <p style="font-size:16px;line-height:1.6;color:var(--dk-muted2);max-width:700px;margin:0 0 30px;font-weight:300;">Every x402 seller we can crawl, ranked by <strong style="color:var(--on-dark);font-weight:500;">real Base USDC settled volume</strong> - not self-reported traffic. <span style="font-family:var(--font-mono);font-size:14px;color:var(--on-dark);">include=external</span> excludes us from our own ranking, because a neutral index has to be checkable.</p>

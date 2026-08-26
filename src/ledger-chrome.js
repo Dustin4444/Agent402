@@ -397,6 +397,7 @@ const NAV_ZONES = [
   ],
   [
     { href: "/sell", label: "Sell", panel: "sell" },
+    { href: "/why", label: "Why" },
     { href: "/docs", label: "Docs" },
   ],
 ];
@@ -626,6 +627,7 @@ function mobileMenuHtml(chainInfo, activePath) {
     </div>
     <div class="ml-mm-h">More</div>
     <div class="ml-mm-group">
+      ${mmLink("/why", "why pay here", activePath === "/why")}
       ${mmLink("/docs", "docs", activePath === "/docs")}
       ${mmLink("/101", "x402 & MPP 101 · walkthrough", activePath === "/101")}
       ${mmLink("/what-is-x402", "what is x402 / MPP", activePath === "/what-is-x402")}

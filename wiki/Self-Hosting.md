@@ -60,7 +60,7 @@ For persistent state (stats, memory, PoW replay protection), mount a volume at `
 4. Set environment variables in the Railway dashboard (see table below).
 5. Deploy. Railway auto-detects the start command from `package.json`.
 
-> **Protect in-flight paid calls across redeploys:** set `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=90` on the service. Railway's default grace between SIGTERM and SIGKILL is **0 seconds**, which kills in-flight (already paid-for) requests on every redeploy. With the variable set, the server's built-in graceful drain finishes active requests (up to 75s) before exiting.
+> **Protect in-flight paid calls across redeploys:** set `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=120` on the service (the hosted deploy job sets 120). Railway's default grace between SIGTERM and SIGKILL is **0 seconds**, which kills in-flight (already paid-for) requests on every redeploy. With the variable set, the server's built-in graceful drain finishes active requests (up to 75s) before exiting.
 
 ## Environment variables
 
@@ -73,6 +73,7 @@ Set these on your host. None are committed to the repo.
 | `WALLET_ADDRESS` | For paid mode | Your USDC receiving address (Base) |
 | `WALLET_ENS` | No | ENS or Basename for display (e.g. `agent402.base.eth`) |
 | `NETWORK` | For paid mode | Chain identifier (default: `eip155:8453` = Base mainnet) |
+| `PAYMENT_NETWORKS` | No | Comma-separated chains to accept (default: the primary network only), e.g. `base,solana,polygon,arbitrum,stellar,algorand,monad,celo,avalanche,sei,optimism,robinhood`; each extra chain needs its own payTo / facilitator settings (see below) |
 | `CDP_API_KEY_ID` | For paid mode | Coinbase CDP API key ID (facilitator auth) |
 | `CDP_API_KEY_SECRET` | For paid mode | Coinbase CDP API secret |
 | `FACILITATOR_URL` | No | Custom x402 facilitator URL (defaults to Coinbase's) |
@@ -85,6 +86,9 @@ Set these on your host. None are committed to the repo.
 | `FRED_API_KEY_V2` | No | Distinct key for macro-kit v2 bulk endpoints |
 | `YAHOO_RELAY_URL` | No | Cloudflare Worker relay URL for Yahoo Finance charts (both URL and TOKEN must be set) |
 | `YAHOO_RELAY_TOKEN` | No | Bearer token for the Yahoo relay worker |
+| `OPENROUTER_API_KEY` | No | Enables the `/v1` LLM gateway tiers (chat, metered, embeddings, rerank, images, speech); the routes answer `503` without it |
+| `OPENAI_API_KEY` | No | Enables the older `/api/llm*`, `/api/image-gen*`, `/api/tts*`, `/api/transcribe*` and `/api/embed*` proxies |
+| `E2B_API_KEY` | No | Enables the `/api/code-run*` sandbox tools |
 | `REDIS_URL` | No | Enables Redis response caching (see below) |
 | `ANALYTICS_DATABASE_URL` | No | Postgres connection string for analytics; falls back to `DATABASE_URL` |
 | `GLAMA_MAINTAINER_EMAIL` | No | Email returned at `/.well-known/glama.json` |
@@ -105,7 +109,7 @@ Set these on your host. None are committed to the repo.
 ## Free mode vs paid mode
 
 - **`FREE_MODE=true`** -- every tool responds without payment. Good for development, internal deployments, or self-hosted agents that don't need metering. The PoW gate and x402 paywall are both disabled.
-- **Without `FREE_MODE`** -- the x402 paywall activates. Callers pay per request (USDC on Base, Solana, Polygon, Arbitrum, Stellar, or Algorand via x402) or solve a proof-of-work challenge for pure-CPU tools. You need `WALLET_ADDRESS`, `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`, and `POW_SECRET` at minimum. To also accept **USDC on Monad** (EVM chain 143), add `monad` to `PAYMENT_NETWORKS` (settles via `MONAD_FACILITATOR_URL`, default the molandak-operated public facilitator). Avalanche (43114) and Sei (1329) are likewise opt-in via `PAYMENT_NETWORKS` (both settle via PayAI, no extra config). Optimism (10) is opt-in via `PAYMENT_NETWORKS` plus `SOLVADOR_KEY` (settles via the Solvador facilitator; price its per-settlement fee in with `NETWORK_PRICE_PREMIUMS=eip155:10=0.001`). To also accept **USDC on Celo** (EVM chain 42220), add `celo` to `PAYMENT_NETWORKS` and set `CELO_FACILITATOR_KEY` (free self-service key: sign a no-gas message with any wallet at [x402.celo.org](https://x402.celo.org); the facilitator's `/settle` requires it). Settles via `CELO_FACILITATOR_URL`, default the Celo-operated `api.x402.celo.org`. To accept **USDG on Robinhood Chain**, add `robinhood` to `PAYMENT_NETWORKS` and set `ROBINHOOD_FACILITATOR_URL`.
+- **Without `FREE_MODE`** -- the x402 paywall activates. Callers pay per request (USDC on Base by default; add Solana, Polygon, Arbitrum, Stellar, Algorand and the chains below with `PAYMENT_NETWORKS`, each with its own payTo / facilitator setting) or solve a proof-of-work challenge for pure-CPU tools. You need `WALLET_ADDRESS`, `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`, and `POW_SECRET` at minimum. To also accept **USDC on Monad** (EVM chain 143), add `monad` to `PAYMENT_NETWORKS` (settles via `MONAD_FACILITATOR_URL`, default the molandak-operated public facilitator). Avalanche (43114) and Sei (1329) are likewise opt-in via `PAYMENT_NETWORKS` (both settle via PayAI, no extra config). Optimism (10) is opt-in via `PAYMENT_NETWORKS` plus `SOLVADOR_KEY` (settles via the Solvador facilitator; price its per-settlement fee in with `NETWORK_PRICE_PREMIUMS=eip155:10=0.001`). To also accept **USDC on Celo** (EVM chain 42220), add `celo` to `PAYMENT_NETWORKS` and set `CELO_FACILITATOR_KEY` (free self-service key: sign a no-gas message with any wallet at [x402.celo.org](https://x402.celo.org); the facilitator's `/settle` requires it). Settles via `CELO_FACILITATOR_URL`, default the Celo-operated `api.x402.celo.org`. To accept **USDG on Robinhood Chain**, add `robinhood` to `PAYMENT_NETWORKS` and set `ROBINHOOD_FACILITATOR_URL`.
 
 **MPP on the same 402:** set `MPP_SECRET_KEY` and every paid route also answers `WWW-Authenticate: Payment` (the `evm` method settles through your existing facilitator); add `TEMPO_API_KEY` for native Tempo settlement. **Cards:** `STRIPE_SECRET_KEY` (+ `STRIPE_WEBHOOK_SECRET`) mounts the report checkout, monitors and prepaid credits; `STRIPE_PROFILE_ID` adds cards over MPP. **Email:** `EMAIL_FROM` plus `ZEPTOMAIL_TOKEN` or `RESEND_API_KEY`; without them the card pages still work and the report link is shown on the page.
 

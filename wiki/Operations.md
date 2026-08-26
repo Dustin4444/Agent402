@@ -6,7 +6,7 @@ Everything is automated through two GitHub Actions workflows; production is a si
 
 ## Deploy pipeline (`.github/workflows/deploy.yml`)
 
-Jobs are selected by commit-message markers or `workflow_dispatch`. The full marker set, as parsed by the workflow, is:
+Jobs are selected by commit-message markers or `workflow_dispatch`; every push to the development branch runs the test lanes with or without a marker, and a push to `main` (a PR merge) tests and deploys unconditionally. The full marker set, as parsed by the workflow, is:
 
 `[test]` · `[deploy]` · `[publish]` · `[probe]` · `[drain]` · `[paytest]` · `[purl]` · `[bazaar-refresh]` · `[bazaar-register]` · `[bazaar-solana]`
 
@@ -46,5 +46,5 @@ There's also a **charged-but-failed** counter: any non-200 response that left an
 ## Incident playbook
 
 1. A heartbeat issue opened? Check the linked run for which probe failed, then the `probe` job for Railway build/deploy logs.
-2. Redeploy = push a `[deploy]` commit (or dispatch the workflow with mode `deploy`).
+2. Redeploy = merge to `main` (every push to `main` tests and deploys, no marker needed) or dispatch the workflow with mode `deploy`.
 3. Catalog regressions are caught pre-deploy by the test job; production checks tolerate ~2 min of rollout race before declaring failure.

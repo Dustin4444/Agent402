@@ -1692,7 +1692,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   (three syntheses). base = recall, domain-audit, token-risk, token-brief, fund-report, insider-report, research;
   pro = domain-audit-pro, token-risk-pro, fund-report-max, dossier, research-pro, market-brief, filing-report;
   max = research-max, dossier-max. **Card** must clear Stripe's 2.9% + $0.30 BEFORE the report is paid for (a $1 charge
-  nets $0.671, which the deep tiers ate), so the card floor is **$2**, $3 for max tiers, $4 for the pack. **Monitors $5/mo**:
+  nets $0.671, which the deep tiers ate), so the card floor is **$2**, $3 for max tiers, $5 for the pack (the derived card ladder: agent <= $0.60 -> $2, <= $0.85 -> $3, <= $1.10 -> $4, else $5). **Monitors $5/mo**:
   one fee funds up to `MAX_FULL_PER_SUB_30D` (4) paid runs, so the rule is net >= 2x the worst-case month, not a percentage.
   Every rail now clears 40%+ at measured worst case. Prices live in THREE places that must move together: kit
   `*_TIERS[...].price` (x402/MPP list), `HUMAN_PRODUCTS[...].price` cents (card), `MONITOR_PRODUCTS[...].price`; docs are
