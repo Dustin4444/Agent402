@@ -23,6 +23,14 @@ async function feedFetch(url) {
   if (host === "api.coingecko.com" && process.env.COINGECKO_API_KEY) {
     headers["x-cg-demo-api-key"] = process.env.COINGECKO_API_KEY;
   }
+  // Pyth Hermes requires `Authorization: Bearer $PYTH_API_KEY` since
+  // 2026-08-26 16:00 UTC (docs.pyth.network, "Authentication becomes required
+  // on August 26, 2026 at 16:00 UTC"); keyless requests answer 401
+  // "unauthorized" on both hermes and hermes-beta. The tool is LISTED only
+  // when the key is set (pythEnabled), so an agent is never sold a dead feed.
+  if (/(^|\.)hermes(-beta)?\.pyth\.network$/.test(host) && process.env.PYTH_API_KEY) {
+    headers.Authorization = `Bearer ${process.env.PYTH_API_KEY.trim()}`;
+  }
   let res;
   try {
     res = await fetch(url, {
@@ -35,6 +43,7 @@ async function feedFetch(url) {
     console.warn(`[price-feed] upstream unreachable: ${host} → ${err.name ?? err.code ?? err.message}`);
     throw bad("Price feed upstream timed out", 504);
   }
+  if (res.status === 401 && /pyth\.network$/.test(host)) throw bad("Pyth Hermes requires an API key (Authorization: Bearer) since 2026-08-26; this deployment has no PYTH_API_KEY set - not charged", 503);
   if (res.status === 429) throw bad("Price feed rate limit reached upstream - retry shortly", 503);
   if (res.status === 404) throw bad("Price feed upstream: not found (check ids / contract)", 404);
   if (!res.ok) throw bad(`Price feed upstream error (HTTP ${res.status})`, 502);
@@ -55,6 +64,8 @@ function pythScale(price, expo) {
   return Number(BigInt(price)) * Math.pow(10, e);
 }
 
+/** Listing predicate: price-pyth needs PYTH_API_KEY (Hermes auth, 2026-08-26). */
+export function pythEnabled() { return Boolean((process.env.PYTH_API_KEY || "").trim()); }
 export const PRICE_FEED_TOOLS = [
   // ===========================================================================
   // price-pyth — by Pyth feed ID (or a small set of well-known aliases).
