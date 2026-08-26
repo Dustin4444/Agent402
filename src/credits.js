@@ -127,15 +127,20 @@ export function createCredits({ stripe, baseUrl, storeDir, onDebit, onLoad, now 
     return { ok: true, hash, keyId: rec.keyId, heldMicro: need, balanceUsd: microToUsd(rec.balanceMicro), priceUsd };
   }
 
-  // Final 200: the hold becomes spend (exactly the reserved amount).
-  function settle(hash, heldMicro, slug) {
+  // Final 200: the hold becomes spend. `chargeUsd` (the meter's actual x
+  // markup on a metered route) takes LESS than the hold and returns the rest
+  // to the balance; it can never take more than was held.
+  function settle(hash, heldMicro, slug, chargeUsd = null) {
     const rec = load(hash);
     if (!rec) return null;
-    const taken = Math.min(heldMicro, rec.heldMicro || 0);
-    rec.heldMicro = (rec.heldMicro || 0) - taken; rec.spentMicro += taken; rec.calls += 1; rec.lastUsedAt = new Date(now()).toISOString();
+    const held = Math.min(heldMicro, rec.heldMicro || 0);
+    const want = Number.isFinite(Number(chargeUsd)) && Number(chargeUsd) > 0 ? usdToMicro(Number(chargeUsd)) : held;
+    const taken = Math.min(held, want);
+    const returned = held - taken;
+    rec.heldMicro = (rec.heldMicro || 0) - held; rec.balanceMicro += returned; rec.spentMicro += taken; rec.calls += 1; rec.lastUsedAt = new Date(now()).toISOString();
     save(hash, rec);
     try { onDebit?.({ slug, priceUsd: microToUsd(taken), keyId: rec.keyId }); } catch { /* accounting never breaks serving */ }
-    return { balanceUsd: microToUsd(rec.balanceMicro), chargedUsd: microToUsd(taken) };
+    return { balanceUsd: microToUsd(rec.balanceMicro), chargedUsd: microToUsd(taken), heldUsd: microToUsd(held), returnedUsd: microToUsd(returned) };
   }
   // Any non-200 outcome (4xx/5xx, client abort before the response finished):
   // the hold goes back to the balance - nothing was charged.
@@ -237,7 +242,10 @@ export function createCredits({ stripe, baseUrl, storeDir, onDebit, onLoad, now 
         // A prompt-cache hit (X-Cache: hit) cost nothing upstream and is served
         // free to x402 buyers pre-paywall - credits buyers get the same.
         const cacheHit = String(res.getHeader?.("X-Cache") || "").toLowerCase() === "hit";
-        if (res.statusCode === 200 && !cacheHit) { const c = settle(a.hash, a.heldMicro, item.slug || req.path); if (c) req.creditsCharged = c.chargedUsd; }
+        // A metered route reports actual usage x markup on X-Metered-Usd
+        // (gateway-meter.js); the debit is that, never more than the hold.
+        const metered = Number(res.getHeader?.("X-Metered-Usd"));
+        if (res.statusCode === 200 && !cacheHit) { const c = settle(a.hash, a.heldMicro, item.slug || req.path, Number.isFinite(metered) && metered > 0 ? metered : null); if (c) req.creditsCharged = c.chargedUsd; }
         else release(a.hash, a.heldMicro);
       });
       res.on("close", () => { if (done) return; done = true; release(a.hash, a.heldMicro); });

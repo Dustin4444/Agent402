@@ -441,6 +441,20 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   hosts, header VALUES (300 chars), the DKIM selectors probed. `scripts/test-report-inputs.js` (12, in CI). The
   warm-start test's timing control is now self-consistent (one-shot hold >= half its own measured parse) - it used to
   demand 3x the incremental loader's worst tick and a 93 ms GC pause on a runner failed a green build.
+- **Usage-based billing on the metered tier for EVERY buyer type (2026-08-26):** (1) **credits/card buyers**: `isMeterable`
+  now counts `req.creditsSettled` - `applyMeteredSettlement` sets `X-Metered-Usd` (no x402 override) and the credits
+  gate's finish hook debits `min(hold, X-Metered-Usd)` via `settle(hash, held, slug, chargeUsd)`, returning the rest of
+  the held quote to the balance (before: a card buyer on `/v1/metered` paid the worst-case quote, not usage; the sales
+  ledger already read the header). Pinned in test-credits (metered debit, cap at the hold) and test-gateway-meter
+  (credits request metered, no override). (2) **plugin wallet buyers** (`agent402-openclaw` 0.3.0): `resolvePayFetch`
+  reads the wallet's Permit2 allowance on Base USDC (`getPermit2AllowanceReadParams`, `AGENT402_BASE_RPC` default
+  mainnet.base.org); with an allowance it registers `UptoEvmScheme` on eip155:8453 and the client selector
+  (`selectAccept`) picks the `upto` accept - the quote becomes a ceiling and the gateway settles actual x 1.15; without
+  it, exact (the quote) as before, with a one-line hint. `agent402-openclaw permit2-approve` sends the one-time USDC ->
+  Permit2 approval (viem wallet client; the wallet needs a little ETH on Base for gas); `doctor` reports the mode.
+  Why: BlockRun bills actual tokens + 5%; with (1)+(2) every buyer of ours pays actual x 1.15 + the $0.001 facilitator
+  floor, and the remaining gap is the markup, a pricing call. NOT yet proven by a live upto buy from the plugin (the CI
+  burner has no Permit2 allowance; adding one is a real approval tx from CI - do it deliberately, once).
 - **agent402-openclaw is tested against a REAL OpenClaw (2026-08-26, `openclaw/test-real-install.js`, in CI):** `npm i
   openclaw@latest` (~90 MB, Node >= 22.22) into a scratch dir, `npm pack` + `npm i -g` (the bin symlink), `openclaw plugins
   install <tgz>`, `setup --write` through the symlink against a stub gateway, `openclaw models list/status`, `openclaw

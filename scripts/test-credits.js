@@ -128,5 +128,23 @@ cr.gate(priceFor)({ method: "POST", path: "/v1/dossier", headers: { authorizatio
 ok(nexted, "gate: a $19 call on a $19.997 key is authorized (balance >= price)");
 
 try { rmSync(DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+// METERED: the response names actual usage x markup (X-Metered-Usd); the debit
+// is that, the rest of the held quote returns to the balance.
+{
+  const gateM = cr.gate((m, p) => (p === "/v1/metered/chat/completions" ? { priceUsd: 0.001, slug: "v1-chat-metered" } : priceFor(m, p)));
+  const before = cr.balance(KEY).balanceUsd, heldBefore = cr.balance(KEY).heldUsd;
+  const r2 = fakeRes(); r2.getHeader = (k) => r2.headers[k];
+  gateM({ method: "POST", path: "/v1/metered/chat/completions", headers: { authorization: `Bearer ${KEY}` }, body: {} }, r2, () => {});
+  ok(Math.abs(cr.balance(KEY).balanceUsd - (before - 0.001)) < 1e-9, "gate (metered): the quote is held at authorize");
+  r2.setHeader("X-Metered-Usd", "0.000400"); r2.statusCode = 200; r2.emit("finish");
+  ok(Math.abs(cr.balance(KEY).balanceUsd - (before - 0.0004)) < 1e-9 && Math.abs(cr.balance(KEY).heldUsd - heldBefore) < 1e-9, `gate (metered): the debit is the metered actual, the rest of the hold is returned (balance ${cr.balance(KEY).balanceUsd})`);
+  const d = debits[debits.length - 1];
+  ok(Math.abs(d.priceUsd - 0.0004) < 1e-9, "gate (metered): the accounting hook books the metered amount, not the quote");
+  const r3 = fakeRes(); r3.getHeader = (k) => r3.headers[k];
+  const b3 = cr.balance(KEY).balanceUsd;
+  gateM({ method: "POST", path: "/v1/metered/chat/completions", headers: { authorization: `Bearer ${KEY}` }, body: {} }, r3, () => {});
+  r3.setHeader("X-Metered-Usd", "9.5"); r3.statusCode = 200; r3.emit("finish");
+  ok(Math.abs(cr.balance(KEY).balanceUsd - (b3 - 0.001)) < 1e-9, "gate (metered): a reported amount above the hold can never take more than the hold");
+}
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

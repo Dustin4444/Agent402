@@ -22,18 +22,55 @@ export function resolveCreditsKey(pluginConfig = {}) {
   return null;
 }
 
-/** Optional x402 wallet payment: only when the peer deps are installed and a key is present. */
+// x402 wallet payment - optional (peer deps) and, when the wallet has a
+// Permit2 allowance, METERED: the `upto` scheme authorizes a CEILING (the
+// per-request quote) and the gateway settles actual usage x 1.15, the way a
+// per-token router bills. Without the allowance it pays `exact` (the quote).
+export const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+export const BASE_CAIP2 = "eip155:8453";
+export const DEFAULT_BASE_RPC = "https://mainnet.base.org";
+// Permit2 approvals are max-uint by convention; anything this large is "approved".
+export const PERMIT2_READY_MIN = 10n ** 12n; // 1,000,000 USDC (6 decimals): a real approval, not dust
+
+/** Which 402 accept to pay: upto on Base when the client can (settle-actual),
+ *  else exact on Base, else the first the client supports. Pure. */
+export function selectAccept(accepts, { preferUpto = true } = {}) {
+  const list = Array.isArray(accepts) ? accepts : [];
+  if (preferUpto) { const u = list.find((a) => a?.scheme === "upto" && a?.network === BASE_CAIP2); if (u) return u; }
+  return list.find((a) => a?.scheme === "exact" && a?.network === BASE_CAIP2) || list[0];
+}
+export const uptoReady = (allowance) => { try { return BigInt(allowance ?? 0) >= PERMIT2_READY_MIN; } catch { return false; } };
+
 export async function resolvePayFetch(pluginConfig = {}, log = () => {}) {
   const pk = (pluginConfig.walletKey || process.env.AGENT402_WALLET_KEY || "").trim();
   if (!/^0x[0-9a-fA-F]{64}$/.test(pk)) return null;
   try {
-    const [{ wrapFetchWithPayment }, { privateKeyToAccount }] = await Promise.all([import("@x402/fetch"), import("viem/accounts")]);
-    const { toClientEvmSigner } = await import("@x402/evm");
-    const { registerExactEvmScheme } = await import("@x402/evm/exact/client");
-    const { x402Client } = await import("@x402/fetch");
-    const client = new x402Client();
-    registerExactEvmScheme(client, { signer: toClientEvmSigner(privateKeyToAccount(pk)) });
-    return wrapFetchWithPayment(fetch, client);
+    const [{ wrapFetchWithPayment, x402Client }, { privateKeyToAccount }, { toClientEvmSigner }, { registerExactEvmScheme }] = await Promise.all([
+      import("@x402/fetch"), import("viem/accounts"), import("@x402/evm"), import("@x402/evm/exact/client"),
+    ]);
+    const account = privateKeyToAccount(pk);
+    const signer = toClientEvmSigner(account);
+    // Upto needs a Permit2 allowance on USDC (one approval transaction, ever).
+    let upto = false;
+    try {
+      const [{ UptoEvmScheme, getPermit2AllowanceReadParams }, { createPublicClient, http }, { base }] = await Promise.all([import("@x402/evm/upto/client"), import("viem"), import("viem/chains")]);
+      const pub = createPublicClient({ chain: base, transport: http((pluginConfig.baseRpc || process.env.AGENT402_BASE_RPC || DEFAULT_BASE_RPC).trim()) });
+      const allowance = await pub.readContract(getPermit2AllowanceReadParams({ tokenAddress: USDC_BASE, ownerAddress: account.address }));
+      upto = uptoReady(allowance);
+      const client = new x402Client((v, accepts) => selectAccept(accepts, { preferUpto: upto }));
+      registerExactEvmScheme(client, { signer });
+      if (upto) client.register(BASE_CAIP2, new UptoEvmScheme(signer));
+      log(upto
+        ? `[agent402-openclaw] x402 wallet ${account.address}: paying actual usage (upto, Permit2 allowance present) on Base; exact elsewhere`
+        : `[agent402-openclaw] x402 wallet ${account.address}: paying the per-request quote (exact). To pay actual usage instead, run \`agent402-openclaw permit2-approve\` once (one USDC approval transaction on Base; needs a little ETH for gas)`);
+      return wrapFetchWithPayment(fetch, client);
+    } catch (e) {
+      // The allowance read or the upto scheme failed: exact still works.
+      log(`[agent402-openclaw] upto unavailable (${String(e?.message || e).slice(0, 120)}) - paying exact`);
+      const client = new x402Client((v, accepts) => selectAccept(accepts, { preferUpto: false }));
+      registerExactEvmScheme(client, { signer });
+      return wrapFetchWithPayment(fetch, client);
+    }
   } catch (e) {
     log(`[agent402-openclaw] x402 wallet payment unavailable (${e?.message || e}); install @x402/fetch @x402/evm viem, or use a credits key`);
     return null;
