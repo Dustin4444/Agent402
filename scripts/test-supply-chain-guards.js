@@ -76,7 +76,7 @@ for (const s of steps) {
 }
 
 // --- 2. no install hooks in anything we publish ----------------------------
-const pkgDirs = ["mcp", "tollbooth", "client",
+const pkgDirs = ["mcp", "tollbooth", "client", "openclaw",
   ...readdirSync(join(ROOT, "adapters"), { withFileTypes: true })
     .filter((d) => d.isDirectory() && existsSync(join(ROOT, "adapters", d.name, "package.json")))
     .map((d) => `adapters/${d.name}`)];
