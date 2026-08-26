@@ -878,9 +878,17 @@ EDGAR_TOOLS.push(
       const limit = clampInt(i.limit, 25, 1, 200);
       const enddt = isoDate(Date.now());
       const startdt = isoDate(Date.now() - days * 86400 * 1000);
+      // EFTS answers 100 hits a page; a 90-day S-1 window holds ~600. Page up
+      // to `limit` so "N in the window" is not silently "the newest 100".
       const j = await eftsSearch({ forms: form, startdt, enddt });
-      const hits = j?.hits?.hits ?? [];
+      let hits = j?.hits?.hits ?? [];
       const total = j?.hits?.total?.value ?? hits.length;
+      for (let from = hits.length; hits.length < Math.min(total, limit) && from < 1000 && hits.length > 0; from += 100) {
+        const page = await eftsSearch({ forms: form, startdt, enddt, from });
+        const more = page?.hits?.hits ?? [];
+        if (!more.length) break;
+        hits = hits.concat(more);
+      }
       const filings = hits.slice(0, limit).map(mapEftsHit);
       return {
         form,
@@ -998,10 +1006,45 @@ export async function get13fHoldings({ cik, ticker, index = 0 }) {
   // The SEC's whole-dollars value change is effective for filings SUBMITTED on
   // or after 2023-01-03, so the unit multiplier must key on the FILED date, not
   // the period end (a Q4-2022 report filed in Feb 2023 uses whole dollars).
-  const all = parse13fInformationTable(xml, filedDate);
+  let all = parse13fInformationTable(xml, filedDate);
+  // The cover page (primary_doc.xml, ~5 KB): confidential treatment means the
+  // table is INCOMPLETE by the manager's own declaration, and a later
+  // 13F-HR/A "NEW HOLDINGS" amendment carries the omitted rows. Berkshire's
+  // Q1-2025 original (isConfidentialOmitted=true, 110 rows) was completed on
+  // 2025-08-14 by an amendment adding D R Horton, Lennar and Nucor - a diff
+  // against the original alone reports those as NEW a quarter late.
+  const cover = await settleCover(cikInt, accession);
+  const amendments = [];
+  for (let k = 0; k < recent.form.length; k++) {
+    if (String(recent.form[k]).toUpperCase() !== "13F-HR/A" || recent.reportDate[k] !== reportDate) continue;
+    const accA = recent.accessionNumber[k], filedA = recent.filingDate[k];
+    const coverA = await settleCover(cikInt, accA);
+    const type = String(coverA?.amendmentType || "").toUpperCase();
+    let rows = null, tableA = null;
+    try { tableA = await fetchInformationTableUrl(cikInt, accA); if (tableA) rows = parse13fInformationTable(await fetchXmlText(tableA), filedA); } catch { rows = null; }
+    amendments.push({ accessionNumber: accA, filedDate: filedA, amendmentType: type || "UNKNOWN", rows: rows ? rows.length : null, informationTableUrl: tableA, applied: false });
+    if (!rows) continue;
+    if (type === "RESTATEMENT") { all = rows; amendments[amendments.length - 1].applied = true; }
+    else if (type === "NEW HOLDINGS") { all = all.concat(rows); amendments[amendments.length - 1].applied = true; }
+  }
   all.sort((a, b) => (b.valueUsd ?? 0) - (a.valueUsd ?? 0));
   const totalValueUsd = all.reduce((acc, r) => acc + (r.valueUsd ?? 0), 0);
-  return { cik: _cik, managerName: sub?.name ?? resolved.name ?? null, accessionNumber: accession, filedDate, reportDate, informationTableUrl: tableUrl, totalHoldings: all.length, totalValueUsd, holdings: all };
+  return { cik: _cik, managerName: sub?.name ?? resolved.name ?? null, accessionNumber: accession, filedDate, reportDate, informationTableUrl: tableUrl, totalHoldings: all.length, totalValueUsd, holdings: all,
+    cover: cover ? { confidentialOmitted: cover.isConfidentialOmitted === true, tableEntryTotal: cover.tableEntryTotal, tableValueTotal: cover.tableValueTotal, otherIncludedManagersCount: cover.otherIncludedManagersCount } : null,
+    amendments };
+}
+
+/** The 13F cover page's few facts (never throws; null when unreadable). */
+export function parse13fCover(xml) {
+  const t = (n) => { const m = String(xml || "").match(new RegExp(`<${n}>([^<]*)</${n}>`)); return m ? m[1].trim() : ""; };
+  return {
+    isAmendment: /^true$/i.test(t("isAmendment")), amendmentType: t("amendmentType") || null, amendmentNo: t("amendmentNo") || null,
+    isConfidentialOmitted: /^true$/i.test(t("isConfidentialOmitted")), reportType: t("reportType") || null,
+    tableEntryTotal: Number(t("tableEntryTotal")) || null, tableValueTotal: Number(t("tableValueTotal")) || null, otherIncludedManagersCount: Number(t("otherIncludedManagersCount")) || 0,
+  };
+}
+async function settleCover(cikInt, accession) {
+  try { return parse13fCover(await fetchXmlText(`https://www.sec.gov/Archives/edgar/data/${cikInt}/${String(accession).replace(/-/g, "")}/primary_doc.xml`)); } catch { return null; }
 }
 
 // The latest 13F-HR filing's identity ONLY (accession + dates) from the

@@ -22,8 +22,8 @@ const SYNTH = "anthropic/claude-opus-5";
 const GROUND = "google/gemini-2.5-flash";
 
 export const FUND_TIERS = {
-  "fund-report": { price: "$0.60", maxUpstreamUsd: 0.35, topN: 15, searches: 2, synthMaxTokens: 4500, words: "~1,500" },
-  "fund-report-max": { price: "$0.85", maxUpstreamUsd: 0.5, topN: 30, searches: 3, synthMaxTokens: 6500, words: "~2,400" },
+  "fund-report": { price: "$0.60", maxUpstreamUsd: 0.35, topN: 15, changeRows: 20, searches: 2, synthMaxTokens: 4500, words: "~1,500" },
+  "fund-report-max": { price: "$0.85", maxUpstreamUsd: 0.5, topN: 30, changeRows: 30, searches: 3, synthMaxTokens: 6500, words: "~2,400" },
 };
 export const FUND_MODELS = [SYNTH, GROUND];
 
@@ -126,11 +126,17 @@ function makeFundHandlerInner(tierSlug) {
 
     // 1) RESOLVE the manager, then pull the two most recent 13F-HR filings.
     const resolved = await resolveManager({ cik: cikIn || undefined, ticker: tickerIn || undefined, name: manager || undefined });
-    const [latest, prior] = await Promise.all([
+    // The prior quarter is retried once; a read that still fails is a 502 (not
+    // charged), because "no prior quarter exists" was being written into the
+    // report for a timeout on an 11 MB table. get13fHoldings returns null ONLY
+    // when the manager genuinely has no earlier 13F-HR.
+    const [latest, priorR] = await Promise.all([
       get13fHoldings({ cik: resolved.cik, index: 0 }),
-      settle(get13fHoldings({ cik: resolved.cik, index: 1 }), DATA_TIMEOUT_MS).then((r) => (r.ok ? r.data : null)),
+      settle(get13fHoldings({ cik: resolved.cik, index: 1 }), DATA_TIMEOUT_MS).then(async (r) => (r.ok ? r : settle(get13fHoldings({ cik: resolved.cik, index: 1 }), DATA_TIMEOUT_MS))),
     ]);
     if (!latest || !latest.holdings || !latest.holdings.length) throw bad(`No 13F-HR holdings found for "${manager || resolved.cik}" - confirm this is an institutional manager (>$100M AUM). Not charged.`, 422);
+    if (!priorR.ok) throw bad(`The prior-quarter 13F-HR for "${manager || resolved.cik}" exists but could not be read from SEC EDGAR (${String(priorR.error).slice(0, 120)}). Not charged - please retry.`, 502);
+    const prior = priorR.data;
     const managerName = latest.managerName || resolved.name || manager || `CIK ${resolved.cik}`;
 
     const latestAgg = aggregateHoldings(latest.holdings);
@@ -139,10 +145,15 @@ function makeFundHandlerInner(tierSlug) {
     const positions = latestAgg.length;
     const changes = diff13f(latestAgg, priorAgg);
     const bySignal = (arr, a) => arr.filter((r) => r.action === a);
+    // ADD/TRIM ranked by the DOLLAR SIZE OF THE CHANGE (|share delta| at the
+    // current implied price), not by position size: sorted by value, a 1% trim
+    // of the largest holding outranked a 90% cut of a mid-size one.
+    const changeUsd = (r) => Math.abs(r.sharesDelta) * (r.shares > 0 ? r.valueUsd / r.shares : 0);
     const news = bySignal(changes, "NEW").sort((a, b) => b.valueUsd - a.valueUsd);
-    const adds = bySignal(changes, "ADD").sort((a, b) => b.valueUsd - a.valueUsd);
-    const trims = bySignal(changes, "TRIM").sort((a, b) => b.valueUsd - a.valueUsd);
+    const adds = bySignal(changes, "ADD").sort((a, b) => changeUsd(b) - changeUsd(a));
+    const trims = bySignal(changes, "TRIM").sort((a, b) => changeUsd(b) - changeUsd(a));
     const exits = bySignal(changes, "EXIT").sort((a, b) => b.priorShares - a.priorShares);
+    const cap = t.changeRows || 12;
 
     // 2) OPTIONAL grounded web research on the manager (non-fatal).
     const queries = [
@@ -178,12 +189,16 @@ function makeFundHandlerInner(tierSlug) {
       `${i + 1}. ${h.issuer || "?"} ${h.putCall ? `(${h.putCall}) ` : ""}- ${fmtUsd(h.valueUsd)} (${pct(h.valueUsd, totalValue)} of portfolio), ${h.shares.toLocaleString("en-US")} shares`).join("\n");
     const changeBlock = prior
       ? [
-          `NEW positions (${news.length}): ${news.slice(0, 12).map((r) => `${r.issuer} ${fmtUsd(r.valueUsd)}`).join("; ") || "none"}`,
-          `ADDED to (${adds.length}): ${adds.slice(0, 12).map((r) => `${r.issuer} +${r.sharesDelta.toLocaleString("en-US")} sh`).join("; ") || "none"}`,
-          `TRIMMED (${trims.length}): ${trims.slice(0, 12).map((r) => `${r.issuer} ${r.sharesDelta.toLocaleString("en-US")} sh`).join("; ") || "none"}`,
-          `EXITED (${exits.length}): ${exits.slice(0, 12).map((r) => `${r.issuer} (was ${r.priorShares.toLocaleString("en-US")} sh)`).join("; ") || "none"}`,
+          `(${cap} largest shown per bucket, of the counts in parentheses; the full change set is in the data appendix)`,
+          `NEW positions (${news.length}): ${news.slice(0, cap).map((r) => `${r.issuer} ${fmtUsd(r.valueUsd)}`).join("; ") || "none"}`,
+          `ADDED to (${adds.length}): ${adds.slice(0, cap).map((r) => `${r.issuer} +${r.sharesDelta.toLocaleString("en-US")} sh (+${pct(r.sharesDelta, r.priorShares)} vs prior ${r.priorShares.toLocaleString("en-US")} sh, ~${fmtUsd(changeUsd(r))})`).join("; ") || "none"}`,
+          `TRIMMED (${trims.length}): ${trims.slice(0, cap).map((r) => `${r.issuer} ${r.sharesDelta.toLocaleString("en-US")} sh (-${pct(-r.sharesDelta, r.priorShares)} of prior ${r.priorShares.toLocaleString("en-US")} sh, ~${fmtUsd(changeUsd(r))})`).join("; ") || "none"}`,
+          `EXITED (${exits.length}): ${exits.slice(0, cap).map((r) => `${r.issuer} (was ${r.priorShares.toLocaleString("en-US")} sh)`).join("; ") || "none"}`,
+          ...((latest.cover?.confidentialOmitted || prior.cover?.confidentialOmitted) ? [`CAUTION: ${latest.cover?.confidentialOmitted ? "the LATEST" : "the PRIOR"} filing's cover declares confidential treatment (isConfidentialOmitted=true): positions were withheld and will appear in a later 13F-HR/A. NEW and EXIT rows are therefore UNRELIABLE for this quarter - say so, and do not call any position new or exited with confidence.`] : []),
+          ...(latest.amendments?.length ? [`Amendments folded into the latest quarter: ${latest.amendments.map((a) => `${a.amendmentType} filed ${a.filedDate}${a.applied ? ` (${a.rows} rows applied)` : " (not applied)"}`).join("; ")}.`] : []),
+          ...(prior.amendments?.length ? [`Amendments folded into the prior quarter: ${prior.amendments.map((a) => `${a.amendmentType} filed ${a.filedDate}${a.applied ? ` (${a.rows} rows applied)` : " (not applied)"}`).join("; ")}.`] : []),
         ].join("\n")
-      : "No prior-quarter 13F-HR is available for this manager, so quarter-over-quarter changes cannot be computed - report the current holdings only and say so.";
+      : "No prior-quarter 13F-HR exists on EDGAR for this manager (this is their first), so quarter-over-quarter changes cannot be computed - report the current holdings only and say so.";
     const webBlock = webGood.map((r, i) => `WEB ANGLE ${i + 1}: ${r.q}\n${stripInlineCites(r.answer)}`).join("\n\n") || "(web research unavailable)";
     const webSourceLines = numbered.filter((s) => !s.title.includes("SEC EDGAR")).map((s) => `[${s.n}] ${s.title}${s.snippet ? `\n    "${s.snippet.slice(0, 300)}"` : ""} - ${s.url}`).join("\n") || "(none)";
 
@@ -196,10 +211,11 @@ function makeFundHandlerInner(tierSlug) {
 3. CITATIONS: the sources are numbered [1] to [${maxCite}]. Attach [n] only to a claim that source's own text supports, and never cite a number outside 1-${maxCite}. The 13F HOLDINGS and CHANGES are given to you directly: reference them in prose ("the latest 13F shows...", "quarter over quarter they added...") WITHOUT a bracket; use [n] for web-sourced claims and the filing sources [1]/[2]. A citation is ONLY a bracketed number like [3] - never a word or name inside the brackets.
 4. IMPORTANT CAVEATS you MUST state plainly in the report: a 13F-HR reports only LONG US-listed equity/option positions, is filed up to 45 days after quarter-end (so it is a lagged snapshot, not real-time), and excludes shorts, cash, non-US holdings, and most fixed income. Do not present it as the manager's complete book.
 5. Do not overstate: reproduce magnitudes and dates exactly as given. Do NOT write a "Sources" section - a numbered source list is appended automatically. Prioritize COMPLETING the report over length.
+6. A GAP IN THIS MATERIAL IS NEVER A FINDING ABOUT THE MANAGER: only the largest rows of each change bucket are listed (the counts say how many there are); write "the material provided here lists ..." rather than "the fund made no other moves". Honour every CAUTION line about confidential treatment.
 
 Write a thorough, well-structured report of up to ${t.words} words with these sections where the material supports them: SNAPSHOT (the manager, reported portfolio value, number of positions, the report period and filing date), TOP HOLDINGS (the largest positions and how concentrated the book is), PORTFOLIO CHANGES (what they bought/added/trimmed/exited versus the prior quarter - this is the most important section), NOTABLE MOVES & WHAT THEY SIGNAL (interpret the biggest changes), and a CLOSING READ. Be specific and analytical.
 
-=== MANAGER ===\n${managerName} (CIK ${resolved.cik}). Latest 13F-HR period ${latest.reportDate || "?"}, filed ${latest.filedDate || "?"}. Reported 13F portfolio value ${fmtUsd(totalValue)} across ${positions} positions.${prior ? ` Prior 13F-HR period ${prior.reportDate || "?"}.` : ""}
+=== MANAGER ===\n${managerName} (CIK ${resolved.cik}). Latest 13F-HR period ${latest.reportDate || "?"}, filed ${latest.filedDate || "?"}. Reported 13F portfolio value ${fmtUsd(totalValue)} across ${positions} positions${latest.cover ? ` (cover page: ${latest.cover.tableEntryTotal ?? "?"} entries, ${latest.cover.otherIncludedManagersCount || 0} other included managers, confidential treatment ${latest.cover.confidentialOmitted ? "YES" : "no"})` : ""}.${prior ? ` Prior 13F-HR period ${prior.reportDate || "?"}${prior.cover?.confidentialOmitted ? " (confidential treatment declared)" : ""}.` : ""}
 === TOP HOLDINGS (latest 13F, by value) ===\n${topHoldings}
 === QUARTER-OVER-QUARTER CHANGES ===\n${changeBlock}
 === WEB RESEARCH ===\n${webBlock}

@@ -203,6 +203,10 @@ function stubs(over = {}) {
     probeCompanyFilings: async () => { calls.filings++; return FILINGS; },
     probeInsiderFilings: async () => { calls.insiderProbe++; return INSIDER_PROBE; },
     probeHolders: async () => { calls.holders++; return HOLDERS; },
+    probe13G: async () => ({ cik: CIK, startDate: "2025-07-22", endDate: "2026-08-26", matching: 2, searchUrl: "https://efts.sec.gov/LATEST/search-index?q=&forms=SCHEDULE%2013G&ciks=" + CIK, filers: [
+      { filerCik: "0000102909", filer: "The Vanguard Group", form: "SCHEDULE 13G/A", filed: "2026-02-10", accession: "0000102909-26-000001", url: "https://www.sec.gov/Archives/edgar/data/102909/000010290926000001/primary_doc.xml", parsed: true, shares: 1_390_000_000, percent: 9.21, eventDate: "12/31/2025", securityClass: "Common Stock", personType: "IA", belowThreshold: false },
+      { filerCik: "0001364742", filer: "BlackRock, Inc.", form: "SCHEDULE 13G/A", filed: "2026-01-26", accession: "0001364742-26-000002", url: "https://www.sec.gov/Archives/edgar/data/1364742/000136474226000002/primary_doc.xml", parsed: true, shares: 0, percent: 0, eventDate: "12/31/2025", securityClass: "Common Stock", personType: "HC", belowThreshold: true },
+    ] }),
     runDossier: async () => { calls.dossier++; return DOSSIER_OUT; },
     runInsider: async () => { calls.insider++; return INSIDER_OUT; },
     synthesize: async (body) => { calls.synth++; prompts.push(body.messages[0].content); return SYNTH_OUT; },

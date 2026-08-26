@@ -41,7 +41,7 @@
 // composite-guarded, not cached. 503 without OPENROUTER_API_KEY.
 import { fetchOpenRouter, throwUpstreamError, bad, upstreamUserId } from "./llm-gateway-kit.js";
 import { recordCompositeUsage } from "../composite-spend-guard.js";
-import { resolveCompany, eftsSearch, edgarGetJson, parse13fInformationTable } from "./edgar-kit.js";
+import { resolveCompany, eftsSearch, edgarGetJson, parse13fInformationTable, fetchXmlText } from "./edgar-kit.js";
 import { makeDossierHandler, DOSSIER_TIERS } from "./dossier-kit.js";
 import { makeInsiderHandler, INSIDER_TIERS, probeInsiderFilings } from "./insider-flow-kit.js";
 
@@ -379,6 +379,65 @@ export async function probeHolders({ ticker, cik, name, maxFilings = 12, windowD
 }
 
 // ---------------------------------------------------------------------------
+// 5%+ holders as DISCLOSED on Schedule 13G / 13D (the issuer's own filings
+// index, one EDGAR full-text query + <= 10 small XML reads). The 13F leg below
+// is a relevance-ranked SAMPLE of managers (for INTC: twelve small managers
+// and none of Vanguard/BlackRock); the 13G is where the largest holders are
+// required to disclose, and since Dec 2024 it is structured XML
+// (primary_doc.xml; form type "SCHEDULE 13G", not the legacy "SC 13G").
+// A row with 0 shares / 0% is a filer reporting that it FELL BELOW 5% - a
+// disclosed fact, shown as such (Vanguard on INTC, event 2026-03-13).
+// ---------------------------------------------------------------------------
+const THIRTEEN_G_FORMS = "SCHEDULE 13G,SCHEDULE 13G/A,SCHEDULE 13D,SCHEDULE 13D/A,SC 13G,SC 13G/A,SC 13D,SC 13D/A";
+export function parse13GCover(xml) {
+  const t = (n) => { const m = String(xml || "").match(new RegExp(`<${n}>([^<]*)</${n}>`)); return m ? m[1].trim() : ""; };
+  const num = (v) => { const n = Number(String(v).replace(/[,\s]/g, "")); return Number.isFinite(n) ? n : null; };
+  return {
+    filer: t("reportingPersonName") || t("filingPersonName") || null,
+    shares: num(t("reportingPersonBeneficiallyOwnedAggregateNumberOfShares") ?? t("aggregateAmountBeneficiallyOwned")),
+    percent: num(t("classPercent") || t("percentOfClass")),
+    eventDate: t("eventDateRequiresFilingThisStatement") || t("dateOfEvent") || null,
+    securityClass: t("securitiesClassTitle") || null,
+    form: t("submissionType") || null,
+    personType: t("typeOfReportingPerson") || t("typeOfPersonFiling") || null,
+    rule: t("designateRulePursuantThisScheduleFiled") || null,
+    issuerCusip: t("issuerCusipNumber") || null,
+    issuerCik: (t("issuerCik") || "").padStart(10, "0") || null,
+  };
+}
+export async function probe13G({ cik, windowDays = 400, maxFilers = 10, fetchText = fetchXmlText } = {}) {
+  const issuer = String(cik || "").padStart(10, "0");
+  const enddt = isoDate(Date.now()), startdt = isoDate(Date.now() - windowDays * 86400 * 1000);
+  const j = await eftsSearch({ forms: THIRTEEN_G_FORMS, ciks: issuer, startdt, enddt });
+  const hits = j?.hits?.hits ?? [];
+  const byFiler = new Map();
+  for (const h of hits) {
+    const s = h?._source || {};
+    const filerCik = (s.ciks || []).map((c) => String(c).padStart(10, "0")).find((c) => c !== issuer) || null;
+    if (!filerCik) continue;
+    const [acc, doc] = String(h?._id || "").split(":");
+    const row = { filerCik, acc, doc: String(doc || ""), filed: String(s.file_date || ""), form: String(s.form || ""), name: String((s.display_names || []).find((n) => String(n).includes(filerCik)) || (s.display_names || [])[1] || "").replace(/\s*\(CIK[^)]*\)\s*$/i, "").trim() };
+    const cur = byFiler.get(filerCik);
+    if (!cur || row.filed > cur.filed) byFiler.set(filerCik, row);
+  }
+  const filers = [...byFiler.values()].sort((a, b) => b.filed.localeCompare(a.filed)).slice(0, maxFilers);
+  const rows = await mapLimit(filers, 3, async (f) => {
+    const url = `https://www.sec.gov/Archives/edgar/data/${parseInt(f.filerCik, 10)}/${String(f.acc).replace(/-/g, "")}/${f.doc}`;
+    const base = { filerCik: f.filerCik, filer: f.name || `CIK ${f.filerCik}`, form: f.form, filed: f.filed, accession: f.acc, url, parsed: false };
+    if (!/primary_doc\.xml$/i.test(f.doc)) return { ...base, note: "legacy HTML schedule - not parsed; read the filing" };
+    try {
+      const c = parse13GCover(await fetchText(url));
+      // EFTS `ciks=` matches ANY CIK on the filing: the issuer's own 13G on a
+      // company it holds (Intel on Mobileye) comes back too. The cover names
+      // the issuer; a mismatch is dropped.
+      if (c.issuerCik && c.issuerCik !== issuer) return null;
+      return { ...base, parsed: true, filer: c.filer || base.filer, shares: c.shares, percent: c.percent, eventDate: c.eventDate, securityClass: c.securityClass, personType: c.personType, rule: c.rule, belowThreshold: c.shares === 0 || c.percent === 0 };
+    } catch (e) { return { ...base, note: `not readable (${String(e?.message || e).slice(0, 80)})` }; }
+  });
+  return { cik: issuer, startDate: startdt, endDate: enddt, matching: j?.hits?.total?.value ?? hits.length, filers: rows.filter(Boolean), searchUrl: `https://efts.sec.gov/LATEST/search-index?q=&forms=${encodeURIComponent(THIRTEEN_G_FORMS)}&ciks=${issuer}` };
+}
+
+// ---------------------------------------------------------------------------
 // The company's own recent filings (deterministic digest, one EDGAR read).
 // ---------------------------------------------------------------------------
 export async function probeCompanyFilings({ cik, limit = 24 }) {
@@ -395,6 +454,9 @@ export async function probeCompanyFilings({ cik, limit = 24 }) {
       filed: String(r.filingDate?.[i] || ""),
       period: String(r.reportDate?.[i] || ""),
       description: String(r.primaryDocDescription?.[i] || "").slice(0, 120),
+      // 8-K item codes ("2.02,9.01") ride in the same JSON; without them an
+      // earnings 8-K reads as "8-K filed <date>" and nothing more.
+      items: String(r.items?.[i] || ""),
       accession: acc,
       url: acc && doc ? `https://www.sec.gov/Archives/edgar/data/${cikInt}/${acc.replace(/-/g, "")}/${doc}` : "",
     });
@@ -475,6 +537,7 @@ function defaultDeps() {
     probeCompanyFilings,
     probeInsiderFilings,
     probeHolders,
+    probe13G,
     runDossier: makeDossierHandler("dossier"),
     runInsider: makeInsiderHandler("insider-report"),
     synthesize: async (body, timeoutMs, user) => chat(body, timeoutMs, user),
@@ -504,12 +567,14 @@ function makeTickerPackHandlerInner(tierSlug, depsIn) {
     // 2) CHEAP PROBES FIRST (EDGAR only, no LLM, no upstream spend). These are
     //    the evidence gate: the expensive parts do not run unless at least two
     //    of the three legs have something to report.
-    const [filingsP, insiderP, holdersP] = await Promise.all([
+    const [filingsP, insiderP, holdersP, g13P] = await Promise.all([
       settle(() => d.probeCompanyFilings({ cik, limit: t.filingsShown }), PROBE_TIMEOUT_MS, "EDGAR filings probe"),
       settle(() => d.probeInsiderFilings({ ticker, days: insiderDays, limit: 40 }), PROBE_TIMEOUT_MS, "Form 4 probe"),
       settle(() => d.probeHolders({ ticker, cik, name: companyName, maxFilings: t.holderFilings, windowDays: t.holderWindowDays }), PROBE_TIMEOUT_MS, "13F holders probe"),
+      settle(() => d.probe13G({ cik }), PROBE_TIMEOUT_MS, "Schedule 13G probe"),
     ]);
     const filings = filingsP.ok ? filingsP.data : null;
+    const g13 = g13P.ok ? g13P.data : null;
     const insiderProbe = insiderP.ok ? insiderP.data : null;
     const holders = holdersP.ok ? holdersP.data : null;
 
@@ -570,16 +635,20 @@ function makeTickerPackHandlerInner(tierSlug, depsIn) {
     if (holders) holderSourceRows.push({ n: HOLDER_SEARCH_LOCAL_N, title: `SEC EDGAR full-text search: 13F-HR information tables naming ${companyName}, ${holders.startDate} to ${holders.endDate}`, url: holders.searchUrl });
     const holderSources = { sources: holderSourceRows };
     const filingSources = { sources: filings ? [{ n: 1, title: `SEC EDGAR filing history for ${filings.name || companyName} (CIK ${cik})`, url: filings.browseUrl }] : [] };
+    const g13Filers = g13?.filers || [];
+    const g13Sources = { sources: g13Filers.map((f, i) => ({ n: i + 1, title: `${f.form} filed ${f.filed} by ${f.filer} - SEC EDGAR`, url: f.url })) };
     const { merged, maps } = mergeSources([
       { sources: dossierR.ok ? dossierR.data?.sources : [] },
       { sources: insiderR.ok ? insiderR.data?.sources : [] },
       holderSources,
       filingSources,
+      g13Sources,
     ]);
     const dossierProse = dossierR.ok ? foldSubReport(dossierR.data?.dossier || "", maps[0]) : "";
     const insiderProse = insiderR.ok ? foldSubReport(insiderR.data?.report || "", maps[1]) : "";
     const holderSrcNum = maps[2];
     const filingSrcNum = maps[3].get(1) || null;
+    const g13SrcNum = maps[4];
 
     // 6) DETERMINISTIC SECTIONS.
     const filingsRows = (filings?.filings || []).map((f) => [f.form, f.filed, f.period, f.description, f.url]);
@@ -602,8 +671,20 @@ function makeTickerPackHandlerInner(tierSlug, depsIn) {
       return `| ${m.manager || `CIK ${m.cik}`} | ${m.period || "?"} | ${nf(m.shares)} | ${fmtUsd(m.valueUsd)} | ${m.impliedPriceUsd == null ? "" : `$${m.impliedPriceUsd.toFixed(2)}`} | ${m.optionRows ? `${nf(m.optionShares)} (${m.optionRows} row${m.optionRows === 1 ? "" : "s"})` : ""} | ${g ? `[${g}]` : ""} |`;
     });
     const holdersSearchCite = holders ? (holderSrcNum.get(HOLDER_SEARCH_LOCAL_N) || null) : null;
+    const nfp = (v) => (v == null ? "?" : `${Number(v).toFixed(2)}%`);
+    const g13Block = g13Filers.length
+      ? [
+          `**5%+ holders as disclosed on Schedule 13G / 13D** (${g13.startDate} to ${g13.endDate}; ${g13.matching} matching filing${g13.matching === 1 ? "" : "s"}, newest per filer shown). A row reporting 0 shares / 0% is a filer disclosing that it fell BELOW the 5% threshold - a disclosed exit, not a data gap.`,
+          "",
+          "| Filer | Type | Shares | % of class | As of | Form | Filed | Filing |",
+          "| --- | --- | --- | --- | --- | --- | --- | --- |",
+          ...g13Filers.map((f, i) => `| ${f.filer} | ${f.personType || ""} | ${f.parsed ? (f.belowThreshold ? "0 (below 5%)" : nf(f.shares)) : "not parsed"} | ${f.parsed ? (f.belowThreshold ? "0% (below 5%)" : nfp(f.percent)) : ""} | ${f.eventDate || ""} | ${f.form} | ${f.filed} | ${g13SrcNum.get(i + 1) ? `[${g13SrcNum.get(i + 1)}]` : ""} |`),
+          "",
+        ]
+      : [`No Schedule 13G / 13D filing against this issuer was found on EDGAR in the last ${g13 ? Math.round((Date.parse(g13.endDate) - Date.parse(g13.startDate)) / 86400000) : 400} days${g13P.ok ? "" : ` (${g13P.error})`} - the material provided here does not include 5%+ holder disclosures; do not infer there are none.`, ""];
     const holdersBlock = holderCount
       ? [
+          ...g13Block,
           `${holderCount} institutional manager${holderCount === 1 ? "" : "s"} in this sample report a position in ${companyName}${holders.cusipPrefix ? ` (CUSIP issuer prefix ${holders.cusipPrefix})` : ""}, totalling ${nf(holderShares)} shares across the periods shown${holdersSearchCite ? ` [${holdersSearchCite}]` : ""}.`,
           "",
           "| Manager | Period | Shares reported | Value reported | Implied $/share | Option rows | Filing |",
@@ -615,7 +696,7 @@ function makeTickerPackHandlerInner(tierSlug, depsIn) {
           `Share counts are summed only from rows a filer marked SH; rows marked PRN are principal amounts on the issuer's debt, which shares the CUSIP prefix, and are excluded. Values are reproduced exactly as each manager reported them: the SEC moved 13F values to whole dollars for filings submitted from 2023-01-03, a minority of filers still report thousands, and the implied price per share column makes that visible rather than folding it into a total. For that reason the dollar column is not summed here.`,
           ...(holders.managers.some((m) => m.truncated) ? ["", "One or more of these information tables was larger than this run reads, so those managers' share counts are a FLOOR, not a total. The table's \"Partial read\" column names them."] : []),
         ].join("\n")
-      : `No 13F-HR information table naming this issuer was read for this run${holdersP.ok ? "" : ` (${holdersP.error})`}. Institutional holdings are not reported in this pack.`;
+      : [...g13Block, `No 13F-HR information table naming this issuer was read for this run${holdersP.ok ? "" : ` (${holdersP.error})`}. The 13F sample is not reported in this pack.`].join("\n");
 
     // 7) ONE pack synthesis pass over FETCHED FACTS ONLY. The sub-reports'
     //    prose is deliberately NOT in this prompt: the pack pass summarizes
@@ -633,6 +714,9 @@ function makeTickerPackHandlerInner(tierSlug, depsIn) {
       im
         ? `INSIDER FLOW LEG (${im.start} to ${im.end}, ${im.window_days} days): produced. Form 4 filings in the window ${im.filings_in_window}, filings read ${im.filings_read}, transactions parsed ${im.transactions}. Open-market BUYS ${im.open_market_buys} totalling ${fmtUsd(im.buy_usd)} across ${im.distinct_buyers} distinct insiders. Open-market SELLS ${im.open_market_sells} totalling ${fmtUsd(im.sell_usd)} across ${im.distinct_sellers} distinct insiders. Net open-market flow ${fmtUsd(im.net_open_market_usd)}. Awards ${im.awards}, option exercises ${im.option_exercises}, tax-withholding dispositions ${im.tax_withholding}.`
         : `INSIDER FLOW LEG: FAILED or empty (${insiderR.error}). Say so plainly, and do NOT state or imply any insider buying, selling or amount.`,
+      g13Filers.length
+        ? `SCHEDULE 13G/13D LEG (5%+ holder disclosures, ${g13.startDate} to ${g13.endDate}): ${g13Filers.map((f) => `${f.filer}: ${f.parsed ? (f.belowThreshold ? `reported falling BELOW 5% as of ${f.eventDate || "?"}` : `${nf(f.shares)} shares, ${nfp(f.percent)} of class as of ${f.eventDate || "?"}`) : `filed ${f.form} on ${f.filed} (not parsed)`}`).join("; ")}.`
+        : `SCHEDULE 13G/13D LEG: no filing found in the window${g13P.ok ? "" : ` (${g13P.error})`} - the material does not include 5%+ holder disclosures; do not say there are none.`,
       holderCount
         ? `INSTITUTIONAL HOLDERS LEG (13F-HR information tables, ${holders.startDate} to ${holders.endDate}): produced. EDGAR full-text search matched ${holders.matchingRelation === "gte" ? `at least ${holders.matchingFilings}` : holders.matchingFilings} information tables naming this issuer; ${holders.scanned} were scanned and ${holderCount} managers reported a position. Total reported in this SAMPLE: ${holderShares} shares. Largest reported positions in the sample, by share count: ${holders.managers.slice(0, 8).map((m) => `${m.manager || `CIK ${m.cik}`} ${m.shares} shares (value as reported ${fmtUsd(m.valueUsd)}, period ${m.period || "?"})`).join("; ")}. Reported dollar values are NOT comparable across filers (some still report thousands) and must not be summed. THIS IS A SAMPLE, NOT THE COMPLETE HOLDER LIST.`
         : `INSTITUTIONAL HOLDERS LEG: no information table was read${holdersP.ok ? "" : ` (${holdersP.error})`}. Do not name any institutional holder.`,

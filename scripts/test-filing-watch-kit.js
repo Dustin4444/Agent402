@@ -351,7 +351,7 @@ let happy = null;
 // ---------------------------------------------------------------------------
 {
   const picked = selectDocuments(SUB.filings, { max: 3 });
-  ok(picked.map((f) => f.form).join(",") === "8-K,10-Q,DEF 14A", `substantive forms are chosen ahead of Form 4 / SC 13G (${picked.map((f) => f.form).join(",")})`);
+  ok(picked.map((f) => f.form).join(",") === "10-Q,8-K,DEF 14A", `substantive forms are chosen ahead of Form 4 / SC 13G, periodic report first (${picked.map((f) => f.form).join(",")})`);
   const focused = selectDocuments(SUB.filings, { max: 3, focus: ["0000000042-26-000009"] });
   eq(focused[0].form, "4", "an explicit focus accession is read first");
   eq(focused.length, 3, "focus does not widen the document budget");
@@ -505,7 +505,7 @@ let happy = null;
   await handler({ ticker: "EXMP", days: 30 }, null, d);
   const prompt = synthBodies[0].messages[0].content;
   ok(/TRUNCATED: this is the OPENING PORTION/.test(prompt), "a truncated document is declared truncated in its own header");
-  ok(/never assert that something is absent from a truncated document/.test(prompt), "prompt forbids absence claims from a truncated document");
+  ok(/never assert that something is absent from such a document/.test(prompt) && /GAP IN THIS MATERIAL IS NEVER A FINDING/.test(prompt), "prompt forbids absence claims from a truncated/excerpted document and forbids presenting a gap as a finding");
   restore();
 }
 
