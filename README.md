@@ -440,6 +440,18 @@ sha256 proof-of-work (sub-second; the MCP servers do it automatically). Details:
 · [Paying with MPP](https://github.com/MikeyPetrillo/Agent402/wiki/Paying-with-MPP)
 · [Paying with Compute](https://github.com/MikeyPetrillo/Agent402/wiki/Paying-with-Compute).
 
+## Why pay here - seven things that are different
+
+Every claim links to the surface that proves it (the one-page version: [agent402.tools/why](https://agent402.tools/why)).
+
+1. **Pay for what the model used, with the ceiling quoted first.** The metered gateway (`POST /v1/metered/chat/completions`) quotes each 402 from the request's own body; a wallet paying `upto` settles actual usage under that ceiling, cache and off-peak savings pass through at cost, and every response carries a receipt.
+2. **A failed call is never charged.** Settlement runs after the handler and any error status cancels it; a retry carrying an `Idempotency-Key` replays the paid answer instead of paying again; the rare charged-but-failed case is ledgered as a debt and repaid.
+3. **One key buys everything.** The same wallet or credits key pays for five LLM tiers on three wires (OpenAI chat, OpenAI Responses, Anthropic Messages), embeddings, rerank, images, video, speech, transcription, grounded answers with citations, 500+ deterministic tools, wallet-keyed memory and finished reports.
+4. **No wallet required.** [Prepaid credits by card](https://agent402.tools/credits), cards over MPP and card checkout for reports sit beside USDC on twelve chains and native MPP on Tempo.
+5. **Finished work, not only tokens.** Dossiers, insider flow, 13F holdings, filing reports, IPO digests, domain audits, token risk, deep research, market briefs, recall watch and a LinkedIn article package, cited from primary sources with a data appendix; [monitors](https://agent402.tools/monitors) re-run only when the facts change.
+6. **We buy on your behalf.** `POST /api/route/execute` resolves a task to the best proven seller across the ecosystem, pays them from our wallet and relays the result under one receipt.
+7. **Proof, not promises.** Uptime observed by two probes outside production ([`/status`](https://agent402.tools/status)), a real-money canary through every rail daily, transactions published by rail and wire ([`/revenue`](https://agent402.tools/revenue)), open source and self-hostable, no model in the tool serving path.
+
 ## Why it's solid
 
 - **Everything is tested** - CI calls all 500+ tools with their own documented

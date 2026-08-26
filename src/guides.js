@@ -1006,6 +1006,30 @@ deterministic tools (search, extract, render, PDF, EDGAR, openFDA, on-chain
 data), the [smart order router](https://agent402.tools/guides/smart-order-router)
 that pays other x402 sellers on your agent's behalf, and receipts for every
 call. Every price on this page is rendered from the live gateway configuration.
+
+## What else the same key buys
+
+The credits key (or the wallet) that pays for chat is the same one that pays
+for everything else on the gateway and the catalog, with one 402 shape and one
+receipt shape:
+
+- **Three wires on every tier**: OpenAI chat, OpenAI Responses and Anthropic
+  Messages, plus streaming, embeddings, rerank, images, video, speech and
+  transcription, and a grounded tier that cites the web on every answer.
+- **500+ deterministic tools** over MCP or HTTP: web search, news, cited
+  answers, browser render, market quotes, SEC filings, crypto and DeFi data,
+  PDFs, OCR, DNS and TLS checks, a code sandbox, wallet-keyed memory.
+- **Finished reports and monitors**: dossiers, insider flow, 13F holdings,
+  domain audits, token risk, deep research, market briefs, a LinkedIn article
+  package; monitors that re-run a report only when the facts change.
+- **Routing that buys on your behalf**: \`POST /api/route/execute\` pays the
+  best proven external seller for a task and relays the result.
+
+Why pay here rather than anywhere else, in one page with the proof links:
+[agent402.tools/why](https://agent402.tools/why). The short version: usage is
+priced under a ceiling you see before you pay, a failed call is never charged, a
+keyed retry never pays twice, and uptime and transactions are published from
+outside production.
 `,
   },
 ];

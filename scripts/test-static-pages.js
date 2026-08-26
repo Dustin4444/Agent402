@@ -48,6 +48,7 @@ const PAGES = [
   { path: "/revenue",     titleSubstr: "Transactions" },
   { path: "/what-is-mpp", titleSubstr: "MPP" },
   { path: "/agentic-finance", titleSubstr: "Agentic Finance" },
+  { path: "/why",         titleSubstr: "Why pay here" },
   { path: "/glossary",    titleSubstr: "glossary" },
   { path: "/101",         titleSubstr: "101" },
   { path: "/mpp-marketplace", titleSubstr: "MPP marketplace" },

@@ -512,6 +512,7 @@ export function mcpInitializeInstructions(baseUrl) {
     `Install (hosted, zero wallet): ${install.claudeCodeHosted}`,
     `Install (npm + wallet or prepaid card credits for paid flagships): ${install.claudeCodeNpm}`,
     `Cursor mcp.json: { "mcpServers": { "agent402": { "url": "${hosted}" } } }`,
+    `Why pay here (usage priced under a quoted ceiling, failed calls never charged, keyed retries never pay twice, one key for tools + models + reports, card credits with no wallet, proof at /status and /revenue): ${baseUrl}/why`,
     `Docs: ${baseUrl}/llms.txt · ${baseUrl}/api/find?q=… · status ${baseUrl}/status`,
   ].join("\n");
 }
