@@ -23,14 +23,6 @@ async function feedFetch(url) {
   if (host === "api.coingecko.com" && process.env.COINGECKO_API_KEY) {
     headers["x-cg-demo-api-key"] = process.env.COINGECKO_API_KEY;
   }
-  // Pyth Hermes requires `Authorization: Bearer $PYTH_API_KEY` since
-  // 2026-08-26 16:00 UTC (docs.pyth.network, "Authentication becomes required
-  // on August 26, 2026 at 16:00 UTC"); keyless requests answer 401
-  // "unauthorized" on both hermes and hermes-beta. The tool is LISTED only
-  // when the key is set (pythEnabled), so an agent is never sold a dead feed.
-  if (/(^|\.)hermes(-beta)?\.pyth\.network$/.test(host) && process.env.PYTH_API_KEY) {
-    headers.Authorization = `Bearer ${process.env.PYTH_API_KEY.trim()}`;
-  }
   let res;
   try {
     res = await fetch(url, {
@@ -43,7 +35,6 @@ async function feedFetch(url) {
     console.warn(`[price-feed] upstream unreachable: ${host} → ${err.name ?? err.code ?? err.message}`);
     throw bad("Price feed upstream timed out", 504);
   }
-  if (res.status === 401 && /pyth\.network$/.test(host)) throw bad("Pyth Hermes requires an API key (Authorization: Bearer) since 2026-08-26; this deployment has no PYTH_API_KEY set - not charged", 503);
   if (res.status === 429) throw bad("Price feed rate limit reached upstream - retry shortly", 503);
   if (res.status === 404) throw bad("Price feed upstream: not found (check ids / contract)", 404);
   if (!res.ok) throw bad(`Price feed upstream error (HTTP ${res.status})`, 502);
@@ -57,95 +48,13 @@ async function feedFetch(url) {
 
 // Pyth quotes prices as { price, expo } where the human value is price * 10**expo.
 // expo is almost always negative (e.g. -8 means the integer is in 1e-8 units).
-function pythScale(price, expo) {
-  if (price == null || expo == null) return null;
-  const e = Number(expo);
-  if (!Number.isFinite(e)) return null;
-  return Number(BigInt(price)) * Math.pow(10, e);
-}
 
-/** Listing predicate: price-pyth needs PYTH_API_KEY (Hermes auth, 2026-08-26). */
-export function pythEnabled() { return Boolean((process.env.PYTH_API_KEY || "").trim()); }
+// price-pyth was RETIRED 2026-08-26: Pyth put Hermes behind a Bearer key at
+// 16:00 UTC that day (keyless = 401), the base API plan is $500/month, and the
+// tool had zero external use in the ledger's history (retirement rule, CLAUDE.md).
 export const PRICE_FEED_TOOLS = [
   // ===========================================================================
   // price-pyth — by Pyth feed ID (or a small set of well-known aliases).
-  // ===========================================================================
-  {
-    route: "POST /api/price-pyth",
-    name: "Pyth price (latest)",
-    slug: "price-pyth",
-    category: "crypto",
-    price: "$0.001",
-    description:
-      "Latest aggregated price for one or more Pyth feeds, sourced live from Pyth's Hermes service. Use when you need an ORACLE-grade price with a published confidence interval (cross-checking an exchange feed, settling onchain logic); for a plain fiat quote crypto-price is simpler and cheaper. Identify feeds by hex feed-id (preferred - full precision) or by a small set of well-known aliases (BTCUSD, ETHUSD, SOLUSD, USDC, USDT). Each feed returns price, confidence interval, and publish-time so an agent can decide whether the quote is fresh enough to act on.",
-    tags: ["crypto", "price", "pyth", "feed", "oracle"],
-    discovery: {
-      bodyType: "json",
-      input: { ids: ["BTCUSD", "ETHUSD"] },
-      inputSchema: {
-        properties: {
-          ids: {
-            type: "array",
-            description: "Pyth feed IDs (hex, with or without 0x) or known aliases (BTCUSD, ETHUSD, SOLUSD, USDC, USDT). 1-20 entries.",
-          },
-        },
-        required: ["ids"],
-      },
-      output: {
-        example: {
-          count: 2,
-          feeds: [
-            { id: "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43", alias: "BTCUSD", price: 67000.12, conf: 18.5, publishTime: "2026-06-22T17:30:00Z" },
-            { id: "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace", alias: "ETHUSD", price: 3500.05, conf: 1.2, publishTime: "2026-06-22T17:30:00Z" },
-          ],
-        },
-      },
-    },
-    handler: async (i) => {
-      // A curated set of common Pyth feed IDs. The full catalog (400+) is at
-      // https://pyth.network/developers/price-feed-ids — agents can pass any
-      // hex ID directly. We keep the alias map tiny on purpose: a few household
-      // names so agents can call the tool without leaving to look up an ID.
-      const ALIASES = {
-        BTCUSD: "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
-        ETHUSD: "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
-        SOLUSD: "ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d",
-        USDC:   "eaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a",
-        USDT:   "2b89b9dc8fdf9f34709a5b106b472f0f39bb6ca9ce04b0fd7f2e971688e2e53b",
-      };
-      if (!Array.isArray(i.ids) || i.ids.length === 0) throw bad(`"ids" must be a non-empty array`);
-      if (i.ids.length > 20) throw bad(`"ids" cannot exceed 20 entries`);
-      const resolved = i.ids.map((raw) => {
-        if (typeof raw !== "string") throw bad(`Each id must be a string`);
-        const s = raw.trim();
-        const upper = s.toUpperCase();
-        if (ALIASES[upper]) return { input: s, alias: upper, id: ALIASES[upper] };
-        const hex = s.replace(/^0x/, "");
-        if (!/^[a-fA-F0-9]{64}$/.test(hex)) {
-          throw bad(`"${s}" is neither a known alias (${Object.keys(ALIASES).join(", ")}) nor a 64-char hex feed ID`);
-        }
-        return { input: s, alias: null, id: hex.toLowerCase() };
-      });
-      const qs = resolved.map((r) => `ids[]=${r.id}`).join("&");
-      const url = `https://hermes.pyth.network/v2/updates/price/latest?${qs}&encoding=hex&parsed=true`;
-      const data = await feedFetch(url);
-      const parsed = data?.parsed ?? [];
-      const feeds = resolved.map((r) => {
-        const p = parsed.find((x) => String(x.id).toLowerCase() === r.id);
-        if (!p) return { id: r.id, alias: r.alias, price: null, conf: null, publishTime: null };
-        const price = pythScale(p.price?.price, p.price?.expo);
-        const conf = pythScale(p.price?.conf, p.price?.expo);
-        const publishTime = p.price?.publish_time
-          ? new Date(p.price.publish_time * 1000).toISOString()
-          : null;
-        return { id: r.id, alias: r.alias, price, conf, publishTime };
-      });
-      return { count: feeds.length, feeds };
-    },
-  },
-
-  // ===========================================================================
-  // price-coingecko — current USD (or vs-currency) price by CoinGecko ID.
   // ===========================================================================
   {
     route: "POST /api/price-coingecko",

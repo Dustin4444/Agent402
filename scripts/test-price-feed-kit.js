@@ -10,7 +10,7 @@ let fail = 0, pass = 0, liveOk = 0, liveErr = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`ASSERT FAIL - ${m}`); } };
 
 // Catalog envelope
-ok(PRICE_FEED_TOOLS.length === 3, `3 tools exported (got ${PRICE_FEED_TOOLS.length})`);
+ok(PRICE_FEED_TOOLS.length === 2, `2 tools exported, price-pyth retired 2026-08-26 (got ${PRICE_FEED_TOOLS.length})`);
 for (const t of PRICE_FEED_TOOLS) {
   ok(t.route?.startsWith("POST /api/"), `${t.slug}: POST /api/ route`);
   ok(t.category === "crypto", `${t.slug}: category=crypto`);
@@ -26,12 +26,7 @@ async function throws(promise, status, label) {
   }
 }
 
-// price-pyth
-await throws(h("price-pyth")({}), 400, "price-pyth: missing ids");
-await throws(h("price-pyth")({ ids: [] }), 400, "price-pyth: empty ids");
-await throws(h("price-pyth")({ ids: ["NOT_A_FEED"] }), 400, "price-pyth: bad alias + bad hex");
-await throws(h("price-pyth")({ ids: [42] }), 400, "price-pyth: non-string id");
-await throws(h("price-pyth")({ ids: Array.from({ length: 21 }, () => "BTCUSD") }), 400, "price-pyth: >20 ids");
+// price-pyth was retired 2026-08-26 (Hermes went key-only; zero external sales).
 
 // price-coingecko
 await throws(h("price-coingecko")({}), 400, "price-coingecko: missing ids");
@@ -58,9 +53,6 @@ async function live(slug, args, check, label) {
 }
 
 if (process.env.PRICE_FEED_LIVE_TEST === "1") {
-  await live("price-pyth", { ids: ["BTCUSD", "ETHUSD"] },
-    (r) => r.count === 2 && r.feeds.every((f) => typeof f.id === "string"),
-    "price-pyth BTCUSD+ETHUSD");
   await live("price-coingecko", { ids: ["bitcoin", "ethereum"] },
     (r) => r.count === 2 && r.prices.every((p) => p.id === "bitcoin" || p.id === "ethereum"),
     "price-coingecko bitcoin+ethereum");
