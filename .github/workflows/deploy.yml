@@ -3999,6 +3999,24 @@ jobs:
             echo "published agent402-client@$VERSION → https://www.npmjs.com/package/agent402-client"
           fi
 
+      - name: Gate agent402-openclaw (tests run with NO npm token in env)
+        run: node openclaw/test.js
+
+      - name: Publish agent402-openclaw to npm
+        run: |
+          cd openclaw
+          VERSION=$(node -p "require('./package.json').version")
+          # Idempotent: a re-run after a successful publish is a no-op. The FIRST
+          # version was published from a maintainer login (OIDC cannot create a
+          # package that does not exist yet); the trusted publisher on npmjs.com
+          # carries every version after it.
+          if npm view "agent402-openclaw@$VERSION" version >/dev/null 2>&1; then
+            echo "agent402-openclaw@$VERSION is already on npm — nothing to do"
+          else
+            npm publish --provenance --access public
+            echo "published agent402-openclaw@$VERSION → https://www.npmjs.com/package/agent402-openclaw"
+          fi
+
       - name: Boot FREE_MODE server for adapter tests
         run: |
           FREE_MODE=true PORT=3090 node src/server.js > /tmp/a402-adapter.log 2>&1 &
