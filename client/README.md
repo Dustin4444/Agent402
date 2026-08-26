@@ -114,6 +114,38 @@ const { messages } = await a.getWorkflowPrompt("security-audit", { domain: "stri
 // → feed messages straight to any LLM
 ```
 
+## Cross-seller routing (neutral Smart Order Router)
+
+`find()` searches **this host's catalog only**. To rank tools across eligible
+routable seller rows in the host's **current index** (not complete ecosystem
+coverage), use `route()` — free, read-only, no wallet:
+
+```js
+const task = "screenshot webpage";
+const { query, include, results } = await a.route(task, {
+  k: 5,
+  include: "external",   // all | external | local
+  network: "robinhood",  // optional chain filter (short name or CAIP-2)
+});
+// results[]: opaque server rows — { seller, slug, url, priceUsd, executeVia?, … }
+
+// executeVia quotes which route-execute* tier fits a row's underlying price.
+// It does NOT bind that row: the tier re-resolves an eligible match under its
+// cap at execution time (url, route, seller, and identity can differ).
+const hint = results[0]?.executeVia;
+if (hint?.tool) {
+  const { result, receipt } = await a.call(hint.tool, {
+    task: query,
+    include,
+    params: { url: "https://example.com" },  // inputs the chosen operation needs
+  }, { cache: false });  // routed externals can be dynamic; client cache is on by default
+}
+```
+
+`executeVia` is server-reported metadata only. The SDK passes discovery rows
+through unchanged, does not validate seller output, and does not guarantee
+which seller or tool the execution tier will pick.
+
 ## Discover the live x402 economy
 
 Want to see who's actually getting paid on x402 right now - not just what tools
@@ -134,7 +166,8 @@ await a.topSellers({ sort: "calls", include: "all" });
 | Method | What |
 |---|---|
 | `new Agent402({ baseUrl?, fetch?, creditsKey?, cache?, fetchImpl?, maxPerCallUsd?, dailyLimitUsd?, maxPerHostUsd?, maxResponseBytes? })` | `fetch` is your x402- or MPP-wrapped fetch for paid tools (optional); `creditsKey` is a prepaid card-credits key (`a402_...`) used for paid tools when no `fetch` is given; `cache` (default `true`) memoizes deterministic results; the three USD caps set optional spending limits (see below); `maxResponseBytes` (default 32MB, `null` to disable) refuses an oversized response body before it is parsed |
-| `await a.find(task, { k = 5 })` | Resolve a plain-language task to the best-matching tools (route, price, schema, example) |
+| `await a.find(task, { k = 5 })` | Resolve a plain-language task to the best-matching tools on **this host** (route, price, schema, example) |
+| `await a.route(task, { k?, include?, network? })` | Cross-seller Smart Order Router: rank eligible/routable seller rows from the host's current index (free, read-only; opaque results may include server-reported `executeVia`) |
 | `await a.findWorkflows(task, { k = 2 })` | Resolve a task to matching multi-tool workflow templates (skill packs) |
 | `await a.getWorkflowPrompt(slug, args)` | Fetch the rendered prompt messages for a skill pack with arguments substituted in |
 | `await a.topSellers({ limit?, sort?, include? })` | Live x402 leaderboard: which sellers are settling the most USDC (primarily on Base) in the last ~24h (free, no payment) |

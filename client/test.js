@@ -127,6 +127,122 @@ let pass = 0; const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); 
   }
 }
 
+// Offline: route() is read-only discovery — exact query encoding, bounded k,
+// include/network filters, empty results, non-2xx errors, and no /api/pricing.
+{
+  const calls = [];
+  const routeBody = (task, { k = 5, include = "all", network } = {}) => ({
+    query: String(task ?? ""),
+    include: include === "external" || include === "local" ? include : "all",
+    count: 0,
+    sellers: 0,
+    results: [],
+    ...(network ? { network: String(network) } : {}),
+  });
+  const mkRoute = () => new Agent402({
+    baseUrl: "https://router.example",
+    cache: false,
+    fetchImpl: async (url) => {
+      calls.push(String(url));
+      const u = new URL(url);
+      if (u.pathname !== "/api/route") return { ok: false, status: 404, json: async () => ({}) };
+      const task = u.searchParams.get("q") ?? "";
+      const k = Number(u.searchParams.get("k"));
+      const include = u.searchParams.get("include") ?? "all";
+      const network = u.searchParams.get("network");
+      return { ok: true, json: async () => routeBody(task, { k, include, network }) };
+    },
+  });
+
+  {
+    const c = mkRoute();
+    await c.route("screenshot webpage", { k: 3, include: "external", network: "robinhood" });
+    ok(calls.length === 1, "route() makes one request");
+    const u = new URL(calls[0]);
+    ok(u.pathname === "/api/route", "route() hits /api/route");
+    ok(u.searchParams.get("q") === "screenshot webpage", "route() encodes task as q");
+    ok(u.searchParams.get("k") === "3", "route() encodes bounded k");
+    ok(u.searchParams.get("include") === "external", "route() encodes include=external");
+    ok(u.searchParams.get("network") === "robinhood", "route() encodes network filter");
+    ok(!calls.some((x) => x.includes("/api/pricing")), "route() does not load /api/pricing");
+  }
+
+  {
+    const c = mkRoute();
+    const out = await c.route("", { k: 99, include: "bogus" });
+    ok(out.count === 0 && out.results.length === 0, "route() returns empty results for blank task");
+    ok(new URL(calls.at(-1)).searchParams.get("k") === "25", "route() caps k at 25");
+    ok(new URL(calls.at(-1)).searchParams.get("include") === "all", "route() normalizes unknown include to all");
+  }
+
+  {
+    const c = mkRoute();
+    await c.route("hash", { include: "local" });
+    ok(new URL(calls.at(-1)).searchParams.get("include") === "local", "route() passes include=local");
+  }
+
+  {
+    const c = new Agent402({
+      baseUrl: "https://router.example",
+      cache: false,
+      fetchImpl: async () => ({ ok: false, status: 503, json: async () => ({ error: "busy" }) }),
+    });
+    let err = null;
+    try { await c.route("ocr"); } catch (e) { err = e; }
+    ok(err && /route failed: HTTP 503/.test(err.message), "route() throws on non-2xx");
+  }
+
+  {
+    let paid = 0;
+    const c = new Agent402({
+      baseUrl: "https://router.example",
+      cache: false,
+      fetch: async () => { paid++; return { ok: true, json: async () => ({}) }; },
+      fetchImpl: async (url) => {
+        if (String(url).includes("/api/pricing")) return { ok: true, json: async () => ({ endpoints: [] }) };
+        return { ok: true, json: async () => ({ query: "x", include: "all", count: 0, sellers: 0, results: [] }) };
+      },
+    });
+    await c.route("summarize pdf");
+    ok(paid === 0, "route() does not invoke the payment fetch");
+    ok(!c._catalog, "route() does not warm the paid-tool catalog");
+  }
+
+  {
+    const serverRow = {
+      seller: "https://external.example",
+      sellerHome: "https://external.example",
+      sellerName: "External",
+      slug: "render-page",
+      name: "render",
+      method: "POST",
+      route: "/api/render",
+      url: "https://external.example/api/render",
+      price: "$0.004",
+      priceUsd: 0.004,
+      executeVia: { tool: "route-execute", price: "$0.01", underlyingPriceUsd: 0.004, routingFeeUsd: 0.006 },
+      untrustedContent: true,
+      source: "https://external.example",
+    };
+    const serverBody = {
+      query: "screenshot webpage",
+      include: "external",
+      count: 1,
+      sellers: 1,
+      results: [serverRow],
+      containsUntrustedContent: true,
+    };
+    const c = new Agent402({
+      baseUrl: "https://router.example",
+      cache: false,
+      fetchImpl: async () => ({ ok: true, json: async () => serverBody }),
+    });
+    const out = await c.route("screenshot webpage", { include: "external" });
+    ok(JSON.stringify(out.results[0]) === JSON.stringify(serverRow),
+      "route() returns an opaque server-owned result row unchanged (including executeVia)");
+  }
+}
+
 // Offline: every request the SDK issues carries its own User-Agent product
 // token (agent402-client/<version>) — the plain-fetch path AND the x402
 // payFetch path that settles real payments — so sellers can attribute paid
@@ -190,6 +306,14 @@ try {
   ok(sellers.sort === "calls" && sellers.include === "all", `topSellers echoes sort+include (got sort=${sellers.sort}, include=${sellers.include})`);
   ok(Array.isArray(sellers.results) && sellers.results.length <= 5, `topSellers honors limit (got ${sellers.results?.length} rows)`);
   ok(typeof sellers.source === "string" && sellers.source.endsWith("/api/leaderboard"), "topSellers links to /api/leaderboard");
+
+  // 10. route() proxies /api/route and preserves executeVia metadata.
+  const routed = await a.route("hash text with sha256", { k: 3, include: "all" });
+  ok(routed.include === "all" && Array.isArray(routed.results), "route() returns the server envelope");
+  ok(typeof routed.count === "number" && routed.count <= 3, "route() honors k against the live server");
+  const selfHit = routed.results.find((r) => r.slug === "hash" || r.seller === "self");
+  ok(selfHit, "route() ranks a local catalog match");
+  if (selfHit?.executeVia) ok(typeof selfHit.executeVia.tool === "string", "route() preserves executeVia.tool");
 
   console.log(`\n${pass} passed`);
   proc.kill("SIGKILL");
