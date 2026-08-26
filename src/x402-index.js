@@ -352,6 +352,7 @@ const DEFAULT_SEEDS = [
   "https://nolawealthfinancial.com", // Still OS Notary Protocol — Ed25519-signed notarization, OFAC/SDN screening, CPI/GDP signals, USDC on Base (#434)
   "https://x402.evidencesupply.com", // Evidence Supply — corroborated agent-action verification, USDC on Base
   "https://x402.lagaceta.net", // Colombia TRM — official USD/COP Superfinanciera series, prepaid x402 GET on Base USDC
+  "https://api.surplusintelligence.ai", // Surplus Intelligence — OpenAI-compatible inference market, x402 (Base USDC, exact + upto) and MPP (Tempo) on one 402; /.well-known/x402 manifest (verified 2026-08-26)
 ];
 
 export const seedList = () => {
