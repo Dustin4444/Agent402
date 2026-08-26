@@ -15,6 +15,7 @@
     "timeout.js",
     "rpc-diagnostics.js",
     "rpc-timeout.js",
+    "rpc-failover.js",
     "README.md"
   ],
   "engines": {

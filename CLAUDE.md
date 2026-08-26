@@ -817,6 +817,17 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   without creds. Restore = download object, gunzip, replace file, restart.
   `scripts/test-backup.js` (28 assertions, stub S3 + real sqlite, in CI);
   signer proven live against the real bucket 2026-08-05 before first deploy.
+- **Facilitator RPC failover (2026-08-26, `facilitator/rpc-failover.js`):** the facilitator's recurring failure was an RPC
+  STALL before submission on the configured provider (08-14, 08-19, 08-26: `/settle` timed out, nothing on-chain). Now
+  every `rpc.Server` method that fails at the TRANSPORT level (timeout / connection error / 5xx / 429 / body-less
+  response) is retried once on each URL in `FACILITATOR_RPC_FALLBACK_URLS` (default pubnet:
+  `mainnet.sorobanrpc.com`, `rpc.ankr.com/stellar_soroban` - keyless, probed live; testnet: `soroban-testnet.stellar.org`;
+  `off` disables). A JSON-RPC error is an ANSWER and is never retried; a fallback instance never recurses; each hop
+  inherits the per-request timeout; the primary's error is what the caller sees when every node fails
+  (`fallbackErrors` attached). Installed LAST at boot so it wraps the timeout + diagnostics patches. Same prototype
+  seam as rpc-timeout.js (@x402/stellar builds its own rpc.Server per call). OpenZeppelin as PRIMARY was tried the
+  same day (canary run 33001317156): `unexpected_verify_error` at their verify step, nothing on-chain - reverted; OZ
+  stays the settle fallback only. Tests in `facilitator/test.js` (real rpc.Server against local stall/answer servers).
 - **Facilitator support report (`GET /__operator/facilitators.json`, 2026-08-19, fix #9):** operator-
   authed dump of what each configured facilitator client ADVERTISES (`getSupported` kinds → exact
   networks, extensions) plus `firstTriedFor` (the first client advertising each network = the one

@@ -72,6 +72,14 @@ FACILITATOR_STELLAR_SECRET=S... npm start
   `FACILITATOR_SETTLE_TIMEOUT_MS` also means raising
   `RAILWAY_DEPLOYMENT_DRAINING_SECONDS` (or your platform's equivalent) to
   match, so a redeploy's grace period still comfortably exceeds it.
+- `FACILITATOR_RPC_FALLBACK_URLS` — optional CSV of Soroban RPC URLs tried, in
+  order, when the primary fails at the TRANSPORT level (timeout, connection
+  error, HTTP 5xx/429). Default on pubnet: `https://mainnet.sorobanrpc.com,
+  https://rpc.ankr.com/stellar_soroban` (public, keyless; probed 2026-08-26);
+  on testnet `https://soroban-testnet.stellar.org`. `off` disables. A JSON-RPC
+  error (failed simulation, rejected transaction) is an answer and is never
+  retried elsewhere. Each hop inherits the per-request timeout, so the worst
+  case is (1 + fallbacks) x `FACILITATOR_RPC_TIMEOUT_MS`.
 - `FACILITATOR_RPC_TIMEOUT_MS` — optional, default `10000`. Per-request
   timeout on every Soroban RPC round-trip the Stellar SDK makes (simulate,
   send, poll). The endpoint bounds above are the last line; this one makes a
