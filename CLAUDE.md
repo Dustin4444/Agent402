@@ -316,6 +316,24 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   provider prefs next to `max_price`, lives in the normalized body (distinct cache entries),
   stripped from the top-level outbound body. All tiers in `WALLET_ONLY_SLUGS` and
   test-all's lenient NETWORK set.
+- **Metered gateway tier (2026-08-26, `v1-chat-metered`, `POST /v1/metered/chat/completions`):** the 402 PRICE IS A
+  PER-REQUEST QUOTE. `@x402/core` resolves a `price(context)` function on every request (payments.js `acceptsForItem`:
+  a catalog item with `quote(body)` advertises a function price on every option, exact + upto), so the amount is
+  re-derived from the body actually served - a payment authorized for a small quote cannot ride a bigger body (the
+  requirements no longer match, 402 again). Quote = the margin clamp's worst case (exact-BPE input + max_tokens at
+  the model's list price) x `METER_MARKUP` (1.15) + `METER_FLOOR_USD`, never below `METER_MIN_SETTLE_USD` ($0.001,
+  the facilitator floor), rounded UP to a micro-dollar; over `METERED_MAX_QUOTE_USD` ($2, env
+  `GATEWAY_METERED_MAX_QUOTE_USD`) the 402 carries the cap and the handler refuses 400 (>= 400 cancels settlement).
+  Prefixes = union of the flat tiers' (listed LAST so `tierFor` keeps home tiers first; `/v1/models` lists no
+  duplicate ids, every chat entry carries `meteredEndpoint`/`meteredFromUsd` instead). `clampToMargin` is a no-op on
+  it (the ceiling grows with the request). The upto meter (`gateway-meter.js`) uses the stashed
+  `req.__meteredQuoteUsd` as the ceiling, so an upto buyer settles actual x 1.15 under the quote. The Tempo, Stripe
+  and credits gates price through `quotedPriceUsd(def, req)` (server.js) so a metered call is bound/held at its
+  quote, never the $0.001 catalog floor. Why: flat tiers are 170x-2,162x upstream on small calls, and exact-only
+  clients (ClawRouter, most stock x402 clients) never see the upto meter - this is the BlockRun-shaped price
+  (their live 402 quotes $0.002 for a 50-token gpt-4o-mini call). `test-pricing-margin` asserts quote >= worst
+  case x markup on this tier instead of "< price"; `test-price-premium` pins the function price; `test-llm-gateway`
+  pins floor/growth/cap/refusal.
 - **Route-and-execute (`POST /api/route/execute`, $0.01, `src/tools/route-execute.js`):**
   resolves a task/slug via `findTools`, dispatches the underlying internal tool (underlying
   price cap $0.005), returns `{result, receipt}`; underlying errors pass through.

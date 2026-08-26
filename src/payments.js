@@ -391,7 +391,26 @@ export function acceptsForItem(item, rails) {
   // its Algorand revenue to the AVM wallet would fund the wrong wallet.
   const avmPayToFor = () =>
     avmBuyer && AVM_SELF_FUNDING_SLUGS.has(item.slug) ? avmBuyer : algorandWallet;
-  const evm = evmCaip2.map((caip2) => ({ scheme: "exact", payTo: payToFor(caip2), price: priceWithPremium(item.price, caip2), network: caip2 }));
+  // A tool with a `quote` (the metered gateway tier) is priced PER REQUEST:
+  // @x402/core resolves a `price` function against the request context on
+  // every call, including the paid retry, so the amount a buyer authorized is
+  // re-derived from the body actually served. The quote is stashed on the
+  // request so the upto meter can use it as the ceiling (gateway-meter.js).
+  const priceOf = (caip2) => {
+    if (typeof item.quote !== "function") return priceWithPremium(item.price, caip2);
+    return async (ctx) => {
+      let usd = null;
+      try {
+        const req = ctx?.adapter?.req;
+        const body = typeof ctx?.adapter?.getBody === "function" ? ctx.adapter.getBody() : req?.body;
+        usd = Number(item.quote(body && typeof body === "object" ? body : {}));
+        if (req && Number.isFinite(usd)) req.__meteredQuoteUsd = usd;
+      } catch { usd = null; }
+      const price = Number.isFinite(usd) && usd > 0 ? "$" + usd.toFixed(6).replace(/0+$/, "").replace(/\.$/, "") : item.price;
+      return priceWithPremium(price, caip2);
+    };
+  };
+  const evm = evmCaip2.map((caip2) => ({ scheme: "exact", payTo: payToFor(caip2), price: priceOf(caip2), network: caip2 }));
   // `upto` rides ALONGSIDE `exact` on the gated networks, at the identical
   // price and payTo. The scheme is chosen per payment-option, not per
   // registration, so dual-advertising means emitting a second option - which is
@@ -405,7 +424,7 @@ export function acceptsForItem(item, rails) {
   const uptoNets = Array.isArray(rails.uptoCaip2) ? rails.uptoCaip2 : [];
   const upto = uptoNets
     .filter((caip2) => evmCaip2.includes(caip2))
-    .map((caip2) => ({ scheme: "upto", payTo: payToFor(caip2), price: priceWithPremium(item.price, caip2), network: caip2 }));
+    .map((caip2) => ({ scheme: "upto", payTo: payToFor(caip2), price: priceOf(caip2), network: caip2 }));
   // Identity-bound routes stay EVM-`exact` ONLY (security audit A402-03): the
   // handler derives the caller from the signed EIP-3009 authorization.from, and
   // upto's payload is Permit2-shaped (permit2Authorization.from), which
@@ -424,14 +443,14 @@ export function acceptsForItem(item, rails) {
   return [
     ...evm,
     ...upto,
-    ...(solanaWallet ? svmCaip2.map((caip2) => ({ scheme: "exact", payTo: solanaWallet, price: priceWithPremium(item.price, caip2), network: caip2 })) : []),
-    ...(stellarWallet ? stellarCaip2.map((caip2) => ({ scheme: "exact", payTo: stellarWallet, price: priceWithPremium(item.price, caip2), network: caip2 })) : []),
+    ...(solanaWallet ? svmCaip2.map((caip2) => ({ scheme: "exact", payTo: solanaWallet, price: priceOf(caip2), network: caip2 })) : []),
+    ...(stellarWallet ? stellarCaip2.map((caip2) => ({ scheme: "exact", payTo: stellarWallet, price: priceOf(caip2), network: caip2 })) : []),
     // The Algorand accepts carry the x402 Global Challenge tag (Algorand
     // Foundation's entry marker, per their 2026-07-21 checklist): GoPlausible's
     // Bazaar + leaderboard attribute challenge entries by `extra.tag`, and the
     // challenge-filtered views hide untagged merchants entirely. Scheme-level
     // fields (decimals/feePayer) are merged in by the facilitator downstream.
-    ...(algorandWallet ? avmCaip2.map((caip2) => ({ scheme: "exact", payTo: avmPayToFor(), price: priceWithPremium(item.price, caip2), network: caip2, extra: { tag: "x402-global-challenge" } })) : []),
+    ...(algorandWallet ? avmCaip2.map((caip2) => ({ scheme: "exact", payTo: avmPayToFor(), price: priceOf(caip2), network: caip2, extra: { tag: "x402-global-challenge" } })) : []),
   ];
 }
 

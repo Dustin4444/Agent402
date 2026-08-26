@@ -204,4 +204,16 @@ ok(isMeterable({ x402: { scheme: "upto" } }) === false && isMeterable({ _x402Sch
   ok(threw === null, "no tool object at all still cannot throw out of the metering path");
 }
 
+
+// ---- metered tier: the ceiling is the per-request quote, not the catalog floor ----
+{
+  const overrides = [];
+  const res = { headersSent: false, setHeader() {} };
+  const result = { __meterUpstreamUsd: 0.02 };
+  const req = { ...reqWith({ "payment-signature": paymentHeader(uptoPayload) }), __meteredQuoteUsd: 0.058011 };
+  const amount = applyMeteredSettlement({ result, req, tool: { slug: "v1-chat-metered", price: "$0.001" }, res, enabled: true, setOverrides: (_r, o) => overrides.push(o) });
+  ok(amount === Math.max(METER_FLOOR_USD, METER_MIN_SETTLE_USD, 0.02 * METER_MARKUP), `metered tier: settles actual x markup ($${amount}) under the QUOTED ceiling, not refused by the $0.001 catalog floor`);
+  ok(overrides.length === 1, "an override was set");
+}
+
 console.log(`\n${pass} passed, 0 failed`);

@@ -69,5 +69,29 @@ check("dormant default: acceptsForItem output is byte-identical to pre-engine", 
   ]);
 });
 
+
+// ---- per-request quote (metered tier, 2026-08-26) --------------------------
+await (async () => {
+  const rails = { evmCaip2: ["eip155:8453", "eip155:10"], svmCaip2: [], stellarCaip2: [], avmCaip2: [], walletAddress: "0x" + "a".repeat(40), solanaWallet: null, stellarWallet: null, algorandWallet: null, uptoCaip2: ["eip155:8453"] };
+  const item = { slug: "v1-chat-metered", price: "$0.001", quote: (body) => (body?.max_tokens === 2000 ? 0.058011 : 0.001) };
+  const a = acceptsForItem(item, rails);
+  const req = { body: { max_tokens: 2000 } };
+  const ctx = { adapter: { req, getBody: () => req.body } };
+  const base = a.find((o) => o.network === "eip155:8453" && o.scheme === "exact");
+  const upto = a.find((o) => o.network === "eip155:8453" && o.scheme === "upto");
+  const basePrice = await base.price(ctx);
+  const uptoPrice = await upto.price(ctx);
+  const smallPrice = await base.price({ adapter: { req: {}, getBody: () => ({ max_tokens: 5 }) } });
+  const junkPrice = await base.price({ adapter: { req: {}, getBody: () => { throw new Error("no body"); } } });
+  const premiumPrice = await a.find((o) => o.network === "eip155:10").price(ctx);
+  check("quote(): every option advertises a price FUNCTION (exact + upto)", () => assert.ok(a.every((o) => typeof o.price === "function")));
+  check("quote(): the price resolves from the request body", () => assert.equal(basePrice, "$0.058011"));
+  check("quote(): the resolved quote is stashed on the request for the upto meter's ceiling", () => assert.equal(req.__meteredQuoteUsd, 0.058011));
+  check("quote(): a different body resolves a different price (the paid retry is re-quoted on ITS body)", () => assert.equal(smallPrice, "$0.001"));
+  check("quote(): the upto ceiling is the same quote", () => assert.equal(uptoPrice, "$0.058011"));
+  check("quote(): an unreadable body falls back to the catalog floor, never throws", () => assert.equal(junkPrice, "$0.001"));
+  check("quote(): chain premiums apply on top of the quote", () => assert.equal(premiumPrice, priceWithPremium("$0.058011", "eip155:10")));
+})();
+
 console.log(failures ? `\nFAILED (${failures})` : "\nall passed");
 process.exit(failures ? 1 : 0);
