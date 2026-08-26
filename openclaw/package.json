@@ -10,7 +10,7 @@
     "./models": "./models.js"
   },
   "bin": {
-    "agent402-openclaw": "./cli.js"
+    "agent402-openclaw": "cli.js"
   },
   "files": [
     "index.js",
@@ -22,7 +22,9 @@
     "README.md"
   ],
   "openclaw": {
-    "extensions": ["./index.js"]
+    "extensions": [
+      "./index.js"
+    ]
   },
   "engines": {
     "node": ">=18"
@@ -35,8 +37,12 @@
     "@x402/fetch": ">=2.20.0"
   },
   "peerDependenciesMeta": {
-    "@x402/evm": { "optional": true },
-    "@x402/fetch": { "optional": true }
+    "@x402/evm": {
+      "optional": true
+    },
+    "@x402/fetch": {
+      "optional": true
+    }
   },
   "keywords": [
     "openclaw",
