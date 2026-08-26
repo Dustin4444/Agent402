@@ -192,7 +192,11 @@ export async function settleStripeCredential(authorizationHeader) {
     const receipt = await Method.broadcastCredential([stripeMethod()], authorizationHeader);
     return { ok: true, receipt };
   } catch (e) {
-    return { ok: false, error: String(e?.message || e).slice(0, 300), reason: "Stripe declined or could not capture the charge" };
+    // 900, not 300: Stripe's permission errors put the fix ("Enabling X
+    // permissions on this key would allow this request") past char 300, and
+    // the first live buy's log cut it off. Operator log only - the buyer sees
+    // `reason`, never Stripe's words.
+    return { ok: false, error: String(e?.message || e).slice(0, 900), reason: "Stripe declined or could not capture the charge" };
   }
 }
 

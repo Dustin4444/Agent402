@@ -519,7 +519,32 @@ export const TIERS = {
 
 // Drop-in compatibility: bare OpenAI-style names map to their OpenRouter ids,
 // so `model: "gpt-4o-mini"` from an unmodified OpenAI SDK works unchanged.
+/** Allowlist prefixes that are NOT themselves live OpenRouter ids, mapped to
+ *  the concrete model a buyer gets when they send the bare family name.
+ *  Found 2026-08-26 by the first live card buy: /v1/models listed
+ *  "anthropic/claude-opus" (a prefix covering claude-opus-5 / -fast), a buyer
+ *  sent it verbatim, and OpenRouter answered "not a valid model ID" - an
+ *  uncharged 502 for a model we advertised. The live-catalog guard only asked
+ *  whether SOMETHING resolves under each prefix, never whether the prefix is
+ *  an id. Every other prefix in TIERS is itself a live id; this table is for
+ *  the ones that are not, and the guard now fails if a listed id is not exact. */
+export const PREFIX_CANONICAL = Object.freeze({
+  // Live ids under each family read from openrouter.ai/api/v1/models on
+  // 2026-08-26; the guard's exact-id check fails CI if one of these dies.
+  "anthropic/claude-opus": "anthropic/claude-opus-5",
+  "anthropic/claude-sonnet": "anthropic/claude-sonnet-5",
+  "anthropic/claude-haiku": "anthropic/claude-haiku-4.5",
+  "x-ai/grok": "x-ai/grok-4.6",
+  "openai/o4": "openai/o4-mini",
+  "google/gemini-3.1-pro": "google/gemini-3.1-pro-preview",
+});
+
 export function canonicalModel(model) {
+  const c = canonicalModelRaw(model);
+  return Object.hasOwn(PREFIX_CANONICAL, c.toLowerCase()) ? PREFIX_CANONICAL[c.toLowerCase()] : c;
+}
+
+function canonicalModelRaw(model) {
   // Whitespace inside the id is never meaningful upstream; collapsing it around
   // the variant colon keeps "model: online" from slipping past the variant
   // refusal and the allowlist as a malformed id (review 2026-08-19). Done with
@@ -2888,7 +2913,10 @@ export function modelsList() {
     if (typeof tier.available === "function" && !tier.available()) continue;
     for (const p of tier.prefixes) {
       data.push({
-        id: p.endsWith("/") ? `${p}*` : p,
+        // A family prefix that is not itself an upstream id is advertised as
+        // the concrete model it resolves to (PREFIX_CANONICAL) - an agent
+        // must be able to send any id on this list verbatim.
+        id: p.endsWith("/") ? `${p}*` : (PREFIX_CANONICAL[p.toLowerCase()] || p),
         object: "model",
         owned_by: p.split("/")[0],
         x402: {

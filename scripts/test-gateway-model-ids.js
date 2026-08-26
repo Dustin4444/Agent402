@@ -14,7 +14,7 @@
 // It FAILS on network error rather than skipping: a skipped guard is the same
 // silent green that let every one of those ship.
 import {
-  TIERS, AUTO_RANKINGS, SPEECH_MODELS, MODEL_COST, FLEX_MODELS, REASONING_MODELS, reasoningRowMatches, costFor, tierFor, tierAllows, STEALTH_MODEL_IDS,
+  TIERS, AUTO_RANKINGS, SPEECH_MODELS, MODEL_COST, FLEX_MODELS, REASONING_MODELS, reasoningRowMatches, costFor, tierFor, tierAllows, STEALTH_MODEL_IDS, modelsList,
 } from "../src/tools/llm-gateway-kit.js";
 
 // STEALTH listings (stealth/ox-alpha) are the ONE id class this guard must not
@@ -71,6 +71,18 @@ for (const [slug, tier] of Object.entries(TIERS)) {
   ok(dead.length === 0, `${slug}: every advertised model id resolves upstream${dead.length ? ` (dead: ${dead.join(", ")})` : ""}`);
   const deadFb = (tier.fallbacks || []).filter((m) => !ids.has(m));
   ok(deadFb.length === 0, `${slug}: every failover link exists upstream${deadFb.length ? ` (dead: ${deadFb.join(", ")})` : ""}`);
+}
+// 1b. Every id GET /v1/models lists (family wildcards aside) must be an EXACT
+//     live id - an agent sends what it reads there verbatim. Check 1 only asks
+//     whether something resolves UNDER a prefix, which let a bare family
+//     prefix ("anthropic/claude-opus") ride the list until a live buyer sent
+//     it and OpenRouter rejected it (2026-08-26).
+{
+  // Exempt: family wildcards, the TTS chain (speech catalog), and the OpenAI-
+  // direct embeddings ids (no "/": not OpenRouter ids at all).
+  const listed = modelsList().data.map((m) => m.id).filter((id) => !id.endsWith("*") && id.includes("/") && !speechIds.has(id));
+  const notExact = listed.filter((id) => !ids.has(id) && !isStealth(id));
+  ok(notExact.length === 0, `every id on /v1/models is an exact live upstream id${notExact.length ? ` (not ids: ${notExact.join(", ")})` : ""}`);
 }
 // 2. Auto-router rankings are exact ids and must all be live.
 for (const [q, byCat] of Object.entries(AUTO_RANKINGS)) {

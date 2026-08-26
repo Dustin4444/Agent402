@@ -2,7 +2,7 @@
 // layer that gates what reaches the paid OpenRouter upstream: model → tier
 // routing (incl. bare-name mapping and self-correcting cross-tier errors),
 // input/output caps, stream rejection, and the env-gated 503. No network.
-import { TIERS, canonicalModel, tierAllows, tierFor, validateRequest, modelsList, LLM_GATEWAY_TOOLS, stableStringify, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, AUTO_RANKINGS, classifyPrompt, validateEmbeddingsRequest, embeddingsCacheKey, EMBEDDINGS_PATH, isEmptyRefusal, tokenizerFactor, NEW_TOKENIZER_FACTOR } from "../src/tools/llm-gateway-kit.js";
+import { TIERS, canonicalModel, PREFIX_CANONICAL, tierAllows, tierFor, validateRequest, modelsList, LLM_GATEWAY_TOOLS, stableStringify, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, AUTO_RANKINGS, classifyPrompt, validateEmbeddingsRequest, embeddingsCacheKey, EMBEDDINGS_PATH, isEmptyRefusal, tokenizerFactor, NEW_TOKENIZER_FACTOR } from "../src/tools/llm-gateway-kit.js";
 
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log(`ok - ${msg}`); } else { fail++; console.error(`FAIL - ${msg}`); } };
@@ -23,6 +23,19 @@ ok(canonicalModel("gpt-4o-mini") === "openai/gpt-4o-mini", "bare gpt name maps t
 ok(canonicalModel("claude-opus-4") === "anthropic/claude-opus-4", "bare claude name maps to anthropic/");
 ok(canonicalModel("gemini-2.5-flash") === "google/gemini-2.5-flash", "bare gemini name maps to google/");
 ok(canonicalModel("o3-mini") === "openai/o3-mini", "bare o3 name maps to openai/");
+// A family prefix that is not an upstream id resolves to its concrete model
+// (2026-08-26: "anthropic/claude-opus" was advertised on /v1/models and
+// OpenRouter rejected it verbatim). Bare and OpenRouter forms, any case.
+ok(canonicalModel("anthropic/claude-opus") === "anthropic/claude-opus-5" && canonicalModel("claude-opus") === "anthropic/claude-opus-5" && canonicalModel("Anthropic/Claude-Opus") === "anthropic/claude-opus-5", "bare family prefix claude-opus resolves to the concrete claude-opus-5");
+ok(canonicalModel("anthropic/claude-opus-5-fast") === "anthropic/claude-opus-5-fast", "a concrete id under the family is left alone");
+ok(tierAllows("v1-chat-premium", "anthropic/claude-opus") && tierFor("anthropic/claude-opus") === "v1-chat-premium", "the resolved family id is still premium-allowlisted");
+{
+  const listed = modelsList().data.map((m) => m.id);
+  ok(listed.includes("anthropic/claude-opus-5") && !listed.includes("anthropic/claude-opus"), "/v1/models advertises the concrete id, never the bare family prefix");
+  const bare = Object.keys(PREFIX_CANONICAL).filter((p) => listed.includes(p));
+  ok(bare.length === 0, `no PREFIX_CANONICAL key is listed bare on /v1/models${bare.length ? ` (${bare.join(", ")})` : ""}`);
+  ok(Object.values(PREFIX_CANONICAL).every((id) => tierFor(id) !== null), "every canonical target is allowlisted on some tier");
+}
 ok(canonicalModel("deepseek/deepseek-chat") === "deepseek/deepseek-chat", "OpenRouter ids pass through");
 
 // Tier routing.
