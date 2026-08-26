@@ -61,7 +61,7 @@ import {
 } from "@x402/stellar";
 import { invalidVerify, invalidSettle, normalizeVerify, normalizeSettle } from "./shape.js";
 import { withTimeout, TimeoutError } from "./timeout.js";
-import { decodeErrorResultXdr } from "./rpc-diagnostics.js";
+import { decodeErrorResultXdr, describeRpcRejection } from "./rpc-diagnostics.js";
 import { ensureRpcTimeout, installRpcRequestTimeout, RpcRequestTimeoutError } from "./rpc-timeout.js";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
@@ -157,6 +157,9 @@ const horizon = getHorizonClient(NETWORK);
       ext: xdr.TransactionResultExt.fromXDR("00000000", "hex"),
     }).toXDR("base64");
 
+  const raw = describeRpcRejection({ status: "ERROR", hash: "b5ff", latestLedger: 123, diagnosticEventsXdr: ["AAAA"], weird: 1, secretish: "x".repeat(5000) });
+  ok(/"status":"ERROR"/.test(raw) && /"hash":"b5ff"/.test(raw) && /otherKeys/.test(raw) && raw.length <= 800, `describeRpcRejection: bounded, keeps status/hash/ledger and names unknown keys (${raw.length} chars)`);
+  ok(typeof describeRpcRejection(null) === "string" && typeof describeRpcRejection("str") === "string", "describeRpcRejection never throws on a non-object");
   const badSeq = decodeErrorResultXdr(encodeResult(xdr.TransactionResultResult.txBadSeq()));
   ok(badSeq.code === "txBadSeq", `decodeErrorResultXdr: simple top-level code round-trips (got ${JSON.stringify(badSeq)})`);
 

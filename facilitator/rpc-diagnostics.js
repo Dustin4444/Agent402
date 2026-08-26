@@ -65,6 +65,24 @@ export function decodeErrorResultXdr(errorResultXdr) {
   }
 }
 
+/** What to log for a rejected sendTransaction when the RPC gave no result XDR:
+ *  a bounded, secret-free view of the whole response (status, hash, ledger,
+ *  any error/message fields), so an ERROR-without-XDR is diagnosable instead
+ *  of "(no errorResultXdr in response)" - which is all the 2026-08-26 canary
+ *  failure left behind. Pure; unit-tested offline. */
+export function describeRpcRejection(result) {
+  try {
+    const r = result && typeof result === "object" ? result : { value: result };
+    const view = {};
+    for (const k of ["status", "hash", "latestLedger", "latestLedgerCloseTime", "errorResultXdr", "diagnosticEventsXdr", "error", "message", "code"]) {
+      if (r[k] !== undefined) view[k] = typeof r[k] === "string" ? r[k].slice(0, 200) : r[k];
+    }
+    const extra = Object.keys(r).filter((k) => !(k in view));
+    if (extra.length) view.otherKeys = extra.slice(0, 12);
+    return JSON.stringify(view).slice(0, 800);
+  } catch (e) { return `(undescribable: ${String(e?.message || e).slice(0, 80)})`; }
+}
+
 export function installRpcDiagnostics() {
   if (installed) return;
   installed = true;
@@ -75,7 +93,7 @@ export function installRpcDiagnostics() {
       const decoded = decodeErrorResultXdr(result?.errorResultXdr);
       console.warn(
         `[rpc-diagnostics] sendTransaction rejected: status=${result?.status} hash=${result?.hash || "none"}`,
-        decoded ? JSON.stringify(decoded) : "(no errorResultXdr in response)",
+        decoded ? JSON.stringify(decoded) : `(no errorResultXdr in response) raw=${describeRpcRejection(result)}`,
       );
     }
     return result; // never alter what the caller sees
