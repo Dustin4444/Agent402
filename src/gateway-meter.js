@@ -157,7 +157,10 @@ export function meteredUsd({ upstreamUsd, ceilingUsd }) {
  *  input under test proves the function, never the caller - so the test below
  *  now builds a real request carrying a real encoded payment header. */
 export function isMeterable(req) {
-  return paymentSchemeOf(req) === "upto";
+  // A prepaid-credits call is ours to name too: the credits gate HOLDS the
+  // quote and settles what this meter reports (2026-08-26; before this a card
+  // buyer on the metered route paid the worst-case quote, not usage).
+  return paymentSchemeOf(req) === "upto" || req?.creditsSettled === true;
 }
 
 /**
@@ -206,7 +209,9 @@ export function applyMeteredSettlement({ result, req, tool, res, enabled, setOve
     const ceilingUsd = Number.isFinite(quoted) && quoted > 0 ? quoted : Number(String(tool?.price ?? "").replace(/[^0-9.]/g, ""));
     const amount = meteredUsd({ upstreamUsd: upstream, ceilingUsd });
     if (amount == null || res?.headersSent) return null;
-    setOverrides(res, { amount: `$${amount.toFixed(6)}` });
+    // Credits: no x402 middleware is settling this response, so no settlement
+    // override; the credits gate reads X-Metered-Usd on finish and debits it.
+    if (req?.creditsSettled !== true) setOverrides(res, { amount: `$${amount.toFixed(6)}` });
     res.setHeader("X-Metered-Usd", amount.toFixed(6));
     return amount;
   } catch (e) {

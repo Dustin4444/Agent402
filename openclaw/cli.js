@@ -7,7 +7,7 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, statSync
 import { pathToFileURL } from "node:url";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { STATE_DIR, CREDITS_KEY_FILE, resolveCreditsKey, resolvePayFetch } from "./index.js";
+import { STATE_DIR, CREDITS_KEY_FILE, resolveCreditsKey, resolvePayFetch, USDC_BASE, DEFAULT_BASE_RPC, uptoReady } from "./index.js";
 import { startProxy, loadRoutes, DEFAULT_UPSTREAM } from "./proxy.js";
 import { providerModelsConfig, stripTrailingSlashes, defaultPrimary, AUTO_ID, OPENCLAW_MIN_INPUT_CHARS } from "./models.js";
 import { DEFAULT_PORT, PROVIDER_ID } from "./provider.js";
@@ -45,7 +45,7 @@ function mergeInto(target, block, { port = DEFAULT_PORT } = {}) {
 
 async function main() {
   if (cmd === "help" || has("--help")) {
-    out("agent402-openclaw setup [--credits-key a402_...|-] [--write] [--flat] | proxy [--port N] [--upstream URL] [--flat] | doctor");
+    out("agent402-openclaw setup [--credits-key a402_...|-] [--write] [--flat] | proxy [--port N] [--upstream URL] [--flat] | doctor | permit2-approve [--rpc URL]");
     return 0;
   }
   const upstream = stripTrailingSlashes(opt("--upstream") || process.env.AGENT402_UPSTREAM || DEFAULT_UPSTREAM);
@@ -108,11 +108,42 @@ async function main() {
     await new Promise(() => {}); // run until killed
   }
 
+  // One-time USDC -> Permit2 approval on Base so the wallet can pay ACTUAL
+  // usage over `upto` instead of the per-request quote over `exact`.
+  if (cmd === "permit2-approve") {
+    const pk = (process.env.AGENT402_WALLET_KEY || "").trim();
+    if (!/^0x[0-9a-fA-F]{64}$/.test(pk)) { console.error("AGENT402_WALLET_KEY (0x + 64 hex) is required"); return 2; }
+    try {
+      const [{ createPermit2ApprovalTx, getPermit2AllowanceReadParams }, { createWalletClient, createPublicClient, http }, { privateKeyToAccount }, { base }] = await Promise.all([import("@x402/evm/upto/client"), import("viem"), import("viem/accounts"), import("viem/chains")]);
+      const account = privateKeyToAccount(pk);
+      const rpc = (opt("--rpc") || process.env.AGENT402_BASE_RPC || DEFAULT_BASE_RPC).trim();
+      const pub = createPublicClient({ chain: base, transport: http(rpc) });
+      const read = () => pub.readContract(getPermit2AllowanceReadParams({ tokenAddress: USDC_BASE, ownerAddress: account.address }));
+      if (uptoReady(await read())) { out(`already approved: ${account.address} has a Permit2 allowance on USDC (Base); the proxy pays actual usage (upto)`); return 0; }
+      const tx = createPermit2ApprovalTx(USDC_BASE);
+      const wallet = createWalletClient({ account, chain: base, transport: http(rpc) });
+      const hash = await wallet.sendTransaction({ to: tx.to, data: tx.data });
+      out(`approval sent: ${hash} (waiting for confirmation)`);
+      await pub.waitForTransactionReceipt({ hash, timeout: 120_000 });
+      out(uptoReady(await read()) ? `approved: ${account.address} can now pay actual usage over upto. Restart the gateway.` : "transaction confirmed but the allowance still reads low - check the wallet on basescan");
+      return 0;
+    } catch (e) { console.error(`permit2-approve failed: ${String(e?.message || e).slice(0, 300)}`); return 1; }
+  }
+
   if (cmd === "doctor") {
     const key = resolveCreditsKey();
     out(`upstream: ${upstream}`);
     out(`credits key: ${key ? `present (${key.slice(0, 8)}…)` : "none"}`);
     out(`wallet key: ${/^0x[0-9a-fA-F]{64}$/.test(process.env.AGENT402_WALLET_KEY || "") ? "present" : "none"}`);
+    if (/^0x[0-9a-fA-F]{64}$/.test(process.env.AGENT402_WALLET_KEY || "")) {
+      try {
+        const [{ getPermit2AllowanceReadParams }, { createPublicClient, http }, { privateKeyToAccount }, { base }] = await Promise.all([import("@x402/evm/upto/client"), import("viem"), import("viem/accounts"), import("viem/chains")]);
+        const account = privateKeyToAccount(process.env.AGENT402_WALLET_KEY.trim());
+        const pub = createPublicClient({ chain: base, transport: http((process.env.AGENT402_BASE_RPC || DEFAULT_BASE_RPC).trim()) });
+        const allowance = await pub.readContract(getPermit2AllowanceReadParams({ tokenAddress: USDC_BASE, ownerAddress: account.address }));
+        out(`wallet ${account.address}: ${uptoReady(allowance) ? "pays actual usage (upto; Permit2 approved)" : "pays the per-request quote (exact) - run permit2-approve once to pay actual usage"}`);
+      } catch (e) { out(`wallet: allowance unreadable (${String(e?.message || e).slice(0, 80)})`); }
+    }
     try { const r = await loadRoutes(upstream, fetch, { pricing }); out(`gateway: ok, ${r.size} models (${pricing} pricing: ${[...r.values()].filter((x) => x.metered).length} metered)`); } catch (e) { out(`gateway: unreachable (${e?.message || e})`); return 1; }
     if (key) {
       try {

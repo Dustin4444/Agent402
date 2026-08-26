@@ -167,6 +167,14 @@ ok(isMeterable({ x402: { scheme: "upto" } }) === false && isMeterable({ _x402Sch
   const r2 = mk(0.001);
   applyMeteredSettlement({ result: r2, req: exactReq, tool, res: mkRes(), enabled: true, setOverrides: () => {} });
   ok(!("__meterUpstreamUsd" in r2), "strips the sentinel even when it does NOT meter - a buyer must never see our upstream cost");
+  // CREDITS: a prepaid-credits request (no x402 payment header, req.creditsSettled)
+  // is metered too - header set for the credits gate, NO settlement override
+  // (nothing is settling it over x402).
+  {
+    let o = null; const rc = mkRes();
+    const amtC = applyMeteredSettlement({ result: mk(bigUp), req: { headers: {}, creditsSettled: true, __meteredQuoteUsd: 0.10 }, tool: { slug: "v1-chat-metered", price: "$0.001" }, res: rc, enabled: true, setOverrides: (r, x) => { o = x; } });
+    ok(amtC === expect && rc.headers["x-metered-usd"] === expect.toFixed(6) && o === null, `credits request is metered (${amtC}) with the header set and no x402 override`);
+  }
   const r3 = mk(0.001);
   applyMeteredSettlement({ result: r3, req: uptoReq, tool, res: mkRes(), enabled: false, setOverrides: () => {} });
   ok(!("__meterUpstreamUsd" in r3), "strips the sentinel even when metering is switched off");

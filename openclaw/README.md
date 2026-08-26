@@ -42,6 +42,18 @@ export AGENT402_WALLET_KEY=0x...     # an EVM key holding USDC on Base
 With no credits key present the proxy signs an x402 payment per call from that
 wallet. The key never leaves the machine.
 
+Two ways the wallet can pay a metered call:
+
+- **exact** (default): the 402 quotes the call from its body (input + your
+  `max_tokens` at the model's list price, x1.15) and the wallet pays that quote.
+- **upto, actual usage**: run `agent402-openclaw permit2-approve` once (one USDC
+  approval transaction on Base; the wallet needs a little ETH for gas). From
+  then on the proxy authorizes the quote as a CEILING and the gateway settles
+  what the call actually cost x1.15, so a short answer costs a fraction of the
+  quote. `agent402-openclaw doctor` says which mode the wallet is in.
+
+Card / credits buyers already pay actual usage on metered calls.
+
 ## Models and pricing
 
 `auto` (routed per prompt, flat $0.01/call) plus every id from
@@ -65,5 +77,6 @@ the key.
 - `agent402-openclaw setup [--credits-key K | --credits-key - (stdin) | AGENT402_CREDITS_KEY env] [--write] [--port N] [--flat]`
 - `agent402-openclaw proxy [--port N] [--upstream URL]`
 - `agent402-openclaw doctor`
+- `agent402-openclaw permit2-approve [--rpc URL]` (one-time USDC approval so the wallet pays actual usage over upto)
 
 Zero dependencies. MIT. Maintained by Havok Holdings LLC.

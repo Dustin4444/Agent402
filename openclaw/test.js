@@ -19,7 +19,7 @@ const run = (cliArgs, env) => new Promise((resolve) => {
 });
 import { startProxy } from "./proxy.js";
 import { routesFromCatalog, openclawModels, AUTO_ID, defaultPrimary, METERED_MAX_INPUT_CHARS, METERED_MAX_TOKENS } from "./models.js";
-import plugin, { resolveCreditsKey } from "./index.js";
+import plugin, { resolveCreditsKey, selectAccept, uptoReady, PERMIT2_READY_MIN } from "./index.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { c ? pass++ : fail++; console.log(`${c ? "ok" : "FAIL"} - ${m}`); };
@@ -54,6 +54,15 @@ const stub = createServer((req, res) => {
 });
 await new Promise((r) => stub.listen(0, "127.0.0.1", r));
 const upstream = `http://127.0.0.1:${stub.address().port}`;
+
+// ---- x402 accept selection (upto = settle actual usage; exact = the quote) ----
+{
+  const accepts = [{ scheme: "exact", network: "eip155:8453", amount: "1000" }, { scheme: "upto", network: "eip155:8453", amount: "1000" }, { scheme: "exact", network: "eip155:137" }];
+  ok(selectAccept(accepts).scheme === "upto", "with a Permit2 allowance the proxy picks upto on Base (the quote becomes a ceiling, actual usage settles)");
+  ok(selectAccept(accepts, { preferUpto: false }).scheme === "exact" && selectAccept(accepts, { preferUpto: false }).network === "eip155:8453", "without the allowance it picks exact on Base");
+  ok(selectAccept([{ scheme: "exact", network: "eip155:137" }]).network === "eip155:137" && selectAccept([]) === undefined, "falls back to the first accept; an empty list yields nothing");
+  ok(uptoReady(PERMIT2_READY_MIN) && uptoReady("115792089237316195423570985008687907853269984665640564039457584007913129639935") && !uptoReady(0n) && !uptoReady(999n) && !uptoReady("garbage"), "uptoReady: a max-uint (or any >= 1M USDC) Permit2 allowance counts; dust, zero and junk do not");
+}
 
 // ---- models.js ------------------------------------------------------------
 {
