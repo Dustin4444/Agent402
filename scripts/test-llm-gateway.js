@@ -1147,5 +1147,17 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   ok(!listed.some((m) => m.x402.tier === "v1-chat-metered") && listed.filter((m) => m.x402.meteredEndpoint === "/v1/metered/chat/completions").length > 30, "/v1/models lists no duplicate metered ids; chat entries carry meteredEndpoint instead");
 }
 
+
+// ---- reasoning budget must sit under the priced output cap (audit 2026-08-26) ----
+{
+  const base = { model: "anthropic/claude-opus-5", messages: [{ role: "user", content: "hi" }] };
+  let e = null; try { validateRequest({ ...base, max_tokens: 64, reasoning: { max_tokens: 8000 } }, "v1-chat-premium"); } catch (x) { e = x; }
+  ok(e?.statusCode === 400 && /below "max_tokens"/.test(e.message), "reasoning.max_tokens >= max_tokens is refused pre-spend (the quote priced max_tokens as the whole output)");
+  let e2 = null; try { validateRequest({ ...base, max_tokens: 64, reasoning: { max_tokens: 64 } }, "v1-chat-premium"); } catch (x) { e2 = x; }
+  ok(e2?.statusCode === 400, "equal budgets are refused too (strictly below)");
+  const v = validateRequest({ ...base, max_tokens: 2000, reasoning: { max_tokens: 1000 } }, "v1-chat-metered");
+  ok(v.reasoning?.max_tokens === 1000 && v.max_tokens === 2000, "a reasoning budget under max_tokens passes on the metered tier");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

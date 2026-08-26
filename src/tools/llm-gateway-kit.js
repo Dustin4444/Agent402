@@ -1356,6 +1356,15 @@ export function validateRequest(input, tierSlug, { clamp = true } = {}) {
   // Buyer reasoning preference (changes the answer -> normalized body).
   const reasoning = validateReasoning(input, tier);
   if (reasoning !== undefined) body.reasoning = reasoning;
+  // Anthropic's own rule, enforced for every model: the reasoning budget must
+  // be strictly below max_tokens. The clamp and the metered quote price
+  // `max_tokens` as the whole output; a reasoning budget at or above it would
+  // let upstream raise the effective output past what was priced (audit
+  // 2026-08-26 - OpenRouter's documented behaviour on Anthropic is to require
+  // max_tokens > budget, and we do not rely on it rejecting rather than raising).
+  if (reasoning?.max_tokens !== undefined && reasoning.max_tokens >= maxTokens) {
+    throw bad(`"reasoning.max_tokens" (${reasoning.max_tokens}) must be below "max_tokens" (${maxTokens}) - reasoning tokens are output tokens and the whole output is what is priced`);
+  }
   // Tools are OpenAI function-calling entries ONLY. OpenRouter also serves
   // SERVER-SIDE tool types (openrouter:subagent fans out to up to 10 worker
   // models billed to us at their rates; openrouter:advisor consults pricier
