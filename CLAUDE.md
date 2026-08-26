@@ -334,6 +334,21 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   (their live 402 quotes $0.002 for a 50-token gpt-4o-mini call). `test-pricing-margin` asserts quote >= worst
   case x markup on this tier instead of "< price"; `test-price-premium` pins the function price; `test-llm-gateway`
   pins floor/growth/cap/refusal.
+- **Dossier inputs: operating-to-net bridge + verbatim filing excerpts (2026-08-26, `dossier-kit.js`,
+  `scripts/test-dossier-inputs.js`):** a customer's INTC ticker pack listed "the unexplained $11.03B quarterly net loss ...
+  cannot be reconciled from the material provided" as a RED FLAG. The 10-Q explains it in one sentence (a $12.5B fair-value
+  loss on Escrowed Shares issued to the US Government) and XBRL carries it (`NonoperatingIncomeExpense` -$12.58B); the
+  pipeline had fed the synthesis nine headline concepts plus filing TITLES, no filing text, no bridging lines - the model was
+  honest about thin inputs, the inputs were the defect. Now: `FIN_CONCEPTS` carries non-operating / pre-tax / tax;
+  `incomeBridge()` emits an OPERATING-TO-NET BRIDGE block for the newest period whose ends disagree by >15% (reported lines,
+  remainder, "explained" verdict); `pullFilingExcerpts()` reads the newest 10-Q (else 10-K) primary document ONCE (bounded,
+  iXBRL `<ix:header>` stripped, XBRL-id soup filtered) and hands the synthesis <= 6k chars of verbatim windows around a fixed
+  vocabulary (`EXCERPT_TERMS`: mark-to-market, fair value, escrow, warrant, impairment, restructuring, going concern,
+  material weakness, ...) under the filing's own source number; prompt rule 4b: A GAP IN THIS MATERIAL IS NEVER A FINDING
+  ABOUT THE COMPANY ("the material provided here does not explain ..." - never "unexplained"/"undisclosed"/red flag).
+  Live-verified on INTC the same day: "That gap is not a mystery: the filing attributes it to a $12.5 billion ... mark-to-
+  market loss on the Escrowed Shares derivative liability [4]". Ticker pack inherits it (same handler). Note `fmtUsd` now
+  renders negatives as `-$12.58B` (was `$-12.58B`).
 - **agent402-openclaw is tested against a REAL OpenClaw (2026-08-26, `openclaw/test-real-install.js`, in CI):** `npm i
   openclaw@latest` (~90 MB, Node >= 22.22) into a scratch dir, `npm pack` + `npm i -g` (the bin symlink), `openclaw plugins
   install <tgz>`, `setup --write` through the symlink against a stub gateway, `openclaw models list/status`, `openclaw
