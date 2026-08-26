@@ -37,7 +37,7 @@ export const WHY_POINTS = [
   {
     id: "deliverables",
     kicker: "05 / DELIVERABLES",
-    h: "Finished work, not only tokens.",
+    h: "Finished work, ready to use.",
     p: "Company dossiers, insider flow, 13F holdings, filing reports, IPO digests, domain audits, token risk, deep research, market briefs, recall watch and a LinkedIn article package, grounded in primary sources with a data appendix. Monitors probe daily for free and re-run the paid report when the facts change.",
     links: [["/reports", "report products"], ["/monitors", "monitors"]],
   },
@@ -51,7 +51,7 @@ export const WHY_POINTS = [
   {
     id: "proof",
     kicker: "07 / PROOF",
-    h: "Proof, not promises.",
+    h: "Everything is checkable.",
     p: "Uptime is observed by two probes outside production, a real-money canary buys through every rail daily, transactions are published by rail and by wire, and the whole server is open source and self-hostable. Tools are deterministic: no model in the serving path.",
     links: [["/status", "status"], ["/revenue", "transactions"], ["https://github.com/MikeyPetrillo/Agent402", "source"]],
   },
@@ -99,18 +99,19 @@ export function whyPage(baseUrl) {
       <a href="/" style="color:var(--muted);text-decoration:none;">agent402</a> / <span style="color:var(--ink);">why pay here</span>
     </nav>
     <h1 style="font-weight:800;font-size:52px;line-height:.96;letter-spacing:-.035em;margin:0 0 22px;color:var(--ink);max-width:900px;">Seven things that are different about paying here.</h1>
-    <p style="font-size:18px;line-height:1.55;color:var(--muted);max-width:820px;margin:0;">Every claim on this page links to the surface that proves it. Nothing here is a comparison; it is what the server does, measured on the server.</p>
+    <p style="font-size:18px;line-height:1.55;color:var(--muted);max-width:820px;margin:0;">Every claim on this page links to the surface that proves it: what the server does, measured on the server, on the open protocols anyone can build on, x402 and MPP.</p>
   </div>
 </header>
 ${pointsHtml}
 <section style="max-width:1180px;margin:0 auto;padding:56px 30px 56px;">
   <div style="background:var(--surface);border:1px solid var(--hairline);padding:44px 40px;">
     <h2 style="font-weight:800;font-size:32px;line-height:1.05;letter-spacing:-.025em;margin:0 0 14px;color:var(--on-dark);">Start with one call.</h2>
-    <p style="font-size:16px;line-height:1.6;color:var(--dk-muted2);margin:0 0 24px;max-width:600px;">Add the hosted MCP connector, buy prepaid credits by card, or pay per call in USDC from a wallet. All three reach the same catalog.</p>
+    <p style="font-size:16px;line-height:1.6;color:var(--dk-muted2);margin:0 0 24px;max-width:600px;">Add the hosted MCP connector, buy prepaid credits by card, or pay per call in USDC from a wallet. All three reach the same catalog. Selling into it is open too: the tollbooth charges agents per request on your own API over both protocols.</p>
     <div style="display:flex;gap:11px;flex-wrap:wrap;">
       <a href="/docs#add" style="background:var(--accent);color:var(--on-accent);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 24px;">ADD TO YOUR AGENT →</a>
       <a href="/credits" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 24px;">PREPAID CREDITS</a>
       <a href="/reports" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 24px;">GET A REPORT</a>
+      <a href="/sell" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 24px;">SELL YOUR API</a>
     </div>
   </div>
 </section>

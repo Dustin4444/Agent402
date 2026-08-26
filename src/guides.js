@@ -1025,7 +1025,7 @@ receipt shape:
 - **Routing that buys on your behalf**: \`POST /api/route/execute\` pays the
   best proven external seller for a task and relays the result.
 
-Why pay here rather than anywhere else, in one page with the proof links:
+Why pay here, in one page with the proof links:
 [agent402.tools/why](https://agent402.tools/why). The short version: usage is
 priced under a ceiling you see before you pay, a failed call is not charged and the
 receipt proves it, a keyed retry never pays twice, and uptime and transactions are published from
