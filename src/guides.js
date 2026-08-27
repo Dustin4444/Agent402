@@ -1104,12 +1104,17 @@ $${TIERS["v1-chat-metered"].price}); \`--flat\` keeps the flat tiers:
 
 \`\`\`bash
 openclaw plugins install agent402-openclaw
-npx agent402-openclaw setup --credits-key a402_... --write   # or set AGENT402_WALLET_KEY for x402
+npx agent402-openclaw setup --write        # no key? it mints a wallet and prints the address to fund
 openclaw gateway restart
 \`\`\`
 
-Every forwarded call carries an \`Idempotency-Key\`, so a retry replays the paid
-answer instead of paying twice. The plain config block above needs no plugin and
+With no credits key and no \`AGENT402_WALLET_KEY\`, \`setup\` generates a wallet
+into \`~/.openclaw/agent402/wallet.key\` (0600, never printed) and tells you the
+address: send it USDC on Base and every call is paid from it over x402, from
+$${TIERS["v1-chat-metered"].price} a call. \`agent402-openclaw wallet\` shows the
+balance; \`--credits-key a402_...\` is the card path instead. Every forwarded
+call carries an \`Idempotency-Key\`, so a retry replays the paid answer instead
+of paying twice. The plain config block above needs no plugin and
 stays the simplest path for a credits key.
 
 ## What you get that a plain router does not
