@@ -20,6 +20,13 @@ jobs:
         with:
           node-version: 22
       - run: npm ci --ignore-scripts
+      - name: Control - the same CLI path through PayAI's keyless facilitator
+        env:
+          BURNER_KEY: ${{ secrets.BURNER_KEY }}
+          CONTROL: payai
+        run: |
+          echo "::add-mask::$BURNER_KEY"
+          node scripts/tollbooth-cdp-live.js
       - name: Boot the CLI middleware with CDP keys and pay it once
         env:
           CDP_API_KEY_ID: ${{ secrets.CDP_API_KEY_ID }}

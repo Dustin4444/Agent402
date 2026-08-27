@@ -22,8 +22,12 @@ jobs:
           node-version: 22
       - name: Install AgentKit + the adapter into a scratch dir
         run: |
+          # Pack the adapter from the checkout and install the tarball: a folder
+          # install is a symlink, and a symlinked package resolves its own
+          # dependencies (agent402-client) from the checkout, not the scratch dir.
+          TGZ=$(cd "$GITHUB_WORKSPACE/adapters/agentkit" && npm pack --silent | tail -1)
           mkdir -p /tmp/akproof && cd /tmp/akproof && npm init -y >/dev/null
-          npm i --no-audit --no-fund --ignore-scripts @coinbase/agentkit@0.10.4 viem "$GITHUB_WORKSPACE/adapters/agentkit" @x402/fetch @x402/evm zod
+          npm i --no-audit --no-fund --ignore-scripts @coinbase/agentkit@0.10.4 viem "$GITHUB_WORKSPACE/adapters/agentkit/$TGZ" @x402/fetch @x402/evm zod
           cp "$GITHUB_WORKSPACE/scripts/agentkit-live.js" .
       - name: Drive agent402_find + agent402_call with a real wallet provider
         env:
