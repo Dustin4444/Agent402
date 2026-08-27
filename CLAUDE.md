@@ -2019,6 +2019,14 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   bound drains the loop and exits 0, which is exactly the shape a bound listener cannot produce. Now the test passes
   `PORT=0`, the CLI banner prints the BOUND port (`server.address().port`), and the test reads it from the log. When a
   test needs a port: `0` + read it back, else pick under 32768. The `beforeExit`/`close`/`error` instrumentation stays.
+  **Fleet sweep the same day:** `scripts/lib/free-port.js` (`getFreePort`/`getFreePorts`, OS-assigned on 127.0.0.1)
+  replaces every pid-derived port (operator-auth, security-headers, drain-on-sigterm, drain-refuses-composites,
+  coldstart, trial); every booted-server boot wait is >= 60 s (the 40 x 500 ms loops in idempotency, mpp-shim,
+  mpp-tempo-shim, head-paywall, wildcard-route-bypass, correctness-fixes and cache-hygiene's 50 x 400 were 20 s, under
+  the measured post-listen boot stall on a loaded runner); `scripts/test-port-hygiene.js` (CI) fails on any test port
+  that is pid/random-derived or >= 32768. Still open with instrumentation only: test-security-headers once saw
+  "listening", no stall, and 60 s of `fetch failed` with no error code (run 33100641970) - it now logs the full cause
+  and a raw TCP probe on failure; read that before touching its timeout.
 - **Cost audit 2026-08-27 (PostHog + operator ledgers + Railway logs):** no buyer over/undercharging found (0 charged-failures
   since 07-16, 0 refunds owed, 0 gateway calls over the 70% bound, ledger vs PostHog settlements reconcile). The month's
   upstream spend was ~$29 OpenRouter+Brave, of which ~$21 landed on 2026-08-21 (577 OpenRouter generations, 114 Opus, 491

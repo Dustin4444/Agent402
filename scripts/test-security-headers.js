@@ -3,12 +3,13 @@
 // security.txt is served, /health hides its internal wiring from the public,
 // and the /mcp CORS stays wildcard-but-credential-free.
 import { spawn } from "node:child_process";
+import { getFreePort } from "./lib/free-port.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const PORT = 3520 + (process.pid % 300);
+const PORT = await getFreePort();
 const base = `http://127.0.0.1:${PORT}`;
 // stdio was "ignore", so a boot failure printed "FAIL - server booted" and
 // nothing else - no exit code, no stack, no port. This failed once in CI and

@@ -46,7 +46,7 @@ const proc = spawn("node", ["src/server.js"], {
 });
 
 try {
-  for (let i = 0; i < 40; i++) { try { if ((await fetch(`${B}/health`)).ok) break; } catch {} await sleep(500); }
+  for (let i = 0; i < 120; i++) { try { if ((await fetch(`${B}/health`)).ok) break; } catch {} await sleep(500); }
 
   const head = await fetch(`${B}/api/uuid`, { method: "HEAD" });
   ok(head.status === 402, `unpaid HEAD on a paid GET tool -> 402 (got ${head.status})`);
