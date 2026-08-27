@@ -526,8 +526,7 @@ export const TIERS = {
 // measured 170x-2,162x upstream on the chat tiers (see gateway-meter.js). The
 // `upto` meter already fixes that for buyers whose client speaks upto: they
 // authorize the tier price as a ceiling and settle actual usage + 15%. But
-// most x402 clients (ClawRouter and every stock exact-scheme client among
-// them) pay `exact`, and for them the price IS what the 402 says.
+// most x402 clients (every stock exact-scheme client among them) pay `exact`, and for them the price IS what the 402 says.
 //
 // So this tier quotes the 402 amount FROM THE REQUEST BODY: @x402/core
 // resolves a `price` function per request (payments.js acceptsForItem hands

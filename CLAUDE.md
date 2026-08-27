@@ -334,8 +334,8 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `req.__meteredQuoteUsd` as the ceiling, so an upto buyer settles actual x 1.15 under the quote. The Tempo, Stripe
   and credits gates price through `quotedPriceUsd(def, req)` (server.js) so a metered call is bound/held at its
   quote, never the $0.001 catalog floor. Why: flat tiers are 170x-2,162x upstream on small calls, and exact-only
-  clients (ClawRouter, most stock x402 clients) never see the upto meter - this is the BlockRun-shaped price
-  (their live 402 quotes $0.002 for a 50-token gpt-4o-mini call). `test-pricing-margin` asserts quote >= worst
+  clients (most stock x402 clients) never see the upto meter - this is the per-token-router-shaped price
+  (a comparable live 402 elsewhere quotes $0.002 for a 50-token gpt-4o-mini call). `test-pricing-margin` asserts quote >= worst
   case x markup on this tier instead of "< price"; `test-price-premium` pins the function price; `test-llm-gateway`
   pins floor/growth/cap/refusal.
 - **Dossier inputs: operating-to-net bridge + verbatim filing excerpts (2026-08-26, `dossier-kit.js`,
@@ -452,7 +452,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   (`selectAccept`) picks the `upto` accept - the quote becomes a ceiling and the gateway settles actual x 1.15; without
   it, exact (the quote) as before, with a one-line hint. `agent402-openclaw permit2-approve` sends the one-time USDC ->
   Permit2 approval (viem wallet client; the wallet needs a little ETH on Base for gas); `doctor` reports the mode.
-  Why: BlockRun bills actual tokens + 5%; with (1)+(2) every buyer of ours pays actual x 1.15 + the $0.001 facilitator
+  Why: per-token routers bill actual tokens plus a few percent; with (1)+(2) every buyer of ours pays actual x 1.15 + the $0.001 facilitator
   floor, and the remaining gap is the markup, a pricing call. Live proof = the paid canary's `metered-upto` rail leg (2026-08-26): the CI burner ALREADY held a max Permit2
   allowance on Base USDC (read on-chain: 2^256-1 minus 64,400 units, so ~$0.064 had flowed through it before the leg existed -
   the earlier note here that it had none was wrong), so `permit2-approve` was a no-op and no approval tx was sent; the leg
@@ -1957,7 +1957,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `unattributed` (unknown). Submitted-seed slots: 586 of the 2,000 cap in use (2026-08-27). test-settlement-proof 44.
 
 - **PostHog ingestion is scanner-bounded, not traffic-bounded (2026-08-27):** the 08-25 spike (109,729 events vs
-  ~40k/day) was ONE external scanner (`ox402-scout`, one IP) hitting the free `GET /api/find` twice a second for 12
+  ~40k/day) was ONE external scanner (one UA, one IP) hitting the free `GET /api/find` twice a second for 12
   hours - 57,277 `tool_call` events from one caller; and the 30-day baseline (~990k, at PostHog's 1M/month allowance)
   was 38% `tool_gone` (four scanners re-walk all ~970 retired `/api/convert/*` routes daily; the 500/hour cap WAS the
   volume) + 26% `discovery` + 19% `tool_call` - events with money in them were ~2%. Now every free-surface stream is
