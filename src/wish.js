@@ -13,6 +13,7 @@ import {
   openSync, readSync, closeSync,
 } from "node:fs";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import { logSafe } from "./log-safe.js";
 
 const HAS_DATA_DIR = existsSync("/data");
@@ -74,13 +75,39 @@ export const WISH_THRESHOLD = 5;
 // only governs which clusters auto-open an issue.
 export const QUALIFY_MIN_SPAN_MS = 24 * 3_600_000; // 24h
 
+// Distinct CALLERS a cluster needs before it qualifies. Measured 2026-08-27:
+// one scripted sweep re-ran ~30 queries against /api/find for two days and,
+// because find-miss recording is rate-limit exempt and had no per-caller
+// dedupe, every one of them "qualified" (5+ hits over 24h from ONE source
+// that was really one machine). A caller is a day-scoped hash of the IP
+// (never the IP itself, see callerHash): the same machine on the same day
+// is one caller however many times it asks. Three distinct callers is the
+// bar; a single bot can no longer manufacture a qualified cluster, and a
+// patient bot now needs three machines or three days.
+export const QUALIFY_MIN_CALLERS = 3;
+const CALLERS_PER_CLUSTER_CAP = 1000;
+
+// The served-overlay floor. FIND_WEAK_SCORE (3) is the threshold below which
+// /api/find records a miss; reusing it as the "served" bar marked 17 of 48
+// qualified clusters as served by matches scoring 5 to 24 ("todo task
+// manager" -> fund-report at 5). A cluster is served only when the catalog
+// answers it with a real match.
+export const WISH_SERVED_MIN_SCORE = 45;
+
+/** Day-scoped, salted caller fingerprint: sha256(ip|UTC day) prefix. Never the IP. */
+export function callerHash(ip, ts = Date.now()) {
+  const day = new Date(ts).toISOString().slice(0, 10);
+  return createHash("sha256").update(`${ip || "?"}|${day}`).digest("hex").slice(0, 12);
+}
+
 // Does a cluster's shape clear the anti-spam bar described above? Exported so
 // the wish-issues workflow's gate and the unit tests share one definition.
 export function clusterQualifies(c) {
   if (!c || c.count < WISH_THRESHOLD) return false;
   const distinctSources = ["api", "mcp", "find-miss"].filter((s) => (c.sources?.[s] || 0) > 0).length;
   const spanMs = (c.lastSeen || 0) - (c.firstSeen || 0);
-  return distinctSources >= 2 || spanMs >= QUALIFY_MIN_SPAN_MS;
+  const callers = c.callers instanceof Set ? c.callers.size : (c.callerCount || 0);
+  return callers >= QUALIFY_MIN_CALLERS && (distinctSources >= 2 || spanMs >= QUALIFY_MIN_SPAN_MS);
 }
 
 /**
@@ -129,7 +156,7 @@ export function isNonQuery(key) {
 
 let overflowWarned = false;
 
-function upsertCluster(key, source, ts) {
+function upsertCluster(key, source, ts, caller) {
   let c = clusters.get(key);
   if (!c) {
     if (clusters.size >= CLUSTER_CAP) {
@@ -144,14 +171,15 @@ function upsertCluster(key, source, ts) {
         overflowWarned = true;
         console.warn(`[wish] cluster cap reached (${CLUSTER_CAP}) - NEW distinct wishes are being DROPPED and the demand board is no longer complete. Investigate before trusting it.`);
       }
-      return { count: 1, firstSeen: ts, lastSeen: ts, sources: { [source]: 1 }, issueOpened: false, __overflow: true };
+      return { count: 1, firstSeen: ts, lastSeen: ts, sources: { [source]: 1 }, issueOpened: false, callers: new Set(caller ? [caller] : []), __overflow: true };
     }
-    c = { count: 0, firstSeen: ts, lastSeen: ts, sources: { api: 0, mcp: 0, "find-miss": 0 }, issueOpened: false };
+    c = { count: 0, firstSeen: ts, lastSeen: ts, sources: { api: 0, mcp: 0, "find-miss": 0 }, issueOpened: false, callers: new Set() };
     clusters.set(key, c);
   }
   c.count++;
   c.lastSeen = ts;
   c.sources[source] = (c.sources[source] || 0) + 1;
+  if (caller && c.callers.size < CALLERS_PER_CLUSTER_CAP) c.callers.add(caller);
   return c;
 }
 
@@ -209,7 +237,7 @@ function rebuildFromFile() {
       }
       if (rec && typeof rec.need === "string") {
         const key = normalize(rec.need);
-        if (key) upsertCluster(key, ["api", "mcp", "find-miss"].includes(rec.source) ? rec.source : "api", rec.ts || Date.now());
+        if (key) upsertCluster(key, ["api", "mcp", "find-miss"].includes(rec.source) ? rec.source : "api", rec.ts || Date.now(), typeof rec.caller === "string" ? rec.caller : null);
       }
     }
     if (!truncated) {
@@ -322,8 +350,20 @@ export function recordWish({ need, context, source, ip } = {}) {
   }
 
   const now = Date.now();
-  const cluster = upsertCluster(key, src, now);
-  appendLine({ need: needTrimmed, context: contextTrimmed, source: src, ts: now });
+  // No caller identity (no ip reached us) -> no caller is credited and no
+  // dedupe applies: an anonymous signal still counts once, it just cannot
+  // help a cluster qualify, and it must never collapse everyone into "?".
+  const caller = typeof ip === "string" && ip && ip !== "?" ? callerHash(ip, now) : null;
+  if (exempt && caller) {
+    // One find-miss per caller per need per day. The same machine re-running
+    // the same query is one signal, not sixty; it is still recorded once.
+    const existing = clusters.get(key);
+    if (existing && existing.callers instanceof Set && existing.callers.has(caller) && (existing.sources["find-miss"] || 0) > 0) {
+      return { recorded: false, reason: "duplicate find-miss from this caller today" };
+    }
+  }
+  const cluster = upsertCluster(key, src, now, caller);
+  appendLine({ need: needTrimmed, context: contextTrimmed, source: src, ts: now, caller });
 
   if (!exempt && !cluster.__overflow && cluster.count === WISH_THRESHOLD && !cluster.issueOpened) {
     cluster.issueOpened = true;
@@ -376,6 +416,7 @@ export function getWishesAggregate({ limit = 200, detailed = false } = {}) {
     totalWishes: [...clusters.values()].reduce((s, c) => s + c.count, 0),
     threshold: WISH_THRESHOLD,
     qualifyMinSpanHours: QUALIFY_MIN_SPAN_MS / 3_600_000,
+    qualifyMinCallers: QUALIFY_MIN_CALLERS,
   };
   if (!detailed) {
     // Public beacon: aggregates only. Expose how many clusters are hot enough
@@ -389,6 +430,9 @@ export function getWishesAggregate({ limit = 200, detailed = false } = {}) {
       text: esc(key),
       count: c.count,
       sources: { api: c.sources.api || 0, mcp: c.sources.mcp || 0, "find-miss": c.sources["find-miss"] || 0 },
+      // Distinct day-scoped caller hashes seen (never addresses). Legacy
+      // lines carry no caller, so old clusters read 0 until fresh signals.
+      callers: c.callers instanceof Set ? c.callers.size : 0,
       firstSeen: new Date(c.firstSeen).toISOString(),
       lastSeen: new Date(c.lastSeen).toISOString(),
       issueOpened: !!c.issueOpened,

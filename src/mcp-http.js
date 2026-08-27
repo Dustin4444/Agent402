@@ -691,7 +691,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           // is what makes a genuine miss observable.
           const weak = r.count === 0 || topScore < FIND_WEAK_SCORE || r.rarestTermCovered === false;
           if (weak && taskStr.trim() && !relatedSellers) {
-            try { recordWish({ need: taskStr.trim(), source: "find-miss" }); } catch { /* best-effort */ }
+            try { recordWish({ need: taskStr.trim(), source: "find-miss", ip }); } catch { /* best-effort */ }
           }
           if (!results.length && !r.packs?.length) {
             return mcpJsonResult({

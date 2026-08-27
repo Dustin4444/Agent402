@@ -75,6 +75,14 @@ const merchant = (m, payments, payers = 3, volumeUsd = 1) => ({ merchant: m, pay
 
   const quiet = unattributedMerchants({ sellers, merchants: [merchant(B, 10)], minPayments: 50 });
   ok(quiet.unattributedCount === 0, "a merchant below the threshold is not counted as a gap");
+  // Attribution is wider than routability: an origin we know (crawled but
+  // down, or Bazaar-listed) that advertises B is a different finding from
+  // "no idea who this is", and is reported as such.
+  const known = new Map([[B.toLowerCase(), new Set(["https://listed-but-down.example"])]]);
+  const gap2 = unattributedMerchants({ sellers, merchants, ourAddresses: [OURS], minPayments: 50, knownPayToOrigins: known });
+  ok(gap2.unattributedCount === 0 && gap2.attributedUnroutableCount === 1 && gap2.attributedUnroutable[0].origins[0] === "https://listed-but-down.example",
+    `a merchant whose address a known origin advertises is attributed (unroutable), not a blind spot (got unattributed=${gap2.unattributedCount} unroutable=${gap2.attributedUnroutableCount})`);
+  ok(gap2.originsWithKnownPayTo === 3, `known payTos = routable + attributed + ours (got ${gap2.originsWithKnownPayTo})`);
 }
 
 // --- THE HONESTY INVARIANT -------------------------------------------------
