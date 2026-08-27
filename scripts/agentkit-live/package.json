@@ -1,0 +1,14 @@
+{
+  "name": "agentkit-live-proof",
+  "private": true,
+  "type": "module",
+  "description": "Pinned dependency tree for .github/workflows/agentkit-live.yml (never run with secrets against an unpinned tree).",
+  "dependencies": {
+    "@coinbase/agentkit": "0.10.4",
+    "@x402/evm": "2.22.0",
+    "@x402/fetch": "2.22.0",
+    "agent402-client": "0.8.1",
+    "viem": "2.38.3",
+    "zod": "3.25.76"
+  }
+}

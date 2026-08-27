@@ -20,21 +20,24 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
-      - name: Install AgentKit + the adapter into a scratch dir
+      - name: Install the PINNED proof tree + the adapter tarball
         run: |
-          # Pack the adapter from the checkout and install the tarball: a folder
-          # install is a symlink, and a symlinked package resolves its own
-          # dependencies (agent402-client) from the checkout, not the scratch dir.
+          # scripts/agentkit-live/package-lock.json pins the whole tree: a
+          # third-party dependency tree that runs beside a funded key must never
+          # be resolved fresh at dispatch time. The adapter itself is packed
+          # from the checkout (a folder install is a symlink and would resolve
+          # its own dependencies from the repo, not this dir).
           TGZ=$(cd "$GITHUB_WORKSPACE/adapters/agentkit" && npm pack --silent | tail -1)
-          mkdir -p /tmp/akproof && cd /tmp/akproof && npm init -y >/dev/null
-          npm i --no-audit --no-fund --ignore-scripts @coinbase/agentkit@0.10.4 viem "$GITHUB_WORKSPACE/adapters/agentkit/$TGZ" @x402/fetch @x402/evm zod
-          cp "$GITHUB_WORKSPACE/scripts/agentkit-live.js" .
+          mkdir -p /tmp/akproof && cp "$GITHUB_WORKSPACE"/scripts/agentkit-live/package.json "$GITHUB_WORKSPACE"/scripts/agentkit-live/package-lock.json "$GITHUB_WORKSPACE"/scripts/agentkit-live/agentkit-live.js /tmp/akproof/
+          cd /tmp/akproof && npm ci --ignore-scripts --no-audit --no-fund
+          npm i --no-save --ignore-scripts --no-audit --no-fund "$GITHUB_WORKSPACE/adapters/agentkit/$TGZ"
       - name: Drive agent402_find + agent402_call with a real wallet provider
         env:
           BURNER_KEY: ${{ secrets.BURNER_KEY }}
-          POW_SECRET: ${{ secrets.POW_SECRET }}
-          AGENTKIT_ADAPTER: agent402-agentkit
         run: |
           [ -n "$BURNER_KEY" ] || { echo "::error::BURNER_KEY secret missing"; exit 1; }
-          echo "::add-mask::$BURNER_KEY"; [ -n "$POW_SECRET" ] && echo "::add-mask::$POW_SECRET"
-          cd /tmp/akproof && node agentkit-live.js
+          echo "::add-mask::$BURNER_KEY"
+          # Allowlisted env: the third-party tree sees the burner key it needs
+          # to sign and nothing else (no POW_SECRET: the burner payer is
+          # classified internal by address in the sales ledger already).
+          cd /tmp/akproof && env -i PATH="$PATH" HOME="$HOME" BURNER_KEY="$BURNER_KEY" TARGET_URL="https://agent402.tools" AGENTKIT_ADAPTER="agent402-agentkit" node agentkit-live.js

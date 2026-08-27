@@ -5,9 +5,8 @@
 // real x402 USDC micropayment and return the tool's result. Asserts the
 // settled PAYMENT-RESPONSE receipt (success, payer = burner, tx hash) captured
 // from the paid retry. Dispatch-only (.github/workflows/agentkit-live.yml).
-// Run from a scratch dir where @coinbase/agentkit and agent402-agentkit are
-// installed (the workflow does that); AGENTKIT_ADAPTER points at the adapter.
-import { createHmac } from "node:crypto";
+// Runs from a scratch dir holding the PINNED tree in scripts/agentkit-live/
+// (package-lock.json) plus the packed adapter; AGENTKIT_ADAPTER names it.
 import { createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
@@ -26,13 +25,12 @@ const { agent402Actions } = await import(process.env.AGENTKIT_ADAPTER || "agent4
 const account = privateKeyToAccount(pk.startsWith("0x") ? pk : `0x${pk}`);
 const walletProvider = new ViemWalletProvider(createWalletClient({ account, chain: base, transport: http(process.env.BASE_RPC_URL || "https://mainnet.base.org") }));
 
-// Mark the buy as internal (heartbeat token, minute-scoped HMAC) exactly like
-// the paid canary, so the sales ledger files it as ours; capture the receipt.
-const secret = (process.env.POW_SECRET || "").trim();
+// The burner payer is classified internal by address in the sales ledger, so
+// no heartbeat token (and no POW_SECRET) rides with this third-party tree.
+// Capture the settled receipt from the paid retry.
 let lastReceipt = null, paidRetries = 0;
 const fetchImpl = async (input, init) => {
   const req = new Request(input, init);
-  if (secret) req.headers.set("X-Heartbeat-Token", createHmac("sha256", secret).update(`heartbeat:${Math.floor(Date.now() / 60_000)}`).digest("base64url").slice(0, 32));
   if (req.headers.get("payment-signature") || req.headers.get("x-payment")) paidRetries++;
   const res = await fetch(req);
   const rh = res.headers.get("payment-response");
