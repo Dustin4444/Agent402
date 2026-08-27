@@ -4042,6 +4042,32 @@ jobs:
             echo "published agent402-openclaw@$VERSION → https://www.npmjs.com/package/agent402-openclaw"
           fi
 
+      # ClawHub is OpenClaw's discovery surface (`openclaw plugins install
+      # clawhub:agent402-openclaw`); their docs keep no static third-party
+      # catalog, so this release is the listing. Token-authenticated (repo secret
+      # CLAWHUB_TOKEN, a ClawHub CLI token on the publisher account; the CLI reads
+      # it from its config file, written under a job-scoped path so nothing lands
+      # in the runner home). Idempotent: an already-published version is skipped,
+      # never re-uploaded. A missing token skips loudly instead of failing the
+      # npm publish that already happened.
+      - name: Publish agent402-openclaw to ClawHub
+        env:
+          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+          CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub-config.json
+        run: |
+          if [ -z "$CLAWHUB_TOKEN" ]; then echo "::warning::CLAWHUB_TOKEN not set - ClawHub release skipped"; exit 0; fi
+          VERSION=$(node -p "require('./openclaw/package.json').version")
+          npx -y clawhub@0.23.3 login --token "$CLAWHUB_TOKEN" --no-browser --label "github-actions deploy.yml" >/dev/null
+          if npx -y clawhub@0.23.3 package inspect agent402-openclaw --version "$VERSION" >/dev/null 2>&1; then
+            echo "agent402-openclaw@$VERSION is already on ClawHub — nothing to do"
+          else
+            npx -y clawhub@0.23.3 package publish ./openclaw \
+              --source-repo "$GITHUB_REPOSITORY" --source-commit "$GITHUB_SHA" --source-ref "$GITHUB_REF_NAME" --source-path openclaw \
+              --changelog "agent402-openclaw $VERSION (see the package README and CHANGELOG at https://agent402.tools/changelog)"
+            echo "published agent402-openclaw@$VERSION → https://clawhub.ai/plugins/agent402-openclaw (hidden until ClawHub review completes)"
+          fi
+          rm -f "$CLAWHUB_CONFIG_PATH"
+
       - name: Boot FREE_MODE server for adapter tests
         run: |
           FREE_MODE=true PORT=3090 node src/server.js > /tmp/a402-adapter.log 2>&1 &
