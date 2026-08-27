@@ -1,0 +1,68 @@
+# agent402-agentkit
+
+[Agent402](https://agent402.tools) as a [Coinbase AgentKit](https://github.com/coinbase/agentkit)
+action provider: give an agent with a CDP wallet (or any AgentKit wallet
+provider) 500+ pay-per-call web tools through three actions, paying under the
+hood over x402 in USDC from the agent's own wallet, or free via proof-of-work.
+
+> **Agent402 is the applied layer of [Agentic Finance](https://agent402.tools/agentic-finance)** - agents that pay and get paid on their own over the two open wires, [x402](https://x402.org) and MPP.
+
+## Install
+
+```bash
+npm install agent402-agentkit @coinbase/agentkit @x402/fetch @x402/evm zod
+```
+
+## Use
+
+```ts
+import { AgentKit, CdpEvmWalletProvider } from "@coinbase/agentkit";
+import { agent402ActionProvider } from "agent402-agentkit";
+
+const walletProvider = await CdpEvmWalletProvider.configureWithWallet({
+  apiKeyId: process.env.CDP_API_KEY_ID,
+  apiKeySecret: process.env.CDP_API_KEY_SECRET,
+  walletSecret: process.env.CDP_WALLET_SECRET,
+  networkId: "base-mainnet",
+});
+
+const agentKit = await AgentKit.from({
+  walletProvider,
+  actionProviders: [await agent402ActionProvider()],
+});
+// hand agentKit.getActions() to your framework (LangChain, Vercel AI SDK, ...)
+```
+
+The agent now has:
+
+| Action | Wallet | What it does |
+|---|---|---|
+| `agent402_find` | no | Resolve a task to the best-matching tools: slug, price, whether a wallet is needed, a ready example. Free. |
+| `agent402_call` | yes | Call a tool by slug with its input. Free-tier tools are paid with a few seconds of proof-of-work; wallet-only tools are paid over x402 in USDC on Base, signed by the wallet provider. Returns the tool's JSON. |
+| `agent402_about` | no | What Agent402 is, how it is paid, live tool counts. Free. |
+
+The x402 signer is derived from the wallet provider the same way AgentKit's own
+x402 action provider derives it (`toSigner()` plus `readContract`), so a CDP
+wallet, an Agentic Wallet, a viem-backed wallet or a smart wallet all work.
+Hosts that wrap actions themselves can take the raw list:
+
+```js
+import { agent402Actions } from "agent402-agentkit";
+const actions = await agent402Actions();   // [{ name, description, schema, invoke }]
+```
+
+## Options
+
+`agent402ActionProvider({ baseUrl, fetchImpl, zod })` - `baseUrl` for a
+self-hosted Agent402, `fetchImpl` to inject a fetch, `zod` to pass the host's
+zod module.
+
+## What Agent402 serves
+
+Web search, news and cited answers, browser render and screenshots, PDFs and
+OCR, live market and crypto data, SEC filings, DNS and TLS checks, a code
+sandbox, wallet-keyed memory, finished reports, and an OpenAI-compatible model
+gateway. Every tool is deterministic and priced per call, from $0.001. Catalog:
+https://agent402.tools/tools · agent-readable docs: https://agent402.tools/llms.txt
+
+MIT. Maintained by Havok Holdings LLC.

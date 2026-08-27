@@ -81,6 +81,10 @@ app.use(createTollbooth({
 
 From env on the CLI: `TOLLBOOTH_TEMPO_API_KEY`, `TOLLBOOTH_TEMPO_RECIPIENT` (defaults to `TOLLBOOTH_PAYTO`), optional `TOLLBOOTH_TEMPO_CURRENCY` and `TOLLBOOTH_TEMPO_SPLITS="0xabc:0.0002,0xdef:0.0001"`. Every 402 then carries a `WWW-Authenticate: Payment` tempo/charge challenge next to any evm challenges from the x402 rail; a stock `mppx` client with `tempo.charge({ account })` pays it. The gate validates the credential with Tempo's relay **before** your handler runs, buffers the response, broadcasts only after a successful (<400) response - the same settle-after-handler discipline as the x402 rail - and replays it with `Payment-Receipt` and `X-Tollbooth-Paid: mpp-tempo`. A refused credential gets a 402 with fresh challenges and an RFC 9457 `problem` body; credentials are single-use (share a `replayStore` across workers). Since 0.9.2 a relay that reports failure for a payment that actually settled is checked against the chain before the 402 goes out (verification only, never a re-broadcast; `confirm: false` disables). It works with no x402 middleware at all, for Tempo-only tollbooths, and adds no dependency.
 
+## Get paid into a Coinbase Business account
+
+Coinbase Business accounts receive x402 payments from AI agents. Set `TOLLBOOTH_PAYTO` to the account's USDC (Base) receive address and `TOLLBOOTH_CDP_API_KEY_ID` / `TOLLBOOTH_CDP_API_KEY_SECRET` (a CDP API key; `npm i @coinbase/x402`) and the CLI settles every payment through Coinbase's facilitator into that account, fee-free on Base and indexed in the x402 Bazaar. Guide with an Express example: [agent402.tools/guides/coinbase-business-get-paid-by-agents](https://agent402.tools/guides/coinbase-business-get-paid-by-agents).
+
 ## Beyond UA detection (the cat-and-mouse answer)
 
 UA matching is the default, but it's evadable - so the tollbooth lets you stop

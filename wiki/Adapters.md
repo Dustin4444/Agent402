@@ -11,6 +11,7 @@ If your agent isn't an MCP client, there's a zero-dependency npm package that tu
 | Vercel AI SDK (`streamText` / `generateText` / `generateObject`) | [`agent402-ai-sdk`](https://www.npmjs.com/package/agent402-ai-sdk) | `Record<name, tool()>` |
 | LangChain JS / LangGraph | [`agent402-langchain`](https://www.npmjs.com/package/agent402-langchain) | `DynamicStructuredTool[]` |
 | LlamaIndex TS | [`agent402-llamaindex`](https://www.npmjs.com/package/agent402-llamaindex) | `FunctionTool[]` |
+| Coinbase AgentKit (CDP wallets, Agentic Wallet) | [`agent402-agentkit`](https://www.npmjs.com/package/agent402-agentkit) | an `ActionProvider` for `AgentKit.from({ actionProviders })` |
 | Strands Agents (AWS Bedrock AgentCore) | [`agent402-strands`](https://www.npmjs.com/package/agent402-strands) | `StrandsTool[]` for `new Agent({ tools })` |
 
 Sources live at [`adapters/`](https://github.com/MikeyPetrillo/Agent402/tree/main/adapters).
@@ -121,6 +122,18 @@ const { tools } = await agent402Tools({ slugs: ["extract", "hash"] });
 const agent = new OpenAIAgent({ tools });
 const res = await agent.chat({ message: "Get the title of https://example.com/article" });
 ```
+
+## Coinbase AgentKit
+
+```ts
+import { AgentKit, CdpEvmWalletProvider } from "@coinbase/agentkit";
+import { agent402ActionProvider } from "agent402-agentkit";
+
+const walletProvider = await CdpEvmWalletProvider.configureWithWallet({ networkId: "base-mainnet" });
+const agentKit = await AgentKit.from({ walletProvider, actionProviders: [await agent402ActionProvider()] });
+```
+
+Three actions: `agent402_find` (free discovery), `agent402_call` (pays: proof-of-work for the free tier, x402 USDC on Base signed by the wallet provider for wallet-only tools), `agent402_about`. The signer is derived from the wallet provider the way AgentKit's own x402 provider does it, so CDP wallets, the Agentic Wallet and smart wallets all pay. Package: [`agent402-agentkit`](https://www.npmjs.com/package/agent402-agentkit).
 
 ## Strands Agents (AWS Bedrock AgentCore)
 

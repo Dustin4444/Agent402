@@ -56,6 +56,13 @@ const FAC = `http://127.0.0.1:${facilitator.address().port}`;
 // ---- 1. the builder alone: quote-only, misconfig, network mapping ----
 ok((await buildCliX402Middleware({})) === null, "no TOLLBOOTH_PAYTO -> no middleware (proof-of-work only, as before)");
 ok((await buildCliX402Middleware({ TOLLBOOTH_PAYTO: PAYTO })) === null, "PAYTO without a facilitator -> null (quote-only) with a loud warning, never a silent settling claim");
+{
+  // Coinbase Business path: CDP keys and NO facilitator URL -> the CLI settles
+  // through Coinbase's facilitator (createFacilitatorConfig mints the JWTs),
+  // so a middleware is built where the URL-less env used to yield null.
+  const mw = await buildCliX402Middleware({ TOLLBOOTH_PAYTO: PAYTO, TOLLBOOTH_CDP_API_KEY_ID: "organizations/test/apiKeys/test", TOLLBOOTH_CDP_API_KEY_SECRET: "-----BEGIN EC PRIVATE KEY-----\ntest\n-----END EC PRIVATE KEY-----" });
+  ok(typeof mw === "function", "TOLLBOOTH_CDP_API_KEY_ID/SECRET without a facilitator URL -> a settling middleware via Coinbase's facilitator (the Coinbase Business path)");
+}
 ok(CLI_NETWORKS.base === "eip155:8453" && CLI_NETWORKS.polygon === "eip155:137" && CLI_NETWORKS.celo === "eip155:42220", "CLI network names map to CAIP-2");
 {
   const mw = await buildCliX402Middleware({ TOLLBOOTH_PAYTO: PAYTO, TOLLBOOTH_FACILITATOR_URL: FAC, TOLLBOOTH_NETWORK: "polygon", TOLLBOOTH_PRICE: "$0.005", TOLLBOOTH_FACILITATOR_HEADERS: JSON.stringify({ "X-Test-Key": "k1" }) });
