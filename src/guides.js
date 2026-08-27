@@ -897,12 +897,14 @@ carries a \`WWW-Authenticate: Payment\` challenge - see
     slug: "coinbase-business-get-paid-by-agents",
     title: "Get paid by AI agents into your Coinbase Business account with agent402-tollbooth",
     description:
-      "Coinbase Business accounts receive x402 payments from AI agents. agent402-tollbooth is the one-middleware way to put a USDC price on your API or site, settle through Coinbase's facilitator, and land every payment in that account. Ten minutes, two env vars, one example server.",
+      "Coinbase Business accounts receive x402 payments from AI agents. agent402-tollbooth is the one-middleware way to put a USDC price on your API or site, settle through Coinbase's facilitator, and land every payment in that account. Three env vars, one command, one example server.",
     md: `
 Coinbase Business now takes payments from AI agents over x402: an agent pays
 your x402 URL in USDC and the funds settle into your Coinbase Business account,
-where you reconcile, withdraw, or hold them. Their own three-step picture starts
-with "integrate x402 into your API". This guide is that step.
+where you reconcile, withdraw, or hold them. Coinbase's own path is a hosted
+checkout that returns an x402 URL. If you sell an API and want a price on every
+request, this guide puts x402 in front of the API itself and settles into the
+same account.
 
 [agent402-tollbooth](https://www.npmjs.com/package/agent402-tollbooth) is an
 open-source (MIT) gate for Express, Next.js, Cloudflare or a plain reverse
@@ -918,8 +920,7 @@ it at your Coinbase Business address and every settled call lands there.
    every 402 you serve, so funds settle straight into the account.
 2. A **CDP API key** (id + secret) from the Coinbase Developer Platform. The
    tollbooth uses it to sign requests to Coinbase's x402 facilitator, which
-   verifies and settles each payment. Settlement on Base through this
-   facilitator is fee-free.
+   verifies and settles each payment. On Base no fee is taken from the payment itself; Coinbase's facilitator is free for the first 1,000 settlements a month and $0.001 each after.
 
 ## 2. One command in front of anything
 
@@ -936,11 +937,12 @@ npx agent402-tollbooth
 Keep the key out of your shell history: put the three values in a \`.env\`
 file and load it (\`set -a; . ./.env; set +a\`) or use your secret store.
 
-That is a reverse proxy in front of your existing API on :8080. Known AI
-crawlers and any x402 client get a 402 quoting $0.005 in USDC on Base, pay it,
-and are proxied through; the payment settles into the Coinbase Business account
-before the response is released. Humans and your own clients are untouched.
-\`TOLLBOOTH_MODE=all\` charges every caller instead.
+That is a reverse proxy in front of your existing API on :8080. In the
+default mode known AI crawlers (matched by user agent) get a 402 quoting $0.005
+in USDC on Base, pay it, and are proxied through; the payment settles into the
+Coinbase Business account before the response is released, and browsers pass
+untouched. To charge every non-browser caller, stock x402 clients included, set
+\`TOLLBOOTH_MODE=all\` and whitelist your own clients with \`free()\`.
 
 ## 3. Or as Express middleware, with the price per route
 
@@ -984,18 +986,19 @@ One rule to know: Coinbase's facilitator refuses a payment whose payer is the
 payTo (\`self_send_not_allowed\`), so test from a second wallet, never from the
 receiving address.
 
-Any x402 client pays it. From this repo, \`node scripts/demo-payment.js\`
-style buys, the [agent402-client](https://www.npmjs.com/package/agent402-client)
-SDK, or Coinbase's own agent tooling all work; the receipt on the 200 response
-(\`PAYMENT-RESPONSE\`) carries the settlement, and the USDC shows up in the
-Coinbase Business account within seconds.
+Any stock x402 client pays it; we proved it with \`@x402/fetch\` and the
+[agent402-client](https://www.npmjs.com/package/agent402-client) SDK speaks the
+same wire. The receipt on the 200 response (\`PAYMENT-RESPONSE\`) carries the
+settlement; it lands on Base within seconds and Coinbase credits the deposit on
+its normal schedule.
 
 ## What you get
 
 - Payments from agents settle in USDC into the account you already reconcile
   from, with no card network, no invoices and no agent accounts.
-- Discoverable: list the endpoint on Agent402's open index ([/sell](/sell))
-  and agents routing through [/api/route](/api/route) can find and pay you;
+- Discoverable: list the endpoint on Agent402's open index ([/sell](/sell));
+  agents can find it at once, and once it shows settled transactions the
+  router at [/api/route](/api/route) can pay you on their behalf;
   a route can also carry the x402 Bazaar discovery extension for Coinbase's
   own directory.
 - The rest of the tollbooth: proof-of-work for callers with no wallet,

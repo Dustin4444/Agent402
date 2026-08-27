@@ -349,7 +349,7 @@ If you're already on one of the stacks below - OpenAI, Anthropic, the Vercel AI 
 | Strands Agents (AWS Bedrock AgentCore) | [`agent402-strands`](https://www.npmjs.com/package/agent402-strands) | `StrandsTool[]` for `new Agent({ tools })` |
 | Google ADK (Agent Development Kit) | [`agent402-google-adk`](https://www.npmjs.com/package/agent402-google-adk) | `FunctionTool[]` for ADK agents |
 | OpenAI Agents SDK | [`agent402-openai-agents`](https://www.npmjs.com/package/agent402-openai-agents) | `Agent tools` for `@openai/agents` |
-| Coinbase AgentKit (CDP wallets, Agentic Wallet) | [`agent402-agentkit`](https://www.npmjs.com/package/agent402-agentkit) | an `ActionProvider` for `AgentKit.from({ actionProviders })` |
+| Coinbase AgentKit (CDP, Privy, ZeroDev, viem wallets) | [`agent402-agentkit`](https://www.npmjs.com/package/agent402-agentkit) | an `ActionProvider` for `AgentKit.from({ actionProviders })` |
 | LangChain **Python** / CrewAI | [`agent402-langchain`](https://pypi.org/project/agent402-langchain/) (PyPI) | `StructuredTool[]` from `Agent402Toolkit.get_tools()` - four meta-tools (find / route / call / about), not one per slug |
 
 ```js

@@ -83,7 +83,7 @@ From env on the CLI: `TOLLBOOTH_TEMPO_API_KEY`, `TOLLBOOTH_TEMPO_RECIPIENT` (def
 
 ## Get paid into a Coinbase Business account
 
-Coinbase Business accounts receive x402 payments from AI agents. Set `TOLLBOOTH_PAYTO` to the account's USDC (Base) receive address and `TOLLBOOTH_CDP_API_KEY_ID` / `TOLLBOOTH_CDP_API_KEY_SECRET` (a CDP API key; `npm i @coinbase/x402`) and the CLI settles every payment through Coinbase's facilitator into that account, fee-free on Base. Guide with an Express example: [agent402.tools/guides/coinbase-business-get-paid-by-agents](https://agent402.tools/guides/coinbase-business-get-paid-by-agents).
+Coinbase Business accounts receive x402 payments from AI agents. Set `TOLLBOOTH_PAYTO` to the account's USDC (Base) receive address and `TOLLBOOTH_CDP_API_KEY_ID` / `TOLLBOOTH_CDP_API_KEY_SECRET` (a CDP API key; `npm i @coinbase/x402`) and the CLI settles every payment through Coinbase's facilitator into that account (no fee is taken from the payment itself; Coinbase's facilitator is free for the first 1,000 settlements a month and $0.001 each after). Guide with an Express example: [agent402.tools/guides/coinbase-business-get-paid-by-agents](https://agent402.tools/guides/coinbase-business-get-paid-by-agents).
 
 ## Beyond UA detection (the cat-and-mouse answer)
 

@@ -318,7 +318,7 @@ Read by the bundled proxy / Express entry point (`index.js`):
 | `TOLLBOOTH_PAYTO` | – | Wallet address; advertises a USDC x402 quote (and, with `TOLLBOOTH_FACILITATOR_URL`, settles it) |
 | `TOLLBOOTH_FACILITATOR_URL` | – | x402 facilitator that settles your network. With `TOLLBOOTH_PAYTO` the CLI builds a real `@x402/express` middleware and takes payment over x402 **and** MPP (0.8.0). Needs `@x402/express @x402/core @x402/evm` installed; refuses to start without them |
 | `TOLLBOOTH_FACILITATOR_HEADERS` | – | Optional JSON object of auth headers sent on the facilitator's `/verify`, `/settle`, `/supported` (e.g. `{"X-API-Key":"…"}`) |
-| `TOLLBOOTH_CDP_API_KEY_ID` + `TOLLBOOTH_CDP_API_KEY_SECRET` | – | Settle through Coinbase's facilitator (CDP) instead of a URL: fee-free on Base. Needs `npm i @coinbase/x402`. This is how a Coinbase Business account gets paid by agents: `TOLLBOOTH_PAYTO` = the account's USDC (Base) receive address. |
+| `TOLLBOOTH_CDP_API_KEY_ID` + `TOLLBOOTH_CDP_API_KEY_SECRET` | – | Settle through Coinbase's facilitator (CDP) instead of a URL (no fee is taken from the payment itself; Coinbase's facilitator is free for the first 1,000 settlements a month and $0.001 each after). Needs `npm i @coinbase/x402`. This is how a Coinbase Business account gets paid by agents: `TOLLBOOTH_PAYTO` = the account's USDC (Base) receive address. |
 | `TOLLBOOTH_PRICE` | `"$0.001"` | Advertised price per request |
 | `TOLLBOOTH_NETWORK` | `"base"` | x402 network. CLI settlement mode accepts `base`, `base-sepolia`, `polygon`, `arbitrum`, `optimism`, `avalanche`, `celo`, `sei`, `monad`, or a raw `eip155:<id>` |
 | `TOLLBOOTH_MPP` | on when `x402` set | `false` to switch MPP off |

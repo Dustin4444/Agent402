@@ -1,8 +1,8 @@
 # agent402-agentkit
 
 [Agent402](https://agent402.tools) as a [Coinbase AgentKit](https://github.com/coinbase/agentkit)
-action provider: give an agent with a CDP wallet (or any AgentKit wallet
-provider) 500+ pay-per-call web tools through three actions, paying under the
+action provider: give an agent with a CDP, Privy, ZeroDev or viem-backed
+wallet 500+ pay-per-call web tools through three actions, paying under the
 hood over x402 in USDC from the agent's own wallet, or free via proof-of-work.
 
 > **Agent402 is the applied layer of [Agentic Finance](https://agent402.tools/agentic-finance)** - agents that pay and get paid on their own over the two open wires, [x402](https://x402.org) and MPP.
@@ -42,8 +42,8 @@ The agent now has:
 | `agent402_about` | no | What Agent402 is, how it is paid, live tool counts. Free. |
 
 The x402 signer is derived from the wallet provider the same way AgentKit's own
-x402 action provider derives it (`toSigner()` plus `readContract`), so a CDP
-wallet, an Agentic Wallet or a viem-backed wallet all work.
+x402 action provider derives it (`toSigner()` plus `readContract`), so CDP,
+Privy, ZeroDev and viem-backed wallets all work (proven live with viem).
 Live-proven 2026-08-27 against production: a `ViemWalletProvider` over a
 funded Base wallet ran `agent402_find` then `agent402_call` on a wallet-only
 tool and paid $0.002 over x402 ([transaction](https://basescan.org/tx/0x1c0592f73d1f9182ee9bd40eb34d9b6c70b3196814b111589b82df4e79e7fb59)).
