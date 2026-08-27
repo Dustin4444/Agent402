@@ -886,7 +886,9 @@ async function startCli() {
   const server = app.listen(port, () => {
     const paidLabel = x402mw ? `x402 + MPP (${process.env.TOLLBOOTH_ASSET || "USDC"}, settling via ${process.env.TOLLBOOTH_CDP_API_KEY_ID && process.env.TOLLBOOTH_CDP_API_KEY_SECRET ? "Coinbase CDP" : process.env.TOLLBOOTH_FACILITATOR_URL})` : (process.env.TOLLBOOTH_PAYTO ? `x402 quote only (${process.env.TOLLBOOTH_ASSET || "USDC"}, NOT settling - set TOLLBOOTH_FACILITATOR_URL)` : "");
     const rails = [gate.pow ? "proof-of-work" : "", paidLabel].filter(Boolean).join(" + ");
-    console.log(`agent402-tollbooth listening on :${port} — charging AI bots via ${rails || "proof-of-work"}`);
+    // The BOUND port, so PORT=0 (let the OS pick) prints something a caller can use.
+    const bound = server.address()?.port ?? port;
+    console.log(`agent402-tollbooth listening on :${bound} — charging AI bots via ${rails || "proof-of-work"}`);
     if (upstream) console.log(`  proxying → ${upstream}`);
   });
   // Evidence for a process that leaves without being told to. Four times

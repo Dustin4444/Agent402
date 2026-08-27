@@ -2003,6 +2003,19 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   (a ClawHub CLI token on the publisher account, Actions-only, NOT Railway - prod has no use for it), config written
   under `CLAWHUB_CONFIG_PATH` in the job temp dir, `package inspect --version` as the idempotency check (verified: an
   existing version reads present, a bogus one absent), source metadata from the run; no token = loud skip.
+  **OIDC path (2026-08-27):** `.github/workflows/clawhub-publish.yml` (workflow_dispatch, `id-token: write`, ClawHub's
+  reusable `package-publish.yml` pinned to the SHA OpenClaw's scaffold pins, `source_path: openclaw`, dry_run default).
+  It works only after a package manager runs ONCE, logged in: `clawhub package trusted-publisher set agent402-openclaw
+  --repository MikeyPetrillo/Agent402 --workflow-filename clawhub-publish.yml` (repo + workflow filename are matched
+  against the OIDC claim; `--environment` optional). Then the token step can go; until a dispatched dry_run=false has
+  published once, the token step stays as the fallback.
+- **Test ports must stay OUT of the ephemeral range (2026-08-27):** `scripts/test-tollbooth-cli.js` spawned the tollbooth
+  CLI on a random 40000-59999 port and, five times in nine days (CI only, never locally), the child exited 0 right after
+  boot with no trace. The fifth run carried the new `beforeExit` evidence: `EADDRINUSE :::42828` - the number sat inside
+  Linux's ephemeral range (32768-60999), so an outbound socket on the runner already held it; a listener that never
+  bound drains the loop and exits 0, which is exactly the shape a bound listener cannot produce. Now the test passes
+  `PORT=0`, the CLI banner prints the BOUND port (`server.address().port`), and the test reads it from the log. When a
+  test needs a port: `0` + read it back, else pick under 32768. The `beforeExit`/`close`/`error` instrumentation stays.
 - **Cost audit 2026-08-27 (PostHog + operator ledgers + Railway logs):** no buyer over/undercharging found (0 charged-failures
   since 07-16, 0 refunds owed, 0 gateway calls over the 70% bound, ledger vs PostHog settlements reconcile). The month's
   upstream spend was ~$29 OpenRouter+Brave, of which ~$21 landed on 2026-08-21 (577 OpenRouter generations, 114 Opus, 491

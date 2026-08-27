@@ -1,0 +1,32 @@
+# ClawHub release of agent402-openclaw over GitHub OIDC (trusted publishing):
+# no ClawHub token in the repository. ClawHub mints a short-lived publish
+# credential for THIS workflow file in THIS repository once a package manager
+# has run, once:
+#   clawhub package trusted-publisher set agent402-openclaw \
+#     --repository MikeyPetrillo/Agent402 --workflow-filename clawhub-publish.yml
+# Dispatch with dry_run=true first (validates the package, publishes nothing),
+# then dry_run=false. The reusable workflow is ClawHub's own, pinned to the
+# commit OpenClaw's plugin scaffold pins. The token-authenticated step in
+# deploy.yml stays as the fallback until this path has published once.
+name: ClawHub Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Preview without publishing
+        required: true
+        type: boolean
+        default: true
+
+jobs:
+  publish:
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    uses: openclaw/clawhub/.github/workflows/package-publish.yml@9d49df109d4ad3dc8a6ecf05d26b39f46d294721 # pinned by OpenClaw's plugin scaffold (CLAWHUB_PACKAGE_PUBLISH_WORKFLOW_REF)
+    with:
+      source_path: openclaw
+      dry_run: ${{ inputs.dry_run }}
+      changelog: agent402-openclaw release from the Agent402 repository (see the package README and https://agent402.tools/changelog)
