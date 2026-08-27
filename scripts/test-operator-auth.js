@@ -25,9 +25,14 @@ const done = (code) => { try { child.kill("SIGKILL"); } catch { /* */ } process.
 
 (async () => {
   let up = false;
-  for (let i = 0; i < 80; i++) {
+  // 60 s, like the other booted-server tests (test-pricing-margin: 120 x 500 ms).
+  // The old 80 x 250 ms = 20 s bound failed CI run 33093827741 with the server
+  // already at "listening": the documented post-listen boot stall (per-route
+  // Ajv compile) on a loaded runner outlived it. Nothing was broken; the bound
+  // was the tightest in the suite.
+  for (let i = 0; i < 120; i++) {
     try { if ((await fetch(`${base}/health`)).ok) { up = true; break; } } catch { /* */ }
-    await wait(250);
+    await wait(500);
   }
   ok(up, "server booted");
   if (!up) { console.error(serverLog.slice(-500)); return done(1); }
