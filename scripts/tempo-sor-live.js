@@ -46,14 +46,21 @@ const credential = await client.createCredential(new Response(null, { status: 40
 const paid = await fetch(url, { method: "POST", headers: { "content-type": "application/json", Authorization: credential, ...hb() }, body });
 const out = await paid.json().catch(() => ({}));
 const rc = paid.headers.get("payment-receipt");
-console.log("paid:", paid.status, JSON.stringify(out).slice(0, 400));
+console.log("paid:", paid.status, JSON.stringify(out?.receipt || out).slice(0, 400));
+// The PAYLOAD is the point: print what the seller returned (an excerpt) and
+// check it is the page we asked for, not just "an object came back".
+const resultText = JSON.stringify(out?.result ?? null);
+console.log("result excerpt:", resultText.slice(0, 600));
+const expectText = process.env.EXPECT_TEXT || "Example Domain";
+const payloadOk = resultText.includes(expectText);
+console.log(`result contains ${JSON.stringify(expectText)}:`, payloadOk, `(result ${resultText.length} chars)`);
 console.log("our Payment-Receipt:", rc ? Receipt.deserialize(rc).status : null, "X-Tollbooth-Error/problem:", paid.headers.get("x-tollbooth-error") || (out && out.problem ? JSON.stringify(out.problem).slice(0, 200) : null));
 const r = out?.receipt || {};
 await new Promise((res) => setTimeout(res, 4000));
 const after = await usdce(SPENDER);
 console.log(`spending wallet USDC.e after: ${after} (delta ${before != null && after != null ? (after - before).toFixed(6) : "?"}); receipt:`, JSON.stringify(r).slice(0, 400));
 const ok = paid.status === 200 && r.external === true && r.wire === "mpp" && r.settleNetwork === "eip155:4217" && /^0x[0-9a-f]{64}$/i.test(r.settleTx || "")
-  && out.result && typeof out.result === "object" && before != null && after != null && before - after >= Number(r.underlyingPriceUsd || 0) - 1e-6 && before - after > 0;
-if (ok) console.log(`PROVEN: Tempo buyer -> route-execute -> external MPP seller ${r.seller} paid from the spending wallet (seller ${r.underlyingPriceUsd} USDC.e, tx https://explore.tempo.xyz/tx/${r.settleTx})`);
+  && out.result && typeof out.result === "object" && payloadOk && before != null && after != null && before - after >= Number(r.underlyingPriceUsd || 0) - 1e-6 && before - after > 0;
+if (ok) console.log(`PROVEN: Tempo buyer -> route-execute -> external MPP seller ${r.seller} paid from the spending wallet (seller ${r.underlyingPriceUsd} USDC.e, tx https://explore.tempo.xyz/tx/${r.settleTx}); payload delivered (${resultText.length} chars, contains ${JSON.stringify(expectText)})`);
 else console.error("NOT PROVEN");
 process.exit(ok ? 0 : 1);
