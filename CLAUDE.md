@@ -1956,6 +1956,23 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   14,910 rows) - and `unattributedMerchants` now reports `attributedUnroutable` (known origin, cannot route) separately from
   `unattributed` (unknown). Submitted-seed slots: 586 of the 2,000 cap in use (2026-08-27). test-settlement-proof 44.
 
+- **PostHog ingestion is scanner-bounded, not traffic-bounded (2026-08-27):** the 08-25 spike (109,729 events vs
+  ~40k/day) was ONE external scanner (`ox402-scout`, one IP) hitting the free `GET /api/find` twice a second for 12
+  hours - 57,277 `tool_call` events from one caller; and the 30-day baseline (~990k, at PostHog's 1M/month allowance)
+  was 38% `tool_gone` (four scanners re-walk all ~970 retired `/api/convert/*` routes daily; the 500/hour cap WAS the
+  volume) + 26% `discovery` + 19% `tool_call` - events with money in them were ~2%. Now every free-surface stream is
+  ROLLED UP like `paywall_402` (one event per key per `POSTHOG_PAYWALL_FLUSH_MS` window carrying `count`; `sum(count)`
+  is exact): `discovery` per (surface, synthetic), `tool_gone` per route (top 50 + `_other` with `routes`), and
+  `tool_call` for the discovery pseudo-slugs (`_find`/`_route`: per slug x cached x errored x status, `latencyMs` =
+  window average); real tool calls stay per-event. The hourly caps are gone (a windowed count bounds volume by key
+  cardinality, not traffic, and drops nothing). Insights that COUNT events on those three streams must switch to
+  `sum(count)`. PostHog carries no caller IP by design (`$ip` is our own egress) - attribute a burst from Railway's HTTP
+  logs (`railway deployment list` for the deployment live at the time, then `get-logs types:["http"]` on that id).
+  Same review: the external spend ceiling (`external-spend-guard`) is now keyed for Tempo buyers (`tempo:<payer>`,
+  else `ip:`) - the tempo gate strips the x402 headers, so `payerFromRequest` was null and a Tempo buyer was exempt
+  from the $6 unsettled-spend bound the day the Tempo leg first resolved; `tempo-sor-live.js` refuses a `route` input
+  off the two documented paths (a write-access dispatcher could otherwise point the burner's credential at another
+  host). `test-posthog-funnel` (60), `test-tempo-router` (48), `test-pricing-margin` (186).
 - **Tempo spending wallet LIVE + SOR external legs were dead (2026-08-27):** `TEMPO_UPSTREAM_BUYER_KEY` set on Railway (wallet
   0xaF13AA07E7360cC56B3dAbf649fFeF087c0cD5A6, funded 5 USDC.e from the burner via `fund-tempo-fee-payer.yml token=usdc`; Mike's
   wallet app could not send on Tempo - fees are paid in the token, a native-gas wallet fails before broadcast). The first live

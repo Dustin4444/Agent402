@@ -40,7 +40,7 @@ const {
 const { METER_MARKUP } = await import("../src/gateway-meter.js");
 const { countTokens } = await import("gpt-tokenizer/model/gpt-4o");
 const { assertWithinDurationCap, probeDurationSeconds } = await import("../src/tools/stt-kit.js");
-const { capturePostHogToolGone, _testEventsForTest } = await import("../src/posthog.js");
+const { capturePostHogToolGone, _testEventsForTest, _flushPaywallRollupForTest } = await import("../src/posthog.js");
 
 let passed = 0, failed = 0;
 const ok = (cond, msg) => {
@@ -292,17 +292,20 @@ console.log("\n# tool_gone — retired-route telemetry");
   const events = _testEventsForTest();
   events.splice(0, events.length);
   capturePostHogToolGone({ route: "/api/convert-meters-to-feet", replacement: "POST /api/unit-convert" });
-  const got = events.splice(0, events.length);
-  ok(got.length === 1 && got[0].event === "tool_gone", "capture emits one tool_gone event");
+  capturePostHogToolGone({ route: "/api/convert-meters-to-feet", replacement: "POST /api/unit-convert" });
+  ok(events.length === 0, "tool_gone is rolled up (no event before the flush)");
+  _flushPaywallRollupForTest();
+  const got = events.splice(0, events.length).filter((e) => e.event === "tool_gone");
+  ok(got.length === 1 && got[0].event === "tool_gone" && got[0].properties.count === 2, "flush emits one tool_gone event per route with the hit count");
   ok(got[0].properties.route === "/api/convert-meters-to-feet" && got[0].properties.replacement === "POST /api/unit-convert",
     "event carries route + replacement");
-  ok(Object.keys(got[0].properties).sort().join(",") === "replacement,route",
-    "properties are exactly {route, replacement} — nothing about the caller");
+  ok(Object.keys(got[0].properties).sort().join(",") === "count,replacement,route",
+    "properties are exactly {count, route, replacement} — nothing about the caller");
 
   // Integration: a real retired-route hit on a booted server fires the event.
   const PORT = 3179, B = `http://127.0.0.1:${PORT}`;
   const proc = spawn("node", ["src/server.js"], {
-    env: { ...process.env, FREE_MODE: "true", PORT: String(PORT), POSTHOG_TEST_CAPTURE: "1" },
+    env: { ...process.env, FREE_MODE: "true", PORT: String(PORT), POSTHOG_TEST_CAPTURE: "1", POSTHOG_PAYWALL_FLUSH_MS: "1000" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let serverLog = "";
@@ -332,14 +335,15 @@ console.log("\n# tool_gone — retired-route telemetry");
     const res410 = await fetch(`${B}/api/convert/kilograms-to-pounds`);
     ok(res410.status === 410, `valueless retired route teaches with a 410 (got ${res410.status})`);
 
-    await sleep(500); // let stdout drain
+    await sleep(1800); // let the rollup flush (1s window) + stdout drain
     const captured = serverLog.split("\n")
       .filter((l) => l.includes("[posthog-test]"))
       .map((l) => { try { return JSON.parse(l.slice(l.indexOf("{"))); } catch { return null; } })
       .filter((e) => e && e.event === "tool_gone");
     const routes = captured.map((e) => e.properties.route);
     ok(!routes.includes("/api/convert-meters-to-feet"), `served slug-form hit emits NO tool_gone (got: ${routes.join(", ") || "none"})`);
-    ok(routes.filter((r) => r === "/api/convert/kilograms-to-pounds").length === 1, "only the unservable (410) hit emits tool_gone");
+    ok(routes.filter((r) => r === "/api/convert/kilograms-to-pounds").length === 1 && captured.find((e) => e.properties.route === "/api/convert/kilograms-to-pounds")?.properties.count === 1,
+      "only the unservable (410) hit emits tool_gone (one rolled-up row, count 1)");
     ok(captured.every((e) => e.properties.replacement === "POST /api/unit-convert"), "every tool_gone names the replacement route");
   } catch (e) {
     ok(false, `tool_gone integration leg threw: ${e.message}`);
