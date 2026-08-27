@@ -27,7 +27,7 @@
 // the stream finishes.) Streamed responses are not idempotency-replayable (the
 // cache hooks res.json only).
 
-import { METER_MARKUP, METER_FLOOR_USD, METER_MIN_SETTLE_USD } from "../gateway-meter.js";
+import { METER_MARKUP, METER_FLOOR_USD, METER_MIN_SETTLE_USD, setMeterSentinel } from "../gateway-meter.js";
 import { createHash } from "node:crypto";
 // Static import (not agent-kit's lazy pattern): validateRequest must stay
 // synchronous because promptCacheKey — called from the pre-paywall cache
@@ -1056,7 +1056,12 @@ function estimateInputTokens(body, imageCount) {
  *  runtime can never disagree on the math. */
 export function worstCaseUpstreamCost(body, tier, imageCount = 0) {
   const listed = costFor(body.model) || tier.maxPrice;
-  const cost = {
+  // Flat tiers bound the provider price with `max_price` (tier.maxPrice), so
+  // the worst case is the min of the two. The METERED tier quotes the model's
+  // own row and sends THAT row as its bound (`costFor` in the handlers), so
+  // its quote must not be min'd with a ceiling the request never carries
+  // (review 2026-08-27: opus-4.7-fast at 30/150 quoted as 20/100, ~30% under).
+  const cost = tier.metered ? { prompt: listed.prompt, completion: listed.completion } : {
     prompt: Math.min(listed.prompt, tier.maxPrice.prompt),
     completion: Math.min(listed.completion, tier.maxPrice.completion),
   };
@@ -2723,7 +2728,7 @@ function makeHandler(tierSlug) {
           // exactly like the billing fields above - a buyer never sees our
           // upstream bill, only what they were charged. A non-number (upstream
           // did not report) deliberately means "no meter", not "free".
-          if (typeof upstreamUsd === "number") data.__meterUpstreamUsd = upstreamUsd;
+          if (typeof upstreamUsd === "number") setMeterSentinel(data, upstreamUsd);
         }
         // Routed requests disclose the decision: additive key, OpenAI wire
         // shape otherwise untouched (the standard `model` field already names
@@ -2774,8 +2779,12 @@ function meteredQuoteFromNormalized(body, imageCount) {
 export function meteredQuoteForProbe(probe, imageCount = 0) {
   const tier = TIERS["v1-chat-metered"];
   const usd = meteredQuoteFromNormalized(probe, imageCount);
-  if (usd > tier.maxQuoteUsd) return { usd: tier.maxQuoteUsd, overCap: true, model: probe?.model };
-  return { usd, model: probe?.model };
+  // rawUsd is what the body would actually cost; usd is what the 402 carries
+  // (the cap, over the cap). A handler MUST refuse an overCap body: the 402
+  // quoted the cap, not the cost (review 2026-08-27: the Messages wire served
+  // a ~$8 Opus body for $2 because it clamped here and never refused).
+  if (usd > tier.maxQuoteUsd) return { usd: tier.maxQuoteUsd, rawUsd: usd, overCap: true, model: probe?.model };
+  return { usd, rawUsd: usd, model: probe?.model };
 }
 /** The per-request price of the metered tier, from the RAW request body.
  *  Never throws: an invalid body quotes the floor (the handler's own 400

@@ -41,6 +41,20 @@ addTool({
   handler: async () => { throw Object.assign(new Error("upstream said no"), { statusCode: 422 }); },
 });
 
+addTool({
+  route: "POST /v1/metered/quoted", slug: "quoted-tool", name: "Quoted", category: "llm", price: "$0.001",
+  description: "per-request priced model call", tags: ["metered"],
+  discovery: { bodyType: "json", input: { model: "x", messages: [] } },
+  quote: () => 0.5,
+  handler: async () => ({ text: "should never run through the router" }),
+});
+addTool({
+  route: "POST /api/leaky-tool", slug: "leaky-tool", name: "Leaky", category: "misc", price: "$0.001",
+  description: "returns an enumerable meter sentinel the way a pre-fix gateway handler did", tags: ["leaky"],
+  discovery: { bodyType: "json", input: {} },
+  handler: async () => ({ answer: 42, __meterUpstreamUsd: 0.123 }),
+});
+
 const tool = buildRouteExecuteTool({ getCatalog: () => CATALOG, baseUrl: "https://agent402.tools" });
 CATALOG[tool.route] = tool;
 
@@ -78,6 +92,14 @@ await expectErr({ slug: "screenshot", params: {} }, 409, "over-cap 409 names the
 await expectErr({ slug: "memory-write", params: {} }, 409, "memory tools refused", "wallet-keyed");
 await expectErr({ slug: "images-to-pdf", params: {} }, 409, "non-JSON bodyType refused", "not dispatchable");
 await expectErr({ slug: "route-execute", params: {} }, 409, "self-dispatch refused", "another route-execute tier");
+// A per-request-priced tool (quote(body)) is refused even though its CATALOG
+// price sits under the cap: the flat routing fee cannot cover a quote, and the
+// executor's no-request dispatch would skip the quote and the belt entirely.
+await expectErr({ slug: "quoted-tool", params: { model: "x", messages: [] } }, 409, "per-request-priced (quoted) tool refused", "call them directly");
+{
+  const r = await tool.handler({ slug: "leaky-tool", params: {} });
+  ok(r.result.answer === 42 && !("__meterUpstreamUsd" in r.result) && !JSON.stringify(r).includes("__meterUpstreamUsd"), "an inner handler's meter sentinel never rides the nested router result");
+}
 await expectErr({ slug: "nope-nope", params: {} }, 404, "unknown slug is a 404", "Unknown slug");
 await expectErr({}, 400, "missing task and slug is a 400", "Provide");
 await expectErr({ task: "screenshot a web page in a headless browser" }, 404, "task resolving only to over-cap tools is a 404", "top hit");
