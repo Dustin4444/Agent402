@@ -2,6 +2,18 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 
 const ENTRIES = [
   {
+    date: "2026-08-26",
+    title: "Why pay here, settle-actual for every buyer, and a client that routes",
+    items: [
+      "agent402-client 0.8.1: route(task, { k, include, network }) ranks tools across the host's current x402/MPP index over the free /api/route, read-only and wallet-free, with executeVia tier hints for route-execute. Contributed by epistemedeus (PR #974).",
+      "/why: seven first-party differences, each linked to the surface that proves it; the same points in /llms.txt, the MCP instructions, the README and the OpenClaw guide",
+      "Metered gateway: credits and card buyers settle actual usage x 1.15 like upto buyers; agent402-openclaw 0.3.x pays upto when the wallet holds a Permit2 allowance (permit2-approve), proven daily by the canary's metered-upto leg; the quote is priced from the same object the handler serves",
+      "Stellar facilitator: second and third Soroban RPC on transport failures, OpenZeppelin as settle fallback",
+      "Report inputs: XBRL operating-to-net bridge and verbatim filing excerpts in the dossier, 13F amendments folded, Schedule 13G holders, derivative Form 4s, GoPlus and DexScreener in token risk, DNS posture and recursive SPF in domain audits, page bodies and a citation audit in research; LinkedIn article package with LinkedIn-sized images",
+      "Wiki accuracy pass across 19 pages, generated from the live catalog and product tables",
+    ],
+  },
+  {
     date: "2026-08-18",
     title: "Agentic Finance, the MPP leaderboard, and a tollbooth that settles from env",
     items: [
