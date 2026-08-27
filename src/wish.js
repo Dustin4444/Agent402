@@ -13,7 +13,7 @@ import {
   openSync, readSync, closeSync,
 } from "node:fs";
 import { join } from "node:path";
-import { createHash } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { logSafe } from "./log-safe.js";
 
 const HAS_DATA_DIR = existsSync("/data");
@@ -94,10 +94,22 @@ const CALLERS_PER_CLUSTER_CAP = 1000;
 // answers it with a real match.
 export const WISH_SERVED_MIN_SCORE = 45;
 
-/** Day-scoped, salted caller fingerprint: sha256(ip|UTC day) prefix. Never the IP. */
+/**
+ * Day-scoped, KEYED caller fingerprint: HMAC-SHA256(secret, ip|UTC day),
+ * 12 hex chars. Never the IP. Keyed, not merely hashed: the fingerprint is
+ * persisted on every wish line, and a plain sha256 of an IPv4 address is
+ * brute-forced from the file in minutes (2^32 candidates per day), which
+ * would have made "never the IP" true only while the file stayed private.
+ * The secret is WISH_CALLER_SALT, else POW_SECRET (already on prod). With
+ * neither set this returns null and recordWish credits no caller and dedupes
+ * nothing, rather than writing an unkeyed hash to disk. Read at call time so
+ * tests and rotation take effect without a restart.
+ */
 export function callerHash(ip, ts = Date.now()) {
+  const secret = (process.env.WISH_CALLER_SALT || process.env.POW_SECRET || "").trim();
+  if (!secret) return null;
   const day = new Date(ts).toISOString().slice(0, 10);
-  return createHash("sha256").update(`${ip || "?"}|${day}`).digest("hex").slice(0, 12);
+  return createHmac("sha256", secret).update(`${ip || "?"}|${day}`).digest("hex").slice(0, 12);
 }
 
 // Does a cluster's shape clear the anti-spam bar described above? Exported so
