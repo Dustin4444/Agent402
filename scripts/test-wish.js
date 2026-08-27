@@ -12,6 +12,7 @@ import {
   __testSetFilePath, __testSetLineCap, __testState, __testReset,
 } from "../src/wish.js";
 
+process.env.WISH_CALLER_SALT = "test-salt-never-prod";
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
 const throws = (fn) => { try { fn(); return false; } catch (e) { return e; } };
@@ -155,9 +156,22 @@ function freshFile(tag) {
   ok(row.count === 2 && row.callers === 2, `the cluster counts 2 signals from 2 callers, not 3 (got count=${row.count} callers=${row.callers})`);
   const h1 = callerHash("203.0.113.9", Date.UTC(2026, 7, 27, 1)), h2 = callerHash("203.0.113.9", Date.UTC(2026, 7, 28, 1));
   ok(h1 !== h2 && h1.length === 12 && !/203/.test(h1), "callerHash is day-scoped, short, and carries no address bytes");
+  // Keyed: a different secret yields a different fingerprint, and no secret
+  // yields none at all (no unkeyed hash ever reaches the file).
+  const saved = process.env.WISH_CALLER_SALT;
+  process.env.WISH_CALLER_SALT = "another-secret";
+  const h3 = callerHash("203.0.113.9", Date.UTC(2026, 7, 27, 1));
+  process.env.WISH_CALLER_SALT = ""; process.env.POW_SECRET = "";
+  const h4 = callerHash("203.0.113.9", Date.UTC(2026, 7, 27, 1));
+  process.env.WISH_CALLER_SALT = saved;
+  ok(h3 !== h1 && h4 === null, "callerHash is keyed by the secret (different secret, different hash; no secret, null)");
+  process.env.WISH_CALLER_SALT = ""; process.env.POW_SECRET = "";
+  const anon = recordWish({ need: "translate english to spanish", source: "find-miss", ip: "192.0.2.77" });
+  process.env.WISH_CALLER_SALT = saved;
+  ok(anon.recorded === true && getWishesAggregate({ detailed: true }).clusters[0].callers === 2, "with no secret a find-miss still records but credits no caller (count grows, callers do not)");
   // An explicit wish from the same caller is a different source and still counts.
   const d = recordWish({ need: "translate english to spanish", source: "api", ip: "203.0.113.9" });
-  ok(d.recorded === true && getWishesAggregate({ detailed: true }).clusters[0].count === 3, "an explicit api wish from that caller still records (dedupe is find-miss only)");
+  ok(d.recorded === true && getWishesAggregate({ detailed: true }).clusters[0].count === 4, "an explicit api wish from that caller still records (dedupe is find-miss only)");
   // Served floor: a weak match must not mark a cluster served.
   const rows = [{ text: "todo task manager" }, { text: "extract tables from pdf" }];
   annotateServed(rows, (t) => (t.startsWith("todo") ? { slug: "fund-report", score: 5 } : { slug: "pdf-extract-pages", score: 75 }), WISH_SERVED_MIN_SCORE);
