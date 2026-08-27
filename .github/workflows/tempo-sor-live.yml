@@ -40,3 +40,11 @@ jobs:
           echo "::add-mask::$BURNER_KEY"; [ -n "$POW_SECRET" ] && echo "::add-mask::$POW_SECRET"
           [ -n "$TASK" ] || unset TASK; [ -n "$ROUTE" ] || unset ROUTE
           node scripts/tempo-sor-live.js
+      - name: Keep the real response for the announcement card
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tempo-sor-response
+          path: tempo-sor-response.json
+          if-no-files-found: ignore
+          retention-days: 7
