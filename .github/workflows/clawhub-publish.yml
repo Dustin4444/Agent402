@@ -27,6 +27,8 @@ jobs:
       id-token: write
     uses: openclaw/clawhub/.github/workflows/package-publish.yml@9d49df109d4ad3dc8a6ecf05d26b39f46d294721 # pinned by OpenClaw's plugin scaffold (CLAWHUB_PACKAGE_PUBLISH_WORKFLOW_REF)
     with:
+      # Only inputs the PINNED reusable workflow defines (its later revisions add
+      # changelog/categories/topics; an undefined input is a startup_failure with
+      # no log - run 33100428217).
       source_path: openclaw
       dry_run: ${{ inputs.dry_run }}
-      changelog: agent402-openclaw release from the Agent402 repository (see the package README and https://agent402.tools/changelog)
