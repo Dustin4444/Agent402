@@ -222,6 +222,22 @@ export const TOOLS = [
     check: (r) => isExactOkReply(r.choices?.[0]?.message?.content) || `expected an exact "OK" reply, got ${JSON.stringify(r).slice(0, 100)}`,
   },
   {
+    // METERED tier on the Anthropic Messages wire (2026-08-27): same per-request
+    // quote, priced from the Messages probe. Haiku at max_tokens 300 quotes
+    // above the floor (test-canary-coverage pins priceUsd to the kit's quote
+    // for this exact body), proving the quote resolves on both the bare
+    // request and the paid retry through the Messages route.
+    kit: "llm-metered-messages",
+    path: "/v1/metered/messages",
+    method: "POST",
+    body: { model: "anthropic/claude-haiku-4.5", max_tokens: 300, messages: [{ role: "user", content: "Reply with exactly: OK" }] },
+    priceUsd: 0.001977,
+    check: (r) =>
+      (r.type === "message" && r.role === "assistant" && Array.isArray(r.content) && r.content.some((b) => b.type === "text" && typeof b.text === "string") &&
+        r.usage && typeof r.usage.output_tokens === "number" && !("cost" in r.usage)) ||
+      `expected an Anthropic Messages reply on the metered route, got ${JSON.stringify(r).slice(0, 120)}`,
+  },
+  {
     // Streaming leg — stream: true must settle AND deliver real SSE frames.
     // raw: the check reads the response as text and asserts OpenAI wire
     // framing (data: chunks ending in [DONE]). deepseek-chat is requested

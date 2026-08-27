@@ -2741,6 +2741,17 @@ function meteredQuoteFromNormalized(body, imageCount) {
   const raw = Math.max(METER_MIN_SETTLE_USD, wc.totalUsd * METER_MARKUP + METER_FLOOR_USD);
   return Math.ceil(raw * 1e6) / 1e6; // round UP to a micro-dollar: never quote below the arithmetic
 }
+/** Metered quote for an already-validated PROBE (a body shaped the way
+ *  worstCaseUpstreamCost reads it: model, max_tokens, messages, optional
+ *  system/tools/thinking). The Messages wire builds its probe in
+ *  validateMessagesRequest and prices it here, so both wires quote from the
+ *  same arithmetic, cap and rounding. */
+export function meteredQuoteForProbe(probe, imageCount = 0) {
+  const tier = TIERS["v1-chat-metered"];
+  const usd = meteredQuoteFromNormalized(probe, imageCount);
+  if (usd > tier.maxQuoteUsd) return { usd: tier.maxQuoteUsd, overCap: true, model: probe?.model };
+  return { usd, model: probe?.model };
+}
 /** The per-request price of the metered tier, from the RAW request body.
  *  Never throws: an invalid body quotes the floor (the handler's own 400
  *  refuses it, uncharged), and a body over the cap quotes the cap (same). */
@@ -3062,6 +3073,7 @@ export function modelsList() {
           ...(slug.startsWith("v1-chat") && !tier.lockedModel && !tier.router && TIERS["v1-chat-metered"]
             ? {
               meteredEndpoint: TIERS["v1-chat-metered"].route.split(" ")[1], meteredFromUsd: TIERS["v1-chat-metered"].price,
+              meteredMessagesEndpoint: "/v1/metered/messages",
               // The metered route validates against ITS caps, not the flat home
               // tier's: a client deriving a context window from this entry must
               // not carry the flat cap onto the metered route (agent402-openclaw

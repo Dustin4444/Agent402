@@ -10,10 +10,11 @@ const bySlug = (slug) => LLM_MESSAGES_TOOLS.find((t) => t.slug === slug);
 const msg = (text = "hi") => [{ role: "user", content: text }];
 
 // ---- registration ----
-ok(LLM_MESSAGES_TOOLS.length === 5 && Object.keys(MESSAGES_PATH_BY_TIER).length === 5, "five Messages routes, one per chat tier");
+ok(LLM_MESSAGES_TOOLS.length === 6 && Object.keys(MESSAGES_PATH_BY_TIER).length === 6, "six Messages routes: one per flat chat tier plus the metered one");
 ok(LLM_MESSAGES_TOOLS.every((t) => t.route === `POST ${MESSAGES_PATH_BY_TIER[t.slug.replace(/-messages$/, "")]}`), "routes follow the tier paths (/v1/nano/messages … /v1/premium/messages)");
 ok(LLM_MESSAGES_TOOLS.every((t) => WALLET_ONLY_SLUGS.has(t.slug)), "every Messages route is wallet-only (never PoW-free: metered upstream)");
-ok(LLM_MESSAGES_TOOLS.every((t) => t.price === (t.slug === "v1-chat-nano-messages" ? "$0.003" : `$${TIERS[t.slug.replace(/-messages$/, "")].price.toFixed(2)}`)), "price strings mirror the sibling chat tier");
+ok(LLM_MESSAGES_TOOLS.every((t) => t.price === (t.slug === "v1-chat-nano-messages" ? "$0.003" : t.slug === "v1-chat-metered-messages" ? "$0.001" : `$${TIERS[t.slug.replace(/-messages$/, "")].price.toFixed(2)}`)), "price strings mirror the sibling chat tier (metered: the $0.001 floor)");
+ok(typeof bySlug("v1-chat-metered-messages").quote === "function" && LLM_MESSAGES_TOOLS.filter((t) => typeof t.quote === "function").length === 1, "only the metered Messages route carries a per-request quote function");
 ok(MESSAGES_TIER_BY_PATH["/v1/messages"] === "v1-chat" && MESSAGES_TIER_BY_PATH["/v1/pro/messages"] === "v1-chat-pro", "path -> tier map");
 
 // ---- validation ----
@@ -118,6 +119,41 @@ await proTool.handler({ model: "anthropic/claude-sonnet-5", max_tokens: 64, mess
   ok(res.ended && /message_start/.test(all) && /message_stop/.test(all) && !/cost/.test(all), "streamed Anthropic events pass through end to end with billing scrubbed");
 }
 globalThis.fetch = realFetch;
+// ---- metered Messages route: quote from the body, belt, provider bound, meter sentinel ----
+{
+  const { meteredMessagesQuoteUsd } = await import("../src/tools/llm-messages-kit.js");
+  const { costFor } = await import("../src/tools/llm-gateway-kit.js");
+  const metered = bySlug("v1-chat-metered-messages");
+  const small = { model: "anthropic/claude-haiku-4.5", max_tokens: 16, messages: msg("hi") };
+  const bigger = { model: "anthropic/claude-opus-5", max_tokens: 4096, system: "x ".repeat(20_000), messages: msg("y ".repeat(5_000)) };
+  const qs = meteredMessagesQuoteUsd(small), qb = meteredMessagesQuoteUsd(bigger);
+  ok(!qs.invalid && !qb.invalid && qs.usd >= TIERS["v1-chat-metered"].price && qb.usd > qs.usd * 10, `quote grows with the body: small $${qs.usd}, bigger $${qb.usd}`);
+  ok(metered.quote(small) === qs.usd && metered.quote(bigger) === qb.usd, "the tool's quote() is the same function payments.js prices the 402 from");
+  // The largest body validation admits (200k chars, Opus, 8192 tokens) quotes
+  // under the $2 cap, so the cap is pinned on the shared probe-level quoter.
+  const { meteredQuoteForProbe } = await import("../src/tools/llm-gateway-kit.js");
+  const huge = validateMessagesRequest({ model: "anthropic/claude-opus-5", max_tokens: 8192, system: "x ".repeat(90_000), messages: msg("y ".repeat(9_000)) }, "v1-chat-metered");
+  const qh = meteredQuoteForProbe({ ...huge.probe, max_tokens: 100_000 }, 0);
+  ok(qh.overCap === true && qh.usd === TIERS["v1-chat-metered"].maxQuoteUsd && meteredMessagesQuoteUsd({ model: "anthropic/claude-opus-5", max_tokens: 8192, system: "x ".repeat(90_000), messages: msg("y ".repeat(9_000)) }).usd < TIERS["v1-chat-metered"].maxQuoteUsd, `a probe past the cap quotes the cap ($${qh.usd}); the largest admissible Messages body stays under it`);
+  const qi = meteredMessagesQuoteUsd({ max_tokens: 16, messages: msg() });
+  ok(qi.invalid && qi.usd === TIERS["v1-chat-metered"].price, "an invalid body quotes the floor and says why (the handler's 400 refuses it)");
+  seen = [];
+  globalThis.fetch = async (url, init) => { const b = JSON.parse(init.body); seen.push({ url: String(url), b }); return { ok: true, status: 200, text: async () => JSON.stringify(reply(b.model)) }; };
+  const quotedReq = { ...fakeReq, __meteredQuoteUsd: qs.usd };
+  const mo = await metered.handler(small, quotedReq);
+  const row = costFor(small.model);
+  ok(seen[0].b.provider?.max_price?.prompt === row.prompt && seen[0].b.provider?.max_price?.completion === row.completion, "metered: provider.max_price is the quoted model's own cost row, not the tier-wide cap");
+  ok(mo.__meterUpstreamUsd === 0.000114 && mo.content[0].text === "Hi there!" && !("cost" in mo.usage), "metered: the meter sentinel carries the upstream cost to the route binder; billing fields are stripped");
+  {
+    const { _testEventsForTest } = await import("../src/posthog.js");
+    const ev = _testEventsForTest().filter((e) => e.event === "gateway_usage").pop();
+    ok(ev?.properties.tier === "v1-chat-metered:messages" && ev?.properties.priceUsd === qs.usd, "metered: gateway_usage.priceUsd is the quote, not the floor");
+  }
+  let belt = null;
+  try { await metered.handler(bigger, { ...fakeReq, __meteredQuoteUsd: qs.usd }); } catch (e) { belt = e; }
+  ok(belt?.statusCode === 400 && /quoted at/.test(belt.message), "metered belt: a body quoting above the gated price is refused 400 before any upstream call");
+  ok(seen.length === 1, "the refused request never reached upstream");
+}
 delete process.env.OPENROUTER_API_KEY;
 
 console.log(`\n${pass} passed, ${fail} failed`);

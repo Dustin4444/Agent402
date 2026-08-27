@@ -1145,6 +1145,29 @@ console.log(r.choices[0].message.content);
 Send an \`Idempotency-Key\` header on retries and a retried call replays the
 paid answer instead of paying again.
 
+## Any Anthropic SDK (Messages wire)
+
+The same metered pricing on the Anthropic Messages wire, at
+\`https://agent402.tools/v1/metered\` (route \`/v1/metered/messages\`). Pass the
+credits key as the SDK's \`auth_token\` (sent as \`Authorization: Bearer\`, which
+the credits gate reads), not \`api_key\` (sent as \`x-api-key\`):
+
+\`\`\`python
+from anthropic import Anthropic
+client = Anthropic(base_url="https://agent402.tools/v1/metered", auth_token="a402_...")
+m = client.messages.create(model="anthropic/claude-haiku-4.5", max_tokens=60,
+    messages=[{"role": "user", "content": "One sentence on x402."}])
+print(m.content[0].text)
+\`\`\`
+
+\`\`\`js
+import Anthropic from "@anthropic-ai/sdk";
+const client = new Anthropic({ baseURL: "https://agent402.tools/v1/metered", authToken: "a402_..." });
+const m = await client.messages.create({ model: "anthropic/claude-haiku-4.5", max_tokens: 60,
+  messages: [{ role: "user", content: "One sentence on x402." }] });
+console.log(m.content[0].text);
+\`\`\`
+
 ## Amazon Bedrock AgentCore
 
 An AgentCore Gateway turns \`https://agent402.tools/openapi.json\` into MCP
