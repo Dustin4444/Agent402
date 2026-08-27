@@ -34,7 +34,7 @@ import {
   fetchOpenRouter, throwUpstreamError, streamOpenRouterTo, bad, MAX_IMAGES,
   refuseCostVariants, checkBlockCacheControl, meteredQuoteForProbe, costFor,
 } from "./llm-gateway-kit.js";
-import { METER_MARKUP, METER_MIN_SETTLE_USD } from "../gateway-meter.js";
+import { METER_MARKUP, METER_MIN_SETTLE_USD, setMeterSentinel } from "../gateway-meter.js";
 
 const OPENROUTER_MESSAGES_URL = "https://openrouter.ai/api/v1/messages";
 const IMAGE_TOKENS = 1600; // same flat per-image estimate as the chat wire
@@ -239,9 +239,17 @@ export function makeMessagesHandler(tierSlug) {
     // Metered belt (same as the chat wire): the price this request was gated
     // at must cover the body actually being served; a mismatch is refused 400
     // (settlement cancelled, hold released, nothing spent).
+    // Cap, pre-spend and independent of how the call arrived (HTTP with a
+    // stashed quote, or an in-process caller with no request): the chat wire
+    // refuses this in validateRequest; the Messages wire clamped the quote to
+    // the cap and served the full body (review 2026-08-27).
+    if (tier.metered) {
+      const q = meteredQuoteForProbe(probe, imageCount);
+      if (q.overCap) throw bad(`This request would cost $${q.rawUsd.toFixed(4)} metered, above the $${tier.maxQuoteUsd} per-call cap of ${MESSAGES_PATH_BY_TIER[tierSlug]} - lower max_tokens or the input, or use a flat tier (GET /v1/models).`);
+    }
     if (tier.metered && Number.isFinite(req?.__meteredQuoteUsd)) {
       const q = meteredMessagesQuoteUsd(input);
-      if (q.invalid || q.usd > req.__meteredQuoteUsd * (1 + 1e-6) + 1e-9) {
+      if (q.invalid || q.overCap || q.usd > req.__meteredQuoteUsd * (1 + 1e-6) + 1e-9) {
         throw bad(`This request was quoted at $${req.__meteredQuoteUsd} but the body being served quotes $${q.usd}${q.invalid ? ` (${q.reason})` : ""}. Nothing was charged; resend the request exactly as it should be served (no query-string or wrapped fields).`, 400);
       }
     }
@@ -328,7 +336,7 @@ export function makeMessagesHandler(tierSlug) {
         // Metered settlement sentinel (chat-wire parity): the route binder
         // settles actual x markup for upto/credits buyers and strips this
         // before the body leaves. A non-number means "no meter", never "free".
-        if (typeof upstreamUsd === "number") data.__meterUpstreamUsd = upstreamUsd;
+        if (typeof upstreamUsd === "number") setMeterSentinel(data, upstreamUsd);
         return data;
       } catch (e) {
         if (![502, 503, 504].includes(e?.statusCode)) throw e;

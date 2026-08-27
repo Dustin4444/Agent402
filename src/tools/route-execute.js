@@ -137,6 +137,11 @@ function dispatchable(def) {
   }
   const bodyType = def.discovery?.bodyType;
   if (bodyType && bodyType !== "json") return { ok: false, why: `bodyType "${bodyType}" is not dispatchable through the JSON params envelope` };
+  // Per-request-priced tools (the metered gateway routes): their price is a
+  // quote of the body, which no flat routing fee can cover, and the executor
+  // invokes handlers with no request, so the quote/belt never run (review
+  // 2026-08-27: $0.01 bought an uncapped Opus call through here).
+  if (typeof def.quote === "function") return { ok: false, why: "per-request-priced tools are quoted from the body - call them directly so the 402 carries their real price" };
   return { ok: true };
 }
 
@@ -430,6 +435,9 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
       let result;
       try {
         result = await def.handler(params);
+        // Never relay an inner handler's meter sentinel (non-enumerable now,
+        // but belt and braces: this object is nested into our own response).
+        if (result && typeof result === "object") { try { delete result.__meterUpstreamUsd; } catch { /* frozen */ } }
       } catch (e) {
         // Surface the underlying tool's own error semantics — the buyer paid
         // for a routed execution, and the tool's 4xx is the honest answer.

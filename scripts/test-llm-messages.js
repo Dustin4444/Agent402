@@ -144,6 +144,7 @@ globalThis.fetch = realFetch;
   const row = costFor(small.model);
   ok(seen[0].b.provider?.max_price?.prompt === row.prompt && seen[0].b.provider?.max_price?.completion === row.completion, "metered: provider.max_price is the quoted model's own cost row, not the tier-wide cap");
   ok(mo.__meterUpstreamUsd === 0.000114 && mo.content[0].text === "Hi there!" && !("cost" in mo.usage), "metered: the meter sentinel carries the upstream cost to the route binder; billing fields are stripped");
+  ok(!JSON.stringify(mo).includes("__meterUpstreamUsd") && !Object.keys(mo).includes("__meterUpstreamUsd"), "metered: the sentinel is non-enumerable - an in-process caller nesting this result cannot serialize our upstream cost");
   {
     const { _testEventsForTest } = await import("../src/posthog.js");
     const ev = _testEventsForTest().filter((e) => e.event === "gateway_usage").pop();
@@ -153,6 +154,19 @@ globalThis.fetch = realFetch;
   try { await metered.handler(bigger, { ...fakeReq, __meteredQuoteUsd: qs.usd }); } catch (e) { belt = e; }
   ok(belt?.statusCode === 400 && /quoted at/.test(belt.message), "metered belt: a body quoting above the gated price is refused 400 before any upstream call");
   ok(seen.length === 1, "the refused request never reached upstream");
+  // Over the per-call cap: the 402 quoted the CAP (not the cost), so the
+  // handler must refuse - with a stashed quote, and with no request at all.
+  const overCap = { model: "anthropic/claude-opus-4.7-fast", max_tokens: 8192, messages: msg("\u4e2d".repeat(190_000)) };
+  const qo = meteredMessagesQuoteUsd(overCap);
+  ok(qo.overCap === true && qo.usd === TIERS["v1-chat-metered"].maxQuoteUsd, `an over-cap body quotes the cap ($${qo.usd}) and is flagged overCap`);
+  for (const [label, r] of [["with the gate's stashed quote", { ...fakeReq, __meteredQuoteUsd: qo.usd }], ["with no request (in-process caller)", undefined]]) {
+    let err = null;
+    try { await metered.handler(overCap, r); } catch (e) { err = e; }
+    ok(err?.statusCode === 400 && /per-call cap/.test(err.message) && seen.length === 1, `over-cap Messages body refused 400 before upstream ${label}`);
+  }
+  // The metered quote uses the model's OWN row, which is what rides upstream as the bound.
+  const fast = costFor("anthropic/claude-opus-4.7-fast");
+  ok(fast.prompt > TIERS["v1-chat-metered"].maxPrice.prompt && meteredMessagesQuoteUsd({ model: "anthropic/claude-opus-4.7-fast", max_tokens: 1000, messages: msg("hi") }).usd > meteredMessagesQuoteUsd({ model: "anthropic/claude-opus-5", max_tokens: 1000, messages: msg("hi") }).usd * 1.5, "metered quote prices an expensive model at its own row, not min'd with the tier-wide max_price");
 }
 delete process.env.OPENROUTER_API_KEY;
 

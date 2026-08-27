@@ -2020,6 +2020,20 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   homepage eyebrow reads "Wallet or card. Same key, same receipts." (pinned in test-home-page), and the FAQ line
   "nothing is token-metered" (false since the metered tier) now describes the metered route. The plugin proxy sends
   `User-Agent: agent402-openclaw/<version>`, so `payment_settled.clientUa` splits metered buyers by host.
+- **Security review of the metered Messages wire (2026-08-27, two HIGHs reproduced with the real modules, fixed the same
+  day):** (1) an OVER-CAP Messages body was SERVED at the $2 cap - `meteredQuoteForProbe` clamped the 402 quote to
+  `maxQuoteUsd` and the handler never refused (a 190k-char CJK body on opus-4.7-fast cost ~$8 upstream for $2; the chat wire
+  refuses this inside `validateRequest`). The Messages handler now refuses 400 on `overCap` BEFORE any upstream call, with
+  or without a request (`meteredQuoteForProbe` returns `rawUsd` beside the clamped `usd`); the belt refuses `overCap` too.
+  (2) `route-execute` ($0.01) dispatched the quoted metered tools via `def.handler(params)` with no request - no quote, no
+  belt, no cap - and nested the result, so `result.result.__meterUpstreamUsd` (our exact OpenRouter bill) reached the buyer.
+  `dispatchable()` now refuses any def with a `quote` function ("per-request-priced tools are quoted from the body - call
+  them directly"), the executor deletes the sentinel from any nested result, and the sentinel itself is NON-ENUMERABLE
+  (`setMeterSentinel` in gateway-meter.js: readable by the route binder, invisible to `JSON.stringify`/`Object.keys`
+  however deep it is nested; `applyMeteredSettlement` still deletes it). Inherited (fixed too): `worstCaseUpstreamCost`
+  min'd the model row with `tier.maxPrice` (20/100) while the metered handlers send the RAW row as `provider.max_price`, so
+  opus-4.7-fast (30/150) / gpt-5-pro quoted ~30% under their bound - the metered tier now quotes the un-min'd row. Tests:
+  test-llm-messages (56), test-gateway-meter (58), test-route-execute (54).
 - **`/proof` + `GET /api/proof` (2026-08-27, `src/proof.js`, `proofFeed()` in sales-ledger):** receipts for the metered
   tier - the ledger now stores `quote_usd` (additive column) next to the settled `price_usd` on every metered sale
   (`recordSale({quoteUsd})` from the route binder's `req.__meteredQuoteUsd`), and the page shows aggregates plus ONE
