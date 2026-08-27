@@ -1983,7 +1983,12 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   bundled or `@openclaw/*-provider` packages), so an upstream docs PR is the wrong lever - the listing path is
   `clawhub package publish ./openclaw` (dry-run validates and lists the 9 files; it required `openclaw.compat.pluginApi`
   + `openclaw.build.openclawVersion` + `install.minHostVersion`, now in package.json); the real publish needs a
-  ClawHub login = Mike. openclaw/test.js 75.
+  ClawHub login = Mike. openclaw/test.js 75. **Published on ClawHub 2026-08-27 by Mike (0.4.0, channel community,
+  scanStatus clean, publisher @MikeyPetrillo; hidden from anonymous inspect/download until their review completes).**
+  The deploy.yml publish job now carries a "Publish agent402-openclaw to ClawHub" step: repo secret `CLAWHUB_TOKEN`
+  (a ClawHub CLI token on the publisher account, Actions-only, NOT Railway - prod has no use for it), config written
+  under `CLAWHUB_CONFIG_PATH` in the job temp dir, `package inspect --version` as the idempotency check (verified: an
+  existing version reads present, a bogus one absent), source metadata from the run; no token = loud skip.
 - **Cost audit 2026-08-27 (PostHog + operator ledgers + Railway logs):** no buyer over/undercharging found (0 charged-failures
   since 07-16, 0 refunds owed, 0 gateway calls over the 70% bound, ledger vs PostHog settlements reconcile). The month's
   upstream spend was ~$29 OpenRouter+Brave, of which ~$21 landed on 2026-08-21 (577 OpenRouter generations, 114 Opus, 491
