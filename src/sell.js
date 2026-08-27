@@ -32,7 +32,7 @@ const COSTS = [
 
 // Lane-level only. Per-tool slugs and purchase counts are the paid
 // /api/bestsellers product and are deliberately never rendered here — they
-// are the one demand signal no competitor can reconstruct on-chain.
+// are the one demand signal nobody can reconstruct from the chain alone.
 const LANES = [
   ["Hashing & encoding", "sha256/sha512 digests, HMAC, base64, JWT decoding: called dozens of times inside a single job."],
   ["Market & financial data", "Live quotes, historical series, Treasury yield curves, SEC company lookups."],
@@ -199,7 +199,7 @@ table{border-collapse:collapse;width:100%}
     </div>
     <div style="padding:24px;background:var(--footer-bg);">
       <h3 style="font-family:var(--font-mono);font-weight:700;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin:0 0 12px;">What sells here</h3>
-      <p style="font-size:14.5px;line-height:1.6;color:var(--muted);margin:0;">Not novelty. The heaviest lanes are dull, deterministic and cheap - the calls an agent makes dozens of times inside a single job, where a wrong answer breaks the whole chain. You do not need a moat to sell into that. You need to be callable, correctly priced, and reachable when the router asks.</p>
+      <p style="font-size:14.5px;line-height:1.6;color:var(--muted);margin:0;">Not novelty. The heaviest lanes are dull, deterministic and cheap - the calls an agent makes dozens of times inside a single job, where a wrong answer breaks the whole chain. You do not need novelty to sell into that. You need to be callable, correctly priced, and reachable when the router asks.</p>
     </div>
   </div>
 </section>

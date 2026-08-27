@@ -31,13 +31,14 @@ export function privacyPage(baseUrl) {
 <section>
 <div class="pv-eyebrow">$ GET /privacy</div>
 <h1 class="pv-h1">Privacy policy</h1>
-<p class="pv-updated">Agent402 (agent402.tools) - last updated 2026-07-17.</p>
+<p class="pv-updated">Agent402 (agent402.tools) - last updated 2026-08-27.</p>
 </section>
 
 <section>
 <div class="pv-body">
 <p>Agent402 has no accounts, no signups, no cookies, and no browser trackers or ad trackers on its
-pages. The entire server is <a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener">open source</a>,
+pages. The only personal data we hold is what a card purchase needs to deliver what you bought (see
+"Card purchases" below). The entire server is <a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener">open source</a>,
 so every claim below is verifiable in code.</p>
 
 <h2>What we process, and why</h2>
@@ -52,10 +53,22 @@ so every claim below is verifiable in code.</p>
   provider</b> (OpenAI, or the model operator serving the request via OpenRouter) to generate the
   response, subject to that provider's own privacy terms. We don't store gateway inputs or outputs
   beyond short-lived caches (minutes) that make repeated identical calls cheaper.</li>
-  <li><b>Payments.</b> We never see card numbers, names, or emails - there are none. Payments settle in USDC on
-  the public Base blockchain (or Solana, Polygon, Arbitrum, Monad, Stellar, Algorand - or USDG on Robinhood Chain) via the x402 protocol; wallet addresses, amounts, and timestamps are public
-  on-chain by the protocol's design, not collected by us. Payment verification is performed by the
-  payment facilitators (Coinbase CDP and per-chain facilitators).</li>
+  <li><b>On-chain payments.</b> For x402 and MPP payments there are no card numbers, names, or emails.
+  Payments settle in USDC on the public Base blockchain (or the other chains listed at <a href="/pricing">/pricing</a>,
+  USDG on Robinhood Chain, or MPP on Tempo) via the x402 or MPP protocol; wallet addresses, amounts, and
+  timestamps are public on-chain by the protocol's design, not collected by us. Payment verification is
+  performed by the payment facilitators (Coinbase CDP and per-chain facilitators, or Tempo's relay) and
+  we keep a sales ledger of settled payments (wallet address, amount, chain, transaction id) for accounting
+  and for refunding a call that was charged but failed.</li>
+  <li><b>Card purchases (reports, monitors, prepaid credits).</b> Card details are entered on Stripe's
+  hosted checkout and processed by <a href="https://stripe.com/privacy" rel="noopener">Stripe</a>; we never see card
+  numbers. Stripe gives us the email address you entered, a customer and session id, and the payment
+  status. We use the email only to deliver what you bought - the report link, the prepaid-credits key,
+  and monitor reports and alerts - sent through ZeptoMail, a transactional email provider. For a monitor
+  we also keep the subject you asked us to watch (a domain, ticker, fund, token or query) and the
+  reports we generated, for the life of the subscription. The input you give a report (a ticker, a
+  domain, a research question) is stored with the paid session so the report can be generated once and
+  served back to you; the finished report is served at an unguessable link and is not published.</li>
   <li><b>Operational telemetry.</b> The server records service events (tool called, payment settled,
   errors) with metadata - tool name, HTTP status, price, settlement chain, and the paying wallet
   address (already public on-chain) - in a server-side analytics tool (PostHog). This is used to run
@@ -77,7 +90,13 @@ so every claim below is verifiable in code.</p>
   <li>Tools that fetch external URLs (<code>extract</code>, <code>render</code>, <code>screenshot</code>, …)
   contact those sites from our server with the URL you provided.</li>
   <li><code>/api/search</code> forwards the query to the Brave Search API to produce results.</li>
-  <li>Hosting is on Railway. On-chain settlement is on Base (Coinbase CDP facilitator).</li>
+  <li>Card payments and subscriptions are processed by Stripe; transactional email (report links, credit
+  keys, monitor alerts) is sent through ZeptoMail. Report products read public sources named in each
+  report (for example SEC EDGAR, openFDA, DNS and certificate-transparency logs, public blockchain
+  explorers, and web search) and are synthesized by third-party AI models via OpenRouter, which receive
+  the report's inputs and source material, not your email.</li>
+  <li>Hosting is on Railway. On-chain settlement is on Base (Coinbase CDP facilitator) and the other
+  facilitators named at <a href="/pricing">/pricing</a>.</li>
   <li>We do not sell or share data with anyone for advertising or any other purpose.</li>
 </ul>
 
@@ -88,8 +107,12 @@ HTTP API.</p>
 
 <h2>Retention</h2>
 <p>Operational logs are short-lived (platform default, days not months). Rate-limit counters live in
-process memory only. Memory-tool data persists until deleted by its owner or TTL expiry. Aggregate,
-non-personal counters (total calls served per tool) are kept for the public <a href="/api/stats">/api/stats</a> page.</p>
+process memory only. Memory-tool data persists until deleted by its owner or TTL expiry. Card-purchase
+records (email, session id, input, the finished report) are kept while the report link or subscription is
+live and for accounting afterwards; you can ask us to delete them at the address below once the purchase
+is complete. The sales ledger keeps wallet addresses and transaction ids, which are already public
+on-chain. Aggregate, non-personal counters (total calls served per tool) are kept for the public
+<a href="/api/stats">/api/stats</a> page.</p>
 
 <h2>Abuse &amp; legal requests</h2>
 <p>Wallet addresses associated with <a href="/terms">terms</a> violations may be blocked and retained

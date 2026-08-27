@@ -573,7 +573,7 @@ the routing fee, stated, never hidden.
 ## External dispatch (the marketable half)
 
 Add \`"include":"external"\` and the router deliberately looks OUTSIDE its own
-catalog. Selection is the moat, and it is intentionally boring:
+catalog. Selection is deliberate, and it is intentionally boring:
 
 1. **Proven deliverers only.** Candidates need real settled volume - on Base
    that means on-chain settlement counts from the public leaderboard; on
@@ -1183,7 +1183,7 @@ answers a stock x402 v2 challenge, so nothing on our side needs configuring.
 
 The credits key that pays for chat pays for the rest: three wires on every
 tier (OpenAI chat, OpenAI Responses, Anthropic Messages), embeddings, rerank,
-images, speech and transcription, 500+ deterministic tools, finished reports
+images, speech and transcription, 500+ tools, finished reports
 and monitors, and a router that buys from other proven sellers on your
 agent's behalf. Why pay here, with the proof links:
 [agent402.tools/why](https://agent402.tools/why).
@@ -1317,7 +1317,7 @@ receipt shape:
 - **Three wires on every tier**: OpenAI chat, OpenAI Responses and Anthropic
   Messages, plus streaming, embeddings, rerank, images, video, speech and
   transcription, and a grounded tier that cites the web on every answer.
-- **500+ deterministic tools** over MCP or HTTP: web search, news, cited
+- **500+ tools** over MCP or HTTP: web search, news, cited
   answers, browser render, market quotes, SEC filings, crypto and DeFi data,
   PDFs, OCR, DNS and TLS checks, a code sandbox, wallet-keyed memory.
 - **Finished reports and monitors**: dossiers, insider flow, 13F holdings,

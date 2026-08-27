@@ -1,4 +1,4 @@
-// stripe-subscriptions — the recurring engine (Phase 2 foundation). Sells
+// stripe-subscriptions - the recurring engine. Sells
 // MONITORING subscriptions (re-run a report on a cadence, alert on change) via
 // Stripe Checkout in subscription mode, tracks subscribers in a durable store,
 // keeps the store in sync through a signature-verified webhook, and hands

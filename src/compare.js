@@ -47,7 +47,7 @@ export function comparePage(baseUrl) {
 <section>
 <div class="cmp-eyebrow">$ GET /compare</div>
 <h1 class="cmp-h1">How Agent402 Compares</h1>
-<p class="cmp-intro">Agent402 gives your AI agent 500+ deterministic tools behind a single protocol. Here is how it stacks up against the common alternatives.</p>
+<p class="cmp-intro">Agent402 gives your AI agent 500+ tools behind a single protocol. Here is how it stacks up against the common alternatives.</p>
 </section>
 
 <section>

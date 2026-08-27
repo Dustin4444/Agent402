@@ -1,4 +1,4 @@
-// Monitor scheduler (Phase 2b) test - offline, stubbed report pipeline / probes /
+// Monitor scheduler test - offline, stubbed report pipeline / probes /
 // EDGAR / email, injected clock. Proves the cost + delivery invariants:
 //   - first sight = welcome report + email; a quiet domain is re-probed FREE
 //     daily and never regenerated; the 30-day full re-run fires on schedule;

@@ -716,9 +716,8 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `allowEmpty` honoured only for the scheduler's own calls; insider needs >= 50% of Form 4 filings read,
   recall >= 2 of 3 feeds; openFDA `OPENFDA_API_KEY` support (keyless is 1k/day/IP); credit packs also
   mint from `checkout.session.completed`. Leak scan: a public example attributed invented figures to a
-  real Form 4 filer - anonymized; "roadmap/phase" framing dropped from public text. PMF/moat assessment
-  is the "Agent402 Fit and Moat" artifact (dossier-led card sales are the signal; programmatic SEC landing
-  pages + retention are the lever; stop adding rails/micro-tools). Prod is one replica, so the credits
+  real Form 4 filer - anonymized; "roadmap/phase" framing dropped from public text (the remaining "Phase 2"
+  comment labels and "moat" wording in served copy were removed 2026-08-27). Prod is one replica, so the credits
   in-memory cache is single-writer; revisit (sqlite/redis) before scaling replicas.
 - **Payer attribution (`src/payer.js`):** `payerFromRequest` reads only the signed EIP-3009
   `authorization.from` — memory identity depends on it, never weaken. `payerFromPaymentResponse`

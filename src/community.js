@@ -26,7 +26,7 @@ const SHOWCASE_PROJECTS = [
 export function communityPage(baseUrl) {
   const canonical = `${baseUrl}/community`;
   const pageTitle = "Community - Agent402 ecosystem";
-  const pageDesc = "Join the Agent402 community: contribute tool kits, write guides, and build autonomous agents with 500+ deterministic web tools on the x402 protocol.";
+  const pageDesc = "Join the Agent402 community: contribute tool kits, write guides, and build autonomous agents with 500+ web tools on the x402 protocol.";
 
   const jsonLd = {
     "@context": "https://schema.org",

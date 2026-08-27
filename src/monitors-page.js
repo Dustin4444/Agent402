@@ -1,4 +1,4 @@
-// Served pages for the monitoring subscriptions (Phase 2): the /monitors
+// Served pages for the monitoring subscriptions: the /monitors
 // storefront and the /monitors/thanks confirmation. Rendered through the
 // shared ledger shell (2026-08-22 redesign); shares REPORTS_CSS with the
 // one-shot reports pages. External JS (site CSP drops inline script).

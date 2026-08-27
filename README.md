@@ -14,18 +14,18 @@
 > - **Leaderboard** - [`GET /api/leaderboard`](https://agent402.tools/api/leaderboard) is the **public on-chain ranking** of every x402 seller by **Base USDC settled volume** - calls served, totalUsd, unique buyers per seller. Pipeline: Bazaar → `eth_getLogs` → per-call ceiling → aggregate by `payTo`. Hourly snapshot.
 >
 > Plus the catalog - **500+ strong: search/answer as the MCP front door, then
-> 400+ tools + 100+ curated skill packs** (multi-tool workflows callable as MCP
+> 500+ tools and curated skill packs** (multi-tool workflows callable as MCP
 > prompts) - all runnable yourself, plus
 > [`agent402-tollbooth`](tollbooth) - an open pay-per-crawl gate for the other
 > side of x402.
 >
 > **Two doors, two price lists.** Agents pay per call in USDC (x402 / MPP) or
-> free via proof-of-work, and a finished **report** costs $0.20 to $1.10 that
+> free via proof-of-work, and a finished **report** costs $0.60 to $2.00 that
 > way. People pay by card: the same reports at
 > [agent402.tools/reports](https://agent402.tools/reports) (company dossier, 13F fund
 > report, insider flow, market brief, deep research, FDA recall, domain audit)
-> are $1, or $2 for the deepest three, **monitors** that re-run on change at
-> [/monitors](https://agent402.tools/monitors) are $3 a month, and **prepaid
+> are $2 to $5, **monitors** that re-run on change at
+> [/monitors](https://agent402.tools/monitors) are $5 a month, and **prepaid
 > credits** at [/credits](https://agent402.tools/credits) are one `a402_` key
 > that pays every tool by card (`Authorization: Bearer a402_…`, debited per
 > successful call; supported by `agent402-mcp` via `AGENT402_CREDITS_KEY` and
@@ -52,7 +52,7 @@
 [![npm](https://img.shields.io/npm/v/agent402-tollbooth?label=agent402-tollbooth)](https://www.npmjs.com/package/agent402-tollbooth)
 [![CI](https://github.com/MikeyPetrillo/Agent402/actions/workflows/deploy.yml/badge.svg)](https://github.com/MikeyPetrillo/Agent402/actions/workflows/deploy.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-green.svg)](LICENSE)
-[![smithery badge](https://smithery.ai/badge/mike-kq9d/agent402)](https://smithery.ai/servers/mike-kq9d/agent402)
+[Listed on Smithery](https://smithery.ai/servers/mike-kq9d/agent402)
 
 **Framework adapters** (drop-in tools for the major agent stacks - auto-payment underneath):
 [![npm](https://img.shields.io/npm/v/agent402-openai-tools?label=openai-tools)](https://www.npmjs.com/package/agent402-openai-tools)
@@ -65,15 +65,15 @@
 [![npm](https://img.shields.io/npm/v/agent402-openai-agents?label=openai-agents)](https://www.npmjs.com/package/agent402-openai-agents)
 [![npm](https://img.shields.io/npm/v/agent402-agentkit?label=agentkit)](https://www.npmjs.com/package/agent402-agentkit)
 
-**500+ strong - live web search and cited answers as the MCP front door, then 400+ ready-to-use web tools + 100+ multi-tool skill packs for your AI agent, from one server. Every one tested, priced, and settled on-chain; every one earns its place. Browser
+**500+ strong - live web search and cited answers as the MCP front door, then ready-to-use web tools and multi-tool skill packs for your AI agent, from one server. Every one tested, priced, and settled on-chain; every one earns its place. Browser
 rendering, web search, PDFs, images, OCR, live financial/crypto/macro data, SEC EDGAR, deterministic stats, forecasting, and options/bond pricing (Black-Scholes, YTM), compression, and 200+ pure-CPU utilities.** Run it yourself for free in 30 seconds (MCP **or**
 plain HTTP, no API keys, no signup - the free tier and x402/MPP payments never
 need a key; only the optional prepaid card credits use one bearer key), connect
 it to Claude/ChatGPT/any MCP client, and add your own tools in a few lines.
-Every catalog tool is deterministic - **no LLM in the serving path** - and
-re-tested against its own example before every release. The two sanctioned
-LLM surfaces are explicit and priced as such: the `/v1` gateway and the
-finished report products (`/v1/research`, `/v1/dossier`, ... below).
+Every utility tool is deterministic - **no LLM in the serving path** - and
+re-tested against its own example before every release. The model-backed
+surfaces are explicit and priced as such: the `/v1` gateway (metered under a
+quoted ceiling, or flat tiers) and the finished report products (`/v1/research`, `/v1/dossier`, ... below).
 
 > Optionally, the same server can charge per call over the [x402
 > protocol](https://x402.org) (USDC on Base, Solana, Polygon, Arbitrum, Monad, Celo, Avalanche,
@@ -243,7 +243,7 @@ enables it with `STRIPE_SECRET_KEY`, otherwise these pages simply do not mount):
 
 | Page | What you get |
 |---|---|
-| [agent402.tools/reports](https://agent402.tools/reports) | Buy any finished report from the table above by card (`POST /api/buy`) for $1, or $2 for the deepest three (research max, dossier max, ticker pack), delivered at `/r/<session>` - no wallet, no account. The card price includes payment processing; an agent paying per call pays the lower tool price for the same report. A report is generated only against a Stripe-verified paid session, once; a failed generation is refunded automatically. |
+| [agent402.tools/reports](https://agent402.tools/reports) | Buy any finished report from the table above by card (`POST /api/buy`) for $2 to $5 (the deepest tiers and the ticker pack sit at the top of that range; current prices on the page), delivered at `/r/<session>` - no wallet, no account. The card price includes payment processing; an agent paying per call pays the lower tool price for the same report. A report is generated only against a Stripe-verified paid session, once; a failed generation is refunded automatically. |
 | [agent402.tools/monitors](https://agent402.tools/monitors) | $5/month subscriptions that re-run a report when something changes and email you: **domain security monitor** (free daily re-probe, full paid re-run on a security change, a certificate inside 14 days of expiry, or every 30 days), **SEC filing watch** (new filing), **Solana token safety watch** (changed safety facts), **fund 13F watch** (new filing), **FDA recall watch** (new recall number), **insider flow watch** (new Form 4), **IPO pipeline watch** (weekly digest). Reports land at `/m/<id>`; manage or cancel through the Stripe Customer Portal at `/monitors/manage`. |
 | [agent402.tools/credits](https://agent402.tools/credits) | Prepaid credits in $20 / $50 / $100 packs. You get one `a402_…` key (shown once on the thanks page and emailed); send it as `Authorization: Bearer a402_…` on any priced route and the call is paid from the balance - **debited only on a successful response**, integer micro-dollars so sub-cent prices are exact, never expires. `GET /api/credits/balance` (same header) reads the balance; a 402 with `{reason, balanceUsd, topup}` means insufficient. Identity-bound tools (`/api/memory*`, `my-usage`) refuse credits because the payment is the identity there; pay those over an x402 rail. |
 
@@ -365,7 +365,7 @@ const res = await openai.chat.completions.create({ model: "gpt-4o-mini", tools, 
 
 Already a Claude/MCP user? `agent402-mcp` is still the better path - paste `https://agent402.tools/mcp` into your client. The adapters are for direct API integrations where MCP isn't available. Sources: [`adapters/`](adapters).
 
-**OpenClaw agents:** drop in [`skills/openclaw/agent402/SKILL.md`](skills/openclaw/agent402/SKILL.md) - teaches an OpenClaw agent to find, pay (x402 USDC on Base, eleven other chains accepted, or free proof-of-work), and call any of the 400+ tools (or 100+ packs).
+**OpenClaw agents:** drop in [`skills/openclaw/agent402/SKILL.md`](skills/openclaw/agent402/SKILL.md) - teaches an OpenClaw agent to find, pay (x402 USDC on Base, eleven other chains accepted, or free proof-of-work), and call any of the 500+ tools and packs.
 
 ## Add your own tool (~15 lines)
 
@@ -448,7 +448,7 @@ Every claim links to the surface that proves it (the one-page version: [agent402
 
 1. **Pay for what the model used, with the ceiling quoted first.** The metered gateway (`POST /v1/metered/chat/completions`) quotes each 402 from the request's own body; a wallet paying `upto` settles actual usage under that ceiling, provider discounts such as prompt-cache reads pass through at cost, and every settled x402 or MPP response carries a receipt.
 2. **A failed call is not charged, and the response proves it.** Settlement runs after the handler and an error status cancels it, so a response with no payment receipt, or a receipt marked `success:false`, moved no money; a retry carrying an `Idempotency-Key` replays the paid answer instead of paying again; the one residual case (a settled receipt on an error response) is detected by our own alarm and recorded as a debt in a refund ledger, never written off silently.
-3. **One key buys everything.** The same wallet or credits key pays for five LLM tiers on three wires (OpenAI chat, OpenAI Responses, Anthropic Messages), embeddings, rerank, images, video, speech, transcription, grounded answers with citations, 500+ deterministic tools, wallet-keyed memory and finished reports.
+3. **One key buys everything.** The same wallet or credits key pays for five LLM tiers on three wires (OpenAI chat, OpenAI Responses, Anthropic Messages), embeddings, rerank, images, video, speech, transcription, grounded answers with citations, 500+ tools, wallet-keyed memory and finished reports.
 4. **No wallet required.** [Prepaid credits by card](https://agent402.tools/credits), cards over MPP and card checkout for reports sit beside USDC or USDG on twelve chains and native MPP on Tempo.
 5. **Finished work, ready to use.** Dossiers, insider flow, 13F holdings, filing reports, IPO digests, domain audits, token risk, deep research, market briefs, recall watch and a LinkedIn article package, grounded in primary sources with a data appendix; [monitors](https://agent402.tools/monitors) probe daily for free and re-run the paid report when the facts change.
 6. **We buy on your behalf.** `POST /api/route/execute` resolves a task to the best proven seller across the ecosystem, pays them from our wallet and relays the result under one receipt.

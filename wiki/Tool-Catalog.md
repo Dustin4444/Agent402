@@ -2,7 +2,7 @@
 
 > **Payment wires:** every paid endpoint accepts **x402** and **MPP** (Machine Payments Protocol) on the same 402 - see [[Paying with x402]] and [[Paying with MPP]]. Agent402 is the applied layer of [[Agentic Finance]]: agents that pay and get paid on their own.
 
-**500+ endpoints + 70+ multi-tool [[Skill Packs|Skill-Packs]].** All deterministic - **no LLM in the serving path**: same input, same output, full input/output schemas. Discover them machine-readably (don't hardcode this page):
+**500+ endpoints + 70+ multi-tool [[Skill Packs|Skill-Packs]].** The utility tools are deterministic - **no LLM in that serving path**: same input, same output, full input/output schemas; the `/v1` model gateway and the report products are model-backed and priced as such. Discover them machine-readably (don't hardcode this page):
 
 - [`/api/find?q={task}`](https://agent402.tools/api/find?q=extract%20article) - **resolve a plain-language task to the right tool** (route, price, schema, ready example) in one call, so an agent skips the token-heavy "search to find a tool" step. Also the `catalog.find` MCP tool on the connector.
 - [`/api/pricing`](https://agent402.tools/api/pricing) - slug, route, price, category, description for everything

@@ -820,7 +820,7 @@ const SOR_EXTERNAL_ENABLED = /^(1|true|yes|on)$/i.test((process.env.SOR_EXTERNAL
 //      probe then 404s the paid call). So we route ONLY to sellers with proven
 //      settled volume: the leaderboard's callsSettled is real completed paid
 //      deliveries (buyers kept paying because they got results). MIN_SETTLED
-//      gates out the unproven long tail. This is the moat — "route to any
+//      gates out the unproven long tail. This is the safety gate — "route to any
 //      seller THAT ACTUALLY WORKS", not just any seller.
 //   2. LIVENESS — even a proven seller's crawled (method, route) can drift, so
 //      probe the live endpoint for a 402 before committing. Bare status read,
@@ -1244,7 +1244,7 @@ const checkoutLimiter = createRateLimiter("checkout", { perMin: 20, perHour: 120
 // Stripe's rate limit. A legitimate report poll is ~20/min.
 const sessionReadLimiter = createRateLimiter("session-read", { perMin: 90, perHour: 1500 });
 const clientIp = (req) => (req.ip || req.socket?.remoteAddress || "?").trim();
-// Recurring subscriptions engine (Phase 2). Initialized EARLY so the Stripe
+// Recurring subscriptions engine. Initialized EARLY so the Stripe
 // webhook route can mount with a RAW body parser BEFORE the global express.json()
 // below - webhook signature verification needs the unparsed body.
 // Validate targets BEFORE the recurring charge: a domain must parse; a fund
@@ -2049,7 +2049,7 @@ if (humanCheckoutEnabled()) {
     });
   }
 }
-// Monitoring subscriptions (Phase 2) - JSON routes + pages. The webhook is
+// Monitoring subscriptions - JSON routes + pages. The webhook is
 // mounted EARLY (raw body) above. Provisioning is belt-and-suspenders: the
 // confirm route records the sub from the paid session; the webhook keeps the
 // lifecycle (renewals/cancellations) in sync.
@@ -2194,7 +2194,7 @@ if (_mppSubs) {
     }
   });
 }
-// Monitor scheduler (Phase 2b): the recurring fulfilment engine. Runs only when
+// Monitor scheduler: the recurring fulfilment engine. Runs only when
 // subscriptions are enabled (Stripe key) - it reuses the premium pipeline.
 let _monitors = null;
 // One fulfilment engine, two subscriber sources. The scheduler asks for exactly

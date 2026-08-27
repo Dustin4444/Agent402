@@ -94,7 +94,7 @@ the key.
 The key or wallet that pays for chat also pays for the rest of the gateway and
 the catalog, with one 402 shape and one receipt shape: OpenAI Responses and
 Anthropic Messages wires, embeddings, rerank, images, video, speech,
-transcription, grounded answers with citations, 500+ deterministic tools over
+transcription, grounded answers with citations, 500+ tools over
 MCP or HTTP, wallet-keyed memory, finished reports (dossiers, insider flow, 13F,
 domain audits, token risk, deep research) and monitors, plus routing that buys
 from proven external sellers on the agent's behalf.
