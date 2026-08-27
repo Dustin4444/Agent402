@@ -63,13 +63,13 @@ function chainCard(html, slug) {
 
 // --- no hardcoded third-party company descriptions --------------------------
 // The design source's own JS hand-authored blurbs for 6 named companies
-// (BlockRun.AI, StableEnrich, etc.) - contradicts its own "Crawled, not
+// (real third-party sellers) - contradicts its own "Crawled, not
 // curated" copy, and no such field exists in the real crawled seller data.
 // Lock that none of those names ever appear (a symptom of the hardcoded
 // table leaking back in) unless a fixture seller happens to share the name.
 {
   const html = marketPage(null, BASE_URL, { snapshot: { sellers: [LOCAL] }, leaderboardSnap: { leaderboard: [] } });
-  ok(!html.includes("Routing and payment layer for AI"), "no hardcoded third-party seller blurb (BlockRun.AI's design copy) leaked in");
+  ok(!html.includes("Routing and payment layer for AI"), "no hardcoded third-party seller blurb (a real seller's design copy) leaked in");
   ok(!html.includes("Company and contact enrichment for agents"), "no hardcoded third-party seller blurb (StableEnrich's design copy) leaked in");
   ok(html.includes("Crawled, not curated"), "the methodology section states the real discovery model");
 }

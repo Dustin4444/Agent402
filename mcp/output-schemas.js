@@ -5,7 +5,7 @@
 // Flagship MCP surface — the small default tools/list agents see first.
 //
 // Product intent (competitive brief 2026-08): Agent402 wins as the deterministic
-// tools layer beside LLM gateways (BlockRun et al.). Default MCP exposure is a
+// tools layer beside per-token LLM gateways. Default MCP exposure is a
 // tight flagship set; the long catalog stays callable via find_tool /
 // search_tools / call_tool. Keep this list aligned with mcp/index.js
 // DEFAULT_CURATED (stdio package cannot import this file when published).
