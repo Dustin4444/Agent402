@@ -1,0 +1,55 @@
+#!/usr/bin/env node
+// LIVE proof of the Coinbase Business path: boot the tollbooth CLI's own
+// middleware (buildCliX402Middleware, the code `npx agent402-tollbooth` runs)
+// with CDP keys and a Base payTo, then pay it once from the canary burner with
+// a stock x402 client. The burner pays itself (payTo = burner), so the only
+// real movement is a USDC transfer to its own address settled by Coinbase's
+// facilitator. Asserts: 402 with a Base USDC accept naming the payTo, then a
+// paid 200 whose PAYMENT-RESPONSE receipt says success with a transaction.
+// Dispatch-only (.github/workflows/tollbooth-cdp-live.yml); never in CI lanes.
+import express from "express";
+import { createTollbooth, buildCliX402Middleware } from "../tollbooth/index.js";
+import { privateKeyToAccount } from "viem/accounts";
+
+const { CDP_API_KEY_ID, CDP_API_KEY_SECRET } = process.env;
+const pk = (process.env.BURNER_KEY || "").trim();
+if (!CDP_API_KEY_ID || !CDP_API_KEY_SECRET || !pk) { console.error("need CDP_API_KEY_ID, CDP_API_KEY_SECRET, BURNER_KEY"); process.exit(2); }
+const account = privateKeyToAccount(pk.startsWith("0x") ? pk : `0x${pk}`);
+const payTo = process.env.PAY_TO || account.address;
+
+const mw = await buildCliX402Middleware({
+  TOLLBOOTH_PAYTO: payTo, TOLLBOOTH_CDP_API_KEY_ID: CDP_API_KEY_ID, TOLLBOOTH_CDP_API_KEY_SECRET: CDP_API_KEY_SECRET,
+  TOLLBOOTH_PRICE: "$0.001", TOLLBOOTH_NETWORK: "base", TOLLBOOTH_RESOURCE_BASE: "https://tollbooth-cdp-live-proof.invalid",
+});
+if (typeof mw !== "function") { console.error("CLI did not build a settling middleware from CDP keys"); process.exit(1); }
+
+const app = express();
+app.use(createTollbooth({ x402: mw, mode: "all", pow: false, powSecret: "live-proof", resourceBaseUrl: "https://tollbooth-cdp-live-proof.invalid" }));
+app.get("/paid", (_req, res) => res.json({ ok: true, served: new Date().toISOString() }));
+const server = app.listen(0, "127.0.0.1");
+await new Promise((r) => server.once("listening", r));
+const url = `http://127.0.0.1:${server.address().port}/paid`;
+
+const bare = await fetch(url);
+const pr = bare.headers.get("payment-required");
+const req = pr ? JSON.parse(Buffer.from(pr, "base64").toString("utf8")) : null;
+const accept = req?.accepts?.find((a) => a.network === "eip155:8453" && a.scheme === "exact");
+console.log("bare:", bare.status, "accepts:", JSON.stringify(req?.accepts?.map((a) => ({ network: a.network, payTo: a.payTo, amount: a.amount }))));
+if (bare.status !== 402 || !accept || accept.payTo.toLowerCase() !== payTo.toLowerCase() || accept.amount !== "1000") { console.error("402 shape wrong"); process.exit(1); }
+
+const [{ x402Client, wrapFetchWithPayment }, { registerExactEvmScheme }] = await Promise.all([import("@x402/fetch"), import("@x402/evm/exact/client")]);
+const client = new x402Client(); registerExactEvmScheme(client, { signer: account });
+const payFetch = wrapFetchWithPayment(fetch, client);
+const paid = await payFetch(url);
+const body = await paid.json().catch(() => ({}));
+const rh = paid.headers.get("payment-response");
+const receipt = rh ? JSON.parse(Buffer.from(rh, "base64").toString("utf8")) : null;
+console.log("paid:", paid.status, JSON.stringify(body).slice(0, 200));
+console.log("receipt:", JSON.stringify(receipt));
+console.log("X-Tollbooth-Paid:", paid.headers.get("x-tollbooth-paid"), "X-Tollbooth-Error:", paid.headers.get("x-tollbooth-error"));
+server.close();
+const ok = paid.status === 200 && body.ok === true && receipt?.success === true && /^0x[0-9a-f]{64}$/i.test(receipt?.transaction || "")
+  && String(receipt?.payer || "").toLowerCase() === account.address.toLowerCase();
+if (ok) console.log(`PROVEN: settled through Coinbase's facilitator, tx https://basescan.org/tx/${receipt.transaction} (payer ${receipt.payer} -> payTo ${payTo})`);
+else console.error("NOT PROVEN");
+process.exit(ok ? 0 : 1);
