@@ -2003,12 +2003,15 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   (a ClawHub CLI token on the publisher account, Actions-only, NOT Railway - prod has no use for it), config written
   under `CLAWHUB_CONFIG_PATH` in the job temp dir, `package inspect --version` as the idempotency check (verified: an
   existing version reads present, a bogus one absent), source metadata from the run; no token = loud skip.
-  **OIDC path (2026-08-27):** `.github/workflows/clawhub-publish.yml` (workflow_dispatch, `id-token: write`, ClawHub's
-  reusable `package-publish.yml` pinned to the SHA OpenClaw's scaffold pins, `source_path: openclaw`, dry_run default).
-  It works only after a package manager runs ONCE, logged in: `clawhub package trusted-publisher set agent402-openclaw
-  --repository MikeyPetrillo/Agent402 --workflow-filename clawhub-publish.yml` (repo + workflow filename are matched
-  against the OIDC claim; `--environment` optional). Then the token step can go; until a dispatched dry_run=false has
-  published once, the token step stays as the fallback.
+  **OIDC path tried and shelved (2026-08-27):** ClawHub trusted publishing works ONLY through its reusable
+  `openclaw/clawhub/.github/workflows/package-publish.yml` (the CLI has no OIDC code; the workflow requests an ID token
+  itself and publishes from a ClawHub source checkout), and that workflow uses tag-pinned actions
+  (`actions/checkout@v6`, `download-artifact@v8`, `upload-artifact@v7`) while this repository enforces full-SHA pinning
+  (`sha_pinning_required: true`) - GitHub refuses the run: "all actions must be pinned to a full-length commit SHA"
+  (run 33100511250). Not relaxing the policy for this. Mike DID set the trusted-publisher config on the package, which
+  turns a token publish into a "manual" publish that ClawHub refuses without `--manual-override-reason` - the deploy.yml
+  step now passes one. Revisit when ClawHub SHA-pins its reusable workflow (or Mike deletes the config with
+  `clawhub package trusted-publisher delete agent402-openclaw`).
 - **Test ports must stay OUT of the ephemeral range (2026-08-27):** `scripts/test-tollbooth-cli.js` spawned the tollbooth
   CLI on a random 40000-59999 port and, five times in nine days (CI only, never locally), the child exited 0 right after
   boot with no trace. The fifth run carried the new `beforeExit` evidence: `EADDRINUSE :::42828` - the number sat inside
