@@ -1973,6 +1973,15 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   from the $6 unsettled-spend bound the day the Tempo leg first resolved; `tempo-sor-live.js` refuses a `route` input
   off the two documented paths (a write-access dispatcher could otherwise point the burner's credential at another
   host). `test-posthog-funnel` (60), `test-tempo-router` (48), `test-pricing-margin` (186).
+- **The weekly number is external metered buyers (2026-08-27):** PostHog insight "External metered buyers per week"
+  (short id `Pj87HEzu`: distinct non-synthetic payers on `payment_settled{slug:v1-chat-metered}` per week, with
+  settlements, settled USD, distinct `clientUa`); ledger mirror `meteredExternal({days})` (counts only) on
+  `/__operator/sales.json` as `meteredExternal7d` and on `/api/proof` as `external.buyers7d`/`settlements7d`. Copy made
+  metered-first the same day: `/docs#gateway` and `/pricing` list `/v1/metered/chat/completions` first ("from $0.001,
+  quoted per request, settles actual usage under the quote"), the /pricing intro points SDKs at `/v1/metered`, the
+  homepage eyebrow reads "Wallet or card. Same key, same receipts." (pinned in test-home-page), and the FAQ line
+  "nothing is token-metered" (false since the metered tier) now describes the metered route. The plugin proxy sends
+  `User-Agent: agent402-openclaw/<version>`, so `payment_settled.clientUa` splits metered buyers by host.
 - **`/proof` + `GET /api/proof` (2026-08-27, `src/proof.js`, `proofFeed()` in sales-ledger):** receipts for the metered
   tier - the ledger now stores `quote_usd` (additive column) next to the settled `price_usd` on every metered sale
   (`recordSale({quoteUsd})` from the route binder's `req.__meteredQuoteUsd`), and the page shows aggregates plus ONE

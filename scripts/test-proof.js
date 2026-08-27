@@ -31,6 +31,7 @@ ok(!JSON.stringify(f).includes("\"hash\""), "flat-route sales never enter the me
 recordSale({ slug: "v1-chat-metered", priceUsd: 0.004, rail: "usdc", network: "base", payer: "0x" + "4".repeat(40), tx: "0x" + "d".repeat(64), synthetic: false, wire: "x402", quoteUsd: 0.004 });
 f = proofFeed();
 ok(f.external.count === 2 && f.external.latest.tx === "0x" + "d".repeat(64) && f.external.quotedUsd === 0.0071, "aggregates sum settled and quoted; latest is the newest row only");
+ok(f.external.buyers7d === 2 && f.external.settlements7d === 2 && !("buyers7d" in f.internal), "7-day external buyer + settlement COUNTS ride the feed (never a roster); the internal side carries none");
 html = proofPage("https://agent402.tools", f);
 ok(html.includes("basescan.org/tx/0x" + "d".repeat(64)) && /LATEST EXTERNAL/.test(html) && /our own daily canary/i.test(html), "page links the settle tx and labels the internal row as ours");
 ok(/:00 UTC \(to the hour\)/.test(html), "page shows the external time to the hour and says so");
