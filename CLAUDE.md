@@ -1977,7 +1977,8 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   tier - the ledger now stores `quote_usd` (additive column) next to the settled `price_usd` on every metered sale
   (`recordSale({quoteUsd})` from the route binder's `req.__meteredQuoteUsd`), and the page shows aggregates plus ONE
   latest external row and ONE latest internal (daily canary) row with the settle tx and an explorer link - never a
-  payer, never a per-call feed (the mppSales lesson). Linked from the /why proof point ("receipts"), sitemap,
+  payer, never a per-call feed (the mppSales lesson); the EXTERNAL row's timestamp is truncated to the hour
+  (`atPrecision`), matching /api/revenue/mpp, the canary row keeps the second. Linked from the /why proof point ("receipts"), sitemap,
   test-static-pages; `scripts/test-proof.js` (10, in CI). Purpose: one published receipt a week (external once an
   outside buyer settles on the metered route; until then the canary's, labelled ours).
 - **Distribution surfaces checked 2026-08-27:** Continue has no Hub to publish to (hub.continue.dev does not resolve,
