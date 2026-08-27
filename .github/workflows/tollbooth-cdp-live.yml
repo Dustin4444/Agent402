@@ -3,7 +3,9 @@ name: Tollbooth CDP live proof
 # Proves the Coinbase Business path end to end with real money: the tollbooth
 # CLI's own middleware, built from CDP keys, settles a $0.001 USDC payment on
 # Base through Coinbase's facilitator into the payTo. The canary burner pays
-# itself, so nothing leaves our wallets. Dispatch-only.
+# our treasury ($0.001, the daily canary's own movement): Coinbase's facilitator
+# refuses a payer paying itself (`self_send_not_allowed`, measured 2026-08-27),
+# so a self-pay proof cannot exist on CDP. Dispatch-only.
 on:
   workflow_dispatch: {}
 
@@ -23,6 +25,7 @@ jobs:
       - name: Control - the same CLI path through PayAI's keyless facilitator
         env:
           BURNER_KEY: ${{ secrets.BURNER_KEY }}
+          PAY_TO: ${{ vars.WALLET_ADDRESS || '0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0' }}
           CONTROL: payai
         run: |
           echo "::add-mask::$BURNER_KEY"
@@ -32,6 +35,7 @@ jobs:
           CDP_API_KEY_ID: ${{ secrets.CDP_API_KEY_ID }}
           CDP_API_KEY_SECRET: ${{ secrets.CDP_API_KEY_SECRET }}
           BURNER_KEY: ${{ secrets.BURNER_KEY }}
+          PAY_TO: ${{ vars.WALLET_ADDRESS || '0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0' }}
         run: |
           [ -n "$CDP_API_KEY_ID" ] && [ -n "$CDP_API_KEY_SECRET" ] || { echo "::error::CDP_API_KEY_ID/SECRET secrets missing"; exit 1; }
           [ -n "$BURNER_KEY" ] || { echo "::error::BURNER_KEY secret missing"; exit 1; }

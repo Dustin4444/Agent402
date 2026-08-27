@@ -2,9 +2,9 @@
 // LIVE proof of the Coinbase Business path: boot the tollbooth CLI's own
 // middleware (buildCliX402Middleware, the code `npx agent402-tollbooth` runs)
 // with CDP keys and a Base payTo, then pay it once from the canary burner with
-// a stock x402 client. The burner pays itself (payTo = burner), so the only
-// real movement is a USDC transfer to its own address settled by Coinbase's
-// facilitator. Asserts: 402 with a Base USDC accept naming the payTo, then a
+// a stock x402 client. payTo = our treasury (PAY_TO; the daily canary's own
+// $0.001 movement): Coinbase's facilitator refuses payer == payTo
+// (`self_send_not_allowed`, measured 2026-08-27), so no self-pay proof exists. Asserts: 402 with a Base USDC accept naming the payTo, then a
 // paid 200 whose PAYMENT-RESPONSE receipt says success with a transaction.
 // Dispatch-only (.github/workflows/tollbooth-cdp-live.yml); never in CI lanes.
 import express from "express";
@@ -55,7 +55,7 @@ const pr2 = paid.headers.get("payment-required");
 if (pr2) { try { const r2 = JSON.parse(Buffer.from(pr2, "base64").toString("utf8")); console.log("retry payment-required:", JSON.stringify({ error: r2.error, x402Version: r2.x402Version, accepts: (r2.accepts || []).length })); } catch { console.log("retry payment-required: (unparseable)"); } }
 server.close();
 const ok = paid.status === 200 && body.ok === true && receipt?.success === true && /^0x[0-9a-f]{64}$/i.test(receipt?.transaction || "")
-  && String(receipt?.payer || "").toLowerCase() === account.address.toLowerCase();
+  && String(receipt?.payer || "").toLowerCase() === account.address.toLowerCase() && payTo.toLowerCase() !== account.address.toLowerCase();
 if (ok) console.log(`PROVEN (${control ? "PayAI control" : "Coinbase CDP"}): settled, tx https://basescan.org/tx/${receipt.transaction} (payer ${receipt.payer} -> payTo ${payTo})`);
 else console.error("NOT PROVEN");
 process.exit(ok ? 0 : 1);
