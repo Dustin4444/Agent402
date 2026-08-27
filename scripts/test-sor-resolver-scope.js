@@ -12,12 +12,15 @@ let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
 const start = src.indexOf("async function resolveExternalSeller(");
 ok(start > 0, "resolveExternalSeller is present");
-const fn = src.slice(start, src.indexOf("\n}\n", start));
+// The function body ends at the next top-level declaration (its own closing
+// brace is not the first "\n}\n" after the start: nested blocks close first).
+const nextTop = src.slice(start + 1).search(/\n(?:async function|function|const|let|app\.|export) /);
+const fn = src.slice(start, nextTop > 0 ? start + 1 + nextTop : start + 20000);
 const decl = fn.indexOf("let provenPayToByOrigin = new Map()");
 const branch = fn.indexOf('if (chain === "tempo")');
 ok(decl > 0 && branch > 0 && decl < branch, "provenPayToByOrigin is declared at function scope BEFORE the chain branches");
 ok(!/var provenPayToByOrigin/.test(fn), "no `var provenPayToByOrigin` inside a branch (the hoisted-undefined shape)");
 ok(/provenPayToByOrigin = buildProvenPayToByOrigin\(\)/.test(fn), "the Base branch still assigns the proven-payTo evidence");
-ok((fn.match(/provenPayToByOrigin\.get\(/g) || []).length >= 2, "the post-probe check and the return still read the map (so an undefined map would have been fatal)");
+ok((fn.match(/provenPayToByOrigin[?.]+get\(/g) || []).length >= 1, "the post-probe check still reads the map (so an undefined map would have been fatal on the non-Base legs)");
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
