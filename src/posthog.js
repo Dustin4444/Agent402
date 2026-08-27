@@ -499,13 +499,22 @@ function flushToolGoneRollup() {
 /** One event per composite report run (research/dossier/fund/domain/token-risk): the
  *  upstream we spent vs the price - these are the largest single upstream calls we
  *  make and were invisible to margin telemetry before 2026-08-22. */
-export function capturePostHogCompositeUsage({ slug, upstreamUsd, ok, priceUsd }) {
-  if (!posthogEnabled()) return;
+export function capturePostHogCompositeUsage({ slug, upstreamUsd, ok, priceUsd, rail, capUsd, overCap }) {
+  if (!active()) return;
   try {
-    client.capture({
-      distinctId: "agent402-server",
-      event: "composite_usage",
-      properties: { slug, upstreamUsd, ok, priceUsd, marginUsd: priceUsd != null ? Math.round((priceUsd - upstreamUsd) * 1e4) / 1e4 : null },
+    const price = priceUsd != null && Number.isFinite(Number(priceUsd)) ? Number(priceUsd) : null;
+    capture("composite_usage", {
+      slug,
+      upstreamUsd,
+      ok: !!ok,
+      priceUsd: price,
+      marginUsd: price != null ? Math.round((price - upstreamUsd) * 1e4) / 1e4 : null,
+      // Which door sold it (agent = x402/MPP route, card = Stripe checkout,
+      // monitor = subscription run) and the cap verdict, so margin per door and
+      // cap breaches are PostHog insights instead of a log grep.
+      rail: String(rail || "agent"),
+      capUsd: capUsd != null ? Number(capUsd) : null,
+      overCap: !!overCap,
     });
   } catch { /* never throw */ }
 }
