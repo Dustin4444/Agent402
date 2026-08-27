@@ -935,6 +935,14 @@ async function resolveExternalSeller(task, { cap, chain = "base" }) {
   const ourHost = (() => { try { return new URL(BASE_URL).host.toLowerCase(); } catch { return ""; } })();
   const hostOf = (u) => { try { return new URL(u).host.toLowerCase(); } catch { return ""; } };
   let candidates;
+  // Proven-payTo evidence is an x402/Base construct (advertised payTo vs the
+  // address that actually received USDC on Base). It is EMPTY for the Tempo
+  // and Algorand legs, whose proof is the leaderboard / registry gate. It was
+  // declared with `var` inside the Base branch only, so on Tempo and Algorand
+  // the post-probe read threw inside the try, the catch marked every candidate
+  // not-live, and both legs resolved nothing - found by the first live Tempo
+  // SOR buy (2026-08-27). Declared here, for every chain.
+  let provenPayToByOrigin = new Map();
   if (chain === "tempo") {
     // MPP sellers on Tempo come from OUR OWN live-verified MPP index (the
     // mpp.dev registry, independently probed) - src/tempo-sellers.js. Proven-
@@ -978,7 +986,7 @@ async function resolveExternalSeller(task, { cap, chain = "base" }) {
     const { results } = routeQuery({ query: task, top: 20, include: "external", ...indexCtx() });
     const settledByOrigin = buildSettledByOrigin();
     const payersByOrigin = buildPayersByOrigin();
-    var provenPayToByOrigin = buildProvenPayToByOrigin();
+    provenPayToByOrigin = buildProvenPayToByOrigin();
     candidates = (results || [])
       .filter((r) => r.seller && r.url && r.priceUsd > 0 && r.priceUsd <= cap && Array.isArray(r.networks) && r.networks.includes("eip155:8453"))
       .filter((r) => hostOf(r.url) && hostOf(r.url) !== ourHost)
