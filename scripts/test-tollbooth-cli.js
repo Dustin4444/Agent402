@@ -120,6 +120,12 @@ child.on("exit", (code, signal) => { childExit = { code, signal }; });
 // at `exit`. Evidence is read at `close` now, so a fourth occurrence explains
 // itself: an explicit process.exit() prints its stack, a drained loop prints
 // nothing, and the two are finally distinguishable.
+// FOURTH occurrence 2026-08-27 (run 33095727469): banner printed, exit 0, no
+// signal, stdio drained, NO trace line - so it was a drained loop, not a
+// process.exit(). The CLI now logs on `beforeExit` (the hook that fires exactly
+// when the loop drains) with server.listening, its address and the live
+// resource list, and on the server's own `close`/`error` events, so a fifth
+// occurrence names which handle went away.
 let childClosed = false;
 child.on("close", () => { childClosed = true; });
 const drained = async (ms = 3000) => { const t = Date.now() + ms; while (!childClosed && Date.now() < t) await new Promise((r) => setTimeout(r, 50)); };
