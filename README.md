@@ -70,10 +70,10 @@ rendering, web search, PDFs, images, OCR, live financial/crypto/macro data, SEC 
 plain HTTP, no API keys, no signup - the free tier and x402/MPP payments never
 need a key; only the optional prepaid card credits use one bearer key), connect
 it to Claude/ChatGPT/any MCP client, and add your own tools in a few lines.
-Every catalog tool is deterministic - **no LLM in the serving path** - and
-re-tested against its own example before every release. The two sanctioned
-LLM surfaces are explicit and priced as such: the `/v1` gateway and the
-finished report products (`/v1/research`, `/v1/dossier`, ... below).
+Every utility tool is deterministic - **no LLM in the serving path** - and
+re-tested against its own example before every release. The model-backed
+surfaces are explicit and priced as such: the `/v1` gateway (metered under a
+quoted ceiling, or flat tiers) and the finished report products (`/v1/research`, `/v1/dossier`, ... below).
 
 > Optionally, the same server can charge per call over the [x402
 > protocol](https://x402.org) (USDC on Base, Solana, Polygon, Arbitrum, Monad, Celo, Avalanche,
@@ -448,7 +448,7 @@ Every claim links to the surface that proves it (the one-page version: [agent402
 
 1. **Pay for what the model used, with the ceiling quoted first.** The metered gateway (`POST /v1/metered/chat/completions`) quotes each 402 from the request's own body; a wallet paying `upto` settles actual usage under that ceiling, provider discounts such as prompt-cache reads pass through at cost, and every settled x402 or MPP response carries a receipt.
 2. **A failed call is not charged, and the response proves it.** Settlement runs after the handler and an error status cancels it, so a response with no payment receipt, or a receipt marked `success:false`, moved no money; a retry carrying an `Idempotency-Key` replays the paid answer instead of paying again; the one residual case (a settled receipt on an error response) is detected by our own alarm and recorded as a debt in a refund ledger, never written off silently.
-3. **One key buys everything.** The same wallet or credits key pays for five LLM tiers on three wires (OpenAI chat, OpenAI Responses, Anthropic Messages), embeddings, rerank, images, video, speech, transcription, grounded answers with citations, 500+ deterministic tools, wallet-keyed memory and finished reports.
+3. **One key buys everything.** The same wallet or credits key pays for five LLM tiers on three wires (OpenAI chat, OpenAI Responses, Anthropic Messages), embeddings, rerank, images, video, speech, transcription, grounded answers with citations, 500+ tools, wallet-keyed memory and finished reports.
 4. **No wallet required.** [Prepaid credits by card](https://agent402.tools/credits), cards over MPP and card checkout for reports sit beside USDC or USDG on twelve chains and native MPP on Tempo.
 5. **Finished work, ready to use.** Dossiers, insider flow, 13F holdings, filing reports, IPO digests, domain audits, token risk, deep research, market briefs, recall watch and a LinkedIn article package, grounded in primary sources with a data appendix; [monitors](https://agent402.tools/monitors) probe daily for free and re-run the paid report when the facts change.
 6. **We buy on your behalf.** `POST /api/route/execute` resolves a task to the best proven seller across the ecosystem, pays them from our wallet and relays the result under one receipt.

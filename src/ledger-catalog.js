@@ -46,7 +46,7 @@ export function ledgerCatalogPage(baseUrl, catalog, skillPacks) {
   // ---- SEO ----
   const canonical = baseUrl + "/tools";
   const title = `${fmtNum(count)} pay-per-call tools for AI agents - the Agent402 catalog`;
-  const description = `${fmtNum(count)} deterministic tools an AI agent can call and pay for per request in USDC. ${fmtNum(freeCount)} run free on proof-of-work. No signup, no API keys. Browse by category, or describe a task and let the router resolve it.`;
+  const description = `${fmtNum(count)} tools an AI agent can call and pay for per request in USDC. ${fmtNum(freeCount)} run free on proof-of-work. No signup, no API keys. Browse by category, or describe a task and let the router resolve it.`;
 
   const orgLd = { "@type": "Organization", "@id": `${baseUrl}/#organization`, name: "Agent402", url: baseUrl, sameAs: [`https://github.com/MikeyPetrillo/Agent402`, "https://x.com/Agent402Tools"] };
   const breadcrumbLd = { "@type": "BreadcrumbList", itemListElement: [
@@ -87,7 +87,7 @@ table{border-collapse:collapse;width:100%}
       <a href="/" style="color:var(--muted);text-decoration:none;">agent402</a> / <span style="color:var(--ink);">our tools</span>
     </nav>
     <h1 style="font-weight:800;font-size:46px;line-height:1;letter-spacing:-.03em;margin:0 0 12px;color:var(--ink);">Our tools</h1>
-    <p style="font-size:16.5px;line-height:1.55;color:var(--muted);margin:0;max-width:640px;">${fmtNum(count)} deterministic tools an agent can call and pay for per request. Around ${fmtNum(freeCount)} of them run free on proof-of-work. This is <em style="color:var(--on-dark2);">our own</em> catalog - for every tool in the index, ours and other sellers', see <a href="/marketplace/tools" style="color:var(--ink);border-bottom:1px solid var(--accent);text-decoration:none;">all indexed tools</a>.</p>
+    <p style="font-size:16.5px;line-height:1.55;color:var(--muted);margin:0;max-width:640px;">${fmtNum(count)} tools an agent can call and pay for per request. Around ${fmtNum(freeCount)} of them run free on proof-of-work. This is <em style="color:var(--on-dark2);">our own</em> catalog - for every tool in the index, ours and other sellers', see <a href="/marketplace/tools" style="color:var(--ink);border-bottom:1px solid var(--accent);text-decoration:none;">all indexed tools</a>.</p>
 
     <div class="cat-search-wrap" style="display:flex;gap:0;background:var(--card);max-width:760px;margin:22px 0 0;">
       <label for="cat-search" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);">Search tools</label>

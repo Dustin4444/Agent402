@@ -16,7 +16,7 @@ We publish a runnable sample: [`examples/agentcore-x402-buyer`](https://github.c
 
 ## What you get out of the box
 
-- 500+ deterministic, pay-per-call tools + 70+ multi-tool skill packs from Agent402, callable from an AgentCore-hosted agent
+- 500+ pay-per-call tools + 70+ multi-tool skill packs from Agent402, callable from an AgentCore-hosted agent
 - Free tier with **no wallet** (proof-of-work; AgentCore Identity is optional for that path)
 - USDC-on-Base settlement for wallet-only tools, via AgentCore's `PaymentCredentialProvider` + CDP
 - CloudWatch observability for every payment (AgentCore handles this)

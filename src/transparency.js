@@ -171,7 +171,7 @@ and these are the receipts:</p>
   <li>Why this page exists. We publish this to support and protect our users: to make what
   happened independently verifiable, and to leave no room for impersonation or misinformation.</li>
   <li>Our focus is unchanged. The project remains about the x402 payment protocol and building
-  curated, deterministic tools that serve agents.</li>
+  curated tools that serve agents.</li>
 </ul>
 </details>
 

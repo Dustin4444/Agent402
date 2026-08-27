@@ -5,7 +5,7 @@
 Use this block (or any subset) wherever a directory asks what Agent402 is. Every
 claim below is served live; verify prices against `/api/pricing` before pasting.
 
-- **Catalog:** 500+ pay-per-call endpoints for AI agents (500+ deterministic tools and
+- **Catalog:** 500+ pay-per-call endpoints for AI agents (500+ tools and
   100+ skill packs): live web search and cited answers, headless browser, PDFs, OCR,
   financial / SEC EDGAR / macro / on-chain data, an OpenAI-compatible LLM gateway
   (`/v1`), durable wallet-keyed memory, 200+ pure-CPU utilities.
@@ -423,7 +423,7 @@ same shape as the self-hosted data sellers already listed).
     url: "https://agent402.tools",
     serviceUrl: "https://agent402.tools",
     description:
-      "500+ deterministic pay-per-call tools for AI agents - live web search and cited answers, headless browser rendering, PDFs, OCR, financial, SEC and on-chain data, an OpenAI-compatible LLM gateway - plus a Smart Order Router that finds and pays the best external seller on the agent's behalf. Every paid endpoint accepts MPP (Tempo natively, or evm on Base/Celo) and x402 on the same 402.",
+      "500+ pay-per-call tools for AI agents - live web search and cited answers, headless browser rendering, PDFs, OCR, financial, SEC and on-chain data, an OpenAI-compatible LLM gateway - plus a Smart Order Router that finds and pays the best external seller on the agent's behalf. Every paid endpoint accepts MPP (Tempo natively, or evm on Base/Celo) and x402 on the same 402.",
     icon: "https://agent402.tools/logo.png",
     categories: ["search", "web", "data", "ai", "blockchain"],
     integration: "third-party",

@@ -24,7 +24,7 @@ export const WHY_POINTS = [
     id: "one-key",
     kicker: "03 / ONE KEY",
     h: "One key buys everything.",
-    p: "The same wallet or credits key pays for five LLM tiers on three wires (OpenAI chat, OpenAI Responses, Anthropic Messages), embeddings, rerank, images, video, speech, transcription, grounded answers with citations, 500+ deterministic tools, wallet-keyed memory and finished reports. One paywall, one key.",
+    p: "The same wallet or credits key pays for five LLM tiers on three wires (OpenAI chat, OpenAI Responses, Anthropic Messages), embeddings, rerank, images, video, speech, transcription, grounded answers with citations, 500+ tools, wallet-keyed memory and finished reports. One paywall, one key.",
     links: [["/tools", "the catalog"], ["/v1/models", "gateway models"], ["/reports", "reports"]],
   },
   {
