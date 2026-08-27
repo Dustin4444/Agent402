@@ -1986,6 +1986,18 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `adapters/eliza/registry-entry.json`), (3) `bun run --cwd packages/registry validate && generate`, (4) a PR against
   `develop` (reviewed for security, functionality, docs; CONTRIBUTING wants an issue first for non-trivial work).
   FIRST npm publish is Mike's (OIDC cannot create the package), then the upstream PR.
+- **SSE relay commits the 200 only on the first `data:` frame (2026-08-27, `streamOpenRouterTo`):** the paid canary's
+  `llm-stream` leg bought a nano stream that came back as ": OPENROUTER PROCESSING" keep-alive comments and then EOF
+  (PostHog: `tool_call` 200 in 6.3 s, no `gateway_usage`), and the relay had already written 200, so the buyer paid
+  $0.003 for nothing - the streaming twin of the paid-empty-answer class the non-stream wire walks the chain on. Now
+  the status is held until real data exists (comment prelude buffered, bounded 64 KB); a comment-only or dropped-before-
+  data stream throws 502 with nothing written, the callers' chain walk catches it (`!res.headersSent`) and settlement
+  is cancelled end to end. Pinned in test-llm-gateway (comment-only -> 502, chain walked; comment + data -> served in
+  order). Same day: the canary's `price-pyth` leg (tool retired 08-26) and `llm-ox` leg (stealth model gone upstream)
+  were removed - both had warned on every run and warnings page nobody; the `derivatives` leg's check asserted a
+  `funding.hourlyPct` field perp-funding never had (real shape `current.hourly/aprPct`) and had warned since 08-22.
+  Still warning by design: `skill-pack` crypto-dossier's `extract` step depends on whichever news site the search
+  returns (a buyer pays the pack price with one step failed - product wart, open).
 - **Metered Messages wire (2026-08-27, `POST /v1/metered/messages`, slug `v1-chat-metered-messages`):** the metered tier
   on the Anthropic Messages wire. `MESSAGES_PATH_BY_TIER["v1-chat-metered"]` (LAST, the TIERS ordering rule); the 402 price
   is `quote: (body) => meteredMessagesQuoteUsd(body).usd`, priced from `validateMessagesRequest`'s PROBE through the new

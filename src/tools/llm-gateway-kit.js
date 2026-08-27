@@ -1770,20 +1770,45 @@ export async function streamOpenRouterTo(body, res, { onUsage, url } = {}) {
   try {
     const upstream = await fetchOpenRouter(body, { signal: ctrl.signal, url });
     if (!upstream.ok) await throwUpstreamError(upstream);
-    res.writeHead(200, {
-      "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-store",
-      Connection: "keep-alive",
-      "X-Accel-Buffering": "no",
-    });
-    res.flushHeaders?.();
-    // Billing fields are stripped in flight (see createSseUsageScrubber);
-    // everything else passes through byte-for-byte.
+    // The 200 is NOT committed until the first `data:` frame arrives. Measured
+    // live (paid canary 2026-08-27 20:06:42Z): OpenRouter answered a nano
+    // stream with only ": OPENROUTER PROCESSING" keep-alive comments and then
+    // closed - no tokens, no usage frame - and the old relay had already
+    // written 200, so the buyer paid $0.003 for an empty stream (settlement
+    // runs on a <400 status). Holding the status until real data exists turns
+    // that into a 502 before any byte is sent, which the callers' chain walk
+    // catches (`!res.headersSent`) and which cancels settlement end to end.
+    // Comment-only prelude is bounded so a comment flood cannot buffer forever.
     const scrub = createSseUsageScrubber({ onUsage });
+    let committed = false;
+    let pending = "";
+    const commit = () => {
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-store",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      });
+      res.flushHeaders?.();
+      committed = true;
+      if (pending) { res.write(pending); pending = ""; }
+    };
+    const offer = (out) => {
+      if (committed) { res.write(out); return; }
+      pending += out;
+      if (/^data:/m.test(pending) || pending.length > 64_000) commit();
+    };
     try {
-      for await (const chunk of upstream.body) { const out = scrub.push(chunk); if (out) res.write(out); }
-      const tail = scrub.flush(); if (tail) res.write(tail);
-    } catch { /* upstream dropped mid-stream — end what we have */ }
+      // Billing fields are stripped in flight (see createSseUsageScrubber);
+      // everything else passes through byte-for-byte.
+      for await (const chunk of upstream.body) { const out = scrub.push(chunk); if (out) offer(out); }
+      const tail = scrub.flush(); if (tail) offer(tail);
+    } catch {
+      // Upstream dropped mid-stream: end what we have once something real was
+      // sent; before that, it is an upstream failure the chain can walk.
+      if (!committed) throw bad("Upstream stream ended before producing any data frame", 502);
+    }
+    if (!committed) throw bad("Upstream stream ended before producing any data frame (no tokens) - nothing was charged", 502);
     res.end();
   } finally {
     clearTimeout(timer);

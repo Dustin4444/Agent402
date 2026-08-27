@@ -204,6 +204,27 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   ok(!/"cost"|cost_details|is_byok/.test(streamed), "OpenRouter billing fields are stripped from the streamed usage frame (even split across chunks)");
   ok(/"usage":\{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4\}/.test(streamed), "standard token counts still reach the streaming buyer");
   ok(typeof seenStreamBody.user === "string" && /^a402:[0-9a-f]{32}$/.test(seenStreamBody.user), `per-buyer user id rides upstream on streams (${seenStreamBody.user})`);
+
+  // An upstream stream that only ever sends keep-alive comments and then
+  // closes (measured live: ": OPENROUTER PROCESSING" x N, no data frame) must
+  // NOT become a paid 200: no status is written, the __sse writer rejects 502,
+  // and the chain moves on. A comment followed by a real frame still serves.
+  {
+    let calls = 0;
+    globalThis.fetch = async () => { calls++; return { ok: true, status: 200, body: sseBody([": OPENROUTER PROCESSING\n\n", ": OPENROUTER PROCESSING\n\n"]) }; };
+    const r = await nano.handler({ model: "deepseek/deepseek-chat", messages: [{ role: "user", content: "hi" }], stream: true }, fakeReq);
+    const resEmpty = fakeRes();
+    let err = null; try { await r.__sse(resEmpty); } catch (e) { err = e; }
+    ok(err?.statusCode === 502 && resEmpty.headersSent === false && resEmpty.chunks.length === 0 && resEmpty.ended === false,
+      `a comment-only upstream stream is a 502 with nothing written, never a paid empty 200 (got status ${err?.statusCode}, headersSent ${resEmpty.headersSent})`);
+    ok(calls >= 2, `the chain was walked after the empty stream (${calls} upstream attempts)`);
+    globalThis.fetch = async () => ({ ok: true, status: 200, body: sseBody([": OPENROUTER PROCESSING\n\n", 'data: {"choices":[{"delta":{"content":"O"}}]}\n\n', "data: [DONE]\n\n"]) });
+    const r2 = await nano.handler({ model: "deepseek/deepseek-chat", messages: [{ role: "user", content: "hi" }], stream: true }, fakeReq);
+    const resOk = fakeRes();
+    await r2.__sse(resOk);
+    const got = resOk.chunks.join("");
+    ok(resOk.status === 200 && got.startsWith(": OPENROUTER PROCESSING") && got.includes('"content":"O"') && got.includes("[DONE]") && resOk.ended, "a keep-alive comment followed by a data frame is served in order, comment included");
+  }
   {
     const { _testEventsForTest } = await import("../src/posthog.js");
     await new Promise((r) => setTimeout(r, 20));

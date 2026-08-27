@@ -118,13 +118,12 @@ if (oc) {
 // our `provider.max_price` bound admits a $0-priced endpoint (if it refused the
 // bound, every call would 502), and that the stealth model is still listed at
 // all. When the preview ends, this leg is the alarm.
-const ox = legFor("/v1/ox/chat/completions");
-ok(!!ox, "canary has an Ox Alpha leg (a real buy on the free-upstream tier)");
-if (ox) {
-  ok(ox.priceUsd === 0.002, `ox leg priceUsd (${ox.priceUsd}) matches the advertised $0.002`);
-  ok(!("model" in (ox.body || {})), "ox leg sends NO model: the route locks it, and sending one is a 400");
-  ok((ox.body?.max_tokens || 0) >= 1024, `ox leg budget (${ox.body?.max_tokens}) clears the reasoning floor, so an empty answer means a real failure`);
-}
+// Ox Alpha: the stealth upstream model left OpenRouter's catalog (the route
+// answers 503 "no longer served" and drops from /v1/models), so the canary
+// carries NO leg for it any more - a leg that can only warn is noise, and
+// its 2026-08-27 warning was one of five nobody read. Retiring the route
+// itself (OX_ALPHA_ENABLED=off) is a Railway variable, Mike's call.
+ok(!legFor("/v1/ox/chat/completions"), "no Ox Alpha leg while the stealth model is gone upstream");
 
 // The render leg is the only one that exercises the secretless browser/media
 // worker (F02/F04/F06) on the paid path — lock it so it can't silently drop.
