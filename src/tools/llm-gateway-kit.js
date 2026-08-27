@@ -3066,7 +3066,7 @@ export function modelsList() {
               // tier's: a client deriving a context window from this entry must
               // not carry the flat cap onto the metered route (agent402-openclaw
               // did, and OpenClaw refused every turn as a context overflow).
-              meteredMaxInputChars: TIERS["v1-chat-metered"].maxInputChars, meteredMaxTokens: TIERS["v1-chat-metered"].maxTokens,
+              meteredMaxInputChars: Math.min(TIERS["v1-chat-metered"].maxInputChars, ADVERTISED_MAX_INPUT_CHARS), meteredMaxTokens: TIERS["v1-chat-metered"].maxTokens,
             }
             : {}),
           maxInputChars: Math.min(tier.maxInputChars, ADVERTISED_MAX_INPUT_CHARS),

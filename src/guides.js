@@ -4,7 +4,7 @@
 import { marked } from "marked";
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 import { RAILS_OR, RAILS_AMP } from "./rails.js";
-import { TIERS, METERED_MAX_QUOTE_USD } from "./tools/llm-gateway-kit.js";
+import { TIERS, METERED_MAX_QUOTE_USD, EMBEDDINGS_PRICE } from "./tools/llm-gateway-kit.js";
 // Derived at module load from the live tier table so the guide can never say a
 // price the gateway does not charge (the first version typed these).
 const FLAT_TIER_ROWS = Object.entries(TIERS)
@@ -1004,6 +1004,163 @@ its normal schedule.
 - The rest of the tollbooth: proof-of-work for callers with no wallet,
   observe-before-charge mode, per-route prices, analytics, and native MPP on
   Tempo if you want a second rail. See [/tollbooth](/tollbooth).
+`,
+  },
+  {
+    slug: "agent-hosts",
+    title: "Use Agent402 from Claude Code, Cursor, Continue, ElizaOS, AgentCore and any OpenAI SDK",
+    description:
+      "Two doors into Agent402 from the agent host you already run: models through an OpenAI-compatible base URL with a prepaid credits key (metered, from $" + TIERS["v1-chat-metered"].price + " a call), and 500+ tools through MCP. Copy the block for your host.",
+    md: `
+Agent402 opens two doors to an agent host, and both are paid with the same
+key:
+
+- **Models**: an OpenAI-compatible gateway. Point any client that accepts a
+  base URL at \`https://agent402.tools/v1/metered\` with a credits key as the API
+  key. Each request is quoted from its own body (input plus your \`max_tokens\`
+  at the model's list price, x1.15) and a card or credits buyer settles what
+  the call actually used, from $${TIERS["v1-chat-metered"].price} a call.
+  \`GET https://agent402.tools/v1/models\` lists every id with its price and
+  input cap; \`auto\` (routed per prompt, flat
+  $${TIERS["v1-chat-auto"].price}) lives at \`https://agent402.tools/v1/auto\`.
+- **Tools**: the hosted MCP connector at \`https://agent402.tools/mcp\`
+  (discovery and the free tier need no key at all), or the
+  [\`agent402-mcp\`](https://www.npmjs.com/package/agent402-mcp) stdio server,
+  which pays wallet-only tools by card when \`AGENT402_CREDITS_KEY\` is set.
+
+Get the key once: buy a pack by card at
+[agent402.tools/credits](https://agent402.tools/credits); the key (\`a402_…\`)
+is shown once and emailed. \`GET /api/credits/balance\` (Bearer) reports what
+is left. Prefer a wallet? Every route also answers a stock x402 \`402\`
+(${RAILS_OR}) and an MPP challenge, so any x402 client pays per call with no key.
+
+## Claude Code
+
+Tools over the hosted connector (free tier and discovery, no key):
+
+\`\`\`bash
+claude mcp add --transport http agent402 https://agent402.tools/mcp
+\`\`\`
+
+Paid tools by card, through the stdio server:
+
+\`\`\`bash
+claude mcp add agent402 -e AGENT402_CREDITS_KEY=a402_... -- npx -y agent402-mcp
+\`\`\`
+
+Or in \`.mcp.json\` at the project root:
+
+\`\`\`json
+{
+  "mcpServers": {
+    "agent402": {
+      "command": "npx",
+      "args": ["-y", "agent402-mcp"],
+      "env": { "AGENT402_CREDITS_KEY": "\${AGENT402_CREDITS_KEY}" }
+    }
+  }
+}
+\`\`\`
+
+## Cursor
+
+\`.cursor/mcp.json\` in the project (or \`~/.cursor/mcp.json\` for every
+project). Remote, no key:
+
+\`\`\`json
+{ "mcpServers": { "agent402": { "url": "https://agent402.tools/mcp" } } }
+\`\`\`
+
+Paid tools by card:
+
+\`\`\`json
+{
+  "mcpServers": {
+    "agent402": {
+      "command": "npx",
+      "args": ["-y", "agent402-mcp"],
+      "env": { "AGENT402_CREDITS_KEY": "a402_..." }
+    }
+  }
+}
+\`\`\`
+
+## Continue
+
+\`config.yaml\`. A model entry for chat, plus the connector for agent mode:
+
+\`\`\`yaml
+models:
+  - name: Agent402 (metered)
+    provider: openai
+    apiBase: https://agent402.tools/v1/metered
+    apiKey: a402_...
+    model: openai/gpt-4o-mini
+    roles:
+      - chat
+mcpServers:
+  - name: Agent402
+    type: streamable-http
+    url: https://agent402.tools/mcp
+\`\`\`
+
+Any id from \`/v1/models\` works as \`model\`; the metered route takes up to
+85,000 characters of input per request.
+
+## ElizaOS
+
+The OpenAI plugin reads its base URL from the environment, so no code changes:
+
+\`\`\`bash
+OPENAI_BASE_URL=https://agent402.tools/v1/metered
+OPENAI_API_KEY=a402_...
+OPENAI_LARGE_MODEL=anthropic/claude-sonnet-5
+OPENAI_MEDIUM_MODEL=openai/gpt-4o-mini
+# embeddings live at /v1/embeddings ($${EMBEDDINGS_PRICE} a call), off the metered path
+OPENAI_EMBEDDING_URL=https://agent402.tools/v1
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+\`\`\`
+
+## Any OpenAI SDK
+
+\`\`\`python
+from openai import OpenAI
+client = OpenAI(base_url="https://agent402.tools/v1/metered", api_key="a402_...")
+r = client.chat.completions.create(model="openai/gpt-4o-mini",
+    messages=[{"role": "user", "content": "One sentence on x402."}], max_tokens=60)
+print(r.choices[0].message.content)
+\`\`\`
+
+\`\`\`js
+import OpenAI from "openai";
+const client = new OpenAI({ baseURL: "https://agent402.tools/v1/metered", apiKey: "a402_..." });
+const r = await client.chat.completions.create({ model: "openai/gpt-4o-mini",
+  messages: [{ role: "user", content: "One sentence on x402." }], max_tokens: 60 });
+console.log(r.choices[0].message.content);
+\`\`\`
+
+Send an \`Idempotency-Key\` header on retries and a retried call replays the
+paid answer instead of paying again.
+
+## Amazon Bedrock AgentCore
+
+An AgentCore Gateway turns \`https://agent402.tools/openapi.json\` into MCP
+tools with an OpenAPI target (\`agentcore add gateway-target --type
+open-api-schema --schema <path to openapi.json>\`), or aggregates the hosted
+connector as an MCP server target. Paid calls ride
+[AgentCore Payments](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/payments-concepts.html):
+the agent forwards our \`402\` payload, AgentCore signs it from its managed
+wallet, and the retry carries the proof in \`X-PAYMENT\`; every Agent402 route
+answers a stock x402 v2 challenge, so nothing on our side needs configuring.
+
+## What the same key buys
+
+The credits key that pays for chat pays for the rest: three wires on every
+tier (OpenAI chat, OpenAI Responses, Anthropic Messages), embeddings, rerank,
+images, speech and transcription, 500+ deterministic tools, finished reports
+and monitors, and a router that buys from other proven sellers on your
+agent's behalf. Why pay here, with the proof links:
+[agent402.tools/why](https://agent402.tools/why).
 `,
   },
   {
