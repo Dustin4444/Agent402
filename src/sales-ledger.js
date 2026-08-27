@@ -534,8 +534,14 @@ export function proofFeed({ slug = "v1-chat-metered" } = {}) {
   const side = (internal) => {
     const a = qProofAgg.get(slug, internal ? 1 : 0) || {};
     const l = qProofLatest.get(slug, internal ? 1 : 0) || null;
+    // External rows carry the hour, not the second: /api/revenue/mpp withholds
+    // per-tx timestamps for the same reason, and the block explorer already
+    // has the exact time for anyone who wants it. Our own canary row keeps it.
+    const at = new Date(l ? l.ts : 0);
+    if (l && !internal) at.setUTCMinutes(0, 0, 0);
     const row = l ? {
-      at: new Date(l.ts).toISOString(),
+      at: at.toISOString(),
+      atPrecision: internal ? "second" : "hour",
       settledUsd: +Number(l.price_usd).toFixed(6),
       quoteUsd: l.quote_usd == null ? null : +Number(l.quote_usd).toFixed(6),
       underQuote: l.quote_usd == null ? null : Number(l.price_usd) <= Number(l.quote_usd) + 1e-9,
