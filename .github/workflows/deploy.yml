@@ -2296,6 +2296,7 @@ jobs:
           t node scripts/test-safe-regex.js
           # Sales ledger unit tests (named sales, internal/external classification, revenue math — offline)
           t node scripts/test-sales-ledger.js
+          t node scripts/test-proof.js
           # Tempo relay verdicts are visible (non-2xx relay status + body reach the rejection log, per-request — offline)
           t node scripts/test-mpp-tempo-relay-errors.js
           # workflow_run references name a workflow that exists (GitHub matches on name:, a mismatch never fires - offline)
