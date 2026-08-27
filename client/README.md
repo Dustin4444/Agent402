@@ -23,7 +23,7 @@ const a = new Agent402();                       // → https://agent402.tools
 
 // Don't know the slug? Resolve a task in one call.
 const matches = await a.find("extract the article from a url");
-// → [{ slug: "extract", route, price, inputSchema, example, … }]
+// → [{ slug: "extract", route, price, inputSchema, example, ... }]
 
 // Call it - proof-of-work is solved automatically for free tools.
 const out = await a.call("hash", { text: "hello world", algo: "sha256" });
@@ -101,7 +101,7 @@ same id is a new payment).
 ## Workflows (skill packs)
 
 For jobs that no single tool covers - e.g. "audit a domain", "build a stock
-brief" - Agent402 ships curated multi-tool **skill packs**: 5–7 catalog tools
+brief" - Agent402 ships curated multi-tool **skill packs**: 5-7 catalog tools
 composed into a Claude-ready task template. Discover them the same way you'd
 discover a tool:
 
@@ -118,7 +118,7 @@ const { messages } = await a.getWorkflowPrompt("security-audit", { domain: "stri
 
 `find()` searches **this host's catalog only**. To rank tools across eligible
 routable seller rows in the host's **current index** (not complete ecosystem
-coverage), use `route()` — free, read-only, no wallet:
+coverage), use `route()` - free, read-only, no wallet:
 
 ```js
 const task = "screenshot webpage";
@@ -127,7 +127,7 @@ const { query, include, results } = await a.route(task, {
   include: "external",   // all | external | local
   network: "robinhood",  // optional chain filter (short name or CAIP-2)
 });
-// results[]: opaque server rows — { seller, slug, url, priceUsd, executeVia?, … }
+// results[]: opaque server rows - { seller, slug, url, priceUsd, executeVia?, ... }
 
 // executeVia quotes which route-execute* tier fits a row's underlying price.
 // It does NOT bind that row: the tier re-resolves an eligible match under its
@@ -213,7 +213,7 @@ const a = new Agent402({
 });
 
 try {
-  await a.call("some-expensive-tool", { … });
+  await a.call("some-expensive-tool", { ... });
 } catch (e) {
   if (e instanceof SpendingLimitError) console.log(e.limit, e.priceUsd, e.cap);
 }

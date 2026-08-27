@@ -1,4 +1,4 @@
-// agent402-client — a tiny buyer-side client for agent402.tools (or any Agent402
+// agent402-client - a tiny buyer-side client for agent402.tools (or any Agent402
 // instance). Resolve a task to a tool, then call it with payment handled for you:
 //   - free pure-CPU tools settle with a built-in proof-of-work (no wallet, zero deps),
 //   - wallet-only tools settle via an x402-wrapped fetch you provide (@x402/fetch),
@@ -15,8 +15,8 @@
 import { createHash } from "node:crypto";
 
 // Keep in lockstep with package.json. Every request the SDK issues carries
-// `User-Agent: agent402-client/<version>` — a standard header, no extra
-// network calls — so a seller can attribute traffic (and settled payments)
+// `User-Agent: agent402-client/<version>` - a standard header, no extra
+// network calls - so a seller can attribute traffic (and settled payments)
 // to this SDK. Product token only; nothing about the caller rides along.
 const VERSION = "0.7.0";
 const USER_AGENT = `agent402-client/${VERSION}`;
@@ -47,7 +47,7 @@ export class Agent402 {
     maxPerCallUsd = null, dailyLimitUsd = null, maxPerHostUsd = null, creditsKey = null,
     maxResponseBytes = DEFAULT_MAX_RESPONSE_BYTES } = {}) {
     this.creditsKey = typeof creditsKey === "string" && /^a402_[A-Za-z0-9_-]{32,64}$/.test(creditsKey) ? creditsKey : null;
-    if (typeof fetchImpl !== "function") throw new Error("No fetch available — pass { fetchImpl } on Node < 18");
+    if (typeof fetchImpl !== "function") throw new Error("No fetch available - pass { fetchImpl } on Node < 18");
     this.baseUrl = String(baseUrl).replace(/\/$/, "");
     this.payFetch = payFetch || null;
     // Wrap the plain fetch so every request identifies the SDK (see USER_AGENT
@@ -58,14 +58,14 @@ export class Agent402 {
     // Spending policy (defends the x402 "wallet drain via uncapped spending"
     // failure mode): optional hard ceilings enforced BEFORE any payment is
     // signed. A malicious or misconfigured 402 that quotes an inflated price is
-    // refused instead of paid. null = no limit (default — behavior unchanged).
+    // refused instead of paid. null = no limit (default - behavior unchanged).
     // Amounts commit to the rolling window only on a settled paid call, so a
     // failed/blocked call never counts against the budget.
     this._spend = {
       maxPerCall: numOrNull(maxPerCallUsd),
       daily: numOrNull(dailyLimitUsd),
       perHost: numOrNull(maxPerHostUsd),
-      log: [], // [{ ts, host, usd }] — settled paid calls in the last 24h
+      log: [], // [{ ts, host, usd }] - settled paid calls in the last 24h
     };
     // A response-size ceiling, enforced before parsing. See _readJson.
     this.maxResponseBytes = maxResponseBytes === null ? null : (numOrNull(maxResponseBytes) ?? DEFAULT_MAX_RESPONSE_BYTES);
@@ -147,21 +147,21 @@ export class Agent402 {
   }
 
   /**
-   * Cross-seller Smart Order Router — rank tools across eligible/routable seller
+   * Cross-seller Smart Order Router - rank tools across eligible/routable seller
    * rows in the host's current index (local catalog plus crawled x402/MPP sellers
    * the router considers healthy enough to route). Free; no payment, no wallet, no
    * proof-of-work. Coverage is whatever the host's index holds at call time, not
    * every seller on the internet.
    *
-   * Returns the server JSON as-is (reporting only — no validation or authorization).
+   * Returns the server JSON as-is (reporting only - no validation or authorization).
    * Each result may carry server-reported `executeVia` naming a `route-execute*`
-   * tier whose underlying cap covers that row's price. `call(executeVia.tool, …)`
+   * tier whose underlying cap covers that row's price. `call(executeVia.tool, ...)`
    * re-resolves an eligible match under that tier at execution time; it does not
    * bind the discovery row's url, route, seller, or identity.
    *
    * @param {string} task
    * @param {object} [opts]
-   * @param {number} [opts.k=5]                         max results (1–25, server-bounded)
+   * @param {number} [opts.k=5]                         max results (1-25, server-bounded)
    * @param {"all"|"external"|"local"} [opts.include="all"]
    * @param {string} [opts.network]                       chain filter (e.g. "robinhood", "eip155:4663")
    * @returns {Promise<{query:string, include:string, count:number, sellers:number, results:Array<object>}>}
@@ -178,7 +178,7 @@ export class Agent402 {
 
   /**
    * Resolve a task to matching multi-tool workflow templates (skill packs).
-   * Each pack composes 5–7 catalog tools into a Claude-ready task template
+   * Each pack composes 5-7 catalog tools into a Claude-ready task template
    * for jobs that no single tool covers (e.g. audit a domain). Returns
    * `[{slug, title, tagline, toolSlugs, score, url, promptName}]` (possibly
    * empty when the lexical signal is weak). Use `getWorkflowPrompt(slug, args)`
@@ -192,7 +192,7 @@ export class Agent402 {
 
   /**
    * Fetch the rendered prompt messages for a skill pack with arguments
-   * substituted in. Same output as MCP `prompts/get` — usable directly with
+   * substituted in. Same output as MCP `prompts/get` - usable directly with
    * any LLM. `args` are passed by promptArg name (see /api/skill-packs.json).
    */
   async getWorkflowPrompt(slug, args = {}) {
@@ -203,11 +203,11 @@ export class Agent402 {
   }
 
   /**
-   * Live x402 leaderboard — the sellers earning the most USDC (or serving the
+   * Live x402 leaderboard - the sellers earning the most USDC (or serving the
    * most calls) on Base in the last ~24h, derived from on-chain USDC
    * transfers. Free; no payment, no wallet, no proof-of-work. Useful when
    * building agents that want to discover the live x402 economy beyond a
-   * single service's catalog. Hourly snapshot — safe to call freely.
+   * single service's catalog. Hourly snapshot - safe to call freely.
    *
    * @param {object} [opts]
    * @param {number} [opts.limit=10]                  max rows (1-50)
@@ -239,7 +239,7 @@ export class Agent402 {
    * Register a wallet address for Base builder code attribution. Idempotent:
    * the same wallet always returns the same code. No authentication required.
    *
-   * @param {string} walletAddress  the caller's wallet address (e.g. "0x…")
+   * @param {string} walletAddress  the caller's wallet address (e.g. "0x...")
    * @param {object} [opts]
    * @param {typeof fetch} [opts.fetchImpl]  plain fetch (defaults to global fetch)
    * @returns {Promise<{builderCode:string, walletAddress:string}>}
@@ -269,7 +269,7 @@ export class Agent402 {
   async call(slug, params = {}, { idempotencyKey, cache = true, maxResponseBytes } = {}) {
     const cat = await this._loadCatalog();
     const tool = cat.get(slug);
-    if (!tool) throw new Error(`unknown tool "${slug}" — use client.find(task) to discover one`);
+    if (!tool) throw new Error(`unknown tool "${slug}" - use client.find(task) to discover one`);
 
     const cacheKey = `${slug}:${JSON.stringify(params)}`;
     if (this._cache && cache && this._cache.has(cacheKey)) return this._cache.get(cacheKey);
@@ -277,7 +277,7 @@ export class Agent402 {
     const idem = idempotencyKey || `a402-${createHash("sha256").update(`${cacheKey}:${Date.now()}:${Math.random()}`).digest("hex").slice(0, 24)}`;
     const send = (extraHeaders = {}, useFetch = this.f) => {
       // UA set here too (not only in the this.f wrapper) so the x402 payFetch
-      // path — the one that settles real payments — always carries it.
+      // path - the one that settles real payments - always carries it.
       const headers = { "User-Agent": USER_AGENT, "Idempotency-Key": idem, ...extraHeaders };
       let url = `${this.baseUrl}${tool.path}`;
       const init = { method: tool.method, headers };
@@ -298,12 +298,12 @@ export class Agent402 {
         // configured ceiling (per-call / rolling-24h / per-host).
         const host = hostOf(this.baseUrl);
         let usd = parseUsd(tool.price);
-        // The catalog price is seller-ADVERTISED — a hostile server could under-
+        // The catalog price is seller-ADVERTISED - a hostile server could under-
         // state it and then quote more in the 402. When a cap is set, preflight
         // the 402 to learn the price the wallet will actually be asked to sign and
         // check the cap against the larger of the two. Fail-open: if the 402 can't
         // be read (FREE_MODE / non-402 / unparseable), fall back to the advertised
-        // price — never block a legitimate payment on a parse miss.
+        // price - never block a legitimate payment on a parse miss.
         if (this._spendCapsConfigured()) {
           try {
             const pre = await send();
@@ -323,7 +323,7 @@ export class Agent402 {
           this._spendSettle(reservation); // confirm the reservation as settled spend
           return this._store(cacheKey, await this._readJson(r, { maxBytes: maxResponseBytes, slug, paid: true }), cache);
         } catch (e) {
-          this._spendRelease(reservation); // roll back — nothing settled
+          this._spendRelease(reservation); // roll back - nothing settled
           throw e;
         }
       }
@@ -345,13 +345,13 @@ export class Agent402 {
           return this._store(cacheKey, await this._readJson(r, { maxBytes: maxResponseBytes, slug, paid: true }), cache);
         } catch (e) { this._spendRelease(reservation); throw e; }
       }
-      const r = await send(); // no wallet — succeeds only on a FREE_MODE instance
+      const r = await send(); // no wallet - succeeds only on a FREE_MODE instance
       if (r.ok) return this._store(cacheKey, await this._readJson(r, { maxBytes: maxResponseBytes, slug, paid: false }), cache);
-      throw new Error(`call "${slug}" failed: HTTP ${r.status} — wallet-only tool; construct with { fetch: payFetch } (an @x402/fetch-wrapped fetch) or { creditsKey } (prepaid card credits from ${this.baseUrl}/credits)`);
+      throw new Error(`call "${slug}" failed: HTTP ${r.status} - wallet-only tool; construct with { fetch: payFetch } (an @x402/fetch-wrapped fetch) or { creditsKey } (prepaid card credits from ${this.baseUrl}/credits)`);
     }
 
     // Free (compute-payable) tool: succeeds plainly on a FREE_MODE instance,
-    // otherwise pay with a proof-of-work (fetched from /api/pow/challenge — the
+    // otherwise pay with a proof-of-work (fetched from /api/pow/challenge - the
     // Agent402 server signals it via the X-Pow-Challenge header, not the 402 body).
     let r = await send();
     if (!r.ok) {
@@ -378,7 +378,7 @@ export class Agent402 {
     if (s.maxPerCall == null && s.daily == null && s.perHost == null) return;
     if (s.maxPerCall != null && usd > s.maxPerCall) {
       throw new SpendingLimitError(
-        `refusing to pay $${usd} for "${slug}" — exceeds maxPerCallUsd $${s.maxPerCall}`,
+        `refusing to pay $${usd} for "${slug}" - exceeds maxPerCallUsd $${s.maxPerCall}`,
         { limit: "maxPerCallUsd", slug, priceUsd: usd, cap: s.maxPerCall });
     }
     const cutoff = Date.now() - 24 * 60 * 60 * 1000;
@@ -387,7 +387,7 @@ export class Agent402 {
       const spent = s.log.reduce((a, e) => a + e.usd, 0);
       if (spent + usd > s.daily) {
         throw new SpendingLimitError(
-          `refusing to pay $${usd} for "${slug}" — would bring 24h spend to $${(spent + usd).toFixed(6)}, over dailyLimitUsd $${s.daily}`,
+          `refusing to pay $${usd} for "${slug}" - would bring 24h spend to $${(spent + usd).toFixed(6)}, over dailyLimitUsd $${s.daily}`,
           { limit: "dailyLimitUsd", slug, priceUsd: usd, spent, cap: s.daily });
       }
     }
@@ -395,7 +395,7 @@ export class Agent402 {
       const spentHost = s.log.filter((e) => e.host === host).reduce((a, e) => a + e.usd, 0);
       if (spentHost + usd > s.perHost) {
         throw new SpendingLimitError(
-          `refusing to pay $${usd} for "${slug}" — would bring 24h spend to ${host} to $${(spentHost + usd).toFixed(6)}, over maxPerHostUsd $${s.perHost}`,
+          `refusing to pay $${usd} for "${slug}" - would bring 24h spend to ${host} to $${(spentHost + usd).toFixed(6)}, over maxPerHostUsd $${s.perHost}`,
           { limit: "maxPerHostUsd", slug, host, priceUsd: usd, spent: spentHost, cap: s.perHost });
       }
     }
@@ -427,7 +427,7 @@ export class Agent402 {
     if (i >= 0) this._spend.log.splice(i, 1);
   }
 
-  /** Rolling-24h spend summary (settled paid calls only) — for observability. */
+  /** Rolling-24h spend summary (settled paid calls only) - for observability. */
   spendingSummary() {
     const cutoff = Date.now() - 24 * 60 * 60 * 1000;
     const log = this._spend.log.filter((e) => e.ts >= cutoff && !e.pending);
@@ -466,7 +466,7 @@ export class SpendingLimitError extends Error {
   }
 }
 
-// Parse the USD amount an x402 `402` challenge actually requires — the max across
+// Parse the USD amount an x402 `402` challenge actually requires - the max across
 // the offered rails. x402 is stablecoin-settled (USDC/USDG), so
 // atomic / 10^decimals ≈ USD. Returns null if the body isn't a parseable 402
 // challenge, so the caller fails open to the advertised catalog price.
@@ -494,7 +494,7 @@ function parseUsd(price) {
 function hostOf(url) { try { return new URL(url).host; } catch { return String(url); } }
 
 /**
- * Restrict + order which chains an @x402 client will pay on (duck-typed — any
+ * Restrict + order which chains an @x402 client will pay on (duck-typed - any
  * client version with createPaymentPayload works, zero new dependencies).
  * Multi-chain sellers list Base first, so an unmodified client effectively
  * always settles there; this makes rails like USDG on Robinhood Chain

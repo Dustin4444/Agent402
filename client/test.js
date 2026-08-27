@@ -20,7 +20,7 @@ const fail = (m) => { console.error("FAIL:", m); proc.kill("SIGKILL"); process.e
 let pass = 0; const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else fail(m); };
 
 // Offline: withNetworkPreference pins the settlement chain (e.g. USDG on
-// Robinhood Chain) on any duck-typed x402 client — no @x402 dependency here.
+// Robinhood Chain) on any duck-typed x402 client - no @x402 dependency here.
 {
   ok(NETWORK_CAIP2.robinhood === "eip155:4663", "NETWORK_CAIP2 knows robinhood -> eip155:4663");
   const accepts = [{ network: "eip155:8453", a: "base" }, { network: "eip155:4663", a: "usdg" }];
@@ -58,7 +58,7 @@ let pass = 0; const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); 
   console.log("ok - withPayeeAllowlist filters accepts to allowlisted payees and refuses otherwise");
 }
 // Offline: buyer spending caps refuse to overpay BEFORE signing (defends the
-// x402 "wallet drain via uncapped spending" failure mode). No server needed —
+// x402 "wallet drain via uncapped spending" failure mode). No server needed  - 
 // stub the catalog and a paying fetch.
 {
   const okResp = { ok: true, json: async () => ({ ok: true }) };
@@ -127,7 +127,7 @@ let pass = 0; const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); 
   }
 }
 
-// Offline: route() is read-only discovery — exact query encoding, bounded k,
+// Offline: route() is read-only discovery - exact query encoding, bounded k,
 // include/network filters, empty results, non-2xx errors, and no /api/pricing.
 {
   const calls = [];
@@ -244,8 +244,8 @@ let pass = 0; const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); 
 }
 
 // Offline: every request the SDK issues carries its own User-Agent product
-// token (agent402-client/<version>) — the plain-fetch path AND the x402
-// payFetch path that settles real payments — so sellers can attribute paid
+// token (agent402-client/<version>) - the plain-fetch path AND the x402
+// payFetch path that settles real payments - so sellers can attribute paid
 // traffic to this SDK (payment_settled.clientUa server-side).
 {
   const uas = [];
@@ -300,7 +300,7 @@ try {
   ok(promptText.includes("stripe.com") && !promptText.includes("{{domain}}"), "getWorkflowPrompt substitutes args into the rendered prompt");
 
   // 9. topSellers() proxies /api/leaderboard with the right envelope. CI runs
-  // before the first chain scan finishes, so results may be empty — but the
+  // before the first chain scan finishes, so results may be empty - but the
   // envelope shape and sort/include echo must be correct regardless.
   const sellers = await a.topSellers({ limit: 5, sort: "calls", include: "all" });
   ok(sellers.sort === "calls" && sellers.include === "all", `topSellers echoes sort+include (got sort=${sellers.sort}, include=${sellers.include})`);
