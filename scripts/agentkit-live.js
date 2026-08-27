@@ -15,6 +15,11 @@ import { base } from "viem/chains";
 const TARGET = process.env.TARGET_URL || "https://agent402.tools";
 const pk = (process.env.BURNER_KEY || "").trim();
 if (!pk) { console.error("need BURNER_KEY"); process.exit(2); }
+// AgentKit phones home when a wallet provider is constructed
+// (dist/analytics/sendAnalyticsEvent.js) and throws on a non-2xx from its
+// endpoint as an UNHANDLED rejection (measured 2026-08-27: HTTP 400 killed the
+// run before any Agent402 call). Their telemetry must not decide our proof.
+process.on("unhandledRejection", (e) => console.warn("ignored unhandled rejection (third-party):", String(e?.message || e).slice(0, 120)));
 const { ViemWalletProvider } = await import("@coinbase/agentkit");
 const { agent402Actions } = await import(process.env.AGENTKIT_ADAPTER || "agent402-agentkit");
 
