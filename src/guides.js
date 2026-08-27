@@ -1109,7 +1109,10 @@ Any id from \`/v1/models\` works as \`model\`; the metered route takes up to
 
 ## ElizaOS
 
-The OpenAI plugin reads its base URL from the environment, so no code changes:
+Tools: the [\`elizaos-plugin-agent402\`](https://www.npmjs.com/package/elizaos-plugin-agent402)
+plugin adds \`AGENT402_FIND\` / \`AGENT402_CALL\` / \`AGENT402_ABOUT\` actions
+(\`"plugins": ["elizaos-plugin-agent402"]\`, setting \`AGENT402_CREDITS_KEY\`).
+Models: the OpenAI plugin reads its base URL from the environment, so no code changes:
 
 \`\`\`bash
 OPENAI_BASE_URL=https://agent402.tools/v1/metered

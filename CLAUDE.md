@@ -1973,6 +1973,19 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   from the $6 unsettled-spend bound the day the Tempo leg first resolved; `tempo-sor-live.js` refuses a `route` input
   off the two documented paths (a write-access dispatcher could otherwise point the burner's credential at another
   host). `test-posthog-funnel` (60), `test-tempo-router` (48), `test-pricing-margin` (186).
+- **`adapters/eliza` = `elizaos-plugin-agent402` (2026-08-27):** elizaOS plugin (no runtime import of @elizaos/core; types
+  only) with actions `AGENT402_FIND` / `AGENT402_CALL` / `AGENT402_ABOUT` (content.task / content.slug+params, ActionResult
+  {success,text,data}, callback mirrored) and an `AGENT402` provider naming the payment mode, over `agent402-client`
+  (credits key Bearer, or x402 wallet via optional peers, PoW free tier); spend bounds via
+  `AGENT402_MAX_PER_CALL_USD`/`AGENT402_DAILY_LIMIT_USD`; `agentConfig.pluginParameters` marks the two keys sensitive.
+  `adapters/eliza/test.js` (19: PoW buy, credits Bearer against a stub, key never in results, provider modes) in the
+  adapter lane + gate/publish steps. **Listing process (read from their `packages/registry/README.md`):** the old
+  `elizaos-plugins/registry` repo is archived; third-party plugins are listed by (1) publishing to npm as
+  `elizaos-plugin-*` or own scope with keyword `elizaos` (the runtime auto-discovers by keyword; the listing is for
+  discoverability), (2) adding `packages/registry/entries/third-party/<package>.json` (prepared:
+  `adapters/eliza/registry-entry.json`), (3) `bun run --cwd packages/registry validate && generate`, (4) a PR against
+  `develop` (reviewed for security, functionality, docs; CONTRIBUTING wants an issue first for non-trivial work).
+  FIRST npm publish is Mike's (OIDC cannot create the package), then the upstream PR.
 - **The weekly number is external metered buyers (2026-08-27):** PostHog insight "External metered buyers per week"
   (short id `Pj87HEzu`: distinct non-synthetic payers on `payment_settled{slug:v1-chat-metered}` per week, with
   settlements, settled USD, distinct `clientUa`); ledger mirror `meteredExternal({days})` (counts only) on

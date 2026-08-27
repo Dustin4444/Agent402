@@ -2799,6 +2799,7 @@ jobs:
           AGENT402_BASE_URL=http://127.0.0.1:3091 node adapters/strands/test.js
           AGENT402_BASE_URL=http://127.0.0.1:3091 node adapters/google-adk/test.js
           AGENT402_BASE_URL=http://127.0.0.1:3091 node adapters/agentkit/test.js
+          AGENT402_BASE_URL=http://127.0.0.1:3091 node adapters/eliza/test.js
           # Python adapter (agent402-langchain): requests-only keeps CI lean; the
           # test skips the langchain-native path gracefully without langchain-core,
           # so this locks the spec + free proof-of-work call behavior.
@@ -4220,6 +4221,25 @@ jobs:
           else
             npm publish --provenance --access public
             echo "published agent402-agentkit@$VERSION -> https://www.npmjs.com/package/agent402-agentkit"
+          fi
+
+      - name: Gate elizaos-plugin-agent402 (tests run with NO npm token in env)
+        run: |
+          # Self-bootstraps agent402-client; no @elizaos/core at runtime (types only).
+          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/eliza/test.js
+
+      - name: Publish elizaos-plugin-agent402 to npm
+        run: |
+          cd adapters/eliza
+          VERSION=$(node -p "require('./package.json').version")
+          # Idempotent. The FIRST version is published from a maintainer login
+          # (OIDC cannot create a package that does not exist yet); the trusted
+          # publisher on npmjs.com carries every version after it.
+          if npm view "elizaos-plugin-agent402@$VERSION" version >/dev/null 2>&1; then
+            echo "elizaos-plugin-agent402@$VERSION is already on npm - nothing to do"
+          else
+            npm publish --provenance --access public
+            echo "published elizaos-plugin-agent402@$VERSION -> https://www.npmjs.com/package/elizaos-plugin-agent402"
           fi
 
       - name: Gate agent402-google-adk (tests run with NO npm token in env)
