@@ -15,7 +15,12 @@ const TARGET = (process.env.TARGET_URL || "https://agent402.tools").replace(/\/+
 const RPC = process.env.TEMPO_RPC_URL || "https://rpc.tempo.xyz";
 const USDCE = "0x20C000000000000000000000b9537d11c60E8b50";
 const SPENDER = (process.env.TEMPO_SPENDING_ADDRESS || "0xaF13AA07E7360cC56B3dAbf649fFeF087c0cD5A6").toLowerCase();
+// ROUTE is a dispatch input that steers a REAL-MONEY request signed by the
+// burner: allowlisted to our router tiers, never a free-form path (a value
+// like `@evil.example/` would otherwise rewrite the URL's host).
+const ROUTE_ALLOWED = new Set(["/api/route/execute", "/api/route/execute-plus", "/api/route/execute-pro"]);
 const ROUTE = process.env.ROUTE || "/api/route/execute";
+if (!ROUTE_ALLOWED.has(ROUTE)) { console.error(`refusing ROUTE=${JSON.stringify(ROUTE)}: not one of ${[...ROUTE_ALLOWED].join(", ")}`); process.exit(2); }
 const TASK = process.env.TASK || "scrape a web page with firecrawl";
 const PARAMS = process.env.PARAMS ? JSON.parse(process.env.PARAMS) : { url: "https://example.com" };
 const pk = (process.env.BURNER_KEY || "").trim();
@@ -36,6 +41,7 @@ const before = await usdce(SPENDER);
 console.log(`spending wallet ${SPENDER} USDC.e before: ${before}`);
 const body = JSON.stringify({ task: TASK, include: "external", params: PARAMS });
 const url = `${TARGET}${ROUTE}`;
+if (new URL(url).origin !== new URL(TARGET).origin) { console.error("refusing: target origin changed"); process.exit(2); }
 const bare = await fetch(url, { method: "POST", headers: { "content-type": "application/json", ...hb() }, body });
 await bare.text().catch(() => "");
 const www = bare.headers.get("www-authenticate") || "";

@@ -28,6 +28,8 @@ const {
   capturePostHogPowChallenge,
   capturePostHogSettlement,
   capturePostHogToolError,
+  capturePostHogToolGone,
+  capturePostHogToolCall,
   _flushPaywallRollupForTest,
   _testEventsForTest,
 } = await import("../src/posthog.js");
@@ -42,11 +44,13 @@ const take = () => events.splice(0, events.length); // read + clear
 
 // --- unit: discovery ------------------------------------------------------------
 capturePostHogDiscovery({ surface: "llms.txt", synthetic: false });
+ok(take().length === 0, "discovery accumulates silently (rolled up, no event before flush)");
+_flushPaywallRollupForTest();
 let got = take();
-ok(got.length === 1 && got[0].event === "discovery" && got[0].properties.surface === "llms.txt" && got[0].properties.synthetic === false,
-  "discovery event carries surface + synthetic");
-ok(Object.keys(got[0].properties).sort().join(",") === "surface,synthetic",
-  "discovery properties are exactly {surface, synthetic} — nothing about the caller");
+ok(got.length === 1 && got[0].event === "discovery" && got[0].properties.surface === "llms.txt" && got[0].properties.synthetic === false && got[0].properties.count === 1,
+  "discovery event carries surface + synthetic + count");
+ok(Object.keys(got[0].properties).sort().join(",") === "count,surface,synthetic",
+  "discovery properties are exactly {count, surface, synthetic} — nothing about the caller");
 
 // --- unit: paywall rollup -------------------------------------------------------
 for (let i = 0; i < 3; i++) capturePostHogPaywall({ slug: "hash", priceUsd: 0.001, powEligible: true, synthetic: false });
@@ -152,10 +156,42 @@ capturePostHogToolError({ slug: "hash", status: 500, message: "x", shape: ["b:ur
 got = take();
 ok(got.length === 1 && got[0].event === "tool_error" && got[0].properties.errorClass === "5xx", "real tool_errors still captured");
 
-// --- unit: discovery hourly cap ---------------------------------------------------
+// --- unit: discovery rollup (the 2026-08-25 scanner: 57k /api/find calls in a day) ---
 for (let i = 0; i < 1200; i++) capturePostHogDiscovery({ surface: "find", synthetic: false });
+capturePostHogDiscovery({ surface: "find", synthetic: true });
+ok(take().length === 0, "1,201 discovery hits produce no events before the flush");
+_flushPaywallRollupForTest();
+got = take().filter((e) => e.event === "discovery");
+const findRow = got.find((e) => e.properties.surface === "find" && e.properties.synthetic === false);
+ok(got.length === 2 && findRow?.count !== 0 && findRow?.properties.count === 1200,
+  `1,200 find hits flush as ONE discovery event with count 1200 (+1 synthetic row; got ${got.length} events, count ${findRow?.properties.count})`);
+
+// --- unit: _find / _route tool_call rollup; real slugs stay per-event -------------
+for (let i = 0; i < 5; i++) capturePostHogToolCall({ slug: "_find", latencyMs: 10 + i, cached: i < 3, errored: false, status: 200, synthetic: false });
+capturePostHogToolCall({ slug: "_route", latencyMs: 700, cached: false, errored: false, status: 200, synthetic: false });
+capturePostHogToolCall({ slug: "hash", latencyMs: 2, cached: false, errored: false, status: 200, synthetic: false });
 got = take();
-ok(got.length === 999, `discovery capped per rolling hour (got ${got.length} of 1200 — 1 was used above)`);
+ok(got.length === 1 && got[0].event === "tool_call" && got[0].properties.slug === "hash" && !("count" in got[0].properties),
+  "a real tool call is still one per-event tool_call (no count field)");
+_flushPaywallRollupForTest();
+got = take().filter((e) => e.event === "tool_call");
+const findCached = got.find((e) => e.properties.slug === "_find" && e.properties.cached === true);
+const findMiss = got.find((e) => e.properties.slug === "_find" && e.properties.cached === false);
+const routeRow = got.find((e) => e.properties.slug === "_route");
+ok(got.length === 3 && findCached?.properties.count === 3 && findMiss?.properties.count === 2 && routeRow?.properties.count === 1,
+  `_find/_route roll up per (slug, cached): got ${got.length} rows, _find cached ${findCached?.properties.count} miss ${findMiss?.properties.count} _route ${routeRow?.properties.count}`);
+ok(findCached?.properties.latencyMs === 11 && findMiss?.properties.latencyMs === 14,
+  `rolled-up latencyMs is the window average (cached ${findCached?.properties.latencyMs}, miss ${findMiss?.properties.latencyMs})`);
+
+// --- unit: tool_gone rollup (scanners walk all ~970 retired routes daily) --------
+for (let r = 0; r < 60; r++) for (let i = 0; i <= r % 3; i++) capturePostHogToolGone({ route: `/api/convert/unit${r}-to-other`, replacement: "POST /api/unit-convert" });
+ok(take().length === 0, "tool_gone accumulates silently");
+_flushPaywallRollupForTest();
+got = take().filter((e) => e.event === "tool_gone");
+const goneOther = got.find((e) => e.properties.route === "_other");
+const goneTotal = got.reduce((s, e) => s + e.properties.count, 0);
+ok(got.length === 51 && goneOther?.properties.routes === 10 && goneTotal === 120,
+  `60 retired routes flush as 50 rows + one _other (10 routes) with the exact total (got ${got.length} rows, other routes ${goneOther?.properties.routes}, total ${goneTotal})`);
 
 // --- integration: the real funnel through a paid-mode server ----------------------
 const FAC_PORT = 3082, PORT = 3081, B = `http://127.0.0.1:${PORT}`;

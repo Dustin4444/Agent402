@@ -323,7 +323,15 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           // every drained dollar returns to the attacker, bounded per call only
           // by `cap`. A 4xx here cancels the buyer's settlement, so refusing
           // costs an honest buyer nothing.
-          const spendPayer = payerFromRequest(req);
+          // Keyed like the composite guard (server.js): the signed x402 payer
+          // first, else the Tempo credential's payer (the tempo gate strips
+          // the x402 headers on acceptance, so payerFromRequest is null for an
+          // MPP/Tempo buyer and an unkeyed payer was exempt from the ceiling -
+          // found in the 2026-08-27 review, the first day the Tempo leg
+          // resolved anything), else the client IP so nobody is unkeyed.
+          const spendPayer = payerFromRequest(req)
+            || (req?.mppTempoPayer ? `tempo:${req.mppTempoPayer}` : null)
+            || (req?.ip ? `ip:${req.ip}` : null);
           const allowed = maySpend(spendPayer, extUsd);
           if (!allowed.ok) throw bad(`External routing is paused for this wallet: ${allowed.reason}`, 429);
           const spendHandle = noteSpend(spendPayer, extUsd);

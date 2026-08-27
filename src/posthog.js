@@ -143,8 +143,29 @@ export function capturePostHogToolError({ slug, status, message, shape, syntheti
 // total volume, latency, cache hits, and success rates per slug. Errors are
 // also captured separately via capturePostHogToolError with richer detail;
 // this event is the volume/latency layer.
+// Discovery pseudo-slugs ("_find", "_route": the free /api/find + /api/route
+// resolvers) are ROLLED UP, not per-event. Measured 2026-08-25: one scanner
+// hit /api/find twice a second for twelve hours (57,277 calls, 61% cache
+// hits) and every hit was an ingested event - a single free caller became
+// 52% of the day's PostHog volume, and nothing about a discovery call is
+// per-event interesting. Real tool calls stay per-event.
+const ROLLED_UP_SLUG_RE = /^_/;
+let discoveryCallCounts = new Map(); // "slug|synthetic|cached|errored|status" -> { ..., count, latencySum }
+
 export function capturePostHogToolCall({ slug, latencyMs, cached, errored, status, synthetic, probe, payer }) {
   if (!active()) return;
+  if (ROLLED_UP_SLUG_RE.test(String(slug || ""))) {
+    try {
+      const st = Number(status) || 200;
+      const key = `${slug}|${synthetic ? 1 : 0}|${cached ? 1 : 0}|${errored ? 1 : 0}|${st}`;
+      const cur = discoveryCallCounts.get(key) || { slug: String(slug), synthetic: !!synthetic, cached: !!cached, errored: !!errored, status: st, count: 0, latencySum: 0 };
+      cur.count++;
+      cur.latencySum += Number(latencyMs) || 0;
+      discoveryCallCounts.set(key, cur);
+      ensureFunnelTimer();
+    } catch { /* never throw from telemetry */ }
+    return;
+  }
   capture("tool_call", {
     slug,
     latencyMs: Number(latencyMs) || 0,
@@ -198,25 +219,49 @@ export function capturePostHogPackStep({ pack, slug, ok, ms }) {
 // computed as a ratio of stage totals (a PostHog formula insight), which is
 // the honest framing for an anonymous-by-design payment protocol.
 
-// Discovery is per-event (arrival timing matters) but bot sweeps against
-// /llms.txt etc. shouldn't be able to torch the event budget — cap captures
-// per rolling hour and drop the excess silently (the tool_call stream is
-// unaffected).
-const DISCOVERY_MAX_PER_HOUR = 1000;
-let discoveryWindowStart = 0;
-let discoveryWindowCount = 0;
+// Discovery is ROLLED UP per (surface, synthetic) per flush window - one
+// event carrying `count`, `sum(count)` is the exact total. It used to be
+// per-event under a 1,000/hour cap, which still let registry crawlers and
+// monitors make discovery ~26% of a month's ingestion (260k of ~990k, measured
+// 2026-08-27) while the cap silently discarded the excess on busy hours. A
+// windowed count keeps the total exact AND bounds the event volume by the
+// number of surfaces (~12), not by traffic.
+let discoveryCounts = new Map(); // "surface|synthetic" -> { surface, synthetic, count }
 
 export function capturePostHogDiscovery({ surface, synthetic }) {
   if (!active()) return;
   try {
-    const now = Date.now();
-    if (now - discoveryWindowStart > 3_600_000) {
-      discoveryWindowStart = now;
-      discoveryWindowCount = 0;
-    }
-    if (++discoveryWindowCount > DISCOVERY_MAX_PER_HOUR) return;
-    capture("discovery", { surface: String(surface || "unknown"), synthetic: !!synthetic });
+    const key = `${surface || "unknown"}|${synthetic ? 1 : 0}`;
+    const cur = discoveryCounts.get(key) || { surface: String(surface || "unknown"), synthetic: !!synthetic, count: 0 };
+    cur.count++;
+    discoveryCounts.set(key, cur);
+    ensureFunnelTimer();
   } catch { /* never throw from telemetry */ }
+}
+
+function flushDiscoveryRollup() {
+  if (!discoveryCounts.size) return;
+  const entries = [...discoveryCounts.values()];
+  discoveryCounts = new Map();
+  for (const e of entries) capture("discovery", { surface: e.surface, synthetic: e.synthetic, count: e.count });
+}
+
+function flushDiscoveryCallRollup() {
+  if (!discoveryCallCounts.size) return;
+  const entries = [...discoveryCallCounts.values()];
+  discoveryCallCounts = new Map();
+  for (const e of entries) {
+    capture("tool_call", {
+      slug: e.slug,
+      count: e.count,
+      latencyMs: Math.round(e.latencySum / e.count),
+      cached: e.cached,
+      errored: e.errored,
+      status: e.status,
+      synthetic: e.synthetic,
+      probe: false,
+    });
+  }
 }
 
 // 402s are the highest-volume stage by far — registry crawlers (Bazaar,
@@ -291,6 +336,9 @@ function flushPaywallRollup() {
       }
     }
     flushPowChallengeRollup();
+    flushDiscoveryRollup();
+    flushDiscoveryCallRollup();
+    flushToolGoneRollup();
   } catch { /* never throw from telemetry */ }
 }
 export function _flushPaywallRollupForTest() {
@@ -410,24 +458,36 @@ export function capturePostHogSettleFailed({ slug, status, network, priceUsd, sy
 // prompt still cites it), and without an event that demand is invisible.
 // Properties are the route path (matched against a [a-z0-9-] regex before the
 // handler runs — unit ids only, never caller input) and the taught
-// replacement. Retired routes are also crawler fodder, so captures are
-// capped per rolling hour like discovery; the 410 response itself is never
-// affected.
-const TOOL_GONE_MAX_PER_HOUR = 500;
-let toolGoneWindowStart = 0;
-let toolGoneWindowCount = 0;
+// replacement. ROLLED UP per route per flush window (top routes + "_other",
+// `sum(count)` exact). It used to be per-event under a 500/hour cap, and the
+// cap was the volume: four scanners re-walk all ~970 retired routes every day,
+// so tool_gone sat at exactly 500 x 24 = 10-12k events/day, 38% of a month's
+// ingestion (374k of ~990k, measured 2026-08-27) - and the question it exists
+// to answer ("does anyone still cite these?") is answered: scanners, not
+// buyers. The 410 response itself is never affected.
+const TOOL_GONE_TOP_ROUTES = 50;
+let toolGoneCounts = new Map(); // route -> { route, replacement, count }
 
 export function capturePostHogToolGone({ route, replacement }) {
   if (!active()) return;
   try {
-    const now = Date.now();
-    if (now - toolGoneWindowStart > 3_600_000) {
-      toolGoneWindowStart = now;
-      toolGoneWindowCount = 0;
-    }
-    if (++toolGoneWindowCount > TOOL_GONE_MAX_PER_HOUR) return;
-    capture("tool_gone", { route: String(route || "unknown"), replacement: String(replacement || "") });
+    const r = String(route || "unknown");
+    const cur = toolGoneCounts.get(r) || { route: r, replacement: String(replacement || ""), count: 0 };
+    cur.count++;
+    toolGoneCounts.set(r, cur);
+    ensureFunnelTimer();
   } catch { /* never throw from telemetry */ }
+}
+
+function flushToolGoneRollup() {
+  if (!toolGoneCounts.size) return;
+  const entries = [...toolGoneCounts.values()].sort((a, b) => b.count - a.count);
+  toolGoneCounts = new Map();
+  for (const e of entries.slice(0, TOOL_GONE_TOP_ROUTES)) capture("tool_gone", { route: e.route, replacement: e.replacement, count: e.count });
+  const rest = entries.slice(TOOL_GONE_TOP_ROUTES);
+  if (rest.length) {
+    capture("tool_gone", { route: "_other", replacement: rest[0].replacement, count: rest.reduce((s, e) => s + e.count, 0), routes: rest.length });
+  }
 }
 
 // Per-call gateway margin accounting. OpenRouter reports the exact upstream
