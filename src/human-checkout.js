@@ -260,7 +260,7 @@ export function createHumanCheckout({ stripe, generate, baseUrl, storeDir, onSal
       try {
         // generate() may return a plain report string (legacy / tests) or a
         // bundle { report, title, sources, tables }. Normalize either way.
-        const g = await generate(p.kind, p.slug, input, { buyerKey: `human:${sessionId}` });
+        const g = await generate(p.kind, p.slug, input, { buyerKey: `human:${sessionId}`, rail: "card", priceUsd: Number(p.price) / 100 });
         const bundle = (g && typeof g === "object") ? g : { report: String(g ?? "") };
         if (!bundle.report) throw new Error("empty report");
         const rec = {

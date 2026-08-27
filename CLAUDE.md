@@ -1973,6 +1973,19 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   from the $6 unsettled-spend bound the day the Tempo leg first resolved; `tempo-sor-live.js` refuses a `route` input
   off the two documented paths (a write-access dispatcher could otherwise point the burner's credential at another
   host). `test-posthog-funnel` (60), `test-tempo-router` (48), `test-pricing-margin` (186).
+- **Cost audit 2026-08-27 (PostHog + operator ledgers + Railway logs):** no buyer over/undercharging found (0 charged-failures
+  since 07-16, 0 refunds owed, 0 gateway calls over the 70% bound, ledger vs PostHog settlements reconcile). The month's
+  upstream spend was ~$29 OpenRouter+Brave, of which ~$21 landed on 2026-08-21 (577 OpenRouter generations, 114 Opus, 491
+  Brave searches) = the report-product launch day's live card runs, BEFORE card sales were ledgered (08-22), so our books
+  cannot attribute it - Stripe's payment list for that day can. Two fixes from it: (1) `composite_usage` now carries
+  `rail` (agent / card / monitor), the price the report ACTUALLY sold for, `capUsd` and `overCap` - `withCompositeContext`
+  (composite-spend-guard, AsyncLocalStorage) is set by `_humanGenerate` around the kit handler with the card/monitor
+  price, so kits stay door-agnostic (`scripts/test-composite-context.js`); (2) the paid canary's supply-chain leg
+  (address-profile -> Blockscout, 23 of 69 synthetic runs 5xx in 30 days, paged nobody) is recorded as
+  `rail_supply-chain` on /status (each rail component now exposes `recentOk`, newest-first, last 5) and
+  `shouldPageUpstreamLeg` pages via railFail (exit 5, "Paid canary rail FAILED") after `CANARY_UPSTREAM_PAGE_AFTER` (3)
+  CONSECUTIVE failures - unreachable status or too few observations never page. Not auditable from here: Stripe fees
+  (MCP needs OAuth), OpenRouter/Brave/Alchemy/X dashboards.
 - **Tempo spending wallet LIVE + SOR external legs were dead (2026-08-27):** `TEMPO_UPSTREAM_BUYER_KEY` set on Railway (wallet
   0xaF13AA07E7360cC56B3dAbf649fFeF087c0cD5A6, funded 5 USDC.e from the burner via `fund-tempo-fee-payer.yml token=usdc`; Mike's
   wallet app could not send on Tempo - fees are paid in the token, a native-gas wallet fails before broadcast). The first live

@@ -83,6 +83,17 @@ export const RAIL_COMPONENTS = [
     blurb: "Real PathUSD settlement over Tempo's own MPP relay, proven daily by the paid canary.",
     staleAfterMs: DAILY,
   },
+  // Not a chain: the catalog's paid UPSTREAM (blockscout-kit pays Blockscout
+  // from our spending wallet). Its canary leg failed a third of the time in
+  // 2026-08 and paged nobody, because a tool leg is a warning: the buyer is
+  // never charged on a 5xx. The consecutive-failure rule in the canary reads
+  // this row's recent observations, so the row is what makes it pageable.
+  {
+    key: "rail_supply-chain",
+    label: "Blockscout upstream (paid)",
+    blurb: "address-profile buying its Blockscout upstream from the spending wallet, proven daily by the paid canary.",
+    staleAfterMs: DAILY,
+  },
 ];
 
 export const COMPONENTS = [
@@ -152,6 +163,9 @@ export function statusSnapshot({ baseUrl = "", nowMs = Date.now(), historyDays =
       blurb: c.blurb,
       observed: rows.length,
       current: stateFrom(latest.get(c.key), { nowMs, staleAfterMs: c.staleAfterMs }),
+      // Newest first, last five: lets a prober apply a consecutive-failure rule
+      // without any state of its own (the paid canary's upstream legs).
+      recentOk: rows.slice(-5).reverse().map((r) => !!r.ok),
       windows,
       daily: dailyFrom(rows, { days: historyDays, nowMs }),
     };

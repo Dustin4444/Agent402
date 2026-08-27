@@ -171,7 +171,7 @@ export function createMonitorScheduler({ subs, generate, probeDomain, normDomain
     const p = MONITOR_PRODUCTS[rec.product];
     if (!(await stillActive(rec))) { const e = new Error("subscription no longer active"); e.inactive = true; throw e; }
     const input = inputFor(p.kind, rec.target, st);
-    const g = await generate(p.kind, p.slug, input, { buyerKey: `sub:${rec.subId}` });
+    const g = await generate(p.kind, p.slug, input, { buyerKey: `sub:${rec.subId}`, rail: "monitor", priceUsd: Number(p.price) / 100 });
     const bundle = (g && typeof g === "object") ? g : { report: String(g ?? "") };
     if (!bundle.report) throw new Error("empty report");
     const id = newReportId();

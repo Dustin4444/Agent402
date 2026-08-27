@@ -2188,6 +2188,7 @@ jobs:
           t node scripts/test-mpp-stripe.js
           # Composite cap enforcement (maxUpstreamUsd is checked at the shared chokepoint, not merely declared - offline)
           t node scripts/test-composite-cap-enforcement.js
+          t node scripts/test-composite-context.js
           # Agentic Finance glossary (one DefinedTermSet, anchors unique, category term aliased, explainer bodies link it, post + sitemap + llms - offline)
           t node scripts/test-glossary.js
           # x402 Leaderboard pure helpers (offline; Bazaar parsing + ranking)

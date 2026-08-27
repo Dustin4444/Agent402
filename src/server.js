@@ -25,7 +25,7 @@ import {
   PERSISTENT as memoryPersistent,
 } from "./tools/memory.js";
 import { payerFromRequest, payerFromPaymentResponse, paymentHeaderOf, paymentIdentifierOf } from "./payer.js";
-import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpendFailure, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS, isLongRunningSlug, _compositeGuardState, compositeUsageSnapshot } from "./composite-spend-guard.js";
+import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpendFailure, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS, isLongRunningSlug, _compositeGuardState, compositeUsageSnapshot, withCompositeContext } from "./composite-spend-guard.js";
 // Single-upstream-call routes that run long (40 s+): EVM exact only, like the
 // composites (settle-after on SVM/AVM/Tempo is work done, never charged), but
 // not composite-spend-guarded (one bounded upstream price).
@@ -1854,7 +1854,9 @@ const _humanGenerate = async (kind, slug, input, ctx = {}) => {
     // of every card buyer sharing one anonymous bucket.
     const key = String(ctx?.buyerKey || "human:anonymous");
     const pseudoReq = { header: (n) => (String(n).toLowerCase() === "authorization" ? key : undefined), headers: { authorization: key } };
-    const out = await h(arg, pseudoReq);
+    // Margin telemetry sees the door and the price it sold for (card/monitor),
+    // not the kit's agent-tier price - see withCompositeContext.
+    const out = await withCompositeContext({ rail: ctx?.rail || "card", priceUsd: ctx?.priceUsd }, () => h(arg, pseudoReq));
     const report = out?.dossier || out?.report;
     if (!report) throw new Error("empty report");
     // Deliver a BUNDLE, not just prose: the report plus the structured data
