@@ -104,9 +104,9 @@ is refunded automatically. A report that was delivered is final. Prepaid credits
 call tools, are non-refundable except where required by law, and are disabled if the purchase is
 refunded or disputed. Card prices include payment processing and are shown before you pay.</p>
 <p><b>Subscriptions (monitors).</b> A monitor bills monthly in advance, by card through Stripe or over
-MPP on Tempo from an authorization you sign, until cancelled. Cancel any time at
-<a href="/monitors/manage">/monitors/manage</a> (Stripe Customer Portal) or by revoking the MPP
-authorization; cancellation stops future renewals and the monitor keeps running to the end of the paid
+MPP on Tempo from an authorization you sign, until cancelled. Cancel any time through the
+manage link in your monitor emails (the Stripe Customer Portal, reached from <a href="/monitors">/monitors</a>) or by
+revoking the MPP authorization; cancellation stops future renewals and the monitor keeps running to the end of the paid
 period. Renewal charges are not refunded pro rata. A monitor whose subject cannot be read (for example a
 domain that does not resolve) keeps its free daily check, emails you once about the problem, and produces
 no further paid reports until the subject is readable again; each subscription also has a cap on paid
