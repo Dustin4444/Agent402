@@ -44,7 +44,7 @@ function rowHtml(label, side, note) {
     <dt style="color:var(--muted);">settled</dt><dd style="margin:0;color:var(--ink);font-family:var(--font-mono);">${esc(usd(l.settledUsd))}${l.quoteUsd != null ? ` <span style="color:var(--muted);">(${esc(pct(l.settledUsd, l.quoteUsd))} of the ceiling)</span>` : ""}</dd>
     <dt style="color:var(--muted);">network / wire</dt><dd style="margin:0;color:var(--ink);font-family:var(--font-mono);">${esc(l.network || "n/a")} / ${esc(l.wire || l.rail || "n/a")}</dd>
     <dt style="color:var(--muted);">settle tx</dt><dd style="margin:0;font-family:var(--font-mono);font-size:13px;">${txCell}</dd>
-    <dt style="color:var(--muted);">when</dt><dd style="margin:0;color:var(--ink);font-family:var(--font-mono);">${esc(l.at.slice(0, 16).replace("T", " "))} UTC</dd>
+    <dt style="color:var(--muted);">when</dt><dd style="margin:0;color:var(--ink);font-family:var(--font-mono);">${esc(l.atPrecision === "hour" ? `${l.at.slice(0, 13).replace("T", " ")}:00` : l.at.slice(0, 16).replace("T", " "))} UTC${l.atPrecision === "hour" ? " (to the hour)" : ""}</dd>
   </dl>
   ${note ? `<p style="margin:14px 0 0;color:var(--muted);font-size:13px;line-height:1.5;">${esc(note)}</p>` : ""}
   <p style="margin:10px 0 0;color:var(--muted);font-size:13px;line-height:1.5;">Aggregate on this side of the ledger: ${side.count} settlement${side.count === 1 ? "" : "s"}, ${esc(usd(side.settledUsd))} settled${side.quotedUsd != null ? ` against ${esc(usd(side.quotedUsd))} quoted (${side.quotedCount} rows carry a quote)` : ""}.</p>
