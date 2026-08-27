@@ -2003,6 +2003,12 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   (a ClawHub CLI token on the publisher account, Actions-only, NOT Railway - prod has no use for it), config written
   under `CLAWHUB_CONFIG_PATH` in the job temp dir, `package inspect --version` as the idempotency check (verified: an
   existing version reads present, a bogus one absent), source metadata from the run; no token = loud skip.
+  **OIDC path (2026-08-27):** `.github/workflows/clawhub-publish.yml` (workflow_dispatch, `id-token: write`, ClawHub's
+  reusable `package-publish.yml` pinned to the SHA OpenClaw's scaffold pins, `source_path: openclaw`, dry_run default).
+  It works only after a package manager runs ONCE, logged in: `clawhub package trusted-publisher set agent402-openclaw
+  --repository MikeyPetrillo/Agent402 --workflow-filename clawhub-publish.yml` (repo + workflow filename are matched
+  against the OIDC claim; `--environment` optional). Then the token step can go; until a dispatched dry_run=false has
+  published once, the token step stays as the fallback.
 - **Cost audit 2026-08-27 (PostHog + operator ledgers + Railway logs):** no buyer over/undercharging found (0 charged-failures
   since 07-16, 0 refunds owed, 0 gateway calls over the 70% bound, ledger vs PostHog settlements reconcile). The month's
   upstream spend was ~$29 OpenRouter+Brave, of which ~$21 landed on 2026-08-21 (577 OpenRouter generations, 114 Opus, 491
