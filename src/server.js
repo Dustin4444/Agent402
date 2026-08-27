@@ -121,6 +121,7 @@ import { whatIsX402Page } from "./what-is-x402.js";
 import { whatIsMppPage } from "./what-is-mpp.js";
 import { agenticFinancePage } from "./agentic-finance.js";
 import { whyPage } from "./why.js";
+import { proofPage } from "./proof.js";
 import { glossaryPage } from "./glossary.js";
 import { x402101Page } from "./x402-101.js";
 import { aifiCardSvg } from "./aifi-card.js";
@@ -305,7 +306,7 @@ import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledg
 import { x402EconomySnapshot, economySnapshotCached } from "./x402-economy.js";
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate } from "./settlement-proof.js";
 import { spend as sharedSpend, refund as sharedRefund, sharedLimitEnabled } from "./shared-limit.js";
-import { recordSale, salesSummary, mppSales, mppTxHashes, txFromPaymentResponse, tempoDailyRevenue, tempoDailyRecordingSince } from "./sales-ledger.js";
+import { recordSale, salesSummary, mppSales, mppTxHashes, txFromPaymentResponse, tempoDailyRevenue, tempoDailyRecordingSince, proofFeed } from "./sales-ledger.js";
 import { recordShadowSettlement, startShadowLedger, shadowLedgerReport, shadowLedgerEnabled } from "./stripe-shadow-ledger.js";
 import { reconcileSettlements } from "./settlement-reconcile.js";
 import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
@@ -1684,6 +1685,10 @@ app.get("/aifi", (_req, res) => res.redirect(301, "/agentic-finance"));
 // /why - the seven first-party differences, every claim linked to its proof surface
 // (src/why.js); llms.txt, the MCP instructions and the package READMEs point here.
 app.get("/why", (_req, res) => htmlCache(res, 300, 900).send(whyPage(BASE_URL)));
+// Receipts: the metered tier's settled-under-quote proof, aggregates + one
+// latest external and one latest internal row with settle tx (no payer).
+app.get("/api/proof", (_req, res) => { res.set("Cache-Control", "public, max-age=60"); res.json(proofFeed()); });
+app.get("/proof", (_req, res) => htmlCache(res, 60, 300).send(proofPage(BASE_URL, proofFeed())));
 app.get("/glossary", (_req, res) => htmlCache(res, 300, 900).send(glossaryPage(BASE_URL)));
 // x402 & MPP 101 - the presenter-mode walkthrough with the live demo (src/x402-101.js).
 app.get("/101", (_req, res) => htmlCache(res, 300, 900).send(x402101Page(BASE_URL)));
@@ -5527,6 +5532,9 @@ app.use((req, res, next) => {
             tx: settleTx,
             synthetic,
             wire: rail === "usdc" ? wireFor() : null,
+            // The quoted ceiling on a metered route, so the ledger can prove the
+            // settled amount sat under it (GET /api/proof).
+            quoteUsd: typeof def?.quote === "function" && Number.isFinite(req?.__meteredQuoteUsd) ? req.__meteredQuoteUsd : null,
           });
           // Stripe SHADOW ledger - a read-only mirror of this on-chain settlement
           // into Stripe, so card and crypto revenue can eventually be read from

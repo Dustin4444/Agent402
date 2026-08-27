@@ -63,3 +63,4 @@ Add the hosted MCP connector, buy prepaid credits by card, or pay per call in US
 - Prepaid credits: https://agent402.tools/credits
 - Get a report: https://agent402.tools/reports
 - Sell your API: https://agent402.tools/sell
+- Receipts (settled under the quoted ceiling, with the settle tx): https://agent402.tools/proof

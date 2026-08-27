@@ -1973,6 +1973,19 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   from the $6 unsettled-spend bound the day the Tempo leg first resolved; `tempo-sor-live.js` refuses a `route` input
   off the two documented paths (a write-access dispatcher could otherwise point the burner's credential at another
   host). `test-posthog-funnel` (60), `test-tempo-router` (48), `test-pricing-margin` (186).
+- **`/proof` + `GET /api/proof` (2026-08-27, `src/proof.js`, `proofFeed()` in sales-ledger):** receipts for the metered
+  tier - the ledger now stores `quote_usd` (additive column) next to the settled `price_usd` on every metered sale
+  (`recordSale({quoteUsd})` from the route binder's `req.__meteredQuoteUsd`), and the page shows aggregates plus ONE
+  latest external row and ONE latest internal (daily canary) row with the settle tx and an explorer link - never a
+  payer, never a per-call feed (the mppSales lesson). Linked from the /why proof point ("receipts"), sitemap,
+  test-static-pages; `scripts/test-proof.js` (10, in CI). Purpose: one published receipt a week (external once an
+  outside buyer settles on the metered route; until then the canary's, labelled ours).
+- **Distribution surfaces checked 2026-08-27:** Continue has no Hub to publish to (hub.continue.dev does not resolve,
+  docs carry no hub/blocks pages) - the config.yaml snippet on /guides/agent-hosts is the whole path; ElizaOS plugins
+  live in the `elizaOS/eliza` monorepo `plugins/` directory (no separate registry repo resolves), so a listing there is
+  a PR to their monorepo - Mike's call before opening; AgentCore: `examples/agentcore-gateway/` (CLI forms from the AWS
+  developer guide: `mcp-server` target for `/mcp`, `open-api-schema` target for `/openapi.json`); a live gateway proof
+  needs `aws login --profile agent402` (session expired) - Mike.
 - **`/guides/agent-hosts` (2026-08-27):** one page of copy-paste blocks for Claude Code, Cursor, Continue, ElizaOS, any
   OpenAI SDK and Bedrock AgentCore - models via `https://agent402.tools/v1/metered` + credits key as the API key (every
   block verified against the host's own docs the same day: Claude Code `claude mcp add --transport http` / `-e`, Cursor

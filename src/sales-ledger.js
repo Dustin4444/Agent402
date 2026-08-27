@@ -67,6 +67,11 @@ CREATE INDEX IF NOT EXISTS idx_sales_payer  ON sales (payer, ts);
 // answerable from the ledger history the day it starts, and /revenue can
 // surface the split once external MPP sales exist. NULL = pre-column rows.
 try { db.exec("ALTER TABLE sales ADD COLUMN wire TEXT"); } catch { /* exists */ }
+// Additive column (2026-08-27): the QUOTED ceiling of a metered call, next to
+// the settled amount in price_usd, so "settled under the quote" is a fact the
+// ledger can prove per row (see proofFeed / GET /api/proof). NULL on flat
+// routes and pre-column rows.
+try { db.exec("ALTER TABLE sales ADD COLUMN quote_usd REAL"); } catch { /* exists */ }
 
 // Boot-time reclassification (2026-08-20): `internal` is decided at record
 // time, so a wallet that JOINS the burner/test set later leaves stale
@@ -90,7 +95,7 @@ try {
 } catch (e) { console.warn(`[sales-ledger] internal reclassification sweep failed: ${String(e?.message || e).slice(0, 200)}`); }
 
 const insertSale = db.prepare(
-  "INSERT INTO sales (ts, slug, price_usd, rail, network, payer, tx, internal, wire) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  "INSERT INTO sales (ts, slug, price_usd, rail, network, payer, tx, internal, wire, quote_usd) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 );
 
 /** Settle tx hash/signature out of the base64 PAYMENT-RESPONSE receipt. */
@@ -108,10 +113,11 @@ export function txFromPaymentResponse(headerValue) {
  * Record one served catalog call. Fire-and-forget from the serving path:
  * never throws, and a broken disk only costs the row, not the response.
  */
-export function recordSale({ slug, priceUsd, rail, network, payer, tx, synthetic, wire }) {
+export function recordSale({ slug, priceUsd, rail, network, payer, tx, synthetic, wire, quoteUsd }) {
   try {
     const p = normalizePayerAddress(payer); // lowercases EVM only — base58/Stellar stay case-exact
     const internal = Boolean(synthetic) || rail === "heartbeat" || (p !== null && BURNERS.has(p));
+    const q = Number(quoteUsd);
     insertSale.run(
       Date.now(),
       String(slug || "unknown"),
@@ -121,7 +127,8 @@ export function recordSale({ slug, priceUsd, rail, network, payer, tx, synthetic
       p,
       tx ? String(tx) : null,
       internal ? 1 : 0,
-      wire ? String(wire) : null
+      wire ? String(wire) : null,
+      Number.isFinite(q) && q > 0 ? q : null
     );
   } catch { /* never break serving for accounting */ }
 }
@@ -506,4 +513,41 @@ export function tempoDailyRevenue() {
 export function tempoDailyRecordingSince() {
   const rows = qTempoDaily.all();
   return rows.length ? rows[0].day : null;
+}
+
+// ---------------------------------------------------------------------------
+// Public receipts for the metered tier (GET /api/proof, /proof).
+//
+// Shape is deliberately NOT a purchase feed (the mppSales lesson: tool + price
+// + timestamp per row is a customer's buying pattern). It is aggregates plus
+// ONE latest external row and ONE latest internal (canary) row, each with the
+// settle tx so the amount is checkable on-chain, and never a payer.
+const qProofAgg = db.prepare(`
+  SELECT COUNT(*) AS n, SUM(price_usd) AS settled, SUM(quote_usd) AS quoted,
+         SUM(CASE WHEN quote_usd IS NOT NULL THEN 1 ELSE 0 END) AS quoted_n
+  FROM sales WHERE slug = ? AND internal = ? AND rail IN ${PAYING_RAILS_SQL}`);
+const qProofLatest = db.prepare(`
+  SELECT ts, price_usd, quote_usd, network, tx, wire, rail
+  FROM sales WHERE slug = ? AND internal = ? AND rail IN ${PAYING_RAILS_SQL}
+  ORDER BY ts DESC LIMIT 1`);
+export function proofFeed({ slug = "v1-chat-metered" } = {}) {
+  const side = (internal) => {
+    const a = qProofAgg.get(slug, internal ? 1 : 0) || {};
+    const l = qProofLatest.get(slug, internal ? 1 : 0) || null;
+    const row = l ? {
+      at: new Date(l.ts).toISOString(),
+      settledUsd: +Number(l.price_usd).toFixed(6),
+      quoteUsd: l.quote_usd == null ? null : +Number(l.quote_usd).toFixed(6),
+      underQuote: l.quote_usd == null ? null : Number(l.price_usd) <= Number(l.quote_usd) + 1e-9,
+      network: l.network, wire: l.wire, rail: l.rail, tx: l.tx,
+    } : null;
+    return {
+      count: Number(a.n) || 0,
+      settledUsd: +Number(a.settled || 0).toFixed(6),
+      quotedUsd: a.quoted == null ? null : +Number(a.quoted).toFixed(6),
+      quotedCount: Number(a.quoted_n) || 0,
+      latest: row,
+    };
+  };
+  return { slug, persistent: salesPersistent, external: side(false), internal: side(true), generatedAt: new Date().toISOString() };
 }
