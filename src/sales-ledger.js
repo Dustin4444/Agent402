@@ -464,6 +464,8 @@ export function salesSummary({ days = 30, detailed = false } = {}) {
   if (!detailed) return base;
   return {
     ...base,
+    // The weekly number: external buyers on the metered route (counts only).
+    meteredExternal7d: meteredExternal({ days: 7 }),
     topExternal: qExtBySlug.all(since).map((r) => ({
       slug: r.slug, sales: r.sales, revenueUsd: +r.revenue.toFixed(4), lastAt: new Date(r.last_ts).toISOString(),
     })),
@@ -530,6 +532,17 @@ const qProofLatest = db.prepare(`
   SELECT ts, price_usd, quote_usd, network, tx, wire, rail
   FROM sales WHERE slug = ? AND internal = ? AND rail IN ${PAYING_RAILS_SQL}
   ORDER BY ts DESC LIMIT 1`);
+const qMeteredExtWindow = db.prepare(`
+  SELECT COUNT(*) AS n, COUNT(DISTINCT payer) AS buyers, SUM(price_usd) AS settled, MAX(ts) AS last_ts
+  FROM sales WHERE slug = ? AND internal = 0 AND rail IN ${PAYING_RAILS_SQL} AND ts >= ?`);
+/** External metered settlements in a window: counts only, never a roster. The
+ *  weekly number the distribution work is measured by (PostHog mirror:
+ *  "External metered buyers per week"). */
+export function meteredExternal({ days = 7, slug = "v1-chat-metered" } = {}) {
+  const r = qMeteredExtWindow.get(slug, Date.now() - days * 86_400_000) || {};
+  return { days, slug, settlements: Number(r.n) || 0, buyers: Number(r.buyers) || 0, settledUsd: +Number(r.settled || 0).toFixed(6), lastAt: r.last_ts ? new Date(r.last_ts).toISOString() : null };
+}
+
 export function proofFeed({ slug = "v1-chat-metered" } = {}) {
   const side = (internal) => {
     const a = qProofAgg.get(slug, internal ? 1 : 0) || {};
@@ -555,5 +568,6 @@ export function proofFeed({ slug = "v1-chat-metered" } = {}) {
       latest: row,
     };
   };
-  return { slug, persistent: salesPersistent, external: side(false), internal: side(true), generatedAt: new Date().toISOString() };
+  const week = meteredExternal({ days: 7, slug });
+  return { slug, persistent: salesPersistent, external: { ...side(false), buyers7d: week.buyers, settlements7d: week.settlements }, internal: side(true), generatedAt: new Date().toISOString() };
 }
