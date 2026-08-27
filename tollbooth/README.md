@@ -318,6 +318,7 @@ Read by the bundled proxy / Express entry point (`index.js`):
 | `TOLLBOOTH_PAYTO` | – | Wallet address; advertises a USDC x402 quote (and, with `TOLLBOOTH_FACILITATOR_URL`, settles it) |
 | `TOLLBOOTH_FACILITATOR_URL` | – | x402 facilitator that settles your network. With `TOLLBOOTH_PAYTO` the CLI builds a real `@x402/express` middleware and takes payment over x402 **and** MPP (0.8.0). Needs `@x402/express @x402/core @x402/evm` installed; refuses to start without them |
 | `TOLLBOOTH_FACILITATOR_HEADERS` | – | Optional JSON object of auth headers sent on the facilitator's `/verify`, `/settle`, `/supported` (e.g. `{"X-API-Key":"…"}`) |
+| `TOLLBOOTH_CDP_API_KEY_ID` + `TOLLBOOTH_CDP_API_KEY_SECRET` | – | Settle through Coinbase's facilitator (CDP) instead of a URL: fee-free on Base. Needs `npm i @coinbase/x402`. This is how a Coinbase Business account gets paid by agents: `TOLLBOOTH_PAYTO` = the account's USDC (Base) receive address. |
 | `TOLLBOOTH_PRICE` | `"$0.001"` | Advertised price per request |
 | `TOLLBOOTH_NETWORK` | `"base"` | x402 network. CLI settlement mode accepts `base`, `base-sepolia`, `polygon`, `arbitrum`, `optimism`, `avalanche`, `celo`, `sei`, `monad`, or a raw `eip155:<id>` |
 | `TOLLBOOTH_MPP` | on when `x402` set | `false` to switch MPP off |
@@ -600,3 +601,24 @@ Celo by default - what a stock mppx client can sign); add `4663` there or pass
 ## Legal
 
 Use of the hosted instance at agent402.tools is subject to its [Terms of Service](https://agent402.tools/terms) (acceptable-use policy included) and [Privacy Policy](https://agent402.tools/privacy). This package is MIT-licensed; the hosted server is AGPL-3.0. Both are provided as-is without warranty, and self-hosted deployments are their operator's responsibility.
+
+## Get paid into a Coinbase Business account
+
+Coinbase Business accounts receive x402 payments from AI agents directly. The
+tollbooth is the "integrate x402 into your API" step: point `TOLLBOOTH_PAYTO`
+at the account's USDC receive address on Base and settle through Coinbase's
+facilitator with a CDP API key.
+
+```bash
+npm i agent402-tollbooth @x402/express @x402/core @x402/evm @coinbase/x402
+TOLLBOOTH_PAYTO=0xYourCoinbaseBusinessBaseAddress \
+TOLLBOOTH_CDP_API_KEY_ID=... TOLLBOOTH_CDP_API_KEY_SECRET=... \
+TOLLBOOTH_PRICE='$0.005' TOLLBOOTH_UPSTREAM=http://localhost:8080 \
+npx agent402-tollbooth
+```
+
+Load the three values from a `.env` or a secret store rather than typing the
+key on the command line. Every paid request settles as USDC into the Coinbase Business account; humans
+browse your site normally. Full walkthrough with an Express example:
+https://agent402.tools/guides/coinbase-business-get-paid-by-agents
+

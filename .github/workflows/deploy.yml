@@ -2794,6 +2794,7 @@ jobs:
           AGENT402_BASE_URL=http://127.0.0.1:3091 node adapters/llamaindex/test.js
           AGENT402_BASE_URL=http://127.0.0.1:3091 node adapters/strands/test.js
           AGENT402_BASE_URL=http://127.0.0.1:3091 node adapters/google-adk/test.js
+          AGENT402_BASE_URL=http://127.0.0.1:3091 node adapters/agentkit/test.js
           # Python adapter (agent402-langchain): requests-only keeps CI lean; the
           # test skips the langchain-native path gracefully without langchain-core,
           # so this locks the spec + free proof-of-work call behavior.
@@ -4165,6 +4166,23 @@ jobs:
           else
             npm publish --provenance --access public
             echo "published agent402-strands@$VERSION → https://www.npmjs.com/package/agent402-strands"
+          fi
+
+      - name: Gate agent402-agentkit (tests run with NO npm token in env)
+        run: |
+          # Test self-bootstraps agent402-client + stubs @coinbase/agentkit to
+          # the one export the adapter uses (customActionProvider).
+          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/agentkit/test.js
+
+      - name: Publish agent402-agentkit to npm
+        run: |
+          cd adapters/agentkit
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "agent402-agentkit@$VERSION" version >/dev/null 2>&1; then
+            echo "agent402-agentkit@$VERSION is already on npm - nothing to do"
+          else
+            npm publish --provenance --access public
+            echo "published agent402-agentkit@$VERSION -> https://www.npmjs.com/package/agent402-agentkit"
           fi
 
       - name: Gate agent402-google-adk (tests run with NO npm token in env)

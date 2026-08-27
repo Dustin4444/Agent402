@@ -894,6 +894,108 @@ carries a \`WWW-Authenticate: Payment\` challenge - see
 `,
   },
   {
+    slug: "coinbase-business-get-paid-by-agents",
+    title: "Get paid by AI agents into your Coinbase Business account with agent402-tollbooth",
+    description:
+      "Coinbase Business accounts receive x402 payments from AI agents. agent402-tollbooth is the one-middleware way to put a USDC price on your API or site, settle through Coinbase's facilitator, and land every payment in that account. Ten minutes, two env vars, one example server.",
+    md: `
+Coinbase Business now takes payments from AI agents over x402: an agent pays
+your x402 URL in USDC and the funds settle into your Coinbase Business account,
+where you reconcile, withdraw, or hold them. Their own three-step picture starts
+with "integrate x402 into your API". This guide is that step.
+
+[agent402-tollbooth](https://www.npmjs.com/package/agent402-tollbooth) is an
+open-source (MIT) gate for Express, Next.js, Cloudflare or a plain reverse
+proxy: humans browse normally, AI agents and crawlers get a 402 with a USDC
+price and pay it, and the gate settles through the facilitator you name. Point
+it at your Coinbase Business address and every settled call lands there.
+
+## 1. Two things from Coinbase
+
+1. Your **USDC receive address on Base** from the Coinbase Business account
+   (Receive, network Base, asset USDC; Coinbase's Deposit Destinations API is
+   the programmatic route to a receive address). This is the \`payTo\` on
+   every 402 you serve, so funds settle straight into the account.
+2. A **CDP API key** (id + secret) from the Coinbase Developer Platform. The
+   tollbooth uses it to sign requests to Coinbase's x402 facilitator, which
+   verifies and settles each payment. Settlement on Base through this
+   facilitator is fee-free.
+
+## 2. One command in front of anything
+
+\`\`\`bash
+npm i agent402-tollbooth @x402/express @x402/core @x402/evm @coinbase/x402
+TOLLBOOTH_PAYTO=0xYourCoinbaseBusinessBaseAddress \\
+TOLLBOOTH_CDP_API_KEY_ID=organizations/.../apiKeys/... \\
+TOLLBOOTH_CDP_API_KEY_SECRET='-----BEGIN EC PRIVATE KEY-----...' \\
+TOLLBOOTH_PRICE='$0.005' \\
+TOLLBOOTH_UPSTREAM=http://localhost:8080 \\
+npx agent402-tollbooth
+\`\`\`
+
+Keep the key out of your shell history: put the three values in a \`.env\`
+file and load it (\`set -a; . ./.env; set +a\`) or use your secret store.
+
+That is a reverse proxy in front of your existing API on :8080. Known AI
+crawlers and any x402 client get a 402 quoting $0.005 in USDC on Base, pay it,
+and are proxied through; the payment settles into the Coinbase Business account
+before the response is released. Humans and your own clients are untouched.
+\`TOLLBOOTH_MODE=all\` charges every caller instead.
+
+## 3. Or as Express middleware, with the price per route
+
+\`\`\`js
+import express from "express";
+import { createTollbooth } from "agent402-tollbooth";
+import { paymentMiddleware } from "@x402/express";
+import { HTTPFacilitatorClient, x402ResourceServer } from "@x402/core/server";
+import { ExactEvmScheme } from "@x402/evm/exact/server";
+import { createFacilitatorConfig } from "@coinbase/x402";
+
+const PAY_TO = process.env.COINBASE_BUSINESS_ADDRESS;  // USDC receive address on Base
+const facilitator = new HTTPFacilitatorClient(
+  createFacilitatorConfig(process.env.CDP_API_KEY_ID, process.env.CDP_API_KEY_SECRET)
+);
+const server = new x402ResourceServer(facilitator).register("eip155:8453", new ExactEvmScheme());
+const x402 = paymentMiddleware(
+  { "GET /api/quote": { accepts: [{ scheme: "exact", network: "eip155:8453", payTo: PAY_TO, price: "$0.005" }] } },
+  server
+);
+
+const app = express();
+app.use(createTollbooth({ x402 }));            // humans free, agents pay, MPP accepted too
+app.get("/api/quote", (req, res) => res.json({ price: 42 }));
+app.listen(8080);
+\`\`\`
+
+The gate delegates verify and settle to \`@x402/express\` in its own order
+(verify, run your handler, settle only on a success response) and, by default,
+also accepts the MPP wire, so agents on either protocol can pay. The full
+runnable example is in the repo:
+[examples/coinbase-business-tollbooth](https://github.com/MikeyPetrillo/Agent402/tree/main/examples/coinbase-business-tollbooth).
+
+## 4. Prove it with one paid call
+
+Any x402 client pays it. From this repo, \`node scripts/demo-payment.js\`
+style buys, the [agent402-client](https://www.npmjs.com/package/agent402-client)
+SDK, or Coinbase's own agent tooling all work; the receipt on the 200 response
+(\`PAYMENT-RESPONSE\`) carries the settlement, and the USDC shows up in the
+Coinbase Business account within seconds.
+
+## What you get
+
+- Payments from agents settle in USDC into the account you already reconcile
+  from, with no card network, no invoices and no agent accounts.
+- Discoverable: list the endpoint on Agent402's open index ([/sell](/sell))
+  and agents routing through [/api/route](/api/route) can find and pay you;
+  a route can also carry the x402 Bazaar discovery extension for Coinbase's
+  own directory.
+- The rest of the tollbooth: proof-of-work for callers with no wallet,
+  observe-before-charge mode, per-route prices, analytics, and native MPP on
+  Tempo if you want a second rail. See [/tollbooth](/tollbooth).
+`,
+  },
+  {
     slug: "openclaw-model-provider",
     title: "Use Agent402 as your OpenClaw model provider - pay by card, no wallet",
     description:

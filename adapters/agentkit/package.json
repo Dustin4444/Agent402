@@ -1,0 +1,68 @@
+{
+  "name": "agent402-agentkit",
+  "version": "0.1.0",
+  "description": "Agent402 as a Coinbase AgentKit action provider (Agentic Finance): 500+ pay-per-call web tools over x402 or MPP for CDP-wallet and Agentic-Wallet agents - find, call, about - paid from the agent's own wallet in USDC on Base, or free via proof-of-work.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node test.js"
+  },
+  "keywords": [
+    "agentkit",
+    "coinbase",
+    "cdp",
+    "agentic-wallet",
+    "x402",
+    "ai-agents",
+    "agent-tools",
+    "llm-tools",
+    "usdc",
+    "base",
+    "proof-of-work",
+    "http-402",
+    "micropayments",
+    "agent402",
+    "tool-discovery",
+    "agentic-finance",
+    "aifi",
+    "mpp"
+  ],
+  "author": "Havok Holdings LLC",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MikeyPetrillo/Agent402.git",
+    "directory": "adapters/agentkit"
+  },
+  "homepage": "https://agent402.tools",
+  "dependencies": {
+    "agent402-client": ">=0.8.0 <1.0.0"
+  },
+  "peerDependencies": {
+    "@coinbase/agentkit": ">=0.10.0",
+    "@x402/evm": ">=2.0.0",
+    "@x402/fetch": ">=2.0.0",
+    "zod": ">=3.23.0"
+  },
+  "peerDependenciesMeta": {
+    "@coinbase/agentkit": {
+      "optional": true
+    },
+    "@x402/evm": {
+      "optional": true
+    },
+    "@x402/fetch": {
+      "optional": true
+    }
+  }
+}

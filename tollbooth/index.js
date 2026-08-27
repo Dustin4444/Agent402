@@ -686,9 +686,16 @@ export const CLI_NETWORKS = {
 export async function buildCliX402Middleware(env = process.env) {
   const payTo = env.TOLLBOOTH_PAYTO || "";
   const facilitatorUrl = env.TOLLBOOTH_FACILITATOR_URL || "";
+  // Coinbase's facilitator (CDP) authenticates every verify/settle call with
+  // a short-lived JWT signed by a CDP API key, so a static header cannot
+  // reach it; @coinbase/x402's createFacilitatorConfig mints them. With the
+  // two keys set the CLI settles through CDP (fee-free on Base, and the
+  // no URL needed. This is
+  // the path a Coinbase Business account uses to get paid by agents.
+  const cdpKeys = env.TOLLBOOTH_CDP_API_KEY_ID && env.TOLLBOOTH_CDP_API_KEY_SECRET;
   if (!payTo) return null;
-  if (!facilitatorUrl) {
-    console.warn("⚠ TOLLBOOTH_PAYTO is set without TOLLBOOTH_FACILITATOR_URL: the 402 advertises a USDC quote but nothing here can verify or settle a payment, so every paid request is refused. Set TOLLBOOTH_FACILITATOR_URL (a public x402 facilitator that settles your network - keyless free tiers exist; https://x402.org/facilitator for base-sepolia) to actually charge, over x402 and MPP.");
+  if (!facilitatorUrl && !cdpKeys) {
+    console.warn("⚠ TOLLBOOTH_PAYTO is set without TOLLBOOTH_FACILITATOR_URL (or TOLLBOOTH_CDP_API_KEY_ID/SECRET): the 402 advertises a USDC quote but nothing here can verify or settle a payment, so every paid request is refused. Set TOLLBOOTH_FACILITATOR_URL (a public x402 facilitator that settles your network - keyless free tiers exist; https://x402.org/facilitator for base-sepolia) to actually charge, over x402 and MPP.");
     return null;
   }
   const asset = (env.TOLLBOOTH_ASSET || "USDC").toUpperCase();
@@ -708,7 +715,7 @@ export async function buildCliX402Middleware(env = process.env) {
     ({ HTTPFacilitatorClient, x402ResourceServer } = await import("@x402/core/server"));
     ({ ExactEvmScheme } = await import("@x402/evm/exact/server"));
   } catch (e) {
-    console.error(`✖ TOLLBOOTH_FACILITATOR_URL is set, so this gate must settle x402 payments, but the x402 packages are not installed (${String(e?.message || e).slice(0, 120)}). Install them next to agent402-tollbooth: npm i @x402/express @x402/core @x402/evm . Refusing to start rather than advertise a quote it cannot settle.`);
+    console.error(`✖ TOLLBOOTH_FACILITATOR_URL or TOLLBOOTH_CDP_API_KEY_ID/SECRET is set, so this gate must settle x402 payments, but the x402 packages are not installed (${String(e?.message || e).slice(0, 120)}). Install them next to agent402-tollbooth: npm i @x402/express @x402/core @x402/evm . Refusing to start rather than advertise a quote it cannot settle.`);
     process.exit(1);
   }
   // Optional facilitator auth headers, sent on /verify, /settle and /supported
@@ -717,7 +724,26 @@ export async function buildCliX402Middleware(env = process.env) {
   if (env.TOLLBOOTH_FACILITATOR_HEADERS) {
     try { authHeaders = JSON.parse(env.TOLLBOOTH_FACILITATOR_HEADERS); } catch { console.error("✖ TOLLBOOTH_FACILITATOR_HEADERS must be a JSON object of header name -> value. Refusing to start."); process.exit(1); }
   }
-  const client = new HTTPFacilitatorClient({
+  let cdpConfig = null;
+  if (cdpKeys) {
+    if (facilitatorUrl || authHeaders) console.warn("⚠ TOLLBOOTH_CDP_API_KEY_ID/SECRET are set, so TOLLBOOTH_FACILITATOR_URL / TOLLBOOTH_FACILITATOR_HEADERS are ignored: settlement goes through Coinbase's facilitator.");
+    let createFacilitatorConfig;
+    try { ({ createFacilitatorConfig } = await import("@coinbase/x402")); } catch (e) {
+      console.error(`✖ TOLLBOOTH_CDP_API_KEY_ID/SECRET are set, so this gate must settle through Coinbase's facilitator, but @coinbase/x402 is not installed (${String(e?.message || e).slice(0, 120)}). Install it: npm install @coinbase/x402`);
+      process.exit(1);
+    }
+    cdpConfig = createFacilitatorConfig(env.TOLLBOOTH_CDP_API_KEY_ID, env.TOLLBOOTH_CDP_API_KEY_SECRET);
+    // Prove the key can sign BEFORE claiming to settle: createFacilitatorConfig
+    // validates nothing, and a key that cannot mint a JWT would otherwise boot
+    // "settling via Coinbase CDP" and answer every paid request 500 (nobody
+    // charged, every agent turned away). Minting one JWT is local, no network.
+    try { await cdpConfig.createAuthHeaders(); } catch (e) {
+      const why = String(e?.message || e).replace(env.TOLLBOOTH_CDP_API_KEY_SECRET, "<secret>").slice(0, 160);
+      console.error(`✖ TOLLBOOTH_CDP_API_KEY_SECRET cannot sign a facilitator request (${why}). Check the CDP API key secret; nothing is being charged.`);
+      process.exit(1);
+    }
+  }
+  const client = new HTTPFacilitatorClient(cdpConfig || {
     url: facilitatorUrl,
     ...(authHeaders ? { createAuthHeaders: async () => ({ verify: authHeaders, settle: authHeaders, supported: authHeaders }) } : {}),
   });
@@ -857,7 +883,7 @@ async function startCli() {
     app.use((_req, res) => res.json({ ok: true, note: "Bare tollbooth gate (no TOLLBOOTH_UPSTREAM set). Clients that reach here paid or solved a proof-of-work." }));
   }
   app.listen(port, () => {
-    const paidLabel = x402mw ? `x402 + MPP (${process.env.TOLLBOOTH_ASSET || "USDC"}, settling via ${process.env.TOLLBOOTH_FACILITATOR_URL})` : (process.env.TOLLBOOTH_PAYTO ? `x402 quote only (${process.env.TOLLBOOTH_ASSET || "USDC"}, NOT settling - set TOLLBOOTH_FACILITATOR_URL)` : "");
+    const paidLabel = x402mw ? `x402 + MPP (${process.env.TOLLBOOTH_ASSET || "USDC"}, settling via ${process.env.TOLLBOOTH_CDP_API_KEY_ID && process.env.TOLLBOOTH_CDP_API_KEY_SECRET ? "Coinbase CDP" : process.env.TOLLBOOTH_FACILITATOR_URL})` : (process.env.TOLLBOOTH_PAYTO ? `x402 quote only (${process.env.TOLLBOOTH_ASSET || "USDC"}, NOT settling - set TOLLBOOTH_FACILITATOR_URL)` : "");
     const rails = [gate.pow ? "proof-of-work" : "", paidLabel].filter(Boolean).join(" + ");
     console.log(`agent402-tollbooth listening on :${port} — charging AI bots via ${rails || "proof-of-work"}`);
     if (upstream) console.log(`  proxying → ${upstream}`);

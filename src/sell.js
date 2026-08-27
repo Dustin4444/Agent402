@@ -228,7 +228,7 @@ x402-pay-to: 0xYourWallet&hellip;</pre>
       <p style="font-size:14.5px;line-height:1.6;color:var(--muted);margin:0 0 18px;flex:1;">If AI crawlers are already taking your content for free, tollbooth is the open answer. Humans browse normally; known bots get a 402 and either pay in USDC or solve a proof-of-work. MIT licensed, one middleware, no CDN lock-in and no merchant of record standing between you and the money.</p>
       <pre style="margin:0 0 18px;background:var(--paper);border:1px solid var(--hairline);color:var(--on-dark);padding:14px;font-family:var(--font-mono);font-size:11.5px;line-height:1.75;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># express · next.js · cloudflare · proxy · wordpress
 </span>npm i agent402-tollbooth</pre>
-      <a href="/tollbooth" style="background:transparent;border:1px solid var(--hairline);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:11px 18px;align-self:flex-start;">Gate your crawlers →</a>
+      <a href="/guides/coinbase-business-get-paid-by-agents" style="font-family:var(--font-mono);font-size:13px;color:var(--muted);text-decoration:none;margin-right:14px;">Coinbase Business account? →</a><a href="/tollbooth" style="background:transparent;border:1px solid var(--hairline);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:11px 18px;align-self:flex-start;">Gate your crawlers →</a>
     </div>
   </div>
 </section>

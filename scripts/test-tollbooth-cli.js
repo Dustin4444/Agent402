@@ -56,6 +56,23 @@ const FAC = `http://127.0.0.1:${facilitator.address().port}`;
 // ---- 1. the builder alone: quote-only, misconfig, network mapping ----
 ok((await buildCliX402Middleware({})) === null, "no TOLLBOOTH_PAYTO -> no middleware (proof-of-work only, as before)");
 ok((await buildCliX402Middleware({ TOLLBOOTH_PAYTO: PAYTO })) === null, "PAYTO without a facilitator -> null (quote-only) with a loud warning, never a silent settling claim");
+{
+  // Coinbase Business path: CDP keys and NO facilitator URL -> the CLI settles
+  // through Coinbase's facilitator (createFacilitatorConfig mints the JWTs),
+  // so a middleware is built where the URL-less env used to yield null.
+  // The key is GENERATED here (never committed): the CLI now proves the key
+  // parses by minting one JWT at boot, so the fixture must be a real EC key.
+  const { generateKeyPairSync } = await import("node:crypto");
+  const pem = generateKeyPairSync("ec", { namedCurve: "prime256v1" }).privateKey.export({ type: "pkcs8", format: "pem" });
+  const mw = await buildCliX402Middleware({ TOLLBOOTH_PAYTO: PAYTO, TOLLBOOTH_CDP_API_KEY_ID: "organizations/test/apiKeys/test", TOLLBOOTH_CDP_API_KEY_SECRET: pem });
+  ok(typeof mw === "function", "TOLLBOOTH_CDP_API_KEY_ID/SECRET without a facilitator URL -> a settling middleware via Coinbase's facilitator (the Coinbase Business path)");
+  const bad = await new Promise((resolve) => {
+    const c = spawn(process.execPath, ["-e", `import("${join(ROOT, "tollbooth/index.js").replace(/\\/g, "/")}").then(m => m.buildCliX402Middleware(process.env)).then(x => { console.log(x ? "MW" : "NULL"); })`], { env: { ...process.env, TOLLBOOTH_PAYTO: PAYTO, TOLLBOOTH_CDP_API_KEY_ID: "organizations/test/apiKeys/test", TOLLBOOTH_CDP_API_KEY_SECRET: "not-a-key" } });
+    let out = ""; c.stdout.on("data", (d) => { out += d; }); c.stderr.on("data", (d) => { out += d; });
+    c.on("exit", (code) => resolve({ code, out }));
+  });
+  ok(bad.code === 1 && /cannot sign|Invalid key|key format/i.test(bad.out) && !/not-a-key/.test(bad.out), "a CDP secret that cannot sign fails the boot (exit 1) with the reason, never the key itself, instead of booting 'settling' and answering 500s");
+}
 ok(CLI_NETWORKS.base === "eip155:8453" && CLI_NETWORKS.polygon === "eip155:137" && CLI_NETWORKS.celo === "eip155:42220", "CLI network names map to CAIP-2");
 {
   const mw = await buildCliX402Middleware({ TOLLBOOTH_PAYTO: PAYTO, TOLLBOOTH_FACILITATOR_URL: FAC, TOLLBOOTH_NETWORK: "polygon", TOLLBOOTH_PRICE: "$0.005", TOLLBOOTH_FACILITATOR_HEADERS: JSON.stringify({ "X-Test-Key": "k1" }) });
