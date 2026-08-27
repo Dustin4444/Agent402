@@ -130,3 +130,5 @@ The same five tiers also speak the OpenAI Responses wire: `POST /v1/nano/respons
 ## Grounded answers (web search)
 
 `POST /v1/grounded/chat/completions` ($0.03) is the auto router plus a live Exa web search on every call (up to 5 results): the model answers from the results and the reply carries `url_citation` annotations. Omit `model` (or send `auto`) and the gateway picks the model by task type; the response adds `agent402_router`. This is the one place web search is offered - `:online` model variants are refused on the other tiers because search is billed per request on top of tokens, and here that fee is part of the flat price. Never cached.
+
+Other hosts (Claude Code, Cursor, Continue, ElizaOS, AgentCore, any OpenAI SDK): https://agent402.tools/guides/agent-hosts

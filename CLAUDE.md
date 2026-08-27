@@ -1973,6 +1973,20 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   from the $6 unsettled-spend bound the day the Tempo leg first resolved; `tempo-sor-live.js` refuses a `route` input
   off the two documented paths (a write-access dispatcher could otherwise point the burner's credential at another
   host). `test-posthog-funnel` (60), `test-tempo-router` (48), `test-pricing-margin` (186).
+- **`/guides/agent-hosts` (2026-08-27):** one page of copy-paste blocks for Claude Code, Cursor, Continue, ElizaOS, any
+  OpenAI SDK and Bedrock AgentCore - models via `https://agent402.tools/v1/metered` + credits key as the API key (every
+  block verified against the host's own docs the same day: Claude Code `claude mcp add --transport http` / `-e`, Cursor
+  `.cursor/mcp.json` url/command shapes, Continue `config.yaml` models.apiBase/apiKey + mcpServers streamable-http,
+  ElizaOS `OPENAI_BASE_URL`/`OPENAI_API_KEY`/`OPENAI_*_MODEL`/`OPENAI_EMBEDDING_URL` from plugin-openai's config.ts,
+  AgentCore OpenAPI target + AgentCore Payments x402 flow from AWS docs) and tools via `/mcp` or `npx -y agent402-mcp`
+  with `AGENT402_CREDITS_KEY`. DELIBERATELY NOT on the page: Claude Code as an LLM host over our Messages wire (it sends
+  70-100k+ chars per turn into a 100 KB body limit at the $0.50 premium tier, plus adaptive thinking / context-management
+  betas our validator has not been proven against - unverified = not claimed) and Virtuals GAME (no custom LLM endpoint,
+  GAME API key only). Live check before publishing: the credits gate answers a `402 {reason:"malformed"}` to a bad
+  Bearer on both `/v1/metered/chat/completions` and `/v1/messages` on prod. Same commit: `/v1/models` advertised
+  `meteredMaxInputChars: 200000` past the 100 KB body limit - clamped to `ADVERTISED_MAX_INPUT_CHARS` (85,000) like
+  premium. Prices on the page are template-derived (test-price-prose). Local `test-csp-violations` runs need
+  `TARGET_URL=http://127.0.0.1:PORT` (a `localhost` target trips `connect-src 'self'` on the explorer pages; not a defect).
 - **agent402-openclaw 0.4.0: wallet at setup + ClawHub-ready (2026-08-27):** `setup` with no credits key and no
   `AGENT402_WALLET_KEY` now MINTS an EVM wallet into `~/.openclaw/agent402/wallet.key` (0600, `wx` so a rerun never
   rotates it, key never printed) and prints the address to fund with USDC on Base - the same first-run shape as a
