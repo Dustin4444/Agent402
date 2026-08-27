@@ -618,7 +618,10 @@ npx agent402-tollbooth
 ```
 
 Load the three values from a `.env` or a secret store rather than typing the
-key on the command line. Every paid request settles as USDC into the Coinbase Business account; humans
+key on the command line. Live-proven 2026-08-27 with real USDC through
+Coinbase's facilitator ([tx](https://basescan.org/tx/0x8175178ac4e2229dfd9385a3c78c491ffe554b08fdf52cf92f99425c983ec5d1));
+note the facilitator refuses a payer paying itself (`self_send_not_allowed`),
+so test from a second wallet. Every paid request settles as USDC into the Coinbase Business account; humans
 browse your site normally. Full walkthrough with an Express example:
 https://agent402.tools/guides/coinbase-business-get-paid-by-agents
 

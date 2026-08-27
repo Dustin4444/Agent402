@@ -133,7 +133,7 @@ const walletProvider = await CdpEvmWalletProvider.configureWithWallet({ networkI
 const agentKit = await AgentKit.from({ walletProvider, actionProviders: [await agent402ActionProvider()] });
 ```
 
-Three actions: `agent402_find` (free discovery), `agent402_call` (pays: proof-of-work for the free tier, x402 USDC on Base signed by the wallet provider for wallet-only tools), `agent402_about`. The signer is derived from the wallet provider the way AgentKit's own x402 provider does it, so CDP wallets, the Agentic Wallet and viem-backed wallets all pay. Package: [`agent402-agentkit`](https://www.npmjs.com/package/agent402-agentkit).
+Three actions: `agent402_find` (free discovery), `agent402_call` (pays: proof-of-work for the free tier, x402 USDC on Base signed by the wallet provider for wallet-only tools), `agent402_about`. The signer is derived from the wallet provider the way AgentKit's own x402 provider does it, so CDP wallets, the Agentic Wallet and viem-backed wallets all pay; live-proven against production with a `ViemWalletProvider` ([tx](https://basescan.org/tx/0x1c0592f73d1f9182ee9bd40eb34d9b6c70b3196814b111589b82df4e79e7fb59)). Package: [`agent402-agentkit`](https://www.npmjs.com/package/agent402-agentkit).
 
 ## Strands Agents (AWS Bedrock AgentCore)
 

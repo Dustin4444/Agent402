@@ -2,9 +2,9 @@
 // LIVE proof of the Coinbase Business path: boot the tollbooth CLI's own
 // middleware (buildCliX402Middleware, the code `npx agent402-tollbooth` runs)
 // with CDP keys and a Base payTo, then pay it once from the canary burner with
-// a stock x402 client. The burner pays itself (payTo = burner), so the only
-// real movement is a USDC transfer to its own address settled by Coinbase's
-// facilitator. Asserts: 402 with a Base USDC accept naming the payTo, then a
+// a stock x402 client. payTo = our treasury (PAY_TO; the daily canary's own
+// $0.001 movement): Coinbase's facilitator refuses payer == payTo
+// (`self_send_not_allowed`, measured 2026-08-27), so no self-pay proof exists. Asserts: 402 with a Base USDC accept naming the payTo, then a
 // paid 200 whose PAYMENT-RESPONSE receipt says success with a transaction.
 // Dispatch-only (.github/workflows/tollbooth-cdp-live.yml); never in CI lanes.
 import express from "express";
@@ -13,14 +13,17 @@ import { privateKeyToAccount } from "viem/accounts";
 
 const { CDP_API_KEY_ID, CDP_API_KEY_SECRET } = process.env;
 const pk = (process.env.BURNER_KEY || "").trim();
-if (!CDP_API_KEY_ID || !CDP_API_KEY_SECRET || !pk) { console.error("need CDP_API_KEY_ID, CDP_API_KEY_SECRET, BURNER_KEY"); process.exit(2); }
+if (!pk || (process.env.CONTROL !== "payai" && (!CDP_API_KEY_ID || !CDP_API_KEY_SECRET))) { console.error("need BURNER_KEY (+ CDP_API_KEY_ID/SECRET unless CONTROL=payai)"); process.exit(2); }
 const account = privateKeyToAccount(pk.startsWith("0x") ? pk : `0x${pk}`);
 const payTo = process.env.PAY_TO || account.address;
 
-const mw = await buildCliX402Middleware({
-  TOLLBOOTH_PAYTO: payTo, TOLLBOOTH_CDP_API_KEY_ID: CDP_API_KEY_ID, TOLLBOOTH_CDP_API_KEY_SECRET: CDP_API_KEY_SECRET,
-  TOLLBOOTH_PRICE: "$0.001", TOLLBOOTH_NETWORK: "base", TOLLBOOTH_RESOURCE_BASE: "https://tollbooth-cdp-live-proof.invalid",
-});
+// CONTROL=payai runs the identical path through PayAI's keyless facilitator
+// first, so a CDP refusal is distinguishable from a gate defect.
+const control = process.env.CONTROL === "payai";
+const mw = await buildCliX402Middleware(control
+  ? { TOLLBOOTH_PAYTO: payTo, TOLLBOOTH_FACILITATOR_URL: "https://facilitator.payai.network", TOLLBOOTH_PRICE: "$0.001", TOLLBOOTH_NETWORK: "base", TOLLBOOTH_RESOURCE_BASE: "https://tollbooth-cdp-live-proof.invalid" }
+  : { TOLLBOOTH_PAYTO: payTo, TOLLBOOTH_CDP_API_KEY_ID: CDP_API_KEY_ID, TOLLBOOTH_CDP_API_KEY_SECRET: CDP_API_KEY_SECRET, TOLLBOOTH_PRICE: "$0.001", TOLLBOOTH_NETWORK: "base", TOLLBOOTH_RESOURCE_BASE: "https://tollbooth-cdp-live-proof.invalid" });
+console.log("facilitator:", control ? "PayAI (control)" : "Coinbase CDP");
 if (typeof mw !== "function") { console.error("CLI did not build a settling middleware from CDP keys"); process.exit(1); }
 
 const app = express();
@@ -47,9 +50,12 @@ const receipt = rh ? JSON.parse(Buffer.from(rh, "base64").toString("utf8")) : nu
 console.log("paid:", paid.status, JSON.stringify(body).slice(0, 200));
 console.log("receipt:", JSON.stringify(receipt));
 console.log("X-Tollbooth-Paid:", paid.headers.get("x-tollbooth-paid"), "X-Tollbooth-Error:", paid.headers.get("x-tollbooth-error"));
+// A refused retry carries the facilitator's reason in the fresh payment-required header.
+const pr2 = paid.headers.get("payment-required");
+if (pr2) { try { const r2 = JSON.parse(Buffer.from(pr2, "base64").toString("utf8")); console.log("retry payment-required:", JSON.stringify({ error: r2.error, x402Version: r2.x402Version, accepts: (r2.accepts || []).length })); } catch { console.log("retry payment-required: (unparseable)"); } }
 server.close();
 const ok = paid.status === 200 && body.ok === true && receipt?.success === true && /^0x[0-9a-f]{64}$/i.test(receipt?.transaction || "")
-  && String(receipt?.payer || "").toLowerCase() === account.address.toLowerCase();
-if (ok) console.log(`PROVEN: settled through Coinbase's facilitator, tx https://basescan.org/tx/${receipt.transaction} (payer ${receipt.payer} -> payTo ${payTo})`);
+  && String(receipt?.payer || "").toLowerCase() === account.address.toLowerCase() && payTo.toLowerCase() !== account.address.toLowerCase();
+if (ok) console.log(`PROVEN (${control ? "PayAI control" : "Coinbase CDP"}): settled, tx https://basescan.org/tx/${receipt.transaction} (payer ${receipt.payer} -> payTo ${payTo})`);
 else console.error("NOT PROVEN");
 process.exit(ok ? 0 : 1);

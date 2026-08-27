@@ -44,6 +44,10 @@ The agent now has:
 The x402 signer is derived from the wallet provider the same way AgentKit's own
 x402 action provider derives it (`toSigner()` plus `readContract`), so a CDP
 wallet, an Agentic Wallet or a viem-backed wallet all work.
+Live-proven 2026-08-27 against production: a `ViemWalletProvider` over a
+funded Base wallet ran `agent402_find` then `agent402_call` on a wallet-only
+tool and paid $0.002 over x402 ([transaction](https://basescan.org/tx/0x1c0592f73d1f9182ee9bd40eb34d9b6c70b3196814b111589b82df4e79e7fb59)).
+
 Hosts that wrap actions themselves can take the raw list:
 
 ```js
