@@ -1,0 +1,32 @@
+name: Tollbooth CDP live proof
+
+# Proves the Coinbase Business path end to end with real money: the tollbooth
+# CLI's own middleware, built from CDP keys, settles a $0.001 USDC payment on
+# Base through Coinbase's facilitator into the payTo. The canary burner pays
+# itself, so nothing leaves our wallets. Dispatch-only.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - run: npm ci --ignore-scripts
+      - name: Boot the CLI middleware with CDP keys and pay it once
+        env:
+          CDP_API_KEY_ID: ${{ secrets.CDP_API_KEY_ID }}
+          CDP_API_KEY_SECRET: ${{ secrets.CDP_API_KEY_SECRET }}
+          BURNER_KEY: ${{ secrets.BURNER_KEY }}
+        run: |
+          [ -n "$CDP_API_KEY_ID" ] && [ -n "$CDP_API_KEY_SECRET" ] || { echo "::error::CDP_API_KEY_ID/SECRET secrets missing"; exit 1; }
+          [ -n "$BURNER_KEY" ] || { echo "::error::BURNER_KEY secret missing"; exit 1; }
+          echo "::add-mask::$BURNER_KEY"; echo "::add-mask::$CDP_API_KEY_SECRET"
+          node scripts/tollbooth-cdp-live.js
