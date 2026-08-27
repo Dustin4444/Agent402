@@ -1064,7 +1064,9 @@ async function resolveExternalSeller(task, { cap, chain = "base" }) {
     // seller's own declared contract against what actually arrives. Both come
     // from the row we already resolved; without them the observer has nothing
     // to check and nothing to key by.
-    if (live) return { seller: r.seller, slug: r.slug, url: r.url, method: r.method, price: r.price, networks: r.networks, settled: r.settled, provenPayTo: provenPayToByOrigin?.get(norm(r.seller)) || null, route: r.route || null, guaranteedPaths: r.responseContract?.guaranteedPaths || [] };
+    // `wire` rides through: a Tempo candidate settles over MPP and its receipt
+    // must say so (the first live Tempo SOR buy labelled it x402, 2026-08-27).
+    if (live) return { seller: r.seller, slug: r.slug, url: r.url, method: r.method, price: r.price, priceUsd: r.priceUsd, networks: r.networks, settled: r.settled, wire: r.wire || "x402", provenPayTo: provenPayToByOrigin?.get(norm(r.seller)) || null, route: r.route || null, guaranteedPaths: r.responseContract?.guaranteedPaths || [] };
   }
   return null;
 }
