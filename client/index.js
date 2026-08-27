@@ -147,6 +147,36 @@ export class Agent402 {
   }
 
   /**
+   * Cross-seller Smart Order Router — rank tools across eligible/routable seller
+   * rows in the host's current index (local catalog plus crawled x402/MPP sellers
+   * the router considers healthy enough to route). Free; no payment, no wallet, no
+   * proof-of-work. Coverage is whatever the host's index holds at call time, not
+   * every seller on the internet.
+   *
+   * Returns the server JSON as-is (reporting only — no validation or authorization).
+   * Each result may carry server-reported `executeVia` naming a `route-execute*`
+   * tier whose underlying cap covers that row's price. `call(executeVia.tool, …)`
+   * re-resolves an eligible match under that tier at execution time; it does not
+   * bind the discovery row's url, route, seller, or identity.
+   *
+   * @param {string} task
+   * @param {object} [opts]
+   * @param {number} [opts.k=5]                         max results (1–25, server-bounded)
+   * @param {"all"|"external"|"local"} [opts.include="all"]
+   * @param {string} [opts.network]                       chain filter (e.g. "robinhood", "eip155:4663")
+   * @returns {Promise<{query:string, include:string, count:number, sellers:number, results:Array<object>}>}
+   */
+  async route(task, { k = 5, include = "all", network } = {}) {
+    const top = Math.min(Math.max(parseInt(k, 10) || 5, 1), 25);
+    const includeParam = include === "external" || include === "local" ? include : "all";
+    const qs = new URLSearchParams({ q: String(task ?? ""), k: String(top), include: includeParam });
+    if (network) qs.set("network", String(network));
+    const r = await this.f(`${this.baseUrl}/api/route?${qs}`);
+    if (!r.ok) throw new Error(`route failed: HTTP ${r.status}`);
+    return r.json();
+  }
+
+  /**
    * Resolve a task to matching multi-tool workflow templates (skill packs).
    * Each pack composes 5–7 catalog tools into a Claude-ready task template
    * for jobs that no single tool covers (e.g. audit a domain). Returns
