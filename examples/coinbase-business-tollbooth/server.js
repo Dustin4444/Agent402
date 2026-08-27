@@ -16,7 +16,7 @@ if (!PAY_TO || !CDP_API_KEY_ID || !CDP_API_KEY_SECRET) {
   process.exit(1);
 }
 
-// Coinbase's facilitator: verify + settle on Base, fee-free, Bazaar-indexed.
+// Coinbase's facilitator: verify + settle on Base (verification free; settlement free up to 1,000 a month, then $0.001 each).
 const facilitator = new HTTPFacilitatorClient(createFacilitatorConfig(CDP_API_KEY_ID, CDP_API_KEY_SECRET));
 const server = new x402ResourceServer(facilitator).register("eip155:8453", new ExactEvmScheme());
 
@@ -31,8 +31,9 @@ const x402 = paymentMiddleware(
 
 const app = express();
 app.use(express.json());
-// The gate: known AI crawlers and x402/MPP clients pay; browsers pass.
-// mode: "all" would charge every caller instead.
+// The gate: in the default mode known AI crawlers (by user agent) pay and
+// browsers pass; mode: "all" charges every non-browser caller, stock x402
+// clients included (whitelist your own with free()).
 app.use(createTollbooth({ x402 }));
 
 app.get("/api/quote", (_req, res) => res.json({ symbol: "EXAMPLE", price: 42.0, asOf: new Date().toISOString() }));

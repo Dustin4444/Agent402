@@ -689,8 +689,9 @@ export async function buildCliX402Middleware(env = process.env) {
   // Coinbase's facilitator (CDP) authenticates every verify/settle call with
   // a short-lived JWT signed by a CDP API key, so a static header cannot
   // reach it; @coinbase/x402's createFacilitatorConfig mints them. With the
-  // two keys set the CLI settles through CDP (fee-free on Base, and the
-  // no URL needed. This is
+  // two keys set the CLI settles through CDP (no fee is taken from the
+  // payment; CDP's own free tier is 1,000 settlements a month, then $0.001
+  // each), no URL needed. This is
   // the path a Coinbase Business account uses to get paid by agents.
   const cdpKeys = env.TOLLBOOTH_CDP_API_KEY_ID && env.TOLLBOOTH_CDP_API_KEY_SECRET;
   if (!payTo) return null;

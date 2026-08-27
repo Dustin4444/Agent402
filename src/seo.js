@@ -400,7 +400,7 @@ We state it this way deliberately: the honest guarantee is "settlement ordering 
 - [agent402-llamaindex](https://www.npmjs.com/package/agent402-llamaindex): LlamaIndex TS
 - [agent402-google-adk](https://www.npmjs.com/package/agent402-google-adk): Google ADK (Gemini agents)
 - [agent402-strands](https://www.npmjs.com/package/agent402-strands): AWS Strands agent runtime
-- [agent402-agentkit](https://www.npmjs.com/package/agent402-agentkit): Coinbase AgentKit action provider (CDP wallets, Agentic Wallet)
+- [agent402-agentkit](https://www.npmjs.com/package/agent402-agentkit): Coinbase AgentKit action provider (CDP, Privy, ZeroDev, viem wallets)
 
 ## Skill packs (a whole job, one payment)
 ${packItems}

@@ -1,7 +1,7 @@
 // agent402-agentkit - Agent402 as a Coinbase AgentKit action provider.
 //
-// Gives an AgentKit agent (a CDP wallet, an Agentic Wallet, or any AgentKit
-// wallet provider) three actions over the Agent402 catalog: find a tool for a
+// Gives an AgentKit agent (a CDP, Privy, ZeroDev or viem-backed wallet
+// provider) three actions over the Agent402 catalog: find a tool for a
 // task, call it (paying under the hood), and read what Agent402 is. Payment
 // is handled by agent402-client: a few seconds of proof-of-work for the free
 // tier, or an x402 USDC payment on Base signed by the agent's own wallet
