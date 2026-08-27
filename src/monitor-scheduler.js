@@ -1,4 +1,4 @@
-// monitor-scheduler - Phase 2b of the recurring engine. Turns an ACTIVE
+// monitor-scheduler - the fulfilment half of the recurring engine. Turns an ACTIVE
 // monitoring subscription (src/stripe-subscriptions.js) into delivered reports:
 // a welcome report on first sight, a cheap free re-check on a cadence, a paid
 // full re-run only when the cadence says so or something actually CHANGED, and

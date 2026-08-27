@@ -10,6 +10,41 @@ import { CHAIN_PAGES } from "./market-page.js";
 import { EXEC_TIERS } from "./tools/route-execute.js";
 import { stripeEnabled } from "./mpp-stripe.js";
 import { seededProgrammaticPaths } from "./programmatic-seeds.js";
+import { HUMAN_PRODUCTS } from "./human-checkout.js";
+import { MONITOR_PRODUCTS } from "./stripe-subscriptions.js";
+import { priceUsdFor } from "./report-tiers.js";
+
+/** The llms.txt "finished reports" paragraph, DERIVED from the live catalog
+ *  (route + price per slug) and the product tables (card + monitor prices),
+ *  so it cannot quote a ladder that has since moved: a hand-written copy sat a
+ *  full price change behind the code for four days (2026-08-23..27) on the one
+ *  surface every LLM crawler reads. Guarded by scripts/test-price-prose.js. */
+export function reportsParagraph(baseUrl, tools) {
+  const bySlug = new Map((tools || []).map((t) => [t.slug, t]));
+  const item = (slug) => { const t = bySlug.get(slug); return t ? `${t.route} (${t.price})` : null; };
+  const list = (...slugs) => slugs.map(item).filter(Boolean).join(", ");
+  const groups = [
+    ["Deep research", list("research", "research-pro", "research-max")],
+    ["Company due-diligence dossier", list("dossier", "dossier-max")],
+    ["Ticker pack, three reports in one run", list("ticker-pack")],
+    ["Fund 13F report", list("fund-report", "fund-report-max")],
+    ["SEC filing report", list("filing-report")],
+    ["Domain security audit", list("domain-audit", "domain-audit-pro")],
+    ["FDA recall report", list("recall-report")],
+    ["Insider flow report", list("insider-report")],
+    ["Market / competitor brief", list("market-brief")],
+    ["Solana token brief", list("token-brief")],
+    ["Token risk", list("token-risk", "token-risk-pro")],
+    ["LinkedIn article, ready to publish", list("linkedin-article")],
+    ["IPO pipeline digest, deterministic", list("ipo-report")],
+  ].filter(([, v]) => v);
+  const agent = Object.values(HUMAN_PRODUCTS).map((p) => priceUsdFor(p.slug)).filter((n) => Number.isFinite(n));
+  const card = Object.values(HUMAN_PRODUCTS).map((p) => p.price / 100);
+  const monitor = Math.min(...Object.values(MONITOR_PRODUCTS).map((m) => m.price / 100));
+  const usd = (n) => `$${n.toFixed(2)}`;
+  const range = (xs) => (xs.length ? (Math.min(...xs) === Math.max(...xs) ? usd(xs[0]) : `${usd(Math.min(...xs))} to ${usd(Math.max(...xs))}`) : "");
+  return `**Finished reports, for agents and people.** Cited, grounded report products with a data appendix - the same endpoint over x402/MPP or by card. An agent pays the tool price per call, ${range(agent)}. ${groups.map(([k, v]) => `${k}: ${v}.`).join(" ")} People buy the same reports by card at ${baseUrl}/reports for ${range(card)}: the card price includes payment processing, so an agent paying per call pays the lower tool price for the same report. Monitors (${usd(monitor)}/month by card at ${baseUrl}/monitors, or over MPP on Tempo) re-run a report on change and email the diff - domain security, SEC filings, Solana token safety, fund 13F, FDA recall, insider flow, IPO pipeline.`;
+}
 
 // Computed ONCE when this module loads (i.e. once per deploy, since Railway
 // restarts the process), not per-request. Every sitemap lastmod below reuses
@@ -44,8 +79,8 @@ export function robotsTxt(baseUrl) {
   // on-chain activity scan, and on Base that scan is a PAID CDP SQL query -
   // two of them per distinct wallet. With ~2,300 indexed sellers, one crawler
   // walking the seller roster costs ~4,600 billed queries, and every crawler
-  // above is explicitly welcomed. July 2026 billed 29,589 SQL queries
-  // ($245.59) against roughly $50 of revenue in the same month; the seller
+  // above is explicitly welcomed. One month's crawler traffic billed tens of
+  // thousands of SQL queries, far above what the roster earned; the seller
   // roster is the only surface that multiplies a page view by a paid query.
   //
   // The pages themselves stay indexable - only the seller-SCOPED variants are
@@ -132,6 +167,8 @@ export function sitemapXml(baseUrl, catalog) {
     { loc: `${baseUrl}/agentic-finance`, priority: "0.9" },
     { loc: `${baseUrl}/why`, priority: "0.8" },
     { loc: `${baseUrl}/proof`, priority: "0.7" },
+    { loc: `${baseUrl}/terms`, priority: "0.3" },
+    { loc: `${baseUrl}/privacy`, priority: "0.3" },
     { loc: `${baseUrl}/glossary`, priority: "0.8" },
     { loc: `${baseUrl}/101`, priority: "0.9" },
     { loc: `${baseUrl}/revenue`, priority: "0.6" },
@@ -343,7 +380,7 @@ Base URL: ${baseUrl}
 
 **No wallet, need the paid tools? Pay with prepaid card credits.** Buy $20, $50 or $100 at ${baseUrl}/credits (card, no account), get an a402_ key once, and send it as \`Authorization: Bearer a402_...\` on any paid tool - the list price is held before the call and debited only on a successful (200) response; \`X-Credits-Balance\` rides on every answer and \`GET ${baseUrl}/api/credits/balance\` reports the key. agent402-mcp (AGENT402_CREDITS_KEY) and agent402-client ({ creditsKey }) support it. Identity-bound tools (memory, my-usage) still need an x402 wallet - the payment is the identity there.
 
-**Finished reports, for agents and people.** Cited, grounded report products with a data appendix - the same endpoint over x402/MPP or by card. An agent pays the tool price per call, $0.20 to $1.10. Deep research: POST /v1/research ($0.35), POST /v1/research/pro ($0.65), POST /v1/research/max ($1.10). Company due-diligence dossier: POST /v1/dossier ($0.55), POST /v1/dossier/max ($0.95). Ticker pack, three reports in one run: POST /v1/ticker-pack ($0.75). Fund 13F report: POST /v1/fund ($0.25), POST /v1/fund/max ($0.50). SEC filing report: POST /v1/filing-report ($0.25). Domain security audit: POST /v1/domain-audit ($0.20), POST /v1/domain-audit/pro ($0.30). FDA recall report: POST /v1/recall-report ($0.20). Insider flow report: POST /v1/insider-report ($0.25). Market / competitor brief: POST /v1/research/market-brief ($0.35). Solana token brief: POST /v1/token-brief ($0.35). Token risk: POST /v1/token-risk ($0.30), POST /v1/token-risk/pro ($0.60). IPO pipeline digest, deterministic: POST /v1/ipo-report ($0.05). People buy the same reports by card at ${baseUrl}/reports for $1, or $2 for research max, dossier max and the ticker pack: the card price includes payment processing (Stripe takes 2.9% + $0.30 a charge, more than the report under about a dollar), so an agent paying per call pays the lower tool price for the same report. Monitors ($3/month by card at ${baseUrl}/monitors) re-run a report on change and email the diff - domain security, SEC filings, Solana token safety, fund 13F, FDA recall, insider flow, IPO pipeline.
+${reportsParagraph(baseUrl, tools)}
 
 **Crypto derivatives, DeFi and Solana intel.** Live perpetuals and options, no exchange account: \`POST /api/perp-markets\` ($0.003) snapshots every listed perp, \`POST /api/perp-funding\` ($0.003) and \`POST /api/perp-funding-screener\` ($0.003) read funding rates now and across the book, and \`POST /api/perp-basis\` ($0.003), \`POST /api/perp-open-interest\` ($0.002), \`POST /api/perp-klines\` ($0.003) and \`POST /api/perp-orderbook\` ($0.002) cover premium, OI, candles and depth; the options book is \`POST /api/options-summary\` ($0.005), \`POST /api/crypto-options-chain\` ($0.004), \`POST /api/options-ticker\` ($0.002) and \`POST /api/options-volume\` ($0.002). DeFi: \`POST /api/defi-yields\` ($0.003) screens pools by chain, project and TVL, with \`POST /api/defi-protocols\` ($0.003), \`POST /api/defi-protocol\` ($0.002), \`POST /api/defi-chains\` ($0.002), \`POST /api/defi-fees\` ($0.003), \`POST /api/defi-dex-volume\` ($0.003), \`POST /api/stablecoins\` ($0.003) and history siblings for pools, chains and stablecoin supply. Solana: \`POST /api/sol-token-safety\` ($0.005) grades a mint (authorities, liquidity, holder concentration), \`POST /api/sol-token-report\` ($0.010) is the full risk write-up, and \`POST /api/sol-token-holders\` ($0.005), \`POST /api/sol-token-pairs\` ($0.003), \`POST /api/sol-trending\` ($0.003), \`POST /api/sol-price\` ($0.002), \`POST /api/sol-swap-quote\` ($0.003) and \`POST /api/sol-token-lookup\` ($0.002) cover concentration, pairs, trending, prices and routing. Market context: \`POST /api/crypto-news\` ($0.004), \`POST /api/crypto-indicators\` ($0.005), \`POST /api/crypto-market-pulse\` ($0.004), \`GET /api/coin-profile\` ($0.008), \`GET /api/coin-price-by-contract\` ($0.005) and \`GET /api/coin-ohlc\` ($0.008). Raw chain reads: \`POST /api/asset-transfers\` ($0.003), \`POST /api/token-balances\` ($0.002), \`POST /api/tx-receipt\` ($0.003) and \`POST /api/token-price-history\` ($0.004). Whole-site structure on demand: \`POST /api/site-map\` ($0.005) and \`POST /api/site-crawl\` ($0.02).
 

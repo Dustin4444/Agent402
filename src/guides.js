@@ -573,7 +573,7 @@ the routing fee, stated, never hidden.
 ## External dispatch (the marketable half)
 
 Add \`"include":"external"\` and the router deliberately looks OUTSIDE its own
-catalog. Selection is the moat, and it is intentionally boring:
+catalog. Selection is deliberate, and it is intentionally boring:
 
 1. **Proven deliverers only.** Candidates need real settled volume - on Base
    that means on-chain settlement counts from the public leaderboard; on
