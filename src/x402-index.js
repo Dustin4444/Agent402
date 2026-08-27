@@ -3076,6 +3076,34 @@ export function mppDualStackOrigins() {
   return out;
 }
 
+/**
+ * Every EVM payTo any known origin advertises on `network`, mapped to the
+ * origins advertising it: crawled cache entries (routable or not, error or
+ * not - a seller whose probe failed still told us its address) plus the
+ * registry-synthesized tools (the Bazaar lists payTo per resource, so a
+ * Bazaar-listed seller we could never crawl is still attributable). The
+ * discovery-gap report matched merchants against ROUTABLE sellers only, so
+ * every known-but-unroutable origin counted as a blind spot. Attribution and
+ * routability are different questions. Keys are lowercased addresses.
+ */
+export function allPayToOrigins(network = "eip155:8453") {
+  const out = new Map();
+  const add = (addr, origin) => {
+    if (typeof addr !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(addr)) return;
+    const k = addr.toLowerCase();
+    let set = out.get(k);
+    if (!set) { set = new Set(); out.set(k, set); }
+    set.add(origin);
+  };
+  for (const [origin, v] of cache.entries()) {
+    for (const t of v?.tools || []) add(t?.payToByNetwork?.[network], origin);
+  }
+  for (const [origin, arr] of bazaarToolsByOrigin.entries()) {
+    for (const t of arr || []) add(t?.payToByNetwork?.[network], origin);
+  }
+  return out;
+}
+
 export function routableSellerSummaries() {
   const out = [];
   for (const [origin, v] of cache.entries()) {

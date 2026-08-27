@@ -144,22 +144,37 @@ export function sharedPayToClaims({ sellers, network = "eip155:8453" } = {}) {
  * identical in a bare number, and reporting "0 unattributed" for a scan that
  * never ran is the failure this codebase keeps rediscovering.
  */
-export function unattributedMerchants({ sellers, merchants, ourAddresses = [], minPayments = 50, network = "eip155:8453" } = {}) {
+export function unattributedMerchants({ sellers, merchants, ourAddresses = [], minPayments = 50, network = "eip155:8453", knownPayToOrigins = null } = {}) {
   if (!Array.isArray(merchants) || merchants.length === 0) return null; // no data ≠ no gap
-  const known = new Set();
+  const routable = new Set();
   for (const s of Array.isArray(sellers) ? sellers : []) {
     const p = baseNetworkPayTo(s, network);
-    if (p) known.add(p);
+    if (p) routable.add(p);
   }
+  // Attribution is wider than routability: any origin that advertised the
+  // address (crawled or registry-listed, routable or not) attributes it.
+  const attributed = new Map(); // addr -> origins[]
+  if (knownPayToOrigins instanceof Map) {
+    for (const [addr, origins] of knownPayToOrigins) {
+      const k = evmKey(addr);
+      if (k) attributed.set(k, [...(origins instanceof Set ? origins : origins || [])].slice(0, 5));
+    }
+  }
+  const known = new Set([...routable, ...attributed.keys()]);
   for (const a of ourAddresses) { const k = evmKey(a); if (k) known.add(k); }
 
   const rows = [];
+  // Known origin, but the router cannot reach it (probe failed / registry-only):
+  // a different finding from "no idea who this is", reported separately.
+  const unroutable = [];
   for (const [addr, ev] of merchantsByAddress(merchants)) {
-    if (known.has(addr)) continue;
     if (ev.payments < minPayments) continue;
+    if (routable.has(addr) || ourAddresses.some((a) => evmKey(a) === addr)) continue;
+    if (attributed.has(addr)) { unroutable.push({ merchant: addr, origins: attributed.get(addr), payments: ev.payments, payers: ev.payers, volumeUsd: ev.volumeUsd }); continue; }
     rows.push({ merchant: addr, payments: ev.payments, payers: ev.payers, volumeUsd: ev.volumeUsd });
   }
   rows.sort((a, b) => b.payments - a.payments);
+  unroutable.sort((a, b) => b.payments - a.payments);
 
   const scanned = merchantsByAddress(merchants).size;
   const totalPayments = [...merchantsByAddress(merchants).values()].reduce((s, r) => s + r.payments, 0);
@@ -169,6 +184,9 @@ export function unattributedMerchants({ sellers, merchants, ourAddresses = [], m
     originsWithKnownPayTo: known.size,
     unattributed: rows,
     unattributedCount: rows.length,
+    // Attributed to an origin we know but cannot route to today.
+    attributedUnroutable: unroutable,
+    attributedUnroutableCount: unroutable.length,
     unattributedPayments,
     // How much of the settlement activity we can see is happening at addresses
     // we cannot route to. This is the number that was previously unobservable.

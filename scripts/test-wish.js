@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   recordWish, getWishesAggregate, WISH_THRESHOLD,
-  clusterQualifies, QUALIFY_MIN_SPAN_MS, annotateServed,
+  clusterQualifies, QUALIFY_MIN_SPAN_MS, QUALIFY_MIN_CALLERS, WISH_SERVED_MIN_SCORE, callerHash, annotateServed,
   __testSetFilePath, __testSetLineCap, __testState, __testReset,
 } from "../src/wish.js";
 
@@ -115,6 +115,7 @@ function freshFile(tag) {
 {
   const T = 1_700_000_000_000;
   const src = (o) => ({ api: 0, mcp: 0, "find-miss": 0, ...o });
+  const callers = (n) => new Set(Array.from({ length: n }, (_, i) => `c${i}`));
   // Below threshold never qualifies, regardless of shape.
   ok(!clusterQualifies({ count: WISH_THRESHOLD - 1, sources: src({ api: 2, mcp: 2 }), firstSeen: T, lastSeen: T + QUALIFY_MIN_SPAN_MS }),
     "below count threshold never qualifies");
@@ -124,13 +125,43 @@ function freshFile(tag) {
   ok(!clusterQualifies({ count: 18, sources: src({ "find-miss": 18 }), firstSeen: T, lastSeen: T + 5 * 3_600_000 }),
     "single-source find-miss burst does not qualify");
   // Corroboration across two sources qualifies at threshold.
-  ok(clusterQualifies({ count: WISH_THRESHOLD, sources: src({ api: 3, mcp: 2 }), firstSeen: T, lastSeen: T + 60_000 }),
+  ok(clusterQualifies({ count: WISH_THRESHOLD, sources: src({ api: 3, mcp: 2 }), firstSeen: T, lastSeen: T + 60_000, callers: callers(3) }),
     "two distinct sources qualifies even in a short window");
+  // Distinct callers are required as well: the 2026-08-27 sweep was one
+  // machine re-running ~30 queries for two days, clearing the span bar alone.
+  ok(!clusterQualifies({ count: 60, sources: src({ "find-miss": 60 }), firstSeen: T, lastSeen: T + 2 * QUALIFY_MIN_SPAN_MS, callers: callers(1) }),
+    "one caller sustained for two days does NOT qualify (the scripted find sweep shape)");
+  ok(!clusterQualifies({ count: WISH_THRESHOLD, sources: src({ api: 3, mcp: 2 }), firstSeen: T, lastSeen: T + 60_000, callers: callers(QUALIFY_MIN_CALLERS - 1) }),
+    "two sources but fewer than QUALIFY_MIN_CALLERS distinct callers does not qualify");
+  ok(!clusterQualifies({ count: WISH_THRESHOLD, sources: src({ api: 5 }), firstSeen: T, lastSeen: T + QUALIFY_MIN_SPAN_MS }),
+    "a legacy cluster with no caller data does not qualify until fresh signals arrive");
   // Sustained single-source demand over the span window qualifies.
-  ok(clusterQualifies({ count: WISH_THRESHOLD, sources: src({ api: 5 }), firstSeen: T, lastSeen: T + QUALIFY_MIN_SPAN_MS }),
-    "single source sustained past the span window qualifies");
-  ok(!clusterQualifies({ count: WISH_THRESHOLD, sources: src({ api: 5 }), firstSeen: T, lastSeen: T + QUALIFY_MIN_SPAN_MS - 1 }),
+  ok(clusterQualifies({ count: WISH_THRESHOLD, sources: src({ api: 5 }), firstSeen: T, lastSeen: T + QUALIFY_MIN_SPAN_MS, callers: callers(3) }),
+    "single source sustained past the span window qualifies (with three callers)");
+  ok(!clusterQualifies({ count: WISH_THRESHOLD, sources: src({ api: 5 }), firstSeen: T, lastSeen: T + QUALIFY_MIN_SPAN_MS - 1, callers: callers(3) }),
     "single source just under the span window does not qualify");
+}
+
+
+// --- find-miss dedupe per caller per day + served floor ---------------------
+{
+  freshFile("find-miss-dedupe");
+  const a = recordWish({ need: "translate english to spanish", source: "find-miss", ip: "203.0.113.9" });
+  const b = recordWish({ need: "translate english to spanish", source: "find-miss", ip: "203.0.113.9" });
+  const c = recordWish({ need: "translate english to spanish", source: "find-miss", ip: "198.51.100.4" });
+  ok(a.recorded === true && b.recorded === false && /duplicate/.test(b.reason) && c.recorded === true,
+    "the same caller re-running the same query the same day records ONE find-miss; a different caller records another");
+  const row = getWishesAggregate({ detailed: true }).clusters[0];
+  ok(row.count === 2 && row.callers === 2, `the cluster counts 2 signals from 2 callers, not 3 (got count=${row.count} callers=${row.callers})`);
+  const h1 = callerHash("203.0.113.9", Date.UTC(2026, 7, 27, 1)), h2 = callerHash("203.0.113.9", Date.UTC(2026, 7, 28, 1));
+  ok(h1 !== h2 && h1.length === 12 && !/203/.test(h1), "callerHash is day-scoped, short, and carries no address bytes");
+  // An explicit wish from the same caller is a different source and still counts.
+  const d = recordWish({ need: "translate english to spanish", source: "api", ip: "203.0.113.9" });
+  ok(d.recorded === true && getWishesAggregate({ detailed: true }).clusters[0].count === 3, "an explicit api wish from that caller still records (dedupe is find-miss only)");
+  // Served floor: a weak match must not mark a cluster served.
+  const rows = [{ text: "todo task manager" }, { text: "extract tables from pdf" }];
+  annotateServed(rows, (t) => (t.startsWith("todo") ? { slug: "fund-report", score: 5 } : { slug: "pdf-extract-pages", score: 75 }), WISH_SERVED_MIN_SCORE);
+  ok(!rows[0].served && rows[1].served?.slug === "pdf-extract-pages", `WISH_SERVED_MIN_SCORE (${WISH_SERVED_MIN_SCORE}) keeps a score-5 match from reading as served`);
 }
 
 // --- qualification, end-to-end through recordWish + getWishesAggregate ---
@@ -185,7 +216,8 @@ function freshFile(tag) {
   const agg = getWishesAggregate({ detailed: true });
   const row = agg.clusters[0];
   const keys = Object.keys(row).sort();
-  ok(JSON.stringify(keys) === JSON.stringify(["count", "firstSeen", "issueOpened", "lastSeen", "qualified", "sources", "text"]), `aggregate row has exactly the documented keys, no raw context (got ${keys.join(",")})`);
+  ok(JSON.stringify(keys) === JSON.stringify(["callers", "count", "firstSeen", "issueOpened", "lastSeen", "qualified", "sources", "text"]), `aggregate row has exactly the documented keys, no raw context (got ${keys.join(",")})`);
+  ok(row.callers === 1 && !/10\.0\.5\.1/.test(JSON.stringify(agg)), "callers is a COUNT of day-scoped hashes; the address itself never reaches the board");
   ok(!("context" in row), "aggregate row never carries a raw context field");
   ok(row.text.includes("&lt;script&gt;") && !row.text.includes("<script>"), `aggregate text is esc()'d (got ${row.text})`);
   ok(typeof row.firstSeen === "string" && typeof row.lastSeen === "string" && !Number.isNaN(Date.parse(row.firstSeen)), "firstSeen/lastSeen are ISO timestamps");

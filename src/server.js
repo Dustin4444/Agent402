@@ -132,8 +132,8 @@ import { runSelfCheck } from "./selfcheck.js";
 import { installEgressMeter, egressReport } from "./egress-meter.js";
 import { acpFeed, acpManifest } from "./acp.js";
 import { findTools, findRelatedSellers } from "./find.js";
-import { recordWish, getWishesAggregate, annotateServed } from "./wish.js";
-import { indexSnapshot, sellerDetail, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories, bazaarQualityEntries, indexWarmStartInProgress } from "./x402-index.js";
+import { recordWish, getWishesAggregate, annotateServed, WISH_SERVED_MIN_SCORE } from "./wish.js";
+import { allPayToOrigins, indexSnapshot, sellerDetail, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories, bazaarQualityEntries, indexWarmStartInProgress } from "./x402-index.js";
 import { startMppCrawler, registerMppOrigin, validateOriginInput as validateMppOriginInput, mppIndexSnapshot } from "./mpp-index.js";
 import { startMppLeaderboard, mppLeaderboardSnapshot } from "./mpp-leaderboard.js";
 import { tempoSelfRecipient } from "./mpp-tempo.js";
@@ -2634,7 +2634,7 @@ app.get("/__operator/stats", (req, res) => {
 app.get("/__operator/wishes", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).type("html").send("<p>Not found.</p>");
   const agg = getWishesAggregate({ limit: 500, detailed: true });
-  annotateServed(agg.clusters, wishServedScore, FIND_WEAK_SCORE);
+  annotateServed(agg.clusters, wishServedScore, WISH_SERVED_MIN_SCORE);
   res.type("html").send(operatorWishesPage(BASE_URL, agg));
 });
 // Token-gated DETAILED wish feed (per-cluster text/counts/verdicts) — the raw
@@ -2656,6 +2656,10 @@ app.get("/__operator/discovery-gap.json", async (req, res) => {
     const econ = await x402EconomySnapshot();
     const gap = unattributedMerchants({
       sellers: routableSellerSummaries(),
+      // Every payTo any KNOWN origin advertises - crawled entries whether or
+      // not they are routable, plus the registry-listed tools (Bazaar rows
+      // carry payTo) - so "unattributed" means unknown, not merely unroutable.
+      knownPayToOrigins: allPayToOrigins("eip155:8453"),
       merchants: econ?.topMerchants || [],
       ourAddresses: [WALLET_ADDRESS, process.env.X402_UPSTREAM_BUYER_ADDRESS].filter(Boolean),
       minPayments: Math.max(1, Math.min(10000, parseInt(req.query.min, 10) || SOR_MIN_SETTLED_TX)),
@@ -2673,7 +2677,7 @@ app.get("/__operator/wishes.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   res.set("Cache-Control", "no-store");
   const agg = getWishesAggregate({ limit: req.query?.limit, detailed: true });
-  annotateServed(agg.clusters, wishServedScore, FIND_WEAK_SCORE);
+  annotateServed(agg.clusters, wishServedScore, WISH_SERVED_MIN_SCORE);
   res.json(agg);
 });
 // Per-chain revenue-ledger sync state. A chain that is merely BEHIND produces
@@ -3157,7 +3161,7 @@ const computeFind = (q, k) => {
       result.hint = "POST /api/wish with what you needed";
       const qStr = String(q ?? "").trim();
       if (qStr) {
-        try { recordWish({ need: qStr, source: "find-miss" }); } catch { /* best-effort; never break /api/find */ }
+        try { recordWish({ need: qStr, source: "find-miss", ip: req?.ip || "?" }); } catch { /* best-effort; never break /api/find */ }
       }
     }
   }
