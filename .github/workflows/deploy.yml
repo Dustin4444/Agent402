@@ -4061,7 +4061,14 @@ jobs:
           if npx -y clawhub@0.23.3 package inspect agent402-openclaw --version "$VERSION" >/dev/null 2>&1; then
             echo "agent402-openclaw@$VERSION is already on ClawHub — nothing to do"
           else
+            # --manual-override-reason: the package carries a trusted-publisher config
+            # (set 2026-08-27), which makes a token publish a "manual" one that
+            # ClawHub refuses without a stated reason. OIDC publishing needs
+            # ClawHub's reusable workflow, whose actions are tag-pinned, and this
+            # repository requires full-SHA pinning for every action - so the token
+            # path stays until ClawHub pins its workflow.
             npx -y clawhub@0.23.3 package publish ./openclaw \
+              --manual-override-reason "repository policy requires SHA-pinned actions; ClawHub's reusable OIDC workflow is tag-pinned" \
               --source-repo "$GITHUB_REPOSITORY" --source-commit "$GITHUB_SHA" --source-ref "$GITHUB_REF_NAME" --source-path openclaw \
               --changelog "agent402-openclaw $VERSION (see the package README and CHANGELOG at https://agent402.tools/changelog)"
             echo "published agent402-openclaw@$VERSION → https://clawhub.ai/plugins/agent402-openclaw (hidden until ClawHub review completes)"
