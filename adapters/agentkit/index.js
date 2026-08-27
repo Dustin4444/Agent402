@@ -31,7 +31,10 @@ const DEFAULT_BASE = "https://agent402.tools";
  */
 export async function agent402Actions({ baseUrl = DEFAULT_BASE, fetchImpl = globalThis.fetch, zod } = {}) {
   const z = zod || (await loadZod());
-  const base = String(baseUrl).replace(/\/+$/, "");
+  // Linear trailing-slash strip (a /\/+$/ regex on caller input is the
+  // polynomial-ReDoS shape CodeQL flags; same fix as openclaw/models.js).
+  let base = String(baseUrl);
+  while (base.endsWith("/")) base = base.slice(0, -1);
 
   const find = {
     name: "agent402_find",
