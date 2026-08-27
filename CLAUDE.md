@@ -1973,6 +1973,17 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   from the $6 unsettled-spend bound the day the Tempo leg first resolved; `tempo-sor-live.js` refuses a `route` input
   off the two documented paths (a write-access dispatcher could otherwise point the burner's credential at another
   host). `test-posthog-funnel` (60), `test-tempo-router` (48), `test-pricing-margin` (186).
+- **agent402-openclaw 0.4.0: wallet at setup + ClawHub-ready (2026-08-27):** `setup` with no credits key and no
+  `AGENT402_WALLET_KEY` now MINTS an EVM wallet into `~/.openclaw/agent402/wallet.key` (0600, `wx` so a rerun never
+  rotates it, key never printed) and prints the address to fund with USDC on Base - the same first-run shape as a
+  per-token router that prints a wallet at install; `--no-wallet` opts out, a credits key on argv/env/file skips it,
+  viem missing = card hint instead. `resolveWalletKey` (config > env > file) feeds the proxy, `doctor`,
+  `permit2-approve` and the new `wallet` command (address + USDC balance). OpenClaw's docs do NOT carry a static
+  third-party provider catalog (their `docs/plugins/community.md`: ClawHub is the discovery surface; provider pages are
+  bundled or `@openclaw/*-provider` packages), so an upstream docs PR is the wrong lever - the listing path is
+  `clawhub package publish ./openclaw` (dry-run validates and lists the 9 files; it required `openclaw.compat.pluginApi`
+  + `openclaw.build.openclawVersion` + `install.minHostVersion`, now in package.json); the real publish needs a
+  ClawHub login = Mike. openclaw/test.js 75.
 - **Cost audit 2026-08-27 (PostHog + operator ledgers + Railway logs):** no buyer over/undercharging found (0 charged-failures
   since 07-16, 0 refunds owed, 0 gateway calls over the 70% bound, ledger vs PostHog settlements reconcile). The month's
   upstream spend was ~$29 OpenRouter+Brave, of which ~$21 landed on 2026-08-21 (577 OpenRouter generations, 114 Opus, 491
