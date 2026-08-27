@@ -52,6 +52,10 @@ paths = [
 # history purge.
 commits = [
   '''70fcc5171d8b1d4d8170933db665974f1ce91bbf''',
+  # 2026-08-26: a test fixture carried a literal "-----BEGIN EC PRIVATE KEY-----"
+  # header around the body "test" (no key material) for one commit; the fixture
+  # now generates a throwaway EC key at runtime, so no PEM is committed.
+  '''e95783d17c66ade88f7a0b257ad218f50826e16a''',
 ]
 # Matched against each finding's captured secret.
 regexes = [

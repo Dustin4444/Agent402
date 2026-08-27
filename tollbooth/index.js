@@ -690,7 +690,7 @@ export async function buildCliX402Middleware(env = process.env) {
   // a short-lived JWT signed by a CDP API key, so a static header cannot
   // reach it; @coinbase/x402's createFacilitatorConfig mints them. With the
   // two keys set the CLI settles through CDP (fee-free on Base, and the
-  // endpoint is indexed in Coinbase's x402 Bazaar), no URL needed. This is
+  // no URL needed. This is
   // the path a Coinbase Business account uses to get paid by agents.
   const cdpKeys = env.TOLLBOOTH_CDP_API_KEY_ID && env.TOLLBOOTH_CDP_API_KEY_SECRET;
   if (!payTo) return null;
@@ -715,7 +715,7 @@ export async function buildCliX402Middleware(env = process.env) {
     ({ HTTPFacilitatorClient, x402ResourceServer } = await import("@x402/core/server"));
     ({ ExactEvmScheme } = await import("@x402/evm/exact/server"));
   } catch (e) {
-    console.error(`✖ TOLLBOOTH_FACILITATOR_URL is set, so this gate must settle x402 payments, but the x402 packages are not installed (${String(e?.message || e).slice(0, 120)}). Install them next to agent402-tollbooth: npm i @x402/express @x402/core @x402/evm . Refusing to start rather than advertise a quote it cannot settle.`);
+    console.error(`✖ TOLLBOOTH_FACILITATOR_URL or TOLLBOOTH_CDP_API_KEY_ID/SECRET is set, so this gate must settle x402 payments, but the x402 packages are not installed (${String(e?.message || e).slice(0, 120)}). Install them next to agent402-tollbooth: npm i @x402/express @x402/core @x402/evm . Refusing to start rather than advertise a quote it cannot settle.`);
     process.exit(1);
   }
   // Optional facilitator auth headers, sent on /verify, /settle and /supported
@@ -726,11 +726,20 @@ export async function buildCliX402Middleware(env = process.env) {
   }
   let cdpConfig = null;
   if (cdpKeys) {
-    try {
-      const { createFacilitatorConfig } = await import("@coinbase/x402");
-      cdpConfig = createFacilitatorConfig(env.TOLLBOOTH_CDP_API_KEY_ID, env.TOLLBOOTH_CDP_API_KEY_SECRET);
-    } catch (e) {
+    if (facilitatorUrl || authHeaders) console.warn("⚠ TOLLBOOTH_CDP_API_KEY_ID/SECRET are set, so TOLLBOOTH_FACILITATOR_URL / TOLLBOOTH_FACILITATOR_HEADERS are ignored: settlement goes through Coinbase's facilitator.");
+    let createFacilitatorConfig;
+    try { ({ createFacilitatorConfig } = await import("@coinbase/x402")); } catch (e) {
       console.error(`✖ TOLLBOOTH_CDP_API_KEY_ID/SECRET are set, so this gate must settle through Coinbase's facilitator, but @coinbase/x402 is not installed (${String(e?.message || e).slice(0, 120)}). Install it: npm install @coinbase/x402`);
+      process.exit(1);
+    }
+    cdpConfig = createFacilitatorConfig(env.TOLLBOOTH_CDP_API_KEY_ID, env.TOLLBOOTH_CDP_API_KEY_SECRET);
+    // Prove the key can sign BEFORE claiming to settle: createFacilitatorConfig
+    // validates nothing, and a key that cannot mint a JWT would otherwise boot
+    // "settling via Coinbase CDP" and answer every paid request 500 (nobody
+    // charged, every agent turned away). Minting one JWT is local, no network.
+    try { await cdpConfig.createAuthHeaders(); } catch (e) {
+      const why = String(e?.message || e).replace(env.TOLLBOOTH_CDP_API_KEY_SECRET, "<secret>").slice(0, 160);
+      console.error(`✖ TOLLBOOTH_CDP_API_KEY_SECRET cannot sign a facilitator request (${why}). Check the CDP API key secret; nothing is being charged.`);
       process.exit(1);
     }
   }

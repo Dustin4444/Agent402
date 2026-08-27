@@ -43,7 +43,7 @@ The agent now has:
 
 The x402 signer is derived from the wallet provider the same way AgentKit's own
 x402 action provider derives it (`toSigner()` plus `readContract`), so a CDP
-wallet, an Agentic Wallet, a viem-backed wallet or a smart wallet all work.
+wallet, an Agentic Wallet or a viem-backed wallet all work.
 Hosts that wrap actions themselves can take the raw list:
 
 ```js
@@ -51,11 +51,16 @@ import { agent402Actions } from "agent402-agentkit";
 const actions = await agent402Actions();   // [{ name, description, schema, invoke }]
 ```
 
-## Options
+## Options and spend bounds
 
-`agent402ActionProvider({ baseUrl, fetchImpl, zod })` - `baseUrl` for a
-self-hosted Agent402, `fetchImpl` to inject a fetch, `zod` to pass the host's
-zod module.
+`agent402ActionProvider({ baseUrl, fetchImpl, zod, maxPerCallUsd, dailyLimitUsd, maxPerHostUsd, payees })`
+
+- `maxPerCallUsd` (default `1`): a paid call above this is refused before any
+  signature. `dailyLimitUsd` and `maxPerHostUsd` bound rolling 24-hour spend.
+- `payees`: an allowlist of `payTo` addresses; a 402 naming any other address
+  is refused before signing, so a mis-set `baseUrl` cannot spend the wallet.
+- `baseUrl` for a self-hosted Agent402, `fetchImpl` to inject a fetch, `zod` to
+  pass the host's zod module.
 
 ## What Agent402 serves
 

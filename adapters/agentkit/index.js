@@ -28,8 +28,12 @@ const DEFAULT_BASE = "https://agent402.tools";
  * @param {string} [opts.baseUrl="https://agent402.tools"]
  * @param {typeof fetch} [opts.fetchImpl]  fetch used for free discovery and as the base of the paying fetch
  * @param {object} [opts.zod]              a zod module (loaded from the host when omitted)
+ * @param {number} [opts.maxPerCallUsd=1]  ceiling on one paid call (USD); over it the call is refused before paying
+ * @param {number} [opts.dailyLimitUsd]    ceiling on rolling-24h paid spend (USD)
+ * @param {number} [opts.maxPerHostUsd]    ceiling on rolling-24h paid spend to one seller host (USD)
+ * @param {string[]} [opts.payees]         only pay these payTo addresses (lowercased EVM); anything else is refused before signing
  */
-export async function agent402Actions({ baseUrl = DEFAULT_BASE, fetchImpl = globalThis.fetch, zod } = {}) {
+export async function agent402Actions({ baseUrl = DEFAULT_BASE, fetchImpl = globalThis.fetch, zod, maxPerCallUsd = 1, dailyLimitUsd = null, maxPerHostUsd = null, payees = null } = {}) {
   const z = zod || (await loadZod());
   // Linear trailing-slash strip (a /\/+$/ regex on caller input is the
   // polynomial-ReDoS shape CodeQL flags; same fix as openclaw/models.js).
@@ -70,8 +74,12 @@ export async function agent402Actions({ baseUrl = DEFAULT_BASE, fetchImpl = glob
       params: z.record(z.any()).optional().describe("Input matching the tool's example from agent402_find"),
     }),
     invoke: async (walletProvider, { slug, params = {} }) => {
-      const payFetch = await payFetchFor(walletProvider, fetchImpl);
-      const client = new Agent402({ baseUrl: base, fetch: payFetch, fetchImpl });
+      const payFetch = await payFetchFor(walletProvider, fetchImpl, { payees });
+      // Spend bounds ride with every paid call: a per-call ceiling (default $1,
+      // the same default AgentKit's own x402 provider uses), optional rolling
+      // daily and per-host ceilings, and an optional payee allowlist - a
+      // mis-set baseUrl can never drain the wallet.
+      const client = new Agent402({ baseUrl: base, fetch: payFetch, fetchImpl, maxPerCallUsd, dailyLimitUsd, maxPerHostUsd });
       const out = await client.call(slug, params);
       return typeof out === "string" ? out : JSON.stringify(out);
     },
@@ -122,7 +130,7 @@ export async function agent402ActionProvider(opts = {}) {
  * provider without toSigner() (or no provider at all) yields undefined, and
  * agent402-client then pays free-tier tools with proof-of-work only.
  */
-export async function payFetchFor(walletProvider, fetchImpl = globalThis.fetch) {
+export async function payFetchFor(walletProvider, fetchImpl = globalThis.fetch, { payees = null } = {}) {
   if (!walletProvider || typeof walletProvider.toSigner !== "function") return undefined;
   const account = await walletProvider.toSigner();
   if (!account || typeof account.signTypedData !== "function") return undefined;
@@ -134,6 +142,10 @@ export async function payFetchFor(walletProvider, fetchImpl = globalThis.fetch) 
   ]);
   const client = new x402Client();
   registerExactEvmScheme(client, { signer });
+  if (Array.isArray(payees) && payees.length) {
+    const { withPayeeAllowlist } = await import("agent402-client");
+    withPayeeAllowlist(client, payees);
+  }
   return wrapFetchWithPayment(fetchImpl, client);
 }
 

@@ -122,7 +122,6 @@ export function tollboothLandingPage(baseUrl) {
   <a href="https://github.com/MikeyPetrillo/Agent402/blob/main/tollbooth/demo.js" rel="noopener"><code>node demo.js</code></a>
   <a href="https://www.npmjs.com/package/agent402-tollbooth" rel="noopener">npm</a>
   <a href="/guides/coinbase-business-get-paid-by-agents">Get paid into a Coinbase Business account</a>
-  <a href="/guides/coinbase-business-get-paid-by-agents">Get paid into a Coinbase Business account</a>
 </div>
 
 <script src="/js/tollbooth-snippet.js"></script>

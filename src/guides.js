@@ -913,14 +913,13 @@ it at your Coinbase Business address and every settled call lands there.
 ## 1. Two things from Coinbase
 
 1. Your **USDC receive address on Base** from the Coinbase Business account
-   (Receive, network Base, asset USDC; the Deposit Destinations API returns the
-   same address programmatically). This is the \`payTo\` on every 402 you
-   serve, so funds settle straight into the account.
+   (Receive, network Base, asset USDC; Coinbase's Deposit Destinations API is
+   the programmatic route to a receive address). This is the \`payTo\` on
+   every 402 you serve, so funds settle straight into the account.
 2. A **CDP API key** (id + secret) from the Coinbase Developer Platform. The
    tollbooth uses it to sign requests to Coinbase's x402 facilitator, which
    verifies and settles each payment. Settlement on Base through this
-   facilitator is fee-free and lists your endpoint in Coinbase's x402 Bazaar,
-   where agents discover things to buy.
+   facilitator is fee-free.
 
 ## 2. One command in front of anything
 
@@ -933,6 +932,9 @@ TOLLBOOTH_PRICE='$0.005' \\
 TOLLBOOTH_UPSTREAM=http://localhost:8080 \\
 npx agent402-tollbooth
 \`\`\`
+
+Keep the key out of your shell history: put the three values in a \`.env\`
+file and load it (\`set -a; . ./.env; set +a\`) or use your secret store.
 
 That is a reverse proxy in front of your existing API on :8080. Known AI
 crawlers and any x402 client get a 402 quoting $0.005 in USDC on Base, pay it,
@@ -984,10 +986,10 @@ Coinbase Business account within seconds.
 
 - Payments from agents settle in USDC into the account you already reconcile
   from, with no card network, no invoices and no agent accounts.
-- Listed for discovery: settlement through Coinbase's facilitator indexes the
-  endpoint in the x402 Bazaar, and Agent402's own open index and Smart Order
-  Router crawl the Bazaar, so agents routing through [/api/route](/api/route)
-  can find and pay you too.
+- Discoverable: list the endpoint on Agent402's open index ([/sell](/sell))
+  and agents routing through [/api/route](/api/route) can find and pay you;
+  a route can also carry the x402 Bazaar discovery extension for Coinbase's
+  own directory.
 - The rest of the tollbooth: proof-of-work for callers with no wallet,
   observe-before-charge mode, per-route prices, analytics, and native MPP on
   Tempo if you want a second rail. See [/tollbooth](/tollbooth).

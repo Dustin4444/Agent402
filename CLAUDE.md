@@ -1928,7 +1928,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
 - **Coinbase Business + AgentKit (2026-08-26, from Coinbase's "get paid by AI agents" push):** (1) `agent402-tollbooth` 0.9.3: with
   `TOLLBOOTH_CDP_API_KEY_ID/SECRET` (and no facilitator URL) the CLI settles through Coinbase's facilitator via `@coinbase/x402`
   `createFacilitatorConfig` (optional peer; a static header can never reach CDP, it needs per-request JWTs) - the path a Coinbase
-  Business account uses: `TOLLBOOTH_PAYTO` = the account's USDC (Base) receive address. Guide `/guides/coinbase-business-get-paid-by-agents`,
+  Business account uses: `TOLLBOOTH_PAYTO` = the account's USDC (Base) receive address (fee-free on Base; NOT Bazaar-listed - the CLI's wildcard route carries no discovery extension). The key is validated at boot by minting one JWT. Guide `/guides/coinbase-business-get-paid-by-agents`,
   example `examples/coinbase-business-tollbooth/`, linked from /sell, /tollbooth, the tollbooth README and wiki Pay-per-crawl.
   (2) `adapters/agentkit` = `agent402-agentkit` (0.1.0): a Coinbase AgentKit action provider (`agent402_find` free, `agent402_call`
   pays - PoW for the free tier, x402 exact-EVM signed by the wallet provider's `toSigner()` + `readContract`, the same derivation
