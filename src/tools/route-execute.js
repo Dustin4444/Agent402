@@ -264,10 +264,27 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           }
           // First chain that resolves a candidate wins: the buyer's own chain,
           // then (opt-in) Tempo/MPP sellers for Base buyers.
+          // TEMPO TIME BUDGET. A Tempo buyer's credential is a signed tx the
+          // CLIENT bounded in time (mppx signs validBefore = now + ~25s), and
+          // our settlement broadcasts AFTER the handler. An external buy that
+          // outlives that window is work done and an upstream seller paid,
+          // then a refused settle: the buyer sees 402 and we ate the seller's
+          // price (measured 2026-08-27: a 69s Firecrawl scrape, $0.002 gone,
+          // vs a 23s one that settled). So on Tempo the external leg runs
+          // under a budget: refuse BEFORE spending when resolution ate it,
+          // and hand the seller call a timeout that keeps the whole handler
+          // inside the window. A 504 cancels settlement; the only loss is the
+          // bounded seller price on a seller that answered too slowly.
+          const tempoBudgetMs = req?.mppTempoCredential ? (Number(process.env.SOR_TEMPO_BUDGET_MS) || 16000) : null;
+          const startedAt = Date.now();
+          const remainingMs = () => (tempoBudgetMs == null ? null : tempoBudgetMs - (Date.now() - startedAt));
           let ext = null; let chain = chains[0];
           for (const c of chains) {
             const found = await resolveExternal(input.task, { cap, baseUrl, chain: c });
             if (found) { ext = found; chain = c; break; }
+          }
+          if (tempoBudgetMs != null && remainingMs() < 4000) {
+            throw bad(`Resolving an external seller used the Tempo time budget (${tempoBudgetMs}ms); nothing was spent and nothing is charged. Tempo credentials expire about 25s after signing, so retry with a fresh credential or pay this route over an EVM rail.`, 504);
           }
           const chainCaip2 = EXTERNAL_CHAIN_CAIP2[chain];
           if (!ext) throw bad(`No external ${chains.includes("tempo") && chains.length > 1 ? "x402 or MPP" : chains[0] === "tempo" ? "MPP" : "x402"} seller matched that task${chains[0] !== "base" || chains.length > 1 ? ` on ${chains.join("/")}` : ""}. Explore /api/route?q=<task>&include=external.`, 404);
@@ -325,7 +342,7 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
             // and the seller answers both, so the check has to happen again
             // against the accept actually signed. Null = no chain-derived
             // address on record, which is not a failure - see provenPayToMatches.
-            paid = await payExternal(extUrl, { method: extMethod, body: extBody, maxAtomic: BigInt(Math.round(cap * 1e6)), chain, provenPayTo: ext.provenPayTo || null });
+            paid = await payExternal(extUrl, { method: extMethod, body: extBody, maxAtomic: BigInt(Math.round(cap * 1e6)), chain, provenPayTo: ext.provenPayTo || null, ...(tempoBudgetMs != null ? { timeoutMs: Math.max(3000, remainingMs()) } : {}) });
           } catch (e) {
             // The exposure DELIBERATELY stands. It is tempting to clear it here
             // ("the buy failed, so we never spent"), but payExternal can throw
