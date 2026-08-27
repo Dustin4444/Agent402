@@ -976,6 +976,14 @@ runnable example is in the repo:
 
 ## 4. Prove it with one paid call
 
+We ran exactly this path with real money before publishing: the CLI's own
+middleware built from CDP keys, paid $0.001 by a stock x402 client, settled
+through Coinbase's facilitator on Base
+([transaction](https://basescan.org/tx/0x8175178ac4e2229dfd9385a3c78c491ffe554b08fdf52cf92f99425c983ec5d1)).
+One rule to know: Coinbase's facilitator refuses a payment whose payer is the
+payTo (\`self_send_not_allowed\`), so test from a second wallet, never from the
+receiving address.
+
 Any x402 client pays it. From this repo, \`node scripts/demo-payment.js\`
 style buys, the [agent402-client](https://www.npmjs.com/package/agent402-client)
 SDK, or Coinbase's own agent tooling all work; the receipt on the 200 response
