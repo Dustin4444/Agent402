@@ -274,7 +274,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   "llm", "llm-pro", "llm-premium",
   // OpenAI-compatible gateway (OpenRouter upstream) — same reasoning.
   "v1-chat-nano", "v1-chat-auto", "v1-chat-grounded", "v1-chat-ox", "v1-chat", "v1-chat-pro", "v1-chat-premium", "v1-chat-metered", "v1-embeddings", "v1-rerank", "v1-images", "v1-audio-speech",
-  "v1-chat-nano-messages", "v1-chat-auto-messages", "v1-chat-messages", "v1-chat-pro-messages", "v1-chat-premium-messages",
+  "v1-chat-nano-messages", "v1-chat-auto-messages", "v1-chat-messages", "v1-chat-pro-messages", "v1-chat-premium-messages", "v1-chat-metered-messages",
   "v1-chat-nano-responses", "v1-chat-auto-responses", "v1-chat-responses", "v1-chat-pro-responses", "v1-chat-premium-responses",
   // research-deep composites (src/tools/research-deep-kit.js) — each fans out
   // to multiple metered gateway calls (grounded search + rerank + synthesis),

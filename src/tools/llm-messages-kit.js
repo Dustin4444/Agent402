@@ -32,8 +32,9 @@ import {
   TIERS, AUTO_RANKINGS, classifyPrompt, canonicalModel, tierAllows, tierFor,
   clampToMargin, flexAttempts, cacheControlPref, upstreamUserId, PROVIDER_SORT_ENABLED,
   fetchOpenRouter, throwUpstreamError, streamOpenRouterTo, bad, MAX_IMAGES,
-  refuseCostVariants, checkBlockCacheControl,
+  refuseCostVariants, checkBlockCacheControl, meteredQuoteForProbe, costFor,
 } from "./llm-gateway-kit.js";
+import { METER_MARKUP, METER_MIN_SETTLE_USD } from "../gateway-meter.js";
 
 const OPENROUTER_MESSAGES_URL = "https://openrouter.ai/api/v1/messages";
 const IMAGE_TOKENS = 1600; // same flat per-image estimate as the chat wire
@@ -48,7 +49,24 @@ export const MESSAGES_PATH_BY_TIER = {
   "v1-chat": "/v1/messages",
   "v1-chat-pro": "/v1/pro/messages",
   "v1-chat-premium": "/v1/premium/messages",
+  // Metered LAST (same ordering rule as TIERS): the 402 price is a per-request
+  // quote from the body, settled at actual usage over upto / credits / card.
+  "v1-chat-metered": "/v1/metered/messages",
 };
+
+/** Per-request price of the metered Messages route, from the RAW body. Never
+ *  throws: an invalid body quotes the floor (the handler's own 400 refuses it,
+ *  uncharged); an over-cap body quotes the cap (same). Mirrors meteredQuoteUsd
+ *  on the chat wire, priced from the Messages probe. */
+export function meteredMessagesQuoteUsd(input) {
+  const tier = TIERS["v1-chat-metered"];
+  try {
+    const { probe, imageCount } = validateMessagesRequest(input, "v1-chat-metered");
+    return meteredQuoteForProbe(probe, imageCount);
+  } catch (e) {
+    return { usd: tier.price, invalid: true, reason: String(e?.message || e).slice(0, 160) };
+  }
+}
 export const MESSAGES_TIER_BY_PATH = Object.fromEntries(Object.entries(MESSAGES_PATH_BY_TIER).map(([t, p]) => [p, t]));
 
 function textOfBlocks(content) {
@@ -218,8 +236,22 @@ export function makeMessagesHandler(tierSlug) {
   return async function messagesHandler(input, req) {
     const tier = TIERS[tierSlug];
     const { body, probe, imageCount, isRouted, routedCategory, routedQuality, chain } = validateMessagesRequest(input, tierSlug);
+    // Metered belt (same as the chat wire): the price this request was gated
+    // at must cover the body actually being served; a mismatch is refused 400
+    // (settlement cancelled, hold released, nothing spent).
+    if (tier.metered && Number.isFinite(req?.__meteredQuoteUsd)) {
+      const q = meteredMessagesQuoteUsd(input);
+      if (q.invalid || q.usd > req.__meteredQuoteUsd * (1 + 1e-6) + 1e-9) {
+        throw bad(`This request was quoted at $${req.__meteredQuoteUsd} but the body being served quotes $${q.usd}${q.invalid ? ` (${q.reason})` : ""}. Nothing was charged; resend the request exactly as it should be served (no query-string or wrapped fields).`, 400);
+      }
+    }
+    // Metered: the quote priced THIS model at its MODEL_COST row, so the
+    // upstream bound is that row, never the tier-wide cap (audit 2026-08-26).
+    const meteredBound = tier.metered ? costFor(body.model) : null;
+    const quotedUsd = tier.metered && Number.isFinite(req?.__meteredQuoteUsd) && req.__meteredQuoteUsd > 0 ? req.__meteredQuoteUsd : null;
     const providerPrefs = {
-      ...(tier.maxPrice ? { max_price: tier.maxPrice } : {}),
+      ...(meteredBound ? { max_price: { prompt: meteredBound.prompt, completion: meteredBound.completion } }
+        : tier.maxPrice ? { max_price: tier.maxPrice } : {}),
       ...(body.zdr === true ? { zdr: true } : {}),
       ...(tier.priceSort === true && PROVIDER_SORT_ENABLED() ? { sort: "price" } : {}),
     };
@@ -240,7 +272,7 @@ export function makeMessagesHandler(tierSlug) {
     };
     const recordUsage = (usage, upstreamUsd, served, serviceTier) => import("../posthog.js")
       .then(({ capturePostHogGatewayUsage }) => capturePostHogGatewayUsage({
-        tier: `${tierSlug}:messages`, model: served, priceUsd: tier.price, upstreamUsd,
+        tier: `${tierSlug}:messages`, model: served, priceUsd: quotedUsd ?? tier.price, upstreamUsd,
         promptTokens: usage?.input_tokens, completionTokens: usage?.output_tokens, serviceTier,
       })).catch(() => {});
     const attempts = flexAttempts(chain);
@@ -293,6 +325,10 @@ export function makeMessagesHandler(tierSlug) {
         const upstreamUsd = stripBilling(data.usage);
         await recordUsage(data.usage, upstreamUsd, data.model || model, data.usage?.service_tier || (flex ? "flex" : "default"));
         if (routerNote) data.agent402_router = { ...routerNote, served: data.model || model };
+        // Metered settlement sentinel (chat-wire parity): the route binder
+        // settles actual x markup for upto/credits buyers and strips this
+        // before the body leaves. A non-number means "no meter", never "free".
+        if (typeof upstreamUsd === "number") data.__meterUpstreamUsd = upstreamUsd;
         return data;
       } catch (e) {
         if (![502, 503, 504].includes(e?.statusCode)) throw e;
@@ -323,6 +359,9 @@ const INPUT_SCHEMA = {
 function describe(tierSlug) {
   const t = TIERS[tierSlug];
   const price = priceString(tierSlug);
+  if (tierSlug === "v1-chat-metered") {
+    return `Anthropic Messages API billed per request from what the call costs: the 402 quotes exact-BPE input (system + messages + tools) plus your max_tokens at the model's list price, times ${METER_MARKUP}, from ${price} up to a $${t.maxQuoteUsd} per-call cap. Point the Anthropic SDK (or any Messages-format client) at base_url https://agent402.tools/v1/metered. Any model from the flat tiers (GET /v1/models). Pay the quote over x402 exact, or authorize it as a ceiling over upto, credits or card and settle actual usage. Up to ${t.maxInputChars.toLocaleString("en-US")} input chars and ${t.maxTokens} output tokens; streaming supported.`;
+  }
   const base = `Anthropic Messages API over x402 - point the Anthropic SDK (or Claude Code / the Agent SDK) at base_url https://agent402.tools${MESSAGES_PATH_BY_TIER[tierSlug].replace(/\/messages$/, "")} and pay ${price} per call in USDC, no API key, no signup. Same models, caps and price as this tier's /chat/completions route; any model here is served through the Messages wire (Claude natively, others translated). Up to ${t.maxInputChars.toLocaleString("en-US")} input chars and ${t.maxTokens} output tokens; streaming supported.`;
   return tierSlug === "v1-chat-auto"
     ? `${base} Omit "model" and the gateway routes the prompt to the top-ranked model for its task type; the response adds agent402_router {category, quality, served}.`
@@ -333,13 +372,14 @@ function describe(tierSlug) {
 // calls upstream with it; a bare allowlist prefix would 400 there) - Claude
 // where the tier serves Claude, the tier's cheapest chat example otherwise.
 const EXAMPLE_MODEL_BY_TIER = {
+  "v1-chat-metered": "anthropic/claude-haiku-4.5",
   "v1-chat-nano": "google/gemini-2.5-flash-lite",
   "v1-chat": "anthropic/claude-haiku-4.5",
   "v1-chat-pro": "anthropic/claude-sonnet-5",
   "v1-chat-premium": "anthropic/claude-opus-5",
 };
-const TIER_LABEL = { "v1-chat-nano": "nano", "v1-chat-auto": "auto", "v1-chat": "base", "v1-chat-pro": "pro", "v1-chat-premium": "premium" };
-const priceString = (tierSlug) => (tierSlug === "v1-chat-nano" ? "$0.003" : `$${TIERS[tierSlug].price.toFixed(2)}`);
+const TIER_LABEL = { "v1-chat-nano": "nano", "v1-chat-auto": "auto", "v1-chat": "base", "v1-chat-pro": "pro", "v1-chat-premium": "premium", "v1-chat-metered": "metered" };
+const priceString = (tierSlug) => (tierSlug === "v1-chat-nano" ? "$0.003" : tierSlug === "v1-chat-metered" ? `$${METER_MIN_SETTLE_USD}` : `$${TIERS[tierSlug].price.toFixed(2)}`);
 
 export const LLM_MESSAGES_TOOLS = Object.entries(MESSAGES_PATH_BY_TIER).map(([tierSlug, path]) => ({
   route: `POST ${path}`,
@@ -347,8 +387,10 @@ export const LLM_MESSAGES_TOOLS = Object.entries(MESSAGES_PATH_BY_TIER).map(([ti
   slug: `${tierSlug}-messages`,
   category: "llm",
   price: priceString(tierSlug),
+  // payments.js: a `quote` makes the x402 price a per-request function of the body.
+  ...(tierSlug === "v1-chat-metered" ? { quote: (body) => meteredMessagesQuoteUsd(body).usd } : {}),
   description: describe(tierSlug),
-  tags: TAGS,
+  tags: tierSlug === "v1-chat-metered" ? [...TAGS, "metered", "pay-per-token"] : TAGS,
   discovery: {
     bodyType: "json",
     input: tierSlug === "v1-chat-auto" ? { max_tokens: 256, messages: EXAMPLE_IN.messages } : { ...EXAMPLE_IN, model: EXAMPLE_MODEL_BY_TIER[tierSlug] },

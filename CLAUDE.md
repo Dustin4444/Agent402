@@ -1986,6 +1986,19 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `adapters/eliza/registry-entry.json`), (3) `bun run --cwd packages/registry validate && generate`, (4) a PR against
   `develop` (reviewed for security, functionality, docs; CONTRIBUTING wants an issue first for non-trivial work).
   FIRST npm publish is Mike's (OIDC cannot create the package), then the upstream PR.
+- **Metered Messages wire (2026-08-27, `POST /v1/metered/messages`, slug `v1-chat-metered-messages`):** the metered tier
+  on the Anthropic Messages wire. `MESSAGES_PATH_BY_TIER["v1-chat-metered"]` (LAST, the TIERS ordering rule); the 402 price
+  is `quote: (body) => meteredMessagesQuoteUsd(body).usd`, priced from `validateMessagesRequest`'s PROBE through the new
+  `meteredQuoteForProbe(probe, imageCount)` export in the gateway kit (same arithmetic, `METER_MARKUP`, floor, cap and
+  micro-dollar rounding as the chat wire); the handler carries the chat wire's metered belt (re-quote the served body,
+  400 if above the gated price), `provider.max_price` = the quoted model's `costFor` row, `gateway_usage.priceUsd` = the
+  quote, and (for every Messages tier now) the `__meterUpstreamUsd` sentinel so upto/credits/card buyers settle actual x
+  1.15. `/v1/models` carries `meteredMessagesEndpoint`. Cap note: the largest body validation admits (200k chars, Opus,
+  8192 tokens) quotes ~$1.34, under the $2 cap, so the cap is pinned on the probe-level quoter. Paid-canary leg
+  `llm-metered-messages` (haiku, max_tokens 300; test-canary-coverage pins priceUsd to the kit's quote). Gating:
+  WALLET_ONLY + test-all NETWORK + METERED_SLUGS. Guide `/guides/agent-hosts` gained an Anthropic SDK block: the credits
+  key must ride as `auth_token`/`authToken` (Authorization: Bearer), not `api_key` (x-api-key). Claude Code as an LLM host
+  is STILL not claimed (100 KB body limit vs its 70-100k-char turns; unproven beta fields).
 - **The weekly number is external metered buyers (2026-08-27):** PostHog insight "External metered buyers per week"
   (short id `Pj87HEzu`: distinct non-synthetic payers on `payment_settled{slug:v1-chat-metered}` per week, with
   settlements, settled USD, distinct `clientUa`); ledger mirror `meteredExternal({days})` (counts only) on
