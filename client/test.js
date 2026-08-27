@@ -3,6 +3,7 @@
 // is never contacted (X402_SYNC_ON_START=false); PoW bypasses settlement.
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { Agent402, withNetworkPreference, withPayeeAllowlist, NETWORK_CAIP2 } from "./index.js";
@@ -250,12 +251,14 @@ let pass = 0; const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); 
 {
   const uas = [];
   const grab = async (_url, init) => { uas.push(init?.headers?.["User-Agent"] ?? null); return { ok: true, json: async () => ({ endpoints: [] }) }; };
+  const packageVersion = JSON.parse(readFileSync(join(ROOT, "client/package.json"), "utf8")).version;
+  const expectedUa = `agent402-client/${packageVersion}`;
   const c = new Agent402({ baseUrl: "https://seller.example", cache: false, fetch: grab, fetchImpl: grab });
   await c._loadCatalog(); // plain fetch path
   c._catalog = new Map([["cheap", { method: "POST", path: "/api/cheap", computePayable: false, price: "$0.01" }]]);
   await c.call("cheap"); // payFetch path
-  ok(uas.length >= 2 && uas.every((u) => /^agent402-client\/\d+\.\d+\.\d+$/.test(u || "")),
-    `every request carries the agent402-client UA product token (got ${JSON.stringify(uas)})`);
+  ok(uas.length >= 2 && uas.every((u) => u === expectedUa),
+    `every request carries the current ${expectedUa} product token (got ${JSON.stringify(uas)})`);
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
