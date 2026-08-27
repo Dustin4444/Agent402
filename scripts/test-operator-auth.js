@@ -4,13 +4,14 @@
 // SameSite=Strict) or a header for curl/API. Boots the real server (the only
 // faithful way to test the route wiring) with a known token.
 import { spawn } from "node:child_process";
+import { getFreePort } from "./lib/free-port.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const TOKEN = "operator-test-secret-123";
-const PORT = 3480 + (process.pid % 400);
+const PORT = await getFreePort();
 const base = `http://127.0.0.1:${PORT}`;
 
 const child = spawn(process.execPath, ["src/server.js"], {

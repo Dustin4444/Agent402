@@ -2060,6 +2060,7 @@ jobs:
           t node scripts/test-crawl-cadence.js
           # CI lane gating (every test lane blocks deploy/publish; Chromium only where a script needs it — offline)
           t node scripts/test-ci-gating.js
+          t node scripts/test-port-hygiene.js
           # CI tree gate (a merge may skip the suite ONLY on a tree that already passed it — offline)
           t node scripts/test-ci-tree-gate.js
           # Single-resource x402 manifest (spec 402-body shape; chains reach an OpenAPI-sourced row — offline)
