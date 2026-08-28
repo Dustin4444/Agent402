@@ -2118,6 +2118,17 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   terms carry the alert clauses ("No account or signup" became "No account"). Sample-page mapping `ALERT_KIND_FOR_REPORT_KIND`
   (dossier -> filing). `sendEmail` takes an optional `headers` object (Resend only; ZeptoMail's documented body has none, the
   body link is the guarantee).
+- **Post-purchase follow-ups (2026-08-28, day 3 of the reports bet; `src/followups.js`, `scripts/test-followups.js` 19 in CI):**
+  a card buyer used to get one email ever. Now `createHumanCheckout` takes `onDelivered` (fires at the done hook with the
+  session email, never stored on the record) and `onFailed` (the refund path); server.js enqueues a two-step sequence per
+  purchase - day 2 the monitor for the SAME target (skipped silently for kinds with no monitor), day 7 "another report?" with
+  the free sample pages - and sends the failure/refund notice at once. Every follow-up carries a signed
+  `/followups/stop?id&k` link + `List-Unsubscribe` (RFC 8058 POST too); a repeat buyer's older sequence stops
+  (`markRepeat`); a mail failure leaves the step pending, never marked sent; store `/data/followups.json` (atomic, pruned
+  after 30 days when done); hourly tick (first +3 min); `FOLLOWUPS=off` disarms; operator `/__operator/followups.json`
+  (counts). Same secret rule as the free alerts. `KIND_ALIAS` gained `dossier -> filing`, so dossier buyers get the filing
+  watch in the ready email, the viewer upsell (`monitorMapJson` now carries alias keys) and the day-2 email; research and
+  market-brief still have no monitor. Privacy: the card-purchase bullet names the two follow-ups and the refund email.
 - **`/proof` + `GET /api/proof` (2026-08-27, `src/proof.js`, `proofFeed()` in sales-ledger):** receipts for the metered
   tier - the ledger now stores `quote_usd` (additive column) next to the settled `price_usd` on every metered sale
   (`recordSale({quoteUsd})` from the route binder's `req.__meteredQuoteUsd`), and the page shows aggregates plus ONE

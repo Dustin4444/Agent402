@@ -123,6 +123,9 @@ import { agenticFinancePage } from "./agentic-finance.js";
 import { whyPage } from "./why.js";
 import { sampleJson, sampleMeta, SAMPLE_PRODUCTS } from "./sample-reports.js";
 import { createFreeAlerts, alertFormHtml, ALERT_KIND_FOR_REPORT_KIND } from "./free-alerts.js";
+import { createFollowups } from "./followups.js";
+import { monitorForKind as fuMonitorForKind } from "./report-upgrade.js";
+import { SAMPLES as fuSamples } from "./sample-reports.js";
 import { probeInsiderFilings as faProbeInsider } from "./tools/insider-flow-kit.js";
 import { probeCompanyFilings as faProbeFilings } from "./tools/filing-watch-kit.js";
 import { latest13fFiling as faLatest13f, resolveManager as faResolveManager } from "./tools/edgar-kit.js";
@@ -1294,6 +1297,27 @@ const _freeAlerts = createFreeAlerts({
   onEvent: ({ step, kind }) => import("./posthog.js").then(({ capturePostHogHumanFunnel }) => capturePostHogHumanFunnel({ step, kind })).catch(() => {}),
 });
 if (process.env.FREE_ALERTS !== "off") _freeAlerts.start();
+// Post-purchase follow-ups (src/followups.js): two emails at most per card
+// purchase, stoppable, plus the immediate failure notice. Same secret rule.
+const _followups = createFollowups({
+  secret: (process.env.FREE_ALERTS_SECRET || process.env.POW_SECRET || process.env.MPP_SECRET_KEY || "").trim(),
+  baseUrl: BASE_URL, sendEmail: faSendEmail,
+  monitorFor: (kind) => { const m = fuMonitorForKind(kind); return m ? { product: m.product, label: m.label, priceUsd: m.priceUsd } : null; },
+  samples: () => Object.values(fuSamples).map((s) => ({ product: s.product, label: s.label, url: `${BASE_URL}/reports/sample/${s.product}` })),
+  onEvent: ({ step, kind }) => import("./posthog.js").then(({ capturePostHogHumanFunnel }) => capturePostHogHumanFunnel({ step, kind })).catch(() => {}),
+});
+if (process.env.FOLLOWUPS !== "off") _followups.start();
+app.get("/followups/stop", (req, res) => {
+  const r = _followups.stop(String(req.query.id || ""), String(req.query.k || ""));
+  res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html");
+  if (!r.ok) return res.status(400).send(alertPage("That link did not work", `<p>The link is invalid. <a href="/contact">Contact us</a> and we will stop the emails by hand.</p>`));
+  res.send(alertPage("Done", `<p>No more follow-up emails about that purchase. Your report link keeps working.</p><p><a href="/reports">Back to reports</a></p>`));
+});
+app.post("/followups/stop", (req, res) => { const r = _followups.stop(String(req.query.id || ""), String(req.query.k || "")); res.status(r.ok ? 200 : 400).json({ ok: r.ok }); });
+app.get("/__operator/followups.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  res.set("Cache-Control", "no-store").json(_followups.stats());
+});
 const alertsSignupLimiter = createRateLimiter("alerts-signup", { perMin: 6, perHour: 40 });
 const alertPage = (title, body) => ledgerShell({ title: `${title} - Agent402`, description: "Free email alerts from Agent402.", canonical: `${BASE_URL}/reports`, baseUrl: BASE_URL, activePath: "/reports", robots: "noindex, nofollow", body: `<div class="wrap" style="padding:40px 30px;max-width:640px;"><h1 style="font-size:26px;margin:0 0 12px;">${title}</h1>${body}</div>${ledgerFooterCompact()}` });
 app.post("/api/alerts", express.json({ limit: "4kb" }), async (req, res) => {
@@ -2139,6 +2163,10 @@ if (humanCheckoutEnabled()) {
         recordSale({ slug: product, priceUsd, rail: "card", network: "stripe", payer: null, tx: paymentIntent, wire: "stripe-checkout" });
         import("./posthog.js").then(({ capturePostHogHumanFunnel }) => capturePostHogHumanFunnel({ step: "paid", product, priceUsd })).catch(() => {});
       },
+      // A returning buyer's older sequence stops (never re-sold what they already
+      // buy); the new purchase starts its own two-step sequence.
+      onDelivered: ({ sessionId, email, product, kind, label, input }) => { _followups.markRepeat(email); _followups.enqueue({ sessionId, email, product, kind, label, input }); },
+      onFailed: ({ email, label, refunded }) => { _followups.sendFailed({ email, label, refunded }).catch(() => {}); },
     });
   } catch (e) { console.warn("[human-checkout] init failed:", String(e?.message || e).slice(0, 200)); _humanCheckout = null; }
   if (_humanCheckout) {

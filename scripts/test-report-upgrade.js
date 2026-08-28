@@ -4,7 +4,7 @@
 //
 // The invariants that matter:
 //   * the kind -> monitor mapping is DERIVED from MONITOR_PRODUCTS, so a report
-//     kind with no monitor (research, dossier, and therefore market-brief)
+//     kind with no monitor (research, and therefore market-brief; dossier is aliased to filing)
 //     offers NOTHING rather than a broken link
 //   * label and price on every surface come from the product table - never a
 //     hardcoded "$5 a month" that drifts the day pricing changes
@@ -39,7 +39,7 @@ const EXPECTED = {
   insider: "insider-monitor",
   token: "token-monitor",
   research: null,
-  dossier: null,
+  dossier: "filing-monitor", // aliased 2026-08-28: a dossier reader is served by the filing watch
 };
 for (const [kind, product] of Object.entries(EXPECTED)) {
   const m = monitorForKind(kind);
@@ -48,8 +48,8 @@ for (const [kind, product] of Object.entries(EXPECTED)) {
 // Every one-shot product resolves through its kind (market-brief is kind
 // "research", so it must offer nothing - the three no-monitor products).
 const noMonitor = Object.entries(HUMAN_PRODUCTS).filter(([, p]) => !monitorForKind(p.kind)).map(([k]) => k);
-ok(noMonitor.includes("research") && noMonitor.includes("dossier") && noMonitor.includes("market-brief"),
-  "research, dossier and market-brief have NO monitor (nothing is offered for them)");
+ok(noMonitor.includes("research") && !noMonitor.includes("dossier") && noMonitor.includes("market-brief"),
+  "research and market-brief have NO monitor (nothing is offered for them); dossier is aliased to the filing watch");
 ok(Object.entries(HUMAN_PRODUCTS).every(([, p]) => monitorForKind(p.kind) === null || Object.hasOwn(MONITOR_PRODUCTS, monitorForKind(p.kind).product)),
   "every mapped monitor product exists in MONITOR_PRODUCTS");
 ok(monitorForKind("") === null && monitorForKind(null) === null && monitorForKind("nope") === null, "an unknown or empty kind maps to nothing");
@@ -113,7 +113,8 @@ function inlineViewer(html) {
 const pageHtml = reportDeliveryPage("cs_test", { baseUrl: "https://agent402.tools" });
 ok(/data-monitors="/.test(pageHtml), "the delivery page carries the kind -> monitor map as data");
 const mapAttr = JSON.parse(pageHtml.match(/data-monitors="([^"]*)"/)[1].replace(/&(quot|amp|lt|gt|#39);/g, (_, e) => ({ quot: '"', amp: "&", lt: "<", gt: ">", "#39": "'" }[e])));
-ok(Object.keys(mapAttr).length === new Set(Object.values(MONITOR_PRODUCTS).map((p) => p.kind)).size, "every monitor kind is in the delivered map");
+const monitorKinds = new Set(Object.values(MONITOR_PRODUCTS).map((p) => p.kind));
+ok([...monitorKinds].every((k) => mapAttr[k]) && mapAttr.dossier?.product === "filing-monitor" && mapAttr.ticker?.product === "insider-monitor", "every monitor kind is in the delivered map, and the aliased kinds (dossier, ticker) resolve to their monitor");
 ok(mapAttr.domain.product === "domain-monitor" && mapAttr.domain.priceUsd === priceUsd(MONITOR_PRODUCTS["domain-monitor"].price) && mapAttr.domain.label === MONITOR_PRODUCTS["domain-monitor"].label,
   "the delivered map carries the table's product key, label and price");
 ok(JSON.parse(monitorMapJson()).insider.product === "insider-monitor", "monitorMapJson keys by kind");
@@ -167,7 +168,8 @@ ok(!/["'<>]/.test(href) && decodeURIComponent(href.split("target=")[1]) === HOST
 r = await renderReport({ ...doneDomain, kind: "research", slug: "research", input: "how do agents pay" });
 ok(!r.doc.getElementById("upsell"), "a research report offers no monitor");
 r = await renderReport({ ...doneDomain, kind: "dossier", slug: "dossier", input: "AAPL" });
-ok(!r.doc.getElementById("upsell"), "a dossier offers no monitor");
+box = r.doc.getElementById("upsell");
+ok(box && box.getAttribute("data-product") === "filing-monitor" && box.getAttribute("data-target") === "AAPL", "a dossier offers the filing watch for its ticker");
 r = await renderReport({ ...doneDomain, monitor: { label: "Domain security monitor", target: "example.com", reason: "change", changes: [] } });
 ok(!r.doc.getElementById("upsell"), "a monitor delivery never up-sells the monitor the reader already pays for");
 

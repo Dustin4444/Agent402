@@ -147,7 +147,7 @@ function writeJsonAtomic(path, obj) {
  * @param {()=>number} [deps.now]
  * @param {(s:string)=>void} [deps.log]
  */
-export function createHumanCheckout({ stripe, generate, baseUrl, storeDir, onSale, now = () => Date.now(), log = console.log }) {
+export function createHumanCheckout({ stripe, generate, baseUrl, storeDir, onSale, onDelivered = null, onFailed = null, now = () => Date.now(), log = console.log }) {
   const dir = storeDir || DEFAULT_DIR();
   try { mkdirSync(dir, { recursive: true }); } catch { /* best-effort; writes will fail loudly below */ }
   const INFLIGHT = join(dir, "_inflight.json");   // sessionId -> claimedAt (ms)
@@ -280,11 +280,16 @@ export function createHumanCheckout({ stripe, generate, baseUrl, storeDir, onSal
         // this target prefilled (the retention loop); a kind with no monitor
         // simply gets no offer. See src/report-upgrade.js.
         if (email) sendReportReadyEmail({ to: email, reportUrl: `${baseUrl}/r/${sessionId}`, productLabel: p.label, subjectOf: input, kind: p.kind, baseUrl }).catch(() => {});
+        // Post-purchase sequence (src/followups.js): the only moment the buyer's
+        // address is in hand next to what they bought. Never stored on the record.
+        if (email) { try { onDelivered?.({ sessionId, email, product: p.slug, kind: p.kind, label: p.label, input }); } catch { /* follow-ups never break delivery */ } }
         try { onSale?.({ sessionId, product: p.slug, priceUsd: p.price / 100, paymentIntent: typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null }); } catch { /* accounting never breaks delivery */ }
         return rec;
       } catch (err) {
         log(`[human-checkout] report failed for ${sessionId} (${p.slug}): ${String(err?.message || err).slice(0, 160)}`);
         const refundId = await refundSession(session);
+        const failEmail = session.customer_details?.email || session.customer_email;
+        if (failEmail) { try { onFailed?.({ email: failEmail, product: p.slug, label: p.label, refunded: Boolean(refundId) }); } catch { /* never breaks the refund path */ } }
         return recordError(sessionId, session, refundId, "We couldn't complete this report.");
       } finally { inFlight.delete(sessionId); }
     })();
