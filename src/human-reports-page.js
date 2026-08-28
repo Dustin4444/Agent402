@@ -22,7 +22,11 @@ export const REPORTS_CSS = `
   .hero{padding:64px 0 20px}.hero h1{font-weight:500;font-size:clamp(34px,5vw,56px);line-height:1.02;letter-spacing:-.035em;margin:14px 0 0;color:var(--ink);text-wrap:balance}.hero h1 em{font-style:normal;color:var(--faint)}
   .lede{font-size:19px;line-height:1.5;color:var(--muted);max-width:620px;margin:16px 0 0;font-weight:300}.lede b{color:var(--ink);font-weight:500}
   .products{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:18px;margin-top:8px}
-  .pcard{border:1px solid var(--hairline);border-radius:18px;background:var(--card);padding:24px;box-shadow:inset 0 1px 0 var(--card-inset),0 1px 2px rgba(0,0,0,.08)}
+  /* Cards are a flex column so the buy button sits on one baseline across a
+     grid row however long the copy above it runs (the error slot takes the
+     slack); the grid already stretches cards to equal height. */
+  .pcard{display:flex;flex-direction:column;border:1px solid var(--hairline);border-radius:18px;background:var(--card);padding:24px;box-shadow:inset 0 1px 0 var(--card-inset),0 1px 2px rgba(0,0,0,.08)}
+  .pcard .err{margin-top:auto;padding-top:8px}
   .pcard h3{font-weight:500;font-size:21px;letter-spacing:-.02em;margin:0;color:var(--ink)}.pcard .k{font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:8px}
   .pcard p{color:var(--muted);font-size:15px;line-height:1.5;margin:8px 0 16px;font-weight:300}
   /* Report bodies can carry markdown tables (filings, holders). Wide tables get
