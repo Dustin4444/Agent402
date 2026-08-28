@@ -1581,7 +1581,21 @@ app.use("/v1/metered", (req, res, next) => {
   // (review 2026-08-28: 70 HEADs with a 180 KB body reached the quoter past
   // the limiter).
   if (!["POST", "GET", "HEAD"].includes(req.method)) return next();
-  const paid = Boolean(req.headers["payment-signature"] || req.headers["x-payment"] || req.headers.authorization);
+  // "Paid" must mean a PLAUSIBLE credential, not merely a header: measured
+  // 2026-08-28, `Authorization: Bearer garbage` took 80 of 80 requests past
+  // this limiter while the same 80 unauthenticated ones were throttled at 44.
+  // The gates still decide whether it is really valid; this only decides
+  // whether the request is worth a free tokenizer run.
+  const looksPaid = (h) => {
+    const a = String(req.headers.authorization || "");
+    if (/^Bearer\s+a402_[A-Za-z0-9_-]{8,}/.test(a) || /^Payment\s+\S{16,}/i.test(a)) return true;
+    for (const k of ["payment-signature", "x-payment"]) {
+      const v = req.headers[k];
+      if (typeof v === "string" && v.length >= 32) return true;
+    }
+    return false;
+  };
+  const paid = looksPaid();
   if (!paid && meteredQuoteLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many unpaid quote requests from this address; send the paid retry, or slow down." });
   next();
 });
@@ -3400,9 +3414,10 @@ app.get("/api/rails", (_req, res) => {
     rails,
   });
 });
-app.get("/api/reliability", (_req, res) =>
+app.get("/api/reliability", async (_req, res) =>
   res.json(reliabilityReport({
     baseUrl: BASE_URL, network: NETWORK, wallet: WALLET_ADDRESS,
+    observedStatus: await (async () => { try { return statusSnapshot({ baseUrl: BASE_URL, live: await statusLive() }).overall; } catch { return null; } })(),
     stats: getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }),
   }))
 );
@@ -4186,11 +4201,27 @@ app.get("/marketplace", async (req, res) => {
 });
 // The host's own entry for the discovery surfaces: external-only ledger
 // figures, rendered outside every ranking and count (src/host-entry.js).
+// CACHED, because these are synchronous better-sqlite3 aggregates and one of
+// them scans ALL TIME: measured 2026-08-28 at ~215 ms of BLOCKED event loop
+// per render on a 120k-row ledger, on public crawler-hit pages, on a single
+// replica. htmlCache() is a browser hint and there is no CDN, so without this
+// every crawl of /marketplace and the twelve chain pages paid it again. Same
+// doctrine as the economy snapshot: serve the cached value, rebuild past the
+// window, never block a visitor on the ledger.
+const HOST_FIGURES_TTL_MS = Number(process.env.HOST_FIGURES_TTL_MS) || 60_000;
+const hostFiguresCache = new Map(); // chainKey|"" -> { at, value }
 function hostEntryFigures(chainKey = null) {
+  const key = chainKey || "";
+  const hit = hostFiguresCache.get(key);
+  if (hit && Date.now() - hit.at < HOST_FIGURES_TTL_MS) return hit.value;
+  let value = null;
   try {
-    return hostFigures({ summaryFn: salesSummary, byNetworkFn: externalByNetwork, network: chainKey || null, networkLabel: chainKey ? (SNAPSHOT_RAIL_LABEL[chainKey] || chainKey.charAt(0).toUpperCase() + chainKey.slice(1)) : null, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL });
-  } catch { return null; }
+    value = hostFigures({ summaryFn: salesSummary, byNetworkFn: externalByNetwork, network: chainKey || null, networkLabel: chainKey ? (SNAPSHOT_RAIL_LABEL[chainKey] || chainKey.charAt(0).toUpperCase() + chainKey.slice(1)) : null, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL });
+  } catch { value = hit ? hit.value : null; } // a failed rebuild keeps the last good figures
+  hostFiguresCache.set(key, { at: Date.now(), value });
+  return value;
 }
+export const _hostFiguresCacheForTest = hostFiguresCache;
 // The MPP marketplace - independent directory, synchronous snapshot (no
 // on-chain join, unlike /marketplace above), same cache window.
 app.get("/mpp-marketplace", (_req, res) => {
@@ -4386,7 +4417,9 @@ app.get("/api/leaderboard", (req, res) => {
   // nobody choosing a seller needs rank 400. The operator token lifts it for
   // our own tooling.
   const topCeiling = operatorAuthed(req) ? 500 : 50;
-  const top = Math.min(Math.max(parseInt(req.query.top, 10) || 25, 1), topCeiling);
+  const requestedTop = parseInt(req.query.top, 10) || 25;
+  const top = Math.min(Math.max(requestedTop, 1), topCeiling);
+  const topTruncated = requestedTop > topCeiling; // say it, never clamp silently
   const include = req.query.include === "external" ? "external" : "all";
   const self = (req.query.self || WALLET_ADDRESS || "").toLowerCase();
   const requested = String(req.query.window || "").toLowerCase();
@@ -4407,6 +4440,8 @@ app.get("/api/leaderboard", (req, res) => {
     windowServed: snap.windowLabel || "24h",
     leaderboard: board.slice(0, top),
     totalSellers: (snap.leaderboard || []).length,
+    top,
+    ...(topTruncated ? { topRequested: requestedTop, truncated: true, truncatedReason: `?top is capped at ${topCeiling} on this endpoint` } : {}),
   });
 });
 // Human-readable companion to /api/leaderboard. Same cached snapshot, rendered
@@ -4997,7 +5032,13 @@ app.get("/api/pricing", (_req, res) => {
     // credits for every tool, and the human report/monitor products. Stripe-
     // gated - absent rather than advertised when card checkout is off.
     ...(humanCheckoutEnabled() ? {
-      credits: { how: "buy a pack by card at /credits, then Authorization: Bearer a402_<key> on any paid route; the list price is held before the call and debited only on a 200", buy: `${BASE_URL}/credits`, packsUsd: Object.values(CREDIT_PACKS).map((p) => p.cents / 100), balance: `${BASE_URL}/api/credits/balance` },
+      credits: { how: "buy a pack by card at /credits, then Authorization: Bearer a402_<key> on any paid route; the list price is held before the call and debited only on a 200", buy: `${BASE_URL}/credits`, packsUsd: Object.values(CREDIT_PACKS).map((p) => p.cents / 100),
+        // The IDS, not just the dollar amounts: POST /api/credits/checkout takes
+        // {"pack":"credits-20"} and an agent cannot guess that from a bare 20
+        // (an outside reviewer brute-forced it, 2026-08-28).
+        packs: Object.entries(CREDIT_PACKS).map(([id, p]) => ({ pack: id, label: p.label, priceUsd: p.cents / 100 })),
+        checkout: { method: "POST", url: `${BASE_URL}/api/credits/checkout`, body: { pack: Object.keys(CREDIT_PACKS)[0] } },
+        balance: `${BASE_URL}/api/credits/balance` },
       humanProducts: {
         reports: Object.entries(HUMAN_PRODUCTS).map(([k, p]) => ({ product: k, label: p.label, priceUsd: p.price / 100, slug: p.slug, buy: `${BASE_URL}/reports` })),
         monitors: Object.entries(MONITOR_PRODUCTS).map(([k, p]) => ({ product: k, label: p.label, priceUsdPerMonth: p.price / 100, slug: p.slug, subscribe: `${BASE_URL}/monitors` })),

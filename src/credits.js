@@ -62,7 +62,13 @@ export function createCredits({ stripe, baseUrl, storeDir, onDebit, onLoad, now 
 
   async function createCheckout(packKey) {
     const p = Object.hasOwn(CREDIT_PACKS, String(packKey)) ? CREDIT_PACKS[packKey] : null;
-    if (!p) { const e = new Error("Unknown credit pack"); e.statusCode = 400; throw e; }
+    if (!p) {
+      // Self-correcting: an agent cannot guess "credits-20" from a bare 20,
+      // and /api/pricing used to publish the dollar amounts only (found by an
+      // outside reviewer 2026-08-28, who brute-forced the id).
+      const e = new Error(`Unknown credit pack. Valid packs: ${Object.keys(CREDIT_PACKS).join(", ")}`);
+      e.statusCode = 400; e.validPacks = Object.keys(CREDIT_PACKS); e.buyerSafe = true; throw e;
+    }
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       ...(String(process.env.STRIPE_AUTOMATIC_TAX || "").toLowerCase() === "true" ? { automatic_tax: { enabled: true } } : {}),

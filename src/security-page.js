@@ -26,7 +26,7 @@ const SECTIONS = [
   {
     h: "Key handling",
     p: [
-      `Payments are non-custodial: buyers sign with their own keys, settlement goes to a public treasury address, and no customer key ever reaches the server. The wallets the service spends from are dedicated, low-balance and alarmed; the treasury never signs a request. Production secrets live only in the hosting platform's variable store, are never committed, and CI signing and publishing keys are scoped Actions secrets with npm publishing on OIDC provenance. Links we email (confirmations, unsubscribes, monitor management) are HMAC-signed with dedicated secrets and verified in constant time.`,
+      `Payments on the crypto rails are non-custodial: buyers sign with their own keys, settlement goes to a public treasury address, and no customer key ever reaches the server. Two card paths are not, and we say so rather than let the word cover them: a prepaid credits balance is money we hold until it is spent, and a card report purchase is held by the payment processor until the report is delivered or refunded. The wallets the service spends from are dedicated, low-balance and alarmed; the treasury never signs a request. Production secrets live only in the hosting platform's variable store, are never committed, and CI signing and publishing keys are scoped Actions secrets with npm publishing on OIDC provenance. Links we email (confirmations, unsubscribes, monitor management) are HMAC-signed with dedicated secrets and verified in constant time.`,
     ],
     links: [["/transparency", "Disclosures"]],
   },

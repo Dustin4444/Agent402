@@ -2020,6 +2020,27 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   14,910 rows) - and `unattributedMerchants` now reports `attributedUnroutable` (known origin, cannot route) separately from
   `unattributed` (unknown). Submitted-seed slots: 586 of the 2,000 cap in use (2026-08-27). test-settlement-proof 44.
 
+- **Outside-in reviews, 2026-08-28 (a security pass over the day's 41 commits + an adversarial partner due-diligence run):**
+  HIGH, self-inflicted the same day: `hostEntryFigures()` ran 2-4 SYNCHRONOUS better-sqlite3 aggregates per render (one over
+  ALL TIME) on `/marketplace`, the twelve chain pages, both leaderboards and `/api/index` - measured **215 ms of blocked event
+  loop per render** on a 120k-row ledger, on public crawler-hit pages, single replica, with no CDN behind `htmlCache`. Now
+  cached 60 s per chain key (`HOST_FIGURES_TTL_MS`), a failed rebuild keeps the last good figures. MED: the metered
+  unpaid-quote limiter treated ANY `authorization` header as paid - `Bearer garbage` took 80 of 80 requests past it while 80
+  unauthenticated ones were throttled at 44; "paid" now means a PLAUSIBLE credential shape. From the partner audit, all
+  reproduced: the **"never holds or moves funds" claim was false** while we sell prepaid credits, so `/api/reliability`,
+  `/company` and `/security` now say non-custodial ON THE PAYMENT RAILS and name the two card paths that are not, and
+  `/terms` gained an explicit wind-down clause (30 days notice, sales stop, routes keep serving, unspent balance refunded to
+  the card) - a held balance should not depend on us existing forever. `/api/reliability` hardcoded `status: "operational"`
+  while `/api/status` computed "degraded" from real observations IN THE SAME MINUTE; it now mirrors the measured `overall`
+  and falls back to "serving", never to a self-assessment. `POST /api/credits/checkout` refused every guessable pack id
+  (`20`, `"$20"`, `{amount:20}`) with a bare "Unknown credit pack" while `/api/pricing` published only the dollar amounts -
+  the reviewer brute-forced `credits-20`; the error now lists the valid ids and `/api/pricing` publishes `packs[]` plus the
+  checkout shape. `?top=1000` on `/api/leaderboard` silently returned 50 - it now carries `truncated`, `topRequested` and the
+  reason. STILL OPEN and worth doing: the MCP Registry entry is stale and inflated (it says 1,338 tools and 4 chains against
+  560 and 12); `/api/route` returns rows whose `url` still contains `{symbol}` placeholders and sellers that answer no 402;
+  `/api/stats` `viaUSDC` does not equal the sum of `viaUSDCByNetwork` and neither carries a window label; `/marketplace`
+  takes 5.6 s wall clock; and `GLAMA_MAINTAINER_EMAIL` is set to a personal address on Railway while the code default is the
+  company mailbox (operator: delete the variable).
 - **mppx 0.8.18 (2026-08-28):** carries the UPSTREAM fix for the yParity/canonical-hash bug `src/tempo-confirm.js` exists to
   work around ("Normalized Tempo transactions before broadcast so accepted recovery-ID encodings matched the node's canonical
   hash"). Our chain-truth confirm STAYS - it is the belt that made an AgentCore/Privy buyer payable at all, and a library fix
