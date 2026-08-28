@@ -220,7 +220,7 @@
         ? '<div class="keep-hint no-print">A real ' + esc(productLabel(s.kind)).toLowerCase() + ' generated for "' + esc(s.input) + '"' + (s.at ? " on " + esc(fmtDate(s.at)) : "") + (included.length ? ". Includes " + included.join(" · ") : "") + ". Every report is generated fresh at request time from live sources.</div>" +
           '<form class="sample-buy no-print" id="sample-buy" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:14px 0 22px;">' +
             '<input id="sample-input" class="field" style="flex:1 1 240px;" placeholder="Your own ' + esc(inputNoun(s.kind)) + '" aria-label="Your own ' + esc(inputNoun(s.kind)) + '">' +
-            '<button class="btn btn-primary" type="submit">Get this report, $' + esc(String(Math.round(s.priceUsd || 0))) + ' →</button>' +
+            '<button class="btn btn-primary" type="submit">Get this report, ' + "$" + esc(String(Math.round(s.priceUsd || 0))) + ' →</button>' +
             '<span id="sample-err" style="color:var(--muted);font-size:13px;"></span>' +
           "</form>"
         : included.length ? '<div class="keep-hint no-print">Includes ' + included.join(" · ") + ". This page is yours to keep, bookmark it or use the link we emailed you.</div>"
