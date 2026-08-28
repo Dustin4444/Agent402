@@ -38,6 +38,11 @@ try {
   ok(body.startsWith("#!/bin/sh") && body.includes("set -eu") && body.includes("claude mcp add --transport http agent402") && body.includes("npx agent402-openclaw setup") && body.includes("/guides/agent-hosts"), "script wires Claude Code, points OpenClaw and Cursor at their setup, and links the guide");
   ok(!/^\s*sudo |rm -rf|curl [^|\n]*\| *sh/m.test(body), "script never runs sudo, deletes, or pipes another download into sh");
   const f = join(mkdtempSync(join(tmpdir(), "a402-install-")), "install.sh"); try { writeFileSync(f, body); execFileSync("sh", ["-n", f]); ok(true, "script passes sh -n"); } catch (e) { ok(false, `sh -n: ${e.message}`); }
+  // Canonical host: www.<host> is a 301 to the apex with path + query kept; a paying call is never redirected.
+  const www = await fetch(`${base}/guides/agent-hosts?x=1`, { redirect: "manual", headers: { Host: "www.agent402.test" } });
+  ok(www.status === 301 && www.headers.get("location") === "http://agent402.test/guides/agent-hosts?x=1", `www host 301s to the apex with the path kept (got ${www.status} ${www.headers.get("location")})`);
+  const wwwPaid = await fetch(`${base}/api/uuid`, { redirect: "manual", headers: { Host: "www.agent402.test", "payment-signature": "x" } });
+  ok(wwwPaid.status !== 301, "a request carrying a payment header is never redirected (the header would not survive)");
   const alias = await fetch(`${base}/install.sh`, { redirect: "manual" });
   ok(alias.status === 302 && alias.headers.get("location") === "/install", "/install.sh redirects to /install");
   ok(/^MCP_URL="https:\/\/x\.test\/mcp"$/m.test(installScript("https://x.test/")) && !/x\.test\/\//.test(installScript("https://x.test/")), "base URL trailing slash handled");
