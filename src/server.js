@@ -31,6 +31,7 @@ import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpend
 // not composite-spend-guarded (one bounded upstream price).
 import Stripe from "stripe";
 import { REPORT_TIERS } from "./report-tiers.js";
+import { mountShortlinks } from "./shortlinks.js";
 import { withHouseStyle } from "./house-style.js";
 import { createHumanCheckout, humanCheckoutEnabled, HUMAN_PRODUCTS, reportHeadline, readPublicReport } from "./human-checkout.js";
 import { humanReportsPage, reportDeliveryPage } from "./human-reports-page.js";
@@ -1865,6 +1866,8 @@ app.get("/aifi", (_req, res) => res.redirect(301, "/agentic-finance"));
 // /why - the seven first-party differences, every claim linked to its proof surface
 // (src/why.js); llms.txt, the MCP instructions and the package READMEs point here.
 app.get("/why", (_req, res) => htmlCache(res, 300, 900).send(whyPage(BASE_URL)));
+// Dev shortlinks (agent402.sh/<word> redirects here path-preserved) + the install script.
+mountShortlinks(app, BASE_URL);
 app.get("/security", (_req, res) => htmlCache(res, 300, 900).send(securityPage(BASE_URL)));
 app.get("/company", (_req, res) => htmlCache(res, 300, 900).send(companyPage(BASE_URL)));
 // Real sample reports (assets/samples, src/sample-reports.js): the finished
