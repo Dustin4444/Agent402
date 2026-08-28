@@ -2020,6 +2020,23 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   14,910 rows) - and `unattributedMerchants` now reports `attributedUnroutable` (known origin, cannot route) separately from
   `unattributed` (unknown). Submitted-seed slots: 586 of the 2,000 cap in use (2026-08-27). test-settlement-proof 44.
 
+- **Data-provider sweep (2026-08-28): Kalshi silently emptied two paid tools.** Kalshi REMOVED every integer-cents field
+  (`yes_bid`, `yes_ask`, `no_bid`, `no_ask`, `last_price`, `volume`, `open_interest`) that `shapeKalshiMarket` was built on -
+  verified live against 200 markets, not one of them present - so `kalshi-markets` and `kalshi-event` were answering HTTP 200
+  with every price, volume and open-interest field NULL. A charged empty answer, invisible to every guard we have, because a
+  200 with nulls is not an error and PostHog showed no recent calls to notice. The shaper now reads the new STRING-DOLLAR and
+  fixed-point names (`yes_bid_dollars` "0.4700", `volume_fp`), keeps the buyer-facing values in CENTS so existing callers'
+  arithmetic still works, publishes the dollar figures alongside (`yesBidUsd` ...) and falls back to the legacy names so a
+  rollback on their side cannot break us twice; `liquidityUsd` is new. Pinned in test-prediction-market-kit (94) including
+  the distinction the failure turned on: an untraded market reads 0, an ABSENT field reads null. Lesson for any shaper over a
+  third-party feed: a field rename is indistinguishable from an outage unless something asserts the values are populated.
+  Also from that sweep, NOT yet acted on: Polymarket's gamma `/markets` and `/events` carry `deprecation: true` and
+  `sunset: Fri, 01 May 2026` in the HTTP HEADERS ONLY (nothing in their docs), pointing at `/markets/keyset` (`next_cursor`
+  becomes `after_cursor`, `offset` is refused) - still 200 today, past its own sunset; `OPENFDA_API_KEY` is unset in prod, so
+  a $3 product runs under a 1,000/day shared-IP cap for a free key; openFEC's acceptable-use policy bars commercial use
+  outright, including as LLM training data, which is stricter than the statute behind it; FRED's terms require the
+  "not endorsed or certified by the Federal Reserve Bank of St. Louis" line, which no surface of ours carries; and Nasdaq's
+  2026-05-11 terms are personal non-commercial only. The licensing cluster is one business decision, not nine tasks.
 - **Chain/RPC sweep (2026-08-28, every endpoint probed live):** four dead-endpoint classes, two of them money paths failing
   CLOSED. (1) `scripts/refund-run.js` had `polygon-rpc.com` as the ONLY Polygon RPC - Polygon shut it off 2026-07-31 (probe:
   `tenant disabled`, 403), so every Polygon refund held unpaid; now `polygon-bor-rpc.publicnode.com`. (2) The same file pointed

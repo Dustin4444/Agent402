@@ -162,7 +162,30 @@ function shapeMarket(m) {
   };
 }
 
+// Kalshi REMOVED the integer-cents fields this shaper was built on
+// (`yes_bid`, `yes_ask`, `no_bid`, `no_ask`, `last_price`, `volume`,
+// `open_interest`). Verified 2026-08-28 against the live API: not one of them
+// is present on any market, so both paid Kalshi tools were answering HTTP 200
+// with every price, volume and open-interest field null - a charged empty
+// answer that no guard could see, because 200 + nulls is not an error.
+//
+// The replacements are STRINGS in DOLLARS ("0.4700") and fixed-point
+// ("volume_fp"). The buyer-facing shape stays in CENTS so an existing caller's
+// arithmetic keeps working, and the dollar values ride alongside under their
+// own names. `centsFrom` reads the new field first and falls back to the old
+// one, so a Kalshi rollback cannot break us a second time.
+const centsFrom = (dollars, legacyCents) => {
+  const d = asNumber(dollars);
+  if (d !== null) return Math.round(d * 100 * 1e6) / 1e6; // dollars -> cents, no float dust
+  return asNumber(legacyCents);
+};
+
 function shapeKalshiMarket(m) {
+  const yesBid = centsFrom(m.yes_bid_dollars, m.yes_bid);
+  const yesAsk = centsFrom(m.yes_ask_dollars, m.yes_ask);
+  const noBid = centsFrom(m.no_bid_dollars, m.no_bid);
+  const noAsk = centsFrom(m.no_ask_dollars, m.no_ask);
+  const lastPrice = centsFrom(m.last_price_dollars, m.last_price);
   return {
     ticker: m.ticker ?? null,
     eventTicker: m.event_ticker ?? null,
@@ -172,13 +195,16 @@ function shapeKalshiMarket(m) {
     openTime: m.open_time ?? null,
     closeTime: m.close_time ?? null,
     expirationTime: m.expiration_time ?? null,
-    yesBid: asNumber(m.yes_bid),
-    yesAsk: asNumber(m.yes_ask),
-    noBid: asNumber(m.no_bid),
-    noAsk: asNumber(m.no_ask),
-    lastPrice: asNumber(m.last_price),
-    volume: asNumber(m.volume),
-    openInterest: asNumber(m.open_interest),
+    yesBid, yesAsk, noBid, noAsk, lastPrice,
+    // The same five in dollars (0 to 1), which is how Kalshi now publishes them.
+    yesBidUsd: asNumber(m.yes_bid_dollars, yesBid === null ? null : yesBid / 100),
+    yesAskUsd: asNumber(m.yes_ask_dollars, yesAsk === null ? null : yesAsk / 100),
+    noBidUsd: asNumber(m.no_bid_dollars, noBid === null ? null : noBid / 100),
+    noAskUsd: asNumber(m.no_ask_dollars, noAsk === null ? null : noAsk / 100),
+    lastPriceUsd: asNumber(m.last_price_dollars, lastPrice === null ? null : lastPrice / 100),
+    volume: asNumber(m.volume_fp, asNumber(m.volume)),
+    openInterest: asNumber(m.open_interest_fp, asNumber(m.open_interest)),
+    liquidityUsd: asNumber(m.liquidity_dollars),
     venue: "kalshi",
     venueUrl: m.ticker ? `https://kalshi.com/markets/${m.ticker.toLowerCase()}` : null,
   };

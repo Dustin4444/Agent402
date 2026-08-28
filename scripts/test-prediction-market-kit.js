@@ -105,6 +105,31 @@ ok(kshaped.yesBid === 45, "shapeKalshiMarket: yes_bid → yesBid");
 ok(kshaped.venue === "kalshi", "shapeKalshiMarket: venue tag");
 ok(kshaped.venueUrl === "https://kalshi.com/markets/test-25", "shapeKalshiMarket: venueUrl lowercased");
 
+// Kalshi removed the integer-cents fields (verified live 2026-08-28): the
+// current API sends STRING DOLLARS and fixed-point volume. Both paid Kalshi
+// tools were returning 200 with every one of these null. The shaper reads the
+// new names, keeps the buyer-facing values in CENTS, and publishes the dollar
+// figures alongside; the legacy fallback above must keep working so a rollback
+// on their side cannot break us a second time.
+const knew = {
+  ticker: "NEW-26", event_ticker: "NEW", title: "t", status: "active",
+  yes_bid_dollars: "0.4700", yes_ask_dollars: "0.4900",
+  no_bid_dollars: "0.5100", no_ask_dollars: "0.5300",
+  last_price_dollars: "0.4800", volume_fp: "12345.00",
+  open_interest_fp: "5678.00", liquidity_dollars: "910.5000",
+};
+const kn = shapeKalshiMarket(knew);
+ok(kn.yesBid === 47 && kn.yesAsk === 49 && kn.noBid === 51 && kn.noAsk === 53 && kn.lastPrice === 48,
+  `dollar strings become cents (yesBid ${kn.yesBid}, lastPrice ${kn.lastPrice})`);
+ok(kn.yesBidUsd === 0.47 && kn.lastPriceUsd === 0.48, "the dollar values ride alongside under their own names");
+ok(kn.volume === 12345 && kn.openInterest === 5678 && kn.liquidityUsd === 910.5, "volume, open interest and liquidity come from the fixed-point fields");
+ok(![kn.yesBid, kn.yesAsk, kn.noBid, kn.noAsk, kn.lastPrice, kn.volume, kn.openInterest].includes(null),
+  "no field is null on a market the API describes fully (the failure this fixes was 200 with every value null)");
+const kzero = shapeKalshiMarket({ ticker: "Z-26", yes_bid_dollars: "0.0000", volume_fp: "0.00" });
+ok(kzero.yesBid === 0 && kzero.volume === 0, "a genuinely untraded market reads 0, never null");
+const kmissing = shapeKalshiMarket({ ticker: "M-26" });
+ok(kmissing.yesBid === null && kmissing.volume === null, "an absent field is still null, never a fabricated 0");
+
 // ----------------------------------------------------------------------------
 // Input validation — all 6 tools
 // ----------------------------------------------------------------------------
