@@ -2207,6 +2207,20 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   differentiate by included content or quantity, never by depth). The pro/max tiers stay as AGENT API products (REPORT_TIERS,
   HUMAN_PRODUCTS keys kept so old sessions, /api/buy and docs still resolve). Re-tier only behind a visible deliverable fence and
   once card sales can read an A/B test.
+- **Dev shortlinks + `/install` + six more hosts on `/guides/agent-hosts` (2026-08-28, `src/shortlinks.js`, `scripts/test-shortlinks.js`
+  in CI):** agent402.sh (and agent402.co) are name.com-registered redirect domains that 301 path-preserved to agent402.tools (content
+  lives ONLY on .tools; redirects are never indexed, the guide is in the sitemap + llms.txt). `SHORTLINKS` = `/claude /cursor /vscode
+  /copilot /windsurf /cline /roo /codex /gemini /continue /eliza /openai /anthropic /agentcore /bedrock /openclaw /agentkit /langchain
+  /llamaindex /adapters /hosts /key /api` -> 302 to a real page; `/install` serves a POSIX script (`curl -fsSL agent402.sh/install | sh`:
+  `claude mcp add` when the CLI is present, OpenClaw/Cursor pointers, guide link; no sudo). Guide headings carry GitHub-style ids
+  (`headingId` from the heading's TOKEN TEXT, never rendered html - CodeQL flagged the regex tag strip). The agent-hosts guide gained VS
+  Code (`.vscode/mcp.json`, `servers` + `type:"http"`, `${input:}` for the key), Windsurf (`mcp_config.json`, `serverUrl`, 100-tool
+  cap, `${env:}`), Cline (`streamableHttp`; its OpenAI Compatible provider takes `/v1/metered` as base URL), Roo Code (`streamable-http`,
+  `.roo/mcp.json` wins), Codex CLI (`codex mcp add --url`; NOT a model host here: `model_providers` speak Responses only and the metered
+  tier has no Responses route yet) and Gemini CLI (`gemini mcp add --transport http`, `httpUrl` = streamable, `url` = SSE) - every
+  block read from the host's own docs the same day. The hosted `/mcp` does NOT take a Bearer credits key (paid tools ride the stdio
+  `agent402-mcp` with `AGENT402_CREDITS_KEY`), so every "paid by card" block is the stdio form. Guide `md` is a JS template literal:
+  literal `${...}` in a block must be written `\${...}`.
 - **Domain audit inputs round 2 (2026-08-28, from a buyer's own review of a live run on their domain; `scripts/test-domain-audit-inputs.js`
   34, in CI):** the audit said "no DKIM" to an iCloud+ domain that signs with `sig1` - `email-deliverability` now resolves MX FIRST and
   probes the provider's own selectors (`PROVIDER_DKIM_SELECTORS`/`providerForMx`, network-kit: Apple sig1, Fastmail fm1-3, Proton,

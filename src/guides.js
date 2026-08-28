@@ -1015,7 +1015,7 @@ its normal schedule.
   },
   {
     slug: "agent-hosts",
-    title: "Use Agent402 from Claude Code, Cursor, Continue, ElizaOS, AgentCore and any OpenAI SDK",
+    title: "Use Agent402 from Claude Code, Cursor, VS Code, Windsurf, Cline, Roo Code, Codex CLI, Gemini CLI, Continue, ElizaOS, AgentCore and any OpenAI SDK",
     description:
       "Two doors into Agent402 from the agent host you already run: models through an OpenAI-compatible base URL with a prepaid credits key (metered, from $" + TIERS["v1-chat-metered"].price + " a call), and 500+ tools through MCP. Copy the block for your host.",
     md: `
@@ -1205,6 +1205,166 @@ connector as an MCP server target. Paid calls ride
 the agent forwards our \`402\` payload, AgentCore signs it from its managed
 wallet, and the retry carries the proof in \`X-PAYMENT\`; every Agent402 route
 answers a stock x402 v2 challenge, so nothing on our side needs configuring.
+
+## VS Code
+
+GitHub Copilot's agent mode reads \`.vscode/mcp.json\` in the workspace (or
+the user profile via the \`MCP: Open User Configuration\` command; \`MCP: Add
+Server\` in the palette writes either). Remote, free tier, no key:
+
+\`\`\`json
+{ "servers": { "agent402": { "type": "http", "url": "https://agent402.tools/mcp" } } }
+\`\`\`
+
+Paid tools by card, through the stdio server with a credits key held in a
+prompted input (VS Code stores it, the file never carries it):
+
+\`\`\`json
+{
+  "inputs": [{ "type": "promptString", "id": "agent402-key", "description": "Agent402 credits key (a402_...)", "password": true }],
+  "servers": {
+    "agent402": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "agent402-mcp"],
+      "env": { "AGENT402_CREDITS_KEY": "\${input:agent402-key}" }
+    }
+  }
+}
+\`\`\`
+
+## Windsurf
+
+Cascade reads \`~/.codeium/windsurf/mcp_config.json\` (Streamable HTTP, SSE
+and stdio are all supported; note Cascade caps the tools it can see at 100 in
+total across servers, and this connector lists a small fixed set, not the
+whole catalog). Remote, free tier:
+
+\`\`\`json
+{ "mcpServers": { "agent402": { "serverUrl": "https://agent402.tools/mcp" } } }
+\`\`\`
+
+Paid tools by card, with the key read from the environment (\`\${env:VAR}\`
+interpolation is Windsurf's own):
+
+\`\`\`json
+{
+  "mcpServers": {
+    "agent402": {
+      "command": "npx",
+      "args": ["-y", "agent402-mcp"],
+      "env": { "AGENT402_CREDITS_KEY": "\${env:AGENT402_CREDITS_KEY}" }
+    }
+  }
+}
+\`\`\`
+
+## Cline
+
+MCP Servers icon in the top toolbar, Configure tab, then Configure MCP
+Servers (the CLI reads \`~/.cline/mcp.json\`). Remote, free tier:
+
+\`\`\`json
+{
+  "mcpServers": {
+    "agent402": { "type": "streamableHttp", "url": "https://agent402.tools/mcp", "disabled": false, "autoApprove": [] }
+  }
+}
+\`\`\`
+
+Paid tools by card:
+
+\`\`\`json
+{
+  "mcpServers": {
+    "agent402": {
+      "command": "npx",
+      "args": ["-y", "agent402-mcp"],
+      "env": { "AGENT402_CREDITS_KEY": "a402_..." },
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}
+\`\`\`
+
+Cline's own "OpenAI Compatible" provider also accepts a base URL, so the
+models door works too: base URL \`https://agent402.tools/v1/metered\`, the
+credits key as the API key, and a model id from \`/v1/models\`.
+
+## Roo Code
+
+Settings icon in the Roo pane, then Edit Global MCP (\`mcp_settings.json\`) or
+Edit Project MCP (\`.roo/mcp.json\`, which wins on a name clash). Remote,
+free tier:
+
+\`\`\`json
+{
+  "mcpServers": {
+    "agent402": { "type": "streamable-http", "url": "https://agent402.tools/mcp", "alwaysAllow": [], "disabled": false }
+  }
+}
+\`\`\`
+
+Paid tools by card:
+
+\`\`\`json
+{
+  "mcpServers": {
+    "agent402": {
+      "command": "npx",
+      "args": ["-y", "agent402-mcp"],
+      "env": { "AGENT402_CREDITS_KEY": "a402_..." },
+      "alwaysAllow": [],
+      "disabled": false
+    }
+  }
+}
+\`\`\`
+
+## OpenAI Codex CLI
+
+One command for the free tier:
+
+\`\`\`bash
+codex mcp add agent402 --url https://agent402.tools/mcp
+\`\`\`
+
+Or in \`~/.codex/config.toml\`, paid tools by card through the stdio server:
+
+\`\`\`toml
+[mcp_servers.agent402]
+command = "npx"
+args = ["-y", "agent402-mcp"]
+env = { AGENT402_CREDITS_KEY = "a402_..." }
+\`\`\`
+
+Codex as a model host is not on this page: its \`model_providers\` speak the
+Responses wire only, and the metered tier serves Chat Completions and
+Messages today. When a metered Responses route ships it will be listed here.
+
+## Gemini CLI
+
+One command for the free tier:
+
+\`\`\`bash
+gemini mcp add --transport http agent402 https://agent402.tools/mcp
+\`\`\`
+
+Or in \`~/.gemini/settings.json\` (\`httpUrl\` is the Streamable HTTP key;
+\`url\` means SSE), paid tools by card through the stdio server:
+
+\`\`\`json
+{
+  "mcpServers": {
+    "agent402": {
+      "command": "npx",
+      "args": ["-y", "agent402-mcp"],
+      "env": { "AGENT402_CREDITS_KEY": "a402_..." }
+    }
+  }
+}
+\`\`\`
 
 ## What the same key buys
 
