@@ -2176,8 +2176,9 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   security@, SECURITY.md controls paragraph + 2-business-day ack + safe harbor, README first screen + CodeQL/secret-scan
   badges, one price ladder everywhere (FAQ, x402 manifest, listings), "70+ skill packs" (74 live), competitor names and
   "no model" absolutes rewritten affirmatively, /community shows the real samples, em dashes out of llms.txt/emails,
-  /transparency headlined "Disclosures", status paid-call blurb, CODE_OF_CONDUCT.md. OPERATOR-ONLY (not done): role
-  mailboxes security@/hello@/legal@/invest@/conduct@ (now referenced on the site), Railway `FREE_ALERTS_SECRET` +
+  /transparency headlined "Disclosures", status paid-call blurb, CODE_OF_CONDUCT.md. Mailboxes DECIDED 2026-08-28: one
+  mailbox, `mike@agent402.tools`, for general/security/legal/conduct; investors and partnerships route to
+  `hello@havok.holdings` (/company, /contact); no role aliases. Still operator-only: Railway `FREE_ALERTS_SECRET` +
   `MONITOR_MANAGE_SECRET`, GitHub production-environment reviewer + deploy-branch policy + ruleset without the standing admin
   bypass + Dependabot security updates + delete the unused NPM_TOKEN secret. Follow-ups in code: client-side backup
   encryption, tollbooth Tempo chain-truth confirm, shell 404s on seven fragment routes, operator-token guessing pager.
