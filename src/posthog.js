@@ -447,7 +447,7 @@ export function capturePostHogChargedFailure({ slug, status, network, priceUsd, 
 // hour because one client's retry loop produced 1,500 an hour.
 const VERIFY_FAILED_HOURLY_CAP = 300;
 let _vfWindow = 0, _vfCount = 0;
-export function capturePostHogVerifyFailed({ network, scheme, resource, errorReason, synthetic }) {
+export function capturePostHogVerifyFailed({ network, scheme, resource, errorReason, synthetic, payerBalanceBucket }) {
   if (!active()) return;
   const hour = Math.floor(Date.now() / 3_600_000);
   if (hour !== _vfWindow) { _vfWindow = hour; _vfCount = 0; }
@@ -460,6 +460,7 @@ export function capturePostHogVerifyFailed({ network, scheme, resource, errorRea
     ...(path ? { path } : {}),
     synthetic: !!synthetic,
     ...(errorReason ? { errorReason: String(errorReason).slice(0, 200) } : {}),
+    ...(payerBalanceBucket ? { payerBalanceBucket: String(payerBalanceBucket) } : {}),
   });
 }
 

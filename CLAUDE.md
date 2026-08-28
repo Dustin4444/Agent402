@@ -2029,6 +2029,18 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   key must ride as `auth_token`/`authToken` (Authorization: Bearer), not `api_key` (x-api-key). **Claude Code as an LLM host
   is CLAIMED since 2026-08-27** (see the Claude Code host entry below): the 100 KB limit is lifted on /v1/metered and the
   wire was proven against claude-cli 2.1.250.
+- **A rejected payment is answered in the buyer's terms (2026-08-28, `src/verify-hint.js`, `scripts/test-verify-hint.js` 18 in CI):**
+  every verify failure surviving in Railway's removed-deployment logs read `[CDP (Base)] invalid_payload: contract call failed: unable
+  to call contract: execution reverted` - CDP simulating the USDC transferWithAuthorization and the transfer reverting (an EMPTY wallet,
+  or an authorization already spent / expired) - and the buyers' clients retried the same signed header ~400/hour because nothing said
+  which. Now the awaited `onVerifyFailure` hook reads the payer's own USDC balance on Base (`usdcBalanceOnBase`: one `eth_call
+  balanceOf` per payer per minute, 3 s bound, `AGENT402_BASE_RPC`) and remembers a hint for 5 minutes; `verifyHintMiddleware`
+  (mounted before the MPP shim) merges `hint`, `retry` (`fund-wallet` | `fresh-authorization` | `other-network`) and
+  `payerUsdcOnBase` into the 402 JSON body of a request that CARRIED a payment header from that payer, plus `Retry-After` (60 s when
+  the wallet is short, 5 s otherwise); `error`/`accepts` untouched; a bare 402 and every non-402 are byte-identical. The balance goes
+  only to the wallet that signed the authorization; `verify_failed` telemetry carries `payerBalanceBucket` (zero / under-price /
+  covers-price / unknown), never an address or a number. Railway keeps logs of REMOVED deployments (list-deployments status REMOVED,
+  limit <= 50): that is where the 08-28 reasons came from after the live deployment's log had nothing.
 - **Missing `model` is served, not refused, and verify failures are telemetry (2026-08-28, from reading 30 days of real calls):** the
   single largest refusal on the LLM wires was `"model" is required` (82 in 30 days, 1 ms 400s: agents posting to a tier route with no
   model). Every non-router tier now carries `defaultModel` (nano gpt-4.1-nano, base gpt-4o-mini, pro gpt-4o, premium claude-opus-5,
