@@ -1456,6 +1456,30 @@ export function railStatus() {
   }));
 }
 
+// One recorder for BOTH verify-failure shapes @x402/core produces: a
+// facilitator that THROWS (non-2xx verify: CDP's shape) reaches
+// onVerifyFailure; one that answers 200 `{isValid:false}` (PayAI, Solvador,
+// our Stellar facilitator) takes the graceful path, which has NO failure
+// hook - only onAfterVerify sees it (review 2026-08-28: 20 graceful
+// rejections, zero hook firings, zero hints). Tell the buyer WHY on the 402
+// (src/verify-hint.js): read their USDC balance on Base (bounded, <= 1.5 s,
+// at most 4 in flight) and remember a plain-language hint under the failed
+// CREDENTIAL's key, which the 402 middleware merges in for that header only.
+async function recordVerifyFailure(ctx, reason) {
+  let bucket = "unknown";
+  try {
+    const amount = Number(ctx?.requirements?.amount);
+    const priceUsd = Number.isFinite(amount) ? amount / 1e6 : null;
+    const { noteVerifyFailure } = await import("./verify-hint.js");
+    const noted = await noteVerifyFailure({ paymentPayload: ctx?.paymentPayload, network: ctx?.requirements?.network, reason, priceUsd });
+    if (noted) bucket = noted.bucket;
+  } catch { /* a hint is best-effort */ }
+  // Telemetry (reason, chain, route, balance BUCKET - never the payer): see posthog.js.
+  import("./posthog.js").then(({ capturePostHogVerifyFailed }) => capturePostHogVerifyFailed({
+    network: ctx?.requirements?.network, scheme: ctx?.requirements?.scheme, resource: ctx?.requirements?.resource, errorReason: reason, payerBalanceBucket: bucket,
+  })).catch(() => {});
+}
+
 export function registerFacilitatorFailureHooks(server, payAiClient, solvadorClient = null) {
   server.onVerifyFailure(async (ctx) => {
     const reason = summarizeFacilitatorError(ctx?.error);
@@ -1463,24 +1487,17 @@ export function registerFacilitatorFailureHooks(server, payAiClient, solvadorCli
       `[payments] facilitator VERIFY failed on ${ctx?.requirements?.network} ` +
         `${ctx?.requirements?.scheme}: ${reason}`
     );
-    // Tell the buyer WHY on the 402 (src/verify-hint.js): read their USDC
-    // balance on Base (bounded) and remember a plain-language hint the 402
-    // middleware merges in. The hook is awaited by @x402/core, and only a
-    // failed verify pays the (<= 3 s) read.
-    let bucket = "unknown";
-    try {
-      const payer = ctx?.paymentPayload?.payload?.authorization?.from;
-      const amount = Number(ctx?.requirements?.amount);
-      const priceUsd = Number.isFinite(amount) ? amount / 1e6 : null;
-      const { noteVerifyFailure } = await import("./verify-hint.js");
-      const noted = await noteVerifyFailure({ payer, network: ctx?.requirements?.network, reason, priceUsd });
-      if (noted) bucket = noted.bucket;
-    } catch { /* a hint is best-effort */ }
-    // Telemetry (reason, chain, route, balance BUCKET - never the payer): see posthog.js.
-    import("./posthog.js").then(({ capturePostHogVerifyFailed }) => capturePostHogVerifyFailed({
-      network: ctx?.requirements?.network, scheme: ctx?.requirements?.scheme, resource: ctx?.requirements?.resource, errorReason: reason, payerBalanceBucket: bucket,
-    })).catch(() => {});
+    await recordVerifyFailure(ctx, reason);
   });
+  if (typeof server.onAfterVerify === "function") {
+    server.onAfterVerify(async (ctx) => {
+      if (ctx?.result && ctx.result.isValid === false) {
+        const reason = String(ctx.result.invalidReason || "verify rejected");
+        console.warn(`[payments] facilitator VERIFY rejected on ${ctx?.requirements?.network} ${ctx?.requirements?.scheme}: ${reason}`);
+        await recordVerifyFailure(ctx, reason);
+      }
+    });
+  }
 
   // A GRACEFUL settle rejection — the facilitator answers { success:false }
   // without an HTTP error — never reaches onSettleFailure below: @x402/core

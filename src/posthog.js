@@ -508,12 +508,15 @@ export function capturePostHogSettleFailed({ slug, status, network, priceUsd, sy
 // to answer ("does anyone still cite these?") is answered: scanners, not
 // buyers. The 410 response itself is never affected.
 const TOOL_GONE_TOP_ROUTES = 50;
+const TOOL_GONE_MAX_KEYS = 5_000;   // attacker-chosen paths cannot grow the map past this (review 2026-08-28)
+const TOOL_GONE_MAX_ROUTE_CHARS = 120;
 let toolGoneCounts = new Map(); // route -> { route, replacement, count }
 
 export function capturePostHogToolGone({ route, replacement }) {
   if (!active()) return;
   try {
-    const r = String(route || "unknown");
+    let r = String(route || "unknown").slice(0, TOOL_GONE_MAX_ROUTE_CHARS);
+    if (!toolGoneCounts.has(r) && toolGoneCounts.size >= TOOL_GONE_MAX_KEYS) r = "_overflow";
     const cur = toolGoneCounts.get(r) || { route: r, replacement: String(replacement || ""), count: 0 };
     cur.count++;
     toolGoneCounts.set(r, cur);

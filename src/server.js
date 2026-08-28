@@ -1236,10 +1236,14 @@ app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS) || 1);
 // fix is a www record on the domain AND this redirect. Never for API calls
 // with a payment attached: a 301 would drop the payment header on retry, so
 // those are answered on the host they arrived on.
+// Only OUR www: the target is the configured canonical host, never whatever
+// the Host header said (an attacker-chosen Host would otherwise make us a
+// 301 open redirect - review 2026-08-28).
+const CANONICAL_HOST = (() => { try { return new URL(BASE_URL).host.toLowerCase(); } catch { return ""; } })();
 app.use((req, res, next) => {
   const host = String(req.hostname || "").toLowerCase();
-  if (host.startsWith("www.") && !req.headers["payment-signature"] && !req.headers["x-payment"] && !req.headers.authorization) {
-    return res.redirect(301, `${req.protocol}://${host.slice(4)}${req.originalUrl}`);
+  if (CANONICAL_HOST && host === `www.${CANONICAL_HOST}` && !req.headers["payment-signature"] && !req.headers["x-payment"] && !req.headers.authorization) {
+    return res.redirect(301, `${BASE_URL.replace(/\/$/, "")}${req.originalUrl}`);
   }
   next();
 });
@@ -1572,7 +1576,10 @@ app.use("/v1/metered", express.json({ limit: "1mb" }));
 // quoter cannot be used as free CPU. Paid retries carry a credential and pass.
 const meteredQuoteLimiter = createRateLimiter("metered-quote", { perMin: 60, perHour: 1200 });
 app.use("/v1/metered", (req, res, next) => {
-  if (req.method !== "POST") return next();
+  // GET/HEAD too: the method alias below turns them into the POST quote path
+  // (review 2026-08-28: 70 HEADs with a 180 KB body reached the quoter past
+  // the limiter).
+  if (!["POST", "GET", "HEAD"].includes(req.method)) return next();
   const paid = Boolean(req.headers["payment-signature"] || req.headers["x-payment"] || req.headers.authorization);
   if (!paid && meteredQuoteLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many unpaid quote requests from this address; send the paid retry, or slow down." });
   next();
@@ -1651,7 +1658,12 @@ const COMPOSITE_METHOD_PATHS = new Set(
   Object.entries(CATALOG).filter(([, d]) => EXPENSIVE_COMPOSITE_SLUGS.has(d.slug)).map(([route]) => route)
 );
 app.use((req, res, next) => {
-  if (!draining || !COMPOSITE_METHOD_PATHS.has(`${req.method} ${req.path}`)) return next();
+  if (!draining) return next();
+  // The method alias (mounted later) turns GET/HEAD into POST and POST into
+  // GET on single-method tools, so check the twin too.
+  const m = req.method === "HEAD" ? "GET" : req.method;
+  const twin = m === "GET" ? "POST" : m === "POST" ? "GET" : null;
+  if (!COMPOSITE_METHOD_PATHS.has(`${m} ${req.path}`) && !(twin && COMPOSITE_METHOD_PATHS.has(`${twin} ${req.path}`))) return next();
   res.set("Cache-Control", "no-store").set("Retry-After", "60");
   return res.status(503).json({ error: "This server is redeploying; premium report generation restarts on the new build in about a minute. Not charged - please retry." });
 });
@@ -5119,7 +5131,7 @@ if (!FREE_MODE) {
 
   // A 402 answered to a request that carried a payment header says WHY in the
   // buyer's terms (balance short vs stale authorization) - src/verify-hint.js.
-  app.use(verifyHintMiddleware({ payerOf: payerFromRequest }));
+  app.use(verifyHintMiddleware());
 
   const mppShim = createMppShim({
     secretKey: process.env.MPP_SECRET_KEY || "",

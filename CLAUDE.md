@@ -2029,6 +2029,20 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   key must ride as `auth_token`/`authToken` (Authorization: Bearer), not `api_key` (x-api-key). **Claude Code as an LLM host
   is CLAIMED since 2026-08-27** (see the Claude Code host entry below): the 100 KB limit is lifted on /v1/metered and the
   wire was proven against claude-cli 2.1.250.
+- **Security review of the 2026-08-28 paid-path changes (same evening, three lenses; money lens clean):** MED the 402 hint was keyed
+  on the payer ADDRESS read from the unverified payload - anyone could read any wallet's Base balance through us and plant a
+  misleading hint + 60 s backoff on a real buyer's next 402; now keyed by the CREDENTIAL (`credentialKeyOf`: sha256 of
+  from|nonce|signature, `credentialKeyFromHeader` on the middleware side), so only the exact retried header sees its own hint;
+  the balance read is 1.5 s bound with at most 4 in flight (a full lane reads "unknown", never queues) because the hook is
+  awaited inside the paywall. MED the hint only fired for a THROWN verify (non-2xx, CDP's shape) - @x402/core's graceful
+  `200 {isValid:false}` path (PayAI/Solvador/Stellar) has no failure hook, so `registerFacilitatorFailureHooks` now also
+  records from `onAfterVerify` when `result.isValid === false` (shared `recordVerifyFailure`);
+  `scripts/test-verify-hint-live.js` boots a paid server against a stub facilitator answering BOTH shapes. MED the www->apex
+  301 reflected the Host header (open redirect) - only `www.<BASE_URL host>` redirects, to BASE_URL. MED the metered
+  unpaid-quote limiter skipped GET/HEAD, which the method alias turns into the POST quote path - all three methods count.
+  LOW `tool_gone` rollup keys capped (5,000 keys, 120-char routes, `_overflow`); the drain refusal checks the aliased
+  method twin. Known and accepted: a forged header naming another wallet still gets that wallet's PUBLIC balance on its
+  own 402 after its own failed verify (bounded, public data, the facilitator did more work than we did).
 - **Dead-end sweep from the raw HTTP log (2026-08-28, after the 405 finding; the operator: "anything obvious like this in everything
   else we serve?"):** Railway's `get-logs` accepts `@httpStatus:404` / `>=500` filters and REMOVED deployments still answer, so a
   status-by-status read of ~6 h is one call each. Found and fixed in one PR: (1) trust/uptime indexers (kkj-x402-trust-index,
