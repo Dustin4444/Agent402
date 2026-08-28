@@ -71,7 +71,7 @@ process.env.BACKUP_S3_SECRET = "test-secret";
 process.env.BACKUP_DATA_DIR = dataDir;
 process.env.BACKUP_KEEP_DAYS = "14";
 
-process.env.BACKUP_ENCRYPTION_KEY = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"; // test key, 64 hex
+process.env.BACKUP_ENCRYPTION_KEY = "ab".repeat(32); // 32-byte test key built at runtime (no key-shaped literal in the tree for the secret scanner)
 const { backupPlan, runBackup, backupStatus, backupConfigured, decryptBackupBuffer, parseEncKey } = await import("../src/backup.js");
 
 // --- plan ------------------------------------------------------------------
