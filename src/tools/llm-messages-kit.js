@@ -150,9 +150,20 @@ export function validateMessagesRequest(input, tierSlug) {
   }
   if (!Array.isArray(input.messages) || input.messages.length === 0) throw bad('"messages" must be a non-empty array');
   const acc = { chars: 0, images: 0 };
-  const probeMessages = input.messages.map((m, i) => {
+  // Mid-conversation system messages (Anthropic's mid-conversation-system beta;
+  // Claude Code sends one per turn, measured 2026-08-27) are folded into a user
+  // turn - the pre-beta shape every upstream accepts. Consecutive user turns are
+  // legal on the Messages wire; the text reaches the model in the same position.
+  const messages = input.messages.map((m, i) => {
     if (!m || typeof m !== "object") throw bad(`messages[${i}] must be an object`);
-    if (m.role !== "user" && m.role !== "assistant") throw bad(`messages[${i}].role must be "user" or "assistant" (system goes in the top-level "system" field)`);
+    if (m.role === "system") {
+      const content = typeof m.content === "string" ? [{ type: "text", text: m.content }] : m.content;
+      return { role: "user", content };
+    }
+    return m;
+  });
+  const probeMessages = messages.map((m, i) => {
+    if (m.role !== "user" && m.role !== "assistant") throw bad(`messages[${i}].role must be "user", "assistant" or "system"`);
     return { role: m.role, content: probeContent(m.content, `messages[${i}]`, acc) };
   });
   let system;
@@ -168,7 +179,7 @@ export function validateMessagesRequest(input, tierSlug) {
   if (!Number.isFinite(maxTokens) || maxTokens < 1) throw bad('"max_tokens" (positive integer) is required by the Messages API');
   if (maxTokens > tier.maxTokens) maxTokens = tier.maxTokens;
 
-  const body = { model: isRouted ? undefined : model, max_tokens: maxTokens, messages: input.messages };
+  const body = { model: isRouted ? undefined : model, max_tokens: maxTokens, messages };
   if (system !== undefined) body.system = input.system;
   for (const k of ["temperature", "top_p", "top_k", "metadata", "tool_choice"]) if (input[k] !== undefined) body[k] = input[k];
   // tool_choice mirrors the tools guard (client tools only): Anthropic wire is
@@ -182,8 +193,10 @@ export function validateMessagesRequest(input, tierSlug) {
     if (!Array.isArray(input.stop_sequences) || input.stop_sequences.length > MAX_STOP_SEQUENCES || !input.stop_sequences.every((x) => typeof x === "string")) throw bad(`"stop_sequences" must be an array of up to ${MAX_STOP_SEQUENCES} strings`);
     body.stop_sequences = input.stop_sequences;
   }
-  if (input.tools !== undefined) {
-    if (!Array.isArray(input.tools) || input.tools.length === 0 || input.tools.length > MAX_TOOLS) throw bad(`"tools" must be a non-empty array of up to ${MAX_TOOLS} tool definitions`);
+  // `tools: []` is what an Anthropic client sends when it has no tools this
+  // turn (Claude Code's session-naming call, measured 2026-08-27): no tools.
+  if (input.tools !== undefined && !(Array.isArray(input.tools) && input.tools.length === 0)) {
+    if (!Array.isArray(input.tools) || input.tools.length > MAX_TOOLS) throw bad(`"tools" must be an array of up to ${MAX_TOOLS} tool definitions`);
     for (const [i, t] of input.tools.entries()) {
       // Anthropic client tools only: {name, description?, input_schema}. Server
       // tools (web_search_20250305, computer use, text editor...) create spend

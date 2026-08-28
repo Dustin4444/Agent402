@@ -1674,7 +1674,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   + Jupiter audit, sol-token-pairs/search/trending on DexScreener, sol-price/swap-quote/token-lookup on lite-api.jup.ag;
   public Solana RPC getTokenLargestAccounts 429s persistently, so holders come from RugCheck). ENV-GATED (listed only with
   the key, like TTS): `src/tools/x-data-kit.js` (`X_DATA_TOOLS` + `xDataEnabled()` on `X_BEARER_TOKEN`; X API v2 app-only:
-  x-search-recent $0.006, x-user $0.005, x-user-tweets $0.01, x-tweet $0.005, x-users-lookup $0.01; 429 -> 503 with the
+  x-search-recent $0.08, x-user $0.015, x-user-tweets $0.08, x-tweet $0.008, x-users-lookup $0.15 (repriced 2026-08-27); 429 -> 503 with the
   reset hint) and `src/tools/b2b-enrich-kit.js` (`b2bEnrichEnabled()` returns the subset whose key is present:
   hunter-domain-search/email-finder/email-verify/company on `HUNTER_API_KEY`, apollo-people-search/org-enrich/person-match
   on `APOLLO_API_KEY`; PII-stripped; $0.02-$0.05). All 32 slugs in WALLET_ONLY_SLUGS + test-all NETWORK; offline tests
@@ -2008,8 +2008,9 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   8192 tokens) quotes ~$1.34, under the $2 cap, so the cap is pinned on the probe-level quoter. Paid-canary leg
   `llm-metered-messages` (haiku, max_tokens 300; test-canary-coverage pins priceUsd to the kit's quote). Gating:
   WALLET_ONLY + test-all NETWORK + METERED_SLUGS. Guide `/guides/agent-hosts` gained an Anthropic SDK block: the credits
-  key must ride as `auth_token`/`authToken` (Authorization: Bearer), not `api_key` (x-api-key). Claude Code as an LLM host
-  is STILL not claimed (100 KB body limit vs its 70-100k-char turns; unproven beta fields).
+  key must ride as `auth_token`/`authToken` (Authorization: Bearer), not `api_key` (x-api-key). **Claude Code as an LLM host
+  is CLAIMED since 2026-08-27** (see the Claude Code host entry below): the 100 KB limit is lifted on /v1/metered and the
+  wire was proven against claude-cli 2.1.250.
 - **The weekly number is external metered buyers (2026-08-27):** PostHog insight "External metered buyers per week"
   (short id `Pj87HEzu`: distinct non-synthetic payers on `payment_settled{slug:v1-chat-metered}` per week, with
   settlements, settled USD, distinct `clientUa`); ledger mirror `meteredExternal({days})` (counts only) on
@@ -2033,6 +2034,48 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   min'd the model row with `tier.maxPrice` (20/100) while the metered handlers send the RAW row as `provider.max_price`, so
   opus-4.7-fast (30/150) / gpt-5-pro quoted ~30% under their bound - the metered tier now quotes the un-min'd row. Tests:
   test-llm-messages (56), test-gateway-meter (58), test-route-execute (54).
+- **Claude Code as an LLM host, proven (2026-08-27 evening):** `ANTHROPIC_BASE_URL=https://agent402.tools/v1/metered` +
+  `ANTHROPIC_AUTH_TOKEN=<credits key>` runs Claude Code end to end (guide block on `/guides/agent-hosts`). Measured wire
+  (claude-cli 2.1.250 against a catch server, then the real local gateway with the prod OpenRouter key): POST
+  `/v1/messages?beta=true` appended to the base URL, Bearer auth, a 4 KB session-naming call with `tools: []` then a ~110 KB
+  turn (system array with `cache_control`, 22 function tools, `max_tokens: 64000`, `thinking:{type:"adaptive",display:
+  "omitted"}`, `output_config`, `context_management`, `metadata.user_id`, a MID-CONVERSATION `role:"system"` message per
+  turn - the mid-conversation-system beta - and an 8-beta `anthropic-beta` header). Shipped: (1) server.js rewrites
+  `/v1/<tier>/v1/messages` (and `/v1/v1/messages`) to the tier's Messages route BEFORE every gate (`MESSAGES_SDK_ALIASES`,
+  query string kept) and mounts `express.json({limit:"1mb"})` on `/v1/metered` ahead of the global 100 KB parser (a metered
+  body is priced from its size, so a big body is a big quote, never an unpriced cost; flat tiers keep 100 KB;
+  `/v1/models` now advertises the metered tier's real 200k cap); (2) `validateMessagesRequest` folds a mid-conversation
+  system message into a user turn in place, treats `tools: []` as no tools, and `canonicalModel` resolves Anthropic's dated
+  ids (`claude-haiku-4-5-20251001` -> `anthropic/claude-haiku-4.5`); unknown fields (`output_config`, `context_management`)
+  stay dropped, `cache_control.ttl:"1h"` stays refused. Proof: a full turn ("ok / I'm Sonnet 5") and a Bash tool-use round
+  trip (`agent402-proof-42`) through the local gateway; quotes measured $0.115 (2 KB) / $0.22 (115 KB) on sonnet-5 at the
+  8192 output cap, settled at actual. `scripts/test-messages-sdk-alias.js` (13, boots a paid server, in CI) + pins in
+  test-llm-messages/test-llm-gateway. NOT done: `/v1/messages/count_tokens` (Claude Code did not call it in either run).
+  **THE STREAMING RELAY WAS BROKEN FOR EVERY /v1 STREAM (found by this proof, fixed the same night):**
+  `createSseUsageScrubber` decoded chunks with `Buffer.isBuffer(chunk) ? toString : String(chunk)`, and fetch's body yields
+  `Uint8Array`, so `String(chunk)` was the comma-joined byte digits ("58,32,79,80..." = ": OPENROUTER PROCESSING") - no
+  newline, no `data:`, the whole stream surfaced at `flush()` as digits. Before 13112334 the relay wrote 200 and streamed
+  the digits (charged); after it every stream 502'd "no data frame" (uncharged). The 20:05Z paid canary saw exactly this on
+  `llm-stream` ("bad-shape ... got 58,32,79,80,...") and only WARNED; the relay's unit tests fed Buffers and passed (the
+  stub-proven lesson again). Now a streaming `TextDecoder` (multibyte-safe across chunks), the relay's catch logs its
+  cause, the scrubber test feeds `Uint8Array` chunks with a split multibyte char, and paid-canary legs can declare
+  `strictShape: true` (llm-stream does) so a settled 200 with the wrong wire shape FAILS the run (`decideCanary` reason).
+- **`/markets` front door (2026-08-27, `src/markets.js`):** one page, one curl (`crypto-market-pulse`, $0.004, keyless),
+  then the 24 keyless market-data tools (pulse/news/indicators, 7 perp tools, 4 options tools, 10 DeFi/stablecoin tools)
+  as cards with prices READ FROM `CATALOG` (never typed; `marketsTools(catalog)` drops retired slugs). Built because the
+  buyer-count leaders on x402scan are one-endpoint utilities (OneSource 1,802 buyers on 25 paths, glim 481 on 34) while
+  our 500+ tools convert to ~105 - the front door is one obvious call, not breadth. Wired: server mount, both sitemaps,
+  llms.txt Optional list, mobile menu, footer "for agents", test-static-pages + test-single-main-landmark. Same commit:
+  purpose-written `BAZAAR_DESCRIPTIONS` for the 20 market-data slugs that were still falling back to truncated catalog
+  text (derivatives/signals/defi), the first advertising the derivatives kit ever got (Kronos sells the same categories at
+  $0.02-0.10 to 50 buyers; ours are $0.002-0.005).
+- **x-data-kit repriced to X's published rate card (2026-08-27):** X pay-per-use bills $0.005 per post READ and $0.010 per
+  user read (docs.x.com pricing, read 2026-08-27; resources dedupe within a UTC day). Page cap 25 -> 10 posts
+  (`X_MAX_POSTS_PER_CALL` default), users-lookup cap 100 -> 10; prices x-search-recent $0.006 -> $0.08, x-user-tweets
+  $0.01 -> $0.08 (10 posts = $0.05 upstream, under the 70% rule), x-user $0.005 -> $0.015, x-tweet $0.005 -> $0.008,
+  x-users-lookup $0.01 -> $0.15. The kit still lists only with `X_BEARER_TOKEN` on Railway (Mike's call; the bearer exists
+  only in Actions secrets). Market context: twit.sh (118 buyers of X data) stopped settling 2026-08-22; StableSocial sells
+  X at a flat $0.06 through Scrape Creators. Hunter/Apollo (b2b-enrich, $0.02-0.05) need signups - unchanged.
 - **`/proof` + `GET /api/proof` (2026-08-27, `src/proof.js`, `proofFeed()` in sales-ledger):** receipts for the metered
   tier - the ledger now stores `quote_usd` (additive column) next to the settled `price_usd` on every metered sale
   (`recordSale({quoteUsd})` from the route binder's `req.__meteredQuoteUsd`), and the page shows aggregates plus ONE

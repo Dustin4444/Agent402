@@ -377,17 +377,17 @@ export const TIERS = {
     // chain below tries the next one - never a buyer charge (settlement is
     // post-handler, and a <400 response is required to settle).
     //
-    // NOT YET REACHABLE past ~90k chars: server.js's global
+    // NOT REACHABLE past ~90k chars ON THIS FLAT TIER: server.js's global
     // `app.use(express.json({ limit: "100kb" }))` runs before this route and
     // rejects a bigger body with a 413 first (confirmed live - a 60k-char
     // input passes both layers, 150k/250k both 413 identically at the outer
-    // layer regardless of this cap). The old 64k cap always fit safely under
-    // 100kb; this one won't until that route (or /v1/* generally) gets its
-    // own larger express.json limit - deliberately NOT done in this change,
-    // since the only clean way found (mounting a path-scoped express.json
-    // ahead of the global one) risks a second body-parser pass on an
-    // already-consumed stream for the same request, which needs its own
-    // careful verification, not a same-night bolt-on.
+    // layer regardless of this cap). The METERED routes are different: server.js
+    // mounts `express.json({ limit: "1mb" })` on /v1/metered AHEAD of the global
+    // parser (2026-08-27; body-parser sets req._body and the global one skips
+    // an already-parsed request, so there is no second pass), because a metered
+    // body is priced from its size - a 110 KB agent-host turn is a bigger
+    // quote, never an unpriced cost. A flat $0.50 tier has no such bound, so
+    // this one keeps the global limit on purpose.
     maxInputChars: 200_000,
     maxTokens: 8192,
     maxPrice: { prompt: 20, completion: 100 }, // priciest allowlisted: claude opus ~$15/$75
@@ -606,7 +606,15 @@ function canonicalModelRaw(model) {
   if (!m) return m;
   if (m.includes("/")) return m; // already an OpenRouter id
   if (/^(gpt|o[0-9])/i.test(m)) return `openai/${m}`;
-  if (/^claude/i.test(m)) return `anthropic/${m}`;
+  if (/^claude/i.test(m)) {
+    // Anthropic's own dated ids (claude-haiku-4-5-20251001, claude-sonnet-4-5-
+    // 20250929 - what Claude Code and the Anthropic SDKs send by default) are
+    // not OpenRouter ids; OpenRouter lists the family as claude-haiku-4.5.
+    // Drop the date and dot the minor version so a stock Anthropic client's
+    // default model resolves to a live upstream id instead of a 502.
+    const undated = m.replace(/-\d{8}$/, "").replace(/^(claude-[a-z]+-\d+)-(\d+)$/i, "$1.$2");
+    return `anthropic/${undated}`;
+  }
   if (/^gemini/i.test(m)) return `google/${m}`;
   if (/^grok/i.test(m)) return `x-ai/${m}`;
   if (/^deepseek/i.test(m)) return `deepseek/${m}`;
@@ -1636,6 +1644,16 @@ export function upstreamUserId(req) {
  *  `onUsage(usage, rawCost)` fires once with the stripped cost for telemetry. */
 export function createSseUsageScrubber({ onUsage } = {}) {
   let buf = "";
+  // fetch's body yields Uint8Array chunks, NOT Buffers: String(Uint8Array) is
+  // "100,97,116,97" - the comma-joined bytes - so the old `Buffer.isBuffer(chunk)
+  // ? ... : String(chunk)` decode never saw a newline, buffered the whole
+  // stream, and handed it to flush() as digits: no "data:" frame was ever
+  // recognised and every streamed call 502'd "no data frame" (found 2026-08-27
+  // driving Claude Code against the Messages wire; the relay's own unit tests
+  // fed Buffers and passed). A streaming TextDecoder also keeps a multibyte
+  // character split across two chunks intact, which per-chunk toString did not.
+  const decoder = new TextDecoder("utf-8");
+  const decode = (chunk) => (typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true }));
   // Usage can sit at the top level (chat completions, Anthropic message_delta)
   // or NESTED: the Responses API's final frame is {type:"response.completed",
   // response:{..., usage:{cost,...}}} (live-verified 2026-08-19) and an
@@ -1666,7 +1684,7 @@ export function createSseUsageScrubber({ onUsage } = {}) {
   };
   return {
     push(chunk) {
-      buf += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+      buf += decode(chunk);
       const i = buf.lastIndexOf("\n");
       if (i < 0) return "";
       const complete = buf.slice(0, i);
@@ -1674,6 +1692,7 @@ export function createSseUsageScrubber({ onUsage } = {}) {
       return complete.split("\n").map(processLine).join("\n") + "\n";
     },
     flush() {
+      buf += decoder.decode(); // drain a trailing partial multibyte sequence
       const rest = buf; buf = "";
       return rest ? processLine(rest) : "";
     },
@@ -1808,9 +1827,12 @@ export async function streamOpenRouterTo(body, res, { onUsage, url } = {}) {
       // everything else passes through byte-for-byte.
       for await (const chunk of upstream.body) { const out = scrub.push(chunk); if (out) offer(out); }
       const tail = scrub.flush(); if (tail) offer(tail);
-    } catch {
+    } catch (e) {
       // Upstream dropped mid-stream: end what we have once something real was
-      // sent; before that, it is an upstream failure the chain can walk.
+      // sent; before that, it is an upstream failure the chain can walk. The
+      // cause is logged either way - a bare catch hid a relay-side throw for a
+      // day (2026-08-27: every Messages stream read as "no data frame").
+      console.warn(`[gateway] stream relay ${committed ? "dropped mid-stream" : "failed before the first data frame"}: ${e?.message || e}`);
       if (!committed) throw bad("Upstream stream ended before producing any data frame", 502);
     }
     if (!committed) throw bad("Upstream stream ended before producing any data frame (no tokens) - nothing was charged", 502);
@@ -3080,6 +3102,11 @@ export const LLM_GATEWAY_TOOLS = [
 // enforces (that stays 200_000 - harmless groundwork for when the body
 // limit itself is raised, see that change's own commit message).
 const ADVERTISED_MAX_INPUT_CHARS = 85_000;
+// The METERED routes are the exception: server.js mounts a 1 MB parser on
+// /v1/metered (2026-08-27), so the metered tier advertises its real 200k cap -
+// an agent host (Claude Code sends ~110 KB a turn) reads this field to decide
+// whether it fits, and the clamped figure told OpenClaw's setup to refuse
+// models that serve fine.
 
 /** OpenAI-compatible GET /v1/models payload — free discovery surface. */
 export function modelsList() {
@@ -3112,7 +3139,7 @@ export function modelsList() {
               // tier's: a client deriving a context window from this entry must
               // not carry the flat cap onto the metered route (agent402-openclaw
               // did, and OpenClaw refused every turn as a context overflow).
-              meteredMaxInputChars: Math.min(TIERS["v1-chat-metered"].maxInputChars, ADVERTISED_MAX_INPUT_CHARS), meteredMaxTokens: TIERS["v1-chat-metered"].maxTokens,
+              meteredMaxInputChars: TIERS["v1-chat-metered"].maxInputChars, meteredMaxTokens: TIERS["v1-chat-metered"].maxTokens,
             }
             : {}),
           maxInputChars: Math.min(tier.maxInputChars, ADVERTISED_MAX_INPUT_CHARS),

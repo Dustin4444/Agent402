@@ -121,6 +121,7 @@ import { whatIsX402Page } from "./what-is-x402.js";
 import { whatIsMppPage } from "./what-is-mpp.js";
 import { agenticFinancePage } from "./agentic-finance.js";
 import { whyPage } from "./why.js";
+import { marketsPage } from "./markets.js";
 import { proofPage } from "./proof.js";
 import { glossaryPage } from "./glossary.js";
 import { x402101Page } from "./x402-101.js";
@@ -219,7 +220,7 @@ import { VALIDATION_TOOLS } from "./tools/validation-kit.js";
 import { CRYPTO_HASH_TOOLS } from "./tools/crypto-hash-kit.js";
 import { CALENDAR_TOOLS } from "./tools/calendar-kit.js";
 import { LLM_TOOLS } from "./tools/llm-kit.js";
-import { LLM_MESSAGES_TOOLS } from "./tools/llm-messages-kit.js";
+import { LLM_MESSAGES_TOOLS, MESSAGES_PATH_BY_TIER } from "./tools/llm-messages-kit.js";
 import { LLM_RESPONSES_TOOLS } from "./tools/llm-responses-kit.js";
 import { LLM_GATEWAY_TOOLS, modelsList, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, rerankCacheKey, RERANK_PATH, gatewayCreditsStatus, oxAlphaAvailable, probeOxAlphaAvailability, OX_ROUTE, oxUpstreamIsFree } from "./tools/llm-gateway-kit.js";
 // /v1/audio/speech stays behind OPENROUTER_TTS_ENABLED as a rollout gate:
@@ -1398,6 +1399,30 @@ app.use(compression({
     return compression.filter(req, res);
   },
 }));
+// Anthropic-SDK base-URL convention: every Anthropic client (the SDK, Claude
+// Code, the Agent SDK) appends `/v1/messages` to ANTHROPIC_BASE_URL, so a
+// buyer pointing one at a TIER (`https://agent402.tools/v1/metered`) posts to
+// `/v1/metered/v1/messages`. Rewrite that to the tier's real Messages route
+// before any gate or parser runs - the paywall, the metered quote and the
+// idempotency cache all key on req.path, so the alias is invisible past here.
+// Query strings survive the rewrite (Claude Code sends `?beta=true`).
+// Measured 2026-08-27 with claude-cli 2.1.250 against a catch server.
+const MESSAGES_SDK_ALIASES = new Map(Object.values(MESSAGES_PATH_BY_TIER).map((p) => [p.replace(/\/messages$/, "") + "/v1/messages", p]));
+app.use((req, _res, next) => {
+  const target = MESSAGES_SDK_ALIASES.get(req.path);
+  if (target) {
+    const q = req.url.indexOf("?");
+    req.url = target + (q >= 0 ? req.url.slice(q) : "");
+  }
+  next();
+});
+// The metered tier prices every request from its body, so a big body is a big
+// quote, never an unpriced cost - it can take real agent-host turns. A Claude
+// Code turn is ~110 KB (system prompt + 22 tool schemas, measured 2026-08-27)
+// and the global 100 KB parser answered it with an opaque 413 before the
+// tier's own 200k-char cap could speak. body-parser skips a body that is
+// already parsed, so this route-scoped parser wins over the global one below.
+app.use("/v1/metered", express.json({ limit: "1mb" }));
 app.use(express.json({ limit: "100kb" }));
 
 // Funnel stage 1 — discovery. An agent fetching any of these machine-readable
@@ -1685,6 +1710,8 @@ app.get("/aifi", (_req, res) => res.redirect(301, "/agentic-finance"));
 // /why - the seven first-party differences, every claim linked to its proof surface
 // (src/why.js); llms.txt, the MCP instructions and the package READMEs point here.
 app.get("/why", (_req, res) => htmlCache(res, 300, 900).send(whyPage(BASE_URL)));
+// /markets - one-call front door for the keyless market-data tools (prices read from CATALOG).
+app.get("/markets", (_req, res) => htmlCache(res, 300, 900).send(marketsPage(BASE_URL, CATALOG)));
 // Receipts: the metered tier's settled-under-quote proof, aggregates + one
 // latest external and one latest internal row with settle tx (no payer).
 app.get("/api/proof", (_req, res) => { res.set("Cache-Control", "public, max-age=60"); res.json(proofFeed()); });

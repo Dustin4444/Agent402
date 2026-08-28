@@ -1036,6 +1036,26 @@ is left. Prefer a wallet? Every route also answers a stock x402 \`402\`
 
 ## Claude Code
 
+Claude Code as an LLM client, billed per request under a quoted ceiling. Point
+it at the metered tier with your credits key as the auth token (Bearer), keep
+your usual model names - dated ids like \`claude-haiku-4-5-20251001\` resolve
+to the live model:
+
+\`\`\`bash
+export ANTHROPIC_BASE_URL=https://agent402.tools/v1/metered
+export ANTHROPIC_AUTH_TOKEN=a402_...
+claude --model claude-sonnet-5
+\`\`\`
+
+Verified 2026-08-27 with claude-cli 2.1.250: a full turn (110 KB system
+prompt + 22 tool schemas, adaptive thinking, streaming) and a tool-use round
+trip both complete; each turn is quoted from its own body (\`/v1/metered\`
+accepts bodies to 1 MB / 200k input chars) and settles at actual usage, so an
+idle turn costs cents, never the ceiling. Not carried on this wire:
+\`output_config\`, \`context_management\` (dropped, the model default applies)
+and server-side tools (web search, computer use) - Claude Code's own tools are
+client tools and work as usual.
+
 Tools over the hosted connector (free tier and discovery, no key):
 
 \`\`\`bash
