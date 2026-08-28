@@ -2139,6 +2139,14 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   mode (buy box for the reader's own subject, like a sample), listed in `sitemap-reports.xml`, sessionReadLimiter on both.
   The record never held buyer identity, so a public view leaks nothing. PostHog steps report_published / report_unpublished.
   Privacy names the option.
+- **Research question watch + storefront samples strip (2026-08-28, day 5 of the reports bet):** `research-monitor` ($5/mo,
+  kind `research`, slug `research`, target = the question, validator 12-300 chars) - the last report kind with no upsell; there
+  is no cheap probe for "did the answer change", so the product IS the weekly re-run: `processResearch` in monitor-scheduler
+  (welcome on first sight, a fresh paid run every `RESEARCH_RERUN_MS` 7 days with the "scheduled" email, the 30-day cap of 4
+  holds a fifth weekly run as "checked" until old runs age out; measured research cost ~$0.11/run so 4 runs <= $0.44 against
+  the $4.56 net fee). market-brief (kind research) inherits the upsell; only `linkedin-article` has none now (pinned in
+  test-report-upgrade). One-shot Checkout accepts Stripe promotion codes (`allow_promotion_codes: true`; codes are created in
+  the dashboard). `/reports` hero carries a "read a real one first" strip built from `SAMPLES`. test-monitor-scheduler 56.
 - **`/proof` + `GET /api/proof` (2026-08-27, `src/proof.js`, `proofFeed()` in sales-ledger):** receipts for the metered
   tier - the ledger now stores `quote_usd` (additive column) next to the settled `price_usd` on every metered sale
   (`recordSale({quoteUsd})` from the route binder's `req.__meteredQuoteUsd`), and the page shows aggregates plus ONE

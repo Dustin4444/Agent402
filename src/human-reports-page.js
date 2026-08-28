@@ -5,7 +5,7 @@
 // classes below are consumed by assets/js/reports.js and report-view.js
 // (keep the class names stable - the scripts select on them).
 import { HUMAN_PRODUCTS } from "./human-checkout.js";
-import { sampleLinkFor } from "./sample-reports.js";
+import { sampleLinkFor, SAMPLES } from "./sample-reports.js";
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 import { monitorMapJson } from "./report-upgrade.js";
 import { priceUsdFor } from "./report-tiers.js";
@@ -110,7 +110,11 @@ export function humanReportsPage(baseUrl) {
     <h1>A finished report, <em>not a chat answer.</em></h1>
     <p class="lede">Deep research on any question, due diligence on any public company, a 13F breakdown of any fund, a graded audit of any domain. Grounded in live sources, fully cited, in about two minutes. <b>Nothing to sign up for, nothing recurring.</b> Pay by card at checkout and the report is yours. Agents skip the card and pay per call over x402 or MPP.</p>
     <div class="trust"><span><span class="dot"></span> Every claim cited</span><span><span class="dot"></span> If a report fails, you're auto-refunded</span><span><span class="dot"></span> Secured by Stripe</span><span><span class="dot"></span> PDF + data appendix</span></div>
-  </section>
+    <div class="samples-strip" style="margin-top:18px;padding:14px 16px;border:1px solid var(--hairline);background:var(--card);">
+    <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin-bottom:8px;">read a real one first</div>
+    <div style="display:flex;gap:8px 18px;flex-wrap:wrap;font-size:14px;">${Object.values(SAMPLES).map((x) => `<a href="/reports/sample/${esc(x.product)}" style="color:var(--ink);">${esc(x.label)}: ${esc(x.input)} →</a>`).join("")}</div>
+  </div>
+</section>
   <section>
     <p class="note" style="margin:0 0 16px;">Card prices include payment processing, which has a fixed cost per charge. An agent paying per call over x402 or MPP pays the tool's own price instead, which sits just above what the report costs us to produce. Both buy the same report.</p>
     <div class="products">

@@ -1271,6 +1271,7 @@ const _monitorTargetValidators = {
   fund: async (t) => { const r = /^\d{1,10}$/.test(t) ? await edgarResolveManager({ cik: t }) : await edgarResolveManager({ name: t }); return r?.name || t; },
   recall: (t) => normRecallQuery(t),
   ipo: (t) => normIpoKeyword(t) || "all",
+  research: (t) => { const q = String(t ?? "").trim().replace(/\s+/g, " "); if (q.length < 12 || q.length > 300) { const e = new Error("Enter a research question of 12 to 300 characters."); e.statusCode = 400; e.buyerSafe = true; throw e; } return q; },
   filing: (t) => { const k = String(t).trim().toUpperCase(); if (!/^[A-Z][A-Z0-9.\-]{0,9}$/.test(k)) { const e = new Error(`"${t}" is not a valid US ticker`); e.statusCode = 400; e.buyerSafe = true; throw e; } return k; },
   // Validates base58 AND that the mint actually resolves upstream, so a
   // recurring charge never starts against a target we cannot watch.
