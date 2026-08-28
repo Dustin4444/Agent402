@@ -1230,6 +1230,19 @@ app.disable("x-powered-by");
 // attacker-supplied XFF value. This is what the per-IP rate limiters key on,
 // so spoofing it must not mint a fresh bucket. Tune for other topologies.
 app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS) || 1);
+// Canonical host: www.<host> answers a 301 to the apex (path + query kept),
+// so a www record on the domain never becomes a second indexed copy of the
+// site. The audit found www.agent402.tools unresolvable (2026-08-28); the
+// fix is a www record on the domain AND this redirect. Never for API calls
+// with a payment attached: a 301 would drop the payment header on retry, so
+// those are answered on the host they arrived on.
+app.use((req, res, next) => {
+  const host = String(req.hostname || "").toLowerCase();
+  if (host.startsWith("www.") && !req.headers["payment-signature"] && !req.headers["x-payment"] && !req.headers.authorization) {
+    return res.redirect(301, `${req.protocol}://${host.slice(4)}${req.originalUrl}`);
+  }
+  next();
+});
 
 // PostHog reverse proxy: serve posthog-js AND ingest its events first-party
 // through agent402.tools/e, so the browser never talks to a third-party host.
