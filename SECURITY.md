@@ -9,8 +9,8 @@ taken seriously and acted on fast.
 
 - **Preferred:** open a [private security advisory](https://github.com/MikeyPetrillo/Agent402/security/advisories/new) on this repository.
 - Or open a regular issue *without exploit details* and ask for a private channel.
-- Direct email: **security@agent402.tools**.
-- Maintainer: Havok Holdings LLC - [github.com/MikeyPetrillo/Agent402](https://github.com/MikeyPetrillo/Agent402).
+- Direct email: **mike@agent402.tools**.
+- Maintainer: [Havok Holdings LLC](https://havok.holdings) - [github.com/MikeyPetrillo/Agent402](https://github.com/MikeyPetrillo/Agent402).
 
 Please include reproduction steps and impact. Good-faith research inside the scope below will not be met
 with legal action. You can expect an acknowledgement within two business days; fixes for real issues ship through the normal CI pipeline

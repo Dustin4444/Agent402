@@ -131,7 +131,7 @@ records in response to valid legal process, and report content where the law req
 and abuse reports: <a href="mailto:mike@agent402.tools">mike@agent402.tools</a>.</p>
 
 <h2>Operator &amp; contact</h2>
-<p>Agent402.Tools is operated by <strong>Havok Holdings LLC</strong>. Contact: <a href="mailto:mike@agent402.tools">mike@agent402.tools</a>,
+<p>Agent402.Tools is operated by <strong><a href="https://havok.holdings" rel="noopener">Havok Holdings LLC</a></strong>. Contact: <a href="mailto:mike@agent402.tools">mike@agent402.tools</a>,
 <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">GitHub issues</a>,
 or <a href="https://x.com/Agent402Tools" rel="noopener">@Agent402Tools on X</a>.</p>
 </div>

@@ -10,7 +10,7 @@ const SECTIONS = [
   {
     h: "Report a vulnerability",
     p: [
-      `Open a private advisory on GitHub or email <a href="mailto:security@agent402.tools">security@agent402.tools</a>. We acknowledge within two business days, fix through the same CI pipeline every change goes through, and note the fix in the changelog once it has shipped.`,
+      `Open a private advisory on GitHub or email <a href="mailto:mike@agent402.tools">mike@agent402.tools</a>. We acknowledge within two business days, fix through the same CI pipeline every change goes through, and note the fix in the changelog once it has shipped.`,
       `Good-faith research inside the scope below will not be met with legal action. Scope: agent402.tools, the /mcp connector, the /v1 gateway, the x402 and MPP paywall on every paid route, the prepaid credits gate, the card front door (/reports, /monitors, /credits, the Stripe webhook) and the published packages. Out of scope: the payment protocols themselves, third-party facilitators and chains, and volumetric denial of service.`,
     ],
     links: [["https://github.com/MikeyPetrillo/Agent402/security/advisories/new", "Private advisory"], ["/.well-known/security.txt", "security.txt"], ["https://github.com/MikeyPetrillo/Agent402/blob/main/SECURITY.md", "SECURITY.md"]],
@@ -62,7 +62,7 @@ export function securityPage(baseUrl) {
   <div style="max-width:1180px;margin:0 auto;padding:52px 30px 44px;">
     <nav aria-label="Breadcrumb" style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-bottom:22px;"><a href="/" style="color:var(--muted);text-decoration:none;">agent402</a> / <span style="color:var(--ink);">security</span></nav>
     <h1 style="font-weight:800;font-size:46px;line-height:.98;letter-spacing:-.035em;margin:0 0 18px;color:var(--ink);max-width:900px;">Security at Agent402.</h1>
-    <p style="font-size:18px;line-height:1.55;color:var(--muted);max-width:820px;margin:0;">Agent402.Tools is operated by Havok Holdings LLC. This page states how the hosted service is built, what it holds, and how to report a problem. Every control named here is in the open-source server and can be read.</p>
+    <p style="font-size:18px;line-height:1.55;color:var(--muted);max-width:820px;margin:0;">Agent402.Tools is operated by <a href="https://havok.holdings" rel="noopener" style="color:var(--ink);">Havok Holdings LLC</a>. This page states how the hosted service is built, what it holds, and how to report a problem. Every control named here is in the open-source server and can be read.</p>
   </div>
 </header>
 ${SECTIONS.map((s) => `
@@ -79,7 +79,7 @@ ${ledgerFooterCompact()}`;
   const extraCss = `@media (max-width:900px){.sec-2col{grid-template-columns:minmax(0,1fr)!important}}`;
   const jsonLd = [
     { "@type": "BreadcrumbList", itemListElement: [{ "@type": "ListItem", position: 1, name: "Agent402", item: `${baseUrl}/` }, { "@type": "ListItem", position: 2, name: "Security", item: canonical }] },
-    { "@type": "WebPage", "@id": canonical, name: title, description, publisher: { "@type": "Organization", name: "Havok Holdings LLC", url: baseUrl } },
+    { "@type": "WebPage", "@id": canonical, name: title, description, publisher: { "@type": "Organization", name: "Havok Holdings LLC", url: "https://havok.holdings" } },
   ];
   return ledgerShell({ title, description, canonical, baseUrl, activePath: "/security", extraCss, jsonLd, body });
 }
