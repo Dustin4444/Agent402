@@ -16,6 +16,7 @@
     "rpc-diagnostics.js",
     "rpc-timeout.js",
     "rpc-failover.js",
+    "settle-poll.js",
     "README.md"
   ],
   "engines": {

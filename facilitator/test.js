@@ -186,6 +186,15 @@ const horizon = getHorizonClient(NETWORK);
 
   ok(decodeErrorResultXdr(undefined) === null, "decodeErrorResultXdr: no errorResultXdr at all -> null, not a crash");
 
+  // stellar-sdk >= 13 hands the parsed xdr.TransactionResult as `errorResult`
+  // (no string): the 2026-08-27 production line "(no errorResultXdr in
+  // response) ... otherKeys:[errorResult]" was this decoder reading the old field.
+  const { decodeErrorResult } = await import("./rpc-diagnostics.js");
+  const parsed = xdr.TransactionResult.fromXDR(encodeResult(xdr.TransactionResultResult.txFailed([badAuthOp])), "base64");
+  ok(decodeErrorResult({ status: "ERROR", errorResult: parsed })?.opCodes?.[0] === "opBadAuth", "decodeErrorResult: the SDK's parsed errorResult object decodes like the XDR string did");
+  ok(decodeErrorResult({ status: "ERROR", errorResultXdr: encodeResult(xdr.TransactionResultResult.txFailed([badAuthOp])) })?.opCodes?.[0] === "opBadAuth", "decodeErrorResult: the legacy errorResultXdr string still decodes");
+  ok(decodeErrorResult({ status: "ERROR" }) === null, "decodeErrorResult: neither field -> null");
+
   console.log("rpc-diagnostics.js unit tests ✓");
 }
 
@@ -319,6 +328,75 @@ const horizon = getHorizonClient(NETWORK);
   ok(err && /timeout/i.test(String(err.message)) && Array.isArray(err.fallbackErrors) && err.fallbackErrors.length === 1 && took < 8_000, `failover: all nodes down -> the primary's timeout error, fallbackErrors attached (${took}ms)`);
   for (const s of [good, fb2, rpcErr, blackhole, fbDown]) { s.closeAllConnections?.(); s.close(); }
   console.log("rpc-failover.js unit tests ✓");
+}
+
+// ---------------------------------------------------------------------------
+// Hedged reads (rpc-failover.js hedgeMs): a slow-but-answering primary no
+// longer costs the settle. Same process-wide prototype, new install list.
+// ---------------------------------------------------------------------------
+{
+  const { createServer } = await import("node:http");
+  const { rpc } = await import("@stellar/stellar-sdk");
+  const { installRpcFailover, shouldHedge, _resetForTest } = await import("./rpc-failover.js");
+  const jsonRpc = (handler, delayMs = 0) => createServer((req, res) => { let b = ""; req.on("data", (c) => { b += c; }); req.on("end", () => { let j = {}; try { j = JSON.parse(b); } catch { /* ignore */ } const send = () => { const out = handler(j); res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ jsonrpc: "2.0", id: j.id ?? 1, ...out })); }; delayMs ? setTimeout(send, delayMs) : send(); }); });
+  let slowHits = 0, fbHits = 0, quickHits = 0;
+  const slow = jsonRpc(() => { slowHits++; return { result: { status: "slow", latestLedger: 1, oldestLedger: 1, ledgerRetentionWindow: 1 } }; }, 1_500);
+  const fb = jsonRpc(() => { fbHits++; return { result: { status: "fb", latestLedger: 1, oldestLedger: 1, ledgerRetentionWindow: 1 } }; });
+  const quick = jsonRpc(() => { quickHits++; return { result: { status: "quick", latestLedger: 1, oldestLedger: 1, ledgerRetentionWindow: 1 } }; }, 50);
+  const rpcErr = jsonRpc(() => ({ error: { code: -32602, message: "invalid params from slow primary" } }), 100);
+  for (const s of [slow, fb, quick, rpcErr]) await new Promise((r) => s.listen(0, "127.0.0.1", r));
+  const url = (s) => `http://127.0.0.1:${s.address().port}`;
+  const logs = [];
+  _resetForTest();
+  installRpcFailover([url(fb)], { log: (m) => logs.push(m), allowHttp: true, hedgeMs: 200 });
+  ok(logs.some((m) => /reads hedged .* after 200ms/.test(m)), "hedge: the startup line names the hedge delay and node");
+
+  // (a) primary silent past the hedge delay -> the fallback's answer wins, well before the primary would have answered
+  const s1 = new rpc.Server(url(slow), { allowHttp: true });
+  let t0 = Date.now();
+  const h1 = await s1.getHealth();
+  let took = Date.now() - t0;
+  ok(h1.status === "fb" && fbHits === 1 && took < 1_200, `hedge: a slow primary is out-raced by the fallback (${took}ms, status ${h1.status})`);
+  ok(logs.some((m) => /\[rpc-hedge\] getHealth: .*silent for 200ms -> also asking/.test(m)) && logs.some((m) => /\[rpc-hedge\] getHealth: served by/.test(m)), "hedge: both the hedge and the winner are logged");
+
+  // (b) a primary that answers inside the delay is never hedged
+  fbHits = 0; logs.length = 0;
+  const s2 = new rpc.Server(url(quick), { allowHttp: true });
+  const h2 = await s2.getHealth();
+  ok(h2.status === "quick" && quickHits === 1 && fbHits === 0 && !logs.some((m) => /rpc-hedge/.test(m)), "hedge: a prompt primary answers alone (no fallback traffic)");
+
+  // (c) a JSON-RPC error from the primary is an answer even when it arrives slowly - no hedge result replaces it
+  fbHits = 0;
+  const s3 = new rpc.Server(url(rpcErr), { allowHttp: true });
+  let err = null;
+  try { await s3.getHealth(); } catch (e) { err = e; }
+  ok(err && /invalid params from slow primary/.test(String(err?.message || JSON.stringify(err))), "hedge: a JSON-RPC error from the primary stands (it is an answer)");
+
+  // (d) the rule: sendTransaction is never hedged, a fallback instance is never hedged
+  ok(shouldHedge("getTransaction", s1) === true && shouldHedge("sendTransaction", s1) === false, "hedge: reads are hedged, sendTransaction never");
+  const fbInstance = new rpc.Server(url(fb), { allowHttp: true });
+  ok(shouldHedge("getHealth", fbInstance) === false, "hedge: a call already on a fallback url is not hedged again");
+  for (const s of [slow, fb, quick, rpcErr]) { s.closeAllConnections?.(); s.close(); }
+  console.log("rpc-hedge unit tests ✓");
+}
+
+// ---------------------------------------------------------------------------
+// settle-poll.js: the post-submit poll is capped, observable, and hands the
+// tx hash out (so a timed-out /settle can still name what it submitted).
+// ---------------------------------------------------------------------------
+{
+  const { installPollClamp } = await import("./settle-poll.js");
+  const seen = [];
+  const proto = { async pollForTransaction(server, hash, max, delay) { seen.push({ hash, max, delay }); return { success: max === 5 }; } };
+  const logs = [], hashes = [];
+  ok(installPollClamp(proto, { maxAttempts: 8, log: (m) => logs.push(m), onHash: (h) => hashes.push(h) }) === true, "poll clamp: installs on a scheme prototype with pollForTransaction");
+  const r1 = await proto.pollForTransaction(null, "abc123def456xyz", 300, 1000);
+  ok(seen[0].max === 8 && seen[0].delay === 1000 && r1.success === false, `poll clamp: the caller's 300 attempts (maxTimeoutSeconds) become 8 (got ${seen[0].max})`);
+  ok(hashes[0] === "abc123def456xyz" && logs.some((m) => /submitted abc123def456.* polling up to 8 attempt\(s\) \(caller asked 300\)/.test(m)) && logs.some((m) => /not confirmed after \d+ms/.test(m)), "poll clamp: hash handed out, attempts and elapsed logged");
+  const r2 = await proto.pollForTransaction(null, "h2", 5, 1000);
+  ok(seen[1].max === 5 && r2.success === true && logs.some((m) => /h2\.\.\. SUCCESS after/.test(m)), "poll clamp: a request under the cap passes through unchanged");
+  ok(installPollClamp({}, {}) === false, "poll clamp: refuses a prototype without pollForTransaction");
+  console.log("settle-poll.js unit tests ✓");
 }
 
 // Everything above is offline and deterministic; everything below needs

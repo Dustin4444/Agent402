@@ -845,6 +845,20 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   seam as rpc-timeout.js (@x402/stellar builds its own rpc.Server per call). OpenZeppelin as PRIMARY was tried the
   same day (canary run 33001317156): `unexpected_verify_error` at their verify step, nothing on-chain - reverted; OZ
   stays the settle fallback only. Tests in `facilitator/test.js` (real rpc.Server against local stall/answer servers).
+- **Facilitator: hedged reads + poll cap + 25 s settle bound (2026-08-28, after paid-canary run 33183770242):** the Stellar leg failed
+  with `[/settle] dispatch error: TimeoutError: settle timed out after 60000ms`, NO failover line, NO submission and nothing on-chain
+  (Horizon checked) - the primary (Alchemy) was answering, just slowly, so the 10 s per-request bound and the transport-only failover
+  never fired while six to ten pre-submit reads ate the budget; and the vendor's post-submit poll runs `requirements.maxTimeoutSeconds`
+  attempts (we advertise 300), so once submitted only OUR timeout ends it. Now: `installRpcFailover(..., { hedgeMs })` (default 3 s,
+  `FACILITATOR_RPC_HEDGE_MS`) also sends a read still silent past the delay to the first fallback, first ANSWER wins (JSON-RPC error =
+  answer; transport failure waits for the other side; sendTransaction never hedged; `shouldHedge`); `settle-poll.js` caps
+  `pollForTransaction` at `FACILITATOR_MAX_POLL_ATTEMPTS` (8), logs `[settle-poll] submitted <hash>... polling up to N` and the
+  outcome with elapsed ms, and hands the hash to `/settle` via AsyncLocalStorage so a timeout body carries `transaction`; the settle
+  bound is 25 s (was 60 s; the CALLER gives up at 30 s, so the old bound could only ever reach it as a bodiless timeout); every settle
+  logs `settled|not settled in Nms tx ...`. `decodeErrorResult` reads the SDK's parsed `errorResult` object (sdk >= 13) as well as the
+  legacy `errorResultXdr` string (the 08-27 "(no errorResultXdr in response) otherKeys:[errorResult]" line). facilitator/test.js 59
+  offline pins. The facilitator redeploys ONLY on `facilitator/**` changes and has its own lockfile: a root Dependabot bump never
+  touches it (verified 2026-08-28 while diagnosing this; the same-day mppx/viem/algosdk bump was cleared by a canary rerun).
 - **Facilitator support report (`GET /__operator/facilitators.json`, 2026-08-19, fix #9):** operator-
   authed dump of what each configured facilitator client ADVERTISES (`getSupported` kinds → exact
   networks, extensions) plus `firstTriedFor` (the first client advertising each network = the one
