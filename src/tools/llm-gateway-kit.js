@@ -1347,7 +1347,7 @@ export function validateRequest(input, tierSlug, { clamp = true } = {}) {
       totalImages += images;
     }
   }
-  if (totalChars > tier.maxInputChars) throw bad(`Input too large (${totalChars} chars). The ${tierSlug} tier allows up to ${tier.maxInputChars} chars`);
+  if (totalChars > tier.maxInputChars) throw bad(`Input too large (${totalChars} chars). The ${tierSlug} tier allows up to ${tier.maxInputChars} chars${tierSlug === "v1-chat-metered" ? "" : "; POST /v1/metered/chat/completions takes up to 200k chars and is priced from the body"}`);
   if (totalImages > MAX_IMAGES) throw bad(`Too many images (${totalImages}). Maximum is ${MAX_IMAGES} per request`);
 
   // OpenAI's newer SDKs send max_completion_tokens (reasoning-model wire);
