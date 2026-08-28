@@ -77,7 +77,7 @@ export function contactPage(baseUrl) {
     </div>
     <div class="ct-card">
       <div class="ct-card-label">built by</div>
-      <a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener">Havok Holdings LLC</a>
+      <a href="https://havok.holdings" rel="noopener">Havok Holdings LLC</a>
       <p>Open source, open book.</p>
     </div>
   </div>
