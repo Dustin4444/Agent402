@@ -239,7 +239,7 @@ import { CALENDAR_TOOLS } from "./tools/calendar-kit.js";
 import { LLM_TOOLS } from "./tools/llm-kit.js";
 import { LLM_MESSAGES_TOOLS, MESSAGES_PATH_BY_TIER } from "./tools/llm-messages-kit.js";
 import { LLM_RESPONSES_TOOLS } from "./tools/llm-responses-kit.js";
-import { LLM_GATEWAY_TOOLS, modelsList, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, rerankCacheKey, RERANK_PATH, gatewayCreditsStatus, oxAlphaAvailable, probeOxAlphaAvailability, OX_ROUTE, oxUpstreamIsFree } from "./tools/llm-gateway-kit.js";
+import { LLM_GATEWAY_TOOLS, TIERS, modelsList, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, rerankCacheKey, RERANK_PATH, gatewayCreditsStatus, oxAlphaAvailable, probeOxAlphaAvailability, OX_ROUTE, oxUpstreamIsFree } from "./tools/llm-gateway-kit.js";
 // /v1/audio/speech stays behind OPENROUTER_TTS_ENABLED as a rollout gate:
 // @x402/express (v2.16) runs the handler first and settles only a <400
 // response, so a 502 is never charged — but an UNLISTED route returns no 402
@@ -3346,6 +3346,16 @@ function getPerformance24h() {
 // MANIFEST is built once; we only enrich with the live performance24h block
 // on each request when analytics is enabled. Failing-open: if the analytics
 // query stalls, we serve the static manifest instead of blocking the call.
+const serveManifest = (_req, res) => {
+  const perf = getPerformance24h();
+  if (perf) res.json({ ...MANIFEST, performance24h: perf });
+  else res.json(MANIFEST);
+};
+// Indexers guess these names for the manifest (sentinel402, mpp32-indexer,
+// bare "node" crawlers - 2026-08-28 HTTP log); a 404 there reads as "no
+// manifest". Same document, same cache.
+app.get("/.well-known/x402.json", serveManifest);
+app.get("/.well-known/x402-services.json", serveManifest);
 app.get("/.well-known/x402", (_req, res) => {
   const perf = getPerformance24h();
   if (perf) res.json({ ...MANIFEST, performance24h: perf });
@@ -4610,6 +4620,21 @@ app.get("/card-1280.png", async (_req, res) => {
     res.redirect(302, "/card.svg");
   }
 });
+// Verifiers look for the spec at the conventional names too (Dexter-Verifier
+// asked /swagger.json and /api-docs/openapi.json, 2026-08-28).
+for (const alias of ["/swagger.json", "/api-docs/openapi.json", "/api/openapi.json"]) app.get(alias, (_req, res) => res.redirect(301, "/openapi.json"));
+// A GET on the gateway base (a human or an agent probing "/v1", "/v1/info",
+// "/v1/metered") answers a small index instead of a 404.
+const gatewayIndex = (_req, res) => res.set("Cache-Control", "public, max-age=600").json({
+  ok: true,
+  service: "Agent402 model gateway",
+  models: `${BASE_URL}/v1/models`,
+  metered: { chat: `${BASE_URL}/v1/metered/chat/completions`, messages: `${BASE_URL}/v1/metered/messages`, responses: `${BASE_URL}/v1/metered/responses`, pricing: "quoted per request from the body, settled at actual usage for credits and upto buyers" },
+  flat: Object.values(TIERS).filter((t) => t.route && !t.metered).map((t) => ({ route: t.route, priceUsd: t.price })),
+  pay: { x402: "PAYMENT-SIGNATURE (USDC)", mpp: "Authorization: Payment", credits: "Authorization: Bearer a402_... (buy at /credits)" },
+  docs: `${BASE_URL}/guides/agent-hosts`,
+});
+for (const p of ["/v1", "/v1/info", "/v1/metered"]) app.get(p, gatewayIndex);
 app.get("/openapi.json", (_req, res) => res.set("Cache-Control", "public, max-age=3600").json(openapiSpec(BASE_URL, CATALOG)));
 app.get("/tools", (_req, res) => htmlCache(res, 300, 900).send(ledgerCatalogPage(BASE_URL, CATALOG, SKILL_PACKS)));
 app.get("/shop", (_req, res) => htmlCache(res, 300, 900).send(shopPage(BASE_URL, CATALOG)));
@@ -5319,6 +5344,25 @@ app.use((req, res, next) => {
   if (req.method === "POST" && !CATALOG[`POST ${req.path}`] && CATALOG[`GET ${req.path}`]) {
     req.__methodAliased = "POST";
     req.method = "GET";
+  } else if ((req.method === "GET" || req.method === "HEAD") && !CATALOG[`GET ${req.path}`] && CATALOG[`POST ${req.path}`]) {
+    // The other direction (2026-08-28 sweep): trust and uptime indexers send
+    // GET or HEAD to POST-only tools and skill packs and were answered 405,
+    // which reads as "not payable" / "down" in their listings. Run the POST
+    // gate chain instead: unpaid -> the 402 with its challenges (the paywall
+    // is visible); paid or free -> the handler sees an empty body and answers
+    // its own 400 naming the field it needs. A HEAD gets the same headers
+    // and no body (RFC 9110), like the HEAD-on-GET rewrite below.
+    if (req.method === "HEAD") {
+      const origEnd = res.end;
+      res.end = function headEnd(chunk, encoding, cb) {
+        if (typeof chunk === "function") { cb = chunk; chunk = null; }
+        else if (typeof encoding === "function") { cb = encoding; encoding = undefined; }
+        return origEnd.call(this, null, cb);
+      };
+    }
+    req.__methodAliased = req.method;
+    req.method = "POST";
+    if (!req.body || typeof req.body !== "object") req.body = {};
   }
   next();
 });
@@ -6322,8 +6366,22 @@ app.use((req, res, next) => {
 // and before the error handler. Status stays 404 so route-existence probes
 // (test-mcp-self-consistency's live GET oracle) are unaffected.
 app.use((req, res) => {
-  const wantsJson = req.path.startsWith("/api") || req.path.startsWith("/__operator") || req.accepts(["html", "json"]) === "json";
-  if (wantsJson) return res.status(404).json({ ok: false, error: "not-found" });
+  const wantsJson = req.path.startsWith("/api") || req.path.startsWith("/v1") || req.path.startsWith("/mcp") || req.path.startsWith("/__operator") || req.accepts(["html", "json"]) === "json";
+  if (wantsJson) {
+    // An unknown /api path is almost always a retired tool or a guessed slug
+    // (four indexers probed soundex, string-similarity, uuid-v5 and ~25 old
+    // skill packs in one morning, 2026-08-28): answer with the closest live
+    // tools and the find route, and count it (tool_gone) so residual demand
+    // for a retired route is visible. Status stays 404 for the route oracle.
+    if (req.path.startsWith("/api/") && !req.path.startsWith("/api/convert/")) {
+      const slug = req.path.replace(/^\/api\/(skill\/)?/, "").split("/")[0].replace(/[-_]+/g, " ").slice(0, 80);
+      let suggestions = [];
+      try { suggestions = (findTools(CATALOG, slug, { k: 3, baseUrl: BASE_URL, powSlugs: POW_SLUGS }).results || []).map((r) => ({ slug: r.slug, route: r.route, price: r.price, name: r.name })); } catch { suggestions = []; }
+      try { capturePostHogToolGone({ route: req.path, replacement: "GET /api/find" }); } catch { /* telemetry never breaks a response */ }
+      return res.status(404).json({ ok: false, error: "not-found", hint: `No tool lives at ${req.path}. It may have been retired; the closest live tools are listed, or ask /api/find?q=<task>.`, find: `${BASE_URL}/api/find?q=${encodeURIComponent(slug)}`, suggestions });
+    }
+    return res.status(404).json({ ok: false, error: "not-found" });
+  }
   const body = `<div style="max-width:640px;margin:0 auto;padding:96px 26px 80px;text-align:center;">
       <div style="font-family:var(--font-mono);font-weight:500;font-size:72px;line-height:1;letter-spacing:-.03em;color:var(--ink);margin-bottom:14px;">404</div>
       <h1 style="font-weight:500;font-size:26px;letter-spacing:-.02em;margin:0 0 10px;color:var(--ink);">Page not found</h1>
@@ -6351,9 +6409,12 @@ app.use((err, req, res, _next) => {
     console.error(`[unhandled-5xx] ${req.method} ${req.path} → ${status}: ${err?.message || err}`);
     if (err?.stack) console.error(String(err.stack).split("\n").slice(0, 6).join("\n"));
   }
-  const wantsJson = req.path.startsWith("/api") || req.path.startsWith("/__operator") || req.accepts(["html", "json"]) === "json";
+  const wantsJson = req.path.startsWith("/api") || req.path.startsWith("/v1") || req.path.startsWith("/mcp") || req.path.startsWith("/__operator") || req.accepts(["html", "json"]) === "json";
   if (wantsJson) {
-    res.status(status).json({ ok: false, error: status === 400 ? "bad-request" : status === 413 ? "payload-too-large" : status === 429 ? "rate-limited" : "internal" });
+    // A 413 on a flat LLM tier is an agent with a big prompt (one client hit
+    // it five times in 30 minutes, 2026-08-28): say where big bodies go.
+    const tooLarge = status === 413 ? { hint: `Body over the ${req.path.startsWith("/v1/") ? "100 KB" : "size"} limit for ${req.path}. ${req.path.startsWith("/v1/") && !req.path.startsWith("/v1/metered") ? "The metered tier accepts 1 MB and prices from the body: POST /v1/metered/chat/completions (or /messages, /responses)." : "Split the input or use the route's documented size cap."}`, ...(req.path.startsWith("/v1/") && !req.path.startsWith("/v1/metered") ? { metered: `${BASE_URL}/v1/metered/chat/completions` } : {}) } : {};
+    res.status(status).json({ ok: false, error: status === 400 ? "bad-request" : status === 413 ? "payload-too-large" : status === 429 ? "rate-limited" : "internal", ...tooLarge });
   } else {
     const is404 = status === 404;
     const t = is404 ? "Page not found" : `Error ${status}`;
