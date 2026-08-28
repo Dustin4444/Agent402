@@ -2020,6 +2020,13 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   14,910 rows) - and `unattributedMerchants` now reports `attributedUnroutable` (known origin, cannot route) separately from
   `unattributed` (unknown). Submitted-seed slots: 586 of the 2,000 cap in use (2026-08-27). test-settlement-proof 44.
 
+- **mppx 0.8.18 (2026-08-28):** carries the UPSTREAM fix for the yParity/canonical-hash bug `src/tempo-confirm.js` exists to
+  work around ("Normalized Tempo transactions before broadcast so accepted recovery-ID encodings matched the node's canonical
+  hash"). Our chain-truth confirm STAYS - it is the belt that made an AgentCore/Privy buyer payable at all, and a library fix
+  upstream does not retire a guard that reads the chain. Held to the 0.8 line deliberately: 0.9.x removes machineUSD (unused
+  here) but also changes the MCP payment error codes we hardcode (`-32042` in `src/mcp-mpp.js`), so it needs its own read.
+  All seven MPP/Tempo suites green offline; the live proof is the tempo canary + tempo-subscription canary dispatched AFTER
+  the deploy, never a stub (the rail has drifted twice at the wire level and a stub relay accepts anything).
 - **Sweep follow-through done end to end (2026-08-28):** Polymarket's two gamma LIST call sites moved to `/markets/keyset`
   (`polyList()` accepts the keyset object AND the legacy bare array, so a rollback cannot empty the tools; `offset` is refused
   there with a 422, `next_cursor` becomes `after_cursor`); the FRED attribution their terms require now ends all five
