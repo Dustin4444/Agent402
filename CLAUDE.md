@@ -2200,6 +2200,15 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   push to main by an admin session does not); Dependabot security updates are ON (fix PRs are opened, never auto-merged);
   the unused `NPM_TOKEN` Actions secret is deleted (publishing is OIDC). No required reviewer on the environment: with one
   owner it would be self-approval on every deploy.
+- **House style enforced in code on every report (2026-08-28, `src/house-style.js`, `scripts/test-house-style.js` in CI):** the
+  models write em dashes into headings and prose whatever the prompt says (the NVDA dossier, Berkshire fund and jet-fuel research
+  fixtures all did), so server.js wraps EVERY `REPORT_TIERS` handler at catalog build (`withHouseStyle`, in place, before
+  `_premiumHandlers` is built - agents, card buyers, monitors and samples all reach the wrapped one): heading dashes become
+  colons, prose dashes a spaced hyphen, numeric ranges a plain hyphen; urls/b64/hash/tx keys untouched, the non-enumerable meter
+  sentinel survives. Page titles for every kind come from `reportHeadline()` (human-checkout.js): the report's own H1
+  normalised (an all-caps fund H1 is title-cased, tickers kept), else `<product label>: <subject>` - a record's stored `title`
+  is often just the buyer's input and was the public page title until this. Used by the public page (title, Report JSON-LD,
+  breadcrumb) and the sample pages.
 - **`/proof` + `GET /api/proof` (2026-08-27, `src/proof.js`, `proofFeed()` in sales-ledger):** receipts for the metered
   tier - the ledger now stores `quote_usd` (additive column) next to the settled `price_usd` on every metered sale
   (`recordSale({quoteUsd})` from the route binder's `req.__meteredQuoteUsd`), and the page shows aggregates plus ONE

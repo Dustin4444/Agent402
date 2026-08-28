@@ -15,6 +15,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { HUMAN_PRODUCTS, reportHeadline } from "./human-checkout.js";
+import { houseStyleBundle } from "./house-style.js";
 
 const DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "samples");
 
@@ -39,7 +40,7 @@ export const SAMPLES = (() => {
         label: p.label,
         input: String(j.input || ""),
         title: reportHeadline({ report: j.report, title: j.title, input: j.input }, p.label),
-        report: j.report,
+        report: houseStyleBundle(j.report, 0, "report"),
         sources: Array.isArray(j.sources) ? j.sources : [],
         tables: Array.isArray(j.tables) ? j.tables : [],
         at: j.at || j.generatedAt || null,
