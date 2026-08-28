@@ -21,5 +21,22 @@ ok(escapeRegex("(a+)+$") === "\\(a\\+\\)\\+\\$", "escapeRegex neutralizes a rege
 ok(new RegExp(`^${escapeRegex("a.b")}$`).test("a.b") && !new RegExp(`^${escapeRegex("a.b")}$`).test("axb"),
   "an escaped value matches literally, not as a regex metacharacter");
 
+
+// 2026-08-28 review: the shape list was bypassable and a polynomial pattern on a
+// long subject still stalled the loop. Quantified groups are refused outright,
+// and testUserRegex runs under a hard 50 ms bound (V8 interrupts the regex).
+{
+  const { testUserRegex, USER_REGEX_TIMEOUT_MS } = await import("../src/tools/safe-regex.js");
+  for (const p of ["(a|a)*b", "(a+b?)+c", "^(\\w+\\s?)*$", "(ab)+", "(a)\\1"]) {
+    let threw = false; try { compileUserRegex(p); } catch { threw = true; }
+    ok(threw, `quantified group / backreference refused: ${p}`);
+  }
+  ok(compileUserRegex("[a-z]+@[a-z]+\\.[a-z]{2,}").test("a@b.co"), "a plain character-class pattern still compiles and matches");
+  const t0 = Date.now(); let bounded = null;
+  try { testUserRegex(/a+a+b/, "a".repeat(10_000) + "!"); } catch (e) { bounded = e; }
+  ok(bounded?.statusCode === 400 && Date.now() - t0 < USER_REGEX_TIMEOUT_MS * 20, `a polynomial pattern on a long subject is cut off by the time bound (${Date.now() - t0} ms, 400)`);
+  ok(testUserRegex(/^ok$/, "ok") === true && testUserRegex(/^ok$/, "no") === false, "testUserRegex returns the match result for a fast pattern");
+}
+
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

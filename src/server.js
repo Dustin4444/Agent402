@@ -121,6 +121,8 @@ import { whatIsX402Page } from "./what-is-x402.js";
 import { whatIsMppPage } from "./what-is-mpp.js";
 import { agenticFinancePage } from "./agentic-finance.js";
 import { whyPage } from "./why.js";
+import { securityPage } from "./security-page.js";
+import { companyPage } from "./company.js";
 import { sampleJson, sampleMeta, SAMPLE_PRODUCTS } from "./sample-reports.js";
 import { createFreeAlerts, alertFormHtml, ALERT_KIND_FOR_REPORT_KIND } from "./free-alerts.js";
 import { createFollowups } from "./followups.js";
@@ -1266,9 +1268,27 @@ const clientIp = (req) => (req.ip || req.socket?.remoteAddress || "?").trim();
 // subscribe routes only relay `buyerSafe` messages. Shared by BOTH recurring
 // engines (card and wallet) so a target can never be watchable on one rail and
 // not the other.
+const _fundResolveCache = new Map();
+const _fundResolveLimiter = createRateLimiter("fund-resolve", { perMin: 20, perHour: 300 });
 const _monitorTargetValidators = {
   domain: (t) => normDomain({ domain: t }),
-  fund: async (t) => { const r = /^\d{1,10}$/.test(t) ? await edgarResolveManager({ cik: t }) : await edgarResolveManager({ name: t }); return r?.name || t; },
+  // One EDGAR full-text search per unique name, reachable unauthenticated
+  // from /api/subscribe and /api/alerts: cache resolutions and bound the
+  // shared upstream globally so a spray cannot drive our egress into SEC's
+  // rate ban (the class the programmatic pages closed for off-list slugs).
+  fund: async (t) => {
+    const key = String(t).trim().toLowerCase().slice(0, 200);
+    const hit = _fundResolveCache.get(key);
+    if (hit && Date.now() - hit.at < 60 * 60_000) { if (hit.err) throw hit.err; return hit.name; }
+    if (_fundResolveLimiter.check("global").limited) { const e = new Error("Fund lookups are busy right now. Enter the manager's SEC CIK number, or try again in a minute."); e.statusCode = 429; e.buyerSafe = true; throw e; }
+    try {
+      const r = /^\d{1,10}$/.test(t) ? await edgarResolveManager({ cik: t }) : await edgarResolveManager({ name: t });
+      const name = r?.name || t;
+      if (_fundResolveCache.size > 2000) _fundResolveCache.clear();
+      _fundResolveCache.set(key, { at: Date.now(), name });
+      return name;
+    } catch (e) { if (e?.buyerSafe) { if (_fundResolveCache.size > 2000) _fundResolveCache.clear(); _fundResolveCache.set(key, { at: Date.now(), err: e }); } throw e; }
+  },
   recall: (t) => normRecallQuery(t),
   ipo: (t) => normIpoKeyword(t) || "all",
   research: (t) => { const q = String(t ?? "").trim().replace(/\s+/g, " "); if (q.length < 12 || q.length > 300) { const e = new Error("Enter a research question of 12 to 300 characters."); e.statusCode = 400; e.buyerSafe = true; throw e; } return q; },
@@ -1320,11 +1340,16 @@ app.get("/__operator/followups.json", (req, res) => {
   res.set("Cache-Control", "no-store").json(_followups.stats());
 });
 const alertsSignupLimiter = createRateLimiter("alerts-signup", { perMin: 6, perHour: 40 });
+// A second bound keyed on the ADDRESS (hashed), so a distributed source cannot
+// flood one victim's inbox with confirmations by rotating IPs.
+const alertsEmailLimiter = createRateLimiter("alerts-email", { perMin: 2, perHour: 5 });
 const alertPage = (title, body) => ledgerShell({ title: `${title} - Agent402`, description: "Free email alerts from Agent402.", canonical: `${BASE_URL}/reports`, baseUrl: BASE_URL, activePath: "/reports", robots: "noindex, nofollow", body: `<div class="wrap" style="padding:40px 30px;max-width:640px;"><h1 style="font-size:26px;margin:0 0 12px;">${title}</h1>${body}</div>${ledgerFooterCompact()}` });
 app.post("/api/alerts", express.json({ limit: "4kb" }), async (req, res) => {
   if (alertsSignupLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many signups from this address. Try again in a few minutes." });
   const b = req.body || {};
   if (typeof b.website === "string" && b.website) return res.json({ ok: true, status: "pending" }); // honeypot: bots see success, nothing is stored
+  const emailKey = createHash("sha256").update(String(b.email || "").trim().toLowerCase()).digest("hex").slice(0, 32);
+  if (alertsEmailLimiter.check(`e:${emailKey}`).limited) return res.json({ ok: true, status: "pending" }); // same shape: never confirms whether an address is known
   try { res.json(await _freeAlerts.signup({ email: b.email, kind: b.kind, target: b.target, source: b.source })); }
   catch (e) {
     if (e?.buyerSafe && e.statusCode) return res.status(e.statusCode).json({ error: String(e.message).slice(0, 200) });
@@ -1408,10 +1433,15 @@ try {
 // id, carried ONLY in the subscriber's email - never in the report JSON or on
 // the report page, which subscribers are told to share. Derived from the
 // Stripe key so it needs no new secret; rotating the key invalidates links.
-const _manageToken = (reportId) => createHmac("sha256", `${(process.env.STRIPE_SECRET_KEY || "").trim()}:monitor-manage`).update(String(reportId)).digest("base64url").slice(0, 32);
+// Dedicated secret (MONITOR_MANAGE_SECRET) so a Stripe key roll no longer
+// invalidates every subscriber's cancel link; the Stripe-derived key stays as
+// a VERIFY-ONLY fallback for links emailed before the secret was set.
+const _manageKeys = () => [...(process.env.MONITOR_MANAGE_SECRET ? [`${process.env.MONITOR_MANAGE_SECRET.trim()}:monitor-manage`] : []), `${(process.env.STRIPE_SECRET_KEY || "").trim()}:monitor-manage`];
+const _manageTokenWith = (key, reportId) => createHmac("sha256", key).update(String(reportId)).digest("base64url").slice(0, 32);
+const _manageToken = (reportId) => _manageTokenWith(_manageKeys()[0], reportId);
 const _manageTokenOk = (reportId, k) => {
-  const want = Buffer.from(_manageToken(reportId)), got = Buffer.from(String(k || ""));
-  return want.length === got.length && timingSafeEqual(want, got);
+  const got = Buffer.from(String(k || ""));
+  return _manageKeys().some((key) => { const want = Buffer.from(_manageTokenWith(key, reportId)); return want.length === got.length && timingSafeEqual(want, got); });
 };
 if (_subs) {
   app.post("/api/stripe/webhook", express.raw({ type: "application/json", limit: "1mb" }), async (req, res) => {
@@ -1516,6 +1546,16 @@ app.use((req, _res, next) => {
 // tier's own 200k-char cap could speak. body-parser skips a body that is
 // already parsed, so this route-scoped parser wins over the global one below.
 app.use("/v1/metered", express.json({ limit: "1mb" }));
+// An unpaid POST here tokenizes the body for its 402 quote (measured 28 ms
+// per 190k CJK chars): bound unauthenticated quote requests per IP so the
+// quoter cannot be used as free CPU. Paid retries carry a credential and pass.
+const meteredQuoteLimiter = createRateLimiter("metered-quote", { perMin: 60, perHour: 1200 });
+app.use("/v1/metered", (req, res, next) => {
+  if (req.method !== "POST") return next();
+  const paid = Boolean(req.headers["payment-signature"] || req.headers["x-payment"] || req.headers.authorization);
+  if (!paid && meteredQuoteLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many unpaid quote requests from this address; send the paid retry, or slow down." });
+  next();
+});
 app.use(express.json({ limit: "100kb" }));
 
 // Funnel stage 1 — discovery. An agent fetching any of these machine-readable
@@ -1599,7 +1639,7 @@ app.use((_req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "SAMEORIGIN");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-  res.setHeader("Strict-Transport-Security", "max-age=63072000; includeSubDomains");
+  res.setHeader("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
   // Disable browser features we never use — defense-in-depth against any future
   // XSS or third-party script accidentally probing for them.
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()");
@@ -1627,7 +1667,7 @@ app.use((_req, res, next) => {
     // browser before it ever executes). connect-src's existing 'https:'
     // already covers the map's runtime fetch of the world-atlas geometry
     // from jsdelivr, so no change needed there.
-    "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self' https://unpkg.com; connect-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
+    "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; connect-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
   );
   next();
 });
@@ -1730,7 +1770,7 @@ app.get("/.well-known/security.txt", (_req, res) => {
     `Expires: ${expires}`,
     "Preferred-Languages: en",
     `Canonical: ${BASE_URL}/.well-known/security.txt`,
-    `Policy: ${BASE_URL}/terms`,
+    `Policy: ${BASE_URL}/security`,
     "",
   ].join("\n");
   res.type("text/plain").set("Cache-Control", "public, max-age=3600").send(body);
@@ -1803,6 +1843,8 @@ app.get("/aifi", (_req, res) => res.redirect(301, "/agentic-finance"));
 // /why - the seven first-party differences, every claim linked to its proof surface
 // (src/why.js); llms.txt, the MCP instructions and the package READMEs point here.
 app.get("/why", (_req, res) => htmlCache(res, 300, 900).send(whyPage(BASE_URL)));
+app.get("/security", (_req, res) => htmlCache(res, 300, 900).send(securityPage(BASE_URL)));
+app.get("/company", (_req, res) => htmlCache(res, 300, 900).send(companyPage(BASE_URL)));
 // Real sample reports (assets/samples, src/sample-reports.js): the finished
 // artifact a buyer gets, readable before paying, indexable, with a buy box.
 // Served with or without Stripe: the fixtures are static and the buy box
@@ -5164,7 +5206,7 @@ app.use((req, res, next) => {
     // dev/test only, so it keeps caching.)
     if (res.getHeader("X-Trial-Accepted") === "true") return;
     const powVerified = res.getHeader("X-Pow-Accepted") === "true";
-    const paid = Boolean(paymentHeaderOf(req)) || req.creditsSettled === true;
+    const paid = Boolean(paymentHeaderOf(req)) || req.creditsSettled === true || req.tempoSettled === true;
     if (!FREE_MODE && !paid && !powVerified) return;
     let bytes = 0;
     try { bytes = Buffer.byteLength(JSON.stringify(captured), "utf8"); } catch { bytes = 0; }

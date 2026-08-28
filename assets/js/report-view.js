@@ -17,13 +17,25 @@
 
   // Per-line inline markdown. Input is ALREADY entity-escaped, so a quote can
   // never break out of an href; each class stops at an escaped quote or angle.
+  // Links in a report body may only point at a cited source (host allowlist
+  // built from s.sources): a fetched page that instructs the model to plant a
+  // link gets plain text instead of an anchor (review 2026-08-28).
+  var allowedHosts = null;
+  function setAllowedHosts(sources) {
+    allowedHosts = {};
+    (sources || []).forEach(function (src) { try { allowedHosts[new URL(src.url).host] = true; } catch (e) { /* not a URL */ } });
+  }
+  function linkOk(url) {
+    if (!allowedHosts) return true;
+    try { return allowedHosts[new URL(url).host] === true; } catch (e) { return false; }
+  }
   function inline(l) {
     l = l.replace(/\[(\d+)\]/g, '<span class="cite">[$1]</span>');
     l = l.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
     // [label](https://…) before the bare-URL autolink, or the bare rule would
     // eat the URL out of the parentheses and leave the label stranded.
-    l = l.replace(/\[([^\]<>]+)\]\((https?:\/\/[^\s)<>"']+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-    l = l.replace(/(^|[\s(])(https?:\/\/[^\s)<>"']+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+    l = l.replace(/\[([^\]<>]+)\]\((https?:\/\/[^\s)<>"']+)\)/g, function (m, label, url) { return linkOk(url) ? '<a href="' + url + '" target="_blank" rel="noopener">' + label + '</a>' : label + ' (' + url + ')'; });
+    l = l.replace(/(^|[\s(])(https?:\/\/[^\s)<>"']+)/g, function (m, pre, url) { return linkOk(url) ? pre + '<a href="' + url + '" target="_blank" rel="noopener">' + url + '</a>' : pre + url; });
     return l;
   }
 
@@ -188,6 +200,7 @@
     });
   }
   function renderDone(s) {
+    setAllowedHosts(Array.isArray(s.sources) && s.sources.length ? s.sources : null);
     var base = slugify(s.title);
     var tables = Array.isArray(s.tables) ? s.tables : [];
     var sources = Array.isArray(s.sources) ? s.sources : [];

@@ -256,7 +256,15 @@ export function createCredits({ stripe, baseUrl, storeDir, onDebit, onLoad, now 
         if (res.statusCode === 200 && !cacheHit) { const c = settle(a.hash, a.heldMicro, item.slug || req.path, Number.isFinite(metered) && metered > 0 ? metered : null); if (c) req.creditsCharged = c.chargedUsd; }
         else release(a.hash, a.heldMicro);
       });
-      res.on("close", () => { if (done) return; done = true; release(a.hash, a.heldMicro); });
+      // A client that drops the socket AFTER dispatch has bought the work: the
+      // handler still runs to completion and the upstream is still paid, and
+      // `finish` never fires on a destroyed socket - so `close` used to RELEASE
+      // the hold, making credits the one rail where an abort was a free
+      // expensive call (reproduced 2026-08-28: /v1/research ran, $0 spent).
+      // Every other rail settles after the handler regardless of the socket;
+      // credits now does the same, at the held amount (the quote ceiling on a
+      // metered route, since no usage header exists for an aborted response).
+      res.on("close", () => { if (done) return; done = true; settle(a.hash, a.heldMicro, item.slug || req.path); });
       return next();
     };
   }

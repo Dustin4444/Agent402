@@ -37,7 +37,7 @@
 //   BACKUP_MAX_TOTAL_GB  default 20  (stored, bill guard)
 
 import { createHash, createHmac } from "node:crypto";
-import { createReadStream, createWriteStream, statSync, readdirSync, mkdtempSync, rmSync } from "node:fs";
+import { createReadStream, createWriteStream, statSync, readdirSync, readFileSync, mkdtempSync, rmSync } from "node:fs";
 import { createGzip } from "node:zlib";
 import { pipeline } from "node:stream/promises";
 import { tmpdir } from "node:os";
@@ -68,7 +68,16 @@ export const backupConfigured = () => {
 // Known-critical files upload FIRST so a tight budget always covers the
 // ledger before bulk. Everything else follows smallest-first (most files
 // safe beats one big file safe).
-const PRIORITY = ["agent402-refunds.db", "stats.db", "status.db", "leads.db", "analytics.db"];
+// Real store names (the old list named files that never existed, so priority
+// ordering was dead): the refund debt ledger, the sales ledger, the two
+// customer directories (prepaid credit balances, delivered paid reports), then
+// the subscriber/alert stores. Everything else follows smallest-first.
+const PRIORITY = ["agent402-refunds.db", "agent402-sales.db", "credits", "human-checkout", "stripe-subscriptions.json", "mpp-subscriptions.json", "free-alerts.json", "followups.json", "monitor-runs.json", "agent402-stats.db", "status.db"];
+// Directory-shaped stores (one JSON file per record) are bundled into one
+// gzip'd NDJSON object each: {"path","body"} per file. Until 2026-08-28 the
+// plan skipped every directory, so prepaid credit balances and every purchased
+// report had NO offsite copy while the module said the volume was covered.
+const DIR_BUNDLE_MAX_FILES = 50_000;
 const EXCLUDE = [/cache/i, /\btmp\b|\.tmp$/i, /-wal$/, /-shm$/, /\.log$/i];
 
 /** Inventory of /data: what a run would consider, with sizes and the
@@ -81,8 +90,20 @@ export function backupPlan() {
   for (const name of names) {
     let st;
     try { st = statSync(join(c.dataDir, name)); } catch { continue; }
-    if (!st.isFile()) continue;
     const excluded = EXCLUDE.some((re) => re.test(name));
+    if (st.isDirectory()) {
+      let bytes = 0, count = 0;
+      try {
+        for (const f of readdirSync(join(c.dataDir, name))) {
+          if (EXCLUDE.some((re) => re.test(f))) continue;
+          try { const fs = statSync(join(c.dataDir, name, f)); if (fs.isFile()) { bytes += fs.size; count++; } } catch { /* raced */ }
+        }
+      } catch { continue; }
+      if (!count) continue; // an empty directory is not a store
+      files.push({ name, bytes, excluded, dir: true, count });
+      continue;
+    }
+    if (!st.isFile()) continue;
     files.push({ name, bytes: st.size, excluded });
   }
   const included = files.filter((f) => !f.excluded);
@@ -203,9 +224,11 @@ export async function runBackup({ log = console.log } = {}) {
     const uploaded = [], held = [];
     for (const f of candidates) {
       const src = join(c.dataDir, f.name);
-      const gz = join(tmp, f.name + ".gz");
+      const objName = f.dir ? `${f.name}.ndjson` : f.name;
+      const gz = join(tmp, objName + ".gz");
       try {
-        await stageCopy(src, f.name, gz, tmp);
+        if (f.dir) await stageDir(src, f.name, gz);
+        else await stageCopy(src, f.name, gz, tmp);
       } catch (e) {
         held.push({ name: f.name, reason: `stage failed: ${e.message}` });
         continue;
@@ -216,7 +239,7 @@ export async function runBackup({ log = console.log } = {}) {
         rmSync(gz, { force: true });
         continue;
       }
-      const key = `backups/${day}/${f.name}.gz`;
+      const key = `backups/${day}/${objName}.gz`;
       const res = await s3("PUT", key, { body: createReadStream(gz), contentLength: bytes });
       if (!res.ok) throw new Error(`upload ${key} failed: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
       budget -= bytes;
@@ -253,6 +276,24 @@ export async function runBackup({ log = console.log } = {}) {
     rmSync(tmp, { recursive: true, force: true });
     running = false;
   }
+}
+
+/** Stage a directory store as one gzip'd NDJSON bundle: {"path","body"} per
+ *  regular file (JSON records are read as text; a file that changes under us
+ *  is skipped, never half-read). Restore: scripts/backup-restore-dir.js. */
+async function stageDir(srcDir, name, gzPath) {
+  const out = createGzip({ level: 6 });
+  const done = pipeline(out, createWriteStream(gzPath));
+  let n = 0;
+  for (const f of readdirSync(srcDir)) {
+    if (EXCLUDE.some((re) => re.test(f))) continue;
+    if (++n > DIR_BUNDLE_MAX_FILES) break;
+    let body;
+    try { const st = statSync(join(srcDir, f)); if (!st.isFile()) continue; body = readFileSync(join(srcDir, f), "utf8"); } catch { continue; }
+    if (!out.write(JSON.stringify({ path: `${name}/${f}`, body }) + "\n")) await new Promise((r) => out.once("drain", r));
+  }
+  out.end();
+  await done;
 }
 
 /** Stage one file into the temp dir as gzip. SQLite files go through the

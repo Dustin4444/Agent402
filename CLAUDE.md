@@ -98,7 +98,7 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
   - `.github/trigger-tool-alert`, `-charged-alert`, `-heartbeat`, `-announce`, `-b20check`,
     `-x-verify`, `-self-consistency-alert` are unrelated to deploy.yml - each still gates its
     own dedicated workflow's path filter, untouched by the above.
-- **Flow:** commit to the dev branch with `[test]` ONLY (never `[deploy]` - Mike, 2026-08-25: main deploys on
+- **Flow:** commit to the dev branch with `[test]` ONLY (never `[deploy]` - the operator, 2026-08-25: main deploys on
   merge, so a dev `[deploy]` swaps prod twice for one change) → push → open a **draft PR** → CI runs →
   merge to `main` (deploys on its own now, whether or not the dev branch was ever synced). The
   `create_pull_request` tool auto-appends a session-link footer; **strip it** via
@@ -496,7 +496,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   loopback - requests with an `Origin` header or a non-loopback `Host` are refused. MED three typed claims on the
   2026-08-26 X cards were wrong or loose ("USDC on 12 chains" = 11 + USDG; the MPP evm row implied 12 chains when the
   evm challenge is Base+Celo; stripe shown on a $0.02 route) - script corrected for reuse; the posts stand (a
-  correction is Mike's call). LOW: `setup --write` rewrote openclaw.json at 0644 (mode now preserved, 0600 when new);
+  correction is the operator's call). LOW: `setup --write` rewrote openclaw.json at 0644 (mode now preserved, 0600 when new);
   credits key accepted via env/stdin; unsigned webhook hits no longer cost a disk write each (5 s debounce, verified
   events persist at once); guide tier table rendered from TIERS; stripe log slices buyer strings; canary metered leg
   quotes ABOVE the floor so a collapsed quote is visible. **First real metered settlement:** paid-canary run
@@ -855,7 +855,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   Solana mainnet AND World Chain (`eip155:480`) - so CDP is the FIRST-TRIED facilitator for Polygon,
   Arbitrum and Solana payments, not PayAI as the boot-log labels imply; PayAI is first only for
   Avalanche/Sei/XLayer/SKALE, Naven for Robinhood, molandak for Monad, Celo/Solvador/our Stellar/
-  GoPlausible as labelled.** This is BY DESIGN (Mike, 2026-08-19): CDP is first-order for every chain
+  GoPlausible as labelled.** This is BY DESIGN (the operator, 2026-08-19): CDP is first-order for every chain
   it advertises - CDP-settled payments count toward Bazaar quality and that outranks PayAI's free
   tier; do NOT reorder `facilitatorClients`. Only the boot-log labels/comments that still say "PayAI
   handles Polygon/Arbitrum/Solana" are stale. World Chain (480) is offered by CDP but not in our
@@ -956,7 +956,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   PathUSD on Tempo mainnet — checked on-chain 2026-08-18, never trust the comment) plus a
   daily `mpp-tempo` leg in paid-canary (one GRADED settle = the rail proof; `TEMPO_CANARY_TX_COUNT`
   can add volume ad hoc, default 1). **Tempo VOLUME (2026-08-19; lowered to ~200 tx/day 2026-08-20,
-  Mike's call - was ~1,000):** `tempo-volume.yml` (cron every 2h, dispatchable with `count`) runs
+  the operator's call - was ~1,000):** `tempo-volume.yml` (cron every 2h, dispatchable with `count`) runs
   `scripts/tempo-volume.js`: 17 buys of `/api/uuid` (pure-CPU - no upstream spend; the $0.001 lands in
   OUR payTo, only Tempo's buyer-side fee is real cost) over tempo/charge from the canary burner,
   sequential (one wallet, nonces) with a 250ms pace, heartbeat token so stats file it as internal;
@@ -964,7 +964,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   under 80% settled; opens/closes "Tempo MPP volume FAILING" heartbeat-style. 12 × 17 ≈ 204/day ≈
   $0.20/day. The per-chain funding sweep gained `tempo-usdce` (low-water **$5** ≈ 25 days at that
   rate) + `tempo-pathusd` rows (per-entry `lowWater` override in `chainLowWaterReport`). Burner
-  0x902d…8256: Mike funded **25 USDC.e** on 2026-08-19 (months at 200/day; USDC.e challenges paid
+  0x902d…8256: the operator funded **25 USDC.e** on 2026-08-19 (months at 200/day; USDC.e challenges paid
   natively, no swap) + 1.99 PathUSD
   reserve. Top up USDC.e when "CANARY BURNER LOW" names Tempo or the volume issue opens with exit 2. `scripts/test-mpp-tempo-shim.js` (offline, in
   CI) proves challenge wiring + settlement ordering with injected stubs.
@@ -1192,7 +1192,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   protection; the `max-age=120` on the response is a browser-only hint. Contract pinned by
   `scripts/test-x402-economy.js` (dedup + warm-cache identity, never-throws).
 - **Site redesign 2026-08-22 ("milled + obsidian", approved from the Agent402 Site Directions canvas):**
-  TWO themes, LIGHT IS THE DEFAULT (flipped back the same day, Mike): the light "milled" palette sits on bare `:root`, the
+  TWO themes, LIGHT IS THE DEFAULT (flipped back the same day, the operator): the light "milled" palette sits on bare `:root`, the
   obsidian dark palette is the `:root[data-theme="dark"]` override, `site-chrome.js` stamps `data-theme="dark"` pre-paint
   only when the stored preference is dark, and typography tokens live on the default root (they are theme-independent - a
   font token stranded in the override block fails `test-css-tokens-resolve`). The earlier dark-default note follows: the dark palette sits on bare `:root` (first paint
@@ -1229,7 +1229,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   JSON-LD, and the WebApplication offer is an AggregateOffer — deploy.yml's SEO gate greps
   prod for `"FAQPage"` / `GET /faq` / `AggregateOffer`. That gate runs BEFORE the deploy job,
   so a fix to those surfaces goes green on the run AFTER the one shipping it.
-- **/revenue layout = two wires + a throughput band (2026-08-20, Mike):** `revenuePage` renders a
+- **/revenue layout = two wires + a throughput band (2026-08-20, the operator):** `revenuePage` renders a
   wire overview (one card each for x402 and MPP — **headlines are EXTERNAL-only**: the MPP card
   headlining its combined count read as traction when 553 of 554 were our own volume runs, the
   registry-inflation move we call out in others), then **`railThroughputSection`** — a PROMINENT
@@ -1241,7 +1241,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   rows only) and `MPP wire · by rail` (big number = "through the rail (ours incl.)", external called
   out beside it; intro says "throughput, not revenue"). **Payer classification:** tempo settles
   record the credential's did:pkh `source` as CLASSIFICATION-GRADE payer (`req.mppTempoPayer`,
-  never identity — same tier as the facilitator-receipt fallback); Mike's AgentCore/Privy test
+  never identity — same tier as the facilitator-receipt fallback); the operator's AgentCore/Privy test
   wallet 0x24e6a249… is in OUR_EVM_WALLETS (its 2026-08-20 buy classified external for a day);
   sales-ledger boots with an idempotent reclassification sweep (payer ∈ BURNERS → internal, plus
   the one payer-less AgentCore row by tx hash).
@@ -1295,7 +1295,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
 - **Independent status observer (`workers/status-probe`, Cloudflare cron, live 2026-07-27):**
   a second observer OUTSIDE production on separate infra, because /status is only as
   trustworthy as its observer and that was a single GitHub schedule. Probes every 5 min
-  (`agent402-status-probe.mikepetrillo1775.workers.dev`; `OPERATOR_TOKEN` secret = Railway's
+  (`the Cloudflare worker whose URL lives in the STATUS_PROBE_WORKER_URL repo variable`; `OPERATOR_TOKEN` secret = Railway's
   `AGENT402_OPERATOR_TOKEN`), records `source: "cloudflare-cron"` on `POST /api/status/probe`,
   and covers `api`/`catalog`/`mcp`/`paywall`/`rails`. It deliberately **skips paid-call**:
   that needs a 16-bit PoW solve plus an `X-Heartbeat-Token` from `POW_SECRET`, and copying
@@ -1400,7 +1400,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   cannot flag themselves), and refunds pay `def.price` (list) — on premium chains the
   buyer paid slightly MORE, so we under-refund by the premium: safe direction, known gap. Canary/synthetic rows are recorded but held unless
   `include_synthetic`. Spending keys are Actions secrets ONLY and refunds ride
-  the CI CANARY BURNERS by default (Mike's decision 2026-08-04 — refund volume is
+  the CI CANARY BURNERS by default (the operator's decision 2026-08-04 — refund volume is
   minimal, the burners already hold USDC on the paying chains, and the canary
   low-water alarms watch their balances, so refund spend pages for a top-up like
   canary spend does). Dedicated `REFUND_EVM_KEY` / `REFUND_STELLAR_SECRET` /
@@ -1567,7 +1567,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   (verified working the same day, post 2084308190158536735). To respond to
   someone else, that is the only route — there is no reply equivalent, and a
   trailing-URL post is a BROADCAST rather than a threaded reply, which is a
-  different social act and needs Mike's OK on those terms.
+  different social act and needs the operator's OK on those terms.
   This entry has now been wrong in BOTH directions: it once said "Free tier:
   POST /2/tweets + GET /2/users/me only", and was then over-corrected to
   "`--reply-to` works against ANY public post … verified live 2026-07-31" on the
@@ -1635,7 +1635,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `content-length` refused before `res.text()` in three kits. X page size capped at 25 posts (X bills per post RETURNED, so
   the page size is the cost lever). Hygiene: a literal NUL byte in a test made the file invisible to grep and secret
   scanners; gitleaks allowlist rows pinned to literals.
-- **Second seller-landscape wave (2026-08-22, Mike: "build everything we can serve right away and profitably; existing keys
+- **Second seller-landscape wave (2026-08-22, the operator: "build everything we can serve right away and profitably; existing keys
   are fair game"):** seven more kits, all wallet-only, offline tests in CI. KEYLESS: `crawl-kit.js` (`CRAWL_TOOLS`: site-map
   $0.005 robots+sitemap+homepage links <= 6 fetches; site-crawl $0.02 BFS <= 20 pages/depth 2, robots honoured, SSRF guard on
   every hop incl. redirects, 200+truncated once a page succeeded else 504), `crypto-signals-kit.js` (`CRYPTO_SIGNALS_TOOLS`:
@@ -1679,7 +1679,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   hunter-domain-search/email-finder/email-verify/company on `HUNTER_API_KEY`, apollo-people-search/org-enrich/person-match
   on `APOLLO_API_KEY`; PII-stripped; $0.02-$0.05). All 32 slugs in WALLET_ONLY_SLUGS + test-all NETWORK; offline tests
   `test-derivatives-kit` (327), `test-solana-intel-kit` (169), `test-x-data-kit` (102), `test-b2b-enrich-kit` (164) in CI.
-  The env keys are Mike's call (X paid plan bearer exists only in Actions secrets today; Hunter/Apollo need signups).
+  The env keys are the operator's call (X paid plan bearer exists only in Actions secrets today; Hunter/Apollo need signups).
 - **Report pricing, re-derived from MEASURED spend (2026-08-23, `scripts/test-report-margins.js`):** the earlier cut had
   been set against the kits' DECLARED `maxUpstreamUsd` figures, which were fiction. PostHog `$ai_generation` over 30 days
   (114 opus-5 synthesis calls, the model every report kit uses) measures **avg $0.107, p95 $0.195, MAX $0.311**, plus
@@ -1764,7 +1764,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   gas, NEVER the treasury or the CI burner. **We pay the gas for every activation and renewal** - the earlier claim here
   that "the tx sends from THEIR account so they pay their own gas" was wrong about who funds it. `mppSubscriptionsEnabled()`
   now REQUIRES the sponsor: with no key the routes do not mount at all, because every subscribe would 402 forever and
-  `/api/mpp/monitors` would be advertising a product we cannot deliver. Mike owes the funded key before this rail is live.
+  `/api/mpp/monitors` would be advertising a product we cannot deliver. the operator owes the funded key before this rail is live.
   **Sponsored-gas policy:** mppx's default fee-payer policy caps `maxGas` at 2,000,000 and its own docs point at the
   override when the access-key tx needs more; an ACTIVATION installs the key as well as moving the first period, so we
   pass `feePayerPolicy: { maxGas: 6_000_000 }` (`SUB_FEE_PAYER_MAX_GAS`, env knob `MPP_SUB_FEE_PAYER_MAX_GAS`, a
@@ -1902,7 +1902,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   claims, each linked to the surface that proves it (usage priced under a quoted ceiling / upto settles actual; a failed call
   is never charged + keyed retries never pay twice + charged-but-failed is ledgered; one key buys models on three wires + 500+
   tools + reports; no wallet required; finished reports + monitors; route-and-execute buys on the agent's behalf; proof from
-  outside production). NO competitor names or comparisons anywhere (Mike, 2026-08-26: "we cant mention competitors"); markup
+  outside production). NO competitor names or comparisons anywhere (the operator, 2026-08-26: "we cant mention competitors"); markup
   stays 15% (decided the same day: 15% on OpenRouter cost nets ~9% after their ~5.5% credit fee; 5%/4% would lose money).
   The same seven points are rendered from `whyPointsPlain()` into `/llms.txt` (info paragraph), one line in BOTH MCP initialize
   instruction copies, a README section, the OpenClaw guide + `agent402-openclaw` README (0.3.1) "What else the same key buys",
@@ -1939,7 +1939,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   pays - PoW for the free tier, x402 exact-EVM signed by the wallet provider's `toSigner()` + `readContract`, the same derivation
   AgentKit's own x402 provider uses - `agent402_about`); `agent402Actions()` returns the raw defs, `agent402ActionProvider()` wraps
   them with `customActionProvider`; @coinbase/agentkit is an optional peer, stubbed in the test. Test lane + gate/publish steps in
-  deploy.yml like the other adapters. A PR to coinbase/agentkit's examples is Mike's call.
+  deploy.yml like the other adapters. A PR to coinbase/agentkit's examples is the operator's call.
 
 - **Wish board integrity round 2 + discovery-gap attribution (2026-08-27):** the board's whole top since 08-24 (~30 clusters at
   55-66 hits, identical first/last timestamps) was ONE scripted sweep re-running a query list against `/api/find`: find-miss
@@ -1984,7 +1984,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   discoverability), (2) adding `packages/registry/entries/third-party/<package>.json` (prepared:
   `adapters/eliza/registry-entry.json`), (3) `bun run --cwd packages/registry validate && generate`, (4) a PR against
   `develop` (reviewed for security, functionality, docs; CONTRIBUTING wants an issue first for non-trivial work).
-  FIRST npm publish is Mike's (OIDC cannot create the package), then the upstream PR.
+  FIRST npm publish is the operator's (OIDC cannot create the package), then the upstream PR.
 - **SSE relay commits the 200 only on the first `data:` frame (2026-08-27, `streamOpenRouterTo`):** the paid canary's
   `llm-stream` leg bought a nano stream that came back as ": OPENROUTER PROCESSING" keep-alive comments and then EOF
   (PostHog: `tool_call` 200 in 6.3 s, no `gateway_usage`), and the relay had already written 200, so the buyer paid
@@ -2073,10 +2073,10 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   user read (docs.x.com pricing, read 2026-08-27; resources dedupe within a UTC day). Page cap 25 -> 10 posts
   (`X_MAX_POSTS_PER_CALL` default), users-lookup cap 100 -> 10; prices x-search-recent $0.006 -> $0.08, x-user-tweets
   $0.01 -> $0.08 (10 posts = $0.05 upstream, under the 70% rule), x-user $0.005 -> $0.015, x-tweet $0.005 -> $0.008,
-  x-users-lookup $0.01 -> $0.15. The kit still lists only with `X_BEARER_TOKEN` on Railway (Mike's call; the bearer exists
+  x-users-lookup $0.01 -> $0.15. The kit still lists only with `X_BEARER_TOKEN` on Railway (the operator's call; the bearer exists
   only in Actions secrets). Market context: twit.sh (118 buyers of X data) stopped settling 2026-08-22; StableSocial sells
   X at a flat $0.06 through Scrape Creators. Hunter/Apollo (b2b-enrich, $0.02-0.05) need signups - unchanged.
-- **Reports for humans: measurement + first fixes (2026-08-27 night; Mike's direction: "reports for humans, go"):** measured
+- **Reports for humans: measurement + first fixes (2026-08-27 night; the operator's direction: "reports for humans, go"):** measured
   before building - 30d: ~470 homepage visitors (mostly direct, then Google/X/ChatGPT), 26 reached `/reports`, 13 `/monitors`,
   1 card sale, 0 active monitors, 0 credits keys; the 253 programmatic SEO pages had ZERO human pageviews and are not in
   Google (the query space is OpenInsider/SecForm4/GuruFocus); no PostHog event existed between `/reports` and a sale. Shipped:
@@ -2098,7 +2098,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   422 and gov-kit's getJson relabelled that 502, so `getJsonAllowEmpty`'s `statusCode === 404` never matched and any drug
   absent from the food+device feeds (most) 502'd the 2-of-3 gate - now `upstreamStatus` rides through and a 404 is never
   retried (`scripts/test-recall-nomatch.js`). IndexNow: 256 URLs (the 253 report pages + /markets, /reports, /monitors)
-  submitted 2026-08-28 01:4xZ. Mike-owned: Google Search Console sitemap submission; posting the samples. NEXT (not built):
+  submitted 2026-08-28 01:4xZ. the operator-owned: Google Search Console sitemap submission; posting the samples. NEXT (not built):
   email capture + post-purchase sequence (one transactional email exists, no list), a shareable/public report option (every
   /r/ page is noindex + generic OG, so the paid artifact has no backlink surface), monitors for research/dossier kinds,
   seed expansion, a first-report promo. Weekly number for this bet: card sales + `human_funnel` conversion, not x402scan rank.
@@ -2147,6 +2147,41 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   the $4.56 net fee). market-brief (kind research) inherits the upsell; only `linkedin-article` has none now (pinned in
   test-report-upgrade). One-shot Checkout accepts Stripe promotion codes (`allow_promotion_codes: true`; codes are created in
   the dashboard). `/reports` hero carries a "read a real one first" strip built from `SAMPLES`. test-monitor-scheduler 56.
+- **Security + footprint review, four lenses (2026-08-28; injection / money+abuse / secrets+supply-chain+infra / investor
+  footprint; 47 findings, 38 fixed in one PR, 9 operator-only):** CRITICAL stored XSS on /marketplace from a crawled
+  manifest's `capabilities.tools` STRING reaching `data-tools=` unescaped with unpkg still in `script-src` - `manifestToolCount`
+  coerces at ingest (x402-index.js), `Number()` belts at every render site, unpkg dropped from the CSP, HSTS `preload`.
+  HIGH credits abort: `finish` never fires on a destroyed socket, so the gate's `close` RELEASED the hold after dispatch (a
+  free /v1/research; reproduced) - close after dispatch now SETTLES like every other rail (test-credits pins it). HIGH the
+  nightly backup skipped every DIRECTORY store (credits/, human-checkout/: balances and paid reports had no offsite copy) -
+  bundled as gzip'd NDJSON (`stageDir`, `<dir>.ndjson.gz`), real names in PRIORITY, test-backup pins the bundle. HIGH
+  `compileUserRegex` shape list was bypassable ((a|a)*b ran 4.8 s on the free tier) - quantified groups + backreferences
+  refused and `testUserRegex` runs every caller regex under `vm.runInNewContext({timeout:50})` (V8 interrupts a running
+  regex; measured a+a+b on 10k chars 137 s -> 52 ms 400); json-validate + html-links use it. HIGH TIFF bomb (138 bytes
+  declaring 30000x30000 -> 4.4 GB before the cap) - TIFF IFD0 + WebP headers parsed in `declaredDimensions`, unreadable
+  containers refused on the free loader, image-pool workers carry `resourceLimits`. HIGH quadratic meta regex in tech-stack
+  bounded. MED: sql-guard backslash-escape only inside E'...' (a `\'` hid a second statement) and EXPLAIN ANALYZE / SELECT
+  INTO / DO / CALL / CTE MERGE are mutating; analytics loader redacts bearer URLs (/r/, /m/, /reports/public/, /alerts/,
+  session=/k=/id=) from every URL property; report-view links render only to CITED-SOURCE hosts and the research prompt
+  fences each source as quoted material with rule 8; tempo-buyer carries `ssrfDispatcher`; alert confirmation resend
+  cooldown 10 min / max 3 + a per-address limiter; fund validator cached 1h + global 20/min; promo codes: `amount_total`
+  booked, `no_payment_required` fulfilled; webhook `event.id` dedupe 24h; metered unpaid-quote limiter 60/min/IP;
+  Tempo-settled requests seed idempotency; tollbooth strips x-real-ip/cf-connecting-ip/true-client-ip/x-forwarded-proto/
+  port/via; PDF getText 30 s deadline; `Object.hasOwn` on monitor report ids + WIKI slugs; https-only links in alert emails;
+  dns tools refuse .internal/.local/localhost; Redis plaintext refused off the private mesh (`assertRedisTransport`);
+  six workflows got `permissions:` (two alarms could not open issues); `MONITOR_MANAGE_SECRET` + `FREE_ALERTS_SECRET`
+  hooks with verify-only fallbacks; privacy policy corrected (first-party PostHog in the browser, Sentry, shadow ledger,
+  waitlist stores no IP/UA now, alerts drop the address at unsubscribe) + `scripts/erase-subject.js`; this file scrubbed
+  of personal identifiers (no personal hostnames, names or wallet linkage - keep it that way, it is public). Footprint:
+  `/security` (src/security-page.js) + `/company` (src/company.js) pages, security.txt Policy -> /security and Contact ->
+  security@, SECURITY.md controls paragraph + 2-business-day ack + safe harbor, README first screen + CodeQL/secret-scan
+  badges, one price ladder everywhere (FAQ, x402 manifest, listings), "70+ skill packs" (74 live), competitor names and
+  "no model" absolutes rewritten affirmatively, /community shows the real samples, em dashes out of llms.txt/emails,
+  /transparency headlined "Disclosures", status paid-call blurb, CODE_OF_CONDUCT.md. OPERATOR-ONLY (not done): role
+  mailboxes security@/hello@/legal@/invest@/conduct@ (now referenced on the site), Railway `FREE_ALERTS_SECRET` +
+  `MONITOR_MANAGE_SECRET`, GitHub production-environment reviewer + deploy-branch policy + ruleset without the standing admin
+  bypass + Dependabot security updates + delete the unused NPM_TOKEN secret. Follow-ups in code: client-side backup
+  encryption, tollbooth Tempo chain-truth confirm, shell 404s on seven fragment routes, operator-token guessing pager.
 - **`/proof` + `GET /api/proof` (2026-08-27, `src/proof.js`, `proofFeed()` in sales-ledger):** receipts for the metered
   tier - the ledger now stores `quote_usd` (additive column) next to the settled `price_usd` on every metered sale
   (`recordSale({quoteUsd})` from the route binder's `req.__meteredQuoteUsd`), and the page shows aggregates plus ONE
@@ -2158,9 +2193,9 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
 - **Distribution surfaces checked 2026-08-27:** Continue has no Hub to publish to (hub.continue.dev does not resolve,
   docs carry no hub/blocks pages) - the config.yaml snippet on /guides/agent-hosts is the whole path; ElizaOS plugins
   live in the `elizaOS/eliza` monorepo `plugins/` directory (no separate registry repo resolves), so a listing there is
-  a PR to their monorepo - Mike's call before opening; AgentCore: `examples/agentcore-gateway/` (CLI forms from the AWS
+  a PR to their monorepo - the operator's call before opening; AgentCore: `examples/agentcore-gateway/` (CLI forms from the AWS
   developer guide: `mcp-server` target for `/mcp`, `open-api-schema` target for `/openapi.json`); a live gateway proof
-  needs `aws login --profile agent402` (session expired) - Mike.
+  needs `aws login --profile agent402` (session expired) - the operator.
 - **`/guides/agent-hosts` (2026-08-27):** one page of copy-paste blocks for Claude Code, Cursor, Continue, ElizaOS, any
   OpenAI SDK and Bedrock AgentCore - models via `https://agent402.tools/v1/metered` + credits key as the API key (every
   block verified against the host's own docs the same day: Claude Code `claude mcp add --transport http` / `-e`, Cursor
@@ -2185,7 +2220,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   bundled or `@openclaw/*-provider` packages), so an upstream docs PR is the wrong lever - the listing path is
   `clawhub package publish ./openclaw` (dry-run validates and lists the 9 files; it required `openclaw.compat.pluginApi`
   + `openclaw.build.openclawVersion` + `install.minHostVersion`, now in package.json); the real publish needs a
-  ClawHub login = Mike. openclaw/test.js 75. **Published on ClawHub 2026-08-27 by Mike (0.4.0, channel community,
+  ClawHub login = the operator. openclaw/test.js 75. **Published on ClawHub 2026-08-27 by the operator (0.4.0, channel community,
   scanStatus clean, publisher @MikeyPetrillo; hidden from anonymous inspect/download until their review completes).**
   The deploy.yml publish job now carries a "Publish agent402-openclaw to ClawHub" step: repo secret `CLAWHUB_TOKEN`
   (a ClawHub CLI token on the publisher account, Actions-only, NOT Railway - prod has no use for it), config written
@@ -2196,9 +2231,9 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   itself and publishes from a ClawHub source checkout), and that workflow uses tag-pinned actions
   (`actions/checkout@v6`, `download-artifact@v8`, `upload-artifact@v7`) while this repository enforces full-SHA pinning
   (`sha_pinning_required: true`) - GitHub refuses the run: "all actions must be pinned to a full-length commit SHA"
-  (run 33100511250). Not relaxing the policy for this. Mike DID set the trusted-publisher config on the package, which
+  (run 33100511250). Not relaxing the policy for this. the operator DID set the trusted-publisher config on the package, which
   turns a token publish into a "manual" publish that ClawHub refuses without `--manual-override-reason` - the deploy.yml
-  step now passes one. Revisit when ClawHub SHA-pins its reusable workflow (or Mike deletes the config with
+  step now passes one. Revisit when ClawHub SHA-pins its reusable workflow (or the operator deletes the config with
   `clawhub package trusted-publisher delete agent402-openclaw`).
 - **Test ports must stay OUT of the ephemeral range (2026-08-27):** `scripts/test-tollbooth-cli.js` spawned the tollbooth
   CLI on a random 40000-59999 port and, five times in nine days (CI only, never locally), the child exited 0 right after
@@ -2229,7 +2264,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   CONSECUTIVE failures - unreachable status or too few observations never page. Not auditable from here: Stripe fees
   (MCP needs OAuth), OpenRouter/Brave/Alchemy/X dashboards.
 - **Tempo spending wallet LIVE + SOR external legs were dead (2026-08-27):** `TEMPO_UPSTREAM_BUYER_KEY` set on Railway (wallet
-  0xaF13AA07E7360cC56B3dAbf649fFeF087c0cD5A6, funded 5 USDC.e from the burner via `fund-tempo-fee-payer.yml token=usdc`; Mike's
+  0xaF13AA07E7360cC56B3dAbf649fFeF087c0cD5A6, funded 5 USDC.e from the burner via `fund-tempo-fee-payer.yml token=usdc`; the operator's
   wallet app could not send on Tempo - fees are paid in the token, a native-gas wallet fails before broadcast). The first live
   Tempo SOR buy (`tempo-sor-live.yml`, burner pays us over Tempo for "scrape a web page with firecrawl") found THREE defects the 41
   offline router tests could not: (1) `provenPayToByOrigin` was a `var` inside the Base branch of `resolveExternalSeller`, so the

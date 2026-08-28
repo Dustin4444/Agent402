@@ -320,7 +320,9 @@ export function createHumanCheckout({ stripe, generate, baseUrl, storeDir, onSal
         // Post-purchase sequence (src/followups.js): the only moment the buyer's
         // address is in hand next to what they bought. Never stored on the record.
         if (email) { try { onDelivered?.({ sessionId, email, product: p.slug, kind: p.kind, label: p.label, input }); } catch { /* follow-ups never break delivery */ } }
-        try { onSale?.({ sessionId, product: p.slug, priceUsd: p.price / 100, paymentIntent: typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null }); } catch { /* accounting never breaks delivery */ }
+        // Book what Stripe actually collected (a promotion code lowers it), never the list price.
+        const paidUsd = Number.isFinite(Number(session.amount_total)) ? Number(session.amount_total) / 100 : p.price / 100;
+        try { onSale?.({ sessionId, product: p.slug, priceUsd: paidUsd, listPriceUsd: p.price / 100, paymentIntent: typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null }); } catch { /* accounting never breaks delivery */ }
         return rec;
       } catch (err) {
         log(`[human-checkout] report failed for ${sessionId} (${p.slug}): ${String(err?.message || err).slice(0, 160)}`);
@@ -359,7 +361,9 @@ export function createHumanCheckout({ stripe, generate, baseUrl, storeDir, onSal
     if (neg) return neg;
     let session;
     try { session = await stripe.checkout.sessions.retrieve(sessionId); } catch { return negSet(sessionId, "not_found"); }
-    if (!session || session.payment_status !== "paid") return negSet(sessionId, "unpaid");
+    // "no_payment_required" is a 100%-off promotion code the operator created
+    // in the dashboard: fulfil it (the operator chose that) but book $0.
+    if (!session || (session.payment_status !== "paid" && session.payment_status !== "no_payment_required")) return negSet(sessionId, "unpaid");
     if (session.mode && session.mode !== "payment") return { status: "invalid" };
 
     const productKey = session.metadata?.product;

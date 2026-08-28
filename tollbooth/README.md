@@ -5,7 +5,7 @@ any site or API: humans browse free, AI crawlers and agents pay per request** -
 in USDC over the [x402 protocol](https://x402.org), over
 [MPP](https://mpp.dev) (the Machine Payments Protocol `Payment` HTTP auth
 scheme, settled through the same stack), or for free by solving a
-proof-of-work. No Cloudflare, no Stripe, no Merchant-of-Record, no signup.
+proof-of-work. No platform lock-in, no card processor required, no Merchant-of-Record, no signup.
 The first self-hostable pay-per-crawl gate that speaks both wires on one 402 -
 the sell side of [Agentic Finance](https://agent402.tools/agentic-finance),
 where agents pay and sites get paid, per request, with no account in between.

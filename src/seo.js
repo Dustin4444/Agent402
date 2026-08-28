@@ -67,7 +67,7 @@ const programmaticUrls = (baseUrl) => [...samplePaths().map((p) => ({ loc: `${ba
 export function robotsTxt(baseUrl) {
   // Explicitly welcome AI/agent crawlers and search engines; point them at the
   // machine-readable surfaces. Disallow the wallet-scoped memory endpoints and
-  // the token-gated operator dashboard (already 404 without the token — this
+  // the token-gated operator dashboard (already 404 without the token - this
   // just keeps well-behaved crawlers from probing the path at all).
   const agents = [
     "GPTBot", "OAI-SearchBot", "ChatGPT-User", "ClaudeBot", "Claude-Web", "anthropic-ai",
@@ -129,7 +129,7 @@ export function sitemapXml(baseUrl, catalog) {
     { loc: `${baseUrl}/monitors`, priority: "0.8" },
     { loc: `${baseUrl}/credits`, priority: "0.8" },
     { loc: `${baseUrl}/shop`, priority: "0.9" },
-    // Every x402 marketplace page (one per CHAIN_PAGES entry) — new chain
+    // Every x402 marketplace page (one per CHAIN_PAGES entry) - new chain
     // page = new sitemap entry, zero edits here.
     ...Object.keys(CHAIN_PAGES).map((key) => ({ loc: `${baseUrl}/${key}`, priority: "0.8" })),
     { loc: `${baseUrl}/faq`, priority: "0.8" },
@@ -141,7 +141,7 @@ export function sitemapXml(baseUrl, catalog) {
     { loc: `${baseUrl}/.well-known/x402`, priority: "0.7" },
     { loc: `${baseUrl}/api/reliability`, priority: "0.6" },
     { loc: `${baseUrl}/api/stats`, priority: "0.6" },
-    // Unified marketplace surface (the old /index and /marketplaces 301 here —
+    // Unified marketplace surface (the old /index and /marketplaces 301 here -
     // a sitemap must never list URLs that redirect).
     { loc: `${baseUrl}/marketplace`, priority: "0.9" },
     { loc: `${baseUrl}/mpp-marketplace`, priority: "0.9" },
@@ -170,6 +170,8 @@ export function sitemapXml(baseUrl, catalog) {
     { loc: `${baseUrl}/agentic-finance`, priority: "0.9" },
     { loc: `${baseUrl}/why`, priority: "0.8" },
     { loc: `${baseUrl}/markets`, priority: "0.8" },
+    { loc: `${baseUrl}/security`, priority: "0.7" },
+    { loc: `${baseUrl}/company`, priority: "0.7" },
     { loc: `${baseUrl}/proof`, priority: "0.7" },
     { loc: `${baseUrl}/terms`, priority: "0.3" },
     { loc: `${baseUrl}/privacy`, priority: "0.3" },
@@ -210,7 +212,7 @@ ${entries}
 `;
 }
 
-// Sitemap index — splits the single sitemap into sub-sitemaps so crawlers
+// Sitemap index - splits the single sitemap into sub-sitemaps so crawlers
 // don't have to parse 1,400+ URLs in one file. /sitemap.xml stays as the
 // monolith for backwards compat; /sitemapindex.xml points to the splits.
 function subSitemap(urls, lastmod) {
@@ -237,6 +239,8 @@ export function sitemapPages(baseUrl, catalog) {
     { loc: `${baseUrl}/agentic-finance`, priority: "0.9" },
     { loc: `${baseUrl}/why`, priority: "0.8" },
     { loc: `${baseUrl}/markets`, priority: "0.8" },
+    { loc: `${baseUrl}/security`, priority: "0.7" },
+    { loc: `${baseUrl}/company`, priority: "0.7" },
     { loc: `${baseUrl}/glossary`, priority: "0.8" },
     { loc: `${baseUrl}/101`, priority: "0.9" },
     { loc: `${baseUrl}/pricing`, priority: "0.8" },
@@ -367,7 +371,7 @@ export function llmsTxt(baseUrl, catalog) {
 
   return `# Agent402.Tools
 
-> Pay-per-call web tools for AI agents, payable over **x402 or MPP** - the applied layer of Agentic Finance: agents that pay and get paid on their own (explainer: /agentic-finance). **First job: search the web and answer questions** (\`/api/search\`, \`/api/answer\`, \`/api/search-news\`) — then the long catalog of 500+ tools via \`/api/find\`: deterministic utilities, a metered model gateway on the OpenAI and Anthropic wires (\`POST /v1/metered/chat/completions\`, \`POST /v1/metered/messages\`) and finished report products. Call an endpoint, receive an HTTP 402 carrying both offers (x402 PAYMENT-REQUIRED and MPP WWW-Authenticate: Payment), and settle from your own wallet - USDC via x402, or MPP on Base/Celo (USDC) or Tempo (USDC.e or PathUSD, native)${stripeEnabled() ? ", or by **card** on premium tools >= $0.50 (Stripe Shared Payment Token over MPP stripe/charge - no wallet, no stablecoin)" : ""} - or, on ${powCount} of the ${tools.length} tools, pay with proof-of-work (CPU) and skip the wallet entirely. No human, no signup, no API key: the payment is the identity (optional: a prepaid card-credits key, see below). Flat per-call prices from $0.001 - most tools $0.001–$0.02, with premium AI, media and multi-tool packs higher (up to $1.50); every price is in /api/pricing and quoted in the 402.
+> Pay-per-call web tools for AI agents, payable over **x402 or MPP** - the applied layer of Agentic Finance: agents that pay and get paid on their own (explainer: /agentic-finance). **First job: search the web and answer questions** (\`/api/search\`, \`/api/answer\`, \`/api/search-news\`) - then the long catalog of 500+ tools via \`/api/find\`: deterministic utilities, a metered model gateway on the OpenAI and Anthropic wires (\`POST /v1/metered/chat/completions\`, \`POST /v1/metered/messages\`) and finished report products. Call an endpoint, receive an HTTP 402 carrying both offers (x402 PAYMENT-REQUIRED and MPP WWW-Authenticate: Payment), and settle from your own wallet - USDC via x402, or MPP on Base/Celo (USDC) or Tempo (USDC.e or PathUSD, native)${stripeEnabled() ? ", or by **card** on premium tools >= $0.50 (Stripe Shared Payment Token over MPP stripe/charge - no wallet, no stablecoin)" : ""} - or, on ${powCount} of the ${tools.length} tools, pay with proof-of-work (CPU) and skip the wallet entirely. No human, no signup, no API key: the payment is the identity (optional: a prepaid card-credits key, see below). Flat per-call prices from $0.001 - most tools $0.001–$0.02, with premium AI, media and multi-tool packs higher (up to $1.50); every price is in /api/pricing and quoted in the 402.
 
 Base URL: ${baseUrl}
 
@@ -458,6 +462,8 @@ ${toolSections}
 - [agent402-tollbooth](${baseUrl}/tollbooth): open-source, self-hostable x402 pay-per-crawl gate for your own site
 - [Skill packs JSON](${baseUrl}/api/skill-packs.json): machine-readable pack index
 - [Tool docs](${baseUrl}/tools): human-readable documentation per tool
+- [Security](${baseUrl}/security): disclosure policy with safe harbor, what data is held, key handling, controls in the serving path and on the code
+- [Company](${baseUrl}/company): Havok Holdings LLC, what it sells, where the proof is, role mailboxes
 - [Markets](${baseUrl}/markets): the keyless crypto market-data calls (market pulse, perps, options, DeFi, stablecoins, news, indicators) with one curl to copy
 - [Prepaid card credits](${baseUrl}/credits): no wallet? buy $20-$100 of credits by card, then call any paid tool with the header "Authorization: Bearer a402_..." (debited per call on success; balance at GET /api/credits/balance)
 - [Agentic Finance](${baseUrl}/agentic-finance): what the category is and where Agent402 sits in it

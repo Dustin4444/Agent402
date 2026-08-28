@@ -99,7 +99,7 @@ export const RAIL_COMPONENTS = [
 export const COMPONENTS = [
   { key: "api", label: "Tool serving", blurb: "The paid API answering requests: /health reachable and the catalog mounted.", staleAfterMs: QUARTER_HOURLY },
   { key: "catalog", label: "Catalog", blurb: "Every tool route mounted and advertised on /api/pricing.", staleAfterMs: QUARTER_HOURLY },
-  { key: "paid-call", label: "Paid call path", blurb: "A real end-to-end purchase: challenge, payment, unlock, payload.", staleAfterMs: HOURLY_OBSERVER },
+  { key: "paid-call", label: "Paid call path", blurb: "A real end-to-end purchase from our own wallet: challenge, payment, unlock, payload. A miss here means our canary could not buy, never that a customer was charged.", staleAfterMs: HOURLY_OBSERVER },
   { key: "mcp", label: "MCP connector", blurb: "The hosted /mcp endpoint agents connect through.", staleAfterMs: QUARTER_HOURLY },
   { key: "paywall", label: "Paywall engaged", blurb: "Paid tools still answer 402 when unpaid, so nothing is given away by accident.", staleAfterMs: QUARTER_HOURLY },
   { key: "rails", label: "Payment rails", blurb: "The chains advertised in a live 402 challenge.", staleAfterMs: QUARTER_HOURLY },

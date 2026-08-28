@@ -95,6 +95,14 @@ const DISCOVERY_INTERVAL_MS = 60 * 60 * 1000; // 1 hr — registries don't chang
  * factual claim about our own behaviour toward third parties - the same class
  * as a price quoted in prose - so it is generated, never typed.
  */
+// A seller manifest is third-party JSON: `capabilities.tools` may be a number
+// or anything else (a string reached a marketplace attribute unescaped, review
+// 2026-08-28). Only a non-negative integer counts; everything else is 0.
+function manifestToolCount(manifest) {
+  const n = Number(manifest?.capabilities?.tools);
+  return Number.isInteger(n) && n >= 0 && n < 1_000_000 ? n : 0;
+}
+
 export function crawlIntervalLabel() {
   const mins = Math.round(CRAWL_INTERVAL_MS / 60000);
   if (mins % 60 === 0 && mins >= 60) {
@@ -3123,7 +3131,7 @@ export function routableSellerSummaries() {
     out.push({
       origin,
       host,
-      toolCount: v.tools?.length || v.manifest?.capabilities?.tools || 0,
+      toolCount: v.tools?.length || manifestToolCount(v.manifest),
       // Did the origin ever answer us, or is this a registry listing about it?
       originResponded: v.originResponded !== false,
       // Rides with originResponded on ALL THREE accessors on purpose: this
@@ -3178,7 +3186,7 @@ export function sellerDetail(originOrHost) {
       origin,
       displayName: v.manifest?.name || origin.replace(/^https?:\/\//, ""),
       homepage: v.manifest?.homepage || origin,
-      toolCount: v.tools?.length || v.manifest?.capabilities?.tools || 0,
+      toolCount: v.tools?.length || manifestToolCount(v.manifest),
       ...(v.tools?.some((t) => t.paid !== undefined)
         ? { paidToolCount: v.tools.filter((t) => t.paid !== false).length }
         : {}),
@@ -3263,7 +3271,7 @@ export function indexSnapshot({ baseUrl, catalog, prices, network, toolCount, wa
     displayName: v.manifest?.name || origin.replace(/^https?:\/\//, ""),
     homepage: v.manifest?.homepage || origin,
     network: v.manifest?.payment?.x402?.primaryNetwork || v.manifest?.payment?.primaryNetwork || null,
-    toolCount: v.tools?.length || v.manifest?.capabilities?.tools || 0,
+    toolCount: v.tools?.length || manifestToolCount(v.manifest),
     // Did the ORIGIN answer, or is this a registry listing about it? Read by
     // the marketplace label and by totals.respondedOrigins. Added here as well
     // as on the other accessors because /api/index and the market pages read

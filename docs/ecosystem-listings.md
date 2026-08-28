@@ -6,7 +6,7 @@ Use this block (or any subset) wherever a directory asks what Agent402 is. Every
 claim below is served live; verify prices against `/api/pricing` before pasting.
 
 - **Catalog:** 500+ pay-per-call endpoints for AI agents (500+ tools and
-  100+ skill packs): live web search and cited answers, headless browser, PDFs, OCR,
+  70+ skill packs): live web search and cited answers, headless browser, PDFs, OCR,
   financial / SEC EDGAR / macro / on-chain data, an OpenAI-compatible LLM gateway
   (`/v1`), durable wallet-keyed memory, 200+ pure-CPU utilities.
 - **Market and onchain intel (keyless, deterministic, per call):** live perpetuals
@@ -276,7 +276,7 @@ We are already listed, but the entry predates the full 12-chain roster and the
 2. Update the chain list to "USDC on Base, Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism,
    Stellar, Algorand - plus USDG on Robinhood Chain (12 chains)" and, if the
    entry cites a tool count, set it to "500+ pay-per-call tools and
-   100+ skill packs".
+   70+ skill packs".
 3. PR title: `Update Agent402 entry - 12-chain settlement (USDC + USDG) + 500+ strong catalog`
 
 ---

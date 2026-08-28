@@ -105,9 +105,9 @@ export function comparePage(baseUrl) {
 <section>
 <div class="cmp-section">
 <h2>agent402-tollbooth vs. platform monetization gateways</h2>
-<p class="cmp-desc">The other side of the protocol: charging AI crawlers and agents for <em>your</em> content. Cloudflare's announced Monetization Gateway (waitlist at the time of writing) brings x402 charging to sites behind Cloudflare - strong validation that pay-per-request is the business model of the agentic web. <a href="/tollbooth">agent402-tollbooth</a> is the open-source take on the same idea: self-hostable, in front of any origin.</p>
+<p class="cmp-desc">The other side of the protocol: charging AI crawlers and agents for <em>your</em> content. platform gateways tie the toll to one host. <a href="/tollbooth">agent402-tollbooth</a> is the open-source take on the same idea: self-hostable, in front of any origin.</p>
 <div class="cmp-scroll"><table class="cmp-table">
-<thead><tr><th>Dimension</th><th class="col-a402">agent402-tollbooth</th><th>Platform gateways (e.g. Cloudflare)</th></tr></thead>
+<thead><tr><th>Dimension</th><th class="col-a402">agent402-tollbooth</th><th>Platform-bound gateways</th></tr></thead>
 <tbody>
 <tr><td>Availability</td><td class="cmp-win"><span class="check">&#10003;</span> Live today - <code>npm i agent402-tollbooth</code></td><td class="cmp-lose">Waitlist / beta</td></tr>
 <tr><td>Where it runs</td><td class="cmp-win"><span class="check">&#10003;</span> Any origin - Express, Next.js, Docker, even a Cloudflare Worker</td><td class="cmp-lose">Only sites behind the platform's proxy</td></tr>

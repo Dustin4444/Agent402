@@ -612,7 +612,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
   // attributes on the all-chains <tr> rows in marketPageAll.
   const rowData = (s) => {
     const st = sellerStat(s);
-    return ` data-mfb-row data-local="${s.local ? 1 : 0}" data-health="${s.local || s.routable ? 1 : 0}" data-calls="${st?.calls || 0}" data-usd="${st?.usd || 0}" data-buyers="${st?.buyers || 0}" data-tools="${s.toolCount || 0}"`;
+    return ` data-mfb-row data-local="${s.local ? 1 : 0}" data-health="${s.local || s.routable ? 1 : 0}" data-calls="${st?.calls || 0}" data-usd="${st?.usd || 0}" data-buyers="${st?.buyers || 0}" data-tools="${Number(s.toolCount) || 0}"`;
   };
 
   // Collapse hosts that settle to the SAME leaderboard group into one roster
@@ -695,7 +695,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
     <a href="${activityHref(s)}"${rowData(s)} data-seller-link data-seller-host="${s.local ? "" : esc(hostOf(s.homepage).toLowerCase())}" data-seller-local="${s.local ? "1" : "0"}" class="ml-roster-compact mlr-row${isSelected(s) ? " sel" : ""}">
       <span class="mlr-name">${esc(s.displayName)}${s.local ? ' <span class="mlr-badge">THIS HOST</span>' : ""}${s.mpp === true ? ' <span class="mlr-mpp" title="Also reachable over the native MPP wire">MPP</span>' : ""}</span>
       <span class="mlr-host">${esc(hostOf(s.homepage))}</span>
-      <span class="mlr-tools">${s.toolCount || 0} tool${s.toolCount === 1 ? "" : "s"}${paidSuffix(s)}${txSuffix(s)}${endpointsNote(s)}</span>
+      <span class="mlr-tools">${Number(s.toolCount) || 0} tool${s.toolCount === 1 ? "" : "s"}${paidSuffix(s)}${txSuffix(s)}${endpointsNote(s)}</span>
       <span class="mlr-stat${good ? "" : " bad"}"><span class="mlr-dot"></span>${s.local ? "live" : (s.routable ? "healthy" : "unreachable")}</span>
     </a>`;
       }).join("")
@@ -710,7 +710,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
       </div>
       <div class="mlr-host">${esc(hostOf(s.homepage))}</div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
-        <span style="color:var(--muted);font-family:var(--font-mono);font-size:13px;">${s.toolCount || 0} tool${s.toolCount === 1 ? "" : "s"}${paidSuffix(s)}${txSuffix(s)}${endpointsNote(s)}</span>
+        <span style="color:var(--muted);font-family:var(--font-mono);font-size:13px;">${Number(s.toolCount) || 0} tool${s.toolCount === 1 ? "" : "s"}${paidSuffix(s)}${txSuffix(s)}${endpointsNote(s)}</span>
         <span class="mlr-stat${good ? "" : " bad"}"><span class="mlr-dot"></span>${health}</span>
       </div>
       <a href="${activityHref(s)}" data-seller-link data-seller-host="${s.local ? "" : esc(hostOf(s.homepage).toLowerCase())}" data-seller-local="${s.local ? "1" : "0"}" style="font-family:var(--font-mono);font-size:12px;color:var(--accent);text-decoration:none;margin-top:2px;">${isSelected(s) ? "activity shown above" : "view activity →"}</a>
@@ -1027,7 +1027,7 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
   // same attributes as the per-chain roster rows (see rowData in marketPage).
   const rowData = (s) => {
     const st = sellerStat(s);
-    return ` data-mfb-row data-local="${s.local ? 1 : 0}" data-health="${s.local || s.routable ? 1 : 0}" data-calls="${st?.calls || 0}" data-usd="${st?.usd || 0}" data-buyers="${st?.buyers || 0}" data-tools="${s.toolCount || 0}"`;
+    return ` data-mfb-row data-local="${s.local ? 1 : 0}" data-health="${s.local || s.routable ? 1 : 0}" data-calls="${st?.calls || 0}" data-usd="${st?.usd || 0}" data-buyers="${st?.buyers || 0}" data-tools="${Number(s.toolCount) || 0}"`;
   };
 
   // THIS HOST is PINNED at the top of the roster (transparency: the operator of
@@ -1068,7 +1068,7 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
         <div class="mlr-host">${esc(hostOf(s.homepage))}</div>
       </div>
       <span style="font-family:var(--font-mono);font-size:12.5px;">${chainCell(s)}</span>
-      <span class="mlr-tools">${s.toolCount || 0} tool${s.toolCount === 1 ? "" : "s"}${paidSuffix(s)}${txSuffix(s)}${endpointsNote(s)}</span>
+      <span class="mlr-tools">${Number(s.toolCount) || 0} tool${s.toolCount === 1 ? "" : "s"}${paidSuffix(s)}${txSuffix(s)}${endpointsNote(s)}</span>
       <span class="mlr-stat${good ? "" : " bad"}"><span class="mlr-dot"></span>${health}</span>
     </div>`;
   }).join("");

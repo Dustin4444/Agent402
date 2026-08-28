@@ -98,6 +98,8 @@ const STRIP_INBOUND = new Set([
   "host", "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
   "te", "trailer", "transfer-encoding", "upgrade", "content-length",
   "x-tollbooth-paid", "x-tollbooth-error", "x-pow-error", "x-forwarded-host", "forwarded",
+  // client-IP / scheme trust headers an upstream might honour (spoofable by the bot)
+  "x-real-ip", "cf-connecting-ip", "true-client-ip", "x-client-ip", "fastly-client-ip", "x-forwarded-proto", "x-forwarded-port", "via",
 ]);
 
 /**

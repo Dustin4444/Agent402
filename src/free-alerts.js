@@ -111,7 +111,16 @@ export function createFreeAlerts({ storePath = defaultStorePath(), probes = {}, 
     const mine = Object.values(store.alerts).filter((a) => a.email === em && (a.status === "active" || a.status === "pending"));
     const dup = mine.find((a) => a.kind === kind && a.target === canon);
     if (dup) {
-      if (dup.status === "pending") await sendConfirm(dup); // a lost confirmation is the common case
+      // A lost confirmation is the common case; a stranger's address hammered
+      // through this form is the abuse case. Resend at most every 10 minutes
+      // and at most 3 times per pending record (then the record waits for its
+      // TTL); the route adds a per-address limiter on top of the per-IP one.
+      if (dup.status === "pending") {
+        const sends = dup.confirmSends || 0;
+        if (sends < 3 && (!dup.confirmSentAt || now() - dup.confirmSentAt >= 10 * 60_000)) {
+          if (await sendConfirm(dup)) { dup.confirmSends = sends + 1; dup.confirmSentAt = now(); persist(); }
+        }
+      }
       return { ok: true, status: dup.status, kind, target: canon };
     }
     if (mine.length >= MAX_PER_EMAIL) throw bad(`That address already has ${MAX_PER_EMAIL} alerts. Unsubscribe from one first, or subscribe to a monitor for unlimited targets.`, 429);
@@ -125,6 +134,7 @@ export function createFreeAlerts({ storePath = defaultStorePath(), probes = {}, 
     // pending until the sweep, and the visitor would wait for mail that never
     // comes. Tell them now, keep nothing.
     if (!(await sendConfirm(rec))) { delete store.alerts[id]; persist(); throw bad("We could not send the confirmation email right now. Please try again in a few minutes.", 503); }
+    rec.confirmSends = 1; rec.confirmSentAt = now(); persist();
     return { ok: true, status: "pending", kind, target: canon };
   }
 
@@ -151,7 +161,9 @@ export function createFreeAlerts({ storePath = defaultStorePath(), probes = {}, 
   function unsubscribe(id, k) {
     const rec = recOf(id);
     if (!rec || !verify(id, "unsubscribe", k)) return { ok: false, reason: "invalid" };
-    if (rec.status !== "unsubscribed") { rec.status = "unsubscribed"; rec.unsubscribedAt = now(); persist(); emit("alert_unsubscribed", { kind: rec.kind }); }
+    // The address is dropped with the consent: nothing is left to email, and
+    // nothing rides the next backup. The target stays for the counts.
+    if (rec.status !== "unsubscribed") { rec.status = "unsubscribed"; rec.unsubscribedAt = now(); rec.email = null; persist(); emit("alert_unsubscribed", { kind: rec.kind }); }
     return { ok: true, kind: rec.kind, target: rec.target };
   }
 
@@ -208,7 +220,7 @@ export function createFreeAlerts({ storePath = defaultStorePath(), probes = {}, 
     const lines = items.map((it) => `- ${it.label}${it.url ? ` ${it.url}` : ""}`).join("\n");
     const text = `${subject}.\n\n${lines ? lines + "\n\n" : ""}Read the free page and get the full report: ${reportUrl}\nHave this re-run and emailed automatically: ${monitorUrl}\n\nYou asked for this alert on agent402.tools. Unsubscribe: ${unsub}`;
     const html = shell(`<h2 style="margin:0 0 10px;font-size:18px;">${esc(subject)}</h2>
-${items.length ? `<ul style="padding-left:18px;margin:0 0 14px;">${items.map((it) => `<li>${it.url ? `<a href="${esc(it.url)}" style="color:#0F5E43;">${esc(it.label)}</a>` : esc(it.label)}</li>`).join("")}</ul>` : ""}
+${items.length ? `<ul style="padding-left:18px;margin:0 0 14px;">${items.map((it) => `<li>${it.url && /^https:\/\//.test(it.url) ? `<a href="${esc(it.url)}" style="color:#0F5E43;">${esc(it.label)}</a>` : esc(it.label)}</li>`).join("")}</ul>` : ""}
 <p style="margin:18px 0 8px;"><a href="${esc(reportUrl)}" style="background:#0F5E43;color:#fff;text-decoration:none;padding:12px 18px;border-radius:6px;display:inline-block;">Read the free page and get the full report</a></p>
 <p style="margin:0 0 18px;font-size:14px;">Or have it re-run and emailed automatically: <a href="${esc(monitorUrl)}" style="color:#0F5E43;">subscribe to the monitor</a>.</p>
 <p style="color:#5C6963;font-size:12px;">You asked for this alert on agent402.tools. <a href="${esc(unsub)}" style="color:#5C6963;">Unsubscribe</a>.</p>`);

@@ -4,6 +4,12 @@ name: Permit2 approval for upto payments (dispatch-only)
 # ever holding ETH, because `exact` settles over EIP-3009 and the facilitator
 # broadcasts. `upto` settles through Permit2, which needs a real approval
 # transaction from the owner, paid in ETH.
+# Least privilege: the default token on this repo is read-only, so a job that
+# opens an issue on failure needs issues: write spelled out (two alarms could
+# not page before 2026-08-28).
+permissions:
+  contents: read
+
 on:
   workflow_dispatch:
     inputs:
