@@ -2,7 +2,9 @@
 // Dev shortlinks (/claude, /cursor, ... -> the page that answers "how do I use
 // this from X") and the /install script. Boots a free server. In CI.
 import { spawn } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { getFreePort } from "./lib/free-port.js";
 import { SHORTLINKS, installScript } from "../src/shortlinks.js";
@@ -35,7 +37,7 @@ try {
   ok(inst.status === 200 && /text\/x-shellscript/.test(inst.headers.get("content-type") || ""), "/install is served as a shell script");
   ok(body.startsWith("#!/bin/sh") && body.includes("set -eu") && body.includes("claude mcp add --transport http agent402") && body.includes("npx agent402-openclaw setup") && body.includes("/guides/agent-hosts"), "script wires Claude Code, points OpenClaw and Cursor at their setup, and links the guide");
   ok(!/^\s*sudo |rm -rf|curl [^|\n]*\| *sh/m.test(body), "script never runs sudo, deletes, or pipes another download into sh");
-  const f = "/tmp/claude-501/agent402-install-test.sh"; try { writeFileSync(f, body); execFileSync("sh", ["-n", f]); ok(true, "script passes sh -n"); } catch (e) { ok(false, `sh -n: ${e.message}`); }
+  const f = join(mkdtempSync(join(tmpdir(), "a402-install-")), "install.sh"); try { writeFileSync(f, body); execFileSync("sh", ["-n", f]); ok(true, "script passes sh -n"); } catch (e) { ok(false, `sh -n: ${e.message}`); }
   const alias = await fetch(`${base}/install.sh`, { redirect: "manual" });
   ok(alias.status === 302 && alias.headers.get("location") === "/install", "/install.sh redirects to /install");
   ok(installScript("https://x.test/").includes("https://x.test/mcp") && !installScript("https://x.test/").includes("x.test//"), "base URL trailing slash handled");
