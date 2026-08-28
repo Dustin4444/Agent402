@@ -307,7 +307,7 @@ import { workflowsPage } from "./workflows.js";
 import { badgesPage, badgeSvg } from "./badges.js";
 import { adapterDocsIndex, adapterDocPage, ADAPTERS } from "./adapter-docs.js";
 import { webhooksPage } from "./webhooks.js";
-import { setOgImageVersion, setNavIndexProvider, ledgerShell, ledgerFooterCompact } from "./ledger-chrome.js";
+import { setOgImageVersion, setNavIndexProvider, ledgerShell, ledgerFooterCompact, esc as escHtml } from "./ledger-chrome.js";
 import { ledgerHomePage } from "./ledger-home.js";
 import { ledgerCatalogPage } from "./ledger-catalog.js";
 import { ledgerPricingPage } from "./ledger-pricing.js";
@@ -1676,6 +1676,22 @@ app.use((_req, res, next) => {
 // Sets browser/CDN cache headers for static-ish HTML pages so clicking around
 // the top nav doesn't re-render the world every time. stale-while-revalidate
 // gives instant back/forward while a background refresh keeps content fresh.
+// A branded 404 for a missing item inside a section (tool, guide, sample,
+// public report...): the same shell as the catch-all, with the section's own
+// link as the way back. Bare "<p>Not found</p>" fragments used to leave the
+// design system on seven routes (review 2026-08-28).
+function notFoundPage(res, { what = "Page", href = "/", label = "Home" } = {}) {
+  const body = `<div style="max-width:640px;margin:0 auto;padding:96px 26px 80px;text-align:center;">
+      <div style="font-family:var(--font-mono);font-weight:500;font-size:72px;line-height:1;letter-spacing:-.03em;color:var(--ink);margin-bottom:14px;">404</div>
+      <h1 style="font-weight:500;font-size:26px;letter-spacing:-.02em;margin:0 0 10px;color:var(--ink);">${escHtml(what)} not found</h1>
+      <p style="color:var(--muted);margin:0 0 28px;font-weight:300;">There is nothing at this address.</p>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+        <a href="${escHtml(href)}" style="display:inline-block;padding:11px 18px;background:var(--btn-bg);color:var(--btn-fg);border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">${escHtml(label)}</a>
+        <a href="/" style="display:inline-block;padding:10px 18px;border:1px solid var(--dash);color:var(--ink);border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Home</a>
+      </div>
+    </div>${ledgerFooterCompact()}`;
+  return res.status(404).type("html").send(ledgerShell({ title: `${what} not found - Agent402`, description: `${what} not found`, canonical: `${BASE_URL}/`, baseUrl: BASE_URL, activePath: "__none__", robots: "noindex, nofollow", body }));
+}
 const htmlCache = (res, maxAge, swr) =>
   res.set("Cache-Control", `public, max-age=${maxAge}, stale-while-revalidate=${swr}`).type("html");
 app.get("/", (_req, res) => {
@@ -1852,7 +1868,7 @@ app.get("/company", (_req, res) => htmlCache(res, 300, 900).send(companyPage(BAS
 app.get("/reports/sample/:product", (req, res) => {
   const product = String(req.params.product || "");
   const meta = sampleMeta(product, BASE_URL);
-  if (!meta) return res.status(404).type("html").send('<p>Sample not found. <a href="/reports">All reports</a></p>');
+  if (!meta) return notFoundPage(res, { what: "Sample report", href: "/reports", label: "All reports" });
   htmlCache(res, 300, 900).send(reportDeliveryPage(product, {
     api: "/api/reports/sample/", baseUrl: BASE_URL, robots: "index, follow, max-image-preview:large",
     waitCopy: "Loading the sample report.", note: "",
@@ -1868,7 +1884,7 @@ app.get("/reports/sample/:product", (req, res) => {
 app.get("/reports/public/:publicId", (req, res) => {
   if (sessionReadLimiter.check(clientIp(req)).limited) return res.status(429).type("html").send("<p>Too many requests, please slow down.</p>");
   const r = readPublicReport(String(req.params.publicId || ""));
-  if (!r) return res.status(404).type("html").send('<p>This report is not public. <a href="/reports">All reports</a></p>');
+  if (!r) return notFoundPage(res, { what: "Public report", href: "/reports", label: "All reports" });
   const canonical = `${BASE_URL}/reports/public/${r.publicId}`;
   const label = HUMAN_PRODUCTS[r.product]?.label || "report";
   const description = `A ${label.toLowerCase()} on "${r.input}" from Agent402, shared by its buyer: ${r.sources.length} cited sources, ${r.tables.length} data tables. Read it free, then get one for your own subject.`;
@@ -2558,7 +2574,7 @@ app.get("/blog", (_req, res) => htmlCache(res, 300, 900).send(blogIndex(BASE_URL
 // The catalog-milestone post was renamed 2026-08-18 (its old slug carried an
 // exact tool count the evergreen rule forbids on served pages); keep the URL.
 app.get("/blog/1000-tools-milestone", (_req, res) => res.redirect(301, "/blog/catalog-milestone"));
-app.get("/blog/:slug", (req, res) => { const html = blogPost(BASE_URL, req.params.slug); if (!html) return res.status(404).type("html").send('<p>Post not found. <a href="/blog">All posts</a></p>'); htmlCache(res, 300, 900).send(html); });
+app.get("/blog/:slug", (req, res) => { const html = blogPost(BASE_URL, req.params.slug); if (!html) return notFoundPage(res, { what: "Post", href: "/blog", label: "All posts" }); htmlCache(res, 300, 900).send(html); });
 app.get("/compare", (_req, res) => htmlCache(res, 300, 900).send(comparePage(BASE_URL)));
 app.get("/community", (_req, res) => htmlCache(res, 300, 900).send(communityPage(BASE_URL)));
 app.get("/contribute", (_req, res) => htmlCache(res, 300, 900).send(contributePage(BASE_URL)));
@@ -2575,7 +2591,7 @@ app.get("/badges", (_req, res) => htmlCache(res, 300, 900).send(badgesPage(BASE_
 app.get("/badges/:style.svg", (req, res) => { const svg = badgeSvg(req.params.style); if (!svg) return res.status(404).json({ error: "unknown badge style" }); res.setHeader("Cache-Control", "public, max-age=3600").type("image/svg+xml").send(svg); });
 app.get("/docs/adapters", (_req, res) => htmlCache(res, 300, 900).send(adapterDocsIndex(BASE_URL)));
 app.get("/docs/webhooks", (_req, res) => htmlCache(res, 300, 900).send(webhooksPage(BASE_URL)));
-app.get("/docs/adapters/:slug", (req, res) => { const html = adapterDocPage(BASE_URL, req.params.slug); if (!html) return res.status(404).type("html").send('<p>Adapter not found. <a href="/docs/adapters">All adapters</a></p>'); htmlCache(res, 300, 900).send(html); });
+app.get("/docs/adapters/:slug", (req, res) => { const html = adapterDocPage(BASE_URL, req.params.slug); if (!html) return notFoundPage(res, { what: "Adapter", href: "/docs/adapters", label: "All adapters" }); htmlCache(res, 300, 900).send(html); });
 app.get("/changelog.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=600"); res.type("application/rss+xml").send(changelogRss(BASE_URL)); });
 app.get("/sitemapindex.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapIndex(BASE_URL)); });
 app.get("/sitemap-pages.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapPages(BASE_URL, CATALOG)); });
@@ -3160,7 +3176,7 @@ for (const alias of ["/router", "/sor", "/smart-order-router"]) {
 app.get("/guides", (_req, res) => htmlCache(res, 300, 900).send(guidesIndex(BASE_URL)));
 app.get("/guides/:slug", (req, res) => {
   const html = guidePage(BASE_URL, req.params.slug);
-  if (!html) return res.status(404).type("html").send('<p>Guide not found. <a href="/guides">All guides</a></p>');
+  if (!html) return notFoundPage(res, { what: "Guide", href: "/guides", label: "All guides" });
   htmlCache(res, 300, 900).send(html);
 });
 // /skills — curated multi-tool workflows. Index + per-pack detail pages, both
@@ -3169,7 +3185,7 @@ app.get("/guides/:slug", (req, res) => {
 app.get("/skills", (_req, res) => htmlCache(res, 300, 900).send(skillsIndex(BASE_URL)));
 app.get("/skills/:slug", (req, res) => {
   const html = skillPackPage(BASE_URL, req.params.slug, CATALOG);
-  if (!html) return res.status(404).type("html").send('<p>Skill pack not found. <a href="/skills">All skill packs</a></p>');
+  if (!html) return notFoundPage(res, { what: "Skill pack", href: "/skills", label: "All skill packs" });
   htmlCache(res, 300, 900).send(html);
 });
 // Machine-readable skill packs — the canonical source for the `agent402-mcp`
@@ -3203,7 +3219,7 @@ app.get("/docs", (_req, res) => htmlCache(res, 300, 900).send(ledgerDocsPage(BAS
 app.get("/docs/api", (_req, res) => htmlCache(res, 300, 900).send(docsApi(BASE_URL, Object.values(CATALOG))));
 app.get("/docs/:slug", (req, res) => {
   const html = docsPage(BASE_URL, req.params.slug);
-  if (!html) return res.status(404).type("html").send('<p>Doc not found. <a href="/docs">All docs</a></p>');
+  if (!html) return notFoundPage(res, { what: "Doc", href: "/docs", label: "All docs" });
   htmlCache(res, 300, 900).send(html);
 });
 // Top-level machine-readable service manifest — one fetch tells a discovery
@@ -4680,13 +4696,13 @@ app.get(/^\/tools\/convert-[a-z0-9-]+-to-[a-z0-9-]+$/, (_req, res) => res.redire
 app.get("/tools/category/convert", (_req, res) => res.redirect(301, "/tools/unit-convert"));
 app.get("/tools/category/:cat", (req, res) => {
   const html = categoryPage(BASE_URL, CATALOG, req.params.cat);
-  if (!html) return res.status(404).type("html").send('<p>Category not found. <a href="/tools">All tools</a></p>');
+  if (!html) return notFoundPage(res, { what: "Category", href: "/tools", label: "All tools" });
   htmlCache(res, 300, 900).send(html);
 });
 app.get("/tools/:slug", (req, res) => {
   const tools = toolList(CATALOG);
   const tool = tools.find((t) => t.slug === req.params.slug);
-  if (!tool) return res.status(404).type("html").send('<p>Tool not found. <a href="/tools">All tools</a></p>');
+  if (!tool) return notFoundPage(res, { what: "Tool", href: "/tools", label: "All tools" });
   const related = tools.filter((t) => t.category === tool.category && t.slug !== tool.slug).slice(0, 3);
   const cachePolicy = tool.method === "GET" ? CACHEABLE_ROUTES[tool.path] : null;
   htmlCache(res, 300, 900).send(toolPage(BASE_URL, tool, related, { computePayable: POW_SLUGS.has(tool.slug), powDifficulty: POW_DIFFICULTY, cacheTtl: cachePolicy?.ttl ?? null }));

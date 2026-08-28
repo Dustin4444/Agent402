@@ -2182,6 +2182,13 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `MONITOR_MANAGE_SECRET`, GitHub production-environment reviewer + deploy-branch policy + ruleset without the standing admin
   bypass + Dependabot security updates + delete the unused NPM_TOKEN secret. Follow-ups in code: client-side backup
   encryption, tollbooth Tempo chain-truth confirm, shell 404s on seven fragment routes, operator-token guessing pager.
+- **Backups encrypted client-side + shell 404s (2026-08-28, review follow-ups):** `BACKUP_ENCRYPTION_KEY` (32 bytes, 64 hex or
+  base64) wraps every staged object in AES-256-GCM (`A402ENC1` + 12-byte IV + ciphertext + tag, object suffix `.gz.enc`);
+  without it the run still uploads plain gzip but `status.encrypted:false` and the boot line WARNs. `scripts/backup-restore.js
+  <object> [--out|--unbundle]` decrypts, gunzips and unbundles the NDJSON directory stores, dependency-free. test-backup (34)
+  pins the encrypted upload, a tampered object failing auth, and the restore path. Set the key on Railway (operator). The
+  nine bare `<p>Not found</p>` fragment routes (tool, category, guide, skill, doc, blog, adapter, sample, public report) render
+  through `notFoundPage(res, {what, href, label})` (server.js, the shell 404 with the section link).
 - **`/proof` + `GET /api/proof` (2026-08-27, `src/proof.js`, `proofFeed()` in sales-ledger):** receipts for the metered
   tier - the ledger now stores `quote_usd` (additive column) next to the settled `price_usd` on every metered sale
   (`recordSale({quoteUsd})` from the route binder's `req.__meteredQuoteUsd`), and the page shows aggregates plus ONE
