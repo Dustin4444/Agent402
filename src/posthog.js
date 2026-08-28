@@ -560,13 +560,16 @@ export function capturePostHogCompositeUsage({ slug, upstreamUsd, ok, priceUsd, 
   } catch { /* never throw */ }
 }
 
-export function capturePostHogGatewayUsage({ tier, model, priceUsd, upstreamUsd, promptTokens, completionTokens, serviceTier, serverToolCalls, serverToolSearches }) {
+export function capturePostHogGatewayUsage({ tier, model, priceUsd, upstreamUsd, promptTokens, completionTokens, serviceTier, serverToolCalls, serverToolSearches, defaulted }) {
   if (!active()) return;
   const price = Number(priceUsd) || 0;
   const upstream = Number(upstreamUsd) || 0;
   capture("gateway_usage", {
     tier: String(tier || "unknown"),
     model: String(model || ""),
+    // The caller named no model and the tier's default served (2026-08-28) -
+    // the measure of whether defaulting recovers real calls or only probes.
+    defaulted: !!defaulted,
     // Which OpenRouter service tier actually served ("flex" = the 50% tier,
     // "default" otherwise) - the measurement behind the flex-first policy.
     serviceTier: String(serviceTier || "default"),

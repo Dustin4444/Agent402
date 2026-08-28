@@ -2681,6 +2681,7 @@ function makeHandler(tierSlug) {
         promptTokens: usage?.prompt_tokens, completionTokens: usage?.completion_tokens, serviceTier,
         serverToolCalls: usage?.server_tool_use_details?.tool_calls_executed ?? usage?.server_tool_use?.tool_calls_executed,
         serverToolSearches: usage?.server_tool_use_details?.web_search_requests ?? usage?.server_tool_use?.web_search_requests,
+        defaulted: !!body.__defaultedModel,
       }))
       .catch(() => { /* telemetry must never fail a served response */ });
     // Flex-eligible links are tried on the flex tier first, then default (see

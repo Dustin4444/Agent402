@@ -135,6 +135,15 @@ delete process.env.OPENROUTER_API_KEY;
   const e = validateResponsesRequest({ model: "openai/gpt-4o-mini", ...{ input: "hi", max_output_tokens: 16 } }, "v1-chat");
   ok(e.defaultedModel === null, "an explicit model is not marked as defaulted");
 }
+{
+  seen = [];
+  globalThis.fetch = async (url, init) => { const b = JSON.parse(init.body); seen.push({ url: String(url), b }); return { ok: true, status: 200, text: async () => JSON.stringify(reply(b.model)) }; };
+  const out = await bySlug("v1-chat-responses").handler({ input: "hi", max_output_tokens: 16 }, fakeReq);
+  const { _testEventsForTest } = await import("../src/posthog.js");
+  const ev = _testEventsForTest().filter((e) => e.event === "gateway_usage").pop();
+  ok(seen[0].b.model === "openai/gpt-4o-mini" && out.agent402_default_model === "openai/gpt-4o-mini" && ev?.properties.defaulted === true, "a defaulted call serves the tier default, says so in the reply, and gateway_usage records defaulted:true");
+  globalThis.fetch = realFetch;
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

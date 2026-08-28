@@ -263,7 +263,7 @@ export function makeResponsesHandler(tierSlug) {
     const recordUsage = (usage, upstreamUsd, served, serviceTier) => import("../posthog.js")
       .then(({ capturePostHogGatewayUsage }) => capturePostHogGatewayUsage({
         tier: `${tierSlug}:responses`, model: served, priceUsd: quotedUsd ?? tier.price, upstreamUsd,
-        promptTokens: usage?.input_tokens, completionTokens: usage?.output_tokens, serviceTier,
+        promptTokens: usage?.input_tokens, completionTokens: usage?.output_tokens, serviceTier, defaulted: !!defaultedModel,
       })).catch(() => {});
     const attempts = flexAttempts(chain);
     const routerNote = isRouted ? { category: routedCategory, quality: routedQuality } : null;
