@@ -332,5 +332,17 @@ try {
   ok(nokey.ok === false && nokey.reason === "no-key", `no key stays a no-op regardless of NODE_ENV (got ${JSON.stringify(nokey)})`);
 }
 
+// ---- verify_failed: reason + chain + path, never the payer, capped per hour (2026-08-28) ----
+{
+  const { capturePostHogVerifyFailed, _testEventsForTest } = await import("../src/posthog.js");
+  const before = _testEventsForTest().filter((e) => e.event === "verify_failed").length;
+  capturePostHogVerifyFailed({ network: "eip155:8453", scheme: "exact", resource: "https://agent402.tools/api/x402-trending?x=1", errorReason: "invalid_exact_evm_payload_authorization_value_insufficient", synthetic: false });
+  const ev = _testEventsForTest().filter((e) => e.event === "verify_failed").pop();
+  ok(ev && ev.properties.network === "eip155:8453" && ev.properties.scheme === "exact" && ev.properties.path === "/api/x402-trending" && /insufficient/.test(ev.properties.errorReason) && !("payer" in ev.properties), "verify_failed carries chain, scheme, route path and reason - no payer, no query string");
+  for (let i = 0; i < 400; i++) capturePostHogVerifyFailed({ network: "eip155:8453", scheme: "exact", resource: "https://agent402.tools/api/random", errorReason: "x" });
+  const after = _testEventsForTest().filter((e) => e.event === "verify_failed").length;
+  ok(after - before <= 300, `verify_failed is capped per hour (${after - before} of 401 captured)`);
+}
+
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

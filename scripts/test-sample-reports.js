@@ -36,7 +36,7 @@ for (const product of SAMPLE_PRODUCTS) {
   const minSources = s.kind === "domain" ? 0 : s.kind === "recall" ? 3 : 5;
   ok(s.sources.length >= minSources, `${product}: cites at least ${minSources} sources (${s.sources.length})`);
 }
-ok(sampleLinkFor("dossier") === "/reports/sample/dossier" && sampleLinkFor("token-brief") === null, "sampleLinkFor: a slug with a fixture links, one without does not");
+ok(sampleLinkFor("dossier") === "/reports/sample/dossier" && sampleLinkFor("research-pro") === null, "sampleLinkFor: a slug with a fixture links, one without does not");
 ok(samplePaths().every((p) => p.startsWith("/reports/sample/")), "sample paths live under /reports/sample/");
 
 // ---- booted server ----
@@ -66,7 +66,7 @@ try {
   const reports = await (await fetch(`${B}/reports`)).text();
   const links = reports.match(/href="\/reports\/sample\/[a-z-]+"/g) || [];
   ok(links.length >= SAMPLE_PRODUCTS.length, `/reports links the samples (${links.length} links for ${SAMPLE_PRODUCTS.length} fixtures)`);
-  ok(!reports.includes('href="/reports/sample/token-brief"'), "/reports does not link a sample that does not exist");
+  ok(!reports.includes('href="/reports/sample/domain-audit-pro"') && !reports.includes('href="/reports/sample/research-pro"'), "/reports does not link a sample that does not exist");
 
   const sm = await (await fetch(`${B}/sitemap-reports.xml`)).text();
   ok(SAMPLE_PRODUCTS.every((p) => sm.includes(`/reports/sample/${p}</loc>`)), "every sample is in sitemap-reports.xml");

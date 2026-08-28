@@ -280,6 +280,7 @@ export const TIERS = {
   // discipline as the other tiers. Listed FIRST so tierFor()'s
   // self-correcting 400s and /v1/models lead with the cheapest home.
   "v1-chat-nano": {
+    defaultModel: "openai/gpt-4.1-nano", // served when the caller names no model (2026-08-28: 82 refusals in 30 days for a missing "model")
     route: "POST /v1/nano/chat/completions",
     price: 0.003,
     priceSort: true, // cheapest provider under max_price (budget tier: price IS the product)
@@ -312,6 +313,7 @@ export const TIERS = {
     ],
   },
   "v1-chat": {
+    defaultModel: "openai/gpt-4o-mini", // served when the caller names no model (2026-08-28: 82 refusals in 30 days for a missing "model")
     reasoningDefault: "lowest", // budget tier: lowest non-none effort on default-on reasoning models
     route: "POST /v1/chat/completions",
     price: 0.02,
@@ -330,6 +332,7 @@ export const TIERS = {
     ],
   },
   "v1-chat-pro": {
+    defaultModel: "openai/gpt-4o", // served when the caller names no model (2026-08-28: 82 refusals in 30 days for a missing "model")
     reasoningDefault: "low", // real reasoning, but never medium/high by default under a 4k cap
     route: "POST /v1/pro/chat/completions",
     price: 0.10,
@@ -362,6 +365,7 @@ export const TIERS = {
     ],
   },
   "v1-chat-premium": {
+    defaultModel: "anthropic/claude-opus-5", // served when the caller names no model (2026-08-28: 82 refusals in 30 days for a missing "model")
     reasoningDefault: "model", // premium buyers bought depth; 8k cap leaves room for the model default
     route: "POST /v1/premium/chat/completions",
     price: 0.50,
@@ -554,6 +558,7 @@ const METERED_PREFIXES = [...new Set(Object.values(TIERS)
   .filter((t) => !t.router && !t.lockedModel && !t.stealth)
   .flatMap((t) => t.prefixes || []))];
 TIERS["v1-chat-metered"] = {
+  defaultModel: "anthropic/claude-haiku-4.5", // served when the caller names no model (quoted like any explicit model)
   metered: true,
   reasoningDefault: "lowest", // the buyer pays for reasoning tokens: default to the cheapest effort, opt up explicitly
   route: "POST /v1/metered/chat/completions",
@@ -1307,6 +1312,8 @@ export function validateRequest(input, tierSlug, { clamp = true } = {}) {
   } else if (tier.router === true && input.quality !== undefined) {
     throw bad('"quality" applies only when the gateway picks the model - omit "model" (or send "auto") to use it');
   }
+  let defaultedModel = null;
+  if (!model && tier.defaultModel) { model = tier.defaultModel; defaultedModel = model; } // serve the tier default, never refuse a missing model (2026-08-28)
   if (!model) throw bad('"model" is required (e.g. "openai/gpt-4o-mini" or "gpt-4o-mini")');
   // Model-id variants that change what is BILLED, not just how it routes.
   // The allowlist's ":variant" match exists for cost-neutral routing hints
@@ -1454,6 +1461,7 @@ export function validateRequest(input, tierSlug, { clamp = true } = {}) {
       throw bad(`This request would cost $${q.toFixed(4)} metered, above the $${tier.maxQuoteUsd} per-call cap of ${tier.route.split(" ")[1]} - lower max_tokens or the input, or use a flat tier (GET /v1/models).`);
     }
   }
+  if (defaultedModel) Object.defineProperty(body, "__defaultedModel", { value: defaultedModel, enumerable: false });
   return body;
 }
 
@@ -2758,6 +2766,7 @@ function makeHandler(tierSlug) {
         if (routedCategory && data && typeof data === "object") {
           data.agent402_router = { category: routedCategory, quality: routedQuality, served: data.model || model };
         }
+        if (body.__defaultedModel) data.agent402_default_model = body.__defaultedModel; // the caller sent no model; say what served
         if (input.cache === true && !TIERS[tierSlug].noCache) {
           // FR4-01 class: defer the cache write to AFTER settlement. @x402/express
           // settles after this handler, so writing now would cache an
@@ -3131,6 +3140,7 @@ export function modelsList() {
         owned_by: p.split("/")[0],
         x402: {
           tier: slug, endpoint: tier.route.split(" ")[1], priceUsd: tier.price, maxTokens: tier.maxTokens,
+          ...(tier.defaultModel ? { defaultModel: tier.defaultModel } : {}),
           ...(slug.startsWith("v1-chat") && !tier.lockedModel && !tier.router && TIERS["v1-chat-metered"]
             ? {
               meteredEndpoint: TIERS["v1-chat-metered"].route.split(" ")[1], meteredFromUsd: TIERS["v1-chat-metered"].price,

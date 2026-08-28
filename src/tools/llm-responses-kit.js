@@ -102,9 +102,11 @@ export function validateResponsesRequest(input, tierSlug) {
   if (input.previous_response_id !== undefined) throw bad('"previous_response_id" is not supported - this gateway stores no conversation state (store is always false); send the full input each call');
   if (input.background === true) throw bad('"background" responses are not served (no server-side state)');
   const isRouted = tier.router === true && (!canonicalModel(input.model) || canonicalModel(input.model) === "auto");
-  const model = canonicalModel(input.model);
+  let model = canonicalModel(input.model);
+  let defaultedModel = null;
   if (!isRouted) {
     refuseCostVariants(model);
+    if (!model && tier.defaultModel) { model = tier.defaultModel; defaultedModel = model; } // see llm-messages-kit: serve the tier default, never refuse a missing model
     if (!model) throw bad(`"model" is required (e.g. openai/gpt-4o-mini). This tier serves: ${tier.prefixes?.slice(0, 6).join(", ") || "see /v1/models"}`);
     if (!tierAllows(tierSlug, model)) {
       const home = tierFor(model);
@@ -195,7 +197,7 @@ export function validateResponsesRequest(input, tierSlug) {
   const routedQuality = isRouted ? (input.quality === undefined ? "balanced" : String(input.quality)) : null;
   if (isRouted && !AUTO_RANKINGS[routedQuality]) throw bad('"quality" must be "fast", "balanced", or "best"');
   const chain = isRouted ? [...AUTO_RANKINGS[routedQuality][routedCategory]] : [model, ...(tier.fallbacks || []).filter((m) => m !== model)];
-  return { body, probe, imageCount: acc.images, isRouted, routedCategory, routedQuality, chain };
+  return { body, probe, imageCount: acc.images, isRouted, routedCategory, routedQuality, chain, defaultedModel };
 }
 
 /** status incomplete for max_output_tokens with no text/function output =
@@ -217,7 +219,7 @@ function stripBilling(usage) {
 export function makeResponsesHandler(tierSlug) {
   return async function responsesHandler(input, req) {
     const tier = TIERS[tierSlug];
-    const { body, probe, imageCount, isRouted, routedCategory, routedQuality, chain } = validateResponsesRequest(input, tierSlug);
+    const { body, probe, imageCount, isRouted, routedCategory, routedQuality, chain, defaultedModel } = validateResponsesRequest(input, tierSlug);
     const structured = body.text?.format?.type === "json_schema" || body.text?.format?.type === "json_object";
     // Metered belt (chat + Messages wire parity): an over-cap body is refused
     // before any upstream call (the 402 quoted the cap, not the cost), and
@@ -312,6 +314,7 @@ export function makeResponsesHandler(tierSlug) {
         const upstreamUsd = stripBilling(data.usage);
         await recordUsage(data.usage, upstreamUsd, data.model || model, data.service_tier || (flex ? "flex" : "default"));
         if (routerNote) data.agent402_router = { ...routerNote, served: data.model || model };
+        if (defaultedModel) data.agent402_default_model = defaultedModel;
         // Metered settlement sentinel (chat-wire parity): the route binder
         // settles actual x markup for upto/credits buyers and strips this
         // before the body leaves. Non-enumerable; a non-number means "no meter".

@@ -210,8 +210,16 @@ for (const p of SKILL_PACKS) {
   if (hits.length) METERED_PACK_SLUGS.add(p.slug);
 }
 
+// Upstreams whose edge BLOCKS GitHub runners: Kalshi's Cloudflare answered the
+// sweep an HTML 403 page on 2026-08-28 (both examples, same run) while the same
+// request answered 200 from a laptop and from production. A strict sweep
+// cannot tell that block from a dead tool, and the lenient test-all NETWORK
+// set still calls them every run; production is watched by the tool alert.
+const RUNNER_BLOCKED_SLUGS = new Set(["kalshi-markets", "kalshi-event"]);
+
 function excludeReason(slug, path) {
   if (METERED_SLUGS.has(slug)) return "metered_upstream_key_or_buyer";
+  if (RUNNER_BLOCKED_SLUGS.has(slug)) return "upstream_blocks_github_runners";
   const packName = slug.startsWith("skill-") ? slug.slice(6) : null;
   if (packName && METERED_PACK_SLUGS.has(packName)) return "skill_pack_reaches_metered";
   if (path.startsWith("/api/skill/")) {

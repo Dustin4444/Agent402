@@ -2029,6 +2029,20 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   key must ride as `auth_token`/`authToken` (Authorization: Bearer), not `api_key` (x-api-key). **Claude Code as an LLM host
   is CLAIMED since 2026-08-27** (see the Claude Code host entry below): the 100 KB limit is lifted on /v1/metered and the
   wire was proven against claude-cli 2.1.250.
+- **Missing `model` is served, not refused, and verify failures are telemetry (2026-08-28, from reading 30 days of real calls):** the
+  single largest refusal on the LLM wires was `"model" is required` (82 in 30 days, 1 ms 400s: agents posting to a tier route with no
+  model). Every non-router tier now carries `defaultModel` (nano gpt-4.1-nano, base gpt-4o-mini, pro gpt-4o, premium claude-opus-5,
+  metered claude-haiku-4.5; advertised on `/v1/models` as `x402.defaultModel`), the chat wire marks the normalized body with a
+  non-enumerable `__defaultedModel` (cache key and outbound body unchanged) and all three wires add `agent402_default_model` to the
+  reply; the legacy `/api/llm` defaults to gpt-4o-mini. Pinned on every wire. **`verify_failed`** (posthog.js
+  `capturePostHogVerifyFailed`, fired from payments.js's `onVerifyFailure`): network, scheme, route path, reason - never the payer;
+  capped 300/hour. Why: the paywall's `usdc_failed` rollup showed ~10,000 failed paid attempts in 14 days (one client retrying a
+  rejected payment ~400/hour on x402-trending + bestsellers on 08-26) against ~1,600 settlements and only 4 `settle_failed` events,
+  and the container log with the verify reason had rolled off - the next burst is diagnosable from PostHog. What the 60-day buyer data
+  said (2026-08-28): 250 external buyers, 92 one-call, 106 returned another day, 76 another week, 17 three+ weeks, median 2 settlements,
+  $145 total; first buys are protocol test calls (random 42, stock-quote 25, compound-interest 13) and ~40% of those buyers return; the
+  402 volume (300-540k/week) is index/trust probers (x402pulse, mako-pulse, kkj-trust-index, x402-observer, scanners walking the
+  catalog), not agents leaving.
 - **Metered Responses wire (2026-08-28, `POST /v1/metered/responses`, slug `v1-chat-metered-responses`):** the metered tier on the
   OpenAI Responses wire (the one Codex CLI's `model_providers` and the OpenAI Agents SDK speak). `RESPONSES_PATH_BY_TIER["v1-chat-metered"]`
   (LAST); `quote: (body) => meteredResponsesQuoteUsd(body).usd` prices the 402 from `validateResponsesRequest`'s probe through the shared
@@ -2129,6 +2143,23 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   email capture + post-purchase sequence (one transactional email exists, no list), a shareable/public report option (every
   /r/ page is noindex + generic OG, so the paid artifact has no backlink surface), monitors for research/dossier kinds,
   seed expansion, a first-report promo. Weekly number for this bet: card sales + `human_funnel` conversion, not x402scan rank.
+- **Sample review round 2 (2026-08-28 evening, the operator: "are you also looking at the results and using that data to rebuild the
+  features?"):** five more real samples generated on a local FREE_MODE boot with the prod keys pulled from Railway (filing AAPL, token
+  JUP, market brief EV fast charging, ticker pack MSFT, LinkedIn article on per-request pricing) and each READ before publishing. Defects
+  found and fixed in the kits, not the fixtures: (1) every kit writes its own H1 and the model wrote ANOTHER H1 + subtitle at the top of
+  its prose (AAPL filing, JUP token) - `dropModelTitle` in house-style.js (inside `houseStyleMarkdown`, so every report tier and the
+  sample loader get it) removes a second H1 within the first 1,500 chars plus its subtitle H2; a later H1 is content and stays; (2) the
+  filing report listed three Form 4s and a Form 144 as NOT FETCHED ("the reporting persons cannot be stated") - `filing-watch-kit`
+  now parses Forms 3/4/5 through `parseForm4` and Form 144 through `parseForm144` (raw XML = index url without the `/xsl.../` segment,
+  `rawXmlUrl`; up to `ROUTINE_PARSE_MAX` 10; `deps.fetchForm` seam) and hands the synthesis a `=== ROUTINE FORMS PARSED ===` block
+  (`describeRoutineForm`: insider + role, code/acquired-disposed, shares, price, owned after, 10b5-1; the 144 seller, size, value, date,
+  broker, plan), rule 3 lets those be summarized, the header counts "N ownership forms parsed", `meta.routine_forms_parsed`; (3) the token
+  brief called a locker unlock dated 2025-08-13 "upcoming" - rule 9 states TODAY's date and that past dates have elapsed; (4) the ticker
+  pack's executive summary narrated the pipeline ("the dossier leg was produced successfully ... citing 20 sources") - rule 6: write about
+  the company, coverage facts in one sentence, only a FAILED leg is named; (5) a Unicode minus sign survived house style - normalised.
+  The samples for the three changed kits were regenerated on the fixed code. Recipe: `scratchpad/make-samples.sh` shape - pull keys with
+  `railway variables -s agent402 -e production --json` into a 0600 env file, boot FREE_MODE on a free port, POST each route, save
+  `{product,input,title,report,sources,tables,meta,at,generatedWith}`; never commit the env file.
 - **Free email alerts = the lead magnet on the free report pages (2026-08-28, day 2 of the reports bet; `src/free-alerts.js`,
   `assets/js/alert-signup.js`, `scripts/test-free-alerts.js` 35 in CI):** a visitor on `/reports/insider/<T>`, `/reports/fund/<m>`,
   `/reports/dossier/<T>` or a sample report enters an email; we watch that one target with the SAME free daily probe the paid

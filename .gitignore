@@ -57,3 +57,6 @@ build/
 .env.*
 !.env.example
 service-account*.json
+
+# The Solana token brief sample is a public report fixture, not a token secret (the *token*.json rule above guards those).
+!assets/samples/token-brief.json

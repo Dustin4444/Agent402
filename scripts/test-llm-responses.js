@@ -128,5 +128,13 @@ await baseTool.handler({ model: "openai/gpt-4o-mini", input: "hi" }, fakeReq).th
 globalThis.fetch = realFetch;
 delete process.env.OPENROUTER_API_KEY;
 
+// ---- a missing model is served as the tier default (2026-08-28) ----
+{
+  const v = validateResponsesRequest({ input: "hi", max_output_tokens: 16 }, "v1-chat");
+  ok(v.body.model === "openai/gpt-4o-mini" && v.defaultedModel === "openai/gpt-4o-mini", "no model on v1-chat -> the tier default, marked defaultedModel");
+  const e = validateResponsesRequest({ model: "openai/gpt-4o-mini", ...{ input: "hi", max_output_tokens: 16 } }, "v1-chat");
+  ok(e.defaultedModel === null, "an explicit model is not marked as defaulted");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

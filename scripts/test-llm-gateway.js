@@ -84,7 +84,7 @@ throws(() => validateRequest({ model: "made-up-model-9000", messages: msg1() }, 
   ok(nv.stream === undefined, "non-stream requests carry no stream flag");
 }
 throws(() => validateRequest({ model: "gpt-4o-mini", messages: [] }, "v1-chat"), "non-empty", "empty messages rejected");
-throws(() => validateRequest({ messages: msg1() }, "v1-chat"), "required", "missing model rejected");
+ok(validateRequest({ messages: msg1() }, "v1-chat").model === "openai/gpt-4o-mini", "missing model is served as the tier default (was a 400 until 2026-08-28)");
 throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1("x".repeat(40_000)) }, "v1-chat"), "Input too large", "input char cap enforced");
 throws(() => validateRequest({ model: "gpt-4o-mini", messages: Array.from({ length: 101 }, () => ({ role: "user", content: "x" })) }, "v1-chat"), "Too many messages", "message count cap enforced");
 
@@ -1194,6 +1194,20 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   ok(e2?.statusCode === 400, "equal budgets are refused too (strictly below)");
   const v = validateRequest({ ...base, max_tokens: 2000, reasoning: { max_tokens: 1000 } }, "v1-chat-metered");
   ok(v.reasoning?.max_tokens === 1000 && v.max_tokens === 2000, "a reasoning budget under max_tokens passes on the metered tier");
+}
+
+// ---- a missing model is served as the tier default, never refused (2026-08-28) ----
+{
+  const { validateRequest: vr, TIERS: T } = await import("../src/tools/llm-gateway-kit.js");
+  for (const [slug, expect] of [["v1-chat-nano", "openai/gpt-4.1-nano"], ["v1-chat", "openai/gpt-4o-mini"], ["v1-chat-pro", "openai/gpt-4o"], ["v1-chat-premium", "anthropic/claude-opus-5"], ["v1-chat-metered", "anthropic/claude-haiku-4.5"]]) {
+    const b = vr({ messages: [{ role: "user", content: "hi" }], max_tokens: 16 }, slug, { clamp: false });
+    ok(b.model === expect && b.__defaultedModel === expect && !Object.keys(b).includes("__defaultedModel") && T[slug].defaultModel === expect, `${slug}: no model -> ${expect} (marker non-enumerable)`);
+    ok(T[slug].prefixes.some((p) => expect === p || expect.startsWith(p.endsWith("/") ? p : p + "-") || expect === p), `${slug}: the default is inside the tier's own allowlist`);
+  }
+  const explicit = vr({ model: "openai/gpt-4o-mini", messages: [{ role: "user", content: "hi" }], max_tokens: 16 }, "v1-chat", { clamp: false });
+  ok(explicit.model === "openai/gpt-4o-mini" && explicit.__defaultedModel === undefined, "an explicit model is never marked as defaulted");
+  const routed = vr({ messages: [{ role: "user", content: "hi" }], max_tokens: 16 }, "v1-chat-auto", { clamp: false });
+  ok(routed.__defaultedModel === undefined, "the auto tier routes; it does not default");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

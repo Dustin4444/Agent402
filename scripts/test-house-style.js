@@ -24,6 +24,16 @@ ok(styled.__meterUpstreamUsd === 0.12 && !Object.keys(styled).includes("__meterU
 const wrapped = withHouseStyle(async (input) => ({ report: `# ${input.q} ${EM} answer\n\ntext ${EM} more`, echo: input }));
 const r = await wrapped({ q: "why" });
 ok(r.report === "# why: answer\n\ntext - more" && r.echo.q === "why", "withHouseStyle styles a handler's result");
+// The model's re-title at the top of its prose is dropped; later headings never are.
+{
+  const { dropModelTitle } = await import("../src/house-style.js");
+  const twice = "# SEC Filing Report: Apple Inc. (AAPL)\n\n**Last 30 days** · 6 filings\n\n# Apple Inc. (AAPL): Company Filing Report\n## SEC filings in the last 30 days\n\n---\n\n## SNAPSHOT\n\nSix filings.\n\n# Not a title: a real late H1\n";
+  const out = dropModelTitle(twice);
+  ok(out.startsWith("# SEC Filing Report: Apple Inc. (AAPL)") && !out.includes("# Apple Inc. (AAPL): Company Filing Report") && !out.includes("## SEC filings in the last 30 days") && out.includes("## SNAPSHOT") && out.includes("# Not a title: a real late H1"), "the second H1 and its subtitle H2 go; the kit header, the sections and a later H1 stay");
+  const one = "# Only Title\n\nBody.\n\n## Section\n";
+  ok(dropModelTitle(one) === one && dropModelTitle("no heading at all") === "no heading at all", "a single-title report and a headingless string are untouched");
+  ok(houseStyleMarkdown("# A\n\n# B\n\niPad (\u22126%)").includes("(-6%)") && !houseStyleMarkdown("# A\n\n# B\n\nx").includes("# B"), "houseStyleMarkdown drops the re-title and turns a Unicode minus into a hyphen");
+}
 // The catalog wraps EVERY report tier: pinned at the source so a new tier cannot skip it.
 const src = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
 ok(/for \(const def of ALL_KIT\) if \(Object\.hasOwn\(REPORT_TIERS, def\.slug\)[^\n]*withHouseStyle\(def\.handler\)/.test(src), "server.js wraps every REPORT_TIERS handler with withHouseStyle");

@@ -440,6 +440,29 @@ export function capturePostHogChargedFailure({ slug, status, network, priceUsd, 
 // log in payments.js, a rejection's only trace was a spurious
 // charged_but_failed (the 2026-07-16 Robinhood canary false alarm).
 // errorReason comes from the decoded failure receipt. Low-volume; no rate cap.
+// A payment header that fails VERIFY never reaches settle_failed, and until
+// 2026-08-28 the only trace was the paywall_402 "usdc_failed" rollup: ~10,000
+// failed paid attempts in 14 days with no reason anywhere once the container
+// log rolled. Reason + network + resource path, never the payer; bounded per
+// hour because one client's retry loop produced 1,500 an hour.
+const VERIFY_FAILED_HOURLY_CAP = 300;
+let _vfWindow = 0, _vfCount = 0;
+export function capturePostHogVerifyFailed({ network, scheme, resource, errorReason, synthetic }) {
+  if (!active()) return;
+  const hour = Math.floor(Date.now() / 3_600_000);
+  if (hour !== _vfWindow) { _vfWindow = hour; _vfCount = 0; }
+  if (++_vfCount > VERIFY_FAILED_HOURLY_CAP) return;
+  let path = null;
+  try { path = resource ? new URL(String(resource)).pathname.slice(0, 120) : null; } catch { path = String(resource || "").slice(0, 120) || null; }
+  capture("verify_failed", {
+    network: network ? String(network) : null,
+    scheme: scheme ? String(scheme) : null,
+    ...(path ? { path } : {}),
+    synthetic: !!synthetic,
+    ...(errorReason ? { errorReason: String(errorReason).slice(0, 200) } : {}),
+  });
+}
+
 export function capturePostHogSettleFailed({ slug, status, network, priceUsd, synthetic, payer, errorReason }) {
   if (!active()) return;
   capture("settle_failed", {

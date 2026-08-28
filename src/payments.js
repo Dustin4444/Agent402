@@ -1458,10 +1458,15 @@ export function railStatus() {
 
 export function registerFacilitatorFailureHooks(server, payAiClient, solvadorClient = null) {
   server.onVerifyFailure((ctx) => {
+    const reason = summarizeFacilitatorError(ctx?.error);
     console.warn(
       `[payments] facilitator VERIFY failed on ${ctx?.requirements?.network} ` +
-        `${ctx?.requirements?.scheme}: ${summarizeFacilitatorError(ctx?.error)}`
+        `${ctx?.requirements?.scheme}: ${reason}`
     );
+    // Telemetry (reason, chain, route - never the payer): see posthog.js.
+    import("./posthog.js").then(({ capturePostHogVerifyFailed }) => capturePostHogVerifyFailed({
+      network: ctx?.requirements?.network, scheme: ctx?.requirements?.scheme, resource: ctx?.requirements?.resource, errorReason: reason,
+    })).catch(() => {});
   });
 
   // A GRACEFUL settle rejection — the facilitator answers { success:false }
