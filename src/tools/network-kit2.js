@@ -327,7 +327,9 @@ const TECH_SIGNATURES = [
 ];
 
 function extractGenerator(html) {
-  const m = html.match(/<meta\s+[^>]*name=["']generator["'][^>]*content=["']([^"']+)["']/i);
+  // Two unbounded [^>]* runs backtrack against each other on a page with no
+  // closing ">" (1.7 s per 272 KB measured; the page is caller-chosen, 2 MB).
+  const m = html.match(/<meta\s+[^>]{0,1500}name=["']generator["'][^>]{0,1500}content=["']([^"']{1,300})["']/i);
   return m ? m[1].toLowerCase() : "";
 }
 

@@ -213,6 +213,7 @@ export function createStripeSubscriptions({ stripe, baseUrl, storePath, validate
 
   // Signature-verified webhook. Never trusts an unverified body: without the
   // secret it refuses (401), and a bad signature 400s.
+  const seenEvents = new Map();
   async function handleWebhook(rawBody, signature) {
     const secret = webhookSecret();
     const now = new Date().toISOString();
@@ -224,6 +225,14 @@ export function createStripeSubscriptions({ stripe, baseUrl, storePath, validate
     const type = String(event.type || "unknown").slice(0, 64);
     if (Object.hasOwn(tally.byType, type) || Object.keys(tally.byType).length < MAX_TYPES) tally.byType[type] = (tally.byType[type] || 0) + 1;
     bump("verified", { lastAt: now, lastType: type });
+    // Stripe's signature tolerance is 300 s: a captured delivery replays for
+    // five minutes. Handlers are idempotent on their records, but a replayed
+    // invoice.paid would book a second sale - remember event ids for a day.
+    if (event.id) {
+      if (seenEvents.has(event.id)) return { received: true, type, duplicate: true };
+      seenEvents.set(event.id, Date.now());
+      if (seenEvents.size > 5000) for (const [k, t] of seenEvents) { if (Date.now() - t > 86_400_000 || seenEvents.size > 5000) seenEvents.delete(k); else break; }
+    }
     switch (event.type) {
       case "checkout.session.completed": {
         const s = event.data.object;

@@ -66,7 +66,7 @@ export function createFollowups({ storePath = defaultStorePath(), sendEmail, mon
   /** A buyer who came back is not re-sold: stop every open sequence for the address. */
   function markRepeat(email) {
     const em = normEmail(email); let n = 0;
-    for (const r of Object.values(store.seqs)) if (r.email === em && !r.stopped) { r.stopped = true; r.stoppedReason = "repeat-buyer"; n++; }
+    for (const r of Object.values(store.seqs)) if (r.email === em && !r.stopped) { r.stopped = true; r.stoppedReason = "repeat-buyer"; r.email = null; n++; }
     if (n) persist();
     return n;
   }
@@ -74,7 +74,7 @@ export function createFollowups({ storePath = defaultStorePath(), sendEmail, mon
   function stop(id, k) {
     const r = recOf(id);
     if (!r || !verify(id, k)) return { ok: false };
-    if (!r.stopped) { r.stopped = true; r.stoppedReason = "link"; r.stoppedAt = now(); persist(); emit("followup_stopped"); }
+    if (!r.stopped) { r.stopped = true; r.stoppedReason = "link"; r.stoppedAt = now(); r.email = null; persist(); emit("followup_stopped"); }
     return { ok: true };
   }
 

@@ -1,4 +1,24 @@
-# Agent402.Tools - 500+ tools, the open x402 + MPP index and router for AI agents
+# Agent402.Tools: 500+ tools, metered models and finished reports for AI agents
+
+**The paid door for AI agents: 500+ tools, metered models and finished reports, paid per call in USDC over x402 and MPP, or by card. Open source, self-hostable, MCP-native.**
+
+Operated by Havok Holdings LLC · [Live](https://agent402.tools) · [Why pay here](https://agent402.tools/why) · [Receipts](https://agent402.tools/proof) · [Status](https://agent402.tools/status) · [Security](https://agent402.tools/security) · [Company](https://agent402.tools/company)
+
+**Try it in 30 seconds:** `claude mcp add agent402 -- npx -y agent402-mcp`, or paste `https://agent402.tools/mcp` into any MCP client. The free tier needs no wallet.
+
+**Who pays:** agents pay per call (from $0.001; models metered under a quoted ceiling and settled at actual usage); people buy finished reports ($2 to $5) and monitors ($5 a month) by card; sites charge crawlers with the tollbooth.
+
+[![Live](https://img.shields.io/website?url=https%3A%2F%2Fagent402.tools%2Fhealth&label=agent402.tools&up_message=live)](https://agent402.tools)
+[![CodeQL](https://github.com/MikeyPetrillo/Agent402/actions/workflows/codeql.yml/badge.svg)](https://github.com/MikeyPetrillo/Agent402/actions/workflows/codeql.yml)
+[![Secret scan](https://github.com/MikeyPetrillo/Agent402/actions/workflows/secret-scan.yml/badge.svg)](https://github.com/MikeyPetrillo/Agent402/actions/workflows/secret-scan.yml)
+[![npm](https://img.shields.io/npm/v/agent402-mcp?label=agent402-mcp)](https://www.npmjs.com/package/agent402-mcp)
+[![npm](https://img.shields.io/npm/v/agent402-client?label=agent402-client)](https://www.npmjs.com/package/agent402-client)
+[![npm](https://img.shields.io/npm/v/agent402-tollbooth?label=agent402-tollbooth)](https://www.npmjs.com/package/agent402-tollbooth)
+[![CI](https://github.com/MikeyPetrillo/Agent402/actions/workflows/deploy.yml/badge.svg)](https://github.com/MikeyPetrillo/Agent402/actions/workflows/deploy.yml)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-green.svg)](LICENSE)
+[Listed on Smithery](https://smithery.ai/servers/mike-kq9d/agent402)
+
+## What Agent402 is
 
 > **Agentic Finance** is software agents paying and getting paid on their
 > own: discovering a service, paying per request from a wallet over open protocols
@@ -46,13 +66,6 @@
 > seller we can verify live. Details: [What is MPP](https://agent402.tools/what-is-mpp)
 > · [live MPP settlements](https://agent402.tools/revenue).
 
-[![Live](https://img.shields.io/website?url=https%3A%2F%2Fagent402.tools%2Fhealth&label=agent402.tools&up_message=live)](https://agent402.tools)
-[![npm](https://img.shields.io/npm/v/agent402-mcp?label=agent402-mcp)](https://www.npmjs.com/package/agent402-mcp)
-[![npm](https://img.shields.io/npm/v/agent402-client?label=agent402-client)](https://www.npmjs.com/package/agent402-client)
-[![npm](https://img.shields.io/npm/v/agent402-tollbooth?label=agent402-tollbooth)](https://www.npmjs.com/package/agent402-tollbooth)
-[![CI](https://github.com/MikeyPetrillo/Agent402/actions/workflows/deploy.yml/badge.svg)](https://github.com/MikeyPetrillo/Agent402/actions/workflows/deploy.yml)
-[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-green.svg)](LICENSE)
-[Listed on Smithery](https://smithery.ai/servers/mike-kq9d/agent402)
 
 **Framework adapters** (drop-in tools for the major agent stacks - auto-payment underneath):
 [![npm](https://img.shields.io/npm/v/agent402-openai-tools?label=openai-tools)](https://www.npmjs.com/package/agent402-openai-tools)
@@ -251,7 +264,7 @@ The credits key is understood by the SDKs: `agent402-mcp` reads
 `AGENT402_CREDITS_KEY` and `agent402-client` takes `{ creditsKey }`, so a wallet-less
 agent can still call every wallet-only tool by card.
 
-## Skill packs - 100+ multi-tool workflows
+## Skill packs - 70+ multi-tool workflows
 
 For jobs that span several tools - "audit a domain", "diagnose deliverability",
 "work up a time-series", "peel an opaque blob" - Agent402 ships curated
@@ -466,7 +479,7 @@ Every claim links to the surface that proves it (the one-page version: [agent402
 - **Hardened** - connect-time SSRF guard on every URL tool (DNS-rebind safe),
   proof-of-work that's signed/single-use/slug-scoped, per-IP rate limits, and
   security headers. See [wiki: Security Model](https://github.com/MikeyPetrillo/Agent402/wiki/Security-Model).
-- **Deterministic** - no model in the serving path, so the same input always
+- **Deterministic utilities** - no model in the serving path of the utility tools, so the same input always
   gives the same output, with full OpenAPI schemas.
 - **Auditable, on-chain revenue** - every paid call settles in USDC to
   [`agent402.base.eth`](https://basescan.org/address/0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0#tokentxns)

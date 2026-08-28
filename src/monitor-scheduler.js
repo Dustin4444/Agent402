@@ -531,7 +531,7 @@ export function createMonitorScheduler({ subs, generate, probeDomain, normDomain
     return loadStore(path).reports[reportId] || null;
   }
   function reportView(reportId) {
-    const r = store.reports[reportId] || fromDisk(reportId);
+    const r = (Object.hasOwn(store.reports, reportId) ? store.reports[reportId] : null) || fromDisk(reportId);
     if (!r) return null;
     if (!store.reports[reportId]) store.reports[reportId] = r;
     return {

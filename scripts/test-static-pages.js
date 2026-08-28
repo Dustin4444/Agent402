@@ -50,6 +50,8 @@ const PAGES = [
   { path: "/agentic-finance", titleSubstr: "Agentic Finance" },
   { path: "/why",         titleSubstr: "Why pay here" },
   { path: "/markets",     titleSubstr: "market data" },
+  { path: "/security",    titleSubstr: "Security" },
+  { path: "/company",     titleSubstr: "Havok Holdings" },
   { path: "/reports/sample/dossier", titleSubstr: "sample" },
   { path: "/proof",       titleSubstr: "Receipts" },
   { path: "/glossary",    titleSubstr: "glossary" },

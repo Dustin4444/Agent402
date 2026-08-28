@@ -5,7 +5,7 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 
 export function privacyPage(baseUrl) {
   const title = "Privacy - Agent402";
-  const description = "Agent402's privacy policy: no accounts, no cookies, no browser trackers. What we process, why, and how long we keep it.";
+  const description = "Agent402's privacy policy: no accounts, no cookies, first-party page analytics only. What we process, why, how long we keep it, and how to have it erased.";
   const canonical = `${baseUrl}/privacy`;
 
   const extraCss = `
@@ -36,8 +36,11 @@ export function privacyPage(baseUrl) {
 
 <section>
 <div class="pv-body">
-<p>Agent402 has no accounts, no signups, no cookies, and no browser trackers or ad trackers on its
-pages. The only personal data we hold is what a card purchase needs to deliver what you bought (see
+<p>Agent402 has no accounts, no cookies and no ad trackers on its pages. Pages run a first-party page
+counter (PostHog, served from our own domain: page path, referrer and screen size, a random per-visit id
+held in session storage, never a cookie, never your IP forwarded to the analytics provider). Free email
+alerts and the tollbooth waitlist are the only forms that take an address, and both say so where you
+enter it. The only personal data we hold is what a card purchase needs to deliver what you bought (see
 "Card purchases" below). The entire server is <a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener">open source</a>,
 so every claim below is verifiable in code.</p>
 
@@ -47,7 +50,11 @@ so every claim below is verifiable in code.</p>
   in memory to compute the response and is not stored - with one deliberate exception: the
   <code>/api/memory</code> tools, whose purpose <i>is</i> storage (see below).</li>
   <li><b>IP addresses.</b> Used for free-tier rate limiting (kept in process memory for up to one hour)
-  and in standard, short-lived operational logs (request path, status code) for abuse prevention and debugging.</li>
+  and in standard, short-lived operational logs (request path, status code) for abuse prevention and debugging.
+  The tollbooth waitlist form stores the name, email, organisation and message you type; it no longer stores
+  your IP address or browser string.</li>
+  <li><b>Error reports.</b> Server errors are sent to Sentry with the request data, headers and cookies stripped,
+  so a crash report carries a stack trace and a tool name, never your input or address.</li>
   <li><b>AI gateway inputs.</b> Prompts and inputs sent to the <code>/v1</code> endpoints (chat,
   embeddings, images, speech) and other AI-proxy tools are <b>forwarded to the upstream model
   provider</b> (OpenAI, or the model operator serving the request via OpenRouter) to generate the
@@ -95,7 +102,9 @@ so every claim below is verifiable in code.</p>
   keys, monitor alerts) is sent through ZeptoMail. Report products read public sources named in each
   report (for example SEC EDGAR, openFDA, DNS and certificate-transparency logs, public blockchain
   explorers, and web search) and are synthesized by third-party AI models via OpenRouter, which receive
-  the report's inputs and source material, not your email.</li>
+  the report's inputs and source material, not your email. When the optional Stripe ledger mirror is on,
+  settled on-chain payments (wallet address, transaction id, amount) are recorded in Stripe for
+  bookkeeping; no email or card data is involved in that mirror.</li>
   <li>Hosting is on Railway. On-chain settlement is on Base (Coinbase CDP facilitator) and the other
   facilitators named at <a href="/pricing">/pricing</a>.</li>
   <li>We do not sell or share data with anyone for advertising or any other purpose.</li>
