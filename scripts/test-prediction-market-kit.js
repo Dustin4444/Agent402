@@ -10,7 +10,8 @@
 
 import { PREDICTION_MARKET_TOOLS, __test } from "../src/tools/prediction-market-kit.js";
 
-const { asNumber, parseJsonArray, shapeMarket, shapeKalshiMarket } = __test;
+import { readFileSync } from "node:fs";
+const { asNumber, parseJsonArray, shapeMarket, shapeKalshiMarket, polyList } = __test;
 
 const h = (slug) => PREDICTION_MARKET_TOOLS.find((t) => t.slug === slug).handler;
 let fail = 0, pass = 0;
@@ -129,6 +130,19 @@ const kzero = shapeKalshiMarket({ ticker: "Z-26", yes_bid_dollars: "0.0000", vol
 ok(kzero.yesBid === 0 && kzero.volume === 0, "a genuinely untraded market reads 0, never null");
 const kmissing = shapeKalshiMarket({ ticker: "M-26" });
 ok(kmissing.yesBid === null && kmissing.volume === null, "an absent field is still null, never a fabricated 0");
+
+// Polymarket's gamma list endpoints are past their own sunset (deprecation and
+// sunset: Fri, 01 May 2026 in HTTP HEADERS ONLY, nothing in their docs). We
+// call `/markets/keyset`, which returns an OBJECT with a markets array, and we
+// still accept the legacy bare array so a rollback cannot empty these tools.
+ok(polyList({ markets: [{ id: "1" }], next_cursor: "x" }).length === 1, "polyList reads the keyset object shape");
+ok(polyList([{ id: "1" }, { id: "2" }]).length === 2, "polyList still reads the legacy bare array");
+ok(polyList(null).length === 0 && polyList({}).length === 0 && polyList("nope").length === 0, "polyList never throws on an unexpected payload");
+{
+  const src = readFileSync(new URL("../src/tools/prediction-market-kit.js", import.meta.url), "utf8");
+  ok(!/POLY_GAMMA\}\/markets\?/.test(src), "no list call still points at the deprecated /markets endpoint");
+  ok((src.match(/markets\/keyset/g) || []).length >= 3, "every list call site uses /markets/keyset");
+}
 
 // ----------------------------------------------------------------------------
 // Input validation — all 6 tools

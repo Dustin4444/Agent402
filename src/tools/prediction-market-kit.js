@@ -180,6 +180,14 @@ const centsFrom = (dollars, legacyCents) => {
   return asNumber(legacyCents);
 };
 
+/** Gamma list payload -> array. `/markets/keyset` returns {markets, next_cursor};
+ *  the deprecated `/markets` returned a bare array. Accepts either, so a
+ *  rollback on their side cannot empty these tools. */
+function polyList(raw) {
+  if (Array.isArray(raw)) return raw;
+  return Array.isArray(raw?.markets) ? raw.markets : [];
+}
+
 function shapeKalshiMarket(m) {
   const yesBid = centsFrom(m.yes_bid_dollars, m.yes_bid);
   const yesAsk = centsFrom(m.yes_ask_dollars, m.yes_ask);
@@ -228,8 +236,13 @@ async function polymarketSearch({ query, limit, activeOnly } = {}) {
     params.set("closed", "false");
   }
   const meta = {};
-  const raw = await fetchJson(`${POLY_GAMMA}/markets?${params}`, "Polymarket Gamma", meta);
-  const arr = Array.isArray(raw) ? raw : [];
+  // Polymarket's gamma LIST endpoints answer `deprecation: true` and
+  // `sunset: Fri, 01 May 2026` in HTTP HEADERS ONLY - nothing in their docs or
+  // OpenAPI spec says so (found 2026-08-28). `/markets/keyset` is the named
+  // replacement: same filters and ordering, but it returns an OBJECT with a
+  // `markets` array and a `next_cursor`, and it REFUSES `offset` with a 422.
+  const raw = await fetchJson(`${POLY_GAMMA}/markets/keyset?${params}`, "Polymarket Gamma", meta);
+  const arr = polyList(raw);
   const q = query.trim().toLowerCase();
   const matched = arr
     .filter((m) => {
@@ -263,11 +276,11 @@ async function polymarketMarket({ slug, id } = {}) {
     // excludes closed markets by default, so a resolved market "disappears"
     // from ?slug= even though it's still queryable — fall back to closed=true
     // before declaring not-found.
-    let r = await fetchJson(`${POLY_GAMMA}/markets?slug=${encodeURIComponent(s)}`, "Polymarket Gamma", meta);
-    if (!Array.isArray(r) || !r.length) {
-      r = await fetchJson(`${POLY_GAMMA}/markets?slug=${encodeURIComponent(s)}&closed=true`, "Polymarket Gamma", meta);
+    let r = polyList(await fetchJson(`${POLY_GAMMA}/markets/keyset?slug=${encodeURIComponent(s)}`, "Polymarket Gamma", meta));
+    if (!r.length) {
+      r = polyList(await fetchJson(`${POLY_GAMMA}/markets/keyset?slug=${encodeURIComponent(s)}&closed=true`, "Polymarket Gamma", meta));
     }
-    if (!Array.isArray(r) || !r.length) throw bad(`Market not found for slug "${s}"`, 404);
+    if (!r.length) throw bad(`Market not found for slug "${s}"`, 404);
     raw = r[0];
   }
   return { ...shapeMarket(raw), ...staleFields(meta) };
@@ -673,6 +686,7 @@ export const PREDICTION_MARKET_TOOLS = [
 // Test-only exports
 export const __test = {
   asNumber,
+  polyList,
   parseJsonArray,
   shapeMarket,
   shapeKalshiMarket,

@@ -182,7 +182,7 @@ jobs:
       # modules (better-sqlite3) ship prebuilt per Node ABI, hence node22 in the key.
       - name: Restore node_modules
         id: nm-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
@@ -822,7 +822,7 @@ jobs:
       # modules (better-sqlite3) ship prebuilt per Node ABI, hence node22 in the key.
       - name: Restore node_modules
         id: nm-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
@@ -999,7 +999,7 @@ jobs:
       # modules (better-sqlite3) ship prebuilt per Node ABI, hence node22 in the key.
       - name: Restore node_modules
         id: nm-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
@@ -1125,7 +1125,7 @@ jobs:
       # modules (better-sqlite3) ship prebuilt per Node ABI, hence node22 in the key.
       - name: Restore node_modules
         id: nm-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
@@ -1301,7 +1301,7 @@ jobs:
       # modules (better-sqlite3) ship prebuilt per Node ABI, hence node22 in the key.
       - name: Restore node_modules
         id: nm-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
@@ -1545,7 +1545,7 @@ jobs:
       # modules (better-sqlite3) ship prebuilt per Node ABI, hence node22 in the key.
       - name: Restore node_modules
         id: nm-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
@@ -1706,7 +1706,7 @@ jobs:
       # modules (better-sqlite3) ship prebuilt per Node ABI, hence node22 in the key.
       - name: Restore node_modules
         id: nm-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
@@ -1829,7 +1829,7 @@ jobs:
       # modules (better-sqlite3) ship prebuilt per Node ABI, hence node22 in the key.
       - name: Restore node_modules
         id: nm-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
@@ -1952,7 +1952,7 @@ jobs:
       # modules (better-sqlite3) ship prebuilt per Node ABI, hence node22 in the key.
       - name: Restore node_modules
         id: nm-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
@@ -2131,7 +2131,7 @@ jobs:
       # modules (better-sqlite3) ship prebuilt per Node ABI, hence node22 in the key.
       - name: Restore node_modules
         id: nm-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
@@ -2547,7 +2547,7 @@ jobs:
       # modules (better-sqlite3) ship prebuilt per Node ABI, hence node22 in the key.
       - name: Restore node_modules
         id: nm-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
@@ -2748,7 +2748,7 @@ jobs:
       # modules (better-sqlite3) ship prebuilt per Node ABI, hence node22 in the key.
       - name: Restore node_modules
         id: nm-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
@@ -2995,7 +2995,7 @@ jobs:
       # modules (better-sqlite3) ship prebuilt per Node ABI, hence node22 in the key.
       - name: Restore node_modules
         id: nm-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
@@ -3075,7 +3075,7 @@ jobs:
       # modules (better-sqlite3) ship prebuilt per Node ABI, hence node22 in the key.
       - name: Restore node_modules
         id: nm-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
@@ -3100,7 +3100,7 @@ jobs:
       # here measures.
       - name: Cache Playwright Chromium
         id: pw-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ hashFiles('node_modules/playwright-core/package.json') }}
@@ -3221,7 +3221,7 @@ jobs:
       # modules (better-sqlite3) ship prebuilt per Node ABI, hence node22 in the key.
       - name: Restore node_modules
         id: nm-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
@@ -3246,7 +3246,7 @@ jobs:
       # here measures.
       - name: Cache Playwright Chromium
         id: pw-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ hashFiles('node_modules/playwright-core/package.json') }}
@@ -3478,7 +3478,7 @@ jobs:
       # modules (better-sqlite3) ship prebuilt per Node ABI, hence node22 in the key.
       - name: Restore node_modules
         id: nm-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
@@ -3609,7 +3609,7 @@ jobs:
       # modules (better-sqlite3) ship prebuilt per Node ABI, hence node22 in the key.
       - name: Restore node_modules
         id: nm-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
@@ -3734,7 +3734,7 @@ jobs:
       # modules (better-sqlite3) ship prebuilt per Node ABI, hence node22 in the key.
       - name: Restore node_modules
         id: nm-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}

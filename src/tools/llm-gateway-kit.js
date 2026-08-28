@@ -597,6 +597,8 @@ export const PREFIX_CANONICAL = Object.freeze({
   "anthropic/claude-sonnet": "anthropic/claude-sonnet-5",
   "anthropic/claude-haiku": "anthropic/claude-haiku-4.5",
   "x-ai/grok": "x-ai/grok-4.6",
+  // RETIRES 2026-10-23 -> openai/gpt-5.6-terra (OpenAI deprecations, read
+  // 2026-08-28). o4-mini is live today; drop this prefix on that date.
   "openai/o4": "openai/o4-mini",
   "google/gemini-3.1-pro": "google/gemini-3.1-pro-preview",
 });
@@ -698,7 +700,8 @@ export const MODEL_COST = [
   ["openai/gpt-5-image", { prompt: 10, completion: 10 }],
   ["openai/gpt-5", { prompt: 1.25, completion: 10 }],
   ["openai/gpt-4o-mini", { prompt: 0.15, completion: 0.6 }],
-  ["openai/gpt-4o-2024-05-13", { prompt: 5, completion: 15 }], // the original 4o snapshot still lists at its launch price
+  // RETIRES 2026-10-23 -> openai/gpt-5.6-sol. Live today at its launch price.
+  ["openai/gpt-4o-2024-05-13", { prompt: 5, completion: 15 }],
   ["openai/gpt-4o", { prompt: 2.5, completion: 10 }],
   ["openai/gpt-4.1-nano", { prompt: 0.1, completion: 0.4 }],
   ["openai/gpt-4.1-mini", { prompt: 0.4, completion: 1.6 }],

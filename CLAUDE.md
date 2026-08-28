@@ -2020,6 +2020,15 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   14,910 rows) - and `unattributedMerchants` now reports `attributedUnroutable` (known origin, cannot route) separately from
   `unattributed` (unknown). Submitted-seed slots: 586 of the 2,000 cap in use (2026-08-27). test-settlement-proof 44.
 
+- **Sweep follow-through done end to end (2026-08-28):** Polymarket's two gamma LIST call sites moved to `/markets/keyset`
+  (`polyList()` accepts the keyset object AND the legacy bare array, so a rollback cannot empty the tools; `offset` is refused
+  there with a 422, `next_cursor` becomes `after_cursor`); the FRED attribution their terms require now ends all five
+  fred-* descriptions; `mcp/package.json` SDK range aligned to the root's `^1.30.0`; the `actions/cache` pin (11 months
+  stale) refreshed to v6.1.0 on all 20 steps; dated retirement comments on `openai/o4` -> gpt-5.6-terra and the
+  gpt-4o-2024-05-13 row (both 2026-10-23) and on gpt-image-1-mini -> gpt-image-2 (2026-12-01). CORRECTION worth keeping:
+  gpt-image-1-mini reads "absent" from OpenRouter's default chat-model list and is LIVE in the image catalog
+  (`/api/v1/images/models`) - check the right catalog before calling an image or speech model dead, the same trap the speech
+  models sit in.
 - **Data-provider sweep (2026-08-28): Kalshi silently emptied two paid tools.** Kalshi REMOVED every integer-cents field
   (`yes_bid`, `yes_ask`, `no_bid`, `no_ask`, `last_price`, `volume`, `open_interest`) that `shapeKalshiMarket` was built on -
   verified live against 200 markets, not one of them present - so `kalshi-markets` and `kalshi-event` were answering HTTP 200
