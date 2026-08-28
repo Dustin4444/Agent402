@@ -30,7 +30,7 @@ import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpend
 // composites (settle-after on SVM/AVM/Tempo is work done, never charged), but
 // not composite-spend-guarded (one bounded upstream price).
 import Stripe from "stripe";
-import { createHumanCheckout, humanCheckoutEnabled, HUMAN_PRODUCTS, readPublicReport } from "./human-checkout.js";
+import { createHumanCheckout, humanCheckoutEnabled, HUMAN_PRODUCTS, reportHeadline, readPublicReport } from "./human-checkout.js";
 import { humanReportsPage, reportDeliveryPage } from "./human-reports-page.js";
 import { createStripeSubscriptions, subscriptionsEnabled, MONITOR_PRODUCTS } from "./stripe-subscriptions.js";
 import { createMppSubscriptions, mppSubscriptionsEnabled, subscriptionFeePayerStatus } from "./mpp-subscriptions.js";
@@ -1887,13 +1887,14 @@ app.get("/reports/public/:publicId", (req, res) => {
   if (!r) return notFoundPage(res, { what: "Public report", href: "/reports", label: "All reports" });
   const canonical = `${BASE_URL}/reports/public/${r.publicId}`;
   const label = HUMAN_PRODUCTS[r.product]?.label || "report";
+  const headline = reportHeadline(r, label);
   const description = `A ${label.toLowerCase()} on "${r.input}" from Agent402, shared by its buyer: ${r.sources.length} cited sources, ${r.tables.length} data tables. Read it free, then get one for your own subject.`;
   htmlCache(res, 300, 900).send(reportDeliveryPage(r.publicId, {
     api: "/api/reports/public/", baseUrl: BASE_URL, robots: "index, follow, max-image-preview:large", waitCopy: "Loading the report.", note: "",
-    title: `${label}: ${r.title}`, description, canonical,
+    title: headline, description, canonical,
     jsonLd: [
-      { "@type": "BreadcrumbList", itemListElement: [{ "@type": "ListItem", position: 1, name: "Agent402", item: `${BASE_URL}/` }, { "@type": "ListItem", position: 2, name: "Reports", item: `${BASE_URL}/reports` }, { "@type": "ListItem", position: 3, name: r.title, item: canonical }] },
-      { "@type": "Report", "@id": `${canonical}#report`, headline: r.title, name: r.title, about: r.input, isAccessibleForFree: true, ...(r.at ? { datePublished: r.at } : {}), author: { "@type": "Organization", name: "Agent402", url: BASE_URL }, publisher: { "@type": "Organization", name: "Agent402", url: BASE_URL }, mainEntityOfPage: canonical, description: description.slice(0, 300) },
+      { "@type": "BreadcrumbList", itemListElement: [{ "@type": "ListItem", position: 1, name: "Agent402", item: `${BASE_URL}/` }, { "@type": "ListItem", position: 2, name: "Reports", item: `${BASE_URL}/reports` }, { "@type": "ListItem", position: 3, name: headline, item: canonical }] },
+      { "@type": "Report", "@id": `${canonical}#report`, headline, name: headline, about: r.input, isAccessibleForFree: true, ...(r.at ? { datePublished: r.at } : {}), author: { "@type": "Organization", name: "Agent402", url: BASE_URL }, publisher: { "@type": "Organization", name: "Agent402", url: BASE_URL }, mainEntityOfPage: canonical, description: description.slice(0, 300) },
     ],
   }));
 });

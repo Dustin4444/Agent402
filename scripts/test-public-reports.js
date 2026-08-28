@@ -16,6 +16,13 @@ let pass = 0;
 let proc = null;
 const fail = (m) => { console.error("FAIL:", m); proc?.kill("SIGKILL"); cleanup(); process.exit(1); };
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else fail(m); };
+// Page titles for EVERY report kind derive from the report H1 (normalised), never the bare input.
+const { reportHeadline, HUMAN_PRODUCTS: HP } = await import("../src/human-checkout.js");
+ok(reportHeadline({ report: "# NVIDIA CORP (NVDA): Company Due-Diligence Dossier\n\ntext", title: "NVDA", product: "dossier" }) === "NVIDIA CORP (NVDA): Company Due-Diligence Dossier", "page title is the report H1 when it has one (any kind)");
+ok(reportHeadline({ report: "no heading here", title: "havok.holdings", product: "domain-audit" }) === "Domain security audit: havok.holdings", "no H1: product label + subject, never the bare input");
+ok(Object.keys(HP).every((k) => reportHeadline({ report: "", input: "x", product: k }).startsWith(HP[k].label + ": ")), "every product in HUMAN_PRODUCTS falls back to its own label");
+ok(reportHeadline({ report: "# BERKSHIRE HATHAWAY INC — FUND PORTFOLIO REPORT\n" }) === "Berkshire Hathaway Inc: Fund Portfolio Report", "H1 normalised: no em dashes, all-caps title-cased");
+ok(reportHeadline({ report: "# NVIDIA CORP (NVDA) — Company Due-Diligence Dossier\n" }) === "NVIDIA CORP (NVDA): Company Due-Diligence Dossier", "mixed-case H1 keeps its casing, dash becomes a colon");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // The booted server reads DEFAULT_DIR (the same resolver the engine uses), so
@@ -62,7 +69,7 @@ try {
   const page = await fetch(`${B}/reports/public/${pub.publicId}`);
   const html = await page.text();
   ok(page.status === 200 && !/noindex/i.test(page.headers.get("x-robots-tag") || "") && !/<meta name="robots" content="noindex/.test(html), "the public page is 200 and indexable");
-  ok(html.includes("<title>example.com</title>") && html.includes(`/reports/public/${pub.publicId}"`) && html.includes('"@type":"Report"') && html.includes('"isAccessibleForFree":true'), "own title, canonical and Report JSON-LD");
+  ok(html.includes("<title>Domain Security Audit: example.com</title>") && html.includes(`/reports/public/${pub.publicId}"`) && html.includes('"@type":"Report"') && html.includes('"isAccessibleForFree":true'), "own title, canonical and Report JSON-LD");
   ok(html.includes('data-api="/api/reports/public/"') && html.includes("/js/report-view.js"), "renders through the shared viewer");
   const j = await (await fetch(`${B}/api/reports/public/${pub.publicId}`)).json();
   ok(j.status === "done" && j.publicView === true && j.product === "domain-audit" && j.report === rec.report && !("email" in j) && !("refundId" in j), "the JSON is the report with nothing buyer-identifying");
