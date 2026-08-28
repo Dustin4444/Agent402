@@ -944,8 +944,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   succeeded (0x1), and carries the challenge's transfer (currency + recipient + >= amount) is honoured —
   200 + constructed Payment-Receipt, verification never a re-broadcast, cannot double-charge. Fails closed
   on everything else (the 402 stands). `scripts/test-tempo-confirm.js` (26, in CI) pins the derivation
-  against the REAL incident tx's on-chain bytes. Tollbooth's tempo gate does NOT have this yet (same
-  exposure, smaller blast radius — operator gates). Whose bug upstream (Privy signer vs relay verify) is
+  against the REAL incident tx's on-chain bytes. Tollbooth's tempo gate got the same confirm in 0.9.2 (see the tollbooth entry above); a 2026-08-28 review note calling it open was reading this sentence before it was updated. Whose bug upstream (Privy signer vs relay verify) is
   deliberately unresolved here; the fix is correct under every theory.
   **The relay's verdict is invisible through mppx** (Relay.js drops non-2xx bodies
   AND the `message` of a 2xx `success:false` when the code is outside its allowlist —
@@ -2182,6 +2181,17 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `MONITOR_MANAGE_SECRET`, GitHub production-environment reviewer + deploy-branch policy + ruleset without the standing admin
   bypass + Dependabot security updates + delete the unused NPM_TOKEN secret. Follow-ups in code: client-side backup
   encryption, tollbooth Tempo chain-truth confirm, shell 404s on seven fragment routes, operator-token guessing pager.
+- **Backups encrypted client-side + shell 404s (2026-08-28, review follow-ups):** `BACKUP_ENCRYPTION_KEY` (32 bytes, 64 hex or
+  base64) wraps every staged object in AES-256-GCM (`A402ENC1` + 12-byte IV + ciphertext + tag, object suffix `.gz.enc`);
+  without it the run still uploads plain gzip but `status.encrypted:false` and the boot line WARNs. `scripts/backup-restore.js
+  <object> [--out|--unbundle]` decrypts, gunzips and unbundles the NDJSON directory stores, dependency-free. test-backup (34)
+  pins the encrypted upload, a tampered object failing auth, and the restore path. Set the key on Railway (operator). The
+  nine bare `<p>Not found</p>` fragment routes (tool, category, guide, skill, doc, blog, adapter, sample, public report) render
+  through `notFoundPage(res, {what, href, label})` (server.js, the shell 404 with the section link).
+- **Operator-token guessing pager (2026-08-28):** wrong operator credentials are counted globally over a rolling hour
+  (`noteOperatorAuthFailure`, server.js; per-IP limiter unchanged), exposed as `operatorAuth: {status: ok|elevated,
+  failures1h, threshold}` on `/api/gateway-status` (counts only), threshold `OPERATOR_AUTH_FAIL_ALERT` default 100; heartbeat
+  leg "Operator token guessing ELEVATED" opens/closes an issue; a boot-log WARN fires at most every 10 min. test-operator-auth 36.
 - **`/proof` + `GET /api/proof` (2026-08-27, `src/proof.js`, `proofFeed()` in sales-ledger):** receipts for the metered
   tier - the ledger now stores `quote_usd` (additive column) next to the settled `price_usd` on every metered sale
   (`recordSale({quoteUsd})` from the route binder's `req.__meteredQuoteUsd`), and the page shows aggregates plus ONE

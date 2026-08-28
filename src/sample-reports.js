@@ -82,7 +82,7 @@ export function sampleMeta(product, baseUrl) {
       ...(s.at ? { datePublished: s.at } : {}), author: { "@type": "Organization", name: "Agent402", url: baseUrl },
       publisher: { "@type": "Organization", name: "Agent402", url: baseUrl }, mainEntityOfPage: canonical,
       description: description.slice(0, 300) },
-    { "@type": "Product", name: s.label, url: `${baseUrl}/reports`, offers: { "@type": "Offer", price: s.priceUsd.toFixed(2), priceCurrency: "USD", url: `${baseUrl}/reports`, availability: "https://schema.org/InStock" } },
+    { "@type": "Product", name: s.label, image: `${baseUrl}/tools/${s.slug}/card.png`, url: `${baseUrl}/reports`, offers: { "@type": "Offer", price: s.priceUsd.toFixed(2), priceCurrency: "USD", url: `${baseUrl}/reports`, availability: "https://schema.org/InStock" } },
   ];
   return { title, description, canonical, jsonLd };
 }
