@@ -209,6 +209,20 @@ export const TOOLS = [
       `expected an Anthropic Messages reply on the metered route, got ${JSON.stringify(r).slice(0, 120)}`,
   },
   {
+    // Metered Responses wire (2026-08-28): the same per-request quote on the
+    // OpenAI Responses API - the wire Codex CLI and the OpenAI Agents SDK
+    // speak. priceUsd is pinned to the kit's quote for this exact body.
+    kit: "llm-metered-responses",
+    path: "/v1/metered/responses",
+    method: "POST",
+    body: { model: "anthropic/claude-haiku-4.5", max_output_tokens: 300, input: "Reply with exactly: OK" },
+    priceUsd: 0.001964,
+    check: (r) =>
+      (r.object === "response" && r.status === "completed" && Array.isArray(r.output) && r.output.some((o) => o.type === "message" && Array.isArray(o.content) && o.content.some((c) => c.type === "output_text" && typeof c.text === "string")) &&
+        r.usage && typeof r.usage.output_tokens === "number" && !("cost" in r.usage) && r.store !== true) ||
+      `expected an OpenAI Responses reply on the metered route, got ${JSON.stringify(r).slice(0, 120)}`,
+  },
+  {
     // Streaming leg — stream: true must settle AND deliver real SSE frames.
     // raw: the check reads the response as text and asserts OpenAI wire
     // framing (data: chunks ending in [DONE]). deepseek-chat is requested

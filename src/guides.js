@@ -1172,6 +1172,10 @@ console.log(r.choices[0].message.content);
 Send an \`Idempotency-Key\` header on retries and a retried call replays the
 paid answer instead of paying again.
 
+The same metered pricing is on the Responses wire too, for the OpenAI Agents
+SDK and \`responses.create()\`: base URL \`https://agent402.tools/v1/metered\`
+(route \`/v1/metered/responses\`), function tools only, \`store\` always false.
+
 ## Any Anthropic SDK (Messages wire)
 
 The same metered pricing on the Anthropic Messages wire, at
@@ -1339,9 +1343,26 @@ args = ["-y", "agent402-mcp"]
 env = { AGENT402_CREDITS_KEY = "a402_..." }
 \`\`\`
 
-Codex as a model host is not on this page: its \`model_providers\` speak the
-Responses wire only, and the metered tier serves Chat Completions and
-Messages today. When a metered Responses route ships it will be listed here.
+Codex as a model host: its \`model_providers\` speak the Responses wire, and
+the metered tier serves it at \`/v1/metered/responses\` (quoted per request
+from the body, settled at actual usage for a credits key). In
+\`~/.codex/config.toml\`:
+
+\`\`\`toml
+model_provider = "agent402"
+model = "anthropic/claude-haiku-4.5"
+
+[model_providers.agent402]
+name = "Agent402 (metered)"
+base_url = "https://agent402.tools/v1/metered"
+env_key = "AGENT402_CREDITS_KEY"
+wire_api = "responses"
+\`\`\`
+
+Then \`export AGENT402_CREDITS_KEY=a402_...\` and run \`codex\`. The route is
+proven daily by the paid canary; a full Codex session against it has not yet
+been run end to end, so if a turn is refused, the 400 body says exactly which
+field (server tools and \`previous_response_id\` are not served).
 
 ## Gemini CLI
 

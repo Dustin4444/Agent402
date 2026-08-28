@@ -3135,6 +3135,7 @@ export function modelsList() {
             ? {
               meteredEndpoint: TIERS["v1-chat-metered"].route.split(" ")[1], meteredFromUsd: TIERS["v1-chat-metered"].price,
               meteredMessagesEndpoint: "/v1/metered/messages",
+              meteredResponsesEndpoint: "/v1/metered/responses",
               // The metered route validates against ITS caps, not the flat home
               // tier's: a client deriving a context window from this entry must
               // not carry the flat cap onto the metered route (agent402-openclaw
