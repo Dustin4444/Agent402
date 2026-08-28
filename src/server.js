@@ -109,7 +109,7 @@ import { databasesStatus } from "./db-status.js";
 import { initWithRetry } from "./db-init-retry.js";
 import { baseNotificationsEnabled } from "./base-notifications.js";
 import { initSentry, captureToolError, sentryEnabled } from "./sentry.js";
-import { initPostHog, capturePostHogToolError, capturePostHogToolCall, capturePostHogDiscovery, capturePostHogPaywall, capturePostHogPowChallenge, capturePostHogSettlement, capturePostHogChargedFailure, capturePostHogSettleFailed, capturePostHogToolGone, shutdownPostHog, posthogEnabled } from "./posthog.js";
+import { initPostHog, capturePostHogToolError, capturePostHogToolCall, capturePostHogDiscovery, capturePostHogPaywall, capturePostHogPowChallenge, capturePostHogSettlement, capturePostHogChargedFailure, capturePostHogSettleFailed, capturePostHogToolGone, capturePostHogHumanFunnel, shutdownPostHog, posthogEnabled } from "./posthog.js";
 import { analyticsPage } from "./analytics-page.js";
 import { operatorPage, operatorLoginPage } from "./operator.js";
 import { privacyPage } from "./privacy.js";
@@ -1315,7 +1315,7 @@ const _freeAlerts = createFreeAlerts({
     domain: async (t) => { const r = await faProbeDomain(t); return { ids: [r.fingerprint], items: [{ id: r.fingerprint, label: `Security posture changed on ${t}` }] }; },
     recall: async (t) => { const r = await faProbeRecalls(t); return { ids: r.ids, items: (r.items || []).map((x) => ({ id: x.recallNumber, label: `${x.classification || "Recall"} · ${String(x.product || "").slice(0, 90)}` })) }; },
   },
-  onEvent: ({ step, kind }) => import("./posthog.js").then(({ capturePostHogHumanFunnel }) => capturePostHogHumanFunnel({ step, kind })).catch(() => {}),
+  onEvent: ({ step, kind }) => { try { capturePostHogHumanFunnel({ step, kind }); } catch { /* telemetry never breaks the engine */ } },
 });
 if (process.env.FREE_ALERTS !== "off") _freeAlerts.start();
 // Post-purchase follow-ups (src/followups.js): two emails at most per card
@@ -1325,7 +1325,7 @@ const _followups = createFollowups({
   baseUrl: BASE_URL, sendEmail: faSendEmail,
   monitorFor: (kind) => { const m = fuMonitorForKind(kind); return m ? { product: m.product, label: m.label, priceUsd: m.priceUsd } : null; },
   samples: () => Object.values(fuSamples).map((s) => ({ product: s.product, label: s.label, url: `${BASE_URL}/reports/sample/${s.product}` })),
-  onEvent: ({ step, kind }) => import("./posthog.js").then(({ capturePostHogHumanFunnel }) => capturePostHogHumanFunnel({ step, kind })).catch(() => {}),
+  onEvent: ({ step, kind }) => { try { capturePostHogHumanFunnel({ step, kind }); } catch { /* telemetry never breaks the engine */ } },
 });
 if (process.env.FOLLOWUPS !== "off") _followups.start();
 app.get("/followups/stop", (req, res) => {
@@ -1388,7 +1388,7 @@ try {
     validateTarget: _monitorTargetValidators,
     onInvoicePaid: ({ invoiceId, product, amountUsd }) => {
       recordSale({ slug: product || "monitor", priceUsd: amountUsd, rail: "card", network: "stripe", payer: null, tx: invoiceId, wire: "stripe-subscription" });
-      import("./posthog.js").then(({ capturePostHogHumanFunnel }) => capturePostHogHumanFunnel({ step: "monitor_paid", product: product || "monitor", priceUsd: amountUsd })).catch(() => {});
+      try { capturePostHogHumanFunnel({ step: "monitor_paid", product: product || "monitor", priceUsd: amountUsd }); } catch { /* telemetry never breaks the request */ }
     },
     // Credit-pack sessions: mint + email the key from the webhook too (claim is
     // idempotent; the thanks page then shows "claimed"). _credits is wired below.
@@ -2245,7 +2245,7 @@ if (humanCheckoutEnabled()) {
       // operator surfaces see the human front door.
       onSale: ({ product, priceUsd, paymentIntent }) => {
         recordSale({ slug: product, priceUsd, rail: "card", network: "stripe", payer: null, tx: paymentIntent, wire: "stripe-checkout" });
-        import("./posthog.js").then(({ capturePostHogHumanFunnel }) => capturePostHogHumanFunnel({ step: "paid", product, priceUsd })).catch(() => {});
+        try { capturePostHogHumanFunnel({ step: "paid", product, priceUsd }); } catch { /* telemetry never breaks the request */ }
       },
       // A returning buyer's older sequence stops (never re-sold what they already
       // buy); the new purchase starts its own two-step sequence.
@@ -2267,11 +2267,11 @@ if (humanCheckoutEnabled()) {
       const product = typeof req.body?.product === "string" ? req.body.product.slice(0, 40) : null;
       try {
         const url = (await _humanCheckout.createSession(req.body?.product, req.body?.input)).url;
-        import("./posthog.js").then(({ capturePostHogHumanFunnel }) => capturePostHogHumanFunnel({ step: "checkout_started", product, kind: HUMAN_PRODUCTS[product]?.kind, priceUsd: HUMAN_PRODUCTS[product] ? HUMAN_PRODUCTS[product].price / 100 : null })).catch(() => {});
+        try { capturePostHogHumanFunnel({ step: "checkout_started", product, kind: HUMAN_PRODUCTS[product]?.kind, priceUsd: HUMAN_PRODUCTS[product] ? HUMAN_PRODUCTS[product].price / 100 : null }); } catch { /* telemetry never breaks the request */ }
         res.json({ url });
       }
       catch (e) {
-        import("./posthog.js").then(({ capturePostHogHumanFunnel }) => capturePostHogHumanFunnel({ step: "checkout_refused", product, reason: e?.statusCode && e.statusCode < 500 ? String(e.message).slice(0, 80) : "server" })).catch(() => {});
+        try { capturePostHogHumanFunnel({ step: "checkout_refused", product, reason: e?.statusCode && e.statusCode < 500 ? String(e.message).slice(0, 80) : "server" }); } catch { /* telemetry never breaks the request */ }
         // Our own 4xx messages are safe to show; a Stripe/SDK error is logged
         // and answered generically (its text can echo key mode/request detail).
         if (e?.statusCode && e.statusCode < 500 && !e.type && !e.raw) return res.status(e.statusCode).json({ error: String(e.message).slice(0, 200) });
@@ -2280,7 +2280,7 @@ if (humanCheckoutEnabled()) {
       }
     });
     app.get("/r/:sessionId", (req, res) => {
-      import("./posthog.js").then(({ capturePostHogHumanFunnel }) => capturePostHogHumanFunnel({ step: "report_opened" })).catch(() => {});
+      try { capturePostHogHumanFunnel({ step: "report_opened" }); } catch { /* telemetry never breaks the request */ }
       res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html").send(reportDeliveryPage(String(req.params.sessionId || ""), { baseUrl: BASE_URL, robots: "noindex, nofollow" }));
     });
     // The session id is the bearer: only its holder can publish or unpublish.
@@ -2288,7 +2288,7 @@ if (humanCheckoutEnabled()) {
       if (sessionReadLimiter.check(clientIp(req)).limited) return res.status(429).json({ status: "error", error: "Too many requests, please slow down." });
       const r = _humanCheckout.setPublic(String(req.params.sessionId || ""), req.body?.public === true);
       if (r.status !== "done") return res.status(r.status === "invalid" ? 400 : 404).json(r);
-      import("./posthog.js").then(({ capturePostHogHumanFunnel }) => capturePostHogHumanFunnel({ step: r.public ? "report_published" : "report_unpublished" })).catch(() => {});
+      try { capturePostHogHumanFunnel({ step: r.public ? "report_published" : "report_unpublished" }); } catch { /* telemetry never breaks the request */ }
       res.set("Cache-Control", "no-store").json({ ...r, url: r.public ? `${BASE_URL}/reports/public/${r.publicId}` : null });
     });
     app.get("/api/r/:sessionId", async (req, res) => {
@@ -2307,7 +2307,7 @@ if (_subs) {
     if (checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
     try {
       const url = (await _subs.createCheckout(req.body?.product, req.body?.target)).url;
-      import("./posthog.js").then(({ capturePostHogHumanFunnel }) => capturePostHogHumanFunnel({ step: "monitor_checkout_started", product: typeof req.body?.product === "string" ? req.body.product.slice(0, 40) : null })).catch(() => {});
+      try { capturePostHogHumanFunnel({ step: "monitor_checkout_started", product: typeof req.body?.product === "string" ? req.body.product.slice(0, 40) : null }); } catch { /* telemetry never breaks the request */ }
       res.json({ url });
     }
     catch (e) {
