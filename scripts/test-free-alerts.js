@@ -55,7 +55,7 @@ ok(t.unchanged === 1 && mail.length === 2, "no change -> no email");
 ids = ["a1", "a2", "a3"];
 t = await fa.tick({ force: true });
 ok(t.notified === 1 && mail.length === 3 && /1 new Form 4 filing for NVDA/.test(mail[2].subject) && mail[2].text.includes("Filing a3 for NVDA") && !mail[2].text.includes("Filing a1"), "a NEW id emails once with only the new item");
-ok(mail[2].text.includes("https://x.test/reports/insider/NVDA") && mail[2].text.includes("/monitors?product=insider-monitor&target=NVDA") && /\/alerts\/unsubscribe\?id=/.test(mail[2].text) && mail[2].headers?.["List-Unsubscribe"], "the change email carries the buy page, the monitor upsell, an unsubscribe link and the List-Unsubscribe header");
+ok(mail[2].text.split("\n").some((l) => l === "Read the free page and get the full report: https://x.test/reports/insider/NVDA") && mail[2].text.includes("/monitors?product=insider-monitor&target=NVDA") && /\/alerts\/unsubscribe\?id=/.test(mail[2].text) && mail[2].headers?.["List-Unsubscribe"], "the change email carries the buy page, the monitor upsell, an unsubscribe link and the List-Unsubscribe header");
 ids = ["a1", "a2", "a3", "a4"];
 t = await fa.tick({ force: true });
 ok(t.notified === 0 && t.skipped === 1 && mail.length === 3, "a second change inside a day is held, not emailed");

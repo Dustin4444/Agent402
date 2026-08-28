@@ -85,6 +85,10 @@ export function createFreeAlerts({ storePath = defaultStorePath(), probes = {}, 
   const enabled = () => Boolean(secret) && typeof sendEmail === "function";
 
   const bad = (msg, code = 400) => Object.assign(new Error(msg), { statusCode: code, buyerSafe: true });
+  // ids come from query strings on public routes: shape-check and own-property
+  // lookup only, so "__proto__" / "constructor" can never reach the store.
+  const ID_RE = /^al_[A-Za-z0-9_-]{8,16}$/;
+  const recOf = (id) => (typeof id === "string" && ID_RE.test(id) && Object.hasOwn(store.alerts, id) ? store.alerts[id] : null);
   const normEmail = (e) => String(e ?? "").trim().toLowerCase();
 
   /** Public signup. Always answers the same shape for an existing address
@@ -137,7 +141,7 @@ export function createFreeAlerts({ storePath = defaultStorePath(), probes = {}, 
   }
 
   function confirm(id, k) {
-    const rec = store.alerts[id];
+    const rec = recOf(id);
     if (!rec || !verify(id, "confirm", k)) return { ok: false, reason: "invalid" };
     if (rec.status === "unsubscribed") return { ok: false, reason: "unsubscribed" };
     if (rec.status !== "active") { rec.status = "active"; rec.confirmedAt = now(); persist(); emit("alert_confirmed", { kind: rec.kind }); }
@@ -145,7 +149,7 @@ export function createFreeAlerts({ storePath = defaultStorePath(), probes = {}, 
   }
 
   function unsubscribe(id, k) {
-    const rec = store.alerts[id];
+    const rec = recOf(id);
     if (!rec || !verify(id, "unsubscribe", k)) return { ok: false, reason: "invalid" };
     if (rec.status !== "unsubscribed") { rec.status = "unsubscribed"; rec.unsubscribedAt = now(); persist(); emit("alert_unsubscribed", { kind: rec.kind }); }
     return { ok: true, kind: rec.kind, target: rec.target };

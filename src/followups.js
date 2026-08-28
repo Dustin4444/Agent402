@@ -45,14 +45,20 @@ export function createFollowups({ storePath = defaultStorePath(), sendEmail, mon
   const stopLink = (id) => `${baseUrl}/followups/stop?id=${encodeURIComponent(id)}&k=${sign(id)}`;
   const enabled = () => Boolean(secret) && typeof sendEmail === "function";
   const normEmail = (e) => String(e ?? "").trim().toLowerCase();
+  // ids (Stripe session ids) come from query strings on a public route:
+  // shape-check + own-property lookup, never a bare object index.
+  const ID_RE = /^[A-Za-z0-9_-]{4,120}$/;
+  const recOf = (id) => (typeof id === "string" && ID_RE.test(id) && Object.hasOwn(store.seqs, id) ? store.seqs[id] : null);
 
   /** Called when a report is delivered. Idempotent on sessionId. */
   function enqueue({ sessionId, email, product, kind, label, input } = {}) {
     if (!enabled()) return null;
     const em = normEmail(email);
-    if (!em || !sessionId || store.seqs[sessionId]) return store.seqs[sessionId] || null;
+    const sid = String(sessionId || "");
+    if (!em || !ID_RE.test(sid)) return null;
+    if (recOf(sid)) return recOf(sid);
     if (Object.keys(store.seqs).length >= MAX_STORE) prune();
-    const rec = { id: String(sessionId), email: em, product: String(product || ""), kind: String(kind || ""), label: String(label || "report"), input: hdr(input, 200), createdAt: now(), sent: {}, stopped: false };
+    const rec = { id: sid, email: em, product: String(product || ""), kind: String(kind || ""), label: String(label || "report"), input: hdr(input, 200), createdAt: now(), sent: {}, stopped: false };
     store.seqs[rec.id] = rec; persist();
     return rec;
   }
@@ -66,7 +72,7 @@ export function createFollowups({ storePath = defaultStorePath(), sendEmail, mon
   }
 
   function stop(id, k) {
-    const r = store.seqs[id];
+    const r = recOf(id);
     if (!r || !verify(id, k)) return { ok: false };
     if (!r.stopped) { r.stopped = true; r.stoppedReason = "link"; r.stoppedAt = now(); persist(); emit("followup_stopped"); }
     return { ok: true };
