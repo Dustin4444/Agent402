@@ -63,10 +63,10 @@ export function cardSvg(proof, { preview = false, fonts = true } = {}) {
   <circle cx="72" cy="61" r="8" fill="${B.dotRed}"/><circle cx="98" cy="61" r="8" fill="${B.dotAmber}"/><circle cx="124" cy="61" r="8" fill="${B.dotGray}"/>
   <text x="152" y="68" font-size="20" font-weight="700" font-family=${mono} fill="${B.text}">the price you saw first is the most you pay</text>
   <text x="96" y="130" font-size="22" font-family=${mono}><tspan font-weight="700" fill="${B.text}">Agent402 /proof</tspan><tspan fill="${B.muted}"> · metered model route · one receipt, on-chain</tspan></text>
-  ${okRow(180, "route", "POST /v1/metered/chat/completions", "402 quotes THIS request from its body")}
-  ${okRow(214, "pay", "x402 upto, or a credits key", "the quote is a ceiling, not the bill")}
-  ${okRow(248, "settle", "actual usage x 1.15 under the quote", "Payment-Receipt on the response")}
-  ${okRow(282, "fail", "an error status cancels settlement", "no receipt = not charged")}
+  ${okRow(180, "route", "POST /v1/metered/chat/completions", "quoted from the body")}
+  ${okRow(214, "pay", "x402 upto, or a credits key", "the quote is a ceiling")}
+  ${okRow(248, "settle", "actual usage x 1.15, under the quote", "receipt on the response")}
+  ${okRow(282, "fail", "an error cancels settlement", "no receipt = not charged")}
   <rect x="96" y="312" width="1008" height="212" rx="12" fill="${B.inset}" stroke="${B.insetLine}" stroke-width="1"/>
   <text x="126" y="348" font-size="19" font-family=${mono}><tspan fill="${B.muted}">$ </tspan><tspan fill="${B.text}">curl agent402.tools/api/proof</tspan></text>
   <text x="126" y="376" font-size="19" font-family=${mono}><tspan fill="${B.text}">→ latest receipt · </tspan><tspan font-weight="700" fill="${sideColor}">${esc(sideLabel)}</tspan></text>
