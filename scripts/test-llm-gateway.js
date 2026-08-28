@@ -23,6 +23,8 @@ ok(canonicalModel("gpt-4o-mini") === "openai/gpt-4o-mini", "bare gpt name maps t
 ok(canonicalModel("claude-opus-4") === "anthropic/claude-opus-4", "bare claude name maps to anthropic/");
 ok(canonicalModel("gemini-2.5-flash") === "google/gemini-2.5-flash", "bare gemini name maps to google/");
 ok(canonicalModel("o3-mini") === "openai/o3-mini", "bare o3 name maps to openai/");
+ok(canonicalModel("claude-haiku-4-5-20251001") === "anthropic/claude-haiku-4.5" && canonicalModel("claude-sonnet-4-5-20250929") === "anthropic/claude-sonnet-4.5" && canonicalModel("claude-opus-4-1-20250805") === "anthropic/claude-opus-4.1", "Anthropic dated ids (what Claude Code / the SDKs send) resolve to the OpenRouter family id");
+ok(canonicalModel("claude-sonnet-5") === "anthropic/claude-sonnet-5" && canonicalModel("claude-opus-5") === "anthropic/claude-opus-5" && canonicalModel("claude-3-5-sonnet-20241022") === "anthropic/claude-3-5-sonnet", "undated ids untouched; legacy claude-3-5-sonnet-<date> only loses the date");
 // A family prefix that is not an upstream id resolves to its concrete model
 // (2026-08-26: "anthropic/claude-opus" was advertised on /v1/models and
 // OpenRouter rejected it verbatim). Bare and OpenRouter forms, any case.
@@ -264,6 +266,20 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   ok(sc.flush() === "" && sc.push("data: [DONE]") === "" && sc.flush() === "data: [DONE]", "flush forwards a trailing unterminated line");
   const clean = 'data: {"usage":{"prompt_tokens":1,"completion_tokens":1}}';
   ok(createSseUsageScrubber().push(clean + "\n") === clean + "\n", "a usage frame with no billing fields passes through byte-for-byte");
+  {
+    // fetch's body yields Uint8Array chunks (never Buffers): the scrubber must
+    // decode them as UTF-8 text, and a multibyte character split across two
+    // chunks must survive. Before 2026-08-27 String(Uint8Array) turned every
+    // streamed frame into comma-joined digits and the relay never saw "data:".
+    const frame = 'data: {"choices":[{"delta":{"content":"héllo"}}]}\n';
+    const bytes = new TextEncoder().encode(frame);
+    const cut = frame.indexOf("é") + 1; // byte index inside the 2-byte "é"
+    const u8 = createSseUsageScrubber();
+    const first = u8.push(new Uint8Array(bytes.subarray(0, cut)));
+    const rest = u8.push(new Uint8Array(bytes.subarray(cut)));
+    ok(first === "" && rest === frame, "Uint8Array chunks decode as UTF-8 text (never comma-joined digits), a split multibyte char is reassembled");
+    ok(createSseUsageScrubber().push(new Uint8Array(bytes)) === frame, "a whole Uint8Array frame passes through byte-for-byte");
+  }
   // NESTED usage (Responses API final frame) must be scrubbed too - the
   // first scrubber only looked at top-level obj.usage, which would have
   // forwarded response.usage.cost on every streamed /v1/.../responses call.

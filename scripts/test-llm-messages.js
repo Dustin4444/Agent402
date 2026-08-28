@@ -26,7 +26,6 @@ for (const [label, body, tier] of [
   ["no model", { max_tokens: 10, messages: msg() }, base],
   ["no max_tokens", { model: "anthropic/claude-haiku-4.5", messages: msg() }, base],
   ["empty messages", { model: "anthropic/claude-haiku-4.5", max_tokens: 10, messages: [] }, base],
-  ["system role in messages", { model: "anthropic/claude-haiku-4.5", max_tokens: 10, messages: [{ role: "system", content: "x" }] }, base],
   ["model on wrong tier", { model: "anthropic/claude-opus-5", max_tokens: 10, messages: msg() }, base],
   ["unknown block type", { model: "anthropic/claude-haiku-4.5", max_tokens: 10, messages: [{ role: "user", content: [{ type: "audio", data: "x" }] }] }, base],
   ["image without source", { model: "anthropic/claude-haiku-4.5", max_tokens: 10, messages: [{ role: "user", content: [{ type: "image" }] }] }, base],
@@ -53,6 +52,22 @@ for (const [label, body, tier] of [
   ok(r.imageCount === 1 && JSON.stringify(r.probe).length < 2000 && JSON.stringify(r.body).length > 200_000, "probe replaces the base64 image with a marker (billed flat), the outbound body keeps it");
   const tr = validateMessagesRequest({ model: "anthropic/claude-sonnet-5", max_tokens: 64, messages: [msg()[0], { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "f", input: { a: 1 } }] }, { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "42" }] }], tools: [{ name: "f", description: "d", input_schema: { type: "object" } }], thinking: { type: "adaptive" } }, pro);
   ok(tr.body.tools.length === 1 && tr.body.thinking.type === "adaptive" && tr.body.messages.length === 3, "tool_use / tool_result turns + client tools + adaptive thinking validate");
+}
+{
+  // Claude Code's wire (measured 2026-08-27, claude-cli 2.1.250): `tools: []` on
+  // the session-naming call, a mid-conversation system message on every turn
+  // (mid-conversation-system beta), fields our wire does not carry
+  // (output_config, context_management), a dated default model id, and
+  // max_tokens far above the tier cap. None of it is a 400.
+  const cc = validateMessagesRequest({
+    model: "claude-haiku-4-5-20251001", max_tokens: 64000, stream: true, tools: [],
+    thinking: { type: "adaptive", display: "omitted" }, output_config: { effort: "high" },
+    context_management: { edits: [{ type: "clear_thinking_20251015", keep: "all" }] },
+    system: [{ type: "text", text: "x-anthropic-billing-header: cc_version=test" }, { type: "text", text: "terse", cache_control: { type: "ephemeral" } }],
+    messages: [{ role: "user", content: "hi" }, { role: "system", content: "<system-reminder>be brief</system-reminder>" }, { role: "assistant", content: "ok" }, { role: "system", content: [{ type: "text", text: "again" }] }],
+  }, "v1-chat-metered");
+  ok(cc.body.tools === undefined && cc.body.model === "anthropic/claude-haiku-4.5" && cc.body.max_tokens === TIERS["v1-chat-metered"].maxTokens && cc.body.thinking.type === "adaptive" && !("output_config" in cc.body) && !("context_management" in cc.body), "Claude Code turn validates: empty tools dropped, dated id resolved, max_tokens clamped, unknown fields not forwarded");
+  ok(cc.body.messages.every((m) => m.role === "user" || m.role === "assistant") && cc.body.messages[1].role === "user" && cc.body.messages[1].content[0].text.includes("system-reminder") && cc.body.messages[3].content[0].text === "again" && cc.body.messages.length === 4, "mid-conversation system messages are folded into user turns in place (string and block forms)");
 }
 {
   const auto = validateMessagesRequest({ max_tokens: 64, messages: msg("Write a python function that reverses a list") }, "v1-chat-auto");

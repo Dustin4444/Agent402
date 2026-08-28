@@ -166,6 +166,7 @@ export function sitemapXml(baseUrl, catalog) {
     { loc: `${baseUrl}/what-is-mpp`, priority: "0.9" },
     { loc: `${baseUrl}/agentic-finance`, priority: "0.9" },
     { loc: `${baseUrl}/why`, priority: "0.8" },
+    { loc: `${baseUrl}/markets`, priority: "0.8" },
     { loc: `${baseUrl}/proof`, priority: "0.7" },
     { loc: `${baseUrl}/terms`, priority: "0.3" },
     { loc: `${baseUrl}/privacy`, priority: "0.3" },
@@ -232,6 +233,7 @@ export function sitemapPages(baseUrl, catalog) {
     { loc: `${baseUrl}/what-is-mpp`, priority: "0.9" },
     { loc: `${baseUrl}/agentic-finance`, priority: "0.9" },
     { loc: `${baseUrl}/why`, priority: "0.8" },
+    { loc: `${baseUrl}/markets`, priority: "0.8" },
     { loc: `${baseUrl}/glossary`, priority: "0.8" },
     { loc: `${baseUrl}/101`, priority: "0.9" },
     { loc: `${baseUrl}/pricing`, priority: "0.8" },
@@ -453,6 +455,7 @@ ${toolSections}
 - [agent402-tollbooth](${baseUrl}/tollbooth): open-source, self-hostable x402 pay-per-crawl gate for your own site
 - [Skill packs JSON](${baseUrl}/api/skill-packs.json): machine-readable pack index
 - [Tool docs](${baseUrl}/tools): human-readable documentation per tool
+- [Markets](${baseUrl}/markets): the keyless crypto market-data calls (market pulse, perps, options, DeFi, stablecoins, news, indicators) with one curl to copy
 - [Prepaid card credits](${baseUrl}/credits): no wallet? buy $20-$100 of credits by card, then call any paid tool with the header "Authorization: Bearer a402_..." (debited per call on success; balance at GET /api/credits/balance)
 - [Agentic Finance](${baseUrl}/agentic-finance): what the category is and where Agent402 sits in it
 - [x402 & MPP 101](${baseUrl}/101): the ten-minute walkthrough for people new to the space - plain language, speaker notes, and a live demo (402 quote decoded, pay with a puzzle, real receipts)

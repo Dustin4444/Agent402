@@ -628,6 +628,7 @@ function mobileMenuHtml(chainInfo, activePath) {
     <div class="ml-mm-h">More</div>
     <div class="ml-mm-group">
       ${mmLink("/why", "why pay here", activePath === "/why")}
+      ${mmLink("/markets", "markets · crypto data", activePath === "/markets")}
       ${mmLink("/docs", "docs", activePath === "/docs")}
       ${mmLink("/101", "x402 & MPP 101 · walkthrough", activePath === "/101")}
       ${mmLink("/what-is-x402", "what is x402 / MPP", activePath === "/what-is-x402")}
@@ -722,7 +723,7 @@ export function ledgerFooterFull() {
       </div>
       <div>
         <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">for agents</div>
-        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/skills" style="color:var(--muted);text-decoration:none;">Skill packs</a><a href="/tools" style="color:var(--muted);text-decoration:none;">Tool catalog</a><a href="/tools/category/llm" style="color:var(--muted);text-decoration:none;">LLM gateway</a><a href="/pricing" style="color:var(--muted);text-decoration:none;">Pricing</a><a href="/integrations" style="color:var(--muted);text-decoration:none;">Integrations</a><a href="/playground" style="color:var(--muted);text-decoration:none;">Playground</a></div>
+        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/skills" style="color:var(--muted);text-decoration:none;">Skill packs</a><a href="/tools" style="color:var(--muted);text-decoration:none;">Tool catalog</a><a href="/markets" style="color:var(--muted);text-decoration:none;">Markets</a><a href="/tools/category/llm" style="color:var(--muted);text-decoration:none;">LLM gateway</a><a href="/pricing" style="color:var(--muted);text-decoration:none;">Pricing</a><a href="/integrations" style="color:var(--muted);text-decoration:none;">Integrations</a><a href="/playground" style="color:var(--muted);text-decoration:none;">Playground</a></div>
       </div>
       <div>
         <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">marketplace</div>

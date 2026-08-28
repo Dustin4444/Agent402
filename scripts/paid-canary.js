@@ -218,6 +218,10 @@ export const TOOLS = [
     path: "/v1/nano/chat/completions",
     method: "POST",
     raw: true,
+    // A 200 that is not SSE is a PAID wrong answer (settlement ran on the 200):
+    // 2026-08-27 the relay served every streamed frame as comma-joined byte
+    // digits for a day and this leg only WARNed. Wire-format legs fail the run.
+    strictShape: true,
     body: { model: "deepseek/deepseek-chat", messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 5, stream: true },
     priceUsd: 0.003,
     check: (text) => (typeof text === "string" && text.includes("data:") && text.includes("[DONE]")) || `expected SSE frames ending in [DONE], got ${String(text).slice(0, 100)}`,
@@ -662,6 +666,10 @@ export function decideCanary(results, { coreKit = CORE_KIT } = {}) {
   if (!coreSettled) reasons.push(`core tool "${coreKit}" did not settle — paywall / facilitator / settlement is down`);
   if (settled === 0) reasons.push("no tool settled — buying is down");
   if ((unsettled + unreachable) >= half) reasons.push(`${unsettled + unreachable}/${rows.length} calls failed to settle — systemic settlement failure`);
+  // A strict-shape leg (wire format is the product: the streaming relay) that
+  // settled and delivered the wrong bytes is a charged wrong answer, not a
+  // quality warning - it fails the run like a rail does.
+  for (const r of rows) if (r.cls === "bad-shape" && r.strictShape === true) reasons.push(`${r.kit}:${r.path} settled but delivered the wrong wire shape${typeof r.shapeOk === "string" ? ` — ${r.shapeOk}` : ""}`);
 
   const warnings = rows
     .filter((r) => r.cls !== "settled")
@@ -839,7 +847,7 @@ async function main() {
       const res = await payOnceWithRetryOn5xx(url, init);
       const body = t.raw ? await res.text().catch(() => "") : await res.json().catch(() => ({}));
       const shapeOk = res.status === 200 ? t.check(body) : false;
-      const row = { kit: t.kit, path: t.path, status: res.status, shapeOk, priceUsd: t.priceUsd };
+      const row = { kit: t.kit, path: t.path, status: res.status, shapeOk, priceUsd: t.priceUsd, strictShape: t.strictShape === true };
       results.push(row);
       const cls = classifyResult(row);
       if (cls === "settled") console.log(`OK    ${t.kit.padEnd(10)} ${t.path}  → settled $${t.priceUsd.toFixed(3)}`);
