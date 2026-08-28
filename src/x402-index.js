@@ -2909,6 +2909,7 @@ function buildLocalEntry({ baseUrl, catalog, prices, network, toolCount, walletN
     slug: t.slug,
     name: t.name,
     description: t.description || "",
+    ...(Array.isArray(t.aliases) && t.aliases.length ? { aliases: t.aliases } : {}),
     category: t.category,
     tags: t.tags || [],
     price: prices?.[t.slug] ?? parsePrice(t.price),
@@ -3510,6 +3511,11 @@ function toolStatics(t) {
     // scripts/test-discovery-note.js asserts no local tool trips it.
     injected: looksLikeListingInjection(hay),
     priceRank: priceRank(t.price),
+    // Curated alternate names a tool answers to, scored exactly like the slug
+    // (max over slug + aliases per term, never additive). Our asn-info IS an IP
+    // geolocation tool but its slug says neither word, so "ip geolocation"
+    // routed to a $0.05 external seller above our $0.003 one (2026-08-28).
+    aliases: Array.isArray(t.aliases) ? t.aliases.map((a) => String(a).toLowerCase()).filter(Boolean) : [],
   };
   toolStaticsMemo.set(t, st);
   return st;
@@ -3559,7 +3565,8 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
   for (const t of all) {
     const st = toolStatics(t);
     if (st.injected) continue;
-    const { slug, name, hay } = st;
+    const { slug, name, hay, aliases } = st;
+    const names = aliases.length ? [slug, ...aliases] : [slug];
     let score = 0;
     // Record WHERE the score came from, not just how much. A seller who loses a
     // routing decision learns nothing from silence; "matched on description
@@ -3567,10 +3574,14 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
     // checkable by anyone instead of merely stated (asked for in #645).
     const matched = { slug: 0, name: 0, text: 0 };
     for (const term of terms) {
-      if (slug === term) { score += 10; matched.slug += 10; }
-      else if (slug.includes(term)) { score += 4; matched.slug += 4; }
-      if (name.includes(term)) { score += 2; matched.name += 2; }
-      if (hay.includes(term)) { score += 1; matched.text += 1; }
+      // A term under three characters matches whole tokens only: "ip" used to
+      // substring-match gzip, gunzip and html-strip, which outranked every IP
+      // tool for "ip geolocation" (2026-08-28).
+      const hit = term.length >= 3 ? (str) => str.includes(term) : (str) => str.split(/[^a-z0-9]+/).includes(term);
+      const slugScore = Math.max(...names.map((n) => (n === term ? 10 : hit(n) ? 4 : 0)));
+      if (slugScore) { score += slugScore; matched.slug += slugScore; }
+      if (hit(name)) { score += 2; matched.name += 2; }
+      if (hit(hay)) { score += 1; matched.text += 1; }
     }
     if (score > 0) scored.push([score, t, matched, st.priceRank]);
   }
