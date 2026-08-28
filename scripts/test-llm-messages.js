@@ -23,7 +23,6 @@ const v = validateMessagesRequest({ model: "anthropic/claude-haiku-4.5", max_tok
 ok(v.body.model === "anthropic/claude-haiku-4.5" && v.body.max_tokens === TIERS[base].maxTokens && v.body.system === "be terse" && v.body.temperature === 0.2 && v.body.stop_sequences[0] === "END", `valid body: model kept, max_tokens clamped to the tier cap (${v.body.max_tokens}), system/temperature/stop_sequences pass`);
 ok(v.chain[0] === "anthropic/claude-haiku-4.5" && v.chain.length >= 1 && v.isRouted === false, "chain = requested model + tier fallbacks");
 for (const [label, body, tier] of [
-  ["no model", { max_tokens: 10, messages: msg() }, base],
   ["no max_tokens", { model: "anthropic/claude-haiku-4.5", messages: msg() }, base],
   ["empty messages", { model: "anthropic/claude-haiku-4.5", max_tokens: 10, messages: [] }, base],
   ["model on wrong tier", { model: "anthropic/claude-opus-5", max_tokens: 10, messages: msg() }, base],
@@ -150,7 +149,7 @@ globalThis.fetch = realFetch;
   const huge = validateMessagesRequest({ model: "anthropic/claude-opus-5", max_tokens: 8192, system: "x ".repeat(90_000), messages: msg("y ".repeat(9_000)) }, "v1-chat-metered");
   const qh = meteredQuoteForProbe({ ...huge.probe, max_tokens: 100_000 }, 0);
   ok(qh.overCap === true && qh.usd === TIERS["v1-chat-metered"].maxQuoteUsd && meteredMessagesQuoteUsd({ model: "anthropic/claude-opus-5", max_tokens: 8192, system: "x ".repeat(90_000), messages: msg("y ".repeat(9_000)) }).usd < TIERS["v1-chat-metered"].maxQuoteUsd, `a probe past the cap quotes the cap ($${qh.usd}); the largest admissible Messages body stays under it`);
-  const qi = meteredMessagesQuoteUsd({ max_tokens: 16, messages: msg() });
+  const qi = meteredMessagesQuoteUsd({ max_tokens: 16 }); // no messages at all: still invalid (a missing model now defaults)
   ok(qi.invalid && qi.usd === TIERS["v1-chat-metered"].price, "an invalid body quotes the floor and says why (the handler's 400 refuses it)");
   seen = [];
   globalThis.fetch = async (url, init) => { const b = JSON.parse(init.body); seen.push({ url: String(url), b }); return { ok: true, status: 200, text: async () => JSON.stringify(reply(b.model)) }; };
@@ -184,6 +183,14 @@ globalThis.fetch = realFetch;
   ok(fast.prompt > TIERS["v1-chat-metered"].maxPrice.prompt && meteredMessagesQuoteUsd({ model: "anthropic/claude-opus-4.7-fast", max_tokens: 1000, messages: msg("hi") }).usd > meteredMessagesQuoteUsd({ model: "anthropic/claude-opus-5", max_tokens: 1000, messages: msg("hi") }).usd * 1.5, "metered quote prices an expensive model at its own row, not min'd with the tier-wide max_price");
 }
 delete process.env.OPENROUTER_API_KEY;
+
+// ---- a missing model is served as the tier default (2026-08-28) ----
+{
+  const v = validateMessagesRequest({ max_tokens: 16, messages: [{ role: "user", content: "hi" }] }, "v1-chat");
+  ok(v.body.model === "openai/gpt-4o-mini" && v.defaultedModel === "openai/gpt-4o-mini", "no model on v1-chat -> the tier default, marked defaultedModel");
+  const e = validateMessagesRequest({ model: "openai/gpt-4o-mini", ...{ max_tokens: 16, messages: [{ role: "user", content: "hi" }] } }, "v1-chat");
+  ok(e.defaultedModel === null, "an explicit model is not marked as defaulted");
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

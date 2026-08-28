@@ -135,8 +135,13 @@ export function validateMessagesRequest(input, tierSlug) {
   // model: required unless the tier routes; allowlisted per tier like the chat wire
   const isRouted = tier.router === true && (!canonicalModel(input.model) || canonicalModel(input.model) === "auto");
   let model = canonicalModel(input.model);
+  let defaultedModel = null;
   if (!isRouted) {
     refuseCostVariants(model);
+    // No model named: serve the tier's default instead of refusing (30 days of
+    // real callers: 82 refusals for a missing "model" across the LLM wires -
+    // agents posting to a tier route expect that tier's model, 2026-08-28).
+    if (!model && tier.defaultModel) { model = tier.defaultModel; defaultedModel = model; }
     if (!model) throw bad(`"model" is required (e.g. anthropic/claude-sonnet-5). This tier serves: ${tier.prefixes?.slice(0, 6).join(", ") || "see /v1/models"}`);
     if (!tierAllows(tierSlug, model)) {
       const home = tierFor(model);
@@ -227,7 +232,7 @@ export function validateMessagesRequest(input, tierSlug) {
   const routedQuality = isRouted ? (input.quality === undefined ? "balanced" : String(input.quality)) : null;
   if (isRouted && !AUTO_RANKINGS[routedQuality]) throw bad('"quality" must be "fast", "balanced", or "best"');
   const chain = isRouted ? [...AUTO_RANKINGS[routedQuality][routedCategory]] : [model, ...(tier.fallbacks || []).filter((m) => m !== model)];
-  return { body, probe, imageCount: acc.images, isRouted, routedCategory, routedQuality, chain };
+  return { body, probe, imageCount: acc.images, isRouted, routedCategory, routedQuality, chain, defaultedModel };
 }
 
 /** stop_reason max_tokens with nothing said = the cap was spent (thinking ate
@@ -248,7 +253,7 @@ function stripBilling(usage) {
 export function makeMessagesHandler(tierSlug) {
   return async function messagesHandler(input, req) {
     const tier = TIERS[tierSlug];
-    const { body, probe, imageCount, isRouted, routedCategory, routedQuality, chain } = validateMessagesRequest(input, tierSlug);
+    const { body, probe, imageCount, isRouted, routedCategory, routedQuality, chain, defaultedModel } = validateMessagesRequest(input, tierSlug);
     // Metered belt (same as the chat wire): the price this request was gated
     // at must cover the body actually being served; a mismatch is refused 400
     // (settlement cancelled, hold released, nothing spent).
@@ -346,6 +351,7 @@ export function makeMessagesHandler(tierSlug) {
         const upstreamUsd = stripBilling(data.usage);
         await recordUsage(data.usage, upstreamUsd, data.model || model, data.usage?.service_tier || (flex ? "flex" : "default"));
         if (routerNote) data.agent402_router = { ...routerNote, served: data.model || model };
+        if (defaultedModel) data.agent402_default_model = defaultedModel; // the caller sent no model; say what served
         // Metered settlement sentinel (chat-wire parity): the route binder
         // settles actual x markup for upto/credits buyers and strips this
         // before the body leaves. A non-number means "no meter", never "free".
