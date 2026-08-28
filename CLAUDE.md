@@ -1580,7 +1580,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `agent402.tools`); tweet.js's guard counts raw length, so copy that's ≤280 weighted but
   >280 raw needs `force`. **`announce.yml` dispatch (ref main) posts with NO repo
   commit** — inputs: `text` (inline copy) | `file` | `media` | `card` = `bestsellers`
-  (burner buy) or `robinhood` (free /api/revenue → `scripts/robinhood-card.js`) |
+  (burner buy), `robinhood` (free /api/revenue → `scripts/robinhood-card.js`) or `proof` (free /api/proof → `scripts/proof-card.js`: latest external metered receipt, else the canary row labelled ours - the weekly proof post) |
   `quote`/`reply_to` (own posts only) | `delete_id` (replace flow: delete runs first) |
   `force`; every input rides an env var (N-03), never shell interpolation; a dispatch
   with neither `text` nor `file` is refused (the trigger-announce fallback is for the
