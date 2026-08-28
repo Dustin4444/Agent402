@@ -15,7 +15,7 @@ import { join } from "node:path";
 
 const dir = mkdtempSync(join(tmpdir(), "a402-sales-"));
 process.env.SALES_LEDGER_DB = join(dir, "test-sales.db");
-const { recordSale, salesSummary, topByBuyers, txFromPaymentResponse, mppTxHashes, mppSales } = await import("../src/sales-ledger.js");
+const { recordSale, salesSummary, topByBuyers, txFromPaymentResponse, mppTxHashes, mppSales, cardSales } = await import("../src/sales-ledger.js");
 const { OUR_EVM_WALLETS } = await import("../src/revenue-live.js");
 
 let passed = 0, failed = 0;
@@ -254,6 +254,15 @@ ok(txFromPaymentResponse("not-base64-json") === null && txFromPaymentResponse(""
     `a marketplace sale adds revenue like usdc does (delta $${(after.totals.external.revenueUsd - before).toFixed(3)}, want $0.020)`);
   ok(after.topExternal.some((r) => r.slug === "extract"), "a marketplace sale reaches top external");
 }
+
+// cardSales: the /revenue card line reads external card + credits sales only.
+const cardBefore = cardSales({ days: 30 });
+recordSale({ slug: "domain-audit", priceUsd: 2, rail: "card", network: "stripe", payer: null, tx: "pi_test_card", synthetic: false, wire: "stripe-checkout" });
+recordSale({ slug: "domain-audit", priceUsd: 2, rail: "card", network: "stripe", payer: null, tx: "pi_test_internal", synthetic: true, wire: "stripe-checkout" });
+const cardAfter = cardSales({ days: 30 });
+ok(cardAfter.count === cardBefore.count + 1 && cardAfter.allTimeCount === cardBefore.allTimeCount + 1, "cardSales counts the external card sale and not the internal one");
+ok(Math.abs(cardAfter.usd - cardBefore.usd - 2) < 1e-9, "cardSales adds its dollars");
+ok(/^\d{4}-\d{2}-\d{2}T\d{2}:00:00\.000Z$/.test(cardAfter.lastAt || ""), "cardSales lastAt is hour-truncated ISO");
 
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);
