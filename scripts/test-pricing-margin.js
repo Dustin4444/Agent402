@@ -299,7 +299,7 @@ console.log("\n# tool_gone — retired-route telemetry");
   ok(got.length === 1 && got[0].event === "tool_gone" && got[0].properties.count === 2, "flush emits one tool_gone event per route with the hit count");
   ok(got[0].properties.route === "/api/convert-meters-to-feet" && got[0].properties.replacement === "POST /api/unit-convert",
     "event carries route + replacement");
-  ok(Object.keys(got[0].properties).sort().join(",") === "count,replacement,route",
+  ok(Object.keys(got[0].properties).filter((k) => !k.startsWith("$")).sort().join(",") === "count,replacement,route",
     "properties are exactly {count, route, replacement} — nothing about the caller");
 
   // Integration: a real retired-route hit on a booted server fires the event.

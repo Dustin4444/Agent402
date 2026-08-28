@@ -186,6 +186,19 @@ export function validateMessagesRequest(input, tierSlug) {
 
   const body = { model: isRouted ? undefined : model, max_tokens: maxTokens, messages };
   if (system !== undefined) body.system = input.system;
+  // Sampling params on the Messages wire (live docs, read 2026-08-28): models
+  // released after Claude Opus 4.6 REFUSE `top_k` at any value, `temperature`
+  // other than 1, and `top_p` under 0.99 - a 400 from Anthropic, relayed to
+  // the buyer as an upstream error with no explanation. Say it ourselves, and
+  // only for the models it applies to; older models keep the old freedom.
+  // Only the models released AFTER Opus 4.6 (opus-4.7/4.8/5, sonnet-5).
+  // Haiku 4.5 and everything older keep the old freedom.
+  const strictSampling = /^anthropic\/claude-(opus-(5|4\.[78])|sonnet-5)/.test(String(model || ""));
+  if (strictSampling) {
+    if (input.top_k !== undefined) throw bad('"top_k" is not supported by this model (Anthropic removed it for models after Claude Opus 4.6); omit it');
+    if (input.temperature !== undefined && Number(input.temperature) !== 1) throw bad('"temperature" must be 1 for this model (Anthropic removed other values for models after Claude Opus 4.6)');
+    if (input.top_p !== undefined && Number(input.top_p) < 0.99) throw bad('"top_p" must be at least 0.99 for this model (Anthropic removed lower values for models after Claude Opus 4.6)');
+  }
   for (const k of ["temperature", "top_p", "top_k", "metadata", "tool_choice"]) if (input[k] !== undefined) body[k] = input[k];
   // tool_choice mirrors the tools guard (client tools only): Anthropic wire is
   // {type:"auto"|"any"|"none"} or {type:"tool", name}; anything else refused.

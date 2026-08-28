@@ -2020,6 +2020,19 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   14,910 rows) - and `unattributedMerchants` now reports `attributedUnroutable` (known origin, cannot route) separately from
   `unattributed` (unknown). Submitted-seed slots: 586 of the 2,000 cap in use (2026-08-27). test-settlement-proof 44.
 
+- **AI-provider sweep (2026-08-28, live models JSON + provider deprecation pages):** four fixes. (1) The Messages wire relayed
+  `top_k`/`temperature`/`top_p` verbatim, and models released after Claude Opus 4.6 (opus-4.7/4.8/5, sonnet-5) REFUSE top_k at
+  any value, temperature != 1 and top_p < 0.99 - a bare upstream 400 to the buyer; we now refuse those ourselves with the
+  reason, and pre-4.6 models (haiku-4.5 and older) keep the old freedom. (2) MODEL_COST rows re-read live: terra was UNDER the
+  real price ($1.5/$8 vs $2/$12) and sol, grok, gemini-2.5-pro and gemini-3.6-flash were all OVER (the clamp was cutting
+  max_tokens up to 3.5x harder than the price bought). (3) `gpt-5.6-terra` came OFF the base tier: at $2/$12 it sits over that
+  tier's completion bound, so `provider.max_price` refused every non-flex attempt and each call burnt a wasted round trip -
+  dropped rather than raising the bound, which is the belt that catches a model repriced upward. (4) The nano tier's
+  `defaultModel` moved to `gpt-5.6-luna`: `gpt-4.1-nano` retires 2026-10-23 (its named successor). NOT done on purpose:
+  `usage:{include:true}` is documented as a no-op but is KEPT, because the margin telemetry and the metered meter read
+  `usage.cost` and a docs line is not worth a silent telemetry loss. Dated and still to do: `gpt-image-1-mini` (link 2 of
+  /v1/images/fast) retires 2026-12-01, `openai/o4` canonical and the `gpt-4o-2024-05-13` row retire 2026-10-23, and
+  `stealth/ox-alpha` has no upstream endpoints at all (the boot probe 503s it; set `OX_ALPHA_ENABLED=off` to stop advertising).
 - **Server telemetry is ANONYMOUS (2026-08-28, from a provider sweep):** every `capture()` in posthog.js now carries
   `$process_person_profile: false`. Measured: 307,424 of 311,256 events in seven days were server events on the single
   constant id `agent402-server`, and PostHog bills an event WITH person processing at roughly five times the anonymous
