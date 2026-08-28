@@ -113,7 +113,7 @@ import { databasesStatus } from "./db-status.js";
 import { initWithRetry } from "./db-init-retry.js";
 import { baseNotificationsEnabled } from "./base-notifications.js";
 import { initSentry, captureToolError, sentryEnabled } from "./sentry.js";
-import { initPostHog, capturePostHogToolError, capturePostHogToolCall, capturePostHogDiscovery, capturePostHogPaywall, capturePostHogPowChallenge, capturePostHogSettlement, capturePostHogChargedFailure, capturePostHogSettleFailed, capturePostHogToolGone, capturePostHogHumanFunnel, shutdownPostHog, posthogEnabled } from "./posthog.js";
+import { initPostHog, capturePostHogWrongMethod, capturePostHogToolError, capturePostHogToolCall, capturePostHogDiscovery, capturePostHogPaywall, capturePostHogPowChallenge, capturePostHogSettlement, capturePostHogChargedFailure, capturePostHogSettleFailed, capturePostHogToolGone, capturePostHogHumanFunnel, shutdownPostHog, posthogEnabled } from "./posthog.js";
 import { analyticsPage } from "./analytics-page.js";
 import { operatorPage, operatorLoginPage } from "./operator.js";
 import { privacyPage } from "./privacy.js";
@@ -6305,6 +6305,7 @@ app.use((req, res, next) => {
   if (!methods || methods.has(req.method)) return next();
   const allow = [...methods].sort().join(", ");
   res.set("Allow", allow);
+  try { capturePostHogWrongMethod({ path: req.path, method: req.method, allow: [...methods].sort(), ua: req.headers["user-agent"] }); } catch { /* telemetry never breaks a response */ }
   res.status(405).json({
     error: `Method ${req.method} not allowed on ${req.path}`,
     allow: [...methods].sort(),
