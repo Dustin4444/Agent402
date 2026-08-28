@@ -88,6 +88,7 @@ AGENT_KEY=0xYOUR_FUNDED_KEY node demo.js</pre>
 
 <span style="color:var(--dk-muted3);"># Smithery - paste at smithery.ai/new
 </span>https://agent402.tools/mcp</pre></div>
+      <p style="font-size:14px;color:var(--muted);margin:-12px 0 22px;">Every other host, each block read from its own docs: <a href="/guides/agent-hosts" style="color:var(--ink);">VS Code, Windsurf, Cline, Roo Code, OpenAI Codex CLI, Gemini CLI, Continue, ElizaOS, Bedrock AgentCore, any OpenAI or Anthropic SDK</a>. Shortlinks: <span style="font-family:var(--font-mono);">agent402.sh/cursor</span>, <span style="font-family:var(--font-mono);">agent402.sh/vscode</span>, <span style="font-family:var(--font-mono);">agent402.sh/codex</span>; one-shot install <span style="font-family:var(--font-mono);">curl -fsSL agent402.sh/install | sh</span>.</p>
 
       <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:8px;">B / x402 client - pay in code</div>
       <div style="border:1px solid var(--hairline);background:var(--surface);margin-bottom:22px;"><pre style="margin:0;padding:16px;font-family:var(--font-mono);font-size:12.5px;line-height:1.8;color:var(--on-dark);white-space:pre-wrap;word-break:break-word;">import { wrapFetchWithPayment } from "@x402/fetch";

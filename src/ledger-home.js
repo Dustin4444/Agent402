@@ -220,6 +220,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
         <div class="ml-hero-ctas" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;">
           <a class="hm-btn hm-btn-dark" href="/reports">Buy a report</a>
           <a class="hm-btn hm-btn-ghost" href="/docs#add" style="font-family:var(--font-mono);font-size:13.5px;">Add to Claude</a>
+          <a href="/guides/agent-hosts" style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);text-decoration:none;border-bottom:1px solid var(--hairline);">or Cursor, VS Code, Windsurf, Cline, Codex, Gemini CLI →</a>
         </div>
         <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;font-family:var(--font-mono);font-size:12.5px;color:var(--muted);">
           <span class="ml-dot"></span><span>${RAILS.length} rails live</span>
