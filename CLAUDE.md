@@ -910,6 +910,13 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   mounted, pure-x402). `MPP_CHALLENGE_NETWORKS` widens which chains get MPP
   challenges (default Base+Celo — the mainnets in stock mppx clients' asset
   registry; every extra challenge costs ~800 bytes on every 402).
+  **AgentCore Payments over this shim (measured 2026-08-28):** an AgentCore/Privy instrument answers our Base evm/charge
+  challenge with an EIP-3009 authorization signed under EIP-712 domain name "USDC" v2 - Base USDC's domain is "USD Coin"
+  v2 - so CDP verify fails `invalid_exact_evm_payload_signature` (v byte canonical 0x1c: NOT the Tempo v-normalization
+  class); the chain would refuse it too, and the mppx evm challenge schema carries no domain fields, so there is no
+  seller-side fix. The SAME instrument settles our plain x402 path (tx 0x9b48b7fe…, $0.001 on Base) when the 402 it sees
+  has no `WWW-Authenticate: Payment` header - their manager prefers MPP and falls back to x402 only on challenge
+  SELECTION errors, never on a failed verify. Their registry bug; reported upstream only with the operator's OK.
   `scripts/test-mpp-shim.js` (offline, in CI): real mppx client buys over the
   native wire vs a stub facilitator, single verify+settle, EIP-712 sig checked
   against Base USDC's real domain, x402 pass-through untouched, HMAC
