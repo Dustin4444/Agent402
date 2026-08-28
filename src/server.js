@@ -5306,6 +5306,22 @@ app.use((req, res, next) => {
 });
 
 // x402 paywall for the catalog routes
+// POST on a GET-only tool is served, not 405'd (2026-08-28): agents POST
+// JSON to every route they discover - a buyer that had just paid for one
+// tool walked the catalog POSTing and got 405 on search, search-news,
+// search-images, search-videos, search-suggest, ip-info, card-validate ...
+// and stopped. The method is rewritten to GET for the IDENTICAL gate chain
+// (funnel, PoW, replay guard, x402 paywall keyed "GET /path"), the parsed
+// JSON body is the input (handlerInputOf merges query + body, and the GET
+// cache keys on that merged input), and Allow/405 remain for a GET sent to
+// a POST-only tool (a GET cannot carry the body those handlers need).
+app.use((req, res, next) => {
+  if (req.method === "POST" && !CATALOG[`POST ${req.path}`] && CATALOG[`GET ${req.path}`]) {
+    req.__methodAliased = "POST";
+    req.method = "GET";
+  }
+  next();
+});
 if (FREE_MODE) {
   console.warn("FREE_MODE=true - payments are DISABLED. Do not run this in production.");
 } else {
