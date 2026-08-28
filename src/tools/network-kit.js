@@ -192,6 +192,31 @@ const COMMON_DKIM_SELECTORS = [
   "google", "selector1", "selector2", "default", "k1", "k2", "mxvault",
   "dkim", "mail", "smtp", "s1", "s2", "20230601", "20221208",
 ];
+// MX host suffix -> the selectors that provider publishes for a custom domain.
+// A domain on iCloud+ signs with "sig1" and nothing in the common list finds
+// it, so the audit said "no DKIM" to a domain that had it (havok.holdings,
+// 2026-08-28). The MX answer names the provider; use it. Exported for tests.
+export const PROVIDER_DKIM_SELECTORS = [
+  { provider: "Apple iCloud Mail", mx: [".mail.icloud.com", ".icloud.com"], selectors: ["sig1"] },
+  { provider: "Google Workspace", mx: [".google.com", ".googlemail.com"], selectors: ["google"] },
+  { provider: "Microsoft 365", mx: [".protection.outlook.com", ".outlook.com"], selectors: ["selector1", "selector2"] },
+  { provider: "Fastmail", mx: [".messagingengine.com", ".fastmail.com"], selectors: ["fm1", "fm2", "fm3"] },
+  { provider: "Proton Mail", mx: [".protonmail.ch", ".proton.ch", ".proton.me"], selectors: ["protonmail", "protonmail2", "protonmail3"] },
+  { provider: "Zoho Mail", mx: [".zoho.com", ".zoho.eu", ".zoho.in", ".zohomail.com"], selectors: ["zoho", "zmail"] },
+  { provider: "Yandex 360", mx: [".yandex.net", ".yandex.ru"], selectors: ["mail"] },
+  { provider: "Migadu", mx: [".migadu.com"], selectors: ["key1", "key2", "key3"] },
+  { provider: "IONOS", mx: [".ionos.com", ".ionos.de", ".1and1.com", ".kundenserver.de"], selectors: ["s1-ionos", "s2-ionos", "s42582890"] },
+  { provider: "Mailgun", mx: [".mailgun.org"], selectors: ["k1", "smtp", "mailo", "email", "mx"] },
+  { provider: "Proofpoint", mx: [".pphosted.com"], selectors: ["selector1", "selector2"] },
+  { provider: "Mimecast", mx: [".mimecast.com", ".mimecast.co.za", ".mimecast-offshore.com"], selectors: ["mimecast20190515", "mimecast20200304"] },
+  { provider: "Namecheap Private Email", mx: [".privateemail.com", ".registrar-servers.com"], selectors: ["default"] },
+  { provider: "GoDaddy / Microsoft", mx: [".secureserver.net"], selectors: ["selector1", "selector2"] },
+];
+export function providerForMx(mxHosts) {
+  const hosts = (mxHosts || []).map((h) => String(h || "").toLowerCase().replace(/\.$/, ""));
+  for (const p of PROVIDER_DKIM_SELECTORS) if (hosts.some((h) => p.mx.some((suf) => h === suf.slice(1) || h.endsWith(suf)))) return p;
+  return null;
+}
 
 export const NETWORK_TOOLS = [
   // ────────── a2a-card-fetch ──────────
@@ -695,14 +720,17 @@ export const NETWORK_TOOLS = [
     },
     handler: async (input) => {
       const domain = pickHost(input, "domain");
+      // MX first: the provider it names decides which DKIM selectors to probe
+      // (an iCloud+ domain signs with "sig1", Fastmail with fm1-3, and the
+      // common list holds neither). Then SPF + DMARC + every selector in parallel.
+      const mxRecs = await resolveType(domain, "MX");
+      const mxProvider = providerForMx((mxRecs.records || []).map((r) => r.exchange));
       const selectors = Array.isArray(input.dkimSelectors) && input.dkimSelectors.length
         ? input.dkimSelectors.slice(0, 20).map((s) => String(s).trim()).filter((s) => /^[a-zA-Z0-9._-]+$/.test(s))
-        : COMMON_DKIM_SELECTORS;
-      // Fan out: SPF + DMARC + MX + every DKIM selector probe, all in parallel.
-      const [spfTxt, dmarcTxt, mxRecs, ...dkimResults] = await Promise.all([
+        : [...new Set([...(mxProvider?.selectors || []), ...COMMON_DKIM_SELECTORS])];
+      const [spfTxt, dmarcTxt, ...dkimResults] = await Promise.all([
         resolveType(domain, "TXT"),
         resolveType(`_dmarc.${domain}`, "TXT"),
-        resolveType(domain, "MX"),
         ...selectors.map((sel) => resolveType(`${sel}._domainkey.${domain}`, "TXT")),
       ]);
       // SPF
@@ -749,7 +777,7 @@ export const NETWORK_TOOLS = [
         const best = foundDkim.find((d) => d.valid);
         checks.push({ check: "dkim", status: "pass", detail: `Found DKIM at selector ${best.selector} (${best.bits ? `${best.bits}-bit ${best.keyType.toUpperCase()}` : best.keyType})` });
       } else if (foundDkim.length) { score += 10; checks.push({ check: "dkim", status: "warn", detail: `DKIM found but ${foundDkim[0].revoked ? "revoked" : "weak key"}` }); }
-      else checks.push({ check: "dkim", status: "fail", detail: `No DKIM at probed selectors (${selectors.length} tried)` });
+      else checks.push({ check: "dkim", status: "fail", detail: `No DKIM at probed selectors (${selectors.length} tried${mxProvider ? `, including ${mxProvider.provider}'s own ${mxProvider.selectors.join("/")}` : ""})` });
       if (mxHosts.length) { score += 25; checks.push({ check: "mx", status: "pass", detail: `${mxHosts.length} MX record${mxHosts.length === 1 ? "" : "s"} configured` }); }
       else checks.push({ check: "mx", status: "fail", detail: "No MX records - domain cannot receive mail" });
       const summary = score >= 90 ? "good" : score >= 60 ? "warn" : "fail";
@@ -765,8 +793,8 @@ export const NETWORK_TOOLS = [
           // reporting (rua/ruf), subdomain policy and alignment are set.
           ...(dmarcParsed ? { subdomainPolicy: dmarcParsed.subdomainPolicy, alignment: dmarcParsed.alignment, reportingUris: dmarcParsed.reportingUris, failureOptions: dmarcParsed.failureOptions } : {}),
         },
-        dkim: { found: foundDkim, probed: selectors },
-        mx: { count: mxHosts.length, records: mxHosts.slice(0, 10) },
+        dkim: { found: foundDkim, probed: selectors, providerSelectors: mxProvider?.selectors || [] },
+        mx: { count: mxHosts.length, records: mxHosts.slice(0, 10), provider: mxProvider?.provider || null },
         checks,
         queriedAt: new Date().toISOString(),
       };
