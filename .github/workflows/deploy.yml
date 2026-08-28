@@ -3527,6 +3527,8 @@ jobs:
           t node scripts/test-public-reports.js
           # House style on every report tier: no em/en dashes in delivered copy (offline)
           t node scripts/test-house-style.js
+          # Domain audit inputs round 2: DKIM by MX provider, DNS-host feasibility, advisory cross-origin headers, www twin (offline)
+          t node scripts/test-domain-audit-inputs.js
           # OWN LANE on purpose. This single step ran 254s - 42% of the unit-a
           # lane, and unit-a was the slowest of the three, so it was 42% of the
           # critical path. It rebuilds a max-size dense-CJK body and BPE-tokenizes

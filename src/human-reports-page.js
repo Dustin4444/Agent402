@@ -36,11 +36,7 @@ export const REPORTS_CSS = `
   .field{display:flex;gap:8px;background:var(--paper);border:1px solid var(--dash);border-radius:12px;padding:6px 6px 6px 14px;margin-bottom:12px}
   .field:focus-within{border-color:var(--ink)}
   .field input{flex:1;border:0;background:transparent;color:var(--ink);font-family:var(--font-body);font-size:16px;outline:none;min-width:0}
-  .tiers{display:flex;gap:8px;flex-wrap:wrap}
-  .tierbtn{flex:1;min-width:90px;border:1px solid var(--hairline);border-radius:12px;background:var(--card);padding:10px;cursor:pointer;text-align:center;font-family:var(--font-body);color:var(--ink)}
-  .tierbtn .nm{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
-  .tierbtn .pr{font-family:var(--font-mono);font-size:20px;color:var(--ink);margin-top:2px}
-  .tierbtn.sel{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink)}.tierbtn.sel .pr{color:var(--ink)}
+  .gets{font-size:13.5px;line-height:1.55;color:var(--muted);margin:0 0 6px}.gets b{color:var(--ink);font-weight:500}
   .note{font-family:var(--font-mono);font-size:11.5px;color:var(--faint);margin-top:16px}
   .err{color:#A5322B;font-size:14px;margin-top:8px;min-height:18px}
   .trust{display:flex;gap:20px;flex-wrap:wrap;color:var(--muted);font-size:14px;margin-top:16px}
@@ -99,14 +95,13 @@ export function humanReportsPage(baseUrl) {
   // one. `data-price` also lets the tier buttons update it without a reload.
   const usd = (cents) => (cents % 100 === 0 ? `$${cents / 100}` : `$${(cents / 100).toFixed(2)}`);
   const buyBtn = (kind, key, label) => `<button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="${esc(kind)}" data-price-for="${esc(kind)}">${esc(label)} <span class="bprice">${usd(R[key].price)}</span></button>`;
-  const tierBtn = (key, label, sel) => `<button class="tierbtn${sel ? " sel" : ""}" data-p="${esc(key)}"><div class="nm">${esc(label)}</div><div class="pr">$${(R[key].price / 100).toFixed(0)}</div></button>`;
   const body = `
 <div class="wrap">
   <div id="checkout-note" hidden class="note" style="margin:0 0 18px;padding:12px 16px;border:1px solid var(--hairline);border-radius:12px;background:var(--card);">
     Checkout canceled, nothing was charged. Pick a report below whenever you are ready. Every price is on its button.
   </div>
   <section class="hero">
-    <div class="eyebrow">Cited reports · pay per report · no subscription · price on every button</div>
+    <div class="eyebrow">Cited reports · one price per report · no subscription · price on every button</div>
     <h1>A finished report, <em>not a chat answer.</em></h1>
     <p class="lede">Deep research on any question, due diligence on any public company, a 13F breakdown of any fund, a graded audit of any domain. Grounded in live sources, fully cited, in about two minutes. <b>Nothing to sign up for, nothing recurring.</b> Pay by card at checkout and the report is yours. Agents skip the card and pay per call over x402 or MPP.</p>
     <div class="trust"><span><span class="dot"></span> Every claim cited</span><span><span class="dot"></span> If a report fails, you're auto-refunded</span><span><span class="dot"></span> Secured by Stripe</span><span><span class="dot"></span> PDF + data appendix</span></div>
@@ -123,7 +118,7 @@ export function humanReportsPage(baseUrl) {
         <h3>Ask a hard question</h3>
         <p>Multiple live web searches, ranked sources, a cited report on whatever you ask.</p>
         <div class="field"><input id="in-research" type="text" placeholder="e.g. How do AI agents pay for APIs in 2026?"></div>
-        <div class="tiers">${tierBtn("research", "Standard", true)}${tierBtn("research-pro", "Pro", false)}${tierBtn("research-max", "Max", false)}</div>
+        <div class="gets"><b>What you get:</b> a cited answer of about 1,500 words, the ranked sources with links, data tables you can download, delivered in one to three minutes.</div>
         <div class="err" id="err-research"></div>
         ${buyBtn("research", "research", "Get report")}
         <div class="note" style="margin-top:10px;">${sampleLink("research")}<a href="/tools/research" style="color:var(--muted);">Sample output + API docs →</a></div>
@@ -133,7 +128,7 @@ export function humanReportsPage(baseUrl) {
         <h3>Everything on a public company</h3>
         <p>SEC filings, insider filings, financials and red flags - cited. Data a chatbot can't reach.</p>
         <div class="field"><input id="in-dossier" type="text" placeholder="A US ticker, e.g. AAPL" style="text-transform:uppercase"></div>
-        <div class="tiers">${tierBtn("dossier", "Dossier", true)}${tierBtn("dossier-max", "Max", false)}</div>
+        <div class="gets"><b>What you get:</b> business, financials, filings, insider activity and red flags in about 2,400 words, every figure cited to the filing, plus the financial tables.</div>
         <div class="err" id="err-dossier"></div>
         ${buyBtn("dossier", "dossier", "Get dossier")}
         <div class="note" style="margin-top:10px;">${sampleLink("dossier")}<a href="/tools/dossier" style="color:var(--muted);">Sample output + API docs →</a></div>
@@ -143,6 +138,7 @@ export function humanReportsPage(baseUrl) {
         <h3>What did they just file</h3>
         <p>The company's newest SEC filings, with the document itself read and explained in plain language, cited to the filing.</p>
         <div class="field"><input id="in-filing" type="text" placeholder="A US ticker, e.g. AAPL" style="text-transform:uppercase"></div>
+        <div class="gets"><b>What you get:</b> the newest 10-K, 10-Q or 8-K read for you: what changed, what the numbers say, what the notes disclose, cited to the document.</div>
         <div class="err" id="err-filing"></div>
         ${buyBtn("filing", "filing-report", "Get the report")}
         <div class="note" style="margin-top:10px;"><a href="/tools/filing-report" style="color:var(--muted);">Sample output + API docs &rarr;</a></div>
@@ -152,6 +148,7 @@ export function humanReportsPage(baseUrl) {
         <h3>One ticker, the whole picture</h3>
         <p>Company dossier, recent SEC filings, insider buying and selling, and which institutions hold it, in one cited report. Cheaper than buying the parts.</p>
         <div class="field"><input id="in-ticker" type="text" placeholder="A US ticker, e.g. AAPL" style="text-transform:uppercase"></div>
+        <div class="gets"><b>What you get:</b> the dossier, the insider-flow report and the 5%+ holders in one bundle, three reports for one price.</div>
         <div class="err" id="err-ticker"></div>
         ${buyBtn("ticker", "ticker-pack", "Get the pack")}
         <div class="note" style="margin-top:10px;"><a href="/tools/ticker-pack" style="color:var(--muted);">Sample output + API docs &rarr;</a></div>
@@ -161,6 +158,7 @@ export function humanReportsPage(baseUrl) {
         <h3>Is this Solana token safe to touch</h3>
         <p>Mint and freeze authority, LP lock, holder concentration, liquidity and every named risk flag, graded and cited from on-chain sources.</p>
         <div class="field"><input id="in-token" type="text" placeholder="A Solana mint address"></div>
+        <div class="gets"><b>What you get:</b> a graded safety read: authorities, liquidity, holder concentration, trading flow and every named risk flag, cited on-chain.</div>
         <div class="err" id="err-token"></div>
         ${buyBtn("token", "token-brief", "Get the brief")}
         <div class="note" style="margin-top:10px;"><a href="/tools/token-brief" style="color:var(--muted);">Sample output + API docs &rarr;</a></div>
@@ -170,7 +168,7 @@ export function humanReportsPage(baseUrl) {
         <h3>Follow the smart money</h3>
         <p>What a fund holds, and what it bought, added, trimmed and exited last quarter, from SEC 13F filings, cited.</p>
         <div class="field"><input id="in-fund" type="text" placeholder="A fund, e.g. Berkshire Hathaway"></div>
-        <div class="tiers">${tierBtn("fund-report", "Standard", true)}${tierBtn("fund-report-max", "Deep", false)}</div>
+        <div class="gets"><b>What you get:</b> the top holdings, what the fund bought, added, trimmed and exited last quarter, with the full 13F table to download.</div>
         <div class="err" id="err-fund"></div>
         ${buyBtn("fund", "fund-report", "Get report")}
         <div class="note" style="margin-top:10px;">${sampleLink("fund-report")}<a href="/tools/fund-report" style="color:var(--muted);">Sample output + API docs →</a></div>
@@ -180,7 +178,7 @@ export function humanReportsPage(baseUrl) {
         <h3>Who's buying, who's selling</h3>
         <p>Every Form 4 against a company with the actual transactions parsed: open-market buys and sales by insider, awards and exercises set apart, a grounded signal read. SEC EDGAR, cited.</p>
         <div class="field"><input id="in-insider" type="text" placeholder="A US ticker, e.g. AAPL" style="text-transform:uppercase"></div>
-        <div class="tiers">${tierBtn("insider-report", "Report", true)}</div>
+        <div class="gets"><b>What you get:</b> every Form 4 parsed: who bought and sold on the open market, awards and exercises set apart, a net-flow read, the transactions table.</div>
         <div class="err" id="err-insider"></div>
         ${buyBtn("insider", "insider-report", "Get report")}
         <div class="note" style="margin-top:10px;">${sampleLink("insider-report")}<a href="/tools/insider-report" style="color:var(--muted);">Sample output + API docs →</a></div>
@@ -190,7 +188,7 @@ export function humanReportsPage(baseUrl) {
         <h3>Who's in the market, and how they differ</h3>
         <p>Market at a glance, the key players and pricing, recent moves, differentiation, risks and a bottom line. Live web research with citations, nothing from memory.</p>
         <div class="field"><input id="in-market" type="text" placeholder="A market, category or company, e.g. AI agent payment rails"></div>
-        <div class="tiers">${tierBtn("market-brief", "Brief", true)}</div>
+        <div class="gets"><b>What you get:</b> the market, the key players and their pricing, recent moves, differentiation and risks, about 2,200 words, cited to live sources.</div>
         <div class="err" id="err-market"></div>
         ${buyBtn("market", "market-brief", "Get brief")}
         <div class="note" style="margin-top:10px;">${sampleLink("market-brief")}<a href="/tools/market-brief" style="color:var(--muted);">Sample output + API docs →</a></div>
@@ -200,7 +198,7 @@ export function humanReportsPage(baseUrl) {
         <h3>A publish-ready LinkedIn article, with the images</h3>
         <p>Grounded research with cited sources, three headline options, a hook-first body with facts linked to their sources, key takeaways, a companion post with hashtags, and generated images at LinkedIn's own sizes: cover 1920x1080, link-share 1200x627, feed square and portrait. Paste and publish.</p>
         <div class="field"><input id="in-linkedin" type="text" placeholder="Your topic, e.g. why AI agents will pay for APIs with stablecoins"></div>
-        <div class="tiers">${tierBtn("linkedin-article", "Article + images", true)}</div>
+        <div class="gets"><b>What you get:</b> the article, three headline options, key takeaways, a companion post and cover plus inline images cut to LinkedIn's sizes.</div>
         <div class="err" id="err-linkedin"></div>
         ${buyBtn("linkedin", "linkedin-article", "Get the article")}
         <div class="note" style="margin-top:10px;">${sampleLink("linkedin-article")}<a href="/tools/linkedin-article" style="color:var(--muted);">Sample output + API docs →</a></div>
@@ -210,7 +208,7 @@ export function humanReportsPage(baseUrl) {
         <h3>Is it recalled?</h3>
         <p>Every FDA drug, food and device recall record for a product, brand or ingredient: firm, class, reason, status, distribution. Organized and explained, cited to the FDA feeds.</p>
         <div class="field"><input id="in-recall" type="text" placeholder="A drug, food, brand or device, e.g. losartan"></div>
-        <div class="tiers">${tierBtn("recall-report", "Report", true)}</div>
+        <div class="gets"><b>What you get:</b> every recall record for the product with firm, class, reason, status and distribution, explained, with the FDA rows to download.</div>
         <div class="err" id="err-recall"></div>
         ${buyBtn("recall", "recall-report", "Get report")}
         <div class="note" style="margin-top:10px;">${sampleLink("recall-report")}<a href="/tools/recall-report" style="color:var(--muted);">Sample output + API docs →</a></div>
@@ -220,7 +218,7 @@ export function humanReportsPage(baseUrl) {
         <h3>Is your domain secure?</h3>
         <p>SPF, DMARC, DKIM, TLS and security headers, one graded report with the exact fixes. Why your mail hits spam, answered.</p>
         <div class="field"><input id="in-domain" type="text" placeholder="A domain, e.g. example.com"></div>
-        <div class="tiers">${tierBtn("domain-audit", "Standard", true)}${tierBtn("domain-audit-pro", "Pro", false)}</div>
+        <div class="gets"><b>What you get:</b> a letter grade, SPF, DMARC, DKIM, MX, TLS, security headers and the www twin checked live, and a numbered fix list you can act on today.</div>
         <div class="err" id="err-domain"></div>
         ${buyBtn("domain", "domain-audit", "Get audit")}
         <div class="note" style="margin-top:10px;">${sampleLink("domain-audit")}<a href="/tools/domain-audit" style="color:var(--muted);">Sample output + API docs →</a></div>

@@ -2200,6 +2200,26 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   push to main by an admin session does not); Dependabot security updates are ON (fix PRs are opened, never auto-merged);
   the unused `NPM_TOKEN` Actions secret is deleted (publishing is OIDC). No required reviewer on the environment: with one
   owner it would be self-approval on every deploy.
+- **One price per report on the card storefront (2026-08-28, decided from research, not preference):** `/reports` no longer shows
+  Standard/Pro/Max tier buttons; every card sells its base product at one price with a "What you get" line written in deliverables
+  (words, sections, tables), never effort counts ("8 searches vs 3" is exactly the non-alignable attribute the choice-overload
+  literature says hurts a first-time buyer; the decoy effect does not replicate with realistic products; one-off report comparables
+  differentiate by included content or quantity, never by depth). The pro/max tiers stay as AGENT API products (REPORT_TIERS,
+  HUMAN_PRODUCTS keys kept so old sessions, /api/buy and docs still resolve). Re-tier only behind a visible deliverable fence and
+  once card sales can read an A/B test.
+- **Domain audit inputs round 2 (2026-08-28, from a buyer's own review of a live run on their domain; `scripts/test-domain-audit-inputs.js`
+  34, in CI):** the audit said "no DKIM" to an iCloud+ domain that signs with `sig1` - `email-deliverability` now resolves MX FIRST and
+  probes the provider's own selectors (`PROVIDER_DKIM_SELECTORS`/`providerForMx`, network-kit: Apple sig1, Fastmail fm1-3, Proton,
+  Zoho, M365, Migadu, IONOS, Mailgun, Proofpoint, Mimecast, ...) ahead of the common list, and reports `mx.provider`; verified live
+  (sig1 2048-bit found). `probeDnsPosture` resolves NS and maps the DNS host (`DNS_HOSTS`/`dnsHostFor`: Railway offers no CAA/DNSSEC,
+  Vercel/Netlify no DNSSEC, ...) so the prompt can refuse an infeasible recommendation; `probeWwwPair` checks the www/apex twin
+  (reachable, redirect, HSTS on both); the prompt carries a REPORT MAILBOXES block (rua/ruf/iodef addresses the domain actually
+  publishes) and eight fix rules (never invent a mailbox, feasibility, CAA with platform certs = name both CAs or skip, cross-origin
+  headers advisory, strict vs permissive CSP, Server header informational, escalate monitor-first, check both hosts). `http-headers`
+  (network-kit2): COOP/CORP/COEP are `advisory` findings with weight 0 (score = the six core headers scaled to 100), a CSP with
+  'unsafe-inline' and no nonce/hash scores half and is named, report-only CSP is a warning, the Server header is `info:`. Report
+  links negotiate JSON: `/r/<id>` and `/reports/public/<id>` with `Accept: application/json` serve the bundle from the matching
+  `/api` route, HTML responses carry `Link: rel="alternate" type="application/json"`.
 - **House style enforced in code on every report (2026-08-28, `src/house-style.js`, `scripts/test-house-style.js` in CI):** the
   models write em dashes into headings and prose whatever the prompt says (the NVDA dossier, Berkshire fund and jet-fuel research
   fixtures all did), so server.js wraps EVERY `REPORT_TIERS` handler at catalog build (`withHouseStyle`, in place, before

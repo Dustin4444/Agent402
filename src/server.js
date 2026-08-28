@@ -1871,6 +1871,9 @@ app.get("/company", (_req, res) => htmlCache(res, 300, 900).send(companyPage(BAS
 // artifact a buyer gets, readable before paying, indexable, with a buy box.
 // Served with or without Stripe: the fixtures are static and the buy box
 // simply 503s on a server with no checkout.
+// Content negotiation for the report pages: a client that asks for JSON and
+// not HTML (an agent) is served the bundle from the matching /api route.
+const wantsJson = (req) => { const a = String(req.headers?.accept || "").toLowerCase(); return a.includes("application/json") && !a.includes("text/html"); };
 app.get("/reports/sample/:product", (req, res) => {
   const product = String(req.params.product || "");
   const meta = sampleMeta(product, BASE_URL);
@@ -1887,8 +1890,10 @@ app.get("/reports/sample/:product", (req, res) => {
 // Public reports (buyer's choice, src/human-checkout.js readPublicReport):
 // the same viewer, indexable, own title/preview/JSON-LD, buy box for the
 // reader's own subject. Served with or without Stripe (files on the volume).
-app.get("/reports/public/:publicId", (req, res) => {
+app.get("/reports/public/:publicId", (req, res, next) => {
+  if (wantsJson(req)) { req.url = `/api/reports/public/${encodeURIComponent(String(req.params.publicId || ""))}`; return next(); }
   if (sessionReadLimiter.check(clientIp(req)).limited) return res.status(429).type("html").send("<p>Too many requests, please slow down.</p>");
+  res.set("Link", `</api/reports/public/${encodeURIComponent(String(req.params.publicId || ""))}>; rel="alternate"; type="application/json"`);
   const r = readPublicReport(String(req.params.publicId || ""));
   if (!r) return notFoundPage(res, { what: "Public report", href: "/reports", label: "All reports" });
   const canonical = `${BASE_URL}/reports/public/${r.publicId}`;
@@ -2286,7 +2291,11 @@ if (humanCheckoutEnabled()) {
         res.status(500).json({ error: "Could not start checkout. Please try again in a moment." });
       }
     });
-    app.get("/r/:sessionId", (req, res) => {
+    app.get("/r/:sessionId", (req, res, next) => {
+      // An agent reading the report link gets the JSON bundle on the same URL
+      // (Accept: application/json); a browser gets the page, with a Link to it.
+      if (wantsJson(req)) { req.url = `/api/r/${encodeURIComponent(String(req.params.sessionId || ""))}`; return next(); }
+      res.set("Link", `</api/r/${encodeURIComponent(String(req.params.sessionId || ""))}>; rel="alternate"; type="application/json"`);
       try { capturePostHogHumanFunnel({ step: "report_opened" }); } catch { /* telemetry never breaks the request */ }
       res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html").send(reportDeliveryPage(String(req.params.sessionId || ""), { baseUrl: BASE_URL, robots: "noindex, nofollow" }));
     });
