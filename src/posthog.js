@@ -499,6 +499,23 @@ function flushToolGoneRollup() {
 /** One event per composite report run (research/dossier/fund/domain/token-risk): the
  *  upstream we spent vs the price - these are the largest single upstream calls we
  *  make and were invisible to margin telemetry before 2026-08-22. */
+/** The human (card) funnel, one event per step so a conversion funnel is an
+ *  insight, not a ledger grep: checkout_started -> paid (report delivered) |
+ *  failed (refunded) | report_opened; monitor_checkout_started -> monitor_paid.
+ *  Product + price only - never the buyer's input, email or session id. */
+export function capturePostHogHumanFunnel({ step, product, kind, priceUsd, reason }) {
+  if (!active()) return;
+  try {
+    capture("human_funnel", {
+      step: String(step || ""),
+      product: product ? String(product) : null,
+      kind: kind ? String(kind) : null,
+      priceUsd: priceUsd != null && Number.isFinite(Number(priceUsd)) ? Number(priceUsd) : null,
+      reason: reason ? String(reason).slice(0, 120) : null,
+    });
+  } catch { /* never throw from telemetry */ }
+}
+
 export function capturePostHogCompositeUsage({ slug, upstreamUsd, ok, priceUsd, rail, capUsd, overCap }) {
   if (!active()) return;
   try {

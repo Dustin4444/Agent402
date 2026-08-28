@@ -2076,6 +2076,32 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   x-users-lookup $0.01 -> $0.15. The kit still lists only with `X_BEARER_TOKEN` on Railway (Mike's call; the bearer exists
   only in Actions secrets). Market context: twit.sh (118 buyers of X data) stopped settling 2026-08-22; StableSocial sells
   X at a flat $0.06 through Scrape Creators. Hunter/Apollo (b2b-enrich, $0.02-0.05) need signups - unchanged.
+- **Reports for humans: measurement + first fixes (2026-08-27 night; Mike's direction: "reports for humans, go"):** measured
+  before building - 30d: ~470 homepage visitors (mostly direct, then Google/X/ChatGPT), 26 reached `/reports`, 13 `/monitors`,
+  1 card sale, 0 active monitors, 0 credits keys; the 253 programmatic SEO pages had ZERO human pageviews and are not in
+  Google (the query space is OpenInsider/SecForm4/GuruFocus); no PostHog event existed between `/reports` and a sale. Shipped:
+  (1) **real sample reports** `src/sample-reports.js` + `assets/samples/<product>.json` -> `/reports/sample/<product>`
+  (indexable, own title/canonical/Report+Product JSON-LD, same viewer as a buyer, `sample:true` turns the keep-hint into a
+  buy box for the reader's own input; `/api/reports/sample/<product>` serves the bundle; in sitemap-reports; the /reports
+  cards link "See a real sample" only where a fixture exists) - fixtures are REAL runs of the production handlers made on a
+  local FREE_MODE boot with the prod upstream keys (dossier NVDA, insider NVDA, fund Berkshire, domain github.com, research
+  jet-fuel hedging, recall losartan), `scripts/test-sample-reports.js` (73, boots, in CI) pins finished-report shape/no stub
+  markers/no buyer fields/indexability; regenerate with the same recipe, never serve live generation on a free page;
+  (2) **funnel instrumentation**: server `human_funnel` PostHog event (`capturePostHogHumanFunnel`: checkout_started /
+  checkout_refused / paid / failed / report_opened / monitor_checkout_started / monitor_paid; product + price only, never the
+  input or email) and client `report_buy_click` (reports.js, report-buy.js, sample buy box) / `monitor_subscribe_click`;
+  (3) live bug: the LinkedIn card's buy button posted `product: undefined` (missing `linkedin` in reports.js sel/need maps);
+  (4) homepage prose prices derived from HUMAN_PRODUCTS/MONITOR_PRODUCTS (was "$1 to $2, monitors $3" against $2-$5/$5);
+  (5) wait copy "one to three minutes, deepest five" + an elapsed counter on the delivery page (was "about a minute" vs the
+  storefront's "two minutes"); (6) homepage people door links the three free programmatic hubs (they were reachable only
+  from /reports). **recall-report was unsellable:** openFDA answers HTTP 404 for a no-match search; fetch-guard relabels it
+  422 and gov-kit's getJson relabelled that 502, so `getJsonAllowEmpty`'s `statusCode === 404` never matched and any drug
+  absent from the food+device feeds (most) 502'd the 2-of-3 gate - now `upstreamStatus` rides through and a 404 is never
+  retried (`scripts/test-recall-nomatch.js`). IndexNow: 256 URLs (the 253 report pages + /markets, /reports, /monitors)
+  submitted 2026-08-28 01:4xZ. Mike-owned: Google Search Console sitemap submission; posting the samples. NEXT (not built):
+  email capture + post-purchase sequence (one transactional email exists, no list), a shareable/public report option (every
+  /r/ page is noindex + generic OG, so the paid artifact has no backlink surface), monitors for research/dossier kinds,
+  seed expansion, a first-report promo. Weekly number for this bet: card sales + `human_funnel` conversion, not x402scan rank.
 - **`/proof` + `GET /api/proof` (2026-08-27, `src/proof.js`, `proofFeed()` in sales-ledger):** receipts for the metered
   tier - the ledger now stores `quote_usd` (additive column) next to the settled `price_usd` on every metered sale
   (`recordSale({quoteUsd})` from the route binder's `req.__meteredQuoteUsd`), and the page shows aggregates plus ONE

@@ -121,6 +121,7 @@ import { whatIsX402Page } from "./what-is-x402.js";
 import { whatIsMppPage } from "./what-is-mpp.js";
 import { agenticFinancePage } from "./agentic-finance.js";
 import { whyPage } from "./why.js";
+import { sampleJson, sampleMeta, SAMPLE_PRODUCTS } from "./sample-reports.js";
 import { marketsPage } from "./markets.js";
 import { proofPage } from "./proof.js";
 import { glossaryPage } from "./glossary.js";
@@ -1271,7 +1272,10 @@ try {
   _subs = subscriptionsEnabled() ? createStripeSubscriptions({
     stripe: new Stripe(process.env.STRIPE_SECRET_KEY), baseUrl: BASE_URL,
     validateTarget: _monitorTargetValidators,
-    onInvoicePaid: ({ invoiceId, product, amountUsd }) => recordSale({ slug: product || "monitor", priceUsd: amountUsd, rail: "card", network: "stripe", payer: null, tx: invoiceId, wire: "stripe-subscription" }),
+    onInvoicePaid: ({ invoiceId, product, amountUsd }) => {
+      recordSale({ slug: product || "monitor", priceUsd: amountUsd, rail: "card", network: "stripe", payer: null, tx: invoiceId, wire: "stripe-subscription" });
+      import("./posthog.js").then(({ capturePostHogHumanFunnel }) => capturePostHogHumanFunnel({ step: "monitor_paid", product: product || "monitor", priceUsd: amountUsd })).catch(() => {});
+    },
     // Credit-pack sessions: mint + email the key from the webhook too (claim is
     // idempotent; the thanks page then shows "claimed"). _credits is wired below.
     onPaymentSession: (session) => (session?.metadata?.credits_pack && _credits ? _credits.claim(session.id) : null),
@@ -1710,6 +1714,25 @@ app.get("/aifi", (_req, res) => res.redirect(301, "/agentic-finance"));
 // /why - the seven first-party differences, every claim linked to its proof surface
 // (src/why.js); llms.txt, the MCP instructions and the package READMEs point here.
 app.get("/why", (_req, res) => htmlCache(res, 300, 900).send(whyPage(BASE_URL)));
+// Real sample reports (assets/samples, src/sample-reports.js): the finished
+// artifact a buyer gets, readable before paying, indexable, with a buy box.
+// Served with or without Stripe: the fixtures are static and the buy box
+// simply 503s on a server with no checkout.
+app.get("/reports/sample/:product", (req, res) => {
+  const product = String(req.params.product || "");
+  const meta = sampleMeta(product, BASE_URL);
+  if (!meta) return res.status(404).type("html").send('<p>Sample not found. <a href="/reports">All reports</a></p>');
+  htmlCache(res, 300, 900).send(reportDeliveryPage(product, {
+    api: "/api/reports/sample/", baseUrl: BASE_URL, robots: "index, follow, max-image-preview:large",
+    waitCopy: "Loading the sample report.", note: "",
+    title: meta.title, description: meta.description, canonical: meta.canonical, jsonLd: meta.jsonLd,
+  }));
+});
+app.get("/api/reports/sample/:product", (req, res) => {
+  const j = sampleJson(String(req.params.product || ""));
+  if (!j) return res.status(404).json({ status: "not_found" });
+  res.set("Cache-Control", "public, max-age=300, stale-while-revalidate=900").json(j);
+});
 // /markets - one-call front door for the keyless market-data tools (prices read from CATALOG).
 app.get("/markets", (_req, res) => htmlCache(res, 300, 900).send(marketsPage(BASE_URL, CATALOG)));
 // Receipts: the metered tier's settled-under-quote proof, aggregates + one
@@ -2045,7 +2068,10 @@ if (humanCheckoutEnabled()) {
       // Card sales land in the SAME sales ledger as x402 settlements (rail
       // "card", network "stripe", the PaymentIntent as tx) so /revenue and the
       // operator surfaces see the human front door.
-      onSale: ({ product, priceUsd, paymentIntent }) => recordSale({ slug: product, priceUsd, rail: "card", network: "stripe", payer: null, tx: paymentIntent, wire: "stripe-checkout" }),
+      onSale: ({ product, priceUsd, paymentIntent }) => {
+        recordSale({ slug: product, priceUsd, rail: "card", network: "stripe", payer: null, tx: paymentIntent, wire: "stripe-checkout" });
+        import("./posthog.js").then(({ capturePostHogHumanFunnel }) => capturePostHogHumanFunnel({ step: "paid", product, priceUsd })).catch(() => {});
+      },
     });
   } catch (e) { console.warn("[human-checkout] init failed:", String(e?.message || e).slice(0, 200)); _humanCheckout = null; }
   if (_humanCheckout) {
@@ -2059,8 +2085,14 @@ if (humanCheckoutEnabled()) {
     });
     app.post("/api/buy", async (req, res) => {
       if (checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
-      try { res.json({ url: (await _humanCheckout.createSession(req.body?.product, req.body?.input)).url }); }
+      const product = typeof req.body?.product === "string" ? req.body.product.slice(0, 40) : null;
+      try {
+        const url = (await _humanCheckout.createSession(req.body?.product, req.body?.input)).url;
+        import("./posthog.js").then(({ capturePostHogHumanFunnel }) => capturePostHogHumanFunnel({ step: "checkout_started", product, kind: HUMAN_PRODUCTS[product]?.kind, priceUsd: HUMAN_PRODUCTS[product] ? HUMAN_PRODUCTS[product].price / 100 : null })).catch(() => {});
+        res.json({ url });
+      }
       catch (e) {
+        import("./posthog.js").then(({ capturePostHogHumanFunnel }) => capturePostHogHumanFunnel({ step: "checkout_refused", product, reason: e?.statusCode && e.statusCode < 500 ? String(e.message).slice(0, 80) : "server" })).catch(() => {});
         // Our own 4xx messages are safe to show; a Stripe/SDK error is logged
         // and answered generically (its text can echo key mode/request detail).
         if (e?.statusCode && e.statusCode < 500 && !e.type && !e.raw) return res.status(e.statusCode).json({ error: String(e.message).slice(0, 200) });
@@ -2068,7 +2100,10 @@ if (humanCheckoutEnabled()) {
         res.status(500).json({ error: "Could not start checkout. Please try again in a moment." });
       }
     });
-    app.get("/r/:sessionId", (req, res) => res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html").send(reportDeliveryPage(String(req.params.sessionId || ""), { baseUrl: BASE_URL, robots: "noindex, nofollow" })));
+    app.get("/r/:sessionId", (req, res) => {
+      import("./posthog.js").then(({ capturePostHogHumanFunnel }) => capturePostHogHumanFunnel({ step: "report_opened" })).catch(() => {});
+      res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html").send(reportDeliveryPage(String(req.params.sessionId || ""), { baseUrl: BASE_URL, robots: "noindex, nofollow" }));
+    });
     app.get("/api/r/:sessionId", async (req, res) => {
       if (sessionReadLimiter.check(clientIp(req)).limited) return res.status(429).json({ status: "error", error: "Too many requests, please slow down." });
       try { res.set("Cache-Control", "no-store").json(await _humanCheckout.fulfill(String(req.params.sessionId || ""))); }
@@ -2083,7 +2118,11 @@ if (humanCheckoutEnabled()) {
 if (_subs) {
   app.post("/api/subscribe", async (req, res) => {
     if (checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
-    try { res.json({ url: (await _subs.createCheckout(req.body?.product, req.body?.target)).url }); }
+    try {
+      const url = (await _subs.createCheckout(req.body?.product, req.body?.target)).url;
+      import("./posthog.js").then(({ capturePostHogHumanFunnel }) => capturePostHogHumanFunnel({ step: "monitor_checkout_started", product: typeof req.body?.product === "string" ? req.body.product.slice(0, 40) : null })).catch(() => {});
+      res.json({ url });
+    }
     catch (e) {
       if (e?.statusCode && e.statusCode < 500 && !e.type && !e.raw) return res.status(e.statusCode).json({ error: String(e.message).slice(0, 200) });
       console.warn("[monitors] createCheckout failed:", String(e?.message || e).slice(0, 200));
