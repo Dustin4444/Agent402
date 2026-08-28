@@ -1812,7 +1812,7 @@ app.get("/api/gateway-status", async (_req, res) => {
   const [gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, subscriptionFeePayer, databases] = await Promise.all([gatewayCreditsStatus(), upstreamBuyerStatus(), avmBuyerStatus(), tempoBuyerStatus(), subscriptionFeePayerStatus(), databasesStatus().catch(() => null)]);
   // `databases`: leads/analytics Postgres reachability, status words only
   // (src/db-status.js) - the heartbeat pages on "unreachable".
-  res.set("Cache-Control", "public, max-age=60").json({ ...gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, subscriptionFeePayer, databases });
+  res.set("Cache-Control", "public, max-age=60").json({ ...gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, subscriptionFeePayer, databases, operatorAuth: operatorAuthStatus() });
 });
 // Static SAMPLE A2A Agent Card — the self-answering example target for the
 // a2a-card-fetch tool. Explicitly a sample (fictional weather agent), NOT an
@@ -2820,6 +2820,29 @@ setInterval(() => {
 const operatorAttemptLimiter = createRateLimiter("operator-attempt", { perMin: 10, perHour: 60 });
 const operatorAttemptIp = (req) => req.ip || req.socket?.remoteAddress || "unknown";
 
+// Global wrong-credential counter for the operator surfaces (rolling hour).
+// The per-IP limiter caps one source; a distributed guess never crossed a
+// threshold anyone watched (review 2026-08-28). Exposed as a STATUS WORD on
+// /api/gateway-status (`operatorAuth`), and the heartbeat pages on "elevated".
+const OPERATOR_AUTH_FAIL_ALERT = Math.max(10, parseInt(process.env.OPERATOR_AUTH_FAIL_ALERT || "100", 10) || 100);
+const _opAuthFails = [];
+let _opAuthAlertedAt = 0;
+function noteOperatorAuthFailure() {
+  const now = Date.now();
+  _opAuthFails.push(now);
+  while (_opAuthFails.length && now - _opAuthFails[0] > 3_600_000) _opAuthFails.shift();
+  if (_opAuthFails.length > 5000) _opAuthFails.splice(0, _opAuthFails.length - 5000);
+  if (_opAuthFails.length >= OPERATOR_AUTH_FAIL_ALERT && now - _opAuthAlertedAt > 600_000) {
+    _opAuthAlertedAt = now;
+    console.warn(`[operator-auth] ${_opAuthFails.length} wrong operator credentials in the last hour (threshold ${OPERATOR_AUTH_FAIL_ALERT}) - token guessing in progress; rotate AGENT402_OPERATOR_TOKEN if this persists`);
+  }
+}
+export function operatorAuthStatus() {
+  const now = Date.now();
+  while (_opAuthFails.length && now - _opAuthFails[0] > 3_600_000) _opAuthFails.shift();
+  const n = _opAuthFails.length;
+  return { status: n >= OPERATOR_AUTH_FAIL_ALERT ? "elevated" : "ok", failures1h: n, threshold: OPERATOR_AUTH_FAIL_ALERT };
+}
 function operatorAuthed(req) {
   const presented = Boolean(getOperatorToken(req)) || Boolean(readCookie(req, OPERATOR_COOKIE));
   if (!presented) return false;  // anonymous: nothing to brute-force, nothing to count
@@ -2830,6 +2853,7 @@ function operatorAuthed(req) {
   if (operatorSessionValid(readCookie(req, OPERATOR_COOKIE))) return true; // browser session
   // Only a WRONG credential consumes budget.
   operatorAttemptLimiter.check(ip);
+  noteOperatorAuthFailure();
   return false;
 }
 const reqIsHttps = (req) =>
@@ -2861,7 +2885,7 @@ app.post("/__operator/login", (req, res) => {
   const ip = (req.ip || req.socket.remoteAddress || "?").trim();
   if (operatorLoginLimiter.check(ip).limited) return res.status(429).json({ ok: false, error: "too many attempts, slow down" });
   const token = typeof req.body?.token === "string" ? req.body.token : "";
-  if (!operatorTokenOk(token)) return res.status(401).json({ ok: false, error: "invalid token" });
+  if (!operatorTokenOk(token)) { noteOperatorAuthFailure(); return res.status(401).json({ ok: false, error: "invalid token" }); }
   // A correct root token supersedes whatever failures this IP has accumulated.
   // Without this the operator can lock themselves out with no way back: an
   // EXPIRED session cookie is indistinguishable from a guessed one, so a browser

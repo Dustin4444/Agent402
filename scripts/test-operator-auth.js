@@ -155,6 +155,16 @@ const done = (code) => { try { child.kill("SIGKILL"); } catch { /* */ } process.
   // 7. No token ever appeared in a request-line the server logged.
   ok(!serverLog.includes(TOKEN), "the operator token never appears in server logs");
 
+  // Aggregate guessing alarm (2026-08-28): wrong credentials are counted
+  // globally and exposed as a status word on the public gateway-status.
+  {
+    for (let i = 0; i < 3; i++) await status("/__operator/stats", { headers: { Authorization: "Bearer not-the-token-" + i } });
+    const gs = await (await fetch(`${base}/api/gateway-status`)).json();
+    ok(gs.operatorAuth && typeof gs.operatorAuth.failures1h === "number" && gs.operatorAuth.failures1h >= 3 && gs.operatorAuth.status === "ok" && gs.operatorAuth.threshold >= 10,
+      `wrong operator credentials are counted on /api/gateway-status (${gs.operatorAuth?.failures1h} in the hour, status ${gs.operatorAuth?.status})`);
+    ok(!JSON.stringify(gs.operatorAuth).includes(TOKEN) && !/not-the-token/.test(JSON.stringify(gs.operatorAuth)), "the status carries counts only, never a credential");
+  }
+
   console.log(`\n${pass} passed, ${fail} failed`);
   done(fail ? 1 : 0);
 })().catch((e) => { console.error(e); done(1); });
