@@ -98,6 +98,7 @@ async function main() {
     const png = await rasterizeSvg(cardSvg(await loadJson(FROM), { preview: PREVIEW }), { width: 1200, height: 630 });
     writeFileSync(OUT, png);
     console.log(`wrote ${OUT} (${png.length} bytes)${PREVIEW ? " [preview tag rendered]" : ""}`);
+    process.exit(0); // the rasterizer keeps a browser handle alive; the file is written
   } catch (e) { console.error(`render failed: ${e?.message || e}`); process.exit(2); }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) await main();
