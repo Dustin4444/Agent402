@@ -35,6 +35,9 @@ const {
 } = await import("../src/posthog.js");
 
 let passed = 0, failed = 0;
+// PostHog's own control properties ($-prefixed, e.g. $process_person_profile)
+// are not caller data: the leak guards below compare the keys WE set.
+const ourKeys = (props) => Object.keys(props || {}).filter((k) => !k.startsWith("$")).sort().join(",");
 const ok = (cond, msg) => {
   if (cond) { passed++; console.log(`ok - ${msg}`); }
   else { failed++; console.error(`FAIL - ${msg}`); }
@@ -49,7 +52,7 @@ _flushPaywallRollupForTest();
 let got = take();
 ok(got.length === 1 && got[0].event === "discovery" && got[0].properties.surface === "llms.txt" && got[0].properties.synthetic === false && got[0].properties.count === 1,
   "discovery event carries surface + synthetic + count");
-ok(Object.keys(got[0].properties).sort().join(",") === "count,surface,synthetic",
+ok(ourKeys(got[0].properties) === "count,surface,synthetic",
   "discovery properties are exactly {count, surface, synthetic} — nothing about the caller");
 
 // --- unit: paywall rollup -------------------------------------------------------
@@ -93,7 +96,7 @@ got = take().filter((e) => e.event === "pow_challenge");
 const pc = new Map(got.map((e) => [`${e.properties.slug}|${e.properties.synthetic ? 1 : 0}`, e.properties.count]));
 ok(pc.get("hash|0") === 4 && pc.get("qr|0") === 1 && pc.get("hash|1") === 1,
   `pow_challenge rolls up per (slug, synthetic) (hash=${pc.get("hash|0")}, qr=${pc.get("qr|0")}, hash-synth=${pc.get("hash|1")})`);
-ok(got.every((e) => Object.keys(e.properties).sort().join(",") === "count,slug,synthetic"),
+ok(got.every((e) => ourKeys(e.properties) === "count,slug,synthetic"),
   "pow_challenge properties are exactly {slug, count, synthetic} — no caller identity");
 
 // --- unit: rollup "_other" remainder keeps the exact total -----------------------
@@ -115,7 +118,7 @@ got = take();
 ok(got.length === 2 && got.every((e) => e.event === "payment_settled"), "settlements are per-event, never rolled up");
 ok(got[0].properties.rail === "usdc" && got[0].properties.network === "eip155:8453", "USDC settlement carries the chain");
 ok(got[1].properties.rail === "pow" && got[1].properties.network === null, "PoW settlement has no chain");
-ok(Object.keys(got[0].properties).sort().join(",") === "network,paid,priceUsd,rail,slug,synthetic",
+ok(ourKeys(got[0].properties) === "network,paid,priceUsd,rail,slug,synthetic",
   "settlement properties are exactly {slug, rail, network, priceUsd, paid, synthetic} — no payer identity");
 
 // `paid` is the fix for a real misreading, so assert the distinction it draws
@@ -350,6 +353,16 @@ try {
   capturePostHogWrongMethod({ path: "/api/search", method: "POST", allow: ["GET"], ua: "axios/1.14.0 (foo)" });
   const ev = _testEventsForTest().filter((e) => e.event === "wrong_method").pop();
   ok(ev && ev.properties.path === "/api/search" && ev.properties.method === "POST" && ev.properties.allow === "GET" && ev.properties.uaFamily === "axios", "wrong_method carries path, method, allow and the UA family only");
+}
+
+// Server events are ANONYMOUS (2026-08-28): person processing bills at about
+// five times the anonymous rate once the free allowance is spent, and the one
+// constant-id profile carried no signal (every query here reads event
+// properties). Every captured event must say so.
+{
+  const evs = _testEventsForTest();
+  const missing = evs.filter((e) => e?.properties?.$process_person_profile !== false);
+  ok(evs.length > 0 && missing.length === 0, `every server event carries $process_person_profile:false (${evs.length} events, ${missing.length} missing${missing.length ? ": " + missing.slice(0, 3).map((e) => e.event).join(",") : ""})`);
 }
 
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);

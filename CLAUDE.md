@@ -2020,6 +2020,17 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   14,910 rows) - and `unattributedMerchants` now reports `attributedUnroutable` (known origin, cannot route) separately from
   `unattributed` (unknown). Submitted-seed slots: 586 of the 2,000 cap in use (2026-08-27). test-settlement-proof 44.
 
+- **Server telemetry is ANONYMOUS (2026-08-28, from a provider sweep):** every `capture()` in posthog.js now carries
+  `$process_person_profile: false`. Measured: 307,424 of 311,256 events in seven days were server events on the single
+  constant id `agent402-server`, and PostHog bills an event WITH person processing at roughly five times the anonymous
+  rate once the 1M free allowance is spent - at our volume that is the difference between a few dollars and a few
+  hundred on the first overage month. The profile carried no signal (one row, no person properties; every insight reads
+  event properties), and browser events from the site keep person processing. The three leak guards that assert an exact
+  property key set now ignore `$`-prefixed PostHog control keys (`ourKeys()` in test-posthog-funnel, 64), and one pin
+  requires the flag on every captured event. Same sweep corrected the facilitator quota watches: PayAI's free tier is
+  1,000 settlements a month, not 10,000 (measured 473 in 30 days, 47% of it), and the CDP-first chains carry 3,677 a
+  month against the same 1,000 free with nothing watching them - both now have heartbeat steps, and a quota refusal
+  (`403 free_tier_exhausted`) is logged as billing rather than an outage.
 - **PostHog ingestion is scanner-bounded, not traffic-bounded (2026-08-27):** the 08-25 spike (109,729 events vs
   ~40k/day) was ONE external scanner (one UA, one IP) hitting the free `GET /api/find` twice a second for 12
   hours - 57,277 `tool_call` events from one caller; and the 30-day baseline (~990k, at PostHog's 1M/month allowance)

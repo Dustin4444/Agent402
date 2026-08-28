@@ -36,6 +36,16 @@ const HOST = process.env.POSTHOG_HOST || "https://us.i.posthog.com";
 // "user" of this stream is the operator. A constant distinctId keeps PostHog's
 // person-count at 1 and avoids leaking any signal about the calling agent.
 const DISTINCT_ID = "agent402-server";
+// Every server event is ANONYMOUS: `$process_person_profile: false` tells
+// PostHog not to create or update a person profile for it. Measured
+// 2026-08-28: 307,424 of 311,256 events in seven days were server events on
+// this one constant id, and PostHog bills an event WITH person processing at
+// roughly five times the anonymous rate once the free allowance is spent. The
+// profile itself was worth nothing (one row, no person properties, every
+// query here reads event properties), so this is cost with no signal lost.
+// Browser events from the site keep person processing - that is web analytics
+// and its volume is a rounding error beside this stream.
+const ANON = { $process_person_profile: false };
 
 let client = null;
 let initialized = false;
@@ -57,6 +67,8 @@ export function _testEventsForTest() {
 // in the header comment is enforced by what the callers pass, and this
 // function adds nothing (no IP, no UA, no timestamps beyond PostHog's own).
 function capture(event, properties, distinctId = DISTINCT_ID) {
+  // One shape for both sinks, so the test sees exactly what PostHog would.
+  properties = { ...properties, ...ANON };
   if (TEST_MODE) {
     const e = { event, properties, distinctId };
     testEvents.push(e);
