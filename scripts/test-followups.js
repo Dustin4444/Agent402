@@ -32,7 +32,7 @@ ok(t.monitor === 1 && mail.length === 1 && /Keep example.com watched/.test(mail[
 ok((await fu.tick()).monitor === 0 && mail.length === 1, "the monitor offer is sent once");
 clock += STEP_DELAYS_MS.another - STEP_DELAYS_MS.monitor + 1000;
 t = await fu.tick();
-ok(t.another === 1 && mail.length === 2 && /Another report\?/.test(mail[1].subject) && mail[1].text.includes("https://x.test/reports/sample/dossier") && mail[1].text.includes("/reports"), "day 7: the 'another report' email points at the free samples and the storefront");
+ok(t.another === 1 && mail.length === 2 && /Another report\?/.test(mail[1].subject) && mail[1].text.split("\n").some((l) => l === "- Company due-diligence dossier: https://x.test/reports/sample/dossier") && mail[1].text.includes("/reports"), "day 7: the 'another report' email points at the free samples and the storefront");
 clock += 30 * DAY;
 ok((await fu.tick()).another === 0 && mail.length === 2, "after both steps the sequence is silent for good");
 
