@@ -31,7 +31,10 @@ for (const product of SAMPLE_PRODUCTS) {
   ok(s.title && !/[—–]/.test(s.title) && s.input && s.at, `${product}: title, input and generation date present ("${s.title.slice(0, 50)}")`);
   ok(s.status === "done" && s.sample === true && s.product === product && Number.isFinite(s.priceUsd) && s.priceUsd >= 2, `${product}: served shape is a done bundle flagged sample with the card price ($${s.priceUsd})`);
   ok(!raw.email && !raw.sessionId && !raw.buyerKey, `${product}: fixture carries no buyer fields`);
-  if (s.kind !== "domain") ok(s.sources.length >= 5, `${product}: cites at least five sources (${s.sources.length})`);
+  // A recall report cites its three FDA feeds; a domain audit measures rather
+  // than cites; every other kind is a web/EDGAR synthesis with many sources.
+  const minSources = s.kind === "domain" ? 0 : s.kind === "recall" ? 3 : 5;
+  ok(s.sources.length >= minSources, `${product}: cites at least ${minSources} sources (${s.sources.length})`);
 }
 ok(sampleLinkFor("dossier") === "/reports/sample/dossier" && sampleLinkFor("token-brief") === null, "sampleLinkFor: a slug with a fixture links, one without does not");
 ok(samplePaths().every((p) => p.startsWith("/reports/sample/")), "sample paths live under /reports/sample/");
