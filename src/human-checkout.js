@@ -231,6 +231,7 @@ export function createHumanCheckout({ stripe, generate, baseUrl, storeDir, onSal
   // Persist an error outcome; an unrefunded one is OWED (indexed, retried).
   function recordError(id, session, refundId, message) {
     const prev = readRec(id) || {};
+    import("./posthog.js").then(({ capturePostHogHumanFunnel }) => capturePostHogHumanFunnel({ step: "failed", product: prev.slug || null, reason: refundId ? "refunded" : "refund-owed" })).catch(() => {});
     const rec = {
       status: "error", refundId,
       error: refundId ? `${message} Your payment has been refunded.` : `${message} Your refund is being processed.`,

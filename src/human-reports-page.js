@@ -5,6 +5,7 @@
 // classes below are consumed by assets/js/reports.js and report-view.js
 // (keep the class names stable - the scripts select on them).
 import { HUMAN_PRODUCTS } from "./human-checkout.js";
+import { sampleLinkFor } from "./sample-reports.js";
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 import { monitorMapJson } from "./report-upgrade.js";
 import { priceUsdFor } from "./report-tiers.js";
@@ -121,7 +122,7 @@ export function humanReportsPage(baseUrl) {
         <div class="tiers">${tierBtn("research", "Standard", true)}${tierBtn("research-pro", "Pro", false)}${tierBtn("research-max", "Max", false)}</div>
         <div class="err" id="err-research"></div>
         ${buyBtn("research", "research", "Get report")}
-        <div class="note" style="margin-top:10px;"><a href="/tools/research" style="color:var(--muted);">Sample output + API docs →</a></div>
+        <div class="note" style="margin-top:10px;">${sampleLink("research")}<a href="/tools/research" style="color:var(--muted);">Sample output + API docs →</a></div>
       </div>
       <div class="pcard" data-kind="dossier">
         <div class="k">Due-diligence dossier</div>
@@ -131,7 +132,7 @@ export function humanReportsPage(baseUrl) {
         <div class="tiers">${tierBtn("dossier", "Dossier", true)}${tierBtn("dossier-max", "Max", false)}</div>
         <div class="err" id="err-dossier"></div>
         ${buyBtn("dossier", "dossier", "Get dossier")}
-        <div class="note" style="margin-top:10px;"><a href="/tools/dossier" style="color:var(--muted);">Sample output + API docs →</a></div>
+        <div class="note" style="margin-top:10px;">${sampleLink("dossier")}<a href="/tools/dossier" style="color:var(--muted);">Sample output + API docs →</a></div>
       </div>
       <div class="pcard" data-kind="filing">
         <div class="k">SEC filing report</div>
@@ -168,7 +169,7 @@ export function humanReportsPage(baseUrl) {
         <div class="tiers">${tierBtn("fund-report", "Standard", true)}${tierBtn("fund-report-max", "Deep", false)}</div>
         <div class="err" id="err-fund"></div>
         ${buyBtn("fund", "fund-report", "Get report")}
-        <div class="note" style="margin-top:10px;"><a href="/tools/fund-report" style="color:var(--muted);">Sample output + API docs →</a></div>
+        <div class="note" style="margin-top:10px;">${sampleLink("fund-report")}<a href="/tools/fund-report" style="color:var(--muted);">Sample output + API docs →</a></div>
       </div>
       <div class="pcard" data-kind="insider">
         <div class="k">Insider flow</div>
@@ -178,7 +179,7 @@ export function humanReportsPage(baseUrl) {
         <div class="tiers">${tierBtn("insider-report", "Report", true)}</div>
         <div class="err" id="err-insider"></div>
         ${buyBtn("insider", "insider-report", "Get report")}
-        <div class="note" style="margin-top:10px;"><a href="/tools/insider-report" style="color:var(--muted);">Sample output + API docs →</a></div>
+        <div class="note" style="margin-top:10px;">${sampleLink("insider-report")}<a href="/tools/insider-report" style="color:var(--muted);">Sample output + API docs →</a></div>
       </div>
       <div class="pcard" data-kind="market">
         <div class="k">Market / competitor brief</div>
@@ -188,7 +189,7 @@ export function humanReportsPage(baseUrl) {
         <div class="tiers">${tierBtn("market-brief", "Brief", true)}</div>
         <div class="err" id="err-market"></div>
         ${buyBtn("market", "market-brief", "Get brief")}
-        <div class="note" style="margin-top:10px;"><a href="/tools/market-brief" style="color:var(--muted);">Sample output + API docs →</a></div>
+        <div class="note" style="margin-top:10px;">${sampleLink("market-brief")}<a href="/tools/market-brief" style="color:var(--muted);">Sample output + API docs →</a></div>
       </div>
       <div class="pcard" data-kind="linkedin">
         <div class="k">LinkedIn article</div>
@@ -198,7 +199,7 @@ export function humanReportsPage(baseUrl) {
         <div class="tiers">${tierBtn("linkedin-article", "Article + images", true)}</div>
         <div class="err" id="err-linkedin"></div>
         ${buyBtn("linkedin", "linkedin-article", "Get the article")}
-        <div class="note" style="margin-top:10px;"><a href="/tools/linkedin-article" style="color:var(--muted);">Sample output + API docs →</a></div>
+        <div class="note" style="margin-top:10px;">${sampleLink("linkedin-article")}<a href="/tools/linkedin-article" style="color:var(--muted);">Sample output + API docs →</a></div>
       </div>
       <div class="pcard" data-kind="recall">
         <div class="k">FDA recall report</div>
@@ -208,7 +209,7 @@ export function humanReportsPage(baseUrl) {
         <div class="tiers">${tierBtn("recall-report", "Report", true)}</div>
         <div class="err" id="err-recall"></div>
         ${buyBtn("recall", "recall-report", "Get report")}
-        <div class="note" style="margin-top:10px;"><a href="/tools/recall-report" style="color:var(--muted);">Sample output + API docs →</a></div>
+        <div class="note" style="margin-top:10px;">${sampleLink("recall-report")}<a href="/tools/recall-report" style="color:var(--muted);">Sample output + API docs →</a></div>
       </div>
       <div class="pcard" data-kind="domain">
         <div class="k">Domain audit</div>
@@ -218,7 +219,7 @@ export function humanReportsPage(baseUrl) {
         <div class="tiers">${tierBtn("domain-audit", "Standard", true)}${tierBtn("domain-audit-pro", "Pro", false)}</div>
         <div class="err" id="err-domain"></div>
         ${buyBtn("domain", "domain-audit", "Get audit")}
-        <div class="note" style="margin-top:10px;"><a href="/tools/domain-audit" style="color:var(--muted);">Sample output + API docs →</a></div>
+        <div class="note" style="margin-top:10px;">${sampleLink("domain-audit")}<a href="/tools/domain-audit" style="color:var(--muted);">Sample output + API docs →</a></div>
       </div>
     </div>
     <p class="note">One-time charge · card or Link · no subscription, no auto-renew · agents buy the same reports over x402 / MPP in USDC · want it re-run on change? <a href="/monitors" style="color:var(--ink);">Monitors</a></p>
@@ -236,17 +237,17 @@ ${ledgerFooterCompact()}
 }
 
 // Delivery page: polls /api/r/:id (or `api`) and renders the report client-side.
-export function reportDeliveryPage(sessionId, { api = "/api/r/", waitCopy = "This takes about a minute. Please keep this page open - it will appear here automatically.", baseUrl = "https://agent402.tools", robots = "noindex, nofollow" } = {}) {
+const sampleLink = (slug) => { const p = sampleLinkFor(slug); return p ? `<a href="${esc(p)}" style="margin-right:10px;">See a real sample →</a>` : ""; };
+
+export function reportDeliveryPage(sessionId, { api = "/api/r/", waitCopy = "Most reports take one to three minutes; the deepest take up to five. Keep this page open, it appears here automatically.", baseUrl = "https://agent402.tools", robots = "noindex, nofollow", title = "Your report - Agent402", description = "Your Agent402 report.", canonical = `${baseUrl}/reports`, note = "Your report is yours to keep - bookmark this page or use the link we emailed you.", jsonLd } = {}) {
   const body = `
 <div class="wrap" style="padding-top:28px;">
-  <div id="app" data-session="${esc(sessionId)}" data-api="${esc(api)}" data-monitors="${esc(monitorMapJson())}"><div class="status"><h2><span class="spin"></span>Preparing your report…</h2><p>${esc(waitCopy)}</p></div></div>
-  <p class="note no-print">Your report is yours to keep - bookmark this page or use the link we emailed you.</p>
+  <div id="app" data-session="${esc(sessionId)}" data-api="${esc(api)}" data-monitors="${esc(monitorMapJson())}"><div class="status"><h2><span class="spin"></span>Preparing your report…</h2><p>${esc(waitCopy)}</p><p id="rv-elapsed" style="font-family:var(--font-mono);font-size:12px;color:var(--faint);"></p></div></div>
+  ${note ? `<p class="note no-print">${esc(note)}</p>` : ""}
 </div>
 ${ledgerFooterCompact()}
 <script src="/js/report-view.js"></script>`;
   return ledgerShell({
-    title: "Your report - Agent402",
-    description: "Your Agent402 report.",
-    canonical: `${baseUrl}/reports`, baseUrl, activePath: "/reports", extraCss: REPORTS_CSS, body, robots,
+    title, description, canonical, baseUrl, activePath: "/reports", extraCss: REPORTS_CSS, body, robots, ...(jsonLd ? { jsonLd } : {}),
   });
 }

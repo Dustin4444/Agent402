@@ -3513,6 +3513,10 @@ jobs:
           t node scripts/test-head-paywall.js
           # Anthropic SDK base-URL alias (/v1/<tier>/v1/messages) + 1 MB body limit on the metered routes (boots a paid server, offline)
           t node scripts/test-messages-sdk-alias.js
+          # Real sample reports: fixtures are finished reports, pages indexable with own title/JSON-LD, /reports links them, sitemap carries them (boots FREE_MODE, offline)
+          t node scripts/test-sample-reports.js
+          # openFDA 404 = no matches, an empty result: recall-report must not 502 on it (offline)
+          t node scripts/test-recall-nomatch.js
           # OWN LANE on purpose. This single step ran 254s - 42% of the unit-a
           # lane, and unit-a was the slowest of the three, so it was 42% of the
           # critical path. It rebuilds a max-size dense-CJK body and BPE-tokenizes
