@@ -63,7 +63,7 @@ so every claim below is verifiable in code.</p>
   <li><b>Card purchases (reports, monitors, prepaid credits).</b> Card details are entered on Stripe's
   hosted checkout and processed by <a href="https://stripe.com/privacy" rel="noopener">Stripe</a>; we never see card
   numbers. Stripe gives us the email address you entered, a customer and session id, and the payment
-  status. We use the email to deliver what you bought and, after a one-off report, for at most two follow-up emails about that purchase (the monitor for the same subject two days later, other reports a week later), each carrying a link that stops them; if a report fails we email you about the refund - the report link, the prepaid-credits key,
+  status. A delivered report is private to its link unless you choose "Make public" on it, which gives it a second, unguessable address that anyone can read and search engines may index (you can make it private again any time, and the report never contains your name or email). We use the email to deliver what you bought and, after a one-off report, for at most two follow-up emails about that purchase (the monitor for the same subject two days later, other reports a week later), each carrying a link that stops them; if a report fails we email you about the refund - the report link, the prepaid-credits key,
   and monitor reports and alerts - sent through ZeptoMail, a transactional email provider. For a monitor
   we also keep the subject you asked us to watch (a domain, ticker, fund, token or query) and the
   reports we generated, for the life of the subscription. The input you give a report (a ticker, a

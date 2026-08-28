@@ -30,7 +30,7 @@ import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpend
 // composites (settle-after on SVM/AVM/Tempo is work done, never charged), but
 // not composite-spend-guarded (one bounded upstream price).
 import Stripe from "stripe";
-import { createHumanCheckout, humanCheckoutEnabled, HUMAN_PRODUCTS } from "./human-checkout.js";
+import { createHumanCheckout, humanCheckoutEnabled, HUMAN_PRODUCTS, readPublicReport } from "./human-checkout.js";
 import { humanReportsPage, reportDeliveryPage } from "./human-reports-page.js";
 import { createStripeSubscriptions, subscriptionsEnabled, MONITOR_PRODUCTS } from "./stripe-subscriptions.js";
 import { createMppSubscriptions, mppSubscriptionsEnabled, subscriptionFeePayerStatus } from "./mpp-subscriptions.js";
@@ -1819,6 +1819,31 @@ app.get("/reports/sample/:product", (req, res) => {
     extraScripts: '<script src="/js/alert-signup.js"></script>',
   }));
 });
+// Public reports (buyer's choice, src/human-checkout.js readPublicReport):
+// the same viewer, indexable, own title/preview/JSON-LD, buy box for the
+// reader's own subject. Served with or without Stripe (files on the volume).
+app.get("/reports/public/:publicId", (req, res) => {
+  if (sessionReadLimiter.check(clientIp(req)).limited) return res.status(429).type("html").send("<p>Too many requests, please slow down.</p>");
+  const r = readPublicReport(String(req.params.publicId || ""));
+  if (!r) return res.status(404).type("html").send('<p>This report is not public. <a href="/reports">All reports</a></p>');
+  const canonical = `${BASE_URL}/reports/public/${r.publicId}`;
+  const label = HUMAN_PRODUCTS[r.product]?.label || "report";
+  const description = `A ${label.toLowerCase()} on "${r.input}" from Agent402, shared by its buyer: ${r.sources.length} cited sources, ${r.tables.length} data tables. Read it free, then get one for your own subject.`;
+  htmlCache(res, 300, 900).send(reportDeliveryPage(r.publicId, {
+    api: "/api/reports/public/", baseUrl: BASE_URL, robots: "index, follow, max-image-preview:large", waitCopy: "Loading the report.", note: "",
+    title: `${r.title}`, description, canonical,
+    jsonLd: [
+      { "@type": "BreadcrumbList", itemListElement: [{ "@type": "ListItem", position: 1, name: "Agent402", item: `${BASE_URL}/` }, { "@type": "ListItem", position: 2, name: "Reports", item: `${BASE_URL}/reports` }, { "@type": "ListItem", position: 3, name: r.title, item: canonical }] },
+      { "@type": "Report", "@id": `${canonical}#report`, headline: r.title, name: r.title, about: r.input, isAccessibleForFree: true, ...(r.at ? { datePublished: r.at } : {}), author: { "@type": "Organization", name: "Agent402", url: BASE_URL }, publisher: { "@type": "Organization", name: "Agent402", url: BASE_URL }, mainEntityOfPage: canonical, description: description.slice(0, 300) },
+    ],
+  }));
+});
+app.get("/api/reports/public/:publicId", (req, res) => {
+  if (sessionReadLimiter.check(clientIp(req)).limited) return res.status(429).json({ status: "error", error: "Too many requests, please slow down." });
+  const r = readPublicReport(String(req.params.publicId || ""));
+  if (!r) return res.status(404).json({ status: "not_found" });
+  res.set("Cache-Control", "public, max-age=300, stale-while-revalidate=900").json(r);
+});
 app.get("/api/reports/sample/:product", (req, res) => {
   const j = sampleJson(String(req.params.product || ""));
   if (!j) return res.status(404).json({ status: "not_found" });
@@ -2198,6 +2223,14 @@ if (humanCheckoutEnabled()) {
     app.get("/r/:sessionId", (req, res) => {
       import("./posthog.js").then(({ capturePostHogHumanFunnel }) => capturePostHogHumanFunnel({ step: "report_opened" })).catch(() => {});
       res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html").send(reportDeliveryPage(String(req.params.sessionId || ""), { baseUrl: BASE_URL, robots: "noindex, nofollow" }));
+    });
+    // The session id is the bearer: only its holder can publish or unpublish.
+    app.post("/api/r/:sessionId/public", express.json({ limit: "2kb" }), (req, res) => {
+      if (sessionReadLimiter.check(clientIp(req)).limited) return res.status(429).json({ status: "error", error: "Too many requests, please slow down." });
+      const r = _humanCheckout.setPublic(String(req.params.sessionId || ""), req.body?.public === true);
+      if (r.status !== "done") return res.status(r.status === "invalid" ? 400 : 404).json(r);
+      import("./posthog.js").then(({ capturePostHogHumanFunnel }) => capturePostHogHumanFunnel({ step: r.public ? "report_published" : "report_unpublished" })).catch(() => {});
+      res.set("Cache-Control", "no-store").json({ ...r, url: r.public ? `${BASE_URL}/reports/public/${r.publicId}` : null });
     });
     app.get("/api/r/:sessionId", async (req, res) => {
       if (sessionReadLimiter.check(clientIp(req)).limited) return res.status(429).json({ status: "error", error: "Too many requests, please slow down." });

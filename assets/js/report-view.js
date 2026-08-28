@@ -215,9 +215,11 @@
         dl +
         '<button class="btn btn-ghost" id="dl-json">Download all data (JSON)</button>' +
         '<a class="btn btn-ghost" id="copy-link" href="#">Copy link</a>' +
+        (s.sample !== true && s.publicView !== true && s.status === "done" ? '<button class="btn btn-ghost" id="mk-public">' + (s.public === true ? "Make private" : "Make public") + "</button>" : "") +
       "</div>" +
-      (s.sample === true
-        ? '<div class="keep-hint no-print">A real ' + esc(productLabel(s.kind)).toLowerCase() + ' generated for "' + esc(s.input) + '"' + (s.at ? " on " + esc(fmtDate(s.at)) : "") + (included.length ? ". Includes " + included.join(" · ") : "") + ". Every report is generated fresh at request time from live sources.</div>" +
+      (s.sample !== true && s.publicView !== true && s.public === true && s.publicId ? '<div class="keep-hint no-print" id="public-note">Public at <a href="/reports/public/' + esc(s.publicId) + '">' + esc(location.origin + "/reports/public/" + s.publicId) + "</a>. Anyone with that link can read it and search engines may index it; make it private again any time.</div>" : "") +
+      (s.sample === true || s.publicView === true
+        ? '<div class="keep-hint no-print">' + (s.publicView === true ? "A " + esc(productLabel(s.kind)).toLowerCase() + ' on "' + esc(s.input) + '" shared by its buyer' : "A real " + esc(productLabel(s.kind)).toLowerCase() + ' generated for "' + esc(s.input) + '"') + (s.at ? " on " + esc(fmtDate(s.at)) : "") + (included.length ? ". Includes " + included.join(" · ") : "") + ". Every report is generated fresh at request time from live sources.</div>" +
           '<form class="sample-buy no-print" id="sample-buy" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:14px 0 22px;">' +
             '<input id="sample-input" class="field" style="flex:1 1 240px;" placeholder="Your own ' + esc(inputNoun(s.kind)) + '" aria-label="Your own ' + esc(inputNoun(s.kind)) + '">' +
             '<button class="btn btn-primary" type="submit">Get this report, ' + "$" + esc(String(Math.round(s.priceUsd || 0))) + ' →</button>' +
@@ -261,6 +263,16 @@
     wireUpgrade();
 
     wireSampleBuy(s);
+    var mp = document.getElementById("mk-public");
+    if (mp) mp.addEventListener("click", async function () {
+      mp.disabled = true;
+      try {
+        var r = await fetch(api + encodeURIComponent(id) + "/public", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ public: s.public !== true }) });
+        var j = await r.json();
+        if (j && j.status === "done") { s.public = j.public; s.publicId = j.publicId || s.publicId; renderDone(s); return; }
+      } catch (e) { /* fall through */ }
+      mp.disabled = false;
+    });
     var pdf = document.getElementById("dl-pdf");
     if (pdf) pdf.addEventListener("click", function () { window.print(); });
 

@@ -2129,6 +2129,16 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   (counts). Same secret rule as the free alerts. `KIND_ALIAS` gained `dossier -> filing`, so dossier buyers get the filing
   watch in the ready email, the viewer upsell (`monitorMapJson` now carries alias keys) and the day-2 email; research and
   market-brief still have no monitor. Privacy: the card-purchase bullet names the two follow-ups and the refund email.
+- **Public reports (2026-08-28, day 4 of the reports bet; `scripts/test-public-reports.js` 18 in CI):** every `/r/<session>`
+  page is noindex with a generic card, so a paid report earned no link. Now the viewer's action bar carries "Make public" /
+  "Make private" (`POST /api/r/:sessionId/public {public}` - the session id is the only credential, whoever holds it bought
+  the report); `setPublic` mints an unguessable `rp_` id ONCE (revoking makes the link dead, re-publishing brings the SAME link
+  back), keeps `public/publicId/publishedAt` on the record and an `_public.json` index; module-level `readPublicReport` /
+  `listPublicReports` (human-checkout.js) serve `/reports/public/:publicId` + `/api/reports/public/:publicId` with or without
+  a Stripe engine (files on the volume) - indexable, own title/canonical/Report JSON-LD, the shared viewer in `publicView`
+  mode (buy box for the reader's own subject, like a sample), listed in `sitemap-reports.xml`, sessionReadLimiter on both.
+  The record never held buyer identity, so a public view leaks nothing. PostHog steps report_published / report_unpublished.
+  Privacy names the option.
 - **`/proof` + `GET /api/proof` (2026-08-27, `src/proof.js`, `proofFeed()` in sales-ledger):** receipts for the metered
   tier - the ledger now stores `quote_usd` (additive column) next to the settled `price_usd` on every metered sale
   (`recordSale({quoteUsd})` from the route binder's `req.__meteredQuoteUsd`), and the page shows aggregates plus ONE

@@ -57,6 +57,40 @@ import { sendReportReadyEmail } from "./email.js";
 // module scope: that registry imports every report kit, and this module is
 // imported by pages the kits do not know about.
 import { priceUsdFor as agentPriceUsdFor } from "./report-tiers.js";
+import { randomBytes } from "node:crypto";
+
+// ---- Public reports -------------------------------------------------------
+// A buyer may make a delivered report public: it gets a second, unguessable
+// id (rp_...) and is served indexable at /reports/public/<id> with its own
+// title and preview tags - the paid artifact becomes a page that can be
+// shared and linked, which /r/<session> deliberately never is. The session
+// id stays the only credential for the toggle (whoever holds it bought the
+// report); the public id reveals nothing about the session and is revocable.
+// These readers are module-level so the public routes serve with or without
+// a Stripe-configured engine (the records are files under the store dir).
+const PUBLIC_ID_RE = /^rp_[A-Za-z0-9_-]{12,24}$/;
+const PUBLIC_INDEX = (dir) => join(dir, "_public.json");
+export function readPublicReport(publicId, dir = DEFAULT_DIR()) {
+  if (typeof publicId !== "string" || !PUBLIC_ID_RE.test(publicId)) return null;
+  const idx = readJson(PUBLIC_INDEX(dir)) || {};
+  const sessionId = Object.hasOwn(idx, publicId) ? idx[publicId] : null;
+  if (!sessionId || !SESSION_RE.test(String(sessionId))) return null;
+  const rec = readJson(join(dir, `${sessionId}.json`));
+  if (!rec || rec.status !== "done" || rec.public !== true || rec.publicId !== publicId) return null;
+  const productKey = Object.keys(HUMAN_PRODUCTS).find((k) => HUMAN_PRODUCTS[k].slug === rec.slug) || null;
+  // Everything on a done record is the report itself; nothing buyer-identifying is stored on it.
+  return { status: "done", publicView: true, publicId, product: productKey, kind: rec.kind, slug: rec.slug, input: rec.input, title: rec.title, report: rec.report, sources: rec.sources || [], tables: rec.tables || [], ...(rec.images ? { images: rec.images } : {}), at: rec.at, publishedAt: rec.publishedAt || null, priceUsd: productKey ? HUMAN_PRODUCTS[productKey].price / 100 : null };
+}
+export function listPublicReports(dir = DEFAULT_DIR()) {
+  const idx = readJson(PUBLIC_INDEX(dir)) || {};
+  const out = [];
+  for (const [publicId, sessionId] of Object.entries(idx)) {
+    if (!PUBLIC_ID_RE.test(publicId) || !SESSION_RE.test(String(sessionId))) continue;
+    const rec = readJson(join(dir, `${sessionId}.json`));
+    if (rec && rec.status === "done" && rec.public === true && rec.publicId === publicId) out.push({ publicId, title: rec.title, kind: rec.kind, at: rec.publishedAt || rec.at });
+  }
+  return out;
+}
 
 const CARD_LADDER = [
   { maxAgentUsd: 0.60, cents: 200 },
@@ -378,9 +412,25 @@ export function createHumanCheckout({ stripe, generate, baseUrl, storeDir, onSal
     return null;
   }
 
+  // Buyer toggle: make a delivered report public (mint the public id once) or
+  // private again (the id stays reserved and dead: a revoked link never
+  // resolves, and a re-publish reuses it so old links work again).
+  function setPublic(sessionId, flag) {
+    if (typeof sessionId !== "string" || !SESSION_RE.test(sessionId)) return { status: "invalid" };
+    const rec = mem.get(sessionId) || readRec(sessionId);
+    if (!rec || rec.status !== "done") return { status: rec?.status || "not_found" };
+    const want = flag === true;
+    if (want && !rec.publicId) rec.publicId = `rp_${randomBytes(12).toString("base64url")}`;
+    rec.public = want;
+    if (want) rec.publishedAt = new Date(now()).toISOString();
+    writeRec(sessionId, rec);
+    if (rec.publicId) patchIndex(PUBLIC_INDEX(dir), rec.publicId, want ? sessionId : null);
+    return { status: "done", public: want, publicId: want ? rec.publicId : null };
+  }
+
   // Test/ops: number of records on disk (excluding indexes).
   function _count() { try { return readdirSync(dir).filter((f) => f.startsWith("cs_") && f.endsWith(".json")).length; } catch { return 0; } }
   function _reset() { try { for (const f of readdirSync(dir)) unlinkSync(join(dir, f)); } catch { /* ignore */ } mem.clear(); negative.clear(); }
 
-  return { createSession, fulfill, peek, recoverAbandoned, listIssues, _count, _reset };
+  return { createSession, fulfill, peek, recoverAbandoned, listIssues, setPublic, _count, _reset };
 }
