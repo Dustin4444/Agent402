@@ -213,8 +213,8 @@ export const CHAIN_PAGES = {
     settleLatency: "~1 second",
     facilitatorLabel: "PayAI",
     gasNote: "sponsored",
-    explorerUrl: "seitrace.com",
-    explorerWalletUrl: (wallet) => `https://seitrace.com/address/${wallet}?chain=pacific-1`,
+    explorerUrl: "seiscan.io",
+    explorerWalletUrl: (wallet) => `https://seiscan.io/address/${wallet}?chain=pacific-1`,
     networkParam: "sei",
     acceptNetwork: "eip155:1329",
     // Sei mainnet (pacific-1) CAIP-2 is "eip155:1329"; testnets are different

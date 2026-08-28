@@ -2020,6 +2020,21 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   14,910 rows) - and `unattributedMerchants` now reports `attributedUnroutable` (known origin, cannot route) separately from
   `unattributed` (unknown). Submitted-seed slots: 586 of the 2,000 cap in use (2026-08-27). test-settlement-proof 44.
 
+- **Chain/RPC sweep (2026-08-28, every endpoint probed live):** four dead-endpoint classes, two of them money paths failing
+  CLOSED. (1) `scripts/refund-run.js` had `polygon-rpc.com` as the ONLY Polygon RPC - Polygon shut it off 2026-07-31 (probe:
+  `tenant disabled`, 403), so every Polygon refund held unpaid; now `polygon-bor-rpc.publicnode.com`. (2) The same file pointed
+  Robinhood at `rpc.robinhoodchain.com`, which answers an EMPTY body; the host the rest of the repo uses is
+  `rpc.mainnet.chain.robinhood.com` (probe: chainId 0x1237). (3) EVERY `*.llamarpc.com` endpoint is dead (NXDOMAIN on
+  polygon/arbitrum/optimism, HTTP 521 HTML on base/eth - the HTML breaks JSON.parse and each entry costs a full timeout for
+  zero chance); purged from all ten files. (4) `seitrace.com` is down and de-listed by Sei's own docs; explorer links moved to
+  `seiscan.io` (the Sei RPC is fine). Also bumped the facilitator's `@stellar/stellar-sdk` 16.2.0 -> 16.3.0, which backports
+  the Protocol 28 XDR ahead of the mainnet vote on **2026-09-16** (pre-P28 SDKs fail to decode envelopes after it; 17.x is the
+  breaking line, do NOT take it while `@x402/stellar` pins `^16.0.1`). VERIFIED CLEAN and needing nothing: all eleven
+  stablecoin addresses and their EIP-712 domain pairs, each proven by recomputing `DOMAIN_SEPARATOR()` rather than trusting
+  `name()` (USDG's `version()` reverts and was resolved by brute force, so payments.js's "best-effort" domain comment is
+  actually verified), every chain id, and every registry we list on. Still to do: `mppx` >= 0.8.18 carries the UPSTREAM fix for
+  the yParity/canonical-hash bug `src/tempo-confirm.js` works around (our `^0.8.17` pin can never reach 0.9.x) - bump behind
+  the live Tempo canary, never a stub; Alchemy `getNFTSales` is removed 2026-09-30.
 - **AI-provider sweep (2026-08-28, live models JSON + provider deprecation pages):** four fixes. (1) The Messages wire relayed
   `top_k`/`temperature`/`top_p` verbatim, and models released after Claude Opus 4.6 (opus-4.7/4.8/5, sonnet-5) REFUSE top_k at
   any value, temperature != 1 and top_p < 0.99 - a bare upstream 400 to the buyer; we now refuse those ourselves with the
