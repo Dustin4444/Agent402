@@ -31,6 +31,7 @@ import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpend
 // not composite-spend-guarded (one bounded upstream price).
 import Stripe from "stripe";
 import { REPORT_TIERS } from "./report-tiers.js";
+import { verifyHintMiddleware } from "./verify-hint.js";
 import { mountShortlinks } from "./shortlinks.js";
 import { withHouseStyle } from "./house-style.js";
 import { createHumanCheckout, humanCheckoutEnabled, HUMAN_PRODUCTS, reportHeadline, readPublicReport } from "./human-checkout.js";
@@ -5077,6 +5078,10 @@ if (!FREE_MODE) {
     },
   });
   if (stripeAppender) app.use(stripeAppender);
+
+  // A 402 answered to a request that carried a payment header says WHY in the
+  // buyer's terms (balance short vs stale authorization) - src/verify-hint.js.
+  app.use(verifyHintMiddleware({ payerOf: payerFromRequest }));
 
   const mppShim = createMppShim({
     secretKey: process.env.MPP_SECRET_KEY || "",

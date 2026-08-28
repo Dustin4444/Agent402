@@ -447,7 +447,7 @@ export function capturePostHogChargedFailure({ slug, status, network, priceUsd, 
 // hour because one client's retry loop produced 1,500 an hour.
 const VERIFY_FAILED_HOURLY_CAP = 300;
 let _vfWindow = 0, _vfCount = 0;
-export function capturePostHogVerifyFailed({ network, scheme, resource, errorReason, synthetic }) {
+export function capturePostHogVerifyFailed({ network, scheme, resource, errorReason, synthetic, payerBalanceBucket }) {
   if (!active()) return;
   const hour = Math.floor(Date.now() / 3_600_000);
   if (hour !== _vfWindow) { _vfWindow = hour; _vfCount = 0; }
@@ -460,6 +460,7 @@ export function capturePostHogVerifyFailed({ network, scheme, resource, errorRea
     ...(path ? { path } : {}),
     synthetic: !!synthetic,
     ...(errorReason ? { errorReason: String(errorReason).slice(0, 200) } : {}),
+    ...(payerBalanceBucket ? { payerBalanceBucket: String(payerBalanceBucket) } : {}),
   });
 }
 
@@ -559,13 +560,16 @@ export function capturePostHogCompositeUsage({ slug, upstreamUsd, ok, priceUsd, 
   } catch { /* never throw */ }
 }
 
-export function capturePostHogGatewayUsage({ tier, model, priceUsd, upstreamUsd, promptTokens, completionTokens, serviceTier, serverToolCalls, serverToolSearches }) {
+export function capturePostHogGatewayUsage({ tier, model, priceUsd, upstreamUsd, promptTokens, completionTokens, serviceTier, serverToolCalls, serverToolSearches, defaulted }) {
   if (!active()) return;
   const price = Number(priceUsd) || 0;
   const upstream = Number(upstreamUsd) || 0;
   capture("gateway_usage", {
     tier: String(tier || "unknown"),
     model: String(model || ""),
+    // The caller named no model and the tier's default served (2026-08-28) -
+    // the measure of whether defaulting recovers real calls or only probes.
+    defaulted: !!defaulted,
     // Which OpenRouter service tier actually served ("flex" = the 50% tier,
     // "default" otherwise) - the measurement behind the flex-first policy.
     serviceTier: String(serviceTier || "default"),

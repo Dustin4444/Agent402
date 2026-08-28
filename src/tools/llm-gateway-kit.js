@@ -2681,6 +2681,7 @@ function makeHandler(tierSlug) {
         promptTokens: usage?.prompt_tokens, completionTokens: usage?.completion_tokens, serviceTier,
         serverToolCalls: usage?.server_tool_use_details?.tool_calls_executed ?? usage?.server_tool_use?.tool_calls_executed,
         serverToolSearches: usage?.server_tool_use_details?.web_search_requests ?? usage?.server_tool_use?.web_search_requests,
+        defaulted: !!body.__defaultedModel,
       }))
       .catch(() => { /* telemetry must never fail a served response */ });
     // Flex-eligible links are tried on the flex tier first, then default (see
@@ -2842,7 +2843,7 @@ const EXAMPLE_OUT = {
 
 const INPUT_SCHEMA = {
   properties: {
-    model: { type: "string", description: "Model id - OpenRouter form (openai/gpt-4o-mini) or bare OpenAI form (gpt-4o-mini). GET /v1/models lists the allowlist per tier." },
+    model: { type: "string", description: "Model id - OpenRouter form (openai/gpt-4o-mini) or bare OpenAI form (gpt-4o-mini). GET /v1/models lists the allowlist per tier. Optional: omit it and the tier serves its documented default (x402.defaultModel on /v1/models), named back in agent402_default_model; the price does not change" },
     messages: { type: "array", description: "OpenAI chat messages: [{role, content}] - text and image_url content blocks supported" },
     max_tokens: { type: "number", description: "Output token cap (clamped to the tier maximum)" },
     zdr: { type: "boolean", description: "Optional - true routes only to zero-data-retention providers (also accepted as provider.zdr). Same price; a model with no ZDR provider errors upstream and walks the failover chain." },

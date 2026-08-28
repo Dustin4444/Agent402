@@ -263,7 +263,7 @@ export function makeResponsesHandler(tierSlug) {
     const recordUsage = (usage, upstreamUsd, served, serviceTier) => import("../posthog.js")
       .then(({ capturePostHogGatewayUsage }) => capturePostHogGatewayUsage({
         tier: `${tierSlug}:responses`, model: served, priceUsd: quotedUsd ?? tier.price, upstreamUsd,
-        promptTokens: usage?.input_tokens, completionTokens: usage?.output_tokens, serviceTier,
+        promptTokens: usage?.input_tokens, completionTokens: usage?.output_tokens, serviceTier, defaulted: !!defaultedModel,
       })).catch(() => {});
     const attempts = flexAttempts(chain);
     const routerNote = isRouted ? { category: routedCategory, quality: routedQuality } : null;
@@ -359,7 +359,8 @@ function describe(tierSlug) {
     return `OpenAI Responses API billed per request from what the call costs: the 402 quotes exact-BPE input (instructions + input items + tools) plus your max_output_tokens at the model's list price, times ${METER_MARKUP}, never under $${METER_MIN_SETTLE_USD}; an upto (Permit2) or credits buyer settles actual usage under that quote. Point the OpenAI SDK's responses.create(), the OpenAI Agents SDK, or OpenAI Codex CLI's model_providers base_url at https://agent402.tools/v1/metered. Any model the flat tiers serve (GET /v1/models); function tools only; store is always false.`;
   }
   const base = `OpenAI Responses API over x402 - point the OpenAI SDK's responses.create() (or the OpenAI Agents SDK) at base_url https://agent402.tools${RESPONSES_PATH_BY_TIER[tierSlug].replace(/\/responses$/, "")} and pay ${priceString(tierSlug)} per call in USDC, no API key, no signup. Same models, caps and price as this tier's /chat/completions route; any model here is served through the Responses wire. Up to ${t.maxInputChars.toLocaleString("en-US")} input chars and ${t.maxTokens} output tokens; streaming supported; function tools yes, server-side tools (web_search, file_search, computer, mcp) no; no stored conversation state (send the full input each call).`;
-  return tierSlug === "v1-chat-auto" ? `${base} Omit "model" and the gateway routes the prompt to the top-ranked model for its task type; the response adds agent402_router {category, quality, served}.` : base;
+  const dflt = t.defaultModel ? ` Omit "model" and the tier serves ${t.defaultModel} (named back in agent402_default_model); the price does not change.` : "";
+  return tierSlug === "v1-chat-auto" ? `${base} Omit "model" and the gateway routes the prompt to the top-ranked model for its task type; the response adds agent402_router {category, quality, served}.` : base + dflt;
 }
 
 export const LLM_RESPONSES_TOOLS = Object.entries(RESPONSES_PATH_BY_TIER).map(([tierSlug, path]) => ({
