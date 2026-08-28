@@ -232,6 +232,9 @@ export function createHumanCheckout({ stripe, generate, baseUrl, storeDir, onSal
     if (input.length > 2000) { const e = new Error("Input is too long."); e.statusCode = 400; throw e; }
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
+      // Promotion codes are created in the Stripe dashboard (a first-report
+      // code, a partner code); the one-shot flow accepted none until 2026-08-28.
+      allow_promotion_codes: true,
       ...(String(process.env.STRIPE_AUTOMATIC_TAX || "").toLowerCase() === "true" ? { automatic_tax: { enabled: true } } : {}),
       line_items: [{
         quantity: 1,
