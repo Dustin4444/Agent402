@@ -1929,7 +1929,15 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   gunzip / html-strip (+4 each). Now a tool may declare curated `aliases` (scored exactly like the slug, max per term, never
   additive; carried by `buildLocalEntry`; asn-info: ip-geolocation, geoip, ip-lookup) and a term under three characters
   matches whole tokens only. Neutrality unchanged (no local boost, aliases are the tool's own declared names).
-  `scripts/test-route-aliases.js` (6, offline, in CI). When a common query routes past a tool we sell, add an alias, not a boost.
+  `scripts/test-route-aliases.js` (8, offline, in CI). When a common query routes past a tool we sell, add an alias, not a boost.
+  **The bigger defect found by sweeping every tool name through `/api/route` (538 queries):** an outside seller ranked FIRST for
+  250 of them, and for "json to csv" our own `json-to-csv` sat 23rd behind 22 equally scored, equally priced copies - the
+  2026-08-19 Bazaar-quality tie-break read local rows as ZERO payers (our origin is never in the index map), so any seller
+  with one Bazaar payer outranked our identical tool. Now a local row is measured under `SELF_BAZAAR_ORIGIN` when the feed
+  carries it, and when it does not the quality comparison is skipped for that pair (a missing measurement is not zero);
+  external-vs-external ordering is unchanged. Re-run the sweep after deploy (the recipe is a 20-line node loop over
+  `/api/pricing` endpoints -> `/api/route?q=<name>&top=3`) and expect the outside-first count to fall to genuine cases
+  (cheaper or better-matched sellers).
 - **`/why` = the one-page "what is different" surface (2026-08-26, `src/why.js`, `WHY_POINTS`):** seven first-party
   claims, each linked to the surface that proves it (usage priced under a quoted ceiling / upto settles actual; a failed call
   is never charged + keyed retries never pay twice + charged-but-failed is ledgered; one key buys models on three wires + 500+

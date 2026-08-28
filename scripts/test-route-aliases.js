@@ -24,5 +24,20 @@ ok(run("ip")[0] === "ip-info" && !run("ip").includes("gzip"), `a bare short term
 ok(run("qr code")[0] === "qr", "unrelated ranking unchanged");
 const scored = routeQuery({ query: "geoip ip-geolocation", top: 5, include: "local", baseUrl: "http://agent402.test", catalog, toolCount: 5 }).results[0];
 ok(scored.slug === "asn-info" && (scored.matched?.slug ?? 0) <= 20, "two alias hits are the max per term, never summed across aliases");
+// Bazaar-quality tie-break vs local rows (2026-08-28): an outside seller with
+// measured payers must not outrank our identical tool when OUR measurement is
+// missing; when ours is present the same metric applies to both sides.
+const { _setBazaarQualityForTest, _cacheForTests } = await import("../src/x402-index.js");
+const cache = _cacheForTests(); cache.clear();
+cache.set("https://ext.example", { manifest: { name: "ext", homepage: "https://ext.example" }, openapiSummary: null, tools: [{ seller: "https://ext.example", method: "POST", route: "/api/json-to-csv", slug: "json-to-csv", name: "JSON to CSV", description: "Convert JSON to CSV.", category: "data", tags: [], price: 0.002 }], fetchedAt: Date.now(), error: null, history: [1, 1, 1, 1, 1] });
+const ctx = { baseUrl: "https://agent402.tools", catalog: { "POST /api/json-to-csv": { name: "JSON to CSV", slug: "json-to-csv", category: "data", price: "$0.002", description: "Convert JSON to CSV." } }, prices: { "json-to-csv": 0.002 }, network: "base", toolCount: 1, walletName: "agent402.base.eth" };
+_setBazaarQualityForTest("https://ext.example", { calls30d: 100, payers30d: 9, lastCalledAt: null });
+_setBazaarQualityForTest("https://agent402.tools", null);
+const r1 = routeQuery({ query: "json to csv", top: 3, include: "all", ...ctx }).results;
+ok(r1[0]?.seller === "agent402.tools" || r1[0]?.seller === "self" || !String(r1[0]?.seller || "").startsWith("https://"), `an outside seller's Bazaar payers never outrank our identical tool when ours is unmeasured (first: ${r1[0]?.seller})`);
+_setBazaarQualityForTest("https://agent402.tools", { calls30d: 10, payers30d: 1, lastCalledAt: null });
+const r2 = routeQuery({ query: "json to csv", top: 3, include: "all", ...ctx }).results;
+ok(r2[0]?.seller === "https://ext.example", `with our own measurement present the same metric ranks both sides (first: ${r2[0]?.seller})`);
+_setBazaarQualityForTest("https://agent402.tools", null); _setBazaarQualityForTest("https://ext.example", null); cache.clear();
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

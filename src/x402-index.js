@@ -67,6 +67,7 @@ const NETWORK_MATCHERS = new Map(RAILS.map((r) => {
 }));
 
 const LOCAL_SELLER = "self";
+const SELF_BAZAAR_ORIGIN = "https://agent402.tools"; // the origin our Bazaar listing is keyed under
 // /index used to render every crawled seller server-side (~1,477 rows → a
 // 475KB response with no compression). Cap the default render to the top N
 // by whatever metric the page is currently sorted on; ?all=1 opts back into
@@ -3589,14 +3590,28 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
   // price (unknown ranks last among equals — see priceRank); then shorter
   // slug. Health is the strongest tiebreak after match score because a
   // cheap-but-flaky seller is worse than a slightly pricier reliable one.
+  const selfQuality = (bazaarQualityFor(baseUrl) || bazaarQualityFor(SELF_BAZAAR_ORIGIN))?.payers30d ?? null;
   scored.sort((a, b) => {
     if (b[0] !== a[0]) return b[0] - a[0];
     if (b[1].health !== a[1].health) return b[1].health - a[1].health;
     // Coinbase-measured 30-day unique payers (Bazaar quality): a seller more
     // wallets actually paid this month ranks ahead of an equally-matched,
-    // equally-healthy one nobody has. Local rows carry none (equal).
-    const qa = bazaarQualityFor(a[1].seller)?.payers30d || 0, qb = bazaarQualityFor(b[1].seller)?.payers30d || 0;
-    if (qb !== qa) return qb - qa;
+    // equally-healthy one nobody has. A LOCAL row is measured under our own
+    // Bazaar origin when the feed carries it; when it does not, the comparison
+    // is SKIPPED for that pair (a missing measurement is not zero). Before
+    // 2026-08-28 local rows read as zero payers, so any outside seller with
+    // one Bazaar payer outranked our identical tool: json-to-csv sat 23rd on
+    // our own router for "json to csv" behind twenty-two equally scored,
+    // equally priced copies of it.
+    const aLocal = a[1].seller === LOCAL_SELLER, bLocal = b[1].seller === LOCAL_SELLER;
+    if (aLocal || bLocal) {
+      const qa = aLocal ? selfQuality : (bazaarQualityFor(a[1].seller)?.payers30d ?? null);
+      const qb = bLocal ? selfQuality : (bazaarQualityFor(b[1].seller)?.payers30d ?? null);
+      if (qa != null && qb != null && qb !== qa) return qb - qa;
+    } else {
+      const qa = bazaarQualityFor(a[1].seller)?.payers30d || 0, qb = bazaarQualityFor(b[1].seller)?.payers30d || 0;
+      if (qb !== qa) return qb - qa;
+    }
     if (a[3] !== b[3]) return a[3] - b[3];
     return (a[1].slug || "").length - (b[1].slug || "").length;
   });
