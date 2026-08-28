@@ -271,26 +271,63 @@ jobs:
       # open/close pattern as the gateway-credits alarm. A missing/unparseable
       # field is logged LOUDLY and never silently treated as "fine" — a silent
       # skip is exactly what kept the charged-failure alarm dead for months.
-      - name: PayAI settlement quota watch (10k/month free tier)
+      - name: PayAI settlement quota watch (1k/month free tier)
         if: always()
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-          THRESH: ${{ vars.PAYAI_QUOTA_WARN || 8000 }}
+          THRESH: ${{ vars.PAYAI_QUOTA_WARN || 800 }}
         run: |
           CUT=$(date -u -d '30 days ago' +%F)
           COUNT=$(curl -s --max-time 20 "$PROD/api/revenue/daily" | jq -e --arg cut "$CUT"             '[.days[] | select(.day >= $cut) | select(.chain=="solana" or .chain=="polygon" or .chain=="arbitrum" or .chain=="avalanche") | (.extTx + .intTx)] | add // 0')             || { echo "::warning::PayAI quota watch UNREADABLE — /api/revenue/daily missing or unparseable. NOT skipping silently: investigate."; exit 0; }
-          echo "PayAI-chain settles, rolling 30d: $COUNT / 10000 (warn at $THRESH)"
+          echo "PayAI-chain settles, rolling 30d: $COUNT / 1000 free (warn at $THRESH)"
           TITLE="PayAI settlement quota HIGH"
           OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
           if [ "$COUNT" -ge "$THRESH" ]; then
             if [ -z "$OPEN" ]; then
               gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "Rolling 30-day settlements on PayAI-settled chains (Solana/Polygon/Arbitrum/Avalanche) reached $COUNT of the 10,000/month free tier (warn threshold $THRESH). If the cap is hit, PayAI rejects settles and those rails go dark — the settle-fallback chain (Solvador) catches clean rejections, but the durable fixes are PAYAI_API_KEY_ID/SECRET (authenticated tier, merchant.payai.network) or shifting canary volume. Count is on-chain settles (ext+int) from /api/revenue/daily — a lower bound, rejected settles may also meter."
             else
-              gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "Still high: $COUNT / 10000 at $(date -u +%FT%TZ)."
+              gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "Still high: $COUNT / 1000 free at $(date -u +%FT%TZ)."
             fi
           elif [ -n "$OPEN" ]; then
             gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: rolling 30-day count back to $COUNT (below $THRESH) at $(date -u +%FT%TZ)."
+          fi
+
+      # CDP settlement metering watch. Measured 2026-08-28: 3,677 settlements
+      # in 30 days on the chains CDP is tried FIRST for (Base, Solana, Polygon,
+      # Arbitrum) against a documented 1,000/month free tier, so the account is
+      # metered and has been for a while. That is a few dollars a month, not a
+      # problem, but nothing was watching the BIG rail while a step watched the
+      # small one, and CDP's billing gate answers `payment-method-required` on
+      # /settle when an account cannot be charged - which would take Base down.
+      # Informational at CDP_METERED_WARN (default 20,000 = ~$20/month); the
+      # real alarm for a billing lapse is the paid canary failing a rail leg.
+      - name: CDP settlement metering watch (1k/month free, then $0.001/tx)
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          THRESH: ${{ vars.CDP_METERED_WARN || 20000 }}
+        run: |
+          CUT=$(date -u -d '30 days ago' +%F)
+          COUNT=$(curl -s --max-time 20 "$PROD/api/revenue/daily" | jq -e --arg cut "$CUT" \
+            '[.days[] | select(.day >= $cut) | select(.chain=="base" or .chain=="solana" or .chain=="polygon" or .chain=="arbitrum") | (.extTx + .intTx)] | add // 0' 2>/dev/null || echo "unreadable")
+          if [ "$COUNT" = "unreadable" ]; then
+            echo "WARNING: CDP metering count unreadable from /api/revenue/daily - not treating that as fine"
+            exit 0
+          fi
+          BILLED=$(( COUNT > 1000 ? COUNT - 1000 : 0 ))
+          echo "CDP-first-chain settles, rolling 30d: $COUNT (1000 free, ~$BILLED billed at \$0.001 = \$$(( BILLED / 1000 )).$(printf '%03d' $(( BILLED % 1000 ))))"
+          TITLE="CDP settlement metering HIGH"
+          OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          if [ "$COUNT" -ge "$THRESH" ]; then
+            if [ -z "$OPEN" ]; then
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "Rolling 30-day settlements on CDP-first chains (Base/Solana/Polygon/Arbitrum): $COUNT, of which ~$BILLED are billed at \$0.001 each beyond the 1,000/month free tier. Check the CDP account has a working payment method: a billing lapse answers payment-method-required on /settle and takes the Base rail down. Threshold: repo var CDP_METERED_WARN."
+            else
+              gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "Still high: $COUNT settles, ~$BILLED billed, at $(date -u +%FT%TZ)."
+            fi
+          elif [ -n "$OPEN" ]; then
+            gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: rolling 30-day count back to $COUNT at $(date -u +%FT%TZ)."
           fi
 
       # x402 spending-wallet check — same pattern as gateway credits above:

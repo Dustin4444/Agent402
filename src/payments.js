@@ -1523,9 +1523,20 @@ export function registerFacilitatorFailureHooks(server, payAiClient, solvadorCli
     );
   }
   server.onSettleFailure(async (ctx) => {
+    const failure = summarizeFacilitatorError(ctx?.error);
+    // A facilitator QUOTA refusal is not an outage and must not read as one:
+    // PayAI answers 403 free_tier_exhausted once the free monthly settlements
+    // are spent (1,000 per receiving wallet). Say so in the log so the alarm
+    // and the operator reach for credits, not for a status page.
+    if (/free_tier_exhausted|quota[_ ]exceeded|payment[_ ]required.*credit/i.test(failure)) {
+      console.warn(
+        `[payments] facilitator QUOTA exhausted on ${ctx?.requirements?.network} ` +
+          `${ctx?.requirements?.scheme}: ${failure} - top up the facilitator account; this is billing, not an outage`
+      );
+    }
     console.warn(
       `[payments] facilitator SETTLE failed on ${ctx?.requirements?.network} ` +
-        `${ctx?.requirements?.scheme}: ${summarizeFacilitatorError(ctx?.error)}`
+        `${ctx?.requirements?.scheme}: ${failure}`
     );
     if (!fallbackEnabled) return;
     if (!isPreBroadcastSettleRejection(ctx?.error)) return;
@@ -1670,7 +1681,9 @@ async function resolvePayAIFacilitatorConfig() {
     console.log("Facilitator (Solana): PayAI (authenticated)");
     return createFacilitatorConfig(process.env.PAYAI_API_KEY_ID, process.env.PAYAI_API_KEY_SECRET);
   }
-  // PayAI free tier: 10,000 settlements/month, no API key needed.
+  // PayAI free tier: 1,000 settlements/month per receiving wallet, no API
+  // key needed; past that /settle answers 403 free_tier_exhausted and the
+  // account bills $0.001/tx from prepaid credits (docs read 2026-08-28).
   const { facilitator } = await import("@payai/facilitator");
   console.log("Facilitator (Solana): PayAI (free tier)");
   return facilitator;
