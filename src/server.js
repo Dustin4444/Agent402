@@ -1361,13 +1361,13 @@ app.get("/alerts/confirm", (req, res) => {
   const r = _freeAlerts.confirm(String(req.query.id || ""), String(req.query.k || ""));
   res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html");
   if (!r.ok) return res.status(400).send(alertPage("That link did not work", `<p>The confirmation link is invalid or the alert was unsubscribed. <a href="/reports">Back to reports</a>.</p>`));
-  res.send(alertPage("Alert confirmed", `<p>You will get an email when there are new ${esc(ALERT_KIND_LABEL(r.kind, r.target))}. One a day at most, only when something changes.</p><p><a href="/monitors?product=${encodeURIComponent(r.product)}&target=${encodeURIComponent(r.target)}">Want the full report re-run and emailed automatically?</a></p><p><a href="/reports">Back to reports</a></p>`));
+  res.send(alertPage("Alert confirmed", `<p>You will get an email when there are new ${escHtml(ALERT_KIND_LABEL(r.kind, r.target))}. One a day at most, only when something changes.</p><p><a href="/monitors?product=${encodeURIComponent(r.product)}&target=${encodeURIComponent(r.target)}">Want the full report re-run and emailed automatically?</a></p><p><a href="/reports">Back to reports</a></p>`));
 });
 app.get("/alerts/unsubscribe", (req, res) => {
   const r = _freeAlerts.unsubscribe(String(req.query.id || ""), String(req.query.k || ""));
   res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html");
   if (!r.ok) return res.status(400).send(alertPage("That link did not work", `<p>The unsubscribe link is invalid. <a href="/contact">Contact us</a> and we will remove you by hand.</p>`));
-  res.send(alertPage("Unsubscribed", `<p>No more emails about ${esc(r.target)}. <a href="/reports">Back to reports</a></p>`));
+  res.send(alertPage("Unsubscribed", `<p>No more emails about ${escHtml(r.target)}. <a href="/reports">Back to reports</a></p>`));
 });
 // One-click unsubscribe (RFC 8058): mail clients POST the List-Unsubscribe URL.
 app.post("/alerts/unsubscribe", (req, res) => { const r = _freeAlerts.unsubscribe(String(req.query.id || ""), String(req.query.k || "")); res.status(r.ok ? 200 : 400).json({ ok: r.ok }); });
