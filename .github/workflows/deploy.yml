@@ -3517,6 +3517,12 @@ jobs:
           t node scripts/test-sample-reports.js
           # openFDA 404 = no matches, an empty result: recall-report must not 502 on it (offline)
           t node scripts/test-recall-nomatch.js
+          # Free email alerts engine: double opt-in, signed links, change-only daily email, caps (offline)
+          t node scripts/test-free-alerts.js
+          # Post-purchase follow-ups: two emails at most, stoppable, failure notice (offline)
+          t node scripts/test-followups.js
+          # Public reports: buyer toggle by session id, unguessable public id, indexable page, revocable (boots FREE_MODE)
+          t node scripts/test-public-reports.js
           # OWN LANE on purpose. This single step ran 254s - 42% of the unit-a
           # lane, and unit-a was the slowest of the three, so it was 42% of the
           # critical path. It rebuilds a max-size dense-CJK body and BPE-tokenizes

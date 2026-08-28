@@ -14,6 +14,7 @@ import { HUMAN_PRODUCTS } from "./human-checkout.js";
 import { MONITOR_PRODUCTS } from "./stripe-subscriptions.js";
 import { priceUsdFor } from "./report-tiers.js";
 import { samplePaths } from "./sample-reports.js";
+import { listPublicReports } from "./human-checkout.js";
 
 /** The llms.txt "finished reports" paragraph, DERIVED from the live catalog
  *  (route + price per slug) and the product tables (card + monitor prices),
@@ -60,7 +61,8 @@ const BOOT_DATE = new Date().toISOString().slice(0, 10);
 // resolves on EDGAR, but a sitemap that enumerated an open URL space would
 // invite crawlers to mint upstream requests forever. The hub pages get a
 // higher priority than the entity pages that hang off them.
-const programmaticUrls = (baseUrl) => [...samplePaths().map((p) => ({ loc: `${baseUrl}${p}`, priority: "0.8" })), ...seededProgrammaticPaths().map((p) => ({ loc: `${baseUrl}${p}`, priority: p.split("/").length === 3 ? "0.8" : "0.6" }))];
+const publicReportUrls = (baseUrl) => { try { return listPublicReports().map((r) => ({ loc: `${baseUrl}/reports/public/${r.publicId}`, priority: "0.6" })); } catch { return []; } };
+const programmaticUrls = (baseUrl) => [...samplePaths().map((p) => ({ loc: `${baseUrl}${p}`, priority: "0.8" })), ...publicReportUrls(baseUrl), ...seededProgrammaticPaths().map((p) => ({ loc: `${baseUrl}${p}`, priority: p.split("/").length === 3 ? "0.8" : "0.6" }))];
 
 export function robotsTxt(baseUrl) {
   // Explicitly welcome AI/agent crawlers and search engines; point them at the

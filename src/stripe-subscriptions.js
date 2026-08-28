@@ -50,6 +50,11 @@ export const MONITOR_PRODUCTS = {
     inputField: "ticker", inputLabel: "a US stock ticker",
     blurb: "We watch Form 4 filings against this company every day and email you a fresh insider-flow report - buys, sells, who and how much - each time a new filing lands.",
   },
+  "research-monitor": {
+    label: "Research question watch", price: 500, kind: "research", slug: "research",
+    inputField: "query", inputLabel: "your research question",
+    blurb: "Your question researched again every week from live sources: a fresh, fully cited deep-research report in your inbox, so you see what changed since last time. The same report sold at /reports, run on a schedule.",
+  },
   "ipo-monitor": {
     label: "IPO pipeline watch", price: 500, kind: "ipo", slug: "ipo-report",
     inputField: "keyword", inputLabel: "a keyword in the filer's name, or \"all\"",

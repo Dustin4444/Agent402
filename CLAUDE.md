@@ -2102,6 +2102,51 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   email capture + post-purchase sequence (one transactional email exists, no list), a shareable/public report option (every
   /r/ page is noindex + generic OG, so the paid artifact has no backlink surface), monitors for research/dossier kinds,
   seed expansion, a first-report promo. Weekly number for this bet: card sales + `human_funnel` conversion, not x402scan rank.
+- **Free email alerts = the lead magnet on the free report pages (2026-08-28, day 2 of the reports bet; `src/free-alerts.js`,
+  `assets/js/alert-signup.js`, `scripts/test-free-alerts.js` 35 in CI):** a visitor on `/reports/insider/<T>`, `/reports/fund/<m>`,
+  `/reports/dossier/<T>` or a sample report enters an email; we watch that one target with the SAME free daily probe the paid
+  monitors use (insider `probeInsiderFilings`, filing `probeCompanyFilings`, fund `resolveManager`+`latest13fFiling`, domain
+  `probeDomain` fingerprint, recall `probeRecalls`; adapters in server.js return `{ids, items}`) and email ONLY on new ids, at most
+  once a day, with the free page + buy CTA + the matching monitor upsell + a signed unsubscribe link (`List-Unsubscribe` header
+  on Resend). Rules in code: DOUBLE OPT-IN (a signed `/alerts/confirm?id&k` link; nothing probed or sent before it; a signup
+  whose confirmation email cannot be sent is refused 503 and not stored), `MAX_PER_EMAIL` 5, `MAX_STORE` 5000, pending TTL 3
+  days, 5 failures then back-off, probe cap 200/tick, tick every 6h (first +5 min), store `/data/free-alerts.json` (atomic),
+  honeypot field + `alerts-signup` limiter 6/min at `POST /api/alerts`, `POST /alerts/unsubscribe` for RFC 8058 one-click,
+  operator `GET /__operator/alerts.json` (counts only) + `POST /__operator/alerts/run?force=1`. Secret = `FREE_ALERTS_SECRET` ||
+  `POW_SECRET` || `MPP_SECRET_KEY` (none = signup 503; prod has POW_SECRET). `FREE_ALERTS=off` disarms the timer. PostHog
+  `human_funnel` steps alert_signup / alert_confirmed / alert_sent / alert_unsubscribed, client `alert_signup_click`. Privacy +
+  terms carry the alert clauses ("No account or signup" became "No account"). Sample-page mapping `ALERT_KIND_FOR_REPORT_KIND`
+  (dossier -> filing). `sendEmail` takes an optional `headers` object (Resend only; ZeptoMail's documented body has none, the
+  body link is the guarantee).
+- **Post-purchase follow-ups (2026-08-28, day 3 of the reports bet; `src/followups.js`, `scripts/test-followups.js` 19 in CI):**
+  a card buyer used to get one email ever. Now `createHumanCheckout` takes `onDelivered` (fires at the done hook with the
+  session email, never stored on the record) and `onFailed` (the refund path); server.js enqueues a two-step sequence per
+  purchase - day 2 the monitor for the SAME target (skipped silently for kinds with no monitor), day 7 "another report?" with
+  the free sample pages - and sends the failure/refund notice at once. Every follow-up carries a signed
+  `/followups/stop?id&k` link + `List-Unsubscribe` (RFC 8058 POST too); a repeat buyer's older sequence stops
+  (`markRepeat`); a mail failure leaves the step pending, never marked sent; store `/data/followups.json` (atomic, pruned
+  after 30 days when done); hourly tick (first +3 min); `FOLLOWUPS=off` disarms; operator `/__operator/followups.json`
+  (counts). Same secret rule as the free alerts. `KIND_ALIAS` gained `dossier -> filing`, so dossier buyers get the filing
+  watch in the ready email, the viewer upsell (`monitorMapJson` now carries alias keys) and the day-2 email; research and
+  market-brief still have no monitor. Privacy: the card-purchase bullet names the two follow-ups and the refund email.
+- **Public reports (2026-08-28, day 4 of the reports bet; `scripts/test-public-reports.js` 18 in CI):** every `/r/<session>`
+  page is noindex with a generic card, so a paid report earned no link. Now the viewer's action bar carries "Make public" /
+  "Make private" (`POST /api/r/:sessionId/public {public}` - the session id is the only credential, whoever holds it bought
+  the report); `setPublic` mints an unguessable `rp_` id ONCE (revoking makes the link dead, re-publishing brings the SAME link
+  back), keeps `public/publicId/publishedAt` on the record and an `_public.json` index; module-level `readPublicReport` /
+  `listPublicReports` (human-checkout.js) serve `/reports/public/:publicId` + `/api/reports/public/:publicId` with or without
+  a Stripe engine (files on the volume) - indexable, own title/canonical/Report JSON-LD, the shared viewer in `publicView`
+  mode (buy box for the reader's own subject, like a sample), listed in `sitemap-reports.xml`, sessionReadLimiter on both.
+  The record never held buyer identity, so a public view leaks nothing. PostHog steps report_published / report_unpublished.
+  Privacy names the option.
+- **Research question watch + storefront samples strip (2026-08-28, day 5 of the reports bet):** `research-monitor` ($5/mo,
+  kind `research`, slug `research`, target = the question, validator 12-300 chars) - the last report kind with no upsell; there
+  is no cheap probe for "did the answer change", so the product IS the weekly re-run: `processResearch` in monitor-scheduler
+  (welcome on first sight, a fresh paid run every `RESEARCH_RERUN_MS` 7 days with the "scheduled" email, the 30-day cap of 4
+  holds a fifth weekly run as "checked" until old runs age out; measured research cost ~$0.11/run so 4 runs <= $0.44 against
+  the $4.56 net fee). market-brief (kind research) inherits the upsell; only `linkedin-article` has none now (pinned in
+  test-report-upgrade). One-shot Checkout accepts Stripe promotion codes (`allow_promotion_codes: true`; codes are created in
+  the dashboard). `/reports` hero carries a "read a real one first" strip built from `SAMPLES`. test-monitor-scheduler 56.
 - **`/proof` + `GET /api/proof` (2026-08-27, `src/proof.js`, `proofFeed()` in sales-ledger):** receipts for the metered
   tier - the ledger now stores `quote_usd` (additive column) next to the settled `price_usd` on every metered sale
   (`recordSale({quoteUsd})` from the route binder's `req.__meteredQuoteUsd`), and the page shows aggregates plus ONE
