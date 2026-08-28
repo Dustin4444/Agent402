@@ -30,7 +30,7 @@ import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpend
 // composites (settle-after on SVM/AVM/Tempo is work done, never charged), but
 // not composite-spend-guarded (one bounded upstream price).
 import Stripe from "stripe";
-import { createHumanCheckout, humanCheckoutEnabled, HUMAN_PRODUCTS, readPublicReport } from "./human-checkout.js";
+import { createHumanCheckout, humanCheckoutEnabled, HUMAN_PRODUCTS, reportHeadline, readPublicReport } from "./human-checkout.js";
 import { humanReportsPage, reportDeliveryPage } from "./human-reports-page.js";
 import { createStripeSubscriptions, subscriptionsEnabled, MONITOR_PRODUCTS } from "./stripe-subscriptions.js";
 import { createMppSubscriptions, mppSubscriptionsEnabled, subscriptionFeePayerStatus } from "./mpp-subscriptions.js";
@@ -320,7 +320,7 @@ import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledg
 import { x402EconomySnapshot, economySnapshotCached } from "./x402-economy.js";
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate } from "./settlement-proof.js";
 import { spend as sharedSpend, refund as sharedRefund, sharedLimitEnabled } from "./shared-limit.js";
-import { recordSale, salesSummary, mppSales, mppTxHashes, txFromPaymentResponse, tempoDailyRevenue, tempoDailyRecordingSince, proofFeed } from "./sales-ledger.js";
+import { recordSale, salesSummary, mppSales, cardSales, mppTxHashes, txFromPaymentResponse, tempoDailyRevenue, tempoDailyRecordingSince, proofFeed } from "./sales-ledger.js";
 import { recordShadowSettlement, startShadowLedger, shadowLedgerReport, shadowLedgerEnabled } from "./stripe-shadow-ledger.js";
 import { reconcileSettlements } from "./settlement-reconcile.js";
 import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
@@ -1887,13 +1887,14 @@ app.get("/reports/public/:publicId", (req, res) => {
   if (!r) return notFoundPage(res, { what: "Public report", href: "/reports", label: "All reports" });
   const canonical = `${BASE_URL}/reports/public/${r.publicId}`;
   const label = HUMAN_PRODUCTS[r.product]?.label || "report";
+  const headline = reportHeadline(r, label);
   const description = `A ${label.toLowerCase()} on "${r.input}" from Agent402, shared by its buyer: ${r.sources.length} cited sources, ${r.tables.length} data tables. Read it free, then get one for your own subject.`;
   htmlCache(res, 300, 900).send(reportDeliveryPage(r.publicId, {
     api: "/api/reports/public/", baseUrl: BASE_URL, robots: "index, follow, max-image-preview:large", waitCopy: "Loading the report.", note: "",
-    title: `${r.title}`, description, canonical,
+    title: headline, description, canonical,
     jsonLd: [
-      { "@type": "BreadcrumbList", itemListElement: [{ "@type": "ListItem", position: 1, name: "Agent402", item: `${BASE_URL}/` }, { "@type": "ListItem", position: 2, name: "Reports", item: `${BASE_URL}/reports` }, { "@type": "ListItem", position: 3, name: r.title, item: canonical }] },
-      { "@type": "Report", "@id": `${canonical}#report`, headline: r.title, name: r.title, about: r.input, isAccessibleForFree: true, ...(r.at ? { datePublished: r.at } : {}), author: { "@type": "Organization", name: "Agent402", url: BASE_URL }, publisher: { "@type": "Organization", name: "Agent402", url: BASE_URL }, mainEntityOfPage: canonical, description: description.slice(0, 300) },
+      { "@type": "BreadcrumbList", itemListElement: [{ "@type": "ListItem", position: 1, name: "Agent402", item: `${BASE_URL}/` }, { "@type": "ListItem", position: 2, name: "Reports", item: `${BASE_URL}/reports` }, { "@type": "ListItem", position: 3, name: headline, item: canonical }] },
+      { "@type": "Report", "@id": `${canonical}#report`, headline, name: headline, about: r.input, isAccessibleForFree: true, ...(r.at ? { datePublished: r.at } : {}), author: { "@type": "Organization", name: "Agent402", url: BASE_URL }, publisher: { "@type": "Organization", name: "Agent402", url: BASE_URL }, mainEntityOfPage: canonical, description: description.slice(0, 300) },
     ],
   }));
 });
@@ -2053,7 +2054,7 @@ app.get("/api/revenue/mpp", (req, res) => {
 app.get("/revenue", async (_req, res) => {
   try {
     const snap = await revenueSnapshot(revenueWallets());
-    res.set("Cache-Control", "public, max-age=30").type("html").send(revenuePage(BASE_URL, { ...snap, allTime: ledgerSummary(revenueWallets()), mpp: mppSales({ detailed: false }), agents: ledgerBuyerConcentration(revenueWallets()) }));
+    res.set("Cache-Control", "public, max-age=30").type("html").send(revenuePage(BASE_URL, { ...snap, allTime: ledgerSummary(revenueWallets()), mpp: mppSales({ detailed: false }), card: cardSales({ days: 30 }), agents: ledgerBuyerConcentration(revenueWallets()) }));
   } catch (e) {
     if (e?.snapshotWarming) {
       res.status(200).type("html").send('<!doctype html><meta http-equiv="refresh" content="6"><title>Transactions</title><body style="font-family:system-ui,sans-serif;max-width:560px;margin:12vh auto;padding:0 24px;color:#14201b"><h2 style="font-weight:500">Warming up…</h2><p style="color:#5d675f">The live on-chain transaction view is loading for the first time since a deploy. It refreshes here automatically in a few seconds.</p><p><a href="/" style="color:#15654a">Home</a></p></body>');

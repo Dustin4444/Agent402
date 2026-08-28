@@ -14,7 +14,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { HUMAN_PRODUCTS } from "./human-checkout.js";
+import { HUMAN_PRODUCTS, reportHeadline } from "./human-checkout.js";
 
 const DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "samples");
 
@@ -38,7 +38,7 @@ export const SAMPLES = (() => {
         slug: p.slug,
         label: p.label,
         input: String(j.input || ""),
-        title: String(j.title || j.input || p.label),
+        title: reportHeadline({ report: j.report, title: j.title, input: j.input }, p.label),
         report: j.report,
         sources: Array.isArray(j.sources) ? j.sources : [],
         tables: Array.isArray(j.tables) ? j.tables : [],

@@ -70,6 +70,23 @@ import { randomBytes } from "node:crypto";
 // a Stripe-configured engine (the records are files under the store dir).
 const PUBLIC_ID_RE = /^rp_[A-Za-z0-9_-]{12,24}$/;
 const PUBLIC_INDEX = (dir) => join(dir, "_public.json");
+// The page title of a report, for EVERY kind: the report's own H1 when the
+// markdown carries one (every kit writes one: "Domain Security Audit: x",
+// "NVIDIA CORP (NVDA): Company Due-Diligence Dossier", a research question),
+// else the product label and the subject. A record's stored `title` is often
+// just the buyer's input ("havok.holdings"), which is not a page title.
+export function reportHeadline(r, label) {
+  const m = /^#\s+(.+?)\s*$/m.exec(String(r?.report || "").slice(0, 4000));
+  let h1 = m ? m[1].replace(/[*_`]/g, "").replace(/\s*[\u2014\u2013]\s*/g, ": ").replace(/\s+/g, " ").trim() : "";
+  // House style: no em or en dashes in anything a person reads; an all-caps
+  // heading (the fund report writes one) is title-cased, tickers and codes
+  // (parenthesised, or carrying a digit) kept as written.
+  if (h1 && !/[a-z]/.test(h1)) h1 = h1.replace(/[A-Z][A-Z']*/g, (w, i, str) => (/\d/.test(w) || str[i - 1] === "(" ? w : w[0] + w.slice(1).toLowerCase()));
+  if (h1) return h1;
+  const lab = String(label || HUMAN_PRODUCTS[r?.product]?.label || "Report");
+  const t = String(r?.title || r?.input || "").trim();
+  return t ? `${lab}: ${t}` : lab;
+}
 export function readPublicReport(publicId, dir = DEFAULT_DIR()) {
   if (typeof publicId !== "string" || !PUBLIC_ID_RE.test(publicId)) return null;
   const idx = readJson(PUBLIC_INDEX(dir)) || {};

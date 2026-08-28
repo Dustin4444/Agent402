@@ -432,6 +432,23 @@ export function mppSales({ limit = 30, detailed = false } = {}) {
  *  - detailed:true (OPERATOR ONLY): the itemized rows. Never wire this to a
  *    public route; it lives behind the operator token at /__operator/sales.json.
  */
+// Card revenue (Stripe checkout, subscription invoices, prepaid credits spend):
+// external only, counts and dollars, for the /revenue page. The page rendered
+// only the on-chain wires until 2026-08-28, so a $2 card sale in the ledger
+// never appeared on it. Last-sale time is truncated to the hour (no per-buyer
+// timing), like the metered proof feed.
+const qCard = db.prepare(`
+  SELECT COUNT(*) AS n, COALESCE(SUM(price_usd), 0) AS usd, MAX(ts) AS last_ts
+  FROM sales WHERE internal = 0 AND rail IN ('card', 'credits') AND ts >= ?`);
+const qCardSubs = db.prepare(`
+  SELECT COUNT(*) AS n FROM sales WHERE internal = 0 AND rail = 'card' AND wire = 'stripe-subscription' AND ts >= ?`);
+export function cardSales({ days = 30 } = {}) {
+  const since = Date.now() - days * 86_400_000;
+  const w = qCard.get(since), all = qCard.get(0), subs = qCardSubs.get(0);
+  const lastAt = all?.last_ts ? new Date(Math.floor(all.last_ts / 3_600_000) * 3_600_000).toISOString() : null;
+  return { days, count: Number(w?.n || 0), usd: +Number(w?.usd || 0).toFixed(2), allTimeCount: Number(all?.n || 0), allTimeUsd: +Number(all?.usd || 0).toFixed(2), subscriptionInvoices: Number(subs?.n || 0), lastAt };
+}
+
 export function salesSummary({ days = 30, detailed = false } = {}) {
   const since = Date.now() - days * 86_400_000;
   const totals = { external: { sales: 0, revenueUsd: 0 }, internal: { sales: 0, revenueUsd: 0 }, byRail: {} };
