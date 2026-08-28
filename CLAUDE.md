@@ -2200,6 +2200,13 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   push to main by an admin session does not); Dependabot security updates are ON (fix PRs are opened, never auto-merged);
   the unused `NPM_TOKEN` Actions secret is deleted (publishing is OIDC). No required reviewer on the environment: with one
   owner it would be self-approval on every deploy.
+- **One price per report on the card storefront (2026-08-28, decided from research, not preference):** `/reports` no longer shows
+  Standard/Pro/Max tier buttons; every card sells its base product at one price with a "What you get" line written in deliverables
+  (words, sections, tables), never effort counts ("8 searches vs 3" is exactly the non-alignable attribute the choice-overload
+  literature says hurts a first-time buyer; the decoy effect does not replicate with realistic products; one-off report comparables
+  differentiate by included content or quantity, never by depth). The pro/max tiers stay as AGENT API products (REPORT_TIERS,
+  HUMAN_PRODUCTS keys kept so old sessions, /api/buy and docs still resolve). Re-tier only behind a visible deliverable fence and
+  once card sales can read an A/B test.
 - **Domain audit inputs round 2 (2026-08-28, from a buyer's own review of a live run on their domain; `scripts/test-domain-audit-inputs.js`
   34, in CI):** the audit said "no DKIM" to an iCloud+ domain that signs with `sig1` - `email-deliverability` now resolves MX FIRST and
   probes the provider's own selectors (`PROVIDER_DKIM_SELECTORS`/`providerForMx`, network-kit: Apple sig1, Fastmail fm1-3, Proton,
