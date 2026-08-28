@@ -1938,6 +1938,14 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   external-vs-external ordering is unchanged. Re-run the sweep after deploy (the recipe is a 20-line node loop over
   `/api/pricing` endpoints -> `/api/route?q=<name>&top=3`) and expect the outside-first count to fall to genuine cases
   (cheaper or better-matched sellers).
+- **16 pure-CPU / free-upstream tools cut to the floor (2026-08-28, the operator: "shouldn't we price lower than our competitors?"):**
+  measured first - against PROVEN outside peers (Bazaar payers30d >= 3, equal route score) we were cheaper on 80 tools,
+  equal on 37, pricier on 36; two-thirds of the 36 carry real upstream cost (Brave, E2B, CoinGecko, LLM) and stay. The
+  sixteen with no marginal cost moved to $0.001 (json-diff, robots-check, tls-cert, spf-check, dmarc-check, ens-resolve,
+  polymarket-orderbook, perp-open-interest, perp-klines, crypto-orderbook, tx-status, stock-quote, weather-forecast) or
+  $0.002 (x402-quote, weather-history, reverse-geocode); the canary's stock-quote leg pin followed. Price is the FOURTH
+  route tie-break (match, health, Bazaar payers, then price), so a cut only moves ties; never price an upstream-metered
+  tool to beat a peer that is hitting a free API.
 - **`/why` = the one-page "what is different" surface (2026-08-26, `src/why.js`, `WHY_POINTS`):** seven first-party
   claims, each linked to the surface that proves it (usage priced under a quoted ceiling / upto settles actual; a failed call
   is never charged + keyed retries never pay twice + charged-but-failed is ledgered; one key buys models on three wires + 500+

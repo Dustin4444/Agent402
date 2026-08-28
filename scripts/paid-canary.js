@@ -113,7 +113,7 @@ export const TOOLS = [
     kit: "finance",
     path: "/api/stock-quote?symbol=AAPL",
     method: "GET",
-    priceUsd: 0.003,
+    priceUsd: 0.001,
     check: (r) => (r.symbol === "AAPL" && r.currency === "USD" && r.price > 1) || `expected AAPL/USD/price>1, got ${JSON.stringify(r).slice(0, 80)}`,
   },
   {

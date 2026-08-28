@@ -805,7 +805,7 @@ const dataTools = [
     name: "JSON diff",
     slug: "json-diff",
     category: "conversion",
-    price: "$0.002",
+    price: "$0.001",
     description: "Deep-compare two JSON values. Returns a list of changed/added/removed paths (capped at 1000 differences).",
     tags: ["json", "diff", "compare"],
     discovery: {
@@ -1991,7 +1991,7 @@ const networkTools = [
     name: "TLS certificate",
     slug: "tls-cert",
     category: "network",
-    price: "$0.003",
+    price: "$0.001",
     description: "Inspect the TLS certificate of any public host: subject, issuer, validity window, days remaining, SANs, and SHA-256 fingerprint.",
     tags: ["tls", "ssl", "certificate", "expiry", "security"],
     discovery: {
@@ -2161,7 +2161,7 @@ const networkTools = [
     name: "Robots.txt check",
     slug: "robots-check",
     category: "network",
-    price: "$0.002",
+    price: "$0.001",
     description: "Fetch a site's robots.txt and answer: may this user-agent crawl this path? Returns the matched rule and all declared sitemaps.",
     tags: ["robots", "crawling", "scraping", "compliance"],
     discovery: {

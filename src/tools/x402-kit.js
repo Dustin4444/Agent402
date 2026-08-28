@@ -282,7 +282,7 @@ export const X402_TOOLS = [
     },
   },
   {
-    route: "GET /api/x402-quote", name: "x402 quote", slug: "x402-quote", category: "payments", price: "$0.003",
+    route: "GET /api/x402-quote", name: "x402 quote", slug: "x402-quote", category: "payments", price: "$0.002",
     description:
       "Probe any URL and decode its HTTP 402 payment requirements (price, asset, network, pay-to) into clean JSON - what an agent needs to decide whether/how to pay. Read-only; does not pay. ?url=https://api.example.com/paid&method=GET",
     tags: ["x402", "402", "payment-required", "quote", "discovery"],
@@ -364,7 +364,7 @@ export const X402_TOOLS = [
     },
   },
   {
-    route: "GET /api/tx-status", name: "Transaction status", slug: "tx-status", category: "payments", price: "$0.003",
+    route: "GET /api/tx-status", name: "Transaction status", slug: "tx-status", category: "payments", price: "$0.001",
     description:
       "Check the confirmation status of a transaction by hash on Base/Polygon/Arbitrum/Optimism/Ethereum/Monad/Celo/Avalanche/Sei/Robinhood Chain: success / failed / pending / not found, with block, from, to, gas used. Read-only. ?hash=0x…&network=base",
     tags: ["transaction", "status", "receipt", "confirmation", "multichain", "robinhood", "usdg"],
@@ -492,7 +492,7 @@ export const X402_TOOLS = [
     },
   },
   {
-    route: "GET /api/ens-resolve", name: "ENS resolve", slug: "ens-resolve", category: "payments", price: "$0.003",
+    route: "GET /api/ens-resolve", name: "ENS resolve", slug: "ens-resolve", category: "payments", price: "$0.001",
     description:
       "Resolve an ENS name (e.g. vitalik.eth) to its Ethereum address - so an agent can turn a human-readable recipient into a payable address. Read-only on Ethereum mainnet. ?name=vitalik.eth",
     tags: ["ens", "resolve", "ethereum", "name", "address", "lookup"],

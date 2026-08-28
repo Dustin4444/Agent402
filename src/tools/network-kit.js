@@ -418,7 +418,7 @@ export const NETWORK_TOOLS = [
     name: "SPF check",
     slug: "spf-check",
     category: "network",
-    price: "$0.003",
+    price: "$0.001",
     description:
       "Fetch and validate a domain's SPF record (RFC 7208). Parses mechanisms (ip4/ip6/include/a/mx/all), counts DNS lookups against the famous 10-lookup limit, and flags the qualifier on `all` (-/fail, ~/softfail, ?/neutral). The first stop when an email is hitting the spam folder.",
     tags: ["spf", "email", "email-auth", "deliverability", "dns", "rfc7208"],
@@ -496,7 +496,7 @@ export const NETWORK_TOOLS = [
     name: "DMARC check",
     slug: "dmarc-check",
     category: "network",
-    price: "$0.003",
+    price: "$0.001",
     description:
       "Fetch and validate a domain's DMARC policy at _dmarc.<domain> (RFC 7489). Surfaces the enforcement policy (none/quarantine/reject), reporting addresses, alignment modes, and common misconfigs (no rua, p=none stuck for months, percent <100). Pair with SPF and DKIM for full Feb-2024 sender-rule compliance.",
     tags: ["dmarc", "email", "email-auth", "deliverability", "dns", "rfc7489"],

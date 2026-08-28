@@ -471,7 +471,7 @@ export const PREDICTION_MARKET_TOOLS = [
     name: "Polymarket orderbook",
     slug: "polymarket-orderbook",
     category: "crypto",
-    price: "$0.002",
+    price: "$0.001",
     description:
       "Live CLOB orderbook for a Polymarket outcome token. Returns top N bids (highest first), top N asks (lowest first), best bid/ask, mid-price, and spread. Use a clobTokenId from polymarket-market or polymarket-search.",
     tags: ["polymarket", "orderbook", "bids-asks", "spread", "liquidity"],
