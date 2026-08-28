@@ -868,7 +868,7 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
       const res = await settleWithStellarFallback({
         primary: () => super.settle(paymentPayload, paymentRequirements),
         fallback: stellarFallbackClient ? () => stellarFallbackClient.settle(paymentPayload, paymentRequirements) : null,
-        confirm: ({ payer }) => confirmStellarTransfer({ payer, payTo, sinceMs: startedAt }),
+        confirm: ({ payer, txHash }) => confirmStellarTransfer({ payer, payTo, sinceMs: startedAt, txHash }),
       });
       // A thrown primary that the chain later confirmed comes back as a bare
       // success object; give it the wire shape @x402 expects.
