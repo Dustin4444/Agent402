@@ -40,7 +40,7 @@ try {
   const f = join(mkdtempSync(join(tmpdir(), "a402-install-")), "install.sh"); try { writeFileSync(f, body); execFileSync("sh", ["-n", f]); ok(true, "script passes sh -n"); } catch (e) { ok(false, `sh -n: ${e.message}`); }
   const alias = await fetch(`${base}/install.sh`, { redirect: "manual" });
   ok(alias.status === 302 && alias.headers.get("location") === "/install", "/install.sh redirects to /install");
-  ok(installScript("https://x.test/").includes("https://x.test/mcp") && !installScript("https://x.test/").includes("x.test//"), "base URL trailing slash handled");
+  ok(/^MCP_URL="https:\/\/x\.test\/mcp"$/m.test(installScript("https://x.test/")) && !/x\.test\/\//.test(installScript("https://x.test/")), "base URL trailing slash handled");
 } finally { proc.kill("SIGTERM"); }
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
