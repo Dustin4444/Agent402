@@ -1923,6 +1923,13 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   Both strings are now DERIVED from HUMAN_PRODUCTS / MONITOR_PRODUCTS / `priceUsdFor`, and the guard fails on any
   dollar figure in a page description that is not a real product price (mutation-tested with the exact two strings
   that shipped). When adding a page that quotes a price in copy, derive it or add it to this guard.
+- **Router aliases + short-term token rule (2026-08-28, from an outside email that had the facts wrong but the symptom right):**
+  `/api/route?q=ip geolocation` ranked a $0.05 external seller above our $0.003 `asn-info` ("ASN + IP geolocation"): the
+  lexical scorer weights the SLUG, and ours says neither word; worse, the two-letter term "ip" substring-matched gzip /
+  gunzip / html-strip (+4 each). Now a tool may declare curated `aliases` (scored exactly like the slug, max per term, never
+  additive; carried by `buildLocalEntry`; asn-info: ip-geolocation, geoip, ip-lookup) and a term under three characters
+  matches whole tokens only. Neutrality unchanged (no local boost, aliases are the tool's own declared names).
+  `scripts/test-route-aliases.js` (6, offline, in CI). When a common query routes past a tool we sell, add an alias, not a boost.
 - **`/why` = the one-page "what is different" surface (2026-08-26, `src/why.js`, `WHY_POINTS`):** seven first-party
   claims, each linked to the surface that proves it (usage priced under a quoted ceiling / upto settles actual; a failed call
   is never charged + keyed retries never pay twice + charged-but-failed is ledgered; one key buys models on three wires + 500+

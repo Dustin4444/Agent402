@@ -1227,6 +1227,8 @@ jobs:
 
       - name: Discovery note (a seller must be able to see the gap)
         run: X402_INDEX_CRAWL=off node scripts/test-discovery-note.js
+      - name: Router aliases + short-term token rule (offline)
+        run: X402_INDEX_CRAWL=off node scripts/test-route-aliases.js
 
       # ONE STEP, MANY SCRIPTS (2026-08-25): GitHub spends ~0.7 s of runner setup
       # per step and this lane had over a hundred one-line steps. Each script still
