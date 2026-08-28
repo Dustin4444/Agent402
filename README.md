@@ -1,4 +1,4 @@
-# Agent402.Tools
+# Agent402.Tools: 500+ tools, metered models and finished reports for AI agents
 
 **The paid door for AI agents: 500+ tools, metered models and finished reports, paid per call in USDC over x402 and MPP, or by card. Open source, self-hostable, MCP-native.**
 
