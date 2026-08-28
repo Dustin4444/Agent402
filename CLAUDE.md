@@ -2129,6 +2129,23 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   email capture + post-purchase sequence (one transactional email exists, no list), a shareable/public report option (every
   /r/ page is noindex + generic OG, so the paid artifact has no backlink surface), monitors for research/dossier kinds,
   seed expansion, a first-report promo. Weekly number for this bet: card sales + `human_funnel` conversion, not x402scan rank.
+- **Sample review round 2 (2026-08-28 evening, the operator: "are you also looking at the results and using that data to rebuild the
+  features?"):** five more real samples generated on a local FREE_MODE boot with the prod keys pulled from Railway (filing AAPL, token
+  JUP, market brief EV fast charging, ticker pack MSFT, LinkedIn article on per-request pricing) and each READ before publishing. Defects
+  found and fixed in the kits, not the fixtures: (1) every kit writes its own H1 and the model wrote ANOTHER H1 + subtitle at the top of
+  its prose (AAPL filing, JUP token) - `dropModelTitle` in house-style.js (inside `houseStyleMarkdown`, so every report tier and the
+  sample loader get it) removes a second H1 within the first 1,500 chars plus its subtitle H2; a later H1 is content and stays; (2) the
+  filing report listed three Form 4s and a Form 144 as NOT FETCHED ("the reporting persons cannot be stated") - `filing-watch-kit`
+  now parses Forms 3/4/5 through `parseForm4` and Form 144 through `parseForm144` (raw XML = index url without the `/xsl.../` segment,
+  `rawXmlUrl`; up to `ROUTINE_PARSE_MAX` 10; `deps.fetchForm` seam) and hands the synthesis a `=== ROUTINE FORMS PARSED ===` block
+  (`describeRoutineForm`: insider + role, code/acquired-disposed, shares, price, owned after, 10b5-1; the 144 seller, size, value, date,
+  broker, plan), rule 3 lets those be summarized, the header counts "N ownership forms parsed", `meta.routine_forms_parsed`; (3) the token
+  brief called a locker unlock dated 2025-08-13 "upcoming" - rule 9 states TODAY's date and that past dates have elapsed; (4) the ticker
+  pack's executive summary narrated the pipeline ("the dossier leg was produced successfully ... citing 20 sources") - rule 6: write about
+  the company, coverage facts in one sentence, only a FAILED leg is named; (5) a Unicode minus sign survived house style - normalised.
+  The samples for the three changed kits were regenerated on the fixed code. Recipe: `scratchpad/make-samples.sh` shape - pull keys with
+  `railway variables -s agent402 -e production --json` into a 0600 env file, boot FREE_MODE on a free port, POST each route, save
+  `{product,input,title,report,sources,tables,meta,at,generatedWith}`; never commit the env file.
 - **Free email alerts = the lead magnet on the free report pages (2026-08-28, day 2 of the reports bet; `src/free-alerts.js`,
   `assets/js/alert-signup.js`, `scripts/test-free-alerts.js` 35 in CI):** a visitor on `/reports/insider/<T>`, `/reports/fund/<m>`,
   `/reports/dossier/<T>` or a sample report enters an email; we watch that one target with the SAME free daily probe the paid

@@ -36,7 +36,7 @@ for (const product of SAMPLE_PRODUCTS) {
   const minSources = s.kind === "domain" ? 0 : s.kind === "recall" ? 3 : 5;
   ok(s.sources.length >= minSources, `${product}: cites at least ${minSources} sources (${s.sources.length})`);
 }
-ok(sampleLinkFor("dossier") === "/reports/sample/dossier" && sampleLinkFor("token-brief") === null, "sampleLinkFor: a slug with a fixture links, one without does not");
+ok(sampleLinkFor("dossier") === "/reports/sample/dossier" && sampleLinkFor("research-pro") === null, "sampleLinkFor: a slug with a fixture links, one without does not");
 ok(samplePaths().every((p) => p.startsWith("/reports/sample/")), "sample paths live under /reports/sample/");
 
 // ---- booted server ----
