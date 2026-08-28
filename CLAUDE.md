@@ -845,6 +845,11 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   seam as rpc-timeout.js (@x402/stellar builds its own rpc.Server per call). OpenZeppelin as PRIMARY was tried the
   same day (canary run 33001317156): `unexpected_verify_error` at their verify step, nothing on-chain - reverted; OZ
   stays the settle fallback only. Tests in `facilitator/test.js` (real rpc.Server against local stall/answer servers).
+- **Stellar confirm by the named hash (2026-08-28, `settleTxOf` + `confirmByHash` in stellar-confirm.js, test-stellar-confirm 37):** the
+  facilitator's timeout body now carries `transaction` when something was submitted before its bound, so `settleWithStellarFallback`
+  hands `{payer, txHash}` to confirm and `confirmStellarTransfer` checks THAT transaction first (`/transactions/<hash>` successful +
+  an `account_credited` effect to our payTo in USDC, polled for the wait window) - exact, no payer window, the same-buyer-window
+  ambiguity structurally avoided; the payer scan remains the fallback when no hash was named.
 - **Facilitator: hedged reads + poll cap + 25 s settle bound (2026-08-28, after paid-canary run 33183770242):** the Stellar leg failed
   with `[/settle] dispatch error: TimeoutError: settle timed out after 60000ms`, NO failover line, NO submission and nothing on-chain
   (Horizon checked) - the primary (Alchemy) was answering, just slowly, so the 10 s per-request bound and the transport-only failover
