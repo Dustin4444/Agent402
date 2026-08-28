@@ -104,5 +104,23 @@ const SELF_WALLET = "0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0";
   ok(html.includes("Evil Seller"), "the seller still renders, just with no clickable link");
 }
 
+
+// --- the host's own entry (2026-08-28): external-only rows + a pinned unnumbered row ---
+{
+  const snapshot = { windowLabel: "7d", scannedSellers: 2, leaderboard: [
+    { rank: 1, name: "Agent402.Tools", wallet: SELF_WALLET.toLowerCase(), homepage: "https://agent402.tools", totalUsd: 900.5, callsSettled: 30000, uniqueBuyers: 300 },
+    { rank: 2, name: "Seller-One.example", wallet: "0xbbb", homepage: "https://seller-one.example", totalUsd: 21.2, callsSettled: 1127, uniqueBuyers: 16 },
+  ] };
+  const stats = { toolCallsServed: { viaUSDC: 28200, viaProofOfWork: 7608, viaMPPWire: 69, viaUSDCByNetwork: { base: 28200 } } };
+  const HOSTF = { baseUrl: BASE_URL, toolCount: 560, recordingSince: "2026-06-15T00:00:00.000Z", external30d: { settlements: 109, buyers: 7, tools: 21 }, externalAllTime: { settlements: 3945, buyers: 250, tools: 105 } };
+  const without = ledgerLeaderboardPage(BASE_URL, snapshot, { stats, walletAddress: SELF_WALLET });
+  const html = ledgerLeaderboardPage(BASE_URL, snapshot, { stats, walletAddress: SELF_WALLET, host: HOSTF });
+  ok(!without.includes("data-host-row") && html.includes("data-host-row"), "pinned host row renders only with host figures");
+  ok(/data-host-ext-30d>109</.test(html) && /data-host-buyers-30d>7</.test(html) && /data-host-ext-all>3,945</.test(html), "disclosed panel carries external-only 30d settlements, 30d buyers and all-time settlements");
+  ok(html.includes("canary and volume runs are excluded"), "the exclusion note is stated");
+  const row = html.slice(html.indexOf("data-host-row"), html.indexOf("data-host-row") + 900);
+  ok(!/lb-rank/.test(row) && /NOT RANKED/.test(row), "host row carries no rank and says so");
+  ok(!html.slice(0, html.indexOf("Agent402, for comparison")).includes(">Agent402.Tools<"), "ranked table still excludes the host");
+}
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -14,6 +14,7 @@ import { ledgerShell, ledgerFooterCompact } from "./ledger-chrome.js";
 import { CATEGORIES } from "./pages.js";
 import { chainMark, CHAIN_ORDER } from "./chain-logos.js";
 import { discoveryNote } from "./discovery-note.js";
+import { hostCardHtml } from "./host-entry.js";
 
 // Seller-roster row styles hoisted to classes. A busy chain (e.g. Base) renders
 // 1000+ roster rows; when each row carried its 6 styles inline the page ballooned
@@ -943,7 +944,7 @@ function economyStripHtml(economySnap) {
 // rationale + honest-disclosure pattern as x402-index.js's INDEX_ROW_CAP.
 const ALL_ROW_CAP = 100;
 
-function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = false, wallet } = {}) {
+function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = false, wallet, host = null } = {}) {
   const sellers = marketSellersAll(snapshot);
   const hostOf = (u) => { try { return new URL(u).host; } catch { return ""; } };
 
@@ -1257,6 +1258,7 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
 <div style="max-width:1080px;margin:0 auto;padding:36px 24px;">
   <section>${headerHtml}</section>
   <section>
+    ${hostCardHtml(host)}
     ${marketFilterBar(null, baseUrl)}
     ${rosterHtml}
   </section>

@@ -328,6 +328,7 @@ import { recordSale, salesSummary, mppSales, cardSales, mppTxHashes, txFromPayme
 import { recordShadowSettlement, startShadowLedger, shadowLedgerReport, shadowLedgerEnabled } from "./stripe-shadow-ledger.js";
 import { reconcileSettlements } from "./settlement-reconcile.js";
 import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
+import { hostFigures, hostIndexEntry, isSelfSellerQuery } from "./host-entry.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
 import { ledgerIntegrationsPage } from "./ledger-integrations.js";
 
@@ -4181,13 +4182,18 @@ app.get("/marketplace", async (req, res) => {
   try { leaderboardSnap = getLeaderboardSnapshot(); } catch { /* directory still renders */ }
   let economySnap = null;
   try { economySnap = await x402EconomySnapshot(); } catch { /* strip omitted */ }
-  htmlCache(res, 120, 600).send(marketPage(null, BASE_URL, { snapshot, leaderboardSnap, economySnap, all: req.query.all === "1", wallet: WALLET_ADDRESS }));
+  htmlCache(res, 120, 600).send(marketPage(null, BASE_URL, { snapshot, leaderboardSnap, economySnap, all: req.query.all === "1", wallet: WALLET_ADDRESS, host: hostEntryFigures() }));
 });
+// The host's own entry for the discovery surfaces: external-only ledger
+// figures, rendered outside every ranking and count (src/host-entry.js).
+function hostEntryFigures() {
+  try { return hostFigures({ summaryFn: salesSummary, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL }); } catch { return null; }
+}
 // The MPP marketplace - independent directory, synchronous snapshot (no
 // on-chain join, unlike /marketplace above), same cache window.
 app.get("/mpp-marketplace", (_req, res) => {
   try {
-    htmlCache(res, 120, 600).send(mppMarketPage(BASE_URL, mppIndexSnapshot(), mppLeaderboardSnapshot()));
+    htmlCache(res, 120, 600).send(mppMarketPage(BASE_URL, mppIndexSnapshot(), mppLeaderboardSnapshot(), { host: hostEntryFigures() }));
   } catch (e) {
     res.status(500).type("text/plain").send("temporarily unavailable");
   }
@@ -4229,6 +4235,13 @@ app.get("/api/index", (req, res) => {
   // ?seller=<origin or host> — the per-seller drill-down (full tool list, paid
   // flags) so a seller can self-diagnose exactly what we hold for them.
   if (req.query.seller) {
+    // The host itself: never in the crawl cache, the submitted seeds or the
+    // external pool (isSelfOrigin keeps it out), so answer the labelled
+    // external-only summary instead of "not found" (2026-08-28).
+    if (isSelfSellerQuery(String(req.query.seller), BASE_URL)) {
+      const me = hostIndexEntry(hostEntryFigures());
+      if (me) return res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300").json(me);
+    }
     const detail = sellerDetail(String(req.query.seller));
     if (!detail) return res.status(404).json({ error: "seller not found in the index", seller: String(req.query.seller).slice(0, 253) });
     return res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300").json(detail);
@@ -4396,7 +4409,7 @@ app.get("/api/leaderboard", (req, res) => {
 });
 // Human-readable companion to /api/leaderboard. Same cached snapshot, rendered
 // as a dashboard so visitors (and the site nav) have something to land on.
-app.get("/leaderboard", (_req, res) => htmlCache(res, 60, 300).send(ledgerLeaderboardPage(BASE_URL, getLeaderboardSnapshot(), { stats: getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }), walletAddress: WALLET_ADDRESS })));
+app.get("/leaderboard", (_req, res) => htmlCache(res, 60, 300).send(ledgerLeaderboardPage(BASE_URL, getLeaderboardSnapshot(), { stats: getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }), walletAddress: WALLET_ADDRESS, host: hostEntryFigures() })));
 app.get("/robots.txt", (_req, res) => res.type("text/plain").set("Cache-Control", "public, max-age=3600").send(robotsTxt(BASE_URL)));
 // IndexNow ownership key file (env-gated no-op like the other integrations).
 // The protocol verifies a submitted key by fetching /{key}.txt from the host;

@@ -1923,6 +1923,19 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   Both strings are now DERIVED from HUMAN_PRODUCTS / MONITOR_PRODUCTS / `priceUsdFor`, and the guard fails on any
   dollar figure in a page description that is not a real product price (mutation-tested with the exact two strings
   that shipped). When adding a page that quotes a price in copy, derive it or add it to this guard.
+- **The host's own entry on the discovery surfaces (2026-08-28, `src/host-entry.js`):** the marketplace, both leaderboards and
+  `/api/index` rank OTHER sellers and keep the operator out of the ranked lists, the router's external pool and every seller
+  count on purpose (an index that ranks itself first proves nothing, and our on-chain volume is mostly our own canary and
+  volume runs) - but that left the host with no honest entry at all (`/api/index?seller=agent402.tools` answered "not
+  found"). Now `hostFigures()` reads the sales ledger's OWN external classification (`salesSummary`, 30 days + all time:
+  settlements, distinct buyers, tools sold; never internal/synthetic rows, never recomputed) and renders it OUTSIDE every
+  ranking: a labelled card above the `/marketplace` roster ("this site, not ranked, not counted"), external-only rows plus the
+  exclusion note in `/leaderboard`'s "our own row, disclosed" panel and a pinned unnumbered row under its table, a pinned row
+  under the MPP board's ranked table, and `GET /api/index?seller=<host|origin|BASE_URL>` answering `self:true` with the same
+  figures + links (built from the ledger and catalog, never from the crawl cache; `isSelfOrigin` still excludes the crawled
+  self-entry from the external pool). The roster's existing pinned THIS HOST card and the MPP board's self-flagged ranked row
+  are unchanged. Pins: test-marketplace-index-page (32), test-leaderboard-page (30), test-mpp-market-page (20),
+  test-self-listing-exclusion (host entry built without the cache), test-shortlinks (booted `self:true` for host, origin and BASE_URL).
 - **Router aliases + short-term token rule (2026-08-28, from an outside email that had the facts wrong but the symptom right):**
   `/api/route?q=ip geolocation` ranked a $0.05 external seller above our $0.003 `asn-info` ("ASN + IP geolocation"): the
   lexical scorer weights the SLUG, and ours says neither word; worse, the two-letter term "ip" substring-matched gzip /

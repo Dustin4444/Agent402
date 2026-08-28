@@ -130,5 +130,22 @@ function chainCard(html, slug) {
   ok(!html.includes("—"), "no em dashes anywhere in the new page copy");
 }
 
+
+// --- the host's own entry (2026-08-28): a labelled card outside the roster, never counted ---
+{
+  const sellers = [
+    { origin: "https://agent402.tools", local: true, displayName: "Agent402", homepage: BASE_URL, toolCount: 560, networks: [], tools: [] },
+    { origin: "https://a.example", displayName: "A", homepage: "https://a.example", toolCount: 3, networks: ["eip155:8453"], payToByNetwork: { "eip155:8453": "0xaaa" }, routable: true },
+  ];
+  const HOSTF = { baseUrl: BASE_URL, toolCount: 560, recordingSince: "2026-06-15T00:00:00.000Z", external30d: { settlements: 109, buyers: 7, tools: 21 }, externalAllTime: { settlements: 3945, buyers: 250, tools: 105 } };
+  const without = marketPage(null, BASE_URL, { snapshot: { sellers }, leaderboardSnap: { leaderboard: [] } });
+  const withHost = marketPage(null, BASE_URL, { snapshot: { sellers }, leaderboardSnap: { leaderboard: [] }, host: HOSTF });
+  ok(!without.includes("data-host-card") && withHost.includes("data-host-card"), "host card renders only when host figures are supplied");
+  ok(withHost.includes("NOT RANKED, NOT COUNTED") && withHost.includes(">109<") && withHost.includes(">250<"), "host card carries the external-only 30d and all-time figures");
+  ok(withHost.includes("canary and volume runs are excluded"), "host card states that our own runs are excluded");
+  const count = (h) => (h.match(/SELLERS LISTED<\/div><div[^>]*>([0-9,]+)/) || [])[1];
+  ok(count(without) === count(withHost), `the SELLERS LISTED count is identical with and without the host card (${count(without)} vs ${count(withHost)})`);
+  ok(withHost.indexOf("data-host-card") < withHost.indexOf('class="mfb"'), "host card sits above the roster filter bar and rows, not inside them");
+}
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
