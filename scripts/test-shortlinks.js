@@ -47,6 +47,16 @@ try {
   ok(www.status === 301 && www.location === "http://agent402.test/guides/agent-hosts?x=1", `www host 301s to the apex with the path kept (got ${www.status} ${www.location})`);
   const wwwPaid = await rawGet("/api/uuid", { Host: "www.agent402.test", "payment-signature": "x" });
   ok(wwwPaid.status !== 301, "a request carrying a payment header is never redirected (the header would not survive)");
+  // Discovery aliases indexers guess (2026-08-28 sweep), the gateway index, the helpful API 404, the 413 hint.
+  for (const p of ["/.well-known/x402.json", "/.well-known/x402-services.json"]) { const r = await fetch(`${base}${p}`); const j = await r.json(); ok(r.status === 200 && j && typeof j === "object" && Object.keys(j).length > 3, `${p} serves the x402 manifest`); }
+  for (const p of ["/swagger.json", "/api-docs/openapi.json"]) { const r = await fetch(`${base}${p}`, { redirect: "manual" }); ok(r.status === 301 && r.headers.get("location") === "/openapi.json", `${p} -> /openapi.json`); }
+  for (const p of ["/v1", "/v1/info", "/v1/metered"]) { const r = await fetch(`${base}${p}`); const j = await r.json(); ok(r.status === 200 && j.ok === true && /\/v1\/models$/.test(j.models) && /\/v1\/metered\/chat\/completions$/.test(j.metered?.chat), `GET ${p} answers the gateway index`); }
+  const gone = await fetch(`${base}/api/soundex`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  const goneBody = await gone.json();
+  ok(gone.status === 404 && goneBody.error === "not-found" && /retired|closest live tools/.test(goneBody.hint) && /\/api\/find\?q=soundex/.test(goneBody.find) && Array.isArray(goneBody.suggestions), `an unknown /api path answers a helpful 404 with find + suggestions (got ${gone.status})`);
+  const big = await fetch(`${base}/v1/chat/completions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: "openai/gpt-4o-mini", messages: [{ role: "user", content: "x".repeat(150_000) }] }) });
+  const bigBody = await big.json();
+  ok(big.status === 413 && /metered/.test(bigBody.hint) && /\/v1\/metered\/chat\/completions$/.test(bigBody.metered), `a 413 on a flat LLM tier points at the metered tier (got ${big.status})`);
   const alias = await fetch(`${base}/install.sh`, { redirect: "manual" });
   ok(alias.status === 302 && alias.headers.get("location") === "/install", "/install.sh redirects to /install");
   ok(/^MCP_URL="https:\/\/x\.test\/mcp"$/m.test(installScript("https://x.test/")) && !/x\.test\/\//.test(installScript("https://x.test/")), "base URL trailing slash handled");

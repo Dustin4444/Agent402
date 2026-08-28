@@ -2029,6 +2029,21 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   key must ride as `auth_token`/`authToken` (Authorization: Bearer), not `api_key` (x-api-key). **Claude Code as an LLM host
   is CLAIMED since 2026-08-27** (see the Claude Code host entry below): the 100 KB limit is lifted on /v1/metered and the
   wire was proven against claude-cli 2.1.250.
+- **Dead-end sweep from the raw HTTP log (2026-08-28, after the 405 finding; the operator: "anything obvious like this in everything
+  else we serve?"):** Railway's `get-logs` accepts `@httpStatus:404` / `>=500` filters and REMOVED deployments still answer, so a
+  status-by-status read of ~6 h is one call each. Found and fixed in one PR: (1) trust/uptime indexers (kkj-x402-trust-index,
+  nsgoods-payability-observatory, stelar-trust-monitor, ioi-indexer, PayAI-Uptime-Monitor, x402-observatory) send GET/HEAD to POST-only
+  tools and skill packs and got 405 = "not payable"/"down" in their listings - the alias middleware now runs the POST gate chain for a
+  GET/HEAD on a POST-only path (unpaid -> the 402 with challenges; free/paid -> the handler's own 400 naming the field; HEAD body
+  suppressed); only methods no tool has (PUT ...) still 405; (2) `/v1/chat/completions` 413s (one agent, 5 in 30 min, still
+  retrying hours later) said nothing - the error handler's 413 carries `hint` + `metered` pointing at `/v1/metered/*` (1 MB, priced
+  from the body); (3) discovery paths indexers guess - `/.well-known/x402.json`, `/.well-known/x402-services.json` serve the manifest,
+  `/swagger.json`, `/api-docs/openapi.json`, `/api/openapi.json` 301 to `/openapi.json`, `GET /v1`, `/v1/info`, `/v1/metered` answer a
+  gateway index JSON; (4) an unknown `/api/*` path (retired tools and ~25 retired packs probed daily) answers a helpful JSON 404 with
+  `hint`, `find` and three `suggestions` from `findTools`, counted as `tool_gone` (status stays 404 for the route oracle); (5) `/v1` and
+  `/mcp` errors are JSON (the 404 catch-all and error handler treated them as HTML). Not fixed, noted: each deploy is a ~1 min 502 window
+  and we deployed ~25 times that day - batch merges when nothing is urgent. Pins: test-wrong-method-405 (11), test-head-paywall (12),
+  test-shortlinks (61).
 - **POST on a GET-only tool is served, not 405'd (2026-08-28):** a buyer that had just paid walked the catalog POSTing JSON to every
   route and got `405 Method POST not allowed` on search, search-news, search-images, search-videos, search-suggest, ip-info,
   card-validate ... and stopped (Railway HTTP log, 18:07Z; agents POST everything). A top-level middleware (mounted in BOTH modes,
