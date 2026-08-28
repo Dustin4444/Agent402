@@ -302,7 +302,7 @@ const NETWORK = new Set([
   "/v1/dossier", "/v1/dossier/max",
   // Anthropic Messages wire (OpenRouter /messages upstream) - same tolerance.
   "/v1/nano/messages", "/v1/auto/messages", "/v1/messages", "/v1/pro/messages", "/v1/premium/messages", "/v1/metered/messages",
-  "/v1/nano/responses", "/v1/auto/responses", "/v1/responses", "/v1/pro/responses", "/v1/premium/responses",
+  "/v1/nano/responses", "/v1/auto/responses", "/v1/responses", "/v1/pro/responses", "/v1/premium/responses", "/v1/metered/responses",
   // Image generation wire path: hits OpenRouter upstream (Gemini image model).
   // 503 without OPENROUTER_API_KEY — same tolerance as the chat tiers.
   "/v1/images/generations",

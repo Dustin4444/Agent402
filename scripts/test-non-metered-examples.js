@@ -143,7 +143,7 @@ const METERED_SLUGS = new Set([
   "v1-chat-nano", "v1-chat-auto", "v1-chat-grounded", "v1-chat-ox", "v1-chat", "v1-chat-pro", "v1-chat-premium", "v1-chat-metered",
   "v1-embeddings", "v1-rerank", "v1-images", "v1-audio-speech",
   "v1-chat-nano-messages", "v1-chat-auto-messages", "v1-chat-messages", "v1-chat-pro-messages", "v1-chat-premium-messages", "v1-chat-metered-messages",
-  "v1-chat-nano-responses", "v1-chat-auto-responses", "v1-chat-responses", "v1-chat-pro-responses", "v1-chat-premium-responses",
+  "v1-chat-nano-responses", "v1-chat-auto-responses", "v1-chat-responses", "v1-chat-pro-responses", "v1-chat-premium-responses", "v1-chat-metered-responses",
   // Calls the v1-chat gateway handler in-process — same OpenRouter key dependency.
   "pdf-summarize",
   // research-deep composites — fan out to grounded search + rerank + synthesis

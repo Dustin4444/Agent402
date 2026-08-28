@@ -2024,6 +2024,15 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   key must ride as `auth_token`/`authToken` (Authorization: Bearer), not `api_key` (x-api-key). **Claude Code as an LLM host
   is CLAIMED since 2026-08-27** (see the Claude Code host entry below): the 100 KB limit is lifted on /v1/metered and the
   wire was proven against claude-cli 2.1.250.
+- **Metered Responses wire (2026-08-28, `POST /v1/metered/responses`, slug `v1-chat-metered-responses`):** the metered tier on the
+  OpenAI Responses wire (the one Codex CLI's `model_providers` and the OpenAI Agents SDK speak). `RESPONSES_PATH_BY_TIER["v1-chat-metered"]`
+  (LAST); `quote: (body) => meteredResponsesQuoteUsd(body).usd` prices the 402 from `validateResponsesRequest`'s probe through the shared
+  `meteredQuoteForProbe`; the handler refuses over-cap bodies 400 before any upstream call, carries the belt (re-quote the served body
+  against the stashed gate price), sends the quoted model's `costFor` row as `provider.max_price`, records `gateway_usage.priceUsd` = the
+  quote, and sets the non-enumerable meter sentinel on the non-stream reply. `/v1/models` carries `meteredResponsesEndpoint`; `/docs`
+  lists the row; the agent-hosts guide's Codex section carries a `model_providers` block (route canary-proven; a full Codex session not
+  yet run - say so, never claim it). Registered: WALLET_ONLY (pow.js), test-all NETWORK, METERED_SLUGS (test-non-metered-examples),
+  paid-canary leg `llm-metered-responses` (priceUsd pinned to the kit's quote in test-canary-coverage). test-llm-responses 40.
 - **The weekly number is external metered buyers (2026-08-27):** PostHog insight "External metered buyers per week"
   (short id `Pj87HEzu`: distinct non-synthetic payers on `payment_settled{slug:v1-chat-metered}` per week, with
   settlements, settled USD, distinct `clientUa`); ledger mirror `meteredExternal({days})` (counts only) on

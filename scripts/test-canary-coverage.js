@@ -159,6 +159,13 @@ if (rn) {
     const q = meteredMessagesQuoteUsd(mleg.body);
     ok(!q.invalid && q.usd === mleg.priceUsd && mleg.priceUsd > TIERS["v1-chat-metered"].price, `llm-metered-messages leg priceUsd ($${mleg.priceUsd}) equals the Messages quote for its body ($${q.usd}) and sits above the floor`);
   }
+  const { meteredResponsesQuoteUsd } = await import("../src/tools/llm-responses-kit.js");
+  const rleg = CANARY_LEGS.find((l) => l.kit === "llm-metered-responses");
+  ok(!!rleg && rleg.path === "/v1/metered/responses", "canary has an llm-metered-responses leg on the metered Responses route");
+  if (rleg) {
+    const q = meteredResponsesQuoteUsd(rleg.body);
+    ok(!q.invalid && q.usd === rleg.priceUsd && rleg.priceUsd > TIERS["v1-chat-metered"].price, `llm-metered-responses leg priceUsd ($${rleg.priceUsd}) equals the Responses quote for its body ($${q.usd}) and sits above the floor`);
+  }
 }
 
 // The MPP dual-stack legs prove the native Payment wire (WWW-Authenticate /
