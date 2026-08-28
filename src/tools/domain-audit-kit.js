@@ -106,7 +106,10 @@ export const DNS_HOSTS = [
   { host: "Porkbun", ns: [".porkbun.com"], caa: true, dnssec: true, platformCerts: false },
   { host: "Hover", ns: [".hover.com"], caa: true, dnssec: false, platformCerts: false },
   { host: "Fly.io", ns: [".fly.io"], caa: null, dnssec: null, platformCerts: true },
-  { host: "Name.com", ns: [".name.com"], caa: true, dnssec: null, platformCerts: false },
+  // Railway registers domains through name.com: the nameservers read name.com
+  // but the owner edits DNS in Railway's panel, which offers no CAA record type
+  // (and no DNSSEC). A domain managed at name.com directly can publish both.
+  { host: "Name.com (Railway domain registrations use it)", ns: [".name.com"], caa: null, dnssec: null, platformCerts: false, note: "if this domain was bought through Railway, DNS is edited in Railway's panel, which offers no CAA record type and no DNSSEC; managed at name.com directly, both are available" },
 ];
 export function dnsHostFor(nameservers) {
   const ns = (nameservers || []).map((h) => String(h || "").toLowerCase().replace(/\.$/, ""));
@@ -136,7 +139,7 @@ export async function probeDnsPosture(domain) {
     bimi: pick(bimi, /^v=BIMI1/i), bimiError: bimi.ok ? null : bimi.error,
     dnssec: sec.ok ? sec.ad : null, dnssecError: sec.ok ? null : sec.error,
     nameservers: nsR.ok ? nsR.records.slice(0, 8) : [], nsError: nsR.ok ? null : nsR.error,
-    dnsHost: dnsHost ? { name: dnsHost.host, caa: dnsHost.caa, dnssec: dnsHost.dnssec, platformCerts: dnsHost.platformCerts } : null,
+    dnsHost: dnsHost ? { name: dnsHost.host, caa: dnsHost.caa, dnssec: dnsHost.dnssec, platformCerts: dnsHost.platformCerts, ...(dnsHost.note ? { note: dnsHost.note } : {}) } : null,
   };
 }
 // Both hosts: the www twin of an apex (or the apex of a www) - whether it
@@ -274,7 +277,7 @@ function makeDomainAuditHandlerInner(tierSlug) {
       ? `DNSSEC: ${dnsx.dnssec === true ? "validated (AD)" : dnsx.dnssec === false ? "NOT signed/validated" : `unknown (${dnsx.dnssecError || "resolver unreadable"})`}. CAA: ${dnsx.caa ? (dnsx.caa.length ? dnsx.caa.map((c) => `${c.tag} ${c.value}`).join("; ") : "none published (any CA may issue)") : `unknown (${dnsx.caaError})`}. MTA-STS: ${dnsx.mtaSts ? `present (${dnsx.mtaSts})` : dnsx.mtaStsError ? `unknown (${dnsx.mtaStsError})` : "not published"}. TLS-RPT: ${dnsx.tlsRpt ? `present (${dnsx.tlsRpt})` : dnsx.tlsRptError ? `unknown (${dnsx.tlsRptError})` : "not published"}. BIMI: ${dnsx.bimi ? "present" : dnsx.bimiError ? `unknown (${dnsx.bimiError})` : "not published"}.`
       : `DNS posture probe FAILED: ${dnsR.error} - DNSSEC/CAA/MTA-STS/TLS-RPT/BIMI were NOT checked.`;
     const hostBlock = dnsx
-      ? `Nameservers: ${dnsx.nameservers?.length ? dnsx.nameservers.join(", ") : `unknown (${dnsx.nsError || "no answer"})`}. DNS host: ${dnsx.dnsHost ? `${dnsx.dnsHost.name} - CAA records ${dnsx.dnsHost.caa === false ? "NOT OFFERED by this host's DNS panel" : dnsx.dnsHost.caa ? "supported" : "support unknown"}; DNSSEC ${dnsx.dnsHost.dnssec === false ? "NOT OFFERED by this host" : dnsx.dnsHost.dnssec ? "supported" : "support unknown"}${dnsx.dnsHost.platformCerts ? "; TLS certificates are issued and rotated by the hosting platform (it may switch CA, e.g. Let's Encrypt <-> Google Trust Services)" : ""}` : "not recognised (CAA/DNSSEC support unknown - the reader must check their DNS host's panel)"}.`
+      ? `Nameservers: ${dnsx.nameservers?.length ? dnsx.nameservers.join(", ") : `unknown (${dnsx.nsError || "no answer"})`}. DNS host: ${dnsx.dnsHost ? `${dnsx.dnsHost.name} - CAA records ${dnsx.dnsHost.caa === false ? "NOT OFFERED by this host's DNS panel" : dnsx.dnsHost.caa ? "supported" : "support unknown"}; DNSSEC ${dnsx.dnsHost.dnssec === false ? "NOT OFFERED by this host" : dnsx.dnsHost.dnssec ? "supported" : "support unknown"}${dnsx.dnsHost.platformCerts ? "; TLS certificates are issued and rotated by the hosting platform (it may switch CA, e.g. Let's Encrypt <-> Google Trust Services)" : ""}${dnsx.dnsHost.note ? `; NOTE: ${dnsx.dnsHost.note}` : ""}` : "not recognised (CAA/DNSSEC support unknown - the reader must check their DNS host's panel)"}.`
       : "Nameservers / DNS host: not checked (DNS posture probe failed).";
     const wwwBlock = www
       ? (www.reachable ? `${www.twin}: reachable (HTTP ${www.status ?? "?"}), ${www.redirectsToOther ? `redirects to ${www.finalHost}` : "serves its own response (no redirect to the other host)"}, HSTS ${www.hsts ? "present" : "ABSENT"} there${hdr ? ` vs ${(hdr.security?.findings || []).some((f) => f.header === "HSTS" && f.present) ? "present" : "absent"} on ${domain}` : ""}.` : `${www.twin}: NOT reachable (${www.error}) - if people type it, they get an error.`)

@@ -24,7 +24,7 @@ ok(dnsHostFor(["ns1.railway.app", "ns2.railway.app"])?.caa === false && dnsHostF
 ok(dnsHostFor(["ns1.vercel-dns.com"])?.caa === true, "Vercel DNS: CAA supported");
 ok(dnsHostFor(["ada.ns.cloudflare.com"])?.dnssec === true, "Cloudflare: DNSSEC supported");
 ok(dnsHostFor(["ns-123.awsdns-45.org"])?.host === "Amazon Route 53", "Route 53 matched on the awsdns- infix");
-ok(dnsHostFor(["ns1kpv.name.com"])?.host === "Name.com", "name.com nameservers (the real havok.holdings host) resolve");
+ok(/Name\.com/.test(dnsHostFor(["ns1kpv.name.com"])?.host) && dnsHostFor(["ns1kpv.name.com"])?.caa === null && /Railway/.test(dnsHostFor(["ns1kpv.name.com"])?.note), "name.com nameservers: CAA unknown with the Railway-registration note (the real havok.holdings host)");
 ok(dnsHostFor(["ns1.some-registrar.example"]) === null, "unrecognised nameservers -> null (report says: check your host)");
 ok(DNS_HOSTS.every((h) => ["boolean", "object"].includes(typeof h.caa) && h.ns.length), "every host row carries a caa verdict (true/false/null) and suffixes");
 
