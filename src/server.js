@@ -122,6 +122,13 @@ import { whatIsMppPage } from "./what-is-mpp.js";
 import { agenticFinancePage } from "./agentic-finance.js";
 import { whyPage } from "./why.js";
 import { sampleJson, sampleMeta, SAMPLE_PRODUCTS } from "./sample-reports.js";
+import { createFreeAlerts, alertFormHtml, ALERT_KIND_FOR_REPORT_KIND } from "./free-alerts.js";
+import { probeInsiderFilings as faProbeInsider } from "./tools/insider-flow-kit.js";
+import { probeCompanyFilings as faProbeFilings } from "./tools/filing-watch-kit.js";
+import { latest13fFiling as faLatest13f, resolveManager as faResolveManager } from "./tools/edgar-kit.js";
+import { probeDomain as faProbeDomain } from "./tools/domain-audit-kit.js";
+import { probeRecalls as faProbeRecalls } from "./tools/recall-report-kit.js";
+import { sendEmail as faSendEmail } from "./email.js";
 import { marketsPage } from "./markets.js";
 import { proofPage } from "./proof.js";
 import { glossaryPage } from "./glossary.js";
@@ -1267,6 +1274,63 @@ const _monitorTargetValidators = {
   token: async (t) => (await probeTokenBrief(String(t).trim())).mint,
   insider: (t) => { const k = String(t).trim().toUpperCase(); if (!/^[A-Z][A-Z0-9.\-]{0,9}$/.test(k)) { const e = new Error(`"${t}" is not a valid US ticker`); e.statusCode = 400; e.buyerSafe = true; throw e; } return k; },
 };
+
+// Free email alerts (src/free-alerts.js): the lead magnet on the free report
+// pages. Same target validators as the monitors, the same free daily probes,
+// double opt-in, signed unsubscribe. Secret = the first of FREE_ALERTS_SECRET,
+// POW_SECRET, MPP_SECRET_KEY (unset = signup 503s: links must be unforgeable).
+const _freeAlerts = createFreeAlerts({
+  secret: (process.env.FREE_ALERTS_SECRET || process.env.POW_SECRET || process.env.MPP_SECRET_KEY || "").trim(),
+  baseUrl: BASE_URL,
+  sendEmail: faSendEmail,
+  validators: _monitorTargetValidators,
+  probes: {
+    insider: async (t) => { const r = await faProbeInsider({ ticker: t, days: 90, limit: 40 }); return { ids: r.ids, items: (r.filings || []).map((f) => ({ id: f.accessionNumber, label: `${(f.displayNames || []).join(", ") || "Form 4"} · filed ${f.filedDate}`, url: f.url })) }; },
+    filing: async (t) => { const r = await faProbeFilings(t); return { ids: r.keys || r.ids, items: (r.filings || []).map((f) => ({ id: f.key || `${f.accessionNumber}|${f.form}`, label: `${f.form} · filed ${f.filedDate}`, url: f.url })) }; },
+    fund: async (t) => { const m = /^\d{1,10}$/.test(t) ? await faResolveManager({ cik: t }) : await faResolveManager({ name: t }); const l = m?.cik ? await faLatest13f({ cik: m.cik }) : null; return { ids: l?.accessionNumber ? [l.accessionNumber] : [], items: l ? [{ id: l.accessionNumber, label: `13F for the period ended ${l.reportDate} · filed ${l.filedDate}` }] : [] }; },
+    domain: async (t) => { const r = await faProbeDomain(t); return { ids: [r.fingerprint], items: [{ id: r.fingerprint, label: `Security posture changed on ${t}` }] }; },
+    recall: async (t) => { const r = await faProbeRecalls(t); return { ids: r.ids, items: (r.items || []).map((x) => ({ id: x.recallNumber, label: `${x.classification || "Recall"} · ${String(x.product || "").slice(0, 90)}` })) }; },
+  },
+  onEvent: ({ step, kind }) => import("./posthog.js").then(({ capturePostHogHumanFunnel }) => capturePostHogHumanFunnel({ step, kind })).catch(() => {}),
+});
+if (process.env.FREE_ALERTS !== "off") _freeAlerts.start();
+const alertsSignupLimiter = createRateLimiter("alerts-signup", { perMin: 6, perHour: 40 });
+const alertPage = (title, body) => ledgerShell({ title: `${title} - Agent402`, description: "Free email alerts from Agent402.", canonical: `${BASE_URL}/reports`, baseUrl: BASE_URL, activePath: "/reports", robots: "noindex, nofollow", body: `<div class="wrap" style="padding:40px 30px;max-width:640px;"><h1 style="font-size:26px;margin:0 0 12px;">${title}</h1>${body}</div>${ledgerFooterCompact()}` });
+app.post("/api/alerts", express.json({ limit: "4kb" }), async (req, res) => {
+  if (alertsSignupLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many signups from this address. Try again in a few minutes." });
+  const b = req.body || {};
+  if (typeof b.website === "string" && b.website) return res.json({ ok: true, status: "pending" }); // honeypot: bots see success, nothing is stored
+  try { res.json(await _freeAlerts.signup({ email: b.email, kind: b.kind, target: b.target, source: b.source })); }
+  catch (e) {
+    if (e?.buyerSafe && e.statusCode) return res.status(e.statusCode).json({ error: String(e.message).slice(0, 200) });
+    console.warn("[free-alerts] signup failed:", String(e?.message || e).slice(0, 160));
+    res.status(500).json({ error: "Could not sign you up. Please try again." });
+  }
+});
+app.get("/alerts/confirm", (req, res) => {
+  const r = _freeAlerts.confirm(String(req.query.id || ""), String(req.query.k || ""));
+  res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html");
+  if (!r.ok) return res.status(400).send(alertPage("That link did not work", `<p>The confirmation link is invalid or the alert was unsubscribed. <a href="/reports">Back to reports</a>.</p>`));
+  res.send(alertPage("Alert confirmed", `<p>You will get an email when there are new ${esc(ALERT_KIND_LABEL(r.kind, r.target))}. One a day at most, only when something changes.</p><p><a href="/monitors?product=${encodeURIComponent(r.product)}&target=${encodeURIComponent(r.target)}">Want the full report re-run and emailed automatically?</a></p><p><a href="/reports">Back to reports</a></p>`));
+});
+app.get("/alerts/unsubscribe", (req, res) => {
+  const r = _freeAlerts.unsubscribe(String(req.query.id || ""), String(req.query.k || ""));
+  res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html");
+  if (!r.ok) return res.status(400).send(alertPage("That link did not work", `<p>The unsubscribe link is invalid. <a href="/contact">Contact us</a> and we will remove you by hand.</p>`));
+  res.send(alertPage("Unsubscribed", `<p>No more emails about ${esc(r.target)}. <a href="/reports">Back to reports</a></p>`));
+});
+// One-click unsubscribe (RFC 8058): mail clients POST the List-Unsubscribe URL.
+app.post("/alerts/unsubscribe", (req, res) => { const r = _freeAlerts.unsubscribe(String(req.query.id || ""), String(req.query.k || "")); res.status(r.ok ? 200 : 400).json({ ok: r.ok }); });
+app.get("/__operator/alerts.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  res.set("Cache-Control", "no-store").json(_freeAlerts.stats());
+});
+app.post("/__operator/alerts/run", async (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  res.set("Cache-Control", "no-store").json(await _freeAlerts.tick({ force: req.query.force === "1" }));
+});
+const ALERT_KIND_LABEL = (kind, t) => ({ insider: `Form 4 insider filings for ${t}`, filing: `SEC filings from ${t}`, fund: `13F filings from ${t}`, domain: `security changes on ${t}`, recall: `FDA recalls naming ${t}` }[kind] || `changes for ${t}`);
+
 let _subs = null;
 try {
   _subs = subscriptionsEnabled() ? createStripeSubscriptions({
@@ -1726,6 +1790,9 @@ app.get("/reports/sample/:product", (req, res) => {
     api: "/api/reports/sample/", baseUrl: BASE_URL, robots: "index, follow, max-image-preview:large",
     waitCopy: "Loading the sample report.", note: "",
     title: meta.title, description: meta.description, canonical: meta.canonical, jsonLd: meta.jsonLd,
+    // The free alert for the sample's own target (dossier -> filing watch, etc.)
+    extraHtml: alertFormHtml({ kind: ALERT_KIND_FOR_REPORT_KIND[sampleJson(product)?.kind], target: sampleJson(product)?.input, source: `/reports/sample/${product}` }),
+    extraScripts: '<script src="/js/alert-signup.js"></script>',
   }));
 });
 app.get("/api/reports/sample/:product", (req, res) => {

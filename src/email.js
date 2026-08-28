@@ -17,7 +17,7 @@ export function emailEnabled() {
 }
 
 /** Send one email via whichever provider is configured. 2xx -> true; never throws. */
-export async function sendEmail({ to, subject, html, text }) {
+export async function sendEmail({ to, subject, html, text, headers = null }) {
   if (!emailEnabled() || !to) return false;
   const from = key("EMAIL_FROM");
   try {
@@ -42,7 +42,7 @@ export async function sendEmail({ to, subject, html, text }) {
     const res = await fetch(RESEND_URL, {
       method: "POST",
       headers: { Authorization: `Bearer ${key("RESEND_API_KEY")}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to: [to], subject, html, text }),
+      body: JSON.stringify({ from, to: [to], subject, html, text, ...(headers && typeof headers === "object" ? { headers } : {}) }),
       signal: AbortSignal.timeout(12_000),
     });
     return res.ok;

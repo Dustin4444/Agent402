@@ -2102,6 +2102,22 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   email capture + post-purchase sequence (one transactional email exists, no list), a shareable/public report option (every
   /r/ page is noindex + generic OG, so the paid artifact has no backlink surface), monitors for research/dossier kinds,
   seed expansion, a first-report promo. Weekly number for this bet: card sales + `human_funnel` conversion, not x402scan rank.
+- **Free email alerts = the lead magnet on the free report pages (2026-08-28, day 2 of the reports bet; `src/free-alerts.js`,
+  `assets/js/alert-signup.js`, `scripts/test-free-alerts.js` 35 in CI):** a visitor on `/reports/insider/<T>`, `/reports/fund/<m>`,
+  `/reports/dossier/<T>` or a sample report enters an email; we watch that one target with the SAME free daily probe the paid
+  monitors use (insider `probeInsiderFilings`, filing `probeCompanyFilings`, fund `resolveManager`+`latest13fFiling`, domain
+  `probeDomain` fingerprint, recall `probeRecalls`; adapters in server.js return `{ids, items}`) and email ONLY on new ids, at most
+  once a day, with the free page + buy CTA + the matching monitor upsell + a signed unsubscribe link (`List-Unsubscribe` header
+  on Resend). Rules in code: DOUBLE OPT-IN (a signed `/alerts/confirm?id&k` link; nothing probed or sent before it; a signup
+  whose confirmation email cannot be sent is refused 503 and not stored), `MAX_PER_EMAIL` 5, `MAX_STORE` 5000, pending TTL 3
+  days, 5 failures then back-off, probe cap 200/tick, tick every 6h (first +5 min), store `/data/free-alerts.json` (atomic),
+  honeypot field + `alerts-signup` limiter 6/min at `POST /api/alerts`, `POST /alerts/unsubscribe` for RFC 8058 one-click,
+  operator `GET /__operator/alerts.json` (counts only) + `POST /__operator/alerts/run?force=1`. Secret = `FREE_ALERTS_SECRET` ||
+  `POW_SECRET` || `MPP_SECRET_KEY` (none = signup 503; prod has POW_SECRET). `FREE_ALERTS=off` disarms the timer. PostHog
+  `human_funnel` steps alert_signup / alert_confirmed / alert_sent / alert_unsubscribed, client `alert_signup_click`. Privacy +
+  terms carry the alert clauses ("No account or signup" became "No account"). Sample-page mapping `ALERT_KIND_FOR_REPORT_KIND`
+  (dossier -> filing). `sendEmail` takes an optional `headers` object (Resend only; ZeptoMail's documented body has none, the
+  body link is the guarantee).
 - **`/proof` + `GET /api/proof` (2026-08-27, `src/proof.js`, `proofFeed()` in sales-ledger):** receipts for the metered
   tier - the ledger now stores `quote_usd` (additive column) next to the settled `price_usd` on every metered sale
   (`recordSale({quoteUsd})` from the route binder's `req.__meteredQuoteUsd`), and the page shows aggregates plus ONE

@@ -83,6 +83,7 @@ so every claim below is verifiable in code.</p>
   <li><b>Memory tools.</b> Data written via <code>/api/memory</code> is stored on our server keyed to the
   paying wallet, readable only by that wallet (or wallets it explicitly grants), until the owner deletes
   it or its TTL expires. A tamper-evident audit log of accesses is kept for the namespace owner.</li>
+  <li><b>Free email alerts.</b> If you enter an email on a free report page to be told when a company, fund, domain or product changes, we store that address, the subject you chose and the dates we checked and emailed, and we send you a confirmation link first: nothing is watched and nothing else is sent until you click it. Alert emails go out at most once a day, only when something changed, through the same transactional provider, and every one carries a one-click unsubscribe link that ends the alert and stops all email. We do not use the address for anything else and do not share it.</li>
 </ul>
 
 <h2>Third parties</h2>
@@ -109,7 +110,7 @@ HTTP API.</p>
 <p>Operational logs are short-lived (platform default, days not months). Rate-limit counters live in
 process memory only. Memory-tool data persists until deleted by its owner or TTL expiry. Card-purchase
 records (email, session id, input, the finished report) are kept while the report link or subscription is
-live and for accounting afterwards; you can ask us to delete them at the address below once the purchase
+live and for accounting afterwards; free-alert records (email, subject, check and send dates) are kept until you unsubscribe, and an unconfirmed signup is deleted after three days; you can ask us to delete any of them at the address below once the purchase
 is complete. The sales ledger keeps wallet addresses and transaction ids, which are already public
 on-chain. Aggregate, non-personal counters (total calls served per tool) are kept for the public
 <a href="/api/stats">/api/stats</a> page.</p>
