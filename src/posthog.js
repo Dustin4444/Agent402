@@ -464,6 +464,24 @@ export function capturePostHogVerifyFailed({ network, scheme, resource, errorRea
   });
 }
 
+// A request to a real catalog path with the wrong HTTP method: the exact
+// dead end that stopped a paying buyer's catalog walk (2026-08-28) and that no
+// event had ever counted. Path + method + UA family only; capped per hour.
+const WRONG_METHOD_HOURLY_CAP = 300;
+let _wmWindow = 0, _wmCount = 0;
+export function capturePostHogWrongMethod({ path, method, allow, ua }) {
+  if (!active()) return;
+  const hour = Math.floor(Date.now() / 3_600_000);
+  if (hour !== _wmWindow) { _wmWindow = hour; _wmCount = 0; }
+  if (++_wmCount > WRONG_METHOD_HOURLY_CAP) return;
+  capture("wrong_method", {
+    path: String(path || "").slice(0, 120),
+    method: String(method || ""),
+    allow: Array.isArray(allow) ? allow.join(",") : String(allow || ""),
+    uaFamily: String(ua || "").split("/")[0].slice(0, 40) || "(none)",
+  });
+}
+
 export function capturePostHogSettleFailed({ slug, status, network, priceUsd, synthetic, payer, errorReason }) {
   if (!active()) return;
   capture("settle_failed", {

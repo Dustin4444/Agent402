@@ -2029,6 +2029,15 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   key must ride as `auth_token`/`authToken` (Authorization: Bearer), not `api_key` (x-api-key). **Claude Code as an LLM host
   is CLAIMED since 2026-08-27** (see the Claude Code host entry below): the 100 KB limit is lifted on /v1/metered and the
   wire was proven against claude-cli 2.1.250.
+- **POST on a GET-only tool is served, not 405'd (2026-08-28):** a buyer that had just paid walked the catalog POSTing JSON to every
+  route and got `405 Method POST not allowed` on search, search-news, search-images, search-videos, search-suggest, ip-info,
+  card-validate ... and stopped (Railway HTTP log, 18:07Z; agents POST everything). A top-level middleware (mounted in BOTH modes,
+  before the `if (FREE_MODE)` branch - the paid gate block below it never mounts under FREE_MODE, which is why the first draft
+  passed nothing) rewrites `POST /path` to `GET /path` when the catalog has only the GET, marks `req.__methodAliased`, and the
+  identical gate chain runs (paywall keyed `GET /path`, PoW, replay, funnel); the JSON body is the input (`handlerInputOf` merges
+  query + body, and `cacheKeyFor` keys on the merged input, so the GET cache cannot serve a different body's answer). A GET on a
+  POST-only tool still 405s with `Allow` (a GET carries no body). Pinned in test-wrong-method-405 (served + body honoured) and
+  test-head-paywall (unpaid POST alias -> 402 with PAYMENT-REQUIRED, garbage payment refused).
 - **A rejected payment is answered in the buyer's terms (2026-08-28, `src/verify-hint.js`, `scripts/test-verify-hint.js` 18 in CI):**
   every verify failure surviving in Railway's removed-deployment logs read `[CDP (Base)] invalid_payload: contract call failed: unable
   to call contract: execution reverted` - CDP simulating the USDC transferWithAuthorization and the transfer reverting (an EMPTY wallet,

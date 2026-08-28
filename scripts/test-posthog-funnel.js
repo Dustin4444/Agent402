@@ -344,5 +344,13 @@ try {
   ok(after - before <= 300, `verify_failed is capped per hour (${after - before} of 401 captured)`);
 }
 
+// ---- wrong_method: the 405 dead end is counted (2026-08-28) ----
+{
+  const { capturePostHogWrongMethod, _testEventsForTest } = await import("../src/posthog.js");
+  capturePostHogWrongMethod({ path: "/api/search", method: "POST", allow: ["GET"], ua: "axios/1.14.0 (foo)" });
+  const ev = _testEventsForTest().filter((e) => e.event === "wrong_method").pop();
+  ok(ev && ev.properties.path === "/api/search" && ev.properties.method === "POST" && ev.properties.allow === "GET" && ev.properties.uaFamily === "axios", "wrong_method carries path, method, allow and the UA family only");
+}
+
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

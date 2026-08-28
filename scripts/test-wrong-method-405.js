@@ -30,6 +30,18 @@ const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail+
   ok(res.status !== 405, `POST (the real method) on /api/hash is never 405'd (got ${res.status})`);
 }
 
+// POST on a GET-only tool is SERVED (2026-08-28): the JSON body is the input,
+// the same gate chain runs. Agents POST everything; a paying buyer walked the
+// catalog and got 405 on every GET tool.
+{
+  const res = await fetch(`${BASE}/api/random`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ min: 40, max: 41 }) });
+  ok(res.status !== 405 && res.status !== 404, `POST on GET-only /api/random is not refused for its method (got ${res.status})`);
+  if (res.status === 200) {
+    const body = await res.json();
+    const v = Number(Array.isArray(body.integers) ? body.integers[0] : (body.value ?? body.number ?? body.result));
+    ok(v === 40 || v === 41, `the JSON body reached the handler as input (got ${JSON.stringify(body).slice(0, 80)})`);
+  }
+}
 // A path that isn't in the catalog AT ALL must fall through to the
 // existing 404 behavior unchanged - the fix must not swallow every 404.
 {

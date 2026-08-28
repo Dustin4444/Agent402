@@ -113,7 +113,7 @@ import { databasesStatus } from "./db-status.js";
 import { initWithRetry } from "./db-init-retry.js";
 import { baseNotificationsEnabled } from "./base-notifications.js";
 import { initSentry, captureToolError, sentryEnabled } from "./sentry.js";
-import { initPostHog, capturePostHogToolError, capturePostHogToolCall, capturePostHogDiscovery, capturePostHogPaywall, capturePostHogPowChallenge, capturePostHogSettlement, capturePostHogChargedFailure, capturePostHogSettleFailed, capturePostHogToolGone, capturePostHogHumanFunnel, shutdownPostHog, posthogEnabled } from "./posthog.js";
+import { initPostHog, capturePostHogWrongMethod, capturePostHogToolError, capturePostHogToolCall, capturePostHogDiscovery, capturePostHogPaywall, capturePostHogPowChallenge, capturePostHogSettlement, capturePostHogChargedFailure, capturePostHogSettleFailed, capturePostHogToolGone, capturePostHogHumanFunnel, shutdownPostHog, posthogEnabled } from "./posthog.js";
 import { analyticsPage } from "./analytics-page.js";
 import { operatorPage, operatorLoginPage } from "./operator.js";
 import { privacyPage } from "./privacy.js";
@@ -5306,6 +5306,22 @@ app.use((req, res, next) => {
 });
 
 // x402 paywall for the catalog routes
+// POST on a GET-only tool is served, not 405'd (2026-08-28): agents POST
+// JSON to every route they discover - a buyer that had just paid for one
+// tool walked the catalog POSTing and got 405 on search, search-news,
+// search-images, search-videos, search-suggest, ip-info, card-validate ...
+// and stopped. The method is rewritten to GET for the IDENTICAL gate chain
+// (funnel, PoW, replay guard, x402 paywall keyed "GET /path"), the parsed
+// JSON body is the input (handlerInputOf merges query + body, and the GET
+// cache keys on that merged input), and Allow/405 remain for a GET sent to
+// a POST-only tool (a GET cannot carry the body those handlers need).
+app.use((req, res, next) => {
+  if (req.method === "POST" && !CATALOG[`POST ${req.path}`] && CATALOG[`GET ${req.path}`]) {
+    req.__methodAliased = "POST";
+    req.method = "GET";
+  }
+  next();
+});
 if (FREE_MODE) {
   console.warn("FREE_MODE=true - payments are DISABLED. Do not run this in production.");
 } else {
@@ -6289,6 +6305,7 @@ app.use((req, res, next) => {
   if (!methods || methods.has(req.method)) return next();
   const allow = [...methods].sort().join(", ");
   res.set("Allow", allow);
+  try { capturePostHogWrongMethod({ path: req.path, method: req.method, allow: [...methods].sort(), ua: req.headers["user-agent"] }); } catch { /* telemetry never breaks a response */ }
   res.status(405).json({
     error: `Method ${req.method} not allowed on ${req.path}`,
     allow: [...methods].sort(),
