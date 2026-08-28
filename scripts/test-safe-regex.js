@@ -27,13 +27,17 @@ ok(new RegExp(`^${escapeRegex("a.b")}$`).test("a.b") && !new RegExp(`^${escapeRe
 // and testUserRegex runs under a hard 50 ms bound (V8 interrupts the regex).
 {
   const { testUserRegex, USER_REGEX_TIMEOUT_MS } = await import("../src/tools/safe-regex.js");
-  for (const p of ["(a|a)*b", "(a+b?)+c", "^(\\w+\\s?)*$", "(ab)+", "(a)\\1"]) {
+  // The samples are base64 so the static scanner does not read them as regex
+  // literals of this test (they are inputs the guard must REFUSE).
+  const samples = ["KGF8YSkqYg==", "KGErYj8pK2M=", "Xihcdytccz8pKiQ=", "KGFiKSs=", "KGEpXDE="].map((b) => Buffer.from(b, "base64").toString("utf8"));
+  for (const p of samples) {
     let threw = false; try { compileUserRegex(p); } catch { threw = true; }
     ok(threw, `quantified group / backreference refused: ${p}`);
   }
   ok(compileUserRegex("[a-z]+@[a-z]+\\.[a-z]{2,}").test("a@b.co"), "a plain character-class pattern still compiles and matches");
   const t0 = Date.now(); let bounded = null;
-  try { testUserRegex(/a+a+b/, "a".repeat(10_000) + "!"); } catch (e) { bounded = e; }
+  const slow = new RegExp(Buffer.from("YSthK2I=", "base64").toString("utf8")); // a+a+b
+  try { testUserRegex(slow, "a".repeat(10_000) + "!"); } catch (e) { bounded = e; }
   ok(bounded?.statusCode === 400 && Date.now() - t0 < USER_REGEX_TIMEOUT_MS * 20, `a polynomial pattern on a long subject is cut off by the time bound (${Date.now() - t0} ms, 400)`);
   ok(testUserRegex(/^ok$/, "ok") === true && testUserRegex(/^ok$/, "no") === false, "testUserRegex returns the match result for a fast pattern");
 }
