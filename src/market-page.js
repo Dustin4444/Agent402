@@ -559,7 +559,7 @@ export function marketPanelHtml(chainKey, { snapshot, activity, selectedSeller, 
 
 export function marketPage(chainKey, baseUrl, opts = {}) {
   if (chainKey == null) return marketPageAll(baseUrl, opts);
-  const { snapshot, rail, activity, selectedSeller, wallet, leaderboardSnap, all = false } = opts;
+  const { snapshot, rail, activity, selectedSeller, wallet, leaderboardSnap, all = false, host = null } = opts;
   const C = CHAIN_PAGES[chainKey];
   const effectiveWallet = wallet || C.wallet;
   // Stellar/Algorand ship a committed public default wallet in CHAIN_PAGES;
@@ -821,6 +821,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
     </div>
     ${railManifestHtml}
   </div>
+  ${hostCardHtml(host)}
   ${marketFilterBar(chainKey, baseUrl)}
   ${statsHtml}`;
 

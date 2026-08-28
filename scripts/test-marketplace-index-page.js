@@ -146,6 +146,13 @@ function chainCard(html, slug) {
   const count = (h) => (h.match(/SELLERS LISTED<\/div><div[^>]*>([0-9,]+)/) || [])[1];
   ok(count(without) === count(withHost), `the SELLERS LISTED count is identical with and without the host card (${count(without)} vs ${count(withHost)})`);
   ok(withHost.indexOf("data-host-card") < withHost.indexOf('class="mfb"'), "host card sits above the roster filter bar and rows, not inside them");
+  // per-rail card on a chain page (2026-08-28): the same card, that rail's outside buyers only
+  const HOSTB = { ...HOSTF, network: "base", networkLabel: "Base", external30d: { settlements: 41, buyers: 5, tools: null }, externalAllTime: { settlements: 900, buyers: 90, tools: null } };
+  const chainWith = marketPage("base", BASE_URL, { snapshot: { sellers }, leaderboardSnap: { leaderboard: [] }, host: HOSTB });
+  const chainWithout = marketPage("base", BASE_URL, { snapshot: { sellers }, leaderboardSnap: { leaderboard: [] } });
+  ok(chainWith.includes("data-host-card") && chainWith.includes("outside buyers on Base only") && chainWith.includes(">41<") && chainWith.includes(">900<"), "a chain page carries the host card with THAT rail's outside-buyer figures");
+  ok(!chainWithout.includes("data-host-card"), "a chain page without host figures renders no card");
+  ok(count(chainWithout) === count(chainWith), "the chain page's seller count is unchanged by the host card");
 }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

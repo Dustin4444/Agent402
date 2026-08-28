@@ -16,18 +16,30 @@ import { esc } from "./ledger-chrome.js";
 const ALL_TIME_DAYS = 36_500;
 
 /** External-only figures from the sales ledger. `summaryFn` is injectable. */
-export function hostFigures({ summaryFn, toolCount = 0, baseUrl = "" } = {}) {
+export function hostFigures({ summaryFn, byNetworkFn, network = null, networkLabel = null, toolCount = 0, baseUrl = "" } = {}) {
   if (typeof summaryFn !== "function") return null;
   let d30, all;
   try { d30 = summaryFn({ days: 30 }); all = summaryFn({ days: ALL_TIME_DAYS }); } catch { return null; }
   const n = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
-  return {
+  const base = {
     baseUrl,
     toolCount: n(toolCount),
     recordingSince: all?.recordingSince ? new Date(all.recordingSince).toISOString() : null,
+    network: null, networkLabel: null,
     external30d: { settlements: n(d30?.totals?.external?.sales), buyers: n(d30?.distinctExternalBuyers), tools: n(d30?.distinctToolsSoldExternal) },
     externalAllTime: { settlements: n(all?.totals?.external?.sales), buyers: n(all?.distinctExternalBuyers), tools: n(all?.distinctToolsSoldExternal) },
   };
+  // Per-rail figures for a chain page: only settlements on THAT network
+  // (the ledger's own external classification, collapsed to the rail key).
+  if (network && typeof byNetworkFn === "function") {
+    const pick = (m) => { const k = Object.keys(m || {}).find((x) => x === network || x.startsWith(`${network} `) || x.startsWith(`${network}:`)); return k ? m[k] : { settlements: 0, buyers: 0 }; };
+    let m30, mall;
+    try { m30 = pick(byNetworkFn({ days: 30 })); mall = pick(byNetworkFn({ days: ALL_TIME_DAYS })); } catch { return base; }
+    return { ...base, network, networkLabel: networkLabel || network,
+      external30d: { settlements: n(m30.settlements), buyers: n(m30.buyers), tools: null },
+      externalAllTime: { settlements: n(mall.settlements), buyers: n(mall.buyers), tools: null } };
+  }
+  return base;
 }
 
 const fmt = (v) => Number(v || 0).toLocaleString("en-US");
@@ -41,7 +53,7 @@ export function hostCardHtml(f) {
   <div data-host-card style="border:1px solid var(--hairline);background:var(--card);padding:18px 20px;margin:0 0 22px;">
     <div style="display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;align-items:baseline;">
       <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;color:var(--accent);">THIS SITE &middot; HOST &middot; NOT RANKED, NOT COUNTED</div>
-      <div style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);">outside buyers only</div>
+      <div style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);">${f.networkLabel ? `outside buyers on ${esc(f.networkLabel)} only` : "outside buyers only"}</div>
     </div>
     <div style="display:flex;gap:26px;flex-wrap:wrap;margin:12px 0 10px;font-family:var(--font-mono);font-size:13px;color:var(--ink);">
       <span><strong>${fmt(f.external30d.settlements)}</strong> <span style="color:var(--faint);">settlements, 30 days</span></span>

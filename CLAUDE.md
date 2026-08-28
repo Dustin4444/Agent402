@@ -1936,6 +1936,10 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   self-entry from the external pool). The roster's existing pinned THIS HOST card and the MPP board's self-flagged ranked row
   are unchanged. Pins: test-marketplace-index-page (32), test-leaderboard-page (30), test-mpp-market-page (20),
   test-self-listing-exclusion (host entry built without the cache), test-shortlinks (booted `self:true` for host, origin and BASE_URL).
+  **Per rail (same day):** every chain page (`/base` ... `/stellar`, `/algorand` through their wrappers) carries the same card
+  with THAT rail's outside settlements and distinct buyers only (`externalByNetwork({days})` in sales-ledger, CAIP ids collapsed
+  to the rail key; `hostFigures({network, byNetworkFn})`), labelled "outside buyers on <Chain> only"; the all-chains page keeps
+  the all-rail totals. Pinned in test-marketplace-index-page (35) and test-sales-ledger (74).
 - **Router aliases + short-term token rule (2026-08-28, from an outside email that had the facts wrong but the symptom right):**
   `/api/route?q=ip geolocation` ranked a $0.05 external seller above our $0.003 `asn-info` ("ASN + IP geolocation"): the
   lexical scorer weights the SLUG, and ours says neither word; worse, the two-letter term "ip" substring-matched gzip /

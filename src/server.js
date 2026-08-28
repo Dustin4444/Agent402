@@ -324,7 +324,7 @@ import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledg
 import { x402EconomySnapshot, economySnapshotCached } from "./x402-economy.js";
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate } from "./settlement-proof.js";
 import { spend as sharedSpend, refund as sharedRefund, sharedLimitEnabled } from "./shared-limit.js";
-import { recordSale, salesSummary, mppSales, cardSales, mppTxHashes, txFromPaymentResponse, tempoDailyRevenue, tempoDailyRecordingSince, proofFeed } from "./sales-ledger.js";
+import { recordSale, salesSummary, externalByNetwork, mppSales, cardSales, mppTxHashes, txFromPaymentResponse, tempoDailyRevenue, tempoDailyRecordingSince, proofFeed } from "./sales-ledger.js";
 import { recordShadowSettlement, startShadowLedger, shadowLedgerReport, shadowLedgerEnabled } from "./stripe-shadow-ledger.js";
 import { reconcileSettlements } from "./settlement-reconcile.js";
 import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
@@ -3802,7 +3802,7 @@ app.get("/stellar", async (req, res) => {
     const selectedSeller = picked
       ? { local: !!picked.local, host: picked.local ? null : hostOf(picked.homepage || picked.origin), name: picked.displayName || null }
       : null;
-    htmlCache(res, 120, 600).send(stellarPage(BASE_URL, { snapshot, rail, activity, selectedSeller, stellarWallet: selfWallet || undefined }));
+    htmlCache(res, 120, 600).send(stellarPage(BASE_URL, { snapshot, rail, activity, selectedSeller, stellarWallet: selfWallet || undefined, host: hostEntryFigures("stellar") }));
   } catch (e) {
     res.status(500).type("text/plain").send("temporarily unavailable");
   }
@@ -3881,7 +3881,7 @@ app.get("/algorand", async (req, res) => {
     const selectedSeller = picked
       ? { local: !!picked.local, host: picked.local ? null : hostOf(picked.homepage || picked.origin), name: picked.displayName || null }
       : null;
-    htmlCache(res, 120, 600).send(algorandPage(BASE_URL, { snapshot, rail, activity, selectedSeller, algorandWallet: selfWallet || undefined }));
+    htmlCache(res, 120, 600).send(algorandPage(BASE_URL, { snapshot, rail, activity, selectedSeller, algorandWallet: selfWallet || undefined, host: hostEntryFigures("algorand") }));
   } catch (e) {
     res.status(500).type("text/plain").send("temporarily unavailable");
   }
@@ -4073,7 +4073,7 @@ for (const chainKey of Object.keys(SNAPSHOT_RAIL_LABEL)) {
         scanWallet ? getActivityForChain(chainKey, scanWallet) : Promise.resolve(null),
       ]);
       const rail = revSnap?.rails?.find((r) => r.rail === SNAPSHOT_RAIL_LABEL[chainKey]) || null;
-      htmlCache(res, 120, 600).send(marketPage(chainKey, BASE_URL, { snapshot, rail, activity, selectedSeller, wallet: rail?.wallet || undefined, leaderboardSnap: getLeaderboardSnapshot(), all: req.query.all === "1" }));
+      htmlCache(res, 120, 600).send(marketPage(chainKey, BASE_URL, { snapshot, rail, activity, selectedSeller, wallet: rail?.wallet || undefined, leaderboardSnap: getLeaderboardSnapshot(), all: req.query.all === "1" , host: hostEntryFigures(chainKey) }));
     } catch (e) {
       res.status(500).type("text/plain").send("temporarily unavailable");
     }
@@ -4186,8 +4186,10 @@ app.get("/marketplace", async (req, res) => {
 });
 // The host's own entry for the discovery surfaces: external-only ledger
 // figures, rendered outside every ranking and count (src/host-entry.js).
-function hostEntryFigures() {
-  try { return hostFigures({ summaryFn: salesSummary, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL }); } catch { return null; }
+function hostEntryFigures(chainKey = null) {
+  try {
+    return hostFigures({ summaryFn: salesSummary, byNetworkFn: externalByNetwork, network: chainKey || null, networkLabel: chainKey ? (SNAPSHOT_RAIL_LABEL[chainKey] || chainKey.charAt(0).toUpperCase() + chainKey.slice(1)) : null, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL });
+  } catch { return null; }
 }
 // The MPP marketplace - independent directory, synchronous snapshot (no
 // on-chain join, unlike /marketplace above), same cache window.
