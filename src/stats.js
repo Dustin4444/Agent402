@@ -258,6 +258,11 @@ export const CAIP2_NAMES = {
  *  Applied at READ time rather than by rewriting history: the stored counters
  *  stay exactly as recorded, and the merge is a presentation rule anyone can
  *  check against CAIP2_NAMES. */
+/** Settlements the per-network split can actually attribute (its own sum). */
+function usdcAttributed() {
+  return usdcNetCounters.all().reduce((a, r) => a + (r.n || 0), 0);
+}
+
 export function mergeNetworkCounters(entries) {
   const out = new Map();
   for (const [key, n] of entries) {
@@ -358,6 +363,15 @@ export function getStats({ wallet, walletName, network, toolCount, baseUrl, pric
       // = counted before this split existed. Answers "has anyone ever paid on
       // Solana/Polygon/…" without an explorer scan per chain.
       viaUSDCByNetwork: mergeNetworkCounters(usdcNetCounters.all().map((r) => [r.k.slice("usdcNet:".length), r.n])),
+      // The two figures above do not add up and a reader should not have to
+      // guess why: viaUSDC is a LIFETIME counter that predates the per-network
+      // one. Measured 2026-08-28: 30,542 vs 16,372 attributed, only 33 of the
+      // difference in "unknown" - the rest is simply older than the split. An
+      // outside reviewer read the unlabelled 14k gap as a data error, which is
+      // the right instinct. attributed + beforeNetworkCounter === viaUSDC.
+      viaUSDCAttributed: usdcAttributed(),
+      viaUSDCBeforeNetworkCounter: Math.max(0, num("viaUSDC") - usdcAttributed()),
+      viaUSDCByNetworkNote: "viaUSDC is a lifetime counter; the per-network split begins when that counter shipped, so viaUSDCAttributed + viaUSDCBeforeNetworkCounter = viaUSDC",
       viaProofOfWork: num("viaProofOfWork"),
       viaTrial: num("viaTrial"), // one-per-tool-per-IP-per-hour wallet-free trials — free, never revenue
       viaHeartbeat: num("viaHeartbeat"), // internal probe traffic (PoW path, agent402-heartbeat UA)
@@ -502,6 +516,14 @@ export function getOperatorBreakdown({ prices, walletOnlySet, limit = RECENT_KEE
     };
   });
   const viaUSDCByNetwork = mergeNetworkCounters(usdcNetCounters.all().map((r) => [r.k.slice("usdcNet:".length), r.n]));
+  // RECONCILIATION, because the two figures do not add up and a reader should
+  // not have to guess why: `viaUSDC` is a lifetime counter that predates the
+  // per-network one, so the split only covers settlements since that counter
+  // shipped. Measured 2026-08-28: 30,542 vs 16,372, with just 33 in "unknown"
+  // - the other 14,170 are simply older than the attribution. An outside
+  // reviewer read the gap as a data error, which is the right instinct about
+  // an unlabelled 14k discrepancy.
+  const viaUSDCAttributed = Object.values(viaUSDCByNetwork).reduce((a, b) => a + b, 0);
   // Offered rails vs settled rails: viaUSDCByNetwork only ever carries a key
   // for a rail that has settled at least once — a rail with zero settlements
   // has no key at all, so it's invisible by omission rather than flagged.
@@ -517,6 +539,9 @@ export function getOperatorBreakdown({ prices, walletOnlySet, limit = RECENT_KEE
     totals: {
       total: getCounter.get("total")?.n ?? 0,
       viaUSDC: getCounter.get("viaUSDC")?.n ?? 0,
+      viaUSDCAttributed,
+      viaUSDCBeforeNetworkCounter: Math.max(0, (getCounter.get("viaUSDC")?.n ?? 0) - viaUSDCAttributed),
+      viaUSDCByNetworkNote: "viaUSDC is a lifetime counter; the per-network split starts when that counter shipped, so viaUSDCAttributed + viaUSDCBeforeNetworkCounter = viaUSDC",
       viaUSDCByNetwork,
       viaProofOfWork: getCounter.get("viaProofOfWork")?.n ?? 0,
       viaTrial: getCounter.get("viaTrial")?.n ?? 0,

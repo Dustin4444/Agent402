@@ -67,6 +67,12 @@ const NETWORK_MATCHERS = new Map(RAILS.map((r) => {
 }));
 
 const LOCAL_SELLER = "self";
+// Unsubstituted OpenAPI path templates: "/stock/{symbol}", "/v1/x/{arg}".
+// TWO regexes on purpose: `.test()` on a /g regex is STATEFUL (it advances
+// lastIndex and alternates true/false across calls), so the predicate is
+// non-global and only the extraction is global.
+const URL_TEMPLATE_RE = /\{[^}/]+\}/;
+const URL_TEMPLATE_RE_G = /\{([^}/]+)\}/g;
 const SELF_BAZAAR_ORIGIN = "https://agent402.tools"; // the origin our Bazaar listing is keyed under
 // /index used to render every crawled seller server-side (~1,477 rows → a
 // 475KB response with no compression). Cap the default render to the top N
@@ -3677,6 +3683,13 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
       method: t.method,
       route: t.route,
       url: t.seller === LOCAL_SELLER ? `${baseUrl}${t.route}` : `${t.seller}${t.route}`,
+      // A crawled OpenAPI path can carry template segments the seller never
+      // substitutes ("/stock/{symbol}"). Handing an agent that URL as if it
+      // were callable wastes its money and its time - measured 2026-08-28,
+      // three of eight rows for "get a stock quote" were templates. We still
+      // RETURN the row (the seller and the tool are real, and an agent that
+      // knows the parameter can fill it), but we say so, and the SOR skips it.
+      ...(URL_TEMPLATE_RE.test(t.route || "") ? { urlTemplate: true, pathParams: [...String(t.route).matchAll(URL_TEMPLATE_RE_G)].map((m) => m[1]) } : {}),
       price: t.price,
       priceUsd: parsePrice(t.price),
       ...priceConflictProjection(t),

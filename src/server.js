@@ -1013,6 +1013,11 @@ async function resolveExternalSeller(task, { cap, chain = "base" }) {
     provenPayToByOrigin = buildProvenPayToByOrigin();
     candidates = (results || [])
       .filter((r) => r.seller && r.url && r.priceUsd > 0 && r.priceUsd <= cap && Array.isArray(r.networks) && r.networks.includes("eip155:8453"))
+      // Never SPEND against an unsubstituted OpenAPI path template
+      // ("/stock/{symbol}"): the request cannot succeed and the money is at
+      // risk for nothing. /api/route still SHOWS these rows, flagged
+      // `urlTemplate`, because an agent that knows the parameter can use them.
+      .filter((r) => !r.urlTemplate)
       .filter((r) => hostOf(r.url) && hostOf(r.url) !== ourHost)
       .map((r) => ({ ...r, settled: settledByOrigin.get(norm(r.seller)) || 0, payers: payersByOrigin.get(norm(r.seller)) }))
       // Count AND breadth. One implementation, shared with the test, so the
