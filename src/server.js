@@ -321,7 +321,7 @@ import { algorandPage, algorandSellers } from "./algorand-page.js";
 import { CHAIN_PAGES, marketSellers, marketOperatorCount, marketPage, marketPanelHtml } from "./market-page.js";
 import { sellPage } from "./sell.js";
 import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledgerBuyerConcentration, ledgerSyncState } from "./revenue-ledger.js";
-import { x402EconomySnapshot, economySnapshotCached } from "./x402-economy.js";
+import { x402EconomySnapshot, economySnapshotCached, warmEconomySnapshot } from "./x402-economy.js";
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate } from "./settlement-proof.js";
 import { spend as sharedSpend, refund as sharedRefund, sharedLimitEnabled } from "./shared-limit.js";
 import { recordSale, salesSummary, externalByNetwork, mppSales, cardSales, mppTxHashes, txFromPaymentResponse, tempoDailyRevenue, tempoDailyRecordingSince, proofFeed } from "./sales-ledger.js";
@@ -6651,6 +6651,9 @@ bootStep("revenueSnapshot", () => revenueSnapshot(revenueWallets()).catch(() => 
 // shouldn't make /api/leaderboard return nothing. Fire-and-forget so a slow
 // Bazaar walk can't delay boot or /health.
 bootStep("startLeaderboardRefresh", () => startLeaderboardRefresh());
+// Warm the on-chain economy snapshot once, off the boot path: the cache is
+// cold exactly once per deploy and only a cold cache blocks a visitor.
+bootStep("warmEconomySnapshot", () => warmEconomySnapshot());
 
 // Graceful shutdown: a Railway redeploy sends SIGTERM. Close the listener at
 // once and let in-flight (already paid-for) requests finish before exiting -
