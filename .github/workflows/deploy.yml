@@ -1238,6 +1238,9 @@ jobs:
         run: TARGET_URL=https://agent402.tools node scripts/test-challenge-size.js
       - name: Router aliases + short-term token rule (offline)
         run: X402_INDEX_CRAWL=off node scripts/test-route-aliases.js
+      # Input aliases may never change the MEANING of a call (offline, mutation-tested)
+      - name: Input parameter aliases (offline)
+        run: node scripts/test-input-aliases.js
 
       # ONE STEP, MANY SCRIPTS (2026-08-25): GitHub spends ~0.7 s of runner setup
       # per step and this lane had over a hundred one-line steps. Each script still

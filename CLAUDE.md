@@ -2028,6 +2028,25 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   14,910 rows) - and `unattributedMerchants` now reports `attributedUnroutable` (known origin, cannot route) separately from
   `unattributed` (unknown). Submitted-seed slots: 586 of the 2,000 cap in use (2026-08-27). test-settlement-proof 44.
 
+- **Input aliases: accept the obvious other name (2026-08-29, `src/input-aliases.js`, `scripts/test-input-aliases.js`
+  19 in CI):** measured from 60 days of telemetry after the "one buy then nothing" question - the buyers who EXPLORED the
+  catalog and left hit no payment errors at all; **every failure was a 400.** One walked 77 tools and was rejected 723
+  times, another 55 tools and 70 times, a third 44 tools and 107 times. The control that makes it readable: a walker
+  using our DOCUMENTED EXAMPLES made 2,591 calls across 1,382 slugs with 25 errors (1%). Driving the same tools by hand
+  reproduced it - a third of plausible first attempts fail on the NAME alone (`roman` wants `value` and a caller reaches
+  for `number`; `tls-cert` wants `host`, a caller sends `domain`; `edgar-company-lookup` wants `ticker`, a caller sends
+  `q`). An agent that READS our OpenAPI gets these right; one that infers from the tool name does not, and inferring is
+  what agents do. Our 400s were already self-correcting (they carry `error`, `tool` and an `expected` block naming the
+  field), so a careful agent recovers - these buyers did not read it. `applyInputAliases` fills a missing REQUIRED
+  parameter from a curated DIRECTED table under three rules that make a wrong guess structurally impossible: (1) only a
+  required property the caller OMITTED is ever filled, never an overwrite and never an invented optional; (2) the
+  synonym must NOT itself be a declared property of that tool (a tool with both `host` and `domain` means two things);
+  (3) exactly one synonym may match - two is ambiguity and the 400 is the better answer. The ADVERTISED contract is
+  unchanged: schema, docs, examples and the `expected` block still name the canonical parameter. Wired into
+  `handlerInputOf` so pricing and serving still read ONE object - and note the trap the test caught: the memo HIT must
+  also alias, or a gate that priced the request before dispatch leaves the handler an un-aliased input while the
+  "one object" test still passes. Filled names ride on `req.__aliasedParams` for telemetry. Mutation-tested: breaking
+  each of the three rules fails the suite.
 - **Typed output schema on the 402 itself (2026-08-29, `boundedSchemaFromExample`):** the OpenAPI fix left the surface a
   buyer reads AT THE MOMENT OF PAYING still example-only - `accepts[].outputSchema` was absent on every route and the
   `bazaar` discovery extension carried `output.example` with no schema. The extension now also carries a TYPED schema
