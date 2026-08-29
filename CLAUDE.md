@@ -769,7 +769,16 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   2026-08-25 scale call produced a second deploy that swapped prod mid-CI-sweep and failed three self-targeting
   examples: a2a-card-fetch, x402-quote, x402-audit all fetch agent402.tools). Change settings right AFTER a merge
   lands, never during a CI run. `railway.toml` config-as-code is DEPRECATED by Railway in favour of
-  `.railway/railway.ts` (grace until 2026-12-01) - migrate before then or the toml is ignored.
+  `.railway/railway.ts` (grace until 2026-12-01, hard cutoff) - `railway config migrate` is the one-command path, but
+  read the dry run first: it emits only healthcheck/timeout/replicas and DROPS `restartPolicyType`,
+  `restartPolicyMaxRetries` and `overlapSeconds` (the IaC DSL has no field for any of them). Measured 2026-08-29 and
+  already handled: healthcheckPath, healthcheckTimeout and the us-west2 replica count were already set at the SERVICE
+  level and survive the cutoff on their own; the restart policy lived only in the toml, so `ON_FAILURE` + 5 retries are
+  now set on the service in production (that write did NOT redeploy - Railway applies it on the next deployment, and
+  prod stayed on the same build); `overlapSeconds` is inert on a volume-backed service. The service's build config
+  reads `builder: RAILPACK`, which is a DEFAULT LABEL and not the builder in use - Railway's docs: "Railway will always
+  build with a Dockerfile if it finds one", the build log confirms ours runs, and that does not depend on the toml, so
+  the Dockerfile ENTRYPOINT (the root->node privilege drop) is safe past the cutoff and needs no builder setting.
   **The app killed its own Postgres init at every boot, and nothing paged (found 2026-08-25):** both
   `[leads-db]`/`[analytics-db] init failed: Connection terminated due to connection timeout` lines share ONE
   millisecond with the "listening" line, and a TCP probe a second later connects in 10 ms on v4 and v6 - the
