@@ -2037,7 +2037,13 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   routable sellers only 14 publish one - for the other ~95% a learned amount would have stood forever, the same ratchet by a
   quieter route. A row from before stamping existed is refreshed once. Pinned both directions in test-index-tools-catalog
   (39) and in test-openapi-fallback, whose three max() assertions were UPDATED rather than deleted, with the reasoning in the
-  test. Watch out: the first cut of the merge fix returned the origin's price AS WRITTEN, and a seller's document can carry
+  test. **The first cut did NOT correct the reporter's own row, and only verifying against their LIVE endpoint showed it:**
+  their tools are discovered via `/.well-known/x402`, not OpenAPI, and `originDeclaredPrice` was set only by the OpenAPI
+  merge - so carry-forward kept overriding their corrected manifest price with the stale learned amount. A manifest price is
+  an origin declaration too and is stamped as one now; note it is usually a DISPLAY STRING ("$0.05"), so the guard goes
+  through `priceToMicroUsd` (a bare `Number()` yields NaN and skips the stamp in silence). "The origin declared this" is a
+  property of SEVERAL discovery paths, and keying it to one fixes one seller shape.
+  Watch out: the first cut of the merge fix returned the origin's price AS WRITTEN, and a seller's document can carry
   it as the string "0.003", which fails every numeric comparison downstream - the old code normalized through
   `microUsdToPrice` and the replacement has to as well (CI caught it). Lesson: a "safe" tie-break that always picks one side is a
   ratchet, and the party it hurts is the one who cannot see our index - they had to file an issue to tell us.
