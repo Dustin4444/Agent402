@@ -2028,6 +2028,25 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   14,910 rows) - and `unattributedMerchants` now reports `attributedUnroutable` (known origin, cannot route) separately from
   `unattributed` (unknown). Submitted-seed slots: 586 of the 2,000 cap in use (2026-08-27). test-settlement-proof 44.
 
+- **Typed output schema on the 402 itself (2026-08-29, `boundedSchemaFromExample`):** the OpenAPI fix left the surface a
+  buyer reads AT THE MOMENT OF PAYING still example-only - `accepts[].outputSchema` was absent on every route and the
+  `bazaar` discovery extension carried `output.example` with no schema. The extension now also carries a TYPED schema
+  derived from the same example (`slimDiscovery` in payments.js). Two constraints shaped it: (1) the buyer ECHOES the
+  challenge back inside its payment payload, so it is byte-budgeted (`BAZAAR_SCHEMA_MAX_BYTES`, 500) and shallows a level
+  at a time to fit, dropping rather than blowing the budget - measured across 549 examples, 543 get a schema, the largest
+  is 499 bytes, worst-case header growth 666 and the widest route lands at 11,410 of the 12,000 ceiling; (2) it is ONE
+  copy in the extension, never one per accept - with 13 rails a per-accept schema costs 13x on every 402 and is
+  structurally unaffordable. The full typed schema is always in `/openapi.json`, which the listing links.
+  **AN ARRAY'S ELEMENT TYPE CANNOT BE READ OFF ELEMENT 0** and @x402/core proved it at boot: the first draft inferred
+  `items` from `value[0]` and six routes had their whole bazaar extension REJECTED as invalid (`/output/example/ema/1:
+  must be integer` - a list opening with `4` then carrying `4.1`; `avatar: null` where row 0 had a string). `widen()`
+  now merges up to 8 sampled elements: integer+number collapse to number, objects union their properties, anything else
+  disagreeing becomes `{}` (no constraint). Same trap as the finding that started this, in the other direction - a
+  promise inferred from one sample.
+  **The guard was inert and now targets prod:** `test-challenge-size.js` ran with no TARGET_URL against the FREE_MODE CI
+  server, which answers no 402, so it SKIPPED on every run. It now runs against agent402.tools (unpaid 402s are free,
+  and only prod carries all 13 rails), sharing the SEO gate's one-run lag - the test job runs BEFORE the deploy, so a
+  challenge that grows is caught on the run AFTER the one that ships it.
 - **Typed 200 schemas in `/openapi.json` (2026-08-29, `src/openapi-schema.js`):** every JSON tool declared
   `schema: {type:"object"}` with a rich `example` beside it - a human reads the example, a MACHINE reads the schema, and an
   untyped object promises nothing. An outside audit of `/api/unemployment-rate` reported `properties_missing` +

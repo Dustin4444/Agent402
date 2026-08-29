@@ -32,6 +32,44 @@ const MAX_DEPTH = 4;      // deep enough for our shapes, shallow enough to bound
 const MAX_PROPS = 40;     // a wide map (per-chain totals, per-model rows) is data, not shape
 const MAX_ARRAY_PROBE = 1; // items are homogeneous in every example we ship
 
+
+const ARRAY_SAMPLE = 8; // enough to catch a mixed array, cheap to walk
+
+/** Widest schema that BOTH inputs satisfy.
+ *
+ *  An array's element type cannot be read off element 0. A list of numbers can
+ *  open with an integer, a list of records can carry a null where the first row
+ *  had a string, and declaring the first element's type is a promise the rest
+ *  of the array breaks - @x402/core validates the declaration against the
+ *  example and rejected six routes outright when this merged nothing. `{}`
+ *  (no constraint) is the honest answer whenever the samples disagree. */
+function widen(a, b) {
+  if (!a || !Object.keys(a).length) return {};
+  if (!b || !Object.keys(b).length) return {};
+  if (a.type !== b.type) {
+    // integer and number are the same JSON type family: number covers both.
+    if ((a.type === "integer" || a.type === "number") && (b.type === "integer" || b.type === "number")) return { type: "number" };
+    return {};
+  }
+  if (a.type === "object") {
+    if (!a.properties || !b.properties) return { type: "object" };
+    const out = { type: "object", properties: {} };
+    // Union, never intersection: a key absent from one sample still exists,
+    // and nothing nested is ever declared required.
+    for (const k of new Set([...Object.keys(a.properties), ...Object.keys(b.properties)])) {
+      const av = a.properties[k], bv = b.properties[k];
+      out.properties[k] = av && bv ? widen(av, bv) : (av || bv || {});
+    }
+    return out;
+  }
+  if (a.type === "array") {
+    if (!a.items || !b.items) return { type: "array" };
+    const items = widen(a.items, b.items);
+    return Object.keys(items).length ? { type: "array", items } : { type: "array" };
+  }
+  return a;
+}
+
 /** JSON Schema for one example value. Types only: no enums, no formats, no
  *  constraints - anything we cannot guarantee at runtime is not declared. */
 export function schemaFromExample(value, depth = 0) {
@@ -39,7 +77,8 @@ export function schemaFromExample(value, depth = 0) {
   if (Array.isArray(value)) {
     const schema = { type: "array" };
     if (value.length && depth < MAX_DEPTH) {
-      const item = schemaFromExample(value[0], depth + 1);
+      let item = schemaFromExample(value[0], depth + 1);
+      for (let i = 1; i < Math.min(value.length, ARRAY_SAMPLE); i++) item = widen(item, schemaFromExample(value[i], depth + 1));
       if (Object.keys(item).length) schema.items = item;
     }
     return schema;
@@ -74,5 +113,55 @@ export function responseSchemaFor(path, example) {
   // would promise more than the example shows.
   const required = Object.keys(schema.properties).filter((k) => example[k] !== null && example[k] !== undefined);
   if (required.length) schema.required = required;
+  return schema;
+}
+
+/** A typed schema for a tool's output that fits a byte budget.
+ *
+ *  The 402 challenge is echoed back by the buyer inside its payment payload, so
+ *  bytes here are bytes on every buyer's request header (see
+ *  scripts/test-challenge-size.js). A full schema is affordable on most routes
+ *  and not on the widest ones, so this shallows the schema a level at a time
+ *  and gives up rather than blow the budget: the complete typed schema always
+ *  lives in /openapi.json, which the listing links.
+ *
+ *  Returns null when even a depth-1 schema does not fit. */
+export function boundedSchemaFromExample(example, maxBytes = 1500) {
+  if (!example || typeof example !== "object" || Array.isArray(example)) return null;
+  for (let depth = MAX_DEPTH; depth >= 1; depth--) {
+    const schema = schemaAtDepth(example, depth);
+    if (!schema || !schema.properties) return null;
+    if (JSON.stringify(schema).length <= maxBytes) return schema;
+  }
+  return null;
+}
+
+/** schemaFromExample with a shallower ceiling than the default. */
+function schemaAtDepth(value, limit, depth = 0) {
+  if (value === null || value === undefined) return {};
+  if (Array.isArray(value)) {
+    const schema = { type: "array" };
+    if (value.length && depth < limit) {
+      let item = schemaAtDepth(value[0], limit, depth + 1);
+      for (let i = 1; i < Math.min(value.length, ARRAY_SAMPLE); i++) item = widen(item, schemaAtDepth(value[i], limit, depth + 1));
+      if (Object.keys(item).length) schema.items = item;
+    }
+    return schema;
+  }
+  const t = typeof value;
+  if (t === "string") return { type: "string" };
+  if (t === "boolean") return { type: "boolean" };
+  if (t === "number") return Number.isInteger(value) ? { type: "integer" } : { type: "number" };
+  if (t !== "object") return {};
+  const schema = { type: "object" };
+  if (depth >= limit) return schema;
+  const keys = Object.keys(value).slice(0, MAX_PROPS);
+  if (!keys.length) return schema;
+  const properties = {};
+  for (const k of keys) {
+    const sub = schemaAtDepth(value[k], limit, depth + 1);
+    properties[k] = Object.keys(sub).length ? sub : {};
+  }
+  schema.properties = properties;
   return schema;
 }
