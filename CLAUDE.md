@@ -2115,8 +2115,12 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   Also from that sweep, NOT yet acted on: Polymarket's gamma `/markets` and `/events` carry `deprecation: true` and
   `sunset: Fri, 01 May 2026` in the HTTP HEADERS ONLY (nothing in their docs), pointing at `/markets/keyset` (`next_cursor`
   becomes `after_cursor`, `offset` is refused) - still 200 today, past its own sunset; `OPENFDA_API_KEY` is unset in prod, so
-  a $3 product runs under a 1,000/day shared-IP cap for a free key; openFEC's acceptable-use policy bars commercial use
-  outright, including as LLM training data, which is stricter than the statute behind it; FRED's terms require the
+  a $3 product runs under a 1,000/day shared-IP cap for a free key; **openFEC is RESOLVED, and the earlier note here was wrong**: the restriction
+  (52 U.S.C. 30111(a)(4), as stated on fec.gov) is that the names and addresses of INDIVIDUAL CONTRIBUTORS may not be sold
+  or used for commercial purposes or to solicit contributions - contributor-level PII only, not a blanket commercial bar
+  and nothing about model training, which we do not do anyway. Our one FEC tool is `fec-candidates`, which returns
+  candidate name, party, office, state, incumbent status and FEC id from `/v1/candidates/search`; it reads no contributor
+  record and no Schedule A. Re-open this only if a tool ever returns contributor names or addresses. FRED's terms require the
   "not endorsed or certified by the Federal Reserve Bank of St. Louis" line, which no surface of ours carries; and Nasdaq's
   2026-05-11 terms are personal non-commercial only. The licensing cluster is one business decision, not nine tasks.
 - **Chain/RPC sweep (2026-08-28, every endpoint probed live):** four dead-endpoint classes, two of them money paths failing
