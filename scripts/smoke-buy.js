@@ -26,6 +26,14 @@ const METHOD = (process.env.SMOKE_METHOD || "GET").trim().toUpperCase();
 const QUERY = (process.env.SMOKE_QUERY || "").trim();
 const BODY = (process.env.SMOKE_BODY || "").trim();
 const EXPECT = (process.env.SMOKE_EXPECT || "").trim();
+// Diagnostic: drop named x402 extensions from the seller's challenge BEFORE the
+// client sees it. The @x402 client echoes every extension it is offered back
+// into the payment payload verbatim, schemas and all, so one seller's rich 402
+// can inflate the payload past what a facilitator will accept - measured
+// 2026-08-29 against an external seller: 10,259 payload bytes vs 2,678 for our
+// own 402, and CDP answered `'paymentPayload' is invalid`. Stripping isolates
+// which extension is responsible. Comma-separated, e.g. "offer-receipt".
+const STRIP_EXT = (process.env.SMOKE_STRIP_EXTENSIONS || "").split(",").map((x) => x.trim()).filter(Boolean);
 if (!ROUTE) { console.error("smoke-buy: SMOKE_ROUTE is required (e.g. /api/unemployment-rate)"); process.exit(2); }
 
 const pk = (process.env.BURNER_KEY || "").trim() || (existsSync(KEY_FILE) ? readFileSync(KEY_FILE, "utf8").trim() : "");
@@ -48,7 +56,22 @@ const synthFetch = !secret ? fetch : (input, init) => {
   req.headers.set("X-Heartbeat-Token", token);
   return fetch(req);
 };
-const payFetch = wrapFetchWithPayment(synthFetch, client);
+// Wrap once more when stripping: rewrite the 402 (body AND the PAYMENT-REQUIRED
+// header, since a client may read either) before the payment layer parses it.
+const stripFetch = !STRIP_EXT.length ? synthFetch : async (input, init) => {
+  const res = await synthFetch(input, init);
+  if (res.status !== 402) return res;
+  const text = await res.clone().text();
+  let doc; try { doc = JSON.parse(text); } catch { return res; }
+  if (!doc?.extensions) return res;
+  const before = Object.keys(doc.extensions);
+  for (const k of STRIP_EXT) delete doc.extensions[k];
+  console.log(`stripped extensions: ${STRIP_EXT.join(",")} (challenge had ${before.join(",")})`);
+  const headers = new Headers(res.headers);
+  if (headers.get("payment-required")) headers.set("payment-required", Buffer.from(JSON.stringify(doc)).toString("base64"));
+  return new Response(JSON.stringify(doc), { status: 402, headers });
+};
+const payFetch = wrapFetchWithPayment(stripFetch, client);
 
 const url = `${TARGET}${ROUTE}${QUERY ? (ROUTE.includes("?") ? "&" : "?") + QUERY : ""}`;
 const init = { method: METHOD, headers: { Accept: "application/json" } };
