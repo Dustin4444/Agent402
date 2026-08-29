@@ -2040,7 +2040,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `/api/stats` `viaUSDC` does not equal the sum of `viaUSDCByNetwork` and neither carries a window label; `/marketplace`
   takes 5.6 s wall clock; and `GLAMA_MAINTAINER_EMAIL` is set on Railway to an address other than the one the code defaults to (the
   company mailbox (operator: delete the variable).
-- **mppx 0.8.18 (2026-08-28):** carries the UPSTREAM fix for the yParity/canonical-hash bug `src/tempo-confirm.js` exists to
+- **mppx 0.8.19 (2026-08-28; 0.8.18 carried the fix, 0.8.19 landed from a dependency bump on main and supersedes it):** carries (from 0.8.18) the UPSTREAM fix for the yParity/canonical-hash bug `src/tempo-confirm.js` exists to
   work around ("Normalized Tempo transactions before broadcast so accepted recovery-ID encodings matched the node's canonical
   hash"). Our chain-truth confirm STAYS - it is the belt that made an AgentCore/Privy buyer payable at all, and a library fix
   upstream does not retire a guard that reads the chain. Held to the 0.8 line deliberately: 0.9.x removes machineUSD (unused
