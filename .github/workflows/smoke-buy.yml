@@ -24,7 +24,7 @@ on:
         required: false
         default: ""
       expect:
-        description: "Optional substring the response must contain"
+        description: "Response substring to require (required only when an external target is set)"
         required: false
         default: ""
       strip_extensions:

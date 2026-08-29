@@ -8,7 +8,7 @@
 //   SMOKE_METHOD  GET | POST                     (default GET)
 //   SMOKE_QUERY   querystring for GET, e.g. q=gdp&limit=3   (optional)
 //   SMOKE_BODY    JSON string for POST                       (optional)
-//   SMOKE_EXPECT  a substring the response JSON must contain (optional extra assert)
+//   SMOKE_EXPECT  a substring the response JSON must contain (required with SMOKE_TARGET)
 //   SMOKE_TARGET  full origin to buy from INSTEAD of production (an external
 //                 x402 seller compatibility check, e.g. https://seller.example).
 //                 The internal-traffic marker is suppressed for external
@@ -35,6 +35,7 @@ const EXPECT = (process.env.SMOKE_EXPECT || "").trim();
 // which extension is responsible. Comma-separated, e.g. "offer-receipt".
 const STRIP_EXT = (process.env.SMOKE_STRIP_EXTENSIONS || "").split(",").map((x) => x.trim()).filter(Boolean);
 if (!ROUTE) { console.error("smoke-buy: SMOKE_ROUTE is required (e.g. /api/unemployment-rate)"); process.exit(2); }
+if (EXTERNAL_TARGET && !EXPECT) { console.error("smoke-buy: SMOKE_EXPECT is required when SMOKE_TARGET selects an external target"); process.exit(2); }
 
 const pk = (process.env.BURNER_KEY || "").trim() || (existsSync(KEY_FILE) ? readFileSync(KEY_FILE, "utf8").trim() : "");
 if (!pk) { console.error("smoke-buy: no BURNER_KEY / KEY_FILE — cannot run the paid check"); process.exit(2); }

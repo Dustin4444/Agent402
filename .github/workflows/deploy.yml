@@ -1988,7 +1988,7 @@ jobs:
       # runs in its own process, in the same order; `t` groups its log and names it
       # with its elapsed time, and a failure prints the failing script as an error.
       # The original step names ride above each script so the WHY stays here.
-      - name: Offline suites (9 scripts, one process each)
+      - name: Offline suites (10 scripts, one process each)
         run: |
           set -euo pipefail
           t() { local s=$SECONDS; echo "::group::$*"; "$@" || { echo "::endgroup::"; echo "::error::failed: $*"; exit 1; }; echo "::endgroup::"; echo "ok  $* ($((SECONDS - s))s)"; }
@@ -2010,6 +2010,8 @@ jobs:
           t node scripts/test-price-prose.js
           # "Live 402 quote (a priceless row learns its price from the challenge; unpriceable never becomes $0; PUT/PATCH/DELETE never probed — offline)"
           t node scripts/test-x402-live-quote.js
+          # Paid smoke buyer preflight (external targets require an outcome assertion before key/client/network work)
+          t node scripts/test-smoke-buy.js
 
       - name: "Redis integration (the REAL client against a REAL server — cap-of-1, refund, cache round trip; the gap that made a redis major bump undecidable)"
         env:
