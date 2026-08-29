@@ -2019,6 +2019,12 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   14,910 rows) - and `unattributedMerchants` now reports `attributedUnroutable` (known origin, cannot route) separately from
   `unattributed` (unknown). Submitted-seed slots: 586 of the 2,000 cap in use (2026-08-27). test-settlement-proof 44.
 
+- **CodeQL caught a high-severity ReDoS in the same day's new code (2026-08-28):** `isSelfSellerQuery` in host-entry.js trimmed
+  trailing slashes with `/\/+$/` on the caller-supplied `?seller=` value - polynomial backtracking on a string of many
+  slashes, on a public endpoint (js/polynomial-redos, high). Replaced with a linear slice loop and a 256-char bound before
+  any URL parse; a 120k-slash query now answers in 0 ms and every accepted spelling of the host is unchanged (pinned in
+  test-shortlinks). The other `replace(/\/+$/)` sites in the tree take OPERATOR-set env values, not caller input, which is
+  why only this one was flagged - the distinction to check before "fixing" the rest.
 - **Outside-in reviews, 2026-08-28 (a security pass over the day's 41 commits + an adversarial partner due-diligence run):**
   HIGH, self-inflicted the same day: `hostEntryFigures()` ran 2-4 SYNCHRONOUS better-sqlite3 aggregates per render (one over
   ALL TIME) on `/marketplace`, the twelve chain pages, both leaderboards and `/api/index` - measured **215 ms of blocked event

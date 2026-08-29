@@ -100,12 +100,20 @@ export function hostIndexEntry(f) {
   };
 }
 
+// Trailing-slash trim WITHOUT a regex. `/\/+$/` against a caller-supplied
+// value is polynomial-time on a string of many slashes (CodeQL
+// js/polynomial-redos, high, on this exact line): "////...x" backtracks. A
+// slice loop is linear and cannot backtrack at all.
+const trimTrailingSlashes = (v) => { let i = v.length; while (i > 0 && v.charCodeAt(i - 1) === 47) i--; return v.slice(0, i); };
+
 /** Does a seller query name the host? Accepts an origin, a host, or the canonical origin. */
 export function isSelfSellerQuery(q, baseUrl) {
-  const s = String(q || "").trim().toLowerCase().replace(/\/+$/, "");
+  // Bounded before anything else: a seller name is never long, and an
+  // unbounded caller string has no business reaching a URL parse.
+  const s = trimTrailingSlashes(String(q || "").trim().toLowerCase().slice(0, 256));
   if (!s) return false;
   const host = (u) => { try { return new URL(u).host.toLowerCase(); } catch { return String(u).toLowerCase(); } };
   const candidates = new Set(["agent402.tools", "https://agent402.tools", "www.agent402.tools"]);
-  if (baseUrl) { const b = String(baseUrl).replace(/\/+$/, "").toLowerCase(); candidates.add(b); candidates.add(host(b)); }
+  if (baseUrl) { const b = trimTrailingSlashes(String(baseUrl)).toLowerCase(); candidates.add(b); candidates.add(host(b)); }
   return candidates.has(s) || candidates.has(host(s.startsWith("http") ? s : `https://${s}`));
 }

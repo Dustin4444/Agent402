@@ -71,5 +71,19 @@ try {
   ok(alias.status === 302 && alias.headers.get("location") === "/install", "/install.sh redirects to /install");
   ok(/^MCP_URL="https:\/\/x\.test\/mcp"$/m.test(installScript("https://x.test/")) && !/x\.test\/\//.test(installScript("https://x.test/")), "base URL trailing slash handled");
 } finally { proc.kill("SIGTERM"); }
+// isSelfSellerQuery is reached from ?seller= on a public endpoint, so its
+// trailing-slash trim must be linear: a regex there was flagged high-severity
+// polynomial ReDoS (CodeQL js/polynomial-redos, 2026-08-28). 120k slashes must
+// answer instantly, and the accepted spellings must be unchanged.
+{
+  const { isSelfSellerQuery } = await import("../src/host-entry.js");
+  const t0 = Date.now();
+  const evil = isSelfSellerQuery("/".repeat(120_000) + "x", "https://agent402.tools");
+  const ms = Date.now() - t0;
+  ok(evil === false && ms < 250, `a 120k-slash seller query answers in ${ms}ms, not polynomial time`);
+  ok(["agent402.tools", "https://agent402.tools", "https://agent402.tools/", "www.agent402.tools"].every((q) => isSelfSellerQuery(q, "https://agent402.tools")), "every spelling of the host still matches");
+  ok(isSelfSellerQuery("other.example", "https://agent402.tools") === false, "another seller never matches the host");
+}
+
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
