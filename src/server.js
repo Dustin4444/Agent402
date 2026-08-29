@@ -59,7 +59,7 @@ function quotedPriceUsd(def, req) {
   if (Number.isFinite(req.__meteredQuoteUsd) && req.__meteredQuoteUsd > 0) return req.__meteredQuoteUsd;
   try {
     // Quote the object the handler will be SERVED, never the raw body.
-    const q = Number(def.quote(handlerInputOf(req)));
+    const q = Number(def.quote(handlerInputOf(req, def)));
     if (Number.isFinite(q) && q > 0) { req.__meteredQuoteUsd = q; return q; }
     return flat;
   } catch { return flat; }
@@ -6232,7 +6232,7 @@ for (const tool of ALL_KIT) {
       // query merged, MCP-style {params|input|args} envelopes unwrapped once,
       // so every tool accepts the flat AND the wrapped shape and a metered
       // price can never be computed from a different body than is served.
-      const input = { ...handlerInputOf(req) };
+      const input = { ...handlerInputOf(req, tool) };
 
       // Composite-abuse guard: research/dossier run ~90s of expensive upstream
       // work BEFORE settlement, and a non-200 releases the (reusable) EIP-3009

@@ -415,7 +415,7 @@ export function acceptsForItem(item, rails) {
           // Price the object the handler will be SERVED (query merged, MCP
           // envelopes unwrapped), never the raw body: a body the quoter cannot
           // read must not quote the floor for a call that is then served.
-          const body = req ? handlerInputOf(req) : (typeof ctx?.adapter?.getBody === "function" ? ctx.adapter.getBody() : null);
+          const body = req ? handlerInputOf(req, item) : (typeof ctx?.adapter?.getBody === "function" ? ctx.adapter.getBody() : null);
           usd = Number(item.quote(body && typeof body === "object" ? body : {}));
           if (req && Number.isFinite(usd)) req.__meteredQuoteUsd = usd;
         }
