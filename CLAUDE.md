@@ -2032,7 +2032,14 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   crawl, flags itself `quoteCarriedForward` and no longer claims live-402 for a number it did not just learn; and a priced
   route whose amount disagrees with the origin's declaration by >= `QUOTE_DRIFT_FACTOR` (2x) is re-probed inside the existing
   budget. Rows carry `originDeclaredPrice` and `priceResolvedFrom` so drift is visible rather than silently resolved.
-  Pinned both directions in test-index-tools-catalog (33). Lesson: a "safe" tie-break that always picks one side is a
+  A learned quote also EXPIRES now (`quoteIsStale`, `QUOTE_MAX_AGE_MS` 7 days, stamped `quoteObservedAt` and carried across
+  crawls so the clock cannot reset): the drift re-probe only fires when the origin DECLARES a price, and measured against 260
+  routable sellers only 14 publish one - for the other ~95% a learned amount would have stood forever, the same ratchet by a
+  quieter route. A row from before stamping existed is refreshed once. Pinned both directions in test-index-tools-catalog
+  (39) and in test-openapi-fallback, whose three max() assertions were UPDATED rather than deleted, with the reasoning in the
+  test. Watch out: the first cut of the merge fix returned the origin's price AS WRITTEN, and a seller's document can carry
+  it as the string "0.003", which fails every numeric comparison downstream - the old code normalized through
+  `microUsdToPrice` and the replacement has to as well (CI caught it). Lesson: a "safe" tie-break that always picks one side is a
   ratchet, and the party it hurts is the one who cannot see our index - they had to file an issue to tell us.
 - **CodeQL caught a high-severity ReDoS in the same day's new code (2026-08-28):** `isSelfSellerQuery` in host-entry.js trimmed
   trailing slashes with `/\/+$/` on the caller-supplied `?seller=` value - polynomial backtracking on a string of many

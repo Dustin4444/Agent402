@@ -1727,6 +1727,7 @@ export function carryForwardLearnedQuotes(tools, prev) {
     if (!(Number(t.price) > 0) && !originPricedThisCrawl && Number(hit.price) > 0) {
       t.price = hit.price;
       t.quoteCarriedForward = true;
+      if (hit.quoteObservedAt) t.quoteObservedAt = hit.quoteObservedAt;
     }
     if (!(Array.isArray(t.networks) && t.networks.length) && Array.isArray(hit.networks) && hit.networks.length) {
       t.networks = [...hit.networks];
@@ -1744,6 +1745,21 @@ export function carryForwardLearnedQuotes(tools, prev) {
  *  skip, so a price CUT is learned instead of ratcheting. Deliberately a
  *  RATIO test: a rounding difference is not worth a probe, a 2x is. */
 const QUOTE_DRIFT_FACTOR = Number(process.env.QUOTE_DRIFT_FACTOR) || 2;
+/** Has a learned quote gone unverified for long enough to re-ask the seller?
+ *  The drift test above only fires when the origin DECLARES a price, and most
+ *  crawled sellers publish none - for them a learned amount would otherwise
+ *  stand forever, which is the same ratchet by a quieter route. An unstamped
+ *  quote counts as stale once, so pre-existing rows get one refresh. Budgeted
+ *  and backed-off like every other probe. */
+const QUOTE_MAX_AGE_MS = Number(process.env.QUOTE_MAX_AGE_MS) || 7 * 24 * 60 * 60 * 1000;
+export function quoteIsStale(t, now = Date.now()) {
+  if (t?.quoteSource !== "live-402") return false;
+  if (!(Number(t?.price) > 0)) return false;
+  const at = Number(t?.quoteObservedAt);
+  if (!Number.isFinite(at) || at <= 0) return true; // never stamped: refresh once
+  return now - at >= QUOTE_MAX_AGE_MS;
+}
+
 export function priceDisagreesWithOrigin(t) {
   const held = Number(t?.price), declared = Number(t?.originDeclaredPrice);
   if (!(held > 0) || !(declared > 0)) return false;
@@ -1762,8 +1778,8 @@ async function enrichLiveQuotes(tools, originUrl) {
       // how a price CUT used to be invisible: a priced route was never
       // re-probed, so the live 402 that would correct it was never fetched
       // (reported 2026-08-29, a 10x overquote standing for nine days).
-      && (!(Number(t.price) > 0) || priceDisagreesWithOrigin(t))
-      && (!(Array.isArray(t.networks) && t.networks.length) || priceDisagreesWithOrigin(t))
+      && (!(Number(t.price) > 0) || priceDisagreesWithOrigin(t) || quoteIsStale(t))
+      && (!(Array.isArray(t.networks) && t.networks.length) || priceDisagreesWithOrigin(t) || quoteIsStale(t))
       && probeMethodsFor(t).length                       // never PUT/PATCH/DELETE
       && probeDue(originUrl, `quote:${t.route}`),
   ).slice(0, Math.max(0, Math.min(LIVE_QUOTE_PROBES_PER_CRAWL, liveQuoteBudget)));
@@ -1816,6 +1832,12 @@ async function enrichLiveQuotes(tools, originUrl) {
     if (learned.networks?.length) tool.networks = [...new Set([...(tool.networks || []), ...learned.networks])];
     if (learned.method && learned.method !== tool.method) { tool.method = learned.method; tool.methodInferred = false; }
     tool.quoteSource = "live-402";
+    // WHEN we learned it. Without this a learned price has no age, so nothing
+    // can tell a quote observed an hour ago from one observed in July - and a
+    // seller who cuts a price we learned months ago has no way to reach us
+    // (issue #1043: the only correcting signal was an origin-declared price,
+    // which ~95% of crawled sellers do not publish).
+    tool.quoteObservedAt = Date.now();
     // Say so. `quoteSource` is not serialized by the row mappers, so without
     // this line the only way to tell whether enrichment ever ran was to watch a
     // price appear and hope - which is how an inert feature hides.

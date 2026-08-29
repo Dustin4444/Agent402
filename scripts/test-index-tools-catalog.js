@@ -133,5 +133,22 @@ const page = (results, extra = {}) =>
   check("no origin declaration means nothing to disagree with", priceDisagreesWithOrigin({ price: 0.5 }) === false);
 }
 
+// A learned quote also EXPIRES (2026-08-29): the drift test only fires when the
+// origin declares a price, and about 95% of crawled sellers publish none. For
+// them a learned amount would stand forever - the same ratchet by a quieter
+// route - so a live-402 quote is re-asked once it is a week old.
+{
+  const { quoteIsStale, carryForwardLearnedQuotes } = await import("../src/x402-index.js");
+  const day = 86_400_000, now = Date.now();
+  check(`a week-old learned quote is re-probed`, quoteIsStale({ quoteSource: "live-402", price: 0.5, quoteObservedAt: now - 8 * day }, now) === true);
+  check(`a fresh learned quote is left alone`, quoteIsStale({ quoteSource: "live-402", price: 0.5, quoteObservedAt: now - 2 * day }, now) === false);
+  check(`a row from before stamping existed is refreshed once`, quoteIsStale({ quoteSource: "live-402", price: 0.5 }, now) === true);
+  check(`an origin-declared price is not a learned quote and never expires this way`, quoteIsStale({ quoteSource: "openapi", price: 0.5 }, now) === false);
+  check(`nothing to refresh when there is no price`, quoteIsStale({ quoteSource: "live-402" }, now) === false);
+  // the age must survive a carry-forward, or every crawl would reset the clock
+  const carried = carryForwardLearnedQuotes([{ route: "/x" }], { tools: [{ route: "/x", price: 0.02, quoteSource: "live-402", quoteObservedAt: now - 9 * day }] })[0];
+  check(`carry-forward preserves when the quote was observed, so the clock cannot reset`, carried.quoteObservedAt === now - 9 * day && quoteIsStale(carried, now) === true);
+}
+
 console.log(`\ntest-index-tools-catalog: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
