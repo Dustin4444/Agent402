@@ -1,6 +1,7 @@
 // Server-rendered catalogue pages and the OpenAPI spec — all generated from
 // the tool catalog so they never drift from what the API actually serves.
 import { isComputePayable } from "./pow.js";
+import { responseSchemaFor } from "./openapi-schema.js";
 import { CHROME_HEAD_LINKS, CHROME_CSS, renderHeader, renderFooter } from "./chrome.js";
 import { ledgerShell, ledgerFooterCompact, esc as ledgerEsc } from "./ledger-chrome.js";
 import { SKILL_PACKS } from "./skills.js";
@@ -551,7 +552,7 @@ export function openapiSpec(baseUrl, catalog) {
             [tool.mimeType ?? "application/json"]:
               tool.mimeType && tool.mimeType !== "application/json"
                 ? { schema: { type: "string", format: "binary" } }
-                : { schema: { type: "object" }, example: discovery?.output?.example ?? {} },
+                : { schema: responseSchemaFor(path, discovery?.output?.example), example: discovery?.output?.example ?? {} },
           },
         },
         402: { description: "Payment Required - x402 payment requirements in the response body/headers" },

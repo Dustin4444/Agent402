@@ -2028,6 +2028,19 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   14,910 rows) - and `unattributedMerchants` now reports `attributedUnroutable` (known origin, cannot route) separately from
   `unattributed` (unknown). Submitted-seed slots: 586 of the 2,000 cap in use (2026-08-27). test-settlement-proof 44.
 
+- **Typed 200 schemas in `/openapi.json` (2026-08-29, `src/openapi-schema.js`):** every JSON tool declared
+  `schema: {type:"object"}` with a rich `example` beside it - a human reads the example, a MACHINE reads the schema, and an
+  untyped object promises nothing. An outside audit of `/api/unemployment-rate` reported `properties_missing` +
+  `required_fields_missing` and could not confirm the response carries the `current`/`history`/`source` fields our own
+  example shows; that was a fair finding about all 560 routes, not one of them. `responseSchemaFor(path, example)` now
+  derives typed `properties` (nested, arrays through `items`, depth cap 4, 40 props per object) from the tool's own
+  example. **`required` is a PROMISE and is only made where CI already keeps it**: the catalog sweeps assert every 200
+  carries its documented TOP-LEVEL keys, so `required` is the top level only (nested objects are typed, never required),
+  a key whose example value is null is typed but not required, and the six `SHAPE_HAPPY_PATH_ONLY` routes - excused from
+  the shape check because their live shape varies with the outcome - declare properties and require nothing. That set
+  MOVED to `src/openapi-schema.js` and `scripts/sweep-shape.js` re-exports it, so a route excused from the check can
+  never promise a shape in the spec. Measured: 548 of 551 JSON ops typed, 542 with `required`, doc 1.673 MB -> 1.690 MB
+  (+1%).
 - **The 402 challenge header has a ceiling that is not ours to set (2026-08-29, found by running our own smoke buy against an
   external seller):** a stock x402 client echoes EVERY extension it is offered straight back into the payment payload -
   `info` and the full JSON `schema` for each - so a rich 402 becomes a rich REQUEST header on the buyer's retry. Measured on
