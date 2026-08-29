@@ -18,7 +18,7 @@
 // price instead.
 import { createHash } from "node:crypto";
 import { paymentHeaderOf, payerFromRequest } from "../payer.js";
-import { maySpend, noteSpend, resolveSpend } from "../external-spend-guard.js";
+import { maySpend, noteSpend, adjustSpend, resolveSpend } from "../external-spend-guard.js";
 import { findTools } from "../find.js";
 import { observeDelivery } from "../response-observation.js";
 import { isIdentityBoundRoute } from "../payments.js";
@@ -337,9 +337,14 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           const spendPayer = payerFromRequest(req)
             || (req?.mppTempoPayer ? `tempo:${req.mppTempoPayer}` : null)
             || (req?.ip ? `ip:${req.ip}` : null);
-          const allowed = maySpend(spendPayer, extUsd);
+          // Book the WORST CASE this call could cost, not the seller's declared
+          // price. `cap` is what payExternal will refuse to exceed, so it is the
+          // real exposure; the declared price is one seller-controlled document
+          // and would otherwise let them set our own debt ceiling (see
+          // adjustSpend). Corrected down to the actual quote below.
+          const allowed = maySpend(spendPayer, cap);
           if (!allowed.ok) throw bad(`External routing is paused for this wallet: ${allowed.reason}`, 429);
-          const spendHandle = noteSpend(spendPayer, extUsd);
+          const spendHandle = noteSpend(spendPayer, cap);
           // Handed to server.js on the REQUEST, because a tool handler is called
           // as handler(input, req) and never receives `res`. The first draft
           // registered res.on("finish") here, where `res` is undefined - a guard
@@ -387,6 +392,9 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
             });
           }
           const underlyingUsd = paid.quote ? paid.quote.usd : extUsd;
+          // Now the real figure is known, so the ceiling stops counting the
+          // worst case against this payer.
+          adjustSpend(spendHandle, underlyingUsd);
           return {
             receipt: {
               slug: ext.slug,
