@@ -2028,6 +2028,15 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   14,910 rows) - and `unattributedMerchants` now reports `attributedUnroutable` (known origin, cannot route) separately from
   `unattributed` (unknown). Submitted-seed slots: 586 of the 2,000 cap in use (2026-08-27). test-settlement-proof 44.
 
+- **The Postgres alarm paged on our own deploy (2026-08-29):** issue #1057 said both databases were unreachable; the boot
+  log said `[leads-db] ready` + `[analytics-db] ready` at 22:40:52Z and the issue was filed at 22:44:03Z, with
+  `/api/gateway-status` reading `ok` throughout. The service is volume-backed, so EVERY deploy has a 60-90s
+  no-container window and the pools re-init behind the ~10-18s boot stall after it; the reading was taken inside that
+  window and reported minutes later. Five merges in a day is five chances to page on nothing. This leg was the ONLY
+  probe in heartbeat.yml without the single-retry doctrine every other one uses (`probe()` wrapping `probe_once()`) -
+  it now re-probes after 30 s and files only if the second read agrees, which a stopped Postgres container still
+  fails. Pinned in `test-db-status.js` (20) and mutation-checked by deleting the sleep. When adding an alarm that
+  reads a live prod surface: one reading is never an outage here, because our own deploys produce that reading.
 - **Broken-tool audit with PRODUCTION KEYS (2026-08-29): the 156 metered tools are the blind spot, and one flagship was
   crashing.** Both catalog sweeps EXCLUDE the metered set (third-party keys CI lacks, upstream spend), so ~156 tools -
   every report composite among them - are unexamined by CI on every run. Audited by booting FREE_MODE locally with the

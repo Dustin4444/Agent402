@@ -57,5 +57,15 @@ ok(/export async function pingLeadsDb/.test(leads), "leads-db exports pingLeadsD
 const hb = await import("node:fs").then((fs) => fs.readFileSync(new URL("../.github/workflows/heartbeat.yml", import.meta.url), "utf8"));
 ok(/\.databases\.leads\.status/.test(hb) && /\.databases\.analytics\.status/.test(hb), "heartbeat reads databases.{leads,analytics}.status");
 ok(/Postgres UNREACHABLE/.test(hb), "heartbeat opens the Postgres UNREACHABLE issue");
+// SINGLE RETRY, like every other probe in that file. Without it the leg paged
+// on 2026-08-29 during our OWN deploy: the service is volume-backed, so every
+// deploy has a no-container window and the pools re-init behind the boot stall
+// after it. The boot log said "[leads-db] ready" three minutes before the issue
+// was filed. An alarm that fires on a state which heals itself trains everyone
+// to ignore it.
+const pgLeg = hb.slice(hb.indexOf("Postgres reachability check"), hb.indexOf("Upstream buyer wallet trend"));
+ok(/probe_db\(\)/.test(pgLeg), "the Postgres leg factors its read into a re-runnable probe");
+ok(/sleep 30[\s\S]*probe_db/.test(pgLeg), "an unreachable first read is re-probed after a delay before paging");
+ok(pgLeg.indexOf("gh issue create") > pgLeg.indexOf("sleep 30"), "the issue is only filed AFTER the second read");
 
 console.log(`db-status: ${passed} passed, 0 failed`);
