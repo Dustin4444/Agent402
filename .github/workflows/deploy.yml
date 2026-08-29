@@ -1227,6 +1227,8 @@ jobs:
 
       - name: Discovery note (a seller must be able to see the gap)
         run: X402_INDEX_CRAWL=off node scripts/test-discovery-note.js
+      - name: 402 challenge header stays payable (a buyer echoes it back)
+        run: node scripts/test-challenge-size.js
       - name: Router aliases + short-term token rule (offline)
         run: X402_INDEX_CRAWL=off node scripts/test-route-aliases.js
 

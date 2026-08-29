@@ -769,7 +769,16 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   2026-08-25 scale call produced a second deploy that swapped prod mid-CI-sweep and failed three self-targeting
   examples: a2a-card-fetch, x402-quote, x402-audit all fetch agent402.tools). Change settings right AFTER a merge
   lands, never during a CI run. `railway.toml` config-as-code is DEPRECATED by Railway in favour of
-  `.railway/railway.ts` (grace until 2026-12-01) - migrate before then or the toml is ignored.
+  `.railway/railway.ts` (grace until 2026-12-01, hard cutoff) - `railway config migrate` is the one-command path, but
+  read the dry run first: it emits only healthcheck/timeout/replicas and DROPS `restartPolicyType`,
+  `restartPolicyMaxRetries` and `overlapSeconds` (the IaC DSL has no field for any of them). Measured 2026-08-29 and
+  already handled: healthcheckPath, healthcheckTimeout and the us-west2 replica count were already set at the SERVICE
+  level and survive the cutoff on their own; the restart policy lived only in the toml, so `ON_FAILURE` + 5 retries are
+  now set on the service in production (that write did NOT redeploy - Railway applies it on the next deployment, and
+  prod stayed on the same build); `overlapSeconds` is inert on a volume-backed service. The service's build config
+  reads `builder: RAILPACK`, which is a DEFAULT LABEL and not the builder in use - Railway's docs: "Railway will always
+  build with a Dockerfile if it finds one", the build log confirms ours runs, and that does not depend on the toml, so
+  the Dockerfile ENTRYPOINT (the root->node privilege drop) is safe past the cutoff and needs no builder setting.
   **The app killed its own Postgres init at every boot, and nothing paged (found 2026-08-25):** both
   `[leads-db]`/`[analytics-db] init failed: Connection terminated due to connection timeout` lines share ONE
   millisecond with the "listening" line, and a TCP probe a second later connects in 10 ms on v4 and v6 - the
@@ -2019,6 +2028,23 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   14,910 rows) - and `unattributedMerchants` now reports `attributedUnroutable` (known origin, cannot route) separately from
   `unattributed` (unknown). Submitted-seed slots: 586 of the 2,000 cap in use (2026-08-27). test-settlement-proof 44.
 
+- **The 402 challenge header has a ceiling that is not ours to set (2026-08-29, found by running our own smoke buy against an
+  external seller):** a stock x402 client echoes EVERY extension it is offered straight back into the payment payload -
+  `info` and the full JSON `schema` for each - so a rich 402 becomes a rich REQUEST header on the buyer's retry. Measured on
+  that seller: our client built a 13,680-byte payment header against their 3,572-byte-equivalent for our own routes, their
+  facilitator answered `'paymentPayload' is invalid`, and with one extension stripped the next attempt hit **HTTP 431
+  Request Header Fields Too Large**; with ALL extensions stripped the request finally arrived and their gate refused it as
+  "No matching payment requirements" - i.e. their endpoint is unpayable by a stock client either way. Nothing settled in any
+  of the three runs. OURS IS THE SAME SHAPE, smaller: `/v1/metered/chat/completions` measured **10,704 bytes** (accepts
+  3,268 across 13 rails, extensions 3,985 of which `bazaar` alone is 3,215). `scripts/test-challenge-size.js` (in CI) is the
+  ratchet-stop: hard ceiling 12,000 bytes, warn line 9,000, so the challenge cannot silently grow past what a buyer can send
+  back. Trim an extension before adding a rail. It sweeps EVERY paid route from the booted server's own `/api/pricing`, not a
+  sample: the size is driven by the tool's OWN input schema (the bazaar extension carries it), so the largest challenge moves
+  whenever a kit is added, and the first draft's two hardcoded routes missed the real worst case. Full prod sweep 2026-08-29:
+  560 of 560 paid routes carry a challenge, largest `v1-chat` 10,744 and smallest 5,204, 35 past the watch line, none over the
+  ceiling. A FREE_MODE server answers no 402 anywhere, so the guard SKIPS rather than reporting a pass that measured nothing.
+  Separately this sweep fixed a real drift: 38 workflow sites pinned the x402
+  client at 2.16.0 against a 2.22.0 server, which the daily canary could never catch because it only pays OUR challenges.
 - **A learned price could rise but never fall (2026-08-29, reported from OUTSIDE with two unauthenticated curls, issue #1043):**
   a seller cut `/audit` from $0.50 to $0.05 on 2026-08-20 and our index was still quoting the old number NINE DAYS and dozens
   of crawls later - a 10x overquote on their listing, and enough to push the route into the wrong route-execute tier. Three
@@ -2103,8 +2129,12 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   Also from that sweep, NOT yet acted on: Polymarket's gamma `/markets` and `/events` carry `deprecation: true` and
   `sunset: Fri, 01 May 2026` in the HTTP HEADERS ONLY (nothing in their docs), pointing at `/markets/keyset` (`next_cursor`
   becomes `after_cursor`, `offset` is refused) - still 200 today, past its own sunset; `OPENFDA_API_KEY` is unset in prod, so
-  a $3 product runs under a 1,000/day shared-IP cap for a free key; openFEC's acceptable-use policy bars commercial use
-  outright, including as LLM training data, which is stricter than the statute behind it; FRED's terms require the
+  a $3 product runs under a 1,000/day shared-IP cap for a free key; **openFEC is RESOLVED, and the earlier note here was wrong**: the restriction
+  (52 U.S.C. 30111(a)(4), as stated on fec.gov) is that the names and addresses of INDIVIDUAL CONTRIBUTORS may not be sold
+  or used for commercial purposes or to solicit contributions - contributor-level PII only, not a blanket commercial bar
+  and nothing about model training, which we do not do anyway. Our one FEC tool is `fec-candidates`, which returns
+  candidate name, party, office, state, incumbent status and FEC id from `/v1/candidates/search`; it reads no contributor
+  record and no Schedule A. Re-open this only if a tool ever returns contributor names or addresses. FRED's terms require the
   "not endorsed or certified by the Federal Reserve Bank of St. Louis" line, which no surface of ours carries; and Nasdaq's
   2026-05-11 terms are personal non-commercial only. The licensing cluster is one business decision, not nine tasks.
 - **Chain/RPC sweep (2026-08-28, every endpoint probed live):** four dead-endpoint classes, two of them money paths failing
