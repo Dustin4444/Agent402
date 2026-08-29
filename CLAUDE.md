@@ -1660,8 +1660,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `content-length` refused before `res.text()` in three kits. X page size capped at 25 posts (X bills per post RETURNED, so
   the page size is the cost lever). Hygiene: a literal NUL byte in a test made the file invisible to grep and secret
   scanners; gitleaks allowlist rows pinned to literals.
-- **Second seller-landscape wave (2026-08-22, the operator: "build everything we can serve right away and profitably; existing keys
-  are fair game"):** seven more kits, all wallet-only, offline tests in CI. KEYLESS: `crawl-kit.js` (`CRAWL_TOOLS`: site-map
+- **Second seller-landscape wave (2026-08-22, scope: everything servable right away and profitably on keys already held):** seven more kits, all wallet-only, offline tests in CI. KEYLESS: `crawl-kit.js` (`CRAWL_TOOLS`: site-map
   $0.005 robots+sitemap+homepage links <= 6 fetches; site-crawl $0.02 BFS <= 20 pages/depth 2, robots honoured, SSRF guard on
   every hop incl. redirects, 200+truncated once a page succeeded else 504), `crypto-signals-kit.js` (`CRYPTO_SIGNALS_TOOLS`:
   crypto-news $0.004 from 8 public RSS/Atom feeds with a dependency-free parser + 5-min per-source cache; crypto-indicators
@@ -1955,7 +1954,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   external-vs-external ordering is unchanged. Re-run the sweep after deploy (the recipe is a 20-line node loop over
   `/api/pricing` endpoints -> `/api/route?q=<name>&top=3`) and expect the outside-first count to fall to genuine cases
   (cheaper or better-matched sellers).
-- **16 pure-CPU / free-upstream tools cut to the floor (2026-08-28, the operator: "shouldn't we price lower than our competitors?"):**
+- **16 pure-CPU / free-upstream tools cut to the floor (2026-08-28, priced against comparable listings):**
   measured first - against PROVEN outside peers (Bazaar payers30d >= 3, equal route score) we were cheaper on 80 tools,
   equal on 37, pricier on 36; two-thirds of the 36 carry real upstream cost (Brave, E2B, CoinGecko, LLM) and stay. The
   sixteen with no marginal cost moved to $0.001 (json-diff, robots-check, tls-cert, spf-check, dmarc-check, ens-resolve,
@@ -1967,7 +1966,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   claims, each linked to the surface that proves it (usage priced under a quoted ceiling / upto settles actual; a failed call
   is never charged + keyed retries never pay twice + charged-but-failed is ledgered; one key buys models on three wires + 500+
   tools + reports; no wallet required; finished reports + monitors; route-and-execute buys on the agent's behalf; proof from
-  outside production). NO competitor names or comparisons anywhere (the operator, 2026-08-26: "we cant mention competitors"); markup
+  outside production). NO third-party names or comparisons anywhere in public copy (standing rule); markup
   stays 15% (decided the same day: 15% on OpenRouter cost nets ~9% after their ~5.5% credit fee; 5%/4% would lose money).
   The same seven points are rendered from `whyPointsPlain()` into `/llms.txt` (info paragraph), one line in BOTH MCP initialize
   instruction copies, a README section, the OpenClaw guide + `agent402-openclaw` README (0.3.1) "What else the same key buys",
@@ -2039,7 +2038,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   reason. STILL OPEN and worth doing: the MCP Registry entry is stale and inflated (it says 1,338 tools and 4 chains against
   560 and 12); `/api/route` returns rows whose `url` still contains `{symbol}` placeholders and sellers that answer no 402;
   `/api/stats` `viaUSDC` does not equal the sum of `viaUSDCByNetwork` and neither carries a window label; `/marketplace`
-  takes 5.6 s wall clock; and `GLAMA_MAINTAINER_EMAIL` is set to a personal address on Railway while the code default is the
+  takes 5.6 s wall clock; and `GLAMA_MAINTAINER_EMAIL` is set on Railway to an address other than the one the code defaults to (the
   company mailbox (operator: delete the variable).
 - **mppx 0.8.18 (2026-08-28):** carries the UPSTREAM fix for the yParity/canonical-hash bug `src/tempo-confirm.js` exists to
   work around ("Normalized Tempo transactions before broadcast so accepted recovery-ID encodings matched the node's canonical
@@ -2183,8 +2182,8 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   LOW `tool_gone` rollup keys capped (5,000 keys, 120-char routes, `_overflow`); the drain refusal checks the aliased
   method twin. Known and accepted: a forged header naming another wallet still gets that wallet's PUBLIC balance on its
   own 402 after its own failed verify (bounded, public data, the facilitator did more work than we did).
-- **Dead-end sweep from the raw HTTP log (2026-08-28, after the 405 finding; the operator: "anything obvious like this in everything
-  else we serve?"):** Railway's `get-logs` accepts `@httpStatus:404` / `>=500` filters and REMOVED deployments still answer, so a
+- **Dead-end sweep from the raw HTTP log (2026-08-28, after the 405 finding; the question was whether the same class exists in everything
+  else we serve):** Railway's `get-logs` accepts `@httpStatus:404` / `>=500` filters and REMOVED deployments still answer, so a
   status-by-status read of ~6 h is one call each. Found and fixed in one PR: (1) trust/uptime indexers (kkj-x402-trust-index,
   nsgoods-payability-observatory, stelar-trust-monitor, ioi-indexer, PayAI-Uptime-Monitor, x402-observatory) send GET/HEAD to POST-only
   tools and skill packs and got 405 = "not payable"/"down" in their listings - the alias middleware now runs the POST gate chain for a
@@ -2333,8 +2332,8 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   email capture + post-purchase sequence (one transactional email exists, no list), a shareable/public report option (every
   /r/ page is noindex + generic OG, so the paid artifact has no backlink surface), monitors for research/dossier kinds,
   seed expansion, a first-report promo. Weekly number for this bet: card sales + `human_funnel` conversion, not x402scan rank.
-- **Sample review round 2 (2026-08-28 evening, the operator: "are you also looking at the results and using that data to rebuild the
-  features?"):** five more real samples generated on a local FREE_MODE boot with the prod keys pulled from Railway (filing AAPL, token
+- **Sample review round 2 (2026-08-28 evening, from reading the generated samples and feeding the defects back into the
+  kits):** five more real samples generated on a local FREE_MODE boot with the prod keys pulled from Railway (filing AAPL, token
   JUP, market brief EV fast charging, ticker pack MSFT, LinkedIn article on per-request pricing) and each READ before publishing. Defects
   found and fixed in the kits, not the fixtures: (1) every kit writes its own H1 and the model wrote ANOTHER H1 + subtitle at the top of
   its prose (AAPL filing, JUP token) - `dropModelTitle` in house-style.js (inside `houseStyleMarkdown`, so every report tier and the
@@ -2423,7 +2422,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   of personal identifiers (no personal hostnames, names or wallet linkage - keep it that way, it is public). Footprint:
   `/security` (src/security-page.js) + `/company` (src/company.js) pages, security.txt Policy -> /security and Contact ->
   security@, SECURITY.md controls paragraph + 2-business-day ack + safe harbor, README first screen + CodeQL/secret-scan
-  badges, one price ladder everywhere (FAQ, x402 manifest, listings), "70+ skill packs" (74 live), competitor names and
+  badges, one price ladder everywhere (FAQ, x402 manifest, listings), "70+ skill packs" (74 live), third-party names and
   "no model" absolutes rewritten affirmatively, /community shows the real samples, em dashes out of llms.txt/emails,
   /transparency headlined "Disclosures", status paid-call blurb, CODE_OF_CONDUCT.md. Mailboxes DECIDED 2026-08-28: one
   mailbox, `mike@agent402.tools`, for general/security/legal/conduct; investors and partnerships route to
