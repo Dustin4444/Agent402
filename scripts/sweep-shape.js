@@ -40,6 +40,7 @@ export const EMPTY_ARRAY_OK = new Map([
   ["/api/x402-trending", "sellers"],
   ["/api/x402-market-pulse", "topProviders,topToolCategories"],
   ["/api/demand-radar", "radar"],
+  ["/api/bestsellers", "bestsellers"],        // reads OUR sales ledger: empty on a fresh CI boot, populated in production
   ["/api/x402-verify", "transfers"],          // placeholder 0x0…0 hash finds nothing, by design
   // Legitimately empty for the example's own subject, not a defect:
   ["/api/stock-dividends", "splits"],         // a stock that has never split
