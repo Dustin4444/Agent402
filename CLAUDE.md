@@ -2029,7 +2029,12 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   of the three runs. OURS IS THE SAME SHAPE, smaller: `/v1/metered/chat/completions` measured **10,704 bytes** (accepts
   3,268 across 13 rails, extensions 3,985 of which `bazaar` alone is 3,215). `scripts/test-challenge-size.js` (in CI) is the
   ratchet-stop: hard ceiling 12,000 bytes, warn line 9,000, so the challenge cannot silently grow past what a buyer can send
-  back. Trim an extension before adding a rail. Separately this sweep fixed a real drift: 38 workflow sites pinned the x402
+  back. Trim an extension before adding a rail. It sweeps EVERY paid route from the booted server's own `/api/pricing`, not a
+  sample: the size is driven by the tool's OWN input schema (the bazaar extension carries it), so the largest challenge moves
+  whenever a kit is added, and the first draft's two hardcoded routes missed the real worst case. Full prod sweep 2026-08-29:
+  560 of 560 paid routes carry a challenge, largest `v1-chat` 10,744 and smallest 5,204, 35 past the watch line, none over the
+  ceiling. A FREE_MODE server answers no 402 anywhere, so the guard SKIPS rather than reporting a pass that measured nothing.
+  Separately this sweep fixed a real drift: 38 workflow sites pinned the x402
   client at 2.16.0 against a 2.22.0 server, which the daily canary could never catch because it only pays OUR challenges.
 - **A learned price could rise but never fall (2026-08-29, reported from OUTSIDE with two unauthenticated curls, issue #1043):**
   a seller cut `/audit` from $0.50 to $0.05 on 2026-08-20 and our index was still quoting the old number NINE DAYS and dozens
