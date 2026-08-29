@@ -198,7 +198,10 @@ export function createMppShim({ secretKey, realm }) {
           capturePostHogVerifyFailed({
             network: `eip155:${d.chainId}`,
             scheme: "mpp-evm",
-            resource: req.originalUrl || req.url,
+            // req.path, never originalUrl: a relative originalUrl keeps its
+            // query string through posthog's URL parse, and tool inputs ride
+            // there. The route is all this event needs.
+            resource: req.path || req.url,
             errorReason: `mpp_evm_domain_mismatch signed=${d.signedName} expected=${d.expectedName}`,
           });
         } catch {

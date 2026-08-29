@@ -166,13 +166,36 @@ try {
 
   // ================= 2. Suppression bookkeeping (pure) =================
   _resetMppFallback();
-  const reqOf = (ua) => ({ ip: "9.9.9.9", headers: { "user-agent": ua } });
+  const reqOf = (ua, extra = {}) => ({ ip: "9.9.9.9", headers: { "user-agent": ua, ...extra } });
   ok(!mppChallengesSuppressed(reqOf("A")), "a client we have never seen is not suppressed");
   noteWrongDomainSigner(reqOf("A"));
   ok(mppChallengesSuppressed(reqOf("A")), "after proof, that client is suppressed");
   ok(!mppChallengesSuppressed(reqOf("B")), "a different User-Agent from the same IP is NOT suppressed");
   ok(mppFallbackStatus().suppressedClients === 1, "operator status counts clients, never fingerprints");
   ok(!Object.values(mppFallbackStatus()).some((v) => typeof v === "string" && /9\.9\.9\.9/.test(v)), "no address is exposed in the status");
+
+  // The suppression also gates the TEMPO challenge, and a wallet funded only in
+  // USDC.e has no x402 offer it can pay - so a blanket hold on a shared IP+UA
+  // would be a total payment denial for a client we have no evidence about.
+  // Three bounds keep a collateral hit to a blip.
+  _resetMppFallback();
+  noteWrongDomainSigner(reqOf("C"));
+  ok(!mppChallengesSuppressed(reqOf("C", { authorization: "Payment abc" })),
+    "a request PRESENTING a credential is never suppressed - it is mid-flow and needs a fresh challenge");
+  let held = 0;
+  for (let i = 0; i < 12; i++) if (mppChallengesSuppressed(reqOf("C"))) held++;
+  ok(held > 0 && held <= 6, `stickiness lapses after a few responses, not a blanket 30 minutes (held ${held})`);
+  ok(!mppChallengesSuppressed(reqOf("C")), "once spent, the client is challenged normally again");
+
+  _resetMppFallback();
+  const noUa = { ip: "9.9.9.9", headers: {} };
+  noteWrongDomainSigner(noUa);
+  ok(noUa.mppSuppressChallenges === true, "a client with no User-Agent still gets THIS response suppressed");
+  ok(!mppChallengesSuppressed({ ip: "9.9.9.9", headers: {} }),
+    "...but is never REMEMBERED - address alone is too broad to withhold a payment method from");
+
+  _resetMppFallback();
+  noteWrongDomainSigner(reqOf("A"));
   process.env.MPP_EVM_DOMAIN_FALLBACK = "off";
   ok(!mppChallengesSuppressed(reqOf("A")), "MPP_EVM_DOMAIN_FALLBACK=off disarms the whole mechanism");
   delete process.env.MPP_EVM_DOMAIN_FALLBACK;
