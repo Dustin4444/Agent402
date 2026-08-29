@@ -1522,7 +1522,10 @@ export function mergeOpenapiIntoBazaar(openapiTools = [], bazaarTools = [], { al
     // Absent conflict: keep settlement-observed Bazaar (incl. explicit 0);
     // only fill a missing amount from OpenAPI.
     let price;
-    if (priceConflict) price = o.price;
+    // Normalized, NOT passed through: `o.price` can be the string "0.003"
+    // straight from the seller's document, and a string price fails every
+    // numeric comparison downstream (caught by test-openapi-fallback).
+    if (priceConflict) price = microUsdToPrice(originMicro);
     else price = b.price == null ? o.price : b.price;
     return ({
     ...bazaar,
