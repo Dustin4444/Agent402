@@ -1,4 +1,5 @@
 import { handlerInputOf } from "./handler-input.js";
+import { boundedSchemaFromExample } from "./openapi-schema.js";
 import { paymentMiddleware } from "@x402/express";
 import { HTTPFacilitatorClient, x402ResourceServer } from "@x402/core/server";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
@@ -476,6 +477,12 @@ export function acceptsForItem(item, rails) {
 /** Bazaar listing cap (Coinbase: 500 chars). Truncate at the last sentence
  *  end under the cap, else the last word; never a mid-word "...". */
 export const BAZAAR_DESCRIPTION_MAX = 500;
+// Byte budget for the typed output schema carried in the discovery extension.
+// Sized against the measured challenge sizes: the widest routes sat near 10.7 KB
+// of a 12 KB ceiling before this, so the schema must be small enough that no
+// route crosses it. test-challenge-size.js is the enforcement.
+export const BAZAAR_SCHEMA_MAX_BYTES = Number(process.env.BAZAAR_SCHEMA_MAX_BYTES) || 500;
+
 export function bazaarCapDescription(s, max = BAZAAR_DESCRIPTION_MAX) {
   if (!s || s.length <= max) return s;
   const head = s.slice(0, max);
@@ -1184,13 +1191,27 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
       // 2026-07-24); the 2KB guard keeps a future oversized example from
       // bloating every 402 for that route — the full example always lives in
       // /openapi.json.
+      //
+      // The example alone is documentation for a HUMAN. A buyer deciding
+      // whether to pay is a machine, and a machine reading only an example
+      // learns nothing it can rely on - an outside audit (issue #1047,
+      // 2026-08-29) made exactly that finding about our /openapi.json. So the
+      // declaration also carries a TYPED schema derived from the same example.
+      // It is byte-bounded because the buyer echoes this challenge back inside
+      // its payment payload (scripts/test-challenge-size.js): the schema
+      // shallows a level at a time to fit and is dropped rather than blow the
+      // budget. The complete typed schema is always in /openapi.json, which
+      // the listing links. One copy here, never one per accept: with 13 rails
+      // a per-accept schema would cost 13x on every 402.
       const example = slim.output.example;
       const oversized = example !== undefined && JSON.stringify(example).length > 2048;
+      const schema = oversized ? null : boundedSchemaFromExample(example, BAZAAR_SCHEMA_MAX_BYTES);
       slim.output = {
         type: slim.output.type || "json",
         ...(example !== undefined
           ? { example: oversized ? { truncated: true, note: "full example in /openapi.json" } : example }
           : {}),
+        ...(schema ? { schema } : {}),
       };
     }
     return slim;

@@ -1227,8 +1227,15 @@ jobs:
 
       - name: Discovery note (a seller must be able to see the gap)
         run: X402_INDEX_CRAWL=off node scripts/test-discovery-note.js
+      # Targets PROD on purpose. The CI server boots FREE_MODE and answers no
+      # 402 anywhere, so a local run measures nothing and skips; and the size
+      # that matters is the one a buyer actually receives, with all 13 rails in
+      # the accepts. Unpaid 402s are free. Note the one-run lag this shares
+      # with the SEO gate: the test job runs BEFORE the deploy, so a change
+      # that grows the challenge is caught on the run AFTER the one that ships
+      # it.
       - name: 402 challenge header stays payable (a buyer echoes it back)
-        run: node scripts/test-challenge-size.js
+        run: TARGET_URL=https://agent402.tools node scripts/test-challenge-size.js
       - name: Router aliases + short-term token rule (offline)
         run: X402_INDEX_CRAWL=off node scripts/test-route-aliases.js
 
