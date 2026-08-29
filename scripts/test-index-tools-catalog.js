@@ -150,5 +150,21 @@ const page = (results, extra = {}) =>
   check(`carry-forward preserves when the quote was observed, so the clock cannot reset`, carried.quoteObservedAt === now - 9 * day && quoteIsStale(carried, now) === true);
 }
 
+// The reporter's own row is discovered via /.well-known/x402, NOT OpenAPI, and
+// a manifest price is a display STRING ("$0.05"). The first cut of the #1043
+// fix marked only OpenAPI prices as origin-declared and guarded with a bare
+// Number(), so their corrected manifest price kept losing to the stale learned
+// quote even after the "fix" - verified against their live endpoint.
+{
+  const { normaliseManifestTools, carryForwardLearnedQuotes } = await import("../src/x402-index.js");
+  const rows = normaliseManifestTools({ tools: [{ route: "/audit", price: "$0.05", name: "Audit" }] }, "https://seller.example");
+  const row = rows.find((r) => String(r.route).includes("/audit"));
+  check(`a manifest price is marked origin-declared even as a display string (got ${row?.originDeclaredPrice})`, row?.originDeclaredPrice === 0.05);
+  const after = carryForwardLearnedQuotes(rows, { tools: [{ route: row?.route, price: 0.5, quoteSource: "live-402" }] }).find((r) => String(r.route).includes("/audit"));
+  check(`a stale learned quote cannot override a manifest-declared price (got ${after?.price})`, String(after?.price).includes("0.05"));
+  const bare = normaliseManifestTools({ tools: [{ route: "/x", name: "X" }] }, "https://seller.example").find((r) => String(r.route).includes("/x"));
+  check(`an unpriced manifest entry claims no declaration`, !(Number(bare?.originDeclaredPrice) > 0));
+}
+
 console.log(`\ntest-index-tools-catalog: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
