@@ -6,7 +6,7 @@
 import { readFileSync } from "node:fs";
 import { PROVIDER_DKIM_SELECTORS, providerForMx } from "../src/tools/network-kit.js";
 import { analyzeSecurity, cspQuality } from "../src/tools/network-kit2.js";
-import { DNS_HOSTS, dnsHostFor, probeWwwPair } from "../src/tools/domain-audit-kit.js";
+import { DNS_HOSTS, dnsHostFor, probeWwwPair, reportMailboxesFrom} from "../src/tools/domain-audit-kit.js";
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.log(`FAIL: ${m}`); } };
 
@@ -54,5 +54,26 @@ for (const needle of ["=== NAMESERVERS / DNS HOST", "=== WWW / APEX TWIN", "=== 
 const srv2 = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
 ok(/const wantsJson = \(req\)/.test(srv2) && /app\.get\("\/r\/:sessionId", \(req, res, next\) => \{\s*\/\/[^\n]*\n[^\n]*\n\s*if \(wantsJson\(req\)\)/.test(srv2), "/r/<id> serves the JSON bundle to Accept: application/json");
 ok(/app\.get\("\/reports\/public\/:publicId", \(req, res, next\) => \{\s*if \(wantsJson\(req\)\)/.test(srv2) && srv2.includes('rel="alternate"; type="application/json"'), "public report pages negotiate JSON too and carry a Link alternate");
+// ---------------------------------------------------------------------------
+// Regression: the report crashed on every domain that publishes a DMARC rua.
+//
+// `reportingUris` is {aggregate, failure}; the mailbox block spread it as an
+// array, so `[...(obj || [])]` threw "is not iterable" and the whole $0.60
+// report answered 500. It survived a day because the report composites are
+// excluded from both catalog sweeps. Hold the SHAPE here, where no upstream and
+// no key is needed.
+{
+  const real = { aggregate: ["mailto:dmarc@github.com"], failure: [] };
+  ok(reportMailboxesFrom(real, []).join() === "dmarc@github.com", "a DMARC reportingUris OBJECT yields its aggregate mailbox (the shape that used to throw)");
+  ok(reportMailboxesFrom({ aggregate: ["mailto:a@x.com"], failure: ["mailto:b@x.com"] }, []).length === 2, "both rua and ruf mailboxes are read");
+  ok(reportMailboxesFrom(["mailto:c@x.com"], []).join() === "c@x.com", "a legacy ARRAY still works (a parser change must not re-break this)");
+  ok(reportMailboxesFrom(undefined, undefined).length === 0, "no DMARC and no CAA yields no mailboxes, never a throw");
+  ok(reportMailboxesFrom(null, [{ tag: "iodef", value: "mailto:sec@x.com" }, { tag: "issue", value: "letsencrypt.org" }]).join() === "sec@x.com", "a CAA iodef contact is included and a CAA issue row is not");
+  ok(reportMailboxesFrom({ aggregate: ["mailto:a@x.com"], failure: ["a@x.com"] }, []).length === 1, "the same mailbox with and without the mailto: prefix is one address");
+  let threw = false;
+  try { reportMailboxesFrom({ aggregate: ["mailto:a@x.com"] }, { not: "an array" }); } catch { threw = true; }
+  ok(!threw, "a malformed CAA value never throws");
+}
+
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

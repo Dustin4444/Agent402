@@ -54,7 +54,7 @@ import { fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
 import { SKILL_PACKS } from "../src/skills.js";
 import { WALLET_ONLY_SLUGS } from "../src/pow.js";
-import { missingDocumentedKeys } from "./sweep-shape.js";
+import { missingDocumentedKeys, emptyPromisedArrays } from "./sweep-shape.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = Number(process.env.NON_METERED_PORT) || 3143;
@@ -641,8 +641,13 @@ async function main() {
     if (isStrictPass(r.status, r.body)) {
       // A binary response is recorded here as { __bytes } - not a body to hold
       // against a JSON example (test-all.js records it as a byte count).
-      const missing = r.body && r.body.__bytes !== undefined ? [] : missingDocumentedKeys(t.path, t.op, r.body);
+      const binary = r.body && r.body.__bytes !== undefined;
+      const missing = binary ? [] : missingDocumentedKeys(t.path, t.op, r.body);
       if (missing.length) shapeMismatches.push(`${t.method} ${t.path} → missing documented keys: ${missing.join(",")}`);
+      // Present-but-empty is its own failure: a published example that returns
+      // nothing teaches an agent the tool is broken (2026-08-29, sweep-shape.js).
+      const hollow = binary ? [] : emptyPromisedArrays(t.path, t.op, r.body);
+      if (hollow.length) shapeMismatches.push(`${t.method} ${t.path} → documented example returns an EMPTY array for: ${hollow.join(",")} (its own published input produces nothing)`);
       return;
     }
 

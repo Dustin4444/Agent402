@@ -20,3 +20,45 @@ export function missingDocumentedKeys(path, op, body) {
   const actual = Object.keys(body);
   return expected.filter((k) => !actual.includes(k));
 }
+
+// A documented example that returns NOTHING teaches an agent the tool is broken.
+//
+// Found 2026-08-29 while auditing why explorers leave: /api/keywords published
+// `{text: "Long article text…"}` and answered `{keywords: [], phrases: []}`;
+// polymarket-price-history published a FABRICATED token id (a repeating digit
+// pattern) and answered `count: 0`; kalshi-event published `PRES-24`, whose
+// markets Kalshi removed once the 2024 election settled. All three passed the
+// documented-keys check above, because the keys are present - they are just
+// empty. A buyer copying our own example gets an answer that looks like an
+// outage.
+//
+// So: where the documented 200 example shows a NON-EMPTY array, the tool's own
+// documented input must produce a non-empty array there too.
+export const EMPTY_ARRAY_OK = new Map([
+  // Index/board-backed tools: empty on a cold boot (the crawler is off in CI),
+  // populated in production. Same reason x402-market-pulse is skiplisted above.
+  ["/api/x402-trending", "sellers"],
+  ["/api/x402-market-pulse", "topProviders,topToolCategories"],
+  ["/api/demand-radar", "radar"],
+  ["/api/bestsellers", "bestsellers"],        // reads OUR sales ledger: empty on a fresh CI boot, populated in production
+  ["/api/x402-verify", "transfers"],          // placeholder 0x0…0 hash finds nothing, by design
+  // Legitimately empty for the example's own subject, not a defect:
+  ["/api/stock-dividends", "splits"],         // a stock that has never split
+  ["/api/dividend-calendar", "entries"],      // no US ex-dividend dates on a weekend
+  ["/api/nft-metadata", "attributes"],        // a token whose collection publishes no traits
+  ["/api/coin-profile", "platforms"],         // a native coin has no contract addresses
+  ["/api/memory/grants", "grants"],           // a fresh store holds no grants
+]);
+
+/** Keys whose documented example promises entries but whose live answer is an
+ *  empty array. [] when there is nothing to compare or the path is excused. */
+export function emptyPromisedArrays(path, op, body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return [];
+  const example = op?.responses?.["200"]?.content?.["application/json"]?.example;
+  if (!example || typeof example !== "object" || Array.isArray(example)) return [];
+  const excused = new Set((EMPTY_ARRAY_OK.get(path) || "").split(",").filter(Boolean));
+  return Object.entries(example)
+    .filter(([k, v]) => Array.isArray(v) && v.length > 0 && !excused.has(k))
+    .filter(([k]) => Array.isArray(body[k]) && body[k].length === 0)
+    .map(([k]) => k);
+}

@@ -7,7 +7,7 @@
 // Pure-CPU tools must return 200 with no error. Network/browser tools are
 // exercised but tolerant of upstream/sandbox failures (they need real egress;
 // CI has it). Memory tools get a demo namespace and accept their valid 4xx.
-import { missingDocumentedKeys } from "./sweep-shape.js";
+import { missingDocumentedKeys, emptyPromisedArrays } from "./sweep-shape.js";
 
 const TARGET = process.env.TARGET_URL || "http://127.0.0.1:3000";
 
@@ -348,6 +348,11 @@ const cats = {};
 function checkShape(path, method, op, body) {
   const missing = missingDocumentedKeys(path, op, body);
   if (missing.length) shapeMismatches.push(`${method} ${path} → missing documented keys: ${missing.join(",")}`);
+  // A key can be PRESENT and still teach an agent the tool is broken: three
+  // tools published an example whose own input returned an empty array where
+  // the docs promise entries (2026-08-29). See sweep-shape.js.
+  const hollow = emptyPromisedArrays(path, op, body);
+  if (hollow.length) shapeMismatches.push(`${method} ${path} → documented example returns an EMPTY array for: ${hollow.join(",")} (its own published input produces nothing)`);
 }
 
 // ONE HIT PER ENDPOINT ACROSS THE TWO SWEEPS. scripts/test-non-metered-examples.js

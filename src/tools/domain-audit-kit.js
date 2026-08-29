@@ -54,6 +54,23 @@ async function settle(p, timeoutMs) {
   } catch (e) { return { ok: false, error: e?.message || String(e) }; }
 }
 
+/** Mailboxes a domain already publishes for reports: DMARC rua + ruf, plus any
+ *  CAA iodef contact.
+ *
+ *  `reportingUris` is an OBJECT ({aggregate, failure}) - see parseDmarc in
+ *  network-kit.js. The first version of this spread it as an ARRAY, so every
+ *  domain publishing a rua or ruf (most of them) threw "is not iterable" and
+ *  took the whole $0.60 report down with a 500. Nothing saw it for a day: the
+ *  report composites are excluded from BOTH catalog sweeps, being metered and
+ *  costly, and the line four above this one reads the same field correctly,
+ *  which is how the two drifted apart. Exported so a test can hold the shape. */
+export function reportMailboxesFrom(reportingUris, caa) {
+  const ru = reportingUris;
+  const fromDmarc = Array.isArray(ru) ? ru : [...(ru?.aggregate || []), ...(ru?.failure || [])];
+  const fromCaa = (Array.isArray(caa) ? caa : []).filter((c) => c?.tag === "iodef").map((c) => c.value);
+  return [...new Set([...fromDmarc, ...fromCaa].map((u) => String(u).replace(/^mailto:/i, "")).filter((u) => /@/.test(u)))];
+}
+
 export function normDomain(input) {
   let d = String(input?.domain ?? input?.url ?? input?.host ?? "").trim();
   if (!d) throw bad('"domain" is required, e.g. "example.com"');
@@ -282,7 +299,13 @@ function makeDomainAuditHandlerInner(tierSlug) {
     const wwwBlock = www
       ? (www.reachable ? `${www.twin}: reachable (HTTP ${www.status ?? "?"}), ${www.redirectsToOther ? `redirects to ${www.finalHost}` : "serves its own response (no redirect to the other host)"}, HSTS ${www.hsts ? "present" : "ABSENT"} there${hdr ? ` vs ${(hdr.security?.findings || []).some((f) => f.header === "HSTS" && f.present) ? "present" : "absent"} on ${domain}` : ""}.` : `${www.twin}: NOT reachable (${www.error}) - if people type it, they get an error.`)
       : "www/apex twin: not checked.";
-    const knownMailboxes = [...new Set([...(email?.dmarc?.reportingUris || []), ...((dnsx?.caa || []).filter((c) => c.tag === "iodef").map((c) => c.value))].map((u) => String(u).replace(/^mailto:/i, "")).filter((u) => /@/.test(u)))];
+    // `reportingUris` is an OBJECT ({aggregate, failure}) - see parseDmarc in
+    // network-kit.js. Spreading it as an array threw "is not iterable" on every
+    // domain that publishes a rua or ruf, which is most of them, and took the
+    // whole report down with a 500 (found 2026-08-29; the composite is excluded
+    // from both catalog sweeps, so nothing could see it). Line 268 above reads
+    // the same field correctly, which is how the two drifted apart.
+    const knownMailboxes = reportMailboxesFrom(email?.dmarc?.reportingUris, dnsx?.caa);
     const mailboxBlock = `Addresses this domain already publishes for reports: ${knownMailboxes.length ? knownMailboxes.join(", ") : "NONE (no rua/ruf/iodef published)"}. Mail is ${email?.mx?.count ? `received at ${email.mx.provider || "the MX hosts above"}` : "not receivable (no MX)"}.`;
     const proBlock = t.pro ? [
       ct ? `CERTIFICATE TRANSPARENCY: ${ct.count ?? (ct.certs?.length || 0)} certificates read${ct.truncated ? " (MORE exist - the log was truncated at the read limit)" : ""}, ${(ct.subdomains || []).length} distinct subdomains among them. Subdomains: ${(ct.subdomains || ct.names || []).slice(0, 40).join(", ") || "(none parsed)"}${(ct.subdomains || []).length > 40 ? ` (+${(ct.subdomains || []).length - 40} more)` : ""}.` : "CT probe unavailable.",

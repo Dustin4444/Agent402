@@ -2028,6 +2028,42 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   14,910 rows) - and `unattributedMerchants` now reports `attributedUnroutable` (known origin, cannot route) separately from
   `unattributed` (unknown). Submitted-seed slots: 586 of the 2,000 cap in use (2026-08-27). test-settlement-proof 44.
 
+- **Broken-tool audit with PRODUCTION KEYS (2026-08-29): the 156 metered tools are the blind spot, and one flagship was
+  crashing.** Both catalog sweeps EXCLUDE the metered set (third-party keys CI lacks, upstream spend), so ~156 tools -
+  every report composite among them - are unexamined by CI on every run. Audited by booting FREE_MODE locally with the
+  prod keys pulled from Railway into a 0600 scratchpad file (never committed, shredded after) and driving them against
+  real upstreams. **`domain-audit` / `domain-audit-pro` ($0.60/$0.85, also a card product and a $5/mo monitor) answered
+  500 on EVERY domain that publishes a DMARC rua or ruf** - i.e. most real domains: `reportingUris` is an OBJECT
+  (`{aggregate, failure}`, parseDmarc in network-kit) and the mailbox block added on 08-28 spread it as an ARRAY, so
+  `[...(obj || [])]` threw "is not iterable"; the line four above it read the same field correctly, which is how they
+  drifted. Extracted as `reportMailboxesFrom()` and pinned by shape in test-domain-audit-inputs (41) where no key or
+  upstream is needed. Every OTHER report composite was driven end to end and is healthy (research, market-brief,
+  dossier, fund, insider, filing, recall, token-brief, token-risk, ticker-pack, ipo-report, domain-audit/pro). Note the
+  harness traps that are NOT defects: `/v1/fund` is the fund route (not `/v1/fund-report`) and `dossier` returns its
+  prose under `dossier`, not `report`.
+  **Blockscout (2026-08-29):** the paid leg takes 7-19 s per path (token-holders measured 20.15 s), so payX402's 20 s
+  DEFAULT bounded the whole buy at about one upstream response and `contract-inspect` failed "aborted due to timeout"
+  while the same call succeeded seconds later - now 45 s (`BLOCKSCOUT_TIMEOUT_MS`). Driving all five back to back also
+  produced three `HTTP 500` paid legs where the same five run serially answered 12/12: the upstream sheds load under a
+  burst, and each of those cost us the $0.002 already paid AND returned the buyer a 502 (a >= 400 cancels OUR
+  settlement, so we ate the bill and earned nothing). `buyBlockscout` now retries ONCE on a 5xx or timeout
+  (`isTransientUpstream`), never on a 4xx - a 4xx is our request being wrong and paying twice cannot fix it. Worst case
+  2 x $0.002 against a $0.005-$0.010 sale.
+- **A published example that returns NOTHING is a broken tool (2026-08-29, `emptyPromisedArrays` in sweep-shape.js, in
+  BOTH sweeps):** the documented-keys check only asserted keys are PRESENT, so `{keywords: [], phrases: []}` passed.
+  Found: `/api/keywords` published `{text: "Long article text…"}` and answered two empty arrays;
+  `polymarket-price-history` published a FABRICATED token id (a repeating digit pattern) and answered `count: 0`;
+  `kalshi-event` published `PRES-24`, whose markets Kalshi removed when the 2024 election settled; `robots-check`
+  pointed at example.com, which publishes no robots.txt; `text-stats`/`text-chunk` published placeholder prose. An agent
+  copying our own example got an answer that looks like an outage. Now: where the documented 200 example shows a
+  NON-EMPTY array, the tool's own documented input must produce a non-empty array there too, with `EMPTY_ARRAY_OK`
+  naming each legitimate case AND ITS REASON (cold index, a weekend with no ex-dividend dates, a stock that never
+  split, a coin with no contract platforms, a fresh memory store). Mutation-tested by replanting the old placeholder.
+  Three fabricated fields in published examples were fixed the same way: `onramp-link` promised `quote` (CONDITIONAL -
+  Coinbase does not always return one) while omitting `note` (always present), `onchain-sql` and the grounded chat tier
+  each carried a SENTENCE ABOUT the output inside the output example as if it were a field. Market examples also carry
+  an honest `note` when empty now, so a token id or event ticker that resolves later still teaches the truth instead of
+  reading as an outage - the Kalshi field-rename lesson, from the other side.
 - **Input aliases: accept the obvious other name (2026-08-29, `src/input-aliases.js`, `scripts/test-input-aliases.js`
   19 in CI):** measured from 60 days of telemetry after the "one buy then nothing" question - the buyers who EXPLORED the
   catalog and left hit no payment errors at all; **every failure was a 400.** One walked 77 tools and was rejected 723

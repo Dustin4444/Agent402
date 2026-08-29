@@ -989,12 +989,12 @@ const textTools = [
     tags: ["text", "statistics", "tokens", "reading-time"],
     discovery: {
       bodyType: "json",
-      input: { text: "Some long document…" },
+      input: { text: "The x402 protocol lets an agent pay for a single request. A server answers with payment terms, the agent signs a stablecoin authorization, and the request is retried with the payment attached. Payment settles on chain, so the server needs no account and the agent needs no subscription. The x402 protocol prices each request on its own, and payment terms travel with the request itself." },
       inputSchema: {
         properties: { text: { type: "string", description: "Text to analyze (max 500KB)" } },
         required: ["text"],
       },
-      output: { example: { characters: 1200, words: 210, sentences: 14, paragraphs: 4, readingTimeMinutes: 1.1, estimatedTokens: 300 } },
+      output: { example: { characters: 386, words: 65, sentences: 4, paragraphs: 1, avgWordLength: 4.95, readingTimeMinutes: 0.3, estimatedTokens: 97 } },
     },
     handler: (input) => {
       const text = capText(need(input, "text"), 500_000);
@@ -1022,7 +1022,7 @@ const textTools = [
     tags: ["keywords", "nlp", "text", "tagging"],
     discovery: {
       bodyType: "json",
-      input: { text: "Long article text…", limit: 10 },
+      input: { text: "The x402 protocol lets an agent pay for a single request. A server answers with payment terms, the agent signs a stablecoin authorization, and the request is retried with the payment attached. Payment settles on chain, so the server needs no account and the agent needs no subscription. The x402 protocol prices each request on its own, and payment terms travel with the request itself.", limit: 10 },
       inputSchema: {
         properties: {
           text: { type: "string", description: "Text to analyze (max 500KB)" },
@@ -1030,7 +1030,7 @@ const textTools = [
         },
         required: ["text"],
       },
-      output: { example: { keywords: [{ term: "payment", count: 9 }], phrases: [{ term: "x402 protocol", count: 4 }] } },
+      output: { example: { keywords: [{ term: "request", count: 4 }, { term: "payment", count: 4 }, { term: "agent", count: 3 }], phrases: [{ term: "x402 protocol", count: 2 }, { term: "payment terms", count: 2 }] } },
     },
     handler: (input) => {
       const text = capText(need(input, "text"), 500_000);
@@ -2166,7 +2166,7 @@ const networkTools = [
     tags: ["robots", "crawling", "scraping", "compliance"],
     discovery: {
       bodyType: "json",
-      input: { url: "https://example.com/some/page", userAgent: "MyAgent" },
+      input: { url: "https://www.wikipedia.org/wiki/Robots.txt", userAgent: "MyAgent" },
       inputSchema: {
         properties: {
           url: { type: "string", description: "URL whose path to check" },
