@@ -454,9 +454,28 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          BODY=$(curl -s --max-time 20 "$PROD/api/gateway-status" 2>/dev/null || echo '{}')
-          LEADS=$(echo "$BODY" | jq -r '.databases.leads.status // "unknown"' 2>/dev/null || echo unknown)
-          ANALYTICS=$(echo "$BODY" | jq -r '.databases.analytics.status // "unknown"' 2>/dev/null || echo unknown)
+          # SINGLE-RETRY, like every other probe in this file. This leg shipped
+          # without one and paged on 2026-08-29 during our own deploy: the
+          # service is volume-backed, so each deploy has a ~60-90s window with
+          # no container, and the app's Postgres pools re-init behind a ~10-18s
+          # boot stall after that. The boot log showed "[leads-db] ready" three
+          # minutes BEFORE the issue was filed - a reading taken in that window,
+          # reported later. Five merges in a day is five chances to page on
+          # nothing, and an alarm that cries wolf is worse than no alarm.
+          # A REAL outage (a stopped Postgres container) fails both readings.
+          probe_db() {
+            local body leads analytics
+            body=$(curl -s --max-time 20 "$PROD/api/gateway-status" 2>/dev/null || echo '{}')
+            leads=$(echo "$body" | jq -r '.databases.leads.status // "unknown"' 2>/dev/null || echo unknown)
+            analytics=$(echo "$body" | jq -r '.databases.analytics.status // "unknown"' 2>/dev/null || echo unknown)
+            echo "$leads $analytics"
+          }
+          read -r LEADS ANALYTICS <<< "$(probe_db)"
+          if [ "$LEADS" = "unreachable" ] || [ "$ANALYTICS" = "unreachable" ]; then
+            echo "postgres: first read leads=$LEADS analytics=$ANALYTICS - re-probing in 30s before paging"
+            sleep 30
+            read -r LEADS ANALYTICS <<< "$(probe_db)"
+          fi
           echo "postgres: leads=$LEADS analytics=$ANALYTICS"
           TITLE="Postgres UNREACHABLE (leads/analytics)"
           OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty' 2>/dev/null || true)
