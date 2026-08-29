@@ -93,5 +93,45 @@ const page = (results, extra = {}) =>
   check("and still offers the router", html.includes('href="/api/route"'));
 }
 
+// Price CUTS must propagate (reported 2026-08-29 by a seller whose 2026-08-20
+// cut we were still quoting at 10x, nine days and dozens of crawls later).
+// Three sites composed into "a learned price can rise but never fall": the
+// merge took max(), carry-forward filled the fresh row with the stale amount
+// and re-stamped it live-402, and a priced route was never re-probed.
+{
+  const { mergeOpenapiIntoBazaar, carryForwardLearnedQuotes, priceDisagreesWithOrigin } = await import("../src/x402-index.js");
+
+  // 1. the merge prefers the origin's OWN current declaration, both directions
+  if (typeof mergeOpenapiIntoBazaar === "function") {
+    // signature is (openapiTools, bazaarTools): the ORIGIN's document first.
+    const cut = mergeOpenapiIntoBazaar(
+      [{ route: "/audit", method: "POST", price: 0.05, slug: "audit", name: "Audit", description: "d", tags: [], category: "c" }],
+      [{ route: "/audit", method: "POST", price: 0.5, slug: "audit", name: "Audit", description: "d", tags: [], category: "c" }],
+    )[0];
+    check(`a price CUT propagates: origin 0.05 beats a stale 0.5 (got ${cut.price})`, cut.price === 0.05);
+    check("both observations stay visible for a buyer that wants to fail closed", cut.originDeclaredPrice === 0.05 && cut.priceObservations?.bazaar === 0.5);
+    const raise = mergeOpenapiIntoBazaar(
+      [{ route: "/audit", method: "POST", price: 0.5, slug: "audit", name: "Audit", description: "d", tags: [], category: "c" }],
+      [{ route: "/audit", method: "POST", price: 0.05, slug: "audit", name: "Audit", description: "d", tags: [], category: "c" }],
+    )[0];
+    check(`a price RISE still wins too, which is what max() was protecting (got ${raise.price})`, raise.price === 0.5);
+  }
+
+  // 2. carry-forward fills a gap, never overrides what the origin declared today
+  const kept = carryForwardLearnedQuotes(
+    [{ route: "/audit", price: 0.05, originDeclaredPrice: 0.05 }],
+    { tools: [{ route: "/audit", price: 0.5, quoteSource: "live-402" }] },
+  )[0];
+  check(`a stale learned quote never overwrites today's origin price (got ${kept.price})`, kept.price === 0.05);
+  check("and it is not re-stamped live-402, which made a nine-day-old price look fresh", kept.quoteSource !== "live-402");
+  const filled = carryForwardLearnedQuotes([{ route: "/x" }], { tools: [{ route: "/x", price: 0.02, quoteSource: "live-402" }] })[0];
+  check("a genuine gap is still filled, and says so", filled.price === 0.02 && filled.quoteCarriedForward === true);
+
+  // 3. a priced route that disagrees with the origin is re-probed
+  check("a 10x disagreement is worth a live probe", priceDisagreesWithOrigin({ price: 0.5, originDeclaredPrice: 0.05 }) === true);
+  check("a rounding difference is not", priceDisagreesWithOrigin({ price: 0.051, originDeclaredPrice: 0.05 }) === false);
+  check("no origin declaration means nothing to disagree with", priceDisagreesWithOrigin({ price: 0.5 }) === false);
+}
+
 console.log(`\ntest-index-tools-catalog: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

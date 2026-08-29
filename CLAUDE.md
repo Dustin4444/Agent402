@@ -2019,6 +2019,21 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   14,910 rows) - and `unattributedMerchants` now reports `attributedUnroutable` (known origin, cannot route) separately from
   `unattributed` (unknown). Submitted-seed slots: 586 of the 2,000 cap in use (2026-08-27). test-settlement-proof 44.
 
+- **A learned price could rise but never fall (2026-08-29, reported from OUTSIDE with two unauthenticated curls, issue #1043):**
+  a seller cut `/audit` from $0.50 to $0.05 on 2026-08-20 and our index was still quoting the old number NINE DAYS and dozens
+  of crawls later - a 10x overquote on their listing, and enough to push the route into the wrong route-execute tier. Three
+  sites composed into a ratchet: (1) `mergeOpenapiIntoBazaar` resolved a price conflict with `Math.max(bazaar, origin)`;
+  (2) `carryForwardLearnedQuotes` filled the fresh crawl's row with the stale live-402 amount and then re-stamped it
+  `quoteSource: "live-402"`, so a nine-day-old number looked freshly observed; (3) `enrichLiveQuotes` only probed routes with
+  NO price, so a route already carrying the stale amount was never re-probed and the live 402 that would correct it was never
+  fetched. Fixed: the merge now prefers the ORIGIN'S OWN CURRENT DECLARATION, which STRICTLY DOMINATES the max() it replaced
+  (in the raised-price case the origin IS the higher figure, so the original concern is handled identically; the two rules
+  only diverge on a CUT, which is the bug); carry-forward fills a GAP only, never overrides a price the origin declared this
+  crawl, flags itself `quoteCarriedForward` and no longer claims live-402 for a number it did not just learn; and a priced
+  route whose amount disagrees with the origin's declaration by >= `QUOTE_DRIFT_FACTOR` (2x) is re-probed inside the existing
+  budget. Rows carry `originDeclaredPrice` and `priceResolvedFrom` so drift is visible rather than silently resolved.
+  Pinned both directions in test-index-tools-catalog (33). Lesson: a "safe" tie-break that always picks one side is a
+  ratchet, and the party it hurts is the one who cannot see our index - they had to file an issue to tell us.
 - **CodeQL caught a high-severity ReDoS in the same day's new code (2026-08-28):** `isSelfSellerQuery` in host-entry.js trimmed
   trailing slashes with `/\/+$/` on the caller-supplied `?seller=` value - polynomial backtracking on a string of many
   slashes, on a public endpoint (js/polynomial-redos, high). Replaced with a linear slice loop and a 256-char bound before

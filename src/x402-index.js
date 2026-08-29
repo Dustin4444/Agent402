@@ -1509,12 +1509,23 @@ export function mergeOpenapiIntoBazaar(openapiTools = [], bazaarTools = [], { al
     const bazaarMicro = priceToMicroUsd(b.price);
     const originMicro = priceToMicroUsd(o.price);
     const priceConflict = bazaarMicro != null && originMicro != null && bazaarMicro !== originMicro;
-    // Prefer the higher observation when they disagree so buyers never
-    // underquote a raised origin price against a stale Bazaar amount.
+    // On disagreement the ORIGIN'S OWN CURRENT DECLARATION wins. This used to
+    // take Math.max(), which protects a buyer from underquoting a RAISED price
+    // against a stale Bazaar row - but in that scenario the origin IS the
+    // higher figure, so preferring the origin handles it identically. The two
+    // rules only diverge when the origin is LOWER, i.e. a price CUT, and there
+    // max() pinned the old high amount forever: reported 2026-08-29 by a
+    // seller whose 2026-08-20 cut we were still quoting at 10x nine days and
+    // dozens of crawls later. An origin's own openapi.json, fetched this
+    // crawl, is the freshest and most authoritative statement of its price;
+    // the Bazaar amount is a third party's record and can lag arbitrarily.
     // Absent conflict: keep settlement-observed Bazaar (incl. explicit 0);
     // only fill a missing amount from OpenAPI.
     let price;
-    if (priceConflict) price = microUsdToPrice(Math.max(bazaarMicro, originMicro));
+    // Normalized, NOT passed through: `o.price` can be the string "0.003"
+    // straight from the seller's document, and a string price fails every
+    // numeric comparison downstream (caught by test-openapi-fallback).
+    if (priceConflict) price = microUsdToPrice(originMicro);
     else price = b.price == null ? o.price : b.price;
     return ({
     ...bazaar,
@@ -1534,10 +1545,15 @@ export function mergeOpenapiIntoBazaar(openapiTools = [], bazaarTools = [], { al
     ...(requestContract ? { requestContract } : {}),
     ...(responseContract ? { responseContract } : {}),
     price,
+    // What the ORIGIN itself declared this crawl, kept separately so a later
+    // stage cannot quietly overwrite the seller's own current number with an
+    // older learned one, and so a re-probe can tell drift from agreement.
+    ...(originMicro != null ? { originDeclaredPrice: microUsdToPrice(originMicro) } : {}),
     // Preserve both observations (normalized numbers) so a buyer can see the
-    // drift and fail closed — and so we can audit which side won the max().
+    // drift and fail closed - and so we can audit which side won.
     ...(priceConflict ? {
       priceConflict: true,
+      priceResolvedFrom: "origin", // the seller's own current declaration
       priceObservations: {
         bazaar: microUsdToPrice(bazaarMicro),
         origin: microUsdToPrice(originMicro),
@@ -1701,14 +1717,38 @@ export function carryForwardLearnedQuotes(tools, prev) {
   for (const t of tools) {
     const hit = learned.get(t.route);
     if (!hit) continue;
-    if (!(Number(t.price) > 0) && Number(hit.price) > 0) t.price = hit.price;
+    // A carried-forward quote FILLS A GAP; it never overrides what this crawl
+    // just read from the origin. `originDeclaredPrice` is set by the OpenAPI
+    // merge above, so a route the origin priced today keeps that number even
+    // when an older live-402 learned a different one (2026-08-29: the stale
+    // amount was filling the fresh row and then being re-stamped "live-402",
+    // which made a nine-day-old price look freshly observed).
+    const originPricedThisCrawl = Number(t.originDeclaredPrice) > 0;
+    if (!(Number(t.price) > 0) && !originPricedThisCrawl && Number(hit.price) > 0) {
+      t.price = hit.price;
+      t.quoteCarriedForward = true;
+    }
     if (!(Array.isArray(t.networks) && t.networks.length) && Array.isArray(hit.networks) && hit.networks.length) {
       t.networks = [...hit.networks];
     }
     if (hit.method && hit.method !== t.method) { t.method = hit.method; t.methodInferred = false; }
-    t.quoteSource = "live-402";
+    // Only claim "live-402" for a price this crawl is actually standing behind:
+    // a row the origin priced today is origin-declared, not live-learned.
+    if (!originPricedThisCrawl) t.quoteSource = "live-402";
   }
   return tools;
+}
+
+/** Does the amount we hold disagree materially with what the origin declared
+ *  this crawl? Used to spend a live-402 probe on a route we would otherwise
+ *  skip, so a price CUT is learned instead of ratcheting. Deliberately a
+ *  RATIO test: a rounding difference is not worth a probe, a 2x is. */
+const QUOTE_DRIFT_FACTOR = Number(process.env.QUOTE_DRIFT_FACTOR) || 2;
+export function priceDisagreesWithOrigin(t) {
+  const held = Number(t?.price), declared = Number(t?.originDeclaredPrice);
+  if (!(held > 0) || !(declared > 0)) return false;
+  const ratio = held > declared ? held / declared : declared / held;
+  return ratio >= QUOTE_DRIFT_FACTOR;
 }
 
 async function enrichLiveQuotes(tools, originUrl) {
@@ -1717,8 +1757,13 @@ async function enrichLiveQuotes(tools, originUrl) {
     (t) => t
       && typeof t.route === "string" && t.route.startsWith("/")
       && t.seller !== LOCAL_SELLER                      // never probe ourselves
-      && !(Number(t.price) > 0)                          // already priced: nothing to learn
-      && !(Array.isArray(t.networks) && t.networks.length) // already payable-evidenced
+      // Already priced: nothing to learn - UNLESS the amount we hold disagrees
+      // with what the origin declared this crawl. That disagreement is exactly
+      // how a price CUT used to be invisible: a priced route was never
+      // re-probed, so the live 402 that would correct it was never fetched
+      // (reported 2026-08-29, a 10x overquote standing for nine days).
+      && (!(Number(t.price) > 0) || priceDisagreesWithOrigin(t))
+      && (!(Array.isArray(t.networks) && t.networks.length) || priceDisagreesWithOrigin(t))
       && probeMethodsFor(t).length                       // never PUT/PATCH/DELETE
       && probeDue(originUrl, `quote:${t.route}`),
   ).slice(0, Math.max(0, Math.min(LIVE_QUOTE_PROBES_PER_CRAWL, liveQuoteBudget)));
