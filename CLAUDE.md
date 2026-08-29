@@ -2019,6 +2019,18 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   14,910 rows) - and `unattributedMerchants` now reports `attributedUnroutable` (known origin, cannot route) separately from
   `unattributed` (unknown). Submitted-seed slots: 586 of the 2,000 cap in use (2026-08-27). test-settlement-proof 44.
 
+- **The 402 challenge header has a ceiling that is not ours to set (2026-08-29, found by running our own smoke buy against an
+  external seller):** a stock x402 client echoes EVERY extension it is offered straight back into the payment payload -
+  `info` and the full JSON `schema` for each - so a rich 402 becomes a rich REQUEST header on the buyer's retry. Measured on
+  that seller: our client built a 13,680-byte payment header against their 3,572-byte-equivalent for our own routes, their
+  facilitator answered `'paymentPayload' is invalid`, and with one extension stripped the next attempt hit **HTTP 431
+  Request Header Fields Too Large**; with ALL extensions stripped the request finally arrived and their gate refused it as
+  "No matching payment requirements" - i.e. their endpoint is unpayable by a stock client either way. Nothing settled in any
+  of the three runs. OURS IS THE SAME SHAPE, smaller: `/v1/metered/chat/completions` measured **10,704 bytes** (accepts
+  3,268 across 13 rails, extensions 3,985 of which `bazaar` alone is 3,215). `scripts/test-challenge-size.js` (in CI) is the
+  ratchet-stop: hard ceiling 12,000 bytes, warn line 9,000, so the challenge cannot silently grow past what a buyer can send
+  back. Trim an extension before adding a rail. Separately this sweep fixed a real drift: 38 workflow sites pinned the x402
+  client at 2.16.0 against a 2.22.0 server, which the daily canary could never catch because it only pays OUR challenges.
 - **A learned price could rise but never fall (2026-08-29, reported from OUTSIDE with two unauthenticated curls, issue #1043):**
   a seller cut `/audit` from $0.50 to $0.05 on 2026-08-20 and our index was still quoting the old number NINE DAYS and dozens
   of crawls later - a 10x overquote on their listing, and enough to push the route into the wrong route-execute tier. Three
