@@ -2028,6 +2028,21 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   14,910 rows) - and `unattributedMerchants` now reports `attributedUnroutable` (known origin, cannot route) separately from
   `unattributed` (unknown). Submitted-seed slots: 586 of the 2,000 cap in use (2026-08-27). test-settlement-proof 44.
 
+- **Our live 402 was INVALID under the protocol's own schema (2026-08-29, contributed fix, `scripts/test-bazaar-contracts.js`
+  in CI):** `parsePaymentRequired` and `ResourceInfoSchema` from `@x402/core/schemas` REJECT a resource carrying more than
+  FIVE tags, and we published nine or ten on 557 of 560 routes. Verified first-party against live prod, not taken on
+  trust: `/api/hash` published `["web","tools","agents","x402","encoding","hash","sha256","checksum","crypto"]` and the
+  official parser answered `resource.tags: Array must contain at most 5 element(s)`. **A buyer that validates a challenge
+  before paying got an invalid document from every route.** Worse, our first five were all GENERIC
+  (`web, tools, agents, x402, <category>`), identical on all 560, so a consumer that truncates rather than rejects saw
+  ZERO discriminating signal; the fix orders category + the tool's own tags first (`hash` -> `encoding, hash, sha256,
+  checksum`), so the cut to five is a discoverability GAIN. Uses the vendor's own `sanitizeTags` (MAX_TAGS = 5, confirmed
+  in the package). Same PR gives the CHALLENGE-side schema the route-aware `required` policy `/openapi.json` already had
+  (`boundedResponseSchemaFor`, honouring SHAPE_HAPPY_PATH_ONLY and the null rule, 6 variable-output routes deliberately
+  left without invented guarantees) and lets a non-object example be a schema at all (`/v1/audio/speech` returns raw
+  audio). Measured cost: +52 bytes on the largest challenge before the tag saving. The new sweep runs all 560 routes
+  through both official validators; on the pre-fix tree it produced ~2,228 failures. Lesson: we validate what buyers
+  send us and had never once validated what we send THEM against the spec's own parser.
 - **The Postgres alarm paged on our own deploy (2026-08-29):** issue #1057 said both databases were unreachable; the boot
   log said `[leads-db] ready` + `[analytics-db] ready` at 22:40:52Z and the issue was filed at 22:44:03Z, with
   `/api/gateway-status` reading `ok` throughout. The service is volume-backed, so EVERY deploy has a 60-90s

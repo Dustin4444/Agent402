@@ -1415,7 +1415,7 @@ jobs:
       # runs in its own process, in the same order; `t` groups its log and names it
       # with its elapsed time, and a failure prints the failing script as an error.
       # The original step names ride above each script so the WHY stays here.
-      - name: Offline suites (10 scripts, one process each)
+      - name: Offline suites (11 scripts, one process each)
         run: |
           set -euo pipefail
           t() { local s=$SECONDS; echo "::group::$*"; "$@" || { echo "::endgroup::"; echo "::error::failed: $*"; exit 1; }; echo "::endgroup::"; echo "ok  $* ($((SECONDS - s))s)"; }
@@ -2022,6 +2022,12 @@ jobs:
           t node scripts/test-x402-live-quote.js
           # Paid smoke buyer preflight (external targets require an outcome assertion before key/client/network work)
           t node scripts/test-smoke-buy.js
+          # "Every paid route's PAYMENT-REQUIRED document parses under the OFFICIAL @x402/core
+          #  schemas. Our live challenges did not: 557 of 560 published more than the protocol's
+          #  five-tag maximum, so a buyer validating before paying got an invalid document
+          #  (verified first-party against prod, 2026-08-29). Boots the real server against a
+          #  local /supported stub; no payment is made."
+          t node scripts/test-bazaar-contracts.js
 
       - name: "Redis integration (the REAL client against a REAL server — cap-of-1, refund, cache round trip; the gap that made a redis major bump undecidable)"
         env:
