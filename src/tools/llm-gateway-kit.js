@@ -687,9 +687,12 @@ export const MODEL_COST = [
   ["openai/gpt-5-mini", { prompt: 0.25, completion: 2 }],
   // gpt-5.6 family — explicit entries are LOAD-BEARING: costFor's plain
   // startsWith would otherwise match "openai/gpt-5" and price sol at a fifth
-  // of its real cost. Live prices 2026-08-04 (post 07-30 cut): sol $5/$30,
-  // terra $1/$6, luna $0.10/$0.60; -pro variants share their base price and
-  // match these prefixes.
+  // of its real cost. -pro variants share their base price and match these
+  // prefixes. The per-row comments carry the date each was last read live;
+  // the figures BELOW are the source of truth, not this block - it once still
+  // said "sol $5/$30" a day after the row beneath it had been corrected to
+  // 2/10, so a reader could not tell which to believe. test-gateway-model-ids
+  // checks every row against the live catalog on each run.
   ["openai/gpt-5.6-sol", { prompt: 2, completion: 10 }],   // live 2026-08-28 (was 6/35: the clamp cut max_tokens ~3.5x too hard)
   ["openai/gpt-5.6-terra", { prompt: 2, completion: 12 }], // live 2026-08-28: the row was UNDER the real price
   ["openai/gpt-5.6-luna", { prompt: 0.2, completion: 1.2 }], // live 2026-08-19: $0.20/$1.20 (was $1)
