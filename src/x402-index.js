@@ -1025,9 +1025,25 @@ export function normaliseManifestTools(manifest, originUrl) {
     const meta = metaByPath.get(String(t.route || "").split("?")[0]);
     if (!meta) continue;
     if (!t.price && meta.price) t.price = meta.price;
+    // fall through to the stamp below
     if ((!t.name || t.name === t.route || String(t.name).startsWith("/")) && meta.name) t.name = meta.name;
     if (!t.description && meta.description) t.description = String(meta.description).slice(0, 400);
     if ((!t.slug || t.slug === t.route) && meta.slug) t.slug = meta.slug;
+  }
+  // A price in the seller's OWN manifest is an origin declaration, exactly like
+  // one in their openapi.json, and must be marked as such: `originDeclaredPrice`
+  // is what stops a stale learned quote from overriding it. Missing this was a
+  // real defect in the first cut of the #1043 fix - the reporter's own row is
+  // discovered via /.well-known/x402, not OpenAPI, so their corrected manifest
+  // price kept losing to a nine-day-old learned amount even after the "fix".
+  // Verified against their live endpoint before this line existed: still 0.5.
+  for (const t of byKey.values()) {
+    // NB the manifest price is often a display string ("$0.05"), so this must
+    // go through the same parser the rest of the index uses - a bare Number()
+    // yields NaN and silently skips the stamp (caught while verifying against
+    // the reporter's own live manifest).
+    const micro = priceToMicroUsd(t.price);
+    if (micro != null && micro > 0 && !(Number(t.originDeclaredPrice) > 0)) t.originDeclaredPrice = microUsdToPrice(micro);
   }
   return [...byKey.values()];
 }
