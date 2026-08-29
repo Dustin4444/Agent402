@@ -45,6 +45,14 @@ try {
   const rawGet = (path, headers) => new Promise((resolve, reject) => { const r = httpRequest({ host: "127.0.0.1", port, path, method: "GET", headers }, (res) => { res.resume(); resolve({ status: res.statusCode, location: res.headers.location || null }); }); r.on("error", reject); r.end(); });
   const www = await rawGet("/guides/agent-hosts?x=1", { Host: "www.agent402.test" });
   ok(www.status === 301 && www.location === "http://agent402.test/guides/agent-hosts?x=1", `www host 301s to the apex with the path kept (got ${www.status} ${www.location})`);
+  // The host's own /api/index entry (2026-08-28): self:true, built from the
+  // ledger + catalog, for the canonical host and the instance's own base URL.
+  for (const q of ["agent402.tools", "https://agent402.tools", "agent402.test"]) {
+    const me = await (await fetch(`${base}/api/index?seller=${encodeURIComponent(q)}`)).json();
+    ok(me.self === true && me.listed === true && me.external && Number.isInteger(me.external.days30.settlements) && me.links?.manifest, `/api/index?seller=${q} answers the host's own entry (self:true, external-only figures, links)`);
+  }
+  const notMe = await fetch(`${base}/api/index?seller=nobody.example`);
+  ok(notMe.status === 404, "an unknown seller still 404s");
   const wwwEvil = await rawGet("/guides/agent-hosts", { Host: "www.evil.example" });
   ok(wwwEvil.status !== 301, `a www Host that is not OUR canonical host is never redirected (no open redirect; got ${wwwEvil.status})`);
   const wwwPaid = await rawGet("/api/uuid", { Host: "www.agent402.test", "payment-signature": "x" });
@@ -63,5 +71,19 @@ try {
   ok(alias.status === 302 && alias.headers.get("location") === "/install", "/install.sh redirects to /install");
   ok(/^MCP_URL="https:\/\/x\.test\/mcp"$/m.test(installScript("https://x.test/")) && !/x\.test\/\//.test(installScript("https://x.test/")), "base URL trailing slash handled");
 } finally { proc.kill("SIGTERM"); }
+// isSelfSellerQuery is reached from ?seller= on a public endpoint, so its
+// trailing-slash trim must be linear: a regex there was flagged high-severity
+// polynomial ReDoS (CodeQL js/polynomial-redos, 2026-08-28). 120k slashes must
+// answer instantly, and the accepted spellings must be unchanged.
+{
+  const { isSelfSellerQuery } = await import("../src/host-entry.js");
+  const t0 = Date.now();
+  const evil = isSelfSellerQuery("/".repeat(120_000) + "x", "https://agent402.tools");
+  const ms = Date.now() - t0;
+  ok(evil === false && ms < 250, `a 120k-slash seller query answers in ${ms}ms, not polynomial time`);
+  ok(["agent402.tools", "https://agent402.tools", "https://agent402.tools/", "www.agent402.tools"].every((q) => isSelfSellerQuery(q, "https://agent402.tools")), "every spelling of the host still matches");
+  ok(isSelfSellerQuery("other.example", "https://agent402.tools") === false, "another seller never matches the host");
+}
+
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

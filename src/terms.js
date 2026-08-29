@@ -103,6 +103,13 @@ report is generated only against a paid, Stripe-verified session, once; if gener
 is refunded automatically. A report that was delivered is final. Prepaid credits are consumed as you
 call tools, are non-refundable except where required by law, and are disabled if the purchase is
 refunded or disputed. Card prices include payment processing and are shown before you pay.</p>
+<p><b>If the service stops.</b> A prepaid credits balance is money we hold until you spend it, which is
+the one place this service is not non-custodial, and it should not depend on us being here forever. If we
+decide to stop operating the hosted service, we will give at least 30 days notice on this site and by
+email to the address on each purchase, stop selling new credit packs immediately, keep the paid routes
+serving through the notice period so a balance can be spent, and refund any unspent balance to the card
+that bought it. The same applies to an unused monitor period. Nothing here waives a right you have by law,
+and it does not apply to a balance disabled for a refund or dispute.</p>
 <p><b>Free email alerts.</b> A free alert watches one subject with the same daily check a monitor uses and emails you when something changes, at most once a day. It is free, best-effort and not a monitor: no report is generated, delivery is not guaranteed, and we may pause or discontinue alerts at any time. It starts only after you confirm by email and ends the moment you use the unsubscribe link in any alert.</p>
 <p><b>Subscriptions (monitors).</b> A monitor bills monthly in advance, by card through Stripe or over
 MPP on Tempo from an authorization you sign, until cancelled. Cancel any time through the

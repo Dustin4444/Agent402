@@ -1660,8 +1660,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `content-length` refused before `res.text()` in three kits. X page size capped at 25 posts (X bills per post RETURNED, so
   the page size is the cost lever). Hygiene: a literal NUL byte in a test made the file invisible to grep and secret
   scanners; gitleaks allowlist rows pinned to literals.
-- **Second seller-landscape wave (2026-08-22, the operator: "build everything we can serve right away and profitably; existing keys
-  are fair game"):** seven more kits, all wallet-only, offline tests in CI. KEYLESS: `crawl-kit.js` (`CRAWL_TOOLS`: site-map
+- **Second seller-landscape wave (2026-08-22, scope: everything servable right away and profitably on keys already held):** seven more kits, all wallet-only, offline tests in CI. KEYLESS: `crawl-kit.js` (`CRAWL_TOOLS`: site-map
   $0.005 robots+sitemap+homepage links <= 6 fetches; site-crawl $0.02 BFS <= 20 pages/depth 2, robots honoured, SSRF guard on
   every hop incl. redirects, 200+truncated once a page succeeded else 504), `crypto-signals-kit.js` (`CRYPTO_SIGNALS_TOOLS`:
   crypto-news $0.004 from 8 public RSS/Atom feeds with a dependency-free parser + 5-min per-source cache; crypto-indicators
@@ -1923,6 +1922,23 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   Both strings are now DERIVED from HUMAN_PRODUCTS / MONITOR_PRODUCTS / `priceUsdFor`, and the guard fails on any
   dollar figure in a page description that is not a real product price (mutation-tested with the exact two strings
   that shipped). When adding a page that quotes a price in copy, derive it or add it to this guard.
+- **The host's own entry on the discovery surfaces (2026-08-28, `src/host-entry.js`):** the marketplace, both leaderboards and
+  `/api/index` rank OTHER sellers and keep the operator out of the ranked lists, the router's external pool and every seller
+  count on purpose (an index that ranks itself first proves nothing, and our on-chain volume is mostly our own canary and
+  volume runs) - but that left the host with no honest entry at all (`/api/index?seller=agent402.tools` answered "not
+  found"). Now `hostFigures()` reads the sales ledger's OWN external classification (`salesSummary`, 30 days + all time:
+  settlements, distinct buyers, tools sold; never internal/synthetic rows, never recomputed) and renders it OUTSIDE every
+  ranking: a labelled card above the `/marketplace` roster ("this site, not ranked, not counted"), external-only rows plus the
+  exclusion note in `/leaderboard`'s "our own row, disclosed" panel and a pinned unnumbered row under its table, a pinned row
+  under the MPP board's ranked table, and `GET /api/index?seller=<host|origin|BASE_URL>` answering `self:true` with the same
+  figures + links (built from the ledger and catalog, never from the crawl cache; `isSelfOrigin` still excludes the crawled
+  self-entry from the external pool). The roster's existing pinned THIS HOST card and the MPP board's self-flagged ranked row
+  are unchanged. Pins: test-marketplace-index-page (32), test-leaderboard-page (30), test-mpp-market-page (20),
+  test-self-listing-exclusion (host entry built without the cache), test-shortlinks (booted `self:true` for host, origin and BASE_URL).
+  **Per rail (same day):** every chain page (`/base` ... `/stellar`, `/algorand` through their wrappers) carries the same card
+  with THAT rail's outside settlements and distinct buyers only (`externalByNetwork({days})` in sales-ledger, CAIP ids collapsed
+  to the rail key; `hostFigures({network, byNetworkFn})`), labelled "outside buyers on <Chain> only"; the all-chains page keeps
+  the all-rail totals. Pinned in test-marketplace-index-page (35) and test-sales-ledger (74).
 - **Router aliases + short-term token rule (2026-08-28, from an outside email that had the facts wrong but the symptom right):**
   `/api/route?q=ip geolocation` ranked a $0.05 external seller above our $0.003 `asn-info` ("ASN + IP geolocation"): the
   lexical scorer weights the SLUG, and ours says neither word; worse, the two-letter term "ip" substring-matched gzip /
@@ -1938,11 +1954,19 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   external-vs-external ordering is unchanged. Re-run the sweep after deploy (the recipe is a 20-line node loop over
   `/api/pricing` endpoints -> `/api/route?q=<name>&top=3`) and expect the outside-first count to fall to genuine cases
   (cheaper or better-matched sellers).
+- **16 pure-CPU / free-upstream tools cut to the floor (2026-08-28, priced against comparable listings):**
+  measured first - against PROVEN outside peers (Bazaar payers30d >= 3, equal route score) we were cheaper on 80 tools,
+  equal on 37, pricier on 36; two-thirds of the 36 carry real upstream cost (Brave, E2B, CoinGecko, LLM) and stay. The
+  sixteen with no marginal cost moved to $0.001 (json-diff, robots-check, tls-cert, spf-check, dmarc-check, ens-resolve,
+  polymarket-orderbook, perp-open-interest, perp-klines, crypto-orderbook, tx-status, stock-quote, weather-forecast) or
+  $0.002 (x402-quote, weather-history, reverse-geocode); the canary's stock-quote leg pin followed. Price is the FOURTH
+  route tie-break (match, health, Bazaar payers, then price), so a cut only moves ties; never price an upstream-metered
+  tool to beat a peer that is hitting a free API.
 - **`/why` = the one-page "what is different" surface (2026-08-26, `src/why.js`, `WHY_POINTS`):** seven first-party
   claims, each linked to the surface that proves it (usage priced under a quoted ceiling / upto settles actual; a failed call
   is never charged + keyed retries never pay twice + charged-but-failed is ledgered; one key buys models on three wires + 500+
   tools + reports; no wallet required; finished reports + monitors; route-and-execute buys on the agent's behalf; proof from
-  outside production). NO competitor names or comparisons anywhere (the operator, 2026-08-26: "we cant mention competitors"); markup
+  outside production). NO third-party names or comparisons anywhere in public copy (standing rule); markup
   stays 15% (decided the same day: 15% on OpenRouter cost nets ~9% after their ~5.5% credit fee; 5%/4% would lose money).
   The same seven points are rendered from `whyPointsPlain()` into `/llms.txt` (info paragraph), one line in BOTH MCP initialize
   instruction copies, a README section, the OpenClaw guide + `agent402-openclaw` README (0.3.1) "What else the same key buys",
@@ -1995,6 +2019,105 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   14,910 rows) - and `unattributedMerchants` now reports `attributedUnroutable` (known origin, cannot route) separately from
   `unattributed` (unknown). Submitted-seed slots: 586 of the 2,000 cap in use (2026-08-27). test-settlement-proof 44.
 
+- **CodeQL caught a high-severity ReDoS in the same day's new code (2026-08-28):** `isSelfSellerQuery` in host-entry.js trimmed
+  trailing slashes with `/\/+$/` on the caller-supplied `?seller=` value - polynomial backtracking on a string of many
+  slashes, on a public endpoint (js/polynomial-redos, high). Replaced with a linear slice loop and a 256-char bound before
+  any URL parse; a 120k-slash query now answers in 0 ms and every accepted spelling of the host is unchanged (pinned in
+  test-shortlinks). The other `replace(/\/+$/)` sites in the tree take OPERATOR-set env values, not caller input, which is
+  why only this one was flagged - the distinction to check before "fixing" the rest.
+- **Outside-in reviews, 2026-08-28 (a security pass over the day's 41 commits + an adversarial partner due-diligence run):**
+  HIGH, self-inflicted the same day: `hostEntryFigures()` ran 2-4 SYNCHRONOUS better-sqlite3 aggregates per render (one over
+  ALL TIME) on `/marketplace`, the twelve chain pages, both leaderboards and `/api/index` - measured **215 ms of blocked event
+  loop per render** on a 120k-row ledger, on public crawler-hit pages, single replica, with no CDN behind `htmlCache`. Now
+  cached 60 s per chain key (`HOST_FIGURES_TTL_MS`), a failed rebuild keeps the last good figures. MED: the metered
+  unpaid-quote limiter treated ANY `authorization` header as paid - `Bearer garbage` took 80 of 80 requests past it while 80
+  unauthenticated ones were throttled at 44; "paid" now means a PLAUSIBLE credential shape. From the partner audit, all
+  reproduced: the **"never holds or moves funds" claim was false** while we sell prepaid credits, so `/api/reliability`,
+  `/company` and `/security` now say non-custodial ON THE PAYMENT RAILS and name the two card paths that are not, and
+  `/terms` gained an explicit wind-down clause (30 days notice, sales stop, routes keep serving, unspent balance refunded to
+  the card) - a held balance should not depend on us existing forever. `/api/reliability` hardcoded `status: "operational"`
+  while `/api/status` computed "degraded" from real observations IN THE SAME MINUTE; it now mirrors the measured `overall`
+  and falls back to "serving", never to a self-assessment. `POST /api/credits/checkout` refused every guessable pack id
+  (`20`, `"$20"`, `{amount:20}`) with a bare "Unknown credit pack" while `/api/pricing` published only the dollar amounts -
+  the reviewer brute-forced `credits-20`; the error now lists the valid ids and `/api/pricing` publishes `packs[]` plus the
+  checkout shape. `?top=1000` on `/api/leaderboard` silently returned 50 - it now carries `truncated`, `topRequested` and the
+  reason. STILL OPEN and worth doing: the MCP Registry entry is stale and inflated (it says 1,338 tools and 4 chains against
+  560 and 12); `/api/route` returns rows whose `url` still contains `{symbol}` placeholders and sellers that answer no 402;
+  `/api/stats` `viaUSDC` does not equal the sum of `viaUSDCByNetwork` and neither carries a window label; `/marketplace`
+  takes 5.6 s wall clock; and `GLAMA_MAINTAINER_EMAIL` is set on Railway to an address other than the one the code defaults to (the
+  company mailbox (operator: delete the variable).
+- **mppx 0.8.19 (2026-08-28; 0.8.18 carried the fix, 0.8.19 landed from a dependency bump on main and supersedes it):** carries (from 0.8.18) the UPSTREAM fix for the yParity/canonical-hash bug `src/tempo-confirm.js` exists to
+  work around ("Normalized Tempo transactions before broadcast so accepted recovery-ID encodings matched the node's canonical
+  hash"). Our chain-truth confirm STAYS - it is the belt that made an AgentCore/Privy buyer payable at all, and a library fix
+  upstream does not retire a guard that reads the chain. Held to the 0.8 line deliberately: 0.9.x removes machineUSD (unused
+  here) but also changes the MCP payment error codes we hardcode (`-32042` in `src/mcp-mpp.js`), so it needs its own read.
+  All seven MPP/Tempo suites green offline; the live proof is the tempo canary + tempo-subscription canary dispatched AFTER
+  the deploy, never a stub (the rail has drifted twice at the wire level and a stub relay accepts anything).
+- **Sweep follow-through done end to end (2026-08-28):** Polymarket's two gamma LIST call sites moved to `/markets/keyset`
+  (`polyList()` accepts the keyset object AND the legacy bare array, so a rollback cannot empty the tools; `offset` is refused
+  there with a 422, `next_cursor` becomes `after_cursor`); the FRED attribution their terms require now ends all five
+  fred-* descriptions; `mcp/package.json` SDK range aligned to the root's `^1.30.0`; the `actions/cache` pin (11 months
+  stale) refreshed to v6.1.0 on all 20 steps; dated retirement comments on `openai/o4` -> gpt-5.6-terra and the
+  gpt-4o-2024-05-13 row (both 2026-10-23) and on gpt-image-1-mini -> gpt-image-2 (2026-12-01). CORRECTION worth keeping:
+  gpt-image-1-mini reads "absent" from OpenRouter's default chat-model list and is LIVE in the image catalog
+  (`/api/v1/images/models`) - check the right catalog before calling an image or speech model dead, the same trap the speech
+  models sit in.
+- **Data-provider sweep (2026-08-28): Kalshi silently emptied two paid tools.** Kalshi REMOVED every integer-cents field
+  (`yes_bid`, `yes_ask`, `no_bid`, `no_ask`, `last_price`, `volume`, `open_interest`) that `shapeKalshiMarket` was built on -
+  verified live against 200 markets, not one of them present - so `kalshi-markets` and `kalshi-event` were answering HTTP 200
+  with every price, volume and open-interest field NULL. A charged empty answer, invisible to every guard we have, because a
+  200 with nulls is not an error and PostHog showed no recent calls to notice. The shaper now reads the new STRING-DOLLAR and
+  fixed-point names (`yes_bid_dollars` "0.4700", `volume_fp`), keeps the buyer-facing values in CENTS so existing callers'
+  arithmetic still works, publishes the dollar figures alongside (`yesBidUsd` ...) and falls back to the legacy names so a
+  rollback on their side cannot break us twice; `liquidityUsd` is new. Pinned in test-prediction-market-kit (94) including
+  the distinction the failure turned on: an untraded market reads 0, an ABSENT field reads null. Lesson for any shaper over a
+  third-party feed: a field rename is indistinguishable from an outage unless something asserts the values are populated.
+  Also from that sweep, NOT yet acted on: Polymarket's gamma `/markets` and `/events` carry `deprecation: true` and
+  `sunset: Fri, 01 May 2026` in the HTTP HEADERS ONLY (nothing in their docs), pointing at `/markets/keyset` (`next_cursor`
+  becomes `after_cursor`, `offset` is refused) - still 200 today, past its own sunset; `OPENFDA_API_KEY` is unset in prod, so
+  a $3 product runs under a 1,000/day shared-IP cap for a free key; openFEC's acceptable-use policy bars commercial use
+  outright, including as LLM training data, which is stricter than the statute behind it; FRED's terms require the
+  "not endorsed or certified by the Federal Reserve Bank of St. Louis" line, which no surface of ours carries; and Nasdaq's
+  2026-05-11 terms are personal non-commercial only. The licensing cluster is one business decision, not nine tasks.
+- **Chain/RPC sweep (2026-08-28, every endpoint probed live):** four dead-endpoint classes, two of them money paths failing
+  CLOSED. (1) `scripts/refund-run.js` had `polygon-rpc.com` as the ONLY Polygon RPC - Polygon shut it off 2026-07-31 (probe:
+  `tenant disabled`, 403), so every Polygon refund held unpaid; now `polygon-bor-rpc.publicnode.com`. (2) The same file pointed
+  Robinhood at `rpc.robinhoodchain.com`, which answers an EMPTY body; the host the rest of the repo uses is
+  `rpc.mainnet.chain.robinhood.com` (probe: chainId 0x1237). (3) EVERY `*.llamarpc.com` endpoint is dead (NXDOMAIN on
+  polygon/arbitrum/optimism, HTTP 521 HTML on base/eth - the HTML breaks JSON.parse and each entry costs a full timeout for
+  zero chance); purged from all ten files. (4) `seitrace.com` is down and de-listed by Sei's own docs; explorer links moved to
+  `seiscan.io` (the Sei RPC is fine). Also bumped the facilitator's `@stellar/stellar-sdk` 16.2.0 -> 16.3.0, which backports
+  the Protocol 28 XDR ahead of the mainnet vote on **2026-09-16** (pre-P28 SDKs fail to decode envelopes after it; 17.x is the
+  breaking line, do NOT take it while `@x402/stellar` pins `^16.0.1`). VERIFIED CLEAN and needing nothing: all eleven
+  stablecoin addresses and their EIP-712 domain pairs, each proven by recomputing `DOMAIN_SEPARATOR()` rather than trusting
+  `name()` (USDG's `version()` reverts and was resolved by brute force, so payments.js's "best-effort" domain comment is
+  actually verified), every chain id, and every registry we list on. Still to do: `mppx` >= 0.8.18 carries the UPSTREAM fix for
+  the yParity/canonical-hash bug `src/tempo-confirm.js` works around (our `^0.8.17` pin can never reach 0.9.x) - bump behind
+  the live Tempo canary, never a stub; Alchemy `getNFTSales` is removed 2026-09-30.
+- **AI-provider sweep (2026-08-28, live models JSON + provider deprecation pages):** four fixes. (1) The Messages wire relayed
+  `top_k`/`temperature`/`top_p` verbatim, and models released after Claude Opus 4.6 (opus-4.7/4.8/5, sonnet-5) REFUSE top_k at
+  any value, temperature != 1 and top_p < 0.99 - a bare upstream 400 to the buyer; we now refuse those ourselves with the
+  reason, and pre-4.6 models (haiku-4.5 and older) keep the old freedom. (2) MODEL_COST rows re-read live: terra was UNDER the
+  real price ($1.5/$8 vs $2/$12) and sol, grok, gemini-2.5-pro and gemini-3.6-flash were all OVER (the clamp was cutting
+  max_tokens up to 3.5x harder than the price bought). (3) `gpt-5.6-terra` came OFF the base tier: at $2/$12 it sits over that
+  tier's completion bound, so `provider.max_price` refused every non-flex attempt and each call burnt a wasted round trip -
+  dropped rather than raising the bound, which is the belt that catches a model repriced upward. (4) The nano tier's
+  `defaultModel` moved to `gpt-5.6-luna`: `gpt-4.1-nano` retires 2026-10-23 (its named successor). NOT done on purpose:
+  `usage:{include:true}` is documented as a no-op but is KEPT, because the margin telemetry and the metered meter read
+  `usage.cost` and a docs line is not worth a silent telemetry loss. Dated and still to do: `gpt-image-1-mini` (link 2 of
+  /v1/images/fast) retires 2026-12-01, `openai/o4` canonical and the `gpt-4o-2024-05-13` row retire 2026-10-23, and
+  `stealth/ox-alpha` has no upstream endpoints at all (the boot probe 503s it; set `OX_ALPHA_ENABLED=off` to stop advertising).
+- **Server telemetry is ANONYMOUS (2026-08-28, from a provider sweep):** every `capture()` in posthog.js now carries
+  `$process_person_profile: false`. Measured: 307,424 of 311,256 events in seven days were server events on the single
+  constant id `agent402-server`, and PostHog bills an event WITH person processing at roughly five times the anonymous
+  rate once the 1M free allowance is spent - at our volume that is the difference between a few dollars and a few
+  hundred on the first overage month. The profile carried no signal (one row, no person properties; every insight reads
+  event properties), and browser events from the site keep person processing. The three leak guards that assert an exact
+  property key set now ignore `$`-prefixed PostHog control keys (`ourKeys()` in test-posthog-funnel, 64), and one pin
+  requires the flag on every captured event. Same sweep corrected the facilitator quota watches: PayAI's free tier is
+  1,000 settlements a month, not 10,000 (measured 473 in 30 days, 47% of it), and the CDP-first chains carry 3,677 a
+  month against the same 1,000 free with nothing watching them - both now have heartbeat steps, and a quota refusal
+  (`403 free_tier_exhausted`) is logged as billing rather than an outage.
 - **PostHog ingestion is scanner-bounded, not traffic-bounded (2026-08-27):** the 08-25 spike (109,729 events vs
   ~40k/day) was ONE external scanner (one UA, one IP) hitting the free `GET /api/find` twice a second for 12
   hours - 57,277 `tool_call` events from one caller; and the 30-day baseline (~990k, at PostHog's 1M/month allowance)
@@ -2065,8 +2188,8 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   LOW `tool_gone` rollup keys capped (5,000 keys, 120-char routes, `_overflow`); the drain refusal checks the aliased
   method twin. Known and accepted: a forged header naming another wallet still gets that wallet's PUBLIC balance on its
   own 402 after its own failed verify (bounded, public data, the facilitator did more work than we did).
-- **Dead-end sweep from the raw HTTP log (2026-08-28, after the 405 finding; the operator: "anything obvious like this in everything
-  else we serve?"):** Railway's `get-logs` accepts `@httpStatus:404` / `>=500` filters and REMOVED deployments still answer, so a
+- **Dead-end sweep from the raw HTTP log (2026-08-28, after the 405 finding; the question was whether the same class exists in everything
+  else we serve):** Railway's `get-logs` accepts `@httpStatus:404` / `>=500` filters and REMOVED deployments still answer, so a
   status-by-status read of ~6 h is one call each. Found and fixed in one PR: (1) trust/uptime indexers (kkj-x402-trust-index,
   nsgoods-payability-observatory, stelar-trust-monitor, ioi-indexer, PayAI-Uptime-Monitor, x402-observatory) send GET/HEAD to POST-only
   tools and skill packs and got 405 = "not payable"/"down" in their listings - the alias middleware now runs the POST gate chain for a
@@ -2215,8 +2338,8 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   email capture + post-purchase sequence (one transactional email exists, no list), a shareable/public report option (every
   /r/ page is noindex + generic OG, so the paid artifact has no backlink surface), monitors for research/dossier kinds,
   seed expansion, a first-report promo. Weekly number for this bet: card sales + `human_funnel` conversion, not x402scan rank.
-- **Sample review round 2 (2026-08-28 evening, the operator: "are you also looking at the results and using that data to rebuild the
-  features?"):** five more real samples generated on a local FREE_MODE boot with the prod keys pulled from Railway (filing AAPL, token
+- **Sample review round 2 (2026-08-28 evening, from reading the generated samples and feeding the defects back into the
+  kits):** five more real samples generated on a local FREE_MODE boot with the prod keys pulled from Railway (filing AAPL, token
   JUP, market brief EV fast charging, ticker pack MSFT, LinkedIn article on per-request pricing) and each READ before publishing. Defects
   found and fixed in the kits, not the fixtures: (1) every kit writes its own H1 and the model wrote ANOTHER H1 + subtitle at the top of
   its prose (AAPL filing, JUP token) - `dropModelTitle` in house-style.js (inside `houseStyleMarkdown`, so every report tier and the
@@ -2305,7 +2428,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   of personal identifiers (no personal hostnames, names or wallet linkage - keep it that way, it is public). Footprint:
   `/security` (src/security-page.js) + `/company` (src/company.js) pages, security.txt Policy -> /security and Contact ->
   security@, SECURITY.md controls paragraph + 2-business-day ack + safe harbor, README first screen + CodeQL/secret-scan
-  badges, one price ladder everywhere (FAQ, x402 manifest, listings), "70+ skill packs" (74 live), competitor names and
+  badges, one price ladder everywhere (FAQ, x402 manifest, listings), "70+ skill packs" (74 live), third-party names and
   "no model" absolutes rewritten affirmatively, /community shows the real samples, em dashes out of llms.txt/emails,
   /transparency headlined "Disclosures", status paid-call blurb, CODE_OF_CONDUCT.md. Mailboxes DECIDED 2026-08-28: one
   mailbox, `mike@agent402.tools`, for general/security/legal/conduct; investors and partnerships route to

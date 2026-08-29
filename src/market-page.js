@@ -14,6 +14,7 @@ import { ledgerShell, ledgerFooterCompact } from "./ledger-chrome.js";
 import { CATEGORIES } from "./pages.js";
 import { chainMark, CHAIN_ORDER } from "./chain-logos.js";
 import { discoveryNote } from "./discovery-note.js";
+import { hostCardHtml } from "./host-entry.js";
 
 // Seller-roster row styles hoisted to classes. A busy chain (e.g. Base) renders
 // 1000+ roster rows; when each row carried its 6 styles inline the page ballooned
@@ -212,8 +213,8 @@ export const CHAIN_PAGES = {
     settleLatency: "~1 second",
     facilitatorLabel: "PayAI",
     gasNote: "sponsored",
-    explorerUrl: "seitrace.com",
-    explorerWalletUrl: (wallet) => `https://seitrace.com/address/${wallet}?chain=pacific-1`,
+    explorerUrl: "seiscan.io",
+    explorerWalletUrl: (wallet) => `https://seiscan.io/address/${wallet}?chain=pacific-1`,
     networkParam: "sei",
     acceptNetwork: "eip155:1329",
     // Sei mainnet (pacific-1) CAIP-2 is "eip155:1329"; testnets are different
@@ -558,7 +559,7 @@ export function marketPanelHtml(chainKey, { snapshot, activity, selectedSeller, 
 
 export function marketPage(chainKey, baseUrl, opts = {}) {
   if (chainKey == null) return marketPageAll(baseUrl, opts);
-  const { snapshot, rail, activity, selectedSeller, wallet, leaderboardSnap, all = false } = opts;
+  const { snapshot, rail, activity, selectedSeller, wallet, leaderboardSnap, all = false, host = null } = opts;
   const C = CHAIN_PAGES[chainKey];
   const effectiveWallet = wallet || C.wallet;
   // Stellar/Algorand ship a committed public default wallet in CHAIN_PAGES;
@@ -820,6 +821,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
     </div>
     ${railManifestHtml}
   </div>
+  ${hostCardHtml(host)}
   ${marketFilterBar(chainKey, baseUrl)}
   ${statsHtml}`;
 
@@ -943,7 +945,7 @@ function economyStripHtml(economySnap) {
 // rationale + honest-disclosure pattern as x402-index.js's INDEX_ROW_CAP.
 const ALL_ROW_CAP = 100;
 
-function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = false, wallet } = {}) {
+function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = false, wallet, host = null } = {}) {
   const sellers = marketSellersAll(snapshot);
   const hostOf = (u) => { try { return new URL(u).host; } catch { return ""; } };
 
@@ -1257,6 +1259,7 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
 <div style="max-width:1080px;margin:0 auto;padding:36px 24px;">
   <section>${headerHtml}</section>
   <section>
+    ${hostCardHtml(host)}
     ${marketFilterBar(null, baseUrl)}
     ${rosterHtml}
   </section>

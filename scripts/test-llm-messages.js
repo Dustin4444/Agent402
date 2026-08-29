@@ -192,5 +192,20 @@ delete process.env.OPENROUTER_API_KEY;
   ok(e.defaultedModel === null, "an explicit model is not marked as defaulted");
 }
 
+// Sampling params Anthropic removed for models after Opus 4.6 (docs read
+// 2026-08-28): top_k at any value, temperature != 1, top_p < 0.99. We say so
+// ourselves instead of relaying their 400 with no explanation; older models
+// keep the old freedom.
+{
+  const strict = { model: "anthropic/claude-opus-5", max_tokens: 64, messages: msg() };
+  const t = (extra) => { try { validateMessagesRequest({ ...strict, ...extra }, "v1-chat-premium"); return null; } catch (e) { return e.message; } };
+  ok(/top_k/.test(t({ top_k: 5 }) || ""), "opus-5: top_k is refused with a self-explaining 400");
+  ok(/temperature/.test(t({ temperature: 0.2 }) || ""), "opus-5: temperature other than 1 is refused");
+  ok(/top_p/.test(t({ top_p: 0.5 }) || ""), "opus-5: top_p under 0.99 is refused");
+  ok(t({ temperature: 1 }) === null && t({ top_p: 0.99 }) === null, "opus-5: the values Anthropic still accepts pass through");
+  const old = validateMessagesRequest({ model: "anthropic/claude-haiku-4.5", max_tokens: 64, messages: msg(), temperature: 0.2, top_k: 5 }, "v1-chat");
+  ok(old.body.temperature === 0.2 && old.body.top_k === 5, "a pre-Opus-4.6 model keeps temperature and top_k");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

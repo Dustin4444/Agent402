@@ -162,7 +162,38 @@ function shapeMarket(m) {
   };
 }
 
+// Kalshi REMOVED the integer-cents fields this shaper was built on
+// (`yes_bid`, `yes_ask`, `no_bid`, `no_ask`, `last_price`, `volume`,
+// `open_interest`). Verified 2026-08-28 against the live API: not one of them
+// is present on any market, so both paid Kalshi tools were answering HTTP 200
+// with every price, volume and open-interest field null - a charged empty
+// answer that no guard could see, because 200 + nulls is not an error.
+//
+// The replacements are STRINGS in DOLLARS ("0.4700") and fixed-point
+// ("volume_fp"). The buyer-facing shape stays in CENTS so an existing caller's
+// arithmetic keeps working, and the dollar values ride alongside under their
+// own names. `centsFrom` reads the new field first and falls back to the old
+// one, so a Kalshi rollback cannot break us a second time.
+const centsFrom = (dollars, legacyCents) => {
+  const d = asNumber(dollars);
+  if (d !== null) return Math.round(d * 100 * 1e6) / 1e6; // dollars -> cents, no float dust
+  return asNumber(legacyCents);
+};
+
+/** Gamma list payload -> array. `/markets/keyset` returns {markets, next_cursor};
+ *  the deprecated `/markets` returned a bare array. Accepts either, so a
+ *  rollback on their side cannot empty these tools. */
+function polyList(raw) {
+  if (Array.isArray(raw)) return raw;
+  return Array.isArray(raw?.markets) ? raw.markets : [];
+}
+
 function shapeKalshiMarket(m) {
+  const yesBid = centsFrom(m.yes_bid_dollars, m.yes_bid);
+  const yesAsk = centsFrom(m.yes_ask_dollars, m.yes_ask);
+  const noBid = centsFrom(m.no_bid_dollars, m.no_bid);
+  const noAsk = centsFrom(m.no_ask_dollars, m.no_ask);
+  const lastPrice = centsFrom(m.last_price_dollars, m.last_price);
   return {
     ticker: m.ticker ?? null,
     eventTicker: m.event_ticker ?? null,
@@ -172,13 +203,16 @@ function shapeKalshiMarket(m) {
     openTime: m.open_time ?? null,
     closeTime: m.close_time ?? null,
     expirationTime: m.expiration_time ?? null,
-    yesBid: asNumber(m.yes_bid),
-    yesAsk: asNumber(m.yes_ask),
-    noBid: asNumber(m.no_bid),
-    noAsk: asNumber(m.no_ask),
-    lastPrice: asNumber(m.last_price),
-    volume: asNumber(m.volume),
-    openInterest: asNumber(m.open_interest),
+    yesBid, yesAsk, noBid, noAsk, lastPrice,
+    // The same five in dollars (0 to 1), which is how Kalshi now publishes them.
+    yesBidUsd: asNumber(m.yes_bid_dollars, yesBid === null ? null : yesBid / 100),
+    yesAskUsd: asNumber(m.yes_ask_dollars, yesAsk === null ? null : yesAsk / 100),
+    noBidUsd: asNumber(m.no_bid_dollars, noBid === null ? null : noBid / 100),
+    noAskUsd: asNumber(m.no_ask_dollars, noAsk === null ? null : noAsk / 100),
+    lastPriceUsd: asNumber(m.last_price_dollars, lastPrice === null ? null : lastPrice / 100),
+    volume: asNumber(m.volume_fp, asNumber(m.volume)),
+    openInterest: asNumber(m.open_interest_fp, asNumber(m.open_interest)),
+    liquidityUsd: asNumber(m.liquidity_dollars),
     venue: "kalshi",
     venueUrl: m.ticker ? `https://kalshi.com/markets/${m.ticker.toLowerCase()}` : null,
   };
@@ -202,8 +236,13 @@ async function polymarketSearch({ query, limit, activeOnly } = {}) {
     params.set("closed", "false");
   }
   const meta = {};
-  const raw = await fetchJson(`${POLY_GAMMA}/markets?${params}`, "Polymarket Gamma", meta);
-  const arr = Array.isArray(raw) ? raw : [];
+  // Polymarket's gamma LIST endpoints answer `deprecation: true` and
+  // `sunset: Fri, 01 May 2026` in HTTP HEADERS ONLY - nothing in their docs or
+  // OpenAPI spec says so (found 2026-08-28). `/markets/keyset` is the named
+  // replacement: same filters and ordering, but it returns an OBJECT with a
+  // `markets` array and a `next_cursor`, and it REFUSES `offset` with a 422.
+  const raw = await fetchJson(`${POLY_GAMMA}/markets/keyset?${params}`, "Polymarket Gamma", meta);
+  const arr = polyList(raw);
   const q = query.trim().toLowerCase();
   const matched = arr
     .filter((m) => {
@@ -237,11 +276,11 @@ async function polymarketMarket({ slug, id } = {}) {
     // excludes closed markets by default, so a resolved market "disappears"
     // from ?slug= even though it's still queryable — fall back to closed=true
     // before declaring not-found.
-    let r = await fetchJson(`${POLY_GAMMA}/markets?slug=${encodeURIComponent(s)}`, "Polymarket Gamma", meta);
-    if (!Array.isArray(r) || !r.length) {
-      r = await fetchJson(`${POLY_GAMMA}/markets?slug=${encodeURIComponent(s)}&closed=true`, "Polymarket Gamma", meta);
+    let r = polyList(await fetchJson(`${POLY_GAMMA}/markets/keyset?slug=${encodeURIComponent(s)}`, "Polymarket Gamma", meta));
+    if (!r.length) {
+      r = polyList(await fetchJson(`${POLY_GAMMA}/markets/keyset?slug=${encodeURIComponent(s)}&closed=true`, "Polymarket Gamma", meta));
     }
-    if (!Array.isArray(r) || !r.length) throw bad(`Market not found for slug "${s}"`, 404);
+    if (!r.length) throw bad(`Market not found for slug "${s}"`, 404);
     raw = r[0];
   }
   return { ...shapeMarket(raw), ...staleFields(meta) };
@@ -471,7 +510,7 @@ export const PREDICTION_MARKET_TOOLS = [
     name: "Polymarket orderbook",
     slug: "polymarket-orderbook",
     category: "crypto",
-    price: "$0.002",
+    price: "$0.001",
     description:
       "Live CLOB orderbook for a Polymarket outcome token. Returns top N bids (highest first), top N asks (lowest first), best bid/ask, mid-price, and spread. Use a clobTokenId from polymarket-market or polymarket-search.",
     tags: ["polymarket", "orderbook", "bids-asks", "spread", "liquidity"],
@@ -647,6 +686,7 @@ export const PREDICTION_MARKET_TOOLS = [
 // Test-only exports
 export const __test = {
   asNumber,
+  polyList,
   parseJsonArray,
   shapeMarket,
   shapeKalshiMarket,

@@ -70,6 +70,9 @@ export const IMAGE_TIERS = {
       { model: "black-forest-labs/flux.2-klein-4b", provider: "black-forest-labs", params: {}, worstCaseUsd: 0.014,
         listed: { unit: "megapixel", maxCostUsd: 0.014 } },
       // $8/M image tokens x 1056 (medium) + $2/M text x ~1k prompt tokens.
+      // RETIRES 2026-12-01 -> gpt-image-2 (OpenAI deprecations). Verified LIVE
+      // 2026-08-28 in OpenRouter's IMAGE catalog (/api/v1/images/models); it is
+      // absent from the default chat-model list, which is not the same thing.
       { model: "openai/gpt-image-1-mini", provider: "openai", params: { quality: "medium" }, worstCaseUsd: 0.0105,
         listed: { unit: "token", maxCostUsd: 0.000008 } },
     ],

@@ -92,7 +92,9 @@ const ONLY_CHAIN = (process.env.REFUND_ONLY_CHAIN || "").trim(); // optional CAI
 // rows - refusing loudly beats broadcasting through a guessed endpoint.
 const EVM_RPCS = {
   "eip155:8453": "https://mainnet.base.org",
-  "eip155:137": "https://polygon-rpc.com",
+  // polygon-rpc.com was shut off 2026-07-31 (probe: "tenant disabled", 403) and
+  // was the ONLY Polygon RPC here, so every Polygon refund held unpaid.
+  "eip155:137": "https://polygon-bor-rpc.publicnode.com",
   "eip155:42161": "https://arb1.arbitrum.io/rpc",
   "eip155:43114": "https://api.avax.network/ext/bc/C/rpc",
   "eip155:10": "https://mainnet.optimism.io",
@@ -101,7 +103,9 @@ const EVM_RPCS = {
   // Rails that had no entry until the all-chains verifier sweep - without one
   // their rows held as "no RPC configured", which is safe but never repays.
   "eip155:143": "https://rpc.monad.xyz",
-  "eip155:4663": "https://rpc.robinhoodchain.com",
+  // rpc.robinhoodchain.com answers an EMPTY body; the host the rest of the repo
+  // and Robinhood's own docs use is this one (probe: chainId 0x1237).
+  "eip155:4663": "https://rpc.mainnet.chain.robinhood.com",
 };
 
 export function familyOf(network) {

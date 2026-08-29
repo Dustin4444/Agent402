@@ -296,7 +296,7 @@ export const BLOCKSCOUT_TOOLS = [
 // the heartbeat alarms on "low" BEFORE that happens. Bucketed status only —
 // the balance number never leaves the server. 5-min cache; public-RPC read
 // with graceful "unknown" (an RPC flake must never page).
-const BASE_RPCS = ["https://mainnet.base.org", "https://base.llamarpc.com", "https://base.drpc.org"];
+const BASE_RPCS = ["https://mainnet.base.org", "https://base.drpc.org"];
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 // Sized against the LARGEST single spend this wallet can be asked to make, not
 // against the smallest.

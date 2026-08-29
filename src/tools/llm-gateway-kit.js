@@ -280,7 +280,7 @@ export const TIERS = {
   // discipline as the other tiers. Listed FIRST so tierFor()'s
   // self-correcting 400s and /v1/models lead with the cheapest home.
   "v1-chat-nano": {
-    defaultModel: "openai/gpt-4.1-nano", // served when the caller names no model (2026-08-28: 82 refusals in 30 days for a missing "model")
+    defaultModel: "openai/gpt-5.6-luna", // gpt-4.1-nano retires 2026-10-23 (OpenAI deprecations, read 2026-08-28); luna is its named successor. served when the caller names no model (2026-08-28: 82 refusals in 30 days for a missing "model")
     route: "POST /v1/nano/chat/completions",
     price: 0.003,
     priceSort: true, // cheapest provider under max_price (budget tier: price IS the product)
@@ -322,7 +322,13 @@ export const TIERS = {
     maxPrice: { prompt: 2.5, completion: 8 }, // family prefixes reach mistral-large ~$2/$6, qwen-max ~$1.6/$6.4
     prefixes: [
       "openai/gpt-4o-mini", "openai/gpt-4.1-mini", "openai/gpt-4.1-nano",
-      "openai/gpt-5.6-terra", // $1/$6 after the 2026-07-30 cut — under the tier bound
+      // gpt-5.6-terra was admitted here when it listed at $1/$6. It lists at
+      // $2/$12 today (live 2026-08-28), OVER this tier's completion bound, so
+      // `provider.max_price` refused every non-flex attempt and each call burnt
+      // a wasted round trip; with OPENROUTER_FLEX=off it was unservable. Kept
+      // off the base tier rather than raising the bound, which is the belt that
+      // catches a model repriced upward: a buyer naming it now gets a
+      // self-explaining 400 instead of a silent failover.
       "anthropic/claude-haiku", "anthropic/claude-3-haiku", // claude-3.5-haiku left OpenRouter (live-verified 2026-08-19)
       // gemini-flash (bare) and gemini-2.0-flash left OpenRouter (live-verified
       // 2026-08-19, scripts/test-gateway-model-ids.js); 2.5 + 3.x remain.
@@ -591,6 +597,8 @@ export const PREFIX_CANONICAL = Object.freeze({
   "anthropic/claude-sonnet": "anthropic/claude-sonnet-5",
   "anthropic/claude-haiku": "anthropic/claude-haiku-4.5",
   "x-ai/grok": "x-ai/grok-4.6",
+  // RETIRES 2026-10-23 -> openai/gpt-5.6-terra (OpenAI deprecations, read
+  // 2026-08-28). o4-mini is live today; drop this prefix on that date.
   "openai/o4": "openai/o4-mini",
   "google/gemini-3.1-pro": "google/gemini-3.1-pro-preview",
 });
@@ -682,8 +690,8 @@ export const MODEL_COST = [
   // of its real cost. Live prices 2026-08-04 (post 07-30 cut): sol $5/$30,
   // terra $1/$6, luna $0.10/$0.60; -pro variants share their base price and
   // match these prefixes.
-  ["openai/gpt-5.6-sol", { prompt: 6, completion: 35 }],
-  ["openai/gpt-5.6-terra", { prompt: 1.5, completion: 8 }],
+  ["openai/gpt-5.6-sol", { prompt: 2, completion: 10 }],   // live 2026-08-28 (was 6/35: the clamp cut max_tokens ~3.5x too hard)
+  ["openai/gpt-5.6-terra", { prompt: 2, completion: 12 }], // live 2026-08-28: the row was UNDER the real price
   ["openai/gpt-5.6-luna", { prompt: 0.2, completion: 1.2 }], // live 2026-08-19: $0.20/$1.20 (was $1)
   // gpt-5-pro / gpt-5-image (+ -mini, :batch) sit under the "openai/gpt-5"
   // prefix at far higher rates - explicit so the family rate never prices them
@@ -692,7 +700,8 @@ export const MODEL_COST = [
   ["openai/gpt-5-image", { prompt: 10, completion: 10 }],
   ["openai/gpt-5", { prompt: 1.25, completion: 10 }],
   ["openai/gpt-4o-mini", { prompt: 0.15, completion: 0.6 }],
-  ["openai/gpt-4o-2024-05-13", { prompt: 5, completion: 15 }], // the original 4o snapshot still lists at its launch price
+  // RETIRES 2026-10-23 -> openai/gpt-5.6-sol. Live today at its launch price.
+  ["openai/gpt-4o-2024-05-13", { prompt: 5, completion: 15 }],
   ["openai/gpt-4o", { prompt: 2.5, completion: 10 }],
   ["openai/gpt-4.1-nano", { prompt: 0.1, completion: 0.4 }],
   ["openai/gpt-4.1-mini", { prompt: 0.4, completion: 1.6 }],
@@ -724,18 +733,18 @@ export const MODEL_COST = [
   ["anthropic/claude-3.5-sonnet", { prompt: 3, completion: 15 }],
   ["anthropic/claude-3.7-sonnet", { prompt: 3, completion: 15 }],
   ["anthropic/claude", { prompt: 1, completion: 5 }], // haiku family
-  ["google/gemini-2.5-pro", { prompt: 2.5, completion: 15 }],
+  ["google/gemini-2.5-pro", { prompt: 1.25, completion: 10 }], // live 2026-08-28
   ["google/gemini-pro", { prompt: 2.5, completion: 15 }],
   // gemini-3.x — explicit entries: the bare "google/gemini" flash-family rate
   // would underestimate them. Live 2026-08-04: 3.5-flash $1.5/$9, 3.6-flash
   // $1.5/$7.5, 3.1-pro(-preview) $2/$12, lites $0.25-0.30/$1.5-2.5.
   ["google/gemini-3.5-flash-lite", { prompt: 0.4, completion: 3 }],
   ["google/gemini-3.5-flash", { prompt: 2, completion: 10 }],
-  ["google/gemini-3.6-flash", { prompt: 2, completion: 9 }],
+  ["google/gemini-3.6-flash", { prompt: 0.75, completion: 3.75 }], // live 2026-08-28
   ["google/gemini-3.1-flash-lite", { prompt: 0.4, completion: 2 }],
   ["google/gemini-3.1-pro", { prompt: 2.5, completion: 15 }],
   ["google/gemini", { prompt: 0.4, completion: 2.5 }], // flash family
-  ["x-ai/grok", { prompt: 3, completion: 15 }],
+  ["x-ai/grok", { prompt: 2, completion: 6 }],           // live 2026-08-28 (grok-4.6)
   // deepseek-v4-pro and r1 price above deepseek-chat; explicit so the family
   // rate keeps fitting chat. This prefix covers TWO live pools that repriced
   // three times in two days (completion 3.168 -> 3.96 on -0813; then base
@@ -2284,7 +2293,12 @@ async function imagesHandler(input, req) {
     modalities: ["image", "text"],
     max_tokens: IMAGES_MAX_TOKENS,
     provider: { max_price: IMAGES_MAX_PRICE, ...(zdr ? { zdr: true } : {}) },
+    // OpenRouter documents `usage.include` as a no-op now (full usage is always
+    // returned). KEPT anyway: our margin telemetry and the metered meter read
+    // `usage.cost`, and dropping the field on the strength of a docs line would
+    // fail silently if the always-on behaviour is partial. Harmless if ignored.
     usage: { include: true },
+
     ...(user ? { user } : {}),
   };
   // Flex first (half price on this model's endpoints, live-verified), default

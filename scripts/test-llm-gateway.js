@@ -57,7 +57,10 @@ ok(tierAllows("v1-chat", "openai/gpt-4o-mini-2024-07-18"), "dated gpt-4o-mini sn
 // and gpt-5.6 ids do NOT ride the "openai/gpt-5" prefix (boundary-aware
 // matching: "gpt-5" + "-" never matches "gpt-5.6-…").
 ok(tierFor("openai/gpt-5.6-luna") === "v1-chat-nano", "gpt-5.6-luna homes on nano");
-ok(tierFor("openai/gpt-5.6-terra") === "v1-chat", "gpt-5.6-terra homes on base");
+// gpt-5.6-terra came OFF the base tier 2026-08-28: it lists at $2/$12, over
+// that tier's completion bound, so max_price refused every non-flex attempt.
+ok(tierFor("openai/gpt-5.6-terra") === null || tierFor("openai/gpt-5.6-terra") !== "v1-chat", `gpt-5.6-terra no longer homes on base (got ${tierFor("openai/gpt-5.6-terra")})`);
+ok(!tierAllows("v1-chat", "openai/gpt-5.6-terra"), "the base tier refuses terra rather than sending a request max_price will reject");
 ok(tierFor("openai/gpt-5.6-sol") === "v1-chat-premium", "gpt-5.6-sol homes on premium");
 ok(tierFor("anthropic/claude-sonnet-5") === "v1-chat-pro", "claude-sonnet-5 homes on pro via the sonnet prefix");
 ok(tierFor("anthropic/claude-opus-5") === "v1-chat-premium", "claude-opus-5 homes on premium via the opus prefix");
@@ -1199,7 +1202,7 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
 // ---- a missing model is served as the tier default, never refused (2026-08-28) ----
 {
   const { validateRequest: vr, TIERS: T } = await import("../src/tools/llm-gateway-kit.js");
-  for (const [slug, expect] of [["v1-chat-nano", "openai/gpt-4.1-nano"], ["v1-chat", "openai/gpt-4o-mini"], ["v1-chat-pro", "openai/gpt-4o"], ["v1-chat-premium", "anthropic/claude-opus-5"], ["v1-chat-metered", "anthropic/claude-haiku-4.5"]]) {
+  for (const [slug, expect] of [["v1-chat-nano", "openai/gpt-5.6-luna"], ["v1-chat", "openai/gpt-4o-mini"], ["v1-chat-pro", "openai/gpt-4o"], ["v1-chat-premium", "anthropic/claude-opus-5"], ["v1-chat-metered", "anthropic/claude-haiku-4.5"]]) {
     const b = vr({ messages: [{ role: "user", content: "hi" }], max_tokens: 16 }, slug, { clamp: false });
     ok(b.model === expect && b.__defaultedModel === expect && !Object.keys(b).includes("__defaultedModel") && T[slug].defaultModel === expect, `${slug}: no model -> ${expect} (marker non-enumerable)`);
     ok(T[slug].prefixes.some((p) => expect === p || expect.startsWith(p.endsWith("/") ? p : p + "-") || expect === p), `${slug}: the default is inside the tier's own allowlist`);

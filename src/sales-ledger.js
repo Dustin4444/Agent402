@@ -257,6 +257,24 @@ const qPayerByNetwork = db.prepare(`
   SELECT network, COUNT(*) AS n, SUM(price_usd) AS usd
   FROM sales WHERE payer = ? AND rail IN ${PAYING_RAILS_SQL} AND ts >= ?
   GROUP BY network`);
+// External settlements and distinct external buyers per settlement network,
+// for the per-rail host entry on the chain marketplace pages (2026-08-28).
+// Same PAYING_RAILS / internal=0 line the summary draws; CAIP-2 ids collapse
+// to the friendly rail key like everywhere else.
+const qExternalByNetwork = db.prepare(`
+  SELECT network, COUNT(*) AS n, COUNT(DISTINCT payer) AS buyers
+  FROM sales WHERE internal = 0 AND rail IN ${PAYING_RAILS_SQL} AND ts >= ?
+  GROUP BY network`);
+export function externalByNetwork({ days = 30 } = {}) {
+  const since = Date.now() - days * 86_400_000;
+  const out = {};
+  for (const r of qExternalByNetwork.all(since)) {
+    const key = canonRail(r.network);
+    const cur = out[key] || (out[key] = { settlements: 0, buyers: 0 });
+    cur.settlements += r.n; cur.buyers += r.buyers; // buyers summed only across CAIP aliases of ONE rail
+  }
+  return out;
+}
 const qPayerRecent = db.prepare(`
   SELECT ts, slug, price_usd, network, tx
   FROM sales WHERE payer = ? AND rail IN ${PAYING_RAILS_SQL}

@@ -15,7 +15,7 @@ import { join } from "node:path";
 
 const dir = mkdtempSync(join(tmpdir(), "a402-sales-"));
 process.env.SALES_LEDGER_DB = join(dir, "test-sales.db");
-const { recordSale, salesSummary, topByBuyers, txFromPaymentResponse, mppTxHashes, mppSales, cardSales } = await import("../src/sales-ledger.js");
+const { recordSale, salesSummary, externalByNetwork, topByBuyers, txFromPaymentResponse, mppTxHashes, mppSales, cardSales } = await import("../src/sales-ledger.js");
 const { OUR_EVM_WALLETS } = await import("../src/revenue-live.js");
 
 let passed = 0, failed = 0;
@@ -265,5 +265,21 @@ ok(Math.abs(cardAfter.usd - cardBefore.usd - 2) < 1e-9, "cardSales adds its doll
 ok(/^\d{4}-\d{2}-\d{2}T\d{2}:00:00\.000Z$/.test(cardAfter.lastAt || ""), "cardSales lastAt is hour-truncated ISO");
 
 rmSync(dir, { recursive: true, force: true });
+
+// externalByNetwork (2026-08-28): per-rail external settlements + distinct buyers, internal rows never counted, CAIP ids collapsed
+{
+  const nowTs = Date.now();
+  recordSale({ slug: "hash", priceUsd: 0.001, rail: "usdc", network: "eip155:8453", payer: "0x" + "a".repeat(40), tx: "0xnetA1", synthetic: false });
+  recordSale({ slug: "hash", priceUsd: 0.001, rail: "usdc", network: "base", payer: "0x" + "a".repeat(40), tx: "0xnetA2", synthetic: false });
+  recordSale({ slug: "hash", priceUsd: 0.001, rail: "usdc", network: "solana", payer: "SoLPayer111", tx: "solnet1", synthetic: false });
+  recordSale({ slug: "hash", priceUsd: 0.001, rail: "usdc", network: "base", payer: "0x" + "b".repeat(40), tx: "0xnetInt", synthetic: true });
+  const m = externalByNetwork({ days: 1 });
+  ok(m.base && m.base.settlements >= 2 && m.solana && m.solana.settlements >= 1, `per-network external settlements (base ${m.base?.settlements}, solana ${m.solana?.settlements})`);
+  ok(!Object.keys(m).includes("eip155:8453"), "CAIP-2 ids collapse onto the rail key");
+  const before = m.base.settlements;
+  recordSale({ slug: "hash", priceUsd: 0.001, rail: "usdc", network: "base", payer: "0x" + "c".repeat(40), tx: "0xnetInt2", synthetic: true });
+  ok(externalByNetwork({ days: 1 }).base.settlements === before, "an internal sale never moves the per-network external count");
+}
+
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

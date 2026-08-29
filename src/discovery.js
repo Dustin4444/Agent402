@@ -256,13 +256,19 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
  * verify it independently. Liveness facts come from the live stats object; the
  * guarantees are operational facts about how the service is built and watched.
  */
-export function reliabilityReport({ baseUrl, network, wallet, stats }) {
+export function reliabilityReport({ baseUrl, network, wallet, stats, observedStatus = null }) {
   const explorer = network === "base-sepolia" ? "https://sepolia.basescan.org" : "https://basescan.org";
   return {
     service: "Agent402.Tools",
-    // This report is served BY the app, so a 200 here means the node is up and
-    // serving. Real-time external liveness is the heartbeat + /health below.
-    status: "operational",
+    // Serving BY the app only proves this node answered. The honest word is
+    // what the OUTSIDE observers measured, so this mirrors /api/status's
+    // `overall` rather than asserting a second opinion: the two surfaces
+    // disagreed in the same minute ("degraded" here, "operational" there) and
+    // a partner polling either one was wrong half the time (found by an
+    // outside reviewer, 2026-08-28). Falls back to "serving" - never to
+    // "operational" - when the observation store cannot be read.
+    status: observedStatus || "serving",
+    statusMeasuredFrom: `${baseUrl}/api/status`,
     asOf: new Date().toISOString(),
     servingSince: stats.servingSince,
     processUptimeSeconds: stats.processUptimeSeconds,
@@ -307,7 +313,7 @@ export function reliabilityReport({ baseUrl, network, wallet, stats }) {
         verify: `${baseUrl}/openapi.json`,
       },
       {
-        claim: "Non-custodial: the agent signs payment with its own key; Agent402 never holds or moves funds.",
+        claim: "Non-custodial on the payment rails: an agent signs with its own key and settlement goes wallet to wallet, so no customer key or crypto balance is ever held. Two card paths are NOT non-custodial and are named as such: prepaid credits are a balance we hold until spent, and card report purchases are held by the payment processor.",
         verify: `${baseUrl}/llms.txt`,
       },
       {

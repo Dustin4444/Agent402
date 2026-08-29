@@ -321,13 +321,14 @@ import { algorandPage, algorandSellers } from "./algorand-page.js";
 import { CHAIN_PAGES, marketSellers, marketOperatorCount, marketPage, marketPanelHtml } from "./market-page.js";
 import { sellPage } from "./sell.js";
 import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledgerBuyerConcentration, ledgerSyncState } from "./revenue-ledger.js";
-import { x402EconomySnapshot, economySnapshotCached } from "./x402-economy.js";
+import { x402EconomySnapshot, economySnapshotCached, warmEconomySnapshot } from "./x402-economy.js";
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate } from "./settlement-proof.js";
 import { spend as sharedSpend, refund as sharedRefund, sharedLimitEnabled } from "./shared-limit.js";
-import { recordSale, salesSummary, mppSales, cardSales, mppTxHashes, txFromPaymentResponse, tempoDailyRevenue, tempoDailyRecordingSince, proofFeed } from "./sales-ledger.js";
+import { recordSale, salesSummary, externalByNetwork, mppSales, cardSales, mppTxHashes, txFromPaymentResponse, tempoDailyRevenue, tempoDailyRecordingSince, proofFeed } from "./sales-ledger.js";
 import { recordShadowSettlement, startShadowLedger, shadowLedgerReport, shadowLedgerEnabled } from "./stripe-shadow-ledger.js";
 import { reconcileSettlements } from "./settlement-reconcile.js";
 import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
+import { hostFigures, hostIndexEntry, isSelfSellerQuery } from "./host-entry.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
 import { ledgerIntegrationsPage } from "./ledger-integrations.js";
 
@@ -1012,6 +1013,11 @@ async function resolveExternalSeller(task, { cap, chain = "base" }) {
     provenPayToByOrigin = buildProvenPayToByOrigin();
     candidates = (results || [])
       .filter((r) => r.seller && r.url && r.priceUsd > 0 && r.priceUsd <= cap && Array.isArray(r.networks) && r.networks.includes("eip155:8453"))
+      // Never SPEND against an unsubstituted OpenAPI path template
+      // ("/stock/{symbol}"): the request cannot succeed and the money is at
+      // risk for nothing. /api/route still SHOWS these rows, flagged
+      // `urlTemplate`, because an agent that knows the parameter can use them.
+      .filter((r) => !r.urlTemplate)
       .filter((r) => hostOf(r.url) && hostOf(r.url) !== ourHost)
       .map((r) => ({ ...r, settled: settledByOrigin.get(norm(r.seller)) || 0, payers: payersByOrigin.get(norm(r.seller)) }))
       // Count AND breadth. One implementation, shared with the test, so the
@@ -1580,7 +1586,21 @@ app.use("/v1/metered", (req, res, next) => {
   // (review 2026-08-28: 70 HEADs with a 180 KB body reached the quoter past
   // the limiter).
   if (!["POST", "GET", "HEAD"].includes(req.method)) return next();
-  const paid = Boolean(req.headers["payment-signature"] || req.headers["x-payment"] || req.headers.authorization);
+  // "Paid" must mean a PLAUSIBLE credential, not merely a header: measured
+  // 2026-08-28, `Authorization: Bearer garbage` took 80 of 80 requests past
+  // this limiter while the same 80 unauthenticated ones were throttled at 44.
+  // The gates still decide whether it is really valid; this only decides
+  // whether the request is worth a free tokenizer run.
+  const looksPaid = (h) => {
+    const a = String(req.headers.authorization || "");
+    if (/^Bearer\s+a402_[A-Za-z0-9_-]{8,}/.test(a) || /^Payment\s+\S{16,}/i.test(a)) return true;
+    for (const k of ["payment-signature", "x-payment"]) {
+      const v = req.headers[k];
+      if (typeof v === "string" && v.length >= 32) return true;
+    }
+    return false;
+  };
+  const paid = looksPaid();
   if (!paid && meteredQuoteLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many unpaid quote requests from this address; send the paid retry, or slow down." });
   next();
 });
@@ -3399,9 +3419,10 @@ app.get("/api/rails", (_req, res) => {
     rails,
   });
 });
-app.get("/api/reliability", (_req, res) =>
+app.get("/api/reliability", async (_req, res) =>
   res.json(reliabilityReport({
     baseUrl: BASE_URL, network: NETWORK, wallet: WALLET_ADDRESS,
+    observedStatus: await (async () => { try { return statusSnapshot({ baseUrl: BASE_URL, live: await statusLive() }).overall; } catch { return null; } })(),
     stats: getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }),
   }))
 );
@@ -3801,7 +3822,7 @@ app.get("/stellar", async (req, res) => {
     const selectedSeller = picked
       ? { local: !!picked.local, host: picked.local ? null : hostOf(picked.homepage || picked.origin), name: picked.displayName || null }
       : null;
-    htmlCache(res, 120, 600).send(stellarPage(BASE_URL, { snapshot, rail, activity, selectedSeller, stellarWallet: selfWallet || undefined }));
+    htmlCache(res, 120, 600).send(stellarPage(BASE_URL, { snapshot, rail, activity, selectedSeller, stellarWallet: selfWallet || undefined, host: hostEntryFigures("stellar") }));
   } catch (e) {
     res.status(500).type("text/plain").send("temporarily unavailable");
   }
@@ -3880,7 +3901,7 @@ app.get("/algorand", async (req, res) => {
     const selectedSeller = picked
       ? { local: !!picked.local, host: picked.local ? null : hostOf(picked.homepage || picked.origin), name: picked.displayName || null }
       : null;
-    htmlCache(res, 120, 600).send(algorandPage(BASE_URL, { snapshot, rail, activity, selectedSeller, algorandWallet: selfWallet || undefined }));
+    htmlCache(res, 120, 600).send(algorandPage(BASE_URL, { snapshot, rail, activity, selectedSeller, algorandWallet: selfWallet || undefined, host: hostEntryFigures("algorand") }));
   } catch (e) {
     res.status(500).type("text/plain").send("temporarily unavailable");
   }
@@ -4072,7 +4093,7 @@ for (const chainKey of Object.keys(SNAPSHOT_RAIL_LABEL)) {
         scanWallet ? getActivityForChain(chainKey, scanWallet) : Promise.resolve(null),
       ]);
       const rail = revSnap?.rails?.find((r) => r.rail === SNAPSHOT_RAIL_LABEL[chainKey]) || null;
-      htmlCache(res, 120, 600).send(marketPage(chainKey, BASE_URL, { snapshot, rail, activity, selectedSeller, wallet: rail?.wallet || undefined, leaderboardSnap: getLeaderboardSnapshot(), all: req.query.all === "1" }));
+      htmlCache(res, 120, 600).send(marketPage(chainKey, BASE_URL, { snapshot, rail, activity, selectedSeller, wallet: rail?.wallet || undefined, leaderboardSnap: getLeaderboardSnapshot(), all: req.query.all === "1" , host: hostEntryFigures(chainKey) }));
     } catch (e) {
       res.status(500).type("text/plain").send("temporarily unavailable");
     }
@@ -4181,13 +4202,36 @@ app.get("/marketplace", async (req, res) => {
   try { leaderboardSnap = getLeaderboardSnapshot(); } catch { /* directory still renders */ }
   let economySnap = null;
   try { economySnap = await x402EconomySnapshot(); } catch { /* strip omitted */ }
-  htmlCache(res, 120, 600).send(marketPage(null, BASE_URL, { snapshot, leaderboardSnap, economySnap, all: req.query.all === "1", wallet: WALLET_ADDRESS }));
+  htmlCache(res, 120, 600).send(marketPage(null, BASE_URL, { snapshot, leaderboardSnap, economySnap, all: req.query.all === "1", wallet: WALLET_ADDRESS, host: hostEntryFigures() }));
 });
+// The host's own entry for the discovery surfaces: external-only ledger
+// figures, rendered outside every ranking and count (src/host-entry.js).
+// CACHED, because these are synchronous better-sqlite3 aggregates and one of
+// them scans ALL TIME: measured 2026-08-28 at ~215 ms of BLOCKED event loop
+// per render on a 120k-row ledger, on public crawler-hit pages, on a single
+// replica. htmlCache() is a browser hint and there is no CDN, so without this
+// every crawl of /marketplace and the twelve chain pages paid it again. Same
+// doctrine as the economy snapshot: serve the cached value, rebuild past the
+// window, never block a visitor on the ledger.
+const HOST_FIGURES_TTL_MS = Number(process.env.HOST_FIGURES_TTL_MS) || 60_000;
+const hostFiguresCache = new Map(); // chainKey|"" -> { at, value }
+function hostEntryFigures(chainKey = null) {
+  const key = chainKey || "";
+  const hit = hostFiguresCache.get(key);
+  if (hit && Date.now() - hit.at < HOST_FIGURES_TTL_MS) return hit.value;
+  let value = null;
+  try {
+    value = hostFigures({ summaryFn: salesSummary, byNetworkFn: externalByNetwork, network: chainKey || null, networkLabel: chainKey ? (SNAPSHOT_RAIL_LABEL[chainKey] || chainKey.charAt(0).toUpperCase() + chainKey.slice(1)) : null, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL });
+  } catch { value = hit ? hit.value : null; } // a failed rebuild keeps the last good figures
+  hostFiguresCache.set(key, { at: Date.now(), value });
+  return value;
+}
+export const _hostFiguresCacheForTest = hostFiguresCache;
 // The MPP marketplace - independent directory, synchronous snapshot (no
 // on-chain join, unlike /marketplace above), same cache window.
 app.get("/mpp-marketplace", (_req, res) => {
   try {
-    htmlCache(res, 120, 600).send(mppMarketPage(BASE_URL, mppIndexSnapshot(), mppLeaderboardSnapshot()));
+    htmlCache(res, 120, 600).send(mppMarketPage(BASE_URL, mppIndexSnapshot(), mppLeaderboardSnapshot(), { host: hostEntryFigures() }));
   } catch (e) {
     res.status(500).type("text/plain").send("temporarily unavailable");
   }
@@ -4229,6 +4273,13 @@ app.get("/api/index", (req, res) => {
   // ?seller=<origin or host> — the per-seller drill-down (full tool list, paid
   // flags) so a seller can self-diagnose exactly what we hold for them.
   if (req.query.seller) {
+    // The host itself: never in the crawl cache, the submitted seeds or the
+    // external pool (isSelfOrigin keeps it out), so answer the labelled
+    // external-only summary instead of "not found" (2026-08-28).
+    if (isSelfSellerQuery(String(req.query.seller), BASE_URL)) {
+      const me = hostIndexEntry(hostEntryFigures());
+      if (me) return res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300").json(me);
+    }
     const detail = sellerDetail(String(req.query.seller));
     if (!detail) return res.status(404).json({ error: "seller not found in the index", seller: String(req.query.seller).slice(0, 253) });
     return res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300").json(detail);
@@ -4371,7 +4422,9 @@ app.get("/api/leaderboard", (req, res) => {
   // nobody choosing a seller needs rank 400. The operator token lifts it for
   // our own tooling.
   const topCeiling = operatorAuthed(req) ? 500 : 50;
-  const top = Math.min(Math.max(parseInt(req.query.top, 10) || 25, 1), topCeiling);
+  const requestedTop = parseInt(req.query.top, 10) || 25;
+  const top = Math.min(Math.max(requestedTop, 1), topCeiling);
+  const topTruncated = requestedTop > topCeiling; // say it, never clamp silently
   const include = req.query.include === "external" ? "external" : "all";
   const self = (req.query.self || WALLET_ADDRESS || "").toLowerCase();
   const requested = String(req.query.window || "").toLowerCase();
@@ -4392,11 +4445,13 @@ app.get("/api/leaderboard", (req, res) => {
     windowServed: snap.windowLabel || "24h",
     leaderboard: board.slice(0, top),
     totalSellers: (snap.leaderboard || []).length,
+    top,
+    ...(topTruncated ? { topRequested: requestedTop, truncated: true, truncatedReason: `?top is capped at ${topCeiling} on this endpoint` } : {}),
   });
 });
 // Human-readable companion to /api/leaderboard. Same cached snapshot, rendered
 // as a dashboard so visitors (and the site nav) have something to land on.
-app.get("/leaderboard", (_req, res) => htmlCache(res, 60, 300).send(ledgerLeaderboardPage(BASE_URL, getLeaderboardSnapshot(), { stats: getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }), walletAddress: WALLET_ADDRESS })));
+app.get("/leaderboard", (_req, res) => htmlCache(res, 60, 300).send(ledgerLeaderboardPage(BASE_URL, getLeaderboardSnapshot(), { stats: getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }), walletAddress: WALLET_ADDRESS, host: hostEntryFigures() })));
 app.get("/robots.txt", (_req, res) => res.type("text/plain").set("Cache-Control", "public, max-age=3600").send(robotsTxt(BASE_URL)));
 // IndexNow ownership key file (env-gated no-op like the other integrations).
 // The protocol verifies a submitted key by fetching /{key}.txt from the host;
@@ -4982,7 +5037,13 @@ app.get("/api/pricing", (_req, res) => {
     // credits for every tool, and the human report/monitor products. Stripe-
     // gated - absent rather than advertised when card checkout is off.
     ...(humanCheckoutEnabled() ? {
-      credits: { how: "buy a pack by card at /credits, then Authorization: Bearer a402_<key> on any paid route; the list price is held before the call and debited only on a 200", buy: `${BASE_URL}/credits`, packsUsd: Object.values(CREDIT_PACKS).map((p) => p.cents / 100), balance: `${BASE_URL}/api/credits/balance` },
+      credits: { how: "buy a pack by card at /credits, then Authorization: Bearer a402_<key> on any paid route; the list price is held before the call and debited only on a 200", buy: `${BASE_URL}/credits`, packsUsd: Object.values(CREDIT_PACKS).map((p) => p.cents / 100),
+        // The IDS, not just the dollar amounts: POST /api/credits/checkout takes
+        // {"pack":"credits-20"} and an agent cannot guess that from a bare 20
+        // (an outside reviewer brute-forced it, 2026-08-28).
+        packs: Object.entries(CREDIT_PACKS).map(([id, p]) => ({ pack: id, label: p.label, priceUsd: p.cents / 100 })),
+        checkout: { method: "POST", url: `${BASE_URL}/api/credits/checkout`, body: { pack: Object.keys(CREDIT_PACKS)[0] } },
+        balance: `${BASE_URL}/api/credits/balance` },
       humanProducts: {
         reports: Object.entries(HUMAN_PRODUCTS).map(([k, p]) => ({ product: k, label: p.label, priceUsd: p.price / 100, slug: p.slug, buy: `${BASE_URL}/reports` })),
         monitors: Object.entries(MONITOR_PRODUCTS).map(([k, p]) => ({ product: k, label: p.label, priceUsdPerMonth: p.price / 100, slug: p.slug, subscribe: `${BASE_URL}/monitors` })),
@@ -6590,6 +6651,9 @@ bootStep("revenueSnapshot", () => revenueSnapshot(revenueWallets()).catch(() => 
 // shouldn't make /api/leaderboard return nothing. Fire-and-forget so a slow
 // Bazaar walk can't delay boot or /health.
 bootStep("startLeaderboardRefresh", () => startLeaderboardRefresh());
+// Warm the on-chain economy snapshot once, off the boot path: the cache is
+// cold exactly once per deploy and only a cold cache blocks a visitor.
+bootStep("warmEconomySnapshot", () => warmEconomySnapshot());
 
 // Graceful shutdown: a Railway redeploy sends SIGTERM. Close the listener at
 // once and let in-flight (already paid-for) requests finish before exiting -

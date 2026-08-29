@@ -113,7 +113,7 @@ export const TOOLS = [
     kit: "finance",
     path: "/api/stock-quote?symbol=AAPL",
     method: "GET",
-    priceUsd: 0.003,
+    priceUsd: 0.001,
     check: (r) => (r.symbol === "AAPL" && r.currency === "USD" && r.price > 1) || `expected AAPL/USD/price>1, got ${JSON.stringify(r).slice(0, 80)}`,
   },
   {
@@ -591,7 +591,6 @@ export function classifyCanaryFailure(decision, { balanceUsd = null } = {}) {
 const BASE_BALANCE_RPCS = [
   "https://mainnet.base.org",
   "https://base.blockscout.com/api/eth-rpc",
-  "https://base.llamarpc.com",
 ];
 /** Stablecoin balance (6-decimal ERC-20) via an RPC fallback chain. null only
  *  when EVERY RPC fails; each failed attempt logs which endpoint and why. */
@@ -636,8 +635,8 @@ async function baseUsdcBalanceUsd(address) {
  *  Stellar and Algorand legs use separate wallets/signers and are out of
  *  scope here. Token addresses + RPC chains mirror src/revenue-live.js. */
 export const CHAIN_FUNDING = [
-  { key: "polygon", label: "Polygon", token: "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359", rpcs: ["https://polygon.drpc.org", "https://polygon.llamarpc.com"] },
-  { key: "arbitrum", label: "Arbitrum", token: "0xaf88d065e77c8cc2239327c5edb3a432268e5831", rpcs: ["https://arb1.arbitrum.io/rpc", "https://arbitrum.llamarpc.com"] },
+  { key: "polygon", label: "Polygon", token: "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359", rpcs: ["https://polygon.drpc.org"] },
+  { key: "arbitrum", label: "Arbitrum", token: "0xaf88d065e77c8cc2239327c5edb3a432268e5831", rpcs: ["https://arb1.arbitrum.io/rpc"] },
   { key: "monad", label: "Monad", token: "0x754704bc059f8c67012fed69bc8a327a5aafb603", rpcs: ["https://rpc.monad.xyz", "https://rpc2.monad.xyz"] },
   { key: "celo", label: "Celo", token: "0xceba9300f2b948710d2653dd7b07f33a8b32118c", rpcs: ["https://forno.celo.org"] },
   { key: "avalanche", label: "Avalanche", token: "0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e", rpcs: ["https://api.avax.network/ext/bc/C/rpc", "https://avalanche-c-chain-rpc.publicnode.com"] },
@@ -1386,7 +1385,7 @@ async function main() {
     { key: "monad", caip2: "eip155:143", sym: "USDC", chainLabel: "Monad", tx: (h) => `https://monadscan.com/tx/${h}` },
     { key: "celo", caip2: "eip155:42220", sym: "USDC", chainLabel: "Celo", tx: (h) => `https://celoscan.io/tx/${h}` },
     { key: "avalanche", caip2: "eip155:43114", sym: "USDC", chainLabel: "Avalanche", tx: (h) => `https://snowtrace.io/tx/${h}` },
-    { key: "sei", caip2: "eip155:1329", sym: "USDC", chainLabel: "Sei", tx: (h) => `https://seitrace.com/tx/${h}?chain=pacific-1` },
+    { key: "sei", caip2: "eip155:1329", sym: "USDC", chainLabel: "Sei", tx: (h) => `https://seiscan.io/tx/${h}?chain=pacific-1` },
     { key: "optimism", caip2: "eip155:10", sym: "USDC", chainLabel: "Optimism", tx: (h) => `https://optimistic.etherscan.io/tx/${h}` },
   ]) {
     try {

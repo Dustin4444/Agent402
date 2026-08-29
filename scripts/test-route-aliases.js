@@ -39,5 +39,25 @@ _setBazaarQualityForTest("https://agent402.tools", { calls30d: 10, payers30d: 1,
 const r2 = routeQuery({ query: "json to csv", top: 3, include: "all", ...ctx }).results;
 ok(r2[0]?.seller === "https://ext.example", `with our own measurement present the same metric ranks both sides (first: ${r2[0]?.seller})`);
 _setBazaarQualityForTest("https://agent402.tools", null); _setBazaarQualityForTest("https://ext.example", null); cache.clear();
+// Unsubstituted OpenAPI path templates (2026-08-28): three of eight external
+// rows for "get a stock quote" were "/stock/{symbol}" style URLs an agent
+// cannot call. The row is still shown (a caller who knows the parameter can
+// use it) but it is FLAGGED, and the paying router refuses to spend on one.
+{
+  const cache2 = _cacheForTests(); cache2.clear();
+  cache2.set("https://tpl.example", { manifest: { name: "tpl", homepage: "https://tpl.example" }, openapiSummary: null, tools: [
+    { seller: "https://tpl.example", method: "GET", route: "/stock/{symbol}", slug: "stock-quote", name: "Stock quote", description: "stock quote", category: "finance", tags: [], price: 0.002 },
+    { seller: "https://tpl.example", method: "GET", route: "/stock/quote", slug: "stock-quote-plain", name: "Stock quote plain", description: "stock quote", category: "finance", tags: [], price: 0.002 },
+  ], fetchedAt: Date.now(), error: null, history: [1, 1, 1, 1, 1] });
+  const rows = routeQuery({ query: "stock quote", top: 5, include: "external", baseUrl: "https://agent402.tools", catalog: {}, toolCount: 0 }).results;
+  const tpl = rows.find((r) => String(r.url).includes("{symbol}"));
+  const plain = rows.find((r) => r.slug === "stock-quote-plain");
+  ok(tpl && tpl.urlTemplate === true && Array.isArray(tpl.pathParams) && tpl.pathParams[0] === "symbol", `a template URL is returned but flagged (${JSON.stringify(tpl?.pathParams)})`);
+  ok(plain && plain.urlTemplate === undefined, "a substituted URL carries no flag");
+  const twice = [1, 2, 3].map(() => routeQuery({ query: "stock quote", top: 5, include: "external", baseUrl: "https://agent402.tools", catalog: {}, toolCount: 0 }).results.find((r) => String(r.url).includes("{symbol}"))?.urlTemplate);
+  ok(twice.every((v) => v === true), `the flag is stable across calls, not a stateful-regex alternation (${JSON.stringify(twice)})`);
+  cache2.clear();
+}
+
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
