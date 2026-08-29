@@ -2936,7 +2936,7 @@ export const LLM_GATEWAY_TOOLS = [
       bodyType: "json",
       input: { messages: [{ role: "user", content: "What is the current Node.js LTS version? One line, cite the source." }], max_tokens: 120 },
       inputSchema: AUTO_INPUT_SCHEMA,
-      output: { example: { ...EXAMPLE_OUT, agent402_router: { category: "general", quality: "balanced", served: "openai/gpt-4o-mini" }, annotations_note: "message.annotations carries url_citation entries" } },
+      output: { example: { ...EXAMPLE_OUT, agent402_router: { category: "general", quality: "balanced", served: "openai/gpt-4o-mini" } } },
     },
     handler: makeHandler("v1-chat-grounded"),
   },

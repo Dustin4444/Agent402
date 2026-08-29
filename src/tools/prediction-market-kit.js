@@ -319,10 +319,20 @@ async function polymarketOrderbook({ tokenId, depth } = {}) {
     spread: bestBid != null && bestAsk != null ? bestAsk - bestBid : null,
     bids: topBids,
     asks: topAsks,
+    ...(topBids.length || topAsks.length ? {} : { note: RESOLVED_NOTE }),
     source: "polymarket-clob",
     ...staleFields(meta),
   };
 }
+
+/** An empty result on a prediction market usually means the market has stopped
+ *  trading, not that the tool failed. A caller cannot tell those apart from an
+ *  empty array, so the answer says which one it is: any saved token id or event
+ *  ticker eventually points at something resolved, and a silent empty read is
+ *  exactly how the Kalshi field rename hid for weeks. */
+const RESOLVED_NOTE = "No open orders for this outcome token. A market that has resolved or been delisted still answers, with an empty book - check the market's status before reading this as an outage.";
+const NO_HISTORY_NOTE = "No price samples in this window. The token id may belong to a market that never traded, or the interval may predate it.";
+const NO_MARKETS_NOTE = "This event carries no markets. Kalshi removes the markets of settled events, so a saved event ticker can resolve to an event with none left.";
 
 // ----------------------------------------------------------------------------
 // 4. polymarket-price-history — historical odds for a market outcome
@@ -353,6 +363,7 @@ async function polymarketPriceHistory({ tokenId, interval, fidelity } = {}) {
     first: points[0]?.price ?? null,
     last: points[points.length - 1]?.price ?? null,
     points,
+    ...(points.length ? {} : { note: NO_HISTORY_NOTE }),
     source: "polymarket-clob",
     ...staleFields(meta),
   };
@@ -409,6 +420,7 @@ async function kalshiEvent({ eventTicker } = {}) {
     mutuallyExclusive: !!event.mutually_exclusive,
     marketCount: markets.length,
     markets,
+    ...(markets.length ? {} : { note: NO_MARKETS_NOTE }),
     source: "kalshi",
     ...staleFields(meta),
   };
@@ -516,7 +528,7 @@ export const PREDICTION_MARKET_TOOLS = [
     tags: ["polymarket", "orderbook", "bids-asks", "spread", "liquidity"],
     discovery: {
       bodyType: "json",
-      input: { tokenId: "60447443643099453130956385288904175887233107411078568881602330835010340506057", depth: 5 },
+      input: { tokenId: "73572420636299743863462231021719080735797435555188685901000528926122020595832", depth: 5 },
       inputSchema: {
         type: "object",
         required: ["tokenId"],
@@ -554,7 +566,7 @@ export const PREDICTION_MARKET_TOOLS = [
     tags: ["polymarket", "history", "odds-history", "time-series", "probability"],
     discovery: {
       bodyType: "json",
-      input: { tokenId: "72909859729837290837290837290837290837290837290837290837290837290", interval: "1d" },
+      input: { tokenId: "73572420636299743863462231021719080735797435555188685901000528926122020595832", interval: "1d" },
       inputSchema: {
         type: "object",
         required: ["tokenId"],
@@ -643,7 +655,7 @@ export const PREDICTION_MARKET_TOOLS = [
     tags: ["kalshi", "event", "prediction-market", "regulated"],
     discovery: {
       bodyType: "json",
-      input: { eventTicker: "PRES-24" },
+      input: { eventTicker: "KXELONMARS-99" },
       inputSchema: {
         type: "object",
         required: ["eventTicker"],
