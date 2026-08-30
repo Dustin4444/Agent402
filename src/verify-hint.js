@@ -23,6 +23,7 @@
 // 2026-08-28). Only the exact retried header sees its own hint; telemetry
 // gets a BUCKET, never an address.
 import { createHash } from "node:crypto";
+import { classifyPaymentRejection } from "./payment-reject.js";
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const BASE_RPC = () => process.env.AGENT402_BASE_RPC || "https://mainnet.base.org";
 const BALANCE_TTL_MS = 60_000;
@@ -154,6 +155,22 @@ export function verifyHintMiddleware() {
         if (h) {
           if (!res.headersSent) res.setHeader("Retry-After", h.retry === "fund-wallet" ? "60" : "5");
           return origJson({ ...body, hint: h.hint, retry: h.retry, ...(h.balanceUsd != null ? { payerUsdcOnBase: Number(h.balanceUsd.toFixed(6)) } : {}) });
+        }
+        // No facilitator hint means the payment never REACHED the facilitator:
+        // @x402/express refused it first and threw the reason away. Read the
+        // header ourselves and say what is wrong, so a looping client can
+        // adapt instead of resending the same bytes forever.
+        // getHeader is guarded: callers legitimately hand this middleware a
+        // minimal `res` (the unit tests do), and a diagnostic must never be the
+        // thing that breaks a 402.
+        const advertised = typeof res.getHeader === "function"
+          ? (res.getHeader("PAYMENT-REQUIRED") || res.getHeader("payment-required"))
+          : null;
+        const why = advertised ? classifyPaymentRejection({ paymentHeader: header, paymentRequiredHeader: advertised }) : null;
+        if (why) {
+          if (!res.headersSent) res.setHeader("Retry-After", "5");
+          req.__paymentRejectReason = why.reason; // for the paywall rollup
+          return origJson({ ...body, error: body.error || "Payment rejected", reason: why.reason, hint: why.detail, retry: why.retry });
         }
       }
       return origJson(body);
