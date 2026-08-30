@@ -3539,6 +3539,8 @@ jobs:
           t node scripts/test-checkout-limiter.js
           # A refused payment says WHY on the 402 (the vendor answers a bare {} and drops the reason; one client looped ~9/min for 12h) — boots a paid server, offline
           t node scripts/test-payment-reject.js
+          # A v1-era client names the price maxAmountRequired; x402 v2 deep-equals the echoed accepts block, so that one rename made a correct payment unmatchable — boots a paid server, offline
+          t node scripts/test-x402-v1-accepts.js
           # HEAD paywall bypass closed (HEAD on paid GET routes 402s with challenges + empty body; free surfaces untouched — offline)
           t node scripts/test-head-paywall.js
           # Anthropic SDK base-URL alias (/v1/<tier>/v1/messages) + 1 MB body limit on the metered routes (boots a paid server, offline)

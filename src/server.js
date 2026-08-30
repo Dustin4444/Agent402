@@ -32,6 +32,7 @@ import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpend
 import Stripe from "stripe";
 import { REPORT_TIERS } from "./report-tiers.js";
 import { verifyHintMiddleware } from "./verify-hint.js";
+import { translateV1Accepts, v1AcceptsTranslationEnabled } from "./x402-v1-accepts.js";
 import { mountShortlinks } from "./shortlinks.js";
 import { withHouseStyle } from "./house-style.js";
 import { createHumanCheckout, humanCheckoutEnabled, HUMAN_PRODUCTS, reportHeadline, readPublicReport } from "./human-checkout.js";
@@ -5890,6 +5891,33 @@ if (FREE_MODE) {
       };
       res.on("finish", finishGuard);
       res.on("close", finishGuard); // client aborted before the response finished
+    }
+    // A v1-era client still names the price `maxAmountRequired` in the echoed
+    // `accepted` block; x402 v2 calls it `amount` and deep-equals the block, so
+    // that one rename made an otherwise-correct payment unmatchable and it
+    // failed before the facilitator with a bare 402 (measured: one buyer, ~9
+    // attempts/min for 21 hours). Translated here, immediately before the
+    // paywall, and ONLY when the v2 key is absent - a shape that is refused
+    // 100% of the time today, so this can never change a working payment.
+    // The signature covers the authorization, not this block.
+    if (v1AcceptsTranslationEnabled()) {
+      // BOTH header names. A stock @x402 2.22 client sends PAYMENT-SIGNATURE;
+      // x-payment is the older spelling and what the MPP shim writes. Reading
+      // only x-payment meant this never fired for a modern client at all -
+      // found because the end-to-end test captured the header the SDK really
+      // sends instead of the one assumed.
+      for (const name of ["payment-signature", "x-payment"]) {
+        const raw = req.headers[name];
+        if (typeof raw !== "string" || !raw) continue;
+        try {
+          const decoded = JSON.parse(Buffer.from(raw, "base64").toString("utf8"));
+          const t = translateV1Accepts(decoded);
+          if (t) {
+            req.headers[name] = Buffer.from(JSON.stringify(t.payload), "utf8").toString("base64");
+            req.__x402V1Translated = t.translated.join(",");
+          }
+        } catch { /* unreadable header: leave it exactly as sent */ }
+      }
     }
     return x402mw(req, res, next);
   });
