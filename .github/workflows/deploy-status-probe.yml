@@ -85,9 +85,21 @@ jobs:
         run: |
           [ -n "$WORKER" ] || { echo "::error::repo variable STATUS_PROBE_WORKER_URL is not set"; exit 1; }
           [ -n "$PROBE" ] || { echo "::error::secret STATUS_PROBE_TOKEN is not set"; exit 1; }
-          BUILD=$(curl -sf --max-time 20 "$WORKER/version" | jq -r '.build // "unknown"')
+          # Cloudflare propagates a new version to the edge with a short lag, so
+          # a single read right after `wrangler deploy` can still be answered by
+          # the previous one. Measured on the first real run of this workflow:
+          # the check read the prior build 0.2s after a successful deploy and
+          # failed the run. Poll instead - and keep failing if it never arrives,
+          # because "deployed but not serving" is exactly what this exists to catch.
+          BUILD=""
+          for i in $(seq 1 20); do
+            BUILD=$(curl -sf --max-time 20 "$WORKER/version" | jq -r '.build // "unknown"' || echo unreadable)
+            [ "$BUILD" = "$GITHUB_SHA" ] && break
+            echo "  edge still serving $BUILD, waiting (${i}/20)"
+            sleep 6
+          done
           echo "deployed build: $BUILD (expected ${GITHUB_SHA})"
-          [ "$BUILD" = "$GITHUB_SHA" ] || { echo "::error::the Worker reports build $BUILD, not $GITHUB_SHA"; exit 1; }
+          [ "$BUILD" = "$GITHUB_SHA" ] || { echo "::error::after 2 minutes the Worker still reports build $BUILD, not $GITHUB_SHA"; exit 1; }
           OUT=$(curl -sf --max-time 90 -X POST -H "X-Operator-Token: $PROBE" "$WORKER/run")
           echo "$OUT" | jq -e '.ok == true and .recorded == true' >/dev/null \
             || { echo "::error::the deployed Worker did not record an observation: $OUT"; exit 1; }
