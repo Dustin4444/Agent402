@@ -214,6 +214,21 @@ export function claimedSettlements(since, until = Date.now()) {
   return qClaimedSettlements.all(since, until);
 }
 
+// TRUE distinct counts. These must NOT be derived from the ranked lists below:
+// those carry LIMIT 20 / LIMIT 10 for display, so `list.length` silently
+// becomes min(actual, limit) and can never report more. That is exactly what
+// happened - `distinctToolsSoldExternal` read 20 and `distinctExternalBuyers`
+// read 10 against real figures many times larger, both PUBLISHED on
+// /marketplace, /leaderboard, every chain page and /api/index, and the capped
+// "20 of 627 tools had any external use" was the measurement that justified
+// retiring 40 tools and 29 skill packs on 2026-08-25. A ceiling that looks like
+// a count is worse than no count: it reads as a finding.
+const qExtDistinctSlugs = db.prepare(`
+  SELECT COUNT(DISTINCT slug) AS n
+  FROM sales WHERE internal = 0 AND rail IN ${PAYING_RAILS_SQL} AND ts >= ?`);
+const qExtDistinctPayers = db.prepare(`
+  SELECT COUNT(DISTINCT payer) AS n
+  FROM sales WHERE internal = 0 AND rail IN ${PAYING_RAILS_SQL} AND payer IS NOT NULL AND ts >= ?`);
 const qExtByPayer = db.prepare(`
   SELECT payer, COUNT(*) AS sales, SUM(price_usd) AS revenue, MAX(ts) AS last_ts
   FROM sales WHERE internal = 0 AND rail IN ${PAYING_RAILS_SQL} AND payer IS NOT NULL AND ts >= ?
@@ -493,8 +508,8 @@ export function salesSummary({ days = 30, detailed = false } = {}) {
     totals,
     // Counts, never rosters or rankings: enough to show the market is real
     // without naming a single buyer or ranking a single tool.
-    distinctExternalBuyers: byPayer.length,
-    distinctToolsSoldExternal: qExtBySlug.all(since).length,
+    distinctExternalBuyers: qExtDistinctPayers.get(since)?.n ?? 0,
+    distinctToolsSoldExternal: qExtDistinctSlugs.get(since)?.n ?? 0,
   };
   if (!detailed) return base;
   return {
