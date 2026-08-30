@@ -174,7 +174,12 @@ export function verifyHintMiddleware() {
           // same rule as the unclassified shape: the reason alone told us the
           // class but not what the client is actually getting wrong, which is
           // the one thing needed to help them or to spot a fault of ours.
-          if (Array.isArray(why.fields) && why.fields.length) req.__paymentRejectShape = `f:${why.fields.join(",")}`.slice(0, 110);
+          if (Array.isArray(why.fields) && why.fields.length) {
+            // diff AND the full echoed key list: which key is wrong, and
+            // whether it replaced a field or sits beside it.
+            const all = Array.isArray(why.acceptedKeys) ? `|a:${why.acceptedKeys.join(",")}` : "";
+            req.__paymentRejectShape = `f:${why.fields.join(",")}${all}`.slice(0, 110);
+          }
           return origJson({ ...body, error: body.error || "Payment rejected", reason: why.reason, hint: why.detail, retry: why.retry });
         }
         // Refused, and we could not say why. Record the payload's SHAPE (key

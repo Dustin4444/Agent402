@@ -38,6 +38,19 @@ ok(translateV1Accepts(wrap({ ...base, amount: "20000" })) === null,
 ok(translateV1Accepts(wrap({ ...base, amount: "20000", maxAmountRequired: "999" })) === null,
   "a payload carrying BOTH is left alone - that is not a v1 client and we must not guess which it meant");
 ok(translateV1Accepts(wrap(base)) === null, "no price field at all -> no-op");
+
+// The shape the live buyer actually sends: BOTH names, same value. Renaming
+// alone did not convert them - the translator correctly no-opped on what
+// looked ambiguous, so the surplus alias survived and the block still failed
+// to deep-equal. Dropping a key we never advertised, whose value equals the
+// one that stays, cannot change the terms agreed.
+const both = translateV1Accepts(wrap({ ...base, amount: "20000", maxAmountRequired: "20000" }));
+ok(!!both, "BOTH names with the SAME value is handled, not skipped");
+ok(both.payload.accepted.amount === "20000" && !("maxAmountRequired" in both.payload.accepted),
+  "the surplus v1 alias is dropped and the v2 value is untouched");
+ok(both.translated.join(",").includes("surplus"), "and it reports that it dropped a surplus alias, not a rename");
+ok(translateV1Accepts(wrap({ ...base, amount: "20000", maxAmountRequired: "999" })) === null,
+  "BOTH names with DIFFERENT values is left alone - a real disagreement about price must still fail");
 for (const junk of [null, undefined, "str", 42, [], { accepted: [] }, { accepted: "x" }]) {
   if (translateV1Accepts(junk) !== null) fail(`junk input ${JSON.stringify(junk)} should be a no-op`);
 }
