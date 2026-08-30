@@ -2100,8 +2100,17 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
 - **Broken-tool audit with PRODUCTION KEYS (2026-08-29): the 156 metered tools are the blind spot, and one flagship was
   crashing.** Both catalog sweeps EXCLUDE the metered set (third-party keys CI lacks, upstream spend), so ~156 tools -
   every report composite among them - are unexamined by CI on every run. Audited by booting FREE_MODE locally with the
-  prod keys pulled from Railway into a 0600 scratchpad file (never committed, shredded after) and driving them against
-  real upstreams. **`domain-audit` / `domain-audit-pro` ($0.60/$0.85, also a card product and a $5/mo monitor) answered
+  keys pulled from Railway into a 0600 scratchpad file (never committed, shredded after) and driving them against
+  real upstreams.
+  **USE THE AUDIT KEY FOR OPENROUTER, NOT PROD'S (2026-08-30, after the spend was traced):** the OpenRouter account now
+  carries a second API key, `Agent402 Audit (local metered-tool audits)`, with its own $50/month limit - export it as
+  `OPENROUTER_API_KEY` for the local boot. Why: this audit costs REAL money and was invisible to every accounting surface
+  we own, because a local boot has no PostHog. Prod's `gateway_usage` recorded $0.0276 on 08-29 while OpenRouter billed
+  $11.04 that day, and the same shape produced $19.09 on the 08-21 launch day, against a ~$0.04 baseline. Per-key usage
+  reads from `/api/v1/keys` and the activity export's `api_key_name` column, so audit spend is separable from buyer spend
+  with no code change. WHAT IT DOES NOT DO: credits are ACCOUNT-wide, so an audit still draws down the same balance the
+  gateway serves buyers from - the key BOUNDS and LABELS the spend, it does not ring-fence funds, and
+  `gatewayCreditsStatus` still watches the account balance plus the PROD key's own limit. Budget ~$11 for a full pass. **`domain-audit` / `domain-audit-pro` ($0.60/$0.85, also a card product and a $5/mo monitor) answered
   500 on EVERY domain that publishes a DMARC rua or ruf** - i.e. most real domains: `reportingUris` is an OBJECT
   (`{aggregate, failure}`, parseDmarc in network-kit) and the mailbox block added on 08-28 spread it as an ARRAY, so
   `[...(obj || [])]` threw "is not iterable"; the line four above it read the same field correctly, which is how they
@@ -2262,9 +2271,12 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   evergreen, no inflated count - remember to filter on `isLatest`, the 32 older versions still list the 1,338 figure);
   `/api/route?include=external` returns 0 rows carrying a `{placeholder}` url; `/api/stats` publishes
   `viaUSDCAttributed` + `viaUSDCBeforeNetworkCounter` = `viaUSDC` with a note saying why (16,401 + 14,170 = 30,571 -
-  the per-network split only starts when that counter shipped); `/marketplace` answers in 0.26 s. STILL OPEN, and only
-  the operator can do it: `GLAMA_MAINTAINER_EMAIL` is set on Railway to an address other than the one the code defaults
-  to (the company mailbox) - delete the variable.
+  the per-network split only starts when that counter shipped); `/marketplace` answers in 0.26 s; and
+  `GLAMA_MAINTAINER_EMAIL` is GONE from Railway, so `/.well-known/glama.json` serves the code default
+  `mike@agent402.tools`, which IS the company mailbox decided 2026-08-28 - nothing owed. **The list is CLOSED.**
+  Note how it failed: four entries were re-verified live and the fifth was carried over unchecked because it was
+  labelled operator-owned, in the very commit that closed the other four. An item nobody re-reads is not evidence,
+  whoever owns it - check the surface.
 - **mppx 0.8.19 (2026-08-28; 0.8.18 carried the fix, 0.8.19 landed from a dependency bump on main and supersedes it):** carries (from 0.8.18) the UPSTREAM fix for the yParity/canonical-hash bug `src/tempo-confirm.js` exists to
   work around ("Normalized Tempo transactions before broadcast so accepted recovery-ID encodings matched the node's canonical
   hash"). Our chain-truth confirm STAYS - it is the belt that made an AgentCore/Privy buyer payable at all, and a library fix
@@ -2562,7 +2574,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   /r/ page is noindex + generic OG, so the paid artifact has no backlink surface), monitors for research/dossier kinds,
   seed expansion, a first-report promo. Weekly number for this bet: card sales + `human_funnel` conversion, not x402scan rank.
 - **Sample review round 2 (2026-08-28 evening, from reading the generated samples and feeding the defects back into the
-  kits):** five more real samples generated on a local FREE_MODE boot with the prod keys pulled from Railway (filing AAPL, token
+  kits):** five more real samples generated on a local FREE_MODE boot with the keys pulled from Railway (OpenRouter now via the audit key - see the broken-tool-audit entry; sample generation is the same class of spend and belongs under the same label) (filing AAPL, token
   JUP, market brief EV fast charging, ticker pack MSFT, LinkedIn article on per-request pricing) and each READ before publishing. Defects
   found and fixed in the kits, not the fixtures: (1) every kit writes its own H1 and the model wrote ANOTHER H1 + subtitle at the top of
   its prose (AAPL filing, JUP token) - `dropModelTitle` in house-style.js (inside `houseStyleMarkdown`, so every report tier and the
@@ -2666,6 +2678,22 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   pins the encrypted upload, a tampered object failing auth, and the restore path. Set the key on Railway (operator). The
   nine bare `<p>Not found</p>` fragment routes (tool, category, guide, skill, doc, blog, adapter, sample, public report) render
   through `notFoundPage(res, {what, href, label})` (server.js, the shell 404 with the section link).
+- **Checkout rate limit runs BEFORE the body parser (2026-08-29, `CHECKOUT_RATE_PATHS` + `scripts/test-checkout-limiter.js` 12,
+  in CI):** an Acunetix-class scanner (one IP, spoofed Chrome UA, ~170 requests in 25 s) probed `POST /api/buy` with path
+  traversal, `file:///etc/passwd`, `/WEB-INF/web.xml`, ASP SSTI (`response.write(9889177*9680697)`) and ESI
+  (`bxss.me`) in the `product` field. Every one was refused - `createSession` does
+  `Object.hasOwn(HUMAN_PRODUCTS, String(productKey))`, an allowlist key check, so the value never reaches a filesystem
+  call, a template, an eval or a fetch, and `hasOwn` also blocks `__proto__`-style keys - and no session, report, charge
+  or refund resulted (`inflight` empty, 0 `paid` events in 30 days, `compositeUsage.runs` 0; the 7 x 200 on `/api/alerts`
+  were the honeypot answering `{ok:true}` while storing nothing, `emailsSent` 0). **The finding was the COUNTING:** 86 of
+  the 170 were answered 400 while PostHog recorded only 43 refusals, because `express.json()` is mounted globally BEFORE
+  these routes - an unparseable body 400s at the parser and never reached the in-route rate check, so half the burst was
+  counted against nothing. Now one `app.use(CHECKOUT_RATE_PATHS, ...)` runs ahead of the parser for `/api/buy`,
+  `/api/subscribe`, `/api/credits/checkout` and `/api/mpp/monitors/subscribe`, sets `req.__checkoutRateChecked`, and the
+  in-route checks read that flag so one request still spends exactly one token; the ceiling is 6/min + 40/hour (was
+  20/120 - a real buyer clicks Buy once, a few times when comparing). Mutation-tested: moving the guard back after the
+  parser, or restoring 20/min, each fails the suite. NOTE the residual: 40/hour is per IP, so a large shared NAT buying
+  several reports in an hour would see a 429 - revisit if card volume ever makes that real.
 - **Operator-token guessing pager (2026-08-28):** wrong operator credentials are counted globally over a rolling hour
   (`noteOperatorAuthFailure`, server.js; per-IP limiter unchanged), exposed as `operatorAuth: {status: ok|elevated,
   failures1h, threshold}` on `/api/gateway-status` (counts only), threshold `OPERATOR_AUTH_FAIL_ALERT` default 100; heartbeat

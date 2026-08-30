@@ -1283,7 +1283,19 @@ const phProxyLimiter = createRateLimiter("posthog-proxy", { perMin: PH_MAX_PER_M
 // Per-IP limiter for the unauthenticated Stripe-session-creating endpoints
 // (/api/buy, /api/subscribe) - each makes an outbound Stripe API call, so cap
 // the amplification a spammer can drive.
-const checkoutLimiter = createRateLimiter("checkout", { perMin: 20, perHour: 120 });
+// 6/min was measured, not guessed: a real buyer clicks Buy once, and a handful
+// of times if they compare products. On 2026-08-29 an Acunetix-class scanner
+// (one IP, spoofed Chrome UA) put 170 requests into /api/buy in ~25 s and got 86
+// of them served a 400 before the old 20/min ceiling bit. Every payload was
+// refused by the allowlist lookup, but 86 free swings at a Stripe-session
+// endpoint is more than this door ever needs to open.
+const checkoutLimiter = createRateLimiter("checkout", { perMin: 6, perHour: 40 });
+// The paths that limiter guards. Named here because the check has to run BEFORE
+// express.json() (mounted globally further down): a malformed body 400s at the
+// parser, so those requests never reached the in-route check at all - which is
+// why the scanner's 170 requests only produced 43 refusals in telemetry. Half of
+// them were never counted against anything.
+const CHECKOUT_RATE_PATHS = ["/api/buy", "/api/subscribe", "/api/credits/checkout", "/api/mpp/monitors/subscribe"];
 // Per-IP limiter for the unauthenticated Stripe-READING routes (/api/r/:id poll,
 // /api/monitors/confirm, /monitors/manage): an unknown id costs a Stripe
 // retrieve (and manage a portal write), so a scanner could push our key into
@@ -1603,6 +1615,15 @@ app.use("/v1/metered", (req, res, next) => {
   };
   const paid = looksPaid();
   if (!paid && meteredQuoteLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many unpaid quote requests from this address; send the paid retry, or slow down." });
+  next();
+});
+// Rate-check the Stripe-session endpoints BEFORE the body parser, so a request
+// with an unparseable body is counted like any other. Sets a flag rather than
+// letting the in-route checks run again - one request must consume one token.
+app.use(CHECKOUT_RATE_PATHS, (req, res, next) => {
+  if (req.method !== "POST") return next();
+  if (checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
+  req.__checkoutRateChecked = true;
   next();
 });
 app.use(express.json({ limit: "100kb" }));
@@ -2260,7 +2281,7 @@ app.get("/credits", (_req, res) => res.set("Cache-Control", "public, max-age=120
 app.get("/credits/thanks", (req, res) => res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html").send(creditsThanksPage(String(req.query.session || ""), BASE_URL)));
 if (_credits) {
   app.post("/api/credits/checkout", async (req, res) => {
-    if (checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
+    if (!req.__checkoutRateChecked && checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
     try { res.json({ url: (await _credits.createCheckout(req.body?.pack)).url }); }
     catch (e) {
       if (e?.statusCode && e.statusCode < 500 && !e.type && !e.raw) return res.status(e.statusCode).json({ error: String(e.message).slice(0, 200) });
@@ -2325,7 +2346,7 @@ if (humanCheckoutEnabled()) {
       res.set("Cache-Control", "no-store").json({ ...(_humanCheckout.listIssues()), compositeUsage: compositeUsageSnapshot(), compositeGuard: _compositeGuardState(), stripeWebhooks: _subs?.webhookStats?.() || null });
     });
     app.post("/api/buy", async (req, res) => {
-      if (checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
+      if (!req.__checkoutRateChecked && checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
       const product = typeof req.body?.product === "string" ? req.body.product.slice(0, 40) : null;
       try {
         const url = (await _humanCheckout.createSession(req.body?.product, req.body?.input)).url;
@@ -2370,7 +2391,7 @@ if (humanCheckoutEnabled()) {
 // lifecycle (renewals/cancellations) in sync.
 if (_subs) {
   app.post("/api/subscribe", async (req, res) => {
-    if (checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
+    if (!req.__checkoutRateChecked && checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
     try {
       const url = (await _subs.createCheckout(req.body?.product, req.body?.target)).url;
       try { capturePostHogHumanFunnel({ step: "monitor_checkout_started", product: typeof req.body?.product === "string" ? req.body.product.slice(0, 40) : null }); } catch { /* telemetry never breaks the request */ }
@@ -2441,7 +2462,7 @@ if (_mppSubs) {
   // tempo/subscription challenge; the signed credential -> the first period
   // settles and the subscription exists.
   app.post("/api/mpp/monitors/subscribe", async (req, res) => {
-    if (checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
+    if (!req.__checkoutRateChecked && checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
     res.set("Cache-Control", "no-store");
     const auth = req.headers.authorization;
     // The rail canary's own product is mintable ONLY for a caller that carries a
