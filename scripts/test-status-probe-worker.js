@@ -9,6 +9,7 @@
 // rail silently missing from the offer) — the quiet regressions a plain
 // reachability check would wave through.
 import { strict as assert } from "node:assert";
+import { readFile } from "node:fs/promises";
 import { probe, observe } from "../workers/status-probe/src/index.js";
 
 const PROD = "https://prod.test";
@@ -163,6 +164,149 @@ console.log("status-probe worker — observation mapping");
     assert.equal(result.retried, false);
     assert.equal(slept, false, "healthy path must not sleep");
   });
+}
+
+
+// --- the alarms ------------------------------------------------------------
+// heartbeat.yml carries eighteen alarm checks and is their ONLY observer, but
+// GitHub does not deliver its schedule: measured 2026-08-30, `*/15` gave gaps
+// of 2-12 h and a gentler `9,39` gave ONE run in 9.8 h. This Worker's 5-minute
+// cron IS honoured, so it takes over every alarm readable from one public
+// endpoint. These pin the four properties that keep a faster observer from
+// being worse than a slow one: it never pages on a single reading, it never
+// closes on silence, it never duplicates the workflow's issue, and it cannot
+// spend or deploy anything (issues-only credential, no workflow dispatch).
+{
+  const { syncAlarms, judge, ALARMS } = await import("../workers/status-probe/src/index.js");
+  const acheck = async (name, fn) => {
+    try { await fn(); console.log(`  ok   ${name}`); }
+    catch (e) { failures++; console.log(`  FAIL ${name}`); console.log(`       ${e.message}`); }
+  };
+  const HEALTHY = {
+    status: "ok",
+    upstreamBuyer: { status: "ok", trend: "ok" },
+    upstreamBuyerAvm: { status: "ok" },
+    upstreamBuyerTempo: { status: "ok" },
+    subscriptionFeePayer: { status: "ok" },
+    databases: { leads: { status: "ok" }, analytics: { status: "ok" } },
+    operatorAuth: { status: "ok" },
+  };
+  const ENV = { GITHUB_ISSUES_TOKEN: "t" };
+  const realFetch = globalThis.fetch;
+  let created, closed, comments, calls;
+  const mkGh = (openIssues = []) => {
+    created = []; closed = []; comments = []; calls = [];
+    globalThis.fetch = async (url, init = {}) => {
+      const u = String(url); const m = (init.method || "GET").toUpperCase();
+      calls.push(`${m} ${u.replace("https://api.github.com", "")}`);
+      if (u.includes("/issues?state=open")) return Response.json(openIssues);
+      if (m === "POST" && /\/issues$/.test(u)) { created.push(JSON.parse(init.body)); return new Response("{}", { status: 201 }); }
+      if (m === "POST" && /\/comments$/.test(u)) { comments.push(JSON.parse(init.body)); return new Response("{}", { status: 201 }); }
+      if (m === "PATCH" && /\/issues\/\d+$/.test(u)) { closed.push(u); return new Response("{}", { status: 200 }); }
+      return new Response("{}", { status: 200 });
+    };
+  };
+  const nosleep = { sleep: async () => {}, confirmDelayMs: 0 };
+  const feed = (...bodies) => { let i = 0; return async () => bodies[Math.min(i++, bodies.length - 1)]; };
+
+  await acheck("a healthy read opens nothing", async () => {
+    mkGh();
+    const r = await syncAlarms(ENV, { ...nosleep, fetchStatus: feed(HEALTHY) });
+    assert.deepEqual(r.opened, []); assert.deepEqual(r.bad, []);
+    assert.ok(!calls.some((c) => c.startsWith("POST")), `posted: ${calls}`);
+  });
+
+  await acheck("a bad reading CONFIRMED by a second read opens exactly one issue", async () => {
+    mkGh();
+    const low = { ...HEALTHY, upstreamBuyer: { status: "low", trend: "ok" } };
+    const r = await syncAlarms(ENV, { ...nosleep, fetchStatus: feed(low, low) });
+    assert.deepEqual(r.opened, ["Upstream buyer wallet LOW (x402)"]);
+    assert.equal(created.length, 1);
+    assert.equal(created[0].title, "Upstream buyer wallet LOW (x402)");
+  });
+
+  // The class that filed #1057 on a perfectly healthy service: production is
+  // volume-backed, so every deploy has a 60-90s no-container window and a
+  // reading taken inside it is indistinguishable from a fault.
+  await acheck("a bad reading the second read does NOT confirm pages nobody", async () => {
+    mkGh();
+    const bad = { ...HEALTHY, databases: { leads: { status: "unreachable" }, analytics: { status: "ok" } } };
+    const r = await syncAlarms(ENV, { ...nosleep, fetchStatus: feed(bad, HEALTHY) });
+    assert.deepEqual(r.opened, []);
+    assert.equal(created.length, 0, `created: ${JSON.stringify(created)}`);
+  });
+
+  await acheck("an alarm the workflow already opened is never duplicated", async () => {
+    mkGh([{ number: 77, title: "Upstream buyer wallet LOW (x402)" }]);
+    const low = { ...HEALTHY, upstreamBuyer: { status: "low", trend: "ok" } };
+    const r = await syncAlarms(ENV, { ...nosleep, fetchStatus: feed(low, low) });
+    assert.deepEqual(r.opened, []);
+    assert.equal(created.length, 0);
+    // and it does not comment either: 288 ticks a day would be 288 comments
+    assert.equal(comments.length, 0);
+  });
+
+  await acheck("recovery closes the open issue, whoever opened it", async () => {
+    mkGh([{ number: 77, title: "Upstream buyer wallet LOW (x402)" }]);
+    const r = await syncAlarms(ENV, { ...nosleep, fetchStatus: feed(HEALTHY) });
+    assert.deepEqual(r.closed, ["Upstream buyer wallet LOW (x402)"]);
+    assert.equal(closed.length, 1);
+    assert.equal(comments.length, 1);
+  });
+
+  await acheck("a pull request with a colliding title is not an alarm", async () => {
+    mkGh([{ number: 9, title: "Upstream buyer wallet LOW (x402)", pull_request: { url: "x" } }]);
+    const low = { ...HEALTHY, upstreamBuyer: { status: "low", trend: "ok" } };
+    const r = await syncAlarms(ENV, { ...nosleep, fetchStatus: feed(low, low) });
+    assert.deepEqual(r.opened, ["Upstream buyer wallet LOW (x402)"]);
+  });
+
+  // unknown/unconfigured must do NOTHING - never page, and never close a real
+  // alarm on the strength of silence.
+  await acheck("unknown neither opens nor closes", async () => {
+    mkGh([{ number: 77, title: "Upstream buyer wallet LOW (x402)" }]);
+    const unk = { ...HEALTHY, status: "unknown", upstreamBuyer: { status: "unknown", trend: "unknown" } };
+    const r = await syncAlarms(ENV, { ...nosleep, fetchStatus: feed(unk) });
+    assert.deepEqual(r.opened, []); assert.deepEqual(r.closed, []);
+    assert.equal(created.length + closed.length, 0);
+  });
+
+  await acheck("an unreadable endpoint changes nothing at all", async () => {
+    mkGh([{ number: 77, title: "Upstream buyer wallet LOW (x402)" }]);
+    const r = await syncAlarms(ENV, { ...nosleep, fetchStatus: async () => { throw new Error("502"); } });
+    assert.match(r.error, /unreadable/);
+    assert.equal(created.length + closed.length, 0);
+    assert.ok(!calls.length, `touched GitHub: ${calls}`);
+  });
+
+  await acheck("without a token it is an env-gated no-op", async () => {
+    mkGh();
+    const r = await syncAlarms({}, { ...nosleep, fetchStatus: feed(HEALTHY) });
+    assert.match(r.error, /no GITHUB_ISSUES_TOKEN/);
+    assert.ok(!calls.length);
+  });
+
+  // The whole point of choosing issues:write over actions:write. A token that
+  // can dispatch workflows can deploy production (deploy.yml), post as the
+  // company (announce.yml) and spend the canary and refund wallets.
+  await acheck("it never calls a workflow dispatch or any Actions endpoint", async () => {
+    mkGh();
+    const low = { ...HEALTHY, upstreamBuyer: { status: "low", trend: "draining" } };
+    await syncAlarms(ENV, { ...nosleep, fetchStatus: feed(low, low) });
+    assert.ok(!calls.some((c) => /\/actions\/|dispatches/.test(c)), `Actions call: ${calls}`);
+  });
+
+  await acheck("the unreadable-balance alarm needs 180 minutes, not one bad read", async () => {
+    assert.equal(judge({ status: "unknown", unknownForMinutes: 30 })["Gateway balance UNREADABLE (OpenRouter)"], "quiet");
+    assert.equal(judge({ status: "unknown", unknownForMinutes: 200 })["Gateway balance UNREADABLE (OpenRouter)"], "bad");
+  });
+
+  await acheck("every alarm title also exists in heartbeat.yml, so the two never fork", async () => {
+    const yml = await readFile(new URL("../.github/workflows/heartbeat.yml", import.meta.url), "utf8");
+    for (const a of ALARMS) assert.ok(yml.includes(a.title), `heartbeat.yml has no "${a.title}"`);
+  });
+
+  globalThis.fetch = realFetch;
 }
 
 console.log(failures ? `\nFAILED (${failures})` : "\nall passed");

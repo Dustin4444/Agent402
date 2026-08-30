@@ -30,7 +30,7 @@ on:
     # The structural fix, if this is still bad: trigger it from the Cloudflare
     # status worker, which already runs every 5 minutes reliably on separate
     # infra - it needs a GitHub token there, which is a blast-radius decision.
-    - cron: "9,39 * * * *"
+    - cron: "*/15 * * * *"
   push:
     branches:
       - "main"
