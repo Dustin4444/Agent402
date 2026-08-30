@@ -24,6 +24,20 @@ export const USDC_SOL_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
 // Same envs (and defaults) as scripts/revenue-scan{,-solana}.js.
 export const MAX_CALL_USD = parseFloat(process.env.MAX_CALL_USD || "0.75");
+// Audited 2026-08-30: our own payTo addresses were absent from all four sets
+// below. They are RECEIVERS, so a payer-classification set arguably need not
+// carry them, and none has ever appeared as a payer - checked against both the
+// ledger and telemetry before adding. They are listed anyway because a
+// self-payment counted as external REVENUE is the error nobody would spot, and
+// the belt costs one string per chain.
+//
+// The same audit found two wallets that PAY and were also absent, which is not
+// cosmetic: 0xaF13AA07… is the Tempo upstream buyer (it pays external MPP
+// sellers) and 0x130Ce484… is the Tempo subscription gas sponsor. Neither has
+// ever bought from us, so nothing was miscounted - but a payer missing from
+// this set books our own spend as somebody else's revenue, and both addresses
+// live only inside Railway keys with no _ADDRESS variable, so nothing in the
+// tree could have told you they existed. Derived from the keys, not guessed.
 export const OUR_EVM_WALLETS = new Set(
   // Canary/burner EVM addresses (public; keys live only in CI). Rotated
   // 2026-07-17: 0xfeda7403… retired (drained), 0x902dcf34… is the current
@@ -35,19 +49,19 @@ export const OUR_EVM_WALLETS = new Set(
   // buys are self-funded test traffic on every chain it pays from, never
   // revenue (its first Tempo MPP buy classified external for a day because
   // tempo settles carried no payer; both halves fixed the same day).
-  (process.env.OUR_WALLETS || "0xfeda7403aabe9a492ed70e810b396d8548a4a022,0x902dcf34e53695bdea2ffb354b1a2e58bd598256,0x77065d81e18ad403bcd6e9a0616b288e16744121,0x24e6a249111ae0cc8ea09f487a114f7e7ef15e12")
+  (process.env.OUR_WALLETS || "0xfeda7403aabe9a492ed70e810b396d8548a4a022,0x902dcf34e53695bdea2ffb354b1a2e58bd598256,0x77065d81e18ad403bcd6e9a0616b288e16744121,0x24e6a249111ae0cc8ea09f487a114f7e7ef15e12,0xabf4fabd7c416fb67202e5f9002389fc75e2a9d0,0xaf13aa07e7360cc56b3dabf649ffef087c0cd5a6,0x130ce484c8046988ae8e2804289eaf4c7c67f30d")
     .toLowerCase().split(",").map((s) => s.trim()).filter(Boolean)
 );
 // Default = the canary's Solana burner (public address; the key lives only
 // in CI secrets) — its daily $0.05 self-buys are internal, not revenue.
 export const OUR_SOLANA_WALLETS = new Set(
-  (process.env.OUR_SOLANA_WALLETS || "9EMAayAfBR32J5d3ApEAG3NdKArRBtAqN7LA8c2WRM5o")
+  (process.env.OUR_SOLANA_WALLETS || "9EMAayAfBR32J5d3ApEAG3NdKArRBtAqN7LA8c2WRM5o,J7aN3PLJnTCF5qpEnvJHJsnCjcGuqC2rYtEM8Gv3xwg")
     .split(",").map((s) => s.trim()).filter(Boolean)
 );
 // Same convention for Stellar: the canary burner's public address is committed;
 // extend via env (comma-separated) if other internal wallets settle here.
 export const OUR_STELLAR_WALLETS = new Set(
-  (process.env.OUR_STELLAR_WALLETS || "GBA2DDJ4KQXQCGNB7RUU5I2BK5SXROJFUNZV7EZ4XUS7RXFOXEPNY6O4")
+  (process.env.OUR_STELLAR_WALLETS || "GBA2DDJ4KQXQCGNB7RUU5I2BK5SXROJFUNZV7EZ4XUS7RXFOXEPNY6O4,GDNJXCKW7ZM7GEEVP674TWPU26YJNBQ2FI4ZIPRKTPTNUEJMDHFJWWRL")
     .split(",").map((s) => s.trim()).filter(Boolean)
 );
 // Same convention for Algorand: the canary burner's public address is
@@ -57,7 +71,7 @@ export const OUR_ALGORAND_WALLETS = new Set(
   // ZKFACA… = the CI canary burner; W4GZHN36… = the AVM SPENDING wallet
   // (ALGORAND_UPSTREAM_BUYER_MNEMONIC's address, verified on-chain as the
   // sender of settle 6TLUWU6R…MKAQ — positive provenance, never inferred).
-  (process.env.OUR_ALGORAND_WALLETS || "ZKFACAZATPUUYUXVVVE7QWMMZTSMLGQVA4G4QKW7D2UI7FCIFE3QB2SHRE,W4GZHN36X35LGSJTTLNZNFPGSSBLMJKFLCMZK4NBLQGUS6PYPPCDB67UOE")
+  (process.env.OUR_ALGORAND_WALLETS || "ZKFACAZATPUUYUXVVVE7QWMMZTSMLGQVA4G4QKW7D2UI7FCIFE3QB2SHRE,W4GZHN36X35LGSJTTLNZNFPGSSBLMJKFLCMZK4NBLQGUS6PYPPCDB67UOE,C7IIHG7SPLPZ5H7ZT6HW3UV2OQMQQE6Y2HBNGZXSLRJULE42BEE2OY2XIE")
     .split(",").map((s) => s.trim()).filter(Boolean)
 );
 

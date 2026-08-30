@@ -25,7 +25,7 @@ const ok = (cond, msg) => {
   else { failed++; console.error(`FAIL - ${msg}`); }
 };
 
-const BUYER = "0x07FBCA218b0A0a35244e0025A036fA85A6dc97dC"; // checksummed on purpose — must match lowercased
+const BUYER = "0xDeaDBeef00000000000000000000000000000001"; // checksummed on purpose — must match lowercased
 const BURNER = [...OUR_EVM_WALLETS][0];
 
 // --- empty ledger ----------------------------------------------------------------
