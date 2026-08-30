@@ -351,7 +351,26 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
     // A 3xx/non-200 residual (paid, no deliverable result) is inherent to
     // spend-before-settle; bounded by the window budget + low wallet balance.
     reject3xx(paid);
-    if (paid.status !== 200) throw bad(`Seller rejected the paid retry (HTTP ${paid.status})`, 502);
+    if (paid.status !== 200) {
+      // Log WHY, because the status alone cannot distinguish "their backend
+      // broke" from "they refused our payment" - and that distinction decides
+      // whether we wait or fix something. Measured 2026-08-30: an upstream we
+      // pay went 500 on every paid retry for two days and the only evidence we
+      // had kept was the number 500. Same gap as the facilitator diagnostics,
+      // where 200 characters of Cloudflare HTML hid an outage-vs-egress-block.
+      //
+      // Server-side ONLY. The buyer-facing message stays status-only: a
+      // seller's error body is their text, and relaying it verbatim to our
+      // buyers is the leak the 2026-08-19 review closed for the MPP relay.
+      let why = "";
+      try {
+        const raw = (await paid.text()).slice(0, 400);
+        why = raw.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
+      } catch { why = "(body unreadable)"; }
+      const where = (() => { try { return new URL(url).host; } catch { return "seller"; } })();
+      console.warn(`[x402-buyer] ${where} rejected the paid retry: HTTP ${paid.status} content-type=${paid.headers.get("content-type") || "-"} body=${why || "(empty)"}`);
+      throw bad(`Seller rejected the paid retry (HTTP ${paid.status})`, 502);
+    }
 
     // Pull the settle tx out of the receipt header for our own receipt.
     let tx = null, net = null;
