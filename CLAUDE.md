@@ -2100,8 +2100,17 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
 - **Broken-tool audit with PRODUCTION KEYS (2026-08-29): the 156 metered tools are the blind spot, and one flagship was
   crashing.** Both catalog sweeps EXCLUDE the metered set (third-party keys CI lacks, upstream spend), so ~156 tools -
   every report composite among them - are unexamined by CI on every run. Audited by booting FREE_MODE locally with the
-  prod keys pulled from Railway into a 0600 scratchpad file (never committed, shredded after) and driving them against
-  real upstreams. **`domain-audit` / `domain-audit-pro` ($0.60/$0.85, also a card product and a $5/mo monitor) answered
+  keys pulled from Railway into a 0600 scratchpad file (never committed, shredded after) and driving them against
+  real upstreams.
+  **USE THE AUDIT KEY FOR OPENROUTER, NOT PROD'S (2026-08-30, after the spend was traced):** the OpenRouter account now
+  carries a second API key, `Agent402 Audit (local metered-tool audits)`, with its own $50/month limit - export it as
+  `OPENROUTER_API_KEY` for the local boot. Why: this audit costs REAL money and was invisible to every accounting surface
+  we own, because a local boot has no PostHog. Prod's `gateway_usage` recorded $0.0276 on 08-29 while OpenRouter billed
+  $11.04 that day, and the same shape produced $19.09 on the 08-21 launch day, against a ~$0.04 baseline. Per-key usage
+  reads from `/api/v1/keys` and the activity export's `api_key_name` column, so audit spend is separable from buyer spend
+  with no code change. WHAT IT DOES NOT DO: credits are ACCOUNT-wide, so an audit still draws down the same balance the
+  gateway serves buyers from - the key BOUNDS and LABELS the spend, it does not ring-fence funds, and
+  `gatewayCreditsStatus` still watches the account balance plus the PROD key's own limit. Budget ~$11 for a full pass. **`domain-audit` / `domain-audit-pro` ($0.60/$0.85, also a card product and a $5/mo monitor) answered
   500 on EVERY domain that publishes a DMARC rua or ruf** - i.e. most real domains: `reportingUris` is an OBJECT
   (`{aggregate, failure}`, parseDmarc in network-kit) and the mailbox block added on 08-28 spread it as an ARRAY, so
   `[...(obj || [])]` threw "is not iterable"; the line four above it read the same field correctly, which is how they
@@ -2565,7 +2574,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   /r/ page is noindex + generic OG, so the paid artifact has no backlink surface), monitors for research/dossier kinds,
   seed expansion, a first-report promo. Weekly number for this bet: card sales + `human_funnel` conversion, not x402scan rank.
 - **Sample review round 2 (2026-08-28 evening, from reading the generated samples and feeding the defects back into the
-  kits):** five more real samples generated on a local FREE_MODE boot with the prod keys pulled from Railway (filing AAPL, token
+  kits):** five more real samples generated on a local FREE_MODE boot with the keys pulled from Railway (OpenRouter now via the audit key - see the broken-tool-audit entry; sample generation is the same class of spend and belongs under the same label) (filing AAPL, token
   JUP, market brief EV fast charging, ticker pack MSFT, LinkedIn article on per-request pricing) and each READ before publishing. Defects
   found and fixed in the kits, not the fixtures: (1) every kit writes its own H1 and the model wrote ANOTHER H1 + subtitle at the top of
   its prose (AAPL filing, JUP token) - `dropModelTitle` in house-style.js (inside `houseStyleMarkdown`, so every report tier and the
