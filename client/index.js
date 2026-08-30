@@ -42,10 +42,13 @@ export class Agent402 {
    *                                         pays wallet-only tools by card when no payFetch is given
    * @param {number|null} [opts.maxResponseBytes=33554432]
    *        Hard ceiling on a response body, enforced BEFORE it is parsed. null disables it.
+   * @param {{id:string, validate:function}} [opts.outputValidator]
+   *        Optional buyer-owned result validator. `id` namespaces cache entries;
+   *        `validate` may return false or throw to reject delivery.
    */
   constructor({ baseUrl = "https://agent402.tools", fetch: payFetch, cache = true, fetchImpl = globalThis.fetch,
     maxPerCallUsd = null, dailyLimitUsd = null, maxPerHostUsd = null, creditsKey = null,
-    maxResponseBytes = DEFAULT_MAX_RESPONSE_BYTES } = {}) {
+    maxResponseBytes = DEFAULT_MAX_RESPONSE_BYTES, outputValidator = null } = {}) {
     this.creditsKey = typeof creditsKey === "string" && /^a402_[A-Za-z0-9_-]{32,64}$/.test(creditsKey) ? creditsKey : null;
     if (typeof fetchImpl !== "function") throw new Error("No fetch available - pass { fetchImpl } on Node < 18");
     this.baseUrl = String(baseUrl).replace(/\/$/, "");
@@ -69,6 +72,9 @@ export class Agent402 {
     };
     // A response-size ceiling, enforced before parsing. See _readJson.
     this.maxResponseBytes = maxResponseBytes === null ? null : (numOrNull(maxResponseBytes) ?? DEFAULT_MAX_RESPONSE_BYTES);
+    // Buyer-owned delivery policy. The callback stays entirely local and may
+    // use Ajv, Zod, agent-payment-policy, or ordinary application code.
+    this.outputValidator = normalizeOutputValidator(outputValidator, "constructor");
   }
 
   /**
@@ -266,13 +272,30 @@ export class Agent402 {
    * Call a tool by slug; pays automatically (PoW for free tools, x402 for
    * wallet-only) and returns the parsed JSON result.
    */
-  async call(slug, params = {}, { idempotencyKey, cache = true, maxResponseBytes } = {}) {
+  async call(slug, params = {}, { idempotencyKey, cache = true, maxResponseBytes, outputValidator } = {}) {
+    // Resolve and validate the buyer-owned contract before catalog fetch,
+    // credential access, payment preflight, or any other network action.
+    const validator = outputValidator == null
+      ? this.outputValidator
+      : normalizeOutputValidator(outputValidator, "call");
     const cat = await this._loadCatalog();
     const tool = cat.get(slug);
     if (!tool) throw new Error(`unknown tool "${slug}" - use client.find(task) to discover one`);
 
-    const cacheKey = `${slug}:${JSON.stringify(params)}`;
-    if (this._cache && cache && this._cache.has(cacheKey)) return this._cache.get(cacheKey);
+    const cacheKey = resultCacheKey(slug, params, validator);
+    if (this._cache && cache && this._cache.has(cacheKey)) {
+      const stored = this._cache.get(cacheKey);
+      // Callers receive the stored object by reference and may mutate it.
+      // Revalidate contracted hits so a now-invalid object cannot pass merely
+      // because it was valid before the caller changed it.
+      try {
+        await this._assertOutput(slug, stored, validator, { paid: false, cacheHit: true });
+      } catch (error) {
+        this._cache.delete(cacheKey);
+        throw error;
+      }
+      return stored;
+    }
 
     const idem = idempotencyKey || `a402-${createHash("sha256").update(`${cacheKey}:${Date.now()}:${Math.random()}`).digest("hex").slice(0, 24)}`;
     const send = (extraHeaders = {}, useFetch = this.f) => {
@@ -317,13 +340,17 @@ export class Agent402 {
         // can't each observe the pre-commit total and collectively blow a rolling
         // cap; release the reservation if the call doesn't settle.
         const reservation = this._spendReserve(host, usd, slug);
+        let settled = false;
         try {
           const r = await send({}, this.payFetch);
           if (!r.ok) throw new Error(`call "${slug}" failed: HTTP ${r.status}`);
           this._spendSettle(reservation); // confirm the reservation as settled spend
-          return this._store(cacheKey, await this._readJson(r, { maxBytes: maxResponseBytes, slug, paid: true }), cache);
+          settled = true;
+          return this._deliverResponse(slug, r, cacheKey, cache, validator, { maxResponseBytes, paid: true });
         } catch (e) {
-          this._spendRelease(reservation); // roll back - nothing settled
+          // An invalid or oversized paid HTTP-success body is failed delivery,
+          // not a rollback of money that already moved.
+          if (!settled) this._spendRelease(reservation);
           throw e;
         }
       }
@@ -334,6 +361,7 @@ export class Agent402 {
         const host = hostOf(this.baseUrl);
         const usd = parseUsd(tool.price);
         const reservation = this._spendReserve(host, usd, slug);
+        let settled = false;
         try {
           const r = await send({ Authorization: `Bearer ${this.creditsKey}` });
           if (r.status === 402) {
@@ -342,11 +370,12 @@ export class Agent402 {
           }
           if (!r.ok) throw new Error(`call "${slug}" failed: HTTP ${r.status}`);
           this._spendSettle(reservation);
-          return this._store(cacheKey, await this._readJson(r, { maxBytes: maxResponseBytes, slug, paid: true }), cache);
-        } catch (e) { this._spendRelease(reservation); throw e; }
+          settled = true;
+          return this._deliverResponse(slug, r, cacheKey, cache, validator, { maxResponseBytes, paid: true });
+        } catch (e) { if (!settled) this._spendRelease(reservation); throw e; }
       }
       const r = await send(); // no wallet - succeeds only on a FREE_MODE instance
-      if (r.ok) return this._store(cacheKey, await this._readJson(r, { maxBytes: maxResponseBytes, slug, paid: false }), cache);
+      if (r.ok) return this._deliverResponse(slug, r, cacheKey, cache, validator, { maxResponseBytes, paid: false });
       throw new Error(`call "${slug}" failed: HTTP ${r.status} - wallet-only tool; construct with { fetch: payFetch } (an @x402/fetch-wrapped fetch) or { creditsKey } (prepaid card credits from ${this.baseUrl}/credits)`);
     }
 
@@ -359,7 +388,25 @@ export class Agent402 {
       r = await send({ "X-Pow-Solution": Agent402.solvePow(chal) });
     }
     if (!r.ok) throw new Error(`call "${slug}" failed after proof-of-work: HTTP ${r.status}`);
-    return this._store(cacheKey, await this._readJson(r, { maxBytes: maxResponseBytes, slug, paid: false }), cache);
+    return this._deliverResponse(slug, r, cacheKey, cache, validator, { maxResponseBytes, paid: false });
+  }
+
+  async _assertOutput(slug, body, validator, { paid = false, cacheHit = false } = {}) {
+    if (!validator) return body;
+    try {
+      const result = await validator.validate(body);
+      if (result === false) throw new Error("validator returned false");
+      return body;
+    } catch (cause) {
+      throw new OutputValidationError(`output for "${slug}" failed buyer validator "${validator.id}"${paid ? "; this call WAS paid" : ""}`,
+        { slug, contractId: validator.id, paid, cacheHit, cause });
+    }
+  }
+
+  async _deliverResponse(slug, response, cacheKey, cache, validator, { maxResponseBytes, paid } = {}) {
+    const body = await this._readJson(response, { maxBytes: maxResponseBytes, slug, paid });
+    await this._assertOutput(slug, body, validator, { paid });
+    return this._store(cacheKey, body, cache);
   }
 
   async _powChallenge(slug) {
@@ -458,6 +505,16 @@ export class ResponseTooLargeError extends Error {
   }
 }
 
+/** A buyer-owned validator rejected the delivered body. `paid` records whether
+ * this invocation had already settled before validation ran. */
+export class OutputValidationError extends Error {
+  constructor(message, { slug, contractId, paid, cacheHit, cause } = {}) {
+    super(message, cause === undefined ? undefined : { cause });
+    this.name = "OutputValidationError";
+    Object.assign(this, { slug, contractId, paid: Boolean(paid), cacheHit: Boolean(cacheHit) });
+  }
+}
+
 export class SpendingLimitError extends Error {
   constructor(message, details = {}) {
     super(message);
@@ -492,6 +549,33 @@ function parseUsd(price) {
   return Number.isFinite(n) ? n : 0;
 }
 function hostOf(url) { try { return new URL(url).host; } catch { return String(url); } }
+
+const OUTPUT_VALIDATOR_ID_MAX_CHARS = 256;
+
+function normalizeOutputValidator(value, where) {
+  if (value == null) return null;
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError(`${where} outputValidator must be null or { id, validate }`);
+  }
+  const id = value.id;
+  if (typeof id !== "string" || id.trim() !== id || id.length < 1 || id.length > OUTPUT_VALIDATOR_ID_MAX_CHARS) {
+    throw new TypeError(`${where} outputValidator.id must be a nonempty trimmed string of at most ${OUTPUT_VALIDATOR_ID_MAX_CHARS} characters`);
+  }
+  if (typeof value.validate !== "function") {
+    throw new TypeError(`${where} outputValidator.validate must be a function`);
+  }
+  return Object.freeze({ id, validate: value.validate });
+}
+
+function resultCacheKey(slug, params, validator) {
+  const requestKey = `${slug}:${JSON.stringify(params)}`;
+  if (!validator) return requestKey;
+  // The caller supplies a stable semantic identity because function source is
+  // neither stable nor meaningful. Hashing keeps arbitrary labels out of map
+  // keys and avoids an unbounded readable cache-key surface.
+  const digest = createHash("sha256").update(validator.id, "utf8").digest("hex");
+  return `${requestKey}#output-validator/v1/${digest}`;
+}
 
 /**
  * Restrict + order which chains an @x402 client will pay on (duck-typed - any
