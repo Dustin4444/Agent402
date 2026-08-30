@@ -2262,9 +2262,12 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   evergreen, no inflated count - remember to filter on `isLatest`, the 32 older versions still list the 1,338 figure);
   `/api/route?include=external` returns 0 rows carrying a `{placeholder}` url; `/api/stats` publishes
   `viaUSDCAttributed` + `viaUSDCBeforeNetworkCounter` = `viaUSDC` with a note saying why (16,401 + 14,170 = 30,571 -
-  the per-network split only starts when that counter shipped); `/marketplace` answers in 0.26 s. STILL OPEN, and only
-  the operator can do it: `GLAMA_MAINTAINER_EMAIL` is set on Railway to an address other than the one the code defaults
-  to (the company mailbox) - delete the variable.
+  the per-network split only starts when that counter shipped); `/marketplace` answers in 0.26 s; and
+  `GLAMA_MAINTAINER_EMAIL` is GONE from Railway, so `/.well-known/glama.json` serves the code default
+  `mike@agent402.tools`, which IS the company mailbox decided 2026-08-28 - nothing owed. **The list is CLOSED.**
+  Note how it failed: four entries were re-verified live and the fifth was carried over unchecked because it was
+  labelled operator-owned, in the very commit that closed the other four. An item nobody re-reads is not evidence,
+  whoever owns it - check the surface.
 - **mppx 0.8.19 (2026-08-28; 0.8.18 carried the fix, 0.8.19 landed from a dependency bump on main and supersedes it):** carries (from 0.8.18) the UPSTREAM fix for the yParity/canonical-hash bug `src/tempo-confirm.js` exists to
   work around ("Normalized Tempo transactions before broadcast so accepted recovery-ID encodings matched the node's canonical
   hash"). Our chain-truth confirm STAYS - it is the belt that made an AgentCore/Privy buyer payable at all, and a library fix
