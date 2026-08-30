@@ -54,8 +54,14 @@ Hosted at https://agent402.tools. Maintained by Havok Holdings LLC (the operatin
   outright. First cut: 40 tools + 29 skill packs (627 -> 558 catalog entries): `encoding-kit`, `math-kit`,
   `string-kit`, `color-kit` deleted; `date-time`/`validation`/`crypto-hash`/`util`/`text-analysis` kits kept only
   the tools a live pack or the test corpus depends on (timezone-convert, date-format, csv-lint, checksum,
-  geo-distance, readability-score). Measured before cutting: 20 of 627 priced tools had ANY external use in
-  30 days; free-tier use was 5 tools. Never retire below the 500 the "500+" claim check enforces.
+  geo-distance, readability-score). Measured before cutting: the figure used was "20 of 627 priced tools had ANY external use in 30
+  days, 10 buyers" - BOTH WRONG, and corrected 2026-08-30: they were the lengths of LIMIT-20 and
+  LIMIT-10 queries, so neither could ever report more (src/sales-ledger.js; guard
+  scripts/test-capped-counts.js). The real window: 412 tools / 111 buyers, or 132 tools / 109 buyers
+  excluding one catalog-walking evaluator and our own Tempo burner. The REVENUE figure ($33) came
+  from an uncapped aggregate and was right - external demand really is broad and shallow, not
+  absent. Eleven retired packs had real outside buyers inside the window and were restored
+  2026-08-30; free-tier use was 5 tools. Never retire below the 500 the "500+" claim check enforces.
 - **Counts on marketing/static surfaces are evergreen — “500+ tools”, never an exact number** (README, wiki, docs, adapters, package descriptions, served-page copy). Adding tools requires NO doc sweep. `node scripts/sync-count.js` (and `--check` in CI) verifies, live from the booted server: the 400-entry floor, that the “500+” claim is honest (total ≥ 500), and that the README H1 still carries “500+ tools”. The old repo-wide numeric rewrite is RETIRED (it once corrupted HTTP 500s/font-weights/prices — see sync-count.js header); never reintroduce it. Runtime surfaces (`/api/pricing`, `/openapi.json`, `/health`, `docs.js`) derive the exact count — leave those exact.
 - Memory tools (`/api/memory*`) are wallet-keyed (payment = identity), routed via `memHandler`, and must be in `WALLET_ONLY_SLUGS`. Per-namespace
   quotas: 10k keys (`MEMORY_MAX_NS_KEYS`, call-time read, default 10000) AND a 32MB
