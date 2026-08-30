@@ -9,6 +9,8 @@
 //   SMOKE_QUERY   querystring for GET, e.g. q=gdp&limit=3   (optional)
 //   SMOKE_BODY    JSON string for POST                       (optional)
 //   SMOKE_EXPECT  a substring the response JSON must contain (required with SMOKE_TARGET)
+//   SMOKE_RECEIPT_OUT  write a complete signed offer receipt to this new file;
+//                      fails closed if capture was requested but none is returned
 //   SMOKE_TARGET  full origin to buy from INSTEAD of production (an external
 //                 x402 seller compatibility check, e.g. https://seller.example).
 //                 The internal-traffic marker is suppressed for external
@@ -17,6 +19,12 @@
 //   BURNER_KEY=0x… POW_SECRET=… SMOKE_ROUTE=/api/unemployment-rate node scripts/smoke-buy.js
 import { readFileSync, existsSync } from "node:fs";
 import { createHmac, createHash } from "node:crypto";
+import {
+  decodeSettlementHeader,
+  receiptOutputPath,
+  signedOfferReceiptFromSettlement,
+  writeSignedOfferReceipt,
+} from "./lib/smoke-receipt.js";
 
 const EXTERNAL_TARGET = (process.env.SMOKE_TARGET || "").trim().replace(/\/+$/, "");
 const TARGET = EXTERNAL_TARGET || process.env.TARGET_URL || "https://agent402.tools";
@@ -26,6 +34,9 @@ const METHOD = (process.env.SMOKE_METHOD || "GET").trim().toUpperCase();
 const QUERY = (process.env.SMOKE_QUERY || "").trim();
 const BODY = (process.env.SMOKE_BODY || "").trim();
 const EXPECT = (process.env.SMOKE_EXPECT || "").trim();
+let RECEIPT_OUT = "";
+try { RECEIPT_OUT = receiptOutputPath(process.env.SMOKE_RECEIPT_OUT); }
+catch (error) { console.error(error.message); process.exit(2); }
 // Diagnostic: drop named x402 extensions from the seller's challenge BEFORE the
 // client sees it. The @x402 client echoes every extension it is offered back
 // into the payment payload verbatim, schemas and all, so one seller's rich 402
@@ -94,11 +105,17 @@ console.log(`  response: ${text.slice(0, 8000).replace(/\s+/g, " ")}`);
 // mirror - a seller shipping only the v2 header must not read as "no
 // receipt" (that blind spot would have re-confirmed a gap a partner fixed).
 const settleHdr = res.headers.get("payment-response") || res.headers.get("x-payment-response") || res.headers.get("payment-receipt") || "";
+const settlement = decodeSettlementHeader(settleHdr);
+const signedOfferReceipt = signedOfferReceiptFromSettlement(settlement);
 if (settleHdr) {
-  try {
-    const receipt = JSON.parse(Buffer.from(settleHdr, "base64").toString("utf8"));
-    console.log(`  settle: network=${receipt.network || "?"} tx=${receipt.transaction || "?"} payer=${receipt.payer || "?"}`);
-  } catch { console.log(`  settle (raw header): ${settleHdr.slice(0, 300)}`); }
+  if (settlement) console.log(`  settle: network=${settlement.network || "?"} tx=${settlement.transaction || "?"} payer=${settlement.payer || "?"}`);
+  else console.log(`  settle (raw header): ${settleHdr.slice(0, 300)}`);
+}
+if (RECEIPT_OUT && signedOfferReceipt) {
+  writeSignedOfferReceipt(RECEIPT_OUT, signedOfferReceipt);
+  console.log("  signed offer receipt: captured");
+} else if (RECEIPT_OUT) {
+  console.warn("WARN  signed offer receipt: capture requested but the seller returned none");
 }
 const reqId = res.headers.get("x-request-id");
 if (reqId) console.log(`  x-request-id: ${reqId}`);
@@ -106,8 +123,10 @@ console.log(`  bodySha256: sha256:${createHash("sha256").update(text).digest("he
 
 const ok200 = res.status === 200 && body && typeof body === "object";
 const expectOk = !EXPECT || text.includes(EXPECT);
-if (!ok200 || !expectOk) {
-  console.error(`SMOKE FAIL: ${ROUTE} did not return a healthy 200 JSON${EXPECT && !expectOk ? ` containing "${EXPECT}"` : ""}.`);
+const receiptOk = !RECEIPT_OUT || Boolean(signedOfferReceipt);
+if (!ok200 || !expectOk || !receiptOk) {
+  const reason = !receiptOk ? " with the requested signed offer receipt" : (EXPECT && !expectOk ? ` containing "${EXPECT}"` : "");
+  console.error(`SMOKE FAIL: ${ROUTE} did not return a healthy 200 JSON${reason}.`);
   process.exit(1);
 }
 console.log(`SMOKE OK: ${ROUTE} returned live data and payment settled.`);
