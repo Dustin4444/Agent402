@@ -2678,6 +2678,22 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   pins the encrypted upload, a tampered object failing auth, and the restore path. Set the key on Railway (operator). The
   nine bare `<p>Not found</p>` fragment routes (tool, category, guide, skill, doc, blog, adapter, sample, public report) render
   through `notFoundPage(res, {what, href, label})` (server.js, the shell 404 with the section link).
+- **Checkout rate limit runs BEFORE the body parser (2026-08-29, `CHECKOUT_RATE_PATHS` + `scripts/test-checkout-limiter.js` 12,
+  in CI):** an Acunetix-class scanner (one IP, spoofed Chrome UA, ~170 requests in 25 s) probed `POST /api/buy` with path
+  traversal, `file:///etc/passwd`, `/WEB-INF/web.xml`, ASP SSTI (`response.write(9889177*9680697)`) and ESI
+  (`bxss.me`) in the `product` field. Every one was refused - `createSession` does
+  `Object.hasOwn(HUMAN_PRODUCTS, String(productKey))`, an allowlist key check, so the value never reaches a filesystem
+  call, a template, an eval or a fetch, and `hasOwn` also blocks `__proto__`-style keys - and no session, report, charge
+  or refund resulted (`inflight` empty, 0 `paid` events in 30 days, `compositeUsage.runs` 0; the 7 x 200 on `/api/alerts`
+  were the honeypot answering `{ok:true}` while storing nothing, `emailsSent` 0). **The finding was the COUNTING:** 86 of
+  the 170 were answered 400 while PostHog recorded only 43 refusals, because `express.json()` is mounted globally BEFORE
+  these routes - an unparseable body 400s at the parser and never reached the in-route rate check, so half the burst was
+  counted against nothing. Now one `app.use(CHECKOUT_RATE_PATHS, ...)` runs ahead of the parser for `/api/buy`,
+  `/api/subscribe`, `/api/credits/checkout` and `/api/mpp/monitors/subscribe`, sets `req.__checkoutRateChecked`, and the
+  in-route checks read that flag so one request still spends exactly one token; the ceiling is 6/min + 40/hour (was
+  20/120 - a real buyer clicks Buy once, a few times when comparing). Mutation-tested: moving the guard back after the
+  parser, or restoring 20/min, each fails the suite. NOTE the residual: 40/hour is per IP, so a large shared NAT buying
+  several reports in an hour would see a 429 - revisit if card volume ever makes that real.
 - **Operator-token guessing pager (2026-08-28):** wrong operator credentials are counted globally over a rolling hour
   (`noteOperatorAuthFailure`, server.js; per-IP limiter unchanged), exposed as `operatorAuth: {status: ok|elevated,
   failures1h, threshold}` on `/api/gateway-status` (counts only), threshold `OPERATOR_AUTH_FAIL_ALERT` default 100; heartbeat
