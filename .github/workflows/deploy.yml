@@ -1781,6 +1781,8 @@ jobs:
           t node scripts/test-static-pages.js
           # Operator auth (A402-07 no ?token= query; session cookie + header; hardened cookie flags — spawns child)
           t node scripts/test-operator-auth.js
+          # Probe-only credential: STATUS_PROBE_TOKEN opens POST /api/status/probe and NOTHING else, the operator token still works there, and the narrow gate is wired to one route (boots a real server, offline)
+          t node scripts/test-status-probe-token.js
           # /openapi.json header parameters (Idempotency-Key on every op, X-Pow-Solution only where PoW-eligible)
           t node scripts/test-openapi-header-params.js
           # Process lifecycle (A402-10 SIGTERM drains + exits 0; uncaught exception is fatal + exits non-zero — spawns child)
