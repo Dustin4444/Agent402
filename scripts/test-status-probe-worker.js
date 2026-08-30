@@ -309,5 +309,31 @@ console.log("status-probe worker — observation mapping");
   globalThis.fetch = realFetch;
 }
 
+// --- the deploy workflow ---------------------------------------------------
+// Nothing deployed this Worker for a month: CI tested workers/status-probe on
+// every push and no step shipped it, so on 2026-08-30 the live code was from
+// 07-29 with three merged commits behind it. A deploy step fixes that instance;
+// what rots is the step itself, so pin the two properties that make it worth
+// having - it fails loudly with no credential, and it proves the deploy against
+// the RUNNING Worker rather than trusting wrangler's exit code.
+{
+  const wf = await readFile(new URL("../.github/workflows/deploy-status-probe.yml", import.meta.url), "utf8");
+  const acheck = (name, cond) => {
+    if (cond) { console.log(`  ok   ${name}`); }
+    else { failures++; console.log(`  FAIL ${name}`); }
+  };
+  acheck("it deploys on a push to main that touches the worker", /branches:\s*\[main\]/.test(wf) && /workers\/status-probe\/\*\*/.test(wf));
+  acheck("a missing CLOUDFLARE_API_TOKEN FAILS the run, never a silent pass", /::error::CLOUDFLARE_API_TOKEN is not set/.test(wf) && /exit 1/.test(wf));
+  acheck("the sha is injected so the running Worker can be asked what it is", /--var BUILD_SHA:/.test(wf));
+  acheck("the deploy is verified against the live Worker, not wrangler's exit code", /\/run/.test(wf) && /\.recorded == true/.test(wf));
+  acheck("and the verify requires the reported build to BE the deployed sha", /the Worker reports build/.test(wf));
+  acheck("a daily drift check exists and can page", /schedule:/.test(wf) && /Status probe Worker is NOT the code on main/.test(wf));
+  acheck("an unreadable Worker is 'unknown', never reported as drift", /state=unknown/.test(wf));
+  acheck("the drift issue auto-closes on recovery", /gh issue close/.test(wf));
+  // The Worker has to actually serve the identity the workflow reads.
+  const src = await readFile(new URL("../workers/status-probe/src/index.js", import.meta.url), "utf8");
+  acheck("the Worker serves /version with its BUILD_SHA", /"\/version"/.test(src) && /env\.BUILD_SHA/.test(src));
+}
+
 console.log(failures ? `\nFAILED (${failures})` : "\nall passed");
 process.exit(failures ? 1 : 0);
