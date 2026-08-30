@@ -76,6 +76,23 @@ const withMissing = b64({ x402Version: 2, scheme: "exact", network: "eip155:8453
   payload: { authorization: { from: "0x" + "11".repeat(20), to: PAY_TO, value: "20000", validAfter: "0", validBefore: String(NOW + 300), nonce: "0x" + "99".repeat(32) }, signature: "0x" + "44".repeat(65) } });
 ok(/maxTimeoutSeconds/.test(classify(withMissing)?.detail || ""), "a MISSING field is named too - the comparison is a union, not a one-way walk");
 
+// WHICH field differs, carried to telemetry as names. The live client's flush
+// came back "requirements-mismatch" with no indication of what it was actually
+// getting wrong - the class without the diagnosis. Names only, same rule as
+// the unclassified shape.
+{
+  const bad = b64({ x402Version: 2, scheme: "exact", network: "eip155:8453",
+    accepted: { ...accept(), amount: "999999", surplus: "added" },
+    payload: { authorization: { from: "0x" + "11".repeat(20), to: PAY_TO, value: "20000", validAfter: "0", validBefore: String(NOW + 300), nonce: "0x" + "ab".repeat(32) }, signature: "0x" + "44".repeat(65) } });
+  const v = classify(bad);
+  ok(v?.reason === "requirements-mismatch", "still classified");
+  ok(Array.isArray(v?.fields) && v.fields.includes("amount") && v.fields.includes("surplus"),
+    `the differing field NAMES ride along for telemetry (${JSON.stringify(v?.fields)})`);
+  ok(!JSON.stringify(v.fields).includes("999999") && !JSON.stringify(v.fields).includes(PAY_TO),
+    "and never a value - not the amount, not the address");
+  ok(v.fields.length <= 6, "bounded, so it cannot inflate the rollup key space");
+}
+
 // When we refuse but cannot say why, record the SHAPE - key names only. Three
 // classifier revisions each reproduced a live 402 loop's symptom and none was
 // the client's real payload, so the next unclassified refusal has to answer

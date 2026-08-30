@@ -170,6 +170,11 @@ export function verifyHintMiddleware() {
         if (why) {
           if (!res.headersSent) res.setHeader("Retry-After", "5");
           req.__paymentRejectReason = why.reason; // for the paywall rollup
+          // WHICH field differs, for requirements-mismatch. Key NAMES only,
+          // same rule as the unclassified shape: the reason alone told us the
+          // class but not what the client is actually getting wrong, which is
+          // the one thing needed to help them or to spot a fault of ours.
+          if (Array.isArray(why.fields) && why.fields.length) req.__paymentRejectShape = `f:${why.fields.join(",")}`.slice(0, 110);
           return origJson({ ...body, error: body.error || "Payment rejected", reason: why.reason, hint: why.detail, retry: why.retry });
         }
         // Refused, and we could not say why. Record the payload's SHAPE (key
