@@ -38,6 +38,7 @@ import { createHumanCheckout, humanCheckoutEnabled, HUMAN_PRODUCTS, reportHeadli
 import { humanReportsPage, reportDeliveryPage } from "./human-reports-page.js";
 import { createStripeSubscriptions, subscriptionsEnabled, MONITOR_PRODUCTS } from "./stripe-subscriptions.js";
 import { createMppSubscriptions, mppSubscriptionsEnabled, subscriptionFeePayerStatus } from "./mpp-subscriptions.js";
+import { mppFallbackStatus } from "./mpp-fallback.js";
 import { meteredUsd, isMeterable, applyMeteredSettlement } from "./gateway-meter.js";
 import { handlerInputOf } from "./handler-input.js";
 import { setSettlementOverrides } from "@x402/express";
@@ -1865,7 +1866,7 @@ app.get("/api/gateway-status", async (_req, res) => {
   const [gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, subscriptionFeePayer, databases] = await Promise.all([gatewayCreditsStatus(), upstreamBuyerStatus(), avmBuyerStatus(), tempoBuyerStatus(), subscriptionFeePayerStatus(), databasesStatus().catch(() => null)]);
   // `databases`: leads/analytics Postgres reachability, status words only
   // (src/db-status.js) - the heartbeat pages on "unreachable".
-  res.set("Cache-Control", "public, max-age=60").json({ ...gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, subscriptionFeePayer, databases, operatorAuth: operatorAuthStatus() });
+  res.set("Cache-Control", "public, max-age=60").json({ ...gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, subscriptionFeePayer, databases, operatorAuth: operatorAuthStatus(), mppEvmDomainFallback: mppFallbackStatus() });
 });
 // Static SAMPLE A2A Agent Card — the self-answering example target for the
 // a2a-card-fetch tool. Explicitly a sample (fictional weather agent), NOT an

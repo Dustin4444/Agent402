@@ -48,6 +48,16 @@ export const EMPTY_ARRAY_OK = new Map([
   ["/api/nft-metadata", "attributes"],        // a token whose collection publishes no traits
   ["/api/coin-profile", "platforms"],         // a native coin has no contract addresses
   ["/api/memory/grants", "grants"],           // a fresh store holds no grants
+  // The other two wallet-keyed reads, for the same reason plus a sharper one:
+  // they take no required parameter (the namespace IS the payer), so they are
+  // non-empty only once a write to that same derived owner has landed - and the
+  // sweep drives 8 requests CONCURRENTLY, so the read can and does beat
+  // /api/memory/remember. That made the run fail at random from the day this
+  // check shipped (2026-08-29), on main as much as on a branch. The tools are
+  // correct: an empty store has nothing to list, and the example shows what the
+  // answer looks like once it does.
+  ["/api/memory", "keys"],                    // a fresh store holds no keys (and the sweep is concurrent)
+  ["/api/memory/log", "entries"],             // same: nothing has been written yet in this namespace
 ]);
 
 /** Keys whose documented example promises entries but whose live answer is an
