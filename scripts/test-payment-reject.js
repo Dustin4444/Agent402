@@ -49,9 +49,24 @@ const stale = b64({ x402Version: 2, scheme: "exact", network: "eip155:8453", acc
   payload: { authorization: { from: "0x" + "11".repeat(20), to: PAY_TO, value: "20000", validAfter: "0", validBefore: String(NOW + 300), nonce: "0x" + "33".repeat(32) }, signature: "0x" + "44".repeat(65) } });
 ok(classify(stale)?.reason === "requirements-mismatch", "a payload built against stale requirements is named, with the differing field");
 
+// The case the /api/render loop was actually in (2026-08-30): every field
+// correct, no `accepted` block, refused before the facilitator, bare 402. The
+// first cut of this classifier said nothing about it, because it only looked
+// at `accepted` when it was present - so the one payload shape it was written
+// to diagnose was the one it stayed silent on. Reproduced against prod first.
+const noAccepted = b64({ x402Version: 2, scheme: "exact", network: "eip155:8453",
+  payload: { authorization: { from: "0x" + "11".repeat(20), to: PAY_TO, value: "20000", validAfter: "0", validBefore: String(NOW + 300), nonce: "0x" + "77".repeat(32) }, signature: "0x" + "44".repeat(65) } });
+ok(classify(noAccepted)?.reason === "missing-accepted",
+  "a payload with NO accepted block is named - x402 matches on what the payment echoes back, so it matched nothing");
+ok(/PAYMENT-REQUIRED/.test(classify(noAccepted)?.detail || ""), "and the fix names the header to copy it from");
+
 // ---- silence where it cannot be sure ----
-ok(classify(payment()) === null, "a sound payload gets NO invented reason - the facilitator's hint is the better answer");
-ok(classifyPaymentRejection({ paymentHeader: payment(), paymentRequiredHeader: null }) === null, "no advertised accepts to compare against -> stays quiet");
+// Genuinely sound means it also ECHOES the requirements back - a payload
+// without `accepted` is refused by x402 itself, so calling that "sound" was
+// the test's own mistake, found when missing-accepted was added.
+const sound = payment({ accepted: accept() });
+ok(classify(sound) === null, "a sound payload gets NO invented reason - the facilitator's hint is the better answer");
+ok(classifyPaymentRejection({ paymentHeader: sound, paymentRequiredHeader: null }) === null, "no advertised accepts to compare against -> stays quiet");
 ok(classifyPaymentRejection({}) === null, "no payment header at all -> not our case");
 for (const junk of [undefined, "", "e30=", b64({}), b64([1, 2]), b64({ payload: null })]) {
   if (classifyPaymentRejection({ paymentHeader: junk, paymentRequiredHeader: required([accept()]), nowSec: NOW })?.reason === undefined) pass++;

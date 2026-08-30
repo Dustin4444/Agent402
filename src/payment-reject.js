@@ -102,6 +102,17 @@ export function classifyPaymentRejection({ paymentHeader, paymentRequiredHeader,
       return { reason: "wrong-recipient", retry: "rebuild-payment",
         detail: `The authorization pays ${auth.to}; this route settles to ${match.payTo}. Use the payTo from the accepts entry.` };
     }
+    // x402 v2 matches the requirements the payload ECHOES BACK against the
+    // ones the server just advertised. A payload that omits `accepted`
+    // entirely therefore matches nothing and is refused before the facilitator
+    // is ever asked - silently, because the vendor answers a bare 402. This is
+    // the shape the /api/render loop was in on 2026-08-30: every field correct,
+    // no `accepted`, 402 forever, and the first version of this classifier said
+    // nothing because it only inspected `accepted` when it was present.
+    if (!payload.accepted && match) {
+      return { reason: "missing-accepted", retry: "rebuild-payment",
+        detail: "The payment carries no `accepted` block. x402 matches the requirements a payment echoes back against the ones this route advertised, so a payload without it matches nothing. Copy the chosen accepts entry from this response's PAYMENT-REQUIRED header verbatim into `accepted`." };
+    }
     // The payload echoes the requirements it was built against; ours are
     // rebuilt per request, so a stale or hand-made copy matches nothing and the
     // vendor refuses it with no explanation at all.
