@@ -146,6 +146,67 @@ async function record(prod, token, components, url) {
   return r.ok;
 }
 
+// ---------------------------------------------------------------------------
+// Keep the GitHub heartbeat actually running.
+//
+// heartbeat.yml carries EIGHTEEN alarm checks - every wallet balance, Postgres
+// reachability, settlement freshness, the PayAI and CDP quota watches - and it
+// is the only observer for them. GitHub does not deliver its schedule:
+// measured 2026-08-30, `*/15` produced gaps of 2-12 hours, and moving to a
+// gentler `9,39` produced ONE run in 9.8 hours. Tuning the cron is a dead end;
+// GitHub throttles scheduled events on a busy repo regardless of what is asked.
+//
+// This Worker's own 5-minute cron IS honoured, so it kicks the workflow when
+// GitHub has not run it lately. Bounded and idempotent:
+//   - it reads the last run first and only dispatches past HEARTBEAT_MAX_AGE_MIN
+//   - a dispatch already in progress or queued counts as recent, so a slow run
+//     is never piled on
+//   - no token, no kicking: an env-gated no-op, like OPERATOR_TOKEN above
+//
+// The token is a FINE-GRAINED PAT scoped to this one repository with Actions
+// read+write and nothing else. It cannot read code, secrets or other repos.
+const HEARTBEAT_WORKFLOW = "heartbeat.yml";
+const HEARTBEAT_REPO = "MikeyPetrillo/Agent402";
+const HEARTBEAT_MAX_AGE_MIN_DEFAULT = 20;
+
+async function gh(path, token, init = {}) {
+  return grab(`https://api.github.com${path}`, {
+    ...init,
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${token}`,
+      "User-Agent": "agent402-status-probe",
+      "X-GitHub-Api-Version": "2022-11-28",
+      ...(init.headers || {}),
+    },
+  }, 15000);
+}
+
+/** @returns {{kicked:boolean, reason:string, ageMin:number|null}} */
+export async function kickHeartbeat(env, now = Date.now()) {
+  const token = env.GITHUB_DISPATCH_TOKEN;
+  if (!token) return { kicked: false, reason: "no GITHUB_DISPATCH_TOKEN (kick disabled)", ageMin: null };
+  const maxAge = Number(env.HEARTBEAT_MAX_AGE_MIN) || HEARTBEAT_MAX_AGE_MIN_DEFAULT;
+  try {
+    const r = await gh(`/repos/${HEARTBEAT_REPO}/actions/workflows/${HEARTBEAT_WORKFLOW}/runs?per_page=5`, token);
+    if (!r.ok) return { kicked: false, reason: `runs read failed (${r.status})`, ageMin: null };
+    const runs = (await r.json()).workflow_runs || [];
+    // Anything not yet finished counts as recent - never pile onto a slow run.
+    if (runs.some((x) => x.status !== "completed")) return { kicked: false, reason: "a run is already in flight", ageMin: 0 };
+    const newest = runs[0] && Date.parse(runs[0].created_at);
+    const ageMin = newest ? (now - newest) / 60000 : null;
+    if (ageMin != null && ageMin < maxAge) return { kicked: false, reason: `last run ${ageMin.toFixed(0)}m ago`, ageMin };
+    const d = await gh(`/repos/${HEARTBEAT_REPO}/actions/workflows/${HEARTBEAT_WORKFLOW}/dispatches`, token, {
+      method: "POST",
+      body: JSON.stringify({ ref: "main" }),
+    });
+    if (!d.ok) return { kicked: false, reason: `dispatch failed (${d.status})`, ageMin };
+    return { kicked: true, reason: ageMin == null ? "no prior run found" : `last run ${ageMin.toFixed(0)}m ago`, ageMin };
+  } catch (e) {
+    return { kicked: false, reason: `error: ${String(e?.message || e).slice(0, 80)}`, ageMin: null };
+  }
+}
+
 async function run(env) {
   const prod = env.PROD || "https://agent402.tools";
   if (!env.OPERATOR_TOKEN) {
@@ -160,8 +221,11 @@ async function run(env) {
   // uptime, so there is nothing to fake here.
   const recorded = await record(prod, env.OPERATOR_TOKEN, components, "https://github.com/MikeyPetrillo/Agent402/tree/main/workers/status-probe")
     .catch(() => false);
-  console.log(`status-probe: ${fails.length ? `FAILS ${fails.join(" ")}` : "all healthy"} | recorded=${recorded}`);
-  return { ok: true, recorded, fails, components };
+  // Independent of the probe result: the heartbeat must run even when we are
+  // healthy, because most of what it watches is not on this page.
+  const heartbeat = await kickHeartbeat(env);
+  console.log(`status-probe: ${fails.length ? `FAILS ${fails.join(" ")}` : "all healthy"} | recorded=${recorded} | heartbeat ${heartbeat.kicked ? "KICKED" : "not kicked"} (${heartbeat.reason})`);
+  return { ok: true, recorded, fails, components, heartbeat };
 }
 
 export default {

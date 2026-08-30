@@ -165,5 +165,73 @@ console.log("status-probe worker — observation mapping");
   });
 }
 
+
+// --- the heartbeat kick -----------------------------------------------------
+// heartbeat.yml carries eighteen alarm checks and is their ONLY observer, but
+// GitHub does not deliver its schedule: measured 2026-08-30, `*/15` gave gaps
+// of 2-12 h and a gentler `9,39` gave ONE run in 9.8 h. This Worker's 5-minute
+// cron IS honoured, so it kicks the workflow. These pin the bounds that keep
+// that from becoming a dispatch storm.
+{
+  const { kickHeartbeat } = await import("../workers/status-probe/src/index.js");
+  const acheck = async (name, fn) => {
+    try { await fn(); console.log(`  ok   ${name}`); }
+    catch (e) { failures++; console.log(`  FAIL ${name}`); console.log(`       ${e.message}`); }
+  };
+  const NOW = 1_800_000_000_000;
+  const ago = (min) => new Date(NOW - min * 60000).toISOString();
+  const realFetch = globalThis.fetch;
+  let dispatches = 0;
+  const mk = (runs, dispatchOk = true) => {
+    dispatches = 0;
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      if (u.includes("/dispatches")) { dispatches++; return dispatchOk ? new Response(null, { status: 204 }) : new Response("", { status: 403 }); }
+      if (u.includes("/runs")) return Response.json({ workflow_runs: runs });
+      return new Response("{}", { status: 200 });
+    };
+  };
+  const ENV = { GITHUB_DISPATCH_TOKEN: "t", HEARTBEAT_MAX_AGE_MIN: "20" };
+
+  await acheck("a 5-hour-old heartbeat is kicked", async () => {
+    mk([{ status: "completed", created_at: ago(300) }]);
+    const r = await kickHeartbeat(ENV, NOW);
+    assert.ok(r.kicked, `expected a kick, got: ${r.reason}`);
+    assert.equal(dispatches, 1);
+  });
+  await acheck("a recent run is NOT kicked", async () => {
+    mk([{ status: "completed", created_at: ago(5) }]);
+    const r = await kickHeartbeat(ENV, NOW);
+    assert.ok(!r.kicked, r.reason); assert.equal(dispatches, 0);
+  });
+  await acheck("a run already in flight is never piled onto, however old", async () => {
+    mk([{ status: "in_progress", created_at: ago(400) }]);
+    const r = await kickHeartbeat(ENV, NOW);
+    assert.ok(!r.kicked, r.reason); assert.equal(dispatches, 0);
+  });
+  await acheck("no prior run at all -> kick", async () => {
+    mk([]);
+    const r = await kickHeartbeat(ENV, NOW);
+    assert.ok(r.kicked, r.reason); assert.equal(dispatches, 1);
+  });
+  await acheck("a refused dispatch is reported, not silently swallowed", async () => {
+    mk([{ status: "completed", created_at: ago(300) }], false);
+    const r = await kickHeartbeat(ENV, NOW);
+    assert.ok(!r.kicked); assert.match(r.reason, /dispatch failed \(403\)/);
+  });
+  await acheck("without a token it is an env-gated no-op, and says so", async () => {
+    mk([{ status: "completed", created_at: ago(300) }]);
+    const r = await kickHeartbeat({}, NOW);
+    assert.ok(!r.kicked); assert.equal(dispatches, 0);
+    assert.match(r.reason, /no GITHUB_DISPATCH_TOKEN/);
+  });
+  await acheck("a network failure never throws out of the probe", async () => {
+    globalThis.fetch = async () => { throw new Error("network down"); };
+    const r = await kickHeartbeat(ENV, NOW);
+    assert.ok(!r.kicked); assert.match(r.reason, /error:/);
+  });
+  globalThis.fetch = realFetch;
+}
+
 console.log(failures ? `\nFAILED (${failures})` : "\nall passed");
 process.exit(failures ? 1 : 0);
