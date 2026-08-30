@@ -25,6 +25,14 @@ const TIMEOUT_MS = 12_000;
 // - https://docs.polymarket.com/developers/CLOB/overview
 // - https://trading-api.readme.io/reference/getmarkets (Kalshi)
 const POLY_GAMMA = "https://gamma-api.polymarket.com";
+// How far a keyword search looks. Gamma CAPS a keyset page at 100 rows however
+// large a `limit` you ask for (measured 2026-08-29: asking 500 returns 100), so
+// the real reach is 100 x 6 = 600 of the highest-volume active markets. The loop
+// exits as soon as it has enough matches, so a common term still costs one
+// request; only a rare or absent term pays the full budget, and the response
+// says how deep it went so 0 results are never ambiguous.
+const POLY_SEARCH_PAGE = Number(process.env.POLYMARKET_SEARCH_PAGE) || 100;
+const POLY_SEARCH_MAX_PAGES = Number(process.env.POLYMARKET_SEARCH_MAX_PAGES) || 6;
 const POLY_CLOB = "https://clob.polymarket.com";
 const KALSHI = "https://api.elections.kalshi.com/trade-api/v2";
 
@@ -226,8 +234,16 @@ async function polymarketSearch({ query, limit, activeOnly } = {}) {
     throw bad('"query" is required (non-empty string)');
   }
   const lim = Math.max(1, Math.min(50, Number.parseInt(limit, 10) || 10));
+  // Gamma has no server-side keyword filter, so the match is client-side - which
+  // means the only thing that decides whether a term is FINDABLE is how many
+  // markets we look at. Fetching `lim * 4` (20 rows for the default limit) made
+  // this a search of "today's top 20 by 24h volume" wearing a search tool's
+  // name: on 2026-08-29 it answered 0 markets for "election", "Trump",
+  // "bitcoin" and "2028" while Polymarket was actively listing all of them, and
+  // 4 for "Fed" only because a Fed market happened to be hot that hour. Page the
+  // cursor instead, stopping the moment we have enough matches.
   const params = new URLSearchParams({
-    limit: String(Math.min(lim * 4, 200)), // overfetch then filter client-side
+    limit: String(POLY_SEARCH_PAGE),
     order: "volume24hr",
     ascending: "false",
   });
@@ -241,20 +257,37 @@ async function polymarketSearch({ query, limit, activeOnly } = {}) {
   // OpenAPI spec says so (found 2026-08-28). `/markets/keyset` is the named
   // replacement: same filters and ordering, but it returns an OBJECT with a
   // `markets` array and a `next_cursor`, and it REFUSES `offset` with a 422.
-  const raw = await fetchJson(`${POLY_GAMMA}/markets/keyset?${params}`, "Polymarket Gamma", meta);
-  const arr = polyList(raw);
   const q = query.trim().toLowerCase();
-  const matched = arr
-    .filter((m) => {
+  const hits = [];
+  let cursor = null;
+  let scanned = 0;
+  let pages = 0;
+  // Bounded: at most POLY_SEARCH_MAX_PAGES requests, and it stops early as soon
+  // as `lim` matches are in hand, so a common term still costs one page.
+  for (; pages < POLY_SEARCH_MAX_PAGES && hits.length < lim; pages++) {
+    if (cursor) params.set("cursor", cursor); else params.delete("cursor");
+    const raw = await fetchJson(`${POLY_GAMMA}/markets/keyset?${params}`, "Polymarket Gamma", meta);
+    const arr = polyList(raw);
+    scanned += arr.length;
+    for (const m of arr) {
       const hay = `${m.question || ""} ${m.slug || ""} ${m.description || ""}`.toLowerCase();
-      return hay.includes(q);
-    })
-    .slice(0, lim)
-    .map(shapeMarket);
+      if (hay.includes(q) && hits.length < lim) hits.push(m);
+    }
+    cursor = (raw && typeof raw === "object" && !Array.isArray(raw) && raw.next_cursor) || null;
+    if (!cursor || arr.length === 0) break; // end of the list, not of our budget
+  }
+  const matched = hits.map(shapeMarket);
   return {
     query: query.trim(),
     count: matched.length,
     markets: matched,
+    // How deep the search actually went, because the match is client-side: a
+    // caller seeing 0 should be able to tell "not listed" from "not reached".
+    scannedMarkets: scanned,
+    searchExhausted: !cursor,
+    ...(matched.length === 0
+      ? { note: `No active Polymarket market matched ${JSON.stringify(query.trim())} in the ${scanned} highest-volume active markets${cursor ? " searched (more exist beyond the search depth)" : " (the full active list)"}.` }
+      : {}),
     source: "polymarket-gamma",
     ...staleFields(meta),
   };
