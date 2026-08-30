@@ -12,7 +12,25 @@ name: Heartbeat
 # became a new comment on one issue, which becomes unreadable at volume.
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    # MEASURED 2026-08-30, and the reason this is not "*/15": GitHub delivered
+    # that schedule with gaps of 2h02, 2h18, 2h32, 3h16, 5h22, 7h00, 7h01,
+    # 7h57, 9h58 and 12h29 over the preceding twelve runs. Eighteen alarm
+    # checks ride this workflow - every wallet balance, the settlement
+    # freshness check, Postgres reachability, the quota watches - so at that
+    # cadence a drained wallet or a dead database can go unseen for half a day,
+    # and a resolved alarm (the credits issue on 08-30) stays open for hours
+    # after the operator has fixed it.
+    #
+    # GitHub throttles high-frequency schedules first, and "*/15" with its
+    # :00-aligned ticks is both the most aggressive ask and the most contended
+    # minute. Asking for less, on uncontended offsets, is the documented way to
+    # get MORE actual delivery. This is a mitigation, not a cure: re-measure
+    # the real gaps here before trusting any number in this comment.
+    #
+    # The structural fix, if this is still bad: trigger it from the Cloudflare
+    # status worker, which already runs every 5 minutes reliably on separate
+    # infra - it needs a GitHub token there, which is a blast-radius decision.
+    - cron: "9,39 * * * *"
   push:
     branches:
       - "main"
