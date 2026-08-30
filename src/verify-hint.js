@@ -23,7 +23,7 @@
 // 2026-08-28). Only the exact retried header sees its own hint; telemetry
 // gets a BUCKET, never an address.
 import { createHash } from "node:crypto";
-import { classifyPaymentRejection } from "./payment-reject.js";
+import { classifyPaymentRejection, unclassifiedPaymentShape } from "./payment-reject.js";
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const BASE_RPC = () => process.env.AGENT402_BASE_RPC || "https://mainnet.base.org";
 const BALANCE_TTL_MS = 60_000;
@@ -172,6 +172,12 @@ export function verifyHintMiddleware() {
           req.__paymentRejectReason = why.reason; // for the paywall rollup
           return origJson({ ...body, error: body.error || "Payment rejected", reason: why.reason, hint: why.detail, retry: why.retry });
         }
+        // Refused, and we could not say why. Record the payload's SHAPE (key
+        // names only, never a value) so the next one of these answers itself
+        // instead of costing another guess-and-deploy cycle. The buyer's body
+        // is untouched here - this is our telemetry, not their explanation.
+        req.__paymentRejectReason = "unclassified";
+        req.__paymentRejectShape = advertised ? unclassifiedPaymentShape(header) : null;
       }
       return origJson(body);
     };

@@ -308,7 +308,7 @@ function ensureFunnelTimer() {
 //                   buyer that tried to pay and couldn't — the fixable leak.
 //   "pow_failed"  — an X-Pow-Solution was present but rejected (bad/expired
 //                   work). Tried the free tier and missed.
-export function capturePostHogPaywall({ slug, priceUsd, powEligible, synthetic, attempt, reason }) {
+export function capturePostHogPaywall({ slug, priceUsd, powEligible, synthetic, attempt, reason, shape }) {
   if (!active()) return;
   try {
     const att = attempt === "usdc_failed" || attempt === "pow_failed" ? attempt : "none";
@@ -317,7 +317,10 @@ export function capturePostHogPaywall({ slug, priceUsd, powEligible, synthetic, 
     // key space with caller-controlled text. Absent when the payment reached
     // the facilitator - verify_failed carries that side.
     const rsn = att === "usdc_failed" && typeof reason === "string" && reason ? reason.slice(0, 40) : null;
-    const key = `${slug}|${synthetic ? 1 : 0}|${att}|${rsn || "-"}`;
+    // Key names only, bounded, and only on the unclassified bucket - never a
+    // value from a payment payload. Bounds the rollup key space too.
+    const shp = rsn === "unclassified" && typeof shape === "string" && shape ? shape.slice(0, 110) : null;
+    const key = `${slug}|${synthetic ? 1 : 0}|${att}|${rsn || "-"}|${shp || "-"}`;
     const cur = paywallCounts.get(key) || {
       slug: String(slug || "unknown"),
       priceUsd: Number(priceUsd) || 0,
@@ -325,6 +328,7 @@ export function capturePostHogPaywall({ slug, priceUsd, powEligible, synthetic, 
       synthetic: !!synthetic,
       attempt: att,
       ...(rsn ? { reason: rsn } : {}),
+      ...(shp ? { shape: shp } : {}),
       count: 0,
     };
     cur.count++;
@@ -339,7 +343,7 @@ function flushPaywallRollup() {
       const entries = [...paywallCounts.values()].sort((a, b) => b.count - a.count);
       paywallCounts = new Map();
       for (const e of entries.slice(0, PAYWALL_TOP_SLUGS)) {
-        capture("paywall_402", { slug: e.slug, count: e.count, priceUsd: e.priceUsd, powEligible: e.powEligible, synthetic: e.synthetic, attempt: e.attempt, ...(e.reason ? { reason: e.reason } : {}) });
+        capture("paywall_402", { slug: e.slug, count: e.count, priceUsd: e.priceUsd, powEligible: e.powEligible, synthetic: e.synthetic, attempt: e.attempt, ...(e.reason ? { reason: e.reason } : {}), ...(e.shape ? { shape: e.shape } : {}) });
       }
       const rest = entries.slice(PAYWALL_TOP_SLUGS);
       if (rest.length) {
