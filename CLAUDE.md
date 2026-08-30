@@ -2256,11 +2256,15 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   (`20`, `"$20"`, `{amount:20}`) with a bare "Unknown credit pack" while `/api/pricing` published only the dollar amounts -
   the reviewer brute-forced `credits-20`; the error now lists the valid ids and `/api/pricing` publishes `packs[]` plus the
   checkout shape. `?top=1000` on `/api/leaderboard` silently returned 50 - it now carries `truncated`, `topRequested` and the
-  reason. STILL OPEN and worth doing: the MCP Registry entry is stale and inflated (it says 1,338 tools and 4 chains against
-  560 and 12); `/api/route` returns rows whose `url` still contains `{symbol}` placeholders and sellers that answer no 402;
-  `/api/stats` `viaUSDC` does not equal the sum of `viaUSDCByNetwork` and neither carries a window label; `/marketplace`
-  takes 5.6 s wall clock; and `GLAMA_MAINTAINER_EMAIL` is set on Railway to an address other than the one the code defaults to (the
-  company mailbox (operator: delete the variable).
+  reason. **That list is now CLOSED except the operator item, each re-verified against LIVE prod 2026-08-29** (it had gone
+  stale in the flattering direction, which is the failure mode a to-do list has): the MCP Registry entry reads
+  `isLatest` 0.13.0 "Agentic Finance: 500+ tools ... over x402 or MPP, free via PoW, or prepaid card credits" (97 chars,
+  evergreen, no inflated count - remember to filter on `isLatest`, the 32 older versions still list the 1,338 figure);
+  `/api/route?include=external` returns 0 rows carrying a `{placeholder}` url; `/api/stats` publishes
+  `viaUSDCAttributed` + `viaUSDCBeforeNetworkCounter` = `viaUSDC` with a note saying why (16,401 + 14,170 = 30,571 -
+  the per-network split only starts when that counter shipped); `/marketplace` answers in 0.26 s. STILL OPEN, and only
+  the operator can do it: `GLAMA_MAINTAINER_EMAIL` is set on Railway to an address other than the one the code defaults
+  to (the company mailbox) - delete the variable.
 - **mppx 0.8.19 (2026-08-28; 0.8.18 carried the fix, 0.8.19 landed from a dependency bump on main and supersedes it):** carries (from 0.8.18) the UPSTREAM fix for the yParity/canonical-hash bug `src/tempo-confirm.js` exists to
   work around ("Normalized Tempo transactions before broadcast so accepted recovery-ID encodings matched the node's canonical
   hash"). Our chain-truth confirm STAYS - it is the belt that made an AgentCore/Privy buyer payable at all, and a library fix
