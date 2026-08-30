@@ -428,6 +428,18 @@ export default {
   // used by anyone else to generate observations.
   async fetch(request, env) {
     const url = new URL(request.url);
+    // Unauthenticated identity. BUILD_SHA is injected at deploy time
+    // (--var BUILD_SHA:<sha>) so a drift check can ask the RUNNING Worker what
+    // it is, rather than assuming a merge reached it. Nothing had ever deployed
+    // this Worker automatically: on 2026-08-30 the live code was from 07-29,
+    // with three merged commits sitting undeployed behind it.
+    if (url.pathname === "/" || url.pathname === "/version") {
+      return Response.json({
+        worker: "agent402-status-probe",
+        build: env.BUILD_SHA || "unknown",
+        usage: "POST /run with X-Operator-Token to trigger manually",
+      });
+    }
     if (url.pathname !== "/run") return new Response("status-probe: POST /run with X-Operator-Token to trigger manually\n", { status: 200 });
     const want = probeToken(env);
     if (!want || request.headers.get("X-Operator-Token") !== want) {
