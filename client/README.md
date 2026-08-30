@@ -165,13 +165,13 @@ await a.topSellers({ sort: "calls", include: "all" });
 
 | Method | What |
 |---|---|
-| `new Agent402({ baseUrl?, fetch?, creditsKey?, cache?, fetchImpl?, maxPerCallUsd?, dailyLimitUsd?, maxPerHostUsd?, maxResponseBytes? })` | `fetch` is your x402- or MPP-wrapped fetch for paid tools (optional); `creditsKey` is a prepaid card-credits key (`a402_...`) used for paid tools when no `fetch` is given; `cache` (default `true`) memoizes deterministic results; the three USD caps set optional spending limits (see below); `maxResponseBytes` (default 32MB, `null` to disable) refuses an oversized response body before it is parsed |
+| `new Agent402({ baseUrl?, fetch?, creditsKey?, cache?, fetchImpl?, maxPerCallUsd?, dailyLimitUsd?, maxPerHostUsd?, maxResponseBytes?, outputValidator? })` | `fetch` is your x402- or MPP-wrapped fetch for paid tools (optional); `creditsKey` is a prepaid card-credits key (`a402_...`) used for paid tools when no `fetch` is given; `cache` (default `true`) memoizes deterministic results; the three USD caps set optional spending limits (see below); `maxResponseBytes` (default 32MB, `null` to disable) refuses an oversized response body before it is parsed; `outputValidator` binds a caller-supplied delivery check |
 | `await a.find(task, { k = 5 })` | Resolve a plain-language task to the best-matching tools on **this host** (route, price, schema, example) |
 | `await a.route(task, { k?, include?, network? })` | Cross-seller Smart Order Router: rank eligible/routable seller rows from the host's current index (free, read-only; opaque results may include server-reported `executeVia`) |
 | `await a.findWorkflows(task, { k = 2 })` | Resolve a task to matching multi-tool workflow templates (skill packs) |
 | `await a.getWorkflowPrompt(slug, args)` | Fetch the rendered prompt messages for a skill pack with arguments substituted in |
 | `await a.topSellers({ limit?, sort?, include? })` | Live x402 leaderboard: which sellers are settling the most USDC (primarily on Base) in the last ~24h (free, no payment) |
-| `await a.call(slug, params, { idempotencyKey?, cache?, maxResponseBytes? })` | Call a tool; auto-pays (PoW for free tools; your payment `fetch` or the credits key for wallet-only); returns the JSON result |
+| `await a.call(slug, params, { idempotencyKey?, cache?, maxResponseBytes?, outputValidator? })` | Call a tool; auto-pays (PoW for free tools; your payment `fetch` or the credits key for wallet-only); returns the JSON result |
 | `Agent402.solvePow(pow)` | Solve a proof-of-work challenge object → an `X-Pow-Solution` value |
 | `a.spendingSummary()` | Rolling-24h paid spend so far: `{ dailyUsd, calls, byHost, limits }` |
 | `a.clearCache()` | Drop the in-memory result cache |
@@ -196,6 +196,41 @@ An oversized body throws `ResponseTooLargeError` carrying `size`, `cap`,
 `source` and `paid`. Check `paid`: on a wallet-only tool the money moved before
 the body arrived, so a refused response is still a spend you made.
 
+## Buyer-owned output validation
+
+A successful payment and HTTP 200 do not prove that the delivered result is
+useful. Supply a stable contract id and a local callback to enforce the exact
+output your agent needs:
+
+```js
+const a = new Agent402({
+  fetch: payFetch,
+  outputValidator: {
+    id: "unemployment-result/v1",
+    validate: (body) =>
+      typeof body.current === "number" &&
+      Array.isArray(body.history) &&
+      typeof body.source === "string",
+  },
+});
+```
+
+`validate` may return `false` or throw to reject delivery, and may be async.
+Use any local validator you prefer: Ajv, Zod, agent-payment-policy, or ordinary
+application code. The client adds no dependency and never sends the validator
+or its id to the seller.
+
+Validation runs after bounded JSON parsing and before cache admission. A
+rejected paid response throws `OutputValidationError` with `paid: true`, stays
+in `spendingSummary()`, and is never cached. Contracted cache entries are
+namespaced by a SHA-256 digest of `id` and revalidated on every hit, so a
+different contract or a caller-mutated cached object cannot bypass the check.
+The caller owns the meaning and stability of `id`; changing validation
+semantics requires a new id. A per-call validator may replace the constructor
+validator, but `null` or omission preserves the constructor policy rather than
+silently weakening it. Use a separate client when a route intentionally has no
+output contract.
+
 ## Spending caps (never overpay)
 
 By default the client pays whatever a tool costs. Set optional hard ceilings and a
@@ -219,9 +254,11 @@ try {
 }
 ```
 
-Only **settled** paid calls count against the rolling window - a blocked or failed
-call never consumes budget. Free proof-of-work calls are never counted. Omit a cap
-(or leave it `null`) for no limit; with none set, behavior is unchanged.
+Only **settled** paid calls count against the rolling window. A call refused or
+failed before settlement never consumes budget. A paid HTTP-success response
+that later fails byte, JSON, or output validation remains settled spend. Free
+proof-of-work calls are never counted. Omit a cap (or leave it `null`) for no
+limit; with none set, behavior is unchanged.
 
 **What the caps check.** When a cap is set, the client preflights the `402` and
 checks the ceiling against the **larger** of the advertised price (from the

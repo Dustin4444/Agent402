@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { Agent402, withNetworkPreference, withPayeeAllowlist, NETWORK_CAIP2 } from "./index.js";
+import { Agent402, OutputValidationError, withNetworkPreference, withPayeeAllowlist, NETWORK_CAIP2 } from "./index.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = 3081;
@@ -125,6 +125,104 @@ let pass = 0; const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); 
     let failed = false; try { await c.call("cheap"); } catch { failed = true; }
     ok(failed && paid === 1, "a failed paid call throws");
     ok(c.spendingSummary().dailyUsd === 0, "a failed paid call does not count against the budget");
+  }
+}
+
+// Offline: caller-supplied output validators bind buyer intent without a peer
+// dependency. Validation happens before cache admission, contracted cache hits
+// are revalidated, and settled spend survives invalid delivery.
+{
+  const bodyResponse = (body) => ({ ok: true, status: 200, json: async () => body });
+  const paidClient = ({ outputValidator, creditsKey } = {}) => {
+    let paid = 0;
+    const c = new Agent402({
+      baseUrl: "https://seller.example",
+      outputValidator,
+      creditsKey,
+      fetch: creditsKey ? undefined : async () => { paid++; return bodyResponse({ value: 42 }); },
+      fetchImpl: async () => { paid++; return bodyResponse({ value: 42 }); },
+    });
+    c._catalog = new Map([["answer", { method: "POST", path: "/answer", computePayable: false, price: "$0.01" }]]);
+    return { c, paid: () => paid };
+  };
+
+  // Invalid controls fail before catalog/network work.
+  {
+    let touched = 0;
+    const c = new Agent402({ fetchImpl: async () => { touched++; return bodyResponse({}); } });
+    let err = null;
+    try { await c.call("answer", {}, { outputValidator: { id: "", validate: () => true } }); } catch (e) { err = e; }
+    ok(err instanceof TypeError && touched === 0 && c._catalog === null,
+      "invalid per-call outputValidator fails before catalog or network access");
+  }
+
+  // A valid paid result is admitted and namespaced by its semantic id.
+  {
+    const { c, paid } = paidClient({ outputValidator: { id: "answer-number/v1", validate: (v) => v.value === 42 } });
+    const first = await c.call("answer");
+    const second = await c.call("answer");
+    ok(first === second && paid() === 1, "valid contracted paid result is cached under its contract identity");
+  }
+
+  // A different id never consumes the first contract's cache entry.
+  {
+    const { c, paid } = paidClient();
+    await c.call("answer", {}, { outputValidator: { id: "answer/v1", validate: () => true } });
+    await c.call("answer", {}, { outputValidator: { id: "answer/v2", validate: () => true } });
+    ok(paid() === 2 && c._cache.size === 2, "different validator ids have disjoint cache entries");
+  }
+
+  // Mutating a returned object cannot turn a cache hit into invalid success.
+  {
+    const validator = { id: "answer-number/v1", validate: (v) => v.value === 42 };
+    const { c, paid } = paidClient({ outputValidator: validator });
+    const first = await c.call("answer");
+    first.value = "wrong";
+    let err = null;
+    try { await c.call("answer"); } catch (e) { err = e; }
+    ok(err instanceof OutputValidationError && err.cacheHit && !err.paid,
+      "mutated contracted cache hit is rejected and labelled as an unpaid cache hit");
+    ok(paid() === 1 && c._cache.size === 0, "invalid cache hit is evicted without another payment");
+  }
+
+  // Validation failure occurs after HTTP success and must not erase settled spend.
+  {
+    const { c, paid } = paidClient({ outputValidator: { id: "answer-impossible/v1", validate: () => false } });
+    let err = null;
+    try { await c.call("answer"); } catch (e) { err = e; }
+    ok(err instanceof OutputValidationError && err.paid && err.contractId === "answer-impossible/v1",
+      "false validator result is failed paid delivery with contract identity");
+    ok(paid() === 1 && c.spendingSummary().dailyUsd === 0.01,
+      "invalid paid delivery remains in settled-spend accounting");
+    ok(c._cache.size === 0, "invalid paid delivery is never cached");
+  }
+
+  // Async callbacks and thrown validation errors have the same fail-closed path.
+  {
+    const { c } = paidClient({ outputValidator: { id: "async/v1", validate: async () => { throw new Error("bad shape"); } } });
+    let err = null;
+    try { await c.call("answer"); } catch (e) { err = e; }
+    ok(err instanceof OutputValidationError && err.cause?.message === "bad shape" && err.paid,
+      "async validator exceptions are wrapped without losing paid-delivery state");
+  }
+
+  // Credits are another settled paid path and retain spend on invalid output.
+  {
+    const creditsKey = `a402_${"A".repeat(32)}`;
+    const { c } = paidClient({ creditsKey, outputValidator: { id: "credits/v1", validate: () => false } });
+    let err = null;
+    try { await c.call("answer"); } catch (e) { err = e; }
+    ok(err instanceof OutputValidationError && err.paid && c.spendingSummary().dailyUsd === 0.01,
+      "credits-paid invalid delivery retains settled spend and fails closed");
+  }
+
+  // Null cannot silently weaken an inherited constructor validator.
+  {
+    const { c } = paidClient({ outputValidator: { id: "deny/v1", validate: () => false } });
+    let err = null;
+    try { await c.call("answer", {}, { outputValidator: null }); } catch (e) { err = e; }
+    ok(err instanceof OutputValidationError && err.paid,
+      "per-call null preserves the inherited constructor validator");
   }
 }
 
