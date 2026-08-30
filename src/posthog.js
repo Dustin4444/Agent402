@@ -308,17 +308,23 @@ function ensureFunnelTimer() {
 //                   buyer that tried to pay and couldn't — the fixable leak.
 //   "pow_failed"  — an X-Pow-Solution was present but rejected (bad/expired
 //                   work). Tried the free tier and missed.
-export function capturePostHogPaywall({ slug, priceUsd, powEligible, synthetic, attempt }) {
+export function capturePostHogPaywall({ slug, priceUsd, powEligible, synthetic, attempt, reason }) {
   if (!active()) return;
   try {
     const att = attempt === "usdc_failed" || attempt === "pow_failed" ? attempt : "none";
-    const key = `${slug}|${synthetic ? 1 : 0}|${att}`;
+    // WHY a present payment still bounced. Only ever one of the classifier's
+    // fixed reasons (src/payment-reject.js), so this cannot inflate the rollup
+    // key space with caller-controlled text. Absent when the payment reached
+    // the facilitator - verify_failed carries that side.
+    const rsn = att === "usdc_failed" && typeof reason === "string" && reason ? reason.slice(0, 40) : null;
+    const key = `${slug}|${synthetic ? 1 : 0}|${att}|${rsn || "-"}`;
     const cur = paywallCounts.get(key) || {
       slug: String(slug || "unknown"),
       priceUsd: Number(priceUsd) || 0,
       powEligible: !!powEligible,
       synthetic: !!synthetic,
       attempt: att,
+      ...(rsn ? { reason: rsn } : {}),
       count: 0,
     };
     cur.count++;
@@ -333,7 +339,7 @@ function flushPaywallRollup() {
       const entries = [...paywallCounts.values()].sort((a, b) => b.count - a.count);
       paywallCounts = new Map();
       for (const e of entries.slice(0, PAYWALL_TOP_SLUGS)) {
-        capture("paywall_402", { slug: e.slug, count: e.count, priceUsd: e.priceUsd, powEligible: e.powEligible, synthetic: e.synthetic, attempt: e.attempt });
+        capture("paywall_402", { slug: e.slug, count: e.count, priceUsd: e.priceUsd, powEligible: e.powEligible, synthetic: e.synthetic, attempt: e.attempt, ...(e.reason ? { reason: e.reason } : {}) });
       }
       const rest = entries.slice(PAYWALL_TOP_SLUGS);
       if (rest.length) {
