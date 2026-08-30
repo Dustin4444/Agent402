@@ -437,7 +437,12 @@ export function mppSales({ limit = 30, detailed = false } = {}) {
   }
   return {
     persistent: salesPersistent,
-    count: rows.length,
+    // `returned`, not `count`: rows is capped at the requested limit, so its
+    // length describes THIS PAGE and nothing else. The all-time total sits
+    // beside it, from the aggregate. Naming a page size `count` is how the
+    // capped figures on the public surfaces happened.
+    returned: rows.length,
+    count: qMppTotals.all().reduce((n, t) => n + t.n, 0),
     // No payer. This feed is public (the /revenue MPP section + /api/revenue/mpp)
     // and exists to make MPP-wire adoption verifiable, which the tx hash does on
     // its own - anyone who wants chain truth can resolve the payer from the tx.
