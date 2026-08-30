@@ -319,7 +319,10 @@ export function capturePostHogPaywall({ slug, priceUsd, powEligible, synthetic, 
     const rsn = att === "usdc_failed" && typeof reason === "string" && reason ? reason.slice(0, 40) : null;
     // Key names only, bounded, and only on the unclassified bucket - never a
     // value from a payment payload. Bounds the rollup key space too.
-    const shp = rsn === "unclassified" && typeof shape === "string" && shape ? shape.slice(0, 110) : null;
+    // Attached to the two buckets where it is the actual diagnosis: the shape
+    // of a refusal we could not classify, and WHICH field a mismatched payment
+    // got wrong. Key names only in both cases, never a value.
+    const shp = (rsn === "unclassified" || rsn === "requirements-mismatch") && typeof shape === "string" && shape ? shape.slice(0, 110) : null;
     const key = `${slug}|${synthetic ? 1 : 0}|${att}|${rsn || "-"}|${shp || "-"}`;
     const cur = paywallCounts.get(key) || {
       slug: String(slug || "unknown"),
