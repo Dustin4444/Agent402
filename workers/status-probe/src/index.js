@@ -205,7 +205,7 @@ const TOPUP = "Balances are deliberately not published on /api/gateway-status; r
 export const ALARMS = [
   {
     title: "Gateway credits LOW (OpenRouter)",
-    verdict: (b) => (b.status === "low" ? "bad" : b.status === "ok" ? "good" : "quiet"),
+    verdict: ({ gateway: b }) => (b.status === "low" ? "bad" : b.status === "ok" ? "good" : "quiet"),
     body: () =>
       "The OpenRouter balance behind the /v1 gateway is below the low-water mark (OPENROUTER_LOW_CREDITS_USD, default $15) OR the production key's own monthly USD limit has under 25% left (OPENROUTER_LOW_KEY_LIMIT_FRACTION). Either ceiling stops the gateway: upstream refuses, we answer 502, settlement is cancelled, so buyers are NOT charged but every /v1 sale is lost until it is topped up. Top up credits: https://openrouter.ai/settings/credits (manual - the programmatic top-up API is gone). Raise the key limit: https://openrouter.ai/settings/keys (key: Agent402).",
   },
@@ -213,14 +213,14 @@ export const ALARMS = [
     title: "Gateway balance UNREADABLE (OpenRouter)",
     // A balance we cannot READ is its own alarm once it persists: "unknown"
     // never paged, which is exactly how a dead alarm stays dead.
-    verdict: (b) =>
+    verdict: ({ gateway: b }) =>
       b.status === "unknown" && Number(b.unknownForMinutes || 0) >= 180 ? "bad" : b.status && b.status !== "unknown" ? "good" : "quiet",
-    body: (b) =>
+    body: ({ gateway: b }) =>
       `/api/gateway-status has reported status=unknown for ${Number(b.unknownForMinutes || 0)} minutes: neither OpenRouter /credits nor /key answered readably with the production key. The low-balance alarm is blind while this lasts. Check the key (https://openrouter.ai/settings/keys), OpenRouter status, and the server log for fetch errors.`,
   },
   {
     title: "Upstream buyer wallet LOW (x402)",
-    verdict: (b) => lowOk(b.upstreamBuyer?.status),
+    verdict: ({ gateway: b }) => lowOk(b.upstreamBuyer?.status),
     body: () =>
       "The x402 upstream spending wallet (X402_UPSTREAM_BUYER_KEY) behind the blockscout-kit tools is below the low-water mark (UPSTREAM_BUYER_LOW_USD, default $0.50). When it empties, contract-inspect/address-profile fail 502 (buyers are never charged, but the tools go dark). Top up: send USDC on Base to the upstream buyer address (see CLAUDE.md env docs).",
   },
@@ -229,19 +229,19 @@ export const ALARMS = [
     // That wallet is SELF-FUNDING, so its balance should only rise. A low-water
     // alarm fires after the money is gone; this fires on the first unexplained
     // dollar. A manual withdrawal trips it too, deliberately.
-    verdict: (b) => (b.upstreamBuyer?.trend === "draining" ? "bad" : b.upstreamBuyer?.trend === "ok" ? "good" : "quiet"),
+    verdict: ({ gateway: b }) => (b.upstreamBuyer?.trend === "draining" ? "bad" : b.upstreamBuyer?.trend === "ok" ? "good" : "quiet"),
     body: () =>
       "The x402 upstream spending wallet has fallen below its high-water mark across several consecutive reads.\n\nThat wallet is SELF-FUNDING: every tool that spends from it also settles into it, and every execution tier charges more than it can spend. Its balance should only rise. A sustained fall means one of:\n\n1. A manual withdrawal - close this issue if that was you.\n2. Upstream spend whose revenue never arrived: a buyer's payment verified and then failed to settle, which is the drain the per-payer ceiling in src/external-spend-guard.js bounds. Check /__operator/stats and the route-execute receipts.\n3. Something we do not understand, which is why this alarm exists.\n\n" + TOPUP,
   },
   {
     title: "Algorand upstream buyer wallet LOW (x402)",
-    verdict: (b) => lowOk(b.upstreamBuyerAvm?.status),
+    verdict: ({ gateway: b }) => lowOk(b.upstreamBuyerAvm?.status),
     body: () =>
       "The Algorand x402 spending wallet (ALGORAND_UPSTREAM_BUYER_MNEMONIC) behind the SOR's Algorand external routing is below the low-water mark (ALGORAND_UPSTREAM_BUYER_LOW_USD, default $0.50) - or not yet opted in to USDC ASA 31566704 (check /api/gateway-status upstreamBuyerAvm.optedIn). When it empties, Algorand external routing fails 502 (buyers are never charged, but the path goes dark). Top up: send USDC on Algorand to the AVM spending wallet address (see CLAUDE.md env docs).",
   },
   {
     title: "Tempo upstream buyer wallet LOW (MPP)",
-    verdict: (b) => lowOk(b.upstreamBuyerTempo?.status),
+    verdict: ({ gateway: b }) => lowOk(b.upstreamBuyerTempo?.status),
     body: () =>
       "The Tempo (MPP) spending wallet (TEMPO_UPSTREAM_BUYER_KEY) behind the SOR's Tempo external leg is below the low-water mark (TEMPO_UPSTREAM_BUYER_LOW_USD, default $0.50). It is funded in USDC.e on Tempo. When it empties, MPP external routing goes dark (buyers are never charged). Top up with fund-tempo-fee-payer.yml (token=usdc) or directly.",
   },
@@ -252,27 +252,59 @@ export const ALARMS = [
     // is EMPTY for this purpose. An empty sponsor fails activations loudly but
     // sends RENEWALS to past_due - existing subscribers are served for free
     // until their grace window ends.
-    verdict: (b) => lowOk(b.subscriptionFeePayer?.status),
+    verdict: ({ gateway: b }) => lowOk(b.subscriptionFeePayer?.status),
     body: () =>
       "The Tempo subscription gas sponsor (TEMPO_SUBSCRIPTION_FEE_PAYER_KEY) is below the low-water mark (TEMPO_SUBSCRIPTION_FEE_PAYER_LOW_USD, default $0.25) in PATHUSD - the token Tempo charges sponsored fees in, NOT the USDC.e the products are priced in. An empty sponsor fails subscription activations loudly (402, nobody charged) but sends RENEWALS to past_due, so existing subscribers keep being served for free until their grace window ends. Top up with fund-tempo-fee-payer.yml and token=pathusd.",
   },
   {
     title: "Postgres UNREACHABLE (leads/analytics)",
-    verdict: (b) => {
+    verdict: ({ gateway: b }) => {
       const leads = b.databases?.leads?.status;
       const analytics = b.databases?.analytics?.status;
       if (leads === "unreachable" || analytics === "unreachable") return "bad";
       if (leads === "ok" && analytics === "ok") return "good";
       return "quiet";
     },
-    body: (b) =>
+    body: ({ gateway: b }) =>
       `A Postgres database is unreachable from production (leads=${b.databases?.leads?.status || "unknown"}, analytics=${b.databases?.analytics?.status || "unknown"}, per /api/gateway-status). The app keeps serving - tollbooth leads and the tool-call analytics simply stop being recorded - so this does not show as an outage anywhere else. Check the Postgres services in the Railway project (a stopped container looks exactly like this; the platform's own image updates restart them). The app boot log carries a [leads-db]/[analytics-db] probe line naming the failing family/port.`,
   },
   {
     title: "Operator token guessing ELEVATED",
-    verdict: (b) => (b.operatorAuth?.status === "elevated" ? "bad" : b.operatorAuth?.status === "ok" ? "good" : "quiet"),
-    body: (b) =>
+    verdict: ({ gateway: b }) => (b.operatorAuth?.status === "elevated" ? "bad" : b.operatorAuth?.status === "ok" ? "good" : "quiet"),
+    body: ({ gateway: b }) =>
       `/api/gateway-status reports operatorAuth.status=elevated: ${b.operatorAuth?.failures1h ?? "?"} wrong operator credentials in the last hour (threshold OPERATOR_AUTH_FAIL_ALERT). The per-IP limiter caps each source; this is the aggregate. If it persists, rotate AGENT402_OPERATOR_TOKEN on Railway and in Actions secrets. Auto-closes when the rate drops.`,
+  },
+  {
+    // Settlement freshness. The daily canary must actually BUY, not merely
+    // conclude green: on 2026-08-02 a gate skipped every scheduled purchase for
+    // five days while the workflow reported success, so this watches the
+    // OBSERVATION (which only a real settled purchase writes) and cannot be
+    // fooled by the monitor's own verdict. The server owns the threshold - 26h
+    // on the settlement component - and we read its verdict rather than
+    // re-deriving an age here, so the two can never disagree.
+    //
+    // NOTE the one thing this Worker CANNOT do that heartbeat.yml can: dispatch
+    // the canary to self-heal. That needs Actions write, which would also let
+    // this credential deploy production and spend wallets - the whole reason it
+    // is an issues-only token. So it pages, and the body says what to run.
+    title: "Settlement stale - the paid canary is not buying",
+    verdict: ({ status }) => {
+      const c = (status?.components || []).find((x) => x?.key === "settlement");
+      if (!c) return "quiet";
+      const state = c.current?.state;
+      return state === "unknown" ? "bad" : state === "operational" ? "good" : "quiet";
+    },
+    body: ({ status }) => {
+      const c = (status?.components || []).find((x) => x?.key === "settlement");
+      const hours = Math.floor((c?.current?.ageMs || 0) / 3600000);
+      return `No canary has proven a real USDC purchase in ${hours}h, so /status reports the settlement component as \`unknown\` and the public page reads "Degraded".
+
+The daily proof that BUYING works is not running. That does not by itself mean buying is broken - the 2026-08-02 case was a gate that skipped every scheduled attempt while the workflow reported success, which is why this watches the observation rather than the workflow's own conclusion.
+
+Check, in order: recent runs of \`paid-canary.yml\` and whether the \`canary\` job was SKIPPED rather than run; then the gate step's log, which prints the observation age it read; then the burner balances.
+
+This observer cannot dispatch the canary itself (it holds an issues-only credential by design). To heal it: \`gh workflow run paid-canary.yml --repo MikeyPetrillo/Agent402 --ref main\` - a dispatch always buys, because the freshness gate applies to scheduled runs only.`;
+    },
   },
 ];
 
@@ -282,12 +314,16 @@ function lowOk(status) {
   return status === "low" ? "bad" : status === "ok" ? "good" : "quiet";
 }
 
-/** Pure: what each alarm says about one /api/gateway-status body. */
-export function judge(body) {
+/**
+ * Pure: what each alarm says about one reading.
+ * @param {{gateway?:object, status?:object}} ctx - /api/gateway-status and /api/status
+ */
+export function judge(ctx) {
+  const c = { gateway: ctx?.gateway || {}, status: ctx?.status || null };
   const out = {};
   for (const a of ALARMS) {
     let v = "quiet";
-    try { v = a.verdict(body || {}) || "quiet"; } catch { v = "quiet"; }
+    try { v = a.verdict(c) || "quiet"; } catch { v = "quiet"; }
     out[a.title] = v;
   }
   return out;
@@ -314,10 +350,20 @@ export async function syncAlarms(env, { fetchStatus, sleep = (ms) => new Promise
   const token = env.GITHUB_ISSUES_TOKEN;
   if (!token) return { opened: [], closed: [], bad: [], error: "no GITHUB_ISSUES_TOKEN (alarms disabled)" };
   const prod = env.PROD || "https://agent402.tools";
+  // Two endpoints, one reading. /api/status is fetched alongside because the
+  // settlement alarm lives there; a failure to read it is NOT fatal - the
+  // gateway alarms are still judgeable, and an absent status simply makes the
+  // settlement verdict "quiet".
   const read = fetchStatus || (async () => {
     const r = await grab(`${prod}/api/gateway-status`, {}, 15000);
     if (!r.ok) throw new Error(`gateway-status ${r.status}`);
-    return r.json();
+    const gateway = await r.json();
+    let status = null;
+    try {
+      const s2 = await grab(`${prod}/api/status`, {}, 20000);
+      if (s2.ok) status = await s2.json();
+    } catch { /* the gateway half still stands */ }
+    return { gateway, status };
   });
 
   let body;

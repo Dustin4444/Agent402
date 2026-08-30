@@ -182,7 +182,7 @@ console.log("status-probe worker — observation mapping");
     try { await fn(); console.log(`  ok   ${name}`); }
     catch (e) { failures++; console.log(`  FAIL ${name}`); console.log(`       ${e.message}`); }
   };
-  const HEALTHY = {
+  const HEALTHY_GATEWAY = {
     status: "ok",
     upstreamBuyer: { status: "ok", trend: "ok" },
     upstreamBuyerAvm: { status: "ok" },
@@ -191,6 +191,9 @@ console.log("status-probe worker — observation mapping");
     databases: { leads: { status: "ok" }, analytics: { status: "ok" } },
     operatorAuth: { status: "ok" },
   };
+  const HEALTHY_STATUS = { components: [{ key: "settlement", current: { state: "operational", ageMs: 3600000 } }] };
+  const HEALTHY = { gateway: HEALTHY_GATEWAY, status: HEALTHY_STATUS };
+  const withGateway = (over) => ({ gateway: { ...HEALTHY_GATEWAY, ...over }, status: HEALTHY_STATUS });
   const ENV = { GITHUB_ISSUES_TOKEN: "t" };
   const realFetch = globalThis.fetch;
   let created, closed, comments, calls;
@@ -218,7 +221,7 @@ console.log("status-probe worker — observation mapping");
 
   await acheck("a bad reading CONFIRMED by a second read opens exactly one issue", async () => {
     mkGh();
-    const low = { ...HEALTHY, upstreamBuyer: { status: "low", trend: "ok" } };
+    const low = withGateway({ upstreamBuyer: { status: "low", trend: "ok" } });
     const r = await syncAlarms(ENV, { ...nosleep, fetchStatus: feed(low, low) });
     assert.deepEqual(r.opened, ["Upstream buyer wallet LOW (x402)"]);
     assert.equal(created.length, 1);
@@ -230,7 +233,7 @@ console.log("status-probe worker — observation mapping");
   // reading taken inside it is indistinguishable from a fault.
   await acheck("a bad reading the second read does NOT confirm pages nobody", async () => {
     mkGh();
-    const bad = { ...HEALTHY, databases: { leads: { status: "unreachable" }, analytics: { status: "ok" } } };
+    const bad = withGateway({ databases: { leads: { status: "unreachable" }, analytics: { status: "ok" } } });
     const r = await syncAlarms(ENV, { ...nosleep, fetchStatus: feed(bad, HEALTHY) });
     assert.deepEqual(r.opened, []);
     assert.equal(created.length, 0, `created: ${JSON.stringify(created)}`);
@@ -238,7 +241,7 @@ console.log("status-probe worker — observation mapping");
 
   await acheck("an alarm the workflow already opened is never duplicated", async () => {
     mkGh([{ number: 77, title: "Upstream buyer wallet LOW (x402)" }]);
-    const low = { ...HEALTHY, upstreamBuyer: { status: "low", trend: "ok" } };
+    const low = withGateway({ upstreamBuyer: { status: "low", trend: "ok" } });
     const r = await syncAlarms(ENV, { ...nosleep, fetchStatus: feed(low, low) });
     assert.deepEqual(r.opened, []);
     assert.equal(created.length, 0);
@@ -256,7 +259,7 @@ console.log("status-probe worker — observation mapping");
 
   await acheck("a pull request with a colliding title is not an alarm", async () => {
     mkGh([{ number: 9, title: "Upstream buyer wallet LOW (x402)", pull_request: { url: "x" } }]);
-    const low = { ...HEALTHY, upstreamBuyer: { status: "low", trend: "ok" } };
+    const low = withGateway({ upstreamBuyer: { status: "low", trend: "ok" } });
     const r = await syncAlarms(ENV, { ...nosleep, fetchStatus: feed(low, low) });
     assert.deepEqual(r.opened, ["Upstream buyer wallet LOW (x402)"]);
   });
@@ -265,7 +268,7 @@ console.log("status-probe worker — observation mapping");
   // alarm on the strength of silence.
   await acheck("unknown neither opens nor closes", async () => {
     mkGh([{ number: 77, title: "Upstream buyer wallet LOW (x402)" }]);
-    const unk = { ...HEALTHY, status: "unknown", upstreamBuyer: { status: "unknown", trend: "unknown" } };
+    const unk = withGateway({ status: "unknown", upstreamBuyer: { status: "unknown", trend: "unknown" } });
     const r = await syncAlarms(ENV, { ...nosleep, fetchStatus: feed(unk) });
     assert.deepEqual(r.opened, []); assert.deepEqual(r.closed, []);
     assert.equal(created.length + closed.length, 0);
@@ -291,14 +294,44 @@ console.log("status-probe worker — observation mapping");
   // company (announce.yml) and spend the canary and refund wallets.
   await acheck("it never calls a workflow dispatch or any Actions endpoint", async () => {
     mkGh();
-    const low = { ...HEALTHY, upstreamBuyer: { status: "low", trend: "draining" } };
+    const low = withGateway({ upstreamBuyer: { status: "low", trend: "draining" } });
     await syncAlarms(ENV, { ...nosleep, fetchStatus: feed(low, low) });
     assert.ok(!calls.some((c) => /\/actions\/|dispatches/.test(c)), `Actions call: ${calls}`);
   });
 
   await acheck("the unreadable-balance alarm needs 180 minutes, not one bad read", async () => {
-    assert.equal(judge({ status: "unknown", unknownForMinutes: 30 })["Gateway balance UNREADABLE (OpenRouter)"], "quiet");
-    assert.equal(judge({ status: "unknown", unknownForMinutes: 200 })["Gateway balance UNREADABLE (OpenRouter)"], "bad");
+    assert.equal(judge({ gateway: { status: "unknown", unknownForMinutes: 30 } })["Gateway balance UNREADABLE (OpenRouter)"], "quiet");
+    assert.equal(judge({ gateway: { status: "unknown", unknownForMinutes: 200 } })["Gateway balance UNREADABLE (OpenRouter)"], "bad");
+  });
+
+  // Settlement freshness moved here from heartbeat.yml on 2026-08-30: GitHub
+  // was delivering that workflow about once every five hours, and the canary
+  // had already gone 16 h without buying with nothing paging.
+  const SETTLE = "Settlement stale - the paid canary is not buying";
+  await acheck("a stale settlement observation pages", async () => {
+    mkGh();
+    const stale = { gateway: HEALTHY_GATEWAY, status: { components: [{ key: "settlement", current: { state: "unknown", ageMs: 99 * 3600000 } }] } };
+    const r = await syncAlarms(ENV, { ...nosleep, fetchStatus: feed(stale, stale) });
+    assert.deepEqual(r.opened, [SETTLE]);
+    assert.match(created[0].body, /99h/);
+    // It cannot dispatch the canary (issues-only credential), so it must SAY so.
+    assert.match(created[0].body, /gh workflow run paid-canary\.yml/);
+  });
+  await acheck("a fresh settlement observation closes it", async () => {
+    mkGh([{ number: 5, title: SETTLE }]);
+    const r = await syncAlarms(ENV, { ...nosleep, fetchStatus: feed(HEALTHY) });
+    assert.deepEqual(r.closed, [SETTLE]);
+  });
+  await acheck("an unreadable /api/status neither pages nor closes settlement", async () => {
+    mkGh([{ number: 5, title: SETTLE }]);
+    const r = await syncAlarms(ENV, { ...nosleep, fetchStatus: feed({ gateway: HEALTHY_GATEWAY, status: null }) });
+    assert.deepEqual(r.opened, []); assert.deepEqual(r.closed, []);
+  });
+  await acheck("the gateway alarms still work when /api/status is missing", async () => {
+    mkGh();
+    const low = { gateway: { ...HEALTHY_GATEWAY, upstreamBuyer: { status: "low", trend: "ok" } }, status: null };
+    const r = await syncAlarms(ENV, { ...nosleep, fetchStatus: feed(low, low) });
+    assert.deepEqual(r.opened, ["Upstream buyer wallet LOW (x402)"]);
   });
 
   await acheck("every alarm title also exists in heartbeat.yml, so the two never fork", async () => {
@@ -326,7 +359,11 @@ console.log("status-probe worker — observation mapping");
   acheck("a missing CLOUDFLARE_API_TOKEN FAILS the run, never a silent pass", /::error::CLOUDFLARE_API_TOKEN is not set/.test(wf) && /exit 1/.test(wf));
   acheck("the sha is injected so the running Worker can be asked what it is", /--var BUILD_SHA:/.test(wf));
   acheck("the deploy is verified against the live Worker, not wrangler's exit code", /\/run/.test(wf) && /\.recorded == true/.test(wf));
-  acheck("and the verify requires the reported build to BE the deployed sha", /the Worker reports build/.test(wf));
+  // It must POLL for propagation (Cloudflare's edge lags a deploy by seconds)
+  // but still FAIL if the new build never arrives: "deployed but not serving"
+  // is the state this check exists to catch.
+  acheck("and the verify requires the reported build to BE the deployed sha", /still reports build \$BUILD, not \$GITHUB_SHA/.test(wf));
+  acheck("it polls for edge propagation rather than reading once", /edge still serving/.test(wf) && /for i in \$\(seq 1 20\)/.test(wf));
   acheck("a daily drift check exists and can page", /schedule:/.test(wf) && /Status probe Worker is NOT the code on main/.test(wf));
   acheck("an unreadable Worker is 'unknown', never reported as drift", /state=unknown/.test(wf));
   acheck("the drift issue auto-closes on recovery", /gh issue close/.test(wf));
