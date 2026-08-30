@@ -68,6 +68,29 @@ ok(byKey.get("hash|0")?.count === 3 && byKey.get("hash|0")?.powEligible === true
 ok(byKey.get("hash|1")?.count === 1, "synthetic 402s roll up separately");
 ok(byKey.get("screenshot|0")?.count === 1 && byKey.get("screenshot|0")?.priceUsd === 0.01, "price rides along");
 ok(byKey.get("hash|0")?.attempt === "none", "402 with no payment header rolls up as attempt=none");
+
+// The WHY behind a refused payment (src/payment-reject.js). Added 2026-08-30
+// with that classifier: without this, the rollup could silently stop carrying
+// the reason and the only symptom would be a diagnosis that quietly went blank
+// - the same shape of failure the classifier exists to end.
+capturePostHogPaywall({ slug: "render", priceUsd: 0.02, powEligible: false, synthetic: false, attempt: "usdc_failed", reason: "amount-below-price" });
+capturePostHogPaywall({ slug: "render", priceUsd: 0.02, powEligible: false, synthetic: false, attempt: "usdc_failed", reason: "amount-below-price" });
+capturePostHogPaywall({ slug: "render", priceUsd: 0.02, powEligible: false, synthetic: false, attempt: "usdc_failed", reason: "authorization-expired" });
+capturePostHogPaywall({ slug: "render", priceUsd: 0.02, powEligible: false, synthetic: false, attempt: "usdc_failed" });
+// A reason is only ever meaningful for a payment that was actually tried.
+capturePostHogPaywall({ slug: "render", priceUsd: 0.02, powEligible: false, synthetic: false, attempt: "none", reason: "amount-below-price" });
+_flushPaywallRollupForTest();
+const rr = take().filter((e) => e.properties.slug === "render");
+const byReason = new Map(rr.map((e) => [`${e.properties.attempt}|${e.properties.reason ?? "-"}`, e.properties]));
+ok(byReason.get("usdc_failed|amount-below-price")?.count === 2, `identical reasons aggregate (got ${byReason.get("usdc_failed|amount-below-price")?.count})`);
+ok(byReason.get("usdc_failed|authorization-expired")?.count === 1, "different reasons roll up separately, so the split is readable");
+ok(byReason.get("usdc_failed|-")?.count === 1,
+  "a refused payment we could not diagnose carries no reason, and does not merge with the ones we could");
+ok(byReason.get("none|-")?.count === 1, "a 402 with no payment at all stays its own bucket");
+ok(rr.every((e) => e.properties.reason === undefined || typeof e.properties.reason === "string"),
+  "reason is a string or absent - never an object that could carry caller text");
+ok(!rr.some((e) => e.properties.attempt === "none" && e.properties.reason),
+  "attempt=none never carries a reason: nothing was tried, so there is nothing to explain");
 _flushPaywallRollupForTest();
 ok(take().length === 0, "empty rollup flush emits nothing");
 
