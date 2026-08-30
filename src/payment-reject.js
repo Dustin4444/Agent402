@@ -128,6 +128,11 @@ export function classifyPaymentRejection({ paymentHeader, paymentRequiredHeader,
       const differing = keys.filter((k) => JSON.stringify(match[k]) !== JSON.stringify(payload.accepted[k]));
       if (differing.length) {
         return { reason: "requirements-mismatch", retry: "rebuild-payment", fields: differing.slice(0, 6),
+          // The FULL echoed key list, not just the diff. Knowing only which
+          // key differed was not enough to fix the live buyer: `maxAmountRequired`
+          // could be a v1 REPLACEMENT for `amount` or a surplus alias sitting
+          // beside it, and those need opposite handling. Names only.
+          acceptedKeys: Object.keys(payload.accepted).sort().slice(0, 12),
           detail: `The requirements echoed with this payment differ from what this route advertises. Differing or unexpected field(s): ${differing.slice(0, 6).join(", ")}. x402 compares the echoed entry to the advertised one exactly, so an extra field fails as surely as a wrong value - copy one accepts entry from THIS response's PAYMENT-REQUIRED header verbatim, adding nothing.` };
       }
     }

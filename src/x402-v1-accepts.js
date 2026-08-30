@@ -51,13 +51,25 @@ export function translateV1Accepts(payload) {
     const translated = [];
     const next = { ...accepted };
     for (const [v1, v2] of Object.entries(V1_TO_V2)) {
-      // Only when the v2 key is genuinely ABSENT. If a payload carries both,
-      // it is not a v1 client and we must not guess which one it meant.
-      if (Object.hasOwn(next, v1) && !Object.hasOwn(next, v2)) {
+      if (!Object.hasOwn(next, v1)) continue;
+      if (!Object.hasOwn(next, v2)) {
+        // v1 name only: carry the value across under the v2 name.
         next[v2] = next[v1];
         delete next[v1];
         translated.push(v1);
+      } else if (JSON.stringify(next[v1]) === JSON.stringify(next[v2])) {
+        // BOTH names, SAME value: a hybrid client that emits the v2 field and
+        // also keeps the v1 alias. The v1 key is surplus - we never advertised
+        // it - and dropping it cannot change the terms agreed, because the
+        // value it carries is identical to the one that stays. Measured
+        // 2026-08-30: renaming alone did not convert the live buyer, because
+        // their payload was this shape, not the v1-only one.
+        delete next[v1];
+        translated.push(`${v1}(surplus)`);
       }
+      // BOTH names with DIFFERENT values: left exactly as sent. That is a real
+      // disagreement about price, not a vocabulary difference, and it must
+      // fail.
     }
     if (!translated.length) return null;
     return { payload: { ...payload, accepted: next }, translated };
