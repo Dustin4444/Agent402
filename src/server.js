@@ -5608,8 +5608,10 @@ if (FREE_MODE) {
             powEligible: POW_SLUGS.has(def.slug),
             synthetic: isSyntheticRequest(req),
             attempt,
-            // Set by verifyHintMiddleware when it could name the fault.
+            // Set by verifyHintMiddleware when it could name the fault, or
+            // "unclassified" plus a key-names-only shape when it could not.
             reason: req.__paymentRejectReason,
+            shape: req.__paymentRejectShape,
           });
         }
       });

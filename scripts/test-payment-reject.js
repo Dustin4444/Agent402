@@ -12,7 +12,7 @@
 // the real server: a bare 402 is untouched, a refused one carries reason/hint.
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { classifyPaymentRejection } from "../src/payment-reject.js";
+import { classifyPaymentRejection, unclassifiedPaymentShape } from "../src/payment-reject.js";
 import { getFreePort } from "./lib/free-port.js";
 
 let pass = 0, proc = null;
@@ -75,6 +75,23 @@ const missing = { ...accept() }; delete missing.maxTimeoutSeconds;
 const withMissing = b64({ x402Version: 2, scheme: "exact", network: "eip155:8453", accepted: missing,
   payload: { authorization: { from: "0x" + "11".repeat(20), to: PAY_TO, value: "20000", validAfter: "0", validBefore: String(NOW + 300), nonce: "0x" + "99".repeat(32) }, signature: "0x" + "44".repeat(65) } });
 ok(/maxTimeoutSeconds/.test(classify(withMissing)?.detail || ""), "a MISSING field is named too - the comparison is a union, not a one-way walk");
+
+// When we refuse but cannot say why, record the SHAPE - key names only. Three
+// classifier revisions each reproduced a live 402 loop's symptom and none was
+// the client's real payload, so the next unclassified refusal has to answer
+// itself rather than cost another guess-and-deploy cycle.
+{
+  const secretish = b64({ x402Version: 2, scheme: "exact", network: "eip155:8453",
+    accepted: { amount: "20000", asset: "0xASSET", payTo: PAY_TO },
+    payload: { authorization: { from: "0xFROMSECRET", to: PAY_TO, value: "20000", nonce: "0xNONCEVALUE" }, signature: "0xSIGNATUREVALUE" } });
+  const shape = unclassifiedPaymentShape(secretish);
+  ok(/^p:/.test(shape) && shape.includes("|a:") && shape.includes("|z:"), `shape reports all three levels (${shape})`);
+  ok(shape.includes("accepted") && shape.includes("payTo") && shape.includes("nonce"), "it names the KEYS present, which is the diagnostic");
+  ok(!/SECRET|NONCEVALUE|SIGNATUREVALUE|0x/.test(shape),
+    "and never a VALUE - no signature, nonce, address or amount ever reaches telemetry");
+  ok(unclassifiedPaymentShape("!!!not-base64!!!") === null, "an undecodable header yields no shape rather than junk");
+  ok(unclassifiedPaymentShape(b64({ a: 1 }), { maxChars: 12 }).length <= 12, "bounded, so it cannot inflate the rollup key space");
+}
 
 // ---- silence where it cannot be sure ----
 // Genuinely sound means it also ECHOES the requirements back - a payload

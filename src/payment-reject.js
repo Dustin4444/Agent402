@@ -134,3 +134,28 @@ export function classifyPaymentRejection({ paymentHeader, paymentRequiredHeader,
     return null; // shape is sound - the facilitator's own hint is the better answer
   } catch { return null; }
 }
+
+/**
+ * The SHAPE of a payment we refused but could NOT classify - key names only.
+ *
+ * Written after three revisions of the classifier each reproduced the symptom
+ * of a live 402 loop and none turned out to be the client's actual payload
+ * (version skew, then a missing `accepted`, then a surplus field). Guessing
+ * shapes one at a time is the wrong method; this reports what the payload
+ * actually looked like, so the next unclassified refusal answers itself
+ * instead of costing another deploy.
+ *
+ * NEVER a value: no signature, no nonce, no from/to, no amount. Key names
+ * only, sorted and bounded. A payment header is a credential, and the point
+ * here is diagnosis, not capture.
+ *
+ * @returns {string|null} e.g. "p:network,payload,scheme|a:amount,asset|z:from,to"
+ */
+export function unclassifiedPaymentShape(paymentHeader, { maxChars = 110 } = {}) {
+  try {
+    const payload = decodeB64Json(paymentHeader);
+    if (!payload) return null;
+    const keys = (o) => (o && typeof o === "object" && !Array.isArray(o) ? Object.keys(o).sort() : []);
+    return `p:${keys(payload).join(",")}|a:${keys(payload.accepted).join(",")}|z:${keys(payload.payload?.authorization).join(",")}`.slice(0, maxChars);
+  } catch { return null; }
+}
