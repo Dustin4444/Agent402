@@ -117,10 +117,18 @@ export function classifyPaymentRejection({ paymentHeader, paymentRequiredHeader,
     // rebuilt per request, so a stale or hand-made copy matches nothing and the
     // vendor refuses it with no explanation at all.
     if (payload.accepted && match) {
-      const differing = Object.keys(match).filter((k) => JSON.stringify(match[k]) !== JSON.stringify(payload.accepted[k]));
+      // The comparison is a UNION of both key sets, not a walk of ours. x402
+      // deep-equals the echoed entry against the advertised one, so a payload
+      // carrying an EXTRA field its client added is refused just as surely as
+      // one with a wrong value - and a one-directional walk of `match`'s keys
+      // cannot see that, which is why this classifier stayed silent on a live
+      // client for its first two revisions. Reproduced against prod: an
+      // `accepted` with one surplus key gets a bare 402.
+      const keys = [...new Set([...Object.keys(match), ...Object.keys(payload.accepted)])];
+      const differing = keys.filter((k) => JSON.stringify(match[k]) !== JSON.stringify(payload.accepted[k]));
       if (differing.length) {
         return { reason: "requirements-mismatch", retry: "rebuild-payment",
-          detail: `The requirements echoed with this payment differ from what this route advertises (${differing.slice(0, 4).join(", ")}). Rebuild the payment from THIS response's PAYMENT-REQUIRED header.` };
+          detail: `The requirements echoed with this payment differ from what this route advertises. Differing or unexpected field(s): ${differing.slice(0, 6).join(", ")}. x402 compares the echoed entry to the advertised one exactly, so an extra field fails as surely as a wrong value - copy one accepts entry from THIS response's PAYMENT-REQUIRED header verbatim, adding nothing.` };
       }
     }
     return null; // shape is sound - the facilitator's own hint is the better answer

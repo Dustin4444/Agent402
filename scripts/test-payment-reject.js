@@ -60,6 +60,22 @@ ok(classify(noAccepted)?.reason === "missing-accepted",
   "a payload with NO accepted block is named - x402 matches on what the payment echoes back, so it matched nothing");
 ok(/PAYMENT-REQUIRED/.test(classify(noAccepted)?.detail || ""), "and the fix names the header to copy it from");
 
+// x402 deep-equals the echoed entry against the advertised one, so an EXTRA
+// field a client adds is refused exactly like a wrong value. The first two
+// revisions of this classifier walked only OUR keys and could not see that -
+// which is how it stayed silent on a live client twice running. Reproduced
+// against prod before the fix: an accepted with one surplus key -> bare 402.
+const withExtra = b64({ x402Version: 2, scheme: "exact", network: "eip155:8453",
+  accepted: { ...accept(), surplus: "added-by-the-client" },
+  payload: { authorization: { from: "0x" + "11".repeat(20), to: PAY_TO, value: "20000", validAfter: "0", validBefore: String(NOW + 300), nonce: "0x" + "88".repeat(32) }, signature: "0x" + "44".repeat(65) } });
+const extraV = classify(withExtra);
+ok(extraV?.reason === "requirements-mismatch", `an accepted with an EXTRA field is named (got ${extraV?.reason})`);
+ok(/surplus/.test(extraV?.detail || ""), "and the surplus field is named, so the caller knows what to drop");
+const missing = { ...accept() }; delete missing.maxTimeoutSeconds;
+const withMissing = b64({ x402Version: 2, scheme: "exact", network: "eip155:8453", accepted: missing,
+  payload: { authorization: { from: "0x" + "11".repeat(20), to: PAY_TO, value: "20000", validAfter: "0", validBefore: String(NOW + 300), nonce: "0x" + "99".repeat(32) }, signature: "0x" + "44".repeat(65) } });
+ok(/maxTimeoutSeconds/.test(classify(withMissing)?.detail || ""), "a MISSING field is named too - the comparison is a union, not a one-way walk");
+
 // ---- silence where it cannot be sure ----
 // Genuinely sound means it also ECHOES the requirements back - a payload
 // without `accepted` is refused by x402 itself, so calling that "sound" was
