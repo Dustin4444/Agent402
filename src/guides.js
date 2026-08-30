@@ -706,6 +706,30 @@ retry with \`Authorization: Payment ...\`, and you get back \`200\` plus a
 \`Payment-Receipt\` header - not a custom Agent402 format, the receipt shape
 MPP itself defines.
 
+## One thing to get right: the EIP-712 domain name
+
+An \`evm\`/\`charge\` credential is an EIP-3009 \`TransferWithAuthorization\`
+signed under the **token's own EIP-712 domain**, and that domain's \`name\` is
+not the same on every chain. Base USDC is \`"USD Coin"\`. Celo, Monad and Sei
+USDC each report \`"USDC"\`. A client that hardcodes one of them signs a digest
+that no facilitator and no contract will accept on the chains that use the
+other, and the failure is quiet: the signature is well-formed, so it looks like
+a rejected payment rather than a wrong one.
+
+You never have to guess. The challenge carries the exact x402 accepts entry it
+was minted from, and that entry's \`extra.name\` and \`extra.version\` are the
+domain to sign under, read from the token on chain.
+
+If a credential does arrive signed under a different known name, we recover the
+signer and recognise it before spending a facilitator round trip on it. You get
+a \`402\` with an RFC 9457 \`application/problem+json\` body naming both the name
+you signed under and the one the token uses, so the mistake is readable instead
+of looking like an outage. That response also carries no \`WWW-Authenticate\`
+header, on purpose: a client whose manager prefers MPP has nothing to select and
+falls through to the x402 offer sitting in the same \`402\`, which the same wallet
+can pay today. It is a short, self-clearing hold, and any request that presents a
+credential is never held.
+
 ## Why bother running two protocols
 
 Because the buyer shouldn't have to guess which one a seller picked. An agent
