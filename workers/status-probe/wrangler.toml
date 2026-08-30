@@ -11,9 +11,23 @@ crons = ["*/5 * * * *"]
 [vars]
 PROD = "https://agent402.tools"
 
-# OPERATOR_TOKEN is a Worker SECRET, never a plaintext var. It must equal
-# AGENT402_OPERATOR_TOKEN on Railway (the same value /api/status/probe checks):
-#   wrangler secret put OPERATOR_TOKEN
+# STATUS_PROBE_TOKEN is a Worker SECRET, never a plaintext var. It is the
+# credential this Worker presents to POST /api/status/probe, and that is the
+# ONLY thing it opens - it is read in exactly one place in the server:
+#   wrangler secret put STATUS_PROBE_TOKEN        (must equal STATUS_PROBE_TOKEN on Railway)
+#
+# It replaces OPERATOR_TOKEN here. That one is AGENT402_OPERATOR_TOKEN, the ROOT
+# credential, which also reaches /__operator/refunds/update (mark a refund debt
+# void), /credits/disable (kill a customer's prepaid key), /well-known (publish
+# a document at our own domain), /leads, /backup/run, /monitors/run,
+# /alerts/run, /stats and /wishes. This Worker needs exactly one of those, so
+# holding the root token off-platform was a master key to use one door.
+#
+# Both are still accepted by the server, so rotate without downtime:
+#   1. set STATUS_PROBE_TOKEN on Railway, redeploy
+#   2. wrangler secret put STATUS_PROBE_TOKEN
+#   3. verify a probe lands (POST /run, or watch /status), then
+#      wrangler secret delete OPERATOR_TOKEN
 
 # GITHUB_ISSUES_TOKEN is a Worker SECRET that lets this cron open and close the
 # balance and reachability alarms directly:

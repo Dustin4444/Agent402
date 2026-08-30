@@ -96,6 +96,8 @@ jobs:
         continue-on-error: true
         env:
           OP_TOKEN: ${{ secrets.AGENT402_OPERATOR_TOKEN }}
+          # Narrow credential for POST /api/status/probe; falls back to OP_TOKEN.
+          PROBE_TOKEN: ${{ secrets.STATUS_PROBE_TOKEN }}
           STATUS: ${{ steps.probe.outputs.status }}
           FAILS: ${{ steps.probe.outputs.fails }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -650,6 +652,8 @@ jobs:
           POW_SECRET: ${{ secrets.POW_SECRET }}
           ROBINHOOD_FACILITATOR_URL: ${{ secrets.ROBINHOOD_FACILITATOR_URL }}
           OP_TOKEN: ${{ secrets.AGENT402_OPERATOR_TOKEN }}
+          # Narrow credential for POST /api/status/probe; falls back to OP_TOKEN.
+          PROBE_TOKEN: ${{ secrets.STATUS_PROBE_TOKEN }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           [ -n "$OP_TOKEN" ] || { echo "no operator token - skipping freshness loop"; exit 0; }

@@ -2707,10 +2707,13 @@ app.get("/status", async (_req, res) => {
 app.get("/api/status", async (_req, res) => {
   res.set("Cache-Control", "public, max-age=60").json(statusSnapshot({ baseUrl: BASE_URL, live: await statusLive() }));
 });
-// Probe intake. Operator-authed because it writes the record that /status is
+// Probe intake. Authenticated because it writes the record that /status is
 // built from — an open endpoint would let anyone forge our uptime history.
+// Accepts the probe-only STATUS_PROBE_TOKEN (see statusProbeAuthed) as well as
+// the operator token, so an observer on another platform need not hold a
+// credential that also reaches /__operator/refunds/update and friends.
 app.post("/api/status/probe", express.json({ limit: "256kb" }), (req, res) => {
-  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  if (!statusProbeAuthed(req)) return res.status(404).json({ error: "Not found" });
   const body = req.body || {};
   const rows = [];
   const push = (component, ok, detail, ts, url) => {
@@ -2847,6 +2850,46 @@ function readCookie(req, name) {
 }
 // Raw operator token, presented via a header for curl/API access only. The
 // browser NEVER carries the root token (see the session cookie below).
+// A probe-only credential, so an observer outside production does not have to
+// hold the root operator token to write one record.
+//
+// Until 2026-08-30 both observers (the GitHub heartbeat and the Cloudflare
+// Worker) carried AGENT402_OPERATOR_TOKEN just to POST /api/status/probe. That
+// token also reaches /__operator/refunds/update, /credits/disable,
+// /well-known (publishes a document at our own domain), /leads, /backup/run,
+// /monitors/run, /alerts/run, /stats and /wishes - so a second platform was
+// holding a master key to use exactly one door.
+//
+// STATUS_PROBE_TOKEN opens that one door and nothing else: it is read here and
+// nowhere else in the tree. Unset, behaviour is byte-identical to before (the
+// operator token still works), which is what lets the two be rotated
+// independently without an observer going dark mid-rotation.
+const STATUS_PROBE_TOKEN = process.env.STATUS_PROBE_TOKEN || "";
+const statusProbeTokenOk = (t) => {
+  if (!STATUS_PROBE_TOKEN || typeof t !== "string" || !t) return false;
+  const a = Buffer.from(t);
+  const b = Buffer.from(STATUS_PROBE_TOKEN);
+  return a.length === b.length && timingSafeEqual(a, b);
+};
+if (STATUS_PROBE_TOKEN) {
+  if (OPERATOR_TOKEN && STATUS_PROBE_TOKEN === OPERATOR_TOKEN) {
+    console.warn("[status-probe] STATUS_PROBE_TOKEN is the SAME VALUE as AGENT402_OPERATOR_TOKEN - that defeats the entire point of it; mint a distinct random value");
+  } else if (STATUS_PROBE_TOKEN.length < 24) {
+    console.warn(`[status-probe] STATUS_PROBE_TOKEN is only ${STATUS_PROBE_TOKEN.length} characters and gates a public endpoint - use 32+ random characters`);
+  }
+}
+// Function declaration, not a const: the route that calls it is registered
+// EARLIER in this file, and only a declaration hoists (same hazard the comment
+// above getOperatorToken's first use names).
+function statusProbeAuthed(req) {
+  // The narrow credential first, so an observer carrying only it never touches
+  // the operator limiter or the guessing counter.
+  const presented = getOperatorToken(req);
+  if (presented && statusProbeTokenOk(presented)) return true;
+  // Otherwise the operator token still works, and a WRONG credential is
+  // rate-limited and counted exactly as it was before.
+  return operatorAuthed(req);
+}
 const getOperatorToken = (req) => {
   const auth = req.headers["authorization"];
   if (typeof auth === "string" && auth.startsWith("Bearer ")) return auth.slice(7);

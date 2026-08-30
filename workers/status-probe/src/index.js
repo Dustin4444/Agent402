@@ -385,19 +385,29 @@ export async function syncAlarms(env, { fetchStatus, sleep = (ms) => new Promise
   return { opened, closed, bad };
 }
 
+// The credential this Worker presents to /api/status/probe. STATUS_PROBE_TOKEN
+// is the narrow one and opens that endpoint and nothing else; OPERATOR_TOKEN is
+// the root credential that also reaches /__operator/refunds/update,
+// /credits/disable, /well-known, /leads and the rest, and is only still
+// accepted here so the two can be rotated without the observer going dark.
+// Once STATUS_PROBE_TOKEN is set, DELETE the OPERATOR_TOKEN secret:
+//   wrangler secret delete OPERATOR_TOKEN
+export const probeToken = (env) => env.STATUS_PROBE_TOKEN || env.OPERATOR_TOKEN || "";
+
 async function run(env) {
   const prod = env.PROD || "https://agent402.tools";
-  if (!env.OPERATOR_TOKEN) {
+  const token = probeToken(env);
+  if (!token) {
     // Fail loudly in the log rather than posting unauthenticated: a silent skip
     // is exactly what let a different alarm sit dead for months.
-    console.error("status-probe: OPERATOR_TOKEN is not set — refusing to probe");
-    return { ok: false, error: "no OPERATOR_TOKEN" };
+    console.error("status-probe: neither STATUS_PROBE_TOKEN nor OPERATOR_TOKEN is set — refusing to probe");
+    return { ok: false, error: "no probe token" };
   }
   const { components, fails } = await observe(prod);
   // When production is unreachable this POST cannot land either. That absence
   // is the evidence: /status renders a missing observation as a gap, never as
   // uptime, so there is nothing to fake here.
-  const recorded = await record(prod, env.OPERATOR_TOKEN, components, "https://github.com/MikeyPetrillo/Agent402/tree/main/workers/status-probe")
+  const recorded = await record(prod, token, components, "https://github.com/MikeyPetrillo/Agent402/tree/main/workers/status-probe")
     .catch(() => false);
   // Independent of the probe result: the balance and reachability alarms are
   // healthy-path work too, and their only other observer runs every few hours.
@@ -419,7 +429,8 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname !== "/run") return new Response("status-probe: POST /run with X-Operator-Token to trigger manually\n", { status: 200 });
-    if (!env.OPERATOR_TOKEN || request.headers.get("X-Operator-Token") !== env.OPERATOR_TOKEN) {
+    const want = probeToken(env);
+    if (!want || request.headers.get("X-Operator-Token") !== want) {
       return new Response("unauthorized\n", { status: 401 });
     }
     const out = await run(env);
