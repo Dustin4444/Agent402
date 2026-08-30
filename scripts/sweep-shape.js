@@ -48,7 +48,12 @@ export const EMPTY_ARRAY_OK = new Map([
   ["/api/nft-metadata", "attributes"],        // a token whose collection publishes no traits
   ["/api/coin-profile", "platforms"],         // a native coin has no contract addresses
   ["/api/memory/grants", "grants"],           // a fresh store holds no grants
-  // The other two wallet-keyed reads, for the same reason plus a sharper one:
+  // EVERY OTHER wallet-keyed READ, for the same reason plus a sharper one.
+  // Listed as a family on purpose: this was first fixed for /api/memory and
+  // /api/memory/log alone, and /api/memory/recall surfaced two hours later on
+  // the next unlucky interleaving - the same defect, found twice, because the
+  // first fix covered the two that happened to fail that run instead of the
+  // class. If a new wallet-keyed read is added, it belongs here too.
   // they take no required parameter (the namespace IS the payer), so they are
   // non-empty only once a write to that same derived owner has landed - and the
   // sweep drives 8 requests CONCURRENTLY, so the read can and does beat
@@ -58,6 +63,7 @@ export const EMPTY_ARRAY_OK = new Map([
   // answer looks like once it does.
   ["/api/memory", "keys"],                    // a fresh store holds no keys (and the sweep is concurrent)
   ["/api/memory/log", "entries"],             // same: nothing has been written yet in this namespace
+  ["/api/memory/recall", "results"],          // same: a search over a namespace nothing has written to
 ]);
 
 /** Keys whose documented example promises entries but whose live answer is an

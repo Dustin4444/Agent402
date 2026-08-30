@@ -231,6 +231,21 @@ validator, but `null` or omission preserves the constructor policy rather than
 silently weakening it. Use a separate client when a route intentionally has no
 output contract.
 
+**Two costs worth knowing.** `validate` is awaited inside `call()`, so it is
+bounded: a validator that has not settled in **5 seconds** rejects delivery with
+`OutputValidationError` rather than hanging the call. On a paid route the money
+has already moved by then, so an indefinite hang would be the worst place to
+have one; a timeout is a rejection, because an unfinished contract is not a
+satisfied one. Override per validator with `timeoutMs`:
+
+```js
+outputValidator: { id: "big-schema/v1", validate: slowCheck, timeoutMs: 30_000 }
+```
+
+And because contracted cache entries are revalidated on **every** hit, an
+expensive validator is paid for on cache hits too, not just on the network call.
+Keep it cheap, or accept that cost knowingly.
+
 ## Spending caps (never overpay)
 
 By default the client pays whatever a tool costs. Set optional hard ceilings and a

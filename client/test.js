@@ -156,6 +156,23 @@ let pass = 0; const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); 
       "invalid per-call outputValidator fails before catalog or network access");
   }
 
+  // A buyer-owned validator is caller code we AWAIT inside call(), and on a paid
+  // route the money has already moved by the time it runs - so one that never
+  // settles would hang the call forever holding a paid-but-undelivered result.
+  // Bounded, and a timeout REJECTS: an unfinished contract is not a satisfied one.
+  {
+    const c = new Agent402({ fetchImpl: async () => ({}) });
+    const started = Date.now();
+    let err = null;
+    try { await c._assertOutput("slow", { a: 1 }, { id: "hangs/v1", validate: () => new Promise(() => {}), timeoutMs: 200 }, { paid: true }); } catch (e) { err = e; }
+    ok(err?.name === "OutputValidationError", `a validator that never settles rejects rather than hanging (got ${err?.name})`);
+    ok(err?.paid === true, "and still reports the call WAS paid, so the buyer knows money moved");
+    ok(Date.now() - started < 2000, `it gives up promptly (${Date.now() - started}ms)`);
+    ok(!!(await c._assertOutput("ok", { a: 1 }, { id: "fine/v1", validate: () => true })), "a normal validator is unaffected");
+    ok(!!(await c._assertOutput("ok", { a: 1 }, { id: "slowish/v1", validate: () => new Promise((r) => setTimeout(() => r(true), 30)) })),
+      "a slow but finishing validator still passes - the bound is a ceiling, not a race");
+  }
+
   // A valid paid result is admitted and namespaced by its semantic id.
   {
     const { c, paid } = paidClient({ outputValidator: { id: "answer-number/v1", validate: (v) => v.value === 42 } });

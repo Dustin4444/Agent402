@@ -394,7 +394,12 @@ export class Agent402 {
   async _assertOutput(slug, body, validator, { paid = false, cacheHit = false } = {}) {
     if (!validator) return body;
     try {
-      const result = await validator.validate(body);
+      // BOUNDED. The validator is caller-owned code we await inside call(), so
+      // one that never settles hangs the buyer's call forever - and on a paid
+      // route the money has already moved by the time it runs, which makes an
+      // indefinite hang the worst possible place to have one. A timeout is a
+      // REJECTION, not a pass: an unfinished contract has not been satisfied.
+      const result = await withValidatorTimeout(validator.validate(body), validator.timeoutMs ?? OUTPUT_VALIDATOR_TIMEOUT_MS, validator.id);
       if (result === false) throw new Error("validator returned false");
       return body;
     } catch (cause) {
@@ -551,6 +556,8 @@ function parseUsd(price) {
 function hostOf(url) { try { return new URL(url).host; } catch { return String(url); } }
 
 const OUTPUT_VALIDATOR_ID_MAX_CHARS = 256;
+// How long a buyer-owned validator may take before delivery is refused.
+const OUTPUT_VALIDATOR_TIMEOUT_MS = 5_000;
 
 function normalizeOutputValidator(value, where) {
   if (value == null) return null;
@@ -564,7 +571,28 @@ function normalizeOutputValidator(value, where) {
   if (typeof value.validate !== "function") {
     throw new TypeError(`${where} outputValidator.validate must be a function`);
   }
-  return Object.freeze({ id, validate: value.validate });
+  // Opt-in per-validator override; anything unusable falls back to the default
+  // rather than silently disabling the bound.
+  const t = Number(value.timeoutMs);
+  const timeoutMs = Number.isFinite(t) && t > 0 ? t : OUTPUT_VALIDATOR_TIMEOUT_MS;
+  return Object.freeze({ id, validate: value.validate, timeoutMs });
+}
+
+/** Reject if the caller's validator has not settled in `ms`. The timer is
+ *  cleared on both paths so a fast validator leaves nothing pending (an
+ *  un-cleared timer would hold the event loop open on a short-lived script). */
+function withValidatorTimeout(promise, ms, id) {
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_, reject) => {
+      // NOT unref'd: an unref'd timer lets a short-lived script exit before the
+      // rejection fires, so the buyer gets a silent process exit instead of an
+      // OutputValidationError - which is the failure this bound exists to
+      // prevent. clearTimeout in finally() is what stops it lingering.
+      timer = setTimeout(() => reject(new Error(`validator ${JSON.stringify(id)} did not settle within ${ms}ms`)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
 }
 
 function resultCacheKey(slug, params, validator) {
