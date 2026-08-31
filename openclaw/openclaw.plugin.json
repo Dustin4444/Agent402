@@ -1,5 +1,5 @@
 {
-  "id": "agent402",
+  "id": "agent402-openclaw",
   "name": "Agent402",
   "description": "Agent402 model provider: auto-routed and explicit frontier models at a flat per-call price, paid by card (prepaid credits key) or in USDC over x402. Same key reaches 500+ pay-per-call tools.",
   "activation": {

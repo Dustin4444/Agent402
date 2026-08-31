@@ -117,7 +117,7 @@ try {
   // 3. The documented install: openclaw plugins install.
   const pi = await sh(oc, ["plugins", "install", tgz, "--force"], { env, cwd: home });
   ok(pi.status === 0 && /Installed plugin: agent402/.test(pi.out), `openclaw plugins install <tgz> accepts the package (${pi.out.trim().split("\n").filter((l) => /manifest|Installed|error/i.test(l)).join(" | ").slice(0, 300)})`);
-  const insp = await sh(oc, ["plugins", "inspect", "agent402"], { env });
+  const insp = await sh(oc, ["plugins", "inspect", "agent402-openclaw"], { env });
   ok(/Status: loaded/.test(insp.out) && /text-inference: agent402/.test(insp.out), "openclaw plugins inspect agent402: loaded, registers text-inference");
   const doc = await sh(oc, ["plugins", "doctor"], { env });
   ok(/No plugin issues detected/.test(doc.out), `openclaw plugins doctor: ${doc.out.trim().split("\n").pop()}`);
