@@ -2557,11 +2557,34 @@ async function runPool(items, limit, worker) {
 // getting it wrong groups an operator slightly wider or narrower than ideal, and
 // never causes an origin to be skipped forever.
 const MULTI_PART_TLDS = new Set(["co.uk", "org.uk", "ac.uk", "gov.uk", "co.jp", "com.au", "com.br", "co.nz", "co.in", "com.cn", "com.mx"]);
+
+// Suffixes where the label BELOW the suffix is a different tenant, not a
+// different host of one operator. Without these, "last two labels" made every
+// Vercel seller one operator, every Workers seller one operator, and so on -
+// they would then have shared a single per-cycle crawl budget, and an attacker
+// could have registered throwaway origins under the same suffix to starve a
+// competitor's listing until its learned quote went stale (QUOTE_MAX_AGE_MS).
+// This file already knew better in one place: railwayDeploymentOrigin exists
+// precisely because unrelated sellers publish on *.up.railway.app.
+const SHARED_HOSTING_SUFFIXES = [
+  "workers.dev", "vercel.app", "up.railway.app", "railway.app", "onrender.com",
+  "fly.dev", "pages.dev", "netlify.app", "herokuapp.com", "replit.app",
+  "repl.co", "chatgpt.site", "trycloudflare.com", "ngrok-free.app", "ngrok.app",
+  "deno.dev", "glitch.me", "surge.sh", "web.app", "firebaseapp.com",
+  "azurewebsites.net", "appspot.com", "cloudfunctions.net", "koyeb.app",
+  "vercel.sh", "netlify.com", "render.com", "streamlit.app", "hf.space",
+];
 export function operatorKey(origin) {
   let host;
   try { host = new URL(origin).hostname.toLowerCase(); } catch { return String(origin).toLowerCase(); }
   const parts = host.split(".").filter(Boolean);
   if (parts.length <= 2) return host;
+  // Multi-tenant hosting: the tenant is the whole hostname. Grouping two tenants
+  // together is not a small inaccuracy - it hands them one budget and lets either
+  // one crowd the other out.
+  for (const suffix of SHARED_HOSTING_SUFFIXES) {
+    if (host === suffix || host.endsWith(`.${suffix}`)) return host;
+  }
   const lastTwo = parts.slice(-2).join(".");
   return MULTI_PART_TLDS.has(lastTwo) ? parts.slice(-3).join(".") : lastTwo;
 }
@@ -2619,7 +2642,13 @@ async function runCrawl() {
     const due = originsDueThisCycle(ordered, crawlCycle);
     await runPool(due, CRAWL_CONCURRENCY, crawlSeller);
     recordSubmittedSellerObservations();
-    releaseDeadSubmissions(cycleOkFraction(ordered));
+    // `due`, not `ordered`: cycleOkFraction's own contract is that it measures
+    // THIS pass. Once the per-operator cap made the crawled set a subset, passing
+    // the full list let every origin held back this cycle contribute its previous
+    // cached verdict - diluting the denominator with stale OKs in the UNSAFE
+    // direction, so during an egress outage the fraction could stay above the
+    // 0.5 floor and slots would be released anyway.
+    releaseDeadSubmissions(cycleOkFraction(due));
   } finally {
     crawlInFlight = false;
   }
