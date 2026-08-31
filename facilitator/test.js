@@ -399,6 +399,94 @@ const horizon = getHorizonClient(NETWORK);
   console.log("settle-poll.js unit tests ✓");
 }
 
+// ---------------------------------------------------------------------------
+// fee-bid.js: the settlement transaction goes out bidding ABOVE the vendor's
+// hardcoded network minimum, because bidding the minimum lost Stellar's fee
+// auction on busy ledgers (measured 2026-08-31: 37.5% of Stellar rail legs
+// failed over 30 days, in two shapes that both reduce to this bid). The
+// assertions that matter are the ones that would let the defect back in: a
+// build() that does not actually carry the raised bid, and a malformed env
+// value quietly restoring the minimum.
+// ---------------------------------------------------------------------------
+{
+  const { installFeeBid, resolveBidStroops, assertFeeBumpUnpatched, DEFAULT_BID_STROOPS, VENDOR_BID_STROOPS } =
+    await import("./fee-bid.js");
+  const { Account, Asset, Networks, Operation, TransactionBuilder: TB, BASE_FEE } =
+    await import("@stellar/stellar-sdk");
+
+  ok(VENDOR_BID_STROOPS === Number(BASE_FEE), `fee bid: the vendor default we raise from is the SDK's BASE_FEE (got ${VENDOR_BID_STROOPS})`);
+
+  // The patch mutates ONE TransactionBuilder class, and it only reaches the
+  // vendor because both resolve to the same physical @stellar/stellar-sdk.
+  // A transitive dependency pinning a second copy would shadow it and leave
+  // the fix installed, logged at startup, and completely inert - the silent-
+  // dead-fix class this repo has been burned by before. Pin the invariant.
+  {
+    const { readdirSync, existsSync } = await import("node:fs");
+    const nested = readdirSync(new URL("./node_modules/@x402/", import.meta.url), { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .filter((d) => existsSync(new URL(`./node_modules/@x402/${d.name}/node_modules/@stellar/stellar-sdk`, import.meta.url)));
+    ok(nested.length === 0, `fee bid: no nested @stellar/stellar-sdk copy shadows the one this patch mutates (found: ${nested.map((d) => d.name).join(", ") || "none"})`);
+  }
+
+  // Env parsing. A typo must fall back to the DEFAULT, never to disabled -
+  // disabled is the old broken behaviour, and a typo must not select it.
+  ok(resolveBidStroops(undefined) === DEFAULT_BID_STROOPS, "fee bid: unset env uses the default bid");
+  ok(resolveBidStroops("") === DEFAULT_BID_STROOPS, "fee bid: empty env uses the default bid");
+  ok(resolveBidStroops("12345") === 12345, "fee bid: an explicit whole-stroop value is honoured");
+  ok(resolveBidStroops("off") === 0 && resolveBidStroops("0") === 0, "fee bid: off/0 disables the patch");
+  {
+    const warned = [];
+    ok(resolveBidStroops("50_000!", { log: (m) => warned.push(m) }) === DEFAULT_BID_STROOPS,
+      "fee bid: a malformed value falls back to the default, never silently to the network minimum");
+    ok(resolveBidStroops("-5", { log: (m) => warned.push(m) }) === DEFAULT_BID_STROOPS, "fee bid: a negative value falls back to the default");
+    ok(resolveBidStroops("1.5", { log: (m) => warned.push(m) }) === DEFAULT_BID_STROOPS, "fee bid: a fractional stroop falls back to the default");
+    ok(warned.length === 3, `fee bid: every fallback says so out loud (got ${warned.length})`);
+  }
+
+  // The patch itself, against a private subclass so the real SDK class is not
+  // mutated for the rest of this suite.
+  class IsolatedBuilder extends TB {}
+  const logs = [];
+  ok(installFeeBid({ bidStroops: 50_000, builder: IsolatedBuilder, log: (m) => logs.push(m) }) === true, "fee bid: installs on the builder prototype");
+  ok(logs.some((m) => /inclusion-fee bid installed: 50000 stroops/.test(m)), "fee bid: startup line names the bid actually installed");
+  ok(installFeeBid({ bidStroops: 50_000, builder: IsolatedBuilder, log: () => {} }) === false, "fee bid: refuses to double-patch");
+
+  const src = "GBA2DDJ4KQXQCGNB7RUU5I2BK5SXROJFUNZV7EZ4XUS7RXFOXEPNY6O4";
+  const payment = () => Operation.payment({ destination: src, asset: Asset.native(), amount: "1" });
+  const built = (Builder, fee) => new Builder(new Account(src, "1"), { fee, networkPassphrase: Networks.PUBLIC })
+    .setTimeout(30).addOperation(payment()).build();
+
+  // The assertion the whole module exists for: a builder handed the vendor's
+  // BASE_FEE must produce a transaction bidding the raised fee. Reading
+  // this.baseFee would pass even if build() ignored it.
+  ok(Number(built(IsolatedBuilder, BASE_FEE).fee) === 50_000,
+    `fee bid: a transaction built at the vendor's BASE_FEE goes out at the raised bid (got ${built(IsolatedBuilder, BASE_FEE).fee})`);
+  ok(Number(built(IsolatedBuilder, "500000").fee) === 500_000,
+    "fee bid: a caller already bidding above the minimum is left alone, never lowered");
+  ok(Number(built(TB, BASE_FEE).fee) === Number(BASE_FEE),
+    "fee bid: an unpatched builder is untouched (the patch is scoped, not global-by-accident)");
+
+  class DisabledBuilder extends TB {}
+  ok(installFeeBid({ bidStroops: 0, builder: DisabledBuilder, log: () => {} }) === false, "fee bid: a disabled bid installs nothing");
+  ok(Number(built(DisabledBuilder, BASE_FEE).fee) === Number(BASE_FEE), "fee bid: disabled leaves the vendor minimum in place");
+  class NoRaiseBuilder extends TB {}
+  ok(installFeeBid({ bidStroops: VENDOR_BID_STROOPS, builder: NoRaiseBuilder, log: () => {} }) === false,
+    "fee bid: a bid equal to the minimum is a no-op rather than a patch that changes nothing");
+
+  // The fee-bump path carries its own hardcoded BASE_FEE that build() never
+  // sees. We configure no feeBumpSigner today; if that changes, this must be
+  // a loud startup line and not a silent return to the minimum bid.
+  ok(assertFeeBumpUnpatched({}, { log: () => {} }) === true, "fee bid: no feeBumpSigner configured is the expected state");
+  {
+    const warned = [];
+    ok(assertFeeBumpUnpatched({ feeBumpSigner: { address: src } }, { log: (m) => warned.push(m) }) === false
+      && warned.some((m) => /fee bump is built with the vendor's hardcoded BASE_FEE/.test(m)),
+      "fee bid: a configured feeBumpSigner warns that the bid does not reach the submitted transaction");
+  }
+  console.log("fee-bid.js unit tests ✓");
+}
+
 // Everything above is offline and deterministic; everything below needs
 // Stellar testnet plus a persistent funded payer. CI runs the offline half
 // on every push (FACILITATOR_TEST_OFFLINE_ONLY=1) - before this gate the

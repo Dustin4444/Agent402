@@ -20,6 +20,7 @@ import { installRpcDiagnostics } from "./rpc-diagnostics.js";
 import { installRpcRequestTimeout } from "./rpc-timeout.js";
 import { installRpcFailover, resolveFallbackUrls } from "./rpc-failover.js";
 import { installPollClamp } from "./settle-poll.js";
+import { installFeeBid, resolveBidStroops, assertFeeBumpUnpatched } from "./fee-bid.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 
 // Must install before ExactStellarScheme ever calls getRpcClient() /
@@ -39,6 +40,17 @@ installRpcDiagnostics();
 installRpcFailover(resolveFallbackUrls(NETWORK, process.env.FACILITATOR_RPC_FALLBACK_URLS), {
   hedgeMs: process.env.FACILITATOR_RPC_HEDGE_MS === undefined ? 3_000 : Number(process.env.FACILITATOR_RPC_HEDGE_MS),
 });
+
+// The settlement transaction's inclusion-fee bid. @x402/stellar hardcodes the
+// network minimum (100 stroops), which loses Stellar's fee auction whenever
+// the ledger is busy - measured 2026-08-31 as a 37.5% Stellar rail failure
+// rate over 30 days, in two shapes (txInsufficientFee at submission, or
+// PENDING then dropped). Stellar charges the clearing price rather than the
+// bid, so raising it is a ceiling, not a cost. See fee-bid.js.
+const FEE_BID_STROOPS = resolveBidStroops(process.env.FACILITATOR_INCLUSION_FEE_STROOPS);
+if (!installFeeBid({ bidStroops: FEE_BID_STROOPS })) {
+  console.warn(`[startup] Stellar inclusion-fee bid NOT installed (FACILITATOR_INCLUSION_FEE_STROOPS=${FEE_BID_STROOPS}) - settlements bid the network minimum and will lose the fee auction on busy ledgers.`);
+}
 
 const PORT = Number(process.env.PORT) || 4021;
 const AUTH_TOKEN = (process.env.FACILITATOR_AUTH_TOKEN || "").trim();
@@ -89,6 +101,11 @@ installPollClamp(Object.getPrototypeOf(stellarScheme), {
   maxAttempts: MAX_POLL_ATTEMPTS,
   onHash: (h) => { const c = settleContext.getStore(); if (c) c.txHash = String(h || ""); },
 });
+// We configure no feeBumpSigner, so build() (which the fee bid patches) makes
+// the transaction we submit. If one is ever added, the fee bump is built with
+// the vendor's own hardcoded BASE_FEE and the bid silently reverts - this says
+// so at startup rather than letting it return as a mystery failure rate.
+assertFeeBumpUnpatched(stellarScheme);
 
 // Settlement is serialized through this queue - see queue.js. Only settle()
 // touches the signer's Stellar sequence number; verify() is read-only
