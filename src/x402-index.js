@@ -590,6 +590,23 @@ function microUsdToPrice(micro) {
 }
 
 /** Shared projection so sellerDetail / route / index-tools never drift. */
+/** Say when a published route is a documentation TEMPLATE rather than a callable
+ *  URL. Rides on every accessor that projects a route, deliberately: this file
+ *  already warns that a field present on two of three surfaces is inert on
+ *  whichever one happens to render, and that is exactly what happened here -
+ *  the flag existed only in routeQuery, so /api/index kept advertising a
+ *  seller's placeholder path at $0.02 with nothing to say it could never pay.
+ *  We still RETURN the row (the seller and the tool are real, and an agent that
+ *  knows the parameter can substitute it); we just stop implying it is payable. */
+function urlTemplateProjection(t) {
+  const route = String(t?.route || "");
+  if (!URL_TEMPLATE_RE.test(route)) return {};
+  return {
+    urlTemplate: true,
+    pathParams: [...route.matchAll(URL_TEMPLATE_RE_G)].map((m) => m[1] || m[2] || m[3]).filter(Boolean),
+  };
+}
+
 function priceConflictProjection(t) {
   if (t?.priceConflict !== true || !t.priceObservations) return {};
   const bazaar = priceToMicroUsd(t.priceObservations.bazaar);
@@ -3432,6 +3449,7 @@ export function sellerDetail(originOrHost) {
         name: t.name || null,
         price: t.price ?? null,
         ...priceConflictProjection(t),
+        ...urlTemplateProjection(t),
         ...(t.paid !== undefined ? { paid: t.paid } : {}),
         // What the seller's own OpenAPI guarantees on success. Omitted rather
         // than nulled when there is nothing to report: most rows have no
@@ -3883,7 +3901,7 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
       // three of eight rows for "get a stock quote" were templates. We still
       // RETURN the row (the seller and the tool are real, and an agent that
       // knows the parameter can fill it), but we say so, and the SOR skips it.
-      ...(URL_TEMPLATE_RE.test(t.route || "") ? { urlTemplate: true, pathParams: [...String(t.route).matchAll(URL_TEMPLATE_RE_G)].map((m) => m[1] || m[2] || m[3]).filter(Boolean) } : {}),
+      ...urlTemplateProjection(t),
       price: t.price,
       priceUsd: parsePrice(t.price),
       ...priceConflictProjection(t),
