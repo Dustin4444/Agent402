@@ -870,7 +870,8 @@ jobs:
       # (configSchema) and the auto-primary context overflow that 0.1.0-0.2.0
       # shipped with. npm registry only; no money moves.
       - name: OpenClaw provider plugin against a REAL OpenClaw install
-        # Unpinned third-party install with lifecycle scripts + its binary run
+        # Third-party install (PINNED in the test; openclaw-latest.yml tracks
+        # @latest on a schedule) with lifecycle scripts + its binary run
         # with network access: shadow the job's metered keys (same class as the
         # F07 npm ci step); the test also spawns with an allowlisted env.
         env:
