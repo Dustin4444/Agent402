@@ -61,5 +61,21 @@ ok(!/const URL_TEMPLATE_RE = \/.*\/[a-z]*g/.test(src), "the predicate regex is N
 const twice = ["/stock/{symbol}", "/stock/{symbol}"].map((p) => RE.test(p));
 ok(twice[0] === true && twice[1] === true, "the same template tests true twice in a row");
 
+// EVERY accessor that publishes a route must say when it is a template.
+// The flag first shipped inside routeQuery only, so /api/route knew and
+// /api/index did not - and /api/index is the seller-detail view, where the
+// placeholder was still advertised at $0.02 with nothing to mark it. This file
+// already carried the warning for a sibling field: "Rides with originResponded
+// on ALL THREE accessors on purpose: this file has twice shipped a field
+// present on two of three, which is inert on whichever surface happens to
+// render." Same trap, third time.
+ok(/function urlTemplateProjection\(t\)/.test(src), "the projection is shared, not inlined in one accessor");
+const callSites = (src.match(/\.\.\.urlTemplateProjection\(t\),/g) || []).length;
+ok(callSites >= 2, `every crawled-seller projection uses it (${callSites} call sites)`);
+ok(/\.\.\.priceConflictProjection\(t\),\n\s*\.\.\.urlTemplateProjection\(t\),/.test(src),
+   "sellerDetail (/api/index?seller=) carries the flag beside its sibling projection");
+ok(!/URL_TEMPLATE_RE\.test\(t\.route \|\| ""\) \?/.test(src),
+   "the inline copy inside routeQuery is gone - one definition, not two");
+
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
