@@ -42,6 +42,14 @@ on:
     # 2026-08-30: a 15-minute cron delivered one run in 9.8 hours), which is
     # exactly why the cadence has 4x headroom against the 30-day rule.
     - cron: "17 4 * * 0"
+    # DAILY, zero-upstream only. The weekly pass above is bounded by PRICE,
+    # which is only a proxy for what a route costs us: 97 of its 472 routes
+    # bill a third party per call. This one is bounded by that actual question
+    # (UPSTREAM_FREE_ONLY), so it can run every day - 177 routes whose only
+    # cost is face value moving between our own wallets plus our own Railway
+    # volume for the memory tools. It keeps the majority of the catalog well
+    # inside the 30-day cull with no upstream burn at all.
+    - cron: "37 5 * * *"
   workflow_dispatch:
     inputs:
       max_price_usd:
@@ -50,6 +58,9 @@ on:
       batches:
         description: "Split the pass into N batches so no single run times out."
         default: "4"
+      upstream_free_only:
+        description: "1 = only routes that cost nothing at a third party (177 routes, ~$0.86 face). The daily schedule sets this."
+        default: ""
 
 permissions:
   contents: read
@@ -83,6 +94,9 @@ jobs:
           MODE: sweep
           PAY_NETWORK: base
           MAX_PRICE_USD: ${{ inputs.max_price_usd || '0.05' }}
+          # The daily cron sweeps only what costs nothing upstream; the weekly
+          # one leaves this empty and sweeps everything under the ceiling.
+          UPSTREAM_FREE_ONLY: ${{ github.event.schedule == '37 5 * * *' && '1' || inputs.upstream_free_only }}
           MAX_SPEND_USD: "1"
           BATCH_COUNT: ${{ inputs.batches || '4' }}
           BATCH_INDEX: ${{ matrix.batch }}
@@ -102,6 +116,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SWEEP: ${{ needs.sweep.result }}
+          SCHEDULE: ${{ github.event.schedule }}
         run: |
           LISTED=$(node -e "
             (async () => {
@@ -119,7 +134,7 @@ jobs:
           OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
           if [ "$SWEEP" != "success" ]; then
             if [ -z "$OPEN" ]; then
-              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "The weekly Bazaar keep-alive did not complete (result: $SWEEP). CDP removes a resource after 30 days without a settlement, so a sustained failure silently delists the catalog - which is how 405 of 573 routes disappeared before 2026-08-31. Currently listed: $LISTED. Re-run: \`gh workflow run bazaar-keepalive.yml --ref main\`."
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "A Bazaar keep-alive pass did not complete (result: $SWEEP, trigger: ${GITHUB_EVENT_NAME}${SCHEDULE:+ $SCHEDULE}). CDP removes a resource after 30 days without a settlement, so a sustained failure silently delists the catalog - which is how 405 of 573 routes disappeared before 2026-08-31. Currently listed: $LISTED. Re-run: \`gh workflow run bazaar-keepalive.yml --ref main\`."
             else
               gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "Still failing at $(date -u +%FT%TZ). Listed: $LISTED."
             fi
