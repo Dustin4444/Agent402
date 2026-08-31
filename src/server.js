@@ -4601,6 +4601,33 @@ app.get("/fonts/:file", (req, res) => {
   res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
   res.type("font/woff2").send(buf);
 });
+// Sample fixtures for the skill packs whose input is a user-supplied
+// artifact - a PDF to read, an image to transform. Those packs shipped with
+// placeholder prose or a 404ing URL as their published example
+// ("/tmp/upload-abc123", "https://example.com/invoice.pdf"), so every step
+// failed on the example we tell agents to copy, and the partial-success
+// envelope hid it behind a 200 until 2026-08-31.
+//
+// Hosted here rather than pointed at a third party on purpose: an example in
+// our own catalog should not break because someone else moved a file, and CI
+// runs these examples on every push. Both files are GENERATED, not vendored
+// (see scripts/build-fixtures.js) - the repo carries no binary blob whose
+// provenance we cannot state. Same safety shape as /fonts/:file: a strict
+// filename allowlist, no path traversal, no directory listing.
+const FIXTURE_FILES = {
+  "sample-invoice.pdf": "application/pdf",
+  "sample-image.png": "image/png",
+};
+app.get("/fixtures/:file", (req, res) => {
+  const file = String(req.params.file || "");
+  const type = Object.hasOwn(FIXTURE_FILES, file) ? FIXTURE_FILES[file] : null;
+  if (!type) return res.status(404).end();
+  let buf;
+  try { buf = readFileSync(new URL(`../assets/fixtures/${file}`, import.meta.url)); }
+  catch { return res.status(404).end(); }
+  res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+  res.type(type).send(buf);
+});
 // Self-hosted static JS (assets/js/), replacing what used to be inline
 // <script> content site-wide - the CSP hardening that dropped 'unsafe-inline'
 // from script-src (2026-08-16) means an inline script can no longer execute
