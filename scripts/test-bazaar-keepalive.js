@@ -65,5 +65,21 @@ try {
   ok(false, `the workflow is valid YAML (${e.message})`);
 }
 
+// The deploy job that registers new routes must not cry wolf. It exited 1
+// whenever ANY route was left over, and the spend cap, price cap and batch
+// stride all exist to leave routes for a later pass - so it failed on almost
+// every deploy that added routes, logging "5 ok, 0 failed" as it went. Measured
+// 2026-08-31: 4 of the last 7 red "Deploy to Railway" runs were exactly that.
+// A failure mail that is usually noise is a failure mail nobody reads.
+{
+  const src = await readFile(new URL("./refresh-bazaar.js", import.meta.url), "utf8");
+  ok(/if \(failCount === 0\) \{[\s\S]{0,600}?exitCode: 0/.test(src),
+     "leftover routes with no failed buy exit 0 - the caps working is not a failure");
+  ok(/failCount/.test(src) && /exitCode: 1/.test(src) && /FAILED/.test(src),
+     "a buy that actually FAILED still exits 1 - the alarm still works");
+  ok(!/exitCode: 1,\n\s*message: `Work remaining/.test(src),
+     "the old always-fails message is gone");
+}
+
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
