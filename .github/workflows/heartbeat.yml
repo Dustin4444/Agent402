@@ -419,10 +419,11 @@ jobs:
 
       # The Stellar facilitator's own fee-paying account. It pays the
       # transaction fee on EVERY Stellar settlement, and until 2026-08-31 it
-      # was the one spending wallet we run with no alarm on it (found at
-      # 5.906 XLM, roughly 250 more settlements). An empty fee account does
-      # not look like an outage: settlements simply stop landing and the rail
-      # reads as a payment failure. "unknown"/"unconfigured" never page - the
+      # was the one spending wallet we run with no alarm on it. Settlement is
+      # cheap (0.00235 XLM each), so this is a slow alarm: it exists because an
+      # empty fee account does not look like an outage - settlements simply
+      # stop landing and the rail reads as a payment failure - not because the
+      # balance is ever close. "unknown"/"unconfigured" never page - the
       # facilitator URL can point at a third party whose /health is not this.
       - name: Stellar facilitator fee account check (alarm on low XLM)
         if: always()
@@ -434,7 +435,7 @@ jobs:
           OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
           if [ "$STATUS" = "low" ]; then
             if [ -z "$OPEN" ]; then
-              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "The self-hosted Stellar facilitator's signing account is below its low-water mark (FACILITATOR_LOW_BALANCE_XLM on the agent402-facilitator service, default 5 XLM). That account pays the transaction fee on every Stellar settlement, so when it empties, Stellar settlements stop landing - buyers are never charged, but the rail goes dark and the paid canary reports it as a rail failure rather than as an empty wallet. Top up: send XLM to the address on the facilitator's GET /health (signerAddress). Auto-closes when the balance recovers."
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "The self-hosted Stellar facilitator's signing account is below its low-water mark (FACILITATOR_LOW_BALANCE_XLM on the agent402-facilitator service, default 1 XLM, roughly 425 settlements at the observed 0.00235 XLM each). That account pays the transaction fee on every Stellar settlement, so when it empties, Stellar settlements stop landing - buyers are never charged, but the rail goes dark and the paid canary reports it as a rail failure rather than as an empty wallet. Top up: send XLM to the address on the facilitator's GET /health (signerAddress). Auto-closes when the balance recovers."
             else
               gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "Still low at $(date -u +%FT%TZ)."
             fi
