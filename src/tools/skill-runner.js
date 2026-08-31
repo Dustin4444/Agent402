@@ -1038,17 +1038,17 @@ export const PACK_STEPS = {
     steps: [
       { slug: "extract",     mapInput: (a) => ({ url: a.url }) },
       { slug: "render",      mapInput: (a) => ({ url: a.url }) },
-      { slug: "html-select", mapInput: (_a, p) => ({
-          html: String(p["render"]?.markdown ?? p["extract"]?.markdown ?? ""),
+      { slug: "html-select", mapInput: async (a) => ({
+          html: await fetchPageHtml(a.url),
           selector: "h1, h2, .price, [itemprop=\"price\"]",
           limit: 25,
       }) },
-      { slug: "html-table",  mapInput: (_a, p) => ({
-          html: String(p["render"]?.markdown ?? p["extract"]?.markdown ?? ""),
+      { slug: "html-table",  mapInput: async (a) => ({
+          html: await fetchPageHtml(a.url),
           format: "json",
       }) },
-      { slug: "html-strip",  mapInput: (_a, p) => ({
-          html: String(p["render"]?.markdown ?? p["extract"]?.markdown ?? ""),
+      { slug: "html-strip",  mapInput: async (a) => ({
+          html: await fetchPageHtml(a.url),
       }) },
       { slug: "html-links",  mapInput: (_a, p) => ({
           html: String(p["render"]?.markdown ?? p["extract"]?.markdown ?? ""),
@@ -1326,7 +1326,13 @@ export const PACK_STEPS = {
             throw Object.assign(new Error(`need ≥6 observations for backtest, got ${values.length}`), { statusCode: 422 });
           }
           const testSize = Math.max(2, Math.round(values.length * 0.2));
-          return { values, testSize, method };
+          // forecast-eval REQUIRES an explicit period for holt-winters (the
+          // standalone forecast-holt-winters auto-detects, the backtest does
+          // not), so this leg failed on every run: "backtest failed: period
+          // required for method holt-winters". 5 = a trading week, the only
+          // seasonality a daily price series plausibly carries.
+          const period = method === "holt-winters" ? 5 : undefined;
+          return period ? { values, testSize, method, period } : { values, testSize, method };
         },
       })),
       { slug: "forecast-naive",        mapInput: (a, p) => ({
@@ -1345,6 +1351,9 @@ export const PACK_STEPS = {
       { slug: "forecast-holt-winters", mapInput: (a, p) => ({
           values: bakeOffValues(p),
           horizon: parseInt(a.horizon, 10) || 30,
+          // Auto-detection finds no ACF lag above 0.3 on daily price
+          // differences, so this leg failed on every run. 5 = a trading week.
+          period: 5,
       }) },
     ],
   },
@@ -1468,9 +1477,12 @@ export const PACK_STEPS = {
       // fall back to the coin's own page, which we know is readable.
       { slug: "extract",         mapInputs: (a, p) => {
           const results = p["search"]?.results || [];
+          // No hardcoded fallback: the coin's own CoinGecko page answers 403
+          // to our fetcher (measured), so appending it added a guaranteed-dead
+          // last candidate rather than a safety net. Walk more real results
+          // instead, and if every one of them blocks us, say so honestly.
           const urls = results.map((r) => r?.url).filter((u) => typeof u === "string" && u);
-          urls.push(`https://www.coingecko.com/en/coins/${a.coin}`);
-          return [...new Set(urls)].slice(0, 4).map((url) => ({ url }));
+          return [...new Set(urls)].slice(0, 6).map((url) => ({ url }));
       } },
     ],
   },
@@ -2398,6 +2410,30 @@ async function fetchOpenApiSpec(url) {
     specInFlight.set(url, p);
   }
   return specInFlight.get(url);
+}
+
+// structured-scrape's whole purpose is pulling structured data out of a page
+// with CSS selectors, and its html-select / html-table / html-strip steps were
+// fed `render.markdown` - markdown has no <table> and no class attributes, so
+// html-table could never match on any page and the selector step matched only
+// by accident. render returns markdown ONLY (no raw html field), so the HTML
+// has to be fetched. Same shape as fetchOpenApiSpec: safeFetch for the SSRF
+// guard and byte cap on a caller-supplied URL, in-flight dedupe so three steps
+// in one pack are one request.
+const MAX_HTML_BYTES = 2 * 1024 * 1024;
+const htmlInFlight = new Map();
+async function fetchPageHtml(url) {
+  if (typeof url !== "string" || !url) {
+    throw Object.assign(new Error('Missing or invalid "url"'), { statusCode: 400 });
+  }
+  if (!htmlInFlight.has(url)) {
+    const p = (async () => {
+      const { html } = await safeFetch(url, { maxBytes: MAX_HTML_BYTES });
+      return typeof html === "string" ? html : "";
+    })().finally(() => htmlInFlight.delete(url));
+    htmlInFlight.set(url, p);
+  }
+  return htmlInFlight.get(url);
 }
 
 // The first concrete operation in a spec, for tools that need one named.

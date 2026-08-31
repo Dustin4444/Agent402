@@ -590,7 +590,9 @@ export const SKILL_PACKS = [
     useCase:
       "Extracting a product price, a sports stats table, a roster, a pricing tier, an outlink list - anything where the page has the data but no public API exposes it, and you need a repeatable deterministic answer instead of an LLM guess.",
     promptArgs: [
-      { name: "url", description: "Page to scrape (e.g. https://example.com/product/42)", required: true, substitute: "https://example.com/product/42" },
+      { name: "url", description: "Page to scrape (e.g. https://example.com/product/42)", required: true, // example.com serves no /product/42, so the first step 404'd on the
+        // example we publish. Our own pricing page is public and stable.
+        substitute: `${FIXTURE_BASE}/leaderboard` },
       { name: "target", description: "What to extract - a price, a table, a list, a paragraph, etc.", required: true, substitute: "the price and SKU" },
     ],
     // Ordered as a real decision tree: try the cheapest fetch first (extract
@@ -616,7 +618,7 @@ export const SKILL_PACKS = [
       "If you already have the rendered HTML and just want the metadata (title, description, OpenGraph, Twitter, canonical, JSON-LD), use html-meta on the string - avoids paying for a second fetch from /api/meta.",
     ],
     claudePrompt:
-      "Scrape the price and SKU from https://example.com/product/42 using Agent402. (1) Try extract first; if the price isn't in the article body, (2) call render to get the post-JS HTML. (3) Use html-select with a precise CSS selector to pull the price element - fall back to a broader selector if the first returns 0 matches. (4) Use html-select again with attr=\"data-sku\" or similar to read the SKU. Return a single JSON object {price, sku, url, source} where source = \"extract\" or \"render\" depending on which path worked.",
+      "Scrape the price and SKU from https://agent402.tools/leaderboard using Agent402. (1) Try extract first; if the price isn't in the article body, (2) call render to get the post-JS HTML. (3) Use html-select with a precise CSS selector to pull the price element - fall back to a broader selector if the first returns 0 matches. (4) Use html-select again with attr=\"data-sku\" or similar to read the SKU. Return a single JSON object {price, sku, url, source} where source = \"extract\" or \"render\" depending on which path worked.",
   },
   {
     slug: "decode-blob",
@@ -883,7 +885,9 @@ export const SKILL_PACKS = [
         name: "endpoint",
         description: "API URL to investigate (e.g. https://api.example.com/v1/users)",
         required: true,
-        substitute: "https://api.example.com/v1/users",
+        // api.example.com does not resolve, so every step failed on the
+        // example we publish. Our own pricing API is public, free and JSON.
+        substitute: `${FIXTURE_BASE}/api/pricing`,
       },
     ],
     // Seven tools, ordered as the real recon-before-code flow: decompose
@@ -912,7 +916,7 @@ export const SKILL_PACKS = [
       "Drill into specific fields with json-query - JSONPath ($.data[*].id) is the deterministic way to verify 'does this response actually contain the field I'm going to depend on?' Use it to validate assumptions before writing integration code: confirm the pagination cursor is at $.meta.next_cursor not $.next_page; confirm the array of items is at $.data not $.results; confirm error envelopes are at $.errors[*].detail not $.error.message. Wrong assumption here = the entire integration breaks later when the second-page response shape differs from the first.",
     ],
     claudePrompt:
-      "Investigate this API endpoint using Agent402: https://api.example.com/v1/users. (1) url-parse the URL: scheme=https, host=api.example.com, path=/v1/users - flag that this is a versioned, multi-tenant-ish path. (2) http-check it (unauthenticated). Expect a 401 - record the response time and confirm the host resolves. If you get 404 or connection-refused, stop and ask the user for the correct URL. (3) http-headers - record Content-Type, WWW-Authenticate scheme, all X-RateLimit-* values, any X-API-Version header, and any vendor-prefixed (X-*) hints. (4) extract https://docs.example.com (or /docs, /api, /reference - try in that order until one returns a real article body). Skim for auth + rate-limit + versioning sections. (5) feed the docs HTML to html-links and filter for hrefs matching /openapi|swagger|schema|\\.json$|\\.yaml$/. If found, that's the spec URL - note it. If not found, try probing /openapi.json directly via http-check. (6) Once you have any sample JSON response from the API (provided by the user or fetched via http-check on an OPTIONS endpoint), json-format it for easy reading. (7) Use json-query to verify the expected fields are where you think they are: $.data[*].id for resource IDs, $.meta.next_cursor for pagination, $.errors[*] for error envelope. Return: {baseUrl, authScheme, contentType, version, rateLimit: {requests, window}, openApiSpecUrl, sampleResponseStructure: {pagination, dataLocation, errorEnvelope}, integrationNotes}.",
+      "Investigate this API endpoint using Agent402: https://agent402.tools/api/pricing. (1) url-parse the URL: scheme=https, host=api.example.com, path=/v1/users - flag that this is a versioned, multi-tenant-ish path. (2) http-check it (unauthenticated). Expect a 401 - record the response time and confirm the host resolves. If you get 404 or connection-refused, stop and ask the user for the correct URL. (3) http-headers - record Content-Type, WWW-Authenticate scheme, all X-RateLimit-* values, any X-API-Version header, and any vendor-prefixed (X-*) hints. (4) extract https://docs.example.com (or /docs, /api, /reference - try in that order until one returns a real article body). Skim for auth + rate-limit + versioning sections. (5) feed the docs HTML to html-links and filter for hrefs matching /openapi|swagger|schema|\\.json$|\\.yaml$/. If found, that's the spec URL - note it. If not found, try probing /openapi.json directly via http-check. (6) Once you have any sample JSON response from the API (provided by the user or fetched via http-check on an OPTIONS endpoint), json-format it for easy reading. (7) Use json-query to verify the expected fields are where you think they are: $.data[*].id for resource IDs, $.meta.next_cursor for pagination, $.errors[*] for error envelope. Return: {baseUrl, authScheme, contentType, version, rateLimit: {requests, window}, openApiSpecUrl, sampleResponseStructure: {pagination, dataLocation, errorEnvelope}, integrationNotes}.",
   },
 
 
@@ -2242,7 +2246,10 @@ export const SKILL_PACKS = [
     useCase:
       "An agent (or its owner) is staring at a transaction hash and needs the plain-English story - did it confirm, which function was called, with what arguments, and is the counterparty a known contract or an unknown address.",
     promptArgs: [
-      { name: "hash", description: "0x-prefixed 32-byte transaction hash", required: true, substitute: "0x0000000000000000000000000000000000000000000000000000000000000000" },
+      { name: "hash", description: "0x-prefixed 32-byte transaction hash", required: true, // An all-zero hash exists on no chain, so evm-rpc returned nothing and
+        // calldata-decode / selector-lookup both failed on every call. A real
+        // Base transaction, immutable and public, with real calldata.
+        substitute: "0x1c0592f73d1f9182ee9bd40eb34d9b6c70b3196814b111589b82df4e79e7fb59" },
       { name: "network", description: "EVM network (ethereum / base / polygon / arbitrum / optimism, default base)", required: false, substitute: "base" },
     ],
     toolSlugs: ["tx-status", "evm-rpc", "calldata-decode", "selector-lookup", "address-label"],
@@ -2254,7 +2261,7 @@ export const SKILL_PACKS = [
       "Label the counterparty with address-label - known token contract, DEX router, bridge, exchange wallet, or unknown.",
     ],
     claudePrompt:
-      "Explain what transaction 0x0000000000000000000000000000000000000000000000000000000000000000 on base actually did, using Agent402's tx-forensics skill pack. (1) Check its confirmation status, (2) fetch the raw transaction via eth_getTransactionByHash, (3) decode the calldata into the function and arguments, (4) resolve the selector against the signature databases, (5) label the destination address. Summarize as a plain-English story: what was called, with what arguments, by whom, to whom, and whether it succeeded.",
+      "Explain what transaction 0x1c0592f73d1f9182ee9bd40eb34d9b6c70b3196814b111589b82df4e79e7fb59 on base actually did, using Agent402's tx-forensics skill pack. (1) Check its confirmation status, (2) fetch the raw transaction via eth_getTransactionByHash, (3) decode the calldata into the function and arguments, (4) resolve the selector against the signature databases, (5) label the destination address. Summarize as a plain-English story: what was called, with what arguments, by whom, to whom, and whether it succeeded.",
   },
   {
     slug: "market-open",

@@ -2309,6 +2309,38 @@ jobs:
           t node scripts/test-package-integrity.js
           # Every SOLD skill pack has a real step config (a pack without one answers 200 with 0/N steps and still charges — offline)
           t node scripts/test-skill-pack-steps.js
+
+      # Every skill pack must WORK on its own published example, not merely
+      # return a well-shaped envelope. Nine packs sold for two months answering
+      # "0/N steps succeeded" because every guard asserted SHAPE and none
+      # asserted OUTCOME.
+      #
+      # Booted WITHOUT the paid keys on purpose. The keys live on the SERVER, so
+      # a keyed boot would make this sweep buy a live Brave query on every push -
+      # the CI-spend leak that has recurred three times. With them shadowed,
+      # every keyed pack reports "not configured" and is skipped as not-ours,
+      # every keyless pack is fully verified, and there is no skip list to drift.
+      # The keyed subset is covered by running this against a keyed server by
+      # hand; that is a real gap and it is written down rather than hidden.
+      - name: Skill packs answer their own published example (keyless boot - no upstream spend)
+        env:
+          BRAVE_API_KEY: ""
+          BRAVE_ANSWERS_API_KEY: ""
+          BRAVE_SUGGEST_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+          COINGECKO_API_KEY: ""
+          OPENROUTER_API_KEY: ""
+          OPENAI_API_KEY: ""
+        run: |
+          X402_SYNC_ON_START=false X402_INDEX_CRAWL=off FREE_MODE=true PORT=3097 node src/server.js > /tmp/a402-packs.log 2>&1 &
+          PACK_PID=$!
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:3097/health >/dev/null && break || sleep 1; done
+          curl -sf http://127.0.0.1:3097/health >/dev/null || { echo "keyless server failed to boot"; cat /tmp/a402-packs.log; kill $PACK_PID; exit 1; }
+          TARGET_URL=http://127.0.0.1:3097 node scripts/test-pack-examples.js; rc=$?
+          kill $PACK_PID 2>/dev/null || true
+          exit $rc
           # Analytics redaction (per-tool table never reaches an unauthenticated caller - seeded, DB not required)
           t node scripts/test-analytics-redaction.js
           # Reveal-on-scroll no hero flash (the hero must never hide behind opacity:0 waiting on the observer)

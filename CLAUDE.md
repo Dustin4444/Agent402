@@ -942,6 +942,32 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   article-digest/search-news, content-grade/readability-score, contact-verify/spf-check, trend-analysis/fred-series,
   markdown-convert/text-diff) - they deliver real steps, just fewer than the tool page promises, and each needs its own
   judgment.
+- **Every guard we owned asserted SHAPE, never OUTCOME (2026-08-31, `scripts/test-pack-examples.js`):** the root cause behind nine
+  packs selling broken for two months. The example sweep asserts an HTTP 200 and the documented TOP-LEVEL keys, and
+  `{pack, args, steps, summary}` is a valid shape whether the steps returned data or all threw - so `0/N steps succeeded` passed
+  everything. `tool_call` telemetry is blind the same way (`errored`/`status` both read clean on a hollow 200), three of the dead
+  packs sit in test-all's Brave skip list so they never executed at all, and the canary's pack legs did not assert step outcomes.
+  **Swept all 85 packs against their own published examples**; beyond the nine already fixed this found `structured-scrape` (its
+  three `html-*` steps were fed `render.markdown`, and markdown has no `<table>` or class attributes, so `html-table` could never
+  match on ANY page - `fetchPageHtml` now gives them real HTML), `api-investigation` (`api.example.com` does not resolve),
+  `tx-forensics` (an all-zero tx hash that exists on no chain, so calldata-decode and selector-lookup always failed - now a real
+  immutable Base tx) and `forecasting-bake-off` (`forecast-eval` REQUIRES an explicit `period` for holt-winters even though the
+  standalone tool auto-detects, and the standalone cannot auto-detect on daily closes either). ~13 of 85 packs, 15%. The class is
+  essentially confined to packs: of 404 non-pack examples returning 200, ONE buries an error the same way. `claudePrompt` strings
+  were realigned with the corrected substitutes - the prompt is what an agent copies, so a stale one publishes a second broken
+  instruction. **The guard drives every pack with the exact input we publish and requires steps to SUCCEED**; an expected miss
+  needs a named reason (`EXPECTED_MISSES`: a JWT is not gzip, a ticker is not a FRED series), key/upstream failures are
+  report-only (`NOT_OURS`, the probe-classify doctrine) and so is anything DOWNSTREAM of an upstream-blocked step. Two traps it
+  hit in development, both worth keeping in mind for any sweep: it initially **passed while measuring nothing** when the server
+  under test had died (now fails under a 50% floor - silence is not success), and driving all 85 packs in CI would have **bought a
+  live Brave query on every push**, the CI-spend leak that has recurred three times, so the CI step boots its OWN KEYLESS server -
+  keyed packs self-report "not configured" and skip as not-ours, keyless packs are fully verified, and no skip list can drift.
+  The keyed subset is therefore NOT covered in CI; run it against a keyed server by hand. It also caught a defect in its own
+  author's fix: crypto-dossier's "readable fallback" was the coin's CoinGecko page, which **answers 403 to our fetcher**
+  (measured), so it appended a guaranteed-dead candidate - removed, six real search results walked instead.
+  **`skill-openapi-audit` moved to `WALLET_ONLY_SLUGS`:** it was pure-CPU and PoW-eligible ONLY because it never actually fetched
+  anything; giving it a working caller-supplied fetch made the free tier able to fetch arbitrary URLs. The free-tier egress probe
+  caught it on the first CI run after the fix.
 - **Stellar settlements bid ABOVE the network minimum (2026-08-31, `facilitator/fee-bid.js`):** the Stellar rail was our only
   unreliable one - 25 up / 15 down over 30 days of canary observations (62.5%) against Base's 40/40 - and every failure reduced
   to ONE cause: `@x402/stellar` builds the settlement transaction with `fee: BASE_FEE` (100 stroops, the network MINIMUM,

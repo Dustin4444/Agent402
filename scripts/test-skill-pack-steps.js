@@ -71,14 +71,19 @@ for (const pack of SKILL_PACKS) {
   ok(candidates.length > 1, `extract offers more than one candidate (got ${candidates.length})`);
   ok(candidates[0].url === "https://blocked.example/a", "extract tries the top-ranked result first");
   ok(candidates[1].url === "https://ok.example/b", "extract dedupes repeated URLs before falling through");
+  // No hardcoded fallback. The first version appended the coin's own CoinGecko
+  // page as a "readable" last resort; measured, that page answers 403 to our
+  // fetcher, so it was a guaranteed-dead candidate dressed as a safety net.
+  // Walking more real results is the honest version, and a step with no
+  // reachable source should fail rather than pretend.
   ok(
-    candidates[candidates.length - 1].url === "https://www.coingecko.com/en/coins/bitcoin",
-    "extract always ends on the coin's own page, so a bad ranking cannot lose the step"
+    !candidates.some((c) => /coingecko\.com/.test(c.url)),
+    "extract offers no hardcoded fallback page (the CoinGecko one 403s to our fetcher)"
   );
   const noResults = extract.mapInputs({ coin: "bitcoin" }, { search: {} });
   ok(
-    noResults.length === 1 && noResults[0].url === "https://www.coingecko.com/en/coins/bitcoin",
-    "extract still has a candidate when the search returned nothing"
+    noResults.length === 0,
+    "extract offers nothing when the search returned nothing, rather than a dead candidate"
   );
 }
 
