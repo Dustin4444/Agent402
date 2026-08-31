@@ -86,6 +86,9 @@ const SKIP_UPSTREAM_FREE = /^(1|true|yes)$/i.test(process.env.SKIP_UPSTREAM_FREE
 // Floor, so the expensive tail can be swept on its own cadence without the
 // cheap routes riding along.
 const MIN_PRICE_USD = Number(process.env.MIN_PRICE_USD || "0");
+// Group selector, so a natural family (the skill packs are all "skill-") can be
+// given its own cadence without pasting sixty-odd slugs into a dispatch input.
+const SLUG_PREFIX = (process.env.SLUG_PREFIX || "").trim();
 const UPSTREAM_FREE_EXTRA = new Set((process.env.UPSTREAM_FREE_EXTRA || "memory-").split(",").map((x) => x.trim()).filter(Boolean));
 const costsNothingUpstream = (t) =>
   t.computePayable || [...UPSTREAM_FREE_EXTRA].some((p) => t.slug === p || t.slug.startsWith(p));
@@ -243,6 +246,7 @@ async function runMissingMode({ sweep = false } = {}) {
     .filter((t) => !UPSTREAM_FREE_ONLY || costsNothingUpstream(t))
     .filter((t) => !SKIP_UPSTREAM_FREE || !costsNothingUpstream(t))
     .filter((t) => t.priceUsd > MIN_PRICE_USD)
+    .filter((t) => !SLUG_PREFIX || t.slug.startsWith(SLUG_PREFIX))
     .sort((a, b) => (sweep ? a.priceUsd - b.priceUsd : b.priceUsd - a.priceUsd))
     // Batch stride (applied after sort so each batch is a price-balanced slice).
     .filter((_, i) => i % BATCH_COUNT === BATCH_INDEX);
