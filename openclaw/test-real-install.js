@@ -115,12 +115,26 @@ try {
   ok(realpathSync(bin) !== bin, "the bin IS a symlink - the entry guard must survive it (0.1.0/0.1.1 did not)");
 
   // 3. The documented install: openclaw plugins install.
-  const pi = await sh(oc, ["plugins", "install", tgz, "--force"], { env, cwd: home });
-  ok(pi.status === 0 && /Installed plugin: agent402/.test(pi.out), `openclaw plugins install <tgz> accepts the package (${pi.out.trim().split("\n").filter((l) => /manifest|Installed|error/i.test(l)).join(" | ").slice(0, 300)})`);
+  // 2026.8.1 gates a plugin from a LOCAL ARCHIVE ("outside ClawHub review and
+  // trust metadata") behind capability consent: without --accept-capabilities the
+  // CLI refuses to start at all. CI cannot answer an interactive prompt, and this
+  // is our own tgz, so consent is given here explicitly.
+  const pi = await sh(oc, ["plugins", "install", tgz, "--force", "--accept-capabilities"], { env, cwd: home });
+  ok(pi.status === 0 && /Installed plugin: agent402/.test(pi.out), `openclaw plugins install <tgz> accepts the package (exit ${pi.status}: ${(/Reason:\s*([^\n]+(?:\n(?!\[)[^\n]*)*)/.exec(pi.out)?.[1] || pi.out).trim().replace(/\s+/g, " ").slice(0, 900) || "<no output>"})`);
   const insp = await sh(oc, ["plugins", "inspect", "agent402-openclaw"], { env });
   ok(/Status: loaded/.test(insp.out) && /text-inference: agent402/.test(insp.out), "openclaw plugins inspect agent402: loaded, registers text-inference");
+  // Consent given at install time does not survive into the gateway's runtime:
+  // 2026.8.1 quarantines the plugin until it is enabled with consent too (the
+  // refusal names this command itself). Without it the gateway loads every other
+  // plugin and silently never starts ours.
+  const pe = await sh(oc, ["plugins", "enable", "agent402-openclaw", "--accept-capabilities"], { env, cwd: home });
+  ok(pe.status === 0, `openclaw plugins enable --accept-capabilities (exit ${pe.status}: ${pe.out.trim().replace(/\s+/g, " ").slice(0, 300)})`);
   const doc = await sh(oc, ["plugins", "doctor"], { env });
-  ok(/No plugin issues detected/.test(doc.out), `openclaw plugins doctor: ${doc.out.trim().split("\n").pop()}`);
+  // 2026.8.1 reworded a clean bill of health ("...checks passed"); a plugin it
+  // rejects still prints a "Plugin errors:" block (that is how the id mismatch
+  // surfaced), so require BOTH a success phrase and the absence of that block -
+  // matching the wording alone would pass on a doctor that found real errors.
+  ok(!/Plugin errors/.test(doc.out) && /(No plugin issues detected|checks passed)/.test(doc.out), `openclaw plugins doctor: ${doc.out.trim().replace(/\s+/g, " ").slice(0, 600)}`);
 
   // 4. setup --write through the SYMLINK, against the stub gateway.
   const setup = await sh(bin, ["setup", "--write", "--port", String(proxyPort)], { env });
@@ -128,9 +142,15 @@ try {
   const cfg = JSON.parse(readFileSync(join(home, "openclaw.json"), "utf8"));
   const primary = String(cfg.agents?.defaults?.model?.primary || "");
   if (!primary) console.log(`setup stdout: ${setup.stdout.trim()}\nsetup stderr: ${setup.stderr.trim()}\nconfig: ${JSON.stringify(cfg).slice(0, 400)}`);
-  ok(cfg.plugins?.entries?.agent402?.config?.port === proxyPort, `setup --port wrote the plugin's own port into plugins.entries.agent402.config (${JSON.stringify(cfg.plugins?.entries?.agent402)})`);
+  // The config key is the MANIFEST id, not the provider id - OpenClaw 2026.8.1
+  // requires the manifest id to equal the npm package name, so it is
+  // "agent402-openclaw" while the provider a user types stays "agent402".
+  // Asserting the old key here is how the 2026-08-26 --port defect hid: setup
+  // wrote one key and the service read another, and nothing errored.
+  const entry = cfg.plugins?.entries?.["agent402-openclaw"];
+  ok(entry?.config?.port === proxyPort, `setup --port wrote the plugin's own port into plugins.entries["agent402-openclaw"].config (${JSON.stringify(entry)})`);
   ok(primary === "agent402/anthropic/claude-haiku-4.5", `primary is a model that can hold OpenClaw's prompt: ${primary}`);
-  ok(cfg.plugins?.entries?.agent402?.enabled === true, "setup --write preserved OpenClaw's own plugins.entries block");
+  ok(entry?.enabled === true, `setup --write preserved the plugin's enabled flag while writing its port (${JSON.stringify(entry)})`);
 
   // 5. What OpenClaw itself now lists.
   const ml = await sh(oc, ["models", "list", "--provider", "agent402", "--plain"], { env });
