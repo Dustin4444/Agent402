@@ -39,6 +39,44 @@ const MAX_FETCH_BASE64_BYTES = 25 * 1024 * 1024;
 // a per-step partial-failure {ok:false, statusCode:501} so the rest of the
 // pack still runs and the envelope shape stays consistent. Reachable only
 // for any pack added to SKILL_PACKS without a corresponding PACK_STEPS entry.
+// Annualized realized volatility from a stock-history bar series: stddev of
+// daily log returns x sqrt(252). Used by the options pack to give
+// black-scholes a sigma grounded in the stock's own recent history rather
+// than a hardcoded guess. Throws (-> clean per-step partial failure) rather
+// than returning NaN, because a NaN sigma produces a confident-looking
+// option price that is meaningless.
+function realizedVolatility(bars) {
+  const closes = (Array.isArray(bars) ? bars : [])
+    .map((b) => Number(b?.close))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (closes.length < 20) {
+    throw Object.assign(
+      new Error(`not enough price history to estimate volatility (need 20 closes, got ${closes.length})`),
+      { statusCode: 422 }
+    );
+  }
+  const rets = [];
+  for (let i = 1; i < closes.length; i++) rets.push(Math.log(closes[i] / closes[i - 1]));
+  const mean = rets.reduce((a, b) => a + b, 0) / rets.length;
+  const variance = rets.reduce((a, r) => a + (r - mean) ** 2, 0) / (rets.length - 1);
+  const vol = Math.sqrt(variance) * Math.sqrt(252);
+  if (!Number.isFinite(vol) || vol <= 0) {
+    throw Object.assign(new Error("could not compute a usable volatility from the price history"), { statusCode: 422 });
+  }
+  return Math.round(vol * 10000) / 10000;
+}
+
+// A prior step's number, or a clean failure naming what was missing. Chained
+// steps that silently coerce a missing input to NaN produce a plausible-looking
+// answer built on nothing, which is worse than a failed step.
+function requireNumber(value, what) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) {
+    throw Object.assign(new Error(`${what} was not available from the previous step`), { statusCode: 424 });
+  }
+  return n;
+}
+
 function todoError() {
   return Object.assign(new Error("mapInput not yet implemented for this step"), {
     statusCode: 501,
@@ -1423,11 +1461,111 @@ export const PACK_STEPS = {
       { slug: "crypto-trending", mapInput: () => ({}) },
       { slug: "crypto-global",   mapInput: () => ({ currency: "usd" }) },
       { slug: "search",          mapInput: (a) => ({ q: `${a.coin} cryptocurrency news`, count: 5, freshness: "pw" }) },
-      { slug: "extract",         mapInput: (a, p) => {
+      // Publishers that block scrapers are common enough that picking one URL
+      // lost this step 43.5% of the time. Offer the ranked results in order and
+      // fall back to the coin's own page, which we know is readable.
+      { slug: "extract",         mapInputs: (a, p) => {
           const results = p["search"]?.results || [];
-          const url = results[0]?.url || results[1]?.url || results[2]?.url;
-          return { url: url || `https://www.coingecko.com/en/coins/${a.coin}` };
+          const urls = results.map((r) => r?.url).filter((u) => typeof u === "string" && u);
+          urls.push(`https://www.coingecko.com/en/coins/${a.coin}`);
+          return [...new Set(urls)].slice(0, 4).map((url) => ({ url }));
       } },
+    ],
+  },
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Four packs that were listed and PRICED in SKILL_PACKS with no entry here,
+  // so every step hit todoError() and every buyer got HTTP 200 with 0/N steps
+  // succeeded - deterministically, from 2026-07-08 until 2026-08-31. The
+  // partial-success envelope is why nothing caught it: the shape is valid
+  // whatever the steps did, so the "answers its own example" check passed,
+  // and three of the four are additionally skipped there to avoid live Brave
+  // spend. Implemented below from each pack's own declared workflow and
+  // toolSlugs; the missing-entry class is now pinned by
+  // scripts/test-skill-pack-steps.js.
+  // ──────────────────────────────────────────────────────────────────────
+
+  // Earnings deep-dive: date, fundamentals, filings, quote, narrative. Every
+  // read is independent of the others, so fan out.
+  "earnings-deep-dive": {
+    mode: "fanout",
+    steps: [
+      { slug: "earnings-calendar",  mapInput: (a) => ({ symbol: a.ticker }) },
+      { slug: "company-financials", mapInput: (a) => ({ ticker: a.ticker }) },
+      { slug: "edgar-filings",      mapInput: (a) => ({ ticker: a.ticker, limit: 10 }) },
+      { slug: "stock-quote",        mapInput: (a) => ({ symbol: a.ticker }) },
+      { slug: "search",             mapInput: (a) => ({ q: `${a.ticker} earnings analyst expectations`, count: 5 }) },
+    ],
+  },
+
+  // Options analytics: chain, because the whole point of the pack is that
+  // black-scholes gets a LIVE spot and a volatility measured from this
+  // stock's own history instead of textbook inputs.
+  "options-analytics": {
+    mode: "chain",
+    steps: [
+      { slug: "stock-quote",   mapInput: (a) => ({ symbol: a.ticker }) },
+      { slug: "stock-history", mapInput: (a) => ({ symbol: a.ticker, range: "3mo" }) },
+      { slug: "black-scholes", mapInput: (a, p) => {
+          const spot = requireNumber(p["stock-quote"]?.price, "the live spot price");
+          const volatility = realizedVolatility(p["stock-history"]?.bars);
+          // At-the-money by default, rounded to a strike that would actually be
+          // listed; the caller may name one instead.
+          const step = spot >= 200 ? 10 : spot >= 50 ? 5 : 1;
+          const strike = Number(a.strike) > 0 ? Number(a.strike) : Math.round(spot / step) * step;
+          const days = Number(a.daysToExpiry) > 0 ? Number(a.daysToExpiry) : 30;
+          return {
+            type: a.type === "put" ? "put" : "call",
+            spot,
+            strike,
+            timeToExpiryYears: days / 365,
+            riskFreeRate: Number(a.riskFreeRate) >= 0 ? Number(a.riskFreeRate) : 0.05,
+            volatility,
+            dividendYield: 0,
+          };
+      } },
+      { slug: "search", mapInput: (a) => ({ q: `${a.ticker} stock catalyst earnings guidance`, count: 5 }) },
+    ],
+  },
+
+  // Fixed-income desk: chain, because the bond is priced at the CURVE's own
+  // 10Y yield and then re-inverted from that price to confirm it.
+  "fixed-income-desk": {
+    mode: "chain",
+    steps: [
+      { slug: "treasury-yield-curve", mapInput: () => ({}) },
+      { slug: "yield-curve-spread",   mapInput: () => ({}) },
+      { slug: "cpi-yoy",              mapInput: () => ({}) },
+      { slug: "bond-price", mapInput: (a, p) => {
+          // The curve reports percent (yr10: 4.51); the bond tools take a decimal.
+          const yr10 = requireNumber(p["treasury-yield-curve"]?.yr10, "the 10Y Treasury yield");
+          return {
+            faceValue: 1000,
+            couponRate: Number(a.couponRate) > 0 ? Number(a.couponRate) : 0.05,
+            yieldToMaturity: yr10 / 100,
+            years: 10,
+            periodsPerYear: 2,
+          };
+      } },
+      { slug: "bond-ytm", mapInput: (a, p) => ({
+          price: requireNumber(p["bond-price"]?.price, "the bond price from the previous step"),
+          faceValue: 1000,
+          couponRate: Number(a.couponRate) > 0 ? Number(a.couponRate) : 0.05,
+          years: 10,
+          periodsPerYear: 2,
+      }) },
+    ],
+  },
+
+  // DeFi protocol scanner: price, market scale, real usage (TVL), news.
+  // Independent reads, so fan out.
+  "defi-protocol-scanner": {
+    mode: "fanout",
+    steps: [
+      { slug: "crypto-price",  mapInput: (a) => ({ coins: a.protocol, currency: "usd" }) },
+      { slug: "crypto-market", mapInput: () => ({ limit: 10, currency: "usd" }) },
+      { slug: "defi-tvl",      mapInput: (a) => ({ protocol: a.protocol }) },
+      { slug: "search",        mapInput: (a) => ({ q: `${a.protocol} defi protocol audit security incident`, count: 5 }) },
     ],
   },
 
@@ -2273,7 +2411,6 @@ async function runPack(packSlug, args, ctx) {
     // (e.g. Brave answer) to pack fan-out. Fire-and-forget, never throws.
     const startedAt = Date.now();
     try {
-      const input = await step.mapInput(args, prior);
       const handler = lookupHandler(step.slug, ctx);
       if (!handler) {
         throw Object.assign(
@@ -2281,10 +2418,30 @@ async function runPack(packSlug, args, ctx) {
           { statusCode: 501 }
         );
       }
-      const result = await handler(input);
-      prior[step.slug] = result;
-      capturePostHogPackStep({ pack: packSlug, slug: step.slug, ok: true, ms: Date.now() - startedAt });
-      return { slug: step.slug, ok: true, result };
+      // A step may offer several candidate inputs instead of one. Tried in
+      // order, first success wins. This exists because crypto-dossier's
+      // extract step reads whichever news site happened to rank first, and
+      // measured over 60 days it failed 43.5% of the time (37 of 85 runs)
+      // while every other step in the pack was 100% - a coin flip on the
+      // publisher, charged to the buyer as a missing step. Falling back to
+      // the next search result costs one more attempt and no upstream money.
+      const candidates = typeof step.mapInputs === "function"
+        ? await step.mapInputs(args, prior)
+        : [await step.mapInput(args, prior)];
+      const inputs = (Array.isArray(candidates) ? candidates : [candidates]).filter((i) => i != null);
+      if (!inputs.length) {
+        throw Object.assign(new Error("no usable input for this step"), { statusCode: 424 });
+      }
+      let lastErr;
+      for (const input of inputs) {
+        try {
+          const result = await handler(input);
+          prior[step.slug] = result;
+          capturePostHogPackStep({ pack: packSlug, slug: step.slug, ok: true, ms: Date.now() - startedAt });
+          return { slug: step.slug, ok: true, result };
+        } catch (err) { lastErr = err; }
+      }
+      throw lastErr;
     } catch (err) {
       capturePostHogPackStep({ pack: packSlug, slug: step.slug, ok: false, ms: Date.now() - startedAt });
       return {
@@ -2305,6 +2462,23 @@ async function runPack(packSlug, args, ctx) {
   }
 
   const okCount = steps.filter((s) => s.ok).length;
+  // Zero successful steps is not a partial success, it is a non-delivery, and
+  // a 200 charges for it: @x402/express settles any response under 400. Four
+  // packs shipped in exactly that state for two months. Refuse instead, so
+  // settlement is cancelled and nobody pays for an empty envelope.
+  //
+  // The status is derived from the steps rather than fixed: if every failure
+  // was the caller's input (4xx), 400 is the honest answer and a 502 would
+  // blame an upstream that was never at fault; anything else is ours or the
+  // upstream's, so 502.
+  if (steps.length > 0 && okCount === 0) {
+    const allClientErrors = steps.every((s) => s.statusCode >= 400 && s.statusCode < 500);
+    const reasons = steps.map((s) => `${s.slug}: ${s.error}`).join("; ");
+    throw Object.assign(
+      new Error(`No step in the "${packSlug}" pack succeeded, so there is nothing to return (not charged). ${reasons}`),
+      { statusCode: allClientErrors ? 400 : 502 }
+    );
+  }
   return {
     pack: packSlug,
     // Echo the caller's args back MINUS anything named as a secret. The pack that

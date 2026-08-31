@@ -906,6 +906,29 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   legacy `errorResultXdr` string (the 08-27 "(no errorResultXdr in response) otherKeys:[errorResult]" line). facilitator/test.js 59
   offline pins. The facilitator redeploys ONLY on `facilitator/**` changes and has its own lockfile: a root Dependabot bump never
   touches it (verified 2026-08-28 while diagnosing this; the same-day mppx/viem/algosdk bump was cleared by a canary rerun).
+- **Four skill packs were SOLD and structurally unimplemented (2026-08-31, `scripts/test-skill-pack-steps.js`):** `earnings-deep-dive`,
+  `options-analytics`, `fixed-income-desk` and `defi-protocol-scanner` were in `SKILL_PACKS` with prices, catalog entries and live
+  tool pages, and had NO `PACK_STEPS` entry - so `getStepConfig` fell back to the stub whose every `mapInput` throws `todoError()`,
+  and each call returned **HTTP 200 with "0/N steps succeeded"**, deterministically, for every buyer, **2026-07-08 to 2026-08-31**.
+  61 settlements at $0.05; most were our own canaries (`ZKFACA` Algorand burner, `0x902d` EVM burner, `0xfeda` the retired one) but
+  ~5 were outside wallets in neither `OUR_WALLETS` nor `OUR_ALGORAND_WALLETS`. **Why nothing caught it: the partial-success envelope
+  is a VALID shape whatever the steps did**, so the "answers its own example" sweep (status + documented keys) passed, and three of
+  the four are additionally in test-all's Brave skip list so they were never executed at all. Now implemented from each pack's own
+  declared `workflow`/`toolSlugs` (options and fixed-income are CHAINS: black-scholes gets the live spot plus a volatility measured
+  from that stock's own history via `realizedVolatility`, and the bond is priced at the curve's own 10Y then re-inverted with
+  `bond-ytm` to confirm - verified live, AAPL 316.85 -> ATM strike delta 0.49, bond round-tripping to 4.73%). `requireNumber` fails a
+  chained step cleanly rather than letting a missing prior coerce to NaN and produce a confident-looking answer built on nothing.
+  **A pack where ZERO steps succeed now REFUSES** (`runPack` throws; 400 when every step failed on the caller's input, else 502) so
+  settlement is cancelled and nobody pays for an empty envelope - a 200 charges, because @x402/express settles anything under 400.
+  Partial success is unchanged and still 200: "the absence is part of the dossier" is about SOME steps failing, never all.
+  **`mapInputs` (plural) is new**: a step may offer ordered candidate inputs and the runner tries them until one works. It exists
+  because `crypto-dossier`'s `extract` read whichever news site ranked first and **failed 43.5% of the time (37 of 85 runs over 60
+  days) while every other step in that pack ran at 100%** - a coin flip on the publisher, charged to the buyer as a missing step; it
+  now walks the ranked results and ends on the coin's own CoinGecko page, which is readable. NOT a defect and left alone:
+  `decode-blob` reads as 42.9% failed because it throws a blob at seven decoders and a JWT is not gzip/brotli/hex - the misses ARE
+  the answer. The guard (in CI, offline, 659 assertions, mutation-killed) pins that every `SKILL_PACKS` slug has a `PACK_STEPS`
+  entry, that every step can build its input, and that every step is a tool the pack advertises in `toolSlugs` - the last one is
+  what a future retirement cut would otherwise hollow out silently.
 - **Stellar settlements bid ABOVE the network minimum (2026-08-31, `facilitator/fee-bid.js`):** the Stellar rail was our only
   unreliable one - 25 up / 15 down over 30 days of canary observations (62.5%) against Base's 40/40 - and every failure reduced
   to ONE cause: `@x402/stellar` builds the settlement transaction with `fee: BASE_FEE` (100 stroops, the network MINIMUM,
