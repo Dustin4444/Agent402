@@ -19,6 +19,21 @@
 # The money is close to circular - the CI burner pays OUR payTo, so face value
 # moves between our own wallets and the real cost is the facilitator's
 # settlement fee (CDP: 1,000/month free, then $0.001) plus sponsored gas.
+#
+# NOT entirely circular, and this is what sets the cadence. The ceiling is a
+# PROXY for upstream cost, never an exclusion: at $0.05 the pass also buys the
+# routes that bill a third party per call - the LLM tiers, images, tts,
+# transcribe, code-run (E2B), Brave-backed search, Blockscout (which we pay
+# $0.002 a call upstream), Alchemy, Neynar, and 12 skill packs whose STEPS
+# reach Brave even though the pack's own slug is not metered. Measured
+# 2026-08-31: 97 of the 472 swept routes touch a metered upstream. That spend
+# is real and it is why this runs WEEKLY rather than daily - the rule being
+# defended is 30 days without a settlement, so weekly already carries 4x
+# headroom and daily would buy nothing but 7x the upstream burn.
+#
+# Routes above the ceiling (101 of 573) stay unlisted on purpose: they are the
+# report products and premium tiers, where one sweep of a single $2 pack can
+# burn ~$1.20 upstream. They remain findable via the live 402.
 name: Bazaar keep-alive
 
 on:
@@ -31,7 +46,7 @@ on:
     inputs:
       max_price_usd:
         description: "Per-route ceiling. 0.01 covers 405 routes (~$1.18); 0.05 covers 472 (~$3.31)."
-        default: "0.01"
+        default: "0.05"
       batches:
         description: "Split the pass into N batches so no single run times out."
         default: "4"
@@ -67,7 +82,7 @@ jobs:
           TARGET_URL: https://agent402.tools
           MODE: sweep
           PAY_NETWORK: base
-          MAX_PRICE_USD: ${{ inputs.max_price_usd || '0.01' }}
+          MAX_PRICE_USD: ${{ inputs.max_price_usd || '0.05' }}
           MAX_SPEND_USD: "1"
           BATCH_COUNT: ${{ inputs.batches || '4' }}
           BATCH_INDEX: ${{ matrix.batch }}
