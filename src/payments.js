@@ -1166,6 +1166,28 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
 
   // One payment option per enabled chain — agents pick the chain they hold funds on.
   // Identity-bound routes are the exception (EVM-only) — see acceptsForItem.
+  // "Extract article" beats "Agent402.tools" as the name of a row in an index
+  // of 14,000 resources. Falls back to the host name when a tool has no name,
+  // so a listing is never anonymous.
+  const serviceNameFor = (item) =>
+    (typeof item?.name === "string" && item.name.trim())
+      // 32 characters is the protocol's own ceiling on serviceName
+      // (ResourceInfoSchema); the contract sweep fails the build on 33. Trim at
+      // a word boundary so a cut name still reads as a name.
+      ? asciiName(item.name)
+      : "Agent402.tools";
+  // Printable ASCII only, then 32 characters - both are ResourceInfoSchema's
+  // rules, and the contract sweep fails the build on either. A tool named
+  // "EDGAR company lookup (ticker -> CIK)" carried a real arrow character and
+  // was rejected as Invalid rather than as too long, which is why this
+  // normalises before it truncates. Trim on a word boundary so a cut name
+  // still reads as a name.
+  const asciiName = (raw) => {
+    const clean = String(raw).replace(/[\u2192\u2794\u27a1]/g, "->").replace(/[^\x20-\x7e]/g, "").replace(/\s+/g, " ").trim();
+    if (!clean) return "Agent402.tools";
+    if (clean.length <= 32) return clean;
+    return clean.slice(0, 32).replace(/\s+\S*$/, "").trim() || clean.slice(0, 32);
+  };
   const acceptsFor = (item) =>
     acceptsForItem(item, { evmCaip2, svmCaip2, stellarCaip2, avmCaip2, walletAddress, solanaWallet, stellarWallet, algorandWallet, uptoCaip2 });
 
@@ -1238,7 +1260,26 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
         {
           accepts: acceptsFor(item),
           description: listingDescription,
-          serviceName: "Agent402.tools",
+          // Per-TOOL service name, not the host name.
+          //
+          // Measured 2026-08-31: our 168 Bazaar listings all read
+          // "Agent402.tools", so an agent browsing or searching the index sees
+          // 168 identical rows. The sellers with the largest presence name each
+          // resource for what it does - delx.ai carries 971 distinct
+          // serviceNames across 995 listings, agentstools.dev 347 across 347.
+          // Being IN the index and being FINDABLE in it are different things,
+          // and a row that says only "Agent402.tools" answers no query an agent
+          // would type.
+          //
+          // It may also be why so few of ours register at all: 325 paid buys
+          // produced 64 listings, a second payment for the same routes produced
+          // one, and no observable property of the request explained which -
+          // an indexer that treats identical serviceName + near-identical tags
+          // as duplicates of a row it already holds would produce exactly that.
+          // UNPROVEN (m2mcent.com has one serviceName across 965 listings, so
+          // it cannot be the whole rule), but the change stands on
+          // discoverability alone.
+          serviceName: serviceNameFor(item),
           // Discovery tags feed marketplace categorizers (x402scan, the Bazaar).
           // Include the resource's own category alongside its specific tags so
           // an indexer sees the real category signal (unit conversion, data,
