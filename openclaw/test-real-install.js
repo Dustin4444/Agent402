@@ -1,7 +1,7 @@
 // The plugin against a REAL OpenClaw, the way a user gets it - not the fake
 // plugin api in test.js. Every green run of that file proved the plugin against
 // OUR MODEL of OpenClaw; this proves it against OpenClaw:
-//   npm i openclaw@latest        (the actual host, ~90 MB, Node >= 22.22)
+//   npm i openclaw@<pinned>      (the actual host, ~90 MB, Node >= 22.22)
 //   npm pack + npm i -g <tgz>    (the bin SYMLINK path - 0.1.0/0.1.1 were no-ops through it)
 //   openclaw plugins install <tgz>   (the documented install; 0.1.0-0.2.0 were REFUSED here:
 //                                    "plugin manifest requires configSchema")
@@ -23,7 +23,15 @@ import { spawn } from "node:child_process";
 let pass = 0, fail = 0;
 const ok = (c, m) => { c ? pass++ : fail++; console.log(`${c ? "ok" : "FAIL"} - ${m}`); };
 const pkgDir = new URL(".", import.meta.url).pathname;
-const OPENCLAW_SPEC = process.env.OPENCLAW_SPEC || "openclaw@latest";
+// PINNED, deliberately. This lane installs the host from npm, so tracking
+// @latest hands a third party a veto over every merge in this repo: OpenClaw
+// published 2026.8.1 overnight on 2026-08-30 and the lane went red with no
+// commit of ours, blocking an unrelated catalog fix for hours. The pin is the
+// newest version the plugin is PROVEN against; openclaw-latest.yml runs this
+// same file against @latest on a schedule and opens an issue, so a host change
+// still reaches us - as a page, not as a blocked merge. Raise the pin when
+// that watcher goes red and the plugin has been fixed to match.
+const OPENCLAW_SPEC = process.env.OPENCLAW_SPEC || "openclaw@2026.8.1";
 
 // ASYNC spawn only: the stub gateway lives in this process, and a synchronous
 // spawn blocks the event loop so nothing the child asks the stub is answered
