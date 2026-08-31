@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { STATE_DIR, CREDITS_KEY_FILE, WALLET_KEY_FILE, resolveCreditsKey, resolveWalletKey, resolvePayFetch, USDC_BASE, DEFAULT_BASE_RPC, uptoReady } from "./index.js";
 import { startProxy, loadRoutes, DEFAULT_UPSTREAM } from "./proxy.js";
 import { providerModelsConfig, stripTrailingSlashes, defaultPrimary, AUTO_ID, OPENCLAW_MIN_INPUT_CHARS } from "./models.js";
-import { DEFAULT_PORT, PROVIDER_ID } from "./provider.js";
+import { DEFAULT_PORT, PLUGIN_ID, PROVIDER_ID } from "./provider.js";
 
 const args = process.argv.slice(2);
 const cmd = args[0] || "help";
@@ -38,7 +38,7 @@ function mergeInto(target, block, { port = DEFAULT_PORT } = {}) {
   // on 8412 and OpenClaw dialing a port nobody listened on (real-install test).
   if (port !== DEFAULT_PORT) {
     t.plugins = t.plugins || {}; t.plugins.entries = t.plugins.entries || {};
-    t.plugins.entries[PROVIDER_ID] = { ...(t.plugins.entries[PROVIDER_ID] || {}), config: { ...(t.plugins.entries[PROVIDER_ID]?.config || {}), port } };
+    t.plugins.entries[PLUGIN_ID] = { ...(t.plugins.entries[PLUGIN_ID] || {}), config: { ...(t.plugins.entries[PLUGIN_ID]?.config || {}), port } };
   }
   return t;
 }
