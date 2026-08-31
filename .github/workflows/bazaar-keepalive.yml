@@ -1,0 +1,113 @@
+# Keep every catalog route listed in the settlement-driven indexes.
+#
+# CDP's own seller docs: "Resources that go 30 days without a settlement are
+# removed." That is not a registration failure, it is a cull, and it explains
+# what looked all night like a broken harvester: our oldest surviving listing
+# is dated exactly 30 days back, and 405 of 573 routes had simply aged out
+# because nothing had paid them inside the window. Fewer listings means less
+# discovery, which means fewer buyers, which means fewer settlements - the loop
+# tightens on itself.
+#
+# scripts/refresh-bazaar.js already had the remedy (MODE=sweep, "pay one tiny
+# settlement against every cheap route so settlement-driven indexes observe
+# them"). It was wired to workflow_dispatch only and had never run on a
+# schedule. This is that schedule; the script is unchanged.
+#
+# WEEKLY, not monthly, against a 30-day rule: four missed runs in a row still
+# leave the listings alive, so a broken week is not a cull.
+#
+# The money is close to circular - the CI burner pays OUR payTo, so face value
+# moves between our own wallets and the real cost is the facilitator's
+# settlement fee (CDP: 1,000/month free, then $0.001) plus sponsored gas.
+name: Bazaar keep-alive
+
+on:
+  schedule:
+    # Sunday 04:17 UTC. GitHub throttles schedules on a busy repo (measured
+    # 2026-08-30: a 15-minute cron delivered one run in 9.8 hours), which is
+    # exactly why the cadence has 4x headroom against the 30-day rule.
+    - cron: "17 4 * * 0"
+  workflow_dispatch:
+    inputs:
+      max_price_usd:
+        description: "Per-route ceiling. 0.01 covers 405 routes (~$1.18); 0.05 covers 472 (~$3.31)."
+        default: "0.01"
+      batches:
+        description: "Split the pass into N batches so no single run times out."
+        default: "4"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: bazaar-keepalive
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      # Sequential: the batches share one burner wallet, and concurrent buys
+      # from one address race their own nonces.
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        batch: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "22"
+      - name: Install the x402 client
+        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/fetch@2.22.0 @x402/core@2.22.0 @x402/evm@2.22.0 viem@2.52.2
+      - name: Refresh settlements
+        env:
+          TARGET_URL: https://agent402.tools
+          MODE: sweep
+          PAY_NETWORK: base
+          MAX_PRICE_USD: ${{ inputs.max_price_usd || '0.01' }}
+          MAX_SPEND_USD: "1"
+          BATCH_COUNT: ${{ inputs.batches || '4' }}
+          BATCH_INDEX: ${{ matrix.batch }}
+          BURNER_KEY: ${{ secrets.BURNER_KEY }}
+        run: |
+          [ -n "$BURNER_KEY" ] || { echo "::error::BURNER_KEY is not set - the keep-alive cannot pay, and listings will age out in 30 days"; exit 1; }
+          echo "::add-mask::$BURNER_KEY"
+          node scripts/refresh-bazaar.js
+
+  report:
+    needs: sweep
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - name: Count our listings, and page if the sweep failed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SWEEP: ${{ needs.sweep.result }}
+        run: |
+          LISTED=$(node -e "
+            (async () => {
+              let n=0, offset=0;
+              for (let p=0;p<20;p++){
+                const r=await fetch(\`https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources?limit=1000&offset=\${offset}\`).catch(()=>null);
+                if(!r||!r.ok) break; const d=await r.json(); const items=d.items||d.resources||[]; if(!items.length) break;
+                n+=items.filter(i=>String(i.resource||'').includes('agent402.tools')).length;
+                if(items.length<1000) break; offset+=items.length;
+              }
+              console.log(n);
+            })()" 2>/dev/null || echo "?")
+          echo "agent402.tools listings after the sweep: $LISTED"
+          TITLE="Bazaar keep-alive FAILED - listings will age out"
+          OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          if [ "$SWEEP" != "success" ]; then
+            if [ -z "$OPEN" ]; then
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "The weekly Bazaar keep-alive did not complete (result: $SWEEP). CDP removes a resource after 30 days without a settlement, so a sustained failure silently delists the catalog - which is how 405 of 573 routes disappeared before 2026-08-31. Currently listed: $LISTED. Re-run: \`gh workflow run bazaar-keepalive.yml --ref main\`."
+            else
+              gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "Still failing at $(date -u +%FT%TZ). Listed: $LISTED."
+            fi
+          elif [ -n "$OPEN" ]; then
+            gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Keep-alive completed at $(date -u +%FT%TZ). Listed: $LISTED."
+          fi
