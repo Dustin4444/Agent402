@@ -3808,6 +3808,8 @@ jobs:
           t node scripts/test-supported-guard.js
           # Verify falls over to another facilitator when the first is UNREACHABLE, and never when it answers (offline, stub facilitators)
           t node scripts/test-verify-failover.js
+          # Event-loop lag monitor measures a real block and stays cheap enough to leave on (offline)
+          t node scripts/test-loop-lag.js
           # Tempo MPP settlement (native tempo/charge via Tempo's relay — challenge wiring + settlement-ordering proof — offline)
           t node scripts/test-mpp-tempo-shim.js
 

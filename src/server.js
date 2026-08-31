@@ -10,6 +10,13 @@ import { createGzip } from "node:zlib";
 import { setGlobalDispatcher, Agent as UndiciAgent } from "undici";
 dns.setDefaultResultOrder("ipv4first");
 setGlobalDispatcher(new UndiciAgent({ connect: { family: 4 } }));
+// The event loop is watched for the life of the process (started in
+// boot-profile.js, the first import, because ES imports hoist and a monitor
+// started here cannot see the boot it is meant to measure). A CONNECT timeout
+// is a TIMER firing, so a blocked loop is indistinguishable from an unreachable
+// upstream - which is what seven CDP verify failures looked like on 2026-08-30
+// while CDP answered from outside in 15-37 ms. See src/loop-lag.js.
+import { loopLagStatus } from "./loop-lag.js";
 import express from "express";
 import compression from "compression";
 import { readFileSync } from "node:fs";
@@ -1888,7 +1895,7 @@ app.get("/api/gateway-status", async (_req, res) => {
   const [gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, subscriptionFeePayer, databases] = await Promise.all([gatewayCreditsStatus(), upstreamBuyerStatus(), avmBuyerStatus(), tempoBuyerStatus(), subscriptionFeePayerStatus(), databasesStatus().catch(() => null)]);
   // `databases`: leads/analytics Postgres reachability, status words only
   // (src/db-status.js) - the heartbeat pages on "unreachable".
-  res.set("Cache-Control", "public, max-age=60").json({ ...gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, subscriptionFeePayer, databases, operatorAuth: operatorAuthStatus(), mppEvmDomainFallback: mppFallbackStatus() });
+  res.set("Cache-Control", "public, max-age=60").json({ ...gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, subscriptionFeePayer, databases, operatorAuth: operatorAuthStatus(), mppEvmDomainFallback: mppFallbackStatus(), loopLag: loopLagStatus() });
 });
 // Static SAMPLE A2A Agent Card — the self-answering example target for the
 // a2a-card-fetch tool. Explicitly a sample (fictional weather agent), NOT an
