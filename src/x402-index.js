@@ -71,8 +71,19 @@ const LOCAL_SELLER = "self";
 // TWO regexes on purpose: `.test()` on a /g regex is STATEFUL (it advances
 // lastIndex and alternates true/false across calls), so the predicate is
 // non-global and only the extraction is global.
-const URL_TEMPLATE_RE = /\{[^}/]+\}/;
-const URL_TEMPLATE_RE_G = /\{([^}/]+)\}/g;
+const URL_TEMPLATE_RE = /\{[^}/]+\}|%7[Bb][^/]*?%7[Dd]|\/:[A-Za-z_][A-Za-z0-9_]*(?=\/|$)/;
+const URL_TEMPLATE_RE_G = /\{([^}/]+)\}|%7[Bb](.*?)%7[Dd]|\/:([A-Za-z_][A-Za-z0-9_]*)(?=\/|$)/g;
+// THREE dialects, not one. The brace form is what OpenAPI writes, but a seller
+// documenting with Express-style ":domain", or a manifest that URL-encoded its
+// own braces into "%7Bdomain%7D", produces a path that is just as uncallable and
+// used to sail through. Reported 2026-08-30 by a seller whose row we published
+// with two placeholder routes priced at $0.02: /api/v1/hosts/:domain answers 422
+// forever, while /api/v1/hosts/allbirds.com?refresh=1 answers 402 as it should.
+// He also noted the consequence we could not see - a prober that tries the
+// documented path scores the SELLER as unpayable for a service that works.
+//
+// The colon form is anchored to a whole segment (/:name) so an ordinary path
+// containing a colon, or a scheme, is not mistaken for a template.
 const SELF_BAZAAR_ORIGIN = "https://agent402.tools"; // the origin our Bazaar listing is keyed under
 // /index used to render every crawled seller server-side (~1,477 rows → a
 // 475KB response with no compression). Cap the default render to the top N
@@ -3872,7 +3883,7 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
       // three of eight rows for "get a stock quote" were templates. We still
       // RETURN the row (the seller and the tool are real, and an agent that
       // knows the parameter can fill it), but we say so, and the SOR skips it.
-      ...(URL_TEMPLATE_RE.test(t.route || "") ? { urlTemplate: true, pathParams: [...String(t.route).matchAll(URL_TEMPLATE_RE_G)].map((m) => m[1]) } : {}),
+      ...(URL_TEMPLATE_RE.test(t.route || "") ? { urlTemplate: true, pathParams: [...String(t.route).matchAll(URL_TEMPLATE_RE_G)].map((m) => m[1] || m[2] || m[3]).filter(Boolean) } : {}),
       price: t.price,
       priceUsd: parsePrice(t.price),
       ...priceConflictProjection(t),
