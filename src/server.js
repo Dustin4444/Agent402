@@ -4395,6 +4395,13 @@ app.get("/api/index", (req, res) => {
 const REG_WINDOW_MS = 3600_000;
 const regByIp = new Map(); // ip -> [timestamps]; global cap is regGlobal below
 let regGlobal = [];
+// The backstop, not the fairness rule: per-IP (5/hour) is what stops one actor,
+// and this exists only so the endpoint cannot become a fetch amplifier at
+// scale. It was 30/hour, low enough that ordinary adoption hit it - each new
+// seller costs us one crawl, which the 30-minute cycle already absorbs.
+// Env-overridable so it can be raised without a deploy.
+const REG_GLOBAL_MAX = Math.max(30, Number(process.env.INDEX_REGISTER_GLOBAL_MAX || 300));
+let regGlobalTripped = 0;
 // F21: evict stale keys from the one-time-IP rate maps so distributed input
 // can't grow them without bound (the per-IP prune only fires when the SAME IP
 // returns). Mirrors the powChallengeHits / operatorSessions sweeps; the inline
@@ -4413,7 +4420,21 @@ app.post("/api/index/register", async (req, res) => {
   const v = validateOriginInput(req.body?.origin, { selfOrigin: BASE_URL });
   if (v.error) return res.status(400).json({ error: v.error });
   regGlobal = regGlobal.filter((t) => now - t < REG_WINDOW_MS);
-  if (regGlobal.length >= 30) return res.status(429).json({ error: "rate limit: registration is busy, try again later" });
+  if (regGlobal.length >= REG_GLOBAL_MAX) {
+    // A global cap is a backstop, not the fairness mechanism - the per-IP cap
+    // above is. At 30/hour it did the second job badly: one actor spending 5
+    // from each of six addresses exhausted the budget for every seller on earth
+    // for the rest of the hour, and a first-time seller got "registration is
+    // busy" with nothing they could do. Measured 2026-08-31 from the mailbox:
+    // three sellers hit this in one week and two gave up and emailed instead -
+    // the growth funnel refusing the people it exists to serve. Re-registering a
+    // KNOWN origin short-circuits before this cap, so only new sellers were hit.
+    if (!regGlobalTripped || now - regGlobalTripped > 600_000) {
+      console.warn(`[index-register] GLOBAL cap hit (${regGlobal.length}/${REG_GLOBAL_MAX} in the last hour) - NEW sellers are being refused`);
+      regGlobalTripped = now;
+    }
+    return res.status(429).json({ error: `rate limit: registration is busy (global cap ${REG_GLOBAL_MAX}/hour), try again later`, retryAfterSeconds: 600 });
+  }
   mine.push(now); regByIp.set(ip, mine); regGlobal.push(now);
   const result = await registerOrigin(v.origin);
   res.json(result);
@@ -4435,7 +4456,7 @@ app.post("/api/mpp-index/register", async (req, res) => {
   const v = validateMppOriginInput(req.body?.origin, { selfOrigin: BASE_URL });
   if (v.error) return res.status(400).json({ error: v.error });
   mppRegGlobal = mppRegGlobal.filter((t) => now - t < REG_WINDOW_MS);
-  if (mppRegGlobal.length >= 30) return res.status(429).json({ error: "rate limit: registration is busy, try again later" });
+  if (mppRegGlobal.length >= REG_GLOBAL_MAX) return res.status(429).json({ error: `rate limit: registration is busy (global cap ${REG_GLOBAL_MAX}/hour), try again later`, retryAfterSeconds: 600 });
   mine.push(now); mppRegByIp.set(ip, mine); mppRegGlobal.push(now);
   // Optional probe hint: the priced path (and GET/POST) the seller's 402 lives
   // on, for sellers not yet in the registry (validated in registerMppOrigin).

@@ -2081,6 +2081,8 @@ jobs:
           t node scripts/test-discovery-filter.js
           # Index warm-start (crawl cache survives a redeploy; no half-crawled marketplace — offline)
           t node scripts/test-index-warmstart.js
+          # Crawl load is per operator, not per origin; the register global cap is a backstop (offline)
+          t node scripts/test-crawl-politeness.js
           # Index warm-start is incremental (NDJSON twin parsed a batch per turn; no event-loop hold; legacy fallback — offline)
           t node scripts/test-index-ndjson-warmstart.js
           # Crawl cadence copy is derived (served pages cannot advertise a cadence we do not run — offline)
