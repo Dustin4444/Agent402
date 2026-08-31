@@ -1449,6 +1449,7 @@ let railsOffered = [];
 // settling chains the boot log's labels attribute to PayAI; /supported needs
 // a JWT, so the only way to know what prod's clients advertise is to ask the
 // clients themselves. This feeds GET /__operator/facilitators.json.
+const VERIFY_FAILOVER = String(process.env.VERIFY_FAILOVER || "").toLowerCase();
 let facilitatorRegistry = [];
 export async function facilitatorSupportReport() {
   return Promise.all(facilitatorRegistry.map(async ({ label, client }) => {
@@ -1511,6 +1512,31 @@ export function registerFacilitatorFailureHooks(server, payAiClient, solvadorCli
       `[payments] facilitator VERIFY failed on ${ctx?.requirements?.network} ` +
         `${ctx?.requirements?.scheme}: ${reason}`
     );
+    // Before writing this off as a failed payment: was the facilitator merely
+    // UNREACHABLE? @x402/core resolves one client per network and does not fall
+    // back when that client throws, so a connect timeout at CDP - which is
+    // first-tried for Solana - loses the sale outright while PayAI sits idle.
+    // Verify is a READ, so asking another facilitator cannot double charge.
+    // Only a transport failure is retried; a verdict is never second-guessed.
+    // (src/verify-failover.js carries the full reasoning.)
+    if (VERIFY_FAILOVER !== "off") {
+      try {
+        const { verifyElsewhere } = await import("./verify-failover.js");
+        const rescued = await verifyElsewhere({
+          error: ctx?.error,
+          paymentPayload: ctx?.paymentPayload,
+          requirements: ctx?.requirements,
+          registry: facilitatorRegistry,
+          log: (label, msg) => console.warn(`[payments] ${msg}`),
+        });
+        if (rescued) {
+          await recordVerifyFailure(ctx, `${reason} (recovered via ${rescued.via})`);
+          return rescued;
+        }
+      } catch (e) {
+        console.warn(`[payments] verify failover errored, original failure stands: ${String(e?.message || e).slice(0, 120)}`);
+      }
+    }
     await recordVerifyFailure(ctx, reason);
   });
   if (typeof server.onAfterVerify === "function") {
