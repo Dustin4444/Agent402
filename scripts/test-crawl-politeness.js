@@ -17,6 +17,21 @@ const solo = ["https://alone-a.com", "https://alone-b.io"];
 const all = [...many, ...solo];
 
 ok(operatorKey("https://a.b.example.xyz") === "example.xyz", "subdomains of one operator share a key");
+
+// SHARED HOSTING IS NOT ONE OPERATOR. "last two labels" made every Vercel seller
+// one operator, every Workers seller one operator, and handed each whole group a
+// single per-cycle budget - so an attacker could register throwaway origins under
+// the same suffix and starve a competitor's listing until its learned quote aged
+// out (QUOTE_MAX_AGE_MS, 7 days). This file already knew better in one place:
+// railwayDeploymentOrigin exists because unrelated sellers publish on
+// *.up.railway.app.
+for (const [a, b, label] of [
+  ["https://victim.vercel.app", "https://attacker.vercel.app", "vercel.app"],
+  ["https://a.one.workers.dev", "https://b.two.workers.dev", "workers.dev"],
+  ["https://x.up.railway.app", "https://y.up.railway.app", "up.railway.app"],
+  ["https://p.onrender.com", "https://q.onrender.com", "onrender.com"],
+  ["https://m.pages.dev", "https://n.pages.dev", "pages.dev"],
+]) ok(operatorKey(a) !== operatorKey(b), `two tenants on ${label} are not one operator`);
 ok(operatorKey("https://x.foo.co.uk") === "foo.co.uk", "multi-part suffixes are not split at the wrong label");
 ok(operatorKey("not a url") === "not a url", "an unparseable origin degrades to itself, never throws");
 
@@ -54,6 +69,13 @@ ok(!/regGlobal\.length >= 30\b/.test(server), "the old hardcoded 30/hour global 
 // every assertion above green, which is the same shape as a primitive that stays
 // correct while the caller is quietly handed the wrong value.
 const index = readFileSync(new URL("../src/x402-index.js", import.meta.url), "utf8");
+// The outage guard must score what was actually crawled. Once the cap made the
+// crawled set a subset, passing the full list let held-back origins contribute
+// their PREVIOUS verdict - diluting the fraction with stale OKs in the unsafe
+// direction, so an egress outage could still clear the 0.5 floor and release
+// submission slots.
+ok(/releaseDeadSubmissions\(cycleOkFraction\(due\)\)/.test(index),
+   "the outage guard scores the crawled set, not the full seed list");
 ok(/const due = originsDueThisCycle\(ordered, crawlCycle\)/.test(index),
    "runCrawl actually applies the per-operator filter");
 ok(/runPool\(due, CRAWL_CONCURRENCY, crawlSeller\)/.test(index),

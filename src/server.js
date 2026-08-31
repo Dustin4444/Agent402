@@ -168,7 +168,7 @@ import { tempoSelfRecipient } from "./mpp-tempo.js";
 import { mppMarketPage } from "./mpp-market-page.js";
 import { indexToolsPage, INDEX_TOOLS_PAGE_SIZE } from "./index-tools-page.js";
 import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankBy } from "./leaderboard.js";
-import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus, facilitatorSupportReport } from "./payments.js";
+import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus, facilitatorSupportReport, setComputePayablePaths } from "./payments.js";
 import { createMppShim } from "./mpp-shim.js";
 import { createTempoChallengeAppender, createTempoGate, tempoTxFromReceiptHeader } from "./mpp-tempo.js";
 import { createStripeChallengeAppender, createStripeGate, stripeTxFromReceiptHeader } from "./mpp-stripe.js";
@@ -1225,9 +1225,19 @@ const POW_SLUGS = new Set();
 for (const [route, def] of Object.entries(CATALOG)) {
   if (isComputePayable(def)) {
     POW_ROUTES.set(route, def.slug);
-    POW_SLUGS.add(def.slug);
+      POW_SLUGS.add(def.slug);
+    }
   }
-}
+
+  // Hand payments.js the routes that cost us nothing to serve. It uses this to
+  // decide whether a verify rescued from an unreachable facilitator is worth
+  // taking: a free route can run its handler and lose nothing if settle then
+  // fails, a metered one would spend real money it could not bill for.
+  try {
+    const freePaths = new Set();
+    for (const [route, def] of Object.entries(CATALOG)) if (POW_SLUGS.has(def.slug)) freePaths.add(String(route).replace(/^[A-Z]+\s+/, ""));
+    setComputePayablePaths(freePaths);
+  } catch (e) { console.warn(`[payments] could not publish compute-payable paths: ${String(e?.message || e).slice(0, 120)}`); }
 
 // Count every outbound request by host, from boot onward. Cheap (one Map
 // increment), host-only (never a URL, so no buyer input is retained), and

@@ -1490,6 +1490,19 @@ let railsOffered = [];
 // settling chains the boot log's labels attribute to PayAI; /supported needs
 // a JWT, so the only way to know what prod's clients advertise is to ask the
 // clients themselves. This feeds GET /__operator/facilitators.json.
+// Does serving this resource cost us anything at a third party? Compute-payable
+// is the server's own answer to that question (PoW-eligible == makes no external
+// call), and it is enforced, not asserted: test-free-tier-egress.js drives every
+// one of them under an egress-recording preload and requires zero attributed
+// egress. Unknown route -> treated as costly, because the failure we are
+// avoiding is spending money we cannot bill for.
+let _computePayablePaths = null;
+export function setComputePayablePaths(paths) { _computePayablePaths = paths instanceof Set ? paths : new Set(paths || []); }
+function isFreeToServe(resource) {
+  if (!_computePayablePaths || !_computePayablePaths.size) return false;
+  try { return _computePayablePaths.has(new URL(String(resource)).pathname); } catch { return false; }
+}
+
 const VERIFY_FAILOVER = String(process.env.VERIFY_FAILOVER || "").toLowerCase();
 let facilitatorRegistry = [];
 export async function facilitatorSupportReport() {
@@ -1546,7 +1559,16 @@ async function recordVerifyFailure(ctx, reason) {
   // is what credentialKeyOf already derives for the 402 hint. Never an address.
   let payerKey = null;
   try {
-    const { createHash } = await import("node:crypto");
+    // KEYED, not a bare hash. sha256 of an EVM address is one-way only against
+    // blind inversion: the input comes from a public, enumerable set - every
+    // address that has settled USDC on Base - so anyone holding the analytics
+    // dataset recovers the payer by hashing candidates until one matches. That is
+    // pseudonymisation, not anonymisation, and the comment here claimed the
+    // stronger thing. An HMAC under a secret we hold is neither forgeable nor
+    // enumerable and still groups (same payer, same id) - the construction the
+    // wish board already uses for caller fingerprints.
+    const { createHmac } = await import("node:crypto");
+    const idSecret = process.env.TELEMETRY_ID_SECRET || process.env.POW_SECRET || process.env.MPP_SECRET_KEY || "";
     const from = ctx?.paymentPayload?.payload?.authorization?.from;
     let basis = from ? `payer:${String(from).toLowerCase()}` : null;
     if (!basis) {
@@ -1554,7 +1576,9 @@ async function recordVerifyFailure(ctx, reason) {
       const cred = credentialKeyOf(ctx?.paymentPayload);
       if (cred) basis = `credential:${cred}`;
     }
-    if (basis) payerKey = `a402:${createHash("sha256").update(basis).digest("hex").slice(0, 32)}`;
+    // No secret configured: emit NO id rather than a reversible one. A missing
+    // dimension is a gap in telemetry; a guessable one is a claim we cannot back.
+    if (basis && idSecret) payerKey = `a402:${createHmac("sha256", idSecret).update(basis).digest("hex").slice(0, 32)}`;
   } catch { /* telemetry is best-effort */ }
   import("./posthog.js").then(({ capturePostHogVerifyFailed }) => capturePostHogVerifyFailed({
     network: ctx?.requirements?.network, scheme: ctx?.requirements?.scheme, resource: ctx?.requirements?.resource, errorReason: reason, payerBalanceBucket: bucket, payerKey,
@@ -1575,7 +1599,22 @@ export function registerFacilitatorFailureHooks(server, payAiClient, solvadorCli
     // Verify is a READ, so asking another facilitator cannot double charge.
     // Only a transport failure is retried; a verdict is never second-guessed.
     // (src/verify-failover.js carries the full reasoning.)
-    if (VERIFY_FAILOVER !== "off") {
+    // Only rescue a verify when the work it unlocks is FREE for us.
+    //
+    // Failover is verify-only, and verify is a read, so it cannot double-charge -
+    // that part holds. The cost sits one layer out: settle resolves the SAME
+    // facilitator client that was just unreachable (getFacilitatorClient is a
+    // deterministic lookup), and settle has no transport-error fallback BY
+    // DESIGN, because retrying a possibly-broadcast settlement elsewhere is how
+    // you double-settle. So a rescued verify on a metered route runs the handler,
+    // spends real upstream money (up to $0.65 on a report tier), then 402s at
+    // settle: buyer not charged, gets nothing, retries, and each retry spends
+    // again. Before this feature that request 402'd BEFORE the handler, free.
+    //
+    // Compute-payable routes make no external call at all - proven every run by
+    // test-free-tier-egress.js - so rescuing those is pure upside: a sale we
+    // would otherwise lose, and a failed settle costs only CPU.
+    if (VERIFY_FAILOVER !== "off" && isFreeToServe(ctx?.requirements?.resource)) {
       try {
         const { verifyElsewhere } = await import("./verify-failover.js");
         const rescued = await verifyElsewhere({

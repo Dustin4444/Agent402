@@ -59,36 +59,25 @@ secret. Rotate Railway first, then `wrangler secret put OPERATOR_TOKEN`. Between
 those two steps this Worker's observations are rejected and `/status` shows a
 gap rather than wrong data, which is the intended failure direction.
 
-## Kicking the GitHub heartbeat
+## What this Worker deliberately cannot do
 
-`heartbeat.yml` carries **eighteen alarm checks** - every wallet balance, Postgres
-reachability, settlement freshness, the PayAI and CDP quota watches - and is the
-only observer for them. GitHub does not deliver its schedule: measured
-2026-08-30, `*/15` produced gaps of **2-12 hours**, and moving to a gentler
-`9,39` produced **one run in 9.8 hours**. Tuning the cron is a dead end; GitHub
-throttles scheduled events on a busy repo whatever you ask for.
+It cannot start the GitHub heartbeat, and that is on purpose. A `workflow_dispatch`
+needs `Actions: Read and write`, which is repo-wide over Actions with no
+per-workflow scoping - so "let the Worker kick the heartbeat" is really "let a
+second platform deploy production, post as the company, and run the workflows
+that move money" (`deploy.yml`, `announce.yml`, `refund.yml`, `paid-canary.yml`,
+`tempo-volume.yml`, `algorand-external-buy.yml`). That was built on 2026-08-30
+and reverted the same hour for this reason.
 
-This Worker's 5-minute cron *is* honoured, so it dispatches the workflow when
-GitHub has not run it lately.
+The Worker holds exactly two secrets: `STATUS_PROBE_TOKEN` (write to
+`POST /api/status/probe`, one route, nothing else) and `GITHUB_ISSUES_TOKEN`
+(`Issues: write` on this repository only, so it can open and close its own alarm
+issues). If you find a `GITHUB_DISPATCH_TOKEN` on the Cloudflare account or a
+matching PAT on GitHub, nothing reads it - revoke it.
 
-Bounded and idempotent:
+Verify the Worker with the probe token, not the operator token:
 
-- reads the last run first, and only dispatches past `HEARTBEAT_MAX_AGE_MIN`
-  (default 20)
-- a run that is queued or in progress counts as recent, so a slow run is never
-  piled onto
-- no token, no kicking - an env-gated no-op, and it says so in the log
-
-### Setup
-
-```
-wrangler secret put GITHUB_DISPATCH_TOKEN
+```sh
+curl -s -X POST https://<worker>/run -H "X-Operator-Token: $STATUS_PROBE_TOKEN" | jq .alarms
 ```
 
-Use a **fine-grained PAT scoped to this repository only**, with
-`Repository permissions -> Actions: Read and write` and nothing else. It cannot
-read code, secrets, or any other repository. Verify with:
-
-```
-curl -s -X POST https://<worker>/run -H "X-Operator-Token: $AGENT402_OPERATOR_TOKEN" | jq .heartbeat
-```

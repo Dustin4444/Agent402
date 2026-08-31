@@ -2249,6 +2249,16 @@ function lookupHandler(slug, { catalog, inlineHandlers }) {
 // Core orchestration. Walks the pack's steps, invoking each underlying tool's
 // handler with the mapped input. Captures result on success, partial-failure
 // envelope on error. Returns the bundled response envelope.
+// Argument names whose VALUE is a credential. Matched on the name because packs
+// declare their inputs by name and a caller cannot rename them.
+const SECRET_ARG_NAMES = /^(secret|token|key|password|passphrase|api[_-]?key|signing[_-]?secret|bearer|authorization)$/i;
+function redactSecretArgs(args) {
+  if (!args || typeof args !== "object") return args;
+  const out = {};
+  for (const [k, v] of Object.entries(args)) out[k] = SECRET_ARG_NAMES.test(k) && v ? "[redacted]" : v;
+  return out;
+}
+
 async function runPack(packSlug, args, ctx) {
   const pack = ctx.packIndex.get(packSlug);
   if (!pack) {
@@ -2297,7 +2307,13 @@ async function runPack(packSlug, args, ctx) {
   const okCount = steps.filter((s) => s.ok).length;
   return {
     pack: packSlug,
-    args,
+    // Echo the caller's args back MINUS anything named as a secret. The pack that
+    // takes one says in its own schema "the provider signing secret (never echoed
+    // back)", and the step result honours that - but this envelope was handing it
+    // straight back in the response body, where it lands in agent transcripts and
+    // MCP logs. Only ever visible to the caller who supplied it, so not an
+    // escalation; it is a stated guarantee the code did not keep.
+    args: redactSecretArgs(args),
     steps,
     summary: `${okCount}/${steps.length} steps succeeded`,
   };
