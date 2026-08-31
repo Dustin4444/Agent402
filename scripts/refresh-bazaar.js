@@ -105,9 +105,24 @@ async function pageBazaar(filter) {
 }
 
 async function loadStaleRoutes() {
+  // serviceName is PER TOOL since 2026-08-31 ("Extract article", not
+  // "Agent402.tools"), because 168 identical rows in a 14,000-row index answer
+  // no query an agent would type. So "stale" can no longer mean "differs from
+  // one constant" - that would flag every listing we have. It means the name
+  // the Bazaar holds differs from the name the catalog declares for that route
+  // right now. EXPECT_NAME stays as the fallback for routes the catalog no
+  // longer carries.
+  const expected = new Map();
+  try {
+    const r = await fetch(`${TARGET}/api/pricing`);
+    if (r.ok) for (const e of ((await r.json()).endpoints || [])) if (e?.path) expected.set(e.path, e.name || EXPECT_NAME);
+  } catch { /* fall back to the constant below */ }
   const { matches, total } = await pageBazaar((it) => {
     const r = it.resource || "";
-    return r.includes(HOST) && it.serviceName !== EXPECT_NAME;
+    if (!r.includes(HOST)) return false;
+    let want = EXPECT_NAME;
+    try { want = expected.get(new URL(r).pathname) ?? EXPECT_NAME; } catch { /* keep the fallback */ }
+    return it.serviceName !== want;
   });
   console.log(`Scanned ${total} Bazaar resources; ${matches.length} stale on ${HOST}.`);
   // Normalise to { slug, route, serviceName }
