@@ -420,9 +420,27 @@ export function missingModeVerdict({ failCount, okCount, stillMissingPaths, boug
         `harvester, which is asynchronous and outside our control. Treating as success — re-count in a few hours to confirm ingestion.`,
     };
   }
+  // A route left unpaid by our OWN caps is the caps working, not a failure.
+  // This exited 1 whenever anything was left over, and something is always left
+  // over - the spend cap, the price cap and the batch stride all exist to leave
+  // routes for a later pass. Measured 2026-08-31: 4 of the last 7 red "Deploy to
+  // Railway" runs were this job reporting "5 ok, 0 failed" and then exiting 1,
+  // which trains everyone to ignore the deploy failure mail - and that mail is
+  // how a REAL failure gets noticed.
+  //
+  // A failed BUY still fails the job; leftovers only report.
+  if (failCount === 0) {
+    return {
+      exitCode: 0,
+      message:
+        `${okCount} route(s) settled successfully. ${unpaid.length} route(s) were left for a later pass by our own ` +
+        `spend cap, price cap or batch stride - the caps doing their job, not a failure. The keep-alive sweeps ` +
+        `whatever is still unlisted on its own schedule.`,
+    };
+  }
   return {
     exitCode: 1,
-    message: `Work remaining: ${failCount} failed buy(s), ${unpaid.length} route(s) never paid for (spend cap, price cap, or batch stride).`,
+    message: `${failCount} buy(s) FAILED (plus ${unpaid.length} route(s) left unpaid by the caps, which is expected).`,
   };
 }
 
