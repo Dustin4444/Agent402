@@ -89,6 +89,14 @@ const MIN_PRICE_USD = Number(process.env.MIN_PRICE_USD || "0");
 // Group selector, so a natural family (the skill packs are all "skill-") can be
 // given its own cadence without pasting sixty-odd slugs into a dispatch input.
 const SLUG_PREFIX = (process.env.SLUG_PREFIX || "").trim();
+// Only pay for what is about to be culled. A listing's 30-day clock is reset by
+// ANY settlement, ours or a customer's, so a route that is actually selling
+// needs nothing from us - and measured 2026-08-31, 371 of our 452 listings had
+// exactly one payer (the burner) while 62 had a real outside buyer. Paying for
+// all of them every day buys advertisement we already have. STALE_DAYS sweeps
+// only listings whose lastCalledAt is older than N days, plus anything not
+// listed at all. Unset = the old behaviour, sweep everything selected.
+const STALE_DAYS = Number(process.env.STALE_DAYS || "0");
 const UPSTREAM_FREE_EXTRA = new Set((process.env.UPSTREAM_FREE_EXTRA || "memory-").split(",").map((x) => x.trim()).filter(Boolean));
 const costsNothingUpstream = (t) =>
   t.computePayable || [...UPSTREAM_FREE_EXTRA].some((p) => t.slug === p || t.slug.startsWith(p));
@@ -201,6 +209,22 @@ async function loadRegisteredPaths() {
   return reg;
 }
 
+// path -> ms since CDP last observed a settlement for it. A path absent here is
+// not listed at all, which is always worth a settlement.
+async function loadFreshness() {
+  const fresh = new Map();
+  const { matches } = await pageBazaar((it) => (it.resource || "").includes(HOST));
+  for (const it of matches) {
+    const at = it.quality?.lastCalledAt;
+    if (!at) continue;
+    const t = Date.parse(at);
+    if (Number.isFinite(t)) {
+      try { fresh.set(new URL(it.resource).pathname, Date.now() - t); } catch {}
+    }
+  }
+  return fresh;
+}
+
 async function loadOpenapiExamples() {
   // Returns Map(`${METHOD} ${path}` → exampleInput object).
   const r = await fetch(`${TARGET}/openapi.json`);
@@ -229,11 +253,21 @@ async function loadOpenapiExamples() {
 }
 
 async function runMissingMode({ sweep = false } = {}) {
-  const [catalog, registered, examples] = await Promise.all([
+  const [catalog, registered, examples, freshness] = await Promise.all([
     loadCatalog(),
     sweep ? Promise.resolve(new Set()) : loadRegisteredPaths(),
     loadOpenapiExamples(),
+    STALE_DAYS > 0 ? loadFreshness() : Promise.resolve(new Map()),
   ]);
+  // A path we have never listed has no freshness reading, and that is exactly
+  // the case that needs a settlement - so an unknown path is treated as stale,
+  // never as fresh. Same rule as the rest of this repo: a missing measurement
+  // is not a passing one.
+  const isStale = (t) => {
+    if (!(STALE_DAYS > 0)) return true;
+    const age = freshness.get(t.path);
+    return age === undefined || age >= STALE_DAYS * 86400000;
+  };
   // sweep = pay EVERY affordable route once (settlement-driven registration on
   // the PAY_NETWORK chain + re-observe of the multi-chain accepts), cheapest
   // first so a timeout loses the least coverage. missing = only routes the
@@ -247,6 +281,7 @@ async function runMissingMode({ sweep = false } = {}) {
     .filter((t) => !SKIP_UPSTREAM_FREE || !costsNothingUpstream(t))
     .filter((t) => t.priceUsd > MIN_PRICE_USD)
     .filter((t) => !SLUG_PREFIX || t.slug.startsWith(SLUG_PREFIX))
+    .filter((t) => isStale(t))
     .sort((a, b) => (sweep ? a.priceUsd - b.priceUsd : b.priceUsd - a.priceUsd))
     // Batch stride (applied after sort so each batch is a price-balanced slice).
     .filter((_, i) => i % BATCH_COUNT === BATCH_INDEX);

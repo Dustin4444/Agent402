@@ -71,6 +71,9 @@ on:
       min_price_usd:
         description: "Price FLOOR. Set 0.05 with max_price_usd 999 to sweep only the expensive tail (101 routes, ~$35.45 face, ~$15-20 real upstream)."
         default: "0"
+      stale_days:
+        description: "Only pay for listings older than N days (any settlement resets the clock, ours or a buyer's). Schedules use 21. 0 = sweep everything selected."
+        default: "21"
       slug_prefix:
         description: "Only slugs starting with this. 'skill-' with min_price_usd 0.05 sweeps the 63 packs (~$12.55 face)."
         default: ""
@@ -116,6 +119,9 @@ jobs:
           SKIP_UPSTREAM_FREE: ${{ github.event.schedule == '17 4 * * 2' && '1' || inputs.skip_upstream_free }}
           MIN_PRICE_USD: ${{ inputs.min_price_usd || '0' }}
           SLUG_PREFIX: ${{ inputs.slug_prefix }}
+          # 21 days against a 30-day cull: nine days of headroom, and a route a
+          # customer is actually buying costs us nothing to keep listed.
+          STALE_DAYS: ${{ inputs.stale_days || '21' }}
           # PER BATCH, not per pass: the estimate is checked inside each batch,
           # so a 4-batch tail pass needs roughly a quarter of its total here.
           MAX_SPEND_USD: ${{ inputs.max_spend_usd || '1' }}
