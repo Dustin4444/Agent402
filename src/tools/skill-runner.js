@@ -278,8 +278,10 @@ export const PACK_STEPS = {
       { slug: "edgar-filings",       mapInput: (a) => ({ ticker: a.ticker }) },
       { slug: "edgar-company-facts", mapInput: (a) => ({ ticker: a.ticker }) },
       { slug: "edgar-insider-trades", mapInput: (a) => ({ ticker: a.ticker, lookbackDays: 90 }) },
-      // FRED needs an explicit series id — fed funds is the default macro signal.
-      { slug: "fred-series",         mapInput: () => ({ series: "FEDFUNDS" }) },
+      // FRED needs an explicit series id - fed funds is the default macro
+      // signal. The key is `seriesId`; this sent `series`, so the step 400'd
+      // on every call (2 of 2 in 60 days of telemetry).
+      { slug: "fred-series",         mapInput: () => ({ seriesId: "FEDFUNDS" }) },
       { slug: "research-company",    mapInput: (a) => ({ ticker: a.ticker }) },
     ],
   },
@@ -2014,12 +2016,16 @@ export const PACK_STEPS = {
   },
 
   // Fed economic snapshot: FEDFUNDS + UNRATE + CPIAUCSL.
+  // Every step sent `series` where fred-series requires `seriesId`, so all
+  // three 400'd on every call - 33 of 33 step calls in 60 days of PRODUCTION
+  // telemetry, where the FRED key exists. The pack has no promptArgs, so this
+  // was not a bad caller input: it could never have worked for anyone.
   "fred-snapshot": {
     mode: "fanout",
     steps: [
-      { slug: "fred-series", mapInput: () => ({ series: "FEDFUNDS" }) },
-      { slug: "fred-series", mapInput: () => ({ series: "UNRATE" }) },
-      { slug: "fred-series", mapInput: () => ({ series: "CPIAUCSL" }) },
+      { slug: "fred-series", mapInput: () => ({ seriesId: "FEDFUNDS" }) },
+      { slug: "fred-series", mapInput: () => ({ seriesId: "UNRATE" }) },
+      { slug: "fred-series", mapInput: () => ({ seriesId: "CPIAUCSL" }) },
     ],
   },
 

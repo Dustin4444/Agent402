@@ -164,6 +164,17 @@ export const PACK_PRICES = {
 };
 
 
+// Sample fixtures for the three packs whose input is a user-supplied artifact.
+// Served by GET /fixtures/:file (src/server.js).
+//
+// Deliberately the PUBLIC url and not derived from BASE_URL: safeFetch's SSRF
+// guard refuses a loopback address, correctly, so a self-referential example
+// would fail in CI and there is no bypass worth adding to a guard like that.
+// The cost is that the example sweep fetches production, which is the same
+// self-targeting shape a2a-card-fetch / x402-quote / x402-audit already have,
+// with the same known failure mode: a deploy landing mid-run.
+const FIXTURE_BASE = "https://agent402.tools";
+
 export const SKILL_PACKS = [
   {
     slug: "earnings-deep-dive",
@@ -513,7 +524,9 @@ export const SKILL_PACKS = [
     useCase:
       "Building a RAG corpus, a daily newsletter from a list of source URLs, or extracting a table from a scanned PDF.",
     promptArgs: [
-      { name: "urls", description: "Newline- or comma-separated list of URLs / PDF links to ingest", required: false, substitute: "these 10 URLs" },
+      // The substitute was the prose "these 10 URLs", which is not a URL, so
+      // every step failed on the example we publish.
+      { name: "urls", description: "Newline- or comma-separated list of URLs / PDF links to ingest", required: false, substitute: `${FIXTURE_BASE}/` },
     ],
     toolSlugs: [
       "extract",
@@ -756,7 +769,8 @@ export const SKILL_PACKS = [
         name: "url",
         description: "PDF or image URL to process (e.g. https://example.com/invoice.pdf)",
         required: true,
-        substitute: "https://example.com/invoice.pdf",
+        // example.com serves no invoice.pdf, so this 404'd on every call.
+        substitute: `${FIXTURE_BASE}/fixtures/sample-invoice.pdf`,
       },
     ],
     // Ordered by realistic-agent decision tree: cheapest inspection first
@@ -1183,7 +1197,8 @@ export const SKILL_PACKS = [
         name: "uploadPath",
         description: "the temp path or URL of the uploaded file (e.g. '/tmp/upload-abc123')",
         required: true,
-        substitute: "/tmp/upload-abc123",
+        // A local temp path is not fetchable; every step here takes a URL.
+        substitute: `${FIXTURE_BASE}/fixtures/sample-image.png`,
       },
     ],
   },
