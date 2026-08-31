@@ -71,6 +71,27 @@ const PAY_NETWORK = (process.env.PAY_NETWORK || "base").toLowerCase();
 // audio / code-run proxies bill real upstream credit per call — registering
 // them isn't worth actual money burn; they stay findable via the live 402.
 const MAX_PRICE_USD = Number(process.env.MAX_PRICE_USD || (MODE === "sweep" ? "0.05" : "Infinity"));
+// UPSTREAM_FREE_ONLY=1 sweeps only routes that cost us nothing per call at a
+// third party, so the pass can run daily instead of weekly. The price ceiling
+// is only a PROXY for upstream cost (a $0.002 Blockscout call bills us $0.002
+// upstream); this is the real question, asked of the server. Memory tools are
+// admitted by name: they are wallet-keyed rather than compute-payable, and the
+// only resource they consume is our own Railway volume.
+const UPSTREAM_FREE_ONLY = /^(1|true|yes)$/i.test(process.env.UPSTREAM_FREE_ONLY || "");
+// The inverse, for the priced pass: skip what the daily zero-upstream pass has
+// already settled today, so the weekly one is not re-buying 177 routes that are
+// already well inside the 30-day window. Each skipped route is one fewer
+// facilitator settlement against CDP's 1,000/month free tier.
+const SKIP_UPSTREAM_FREE = /^(1|true|yes)$/i.test(process.env.SKIP_UPSTREAM_FREE || "");
+// Floor, so the expensive tail can be swept on its own cadence without the
+// cheap routes riding along.
+const MIN_PRICE_USD = Number(process.env.MIN_PRICE_USD || "0");
+// Group selector, so a natural family (the skill packs are all "skill-") can be
+// given its own cadence without pasting sixty-odd slugs into a dispatch input.
+const SLUG_PREFIX = (process.env.SLUG_PREFIX || "").trim();
+const UPSTREAM_FREE_EXTRA = new Set((process.env.UPSTREAM_FREE_EXTRA || "memory-").split(",").map((x) => x.trim()).filter(Boolean));
+const costsNothingUpstream = (t) =>
+  t.computePayable || [...UPSTREAM_FREE_EXTRA].some((p) => t.slug === p || t.slug.startsWith(p));
 const SLUGS_FILTER = process.env.SLUGS ? new Set(process.env.SLUGS.split(",").map(s => s.trim())) : null;
 // Deterministic batching for large sweeps: split the (sorted) work list into
 // BATCH_COUNT interleaved groups and run only BATCH_INDEX. Lets a big settlement
@@ -161,6 +182,13 @@ async function loadCatalog() {
     path: t.path,
     price: t.price,
     priceUsd: priceToUsd(t.price),
+    // The server's own PoW-eligibility flag. A tool is compute-payable only
+    // when it makes NO external call - scripts/test-free-tier-egress.js drives
+    // every one of them under an egress-recording preload and requires zero
+    // attributed egress, refusing to report a clean run unless a planted
+    // control proves the probe can still see a leak. So this is a MEASURED
+    // "costs nothing upstream", not a hand-kept list that drifts.
+    computePayable: t.computePayable === true,
   }));
 }
 
@@ -215,6 +243,10 @@ async function runMissingMode({ sweep = false } = {}) {
     .filter((t) => sweep || !registered.has(t.path))
     .filter((t) => !SLUGS_FILTER || SLUGS_FILTER.has(t.slug))
     .filter((t) => t.priceUsd <= MAX_PRICE_USD)
+    .filter((t) => !UPSTREAM_FREE_ONLY || costsNothingUpstream(t))
+    .filter((t) => !SKIP_UPSTREAM_FREE || !costsNothingUpstream(t))
+    .filter((t) => t.priceUsd > MIN_PRICE_USD)
+    .filter((t) => !SLUG_PREFIX || t.slug.startsWith(SLUG_PREFIX))
     .sort((a, b) => (sweep ? a.priceUsd - b.priceUsd : b.priceUsd - a.priceUsd))
     // Batch stride (applied after sort so each batch is a price-balanced slice).
     .filter((_, i) => i % BATCH_COUNT === BATCH_INDEX);
