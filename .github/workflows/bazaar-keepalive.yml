@@ -38,10 +38,14 @@ name: Bazaar keep-alive
 
 on:
   schedule:
-    # Sunday 04:17 UTC. GitHub throttles schedules on a busy repo (measured
-    # 2026-08-30: a 15-minute cron delivered one run in 9.8 hours), which is
-    # exactly why the cadence has 4x headroom against the 30-day rule.
-    - cron: "17 4 * * 0"
+    # TUESDAY 04:17 UTC, and only the PRICED routes the daily pass does not
+    # already cover (SKIP_UPSTREAM_FREE): 296 routes, ~$2.51 of face value.
+    # Re-buying the 177 free ones here would spend ~700 extra facilitator
+    # settlements a month against CDP's 1,000/month free tier for nothing.
+    # GitHub throttles schedules on a busy repo (measured 2026-08-30: a
+    # 15-minute cron delivered one run in 9.8 hours), which is exactly why the
+    # cadence keeps 4x headroom against the 30-day rule.
+    - cron: "17 4 * * 2"
     # DAILY, zero-upstream only. The weekly pass above is bounded by PRICE,
     # which is only a proxy for what a route costs us: 97 of its 472 routes
     # bill a third party per call. This one is bounded by that actual question
@@ -61,6 +65,15 @@ on:
       upstream_free_only:
         description: "1 = only routes that cost nothing at a third party (177 routes, ~$0.86 face). The daily schedule sets this."
         default: ""
+      skip_upstream_free:
+        description: "1 = skip what the daily pass already covers (296 priced routes). The Tuesday schedule sets this."
+        default: ""
+      min_price_usd:
+        description: "Price FLOOR. Set 0.05 with max_price_usd 999 to sweep only the expensive tail (101 routes, ~$35.45 face, ~$15-20 real upstream)."
+        default: "0"
+      max_spend_usd:
+        description: "PER-BATCH spend cap. Tail pass at 4 batches needs ~9."
+        default: "1"
 
 permissions:
   contents: read
@@ -97,7 +110,11 @@ jobs:
           # The daily cron sweeps only what costs nothing upstream; the weekly
           # one leaves this empty and sweeps everything under the ceiling.
           UPSTREAM_FREE_ONLY: ${{ github.event.schedule == '37 5 * * *' && '1' || inputs.upstream_free_only }}
-          MAX_SPEND_USD: "1"
+          SKIP_UPSTREAM_FREE: ${{ github.event.schedule == '17 4 * * 2' && '1' || inputs.skip_upstream_free }}
+          MIN_PRICE_USD: ${{ inputs.min_price_usd || '0' }}
+          # PER BATCH, not per pass: the estimate is checked inside each batch,
+          # so a 4-batch tail pass needs roughly a quarter of its total here.
+          MAX_SPEND_USD: ${{ inputs.max_spend_usd || '1' }}
           BATCH_COUNT: ${{ inputs.batches || '4' }}
           BATCH_INDEX: ${{ matrix.batch }}
           BURNER_KEY: ${{ secrets.BURNER_KEY }}

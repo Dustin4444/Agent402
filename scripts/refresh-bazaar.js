@@ -78,6 +78,14 @@ const MAX_PRICE_USD = Number(process.env.MAX_PRICE_USD || (MODE === "sweep" ? "0
 // admitted by name: they are wallet-keyed rather than compute-payable, and the
 // only resource they consume is our own Railway volume.
 const UPSTREAM_FREE_ONLY = /^(1|true|yes)$/i.test(process.env.UPSTREAM_FREE_ONLY || "");
+// The inverse, for the priced pass: skip what the daily zero-upstream pass has
+// already settled today, so the weekly one is not re-buying 177 routes that are
+// already well inside the 30-day window. Each skipped route is one fewer
+// facilitator settlement against CDP's 1,000/month free tier.
+const SKIP_UPSTREAM_FREE = /^(1|true|yes)$/i.test(process.env.SKIP_UPSTREAM_FREE || "");
+// Floor, so the expensive tail can be swept on its own cadence without the
+// cheap routes riding along.
+const MIN_PRICE_USD = Number(process.env.MIN_PRICE_USD || "0");
 const UPSTREAM_FREE_EXTRA = new Set((process.env.UPSTREAM_FREE_EXTRA || "memory-").split(",").map((x) => x.trim()).filter(Boolean));
 const costsNothingUpstream = (t) =>
   t.computePayable || [...UPSTREAM_FREE_EXTRA].some((p) => t.slug === p || t.slug.startsWith(p));
@@ -233,6 +241,8 @@ async function runMissingMode({ sweep = false } = {}) {
     .filter((t) => !SLUGS_FILTER || SLUGS_FILTER.has(t.slug))
     .filter((t) => t.priceUsd <= MAX_PRICE_USD)
     .filter((t) => !UPSTREAM_FREE_ONLY || costsNothingUpstream(t))
+    .filter((t) => !SKIP_UPSTREAM_FREE || !costsNothingUpstream(t))
+    .filter((t) => t.priceUsd > MIN_PRICE_USD)
     .sort((a, b) => (sweep ? a.priceUsd - b.priceUsd : b.priceUsd - a.priceUsd))
     // Batch stride (applied after sort so each batch is a price-balanced slice).
     .filter((_, i) => i % BATCH_COUNT === BATCH_INDEX);

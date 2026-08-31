@@ -43,5 +43,27 @@ ok(/Bazaar keep-alive FAILED/.test(wf), "pages on failure with a title that says
 ok(/gh issue close/.test(wf), "and closes the issue when a later run succeeds");
 ok(/if:\s*always\(\)/.test(wf), "the report step runs even when the sweep failed - the failure is the point");
 
+// The file must PARSE, not merely contain the right substrings. Every check
+// above is a regex over the raw text, and a regex is happy with a YAML file
+// GitHub would reject: adding an env key that already existed produced a
+// duplicate mapping key on 2026-08-31 and all 13 assertions still passed. A
+// workflow that cannot parse never runs, and a keep-alive that never runs is
+// a silent 30-day cull.
+try {
+  const yaml = await import("js-yaml");
+  const load = yaml.load || yaml.default?.load;
+  const doc = load(wf);
+  ok(!!doc && typeof doc === "object", "the workflow is valid YAML (duplicate keys included)");
+  const crons = (doc.on?.schedule || []).map((x) => x.cron);
+  ok(crons.length >= 2, `both cadences are scheduled (${crons.join(" | ")})`);
+  const env = doc.jobs?.sweep?.steps?.find((x) => x.name === "Refresh settlements")?.env || {};
+  ok(String(env.UPSTREAM_FREE_ONLY || "").includes("37 5 * * *"), "the daily cron is the one that sweeps only zero-upstream routes");
+  ok(String(env.SKIP_UPSTREAM_FREE || "").includes("17 4 * * 2"), "the Tuesday cron is the one that skips what daily already covered");
+  ok(crons.every((c) => String(env.UPSTREAM_FREE_ONLY).includes(c) || String(env.SKIP_UPSTREAM_FREE).includes(c)),
+     "every schedule selects a mode - a cron nobody keys on would sweep the whole priced catalog by accident");
+} catch (e) {
+  ok(false, `the workflow is valid YAML (${e.message})`);
+}
+
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
