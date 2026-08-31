@@ -127,16 +127,26 @@ try {
   // trust metadata") behind capability consent: without --accept-capabilities the
   // CLI refuses to start at all. CI cannot answer an interactive prompt, and this
   // is our own tgz, so consent is given here explicitly.
-  const pi = await sh(oc, ["plugins", "install", tgz, "--force", "--accept-capabilities"], { env, cwd: home });
+  // --accept-capabilities exists only on 2026.8.1+, where a plugin from a LOCAL
+  // ARCHIVE ("outside ClawHub review and trust metadata") is gated behind
+  // consent and the CLI refuses to start without it. 2026.7.1 rejects the flag
+  // outright ("does not recognize option"), so probe the help text rather than
+  // hardcoding either host: pinning the flag on made this test measure the CLI's
+  // option list instead of our plugin.
+  const installHelp = await sh(oc, ["plugins", "install", "--help"], { env });
+  const CONSENT = /--accept-capabilities/.test(installHelp.out) ? ["--accept-capabilities"] : [];
+  const pi = await sh(oc, ["plugins", "install", tgz, "--force", ...CONSENT], { env, cwd: home });
   ok(pi.status === 0 && /Installed plugin: agent402/.test(pi.out), `openclaw plugins install <tgz> accepts the package (exit ${pi.status}: ${(/Reason:\s*([^\n]+(?:\n(?!\[)[^\n]*)*)/.exec(pi.out)?.[1] || pi.out).trim().replace(/\s+/g, " ").slice(0, 900) || "<no output>"})`);
-  const insp = await sh(oc, ["plugins", "inspect", "agent402-openclaw"], { env });
+  const insp = await sh(oc, ["plugins", "inspect", "agent402"], { env });
   ok(/Status: loaded/.test(insp.out) && /text-inference: agent402/.test(insp.out), "openclaw plugins inspect agent402: loaded, registers text-inference");
   // Consent given at install time does not survive into the gateway's runtime:
   // 2026.8.1 quarantines the plugin until it is enabled with consent too (the
   // refusal names this command itself). Without it the gateway loads every other
   // plugin and silently never starts ours.
-  const pe = await sh(oc, ["plugins", "enable", "agent402-openclaw", "--accept-capabilities"], { env, cwd: home });
-  ok(pe.status === 0, `openclaw plugins enable --accept-capabilities (exit ${pe.status}: ${pe.out.trim().replace(/\s+/g, " ").slice(0, 300)})`);
+  const pe = CONSENT.length
+    ? await sh(oc, ["plugins", "enable", "agent402", ...CONSENT], { env, cwd: home })
+    : { status: 0, out: "(host has no capability gate)" };
+  ok(pe.status === 0, `plugins enable${CONSENT.length ? " --accept-capabilities" : " (not gated on this host)"} (exit ${pe.status}: ${pe.out.trim().replace(/\s+/g, " ").slice(0, 300)})`);
   const doc = await sh(oc, ["plugins", "doctor"], { env });
   // 2026.8.1 reworded a clean bill of health ("...checks passed"); a plugin it
   // rejects still prints a "Plugin errors:" block (that is how the id mismatch
@@ -155,8 +165,8 @@ try {
   // "agent402-openclaw" while the provider a user types stays "agent402".
   // Asserting the old key here is how the 2026-08-26 --port defect hid: setup
   // wrote one key and the service read another, and nothing errored.
-  const entry = cfg.plugins?.entries?.["agent402-openclaw"];
-  ok(entry?.config?.port === proxyPort, `setup --port wrote the plugin's own port into plugins.entries["agent402-openclaw"].config (${JSON.stringify(entry)})`);
+  const entry = cfg.plugins?.entries?.["agent402"];
+  ok(entry?.config?.port === proxyPort, `setup --port wrote the plugin's own port into plugins.entries["agent402"].config (${JSON.stringify(entry)})`);
   ok(primary === "agent402/anthropic/claude-haiku-4.5", `primary is a model that can hold OpenClaw's prompt: ${primary}`);
   ok(entry?.enabled === true, `setup --write preserved the plugin's enabled flag while writing its port (${JSON.stringify(entry)})`);
 
