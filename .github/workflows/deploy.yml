@@ -1239,6 +1239,10 @@ jobs:
         run: TARGET_URL=https://agent402.tools node scripts/test-challenge-size.js
       - name: Router aliases + short-term token rule (offline)
         run: X402_INDEX_CRAWL=off node scripts/test-route-aliases.js
+      # A documented path is not a callable URL: brace, colon and percent-encoded
+      # templates all reached buyers as priced routes (offline, mutation-tested)
+      - name: URL templates are never published as payable (offline)
+        run: X402_INDEX_CRAWL=off node scripts/test-url-templates.js
       # Input aliases may never change the MEANING of a call (offline, mutation-tested)
       - name: Input parameter aliases (offline)
         run: node scripts/test-input-aliases.js
