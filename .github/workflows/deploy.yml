@@ -1798,6 +1798,8 @@ jobs:
           t node scripts/test-drain-on-sigterm.js
           t node scripts/test-db-status.js
           t node scripts/test-db-init-retry.js
+          # The Stellar facilitator's fee account is a spending wallet; its low-water alarm must never report "ok" off an unreadable balance or a stranger's /health
+          t node scripts/test-stellar-facilitator-status.js
           # Facilitator gate scoping stays honest (its tests import nothing outside facilitator/)
           t node scripts/test-ci-facilitator-scope.js
           # A composite report is refused (503, not charged) while draining - a late request on a busy keep-alive socket must not start a 4-minute run into the deadline
