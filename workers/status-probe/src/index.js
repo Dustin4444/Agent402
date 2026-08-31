@@ -472,6 +472,14 @@ export default {
   },
   // Manual trigger for verifying a deploy. Token-gated so this Worker cannot be
   // used by anyone else to generate observations.
+  //
+  // POST /verify proves the ALARM CREDENTIAL end to end, which "armed" does not:
+  // while every condition is healthy the write path is never exercised, so a
+  // token with the wrong scope stays invisible until the first real alarm - and
+  // then fails silently, which is the one failure an alarm must not have. It
+  // reads the open issues (proves the token is valid and repo-scoped) and then
+  // PATCHes an existing issue with the state it already has, which requires
+  // Issues:write and changes nothing a human would see.
   async fetch(request, env) {
     const url = new URL(request.url);
     // Unauthenticated identity. BUILD_SHA is injected at deploy time
@@ -485,6 +493,30 @@ export default {
         build: env.BUILD_SHA || "unknown",
         usage: "POST /run with X-Operator-Token to trigger manually",
       });
+    }
+    if (url.pathname === "/verify") {
+      const want = probeToken(env);
+      if (!want || request.headers.get("X-Operator-Token") !== want) return new Response("unauthorized\n", { status: 401 });
+      const token = env.GITHUB_ISSUES_TOKEN;
+      if (!token) return Response.json({ ok: false, error: "no GITHUB_ISSUES_TOKEN" });
+      const out = { canRead: false, canWrite: false, openIssues: null, note: null };
+      try {
+        const r = await gh(`/repos/${ISSUES_REPO}/issues?state=open&per_page=100`, token);
+        out.canRead = r.ok;
+        if (!r.ok) { out.note = `read failed (${r.status}) - token invalid, expired, or not scoped to this repository`; return Response.json(out); }
+        const rows = (await r.json()).filter((x) => x && !x.pull_request);
+        out.openIssues = rows.length;
+        if (!rows.length) { out.note = "no open issue to write-probe against; read works"; return Response.json(out); }
+        // No-op write: set the state it already has. Needs Issues:write, edits nothing.
+        const w = await gh(`/repos/${ISSUES_REPO}/issues/${rows[0].number}`, token, {
+          method: "PATCH", body: JSON.stringify({ state: "open" }),
+        });
+        out.canWrite = w.ok;
+        out.note = w.ok
+          ? "read and write both confirmed - alarms can open and close issues"
+          : `write refused (${w.status}) - the token is probably Issues: Read-only`;
+      } catch (e) { out.note = `error: ${String(e?.message || e).slice(0, 100)}`; }
+      return Response.json(out);
     }
     if (url.pathname !== "/run") return new Response("status-probe: POST /run with X-Operator-Token to trigger manually\n", { status: 200 });
     const want = probeToken(env);
