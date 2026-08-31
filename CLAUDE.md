@@ -929,6 +929,19 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   the answer. The guard (in CI, offline, 659 assertions, mutation-killed) pins that every `SKILL_PACKS` slug has a `PACK_STEPS`
   entry, that every step can build its input, and that every step is a tool the pack advertises in `toolSlugs` - the last one is
   what a future retirement cut would otherwise hollow out silently.
+  **The refusal immediately found a FIFTH dead pack, which is the point of it:** `openapi-audit` (26 of 26 step calls failed in
+  telemetry) HAS a `PACK_STEPS` entry, so the missing-entry guard passed it, and CI only surfaced it once a 0/N answer stopped
+  being a 200. Three real bugs: both steps handed the caller's URL to tools that take the DOCUMENT (`spec`: "object or JSON
+  string"), `openapi-validate-payload` was missing its required `part` and aimed at a hardcoded `get /` no real spec declares,
+  and `openapi-security-summary` was advertised in the pack's own `toolSlugs` and never wired at all. Now `fetchOpenApiSpec`
+  (one `safeFetch` through the SSRF guard, 5MB cap, in-flight dedupe so a fan-out is not three fetches of the same spec) plus
+  `firstOperation` (the first method+path the spec actually declares); 3/3 on its own petstore example. **Note `safeFetch`
+  names the text body `html` whatever the content type is** - reading `body` there made every step fail "not JSON" until the
+  return shape was actually inspected. OPEN, deliberately not fixed here: ten packs advertise a tool in `toolSlugs` they never
+  run (structured-scrape/html-meta, ipo-watch/search-news, jwt-toolkit/jwt-sign, fx-monitor/fx-historical, page-audit/sitemap,
+  article-digest/search-news, content-grade/readability-score, contact-verify/spf-check, trend-analysis/fred-series,
+  markdown-convert/text-diff) - they deliver real steps, just fewer than the tool page promises, and each needs its own
+  judgment.
 - **Stellar settlements bid ABOVE the network minimum (2026-08-31, `facilitator/fee-bid.js`):** the Stellar rail was our only
   unreliable one - 25 up / 15 down over 30 days of canary observations (62.5%) against Base's 40/40 - and every failure reduced
   to ONE cause: `@x402/stellar` builds the settlement transaction with `fee: BASE_FEE` (100 stroops, the network MINIMUM,

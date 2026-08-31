@@ -35,10 +35,6 @@ import { capturePostHogPackStep } from "../posthog.js";
 // safeFetch (SSRF guard + size cap), never raw fetch — the URL is caller-supplied.
 const MAX_FETCH_BASE64_BYTES = 25 * 1024 * 1024;
 
-// Sentinel error thrown by stub mapInput functions. The runner converts it to
-// a per-step partial-failure {ok:false, statusCode:501} so the rest of the
-// pack still runs and the envelope shape stays consistent. Reachable only
-// for any pack added to SKILL_PACKS without a corresponding PACK_STEPS entry.
 // Annualized realized volatility from a stock-history bar series: stddev of
 // daily log returns x sqrt(252). Used by the options pack to give
 // black-scholes a sigma grounded in the stock's own recent history rather
@@ -77,6 +73,10 @@ function requireNumber(value, what) {
   return n;
 }
 
+// Sentinel error thrown by stub mapInput functions. The runner converts it to
+// a per-step partial-failure {ok:false, statusCode:501} so the rest of the
+// pack still runs and the envelope shape stays consistent. Reachable only
+// for any pack added to SKILL_PACKS without a corresponding PACK_STEPS entry.
 function todoError() {
   return Object.assign(new Error("mapInput not yet implemented for this step"), {
     statusCode: 501,
@@ -1944,11 +1944,21 @@ export const PACK_STEPS = {
   },
 
   // OpenAPI spec audit: lint + validate.
+  // Every step here was passing the caller's URL where the tool wants the
+  // DOCUMENT, and validate-payload was missing its required "part" and aimed
+  // at a hardcoded "get /" no real spec declares - so all steps failed on
+  // every call. openapi-security-summary is advertised in the pack's own
+  // toolSlugs and was never wired at all.
   "openapi-audit": {
     mode: "fanout",
     steps: [
-      { slug: "openapi-lint",             mapInput: (a) => ({ spec: a.url }) },
-      { slug: "openapi-validate-payload", mapInput: (a) => ({ spec: a.url, payload: {}, method: "get", path: "/" }) },
+      { slug: "openapi-lint",             mapInput: async (a) => ({ spec: await fetchOpenApiSpec(a.url) }) },
+      { slug: "openapi-validate-payload", mapInput: async (a) => {
+          const spec = await fetchOpenApiSpec(a.url);
+          const { path, method } = firstOperation(spec);
+          return { spec, part: "request", method, path, payload: {} };
+      } },
+      { slug: "openapi-security-summary", mapInput: async (a) => ({ spec: await fetchOpenApiSpec(a.url) }) },
     ],
   },
 
@@ -2350,6 +2360,51 @@ function bakeOffValues(prior) {
 // Fetch a URL and return its bytes as base64. Used by media-pipeline's chain
 // because image-kit tools take base64 inputs while media-info / audio-normalize
 // take URLs — the chain needs to bridge between the two shapes.
+// openapi-audit takes a URL, but every openapi-* tool takes the DOCUMENT
+// ("object or JSON string") - the pack was handing them the URL string, so
+// all three steps failed on every call. Fetch once and share: the pack fans
+// out, so without the in-flight dedupe one audit is three fetches of the same
+// spec. Caller-supplied URL, so it MUST route through safeFetch (SSRF guard +
+// byte cap), never raw fetch.
+const MAX_SPEC_BYTES = 5 * 1024 * 1024;
+const specInFlight = new Map();
+async function fetchOpenApiSpec(url) {
+  if (typeof url !== "string" || !url) {
+    throw Object.assign(new Error('Missing or invalid "url" for the OpenAPI spec'), { statusCode: 400 });
+  }
+  if (!specInFlight.has(url)) {
+    const p = (async () => {
+      // safeFetch names the text body `html` whatever the content type is.
+      const { html } = await safeFetch(url, { maxBytes: MAX_SPEC_BYTES });
+      const text = typeof html === "string" ? html : "";
+      try {
+        return JSON.parse(text);
+      } catch {
+        // These tools parse JSON only (api-kit has no YAML parser), so say
+        // that rather than letting each step fail with its own parse error.
+        throw Object.assign(
+          new Error(`the spec at ${url} is not JSON - these tools read a JSON OpenAPI document`),
+          { statusCode: 422 }
+        );
+      }
+    })().finally(() => specInFlight.delete(url));
+    specInFlight.set(url, p);
+  }
+  return specInFlight.get(url);
+}
+
+// The first concrete operation in a spec, for tools that need one named.
+// Guessing "get /" failed on every real spec, petstore included.
+function firstOperation(spec) {
+  const paths = spec?.paths && typeof spec.paths === "object" ? spec.paths : {};
+  const METHODS = ["get", "post", "put", "patch", "delete", "head", "options"];
+  for (const [path, item] of Object.entries(paths)) {
+    if (!item || typeof item !== "object") continue;
+    for (const method of METHODS) if (item[method]) return { path, method };
+  }
+  throw Object.assign(new Error("the spec declares no operations to validate against"), { statusCode: 422 });
+}
+
 async function fetchAsBase64(url) {
   // The URL is caller-supplied, so this MUST route through safeFetch — it enforces
   // the SSRF guard (blocks private/link-local IPs, DNS-rebind, redirect-to-private)
