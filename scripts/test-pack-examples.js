@@ -29,7 +29,11 @@ const EXPECTED_MISSES = {
   "any-to-markdown": ["pdf-to-markdown", "image-ocr"],
   "content-extraction": ["pdf-to-markdown", "pdf-extract-pages", "image-ocr"],
   "document-intel": ["image-ocr", "barcode-decode", "pdf-merge", "images-to-pdf"],
-  "media-pipeline": ["barcode-decode", "audio-normalize"],
+  // media-info runs ffprobe, and whether a still PNG reads as a decodable
+  // stream depends on the ffmpeg build: it succeeds locally and fails on the
+  // CI runner. Environment-dependent, so it cannot be a pass/fail signal here;
+  // the handler itself is covered by test-media.js.
+  "media-pipeline": ["barcode-decode", "audio-normalize", "media-info"],
   // A stock ticker is legitimately not a FRED series id.
   "trend-analysis": ["fred-series"],
   "forecasting-bake-off": ["fred-series"],
@@ -41,7 +45,12 @@ const EXPECTED_MISSES = {
 // Not our defect and never fatal: a missing third-party key on this deployment,
 // an upstream refusing or rate-limiting us. Same doctrine as probe-classify.js -
 // only OUR code failing fails the run.
-const NOT_OURS = /not configured|rate.?limited|HTTP 5\d\d|upstream|timed? out|ECONN|ENOTFOUND|socket hang up|temporarily/i;
+// Deliberately tight. "fetch failed" is NOT here: undici says that for a
+// connection problem, but a URL we built wrong can look similar, and an
+// excuse list that grows to cover everything is how a guard stops meaning
+// anything. "terminated" is anchored because it is undici's whole message for
+// a socket the peer closed mid-body.
+const NOT_OURS = /not configured|rate.?limited|HTTP 5\d\d|upstream|timed? out|ECONN|ENOTFOUND|socket hang up|temporarily|^terminated$/i;
 
 let failed = 0, reported = 0, checked = 0;
 for (const pack of SKILL_PACKS) {
