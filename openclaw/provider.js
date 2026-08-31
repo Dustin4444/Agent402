@@ -14,7 +14,7 @@ export const PROVIDER_ID = "agent402";
 // started checking. Writing config under the provider id while the host reads
 // it under the manifest id is the same defect as the 2026-08-26 --port bug,
 // where setup moved the baseUrl and the service kept reading the old key.
-export const PLUGIN_ID = "agent402-openclaw";
+export const PLUGIN_ID = "agent402";
 export const DEFAULT_PORT = 8412;
 
 let activeProxy = null;
