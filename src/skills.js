@@ -1216,15 +1216,21 @@ export const SKILL_PACKS = [
     promptArgs: [
       {
         name: "oldSpec",
-        description: "the prior OpenAPI snapshot as JSON or YAML",
+        description: "the prior OpenAPI snapshot as a JSON document (object or JSON string)",
         required: true,
-        substitute: "yesterday's snapshot",
+        // A REAL spec, not prose. The substitute is the pack's published
+        // example, and "yesterday's snapshot" is not something any tool can
+        // parse - every step failed on it, which the partial-success envelope
+        // hid behind a 200 until packs stopped returning one.
+        substitute: "{\"openapi\":\"3.0.3\",\"info\":{\"title\":\"Orders API\",\"version\":\"1.0.0\"},\"paths\":{\"/v1/orders\":{\"post\":{\"operationId\":\"createOrder\",\"requestBody\":{\"required\":true,\"content\":{\"application/json\":{\"schema\":{\"type\":\"object\",\"required\":[\"customerId\"],\"properties\":{\"customerId\":{\"type\":\"string\"},\"currency\":{\"type\":\"string\"}}}}}},\"responses\":{\"201\":{\"description\":\"created\"}}}}}}",
       },
       {
         name: "newSpec",
-        description: "the current OpenAPI snapshot as JSON or YAML",
+        description: "the current OpenAPI snapshot as a JSON document (object or JSON string)",
         required: true,
-        substitute: "today's snapshot",
+        // Same spec with `currency` newly REQUIRED: the breaking drift this
+        // pack exists to catch, so the example demonstrates a real finding.
+        substitute: "{\"openapi\":\"3.0.3\",\"info\":{\"title\":\"Orders API\",\"version\":\"1.1.0\"},\"paths\":{\"/v1/orders\":{\"post\":{\"operationId\":\"createOrder\",\"requestBody\":{\"required\":true,\"content\":{\"application/json\":{\"schema\":{\"type\":\"object\",\"required\":[\"customerId\",\"currency\"],\"properties\":{\"customerId\":{\"type\":\"string\"},\"currency\":{\"type\":\"string\"}}}}}},\"responses\":{\"201\":{\"description\":\"created\"}}}}}}",
       },
     ],
   },

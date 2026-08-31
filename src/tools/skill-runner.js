@@ -1715,12 +1715,13 @@ export const PACK_STEPS = {
   "competitor-scan": {
     mode: "fanout",
     steps: [
-      { slug: "tech-stack",   mapInput: (a) => ({ url: `https://${a.domain}` }) },
-      { slug: "http-headers", mapInput: (a) => ({ url: `https://${a.domain}` }) },
-      { slug: "whois",        mapInput: (a) => {
-          return { domain: a.domain };
-      } },
-      { slug: "meta",         mapInput: (a) => ({ url: `https://${a.domain}` }) },
+      // The pack declares ONE promptArg, `url` ("https://stripe.com"), and every
+      // step here read a.domain - so each built "https://undefined" and the
+      // pack failed on its own documented example, every call.
+      { slug: "tech-stack",   mapInput: (a) => ({ url: siteUrl(a) }) },
+      { slug: "http-headers", mapInput: (a) => ({ url: siteUrl(a) }) },
+      { slug: "whois",        mapInput: (a) => ({ domain: siteHost(a) }) },
+      { slug: "meta",         mapInput: (a) => ({ url: siteUrl(a) }) },
     ],
   },
 
@@ -2403,6 +2404,22 @@ function firstOperation(spec) {
     for (const method of METHODS) if (item[method]) return { path, method };
   }
   throw Object.assign(new Error("the spec declares no operations to validate against"), { statusCode: 422 });
+}
+
+// competitor-scan declares `url` but its steps were written against `domain`.
+// Accept whichever the caller supplied and derive the other, so neither
+// spelling can produce the "https://undefined" the pack used to build.
+function siteHost(args) {
+  const raw = String(args?.domain || args?.url || "").trim();
+  if (!raw) throw Object.assign(new Error('Missing "url" (e.g. "https://stripe.com")'), { statusCode: 400 });
+  try {
+    return new URL(raw.includes("://") ? raw : `https://${raw}`).hostname;
+  } catch {
+    throw Object.assign(new Error(`"${raw}" is not a usable URL or domain`), { statusCode: 400 });
+  }
+}
+function siteUrl(args) {
+  return `https://${siteHost(args)}`;
 }
 
 async function fetchAsBase64(url) {
