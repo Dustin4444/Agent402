@@ -472,7 +472,7 @@ export function capturePostHogChargedFailure({ slug, status, network, priceUsd, 
 // hour because one client's retry loop produced 1,500 an hour.
 const VERIFY_FAILED_HOURLY_CAP = 300;
 let _vfWindow = 0, _vfCount = 0;
-export function capturePostHogVerifyFailed({ network, scheme, resource, errorReason, synthetic, payerBalanceBucket }) {
+export function capturePostHogVerifyFailed({ network, scheme, resource, errorReason, synthetic, payerBalanceBucket, payerKey }) {
   if (!active()) return;
   const hour = Math.floor(Date.now() / 3_600_000);
   if (hour !== _vfWindow) { _vfWindow = hour; _vfCount = 0; }
@@ -486,6 +486,15 @@ export function capturePostHogVerifyFailed({ network, scheme, resource, errorRea
     synthetic: !!synthetic,
     ...(errorReason ? { errorReason: String(errorReason).slice(0, 200) } : {}),
     ...(payerBalanceBucket ? { payerBalanceBucket: String(payerBalanceBucket) } : {}),
+    // A DERIVED, non-reversible id for the failing payer, never the address.
+    // Added 2026-08-30: seven CDP connect timeouts on Solana in a day could not
+    // be told apart as "one flaky client retrying" or "several clients hitting a
+    // real fault", and that distinction decides whether anyone should act. Three
+    // of them fell inside thirty seconds, which HINTS at one retrying caller,
+    // but the event carried nothing to confirm it. Same construction as the
+    // gateway's upstream user id (sha256, 32 hex) so the two can be compared
+    // without either carrying an address.
+    ...(payerKey ? { payerKey: String(payerKey).slice(0, 40) } : {}),
   });
 }
 

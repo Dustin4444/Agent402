@@ -1500,8 +1500,23 @@ async function recordVerifyFailure(ctx, reason) {
     if (noted) bucket = noted.bucket;
   } catch { /* a hint is best-effort */ }
   // Telemetry (reason, chain, route, balance BUCKET - never the payer): see posthog.js.
+  // Who failed, as a one-way id. Prefer the signed EIP-3009 `from`; fall back to
+  // the credential itself (SVM/Stellar payloads carry no readable payer), which
+  // is what credentialKeyOf already derives for the 402 hint. Never an address.
+  let payerKey = null;
+  try {
+    const { createHash } = await import("node:crypto");
+    const from = ctx?.paymentPayload?.payload?.authorization?.from;
+    let basis = from ? `payer:${String(from).toLowerCase()}` : null;
+    if (!basis) {
+      const { credentialKeyOf } = await import("./verify-hint.js");
+      const cred = credentialKeyOf(ctx?.paymentPayload);
+      if (cred) basis = `credential:${cred}`;
+    }
+    if (basis) payerKey = `a402:${createHash("sha256").update(basis).digest("hex").slice(0, 32)}`;
+  } catch { /* telemetry is best-effort */ }
   import("./posthog.js").then(({ capturePostHogVerifyFailed }) => capturePostHogVerifyFailed({
-    network: ctx?.requirements?.network, scheme: ctx?.requirements?.scheme, resource: ctx?.requirements?.resource, errorReason: reason, payerBalanceBucket: bucket,
+    network: ctx?.requirements?.network, scheme: ctx?.requirements?.scheme, resource: ctx?.requirements?.resource, errorReason: reason, payerBalanceBucket: bucket, payerKey,
   })).catch(() => {});
 }
 

@@ -3808,6 +3808,8 @@ jobs:
           t node scripts/test-supported-guard.js
           # Verify falls over to another facilitator when the first is UNREACHABLE, and never when it answers (offline, stub facilitators)
           t node scripts/test-verify-failover.js
+          # verify_failed carries a DERIVED payer id (never an address), so a retry loop can be told from many clients (offline)
+          t node scripts/test-verify-failed-payer-key.js
           # Event-loop lag monitor measures a real block and stays cheap enough to leave on (offline)
           t node scripts/test-loop-lag.js
           # Tempo MPP settlement (native tempo/charge via Tempo's relay — challenge wiring + settlement-ordering proof — offline)
