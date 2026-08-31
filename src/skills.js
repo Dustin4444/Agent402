@@ -164,6 +164,17 @@ export const PACK_PRICES = {
 };
 
 
+// Sample fixtures for the three packs whose input is a user-supplied artifact.
+// Served by GET /fixtures/:file (src/server.js).
+//
+// Deliberately the PUBLIC url and not derived from BASE_URL: safeFetch's SSRF
+// guard refuses a loopback address, correctly, so a self-referential example
+// would fail in CI and there is no bypass worth adding to a guard like that.
+// The cost is that the example sweep fetches production, which is the same
+// self-targeting shape a2a-card-fetch / x402-quote / x402-audit already have,
+// with the same known failure mode: a deploy landing mid-run.
+const FIXTURE_BASE = "https://agent402.tools";
+
 export const SKILL_PACKS = [
   {
     slug: "earnings-deep-dive",
@@ -513,7 +524,9 @@ export const SKILL_PACKS = [
     useCase:
       "Building a RAG corpus, a daily newsletter from a list of source URLs, or extracting a table from a scanned PDF.",
     promptArgs: [
-      { name: "urls", description: "Newline- or comma-separated list of URLs / PDF links to ingest", required: false, substitute: "these 10 URLs" },
+      // The substitute was the prose "these 10 URLs", which is not a URL, so
+      // every step failed on the example we publish.
+      { name: "urls", description: "Newline- or comma-separated list of URLs / PDF links to ingest", required: false, substitute: `${FIXTURE_BASE}/` },
     ],
     toolSlugs: [
       "extract",
@@ -532,7 +545,7 @@ export const SKILL_PACKS = [
       "Pipeline: render → extract → embed for a robust ingest path that handles client-rendered sites without breaking.",
     ],
     claudePrompt:
-      "Ingest these 10 URLs into clean markdown using Agent402. For each: try extract first; if it returns no body, fall back to render→extract; for any PDF URL, use pdf-to-markdown. Return one markdown blob per URL with the source URL as the H1.",
+      "Ingest https://agent402.tools/ (and any other URLs you have) into clean markdown using Agent402. For each: try extract first; if it returns no body, fall back to render→extract; for any PDF URL, use pdf-to-markdown. Return one markdown blob per URL with the source URL as the H1.",
   },
   {
     slug: "sec-filings-deep-dive",
@@ -577,7 +590,9 @@ export const SKILL_PACKS = [
     useCase:
       "Extracting a product price, a sports stats table, a roster, a pricing tier, an outlink list - anything where the page has the data but no public API exposes it, and you need a repeatable deterministic answer instead of an LLM guess.",
     promptArgs: [
-      { name: "url", description: "Page to scrape (e.g. https://example.com/product/42)", required: true, substitute: "https://example.com/product/42" },
+      { name: "url", description: "Page to scrape (e.g. https://example.com/product/42)", required: true, // example.com serves no /product/42, so the first step 404'd on the
+        // example we publish. Our own pricing page is public and stable.
+        substitute: `${FIXTURE_BASE}/leaderboard` },
       { name: "target", description: "What to extract - a price, a table, a list, a paragraph, etc.", required: true, substitute: "the price and SKU" },
     ],
     // Ordered as a real decision tree: try the cheapest fetch first (extract
@@ -603,7 +618,7 @@ export const SKILL_PACKS = [
       "If you already have the rendered HTML and just want the metadata (title, description, OpenGraph, Twitter, canonical, JSON-LD), use html-meta on the string - avoids paying for a second fetch from /api/meta.",
     ],
     claudePrompt:
-      "Scrape the price and SKU from https://example.com/product/42 using Agent402. (1) Try extract first; if the price isn't in the article body, (2) call render to get the post-JS HTML. (3) Use html-select with a precise CSS selector to pull the price element - fall back to a broader selector if the first returns 0 matches. (4) Use html-select again with attr=\"data-sku\" or similar to read the SKU. Return a single JSON object {price, sku, url, source} where source = \"extract\" or \"render\" depending on which path worked.",
+      "Scrape the price and SKU from https://agent402.tools/leaderboard using Agent402. (1) Try extract first; if the price isn't in the article body, (2) call render to get the post-JS HTML. (3) Use html-select with a precise CSS selector to pull the price element - fall back to a broader selector if the first returns 0 matches. (4) Use html-select again with attr=\"data-sku\" or similar to read the SKU. Return a single JSON object {price, sku, url, source} where source = \"extract\" or \"render\" depending on which path worked.",
   },
   {
     slug: "decode-blob",
@@ -756,7 +771,8 @@ export const SKILL_PACKS = [
         name: "url",
         description: "PDF or image URL to process (e.g. https://example.com/invoice.pdf)",
         required: true,
-        substitute: "https://example.com/invoice.pdf",
+        // example.com serves no invoice.pdf, so this 404'd on every call.
+        substitute: `${FIXTURE_BASE}/fixtures/sample-invoice.pdf`,
       },
     ],
     // Ordered by realistic-agent decision tree: cheapest inspection first
@@ -785,7 +801,7 @@ export const SKILL_PACKS = [
       "Use images-to-pdf when the source material was a set of phone photos (receipts, whiteboard captures, scanned pages handed to you out-of-order) and you need to wrap them into one shareable PDF - either as the final deliverable or as the input to a re-run of this same pipeline at higher quality.",
     ],
     claudePrompt:
-      "Process this invoice with Agent402: https://example.com/invoice.pdf. (1) Run pdf-info to confirm it's a PDF, get the page count, check the `encrypted` flag. (2) If not encrypted, call pdf-to-markdown with the URL. (3) Inspect the returned markdown - if it has <50 chars of text, the PDF is scanned: call pdf-extract-pages to get each page as an image, then run image-ocr on each. (4) If you still can't find a tracking number after parsing the OCR text, run barcode-decode on page 1 to surface an embedded QR / barcode payload. (5) Return a single JSON object: {invoiceNumber, totalAmount, vendor, lineItems, trackingNumber, source: \"pdf-to-markdown\" | \"image-ocr\" | \"barcode-decode\"} - populate `source` based on which extraction path actually produced the data. Budget ≤ $0.05 per document; all of these tools are wallet-only (paid per call).",
+      "Process this invoice with Agent402: https://agent402.tools/fixtures/sample-invoice.pdf. (1) Run pdf-info to confirm it's a PDF, get the page count, check the `encrypted` flag. (2) If not encrypted, call pdf-to-markdown with the URL. (3) Inspect the returned markdown - if it has <50 chars of text, the PDF is scanned: call pdf-extract-pages to get each page as an image, then run image-ocr on each. (4) If you still can't find a tracking number after parsing the OCR text, run barcode-decode on page 1 to surface an embedded QR / barcode payload. (5) Return a single JSON object: {invoiceNumber, totalAmount, vendor, lineItems, trackingNumber, source: \"pdf-to-markdown\" | \"image-ocr\" | \"barcode-decode\"} - populate `source` based on which extraction path actually produced the data. Budget ≤ $0.05 per document; all of these tools are wallet-only (paid per call).",
   },
   {
     slug: "document-brief",
@@ -869,7 +885,9 @@ export const SKILL_PACKS = [
         name: "endpoint",
         description: "API URL to investigate (e.g. https://api.example.com/v1/users)",
         required: true,
-        substitute: "https://api.example.com/v1/users",
+        // api.example.com does not resolve, so every step failed on the
+        // example we publish. Our own pricing API is public, free and JSON.
+        substitute: `${FIXTURE_BASE}/api/pricing`,
       },
     ],
     // Seven tools, ordered as the real recon-before-code flow: decompose
@@ -898,7 +916,7 @@ export const SKILL_PACKS = [
       "Drill into specific fields with json-query - JSONPath ($.data[*].id) is the deterministic way to verify 'does this response actually contain the field I'm going to depend on?' Use it to validate assumptions before writing integration code: confirm the pagination cursor is at $.meta.next_cursor not $.next_page; confirm the array of items is at $.data not $.results; confirm error envelopes are at $.errors[*].detail not $.error.message. Wrong assumption here = the entire integration breaks later when the second-page response shape differs from the first.",
     ],
     claudePrompt:
-      "Investigate this API endpoint using Agent402: https://api.example.com/v1/users. (1) url-parse the URL: scheme=https, host=api.example.com, path=/v1/users - flag that this is a versioned, multi-tenant-ish path. (2) http-check it (unauthenticated). Expect a 401 - record the response time and confirm the host resolves. If you get 404 or connection-refused, stop and ask the user for the correct URL. (3) http-headers - record Content-Type, WWW-Authenticate scheme, all X-RateLimit-* values, any X-API-Version header, and any vendor-prefixed (X-*) hints. (4) extract https://docs.example.com (or /docs, /api, /reference - try in that order until one returns a real article body). Skim for auth + rate-limit + versioning sections. (5) feed the docs HTML to html-links and filter for hrefs matching /openapi|swagger|schema|\\.json$|\\.yaml$/. If found, that's the spec URL - note it. If not found, try probing /openapi.json directly via http-check. (6) Once you have any sample JSON response from the API (provided by the user or fetched via http-check on an OPTIONS endpoint), json-format it for easy reading. (7) Use json-query to verify the expected fields are where you think they are: $.data[*].id for resource IDs, $.meta.next_cursor for pagination, $.errors[*] for error envelope. Return: {baseUrl, authScheme, contentType, version, rateLimit: {requests, window}, openApiSpecUrl, sampleResponseStructure: {pagination, dataLocation, errorEnvelope}, integrationNotes}.",
+      "Investigate this API endpoint using Agent402: https://agent402.tools/api/pricing. (1) url-parse the URL: scheme=https, host=api.example.com, path=/v1/users - flag that this is a versioned, multi-tenant-ish path. (2) http-check it (unauthenticated). Expect a 401 - record the response time and confirm the host resolves. If you get 404 or connection-refused, stop and ask the user for the correct URL. (3) http-headers - record Content-Type, WWW-Authenticate scheme, all X-RateLimit-* values, any X-API-Version header, and any vendor-prefixed (X-*) hints. (4) extract https://docs.example.com (or /docs, /api, /reference - try in that order until one returns a real article body). Skim for auth + rate-limit + versioning sections. (5) feed the docs HTML to html-links and filter for hrefs matching /openapi|swagger|schema|\\.json$|\\.yaml$/. If found, that's the spec URL - note it. If not found, try probing /openapi.json directly via http-check. (6) Once you have any sample JSON response from the API (provided by the user or fetched via http-check on an OPTIONS endpoint), json-format it for easy reading. (7) Use json-query to verify the expected fields are where you think they are: $.data[*].id for resource IDs, $.meta.next_cursor for pagination, $.errors[*] for error envelope. Return: {baseUrl, authScheme, contentType, version, rateLimit: {requests, window}, openApiSpecUrl, sampleResponseStructure: {pagination, dataLocation, errorEnvelope}, integrationNotes}.",
   },
 
 
@@ -1177,13 +1195,14 @@ export const SKILL_PACKS = [
       "Normalize audio loudness with audio-normalize. Only runs if the file probed as audio in step 1 (skip for images). Applies EBU R128 loudness normalization to -23 LUFS (broadcast standard) or -16 LUFS (podcast/voice standard). This is the difference between 'every uploaded voice-memo plays at the same volume' and 'half the user's library hits the volume limiter and the other half is whispers'. Critical: this changes loudness, not peak - the dynamic range of the original is preserved, just shifted into a predictable absolute range. After this step, the artifact is canonical and ready to store. Pack returns: {storedKey, dimensions, format, sizeBytes, thumbnailKey, barcodePayload|null, audioLufs|null, processingTimeMs}.",
     ],
     claudePrompt:
-      "Normalize this user upload using Agent402.\n\nInput: uploaded file at temp path /tmp/upload-abc123 (1 file per invocation).\nMax stored long-edge: 2000px.\nThumbnail size: 200x200.\nTarget image format: WebP quality 82.\nAudio target: -16 LUFS (voice-memo standard).\n\n(1) media-info - return {kind: 'image'|'audio'|'video'|'other', format, codec, width, height, durationSec, bitrate, sampleRate, colorSpace, exifOrientation, declaredMime, detectedMime}. If declaredMime ≠ detectedMime, log 'mime mismatch' and trust detectedMime. Branch on kind: 'image' → steps 2-5, 'audio' → step 6 only, 'video' → return as-is with kind=video and stop (out of scope), 'other' → reject. (2) barcode-decode on the image bytes - return {payload: '<decoded text>'|null, symbology: 'qr'|'ean13'|'upc'|...|null}. Pure-CPU. Null = no decodable barcode, that's fine. (3) image-resize with maxLongEdge=2000, preserveAspect=true, applyExifRotation=true, stripExifGps=true - return {bytes: <resized>, width, height}. (4) image-thumbnail with size=200, mode='cover' - return {bytes: <thumb>}. (5) image-convert on both step-3 output and step-4 output, format='webp', quality=82, skipIfAlreadyTarget=true - return {primary: {bytes, sizeBytes}, thumb: {bytes, sizeBytes}}. (6) audio-normalize with targetLufs=-16, format='mp3' - return {bytes, lufsBefore, lufsAfter, peakDbfs}. ONLY if step 1 said kind='audio'. Final return: {kind, normalized: {primaryBytes: <ref>, primarySize, thumbBytes: <ref>, thumbSize, width, height, format} | audio: {bytes: <ref>, durationSec, lufsAfter, format}, metadata: {barcodePayload, originalSizeBytes, sizeSavingsPct, exifOrientation, declaredVsDetectedMime}, oneLineSummary: 'image normalized: 4032x3024 HEIC → 2000x1500 WebP (847KB → 162KB, 81% smaller), 1 QR decoded (https://example.com/menu/42), thumb 200x200 → 8KB' | 'audio normalized: 6m 12s, -23.4 LUFS → -16.0 LUFS, peak -1.2 dBFS'}. media-info + barcode-decode + image-* + audio-normalize all involve ffmpeg/ffprobe/imagemagick under the hood - egress is 0, but CPU is meaningful, so this is a wallet/paid pack, not PoW. Budget ~$0.06 per upload.",
+      "Normalize this user upload using Agent402.\n\nInput: the uploaded file at https://agent402.tools/fixtures/sample-image.png (1 file per invocation).\nMax stored long-edge: 2000px.\nThumbnail size: 200x200.\nTarget image format: WebP quality 82.\nAudio target: -16 LUFS (voice-memo standard).\n\n(1) media-info - return {kind: 'image'|'audio'|'video'|'other', format, codec, width, height, durationSec, bitrate, sampleRate, colorSpace, exifOrientation, declaredMime, detectedMime}. If declaredMime ≠ detectedMime, log 'mime mismatch' and trust detectedMime. Branch on kind: 'image' → steps 2-5, 'audio' → step 6 only, 'video' → return as-is with kind=video and stop (out of scope), 'other' → reject. (2) barcode-decode on the image bytes - return {payload: '<decoded text>'|null, symbology: 'qr'|'ean13'|'upc'|...|null}. Pure-CPU. Null = no decodable barcode, that's fine. (3) image-resize with maxLongEdge=2000, preserveAspect=true, applyExifRotation=true, stripExifGps=true - return {bytes: <resized>, width, height}. (4) image-thumbnail with size=200, mode='cover' - return {bytes: <thumb>}. (5) image-convert on both step-3 output and step-4 output, format='webp', quality=82, skipIfAlreadyTarget=true - return {primary: {bytes, sizeBytes}, thumb: {bytes, sizeBytes}}. (6) audio-normalize with targetLufs=-16, format='mp3' - return {bytes, lufsBefore, lufsAfter, peakDbfs}. ONLY if step 1 said kind='audio'. Final return: {kind, normalized: {primaryBytes: <ref>, primarySize, thumbBytes: <ref>, thumbSize, width, height, format} | audio: {bytes: <ref>, durationSec, lufsAfter, format}, metadata: {barcodePayload, originalSizeBytes, sizeSavingsPct, exifOrientation, declaredVsDetectedMime}, oneLineSummary: 'image normalized: 4032x3024 HEIC → 2000x1500 WebP (847KB → 162KB, 81% smaller), 1 QR decoded (https://example.com/menu/42), thumb 200x200 → 8KB' | 'audio normalized: 6m 12s, -23.4 LUFS → -16.0 LUFS, peak -1.2 dBFS'}. media-info + barcode-decode + image-* + audio-normalize all involve ffmpeg/ffprobe/imagemagick under the hood - egress is 0, but CPU is meaningful, so this is a wallet/paid pack, not PoW. Budget ~$0.06 per upload.",
     promptArgs: [
       {
         name: "uploadPath",
         description: "the temp path or URL of the uploaded file (e.g. '/tmp/upload-abc123')",
         required: true,
-        substitute: "/tmp/upload-abc123",
+        // A local temp path is not fetchable; every step here takes a URL.
+        substitute: `${FIXTURE_BASE}/fixtures/sample-image.png`,
       },
     ],
   },
@@ -1212,19 +1231,25 @@ export const SKILL_PACKS = [
       "Diff security schemes with openapi-security-summary on both specs. Auth changes are usually filed under 'breaking' but spec-diff tools often surface them as just-another-field-change rather than the migration project they actually are. This step bubbles them to the top: 'apiKey moved from header to query', 'oauth2 scope renamed', 'new scope required for endpoint X'. Security-scheme drift is the most expensive kind of breakage because it requires credential rotation, not just a code patch - flag prominently. Final return is a single 'breaking | additive | clean' verdict plus a per-endpoint impact table the integration team can prioritize from.",
     ],
     claudePrompt:
-      "Check if this OpenAPI contract drifted in a breaking way, using Agent402.\n\nInputs:\n  oldSpec: <yesterday's snapshot, JSON or YAML>\n  newSpec: <today's snapshot, JSON or YAML>\n  knownGoodPayload: { endpoint: 'POST /v1/orders', body: {customerId: 'cust_abc', items: [{sku: 'SKU-42', qty: 1}], currency: 'USD'} }\n\n(1) openapi-diff with oldSpec + newSpec - return {added: {endpoints: [], params: [], schemas: []}, removed: {endpoints: [], params: [], schemas: []}, changed: {endpoints: [{path, what: 'response-schema|request-schema|param-required|param-removed|...'}, ...]}}. Bucket every change as breaking|additive in the writeup. (2) openapi-lint on newSpec - return {score, regressions: [{severity, what}], comparisonToPriorLint: 'manual - note if score dropped'}. Note: this pack doesn't store prior lint scores; surface the current score and ask the integration team whether it dropped. (3) openapi-extract on newSpec - return {endpoints: [{path, method, operationId, summary}, ...]}. Compare in the writeup against the diff from step 1 to confirm no endpoint your client calls is missing. (4) openapi-required-params on BOTH specs separately - return {old: [{endpoint, requiredParams: []}, ...], new: [{endpoint, requiredParams: []}, ...], newlyRequired: [{endpoint, paramName}, ...]}. Every entry in newlyRequired is a guaranteed 400 for existing clients. (5) openapi-validate-payload with spec=newSpec, endpoint='POST /v1/orders', body=knownGoodPayload.body - return {valid: true|false, errors: [...]}. This is the decisive check. (6) openapi-security-summary on BOTH specs - return {old: {schemes: [...], requirements: [...]}, new: {schemes, requirements}, drift: [{endpoint, change: 'scope-added|scheme-changed|location-moved|...'}]}. Final return: {verdict: 'breaking'|'additive'|'clean', breakingItems: [...], additiveItems: [...], requiredClientChanges: [{file: '<guess based on operationId>', change: '<what to patch>'}], knownGoodPayloadStillValid: true|false, securityDrift: [...], lintScoreNow: <number>, oneLineSummary: 'BREAKING: POST /v1/orders now requires currencyOverride; 2 endpoints removed (/v1/legacy/quote, /v1/legacy/refund); auth unchanged; existing fixture fails validation - patch client before next deploy.'}. All six tools are pure-CPU schema operations (no egress to the API itself). Budget ~$0.015 paid; PoW-eligible.",
+      "Check if this OpenAPI contract drifted in a breaking way, using Agent402.\n\nInputs:\n  oldSpec: {\"openapi\":\"3.0.3\",\"info\":{\"title\":\"Orders API\",\"version\":\"1.0.0\"},\"paths\":{\"/v1/orders\":{\"post\":{\"operationId\":\"createOrder\",\"requestBody\":{\"required\":true,\"content\":{\"application/json\":{\"schema\":{\"type\":\"object\",\"required\":[\"customerId\"],\"properties\":{\"customerId\":{\"type\":\"string\"},\"currency\":{\"type\":\"string\"}}}}}},\"responses\":{\"201\":{\"description\":\"created\"}}}}}}\n  newSpec: {\"openapi\":\"3.0.3\",\"info\":{\"title\":\"Orders API\",\"version\":\"1.1.0\"},\"paths\":{\"/v1/orders\":{\"post\":{\"operationId\":\"createOrder\",\"requestBody\":{\"required\":true,\"content\":{\"application/json\":{\"schema\":{\"type\":\"object\",\"required\":[\"customerId\",\"currency\"],\"properties\":{\"customerId\":{\"type\":\"string\"},\"currency\":{\"type\":\"string\"}}}}}},\"responses\":{\"201\":{\"description\":\"created\"}}}}}}\n  knownGoodPayload: { endpoint: 'POST /v1/orders', body: {customerId: 'cust_abc', items: [{sku: 'SKU-42', qty: 1}], currency: 'USD'} }\n\n(1) openapi-diff with oldSpec + newSpec - return {added: {endpoints: [], params: [], schemas: []}, removed: {endpoints: [], params: [], schemas: []}, changed: {endpoints: [{path, what: 'response-schema|request-schema|param-required|param-removed|...'}, ...]}}. Bucket every change as breaking|additive in the writeup. (2) openapi-lint on newSpec - return {score, regressions: [{severity, what}], comparisonToPriorLint: 'manual - note if score dropped'}. Note: this pack doesn't store prior lint scores; surface the current score and ask the integration team whether it dropped. (3) openapi-extract on newSpec - return {endpoints: [{path, method, operationId, summary}, ...]}. Compare in the writeup against the diff from step 1 to confirm no endpoint your client calls is missing. (4) openapi-required-params on BOTH specs separately - return {old: [{endpoint, requiredParams: []}, ...], new: [{endpoint, requiredParams: []}, ...], newlyRequired: [{endpoint, paramName}, ...]}. Every entry in newlyRequired is a guaranteed 400 for existing clients. (5) openapi-validate-payload with spec=newSpec, endpoint='POST /v1/orders', body=knownGoodPayload.body - return {valid: true|false, errors: [...]}. This is the decisive check. (6) openapi-security-summary on BOTH specs - return {old: {schemes: [...], requirements: [...]}, new: {schemes, requirements}, drift: [{endpoint, change: 'scope-added|scheme-changed|location-moved|...'}]}. Final return: {verdict: 'breaking'|'additive'|'clean', breakingItems: [...], additiveItems: [...], requiredClientChanges: [{file: '<guess based on operationId>', change: '<what to patch>'}], knownGoodPayloadStillValid: true|false, securityDrift: [...], lintScoreNow: <number>, oneLineSummary: 'BREAKING: POST /v1/orders now requires currencyOverride; 2 endpoints removed (/v1/legacy/quote, /v1/legacy/refund); auth unchanged; existing fixture fails validation - patch client before next deploy.'}. All six tools are pure-CPU schema operations (no egress to the API itself). Budget ~$0.015 paid; PoW-eligible.",
     promptArgs: [
       {
         name: "oldSpec",
-        description: "the prior OpenAPI snapshot as JSON or YAML",
+        description: "the prior OpenAPI snapshot as a JSON document (object or JSON string)",
         required: true,
-        substitute: "yesterday's snapshot",
+        // A REAL spec, not prose. The substitute is the pack's published
+        // example, and "yesterday's snapshot" is not something any tool can
+        // parse - every step failed on it, which the partial-success envelope
+        // hid behind a 200 until packs stopped returning one.
+        substitute: "{\"openapi\":\"3.0.3\",\"info\":{\"title\":\"Orders API\",\"version\":\"1.0.0\"},\"paths\":{\"/v1/orders\":{\"post\":{\"operationId\":\"createOrder\",\"requestBody\":{\"required\":true,\"content\":{\"application/json\":{\"schema\":{\"type\":\"object\",\"required\":[\"customerId\"],\"properties\":{\"customerId\":{\"type\":\"string\"},\"currency\":{\"type\":\"string\"}}}}}},\"responses\":{\"201\":{\"description\":\"created\"}}}}}}",
       },
       {
         name: "newSpec",
-        description: "the current OpenAPI snapshot as JSON or YAML",
+        description: "the current OpenAPI snapshot as a JSON document (object or JSON string)",
         required: true,
-        substitute: "today's snapshot",
+        // Same spec with `currency` newly REQUIRED: the breaking drift this
+        // pack exists to catch, so the example demonstrates a real finding.
+        substitute: "{\"openapi\":\"3.0.3\",\"info\":{\"title\":\"Orders API\",\"version\":\"1.1.0\"},\"paths\":{\"/v1/orders\":{\"post\":{\"operationId\":\"createOrder\",\"requestBody\":{\"required\":true,\"content\":{\"application/json\":{\"schema\":{\"type\":\"object\",\"required\":[\"customerId\",\"currency\"],\"properties\":{\"customerId\":{\"type\":\"string\"},\"currency\":{\"type\":\"string\"}}}}}},\"responses\":{\"201\":{\"description\":\"created\"}}}}}}",
       },
     ],
   },
@@ -2221,7 +2246,10 @@ export const SKILL_PACKS = [
     useCase:
       "An agent (or its owner) is staring at a transaction hash and needs the plain-English story - did it confirm, which function was called, with what arguments, and is the counterparty a known contract or an unknown address.",
     promptArgs: [
-      { name: "hash", description: "0x-prefixed 32-byte transaction hash", required: true, substitute: "0x0000000000000000000000000000000000000000000000000000000000000000" },
+      { name: "hash", description: "0x-prefixed 32-byte transaction hash", required: true, // An all-zero hash exists on no chain, so evm-rpc returned nothing and
+        // calldata-decode / selector-lookup both failed on every call. A real
+        // Base transaction, immutable and public, with real calldata.
+        substitute: "0x1c0592f73d1f9182ee9bd40eb34d9b6c70b3196814b111589b82df4e79e7fb59" },
       { name: "network", description: "EVM network (ethereum / base / polygon / arbitrum / optimism, default base)", required: false, substitute: "base" },
     ],
     toolSlugs: ["tx-status", "evm-rpc", "calldata-decode", "selector-lookup", "address-label"],
@@ -2233,7 +2261,7 @@ export const SKILL_PACKS = [
       "Label the counterparty with address-label - known token contract, DEX router, bridge, exchange wallet, or unknown.",
     ],
     claudePrompt:
-      "Explain what transaction 0x0000000000000000000000000000000000000000000000000000000000000000 on base actually did, using Agent402's tx-forensics skill pack. (1) Check its confirmation status, (2) fetch the raw transaction via eth_getTransactionByHash, (3) decode the calldata into the function and arguments, (4) resolve the selector against the signature databases, (5) label the destination address. Summarize as a plain-English story: what was called, with what arguments, by whom, to whom, and whether it succeeded.",
+      "Explain what transaction 0x1c0592f73d1f9182ee9bd40eb34d9b6c70b3196814b111589b82df4e79e7fb59 on base actually did, using Agent402's tx-forensics skill pack. (1) Check its confirmation status, (2) fetch the raw transaction via eth_getTransactionByHash, (3) decode the calldata into the function and arguments, (4) resolve the selector against the signature databases, (5) label the destination address. Summarize as a plain-English story: what was called, with what arguments, by whom, to whom, and whether it succeeded.",
   },
   {
     slug: "market-open",

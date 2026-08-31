@@ -906,6 +906,68 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   legacy `errorResultXdr` string (the 08-27 "(no errorResultXdr in response) otherKeys:[errorResult]" line). facilitator/test.js 59
   offline pins. The facilitator redeploys ONLY on `facilitator/**` changes and has its own lockfile: a root Dependabot bump never
   touches it (verified 2026-08-28 while diagnosing this; the same-day mppx/viem/algosdk bump was cleared by a canary rerun).
+- **Four skill packs were SOLD and structurally unimplemented (2026-08-31, `scripts/test-skill-pack-steps.js`):** `earnings-deep-dive`,
+  `options-analytics`, `fixed-income-desk` and `defi-protocol-scanner` were in `SKILL_PACKS` with prices, catalog entries and live
+  tool pages, and had NO `PACK_STEPS` entry - so `getStepConfig` fell back to the stub whose every `mapInput` throws `todoError()`,
+  and each call returned **HTTP 200 with "0/N steps succeeded"**, deterministically, for every buyer, **2026-07-08 to 2026-08-31**.
+  61 settlements at $0.05; most were our own canaries (`ZKFACA` Algorand burner, `0x902d` EVM burner, `0xfeda` the retired one) but
+  ~5 were outside wallets in neither `OUR_WALLETS` nor `OUR_ALGORAND_WALLETS`. **Why nothing caught it: the partial-success envelope
+  is a VALID shape whatever the steps did**, so the "answers its own example" sweep (status + documented keys) passed, and three of
+  the four are additionally in test-all's Brave skip list so they were never executed at all. Now implemented from each pack's own
+  declared `workflow`/`toolSlugs` (options and fixed-income are CHAINS: black-scholes gets the live spot plus a volatility measured
+  from that stock's own history via `realizedVolatility`, and the bond is priced at the curve's own 10Y then re-inverted with
+  `bond-ytm` to confirm - verified live, AAPL 316.85 -> ATM strike delta 0.49, bond round-tripping to 4.73%). `requireNumber` fails a
+  chained step cleanly rather than letting a missing prior coerce to NaN and produce a confident-looking answer built on nothing.
+  **A pack where ZERO steps succeed now REFUSES** (`runPack` throws; 400 when every step failed on the caller's input, else 502) so
+  settlement is cancelled and nobody pays for an empty envelope - a 200 charges, because @x402/express settles anything under 400.
+  Partial success is unchanged and still 200: "the absence is part of the dossier" is about SOME steps failing, never all.
+  **`mapInputs` (plural) is new**: a step may offer ordered candidate inputs and the runner tries them until one works. It exists
+  because `crypto-dossier`'s `extract` read whichever news site ranked first and **failed 43.5% of the time (37 of 85 runs over 60
+  days) while every other step in that pack ran at 100%** - a coin flip on the publisher, charged to the buyer as a missing step; it
+  now walks the ranked results and ends on the coin's own CoinGecko page, which is readable. NOT a defect and left alone:
+  `decode-blob` reads as 42.9% failed because it throws a blob at seven decoders and a JWT is not gzip/brotli/hex - the misses ARE
+  the answer. The guard (in CI, offline, 659 assertions, mutation-killed) pins that every `SKILL_PACKS` slug has a `PACK_STEPS`
+  entry, that every step can build its input, and that every step is a tool the pack advertises in `toolSlugs` - the last one is
+  what a future retirement cut would otherwise hollow out silently.
+  **The refusal immediately found a FIFTH dead pack, which is the point of it:** `openapi-audit` (26 of 26 step calls failed in
+  telemetry) HAS a `PACK_STEPS` entry, so the missing-entry guard passed it, and CI only surfaced it once a 0/N answer stopped
+  being a 200. Three real bugs: both steps handed the caller's URL to tools that take the DOCUMENT (`spec`: "object or JSON
+  string"), `openapi-validate-payload` was missing its required `part` and aimed at a hardcoded `get /` no real spec declares,
+  and `openapi-security-summary` was advertised in the pack's own `toolSlugs` and never wired at all. Now `fetchOpenApiSpec`
+  (one `safeFetch` through the SSRF guard, 5MB cap, in-flight dedupe so a fan-out is not three fetches of the same spec) plus
+  `firstOperation` (the first method+path the spec actually declares); 3/3 on its own petstore example. **Note `safeFetch`
+  names the text body `html` whatever the content type is** - reading `body` there made every step fail "not JSON" until the
+  return shape was actually inspected. OPEN, deliberately not fixed here: ten packs advertise a tool in `toolSlugs` they never
+  run (structured-scrape/html-meta, ipo-watch/search-news, jwt-toolkit/jwt-sign, fx-monitor/fx-historical, page-audit/sitemap,
+  article-digest/search-news, content-grade/readability-score, contact-verify/spf-check, trend-analysis/fred-series,
+  markdown-convert/text-diff) - they deliver real steps, just fewer than the tool page promises, and each needs its own
+  judgment.
+- **Every guard we owned asserted SHAPE, never OUTCOME (2026-08-31, `scripts/test-pack-examples.js`):** the root cause behind nine
+  packs selling broken for two months. The example sweep asserts an HTTP 200 and the documented TOP-LEVEL keys, and
+  `{pack, args, steps, summary}` is a valid shape whether the steps returned data or all threw - so `0/N steps succeeded` passed
+  everything. `tool_call` telemetry is blind the same way (`errored`/`status` both read clean on a hollow 200), three of the dead
+  packs sit in test-all's Brave skip list so they never executed at all, and the canary's pack legs did not assert step outcomes.
+  **Swept all 85 packs against their own published examples**; beyond the nine already fixed this found `structured-scrape` (its
+  three `html-*` steps were fed `render.markdown`, and markdown has no `<table>` or class attributes, so `html-table` could never
+  match on ANY page - `fetchPageHtml` now gives them real HTML), `api-investigation` (`api.example.com` does not resolve),
+  `tx-forensics` (an all-zero tx hash that exists on no chain, so calldata-decode and selector-lookup always failed - now a real
+  immutable Base tx) and `forecasting-bake-off` (`forecast-eval` REQUIRES an explicit `period` for holt-winters even though the
+  standalone tool auto-detects, and the standalone cannot auto-detect on daily closes either). ~13 of 85 packs, 15%. The class is
+  essentially confined to packs: of 404 non-pack examples returning 200, ONE buries an error the same way. `claudePrompt` strings
+  were realigned with the corrected substitutes - the prompt is what an agent copies, so a stale one publishes a second broken
+  instruction. **The guard drives every pack with the exact input we publish and requires steps to SUCCEED**; an expected miss
+  needs a named reason (`EXPECTED_MISSES`: a JWT is not gzip, a ticker is not a FRED series), key/upstream failures are
+  report-only (`NOT_OURS`, the probe-classify doctrine) and so is anything DOWNSTREAM of an upstream-blocked step. Two traps it
+  hit in development, both worth keeping in mind for any sweep: it initially **passed while measuring nothing** when the server
+  under test had died (now fails under a 50% floor - silence is not success), and driving all 85 packs in CI would have **bought a
+  live Brave query on every push**, the CI-spend leak that has recurred three times, so the CI step boots its OWN KEYLESS server -
+  keyed packs self-report "not configured" and skip as not-ours, keyless packs are fully verified, and no skip list can drift.
+  The keyed subset is therefore NOT covered in CI; run it against a keyed server by hand. It also caught a defect in its own
+  author's fix: crypto-dossier's "readable fallback" was the coin's CoinGecko page, which **answers 403 to our fetcher**
+  (measured), so it appended a guaranteed-dead candidate - removed, six real search results walked instead.
+  **`skill-openapi-audit` moved to `WALLET_ONLY_SLUGS`:** it was pure-CPU and PoW-eligible ONLY because it never actually fetched
+  anything; giving it a working caller-supplied fetch made the free tier able to fetch arbitrary URLs. The free-tier egress probe
+  caught it on the first CI run after the fix.
 - **Stellar settlements bid ABOVE the network minimum (2026-08-31, `facilitator/fee-bid.js`):** the Stellar rail was our only
   unreliable one - 25 up / 15 down over 30 days of canary observations (62.5%) against Base's 40/40 - and every failure reduced
   to ONE cause: `@x402/stellar` builds the settlement transaction with `fee: BASE_FEE` (100 stroops, the network MINIMUM,

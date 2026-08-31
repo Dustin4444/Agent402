@@ -227,6 +227,13 @@ export const WALLET_ONLY_SLUGS = new Set([
   "skill-macro-economics", "skill-macro-dashboard",
   "skill-content-extraction", "skill-media-pipeline", "skill-document-intel",
   "skill-trend-analysis", "skill-any-to-markdown", "skill-structured-scrape",
+  // openapi-audit was pure-CPU and PoW-eligible only because it never actually
+  // fetched anything: every step handed the caller's URL to a tool that wanted
+  // the document, so the pack was inert. Fixing it gave the pack a real
+  // caller-supplied fetch (safeFetch, SSRF-guarded, 5MB), and a free tier that
+  // fetches arbitrary URLs on demand is what this list exists to prevent. Our
+  // own free-tier egress probe caught this on the first CI run after the fix.
+  "skill-openapi-audit",
   "skill-forecasting-bake-off", "skill-fraud-signals", "skill-security-audit",
   "skill-link-preview", "skill-api-investigation", "skill-email-deliverability",
   "skill-location-intel", "skill-dns-network-ops", "skill-status-snapshot",

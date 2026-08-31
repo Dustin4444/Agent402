@@ -35,6 +35,44 @@ import { capturePostHogPackStep } from "../posthog.js";
 // safeFetch (SSRF guard + size cap), never raw fetch — the URL is caller-supplied.
 const MAX_FETCH_BASE64_BYTES = 25 * 1024 * 1024;
 
+// Annualized realized volatility from a stock-history bar series: stddev of
+// daily log returns x sqrt(252). Used by the options pack to give
+// black-scholes a sigma grounded in the stock's own recent history rather
+// than a hardcoded guess. Throws (-> clean per-step partial failure) rather
+// than returning NaN, because a NaN sigma produces a confident-looking
+// option price that is meaningless.
+function realizedVolatility(bars) {
+  const closes = (Array.isArray(bars) ? bars : [])
+    .map((b) => Number(b?.close))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (closes.length < 20) {
+    throw Object.assign(
+      new Error(`not enough price history to estimate volatility (need 20 closes, got ${closes.length})`),
+      { statusCode: 422 }
+    );
+  }
+  const rets = [];
+  for (let i = 1; i < closes.length; i++) rets.push(Math.log(closes[i] / closes[i - 1]));
+  const mean = rets.reduce((a, b) => a + b, 0) / rets.length;
+  const variance = rets.reduce((a, r) => a + (r - mean) ** 2, 0) / (rets.length - 1);
+  const vol = Math.sqrt(variance) * Math.sqrt(252);
+  if (!Number.isFinite(vol) || vol <= 0) {
+    throw Object.assign(new Error("could not compute a usable volatility from the price history"), { statusCode: 422 });
+  }
+  return Math.round(vol * 10000) / 10000;
+}
+
+// A prior step's number, or a clean failure naming what was missing. Chained
+// steps that silently coerce a missing input to NaN produce a plausible-looking
+// answer built on nothing, which is worse than a failed step.
+function requireNumber(value, what) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) {
+    throw Object.assign(new Error(`${what} was not available from the previous step`), { statusCode: 424 });
+  }
+  return n;
+}
+
 // Sentinel error thrown by stub mapInput functions. The runner converts it to
 // a per-step partial-failure {ok:false, statusCode:501} so the rest of the
 // pack still runs and the envelope shape stays consistent. Reachable only
@@ -240,8 +278,10 @@ export const PACK_STEPS = {
       { slug: "edgar-filings",       mapInput: (a) => ({ ticker: a.ticker }) },
       { slug: "edgar-company-facts", mapInput: (a) => ({ ticker: a.ticker }) },
       { slug: "edgar-insider-trades", mapInput: (a) => ({ ticker: a.ticker, lookbackDays: 90 }) },
-      // FRED needs an explicit series id — fed funds is the default macro signal.
-      { slug: "fred-series",         mapInput: () => ({ series: "FEDFUNDS" }) },
+      // FRED needs an explicit series id - fed funds is the default macro
+      // signal. The key is `seriesId`; this sent `series`, so the step 400'd
+      // on every call (2 of 2 in 60 days of telemetry).
+      { slug: "fred-series",         mapInput: () => ({ seriesId: "FEDFUNDS" }) },
       { slug: "research-company",    mapInput: (a) => ({ ticker: a.ticker }) },
     ],
   },
@@ -998,17 +1038,17 @@ export const PACK_STEPS = {
     steps: [
       { slug: "extract",     mapInput: (a) => ({ url: a.url }) },
       { slug: "render",      mapInput: (a) => ({ url: a.url }) },
-      { slug: "html-select", mapInput: (_a, p) => ({
-          html: String(p["render"]?.markdown ?? p["extract"]?.markdown ?? ""),
+      { slug: "html-select", mapInput: async (a) => ({
+          html: await fetchPageHtml(a.url),
           selector: "h1, h2, .price, [itemprop=\"price\"]",
           limit: 25,
       }) },
-      { slug: "html-table",  mapInput: (_a, p) => ({
-          html: String(p["render"]?.markdown ?? p["extract"]?.markdown ?? ""),
+      { slug: "html-table",  mapInput: async (a) => ({
+          html: await fetchPageHtml(a.url),
           format: "json",
       }) },
-      { slug: "html-strip",  mapInput: (_a, p) => ({
-          html: String(p["render"]?.markdown ?? p["extract"]?.markdown ?? ""),
+      { slug: "html-strip",  mapInput: async (a) => ({
+          html: await fetchPageHtml(a.url),
       }) },
       { slug: "html-links",  mapInput: (_a, p) => ({
           html: String(p["render"]?.markdown ?? p["extract"]?.markdown ?? ""),
@@ -1286,7 +1326,13 @@ export const PACK_STEPS = {
             throw Object.assign(new Error(`need ≥6 observations for backtest, got ${values.length}`), { statusCode: 422 });
           }
           const testSize = Math.max(2, Math.round(values.length * 0.2));
-          return { values, testSize, method };
+          // forecast-eval REQUIRES an explicit period for holt-winters (the
+          // standalone forecast-holt-winters auto-detects, the backtest does
+          // not), so this leg failed on every run: "backtest failed: period
+          // required for method holt-winters". 5 = a trading week, the only
+          // seasonality a daily price series plausibly carries.
+          const period = method === "holt-winters" ? 5 : undefined;
+          return period ? { values, testSize, method, period } : { values, testSize, method };
         },
       })),
       { slug: "forecast-naive",        mapInput: (a, p) => ({
@@ -1305,6 +1351,9 @@ export const PACK_STEPS = {
       { slug: "forecast-holt-winters", mapInput: (a, p) => ({
           values: bakeOffValues(p),
           horizon: parseInt(a.horizon, 10) || 30,
+          // Auto-detection finds no ACF lag above 0.3 on daily price
+          // differences, so this leg failed on every run. 5 = a trading week.
+          period: 5,
       }) },
     ],
   },
@@ -1423,11 +1472,114 @@ export const PACK_STEPS = {
       { slug: "crypto-trending", mapInput: () => ({}) },
       { slug: "crypto-global",   mapInput: () => ({ currency: "usd" }) },
       { slug: "search",          mapInput: (a) => ({ q: `${a.coin} cryptocurrency news`, count: 5, freshness: "pw" }) },
-      { slug: "extract",         mapInput: (a, p) => {
+      // Publishers that block scrapers are common enough that picking one URL
+      // lost this step 43.5% of the time. Offer the ranked results in order and
+      // fall back to the coin's own page, which we know is readable.
+      { slug: "extract",         mapInputs: (a, p) => {
           const results = p["search"]?.results || [];
-          const url = results[0]?.url || results[1]?.url || results[2]?.url;
-          return { url: url || `https://www.coingecko.com/en/coins/${a.coin}` };
+          // No hardcoded fallback: the coin's own CoinGecko page answers 403
+          // to our fetcher (measured), so appending it added a guaranteed-dead
+          // last candidate rather than a safety net. Walk more real results
+          // instead, and if every one of them blocks us, say so honestly.
+          const urls = results.map((r) => r?.url).filter((u) => typeof u === "string" && u);
+          return [...new Set(urls)].slice(0, 6).map((url) => ({ url }));
       } },
+    ],
+  },
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Four packs that were listed and PRICED in SKILL_PACKS with no entry here,
+  // so every step hit todoError() and every buyer got HTTP 200 with 0/N steps
+  // succeeded - deterministically, from 2026-07-08 until 2026-08-31. The
+  // partial-success envelope is why nothing caught it: the shape is valid
+  // whatever the steps did, so the "answers its own example" check passed,
+  // and three of the four are additionally skipped there to avoid live Brave
+  // spend. Implemented below from each pack's own declared workflow and
+  // toolSlugs; the missing-entry class is now pinned by
+  // scripts/test-skill-pack-steps.js.
+  // ──────────────────────────────────────────────────────────────────────
+
+  // Earnings deep-dive: date, fundamentals, filings, quote, narrative. Every
+  // read is independent of the others, so fan out.
+  "earnings-deep-dive": {
+    mode: "fanout",
+    steps: [
+      { slug: "earnings-calendar",  mapInput: (a) => ({ symbol: a.ticker }) },
+      { slug: "company-financials", mapInput: (a) => ({ ticker: a.ticker }) },
+      { slug: "edgar-filings",      mapInput: (a) => ({ ticker: a.ticker, limit: 10 }) },
+      { slug: "stock-quote",        mapInput: (a) => ({ symbol: a.ticker }) },
+      { slug: "search",             mapInput: (a) => ({ q: `${a.ticker} earnings analyst expectations`, count: 5 }) },
+    ],
+  },
+
+  // Options analytics: chain, because the whole point of the pack is that
+  // black-scholes gets a LIVE spot and a volatility measured from this
+  // stock's own history instead of textbook inputs.
+  "options-analytics": {
+    mode: "chain",
+    steps: [
+      { slug: "stock-quote",   mapInput: (a) => ({ symbol: a.ticker }) },
+      { slug: "stock-history", mapInput: (a) => ({ symbol: a.ticker, range: "3mo" }) },
+      { slug: "black-scholes", mapInput: (a, p) => {
+          const spot = requireNumber(p["stock-quote"]?.price, "the live spot price");
+          const volatility = realizedVolatility(p["stock-history"]?.bars);
+          // At-the-money by default, rounded to a strike that would actually be
+          // listed; the caller may name one instead.
+          const step = spot >= 200 ? 10 : spot >= 50 ? 5 : 1;
+          const strike = Number(a.strike) > 0 ? Number(a.strike) : Math.round(spot / step) * step;
+          const days = Number(a.daysToExpiry) > 0 ? Number(a.daysToExpiry) : 30;
+          return {
+            type: a.type === "put" ? "put" : "call",
+            spot,
+            strike,
+            timeToExpiryYears: days / 365,
+            riskFreeRate: Number(a.riskFreeRate) >= 0 ? Number(a.riskFreeRate) : 0.05,
+            volatility,
+            dividendYield: 0,
+          };
+      } },
+      { slug: "search", mapInput: (a) => ({ q: `${a.ticker} stock catalyst earnings guidance`, count: 5 }) },
+    ],
+  },
+
+  // Fixed-income desk: chain, because the bond is priced at the CURVE's own
+  // 10Y yield and then re-inverted from that price to confirm it.
+  "fixed-income-desk": {
+    mode: "chain",
+    steps: [
+      { slug: "treasury-yield-curve", mapInput: () => ({}) },
+      { slug: "yield-curve-spread",   mapInput: () => ({}) },
+      { slug: "cpi-yoy",              mapInput: () => ({}) },
+      { slug: "bond-price", mapInput: (a, p) => {
+          // The curve reports percent (yr10: 4.51); the bond tools take a decimal.
+          const yr10 = requireNumber(p["treasury-yield-curve"]?.yr10, "the 10Y Treasury yield");
+          return {
+            faceValue: 1000,
+            couponRate: Number(a.couponRate) > 0 ? Number(a.couponRate) : 0.05,
+            yieldToMaturity: yr10 / 100,
+            years: 10,
+            periodsPerYear: 2,
+          };
+      } },
+      { slug: "bond-ytm", mapInput: (a, p) => ({
+          price: requireNumber(p["bond-price"]?.price, "the bond price from the previous step"),
+          faceValue: 1000,
+          couponRate: Number(a.couponRate) > 0 ? Number(a.couponRate) : 0.05,
+          years: 10,
+          periodsPerYear: 2,
+      }) },
+    ],
+  },
+
+  // DeFi protocol scanner: price, market scale, real usage (TVL), news.
+  // Independent reads, so fan out.
+  "defi-protocol-scanner": {
+    mode: "fanout",
+    steps: [
+      { slug: "crypto-price",  mapInput: (a) => ({ coins: a.protocol, currency: "usd" }) },
+      { slug: "crypto-market", mapInput: () => ({ limit: 10, currency: "usd" }) },
+      { slug: "defi-tvl",      mapInput: (a) => ({ protocol: a.protocol }) },
+      { slug: "search",        mapInput: (a) => ({ q: `${a.protocol} defi protocol audit security incident`, count: 5 }) },
     ],
   },
 
@@ -1577,12 +1729,13 @@ export const PACK_STEPS = {
   "competitor-scan": {
     mode: "fanout",
     steps: [
-      { slug: "tech-stack",   mapInput: (a) => ({ url: `https://${a.domain}` }) },
-      { slug: "http-headers", mapInput: (a) => ({ url: `https://${a.domain}` }) },
-      { slug: "whois",        mapInput: (a) => {
-          return { domain: a.domain };
-      } },
-      { slug: "meta",         mapInput: (a) => ({ url: `https://${a.domain}` }) },
+      // The pack declares ONE promptArg, `url` ("https://stripe.com"), and every
+      // step here read a.domain - so each built "https://undefined" and the
+      // pack failed on its own documented example, every call.
+      { slug: "tech-stack",   mapInput: (a) => ({ url: siteUrl(a) }) },
+      { slug: "http-headers", mapInput: (a) => ({ url: siteUrl(a) }) },
+      { slug: "whois",        mapInput: (a) => ({ domain: siteHost(a) }) },
+      { slug: "meta",         mapInput: (a) => ({ url: siteUrl(a) }) },
     ],
   },
 
@@ -1806,11 +1959,21 @@ export const PACK_STEPS = {
   },
 
   // OpenAPI spec audit: lint + validate.
+  // Every step here was passing the caller's URL where the tool wants the
+  // DOCUMENT, and validate-payload was missing its required "part" and aimed
+  // at a hardcoded "get /" no real spec declares - so all steps failed on
+  // every call. openapi-security-summary is advertised in the pack's own
+  // toolSlugs and was never wired at all.
   "openapi-audit": {
     mode: "fanout",
     steps: [
-      { slug: "openapi-lint",             mapInput: (a) => ({ spec: a.url }) },
-      { slug: "openapi-validate-payload", mapInput: (a) => ({ spec: a.url, payload: {}, method: "get", path: "/" }) },
+      { slug: "openapi-lint",             mapInput: async (a) => ({ spec: await fetchOpenApiSpec(a.url) }) },
+      { slug: "openapi-validate-payload", mapInput: async (a) => {
+          const spec = await fetchOpenApiSpec(a.url);
+          const { path, method } = firstOperation(spec);
+          return { spec, part: "request", method, path, payload: {} };
+      } },
+      { slug: "openapi-security-summary", mapInput: async (a) => ({ spec: await fetchOpenApiSpec(a.url) }) },
     ],
   },
 
@@ -1865,12 +2028,16 @@ export const PACK_STEPS = {
   },
 
   // Fed economic snapshot: FEDFUNDS + UNRATE + CPIAUCSL.
+  // Every step sent `series` where fred-series requires `seriesId`, so all
+  // three 400'd on every call - 33 of 33 step calls in 60 days of PRODUCTION
+  // telemetry, where the FRED key exists. The pack has no promptArgs, so this
+  // was not a bad caller input: it could never have worked for anyone.
   "fred-snapshot": {
     mode: "fanout",
     steps: [
-      { slug: "fred-series", mapInput: () => ({ series: "FEDFUNDS" }) },
-      { slug: "fred-series", mapInput: () => ({ series: "UNRATE" }) },
-      { slug: "fred-series", mapInput: () => ({ series: "CPIAUCSL" }) },
+      { slug: "fred-series", mapInput: () => ({ seriesId: "FEDFUNDS" }) },
+      { slug: "fred-series", mapInput: () => ({ seriesId: "UNRATE" }) },
+      { slug: "fred-series", mapInput: () => ({ seriesId: "CPIAUCSL" }) },
     ],
   },
 
@@ -2212,6 +2379,91 @@ function bakeOffValues(prior) {
 // Fetch a URL and return its bytes as base64. Used by media-pipeline's chain
 // because image-kit tools take base64 inputs while media-info / audio-normalize
 // take URLs — the chain needs to bridge between the two shapes.
+// openapi-audit takes a URL, but every openapi-* tool takes the DOCUMENT
+// ("object or JSON string") - the pack was handing them the URL string, so
+// all three steps failed on every call. Fetch once and share: the pack fans
+// out, so without the in-flight dedupe one audit is three fetches of the same
+// spec. Caller-supplied URL, so it MUST route through safeFetch (SSRF guard +
+// byte cap), never raw fetch.
+const MAX_SPEC_BYTES = 5 * 1024 * 1024;
+const specInFlight = new Map();
+async function fetchOpenApiSpec(url) {
+  if (typeof url !== "string" || !url) {
+    throw Object.assign(new Error('Missing or invalid "url" for the OpenAPI spec'), { statusCode: 400 });
+  }
+  if (!specInFlight.has(url)) {
+    const p = (async () => {
+      // safeFetch names the text body `html` whatever the content type is.
+      const { html } = await safeFetch(url, { maxBytes: MAX_SPEC_BYTES });
+      const text = typeof html === "string" ? html : "";
+      try {
+        return JSON.parse(text);
+      } catch {
+        // These tools parse JSON only (api-kit has no YAML parser), so say
+        // that rather than letting each step fail with its own parse error.
+        throw Object.assign(
+          new Error(`the spec at ${url} is not JSON - these tools read a JSON OpenAPI document`),
+          { statusCode: 422 }
+        );
+      }
+    })().finally(() => specInFlight.delete(url));
+    specInFlight.set(url, p);
+  }
+  return specInFlight.get(url);
+}
+
+// structured-scrape's whole purpose is pulling structured data out of a page
+// with CSS selectors, and its html-select / html-table / html-strip steps were
+// fed `render.markdown` - markdown has no <table> and no class attributes, so
+// html-table could never match on any page and the selector step matched only
+// by accident. render returns markdown ONLY (no raw html field), so the HTML
+// has to be fetched. Same shape as fetchOpenApiSpec: safeFetch for the SSRF
+// guard and byte cap on a caller-supplied URL, in-flight dedupe so three steps
+// in one pack are one request.
+const MAX_HTML_BYTES = 2 * 1024 * 1024;
+const htmlInFlight = new Map();
+async function fetchPageHtml(url) {
+  if (typeof url !== "string" || !url) {
+    throw Object.assign(new Error('Missing or invalid "url"'), { statusCode: 400 });
+  }
+  if (!htmlInFlight.has(url)) {
+    const p = (async () => {
+      const { html } = await safeFetch(url, { maxBytes: MAX_HTML_BYTES });
+      return typeof html === "string" ? html : "";
+    })().finally(() => htmlInFlight.delete(url));
+    htmlInFlight.set(url, p);
+  }
+  return htmlInFlight.get(url);
+}
+
+// The first concrete operation in a spec, for tools that need one named.
+// Guessing "get /" failed on every real spec, petstore included.
+function firstOperation(spec) {
+  const paths = spec?.paths && typeof spec.paths === "object" ? spec.paths : {};
+  const METHODS = ["get", "post", "put", "patch", "delete", "head", "options"];
+  for (const [path, item] of Object.entries(paths)) {
+    if (!item || typeof item !== "object") continue;
+    for (const method of METHODS) if (item[method]) return { path, method };
+  }
+  throw Object.assign(new Error("the spec declares no operations to validate against"), { statusCode: 422 });
+}
+
+// competitor-scan declares `url` but its steps were written against `domain`.
+// Accept whichever the caller supplied and derive the other, so neither
+// spelling can produce the "https://undefined" the pack used to build.
+function siteHost(args) {
+  const raw = String(args?.domain || args?.url || "").trim();
+  if (!raw) throw Object.assign(new Error('Missing "url" (e.g. "https://stripe.com")'), { statusCode: 400 });
+  try {
+    return new URL(raw.includes("://") ? raw : `https://${raw}`).hostname;
+  } catch {
+    throw Object.assign(new Error(`"${raw}" is not a usable URL or domain`), { statusCode: 400 });
+  }
+}
+function siteUrl(args) {
+  return `https://${siteHost(args)}`;
+}
+
 async function fetchAsBase64(url) {
   // The URL is caller-supplied, so this MUST route through safeFetch — it enforces
   // the SSRF guard (blocks private/link-local IPs, DNS-rebind, redirect-to-private)
@@ -2273,7 +2525,6 @@ async function runPack(packSlug, args, ctx) {
     // (e.g. Brave answer) to pack fan-out. Fire-and-forget, never throws.
     const startedAt = Date.now();
     try {
-      const input = await step.mapInput(args, prior);
       const handler = lookupHandler(step.slug, ctx);
       if (!handler) {
         throw Object.assign(
@@ -2281,10 +2532,30 @@ async function runPack(packSlug, args, ctx) {
           { statusCode: 501 }
         );
       }
-      const result = await handler(input);
-      prior[step.slug] = result;
-      capturePostHogPackStep({ pack: packSlug, slug: step.slug, ok: true, ms: Date.now() - startedAt });
-      return { slug: step.slug, ok: true, result };
+      // A step may offer several candidate inputs instead of one. Tried in
+      // order, first success wins. This exists because crypto-dossier's
+      // extract step reads whichever news site happened to rank first, and
+      // measured over 60 days it failed 43.5% of the time (37 of 85 runs)
+      // while every other step in the pack was 100% - a coin flip on the
+      // publisher, charged to the buyer as a missing step. Falling back to
+      // the next search result costs one more attempt and no upstream money.
+      const candidates = typeof step.mapInputs === "function"
+        ? await step.mapInputs(args, prior)
+        : [await step.mapInput(args, prior)];
+      const inputs = (Array.isArray(candidates) ? candidates : [candidates]).filter((i) => i != null);
+      if (!inputs.length) {
+        throw Object.assign(new Error("no usable input for this step"), { statusCode: 424 });
+      }
+      let lastErr;
+      for (const input of inputs) {
+        try {
+          const result = await handler(input);
+          prior[step.slug] = result;
+          capturePostHogPackStep({ pack: packSlug, slug: step.slug, ok: true, ms: Date.now() - startedAt });
+          return { slug: step.slug, ok: true, result };
+        } catch (err) { lastErr = err; }
+      }
+      throw lastErr;
     } catch (err) {
       capturePostHogPackStep({ pack: packSlug, slug: step.slug, ok: false, ms: Date.now() - startedAt });
       return {
@@ -2305,6 +2576,23 @@ async function runPack(packSlug, args, ctx) {
   }
 
   const okCount = steps.filter((s) => s.ok).length;
+  // Zero successful steps is not a partial success, it is a non-delivery, and
+  // a 200 charges for it: @x402/express settles any response under 400. Four
+  // packs shipped in exactly that state for two months. Refuse instead, so
+  // settlement is cancelled and nobody pays for an empty envelope.
+  //
+  // The status is derived from the steps rather than fixed: if every failure
+  // was the caller's input (4xx), 400 is the honest answer and a 502 would
+  // blame an upstream that was never at fault; anything else is ours or the
+  // upstream's, so 502.
+  if (steps.length > 0 && okCount === 0) {
+    const allClientErrors = steps.every((s) => s.statusCode >= 400 && s.statusCode < 500);
+    const reasons = steps.map((s) => `${s.slug}: ${s.error}`).join("; ");
+    throw Object.assign(
+      new Error(`No step in the "${packSlug}" pack succeeded, so there is nothing to return (not charged). ${reasons}`),
+      { statusCode: allClientErrors ? 400 : 502 }
+    );
+  }
   return {
     pack: packSlug,
     // Echo the caller's args back MINUS anything named as a secret. The pack that
