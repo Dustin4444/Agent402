@@ -50,7 +50,7 @@ const EXPECTED_MISSES = {
 // excuse list that grows to cover everything is how a guard stops meaning
 // anything. "terminated" is anchored because it is undici's whole message for
 // a socket the peer closed mid-body.
-const NOT_OURS = /not configured|rate.?limited|HTTP 5\d\d|upstream|timed? out|ECONN|ENOTFOUND|socket hang up|temporarily|^terminated$/i;
+const NOT_OURS = /not configured|rate.?limited|HTTP 5\d\d|upstream|timed? out|ECONN|ENOTFOUND|socket hang up|temporarily|HTTP 429|^terminated$/i;
 
 let failed = 0, reported = 0, checked = 0;
 for (const pack of SKILL_PACKS) {
