@@ -2112,7 +2112,28 @@ async function probeDoc(originUrl, path, opts, prevParsed) {
   return { parsed: JSON.parse(fresh.html), reused: false };
 }
 
+// One crawl, one fetch of a given document. crawlSeller reached for
+// /openapi.json from two independent places (tool discovery and paywall
+// classification) plus a revalidation retry, so a seller saw it two or three
+// times per 30-minute cycle where once would do. Measured from the OUTSIDE on
+// 2026-08-31 by a listed seller whose logs held 3,372 /openapi.json against 681
+// /.well-known/x402 over the same window - the manifest count matched our cycle
+// exactly, which is what proved the excess was ours and not an impersonator
+// running at a different rate.
+//
+// Per-crawl only: a fresh Map for every crawlSeller call, so nothing is cached
+// ACROSS cycles and the crawl still re-reads the world each time.
+function oncePerCrawl() {
+  const seen = new Map();
+  return (key, fn) => {
+    if (!seen.has(key)) seen.set(key, fn());
+    return seen.get(key);
+  };
+}
+
 async function crawlSeller(originUrl) {
+  const once = oncePerCrawl();
+  const fetchOpenapi = () => once("/openapi.json", () => probePath(originUrl, "/openapi.json", { maxBytes: MAX_OPENAPI_BYTES }));
   const prev = cache.get(originUrl);
   try {
     // A manifest that has 404'd repeatedly is not re-probed every cycle.
@@ -2133,7 +2154,7 @@ async function crawlSeller(originUrl) {
     // small. So those are what the cache carries.
     let openapiTools = null, openapiRoutes = null;
     try {
-      const res = await probePath(originUrl, "/openapi.json", { maxBytes: MAX_OPENAPI_BYTES });
+      const res = await fetchOpenapi();
       if (res.notModified && prev?.openapiTools) {
         openapiTools = prev.openapiTools;
         openapiRoutes = prev.openapiRoutes || [];
@@ -2225,7 +2246,7 @@ async function crawlSeller(originUrl) {
     let openapiTools = [];
     let openapiPath = null;
     try {
-      const openapiRes = await probePath(originUrl, "/openapi.json", { maxBytes: MAX_OPENAPI_BYTES });
+      const openapiRes = await fetchOpenapi();
       const parsed = JSON.parse(openapiRes.html);
       if (bazaarTools.length || openapiHasPaymentSignal(parsed)) {
         openapi = parsed;
