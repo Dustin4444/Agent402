@@ -1529,10 +1529,15 @@ export function revenuePage(baseUrl, snap) {
     ${(() => {
       const at = snap.allTime;
       const mpp = snap.mpp || {};
-      // Hero number = THROUGHPUT (every settled transaction, ours included):
-      // a rail that clears real on-chain payments continuously is the thing
-      // being proven. Revenue is real too and sits right under it, external
-      // only. See railThroughput() for why MPP is Tempo-only here (no double
+      // TWO hero numbers - THROUGHPUT (every settled transaction, ours
+      // included: the rail-stability signal) and DISTINCT PAYING AGENTS (the
+      // demand signal). The dollar figure stays on the page, external-only
+      // and explorer-linked as always, but at footnote weight: the decision
+      // (the operator, 2026-09-01) was to lead with the strong counts and
+      // never to REMOVE the revenue split - hiding it would be the
+      // registry-inflation move this page calls out in others, and every
+      // figure here is independently derivable from the chain anyway.
+      // See railThroughput() for why MPP is Tempo-only here (no double
       // count of on-chain-settled Base/Celo MPP).
       const throughput = railThroughput(snap).total;
       const extCount = Number(at?.allTimeExternalCount || 0);
@@ -1540,9 +1545,9 @@ export function revenuePage(baseUrl, snap) {
       const agents = Number(snap.agents?.buyers || 0);
       if (!throughput) return "";
       return `<p style="font-family:var(--font-mono);font-size:15px;margin:0 0 6px;"><strong style="color:var(--accent);font-size:26px;">${throughput.toLocaleString()}</strong> settled transactions through our pay rails <span style="color:var(--muted);">- x402 + MPP, all-time · <strong>ours included</strong>: we run ~200 Tempo MPP settles/day plus a daily canary on every rail, so the plumbing is exercised continuously${at?.syncing ? " · ledger backfilling - total still rising" : ""}</span></p>
-    ${agents ? `<p style="font-family:var(--font-mono);font-size:14px;margin:0 0 6px;"><strong style="color:var(--accent);font-size:18px;">${agents.toLocaleString()}</strong> distinct agent${agents === 1 ? "" : "s"} have paid us <span style="color:var(--muted);">- unique external wallets across all rails${snap.agents?.top5SharePct != null ? ` · top 5 = ${snap.agents.top5SharePct}% of external payments` : ""}</span></p>` : ""}
-    <p style="font-family:var(--font-mono);font-size:14px;margin:0 0 6px;"><strong style="color:var(--accent);">${extCount.toLocaleString()}</strong> external payment${extCount === 1 ? "" : "s"} <span style="color:var(--muted);">- <strong style="color:var(--ink);">$${extUsd.toFixed(4)}</strong> real revenue settled on-chain, each linked to its explorer proof</span></p>
-    ${snap.card?.allTimeCount ? `<p style="font-family:var(--font-mono);font-size:14px;margin:0 0 6px;"><strong style="color:var(--accent);">${Number(snap.card.allTimeCount).toLocaleString()}</strong> card purchase${snap.card.allTimeCount === 1 ? "" : "s"} <span style="color:var(--muted);">(reports, monitors, credits via Stripe, external only) · $${Number(snap.card.allTimeUsd).toFixed(2)} all-time · ${Number(snap.card.count).toLocaleString()} in the last ${snap.card.days} days${snap.card.lastAt ? ` · last ${esc(String(snap.card.lastAt).slice(0, 13))}Z` : ""}</span></p>` : ""}`;
+    ${agents ? `<p style="font-family:var(--font-mono);font-size:15px;margin:0 0 6px;"><strong style="color:var(--accent);font-size:26px;">${agents.toLocaleString()}</strong> distinct agent${agents === 1 ? "" : "s"} have paid us <span style="color:var(--muted);">- unique external wallets across all rails${snap.agents?.top5SharePct != null ? ` · top 5 = ${snap.agents.top5SharePct}% of external payments` : ""}</span></p>` : ""}
+    <p style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);margin:0 0 4px;">${extCount.toLocaleString()} external payment${extCount === 1 ? "" : "s"} · $${extUsd.toFixed(4)} real revenue settled on-chain, external only, each linked to its explorer proof</p>
+    ${snap.card?.allTimeCount ? `<p style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);margin:0 0 4px;">${Number(snap.card.allTimeCount).toLocaleString()} card purchase${snap.card.allTimeCount === 1 ? "" : "s"} (reports, monitors, credits via Stripe, external only) · $${Number(snap.card.allTimeUsd).toFixed(2)} all-time · ${Number(snap.card.count).toLocaleString()} in the last ${snap.card.days} days${snap.card.lastAt ? ` · last ${esc(String(snap.card.lastAt).slice(0, 13))}Z` : ""}</p>` : ""}`;
     })()}
     <p style="font-family:var(--font-mono);font-size:13px;color:var(--muted);margin:0 0 30px;">as of ${esc(snap.asOf)} · external in recent window <strong style="color:var(--accent);">$${(snap.windowExternalUsd ?? 0).toFixed(4)}</strong><br>the big number is <strong style="color:var(--ink);">total throughput</strong> (ours included - the rail-stability signal); every <strong style="color:var(--accent);">revenue</strong> figure is external only - our own canary/test/funding money is never counted as earnings (wallet balances are float, not shown)</p>
     </section>
