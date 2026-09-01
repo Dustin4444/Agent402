@@ -93,7 +93,7 @@ async function rpcCall(method, params, { fetchImpl = fetch, timeoutMs = 6000 } =
  * verifies in ~20-25 reads and a cold address gives up quickly. Throws on RPC
  * failure - the CALLER treats that as refusal (fail closed).
  */
-export async function solanaInboundCount(payTo, { windowMs = 7 * 24 * 3600 * 1000, limit = 300, fetchImpl = fetch, stopAt = Infinity, maxTxReads = 120 } = {}) {
+export async function solanaInboundCount(payTo, { windowMs = 15 * 3600 * 1000, limit = 200, fetchImpl = fetch, stopAt = Infinity, maxTxReads = 120 } = {}) {
   if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(String(payTo || ""))) throw new Error("payTo is not a plausible Solana address");
   const accounts = await rpcCall("getTokenAccountsByOwner", [payTo, { mint: USDC_MINT }, { encoding: "jsonParsed" }], { fetchImpl });
   const ata = accounts?.value?.[0]?.pubkey;
@@ -101,10 +101,10 @@ export async function solanaInboundCount(payTo, { windowMs = 7 * 24 * 3600 * 100
   const sigs = await rpcCall("getSignaturesForAddress", [ata, { limit }], { fetchImpl });
   const cutoff = (Date.now() - windowMs) / 1000;
   const recent = (sigs || []).filter((sig) => !sig.err && Number(sig.blockTime || 0) >= cutoff).map((sig) => sig.signature);
-  const funders = new Set();
+  let credits = 0;
   let reads = 0;
   for (const signature of recent) {
-    if (funders.size >= stopAt) break;               // floor met - stop reading
+    if (credits >= stopAt) break;                    // floor met - stop reading
     if (reads >= maxTxReads) break;                  // hard bound on RPC cost
     reads++;
     let tx;
@@ -116,19 +116,26 @@ export async function solanaInboundCount(payTo, { windowMs = 7 * 24 * 3600 * 100
     const post = (meta.postTokenBalances || []).find((b) => b?.mint === USDC_MINT && b?.owner === payTo);
     const preAmt = Number(pre?.uiTokenAmount?.amount || 0);
     const postAmt = Number(post?.uiTokenAmount?.amount || 0);
-    if (!(postAmt > preAmt)) continue;               // not a credit to the seller
-    // The funder = a USDC account in this tx whose balance DECREASED and whose
-    // owner is not the seller. A self-transfer (payTo funding payTo) is
-    // excluded, which is the whole point.
-    const debited = (meta.preTokenBalances || []).find((b) => {
+    if (!(postAmt > preAmt)) continue;               // the seller's balance did NOT rise: outbound or no-op, not a payment received
+    // SELF-TRANSFER DEFENCE. Some USDC account OTHER than the seller must be
+    // the one debited, or this is the seller funding itself to fake volume
+    // (the spoof the review flagged). On Solana x402 that debited account is
+    // typically a shared FACILITATOR, not the buyer - so we count the CREDIT,
+    // not distinct funders (distinct-funder collapses to 1 for a real,
+    // facilitator-intermediated seller: measured 2026-09-01, sol.blockrun has
+    // 49 buyers on x402scan but one on-chain sender). Residual: a seller with
+    // a SECOND wallet can still fund payTo for ~$0.001/tx in fees; that costs
+    // real money per fake and is bounded downstream by cap + the per-payer
+    // spend ceiling. Closing it fully needs parsing the x402 buyer identity
+    // from the payment instruction, deferred.
+    const fundedByOther = (meta.preTokenBalances || []).some((b) => {
       if (b?.mint !== USDC_MINT || b?.owner === payTo) return false;
       const p2 = (meta.postTokenBalances || []).find((x) => x?.accountIndex === b.accountIndex);
       return Number(b?.uiTokenAmount?.amount || 0) > Number(p2?.uiTokenAmount?.amount || 0);
     });
-    const funder = debited?.owner || (tx?.transaction?.message?.accountKeys?.find((k) => k?.signer)?.pubkey);
-    if (funder && funder !== payTo) funders.add(funder);
+    if (fundedByOther) credits++;
   }
-  return funders.size;
+  return credits;
 }
 
 /**
@@ -137,12 +144,12 @@ export async function solanaInboundCount(payTo, { windowMs = 7 * 24 * 3600 * 100
  * rail alone). Fails CLOSED: an unreadable chain refuses the spend with a 503
  * the buyer is never charged for, exactly like the Tempo gate.
  */
-export async function assertProvenSolanaSeller(payTo, { minCount = Number(process.env.SOR_SVM_MIN_DISTINCT_PAYERS || process.env.SOR_MIN_DISTINCT_PAYERS || "3"), inboundFn = solanaInboundCount } = {}) {
+export async function assertProvenSolanaSeller(payTo, { minCount = Number(process.env.SOR_SVM_MIN_SETTLED_TX || process.env.SOR_MIN_SETTLED_TX || "20"), inboundFn = solanaInboundCount } = {}) {
   let inbound;
   try { inbound = await inboundFn(payTo, { stopAt: minCount }); }
   catch (e) { throw bad(`Cannot verify seller settlement history on Solana (${String(e?.message || e).slice(0, 80)}) - refusing to spend`, 503); }
   if (inbound < minCount) {
-    throw bad(`Seller payTo ${String(payTo).slice(0, 8)}… has ${inbound} distinct recent USDC payers on Solana (floor ${minCount}) - not routable yet`, 409);
+    throw bad(`Seller payTo ${String(payTo).slice(0, 8)}… has ${inbound} recent inbound USDC payments on Solana (floor ${minCount}) - not routable yet`, 409);
   }
   return inbound;
 }
@@ -173,7 +180,7 @@ export async function svmBuyerStatus({ fetchImpl = fetch } = {}) {
  * on. The pay-time gate in payX402 stays: this reads the PROBE's 402, the
  * seller writes both answers, and what we verify last must be what we sign.
  */
-export async function passesSolanaResolveGate({ header, body, inboundFn = solanaInboundCount, minCount = Number(process.env.SOR_SVM_MIN_DISTINCT_PAYERS || process.env.SOR_MIN_DISTINCT_PAYERS || "3") } = {}) {
+export async function passesSolanaResolveGate({ header, body, inboundFn = solanaInboundCount, minCount = Number(process.env.SOR_SVM_MIN_SETTLED_TX || process.env.SOR_MIN_SETTLED_TX || "20") } = {}) {
   let payTo = null;
   try {
     const doc = header
@@ -186,6 +193,6 @@ export async function passesSolanaResolveGate({ header, body, inboundFn = solana
   let inbound;
   try { inbound = await inboundFn(payTo, { stopAt: minCount }); }
   catch (e) { return { ok: false, payTo, reason: `chain unreadable (${String(e?.message || e).slice(0, 60)})` }; }
-  if (inbound < minCount) return { ok: false, payTo, reason: `${inbound} distinct recent USDC payers (floor ${minCount})` };
+  if (inbound < minCount) return { ok: false, payTo, reason: `${inbound} recent inbound USDC payments (floor ${minCount})` };
   return { ok: true, payTo, inbound };
 }
