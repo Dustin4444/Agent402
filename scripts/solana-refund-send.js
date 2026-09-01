@@ -130,7 +130,24 @@ const ledger = await fetch("https://agent402.tools/__operator/refunds.json?statu
   headers: { Authorization: `Bearer ${OPERATOR}` },
 });
 if (!ledger.ok) { console.error(`could not read the refund ledger (HTTP ${ledger.status}) - refusing`); process.exit(1); }
-const owedRows = (await ledger.json()).refunds || [];
+let owedRows = (await ledger.json()).refunds || [];
+// --reclaim-sending: include rows a PRIOR run of this script claimed and then
+// failed to pay - ONLY after a human verified on-chain that the earlier
+// attempt moved nothing. Folded in HERE, before the amount bound, because the
+// first version reclaimed only at the claim step: the bound then read $0 owed
+// (everything sat in `sending`) and refused its own retry.
+const RECLAIM = process.argv.includes("--reclaim-sending");
+if (RECLAIM) {
+  const all = await fetch("https://agent402.tools/__operator/refunds.json?status=all", {
+    headers: { Authorization: `Bearer ${OPERATOR}` },
+  });
+  if (!all.ok) { console.error(`could not read the full ledger (HTTP ${all.status})`); process.exit(1); }
+  const stuck = ((await all.json()).refunds || []).filter(
+    (r) => r.status === "sending" && String(r.payer || "") === TO && /solana-refund-send/.test(String(r.note || ""))
+  );
+  console.log(`reclaim: including ${stuck.length} row(s) this script previously claimed`);
+  owedRows = owedRows.concat(stuck);
+}
 const owedToThem = owedRows
   .filter((r) => String(r.payer || "") === TO)
   .reduce((a, r) => a + (Number(r.priceUsd) || 0), 0);
@@ -187,24 +204,7 @@ if (!SEND) { console.log("\nDRY RUN - nothing broadcast. Re-run with --send to t
 //
 // A row stuck in `sending` afterwards is DELIBERATE: whether money left is a
 // question for a human, never for a retry.
-// --reclaim-sending: include rows a PRIOR run of this script claimed and then
-// failed to pay. ONLY for the state verified on 2026-09-01: preflight refused
-// the broadcast, the chain shows no debit, the rows sit in `sending`. The flag
-// exists so that judgment stays a deliberate human act - never pass it without
-// first confirming on-chain that the earlier attempt moved nothing.
-const RECLAIM = process.argv.includes("--reclaim-sending");
-let claimableRows = owedRows;
-if (RECLAIM) {
-  const all = await fetch("https://agent402.tools/__operator/refunds.json?status=all", {
-    headers: { Authorization: `Bearer ${OPERATOR}` },
-  });
-  if (!all.ok) { console.error(`could not read the full ledger (HTTP ${all.status})`); process.exit(1); }
-  const rows = (await all.json()).refunds || [];
-  const stuck = rows.filter((r) => r.status === "sending" && String(r.payer || "") === TO && /solana-refund-send/.test(String(r.note || "")));
-  console.log(`reclaim: including ${stuck.length} row(s) this script previously claimed`);
-  claimableRows = owedRows.concat(stuck);
-}
-const myRows = claimableRows.filter((r) => String(r.payer || "") === TO);
+const myRows = owedRows.filter((r) => String(r.payer || "") === TO);
 const claimed = [];
 for (const r of myRows) {
   const c = await fetch("https://agent402.tools/__operator/refunds/update", {
