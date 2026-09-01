@@ -184,8 +184,22 @@ export async function createSvmPaymentPayload(signer, paymentRequirements) {
   if (String(req.asset) !== USDC_MINT) throw bad("SVM payload builder only signs USDC on Solana mainnet", 502);
   const feePayer = req.extra?.feePayer;
   if (!feePayer) throw bad("feePayer is required in the accept's extra for SVM", 502);
-  const recentBlockhash = req.extra?.recentBlockhash;
-  if (!recentBlockhash) throw bad("this SVM path requires extra.recentBlockhash on the accept (no RPC by design)", 502);
+  // Blockhash: prefer the one the facilitator's 402 already carries (sol.blockrun
+  // does - then signing needs ZERO RPC, the whole point of this builder). When a
+  // seller's accept omits it (x402node.dev and most non-Pyth sellers), fetch it
+  // via the PLAIN-fetch `rpcCall` helper - NOT @solana/kit's RPC transport, which
+  // manually sets a content-length header that undici validates strictly after
+  // any custom-dispatcher (ssrf) fetch and rejects ("invalid content-length
+  // header"). Plain fetch sets no such header, so this is safe even in the
+  // route-execute path where the ssrf seller fetch precedes it.
+  let recentBlockhash = req.extra?.recentBlockhash;
+  let fetchedLastValidBH = null;
+  if (!recentBlockhash) {
+    const bh = await rpcCall("getLatestBlockhash", [{ commitment: "confirmed" }]);
+    recentBlockhash = bh?.value?.blockhash;
+    fetchedLastValidBH = bh?.value?.lastValidBlockHeight != null ? String(bh.value.lastValidBlockHeight) : null;
+    if (!recentBlockhash) throw bad("could not obtain a recent blockhash (no extra.recentBlockhash and RPC getLatestBlockhash returned none)", 502);
+  }
   const tokenProgram = TOKEN_PROGRAM_ADDRESS;
   const [sourceATA] = await findAssociatedTokenPda({ mint: kit.address(USDC_MINT), owner: signer.address, tokenProgram });
   const [destinationATA] = await findAssociatedTokenPda({ mint: kit.address(USDC_MINT), owner: kit.address(req.payTo), tokenProgram });
@@ -211,7 +225,7 @@ export async function createSvmPaymentPayload(signer, paymentRequirements) {
     (m) => kit.setTransactionMessageFeePayer(kit.address(feePayer), m),
     (m) => kit.prependTransactionMessageInstruction(getSetComputeUnitLimitInstruction({ units: 20000 }), m), // DEFAULT_COMPUTE_UNIT_LIMIT
     (m) => kit.appendTransactionMessageInstructions([transferIx, memoIx], m),
-    (m) => kit.setTransactionMessageLifetimeUsingBlockhash({ blockhash: recentBlockhash, lastValidBlockHeight: BigInt(req.extra?.lastValidBlockHeight || "0") }, m),
+    (m) => kit.setTransactionMessageLifetimeUsingBlockhash({ blockhash: recentBlockhash, lastValidBlockHeight: BigInt(req.extra?.lastValidBlockHeight || fetchedLastValidBH || "0") }, m),
   );
   const signed = await kit.partiallySignTransactionMessageWithSigners(tx);
   // `accepted` echoes back the exact requirement this transaction satisfies -
