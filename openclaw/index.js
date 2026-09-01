@@ -5,7 +5,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { buildProvider, setActiveProxy, setCachedRoutes, DEFAULT_PORT, PROVIDER_ID } from "./provider.js";
+import { buildProvider, setActiveProxy, setCachedRoutes, DEFAULT_PORT, PLUGIN_ID } from "./provider.js";
 import { startProxy, loadRoutes, DEFAULT_UPSTREAM } from "./proxy.js";
 import { stripTrailingSlashes } from "./models.js";
 
@@ -94,7 +94,7 @@ let started = null;
 let registeredOnce = false;
 
 const plugin = {
-  id: PROVIDER_ID,
+  id: PLUGIN_ID,
   name: "Agent402",
   description: "Agent402 model provider: routed + explicit models at a flat per-call price, paid by card or USDC.",
   register(api) {

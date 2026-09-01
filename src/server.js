@@ -10,6 +10,13 @@ import { createGzip } from "node:zlib";
 import { setGlobalDispatcher, Agent as UndiciAgent } from "undici";
 dns.setDefaultResultOrder("ipv4first");
 setGlobalDispatcher(new UndiciAgent({ connect: { family: 4 } }));
+// The event loop is watched for the life of the process (started in
+// boot-profile.js, the first import, because ES imports hoist and a monitor
+// started here cannot see the boot it is meant to measure). A CONNECT timeout
+// is a TIMER firing, so a blocked loop is indistinguishable from an unreachable
+// upstream - which is what seven CDP verify failures looked like on 2026-08-30
+// while CDP answered from outside in 15-37 ms. See src/loop-lag.js.
+import { loopLagStatus } from "./loop-lag.js";
 import express from "express";
 import compression from "compression";
 import { readFileSync } from "node:fs";
@@ -32,12 +39,15 @@ import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpend
 import Stripe from "stripe";
 import { REPORT_TIERS } from "./report-tiers.js";
 import { verifyHintMiddleware } from "./verify-hint.js";
+import { translateV1Accepts, v1AcceptsTranslationEnabled } from "./x402-v1-accepts.js";
 import { mountShortlinks } from "./shortlinks.js";
 import { withHouseStyle } from "./house-style.js";
 import { createHumanCheckout, humanCheckoutEnabled, HUMAN_PRODUCTS, reportHeadline, readPublicReport } from "./human-checkout.js";
 import { humanReportsPage, reportDeliveryPage } from "./human-reports-page.js";
 import { createStripeSubscriptions, subscriptionsEnabled, MONITOR_PRODUCTS } from "./stripe-subscriptions.js";
 import { createMppSubscriptions, mppSubscriptionsEnabled, subscriptionFeePayerStatus } from "./mpp-subscriptions.js";
+import { stellarFacilitatorStatus } from "./stellar-facilitator-status.js";
+import { backfillBrokenPackRefunds } from "./refund-backfill.js";
 import { mppFallbackStatus } from "./mpp-fallback.js";
 import { meteredUsd, isMeterable, applyMeteredSettlement } from "./gateway-meter.js";
 import { handlerInputOf } from "./handler-input.js";
@@ -160,7 +170,7 @@ import { tempoSelfRecipient } from "./mpp-tempo.js";
 import { mppMarketPage } from "./mpp-market-page.js";
 import { indexToolsPage, INDEX_TOOLS_PAGE_SIZE } from "./index-tools-page.js";
 import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankBy } from "./leaderboard.js";
-import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus, facilitatorSupportReport } from "./payments.js";
+import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus, facilitatorSupportReport, setComputePayablePaths } from "./payments.js";
 import { createMppShim } from "./mpp-shim.js";
 import { createTempoChallengeAppender, createTempoGate, tempoTxFromReceiptHeader } from "./mpp-tempo.js";
 import { createStripeChallengeAppender, createStripeGate, stripeTxFromReceiptHeader } from "./mpp-stripe.js";
@@ -1217,9 +1227,19 @@ const POW_SLUGS = new Set();
 for (const [route, def] of Object.entries(CATALOG)) {
   if (isComputePayable(def)) {
     POW_ROUTES.set(route, def.slug);
-    POW_SLUGS.add(def.slug);
+      POW_SLUGS.add(def.slug);
+    }
   }
-}
+
+  // Hand payments.js the routes that cost us nothing to serve. It uses this to
+  // decide whether a verify rescued from an unreachable facilitator is worth
+  // taking: a free route can run its handler and lose nothing if settle then
+  // fails, a metered one would spend real money it could not bill for.
+  try {
+    const freePaths = new Set();
+    for (const [route, def] of Object.entries(CATALOG)) if (POW_SLUGS.has(def.slug)) freePaths.add(String(route).replace(/^[A-Z]+\s+/, ""));
+    setComputePayablePaths(freePaths);
+  } catch (e) { console.warn(`[payments] could not publish compute-payable paths: ${String(e?.message || e).slice(0, 120)}`); }
 
 // Count every outbound request by host, from boot onward. Cheap (one Map
 // increment), host-only (never a URL, so no buyer input is retained), and
@@ -1884,10 +1904,10 @@ app.get("/api/gateway-status", async (_req, res) => {
   // Top-level fields stay the OpenRouter gateway status (heartbeat reads
   // .status); upstreamBuyer adds the x402 spending wallet's bucketed status
   // (blockscout-kit) — same alarm pattern, same numbers-never-leave rule.
-  const [gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, subscriptionFeePayer, databases] = await Promise.all([gatewayCreditsStatus(), upstreamBuyerStatus(), avmBuyerStatus(), tempoBuyerStatus(), subscriptionFeePayerStatus(), databasesStatus().catch(() => null)]);
+  const [gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, subscriptionFeePayer, stellarFacilitator, databases] = await Promise.all([gatewayCreditsStatus(), upstreamBuyerStatus(), avmBuyerStatus(), tempoBuyerStatus(), subscriptionFeePayerStatus(), stellarFacilitatorStatus().catch(() => ({ status: "unknown", asset: "XLM", chain: "stellar:pubnet" })), databasesStatus().catch(() => null)]);
   // `databases`: leads/analytics Postgres reachability, status words only
   // (src/db-status.js) - the heartbeat pages on "unreachable".
-  res.set("Cache-Control", "public, max-age=60").json({ ...gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, subscriptionFeePayer, databases, operatorAuth: operatorAuthStatus(), mppEvmDomainFallback: mppFallbackStatus() });
+  res.set("Cache-Control", "public, max-age=60").json({ ...gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, subscriptionFeePayer, stellarFacilitator, databases, operatorAuth: operatorAuthStatus(), mppEvmDomainFallback: mppFallbackStatus(), loopLag: loopLagStatus() });
 });
 // Static SAMPLE A2A Agent Card — the self-answering example target for the
 // a2a-card-fetch tool. Explicitly a sample (fictional weather agent), NOT an
@@ -2706,10 +2726,13 @@ app.get("/status", async (_req, res) => {
 app.get("/api/status", async (_req, res) => {
   res.set("Cache-Control", "public, max-age=60").json(statusSnapshot({ baseUrl: BASE_URL, live: await statusLive() }));
 });
-// Probe intake. Operator-authed because it writes the record that /status is
+// Probe intake. Authenticated because it writes the record that /status is
 // built from — an open endpoint would let anyone forge our uptime history.
+// Accepts the probe-only STATUS_PROBE_TOKEN (see statusProbeAuthed) as well as
+// the operator token, so an observer on another platform need not hold a
+// credential that also reaches /__operator/refunds/update and friends.
 app.post("/api/status/probe", express.json({ limit: "256kb" }), (req, res) => {
-  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  if (!statusProbeAuthed(req)) return res.status(404).json({ error: "Not found" });
   const body = req.body || {};
   const rows = [];
   const push = (component, ok, detail, ts, url) => {
@@ -2846,6 +2869,46 @@ function readCookie(req, name) {
 }
 // Raw operator token, presented via a header for curl/API access only. The
 // browser NEVER carries the root token (see the session cookie below).
+// A probe-only credential, so an observer outside production does not have to
+// hold the root operator token to write one record.
+//
+// Until 2026-08-30 both observers (the GitHub heartbeat and the Cloudflare
+// Worker) carried AGENT402_OPERATOR_TOKEN just to POST /api/status/probe. That
+// token also reaches /__operator/refunds/update, /credits/disable,
+// /well-known (publishes a document at our own domain), /leads, /backup/run,
+// /monitors/run, /alerts/run, /stats and /wishes - so a second platform was
+// holding a master key to use exactly one door.
+//
+// STATUS_PROBE_TOKEN opens that one door and nothing else: it is read here and
+// nowhere else in the tree. Unset, behaviour is byte-identical to before (the
+// operator token still works), which is what lets the two be rotated
+// independently without an observer going dark mid-rotation.
+const STATUS_PROBE_TOKEN = process.env.STATUS_PROBE_TOKEN || "";
+const statusProbeTokenOk = (t) => {
+  if (!STATUS_PROBE_TOKEN || typeof t !== "string" || !t) return false;
+  const a = Buffer.from(t);
+  const b = Buffer.from(STATUS_PROBE_TOKEN);
+  return a.length === b.length && timingSafeEqual(a, b);
+};
+if (STATUS_PROBE_TOKEN) {
+  if (OPERATOR_TOKEN && STATUS_PROBE_TOKEN === OPERATOR_TOKEN) {
+    console.warn("[status-probe] STATUS_PROBE_TOKEN is the SAME VALUE as AGENT402_OPERATOR_TOKEN - that defeats the entire point of it; mint a distinct random value");
+  } else if (STATUS_PROBE_TOKEN.length < 24) {
+    console.warn(`[status-probe] STATUS_PROBE_TOKEN is only ${STATUS_PROBE_TOKEN.length} characters and gates a public endpoint - use 32+ random characters`);
+  }
+}
+// Function declaration, not a const: the route that calls it is registered
+// EARLIER in this file, and only a declaration hoists (same hazard the comment
+// above getOperatorToken's first use names).
+function statusProbeAuthed(req) {
+  // The narrow credential first, so an observer carrying only it never touches
+  // the operator limiter or the guessing counter.
+  const presented = getOperatorToken(req);
+  if (presented && statusProbeTokenOk(presented)) return true;
+  // Otherwise the operator token still works, and a WRONG credential is
+  // rate-limited and counted exactly as it was before.
+  return operatorAuthed(req);
+}
 const getOperatorToken = (req) => {
   const auth = req.headers["authorization"];
   if (typeof auth === "string" && auth.startsWith("Bearer ")) return auth.slice(7);
@@ -3133,6 +3196,21 @@ app.get("/__operator/backup.json", (req, res) => {
 // Manual backup run - fans out to the bucket (third-party writes), so it
 // takes the heavy-route limiter like the other upstream-reaching
 // diagnostics. Fire-and-report: the run can take minutes on a cold day.
+// Mint refund debts for buyers the charged-failure detector could not see: it
+// mints only on a NON-200, and the packs that shipped broken all answered 200
+// with an empty envelope. RECORDS ONLY - this sends nothing, and refund-run.js
+// remains the sole payer (dry-run by default, capped, and it re-derives the
+// inbound payment from the chain before every send). Dry by default here too:
+// ?write=1 is what actually mints.
+app.post("/__operator/refunds/backfill", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  if (operatorHeavyLimited(req, res)) return;
+  try {
+    res.json(backfillBrokenPackRefunds({ write: String(req.query.write || "") === "1" }));
+  } catch (e) {
+    res.status(500).json({ error: String(e.message) });
+  }
+});
 app.post("/__operator/backup/run", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   if (operatorHeavyLimited(req, res)) return;
@@ -4344,6 +4422,13 @@ app.get("/api/index", (req, res) => {
 const REG_WINDOW_MS = 3600_000;
 const regByIp = new Map(); // ip -> [timestamps]; global cap is regGlobal below
 let regGlobal = [];
+// The backstop, not the fairness rule: per-IP (5/hour) is what stops one actor,
+// and this exists only so the endpoint cannot become a fetch amplifier at
+// scale. It was 30/hour, low enough that ordinary adoption hit it - each new
+// seller costs us one crawl, which the 30-minute cycle already absorbs.
+// Env-overridable so it can be raised without a deploy.
+const REG_GLOBAL_MAX = Math.max(30, Number(process.env.INDEX_REGISTER_GLOBAL_MAX || 300));
+let regGlobalTripped = 0;
 // F21: evict stale keys from the one-time-IP rate maps so distributed input
 // can't grow them without bound (the per-IP prune only fires when the SAME IP
 // returns). Mirrors the powChallengeHits / operatorSessions sweeps; the inline
@@ -4362,7 +4447,21 @@ app.post("/api/index/register", async (req, res) => {
   const v = validateOriginInput(req.body?.origin, { selfOrigin: BASE_URL });
   if (v.error) return res.status(400).json({ error: v.error });
   regGlobal = regGlobal.filter((t) => now - t < REG_WINDOW_MS);
-  if (regGlobal.length >= 30) return res.status(429).json({ error: "rate limit: registration is busy, try again later" });
+  if (regGlobal.length >= REG_GLOBAL_MAX) {
+    // A global cap is a backstop, not the fairness mechanism - the per-IP cap
+    // above is. At 30/hour it did the second job badly: one actor spending 5
+    // from each of six addresses exhausted the budget for every seller on earth
+    // for the rest of the hour, and a first-time seller got "registration is
+    // busy" with nothing they could do. Measured 2026-08-31 from the mailbox:
+    // three sellers hit this in one week and two gave up and emailed instead -
+    // the growth funnel refusing the people it exists to serve. Re-registering a
+    // KNOWN origin short-circuits before this cap, so only new sellers were hit.
+    if (!regGlobalTripped || now - regGlobalTripped > 600_000) {
+      console.warn(`[index-register] GLOBAL cap hit (${regGlobal.length}/${REG_GLOBAL_MAX} in the last hour) - NEW sellers are being refused`);
+      regGlobalTripped = now;
+    }
+    return res.status(429).json({ error: `rate limit: registration is busy (global cap ${REG_GLOBAL_MAX}/hour), try again later`, retryAfterSeconds: 600 });
+  }
   mine.push(now); regByIp.set(ip, mine); regGlobal.push(now);
   const result = await registerOrigin(v.origin);
   res.json(result);
@@ -4384,7 +4483,7 @@ app.post("/api/mpp-index/register", async (req, res) => {
   const v = validateMppOriginInput(req.body?.origin, { selfOrigin: BASE_URL });
   if (v.error) return res.status(400).json({ error: v.error });
   mppRegGlobal = mppRegGlobal.filter((t) => now - t < REG_WINDOW_MS);
-  if (mppRegGlobal.length >= 30) return res.status(429).json({ error: "rate limit: registration is busy, try again later" });
+  if (mppRegGlobal.length >= REG_GLOBAL_MAX) return res.status(429).json({ error: `rate limit: registration is busy (global cap ${REG_GLOBAL_MAX}/hour), try again later`, retryAfterSeconds: 600 });
   mine.push(now); mppRegByIp.set(ip, mine); mppRegGlobal.push(now);
   // Optional probe hint: the priced path (and GET/POST) the seller's 402 lives
   // on, for sellers not yet in the registry (validated in registerMppOrigin).
@@ -4517,6 +4616,33 @@ app.get("/fonts/:file", (req, res) => {
   catch { return res.status(404).end(); }
   res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
   res.type("font/woff2").send(buf);
+});
+// Sample fixtures for the skill packs whose input is a user-supplied
+// artifact - a PDF to read, an image to transform. Those packs shipped with
+// placeholder prose or a 404ing URL as their published example
+// ("/tmp/upload-abc123", "https://example.com/invoice.pdf"), so every step
+// failed on the example we tell agents to copy, and the partial-success
+// envelope hid it behind a 200 until 2026-08-31.
+//
+// Hosted here rather than pointed at a third party on purpose: an example in
+// our own catalog should not break because someone else moved a file, and CI
+// runs these examples on every push. Both files are GENERATED, not vendored
+// (see scripts/build-fixtures.js) - the repo carries no binary blob whose
+// provenance we cannot state. Same safety shape as /fonts/:file: a strict
+// filename allowlist, no path traversal, no directory listing.
+const FIXTURE_FILES = {
+  "sample-invoice.pdf": "application/pdf",
+  "sample-image.png": "image/png",
+};
+app.get("/fixtures/:file", (req, res) => {
+  const file = String(req.params.file || "");
+  const type = Object.hasOwn(FIXTURE_FILES, file) ? FIXTURE_FILES[file] : null;
+  if (!type) return res.status(404).end();
+  let buf;
+  try { buf = readFileSync(new URL(`../assets/fixtures/${file}`, import.meta.url)); }
+  catch { return res.status(404).end(); }
+  res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+  res.type(type).send(buf);
 });
 // Self-hosted static JS (assets/js/), replacing what used to be inline
 // <script> content site-wide - the CSP hardening that dropped 'unsafe-inline'
@@ -5890,6 +6016,33 @@ if (FREE_MODE) {
       };
       res.on("finish", finishGuard);
       res.on("close", finishGuard); // client aborted before the response finished
+    }
+    // A v1-era client still names the price `maxAmountRequired` in the echoed
+    // `accepted` block; x402 v2 calls it `amount` and deep-equals the block, so
+    // that one rename made an otherwise-correct payment unmatchable and it
+    // failed before the facilitator with a bare 402 (measured: one buyer, ~9
+    // attempts/min for 21 hours). Translated here, immediately before the
+    // paywall, and ONLY when the v2 key is absent - a shape that is refused
+    // 100% of the time today, so this can never change a working payment.
+    // The signature covers the authorization, not this block.
+    if (v1AcceptsTranslationEnabled()) {
+      // BOTH header names. A stock @x402 2.22 client sends PAYMENT-SIGNATURE;
+      // x-payment is the older spelling and what the MPP shim writes. Reading
+      // only x-payment meant this never fired for a modern client at all -
+      // found because the end-to-end test captured the header the SDK really
+      // sends instead of the one assumed.
+      for (const name of ["payment-signature", "x-payment"]) {
+        const raw = req.headers[name];
+        if (typeof raw !== "string" || !raw) continue;
+        try {
+          const decoded = JSON.parse(Buffer.from(raw, "base64").toString("utf8"));
+          const t = translateV1Accepts(decoded);
+          if (t) {
+            req.headers[name] = Buffer.from(JSON.stringify(t.payload), "utf8").toString("base64");
+            req.__x402V1Translated = t.translated.join(",");
+          }
+        } catch { /* unreadable header: leave it exactly as sent */ }
+      }
     }
     return x402mw(req, res, next);
   });

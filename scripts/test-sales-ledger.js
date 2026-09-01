@@ -9,6 +9,7 @@
 // the DEFAULT (public) shape - it must stay aggregate-only.
 //
 //   node scripts/test-sales-ledger.js
+import { readFile } from "node:fs/promises";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,7 +25,7 @@ const ok = (cond, msg) => {
   else { failed++; console.error(`FAIL - ${msg}`); }
 };
 
-const BUYER = "0x07FBCA218b0A0a35244e0025A036fA85A6dc97dC"; // checksummed on purpose — must match lowercased
+const BUYER = "0xDeaDBeef00000000000000000000000000000001"; // checksummed on purpose — must match lowercased
 const BURNER = [...OUR_EVM_WALLETS][0];
 
 // --- empty ledger ----------------------------------------------------------------
@@ -279,6 +280,34 @@ rmSync(dir, { recursive: true, force: true });
   const before = m.base.settlements;
   recordSale({ slug: "hash", priceUsd: 0.001, rail: "usdc", network: "base", payer: "0x" + "c".repeat(40), tx: "0xnetInt2", synthetic: true });
   ok(externalByNetwork({ days: 1 }).base.settlements === before, "an internal sale never moves the per-network external count");
+}
+
+// A COUNT must never be the length of a ranked, LIMITed list.
+//
+// `distinctToolsSoldExternal` was `qExtBySlug.all(since).length` and that query
+// carries LIMIT 20; `distinctExternalBuyers` was `qExtByPayer.all(since).length`
+// with LIMIT 10. So both were min(actual, limit) and could never report more,
+// however many tools sold or buyers paid. Both are PUBLISHED (host-entry.js ->
+// /marketplace, /leaderboard, every chain page, /api/index), and the capped
+// figure "20 of 627 priced tools had any external use" was the measurement that
+// justified retiring 40 tools and 29 skill packs on 2026-08-25. Eleven of those
+// packs had real outside buyers inside the window.
+//
+// A ceiling that looks like a count is worse than no count: it reads as a
+// finding. Source-level, because a fixture small enough to unit-test would sit
+// under both limits and pass either way - which is exactly why nothing caught it.
+{
+  const src = await readFile(new URL("../src/sales-ledger.js", import.meta.url), "utf8");
+  const summary = src.slice(src.indexOf("distinctExternalBuyers:"), src.indexOf("distinctExternalBuyers:") + 400);
+  ok(!/\.all\([^)]*\)\.length/.test(summary),
+    "neither published count is the .length of a query result list");
+  ok(/qExtDistinctPayers\.get\(/.test(summary) && /qExtDistinctSlugs\.get\(/.test(summary),
+    "both counts come from dedicated COUNT(DISTINCT ...) queries");
+  for (const q of ["qExtDistinctSlugs", "qExtDistinctPayers"]) {
+    const decl = src.slice(src.indexOf(`const ${q} = `), src.indexOf(`const ${q} = `) + 260);
+    ok(/COUNT\(DISTINCT/.test(decl), `${q} uses COUNT(DISTINCT ...)`);
+    ok(!/LIMIT/i.test(decl), `${q} carries no LIMIT`);
+  }
 }
 
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);

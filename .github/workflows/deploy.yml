@@ -870,7 +870,8 @@ jobs:
       # (configSchema) and the auto-primary context overflow that 0.1.0-0.2.0
       # shipped with. npm registry only; no money moves.
       - name: OpenClaw provider plugin against a REAL OpenClaw install
-        # Unpinned third-party install with lifecycle scripts + its binary run
+        # Third-party install (PINNED in the test; openclaw-latest.yml tracks
+        # @latest on a schedule) with lifecycle scripts + its binary run
         # with network access: shadow the job's metered keys (same class as the
         # F07 npm ci step); the test also spawns with an allowlisted env.
         env:
@@ -1238,6 +1239,10 @@ jobs:
         run: TARGET_URL=https://agent402.tools node scripts/test-challenge-size.js
       - name: Router aliases + short-term token rule (offline)
         run: X402_INDEX_CRAWL=off node scripts/test-route-aliases.js
+      # A documented path is not a callable URL: brace, colon and percent-encoded
+      # templates all reached buyers as priced routes (offline, mutation-tested)
+      - name: URL templates are never published as payable (offline)
+        run: X402_INDEX_CRAWL=off node scripts/test-url-templates.js
       # Input aliases may never change the MEANING of a call (offline, mutation-tested)
       - name: Input parameter aliases (offline)
         run: node scripts/test-input-aliases.js
@@ -1262,6 +1267,8 @@ jobs:
           t node scripts/test-sor-resolver-scope.js
           # "External spend guard (per-payer debt ceiling: an UNSETTLED upstream spend keeps counting, so verify-then-fail-to-settle cannot drain the wallet — offline)"
           t node scripts/test-external-spend-guard.js
+          # A paid seller's rejection is logged with its reason, and none of their body reaches our buyer (source assertions, offline)
+          t node scripts/test-buyer-rejection-diagnostics.js
 
   test-unit-a4:
     # The second half of test-unit-a2 (2026-08-25, split by the seconds each item
@@ -1781,6 +1788,8 @@ jobs:
           t node scripts/test-static-pages.js
           # Operator auth (A402-07 no ?token= query; session cookie + header; hardened cookie flags — spawns child)
           t node scripts/test-operator-auth.js
+          # Probe-only credential: STATUS_PROBE_TOKEN opens POST /api/status/probe and NOTHING else, the operator token still works there, and the narrow gate is wired to one route (boots a real server, offline)
+          t node scripts/test-status-probe-token.js
           # /openapi.json header parameters (Idempotency-Key on every op, X-Pow-Solution only where PoW-eligible)
           t node scripts/test-openapi-header-params.js
           # Process lifecycle (A402-10 SIGTERM drains + exits 0; uncaught exception is fatal + exits non-zero — spawns child)
@@ -1789,6 +1798,8 @@ jobs:
           t node scripts/test-drain-on-sigterm.js
           t node scripts/test-db-status.js
           t node scripts/test-db-init-retry.js
+          # The Stellar facilitator's fee account is a spending wallet; its low-water alarm must never report "ok" off an unreadable balance or a stranger's /health
+          t node scripts/test-stellar-facilitator-status.js
           # Facilitator gate scoping stays honest (its tests import nothing outside facilitator/)
           t node scripts/test-ci-facilitator-scope.js
           # A composite report is refused (503, not charged) while draining - a late request on a busy keep-alive socket must not start a 4-minute run into the deadline
@@ -2076,6 +2087,8 @@ jobs:
           t node scripts/test-discovery-filter.js
           # Index warm-start (crawl cache survives a redeploy; no half-crawled marketplace — offline)
           t node scripts/test-index-warmstart.js
+          # Crawl load is per operator, not per origin; the register global cap is a backstop (offline)
+          t node scripts/test-crawl-politeness.js
           # Index warm-start is incremental (NDJSON twin parsed a batch per turn; no event-loop hold; legacy fallback — offline)
           t node scripts/test-index-ndjson-warmstart.js
           # Crawl cadence copy is derived (served pages cannot advertise a cadence we do not run — offline)
@@ -2294,6 +2307,10 @@ jobs:
           t node scripts/test-seller-trust.js
           # Package integrity (files allowlist covers every import; no sibling dep range excludes what we ship — offline)
           t node scripts/test-package-integrity.js
+          # Every SOLD skill pack has a real step config (a pack without one answers 200 with 0/N steps and still charges — offline)
+          t node scripts/test-skill-pack-steps.js
+          # Refund backfill decides who is OWED money: who is in, who is out, idempotent (offline, temp ledgers)
+          t node scripts/test-refund-backfill.js
           # Analytics redaction (per-tool table never reaches an unauthenticated caller - seeded, DB not required)
           t node scripts/test-analytics-redaction.js
           # Reveal-on-scroll no hero flash (the hero must never hide behind opacity:0 waiting on the observer)
@@ -2318,6 +2335,8 @@ jobs:
           t node scripts/test-safe-regex.js
           # Sales ledger unit tests (named sales, internal/external classification, revenue math — offline)
           t node scripts/test-sales-ledger.js
+          # Repo-wide: no count-named field is the length of a LIMITed query result (source scan, offline)
+          t node scripts/test-capped-counts.js
           t node scripts/test-proof.js
           # Tempo relay verdicts are visible (non-2xx relay status + body reach the rejection log, per-request — offline)
           t node scripts/test-mpp-tempo-relay-errors.js
@@ -3190,6 +3209,38 @@ jobs:
       - name: Non-metered paid examples (strict — 502/503/504 fail; NETWORK leniency hole)
         run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-non-metered-examples.js
 
+      # Every skill pack must WORK on its own published example, not merely
+      # return a well-shaped envelope. Nine packs sold for two months answering
+      # "0/N steps succeeded" because every guard asserted SHAPE and none
+      # asserted OUTCOME.
+      #
+      # Booted WITHOUT the paid keys on purpose. The keys live on the SERVER, so
+      # a keyed boot would make this sweep buy a live Brave query on every push -
+      # the CI-spend leak that has recurred three times. With them shadowed,
+      # every keyed pack reports "not configured" and is skipped as not-ours,
+      # every keyless pack is fully verified, and there is no skip list to drift.
+      # The keyed subset is covered by running this against a keyed server by
+      # hand; that is a real gap and it is written down rather than hidden.
+      - name: Skill packs answer their own published example (keyless boot - no upstream spend)
+        env:
+          BRAVE_API_KEY: ""
+          BRAVE_ANSWERS_API_KEY: ""
+          BRAVE_SUGGEST_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+          COINGECKO_API_KEY: ""
+          OPENROUTER_API_KEY: ""
+          OPENAI_API_KEY: ""
+        run: |
+          X402_SYNC_ON_START=false X402_INDEX_CRAWL=off FREE_MODE=true PORT=3097 node src/server.js > /tmp/a402-packs.log 2>&1 &
+          PACK_PID=$!
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:3097/health >/dev/null && break || sleep 1; done
+          curl -sf http://127.0.0.1:3097/health >/dev/null || { echo "keyless server failed to boot"; cat /tmp/a402-packs.log; kill $PACK_PID; exit 1; }
+          TARGET_URL=http://127.0.0.1:3097 node scripts/test-pack-examples.js; rc=$?
+          kill $PACK_PID 2>/dev/null || true
+          exit $rc
+
       - name: Every tool responds to its own example (all ~1070 endpoints)
         run: TEST_ALL_SKIP_STRICT_COVERED=1 TARGET_URL=http://127.0.0.1:3000 node scripts/test-all.js
 
@@ -3539,6 +3590,8 @@ jobs:
           t node scripts/test-checkout-limiter.js
           # A refused payment says WHY on the 402 (the vendor answers a bare {} and drops the reason; one client looped ~9/min for 12h) — boots a paid server, offline
           t node scripts/test-payment-reject.js
+          # A v1-era client names the price maxAmountRequired; x402 v2 deep-equals the echoed accepts block, so that one rename made a correct payment unmatchable — boots a paid server, offline
+          t node scripts/test-x402-v1-accepts.js
           # HEAD paywall bypass closed (HEAD on paid GET routes 402s with challenges + empty body; free surfaces untouched — offline)
           t node scripts/test-head-paywall.js
           # Anthropic SDK base-URL alias (/v1/<tier>/v1/messages) + 1 MB body limit on the metered routes (boots a paid server, offline)
@@ -3798,6 +3851,14 @@ jobs:
           t() { local s=$SECONDS; echo "::group::$*"; "$@" || { echo "::endgroup::"; echo "::error::failed: $*"; exit 1; }; echo "::endgroup::"; echo "ok  $* ($((SECONDS - s))s)"; }
           # Boot /supported guard (a dead facilitator costs ONE rail, not every paid route — the 2026-08-01 Celo outage; probe-driven drop, fail-open on total blindness, escape hatch — offline)
           t node scripts/test-supported-guard.js
+          # Verify falls over to another facilitator when the first is UNREACHABLE, and never when it answers (offline, stub facilitators)
+          t node scripts/test-verify-failover.js
+          # The Bazaar keep-alive is actually scheduled, fails loudly without a key, and pages (CDP removes a resource after 30 days without a settlement)
+          t node scripts/test-bazaar-keepalive.js
+          # verify_failed carries a DERIVED payer id (never an address), so a retry loop can be told from many clients (offline)
+          t node scripts/test-verify-failed-payer-key.js
+          # Event-loop lag monitor measures a real block and stays cheap enough to leave on (offline)
+          t node scripts/test-loop-lag.js
           # Tempo MPP settlement (native tempo/charge via Tempo's relay — challenge wiring + settlement-ordering proof — offline)
           t node scripts/test-mpp-tempo-shim.js
 

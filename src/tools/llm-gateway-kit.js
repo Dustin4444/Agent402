@@ -28,7 +28,7 @@
 // cache hooks res.json only).
 
 import { METER_MARKUP, METER_FLOOR_USD, METER_MIN_SETTLE_USD, setMeterSentinel } from "../gateway-meter.js";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 // Static import (not agent-kit's lazy pattern): validateRequest must stay
 // synchronous because promptCacheKey — called from the pre-paywall cache
 // middleware — normalizes through it.
@@ -1649,7 +1649,15 @@ export function upstreamUserId(req) {
     if (ip) basis = `trial:${String(ip).split(",")[0].trim()}`;
   }
   if (!basis) return null;
-  return `a402:${createHash("sha256").update(basis).digest("hex").slice(0, 32)}`;
+  // HMAC, not a bare hash - this one is sent to OPENROUTER, a third party, so an
+  // enumerable digest of a public wallet address would hand an outside vendor a
+  // way to recover which wallet each request belongs to. Keyed, it still groups
+  // a buyer's calls for provider policy while carrying no recoverable identity.
+  // Call-time only and never part of a cache key, so changing it is inert.
+  const idSecret = process.env.TELEMETRY_ID_SECRET || process.env.POW_SECRET || process.env.MPP_SECRET_KEY || "";
+  return idSecret
+    ? `a402:${createHmac("sha256", idSecret).update(basis).digest("hex").slice(0, 32)}`
+    : `a402:${createHash("sha256").update(basis).digest("hex").slice(0, 32)}`;
 }
 
 /** Line-aware SSE pass-through that strips OpenRouter's billing fields from

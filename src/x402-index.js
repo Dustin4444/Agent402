@@ -71,8 +71,19 @@ const LOCAL_SELLER = "self";
 // TWO regexes on purpose: `.test()` on a /g regex is STATEFUL (it advances
 // lastIndex and alternates true/false across calls), so the predicate is
 // non-global and only the extraction is global.
-const URL_TEMPLATE_RE = /\{[^}/]+\}/;
-const URL_TEMPLATE_RE_G = /\{([^}/]+)\}/g;
+const URL_TEMPLATE_RE = /\{[^}/]+\}|%7[Bb][^/]*?%7[Dd]|\/:[A-Za-z_][A-Za-z0-9_]*(?=\/|$)/;
+const URL_TEMPLATE_RE_G = /\{([^}/]+)\}|%7[Bb](.*?)%7[Dd]|\/:([A-Za-z_][A-Za-z0-9_]*)(?=\/|$)/g;
+// THREE dialects, not one. The brace form is what OpenAPI writes, but a seller
+// documenting with Express-style ":domain", or a manifest that URL-encoded its
+// own braces into "%7Bdomain%7D", produces a path that is just as uncallable and
+// used to sail through. Reported 2026-08-30 by a seller whose row we published
+// with two placeholder routes priced at $0.02: /api/v1/hosts/:domain answers 422
+// forever, while /api/v1/hosts/allbirds.com?refresh=1 answers 402 as it should.
+// He also noted the consequence we could not see - a prober that tries the
+// documented path scores the SELLER as unpayable for a service that works.
+//
+// The colon form is anchored to a whole segment (/:name) so an ordinary path
+// containing a colon, or a scheme, is not mistaken for a template.
 const SELF_BAZAAR_ORIGIN = "https://agent402.tools"; // the origin our Bazaar listing is keyed under
 // /index used to render every crawled seller server-side (~1,477 rows → a
 // 475KB response with no compression). Cap the default render to the top N
@@ -579,6 +590,23 @@ function microUsdToPrice(micro) {
 }
 
 /** Shared projection so sellerDetail / route / index-tools never drift. */
+/** Say when a published route is a documentation TEMPLATE rather than a callable
+ *  URL. Rides on every accessor that projects a route, deliberately: this file
+ *  already warns that a field present on two of three surfaces is inert on
+ *  whichever one happens to render, and that is exactly what happened here -
+ *  the flag existed only in routeQuery, so /api/index kept advertising a
+ *  seller's placeholder path at $0.02 with nothing to say it could never pay.
+ *  We still RETURN the row (the seller and the tool are real, and an agent that
+ *  knows the parameter can substitute it); we just stop implying it is payable. */
+function urlTemplateProjection(t) {
+  const route = String(t?.route || "");
+  if (!URL_TEMPLATE_RE.test(route)) return {};
+  return {
+    urlTemplate: true,
+    pathParams: [...route.matchAll(URL_TEMPLATE_RE_G)].map((m) => m[1] || m[2] || m[3]).filter(Boolean),
+  };
+}
+
 function priceConflictProjection(t) {
   if (t?.priceConflict !== true || !t.priceObservations) return {};
   const bazaar = priceToMicroUsd(t.priceObservations.bazaar);
@@ -2112,7 +2140,28 @@ async function probeDoc(originUrl, path, opts, prevParsed) {
   return { parsed: JSON.parse(fresh.html), reused: false };
 }
 
+// One crawl, one fetch of a given document. crawlSeller reached for
+// /openapi.json from two independent places (tool discovery and paywall
+// classification) plus a revalidation retry, so a seller saw it two or three
+// times per 30-minute cycle where once would do. Measured from the OUTSIDE on
+// 2026-08-31 by a listed seller whose logs held 3,372 /openapi.json against 681
+// /.well-known/x402 over the same window - the manifest count matched our cycle
+// exactly, which is what proved the excess was ours and not an impersonator
+// running at a different rate.
+//
+// Per-crawl only: a fresh Map for every crawlSeller call, so nothing is cached
+// ACROSS cycles and the crawl still re-reads the world each time.
+function oncePerCrawl() {
+  const seen = new Map();
+  return (key, fn) => {
+    if (!seen.has(key)) seen.set(key, fn());
+    return seen.get(key);
+  };
+}
+
 async function crawlSeller(originUrl) {
+  const once = oncePerCrawl();
+  const fetchOpenapi = () => once("/openapi.json", () => probePath(originUrl, "/openapi.json", { maxBytes: MAX_OPENAPI_BYTES }));
   const prev = cache.get(originUrl);
   try {
     // A manifest that has 404'd repeatedly is not re-probed every cycle.
@@ -2133,7 +2182,7 @@ async function crawlSeller(originUrl) {
     // small. So those are what the cache carries.
     let openapiTools = null, openapiRoutes = null;
     try {
-      const res = await probePath(originUrl, "/openapi.json", { maxBytes: MAX_OPENAPI_BYTES });
+      const res = await fetchOpenapi();
       if (res.notModified && prev?.openapiTools) {
         openapiTools = prev.openapiTools;
         openapiRoutes = prev.openapiRoutes || [];
@@ -2225,7 +2274,7 @@ async function crawlSeller(originUrl) {
     let openapiTools = [];
     let openapiPath = null;
     try {
-      const openapiRes = await probePath(originUrl, "/openapi.json", { maxBytes: MAX_OPENAPI_BYTES });
+      const openapiRes = await fetchOpenapi();
       const parsed = JSON.parse(openapiRes.html);
       if (bazaarTools.length || openapiHasPaymentSignal(parsed)) {
         openapi = parsed;
@@ -2552,6 +2601,65 @@ async function runPool(items, limit, worker) {
   await Promise.all(workers);
 }
 
+// Registrable domain, approximately: the last two labels, plus a third for the
+// common multi-part suffixes. It does not need to be a full public-suffix list -
+// getting it wrong groups an operator slightly wider or narrower than ideal, and
+// never causes an origin to be skipped forever.
+const MULTI_PART_TLDS = new Set(["co.uk", "org.uk", "ac.uk", "gov.uk", "co.jp", "com.au", "com.br", "co.nz", "co.in", "com.cn", "com.mx"]);
+
+// Suffixes where the label BELOW the suffix is a different tenant, not a
+// different host of one operator. Without these, "last two labels" made every
+// Vercel seller one operator, every Workers seller one operator, and so on -
+// they would then have shared a single per-cycle crawl budget, and an attacker
+// could have registered throwaway origins under the same suffix to starve a
+// competitor's listing until its learned quote went stale (QUOTE_MAX_AGE_MS).
+// This file already knew better in one place: railwayDeploymentOrigin exists
+// precisely because unrelated sellers publish on *.up.railway.app.
+const SHARED_HOSTING_SUFFIXES = [
+  "workers.dev", "vercel.app", "up.railway.app", "railway.app", "onrender.com",
+  "fly.dev", "pages.dev", "netlify.app", "herokuapp.com", "replit.app",
+  "repl.co", "chatgpt.site", "trycloudflare.com", "ngrok-free.app", "ngrok.app",
+  "deno.dev", "glitch.me", "surge.sh", "web.app", "firebaseapp.com",
+  "azurewebsites.net", "appspot.com", "cloudfunctions.net", "koyeb.app",
+  "vercel.sh", "netlify.com", "render.com", "streamlit.app", "hf.space",
+];
+export function operatorKey(origin) {
+  let host;
+  try { host = new URL(origin).hostname.toLowerCase(); } catch { return String(origin).toLowerCase(); }
+  const parts = host.split(".").filter(Boolean);
+  if (parts.length <= 2) return host;
+  // Multi-tenant hosting: the tenant is the whole hostname. Grouping two tenants
+  // together is not a small inaccuracy - it hands them one budget and lets either
+  // one crowd the other out.
+  for (const suffix of SHARED_HOSTING_SUFFIXES) {
+    if (host === suffix || host.endsWith(`.${suffix}`)) return host;
+  }
+  const lastTwo = parts.slice(-2).join(".");
+  return MULTI_PART_TLDS.has(lastTwo) ? parts.slice(-3).join(".") : lastTwo;
+}
+
+// How many origins of ONE operator we will crawl in a single cycle.
+const CRAWL_ORIGINS_PER_OPERATOR = Math.max(1, Number(process.env.CRAWL_ORIGINS_PER_OPERATOR || 4));
+
+/** At most `cap` origins per operator this cycle, rotating by cycle so every
+ *  origin comes up in turn instead of the same few always winning. Input order
+ *  is preserved, and anyone at or under the cap is unaffected. */
+export function originsDueThisCycle(origins, cycle = 0, cap = CRAWL_ORIGINS_PER_OPERATOR) {
+  const byOperator = new Map();
+  for (const o of origins) {
+    const k = operatorKey(o);
+    if (!byOperator.has(k)) byOperator.set(k, []);
+    byOperator.get(k).push(o);
+  }
+  const due = new Set();
+  for (const [, list] of byOperator) {
+    if (list.length <= cap) { for (const o of list) due.add(o); continue; }
+    const offset = (cycle * cap) % list.length;
+    for (let i = 0; i < cap; i++) due.add(list[(offset + i) % list.length]);
+  }
+  return origins.filter((o) => due.has(o));
+}
+
 async function runCrawl() {
   if (crawlInFlight) return; // overlapping runs would just rate-limit each other
   crawlInFlight = true;
@@ -2567,9 +2675,29 @@ async function runCrawl() {
     const start = seeds.length ? crawlCycle % seeds.length : 0;
     crawlCycle += 1;
     const ordered = seeds.length ? [...seeds.slice(start), ...seeds.slice(0, start)] : seeds;
-    await runPool(ordered, CRAWL_CONCURRENCY, crawlSeller);
+    // Politeness is per OPERATOR, not per origin. We key everything on origin, so
+    // an operator running 20 hosts was 20 unrelated crawl targets and felt 20x
+    // the load of a one-host seller for no reason of their own. Reported
+    // 2026-08-31 by a listed seller: ~18,200 requests/day across their 20 hosts,
+    // ~67% of all their external traffic, none carrying payment. Our own
+    // arithmetic agrees on the order of magnitude - 4 discovery docs per origin
+    // per 30-minute cycle is ~200/day/origin, ~4,000/day across 20.
+    //
+    // Each cycle now crawls at most CRAWL_ORIGINS_PER_OPERATOR origins per
+    // registrable domain, rotating by cycle. Every origin is still crawled, just
+    // less often when it shares an operator: 20 hosts at a cap of 4 means each is
+    // seen every 5th cycle (~2.5h) instead of every 30 minutes. Single-host
+    // sellers - almost all of them - are untouched.
+    const due = originsDueThisCycle(ordered, crawlCycle);
+    await runPool(due, CRAWL_CONCURRENCY, crawlSeller);
     recordSubmittedSellerObservations();
-    releaseDeadSubmissions(cycleOkFraction(ordered));
+    // `due`, not `ordered`: cycleOkFraction's own contract is that it measures
+    // THIS pass. Once the per-operator cap made the crawled set a subset, passing
+    // the full list let every origin held back this cycle contribute its previous
+    // cached verdict - diluting the denominator with stale OKs in the UNSAFE
+    // direction, so during an egress outage the fraction could stay above the
+    // 0.5 floor and slots would be released anyway.
+    releaseDeadSubmissions(cycleOkFraction(due));
   } finally {
     crawlInFlight = false;
   }
@@ -3321,6 +3449,7 @@ export function sellerDetail(originOrHost) {
         name: t.name || null,
         price: t.price ?? null,
         ...priceConflictProjection(t),
+        ...urlTemplateProjection(t),
         ...(t.paid !== undefined ? { paid: t.paid } : {}),
         // What the seller's own OpenAPI guarantees on success. Omitted rather
         // than nulled when there is nothing to report: most rows have no
@@ -3772,7 +3901,7 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
       // three of eight rows for "get a stock quote" were templates. We still
       // RETURN the row (the seller and the tool are real, and an agent that
       // knows the parameter can fill it), but we say so, and the SOR skips it.
-      ...(URL_TEMPLATE_RE.test(t.route || "") ? { urlTemplate: true, pathParams: [...String(t.route).matchAll(URL_TEMPLATE_RE_G)].map((m) => m[1]) } : {}),
+      ...urlTemplateProjection(t),
       price: t.price,
       priceUsd: parsePrice(t.price),
       ...priceConflictProjection(t),

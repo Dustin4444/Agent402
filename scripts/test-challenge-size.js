@@ -36,15 +36,34 @@ const override = (process.env.CHALLENGE_ROUTES || "").split(",").map((r) => r.tr
 if (override.length) {
   probes = override.map((path) => ({ path, method: "POST", slug: path }));
 } else {
-  try {
+  // Single-retry, because this reads LIVE production and our own deploys make
+  // it unreadable: the service is volume-backed, so every deploy has a 60-90s
+  // window with no container at all. Measured 2026-08-30 - this lane failed
+  // with "the catalog listed no endpoints" while the merge that triggered it
+  // was still swapping containers, and the same check passed seconds later.
+  // One reading is never a verdict here; a real fault fails both. Same doctrine
+  // as every heartbeat probe and the Postgres alarm.
+  const readCatalog = async () => {
     const res = await fetch(`${TARGET}/api/pricing`, { signal: AbortSignal.timeout(30000) });
     const body = await res.json();
-    probes = (body.endpoints || []).map((e) => ({ path: e.path, method: e.method || "GET", slug: e.slug || e.path }));
-  } catch (e) {
-    console.log(`FAIL - could not read the catalog from ${TARGET}/api/pricing (${String(e.message).slice(0, 80)})`);
+    return (body.endpoints || []).map((e) => ({ path: e.path, method: e.method || "GET", slug: e.slug || e.path }));
+  };
+  let lastErr = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      probes = await readCatalog();
+      if (probes.length) break;
+      lastErr = new Error("the catalog listed no endpoints");
+    } catch (e) { lastErr = e; }
+    if (attempt === 1) {
+      console.log(`  catalog unreadable (${String(lastErr.message).slice(0, 60)}) - re-reading in 30s, production may be mid-deploy`);
+      await new Promise((r) => setTimeout(r, 30000));
+    }
+  }
+  if (!probes.length) {
+    console.log(`FAIL - could not read the catalog from ${TARGET}/api/pricing after a retry (${String(lastErr?.message).slice(0, 80)})`);
     process.exit(1);
   }
-  if (!probes.length) { console.log("FAIL - the catalog listed no endpoints"); process.exit(1); }
 }
 
 const rows = [];

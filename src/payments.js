@@ -1166,6 +1166,28 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
 
   // One payment option per enabled chain — agents pick the chain they hold funds on.
   // Identity-bound routes are the exception (EVM-only) — see acceptsForItem.
+  // "Extract article" beats "Agent402.tools" as the name of a row in an index
+  // of 14,000 resources. Falls back to the host name when a tool has no name,
+  // so a listing is never anonymous.
+  const serviceNameFor = (item) =>
+    (typeof item?.name === "string" && item.name.trim())
+      // 32 characters is the protocol's own ceiling on serviceName
+      // (ResourceInfoSchema); the contract sweep fails the build on 33. Trim at
+      // a word boundary so a cut name still reads as a name.
+      ? asciiName(item.name)
+      : "Agent402.tools";
+  // Printable ASCII only, then 32 characters - both are ResourceInfoSchema's
+  // rules, and the contract sweep fails the build on either. A tool named
+  // "EDGAR company lookup (ticker -> CIK)" carried a real arrow character and
+  // was rejected as Invalid rather than as too long, which is why this
+  // normalises before it truncates. Trim on a word boundary so a cut name
+  // still reads as a name.
+  const asciiName = (raw) => {
+    const clean = String(raw).replace(/[\u2192\u2794\u27a1]/g, "->").replace(/[^\x20-\x7e]/g, "").replace(/\s+/g, " ").trim();
+    if (!clean) return "Agent402.tools";
+    if (clean.length <= 32) return clean;
+    return clean.slice(0, 32).replace(/\s+\S*$/, "").trim() || clean.slice(0, 32);
+  };
   const acceptsFor = (item) =>
     acceptsForItem(item, { evmCaip2, svmCaip2, stellarCaip2, avmCaip2, walletAddress, solanaWallet, stellarWallet, algorandWallet, uptoCaip2 });
 
@@ -1238,7 +1260,26 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
         {
           accepts: acceptsFor(item),
           description: listingDescription,
-          serviceName: "Agent402.tools",
+          // Per-TOOL service name, not the host name.
+          //
+          // Measured 2026-08-31: our 168 Bazaar listings all read
+          // "Agent402.tools", so an agent browsing or searching the index sees
+          // 168 identical rows. The sellers with the largest presence name each
+          // resource for what it does - delx.ai carries 971 distinct
+          // serviceNames across 995 listings, agentstools.dev 347 across 347.
+          // Being IN the index and being FINDABLE in it are different things,
+          // and a row that says only "Agent402.tools" answers no query an agent
+          // would type.
+          //
+          // It may also be why so few of ours register at all: 325 paid buys
+          // produced 64 listings, a second payment for the same routes produced
+          // one, and no observable property of the request explained which -
+          // an indexer that treats identical serviceName + near-identical tags
+          // as duplicates of a row it already holds would produce exactly that.
+          // UNPROVEN (m2mcent.com has one serviceName across 965 listings, so
+          // it cannot be the whole rule), but the change stands on
+          // discoverability alone.
+          serviceName: serviceNameFor(item),
           // Discovery tags feed marketplace categorizers (x402scan, the Bazaar).
           // Include the resource's own category alongside its specific tags so
           // an indexer sees the real category signal (unit conversion, data,
@@ -1449,6 +1490,20 @@ let railsOffered = [];
 // settling chains the boot log's labels attribute to PayAI; /supported needs
 // a JWT, so the only way to know what prod's clients advertise is to ask the
 // clients themselves. This feeds GET /__operator/facilitators.json.
+// Does serving this resource cost us anything at a third party? Compute-payable
+// is the server's own answer to that question (PoW-eligible == makes no external
+// call), and it is enforced, not asserted: test-free-tier-egress.js drives every
+// one of them under an egress-recording preload and requires zero attributed
+// egress. Unknown route -> treated as costly, because the failure we are
+// avoiding is spending money we cannot bill for.
+let _computePayablePaths = null;
+export function setComputePayablePaths(paths) { _computePayablePaths = paths instanceof Set ? paths : new Set(paths || []); }
+function isFreeToServe(resource) {
+  if (!_computePayablePaths || !_computePayablePaths.size) return false;
+  try { return _computePayablePaths.has(new URL(String(resource)).pathname); } catch { return false; }
+}
+
+const VERIFY_FAILOVER = String(process.env.VERIFY_FAILOVER || "").toLowerCase();
 let facilitatorRegistry = [];
 export async function facilitatorSupportReport() {
   return Promise.all(facilitatorRegistry.map(async ({ label, client }) => {
@@ -1499,8 +1554,34 @@ async function recordVerifyFailure(ctx, reason) {
     if (noted) bucket = noted.bucket;
   } catch { /* a hint is best-effort */ }
   // Telemetry (reason, chain, route, balance BUCKET - never the payer): see posthog.js.
+  // Who failed, as a one-way id. Prefer the signed EIP-3009 `from`; fall back to
+  // the credential itself (SVM/Stellar payloads carry no readable payer), which
+  // is what credentialKeyOf already derives for the 402 hint. Never an address.
+  let payerKey = null;
+  try {
+    // KEYED, not a bare hash. sha256 of an EVM address is one-way only against
+    // blind inversion: the input comes from a public, enumerable set - every
+    // address that has settled USDC on Base - so anyone holding the analytics
+    // dataset recovers the payer by hashing candidates until one matches. That is
+    // pseudonymisation, not anonymisation, and the comment here claimed the
+    // stronger thing. An HMAC under a secret we hold is neither forgeable nor
+    // enumerable and still groups (same payer, same id) - the construction the
+    // wish board already uses for caller fingerprints.
+    const { createHmac } = await import("node:crypto");
+    const idSecret = process.env.TELEMETRY_ID_SECRET || process.env.POW_SECRET || process.env.MPP_SECRET_KEY || "";
+    const from = ctx?.paymentPayload?.payload?.authorization?.from;
+    let basis = from ? `payer:${String(from).toLowerCase()}` : null;
+    if (!basis) {
+      const { credentialKeyOf } = await import("./verify-hint.js");
+      const cred = credentialKeyOf(ctx?.paymentPayload);
+      if (cred) basis = `credential:${cred}`;
+    }
+    // No secret configured: emit NO id rather than a reversible one. A missing
+    // dimension is a gap in telemetry; a guessable one is a claim we cannot back.
+    if (basis && idSecret) payerKey = `a402:${createHmac("sha256", idSecret).update(basis).digest("hex").slice(0, 32)}`;
+  } catch { /* telemetry is best-effort */ }
   import("./posthog.js").then(({ capturePostHogVerifyFailed }) => capturePostHogVerifyFailed({
-    network: ctx?.requirements?.network, scheme: ctx?.requirements?.scheme, resource: ctx?.requirements?.resource, errorReason: reason, payerBalanceBucket: bucket,
+    network: ctx?.requirements?.network, scheme: ctx?.requirements?.scheme, resource: ctx?.requirements?.resource, errorReason: reason, payerBalanceBucket: bucket, payerKey,
   })).catch(() => {});
 }
 
@@ -1511,6 +1592,46 @@ export function registerFacilitatorFailureHooks(server, payAiClient, solvadorCli
       `[payments] facilitator VERIFY failed on ${ctx?.requirements?.network} ` +
         `${ctx?.requirements?.scheme}: ${reason}`
     );
+    // Before writing this off as a failed payment: was the facilitator merely
+    // UNREACHABLE? @x402/core resolves one client per network and does not fall
+    // back when that client throws, so a connect timeout at CDP - which is
+    // first-tried for Solana - loses the sale outright while PayAI sits idle.
+    // Verify is a READ, so asking another facilitator cannot double charge.
+    // Only a transport failure is retried; a verdict is never second-guessed.
+    // (src/verify-failover.js carries the full reasoning.)
+    // Only rescue a verify when the work it unlocks is FREE for us.
+    //
+    // Failover is verify-only, and verify is a read, so it cannot double-charge -
+    // that part holds. The cost sits one layer out: settle resolves the SAME
+    // facilitator client that was just unreachable (getFacilitatorClient is a
+    // deterministic lookup), and settle has no transport-error fallback BY
+    // DESIGN, because retrying a possibly-broadcast settlement elsewhere is how
+    // you double-settle. So a rescued verify on a metered route runs the handler,
+    // spends real upstream money (up to $0.65 on a report tier), then 402s at
+    // settle: buyer not charged, gets nothing, retries, and each retry spends
+    // again. Before this feature that request 402'd BEFORE the handler, free.
+    //
+    // Compute-payable routes make no external call at all - proven every run by
+    // test-free-tier-egress.js - so rescuing those is pure upside: a sale we
+    // would otherwise lose, and a failed settle costs only CPU.
+    if (VERIFY_FAILOVER !== "off" && isFreeToServe(ctx?.requirements?.resource)) {
+      try {
+        const { verifyElsewhere } = await import("./verify-failover.js");
+        const rescued = await verifyElsewhere({
+          error: ctx?.error,
+          paymentPayload: ctx?.paymentPayload,
+          requirements: ctx?.requirements,
+          registry: facilitatorRegistry,
+          log: (label, msg) => console.warn(`[payments] ${msg}`),
+        });
+        if (rescued) {
+          await recordVerifyFailure(ctx, `${reason} (recovered via ${rescued.via})`);
+          return rescued;
+        }
+      } catch (e) {
+        console.warn(`[payments] verify failover errored, original failure stands: ${String(e?.message || e).slice(0, 120)}`);
+      }
+    }
     await recordVerifyFailure(ctx, reason);
   });
   if (typeof server.onAfterVerify === "function") {

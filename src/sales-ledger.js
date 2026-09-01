@@ -214,6 +214,21 @@ export function claimedSettlements(since, until = Date.now()) {
   return qClaimedSettlements.all(since, until);
 }
 
+// TRUE distinct counts. These must NOT be derived from the ranked lists below:
+// those carry LIMIT 20 / LIMIT 10 for display, so `list.length` silently
+// becomes min(actual, limit) and can never report more. That is exactly what
+// happened - `distinctToolsSoldExternal` read 20 and `distinctExternalBuyers`
+// read 10 against real figures many times larger, both PUBLISHED on
+// /marketplace, /leaderboard, every chain page and /api/index, and the capped
+// "20 of 627 tools had any external use" was the measurement that justified
+// retiring 40 tools and 29 skill packs on 2026-08-25. A ceiling that looks like
+// a count is worse than no count: it reads as a finding.
+const qExtDistinctSlugs = db.prepare(`
+  SELECT COUNT(DISTINCT slug) AS n
+  FROM sales WHERE internal = 0 AND rail IN ${PAYING_RAILS_SQL} AND ts >= ?`);
+const qExtDistinctPayers = db.prepare(`
+  SELECT COUNT(DISTINCT payer) AS n
+  FROM sales WHERE internal = 0 AND rail IN ${PAYING_RAILS_SQL} AND payer IS NOT NULL AND ts >= ?`);
 const qExtByPayer = db.prepare(`
   SELECT payer, COUNT(*) AS sales, SUM(price_usd) AS revenue, MAX(ts) AS last_ts
   FROM sales WHERE internal = 0 AND rail IN ${PAYING_RAILS_SQL} AND payer IS NOT NULL AND ts >= ?
@@ -286,6 +301,26 @@ const qPayerRecent = db.prepare(`
  * memory tools). No internal/external filter: a wallet always sees all of
  * its own rows.
  */
+/** External settlements of specific slugs in a window, with the settle tx.
+ *  Read-only, for the refund backfill: the charged-failure detector only mints
+ *  a debt on a NON-200, and the packs that shipped broken all answered 200 with
+ *  an empty envelope, so this is the only record of who was charged. Internal
+ *  rows (our own canaries and burners) are excluded by the ledger's own
+ *  classification - refunding ourselves would just burn gas. */
+export function externalSalesForSlugs(slugs, sinceMs, untilMs) {
+  const list = (Array.isArray(slugs) ? slugs : []).filter((s) => typeof s === "string" && s);
+  if (!list.length) return [];
+  const holes = list.map(() => "?").join(",");
+  try {
+    return db.prepare(
+      `SELECT ts, slug, price_usd AS priceUsd, network, payer, tx
+         FROM sales
+        WHERE internal = 0 AND ts >= ? AND ts < ? AND slug IN (${holes})
+        ORDER BY ts ASC`
+    ).all(Number(sinceMs) || 0, Number(untilMs) || Date.now(), ...list);
+  } catch { return []; }
+}
+
 export function payerUsage(payer, { days = 30, limit = 50 } = {}) {
   const since = Date.now() - days * 86_400_000;
   const t = qPayerTotals.get(payer, since);
@@ -422,7 +457,12 @@ export function mppSales({ limit = 30, detailed = false } = {}) {
   }
   return {
     persistent: salesPersistent,
-    count: rows.length,
+    // `returned`, not `count`: rows is capped at the requested limit, so its
+    // length describes THIS PAGE and nothing else. The all-time total sits
+    // beside it, from the aggregate. Naming a page size `count` is how the
+    // capped figures on the public surfaces happened.
+    returned: rows.length,
+    count: qMppTotals.all().reduce((n, t) => n + t.n, 0),
     // No payer. This feed is public (the /revenue MPP section + /api/revenue/mpp)
     // and exists to make MPP-wire adoption verifiable, which the tx hash does on
     // its own - anyone who wants chain truth can resolve the payer from the tx.
@@ -493,8 +533,8 @@ export function salesSummary({ days = 30, detailed = false } = {}) {
     totals,
     // Counts, never rosters or rankings: enough to show the market is real
     // without naming a single buyer or ranking a single tool.
-    distinctExternalBuyers: byPayer.length,
-    distinctToolsSoldExternal: qExtBySlug.all(since).length,
+    distinctExternalBuyers: qExtDistinctPayers.get(since)?.n ?? 0,
+    distinctToolsSoldExternal: qExtDistinctSlugs.get(since)?.n ?? 0,
   };
   if (!detailed) return base;
   return {

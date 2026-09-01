@@ -78,7 +78,10 @@ proc = spawn("node", ["src/server.js"], {
     MPP_SECRET_KEY: SECRET,
     CDP_API_KEY_ID: "", CDP_API_KEY_SECRET: "", PAYMENT_NETWORKS: "base",
   },
-  stdio: "ignore",
+  // NOT "ignore". This failed once in CI on 2026-08-31 with a healthy credential
+  // getting a 402, and the server's own reason had been discarded - the run
+  // proved only that something went wrong. Keep the tail.
+  stdio: ["ignore", "pipe", "pipe"],
 });
 
 /** Build an MPP evm/charge credential against a live challenge, signing the
@@ -111,7 +114,22 @@ const challengeFrom = (res) => {
 };
 
 try {
-  for (let i = 0; i < 120; i++) { try { if ((await fetch(`${B}/health`)).ok) break; } catch {} await sleep(500); }
+  let serverLog = "";
+const keep = (c) => { serverLog = (serverLog + c).slice(-8000); };
+proc.stdout?.on("data", keep);
+proc.stderr?.on("data", keep);
+proc.on("exit", (code, sig) => { if (code) keep(`\n[server exited code=${code} sig=${sig}]`); });
+
+let booted = false;
+for (let i = 0; i < 120; i++) { try { if ((await fetch(`${B}/health`)).ok) { booted = true; break; } } catch {} await sleep(500); }
+// A boot that never happened must SAY so. Falling through to the first fetch
+// reported "TypeError: fetch failed" with no cause - which is how a corrupt
+// /tmp/agent402.db (every server-booting test shares that one path) looks
+// exactly like a paywall bug. Measured locally 2026-08-31.
+if (!booted) {
+  console.error(`server never answered /health on ${B} within 60s. Server said:\n${serverLog || "<nothing>"}`);
+  process.exit(1);
+}
 
   // ================= 1. The diagnosis itself (pure, no server) =================
   const probe = privateKeyToAccount(generatePrivateKey());
@@ -217,6 +235,12 @@ try {
   ok(!!healthyCh, "a healthy client's 402 carries an evm/charge challenge");
   const healthy = await credentialSignedUnder("USD Coin", { challenge: healthyCh, advertised, account: healthyAcct, nonce: `0x${"a1".repeat(32)}` });
   const healthyRes = await fetch(`${B}/api/uuid`, { headers: { "User-Agent": HEALTHY_UA, Authorization: healthy.header } });
+  if (healthyRes.status !== 200) {
+    // The most confusing failure this test can produce: the stub facilitator
+    // approves everything, so a 402 here means the request never reached it.
+    const body = await healthyRes.clone().text().catch(() => "<unreadable>");
+    console.error(`healthy buy refused: ${healthyRes.status}\n  body: ${body.slice(0, 500)}\n  facilitator: verify=${facCalls.verify} settle=${facCalls.settle}\n  server tail:\n${serverLog.slice(-2000)}`);
+  }
   ok(healthyRes.status === 200, `healthy MPP credential still settles (got ${healthyRes.status})`);
   ok(!!healthyRes.headers.get("payment-receipt"), "healthy MPP buy still gets a Payment-Receipt");
   ok(facCalls.verify === 1 && facCalls.settle === 1, `healthy buy reached the facilitator exactly once (${facCalls.verify}/${facCalls.settle})`);

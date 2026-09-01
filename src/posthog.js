@@ -319,7 +319,10 @@ export function capturePostHogPaywall({ slug, priceUsd, powEligible, synthetic, 
     const rsn = att === "usdc_failed" && typeof reason === "string" && reason ? reason.slice(0, 40) : null;
     // Key names only, bounded, and only on the unclassified bucket - never a
     // value from a payment payload. Bounds the rollup key space too.
-    const shp = rsn === "unclassified" && typeof shape === "string" && shape ? shape.slice(0, 110) : null;
+    // Attached to the two buckets where it is the actual diagnosis: the shape
+    // of a refusal we could not classify, and WHICH field a mismatched payment
+    // got wrong. Key names only in both cases, never a value.
+    const shp = (rsn === "unclassified" || rsn === "requirements-mismatch") && typeof shape === "string" && shape ? shape.slice(0, 110) : null;
     const key = `${slug}|${synthetic ? 1 : 0}|${att}|${rsn || "-"}|${shp || "-"}`;
     const cur = paywallCounts.get(key) || {
       slug: String(slug || "unknown"),
@@ -469,7 +472,7 @@ export function capturePostHogChargedFailure({ slug, status, network, priceUsd, 
 // hour because one client's retry loop produced 1,500 an hour.
 const VERIFY_FAILED_HOURLY_CAP = 300;
 let _vfWindow = 0, _vfCount = 0;
-export function capturePostHogVerifyFailed({ network, scheme, resource, errorReason, synthetic, payerBalanceBucket }) {
+export function capturePostHogVerifyFailed({ network, scheme, resource, errorReason, synthetic, payerBalanceBucket, payerKey }) {
   if (!active()) return;
   const hour = Math.floor(Date.now() / 3_600_000);
   if (hour !== _vfWindow) { _vfWindow = hour; _vfCount = 0; }
@@ -483,6 +486,15 @@ export function capturePostHogVerifyFailed({ network, scheme, resource, errorRea
     synthetic: !!synthetic,
     ...(errorReason ? { errorReason: String(errorReason).slice(0, 200) } : {}),
     ...(payerBalanceBucket ? { payerBalanceBucket: String(payerBalanceBucket) } : {}),
+    // A DERIVED, non-reversible id for the failing payer, never the address.
+    // Added 2026-08-30: seven CDP connect timeouts on Solana in a day could not
+    // be told apart as "one flaky client retrying" or "several clients hitting a
+    // real fault", and that distinction decides whether anyone should act. Three
+    // of them fell inside thirty seconds, which HINTS at one retrying caller,
+    // but the event carried nothing to confirm it. Same construction as the
+    // gateway's upstream user id (sha256, 32 hex) so the two can be compared
+    // without either carrying an address.
+    ...(payerKey ? { payerKey: String(payerKey).slice(0, 40) } : {}),
   });
 }
 
