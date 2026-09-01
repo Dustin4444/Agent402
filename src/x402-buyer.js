@@ -37,6 +37,17 @@ export const BUYER_CHAINS = {
     networkLabels: new Set(["algorand:wghe2pwdvd7s12bl5faop20egyesn73ktic1qzkkit8=", "algorand", "algorand-mainnet"]),
     asset: "31566704", // USDC ASA on Algorand mainnet
   },
+  solana: {
+    caip2: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    // Mainnet labels ONLY: devnet's genesis hash is a different CAIP-2 suffix
+    // and must never match (paying a devnet accept with mainnet USDC signs a
+    // transaction that can never settle).
+    networkLabels: new Set(["solana:5eykt4usfv8p8njdtrepy1vzqkqzkvdp", "solana", "solana-mainnet", "solana-mainnet-beta"]),
+    // Circle USDC mint on Solana mainnet. Base58 is case-sensitive; the
+    // lowercase compare in pickPayableAccept stays a valid equality test
+    // because both sides are folded the same way.
+    asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  },
 };
 const DEFAULT_MAX_BYTES = 512 * 1024;
 
@@ -232,7 +243,7 @@ export function _spentThisWindow() { return spentThisWindow; } // test hook
  * A 200 on the bare request means the endpoint is free — returned with no
  * spend. Only a 402 triggers a payment; anything else is a 502.
  */
-export async function payX402(url, { maxAtomic, method = "GET", body, headers = {}, timeoutMs = 20000, maxBytes = DEFAULT_MAX_BYTES, trusted = false, chain = "base", provenPayTo = null } = {}) {
+export async function payX402(url, { maxAtomic, method = "GET", body, headers = {}, timeoutMs = 20000, maxBytes = DEFAULT_MAX_BYTES, trusted = false, chain = "base", provenPayTo = null, sellerProof = null } = {}) {
   if (maxAtomic == null) throw bad("payX402 requires maxAtomic (the margin-guard ceiling)", 500);
   const chainCfg = BUYER_CHAINS[chain];
   if (!chainCfg) throw bad(`payX402: unknown chain "${chain}" (known: ${Object.keys(BUYER_CHAINS).join(", ")})`, 500);
@@ -248,7 +259,9 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
   if (body !== undefined && (method === "GET" || method === "HEAD")) {
     throw bad(`payX402: ${method} request cannot carry a body - pass params in the URL`, 400);
   }
-  const { client, http } = chain === "algorand" ? await getUpstreamBuyerAvm() : await getUpstreamBuyer();
+  const { client, http } = chain === "algorand" ? await getUpstreamBuyerAvm()
+    : chain === "solana" ? await (await import("./solana-buyer.js")).getUpstreamBuyerSvm()
+    : await getUpstreamBuyer();
   const reqInit = {
     method,
     headers: { Accept: "application/json", ...(body !== undefined ? { "Content-Type": "application/json" } : {}), ...headers },
@@ -325,6 +338,16 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
         502,
       );
     }
+  }
+  // SOLANA PROVEN-SELLER GATE (pay time, fail closed - the Tempo lesson):
+  // the address that gets paid is only authoritative on THIS 402's accept, so
+  // the chain evidence is checked against `payable.payTo` right before
+  // signing. sellerProof is injectable for offline tests; the default reads
+  // mainnet. Non-Solana chains have their own gates (Base: settled/payers in
+  // the resolver; Algorand: registry verifications; Tempo: payTempo's own).
+  if (chain === "solana") {
+    const { assertProvenSolanaSeller } = await import("./solana-buyer.js");
+    await (sellerProof || assertProvenSolanaSeller)(payable.payTo);
   }
   const spendToken = reserveSpend(quotedAtomic); // F3 belt — before signing (throws 429 if over the window budget)
   let committed = false;

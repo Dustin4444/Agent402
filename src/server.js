@@ -352,6 +352,7 @@ import { buildSkillTools } from "./tools/skill-runner.js";
 import { buildRouteExecuteTool, EXEC_TIERS } from "./tools/route-execute.js";
 import { buildSellerTrustTool } from "./tools/seller-trust.js";
 import { payX402, avmBuyerConfigured, avmBuyerStatus } from "./x402-buyer.js";
+import { svmBuyerConfigured, svmBuyerStatus, SOLANA_NETWORK_LABELS } from "./solana-buyer.js";
 import { payTempo, tempoBuyerConfigured, tempoBuyerStatus } from "./tempo-buyer.js";
 import { issueChallenge, verifySolution, isComputePayable, powInfo, POW_DIFFICULTY, WALLET_ONLY_SLUGS, verifyHeartbeatToken } from "./pow.js";
 import { createLimiter as createRateLimiter, LIMITS_LABEL as POW_LIMITS_LABEL } from "./rate-limit.js";
@@ -1017,6 +1018,21 @@ async function resolveExternalSeller(task, { cap, chain = "base" }) {
         price: `$${r.priceUsd}`, priceUsd: r.priceUsd,
         networks: ["algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8="], settled: r.verifs,
       }));
+  } else if (chain === "solana") {
+    // Solana sellers come from the SAME crawled index as Base ones - their
+    // accepts advertise a solana network label - but the Base settled/payers
+    // evidence says nothing about them, so the router gate here is
+    // match+liveness only and PROVEN-NESS is enforced at pay time by
+    // solana-buyer's chain read (recent inbound USDC to the accept's own
+    // payTo, fail closed). Mainnet labels only: a devnet accept never routes.
+    const { results } = routeQuery({ query: task, top: 20, include: "external", ...indexCtx() });
+    candidates = (results || [])
+      .filter((r) => r.seller && r.url && r.priceUsd > 0 && r.priceUsd <= cap && Array.isArray(r.networks)
+        && r.networks.some((n) => SOLANA_NETWORK_LABELS.has(String(n || "").toLowerCase())))
+      .filter((r) => !r.urlTemplate)
+      .filter((r) => hostOf(r.url) && hostOf(r.url) !== ourHost)
+      .slice(0, 5)
+      .map((r) => ({ ...r, networks: r.networks, wire: "x402" }));
   } else {
     const { results } = routeQuery({ query: task, top: 20, include: "external", ...indexCtx() });
     const settledByOrigin = buildSettledByOrigin();
@@ -1160,7 +1176,7 @@ for (const tier of EXEC_TIERS) {
     // Chains external routing can SETTLE on: Base always (the proven path);
     // Algorand only once the dedicated AVM spending wallet is configured;
     // Tempo (MPP sellers) only once the dedicated Tempo spending wallet is.
-    externalChains: () => ["base", ...(avmBuyerConfigured() ? ["algorand"] : []), ...(tempoBuyerConfigured() ? ["tempo"] : [])],
+    externalChains: () => ["base", ...(avmBuyerConfigured() ? ["algorand"] : []), ...(tempoBuyerConfigured() ? ["tempo"] : []), ...(svmBuyerConfigured() ? ["solana"] : [])],
   });
   if (CATALOG[tool.route]) throw new Error(`Duplicate route: ${tool.route}`);
   CATALOG[tool.route] = tool;
@@ -1904,10 +1920,10 @@ app.get("/api/gateway-status", async (_req, res) => {
   // Top-level fields stay the OpenRouter gateway status (heartbeat reads
   // .status); upstreamBuyer adds the x402 spending wallet's bucketed status
   // (blockscout-kit) — same alarm pattern, same numbers-never-leave rule.
-  const [gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, subscriptionFeePayer, stellarFacilitator, databases] = await Promise.all([gatewayCreditsStatus(), upstreamBuyerStatus(), avmBuyerStatus(), tempoBuyerStatus(), subscriptionFeePayerStatus(), stellarFacilitatorStatus().catch(() => ({ status: "unknown", asset: "XLM", chain: "stellar:pubnet" })), databasesStatus().catch(() => null)]);
+  const [gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, upstreamBuyerSvm, subscriptionFeePayer, stellarFacilitator, databases] = await Promise.all([gatewayCreditsStatus(), upstreamBuyerStatus(), avmBuyerStatus(), tempoBuyerStatus(), svmBuyerStatus().catch(() => ({ status: "unknown", asset: "USDC", chain: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp" })), subscriptionFeePayerStatus(), stellarFacilitatorStatus().catch(() => ({ status: "unknown", asset: "XLM", chain: "stellar:pubnet" })), databasesStatus().catch(() => null)]);
   // `databases`: leads/analytics Postgres reachability, status words only
   // (src/db-status.js) - the heartbeat pages on "unreachable".
-  res.set("Cache-Control", "public, max-age=60").json({ ...gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, subscriptionFeePayer, stellarFacilitator, databases, operatorAuth: operatorAuthStatus(), mppEvmDomainFallback: mppFallbackStatus(), loopLag: loopLagStatus() });
+  res.set("Cache-Control", "public, max-age=60").json({ ...gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, upstreamBuyerSvm, subscriptionFeePayer, stellarFacilitator, databases, operatorAuth: operatorAuthStatus(), mppEvmDomainFallback: mppFallbackStatus(), loopLag: loopLagStatus() });
 });
 // Static SAMPLE A2A Agent Card — the self-answering example target for the
 // a2a-card-fetch tool. Explicitly a sample (fictional weather agent), NOT an

@@ -1387,6 +1387,8 @@ jobs:
           t node scripts/test-server-tools.js
           # Algorand external router (chain-matched settlement, accept pinning, catalog ranking, AVM buyer gating — offline)
           t node scripts/test-algorand-router.js
+          # Solana external routing: accept pinning (devnet never matches), env gate, pay-time proven-seller gate fails closed, offline e2e signed buy vs stub seller + stub RPC
+          t node scripts/test-solana-router.js
           # Tool resolver (/api/find ranking, guards)
           t node scripts/test-find.js
           # Revenue ledger unit tests (all-time external accounting, idempotent rescans, CI self-gate)
