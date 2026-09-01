@@ -201,3 +201,40 @@ export async function passesSolanaResolveGate({ header, body, inboundFn = solana
   if (inbound < minCount) return { ok: false, payTo, reason: `${inbound} recent inbound USDC payments (floor ${minCount})` };
   return { ok: true, payTo, inbound };
 }
+
+// ============================================================================
+// KNOWN BLOCKER on the router-COMPOSED Solana buy (2026-09-01) - NOT a money
+// or logic bug; documented here with a full repro for a fresh, focused fix.
+//
+// Symptom: payX402(..., chain:"solana") throws `fetch failed` /
+//   `InvalidArgumentError: invalid content-length header`, raised SYNCHRONOUSLY
+//   inside undici's `new Request()` while the @solana/kit RPC transport
+//   (@solana/rpc-transport-http makeHttpRequest) builds its mint-metadata read
+//   during createPaymentPayload. It throws BEFORE any authorization is signed,
+//   so nothing is ever spent (the pay-time hold is released; buyer uncharged).
+//
+// Root cause (bisected): a `fetch()` made through ANY custom undici dispatcher
+//   - our ssrfDispatcher AND a vanilla `new undici.Agent()` both do it -
+//   corrupts the NEXT @solana/kit transport fetch's request construction.
+//   Plain global `fetch()` never triggers it. Verified sequences:
+//     plain-alchemy -> plain-bare -> sign            => OK (664-byte tx)
+//     warm(kit) -> ssrf-fetch -> sign                 => OK
+//     ssrf-fetch -> sign                              => THROWS
+//     ssrf-fetch -> warm(kit) -> sign                 => THROWS (warm after does not clear)
+//     warm(kit) -> ssrf-fetch -> 20 plain-alchemy -> sign => THROWS (evicted)
+//   So warming before the poison works only if nothing runs between; payX402's
+//   bare(ssrf) + ~20-read proven-gate + sign cannot satisfy that ordering.
+//
+// The DIRECT buy path is unaffected and settled on-chain earlier tonight
+//   (tx 2jXgRZRQ568...ymFE6, $0.001 to sol.blockrun's proven payTo): it uses
+//   the manual getUpstreamBuyerSvm + createPaymentPayload flow with plain
+//   fetches and no dispatcher chain. So the RAIL works; only the composed
+//   route-execute path hits this.
+//
+// Candidate fixes (each needs its own verification, none belongs in the
+//   midnight rail work): (a) give @solana/kit a custom RPC transport bound to
+//   a dedicated dispatcher so it never rides the corrupted global fetch;
+//   (b) do all SVM signing RPC on plain fetch and move the seller fetches off
+//   undici custom dispatchers (re-checking the SSRF story); (c) bump
+//   @solana/kit / undici to a pair where the interaction is gone.
+// ============================================================================
