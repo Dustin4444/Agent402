@@ -50,17 +50,36 @@ const EXPECTED_MISSES = {
 // excuse list that grows to cover everything is how a guard stops meaning
 // anything. "terminated" is anchored because it is undici's whole message for
 // a socket the peer closed mid-body.
-const NOT_OURS = /not configured|rate.?limited|HTTP 5\d\d|upstream|timed? out|ECONN|ENOTFOUND|socket hang up|temporarily|HTTP 429|^terminated$/i;
+const NOT_OURS = /not configured|rate.?limited|HTTP 5\d\d|upstream|timed? out|ECONN|ENOTFOUND|socket hang up|temporarily|HTTP 429|did not respond within|^terminated$/i;
 
 let failed = 0, reported = 0, checked = 0;
 for (const pack of SKILL_PACKS) {
   const body = Object.fromEntries((pack.promptArgs || []).map((a) => [a.name, a.substitute]));
-  let res, json;
-  try {
-    res = await fetch(`${BASE}/api/skill/${pack.slug}`, {
+  // Single retry, the doctrine the heartbeat, the Algorand canary and
+  // probe-classify all use: this sweep drives ~53 live third-party hosts, so a
+  // one-off blip is guaranteed eventually. Only what SURVIVES a retry is
+  // classified. The alternative is widening the not-ours list every time a
+  // publisher hiccups, and an excuse list that grows to cover everything is how
+  // a guard stops meaning anything.
+  const drive = async () => {
+    const r = await fetch(`${BASE}/api/skill/${pack.slug}`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
     });
-    json = await res.json();
+    return { res: r, json: await r.json() };
+  };
+  const isClean = (r, j) => r.status === 200 && !(j.steps || []).some(
+    (s) => !s.ok && !(EXPECTED_MISSES[pack.slug] || []).includes(s.slug) && !NOT_OURS.test(String(s.error || ""))
+  );
+
+  let res, json;
+  try {
+    ({ res, json } = await drive());
+    if (!isClean(res, json)) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const second = await drive();
+      // Keep the retry only if it is better; a flake that clears is the point.
+      if (isClean(second.res, second.json)) ({ res, json } = second);
+    }
   } catch (err) {
     console.log(`report - ${pack.slug}: could not be driven (${err.message})`); reported++; continue;
   }
