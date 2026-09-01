@@ -27,6 +27,13 @@ jobs:
   backfill:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # Same refund-approval gate as refund.yml: a required-reviewer click per
+    # run. The in-script gates bound the AS-SHIPPED code, but a workflow can be
+    # dispatched from any branch someone with write access pushes, and a
+    # modified script bypasses scripts entirely - the environment gate is what
+    # still stands in that case. Solo-maintainer repo, so self-approval is the
+    # design: the gate is against a compromised session, not a second person.
+    environment: refund-approval
     steps:
       - name: Backfill (via the operator route - the ledgers live on the prod volume)
         env:
