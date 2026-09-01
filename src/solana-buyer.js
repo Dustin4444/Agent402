@@ -101,15 +101,19 @@ export async function solanaInboundCount(payTo, { windowMs = 15 * 3600 * 1000, l
   const sigs = await rpcCall("getSignaturesForAddress", [ata, { limit }], { fetchImpl });
   const cutoff = (Date.now() - windowMs) / 1000;
   const recent = (sigs || []).filter((sig) => !sig.err && Number(sig.blockTime || 0) >= cutoff).map((sig) => sig.signature);
+  // Read transactions CONCURRENTLY in chunks - 20 sequential round-trips on a
+  // slow public RPC blew the pay-path budget (503 fail-closed, 2026-09-01).
+  // Between chunks, stop once the floor is met or the hard read cap is hit.
+  const toRead = recent.slice(0, maxTxReads);
+  const CHUNK = Number(process.env.SOR_SVM_TX_CONCURRENCY || "12");
+  const readOne = (signature) =>
+    rpcCall("getTransaction", [signature, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 }], { fetchImpl })
+      .catch(() => null);                            // one unreadable tx is not fatal
   let credits = 0;
-  let reads = 0;
-  for (const signature of recent) {
-    if (credits >= stopAt) break;                    // floor met - stop reading
-    if (reads >= maxTxReads) break;                  // hard bound on RPC cost
-    reads++;
-    let tx;
-    try { tx = await rpcCall("getTransaction", [signature, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 }], { fetchImpl }); }
-    catch { continue; }                              // one unreadable tx is not fatal to the count
+  for (let off = 0; off < toRead.length && credits < stopAt; off += CHUNK) {
+    const batch = await Promise.all(toRead.slice(off, off + CHUNK).map(readOne));
+    for (const tx of batch) {
+    if (credits >= stopAt) break;
     const meta = tx?.meta;
     if (!meta || meta.err) continue;
     const pre = (meta.preTokenBalances || []).find((b) => b?.mint === USDC_MINT && b?.owner === payTo);
@@ -134,6 +138,7 @@ export async function solanaInboundCount(payTo, { windowMs = 15 * 3600 * 1000, l
       return Number(b?.uiTokenAmount?.amount || 0) > Number(p2?.uiTokenAmount?.amount || 0);
     });
     if (fundedByOther) credits++;
+    }
   }
   return credits;
 }
