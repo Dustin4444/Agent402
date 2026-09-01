@@ -1847,8 +1847,12 @@ async function enrichLiveQuotes(tools, originUrl) {
       // how a price CUT used to be invisible: a priced route was never
       // re-probed, so the live 402 that would correct it was never fetched
       // (reported 2026-08-29, a 10x overquote standing for nine days).
-      && (!(Number(t.price) > 0) || priceDisagreesWithOrigin(t) || quoteIsStale(t))
-      && (!(Array.isArray(t.networks) && t.networks.length) || priceDisagreesWithOrigin(t) || quoteIsStale(t))
+      // A row missing EITHER the price or the networks is a candidate. This
+      // was && - both had to be missing - so a probe that learned networks
+      // but could not price (the Solana isUsdc gap) LOCKED the row unpriced
+      // for the 7-day staleness window: networks known, price null, never
+      // probed again (measured 2026-09-01, sol.blockrun).
+      && ((!(Number(t.price) > 0) || !(Array.isArray(t.networks) && t.networks.length)) || priceDisagreesWithOrigin(t) || quoteIsStale(t))
       && probeMethodsFor(t).length                       // never PUT/PATCH/DELETE
       && probeDue(originUrl, `quote:${t.route}`),
   ).slice(0, Math.max(0, Math.min(quoteProbeCapFor(tools), liveQuoteBudget)));
