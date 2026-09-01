@@ -89,9 +89,16 @@ export function robotsTxt(baseUrl) {
   // The pages themselves stay indexable - only the seller-SCOPED variants are
   // disallowed, so /base, /solana and /marketplace keep all their SEO value
   // while the parameter that costs money per crawl does not.
+  // CRAWL BUDGET, third reason (2026-09-01, read off Search Console): the
+  // retired /api/convert/* namespace (~970 routes cut 2026-08-25) was 1,053
+  // of the 2,630 not-indexed URLs - Googlebot spent its budget on 4xx API
+  // endpoints while 743 real pages sat "Discovered - currently not indexed".
+  // Scanners also re-walk the same dead routes daily (38% of telemetry
+  // volume). Nothing lives there; nobody loses by being told so.
   const costly = [
     "Disallow: /*?seller=",
     "Disallow: /api/market/",
+    "Disallow: /api/convert/",
   ].join("\n");
   const blocks = agents.map((a) => `User-agent: ${a}\nAllow: /\n${costly}`).join("\n\n");
   return `${blocks}
@@ -108,6 +115,7 @@ Disallow: /credits/thanks
 Disallow: /api/r/
 Disallow: /api/m/
 Disallow: /api/credits/
+Disallow: /api/convert/
 Disallow: /api/monitors/
 Disallow: /api/buy
 ${costly}
