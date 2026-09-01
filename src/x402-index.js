@@ -1879,9 +1879,17 @@ async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false } = {})
   // quoteObservedAt - putting untouched rows ahead means each pass drains new
   // ground before re-visiting networks-only learns, and coverage completes in
   // ceil(candidates/cap) passes regardless of how the list shrinks.
+  // ignoreBudget = an explicit re-registration ("price my catalog now"), so
+  // clear as many still-unpriceable routes as one bounded pass allows
+  // (REPRICE_MAX_PER_CALL) rather than the polite auto-cycle cap - otherwise a
+  // 128-route seller with 45 priced drains 5/pass over a dozen passes. The
+  // automatic crawl keeps the gentle cap. Untouched rows first either way, so
+  // each pass makes new ground.
+  const repriceCap = Number(process.env.REPRICE_MAX_PER_CALL || "120");
+  const cap = ignoreBudget ? repriceCap : Math.min(quoteProbeCapFor(tools), liveQuoteBudget);
   const rotated = [...candidates]
     .sort((a, b) => (a.quoteObservedAt ? 1 : 0) - (b.quoteObservedAt ? 1 : 0))
-    .slice(0, Math.max(0, ignoreBudget ? quoteProbeCapFor(tools) : Math.min(quoteProbeCapFor(tools), liveQuoteBudget)));
+    .slice(0, Math.max(0, cap));
   if (!rotated.length) return tools;
   if (!ignoreBudget) liveQuoteBudget -= rotated.length;
 
