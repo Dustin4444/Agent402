@@ -364,9 +364,58 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
     // sellers read only the X-PAYMENT name (Stelar, found 2026-07-23). Mirror
     // the identical value under both so either implementation sees the payment.
     if (payHeaders["PAYMENT-SIGNATURE"] && !payHeaders["X-PAYMENT"]) payHeaders["X-PAYMENT"] = payHeaders["PAYMENT-SIGNATURE"];
-    // Fresh timeout for the paid leg — it must not inherit the bare leg's
-    // already-spent budget from the shared reqInit.signal.
-    const paid = await fetch(url, { ...reqInit, signal: AbortSignal.timeout(timeoutMs), headers: { ...reqInit.headers, ...payHeaders, "Access-Control-Expose-Headers": "PAYMENT-RESPONSE,X-PAYMENT-RESPONSE" } });
+    // Fresh timeout AND a fresh pinned connection for the paid leg. The
+    // timeout must not inherit the bare leg's spent budget, and the paid
+    // retry must not reuse the bare leg's kept-alive socket: a live seller's
+    // edge corrupts the connection after its 402 (2026-09-01, sol.blockrun -
+    // the reused socket died as an uncaught "invalid content-length header"
+    // inside undici, with our signed payment never delivered). guardedLookup
+    // still pins the IP, so the SSRF discipline is unchanged.
+    const { freshSsrfDispatcher } = await import("./tools/fetch-guard.js");
+    const paidDispatcher = freshSsrfDispatcher();
+    const paidHeaders = { ...reqInit.headers, ...payHeaders, "Access-Control-Expose-Headers": "PAYMENT-RESPONSE,X-PAYMENT-RESPONSE" };
+    let paid;
+    try {
+      paid = await fetch(url, { ...reqInit, dispatcher: paidDispatcher, signal: AbortSignal.timeout(timeoutMs), headers: paidHeaders });
+    } catch (fetchErr) {
+      // SELLER-EDGE COMPAT (measured live 2026-09-01, sol.blockrun.ai): their
+      // edge emits response framing that undici's fetch() path rejects as
+      // "invalid content-length header" through ANY explicit dispatcher, while
+      // undici.request() on the SAME pinned agent reads it fine - and a plain
+      // browser or default fetch also tolerates it. The signed payment was
+      // never being delivered. Retry ONCE over request() with the SAME
+      // dispatcher (same guardedLookup pin - SSRF discipline unchanged), with
+      // a manually capped body read, and wrap the result as a Response so the
+      // rest of this function cannot tell the difference. Only this exact
+      // cause takes the fallback; every other failure still throws.
+      const cause = String(fetchErr?.cause || "");
+      if (!/invalid content-length/i.test(cause)) { paidDispatcher.close().catch(() => {}); throw fetchErr; }
+      console.warn(`[x402-buyer] paid leg fell back to undici.request for ${(() => { try { return new URL(url).host; } catch { return "seller"; } })()} (fetch rejected: ${cause.slice(0, 80)})`);
+      const { request } = await import("undici");
+      const r = await request(url, {
+        dispatcher: paidDispatcher,
+        method,
+        headers: paidHeaders,
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+        signal: AbortSignal.timeout(timeoutMs),
+        maxRedirections: 0,
+      });
+      const chunks = []; let total = 0;
+      for await (const c of r.body) {
+        total += c.length;
+        if (total > maxBytes) { r.body.destroy?.(); break; }
+        chunks.push(c);
+      }
+      const flat = {};
+      for (const [k, v] of Object.entries(r.headers)) flat[k] = Array.isArray(v) ? v.join(", ") : String(v);
+      // Response refuses bodies on 204/304 and any status < 200; none of
+      // those carries a deliverable paid result anyway.
+      const bodyBuf = Buffer.concat(chunks);
+      paid = new Response(r.statusCode >= 200 && ![204, 304].includes(r.statusCode) ? bodyBuf : null, { status: r.statusCode, headers: flat });
+    } finally {
+      // close() waits for in-flight bodies; never block the buy on teardown.
+      paidDispatcher.close().catch(() => {});
+    }
     // ANY seen response (2xx/3xx/4xx/5xx) means the signed X-PAYMENT header
     // reached the seller and the authorization may have been broadcast — keep
     // the spend hold. We only refund when the paid leg never got a response
