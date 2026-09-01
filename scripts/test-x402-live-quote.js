@@ -142,5 +142,19 @@ const HEADER = Buffer.from(JSON.stringify({ x402Version: 2, accepts: [REAL_ACCEP
     "a route we never learned is left untouched");
 }
 
+// ---- Solana USDC prices without the EVM name convention (2026-09-01) -------
+// A pure-Solana v2 accept carries no extra.name, so the name-based USDC check
+// priced every such catalog as "networks only" forever - and the enricher
+// then locked the row (networks learned, price null, not a candidate again
+// for 7 days). Measured on sol.blockrun's 128 routes.
+{
+  const { quoteFromAccepts } = await import("../src/x402-live-quote.js");
+  const sol = { scheme: "exact", network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", amount: "7500", asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", payTo: "J28Fii2VFnJcavvaeEfsKc628htk3mnrZKubD7WsGStW", extra: { feePayer: "x" } };
+  const q = quoteFromAccepts([sol]);
+  ok(q && q.price === 0.0075, `a solana USDC accept prices by its MINT, no extra.name needed (got ${q && q.price})`);
+  const junk = quoteFromAccepts([{ ...sol, asset: "So11111111111111111111111111111111111111112" }]);
+  ok(junk && junk.price === null, "an unknown solana asset still refuses to guess a price (null, never 0)");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
