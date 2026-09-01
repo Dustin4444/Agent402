@@ -5101,6 +5101,12 @@ app.get("/api/analytics", async (req, res) => {
   res.json(redactAnalytics(data, operatorAuthed(req)));
 });
 
+let __analyticsSlugSet = null;
+function analyticsKnownSlugs() {
+  if (!__analyticsSlugSet) __analyticsSlugSet = new Set(Object.values(CATALOG).map((t) => t.slug));
+  return __analyticsSlugSet;
+}
+
 // Human-readable analytics dashboard. Same data as /api/analytics, rendered as
 // HTML with stat cards, a sparkline, and the top-tools table. When no DB is
 // wired, the page shows a clean "not enabled" panel — server still boots.
@@ -5112,7 +5118,12 @@ app.get("/analytics", async (req, res) => {
   // have been cosmetic: this page renders topTools and errorTools as tables, so
   // the identical ranking stayed one HTML request away.
   const data = await getAnalytics({ windowHours, top: 25, includeSynthetic, includeProbes });
-  htmlCache(res, 30, 60).send(analyticsPage(redactAnalytics(data, operatorAuthed(req)), { baseUrl: BASE_URL }));
+  htmlCache(res, 30, 60).send(analyticsPage(redactAnalytics(data, operatorAuthed(req)), {
+    baseUrl: BASE_URL,
+    // Link a slug only when the live catalog carries it - to its tool page,
+    // which exists for every real slug regardless of route shape.
+    toolHrefFor: (slug) => (analyticsKnownSlugs().has(slug) ? `/tools/${slug}` : null),
+  }));
 });
 
 // Remote MCP connector (streamable HTTP, authless free tier): paste
