@@ -19,6 +19,14 @@
 import { createHash } from "node:crypto";
 
 const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+// SPL Memo v2. Built by hand rather than adding a dependency: the instruction
+// is a program id, optional signer accounts and UTF-8 bytes. Listing our own
+// signer makes the memo attributable - Solscan shows it as signed by the
+// sender, so the recipient can tell the note really came from us and not from
+// anyone who happened to transfer them dust.
+const MEMO_PROGRAM = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
+// A memo shares the transaction's size budget and is PUBLIC and PERMANENT.
+const MEMO_MAX_BYTES = 400;
 const RPC = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
 
 const arg = (n, d = null) => {
@@ -29,10 +37,15 @@ const SEND = process.argv.includes("--send");
 const TO = String(arg("to", "")).trim();
 const USD = Number(arg("usd", "0"));
 const MAX = Number(arg("max", "5"));
+const MEMO = String(arg("memo", "")).trim();
 
 if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(TO)) { console.error("--to must be a base58 Solana address"); process.exit(2); }
 if (!(USD > 0)) { console.error("--usd must be positive"); process.exit(2); }
 if (USD > MAX) { console.error(`--usd ${USD} exceeds the ceiling $${MAX}; raise --max deliberately if that is intended`); process.exit(2); }
+const memoBytes = MEMO ? new TextEncoder().encode(MEMO) : null;
+if (memoBytes && memoBytes.length > MEMO_MAX_BYTES) {
+  console.error(`--memo is ${memoBytes.length} bytes, over the ${MEMO_MAX_BYTES} cap`); process.exit(2);
+}
 
 const rpc = async (method, params) => {
   const r = await fetch(RPC, {
@@ -56,6 +69,7 @@ const units = BigInt(Math.round(USD * 1e6)); // USDC is 6dp; integer base units 
 console.log(`from: ${FROM}`);
 console.log(`to:   ${TO}`);
 console.log(`send: ${USD} USDC (${units} base units)  ceiling $${MAX}`);
+if (MEMO) console.log(`memo: ${MEMO}\n      (${memoBytes.length} bytes, public and permanent on-chain)`);
 
 const accountsOf = async (owner) =>
   (await rpc("getTokenAccountsByOwner", [owner, { mint: USDC_MINT }, { encoding: "jsonParsed" }])).value;
@@ -90,11 +104,19 @@ const ix = getTransferInstruction({
   authority: signer,
   amount: units,
 });
+const instructions = [ix];
+if (memoBytes) {
+  instructions.push({
+    programAddress: kit.address(MEMO_PROGRAM),
+    accounts: [{ address: signer.address, role: kit.AccountRole.READONLY_SIGNER }],
+    data: memoBytes,
+  });
+}
 const message = kit.pipe(
   kit.createTransactionMessage({ version: 0 }),
   (m) => kit.setTransactionMessageFeePayerSigner(signer, m),
   (m) => kit.setTransactionMessageLifetimeUsingBlockhash(blockhash, m),
-  (m) => kit.appendTransactionMessageInstruction(ix, m),
+  (m) => kit.appendTransactionMessageInstructions(instructions, m),
 );
 const signed = await kit.signTransactionMessageWithSigners(message);
 const sig = kit.getSignatureFromTransaction(signed);

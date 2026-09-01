@@ -18,6 +18,10 @@ on:
       usd:
         description: "USDC to send, e.g. 1.60"
         required: true
+      memo:
+        description: "On-chain note attached to the transfer (PUBLIC and permanent)"
+        required: false
+        default: ""
       max_usd:
         description: "Hard ceiling for this run"
         required: false
@@ -50,9 +54,12 @@ jobs:
           TO: ${{ inputs.to }}
           USD: ${{ inputs.usd }}
           MAX: ${{ inputs.max_usd }}
+          MEMO: ${{ inputs.memo }}
         run: |
           if [ -z "$SOLANA_BURNER_KEY" ]; then echo "SOLANA_BURNER_KEY is not set"; exit 1; fi
           echo "::add-mask::$SOLANA_BURNER_KEY"
           # Inputs ride as env vars and are passed as argv, never interpolated
           # into the shell line (N-03).
-          node scripts/solana-refund-send.js --to "$TO" --usd "$USD" --max "$MAX" ${{ inputs.send && '--send' || '' }}
+          ARGS=(--to "$TO" --usd "$USD" --max "$MAX")
+          [ -n "$MEMO" ] && ARGS+=(--memo "$MEMO")
+          node scripts/solana-refund-send.js "${ARGS[@]}" ${{ inputs.send && '--send' || '' }}
