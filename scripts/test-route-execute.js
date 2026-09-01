@@ -290,5 +290,64 @@ await expectErr({ slug: "broken-tool", params: {} }, 422, "underlying tool 422 p
   }
 }
 
+// --- fallthrough on a seller 5xx (2026-09-01) -------------------------------
+// A seller whose own upstream is down (5xx) must not fail a route another
+// resolved seller can serve - but the money-safety rules are strict: only a
+// 5xx falls through, never a 4xx (cancels settlement, our request is wrong),
+// and never an error carrying a settle receipt (we may have paid).
+{
+  const A = { seller: "https://a.example", slug: "svc-a", url: "https://a.example/x", method: "POST", price: "$0.01", networks: ["eip155:8453"] };
+  const B = { seller: "https://b.example", slug: "svc-b", url: "https://b.example/y", method: "POST", price: "$0.01", networks: ["eip155:8453"] };
+  const good = { result: { ok: true }, quote: { usd: 0.01, network: "eip155:8453" }, receipt: { transaction: "0xTX" } };
+  const mk = (payExternal, resolveExternal) => buildRouteExecuteTool({
+    getCatalog: () => CATALOG, tier: { slug: "route-execute-max", execPriceUsd: 0.55, underlyingMaxUsd: 0.5 },
+    resolveExternal, payExternal, externalEnabled: () => true,
+  });
+  const err = (msg, sc, extra = {}) => Object.assign(new Error(msg), { statusCode: sc, ...extra });
+
+  // A fails PRE-COMMIT (unreachable, no payable accept - payX402 never sent the
+  // authorization, so nothing was spent), B serves -> B's result, A skipped.
+  {
+    let calls = [];
+    const pay = async (url) => { calls.push(url); if (url === A.url) throw err("Seller unreachable", 502); return good; };
+    const r = await mk(pay, async () => [A, B]).handler({ task: "t", include: "external" }, {});
+    ok(calls.length === 2 && calls[0] === A.url && calls[1] === B.url && r.receipt.seller === B.seller,
+      "a PRE-commit failure (nothing spent) falls through to the next candidate, which serves");
+  }
+  // A fails POST-COMMIT (committed:true - the authorization went out, we may
+  // have paid) -> STOP, never try B. This is the double-spend hinge: the
+  // seller's HTTP status is irrelevant, only whether OUR code sent the header.
+  {
+    let calls = [];
+    const pay = async (url) => { calls.push(url); if (url === A.url) throw err("Seller rejected the paid retry (HTTP 502)", 502, { committed: true }); return good; };
+    let threw = null;
+    try { await mk(pay, async () => [A, B]).handler({ task: "t", include: "external" }, {}); } catch (e) { threw = e; }
+    ok(calls.length === 1 && threw && threw.statusCode === 502, "a POST-commit 5xx (committed:true) does NOT fall through - we may have paid, so no second spend");
+  }
+  // A 400s (pre-commit, but our request is wrong) -> B would reject it the same,
+  // yet it IS pre-commit so it is safe to try; assert it advances and B serves.
+  {
+    let calls = [];
+    const pay = async (url) => { calls.push(url); if (url === A.url) throw err("bad input", 400); return good; };
+    const r = await mk(pay, async () => [A, B]).handler({ task: "t", include: "external" }, {});
+    ok(calls.length === 2 && r.receipt.seller === B.seller, "a pre-commit 4xx (nothing spent) falls through - the next seller may accept the same params");
+  }
+  // Every candidate fails PRE-commit -> throw the last error, both attempted.
+  {
+    let calls = [];
+    const pay = async (url) => { calls.push(url); throw err("down", 503); };
+    let threw = null;
+    try { await mk(pay, async () => [A, B]).handler({ task: "t", include: "external" }, {}); } catch (e) { threw = e; }
+    ok(calls.length === 2 && threw && threw.statusCode === 503, "all candidates fail pre-commit: both tried, last error thrown");
+  }
+  // Single candidate (limit-1 legacy shape: resolver returns an object) still works.
+  {
+    let calls = [];
+    const pay = async (url) => { calls.push(url); return good; };
+    const r = await mk(pay, async () => A).handler({ task: "t", include: "external" }, {});
+    ok(calls.length === 1 && r.receipt.seller === A.seller, "a single resolved object (legacy shape) is paid normally");
+  }
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

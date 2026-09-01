@@ -965,7 +965,7 @@ function buildSettledByOrigin() {
   } catch { /* evidence is additive; never break routing when a source is down */ }
   return m;
 }
-async function resolveExternalSeller(task, { cap, chain = "base" }) {
+async function resolveExternalSeller(task, { cap, chain = "base", limit = 1 } = {}) {
   // F4: never route to ourselves (paying our own endpoint over x402 = fee loss
   // / accidental self-recursion) — exclude our own host from candidates.
   const ourHost = (() => { try { return new URL(BASE_URL).host.toLowerCase(); } catch { return ""; } })();
@@ -1054,6 +1054,7 @@ async function resolveExternalSeller(task, { cap, chain = "base" }) {
       .slice(0, 5);
   }
   const { assertPublicUrl, ssrfDispatcher } = await import("./tools/fetch-guard.js");
+  const resolved = [];
   for (const r of candidates) {
     let live = false;
     try {
@@ -1137,9 +1138,18 @@ async function resolveExternalSeller(task, { cap, chain = "base" }) {
     // to check and nothing to key by.
     // `wire` rides through: a Tempo candidate settles over MPP and its receipt
     // must say so (the first live Tempo SOR buy labelled it x402, 2026-08-27).
-    if (live) return { seller: r.seller, slug: r.slug, url: r.url, method: r.method, price: r.price, priceUsd: r.priceUsd, networks: r.networks, settled: r.settled, wire: r.wire || "x402", provenPayTo: provenPayToByOrigin?.get(norm(r.seller)) || null, route: r.route || null, guaranteedPaths: r.responseContract?.guaranteedPaths || [] };
+    if (live) {
+      resolved.push({ seller: r.seller, slug: r.slug, url: r.url, method: r.method, price: r.price, priceUsd: r.priceUsd, networks: r.networks, settled: r.settled, wire: r.wire || "x402", provenPayTo: provenPayToByOrigin?.get(norm(r.seller)) || null, route: r.route || null, guaranteedPaths: r.responseContract?.guaranteedPaths || [] });
+      if (resolved.length >= Math.max(1, limit)) break;
+    }
   }
-  return null;
+  // limit === 1 (the default, every existing caller) returns the single object
+  // or null, unchanged. A caller asking for more gets the ranked live list, so
+  // route-execute can fall through to the next seller when one 5xxs on the paid
+  // leg (its own upstream down) instead of failing a route another seller could
+  // serve. Order is preserved: settled-desc from the ranker.
+  if (Math.max(1, limit) === 1) return resolved[0] || null;
+  return resolved;
 }
 // Operator-only diagnostic: run the SAME resolve pipeline as resolveExternalSeller
 // but report why each candidate is kept or dropped (settled count, cap, base,

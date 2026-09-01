@@ -4407,3 +4407,14 @@ export function indexedToolCategories(excludeOrigin = "") {
 }
 
 export function _resetFlatCacheForTest() { flatCache = { at: 0, rows: [], self: "" }; }
+// KNOWN ROUTER LIMITATION (found 2026-09-01, sol.blockrun): the resolver's
+// liveness probe sends an empty `{}` and treats only HTTP 402 as "live". A
+// seller that VALIDATES the request body BEFORE issuing its 402 (returning
+// 400/422 with no challenge on an empty body) therefore fails the probe and
+// is never routed to, even though it is a perfectly good paid endpoint - its
+// GET-shaped siblings resolve fine. sol.blockrun's /chat/completions is the
+// live example (400 on {}, no payment-required header to distinguish it from
+// a genuine bad request). Fixing this needs a probe that sends a
+// shape-plausible body per the tool's input schema, or a seller convention
+// of 402-before-validate; deferred as its own change, not bolted onto the
+// Solana-rail work. Tracked here so the next reader does not re-discover it.
