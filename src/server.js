@@ -1791,7 +1791,7 @@ const htmlCache = (res, maxAge, swr) =>
   res.set("Cache-Control", `public, max-age=${maxAge}, stale-while-revalidate=${swr}`).type("html");
 app.get("/", (_req, res) => {
   htmlCache(res, 60, 300).send(
-    ledgerHomePage(BASE_URL, CATALOG, getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }), getLeaderboardSnapshot(), SKILL_PACKS)
+    ledgerHomePage(BASE_URL, CATALOG, getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }), getLeaderboardSnapshot(), SKILL_PACKS, { settledOnChain: settledOnChainCount() })
   );
 });
 // /marketplaces — legacy surface, merged into /marketplace (301 keeps SEO equity).
@@ -5115,10 +5115,29 @@ app.get("/api/pow/challenge", (req, res) => {
 // tool_calls table. Lets agents shopping the catalog see real performance
 // without navigating to /analytics. Falls back to omitting the field if the
 // query fails / DB is unset, so /api/stats never breaks on a slow Postgres.
+// The one settled-transaction count every public surface shows (the operator,
+// 2026-09-01): derived from the SAME two ledger reads /revenue uses
+// (revenue-ledger allTimeInboundCount + the Tempo MPP feed count), so the
+// homepage counter and the /revenue hero can never disagree again. The
+// in-process viaUSDC tally stays for ops - it can only count what this
+// process witnessed, and the chain is the ground truth. 60s memo because
+// homepage traffic must never pay a sqlite aggregate per render.
+let __settledMemo = { at: 0, n: 0 };
+function settledOnChainCount() {
+  if (Date.now() - __settledMemo.at < 60_000) return __settledMemo.n;
+  try {
+    const n = Number(ledgerSummary(revenueWallets())?.allTimeInboundCount || 0)
+      + Number(mppSales({ detailed: false })?.rails?.tempo?.count || 0);
+    if (n > 0) __settledMemo = { at: Date.now(), n };
+  } catch { /* keep serving the last good count */ }
+  return __settledMemo.n;
+}
+
 app.get("/api/stats", (_req, res) => {
   const base = getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES });
   const perf = getPerformance24h();
   if (perf) base.performance24h = perf;
+  base.settledOnChain = settledOnChainCount();
   res.json(base);
 });
 

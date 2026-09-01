@@ -116,13 +116,17 @@ function capabilityChipsHtml(tools) {
     .join("");
 }
 
-export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, skillPacks) {
+export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, skillPacks, { settledOnChain = 0 } = {}) {
   const tools = toolList(catalog);
   const count = tools.length;
   const freeCount = tools.filter(isComputePayable).length;
   const packCount = Array.isArray(skillPacks) ? skillPacks.length : 42;
   const served = stats?.toolCallsServed || {};
   const viaUsdc = Number(served.viaUSDC) || 0;
+  // Hero counter = the chain-derived settled count (same two ledger reads as
+  // /revenue - the numbers must agree across surfaces); the in-process tally
+  // is the fallback only while the ledger is still warming after a boot.
+  const heroCount = Number(settledOnChain) || viaUsdc;
   const viaPow = Number(served.viaProofOfWork) || 0;
   const mppWire = Number(served.viaMPPWire) || 0;
   const viaRouter = Number(served.viaRouter) || 0;
@@ -247,8 +251,8 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
 <span style="color:var(--accent-lit);">HTTP/2 200</span>  Payment-Receipt: …</pre>
         <div style="padding:16px 22px 18px;border-top:1px solid rgba(255,255,255,.07);display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;">
           <div>
-            <div id="hm-counter" data-via-usdc="${esc(viaUsdc)}" style="font-family:var(--font-body);font-weight:500;font-size:44px;line-height:.95;letter-spacing:-.035em;color:var(--on-dark);font-variant-numeric:tabular-nums;">${viaUsdc ? fmtNum(viaUsdc) : ""}</div>
-            <div id="hm-counter-empty" style="display:${viaUsdc ? "none" : "flex"};align-items:center;gap:11px;">
+            <div id="hm-counter" data-via-usdc="${esc(heroCount)}" style="font-family:var(--font-body);font-weight:500;font-size:44px;line-height:.95;letter-spacing:-.035em;color:var(--on-dark);font-variant-numeric:tabular-nums;">${heroCount ? fmtNum(heroCount) : ""}</div>
+            <div id="hm-counter-empty" style="display:${heroCount ? "none" : "flex"};align-items:center;gap:11px;">
               <span style="width:8px;height:8px;border-radius:50%;background:var(--accent-lit);flex:none;animation:ml-pulse 1.6s ease-in-out infinite;"></span>
               <span style="font-family:var(--font-mono);font-size:15px;color:var(--on-dark2);">Listening for on-chain payments…</span>
             </div>
@@ -294,7 +298,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
 
 <section style="max-width:1180px;margin:0 auto;padding:36px 30px 0;">
   <div class="hm-proof" style="padding:26px 0;border-top:1px solid var(--hairline);border-bottom:1px solid var(--hairline);">
-    <div style="display:flex;flex-direction:column;gap:4px;"><span style="font-family:var(--font-mono);font-size:26px;letter-spacing:-.02em;color:var(--ink);font-variant-numeric:tabular-nums;">${viaUsdc ? fmtNum(viaUsdc) : "·"}</span><span style="font-size:13px;color:var(--faint);">calls settled on chain, all rails</span></div>
+    <div style="display:flex;flex-direction:column;gap:4px;"><span style="font-family:var(--font-mono);font-size:26px;letter-spacing:-.02em;color:var(--ink);font-variant-numeric:tabular-nums;">${heroCount ? fmtNum(heroCount) : "·"}</span><span style="font-size:13px;color:var(--faint);">calls settled on chain, all rails</span></div>
     <div style="display:flex;flex-direction:column;gap:4px;"><span style="font-family:var(--font-mono);font-size:26px;letter-spacing:-.02em;color:var(--ink);font-variant-numeric:tabular-nums;">${fmtNum(count)}</span><span style="font-size:13px;color:var(--faint);">tools · ${packCount}+ skill packs</span></div>
     <div style="display:flex;flex-direction:column;gap:4px;"><span style="font-family:var(--font-mono);font-size:26px;letter-spacing:-.02em;color:var(--ink);font-variant-numeric:tabular-nums;">${RAILS.length}</span><span style="font-size:13px;color:var(--faint);">settlement rails · x402 + MPP</span></div>
     <div style="display:flex;flex-direction:column;gap:4px;"><span style="font-family:var(--font-mono);font-size:26px;letter-spacing:-.02em;color:var(--accent);">0%</span><span style="font-size:13px;color:var(--faint);">deducted from sellers · open source</span></div>
