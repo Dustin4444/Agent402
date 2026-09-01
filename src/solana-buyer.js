@@ -93,7 +93,7 @@ async function rpcCall(method, params, { fetchImpl = fetch, timeoutMs = 6000 } =
  * verifies in ~20-25 reads and a cold address gives up quickly. Throws on RPC
  * failure - the CALLER treats that as refusal (fail closed).
  */
-export async function solanaInboundCount(payTo, { windowMs = 15 * 3600 * 1000, limit = 100, fetchImpl = fetch, stopAt = Infinity, maxTxReads = 60 } = {}) {
+export async function solanaInboundCount(payTo, { windowMs = 7 * 24 * 3600 * 1000, limit = 300, fetchImpl = fetch, stopAt = Infinity, maxTxReads = 120 } = {}) {
   if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(String(payTo || ""))) throw new Error("payTo is not a plausible Solana address");
   const accounts = await rpcCall("getTokenAccountsByOwner", [payTo, { mint: USDC_MINT }, { encoding: "jsonParsed" }], { fetchImpl });
   const ata = accounts?.value?.[0]?.pubkey;
@@ -137,12 +137,12 @@ export async function solanaInboundCount(payTo, { windowMs = 15 * 3600 * 1000, l
  * rail alone). Fails CLOSED: an unreadable chain refuses the spend with a 503
  * the buyer is never charged for, exactly like the Tempo gate.
  */
-export async function assertProvenSolanaSeller(payTo, { minCount = Number(process.env.SOR_SVM_MIN_SETTLED_TX || process.env.SOR_MIN_SETTLED_TX || "20"), inboundFn = solanaInboundCount } = {}) {
+export async function assertProvenSolanaSeller(payTo, { minCount = Number(process.env.SOR_SVM_MIN_DISTINCT_PAYERS || process.env.SOR_MIN_DISTINCT_PAYERS || "3"), inboundFn = solanaInboundCount } = {}) {
   let inbound;
   try { inbound = await inboundFn(payTo, { stopAt: minCount }); }
   catch (e) { throw bad(`Cannot verify seller settlement history on Solana (${String(e?.message || e).slice(0, 80)}) - refusing to spend`, 503); }
   if (inbound < minCount) {
-    throw bad(`Seller payTo ${String(payTo).slice(0, 8)}… has ${inbound} recent inbound USDC transfers on Solana (floor ${minCount}) - not routable yet`, 409);
+    throw bad(`Seller payTo ${String(payTo).slice(0, 8)}… has ${inbound} distinct recent USDC payers on Solana (floor ${minCount}) - not routable yet`, 409);
   }
   return inbound;
 }
@@ -173,7 +173,7 @@ export async function svmBuyerStatus({ fetchImpl = fetch } = {}) {
  * on. The pay-time gate in payX402 stays: this reads the PROBE's 402, the
  * seller writes both answers, and what we verify last must be what we sign.
  */
-export async function passesSolanaResolveGate({ header, body, inboundFn = solanaInboundCount, minCount = Number(process.env.SOR_SVM_MIN_SETTLED_TX || process.env.SOR_MIN_SETTLED_TX || "20") } = {}) {
+export async function passesSolanaResolveGate({ header, body, inboundFn = solanaInboundCount, minCount = Number(process.env.SOR_SVM_MIN_DISTINCT_PAYERS || process.env.SOR_MIN_DISTINCT_PAYERS || "3") } = {}) {
   let payTo = null;
   try {
     const doc = header
@@ -186,6 +186,6 @@ export async function passesSolanaResolveGate({ header, body, inboundFn = solana
   let inbound;
   try { inbound = await inboundFn(payTo, { stopAt: minCount }); }
   catch (e) { return { ok: false, payTo, reason: `chain unreadable (${String(e?.message || e).slice(0, 60)})` }; }
-  if (inbound < minCount) return { ok: false, payTo, reason: `${inbound} recent inbound USDC transfers (floor ${minCount})` };
+  if (inbound < minCount) return { ok: false, payTo, reason: `${inbound} distinct recent USDC payers (floor ${minCount})` };
   return { ok: true, payTo, inbound };
 }
