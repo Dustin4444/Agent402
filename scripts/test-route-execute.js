@@ -305,37 +305,40 @@ await expectErr({ slug: "broken-tool", params: {} }, 422, "underlying tool 422 p
   });
   const err = (msg, sc, extra = {}) => Object.assign(new Error(msg), { statusCode: sc, ...extra });
 
-  // A 502s, B serves -> B's result, A skipped.
+  // A fails PRE-COMMIT (unreachable, no payable accept - payX402 never sent the
+  // authorization, so nothing was spent), B serves -> B's result, A skipped.
   {
     let calls = [];
-    const pay = async (url) => { calls.push(url); if (url === A.url) throw err("Pyth down", 502); return good; };
+    const pay = async (url) => { calls.push(url); if (url === A.url) throw err("Seller unreachable", 502); return good; };
     const r = await mk(pay, async () => [A, B]).handler({ task: "t", include: "external" }, {});
     ok(calls.length === 2 && calls[0] === A.url && calls[1] === B.url && r.receipt.seller === B.seller,
-      "a seller 5xx falls through to the next candidate, which serves");
+      "a PRE-commit failure (nothing spent) falls through to the next candidate, which serves");
   }
-  // A 400s -> STOP, never try B (our request is wrong; B would reject it too).
+  // A fails POST-COMMIT (committed:true - the authorization went out, we may
+  // have paid) -> STOP, never try B. This is the double-spend hinge: the
+  // seller's HTTP status is irrelevant, only whether OUR code sent the header.
+  {
+    let calls = [];
+    const pay = async (url) => { calls.push(url); if (url === A.url) throw err("Seller rejected the paid retry (HTTP 502)", 502, { committed: true }); return good; };
+    let threw = null;
+    try { await mk(pay, async () => [A, B]).handler({ task: "t", include: "external" }, {}); } catch (e) { threw = e; }
+    ok(calls.length === 1 && threw && threw.statusCode === 502, "a POST-commit 5xx (committed:true) does NOT fall through - we may have paid, so no second spend");
+  }
+  // A 400s (pre-commit, but our request is wrong) -> B would reject it the same,
+  // yet it IS pre-commit so it is safe to try; assert it advances and B serves.
   {
     let calls = [];
     const pay = async (url) => { calls.push(url); if (url === A.url) throw err("bad input", 400); return good; };
-    let threw = null;
-    try { await mk(pay, async () => [A, B]).handler({ task: "t", include: "external" }, {}); } catch (e) { threw = e; }
-    ok(calls.length === 1 && threw && threw.statusCode === 400, "a 4xx does NOT fall through - it stops on the first seller");
+    const r = await mk(pay, async () => [A, B]).handler({ task: "t", include: "external" }, {});
+    ok(calls.length === 2 && r.receipt.seller === B.seller, "a pre-commit 4xx (nothing spent) falls through - the next seller may accept the same params");
   }
-  // A 5xx but carrying a settle receipt (already paid) -> STOP, never double-spend.
-  {
-    let calls = [];
-    const pay = async (url) => { calls.push(url); if (url === A.url) throw err("failed after pay", 502, { receipt: { transaction: "0xPAID" } }); return good; };
-    let threw = null;
-    try { await mk(pay, async () => [A, B]).handler({ task: "t", include: "external" }, {}); } catch (e) { threw = e; }
-    ok(calls.length === 1 && threw && threw.statusCode === 502, "a 5xx that already produced a settle receipt does NOT fall through - no second spend");
-  }
-  // Every candidate 5xxs -> throw the last error, both attempted.
+  // Every candidate fails PRE-commit -> throw the last error, both attempted.
   {
     let calls = [];
     const pay = async (url) => { calls.push(url); throw err("down", 503); };
     let threw = null;
     try { await mk(pay, async () => [A, B]).handler({ task: "t", include: "external" }, {}); } catch (e) { threw = e; }
-    ok(calls.length === 2 && threw && threw.statusCode === 503, "all candidates 5xx: both tried, last error thrown");
+    ok(calls.length === 2 && threw && threw.statusCode === 503, "all candidates fail pre-commit: both tried, last error thrown");
   }
   // Single candidate (limit-1 legacy shape: resolver returns an object) still works.
   {

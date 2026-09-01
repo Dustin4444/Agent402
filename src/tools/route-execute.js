@@ -402,9 +402,22 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
             // was wrong, which the next seller would reject the same way. Tempo
             // buyers never fall through (their credential is single-use and
             // time-boxed - a second seller needs a fresh one).
-            const paidAlready = e?.settleReceipt || e?.receipt?.transaction;
-            if (hasNext && sc >= 500 && !paidAlready && chain !== "tempo") {
-              console.warn(`[sor] seller ${ext.seller} 5xx (${sc}) - trying next candidate`);
+            // FALL THROUGH ONLY WHEN THE AUTHORIZATION WAS NEVER SENT.
+            // payX402 stamps `committed:true` on every throw AFTER it has
+            // signed and sent the payment header - at which point we cannot
+            // prove we were not charged, so retrying another seller would risk
+            // a second, uncorrelated spend. A PRE-commit failure (seller
+            // unreachable, unparseable 402, no payable accept, quote over cap)
+            // provably spent nothing, so it is safe to try the next candidate.
+            // The seller's HTTP status is NOT a safe signal here: a seller can
+            // settle our transfer and THEN return 5xx, so "5xx = not charged"
+            // is a false assumption the seller controls. `committed` is set by
+            // OUR buyer code from whether the header was sent, which the seller
+            // cannot influence. Tempo never falls through either way (single-
+            // use, time-boxed credential).
+            const spentMaybe = e?.committed === true;
+            if (hasNext && !spentMaybe && chain !== "tempo") {
+              console.warn(`[sor] seller ${ext.seller} failed pre-payment (${sc}) - trying next candidate, nothing spent`);
               continue;
             }
             throw lastErr;

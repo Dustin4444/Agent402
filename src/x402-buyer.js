@@ -421,6 +421,14 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
     // the spend hold. We only refund when the paid leg never got a response
     // (sign threw, or the fetch rejected on network error / timeout).
     committed = true;
+    // Every throw from here on is POST-COMMIT: the signed authorization
+    // reached the seller and MAY have been settled. Stamp committed on it so a
+    // caller trying multiple sellers (route-execute's fallthrough) knows this
+    // is NOT safe to retry elsewhere - we cannot prove we were not charged, so
+    // a second seller would be a second, uncorrelated spend. Pre-commit throws
+    // (unreachable, bad 402, cap, sign failure) never reach here and carry no
+    // such flag, so those ARE safe to fall through on.
+    try {
     // A 3xx/non-200 residual (paid, no deliverable result) is inherent to
     // spend-before-settle; bounded by the window budget + low wallet balance.
     reject3xx(paid);
@@ -443,6 +451,10 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
       const where = (() => { try { return new URL(url).host; } catch { return "seller"; } })();
       console.warn(`[x402-buyer] ${where} rejected the paid retry: HTTP ${paid.status} content-type=${paid.headers.get("content-type") || "-"} body=${why || "(empty)"}`);
       throw bad(`Seller rejected the paid retry (HTTP ${paid.status})`, 502);
+    }
+    } catch (postCommitErr) {
+      if (postCommitErr && typeof postCommitErr === "object") postCommitErr.committed = true;
+      throw postCommitErr;
     }
 
     // Pull the settle tx out of the receipt header for our own receipt.
