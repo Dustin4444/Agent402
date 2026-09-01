@@ -29,7 +29,10 @@ const fetcher = (body) => async () => { hits++; if (body instanceof Error) throw
   // --- an explicit Disallow for everyone is honoured -----------------------
   __resetRobotsCacheForTest();
   const f1 = fetcher("User-agent: *\nDisallow: /\n");
-  ok(await robotsForbids("https://blocked.example", "/.well-known/x402", { fetchText: f1 }),
+  // The path here is a CONTENT path on purpose: /.well-known/x402 became
+  // robots-exempt on 2026-09-01 (see the exemption block at the end), so this
+  // assertion pins the blanket-Disallow rule where it still applies.
+  ok(await robotsForbids("https://blocked.example", "/openapi.json", { fetchText: f1 }),
     "a site that disallows everything is not crawled");
 
   // --- a Disallow naming US specifically is honoured -----------------------
@@ -103,6 +106,23 @@ const fetcher = (body) => async () => { hits++; if (body instanceof Error) throw
     "a robots refusal is marked, so the crawl can report it as an exclusion rather than as a failure");
   ok(helper.indexOf("robotsForbids") < helper.indexOf("safeFetch"),
     "and it is consulted BEFORE the fetch, which is the only ordering that saves the seller a request");
+}
+
+// ---- the x402 discovery document is robots-EXEMPT --------------------------
+// robots.txt governs content crawling; /.well-known/x402 is a protocol
+// endpoint the seller publishes to be fetched. A blanket Disallow: / (a
+// common API-host default) hid sol.blockrun.ai's manifest while they served
+// it 200 for exactly this discovery (2026-09-01). Everything else stays
+// gated - the second assertion is the one that keeps this narrow.
+{
+  const { robotsForbids, __resetRobotsCacheForTest } = await import("../src/x402-index.js");
+  const { WELL_KNOWN_PATH } = await import("../src/discovery-note.js");
+  __resetRobotsCacheForTest();
+  const blockAll = async () => "User-agent: *\nDisallow: /\n";
+  ok((await robotsForbids("https://blocked.example", WELL_KNOWN_PATH, { fetchText: blockAll })) === null,
+    "Disallow: / does NOT gate the x402 discovery document - the seller published it to be fetched");
+  ok((await robotsForbids("https://blocked.example", "/openapi.json", { fetchText: blockAll })) !== null,
+    "the exemption is the ONE path: the same Disallow still gates openapi.json (and everything else)");
 }
 
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);

@@ -2062,6 +2062,16 @@ async function robotsGroupsFor(originUrl, fetchText) {
 
 /** The matched rule when this origin's robots.txt forbids us this path, else null. */
 export async function robotsForbids(originUrl, path, { fetchText } = {}) {
+  // The x402 discovery document is EXEMPT from robots gating. robots.txt is a
+  // control on content crawling; /.well-known/x402 is a protocol endpoint
+  // (RFC 8615) a seller publishes for the sole purpose of being fetched by
+  // payment-discovery clients. An API host's blanket Disallow: / - a common
+  // default - otherwise permanently hides the very document the seller serves
+  // to be found: measured live 2026-09-01 on sol.blockrun.ai (manifest 200,
+  // robots Disallow /, entry stuck as textless registry synthesis, invisible
+  // to every route query). Everything else the crawler touches - openapi,
+  // llms.txt, homepages, tool probes - stays robots-honoured.
+  if (path === WELL_KNOWN_PATH) return null;
   const groups = await robotsGroupsFor(originUrl, fetchText);
   if (!groups.length) return null;
   const verdict = robotsAllows(groups, ROBOTS_UA, path);
