@@ -1087,6 +1087,21 @@ async function resolveExternalSeller(task, { cap, chain = "base" }) {
           r.price = `$${liveUsd}`; r.priceUsd = liveUsd;
         }
       }
+      if (live && chain === "solana") {
+        // Resolve-time proven-seller check so an unproven candidate is
+        // SKIPPED (next one tried) instead of aborting the whole call at pay
+        // time. Reads the probe's own 402; the pay-time gate in payX402
+        // stays as the belt against a seller serving the probe a clean
+        // address and the payer a different one.
+        let probeBody = "";
+        try { probeBody = (await probe.text()).slice(0, 4000); } catch { /* header-only */ }
+        const { passesSolanaResolveGate } = await import("./solana-buyer.js");
+        const gate = await passesSolanaResolveGate({ header: probe.headers.get("payment-required"), body: probeBody });
+        if (!gate.ok) {
+          console.log(`[sor] skipping solana candidate ${r.seller}: ${gate.reason}`);
+          live = false;
+        }
+      }
       if (live) {
         // The address that EARNED proven-ness must be the address being paid.
         // Otherwise a seller can build trust on one wallet's settlement history
