@@ -47,6 +47,7 @@ import { humanReportsPage, reportDeliveryPage } from "./human-reports-page.js";
 import { createStripeSubscriptions, subscriptionsEnabled, MONITOR_PRODUCTS } from "./stripe-subscriptions.js";
 import { createMppSubscriptions, mppSubscriptionsEnabled, subscriptionFeePayerStatus } from "./mpp-subscriptions.js";
 import { stellarFacilitatorStatus } from "./stellar-facilitator-status.js";
+import { backfillBrokenPackRefunds } from "./refund-backfill.js";
 import { mppFallbackStatus } from "./mpp-fallback.js";
 import { meteredUsd, isMeterable, applyMeteredSettlement } from "./gateway-meter.js";
 import { handlerInputOf } from "./handler-input.js";
@@ -3195,6 +3196,21 @@ app.get("/__operator/backup.json", (req, res) => {
 // Manual backup run - fans out to the bucket (third-party writes), so it
 // takes the heavy-route limiter like the other upstream-reaching
 // diagnostics. Fire-and-report: the run can take minutes on a cold day.
+// Mint refund debts for buyers the charged-failure detector could not see: it
+// mints only on a NON-200, and the packs that shipped broken all answered 200
+// with an empty envelope. RECORDS ONLY - this sends nothing, and refund-run.js
+// remains the sole payer (dry-run by default, capped, and it re-derives the
+// inbound payment from the chain before every send). Dry by default here too:
+// ?write=1 is what actually mints.
+app.post("/__operator/refunds/backfill", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  if (operatorHeavyLimited(req, res)) return;
+  try {
+    res.json(backfillBrokenPackRefunds({ write: String(req.query.write || "") === "1" }));
+  } catch (e) {
+    res.status(500).json({ error: String(e.message) });
+  }
+});
 app.post("/__operator/backup/run", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   if (operatorHeavyLimited(req, res)) return;

@@ -2309,6 +2309,8 @@ jobs:
           t node scripts/test-package-integrity.js
           # Every SOLD skill pack has a real step config (a pack without one answers 200 with 0/N steps and still charges — offline)
           t node scripts/test-skill-pack-steps.js
+          # Refund backfill decides who is OWED money: who is in, who is out, idempotent (offline, temp ledgers)
+          t node scripts/test-refund-backfill.js
           # Analytics redaction (per-tool table never reaches an unauthenticated caller - seeded, DB not required)
           t node scripts/test-analytics-redaction.js
           # Reveal-on-scroll no hero flash (the hero must never hide behind opacity:0 waiting on the observer)
