@@ -62,7 +62,13 @@ const rpc = async (method, params) => {
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
   });
   const j = await r.json();
-  if (j.error) throw new Error(`${method}: ${j.error.message}`);
+  if (j.error) {
+    // The generic message ("Transaction simulation failed") is useless without
+    // the payload - err + program logs live in error.data, and discarding them
+    // cost a full diagnose-reproduce cycle on 2026-09-01.
+    const detail = j.error.data ? ` ${JSON.stringify(j.error.data).slice(0, 600)}` : "";
+    throw new Error(`${method}: ${j.error.message}${detail}`);
+  }
   return j.result;
 };
 
@@ -181,7 +187,24 @@ if (!SEND) { console.log("\nDRY RUN - nothing broadcast. Re-run with --send to t
 //
 // A row stuck in `sending` afterwards is DELIBERATE: whether money left is a
 // question for a human, never for a retry.
-const myRows = owedRows.filter((r) => String(r.payer || "") === TO);
+// --reclaim-sending: include rows a PRIOR run of this script claimed and then
+// failed to pay. ONLY for the state verified on 2026-09-01: preflight refused
+// the broadcast, the chain shows no debit, the rows sit in `sending`. The flag
+// exists so that judgment stays a deliberate human act - never pass it without
+// first confirming on-chain that the earlier attempt moved nothing.
+const RECLAIM = process.argv.includes("--reclaim-sending");
+let claimableRows = owedRows;
+if (RECLAIM) {
+  const all = await fetch("https://agent402.tools/__operator/refunds.json?status=all", {
+    headers: { Authorization: `Bearer ${OPERATOR}` },
+  });
+  if (!all.ok) { console.error(`could not read the full ledger (HTTP ${all.status})`); process.exit(1); }
+  const rows = (await all.json()).refunds || [];
+  const stuck = rows.filter((r) => r.status === "sending" && String(r.payer || "") === TO && /solana-refund-send/.test(String(r.note || "")));
+  console.log(`reclaim: including ${stuck.length} row(s) this script previously claimed`);
+  claimableRows = owedRows.concat(stuck);
+}
+const myRows = claimableRows.filter((r) => String(r.payer || "") === TO);
 const claimed = [];
 for (const r of myRows) {
   const c = await fetch("https://agent402.tools/__operator/refunds/update", {
@@ -189,7 +212,7 @@ for (const r of myRows) {
     headers: { Authorization: `Bearer ${OPERATOR}`, "content-type": "application/json" },
     body: JSON.stringify({ id: r.id, action: "claim", note: `solana-refund-send ${new Date().toISOString()}` }),
   });
-  if (c.ok) claimed.push(r);
+  if (c.ok || (RECLAIM && r.status === "sending")) claimed.push(r);
 }
 const claimedUsd = claimed.reduce((a, r) => a + (Number(r.priceUsd) || 0), 0);
 console.log(`claimed ${claimed.length}/${myRows.length} owed row(s) = $${claimedUsd.toFixed(6)}`);
@@ -200,7 +223,10 @@ if (USD > claimedUsd + 1e-9) {
 
 const { getTransferInstruction } = await import("@solana-program/token");
 const rpcClient = kit.createSolanaRpc(RPC);
-const { value: blockhash } = await rpcClient.getLatestBlockhash().send();
+// "confirmed" on BOTH the blockhash fetch and the preflight: the public RPC's
+// default pairing can hand a blockhash the simulating node has not seen yet,
+// which surfaces as the generic "Transaction simulation failed".
+const { value: blockhash } = await rpcClient.getLatestBlockhash({ commitment: "confirmed" }).send();
 
 const ix = getTransferInstruction({
   source: kit.address(src.pubkey),
@@ -225,7 +251,16 @@ const message = kit.pipe(
 const signed = await kit.signTransactionMessageWithSigners(message);
 const sig = kit.getSignatureFromTransaction(signed);
 const wire = kit.getBase64EncodedWireTransaction(signed);
-await rpc("sendTransaction", [wire, { encoding: "base64", skipPreflight: false, maxRetries: 3 }]);
+const sendOnce = () => rpc("sendTransaction", [wire, { encoding: "base64", skipPreflight: false, preflightCommitment: "confirmed", maxRetries: 3 }]);
+try { await sendOnce(); }
+catch (err) {
+  // One retry, only for the blockhash-visibility race - the same signed bytes,
+  // so a duplicate broadcast is the SAME transaction and cannot double-pay.
+  if (!/Blockhash not found|simulation failed/i.test(String(err.message))) throw err;
+  console.warn(`preflight refused (${String(err.message).slice(0, 120)}) - retrying once in 3s`);
+  await new Promise((r) => setTimeout(r, 3000));
+  await sendOnce();
+}
 console.log(`SENT ${USD} USDC -> ${TO}`);
 console.log(`signature: ${sig}`);
 // Mark every claimed row paid with the real outbound signature. A failure

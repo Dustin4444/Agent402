@@ -36,6 +36,11 @@ on:
         description: "Ceiling for this run (the script refuses anything over $2 regardless)"
         required: false
         default: "2"
+      reclaim_sending:
+        description: "Include rows a PRIOR run claimed then failed to pay (ONLY after verifying on-chain that nothing moved)"
+        required: false
+        type: boolean
+        default: false
       send:
         description: "Actually broadcast (false = dry run, just checks)"
         required: false
@@ -79,5 +84,6 @@ jobs:
           # Inputs ride as env vars and are passed as argv, never interpolated
           # into the shell line (N-03).
           ARGS=(--to "$TO" --usd "$USD" --max "$MAX" --evidence "$EVIDENCE")
+          ${{ inputs.reclaim_sending }} && ARGS+=(--reclaim-sending) || true
           [ -n "$MEMO" ] && ARGS+=(--memo "$MEMO")
           node scripts/solana-refund-send.js "${ARGS[@]}" ${{ inputs.send && '--send' || '' }}
