@@ -56,6 +56,13 @@ jobs:
   send:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Same refund-approval gate as refund.yml: a required-reviewer click per
+    # run. The in-script gates bound the AS-SHIPPED code, but a workflow can be
+    # dispatched from any branch someone with write access pushes, and a
+    # modified script bypasses scripts entirely - the environment gate is what
+    # still stands in that case. Solo-maintainer repo, so self-approval is the
+    # design: the gate is against a compromised session, not a second person.
+    environment: refund-approval
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v5.0.0

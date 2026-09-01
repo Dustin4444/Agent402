@@ -93,10 +93,15 @@ infringers.</p>
 chains listed at <a href="/pricing">/pricing</a>, USDG on Robinhood Chain, and MPP settlement on Base,
 Celo or Tempo. Settlement happens only after your call has succeeded: a call that returns an error is
 not charged. Micropayments are per call and, once settled on-chain, are final and non-refundable except
-where required by law. If a settlement is recorded for a call that then failed, we record the amount as
-owed and refund it to the paying wallet on the chain it paid on. Metered routes quote a ceiling before
+where required by law. Metered routes quote a ceiling before
 payment and settle at or under it. You are responsible for your own wallet and keys; we never receive or
 hold your private key.</p>
+<p><b>Refunds on-chain.</b> Because settlement happens only after a call succeeds, the ordinary
+failure case costs nothing and needs no refund. Where a defect on our side means you were charged for
+something that did not deliver, we record the amount as owed and repay the wallet that paid, on the
+chain it paid on. Repayment runs in batches rather than instantly; an amount under $0.05 may be held
+until it can be sent for less than it costs in network fees; and a payment whose paying wallet cannot
+be identified from its own settlement cannot be repaid. None of this reduces a right you have by law.</p>
 <p><b>By card.</b> Card payments for reports, monitors and prepaid credits are processed by
 <a href="https://stripe.com" rel="noopener">Stripe</a> under Stripe's terms; we never see card numbers. A
 report is generated only against a paid, Stripe-verified session, once; if generation fails, the charge
