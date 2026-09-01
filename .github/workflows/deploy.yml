@@ -2311,6 +2311,8 @@ jobs:
           t node scripts/test-skill-pack-steps.js
           # Refund backfill decides who is OWED money: who is in, who is out, idempotent (offline, temp ledgers)
           t node scripts/test-refund-backfill.js
+          # Upstream-spend meter records with PostHog OFF (the $11-vs-$0.03 shape) and in exact micro-dollars (offline)
+          t node scripts/test-upstream-spend.js
           # Analytics redaction (per-tool table never reaches an unauthenticated caller - seeded, DB not required)
           t node scripts/test-analytics-redaction.js
           # Reveal-on-scroll no hero flash (the hero must never hide behind opacity:0 waiting on the observer)

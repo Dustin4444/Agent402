@@ -22,6 +22,7 @@
 //     so we sign and send immediately - a slow seller is bounded by their own
 //     window, never by ours.
 import { createHash } from "node:crypto";
+import { recordUpstreamSpend } from "./stats.js";
 import { assertPublicUrl, ssrfDispatcher } from "./tools/fetch-guard.js";
 
 export const TEMPO_CHAIN_ID = 4217;
@@ -176,6 +177,7 @@ export async function payTempo(url, {
   if (receiptHdr) {
     try { const { Receipt } = await import("mppx"); reference = Receipt.deserialize(receiptHdr)?.reference || null; } catch { /* best-effort */ }
   }
+  recordUpstreamSpend("tempo-buyer", Number(quotedAtomic) / 1e6);
   return {
     result: await readCapped(paid, maxBytes),
     quote: { atomic: String(quotedAtomic), usd: Number(quotedAtomic) / 1e6, network: TEMPO_CAIP2 },
