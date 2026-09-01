@@ -166,5 +166,18 @@ const page = (results, extra = {}) =>
   check(`an unpriced manifest entry claims no declaration`, !(Number(bare?.originDeclaredPrice) > 0));
 }
 
+// ---- new-catalog quote burst (2026-09-01) ----------------------------------
+// An origin with zero priced tools is invisible to routing; the burst exists
+// so a new large catalog becomes routable in one cycle instead of half a day.
+{
+  const { quoteProbeCapFor } = await import("../src/x402-index.js");
+  const unpriced = Array.from({ length: 100 }, (_, i) => ({ route: `/r${i}`, price: null }));
+  const cap = quoteProbeCapFor(unpriced);
+  check(`a wholly unpriced catalog gets the burst (${cap})`, cap >= 60);
+  check("ONE priced tool ends the burst - the polite steady-state cap is back",
+    quoteProbeCapFor([{ route: "/a", price: 0.001 }, ...unpriced]) === 5);
+  check("an empty list never returns a smaller cap than the steady state", quoteProbeCapFor([]) >= 5);
+}
+
 console.log(`\ntest-index-tools-catalog: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

@@ -1811,6 +1811,21 @@ export function priceDisagreesWithOrigin(t) {
   return ratio >= QUOTE_DRIFT_FACTOR;
 }
 
+/** Per-crawl quote-probe cap for one origin. The polite steady-state is
+ * LIVE_QUOTE_PROBES_PER_CRAWL (5) - but an origin with ZERO priced tools is
+ * wholly invisible to routing (the resolver only pays priced rows), and at 5
+ * per 30-min cycle a new 128-route seller stays unroutable for half a day
+ * (measured live 2026-09-01: sol.blockrun registered, proven on-chain, and
+ * unroutable for hours while the rotation crept). A catalog with nothing
+ * priced gets a one-time burst - the seller REGISTERED to be found, and a
+ * single burst on a new listing is what they asked for - then drops to the
+ * polite cap the moment anything is priced. Pure; exported for the test. */
+export function quoteProbeCapFor(tools) {
+  const anyPriced = (tools || []).some((t) => Number(t?.price) > 0);
+  if (anyPriced) return LIVE_QUOTE_PROBES_PER_CRAWL;
+  return Math.max(LIVE_QUOTE_PROBES_PER_CRAWL, Number(process.env.NEW_CATALOG_QUOTE_BURST || "60"));
+}
+
 async function enrichLiveQuotes(tools, originUrl) {
   if (!Array.isArray(tools) || !tools.length) return tools;
   const candidates = tools.filter(
@@ -1826,7 +1841,7 @@ async function enrichLiveQuotes(tools, originUrl) {
       && (!(Array.isArray(t.networks) && t.networks.length) || priceDisagreesWithOrigin(t) || quoteIsStale(t))
       && probeMethodsFor(t).length                       // never PUT/PATCH/DELETE
       && probeDue(originUrl, `quote:${t.route}`),
-  ).slice(0, Math.max(0, Math.min(LIVE_QUOTE_PROBES_PER_CRAWL, liveQuoteBudget)));
+  ).slice(0, Math.max(0, Math.min(quoteProbeCapFor(tools), liveQuoteBudget)));
   if (!candidates.length) return tools;
   liveQuoteBudget -= candidates.length;
 
