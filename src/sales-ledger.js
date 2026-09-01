@@ -507,6 +507,22 @@ export function cardSales({ days = 30 } = {}) {
   return { days, count: Number(w?.n || 0), usd: +Number(w?.usd || 0).toFixed(2), allTimeCount: Number(all?.n || 0), allTimeUsd: +Number(all?.usd || 0).toFixed(2), subscriptionInvoices: Number(subs?.n || 0), lastAt };
 }
 
+/**
+ * External PAID revenue per UTC day: [{day, revenueUsd, sales}]. The margin
+ * view's revenue side - external rows on money rails only, same isPaidRail
+ * rule as salesSummary (a pow row's price is what it WOULD have cost).
+ */
+export function externalDailyRevenue({ days = 60 } = {}) {
+  const since = Date.now() - days * 86_400_000;
+  const rows = db.prepare(
+    `SELECT strftime('%Y-%m-%d', ts / 1000, 'unixepoch') AS day,
+            SUM(price_usd) AS usd, COUNT(*) AS n
+     FROM sales WHERE internal = 0 AND rail IN ${PAYING_RAILS_SQL} AND ts >= ?
+     GROUP BY day ORDER BY day`
+  ).all(since);
+  return rows.map((r) => ({ day: r.day, revenueUsd: +Number(r.usd || 0).toFixed(6), sales: r.n }));
+}
+
 export function salesSummary({ days = 30, detailed = false } = {}) {
   const since = Date.now() - days * 86_400_000;
   const totals = { external: { sales: 0, revenueUsd: 0 }, internal: { sales: 0, revenueUsd: 0 }, byRail: {} };

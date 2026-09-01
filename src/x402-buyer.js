@@ -9,6 +9,7 @@
 // settlement can cost us the one upstream payment (the LLM-gateway risk class),
 // so the margin guard below refuses any upstream quote over the caller's cap.
 import { assertPublicUrl, ssrfDispatcher } from "./tools/fetch-guard.js";
+import { recordUpstreamSpend } from "./stats.js";
 import { provenPayToMatches } from "./settlement-proof.js";
 
 function bad(message, statusCode = 400) {
@@ -378,6 +379,7 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
     if (receiptHdr) {
       try { const r = JSON.parse(Buffer.from(receiptHdr, "base64").toString("utf8")); tx = r?.transaction || null; net = r?.network || null; } catch { /* best-effort */ }
     }
+    recordUpstreamSpend("x402-buyer", Number(quotedAtomic) / 1e6);
     return {
       // F3: post-spend read never throws — the buyer must be charged (we paid).
       result: await readAfterSpend(paid, maxBytes),

@@ -28,6 +28,17 @@
 //   POSTHOG_HOST      — optional, defaults to "https://us.i.posthog.com"
 //                       (use "https://eu.i.posthog.com" for the EU region)
 import { PostHog } from "posthog-node";
+// stats.js is imported LAZILY: a static import would run its /data guard in
+// every context that loads posthog.js (the funnel test boots this module in a
+// bare subprocess with NODE_ENV=production and no volume, and stats exits).
+// The server always has stats loaded, so after the first call this is sync.
+let __statsMod = null;
+function meterSpend(source, usd) {
+  try {
+    if (__statsMod) { __statsMod.recordUpstreamSpend(source, usd); return; }
+    import("./stats.js").then((m) => { __statsMod = m; m.recordUpstreamSpend(source, usd); }).catch(() => {});
+  } catch { /* metering must never break telemetry */ }
+}
 import { isPaidRail } from "./paid-rails.js";
 
 const API_KEY = process.env.POSTHOG_API_KEY || "";
@@ -596,6 +607,10 @@ export function capturePostHogHumanFunnel({ step, product, kind, priceUsd, reaso
 }
 
 export function capturePostHogCompositeUsage({ slug, upstreamUsd, ok, priceUsd, rail, capUsd, overCap }) {
+  // Same rule as the gateway meter above. NB a composite's upstreamUsd can
+  // OVERLAP the gateway source when a report invokes a /v1 handler
+  // in-process (linkedin-article's image legs) - the margin view says so.
+  meterSpend("composite", upstreamUsd);
   if (!active()) return;
   try {
     const price = priceUsd != null && Number.isFinite(Number(priceUsd)) ? Number(priceUsd) : null;
@@ -616,6 +631,9 @@ export function capturePostHogCompositeUsage({ slug, upstreamUsd, ok, priceUsd, 
 }
 
 export function capturePostHogGatewayUsage({ tier, model, priceUsd, upstreamUsd, promptTokens, completionTokens, serviceTier, serverToolCalls, serverToolSearches, defaulted }) {
+  // Server-side spend meter runs BEFORE the PostHog gate: cost must be
+  // recorded even when telemetry is off (see recordUpstreamSpend's header).
+  if (upstreamUsd != null) meterSpend("gateway", upstreamUsd);
   if (!active()) return;
   const price = Number(priceUsd) || 0;
   const upstream = Number(upstreamUsd) || 0;

@@ -335,7 +335,7 @@ import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledg
 import { x402EconomySnapshot, economySnapshotCached, warmEconomySnapshot } from "./x402-economy.js";
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate } from "./settlement-proof.js";
 import { spend as sharedSpend, refund as sharedRefund, sharedLimitEnabled } from "./shared-limit.js";
-import { recordSale, salesSummary, externalByNetwork, mppSales, cardSales, mppTxHashes, txFromPaymentResponse, tempoDailyRevenue, tempoDailyRecordingSince, proofFeed } from "./sales-ledger.js";
+import { recordSale, salesSummary, externalByNetwork, mppSales, cardSales, mppTxHashes, txFromPaymentResponse, tempoDailyRevenue, tempoDailyRecordingSince, proofFeed, externalDailyRevenue } from "./sales-ledger.js";
 import { recordShadowSettlement, startShadowLedger, shadowLedgerReport, shadowLedgerEnabled } from "./stripe-shadow-ledger.js";
 import { reconcileSettlements } from "./settlement-reconcile.js";
 import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
@@ -408,7 +408,7 @@ function trialClientKey(ip) {
 const TRIAL_LIMITS_LABEL = `${TRIAL_PER_TOOL_HOUR} per tool per hour, ${TRIAL_IP_HOUR} per hour per client`;
 const OX_TRIAL_LIMITS_LABEL = `${OX_TRIAL_PER_HOUR} per hour, ${OX_TRIAL_PER_DAY} per day per client (free while the model's upstream is free)`;
 import { recordRefundOwed, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals } from "./refund-ledger.js";
-import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent, getDailyCalls, dailyCallsRecordingSince, getDailyUpstreamCalls, getSellerRegistrations } from "./stats.js";
+import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent, getDailyCalls, dailyCallsRecordingSince, getDailyUpstreamCalls, getSellerRegistrations, getDailyUpstreamSpend } from "./stats.js";
 import { timingSafeEqual, createHash, randomUUID, randomBytes } from "node:crypto";
 
 const PORT = process.env.PORT || 3000;
@@ -2649,6 +2649,56 @@ app.get("/__operator/sales.json", (req, res) => {
   res.set("Cache-Control", "no-store");
   try {
     res.json(salesSummary({ detailed: true }));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Operator-only margin view: external revenue vs recorded upstream spend,
+// per UTC day. Deliberately NOT public - net margin is competitive
+// information (the operator, 2026-09-01). Revenue = the sales ledger's
+// external rows on money rails; spend = the server-side daily_upstream_spend
+// meter (gateway = OpenRouter cost measured per call, composite = report
+// pipelines' own accounting, x402-buyer / tempo-buyer = settled quotes our
+// spending wallets paid external sellers). Two honesty notes carried in the
+// payload: composite can overlap gateway when a report invokes a /v1 handler
+// in-process, and the meter only sees THIS process - local audit boots and
+// card/Stripe fees are not in it.
+app.get("/__operator/margin.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  res.set("Cache-Control", "no-store");
+  try {
+    const days = Math.max(1, Math.min(365, parseInt(req.query.days, 10) || 60));
+    const revenue = externalDailyRevenue({ days });
+    const spendRows = getDailyUpstreamSpend();
+    const cutoff = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+    const byDay = new Map();
+    for (const r of revenue) byDay.set(r.day, { day: r.day, revenueUsd: r.revenueUsd, sales: r.sales, upstream: {}, upstreamUsd: 0 });
+    for (const r of spendRows) {
+      if (r.day < cutoff) continue;
+      const row = byDay.get(r.day) || { day: r.day, revenueUsd: 0, sales: 0, upstream: {}, upstreamUsd: 0 };
+      const usd = r.usd_micro / 1e6;
+      row.upstream[r.source] = +( (row.upstream[r.source] || 0) + usd ).toFixed(6);
+      row.upstreamUsd = +(row.upstreamUsd + usd).toFixed(6);
+      byDay.set(r.day, row);
+    }
+    const daysOut = [...byDay.values()].sort((a, b) => (a.day < b.day ? -1 : 1))
+      .map((r) => ({ ...r, netUsd: +(r.revenueUsd - r.upstreamUsd).toFixed(6) }));
+    const totals = daysOut.reduce((t, r) => ({
+      revenueUsd: +(t.revenueUsd + r.revenueUsd).toFixed(6),
+      upstreamUsd: +(t.upstreamUsd + r.upstreamUsd).toFixed(6),
+      sales: t.sales + r.sales,
+    }), { revenueUsd: 0, upstreamUsd: 0, sales: 0 });
+    res.json({
+      days,
+      totals: { ...totals, netUsd: +(totals.revenueUsd - totals.upstreamUsd).toFixed(6) },
+      byDay: daysOut,
+      notes: [
+        "composite spend can overlap gateway spend when a report runs a /v1 handler in-process (linkedin-article image legs)",
+        "spend is metered in THIS process only: local audit boots, Stripe card fees and gas are not included",
+        "spend recording started 2026-09-01 - earlier days show revenue with no spend, which is a recording gap, not free serving",
+      ],
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

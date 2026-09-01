@@ -48,6 +48,7 @@ db.exec(`
   -- deploy-proof series that can. One row per (day, upstream, caller) -
   -- a handful of upstreams x a handful of callers x 365 days - never pruned.
   CREATE TABLE IF NOT EXISTS daily_upstream_calls (day TEXT NOT NULL, upstream TEXT NOT NULL, caller TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (day, upstream, caller));
+  CREATE TABLE IF NOT EXISTS daily_upstream_spend (day TEXT NOT NULL, source TEXT NOT NULL, usd_micro INTEGER NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (day, source));
   -- Self-serve seller conversion/churn (2026-08-16). Every previous seller
   -- signal lives in x402-index.js's in-memory crawl cache (submittedSeeds is a
   -- bare Set<origin> persisted with no timestamps at all), so there was no way
@@ -96,6 +97,8 @@ const getRecentAll = db.prepare("SELECT slug, method, ts FROM recent_calls ORDER
 const bumpDaily = db.prepare("INSERT INTO daily_calls (day, method, n) VALUES (?, ?, 1) ON CONFLICT(day, method) DO UPDATE SET n = n + 1");
 const allDaily = db.prepare("SELECT day, method, n FROM daily_calls ORDER BY day, method");
 const bumpUpstream = db.prepare("INSERT INTO daily_upstream_calls (day, upstream, caller, n) VALUES (?, ?, ?, 1) ON CONFLICT(day, upstream, caller) DO UPDATE SET n = n + 1");
+const bumpSpend = db.prepare("INSERT INTO daily_upstream_spend (day, source, usd_micro, n) VALUES (?, ?, ?, 1) ON CONFLICT(day, source) DO UPDATE SET usd_micro = usd_micro + excluded.usd_micro, n = n + 1");
+const dailySpend = db.prepare("SELECT day, source, usd_micro, n FROM daily_upstream_spend ORDER BY day, source");
 const dailyUpstream = db.prepare("SELECT day, caller, n FROM daily_upstream_calls WHERE upstream = ? ORDER BY day, caller");
 const insertChargedFailure = db.prepare("INSERT INTO charged_failures (slug, status, ts) VALUES (?, ?, ?)");
 const pruneChargedFailures = db.prepare("DELETE FROM charged_failures WHERE id <= (SELECT MAX(id) FROM charged_failures) - ?");
@@ -469,6 +472,33 @@ export function recordUpstreamCall(upstream, caller = "unknown") {
     bumpUpstream.run(new Date().toISOString().slice(0, 10), String(upstream), String(caller));
   } catch {
     /* best-effort */
+  }
+}
+
+/**
+ * Record one unit of upstream SPEND in dollars (e.g. an OpenRouter call's
+ * measured cost, an x402 buy's settled quote), day-bucketed in UTC. Integer
+ * micro-dollars so sums stay exact. Best-effort - metering must never break
+ * serving - and recorded server-side on purpose: PostHog-only cost telemetry
+ * is how an $11 OpenRouter day once read as $0.03 (a keyless local boot has
+ * no PostHog; this table records whenever the process serves).
+ */
+export function recordUpstreamSpend(source, usd) {
+  try {
+    const micro = Math.round(Number(usd) * 1e6);
+    if (!Number.isFinite(micro) || micro <= 0) return;
+    bumpSpend.run(new Date().toISOString().slice(0, 10), String(source), micro);
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Day-bucketed upstream-spend rows: [{day, source, usd_micro, n}]. */
+export function getDailyUpstreamSpend() {
+  try {
+    return dailySpend.all();
+  } catch {
+    return [];
   }
 }
 
