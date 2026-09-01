@@ -259,9 +259,10 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
   if (body !== undefined && (method === "GET" || method === "HEAD")) {
     throw bad(`payX402: ${method} request cannot carry a body - pass params in the URL`, 400);
   }
-  const { client, http } = chain === "algorand" ? await getUpstreamBuyerAvm()
+  const buyer = chain === "algorand" ? await getUpstreamBuyerAvm()
     : chain === "solana" ? await (await import("./solana-buyer.js")).getUpstreamBuyerSvm()
     : await getUpstreamBuyer();
+  const { client, http } = buyer;
   const reqInit = {
     method,
     headers: { Accept: "application/json", ...(body !== undefined ? { "Content-Type": "application/json" } : {}), ...headers },
@@ -358,7 +359,13 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
     // Stelar's /telemetry. quotedAtomic already read either field; sign the
     // same value we cap-checked.
     const signable = { ...payable, amount: String(quotedAtomic) };
-    const payload = await client.createPaymentPayload({ ...paymentRequired, accepts: [signable] });
+    // SOLANA: build the payload WITHOUT @x402/svm's scheme, whose kit RPC
+    // transport throws undici "invalid content-length header" after any
+    // custom-dispatcher (ssrf) seller fetch - see createSvmPaymentPayload.
+    // Every other chain uses the registered scheme unchanged.
+    const payload = chain === "solana"
+      ? await (await import("./solana-buyer.js")).createSvmPaymentPayload(buyer.signer, { ...paymentRequired, accepts: [signable] })
+      : await client.createPaymentPayload({ ...paymentRequired, accepts: [signable] });
     const payHeaders = http.encodePaymentSignatureHeader(payload);
     // Header-name compatibility: @x402/core emits only PAYMENT-SIGNATURE; some
     // sellers read only the X-PAYMENT name (Stelar, found 2026-07-23). Mirror
