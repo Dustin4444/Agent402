@@ -42,6 +42,7 @@ const USD = Number(arg("usd", "0"));
 const MAX = Number(arg("max", "5"));
 const MEMO = String(arg("memo", "")).trim();
 const EVIDENCE = String(arg("evidence", "")).trim();
+const OPERATOR = (process.env.AGENT402_OPERATOR_TOKEN || "").trim();
 
 if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(TO)) { console.error("--to must be a base58 Solana address"); process.exit(2); }
 if (!(USD > 0)) { console.error("--usd must be positive"); process.exit(2); }
@@ -102,6 +103,34 @@ if (!(paidIn > 0)) { console.error(`evidence tx did not credit our payTo ${payTo
 if (!(paidOut < 0)) { console.error(`evidence tx does not show ${TO} paying - refusing to refund an address that never paid us`); process.exit(1); }
 console.log(`evidence: ${EVIDENCE} moved ${(-paidOut).toFixed(6)} USDC from ${TO} to our payTo (+${paidIn.toFixed(6)})`);
 
+
+// AMOUNT BOUND: never more than the ledger says this payer is OWED.
+//
+// The evidence check above proves the destination is a real payer. It says
+// NOTHING about how much. Without this, anyone who can dispatch could buy a
+// $0.001 tool to register their wallet as "provably a payer" and then have
+// the full ceiling sent to it. Being a customer must not be a withdrawal
+// credential.
+//
+// So the refund is capped by this payer's own owed rows in the refund ledger,
+// which only ever gets rows from settlements we actually recorded. Someone who
+// paid us $0.001 is owed $0.001 and can be sent $0.001. That makes the attack
+// identical to "get your own money back", which is what a refund is.
+if (!OPERATOR) { console.error("AGENT402_OPERATOR_TOKEN is required to read what this payer is owed"); process.exit(2); }
+const ledger = await fetch("https://agent402.tools/__operator/refunds.json?status=owed", {
+  headers: { Authorization: `Bearer ${OPERATOR}` },
+});
+if (!ledger.ok) { console.error(`could not read the refund ledger (HTTP ${ledger.status}) - refusing`); process.exit(1); }
+const owedRows = (await ledger.json()).refunds || [];
+const owedToThem = owedRows
+  .filter((r) => String(r.payer || "") === TO)
+  .reduce((a, r) => a + (Number(r.priceUsd) || 0), 0);
+console.log(`ledger says ${TO} is owed $${owedToThem.toFixed(6)} across ${owedRows.filter((r) => String(r.payer || "") === TO).length} row(s)`);
+if (owedToThem <= 0) { console.error("the ledger records no owed debt for this address - refusing"); process.exit(1); }
+if (USD > owedToThem + 1e-9) {
+  console.error(`--usd ${USD} exceeds the $${owedToThem.toFixed(6)} this payer is owed - refusing`);
+  process.exit(1);
+}
 
 const raw = (process.env.SOLANA_BURNER_KEY || "").trim();
 if (!raw) { console.error("SOLANA_BURNER_KEY is required"); process.exit(2); }

@@ -61,6 +61,7 @@ jobs:
       - name: Send
         env:
           SOLANA_BURNER_KEY: ${{ secrets.SOLANA_BURNER_KEY }}
+          AGENT402_OPERATOR_TOKEN: ${{ secrets.AGENT402_OPERATOR_TOKEN }}
           TO: ${{ inputs.to }}
           USD: ${{ inputs.usd }}
           MAX: ${{ inputs.max_usd }}
@@ -69,6 +70,7 @@ jobs:
         run: |
           if [ -z "$SOLANA_BURNER_KEY" ]; then echo "SOLANA_BURNER_KEY is not set"; exit 1; fi
           echo "::add-mask::$SOLANA_BURNER_KEY"
+          [ -n "$AGENT402_OPERATOR_TOKEN" ] && echo "::add-mask::$AGENT402_OPERATOR_TOKEN"
           # Inputs ride as env vars and are passed as argv, never interpolated
           # into the shell line (N-03).
           ARGS=(--to "$TO" --usd "$USD" --max "$MAX" --evidence "$EVIDENCE")
