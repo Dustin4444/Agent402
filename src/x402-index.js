@@ -234,6 +234,22 @@ export function validateOriginInput(raw, { selfOrigin } = {}) {
 export async function registerOrigin(origin, { crawl } = {}) {
   const existing = cache.get(origin);
   if (existing && !existing.error) {
+    // A re-registration of a KNOWN origin used to be a pure no-op, which made
+    // "register again" useless as a seller's lever: a catalog stuck unpriced
+    // (and therefore unroutable) had no way to ask for pricing except waiting
+    // for the shared cycle budget to reach its rotation slot - measured
+    // 2026-09-01, sol.blockrun's 128 routes across four attempts. Registering
+    // is an explicit, rate-limited request (5/hour/IP), so it now re-runs the
+    // live-402 quote enrichment for THIS origin, budget-exempt and bounded by
+    // the same per-origin cap; probeDue backoffs still apply per route.
+    try {
+      await enrichLiveQuotes(existing.tools, origin, { ignoreBudget: true });
+      // The route pool memoizes DECORATED tools by entry-object identity
+      // (remotePoolMemo), so prices learned into the existing entry are
+      // invisible until the object is replaced - a fresh spread busts the
+      // memo and the pool re-decorates with what was just learned.
+      cache.set(origin, { ...existing });
+    } catch { /* listing still served */ }
     // Only a self-serve-submitted origin belongs in seller_registrations - this
     // early-return path also serves origins already known from Bazaar/registry
     // discovery, which never went through /sell and would misrepresent an
@@ -1836,7 +1852,7 @@ export function quoteProbeCapFor(tools) {
   return LIVE_QUOTE_PROBES_PER_CRAWL;
 }
 
-async function enrichLiveQuotes(tools, originUrl) {
+async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false } = {}) {
   if (!Array.isArray(tools) || !tools.length) return tools;
   const candidates = tools.filter(
     (t) => t
@@ -1855,12 +1871,22 @@ async function enrichLiveQuotes(tools, originUrl) {
       && ((!(Number(t.price) > 0) || !(Array.isArray(t.networks) && t.networks.length)) || priceDisagreesWithOrigin(t) || quoteIsStale(t))
       && probeMethodsFor(t).length                       // never PUT/PATCH/DELETE
       && probeDue(originUrl, `quote:${t.route}`),
-  ).slice(0, Math.max(0, Math.min(quoteProbeCapFor(tools), liveQuoteBudget)));
-  if (!candidates.length) return tools;
-  liveQuoteBudget -= candidates.length;
+  );
+  // NEVER-ATTEMPTED rows first. The first rotation attempt indexed a window
+  // into a list that SHRINKS as rows price, so some rows landed in skipped
+  // windows on every pass (sol.blockrun's stock routes, three passes running,
+  // 50 of 114 priced around them). Rows a probe has already touched carry
+  // quoteObservedAt - putting untouched rows ahead means each pass drains new
+  // ground before re-visiting networks-only learns, and coverage completes in
+  // ceil(candidates/cap) passes regardless of how the list shrinks.
+  const rotated = [...candidates]
+    .sort((a, b) => (a.quoteObservedAt ? 1 : 0) - (b.quoteObservedAt ? 1 : 0))
+    .slice(0, Math.max(0, ignoreBudget ? quoteProbeCapFor(tools) : Math.min(quoteProbeCapFor(tools), liveQuoteBudget)));
+  if (!rotated.length) return tools;
+  if (!ignoreBudget) liveQuoteBudget -= rotated.length;
 
   const { assertPublicUrl, ssrfDispatcher } = await import("./tools/fetch-guard.js");
-  for (const tool of candidates) {
+  for (const tool of rotated) {
     const target = `${originUrl}${tool.route}`;
     let learned = null;
     for (const method of probeMethodsFor(tool)) {
