@@ -83,29 +83,29 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
     { signature: "d", blockTime: now - 40 * 3600, err: null },              // outside the window
   ];
   const txs = {
-    a: { credit: true, funder: "FUNDERaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1" },
-    b: { credit: true, funder: "FUNDERbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb2" },
+    a: { credit: true, funder: "FACILITATORshared1111111111111111111111111" },
+    b: { credit: true, funder: "FACILITATORshared1111111111111111111111111" }, // SAME facilitator - must STILL count (2, not 1)
     self: { credit: true, funder: payTo },   // seller funding itself
     out: { credit: false, funder: "FUNDERaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1" }, // debit
   };
   const counted = await solanaInboundCount(payTo, {
     fetchImpl: rpcStub({ getTokenAccountsByOwner: { value: [{ pubkey: "ATA111" }] }, getSignaturesForAddress: sigs }, txs),
   });
-  ok(counted === 2, "counts only CREDITS from DISTINCT non-self funders - self-transfer and outbound excluded");
+  ok(counted === 2, "counts direction-verified CREDITS (funded by a non-self account) - self-transfer and outbound excluded; a shared facilitator sender still counts");
   // 20 self-transfers = the cheap spoof the review flagged; they all have funder === payTo.
   const spoofSigs = Array.from({ length: 20 }, (_, i) => ({ signature: `s${i}`, blockTime: now - 60, err: null }));
   const spoofTxs = Object.fromEntries(spoofSigs.map((x) => [x.signature, { credit: true, funder: payTo }]));
   const spoof = await solanaInboundCount(payTo, {
     fetchImpl: rpcStub({ getTokenAccountsByOwner: { value: [{ pubkey: "ATA111" }] }, getSignaturesForAddress: spoofSigs }, spoofTxs),
   });
-  ok(spoof === 0, "20 self-transfers do NOT prove a seller - the cheap spoof scores 0");
+  ok(spoof === 0, "20 self-transfers do NOT prove a seller - the seller funding its own payTo is excluded, so the cheap spoof scores 0");
   const rpcDead = await solanaInboundCount(payTo, { fetchImpl: rpcStub({}) }).then(() => null, (e) => e);
   ok(rpcDead === null || rpcDead instanceof Error, "an unreadable chain THROWS from the counter");
   const gateDead = await assertProvenSolanaSeller(payTo, { inboundFn: async () => { throw new Error("rpc down"); } }).then(() => null, (e) => e);
   ok(gateDead && gateDead.statusCode === 503 && /refusing to spend/.test(gateDead.message), "gate FAILS CLOSED on an unreadable chain (503, nothing signed)");
   const below = await assertProvenSolanaSeller(payTo, { inboundFn: async () => 3, minCount: 20 }).then(() => null, (e) => e);
-  ok(below && below.statusCode === 409 && /floor 20/.test(below.message), "an unproven seller is refused 409 with the floor named");
-  ok((await assertProvenSolanaSeller(payTo, { inboundFn: async () => 25, minCount: 20 })) === 25, "a proven seller passes and the evidence count is returned");
+  ok(below && below.statusCode === 409 && /floor 20/.test(below.message), "a seller under the credit floor is refused 409 with the floor named");
+  ok((await assertProvenSolanaSeller(payTo, { inboundFn: async () => 25, minCount: 20 })) === 25, "a seller at/over the credit floor passes and the count is returned");
   const junk = await solanaInboundCount("not-an-address!!", { fetchImpl: rpcStub({}) }).then(() => null, (e) => e);
   ok(junk instanceof Error, "a junk payTo is refused before any RPC call");
 }
@@ -217,7 +217,7 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
   const proven = await passesSolanaResolveGate({ header: mk([solAccept]), inboundFn: async () => 50 });
   ok(proven.ok === true && proven.payTo === payTo, "a proven candidate passes the resolve-time gate with its payTo named");
   const thin = await passesSolanaResolveGate({ header: mk([solAccept]), inboundFn: async () => 2, minCount: 20 });
-  ok(thin.ok === false && /floor 20/.test(thin.reason), "an unproven candidate is SKIPPED with the evidence count in the reason - never an abort");
+  ok(thin.ok === false && /floor 20/.test(thin.reason), "an unproven candidate is SKIPPED with the count in the reason - never an abort");
   const dead = await passesSolanaResolveGate({ header: mk([solAccept]), inboundFn: async () => { throw new Error("rpc down"); } });
   ok(dead.ok === false && /chain unreadable/.test(dead.reason), "an unreadable chain skips the candidate (fail closed at resolve time too)");
   const noSol = await passesSolanaResolveGate({ header: mk([{ network: "eip155:8453", payTo: "0xabc" }]), inboundFn: async () => 99 });
