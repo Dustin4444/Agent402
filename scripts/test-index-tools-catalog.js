@@ -174,8 +174,10 @@ const page = (results, extra = {}) =>
   const unpriced = Array.from({ length: 100 }, (_, i) => ({ route: `/r${i}`, price: null }));
   const cap = quoteProbeCapFor(unpriced);
   check(`a wholly unpriced catalog gets the burst (${cap})`, cap >= 60);
-  check("ONE priced tool ends the burst - the polite steady-state cap is back",
-    quoteProbeCapFor([{ route: "/a", price: 0.001 }, ...unpriced]) === 5);
+  check("a FEW priced rows do not end the burst - the live miss: a registry merge priced 8 of 128 and the burst never fired",
+    quoteProbeCapFor([...Array.from({ length: 8 }, (_, i) => ({ route: `/p${i}`, price: 0.001 })), ...unpriced]) >= 60);
+  check("a mostly-priced catalog is back on the polite cap",
+    quoteProbeCapFor([...Array.from({ length: 90 }, (_, i) => ({ route: `/p${i}`, price: 0.001 })), ...Array.from({ length: 10 }, (_, i) => ({ route: `/u${i}`, price: null }))]) === 5);
   check("an empty list never returns a smaller cap than the steady state", quoteProbeCapFor([]) >= 5);
 }
 

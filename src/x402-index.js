@@ -1821,9 +1821,19 @@ export function priceDisagreesWithOrigin(t) {
  * single burst on a new listing is what they asked for - then drops to the
  * polite cap the moment anything is priced. Pure; exported for the test. */
 export function quoteProbeCapFor(tools) {
-  const anyPriced = (tools || []).some((t) => Number(t?.price) > 0);
-  if (anyPriced) return LIVE_QUOTE_PROBES_PER_CRAWL;
-  return Math.max(LIVE_QUOTE_PROBES_PER_CRAWL, Number(process.env.NEW_CATALOG_QUOTE_BURST || "60"));
+  const list = Array.isArray(tools) ? tools : [];
+  const priced = list.filter((t) => Number(t?.price) > 0).length;
+  const unpriced = list.length - priced;
+  // "Zero priced" was the first predicate and it missed the live case: a
+  // registry merge had already priced a handful of sol.blockrun's 128 rows,
+  // so the burst never fired and the catalog stayed 90% invisible. The state
+  // that starves a seller is OVERWHELMINGLY unpriced, not perfectly unpriced:
+  // burst while at least 20 rows are unpriced and priced rows are under a
+  // quarter of the unpriced count, polite cap the rest of the time.
+  if (unpriced >= 20 && priced < unpriced / 4) {
+    return Math.max(LIVE_QUOTE_PROBES_PER_CRAWL, Number(process.env.NEW_CATALOG_QUOTE_BURST || "60"));
+  }
+  return LIVE_QUOTE_PROBES_PER_CRAWL;
 }
 
 async function enrichLiveQuotes(tools, originUrl) {
