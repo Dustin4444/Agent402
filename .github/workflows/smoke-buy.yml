@@ -32,7 +32,7 @@ on:
         required: false
         default: ""
       capture_receipt:
-        description: "Capture the seller-signed offer receipt as a private workflow artifact"
+        description: "Capture the seller-signed offer receipt as a workflow artifact (external target only - this host issues none)"
         required: false
         type: boolean
         default: false
@@ -87,5 +87,5 @@ jobs:
         with:
           name: signed-offer-receipt
           path: ${{ runner.temp }}/signed-offer-receipt.json
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 7
