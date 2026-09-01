@@ -169,6 +169,32 @@ if ((lamports.value ?? lamports) < 1_000_000) { console.error("burner SOL is too
 
 if (!SEND) { console.log("\nDRY RUN - nothing broadcast. Re-run with --send to transfer."); process.exit(0); }
 
+// CLAIM BEFORE SEND - the double-refund window, closed the same way
+// refund-run.js closed it on 2026-08-04. Without this, a second run reads the
+// same still-owed rows and sends again: the inbound payment verifies forever,
+// so nothing else stops it. `claim` moves owed -> sending atomically and only
+// one caller can win a row, so a concurrent or repeated run claims nothing,
+// falls short of the amount, and aborts without broadcasting.
+//
+// A row stuck in `sending` afterwards is DELIBERATE: whether money left is a
+// question for a human, never for a retry.
+const myRows = owedRows.filter((r) => String(r.payer || "") === TO);
+const claimed = [];
+for (const r of myRows) {
+  const c = await fetch("https://agent402.tools/__operator/refunds/update", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${OPERATOR}`, "content-type": "application/json" },
+    body: JSON.stringify({ id: r.id, action: "claim", note: `solana-refund-send ${new Date().toISOString()}` }),
+  });
+  if (c.ok) claimed.push(r);
+}
+const claimedUsd = claimed.reduce((a, r) => a + (Number(r.priceUsd) || 0), 0);
+console.log(`claimed ${claimed.length}/${myRows.length} owed row(s) = $${claimedUsd.toFixed(6)}`);
+if (USD > claimedUsd + 1e-9) {
+  console.error(`could only claim $${claimedUsd.toFixed(6)} of the $${USD} requested - another run may hold the rest. ABORTING with nothing sent; the ${claimed.length} claimed row(s) are now in 'sending' and need a human (ids: ${claimed.map((r) => r.id).join(", ")})`);
+  process.exit(1);
+}
+
 const { getTransferInstruction } = await import("@solana-program/token");
 const rpcClient = kit.createSolanaRpc(RPC);
 const { value: blockhash } = await rpcClient.getLatestBlockhash().send();
@@ -199,5 +225,19 @@ const wire = kit.getBase64EncodedWireTransaction(signed);
 await rpc("sendTransaction", [wire, { encoding: "base64", skipPreflight: false, maxRetries: 3 }]);
 console.log(`SENT ${USD} USDC -> ${TO}`);
 console.log(`signature: ${sig}`);
+// Mark every claimed row paid with the real outbound signature. A failure
+// here leaves rows in `sending` with the money genuinely gone - print the
+// signature loudly so the human resolving them has the evidence in hand.
+let marked = 0;
+for (const r of claimed) {
+  const m = await fetch("https://agent402.tools/__operator/refunds/update", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${OPERATOR}`, "content-type": "application/json" },
+    body: JSON.stringify({ id: r.id, action: "paid", tx: String(sig), note: "solana-refund-send" }),
+  }).catch(() => null);
+  if (m?.ok) marked++;
+}
+console.log(`marked ${marked}/${claimed.length} row(s) paid with that signature`);
+if (marked < claimed.length) console.error(`ATTENTION: ${claimed.length - marked} row(s) are stuck in 'sending' though the money DID move (${sig}) - resolve by hand with that tx`);
 console.log(`https://solscan.io/tx/${sig}`);
 console.log(`digest(for the ledger note): sha256:${createHash("sha256").update(String(sig)).digest("hex").slice(0, 16)}`);
