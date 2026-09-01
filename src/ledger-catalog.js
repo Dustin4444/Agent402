@@ -94,7 +94,8 @@ table{border-collapse:collapse;width:100%}
       <span style="font-family:var(--font-mono);color:var(--accent);padding:0 12px;display:flex;align-items:center;font-weight:700;">⌕</span>
       <input id="cat-search" type="text" placeholder="Describe a task: decode a JWT, OCR an image, verify a settlement…" style="flex:1;min-width:0;background:transparent;border:none;outline:none;color:var(--ink);font-family:var(--font-mono);font-size:14px;padding:15px 0;">
     </div>
-    <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin:11px 0 0;">Filters the table below as you type. Agents skip the browsing and call <span style="color:var(--muted);">GET /api/find</span> directly - free, no wallet.</p>
+    <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin:11px 0 0;">Searches every tool as you type - same free <span style="color:var(--muted);">GET /api/find</span> agents call, no wallet.</p>
+    <div id="cat-results" style="display:none;max-width:760px;margin:14px 0 0;border:1px solid var(--hairline);background:var(--card);"></div>
 
     <div style="display:flex;flex-wrap:wrap;margin-top:30px;border-top:1px dashed var(--dash);">
       <div style="flex:1 1 140px;padding:16px 20px 16px 0;margin-right:20px;border-right:1px dashed var(--dash);"><div style="font-family:var(--font-mono);font-weight:700;font-size:21px;line-height:1;font-variant-numeric:tabular-nums;">${fmtNum(count)}</div><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-top:6px;">tools</div></div>
