@@ -52,8 +52,22 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
   const { solanaInboundCount, assertProvenSolanaSeller } = await import("../src/solana-buyer.js");
   const payTo = "J7aN3PLJnTCF5qpEnvJHJsnCjcGuqC2rYtEM8Gv3xwg";
   const now = Math.floor(Date.now() / 1000);
-  const rpcStub = (answers) => async (url, init) => {
-    const { method } = JSON.parse(init.body);
+  // A stub that also serves getTransaction: `txs` maps signature -> a
+  // {credit, funder} intent, from which we synthesize pre/postTokenBalances.
+  // A credit raises the seller's ATA balance; the funder's USDC account is
+  // debited. funder === payTo models a SELF-transfer (must NOT count).
+  const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+  const rpcStub = (answers, txs = {}) => async (url, init) => {
+    const { method, params } = JSON.parse(init.body);
+    if (method === "getTransaction") {
+      const t = txs[params[0]];
+      if (!t) return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: null }), { status: 200 });
+      const pre = [{ accountIndex: 0, mint: USDC, owner: payTo, uiTokenAmount: { amount: String(t.credit ? 0 : 100) } },
+                   { accountIndex: 1, mint: USDC, owner: t.funder, uiTokenAmount: { amount: "1000" } }];
+      const post = [{ accountIndex: 0, mint: USDC, owner: payTo, uiTokenAmount: { amount: String(t.credit ? 50 : 100) } },
+                    { accountIndex: 1, mint: USDC, owner: t.funder, uiTokenAmount: { amount: t.credit ? "950" : "1000" } }];
+      return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { meta: { err: null, preTokenBalances: pre, postTokenBalances: post } } }), { status: 200 });
+    }
     const result = answers[method];
     if (result instanceof Error) return new Response("boom", { status: 500 });
     return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), { status: 200, headers: { "content-type": "application/json" } });
@@ -61,15 +75,30 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
   const noAccount = await solanaInboundCount(payTo, { fetchImpl: rpcStub({ getTokenAccountsByOwner: { value: [] } }) });
   ok(noAccount === 0, "a payTo with NO USDC account scores 0 - nobody has ever paid it");
   const sigs = [
-    { signature: "a", blockTime: now - 60, err: null },
-    { signature: "b", blockTime: now - 120, err: null },
-    { signature: "c", blockTime: now - 60, err: { InstructionError: [] } }, // failed tx - not evidence
+    { signature: "a", blockTime: now - 60, err: null },   // credit from funder-1
+    { signature: "b", blockTime: now - 120, err: null },  // credit from funder-2
+    { signature: "self", blockTime: now - 90, err: null },// SELF-transfer - must not count
+    { signature: "out", blockTime: now - 90, err: null }, // outbound (debit) - must not count
+    { signature: "c", blockTime: now - 60, err: { InstructionError: [] } }, // failed tx - filtered before read
     { signature: "d", blockTime: now - 40 * 3600, err: null },              // outside the window
   ];
+  const txs = {
+    a: { credit: true, funder: "FUNDERaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1" },
+    b: { credit: true, funder: "FUNDERbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb2" },
+    self: { credit: true, funder: payTo },   // seller funding itself
+    out: { credit: false, funder: "FUNDERaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1" }, // debit
+  };
   const counted = await solanaInboundCount(payTo, {
-    fetchImpl: rpcStub({ getTokenAccountsByOwner: { value: [{ pubkey: "ATA111" }] }, getSignaturesForAddress: sigs }),
+    fetchImpl: rpcStub({ getTokenAccountsByOwner: { value: [{ pubkey: "ATA111" }] }, getSignaturesForAddress: sigs }, txs),
   });
-  ok(counted === 2, "only recent, successful signatures count as settlement evidence");
+  ok(counted === 2, "counts only CREDITS from DISTINCT non-self funders - self-transfer and outbound excluded");
+  // 20 self-transfers = the cheap spoof the review flagged; they all have funder === payTo.
+  const spoofSigs = Array.from({ length: 20 }, (_, i) => ({ signature: `s${i}`, blockTime: now - 60, err: null }));
+  const spoofTxs = Object.fromEntries(spoofSigs.map((x) => [x.signature, { credit: true, funder: payTo }]));
+  const spoof = await solanaInboundCount(payTo, {
+    fetchImpl: rpcStub({ getTokenAccountsByOwner: { value: [{ pubkey: "ATA111" }] }, getSignaturesForAddress: spoofSigs }, spoofTxs),
+  });
+  ok(spoof === 0, "20 self-transfers do NOT prove a seller - the cheap spoof scores 0");
   const rpcDead = await solanaInboundCount(payTo, { fetchImpl: rpcStub({}) }).then(() => null, (e) => e);
   ok(rpcDead === null || rpcDead instanceof Error, "an unreadable chain THROWS from the counter");
   const gateDead = await assertProvenSolanaSeller(payTo, { inboundFn: async () => { throw new Error("rpc down"); } }).then(() => null, (e) => e);

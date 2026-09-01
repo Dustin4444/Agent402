@@ -76,21 +76,59 @@ async function rpcCall(method, params, { fetchImpl = fetch, timeoutMs = 6000 } =
 }
 
 /**
- * Recent inbound-USDC evidence for a seller payTo: how many signatures touched
- * the seller's own USDC token account inside the window. Two reads, no PDA
- * math - the token account's address comes from the chain itself
- * (getTokenAccountsByOwner), so a seller with NO USDC account scores 0 rather
- * than erroring. Throws on RPC failure - the CALLER treats that as refusal
- * (fail closed), never as zero-is-fine or unknown-is-proven.
+ * Recent VERIFIED-INBOUND-USDC evidence for a seller payTo: the number of
+ * distinct funders who CREDITED the seller's own USDC token account inside the
+ * window. It is not enough to count signatures on the account
+ * (getSignaturesForAddress returns outbound and self-transfers too) - a seller
+ * can manufacture ~20 self-transfers for a few cents of fees and look
+ * "proven" (2026-09-01 security review). So each recent transaction is
+ * inspected: the ATA's post-USDC balance must EXCEED its pre-balance (a
+ * credit, not a debit or a no-op), and the payer must be someone OTHER than
+ * the seller itself (self-transfers do not count). The evidence is the count
+ * of DISTINCT such payers - the same "distinct wallets actually paid" signal
+ * the Base rail's reliability gate uses, not raw activity.
+ *
+ * Bounded: getTransaction is called per signature but stops the moment the
+ * floor is met (`stopAt`) or a hard fetch cap is hit, so a genuine seller
+ * verifies in ~20-25 reads and a cold address gives up quickly. Throws on RPC
+ * failure - the CALLER treats that as refusal (fail closed).
  */
-export async function solanaInboundCount(payTo, { windowMs = 15 * 3600 * 1000, limit = 100, fetchImpl = fetch } = {}) {
+export async function solanaInboundCount(payTo, { windowMs = 15 * 3600 * 1000, limit = 100, fetchImpl = fetch, stopAt = Infinity, maxTxReads = 60 } = {}) {
   if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(String(payTo || ""))) throw new Error("payTo is not a plausible Solana address");
   const accounts = await rpcCall("getTokenAccountsByOwner", [payTo, { mint: USDC_MINT }, { encoding: "jsonParsed" }], { fetchImpl });
   const ata = accounts?.value?.[0]?.pubkey;
   if (!ata) return 0; // no USDC account = nobody has ever paid this address USDC
   const sigs = await rpcCall("getSignaturesForAddress", [ata, { limit }], { fetchImpl });
   const cutoff = (Date.now() - windowMs) / 1000;
-  return (sigs || []).filter((s) => !s.err && Number(s.blockTime || 0) >= cutoff).length;
+  const recent = (sigs || []).filter((sig) => !sig.err && Number(sig.blockTime || 0) >= cutoff).map((sig) => sig.signature);
+  const funders = new Set();
+  let reads = 0;
+  for (const signature of recent) {
+    if (funders.size >= stopAt) break;               // floor met - stop reading
+    if (reads >= maxTxReads) break;                  // hard bound on RPC cost
+    reads++;
+    let tx;
+    try { tx = await rpcCall("getTransaction", [signature, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 }], { fetchImpl }); }
+    catch { continue; }                              // one unreadable tx is not fatal to the count
+    const meta = tx?.meta;
+    if (!meta || meta.err) continue;
+    const pre = (meta.preTokenBalances || []).find((b) => b?.mint === USDC_MINT && b?.owner === payTo);
+    const post = (meta.postTokenBalances || []).find((b) => b?.mint === USDC_MINT && b?.owner === payTo);
+    const preAmt = Number(pre?.uiTokenAmount?.amount || 0);
+    const postAmt = Number(post?.uiTokenAmount?.amount || 0);
+    if (!(postAmt > preAmt)) continue;               // not a credit to the seller
+    // The funder = a USDC account in this tx whose balance DECREASED and whose
+    // owner is not the seller. A self-transfer (payTo funding payTo) is
+    // excluded, which is the whole point.
+    const debited = (meta.preTokenBalances || []).find((b) => {
+      if (b?.mint !== USDC_MINT || b?.owner === payTo) return false;
+      const p2 = (meta.postTokenBalances || []).find((x) => x?.accountIndex === b.accountIndex);
+      return Number(b?.uiTokenAmount?.amount || 0) > Number(p2?.uiTokenAmount?.amount || 0);
+    });
+    const funder = debited?.owner || (tx?.transaction?.message?.accountKeys?.find((k) => k?.signer)?.pubkey);
+    if (funder && funder !== payTo) funders.add(funder);
+  }
+  return funders.size;
 }
 
 /**
@@ -101,7 +139,7 @@ export async function solanaInboundCount(payTo, { windowMs = 15 * 3600 * 1000, l
  */
 export async function assertProvenSolanaSeller(payTo, { minCount = Number(process.env.SOR_SVM_MIN_SETTLED_TX || process.env.SOR_MIN_SETTLED_TX || "20"), inboundFn = solanaInboundCount } = {}) {
   let inbound;
-  try { inbound = await inboundFn(payTo); }
+  try { inbound = await inboundFn(payTo, { stopAt: minCount }); }
   catch (e) { throw bad(`Cannot verify seller settlement history on Solana (${String(e?.message || e).slice(0, 80)}) - refusing to spend`, 503); }
   if (inbound < minCount) {
     throw bad(`Seller payTo ${String(payTo).slice(0, 8)}… has ${inbound} recent inbound USDC transfers on Solana (floor ${minCount}) - not routable yet`, 409);
@@ -146,7 +184,7 @@ export async function passesSolanaResolveGate({ header, body, inboundFn = solana
   } catch { /* unreadable challenge = not a candidate */ }
   if (!payTo) return { ok: false, payTo: null, reason: "no readable solana accept on the live 402" };
   let inbound;
-  try { inbound = await inboundFn(payTo); }
+  try { inbound = await inboundFn(payTo, { stopAt: minCount }); }
   catch (e) { return { ok: false, payTo, reason: `chain unreadable (${String(e?.message || e).slice(0, 60)})` }; }
   if (inbound < minCount) return { ok: false, payTo, reason: `${inbound} recent inbound USDC transfers (floor ${minCount})` };
   return { ok: true, payTo, inbound };
