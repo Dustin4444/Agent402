@@ -29,7 +29,10 @@ const MEMO_PROGRAM = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
 const MEMO_MAX_BYTES = 400;
 // A ceiling the DISPATCHER cannot raise. --max is an input, so it bounds
 // nothing against someone who can set inputs; this is the bound that holds.
-const ABSOLUTE_MAX_USD = 25;
+// $2, matching refund-run's own per-run cap: the one debt this script exists
+// for is $1.60, and a bigger send should mean editing this line in a reviewed
+// commit, never a bigger number in a dispatch box.
+const ABSOLUTE_MAX_USD = 2;
 const RPC = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
 
 const arg = (n, d = null) => {

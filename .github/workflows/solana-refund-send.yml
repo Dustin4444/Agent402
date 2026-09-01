@@ -33,9 +33,9 @@ on:
         required: false
         default: ""
       max_usd:
-        description: "Hard ceiling for this run"
+        description: "Ceiling for this run (the script refuses anything over $2 regardless)"
         required: false
-        default: "5"
+        default: "2"
       send:
         description: "Actually broadcast (false = dry run, just checks)"
         required: false
