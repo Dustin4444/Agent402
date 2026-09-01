@@ -27,6 +27,9 @@ const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const MEMO_PROGRAM = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
 // A memo shares the transaction's size budget and is PUBLIC and PERMANENT.
 const MEMO_MAX_BYTES = 400;
+// A ceiling the DISPATCHER cannot raise. --max is an input, so it bounds
+// nothing against someone who can set inputs; this is the bound that holds.
+const ABSOLUTE_MAX_USD = 25;
 const RPC = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
 
 const arg = (n, d = null) => {
@@ -38,10 +41,12 @@ const TO = String(arg("to", "")).trim();
 const USD = Number(arg("usd", "0"));
 const MAX = Number(arg("max", "5"));
 const MEMO = String(arg("memo", "")).trim();
+const EVIDENCE = String(arg("evidence", "")).trim();
 
 if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(TO)) { console.error("--to must be a base58 Solana address"); process.exit(2); }
 if (!(USD > 0)) { console.error("--usd must be positive"); process.exit(2); }
 if (USD > MAX) { console.error(`--usd ${USD} exceeds the ceiling $${MAX}; raise --max deliberately if that is intended`); process.exit(2); }
+if (USD > ABSOLUTE_MAX_USD) { console.error(`--usd ${USD} exceeds the hard ceiling $${ABSOLUTE_MAX_USD} compiled into this script`); process.exit(2); }
 const memoBytes = MEMO ? new TextEncoder().encode(MEMO) : null;
 if (memoBytes && memoBytes.length > MEMO_MAX_BYTES) {
   console.error(`--memo is ${memoBytes.length} bytes, over the ${MEMO_MAX_BYTES} cap`); process.exit(2);
@@ -56,6 +61,47 @@ const rpc = async (method, params) => {
   if (j.error) throw new Error(`${method}: ${j.error.message}`);
   return j.result;
 };
+
+// PROOF THAT THE DESTINATION IS A REAL PAYER.
+//
+// Without this, --to is free text: anyone who can dispatch the workflow could
+// send the burner's balance to their own wallet. Repo write access is already
+// required, but "send money anywhere" should not be one input away, and --max
+// is itself an input so it bounds nothing against that person.
+//
+// So the destination must be proven on-chain to have PAID US, using the same
+// doctrine scripts/refund-run.js uses before every send: name a settlement
+// transaction, and re-derive it from the chain. Our payTo is read from our own
+// LIVE 402 rather than hardcoded, so it cannot drift or be planted here.
+if (!EVIDENCE) { console.error("--evidence <signature> is required: a settlement tx proving this address paid us"); process.exit(2); }
+
+const accepts = await (await fetch("https://agent402.tools/api/hash")).headers;
+const header = accepts.get("payment-required") || "";
+let payTo = null, asset = null;
+try {
+  const decoded = JSON.parse(Buffer.from(header, "base64").toString("utf8"));
+  const svm = (decoded.accepts || []).find((a) => String(a.network || "").toLowerCase().includes("solana"));
+  payTo = svm?.payTo || null; asset = svm?.asset || null;
+} catch { /* handled below */ }
+if (!payTo || asset !== USDC_MINT) { console.error("could not read our own Solana payTo from a live 402 - refusing"); process.exit(1); }
+console.log(`our payTo (from a live 402): ${payTo}`);
+
+const evTx = await rpc("getTransaction", [EVIDENCE, { maxSupportedTransactionVersion: 0, encoding: "jsonParsed" }]);
+if (!evTx) { console.error(`evidence tx ${EVIDENCE} not found on chain`); process.exit(1); }
+if (evTx.meta?.err) { console.error("evidence tx failed on chain - it moved nothing"); process.exit(1); }
+// Compare per OWNER, not per token account: a payer may use a non-default
+// account, so matching derived addresses would miss a real payment.
+const pre = evTx.meta?.preTokenBalances || [], post = evTx.meta?.postTokenBalances || [];
+const delta = (owner) => {
+  const p = post.find((b) => b.owner === owner && b.mint === USDC_MINT);
+  const q = pre.find((b) => b.owner === owner && b.mint === USDC_MINT);
+  return Number(p?.uiTokenAmount?.uiAmount ?? 0) - Number(q?.uiTokenAmount?.uiAmount ?? 0);
+};
+const paidIn = delta(payTo), paidOut = delta(TO);
+if (!(paidIn > 0)) { console.error(`evidence tx did not credit our payTo ${payTo} in USDC`); process.exit(1); }
+if (!(paidOut < 0)) { console.error(`evidence tx does not show ${TO} paying - refusing to refund an address that never paid us`); process.exit(1); }
+console.log(`evidence: ${EVIDENCE} moved ${(-paidOut).toFixed(6)} USDC from ${TO} to our payTo (+${paidIn.toFixed(6)})`);
+
 
 const raw = (process.env.SOLANA_BURNER_KEY || "").trim();
 if (!raw) { console.error("SOLANA_BURNER_KEY is required"); process.exit(2); }

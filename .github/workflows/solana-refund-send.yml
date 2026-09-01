@@ -6,9 +6,16 @@ name: Solana refund send (one-time)
 #
 # Uses the CI canary burner, the same wallet that already pays on Solana daily.
 # Dispatch-only and DRY by default: `send: true` is the only thing that
-# broadcasts. Every guard refuses rather than guesses - the destination must
-# already hold a USDC account, the amount is bounded by `max_usd`, and the
-# burner must cover the amount plus a fee reserve.
+# broadcasts.
+#
+# The destination is a free-text input, so the control that matters is not the
+# ceiling (an input bounds nothing against whoever sets the inputs) - it is
+# that the destination must be PROVEN on-chain to have paid us. `evidence` is a
+# settlement signature, re-derived from the chain against our payTo, which is
+# read from our own live 402 rather than hardcoded. An address that never paid
+# us cannot be refunded, whoever dispatches this. There is also a hard $25
+# ceiling compiled into the script that no input can raise, and every guard
+# runs BEFORE the signing key is read.
 on:
   workflow_dispatch:
     inputs:
@@ -17,6 +24,9 @@ on:
         required: true
       usd:
         description: "USDC to send, e.g. 1.60"
+        required: true
+      evidence:
+        description: "Settlement tx signature proving this address paid us (required; re-derived on-chain)"
         required: true
       memo:
         description: "On-chain note attached to the transfer (PUBLIC and permanent)"
@@ -55,11 +65,12 @@ jobs:
           USD: ${{ inputs.usd }}
           MAX: ${{ inputs.max_usd }}
           MEMO: ${{ inputs.memo }}
+          EVIDENCE: ${{ inputs.evidence }}
         run: |
           if [ -z "$SOLANA_BURNER_KEY" ]; then echo "SOLANA_BURNER_KEY is not set"; exit 1; fi
           echo "::add-mask::$SOLANA_BURNER_KEY"
           # Inputs ride as env vars and are passed as argv, never interpolated
           # into the shell line (N-03).
-          ARGS=(--to "$TO" --usd "$USD" --max "$MAX")
+          ARGS=(--to "$TO" --usd "$USD" --max "$MAX" --evidence "$EVIDENCE")
           [ -n "$MEMO" ] && ARGS+=(--memo "$MEMO")
           node scripts/solana-refund-send.js "${ARGS[@]}" ${{ inputs.send && '--send' || '' }}
