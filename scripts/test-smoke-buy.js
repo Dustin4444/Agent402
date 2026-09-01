@@ -7,15 +7,22 @@
 // must stop at the expectation preflight, while accepted cases must reach the
 // existing key guard without getting far enough to import or use the client.
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  decodeSettlementHeader,
+  receiptOutputPath,
+  signedOfferReceiptFromSettlement,
+  writeSignedOfferReceipt,
+} from "./lib/smoke-receipt.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const BUYER = join(ROOT, "scripts", "smoke-buy.js");
 const TEMP_DIR = mkdtempSync(join(tmpdir(), "a402-smoke-buy-"));
 const MISSING_KEY = join(TEMP_DIR, "missing-key");
+const EXISTING_RECEIPT = join(TEMP_DIR, "existing-receipt.json");
 const EXPECT_ERROR = "smoke-buy: SMOKE_EXPECT is required when SMOKE_TARGET selects an external target";
 const KEY_ERROR = "smoke-buy: no BURNER_KEY / KEY_FILE — cannot run the paid check";
 
@@ -89,6 +96,60 @@ try {
     ok(run.stdout === "", `${testCase.name}: emits no stdout before the guard`);
     ok(run.stderr === `${testCase.error}\n`, `${testCase.name}: stops at the expected guard`);
   }
+
+  writeFileSync(EXISTING_RECEIPT, "keep");
+  const existingRun = spawnSync(process.execPath, [BUYER], {
+    cwd: ROOT,
+    env: { ...baseEnv, SMOKE_RECEIPT_OUT: EXISTING_RECEIPT },
+    encoding: "utf8",
+    timeout: 10_000,
+  });
+  ok(existingRun.status === 2, "existing receipt output is refused before key access");
+  ok(existingRun.stdout === "", "receipt preflight refusal emits no stdout");
+  ok(existingRun.stderr === `smoke-buy: SMOKE_RECEIPT_OUT already exists: ${EXISTING_RECEIPT}\n`,
+    "receipt capture never overwrites prior evidence");
+  ok(readFileSync(EXISTING_RECEIPT, "utf8") === "keep", "prior receipt evidence is unchanged");
+
+  const missingParent = join(TEMP_DIR, "missing", "receipt.json");
+  const missingParentRun = spawnSync(process.execPath, [BUYER], {
+    cwd: ROOT,
+    env: { ...baseEnv, SMOKE_RECEIPT_OUT: missingParent },
+    encoding: "utf8",
+    timeout: 10_000,
+  });
+  ok(missingParentRun.status === 2, "missing receipt parent is refused before key access");
+  ok(missingParentRun.stderr === `smoke-buy: SMOKE_RECEIPT_OUT parent directory does not exist: ${join(TEMP_DIR, "missing")}\n`,
+    "receipt capture names the missing parent");
+
+  const signedReceipt = {
+    format: "jws",
+    payload: "eyJyZXNvdXJjZVVybCI6Imh0dHBzOi8vc2VsbGVyLmV4YW1wbGUvYXVkaXQifQ",
+    signature: "signed-evidence",
+  };
+  const settlement = {
+    success: true,
+    network: "eip155:8453",
+    transaction: "0xabc",
+    extensions: { "offer-receipt": { info: { receipt: signedReceipt } } },
+  };
+  const encoded = Buffer.from(JSON.stringify(settlement)).toString("base64");
+  ok(JSON.stringify(decodeSettlementHeader(encoded)) === JSON.stringify(settlement),
+    "settlement response header decodes without dropping extensions");
+  ok(signedOfferReceiptFromSettlement(settlement) === signedReceipt,
+    "complete signed offer receipt is selected from the standard extension");
+  ok(decodeSettlementHeader("not-base64-json") === null, "malformed settlement header is not evidence");
+  ok(signedOfferReceiptFromSettlement({ extensions: {} }) === null, "missing offer receipt is not fabricated");
+
+  const output = join(TEMP_DIR, "captured-receipt.json");
+  ok(receiptOutputPath(`  ${output}  `) === output, "receipt output path is normalized before payment");
+  ok(writeSignedOfferReceipt(output, signedReceipt), "signed offer receipt is written when requested");
+  ok(JSON.parse(readFileSync(output, "utf8")).signature === "signed-evidence",
+    "captured artifact preserves the complete signed receipt");
+  ok((statSync(output).mode & 0o777) === 0o600, "captured receipt artifact is mode 0600");
+  let overwriteRefused = false;
+  try { writeSignedOfferReceipt(output, signedReceipt); } catch (error) { overwriteRefused = error?.code === "EEXIST"; }
+  ok(overwriteRefused, "receipt writer itself fails closed on overwrite");
+  ok(receiptOutputPath("") === "", "receipt capture remains opt-in");
 } finally {
   rmSync(TEMP_DIR, { recursive: true, force: true });
 }
