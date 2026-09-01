@@ -1127,7 +1127,7 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
         <a href="#sellers" style="color:var(--muted);text-decoration:none;">browse all sellers</a>
       </div>
     </div>
-    <p style="font-size:13px;color:var(--faint);margin:10px 0 0;">Describe the job, not the tool name - filters as you type. Resolving is free (<span style="color:var(--muted);">GET /api/find</span>), you only pay to execute. This is the neutral x402 index: every seller, not just ours.</p>
+    <p style="font-size:13px;color:var(--faint);margin:10px 0 0;">Describe the job, not the tool name - FIND searches every tool and shows live results. Resolving is free (<span style="color:var(--muted);">GET /api/find</span>), you only pay to execute. This is the neutral x402 index: every seller, not just ours.</p>
     ${statsHtml}
   </div>`;
 
