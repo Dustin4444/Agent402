@@ -223,6 +223,12 @@ const NETWORK = new Set([
   // also pass — NETWORK membership is a timeout safety hedge. All 39 packs:
   "/api/skill/security-audit", "/api/skill/email-deliverability", "/api/skill/financial-research",
   "/api/skill/macro-economics", "/api/skill/macro-dashboard", "/api/skill/dns-network-ops", "/api/skill/crypto-research",
+  // fixed-income-desk joined 2026-09-01: it was an instant 0/5 (no PACK_STEPS
+  // entry, every step todoError'd in microseconds) so it never needed the
+  // hedge - implementing it for real gave it three sequential upstream reads
+  // (fiscaldata twice + FRED), the same dependencies as macro-economics above,
+  // and a slow upstream moment pushed it past the 20s cap on its first CI run.
+  "/api/skill/fixed-income-desk",
   "/api/skill/content-extraction", "/api/skill/sec-filings-deep-dive", "/api/skill/structured-scrape",
   "/api/skill/decode-blob", "/api/skill/trend-analysis", "/api/skill/forecasting-bake-off",
   "/api/skill/document-intel", "/api/skill/loan-comparison", "/api/skill/investment-decision",
