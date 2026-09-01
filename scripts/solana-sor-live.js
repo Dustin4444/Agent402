@@ -44,7 +44,17 @@ console.log(`buyer (burner): ${signer.address}`);
 const before = await usdcOf(SPENDER);
 console.log(`spending wallet ${SPENDER} USDC before: ${before}`);
 
-const synthFetch = (u, init = {}) => fetch(u, { ...init, headers: { ...(init.headers || {}), ...hb() } });
+// The canary's Request-based wrapper, verbatim in shape: the payment wrapper
+// hands headers as a Headers INSTANCE, and spreading one as {...headers}
+// yields {} - which silently dropped PAYMENT-SIGNATURE on the paid retry and
+// bounced the first proof run 402 in 0.3s. new Request(input, init) preserves
+// whatever the wrapper set; we only ADD the heartbeat token.
+const synthFetch = (input, init) => {
+  const req = new Request(input, init);
+  const t = hb()["X-Heartbeat-Token"];
+  if (t) req.headers.set("X-Heartbeat-Token", t);
+  return fetch(req);
+};
 const pay = wrapFetchWithPayment(synthFetch, registerExactSvmScheme(new x402Client(), { signer }));
 const url = `${TARGET}${ROUTE}`;
 if (new URL(url).origin !== new URL(TARGET).origin) { console.error("refusing: target origin changed"); process.exit(2); }
