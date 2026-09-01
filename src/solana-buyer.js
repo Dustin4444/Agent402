@@ -123,3 +123,31 @@ export async function svmBuyerStatus({ fetchImpl = fetch } = {}) {
     return { status: "unknown", asset: "USDC", chain: SOLANA_CAIP2 };
   }
 }
+
+/**
+ * Resolve-time twin of the pay-time gate, for the router's candidate loop: a
+ * candidate whose live 402 names an UNPROVEN payTo is SKIPPED (the next
+ * candidate gets tried) instead of aborting the whole call at pay time - the
+ * first live proof run failed exactly that way, with an unproven seller
+ * ranking above workable ones and the 409 taking the whole request down.
+ * Parses the probe's own v2 402 header (v1 body as fallback); anything
+ * unreadable or unproven is { ok:false, reason } - the caller logs and moves
+ * on. The pay-time gate in payX402 stays: this reads the PROBE's 402, the
+ * seller writes both answers, and what we verify last must be what we sign.
+ */
+export async function passesSolanaResolveGate({ header, body, inboundFn = solanaInboundCount, minCount = Number(process.env.SOR_SVM_MIN_SETTLED_TX || process.env.SOR_MIN_SETTLED_TX || "20") } = {}) {
+  let payTo = null;
+  try {
+    const doc = header
+      ? JSON.parse(Buffer.from(String(header), "base64").toString("utf8"))
+      : JSON.parse(String(body || "{}"));
+    const accept = (doc.accepts || []).find((a) => SOLANA_NETWORK_LABELS.has(String(a.network || "").toLowerCase()));
+    payTo = accept?.payTo || null;
+  } catch { /* unreadable challenge = not a candidate */ }
+  if (!payTo) return { ok: false, payTo: null, reason: "no readable solana accept on the live 402" };
+  let inbound;
+  try { inbound = await inboundFn(payTo); }
+  catch (e) { return { ok: false, payTo, reason: `chain unreadable (${String(e?.message || e).slice(0, 60)})` }; }
+  if (inbound < minCount) return { ok: false, payTo, reason: `${inbound} recent inbound USDC transfers (floor ${minCount})` };
+  return { ok: true, payTo, inbound };
+}

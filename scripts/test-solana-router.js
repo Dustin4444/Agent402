@@ -179,5 +179,25 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
   seller.close(); rpcSrv.close();
 }
 
+// ---- 6. resolve-time gate: skip, never abort --------------------------
+{
+  const { passesSolanaResolveGate } = await import("../src/solana-buyer.js");
+  const mk = (accepts) => Buffer.from(JSON.stringify({ x402Version: 2, accepts })).toString("base64");
+  const payTo = "J7aN3PLJnTCF5qpEnvJHJsnCjcGuqC2rYtEM8Gv3xwg";
+  const solAccept = { network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", payTo };
+  const proven = await passesSolanaResolveGate({ header: mk([solAccept]), inboundFn: async () => 50 });
+  ok(proven.ok === true && proven.payTo === payTo, "a proven candidate passes the resolve-time gate with its payTo named");
+  const thin = await passesSolanaResolveGate({ header: mk([solAccept]), inboundFn: async () => 2, minCount: 20 });
+  ok(thin.ok === false && /floor 20/.test(thin.reason), "an unproven candidate is SKIPPED with the evidence count in the reason - never an abort");
+  const dead = await passesSolanaResolveGate({ header: mk([solAccept]), inboundFn: async () => { throw new Error("rpc down"); } });
+  ok(dead.ok === false && /chain unreadable/.test(dead.reason), "an unreadable chain skips the candidate (fail closed at resolve time too)");
+  const noSol = await passesSolanaResolveGate({ header: mk([{ network: "eip155:8453", payTo: "0xabc" }]), inboundFn: async () => 99 });
+  ok(noSol.ok === false && /no readable solana accept/.test(noSol.reason), "a 402 with no solana accept is not a candidate");
+  const junkHdr = await passesSolanaResolveGate({ header: "!!!not-base64!!!", inboundFn: async () => 99 });
+  ok(junkHdr.ok === false, "an unreadable challenge is skipped, never thrown");
+  const v1Body = await passesSolanaResolveGate({ header: null, body: JSON.stringify({ accepts: [solAccept] }), inboundFn: async () => 50 });
+  ok(v1Body.ok === true, "a v1 body-carried challenge parses too");
+}
+
 console.log(fail ? `FAILED: ${pass} passed, ${fail} failed` : `OK: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
