@@ -301,6 +301,26 @@ const qPayerRecent = db.prepare(`
  * memory tools). No internal/external filter: a wallet always sees all of
  * its own rows.
  */
+/** External settlements of specific slugs in a window, with the settle tx.
+ *  Read-only, for the refund backfill: the charged-failure detector only mints
+ *  a debt on a NON-200, and the packs that shipped broken all answered 200 with
+ *  an empty envelope, so this is the only record of who was charged. Internal
+ *  rows (our own canaries and burners) are excluded by the ledger's own
+ *  classification - refunding ourselves would just burn gas. */
+export function externalSalesForSlugs(slugs, sinceMs, untilMs) {
+  const list = (Array.isArray(slugs) ? slugs : []).filter((s) => typeof s === "string" && s);
+  if (!list.length) return [];
+  const holes = list.map(() => "?").join(",");
+  try {
+    return db.prepare(
+      `SELECT ts, slug, price_usd AS priceUsd, network, payer, tx
+         FROM sales
+        WHERE internal = 0 AND ts >= ? AND ts < ? AND slug IN (${holes})
+        ORDER BY ts ASC`
+    ).all(Number(sinceMs) || 0, Number(untilMs) || Date.now(), ...list);
+  } catch { return []; }
+}
+
 export function payerUsage(payer, { days = 30, limit = 50 } = {}) {
   const since = Date.now() - days * 86_400_000;
   const t = qPayerTotals.get(payer, since);
