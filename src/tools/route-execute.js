@@ -152,6 +152,9 @@ function dispatchable(def) {
 export const EXTERNAL_CHAIN_BY_NETWORK = {
   "eip155:8453": "base",
   "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=": "algorand",
+  // Solana buyers fund the SVM spending wallet, which pays Solana sellers
+  // (src/solana-buyer.js). Mainnet genesis only - devnet never maps.
+  "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp": "solana",
   // MPP/tempo buyers (Authorization: Payment, tempo/charge) fund the Tempo
   // spending wallet, which pays MPP sellers on Tempo (src/tempo-buyer.js).
   "eip155:4217": "tempo",

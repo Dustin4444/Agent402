@@ -396,6 +396,27 @@ jobs:
             gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: balance back above the low-water mark at $(date -u +%FT%TZ)."
           fi
 
+      # Solana (SVM) spending-wallet check - same pattern: this wallet pays
+      # Solana x402 sellers for the SOR's external leg (src/solana-buyer.js).
+      # "unknown"/"unconfigured" never page.
+      - name: Solana upstream buyer wallet check (alarm on low SVM spending balance)
+        if: always()
+        continue-on-error: true
+        run: |
+          STATUS=$(curl -s --max-time 15 "$PROD/api/gateway-status" | jq -r '.upstreamBuyerSvm.status // "unknown"' 2>/dev/null || echo unknown)
+          echo "solana upstream buyer wallet: $STATUS"
+          TITLE="Solana upstream buyer wallet LOW (x402)"
+          OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          if [ "$STATUS" = "low" ]; then
+            if [ -z "$OPEN" ]; then
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "The Solana x402 spending wallet (SOLANA_UPSTREAM_BUYER_KEY) behind the SOR's Solana external routing is below the low-water mark (SOLANA_UPSTREAM_BUYER_LOW_USD, default \$0.50). When it empties, Solana external routing fails 502 (buyers are never charged, but the path goes dark). Top up: send USDC on Solana to the SVM spending wallet address (see CLAUDE.md env docs)."
+            else
+              gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "Still low at $(date -u +%FT%TZ)."
+            fi
+          elif [ "$STATUS" = "ok" ] && [ -n "$OPEN" ]; then
+            gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: balance back above the low-water mark at $(date -u +%FT%TZ)."
+          fi
+
       # Tempo (MPP) spending-wallet check - same pattern: this wallet pays MPP
       # sellers on Tempo for the SOR's external leg (src/tempo-buyer.js), in
       # USDC.e. "unknown"/"unconfigured" never page.
