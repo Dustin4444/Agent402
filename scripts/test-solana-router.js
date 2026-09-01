@@ -228,5 +228,32 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
   ok(v1Body.ok === true, "a v1 body-carried challenge parses too");
 }
 
+// --- the payload carries `accepted` (2026-09-01) ---------------------------
+// A hand-built SVM payload MUST echo back the requirement it satisfies as
+// `accepted`; without it the seller's facilitator throws `unexpected_verify_error`
+// (the scheme client always includes it). Verify-critical, so pin it. No RPC:
+// the builder reads extra.recentBlockhash and signs offline.
+{
+  const { createSvmPaymentPayload } = await import("../src/solana-buyer.js");
+  const kit = await import("@solana/kit");
+  const signer = await kit.generateKeyPairSigner();
+  const req = {
+    scheme: "exact",
+    network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    amount: 1000,
+    payTo: "AQqnMFBwGZEoti85aTVRy8XYpKrho7GaMDx9ZB3CEeKA",
+    maxTimeoutSeconds: 300,
+    asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    extra: { feePayer: "2wKupLR9q6wXYppw8Gr2NvWxKBUqm4PPJKkQfoxHDBg4", recentBlockhash: "EeS7HKiDAu8hmSDrcNXa3nnCVEgDG9hygkFByy1E6Aon", lastValidBlockHeight: "421572519" },
+  };
+  const p = await createSvmPaymentPayload(signer, { x402Version: 2, accepts: [req] });
+  ok(p.accepted && p.accepted.network === req.network && String(p.accepted.amount) === "1000" && p.accepted.payTo === req.payTo && p.accepted.asset === req.asset,
+    "the payload echoes `accepted` (network/amount/payTo/asset) - the field the facilitator matches against");
+  ok(p.accepted.extra && p.accepted.extra.feePayer === req.extra.feePayer,
+    "`accepted.extra` carries the feePayer/blockhash the facilitator needs");
+  ok(p.payload && typeof p.payload.transaction === "string" && p.payload.transaction.length > 0,
+    "the payload still carries the signed base64 wire transaction");
+}
+
 console.log(fail ? `FAILED: ${pass} passed, ${fail} failed` : `OK: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

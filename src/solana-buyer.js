@@ -56,7 +56,7 @@ export async function getUpstreamBuyerSvm() {
     // stub RPC. The accept's extra.recentBlockhash (which real facilitator
     // 402s carry) means signing then needs no blockhash fetch at all.
     client.register("solana:*", new ExactSvmScheme(signer, { rpcUrl: RPC_URL() }));
-    return { client, http: new x402HTTPClient(client), address: signer.address };
+    return { client, http: new x402HTTPClient(client), address: signer.address, signer };
   })();
   return svmBuyerPromise;
 }
@@ -159,6 +159,77 @@ export async function assertProvenSolanaSeller(payTo, { minCount = Number(proces
   return inbound;
 }
 
+/**
+ * Build the x402 payment payload for a Solana accept WITHOUT going through
+ * @x402/svm's ExactSvmScheme. That scheme's @solana/kit RPC transport sets a
+ * manual `content-length` header, and after ANY fetch through a custom undici
+ * dispatcher (our ssrfDispatcher on the seller legs) undici validates it
+ * strictly and throws "invalid content-length header" while building the
+ * request - so the scheme's mint read fails and no Solana buy could complete
+ * (root-caused 2026-09-01, see the block below). This replicates the scheme's
+ * transaction byte-for-byte (transferChecked + memo + compute budget, feePayer
+ * from the accept, blockhash from extra.recentBlockhash), but does ZERO RPC:
+ * USDC on mainnet is always 6 decimals under the standard token program, and
+ * the accept carries the blockhash, so there is no kit-transport fetch to
+ * corrupt. Output is identical to the scheme's ({x402Version, payload:{
+ * transaction: base64}}), so the facilitator accepts it unchanged.
+ */
+export async function createSvmPaymentPayload(signer, paymentRequirements) {
+  const kit = await import("@solana/kit");
+  const { findAssociatedTokenPda, getTransferCheckedInstruction, TOKEN_PROGRAM_ADDRESS } = await import("@solana-program/token");
+  const { getSetComputeUnitLimitInstruction, setTransactionMessageComputeUnitPrice } = await import("@solana-program/compute-budget");
+  const accepts = Array.isArray(paymentRequirements?.accepts) ? paymentRequirements.accepts : [paymentRequirements];
+  const req = accepts.find((a) => String(a?.network || "").toLowerCase().startsWith("solana:")) || accepts[0];
+  if (!req) throw bad("no solana accept to sign", 502);
+  if (String(req.asset) !== USDC_MINT) throw bad("SVM payload builder only signs USDC on Solana mainnet", 502);
+  const feePayer = req.extra?.feePayer;
+  if (!feePayer) throw bad("feePayer is required in the accept's extra for SVM", 502);
+  const recentBlockhash = req.extra?.recentBlockhash;
+  if (!recentBlockhash) throw bad("this SVM path requires extra.recentBlockhash on the accept (no RPC by design)", 502);
+  const tokenProgram = TOKEN_PROGRAM_ADDRESS;
+  const [sourceATA] = await findAssociatedTokenPda({ mint: kit.address(USDC_MINT), owner: signer.address, tokenProgram });
+  const [destinationATA] = await findAssociatedTokenPda({ mint: kit.address(USDC_MINT), owner: kit.address(req.payTo), tokenProgram });
+  const transferIx = getTransferCheckedInstruction(
+    { source: sourceATA, mint: kit.address(USDC_MINT), destination: destinationATA, authority: signer, amount: BigInt(req.amount), decimals: 6 },
+    { programAddress: tokenProgram },
+  );
+  // Memo: the seller's if given (bounded), else a random 16-byte hex nonce -
+  // byte-identical to the scheme's default.
+  let memoData;
+  const sellerMemo = req.extra?.memo;
+  if (sellerMemo) {
+    memoData = new TextEncoder().encode(String(sellerMemo));
+    if (memoData.byteLength > 566) throw bad("extra.memo exceeds the memo size limit", 502);
+  } else {
+    const nonce = crypto.getRandomValues(new Uint8Array(16));
+    memoData = new TextEncoder().encode(Array.from(nonce).map((b) => b.toString(16).padStart(2, "0")).join(""));
+  }
+  const memoIx = { programAddress: kit.address("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"), accounts: [], data: memoData };
+  const tx = kit.pipe(
+    kit.createTransactionMessage({ version: 0 }),
+    (m) => setTransactionMessageComputeUnitPrice(1, m),                       // DEFAULT_COMPUTE_UNIT_PRICE_MICROLAMPORTS
+    (m) => kit.setTransactionMessageFeePayer(kit.address(feePayer), m),
+    (m) => kit.prependTransactionMessageInstruction(getSetComputeUnitLimitInstruction({ units: 20000 }), m), // DEFAULT_COMPUTE_UNIT_LIMIT
+    (m) => kit.appendTransactionMessageInstructions([transferIx, memoIx], m),
+    (m) => kit.setTransactionMessageLifetimeUsingBlockhash({ blockhash: recentBlockhash, lastValidBlockHeight: BigInt(req.extra?.lastValidBlockHeight || "0") }, m),
+  );
+  const signed = await kit.partiallySignTransactionMessageWithSigners(tx);
+  // `accepted` echoes back the exact requirement this transaction satisfies -
+  // scheme/network/amount/payTo/asset/extra. The facilitator matches the signed
+  // tx against it; WITHOUT it verify throws `unexpected_verify_error` (the scheme
+  // client always includes it). amount stringified to match the wire.
+  const accepted = {
+    scheme: req.scheme || "exact",
+    network: req.network,
+    amount: String(req.amount),
+    payTo: req.payTo,
+    maxTimeoutSeconds: req.maxTimeoutSeconds,
+    asset: req.asset,
+    ...(req.extra ? { extra: req.extra } : {}),
+  };
+  return { x402Version: paymentRequirements?.x402Version || 2, payload: { transaction: kit.getBase64EncodedWireTransaction(signed) }, accepted };
+}
+
 /** Bucketed SVM spending-wallet status for /api/gateway-status - the
  *  upstreamBuyerAvm pattern. Numbers never leave the server. */
 export async function svmBuyerStatus({ fetchImpl = fetch } = {}) {
@@ -201,3 +272,40 @@ export async function passesSolanaResolveGate({ header, body, inboundFn = solana
   if (inbound < minCount) return { ok: false, payTo, reason: `${inbound} recent inbound USDC payments (floor ${minCount})` };
   return { ok: true, payTo, inbound };
 }
+
+// ============================================================================
+// KNOWN BLOCKER on the router-COMPOSED Solana buy (2026-09-01) - NOT a money
+// or logic bug; documented here with a full repro for a fresh, focused fix.
+//
+// Symptom: payX402(..., chain:"solana") throws `fetch failed` /
+//   `InvalidArgumentError: invalid content-length header`, raised SYNCHRONOUSLY
+//   inside undici's `new Request()` while the @solana/kit RPC transport
+//   (@solana/rpc-transport-http makeHttpRequest) builds its mint-metadata read
+//   during createPaymentPayload. It throws BEFORE any authorization is signed,
+//   so nothing is ever spent (the pay-time hold is released; buyer uncharged).
+//
+// Root cause (bisected): a `fetch()` made through ANY custom undici dispatcher
+//   - our ssrfDispatcher AND a vanilla `new undici.Agent()` both do it -
+//   corrupts the NEXT @solana/kit transport fetch's request construction.
+//   Plain global `fetch()` never triggers it. Verified sequences:
+//     plain-alchemy -> plain-bare -> sign            => OK (664-byte tx)
+//     warm(kit) -> ssrf-fetch -> sign                 => OK
+//     ssrf-fetch -> sign                              => THROWS
+//     ssrf-fetch -> warm(kit) -> sign                 => THROWS (warm after does not clear)
+//     warm(kit) -> ssrf-fetch -> 20 plain-alchemy -> sign => THROWS (evicted)
+//   So warming before the poison works only if nothing runs between; payX402's
+//   bare(ssrf) + ~20-read proven-gate + sign cannot satisfy that ordering.
+//
+// The DIRECT buy path is unaffected and settled on-chain earlier tonight
+//   (tx 2jXgRZRQ568...ymFE6, $0.001 to sol.blockrun's proven payTo): it uses
+//   the manual getUpstreamBuyerSvm + createPaymentPayload flow with plain
+//   fetches and no dispatcher chain. So the RAIL works; only the composed
+//   route-execute path hits this.
+//
+// Candidate fixes (each needs its own verification, none belongs in the
+//   midnight rail work): (a) give @solana/kit a custom RPC transport bound to
+//   a dedicated dispatcher so it never rides the corrupted global fetch;
+//   (b) do all SVM signing RPC on plain fetch and move the seller fetches off
+//   undici custom dispatchers (re-checking the SSRF story); (c) bump
+//   @solana/kit / undici to a pair where the interaction is gone.
+// ============================================================================
