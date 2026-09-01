@@ -108,6 +108,26 @@ const EVM_RPCS = {
   "eip155:4663": "https://rpc.mainnet.chain.robinhood.com",
 };
 
+// The sales ledger records SHORT chain names ("base", "solana"); settle
+// receipts record CAIP-2 ("eip155:8453"). Debts minted by the charged-failure
+// detector carry the receipt form; debts minted by the 2026-09-01 backfill
+// carried the ledger form, and familyOf + the accepts lookup both key on
+// CAIP-2 - so four provably-owed Base rows were held "unsupported network
+// base". Normalize the known short names at intake. Values verified against
+// our own live 402 accepts, not typed from memory.
+const CAIP2_BY_SHORT_NAME = {
+  base: "eip155:8453", optimism: "eip155:10", polygon: "eip155:137",
+  arbitrum: "eip155:42161", celo: "eip155:42220", avalanche: "eip155:43114",
+  sei: "eip155:1329", monad: "eip155:143", robinhood: "eip155:4663",
+  solana: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+  stellar: "stellar:pubnet",
+  algorand: "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=",
+};
+export function normalizeNetwork(network) {
+  const n = String(network || "").trim();
+  return CAIP2_BY_SHORT_NAME[n.toLowerCase()] || n;
+}
+
 export function familyOf(network) {
   const n = String(network || "");
   if (n.startsWith("eip155:")) return "evm";
@@ -122,7 +142,7 @@ export function familyOf(network) {
  * for the offline test - the dangerous mistakes (skipping caps, refunding the
  * canary, silently dropping an unsupported chain) all live here.
  */
-export function planRefunds(rows, {
+export function planRefunds(rawRows, {
   maxEachUsd = MAX_EACH,
   maxTotalUsd = MAX_TOTAL,
   maxPerPayerUsd = MAX_PER_PAYER,
@@ -131,6 +151,9 @@ export function planRefunds(rows, {
   includeSynthetic = false,
   senders = {},              // family -> truthy when a key+implementation exists
 } = {}) {
+  // Normalized ONCE at intake so familyOf, the accepts lookup and the row the
+  // sender receives all agree on the CAIP-2 form.
+  const rows = (rawRows || []).map((r) => ({ ...r, network: normalizeNetwork(r.network) }));
   // Comparisons are written `!(x <= cap)` rather than `x > cap` so that a NaN
   // cap HOLDS the row instead of waving it through - NaN makes every `>` false.
   const send = [];
