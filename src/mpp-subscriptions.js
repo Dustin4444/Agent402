@@ -143,6 +143,31 @@ export const CHALLENGE_TTL_MS = 10 * 60_000;
 export const PAST_DUE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 export const CHARGE_BACKOFF_MS = 60 * 60_000;
 export const MAX_CHARGE_BACKOFF_MS = 24 * 60 * 60_000;
+// A TRANSIENT charge failure retries in minutes, not an hour. Measured
+// 2026-09-02 (tempo-subscription-canary run 33657453172): the renewal's
+// transferWithMemo reached rpc.tempo.xyz's eth_estimateGas with its
+// `validBefore` two seconds in the past - viem's Tempo chain config stamps
+// validBefore = now + 25 s on every request, and that minute our own
+// tempo-volume run had the RPC answering in 7-20 s. The transfer never
+// existed on chain, nobody was charged, and the next attempt an hour later
+// would have succeeded - but an hour of past_due for a slow RPC is the wrong
+// price, and for the canary it read as "the pull half of the rail is broken".
+// A refused transfer (insufficient funds, revoked key) keeps the hour.
+export const TRANSIENT_CHARGE_BACKOFF_MS = 2 * 60_000;
+const TRANSIENT_CHARGE_RE = /transaction expired|validBefore|timed? ?out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|fetch failed|socket hang up|\b(?:429|502|503|504)\b|rate.?limit|temporarily unavailable|UND_ERR/i;
+/** True when the failed charge looks like RPC/network trouble rather than a refused transfer. */
+export function isTransientChargeError(err) {
+  const seen = new Set();
+  for (let e = err, depth = 0; e && depth < 6; e = e.cause, depth++) {
+    if (typeof e !== "object" || seen.has(e)) break;
+    seen.add(e);
+    for (const k of ["details", "shortMessage", "message", "code", "name"]) {
+      const v = e[k];
+      if (v !== undefined && v !== null && TRANSIENT_CHARGE_RE.test(String(v))) return true;
+    }
+  }
+  return typeof err === "string" && TRANSIENT_CHARGE_RE.test(err);
+}
 // Every unpaid 402 mints and PERSISTS a server-owned access key, so an
 // unauthenticated caller can write to the shared /data volume by asking for
 // offers it never pays. Bounded two ways: unclaimed offers are swept once their
@@ -943,7 +968,10 @@ export function createMppSubscriptions({
       // status alone. The buyer's message never carries the upstream body.
       const failures = (rec.chargeFailures || 0) + 1;
       const firstFailedAt = rec.firstFailedAt || new Date(at).toISOString();
-      const backoff = Math.min(CHARGE_BACKOFF_MS * 2 ** (failures - 1), MAX_CHARGE_BACKOFF_MS);
+      const transient = isTransientChargeError(err);
+      const backoff = transient
+        ? Math.min(TRANSIENT_CHARGE_BACKOFF_MS * failures, CHARGE_BACKOFF_MS)
+        : Math.min(CHARGE_BACKOFF_MS * 2 ** (failures - 1), MAX_CHARGE_BACKOFF_MS);
       const givenUp = at - Date.parse(firstFailedAt) >= PAST_DUE_GRACE_MS;
       const next = {
         ...rec, chargeFailures: failures, firstFailedAt,
@@ -953,7 +981,7 @@ export function createMppSubscriptions({
         ...(givenUp ? { canceledAt: new Date(at).toISOString(), canceledReason: "unpaid" } : {}),
       };
       await writeRec(next);
-      log(`[mpp-subs] period charge failed for ${subId} (attempt ${failures}${givenUp ? ", giving up: past the grace window" : `, retry in ${Math.round(backoff / 60000)}m`}): ${diagnoseError(err)}`);
+      log(`[mpp-subs] period charge failed for ${subId} (attempt ${failures}${givenUp ? ", giving up: past the grace window" : `, retry in ${Math.round(backoff / 60000)}m${transient ? " (transient)" : ""}`}): ${diagnoseError(err)}`);
       return next.status;
     } finally { inFlight.delete(subId); }
   }
