@@ -3630,6 +3630,8 @@ jobs:
           t node scripts/test-dispatch-eligibility.js
           # In-flight composites are cut off on SIGTERM: scope wrapper + fetch signal + shutdown seam (offline)
           t node scripts/test-drain-abort.js
+          # Solana SPL leaderboard: batched credits scan, primed gate, payTo list, ranking, persistence (offline stub RPC)
+          t node scripts/test-solana-leaderboard.js
           # OWN LANE on purpose. This single step ran 254s - 42% of the unit-a
           # lane, and unit-a was the slowest of the three, so it was 42% of the
           # critical path. It rebuilds a max-size dense-CJK body and BPE-tokenizes

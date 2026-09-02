@@ -33,6 +33,7 @@ import {
 } from "./tools/memory.js";
 import { payerFromRequest, payerFromPaymentResponse, paymentHeaderOf, paymentIdentifierOf } from "./payer.js";
 import { runInAbortableScope, abortInFlightComposites, installDrainAwareFetch, isDrainAbort } from "./drain-abort.js";
+import { startSolanaLeaderboard, getSolanaLeaderboardSnapshot, solanaEvidenceByOrigin } from "./solana-leaderboard.js";
 import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpendFailure, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS, isLongRunningSlug, _compositeGuardState, compositeUsageSnapshot, withCompositeContext } from "./composite-spend-guard.js";
 // Single-upstream-call routes that run long (40 s+): EVM exact only, like the
 // composites (settle-after on SVM/AVM/Tempo is work done, never charged), but
@@ -906,6 +907,7 @@ const norm = (u) => String(u || "").replace(/\/+$/, "").toLowerCase();
 // different from having zero payers.
 function buildPayersByOrigin() {
   const m = new Map();
+  try { for (const [o, n] of solanaEvidenceByOrigin().payers) if (n > 0) m.set(norm(o), Math.max(m.get(norm(o)) || 0, n)); } catch { /* additive */ }
   for (const row of (getLeaderboardSnapshot()?.leaderboard || [])) {
     const n = Number(row.uniqueBuyers || 0);
     if (!n) continue;
@@ -943,6 +945,9 @@ function buildProvenPayToByOrigin() {
 
 function buildSettledByOrigin() {
   const m = new Map();
+  // Solana credits scanned by the SPL leaderboard (2026-09-02): the first
+  // settlement evidence the resolver has ever had for a Solana row.
+  try { for (const [o, n] of solanaEvidenceByOrigin().settled) if (n > 0) m.set(norm(o), Math.max(m.get(norm(o)) || 0, n)); } catch { /* additive */ }
   for (const [o, c] of Object.entries(SOR_SEED_ORIGINS)) m.set(norm(o), Number(c) || 0);
   for (const row of (getLeaderboardSnapshot()?.leaderboard || [])) {
     for (const o of (Array.isArray(row.origins) ? row.origins : [row.homepage])) {
@@ -4531,6 +4536,14 @@ app.get("/api/mpp-index", (_req, res) => {
   res.set("Cache-Control", "public, max-age=120");
   res.json({ ...snap, generatedAt: new Date(snap.generatedAt).toISOString() });
 });
+// Solana SPL leaderboard: inbound USDC credits per seller payTo, hour-fresh,
+// counts only (never a per-transaction feed). The host's own payTo is the
+// flagged `self` row, ranked like everyone else.
+app.get("/api/solana-leaderboard", (req, res) => {
+  const snap = getSolanaLeaderboardSnapshot({ self: (process.env.SOLANA_WALLET_ADDRESS || "").trim() || null });
+  const top = Math.min(Math.max(parseInt(req.query.top, 10) || 50, 1), operatorAuthed(req) ? 1000 : 200);
+  res.set("Cache-Control", "public, max-age=120, stale-while-revalidate=600").json({ ...snap, top, rows: snap.rows.slice(0, top), truncatedList: snap.rows.length > top });
+});
 app.get("/api/mpp-leaderboard", (_req, res) => {
   const lb = mppLeaderboardSnapshot();
   const { history, ...rest } = lb;
@@ -7009,6 +7022,14 @@ if (String(process.env.MPP_INDEX_CRAWL || "").toLowerCase() === "off") {
     console.log("[mpp-leaderboard] disabled (MPP_LEADERBOARD=off)");
   } else {
     startMppLeaderboard({ self: tempoSelfRecipient() });
+    // Solana SPL leaderboard: hourly batched credits scan over every Solana
+    // payTo the index knows, primed into the pay-time gate (src/solana-leaderboard.js).
+    startSolanaLeaderboard({
+      listPayTos: async () => (await import("./x402-index.js")).allSolanaPayToOrigins(),
+      readFn: async (payTo) => (await import("./solana-buyer.js")).solanaInboundCount(payTo, { detail: true }),
+      prime: (payTo, count) => import("./solana-buyer.js").then((m) => m.primeSvmInboundCount(payTo, count)),
+      windowHours: Number(process.env.SOR_SVM_WINDOW_HOURS) || 168,
+    });
   }
 }
 
