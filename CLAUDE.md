@@ -2382,6 +2382,15 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   also alias, or a gate that priced the request before dispatch leaves the handler an un-aliased input while the
   "one object" test still passes. Filled names ride on `req.__aliasedParams` for telemetry. Mutation-tested: breaking
   each of the three rules fails the suite.
+- **`accepts[0].outputSchema` on every 402 (2026-09-02, `src/accept-output-schema.js`):** the spec's own field, carrying the
+  SAME bounded schema the Bazaar extension already carries, on the FIRST accept only (thirteen copies would be echoed back
+  by every buyer; measured on prod's widest sampled challenge, 11,108 bytes, +~540 stays under the 12,000 ceiling). It
+  cannot be declared in the route config - `@x402/core`'s `buildPaymentRequirements` copies only scheme/network/amount/
+  asset/payTo/maxTimeoutSeconds/extra - so it is added to the built PAYMENT-REQUIRED header at writeHead, mounted AFTER
+  mppShim (LIFO: it runs first, the shim mints its evm challenge from the enriched accept). Safe because the core matches
+  an echoed `accepted` by scheme + network only and its requirements schema admits `outputSchema`. Pinned in
+  test-bazaar-contracts (every route: accepts[0] equals the extension schema, later accepts carry none) and
+  test-accept-output-schema (pure rewrite + mount order). This closes the "example is not a schema" item.
 - **Typed output schema on the 402 itself (2026-08-29, `boundedSchemaFromExample`):** the OpenAPI fix left the surface a
   buyer reads AT THE MOMENT OF PAYING still example-only - `accepts[].outputSchema` was absent on every route and the
   `bazaar` discovery extension carried `output.example` with no schema. The extension now also carries a TYPED schema
