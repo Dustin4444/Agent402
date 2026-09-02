@@ -560,7 +560,7 @@ with no x402 middleware at all.
 - AI-gateway traffic (`/v1` chat, embeddings, images, speech) is additionally subject to the
   upstream model providers' usage policies. Wallets used for prohibited content are blocked
   before settlement (`WALLET_BLOCKLIST`).
-- The **server code** is AGPL-3.0-licensed (the client SDK, MCP connector, and tollbooth packages are MIT) and provided as-is, without warranty (see [LICENSE](LICENSE) and [NOTICE](NOTICE)). "Agent402" and the logo are trademarks of Havok Holdings LLC - the license covers the code, not the name; forks must rename (see [TRADEMARKS.md](TRADEMARKS.md)).
+- The **server code** is AGPL-3.0-licensed and provided as-is; every **published npm package** is MIT with its own LICENSE file in its directory: `agent402-mcp` (`mcp/`), `agent402-client` (`client/`), `agent402-tollbooth` (`tollbooth/`), `agent402-openclaw` (`openclaw/`), `agent402-agentkit` (`adapters/agentkit/`), `elizaos-plugin-agent402` (`adapters/eliza/`) and the facilitator (`facilitator/`). GitHub's repository-level license badge reports the server's AGPL; a package's `license` field and its directory's LICENSE are what apply to that package. Provided as-is, without warranty (see [LICENSE](LICENSE) and [NOTICE](NOTICE)). "Agent402" and the logo are trademarks of Havok Holdings LLC - the license covers the code, not the name; forks must rename (see [TRADEMARKS.md](TRADEMARKS.md)).
   If you self-host, you are the operator: your deployment, your terms, your compliance -
   Havok Holdings LLC operates only the hosted instance and is not responsible for third-party
   deployments.
@@ -574,5 +574,5 @@ with no x402 middleware at all.
 ## Contributing
 
 PRs that add useful tools, fix bugs, or improve docs are very welcome - see
-[CONTRIBUTING.md](CONTRIBUTING.md). AGPL-3.0 licensed (packages MIT). Maintained by
+[CONTRIBUTING.md](CONTRIBUTING.md). Server AGPL-3.0, every published package MIT (see Legal above). Maintained by
 [Havok Holdings LLC](https://github.com/MikeyPetrillo/Agent402).

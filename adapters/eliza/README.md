@@ -59,4 +59,6 @@ Every paid call carries an `Idempotency-Key`, so a retried call replays the
 paid answer instead of paying twice. What the same key buys beyond tools:
 https://agent402.tools/why. Other hosts: https://agent402.tools/guides/agent-hosts.
 
-MIT, Havok Holdings LLC.
+## License
+
+This plugin is **MIT** (Havok Holdings LLC) - see the [LICENSE](LICENSE) in this directory, which is what npm's `license` field declares. It lives in the Agent402 monorepo, whose **server** is AGPL-3.0; GitHub's repository-level license badge reports that one, not the plugin's. Every published Agent402 package (`agent402-client`, which this plugin depends on, included) is MIT the same way.
