@@ -8,19 +8,19 @@ on:
   workflow_dispatch:
     inputs:
       task:
-        description: "Task text (default: list supported rpc chains)"
+        description: "Task text (default: api v1 exa search - ranks blockrun's Solana exa route)"
         required: false
         default: ""
       expect_text:
-        description: "Substring the delivered payload must contain (default: solana)"
+        description: "Substring the delivered payload must contain (default: results)"
         required: false
         default: ""
       params:
-        description: "JSON params forwarded to the resolved seller (e.g. {\"query\":\"bitcoin\"})"
+        description: "JSON params forwarded to the resolved seller (default: {\"query\":\"bitcoin\"})"
         required: false
         default: ""
       route:
-        description: "/api/route/execute (cap $0.005) or /api/route/execute-plus (cap $0.04)"
+        description: "/api/route/execute (cap $0.005) or /api/route/execute-plus (cap $0.04, the default)"
         required: false
         default: ""
 
