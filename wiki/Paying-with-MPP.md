@@ -41,7 +41,7 @@ For `evm` you need USDC on Base or Celo in the paying wallet; for `tempo` you ne
 
 ## MPP on the MCP connector
 
-The hosted connector at `https://agent402.tools/mcp` speaks MPP's MCP wire too: a wallet-only tool called through `catalog.call` (or a flagship such as `web.search`) answers JSON-RPC error `-32042` with `data.challenges`, the client retries with the credential in `_meta["org.paymentauth/credential"]`, and the paid result carries `_meta["org.paymentauth/receipt"]`. mppx's `McpClient.wrap` over a stock MCP SDK client handles it. The connector replays the call as a loopback request to its own paid HTTP route, so the real gates verify and settle and the same invariants hold (`src/mcp-mpp.js`). See [[MCP Connector]].
+The hosted connector at `https://agent402.tools/mcp` speaks MPP's MCP wire too: a wallet-only tool called through `catalog.call` (or a flagship such as `web.search`) answers JSON-RPC error `-32042` (`-32043` when a presented credential was refused) with `data.challenges`, the client retries with the credential in `_meta["org.paymentauth/credential"]`, and the paid result carries `_meta["org.paymentauth/receipt"]`. mppx's `McpClient.wrap` over a stock MCP SDK client handles it. The connector replays the call as a loopback request to its own paid HTTP route, so the real gates verify and settle and the same invariants hold (`src/mcp-mpp.js`). See [[MCP Connector]].
 
 ## Verifying a settlement
 
