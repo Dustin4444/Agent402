@@ -2123,6 +2123,21 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   with THAT rail's outside settlements and distinct buyers only (`externalByNetwork({days})` in sales-ledger, CAIP ids collapsed
   to the rail key; `hostFigures({network, byNetworkFn})`), labelled "outside buyers on <Chain> only"; the all-chains page keeps
   the all-rail totals. Pinned in test-marketplace-index-page (35) and test-sales-ledger (74).
+- **Router dispatch eligibility is LABELLED on every public row (2026-09-02, `src/dispatch-eligibility.js`):** an outside
+  public-facts readout (a buyer-agent tooling founder, at our request; kept in the private dir) showed a buyer agent
+  over-reads `routable` + `health` + `networks` + Bazaar counts + `executeVia` as "Agent402 will pay this seller now" -
+  measured on the day's snapshot: 84 sellers routable with NO networks, 946 with networks + health 1 but routable false,
+  816 routable with no settlement count, route rows carrying executeVia with no networks. Now ONE function,
+  `dispatchEligibility()`, is both the resolver's Base gate (`.chains.base.eligible`, replacing the raw meetsRouterGate
+  call there) and the label on `/api/index` sellers + `?seller=` detail, every `/api/route` row (`withDispatchFields`,
+  row-level price/template checks) and the marketplace/chain rosters (`withDispatchSnapshot`, badge + legend). Fields:
+  `routerDispatchEligible`, `routerDispatchReason` (crawl_failed > network_unknown > no_supported_route > url_template >
+  price_unknown > settlement_required | settlement_checked_at_pay_time (Solana/Algorand/Tempo: the chain is read at pay
+  time) | eligible | local_catalog), `routerDispatchByChain`, `paymentNetworksKnown`, `networks` ALWAYS an array; both
+  envelopes carry `legend`/`dispatchLegend` (routable = crawl readiness, never a promise to pay). Evidence maps are the
+  resolver's own builders memoized 60 s (`dispatchEvidence`). `scripts/test-dispatch-eligibility.js` (offline, readout rows
+  as fixtures, resolver call site pinned from source) + booted pins in test-shortlinks + page pins in
+  test-marketplace-index-page. A row the handler did not label renders NO badge, never a guessed one.
 - **Router aliases + short-term token rule (2026-08-28, from an outside email that had the facts wrong but the symptom right):**
   `/api/route?q=ip geolocation` ranked a $0.05 external seller above our $0.003 `asn-info` ("ASN + IP geolocation"): the
   lexical scorer weights the SLUG, and ours says neither word; worse, the two-letter term "ip" substring-matched gzip /

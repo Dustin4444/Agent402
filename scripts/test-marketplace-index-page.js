@@ -154,5 +154,24 @@ function chainCard(html, slug) {
   ok(!chainWithout.includes("data-host-card"), "a chain page without host figures renders no card");
   ok(count(chainWithout) === count(chainWith), "the chain page's seller count is unchanged by the host card");
 }
+
+// --- dispatch legend + badge (2026-09-02) ------------------------------------
+{
+  const sellers = [
+    LOCAL,
+    { origin: "https://a.example", displayName: "Eligible Co", homepage: "https://a.example", local: false, toolCount: 5, routable: true, networks: ["eip155:8453"], routerDispatchEligible: true, routerDispatchReason: "eligible" },
+    { origin: "https://b.example", displayName: "NoNet Co", homepage: "https://b.example", local: false, toolCount: 3, routable: true, networks: [], routerDispatchEligible: false, routerDispatchReason: "network_unknown" },
+    { origin: "https://c.example", displayName: "Unlabelled Co", homepage: "https://c.example", local: false, toolCount: 2, routable: true, networks: ["eip155:8453"] },
+  ];
+  const html = marketPage(null, BASE_URL, { snapshot: { sellers }, leaderboardSnap: { leaderboard: [] } });
+  ok(/mfb-legend/.test(html) && /the last crawl of the origin succeeded, nothing more/.test(html) && /routerDispatchReason/.test(html), "the roster carries a legend saying healthy is crawl readiness and naming the API field");
+  ok(/Eligible Co[\s\S]{0,600}class="mlr-dispatch" title="the router will pay/.test(html), "an eligible seller shows the dispatch badge");
+  ok(/NoNet Co[\s\S]{0,600}class="mlr-dispatch off"[^>]*>no dispatch &middot; network unknown</.test(html), "a non-eligible seller shows the reason in words");
+  const unl = html.slice(html.indexOf("Unlabelled Co"), html.indexOf("Unlabelled Co") + 900);
+  ok(!/mlr-dispatch/.test(unl), "a seller the handler did not label gets NO badge (never a guessed one)");
+  const loc = html.slice(html.indexOf("THIS HOST") - 400, html.indexOf("THIS HOST") + 400);
+  ok(!/mlr-dispatch/.test(loc), "the host's own row carries no dispatch badge");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

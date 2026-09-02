@@ -51,6 +51,18 @@ try {
     const me = await (await fetch(`${base}/api/index?seller=${encodeURIComponent(q)}`)).json();
     ok(me.self === true && me.listed === true && me.external && Number.isInteger(me.external.days30.settlements) && me.links?.manifest, `/api/index?seller=${q} answers the host's own entry (self:true, external-only figures, links)`);
   }
+  // Dispatch labelling (2026-09-02): every /api/route row and /api/index seller
+  // says whether the router would pay it and why, and both envelopes carry the
+  // legend, so "routable" can no longer be read as "ready to be paid".
+  {
+    const rt = await (await fetch(`${base}/api/route?q=hash%20a%20string&top=3`)).json();
+    ok(rt.dispatchLegend && /crawl readiness/.test(rt.dispatchLegend.routable) && rt.dispatchLegend.routerDispatchReason.settlement_required, "/api/route carries the dispatch legend");
+    ok(rt.results.length > 0 && rt.results.every((r) => typeof r.routerDispatchEligible === "boolean" && typeof r.routerDispatchReason === "string" && Array.isArray(r.networks) && typeof r.paymentNetworksKnown === "boolean"), "every route row carries routerDispatchEligible, routerDispatchReason, networks[] and paymentNetworksKnown");
+    ok(rt.results.filter((r) => r.seller === "self").every((r) => r.routerDispatchEligible === true && r.routerDispatchReason === "local_catalog"), "local rows are local_catalog");
+    const ix = await (await fetch(`${base}/api/index?limit=5`)).json();
+    ok(ix.legend && /crawl readiness/.test(ix.legend.routable), "/api/index carries the legend");
+    ok(ix.sellers.filter((x) => !x.local).every((x) => typeof x.routerDispatchEligible === "boolean" && typeof x.routerDispatchReason === "string"), "every external index seller is labelled");
+  }
   const notMe = await fetch(`${base}/api/index?seller=nobody.example`);
   ok(notMe.status === 404, "an unknown seller still 404s");
   const wwwEvil = await rawGet("/guides/agent-hosts", { Host: "www.evil.example" });

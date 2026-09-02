@@ -3626,6 +3626,8 @@ jobs:
           # A rejected payment is answered in the buyer's terms (balance vs stale authorization) on the 402 (offline)
           t node scripts/test-verify-hint.js
           t node scripts/test-verify-hint-live.js
+          # Router dispatch eligibility, labelled: one function for the resolver's Base gate and every public row (offline)
+          t node scripts/test-dispatch-eligibility.js
           # OWN LANE on purpose. This single step ran 254s - 42% of the unit-a
           # lane, and unit-a was the slowest of the three, so it was 42% of the
           # critical path. It rebuilds a max-size dense-CJK body and BPE-tokenizes
