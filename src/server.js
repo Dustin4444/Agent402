@@ -1025,7 +1025,13 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1 } = 
     // match+liveness only and PROVEN-NESS is enforced at pay time by
     // solana-buyer's chain read (recent inbound USDC to the accept's own
     // payTo, fail closed). Mainnet labels only: a devnet accept never routes.
-    const { results } = routeQuery({ query: task, top: 20, include: "external", ...indexCtx() });
+    // Ask the ranker for SOLANA rows only (strict: a row must advertise the
+    // chain). The unfiltered top 20 is Base-dominated - dozens of sellers tie
+    // on score for "chat completions" or "web search" - so the Solana rows
+    // that survived the post-filter were whichever one or two happened to
+    // win a tie-break, and a Solana seller with the best-matching name could
+    // sit at position 40 and never be tried (2026-09-02).
+    const { results } = routeQuery({ query: task, top: 25, include: "external", networkFilter: "solana", strictNetwork: true, ...indexCtx() });
     candidates = (results || [])
       .filter((r) => r.seller && r.url && r.priceUsd > 0 && r.priceUsd <= cap && Array.isArray(r.networks)
         && r.networks.some((n) => SOLANA_NETWORK_LABELS.has(String(n || "").toLowerCase())))

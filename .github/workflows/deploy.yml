@@ -1239,6 +1239,9 @@ jobs:
         run: TARGET_URL=https://agent402.tools node scripts/test-challenge-size.js
       - name: Router aliases + short-term token rule (offline)
         run: X402_INDEX_CRAWL=off node scripts/test-route-aliases.js
+      # ?network= was echoed and never applied; the Solana SOR branch ranks strictly on-chain rows (offline, mutation-tested)
+      - name: Router network filter + strict chain mode (offline)
+        run: X402_INDEX_CRAWL=off node scripts/test-route-network-filter.js
       # A documented path is not a callable URL: brace, colon and percent-encoded
       # templates all reached buyers as priced routes (offline, mutation-tested)
       - name: URL templates are never published as payable (offline)

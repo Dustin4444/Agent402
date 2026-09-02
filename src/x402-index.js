@@ -3846,7 +3846,7 @@ function toolStatics(t) {
   return st;
 }
 
-export function routeQuery({ query, top, include, networkFilter, baseUrl, catalog, prices, network, toolCount, walletName }) {
+export function routeQuery({ query, top, include, networkFilter, strictNetwork = false, baseUrl, catalog, prices, network, toolCount, walletName }) {
   const q = String(query || "").slice(0, 500);
   const terms = q.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).slice(0, 32);
   const k = Math.min(Math.max(parseInt(top, 10) || 5, 1), 25);
@@ -3886,8 +3886,26 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
         .flatMap(([, v]) => decoratedRemoteTools(v));
   const all = [...localPool, ...remotePool];
 
+  // The network filter is applied HERE, before scoring, so the k slots are
+  // filled by rows that can actually settle on the wanted chain. Until
+  // 2026-09-02 `wantNet` was computed, echoed in the response and never
+  // applied: ?network=solana returned the same Base-dominated list as no
+  // filter at all, and the Solana SOR branch (which asked for the top 20 and
+  // then kept the Solana rows) found one or two survivors among twenty ties.
+  // Default semantics are the documented positive-signal ones: a row whose
+  // crawled 402 names other chains only is dropped; unknown networks (no
+  // accepts seen) and local rows are kept. `strictNetwork` keeps ONLY rows
+  // that advertise the chain - what a chain-matched spend needs, since it
+  // will pay nobody whose 402 does not offer that rail.
+  const netOk = (t) => {
+    if (!wantNet) return true;
+    const nets = Array.isArray(t.networks) ? t.networks.map((n) => String(n || "").toLowerCase()) : [];
+    if (nets.length) return nets.includes(wantNet.toLowerCase());
+    return !strictNetwork;
+  };
   const scored = [];
   for (const t of all) {
+    if (!netOk(t)) continue;
     const st = toolStatics(t);
     if (st.injected) continue;
     const { slug, name, hay, aliases } = st;

@@ -1,0 +1,54 @@
+#!/usr/bin/env node
+// routeQuery's `networkFilter` is APPLIED, and `strictNetwork` narrows it.
+//
+// From 2026-08 to 2026-09-02 `?network=<chain>` on /api/route was parsed,
+// echoed back as `network` in the response, and never used to filter a single
+// row - the documented positive-signal filter existed only as a comment. The
+// Solana SOR branch inherited the gap: it asked for the top 20 with no filter
+// and kept the Solana rows, so a Base-dominated tie at score 14 left the
+// best-named Solana seller outside the window entirely.
+import { routeQuery, _cacheForTests } from "../src/x402-index.js";
+
+let pass = 0, fail = 0;
+const ok = (c, m) => { c ? pass++ : fail++; console.log(`${c ? "ok" : "FAIL"} - ${m}`); };
+
+const cache = _cacheForTests(); cache.clear();
+const SOL = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", BASE = "eip155:8453";
+const seed = (origin, slug, networks) => cache.set(origin, {
+  manifest: { name: origin, homepage: origin }, openapiSummary: null,
+  tools: [{ seller: origin, method: "POST", route: `/api/${slug}`, slug, name: "Chat Completions", description: "chat completions", category: "ai", tags: [], price: 0.003, ...(networks ? { networks } : {}) }],
+  fetchedAt: Date.now(), error: null, history: [1, 1, 1, 1, 1],
+});
+seed("https://sol-only.example", "chat-sol", [SOL]);
+seed("https://base-only.example", "chat-base", [BASE]);
+seed("https://both.example", "chat-both", [BASE, SOL]);
+seed("https://unknown.example", "chat-unknown", null);
+const ctx = { baseUrl: "https://agent402.tools", catalog: {}, toolCount: 0 };
+const sellers = (opts) => routeQuery({ query: "chat completions", top: 10, include: "external", ...ctx, ...opts }).results.map((r) => r.seller).sort();
+
+ok(sellers({}).length === 4, "no filter: every matching row ranks");
+const loose = sellers({ networkFilter: "solana" });
+ok(!loose.includes("https://base-only.example"), "network=solana drops a row whose crawled 402 names other chains only");
+ok(loose.includes("https://sol-only.example") && loose.includes("https://both.example"), "and keeps rows that advertise solana");
+ok(loose.includes("https://unknown.example"), "positive-signal default: a row with NO known accepts is kept (unknown is not 'not solana')");
+const strict = sellers({ networkFilter: "solana", strictNetwork: true });
+ok(strict.length === 2 && strict.includes("https://sol-only.example") && strict.includes("https://both.example"),
+  "strictNetwork keeps ONLY rows that advertise the chain - the shape a chain-matched spend needs");
+ok(sellers({ networkFilter: "base" }).includes("https://base-only.example") && !sellers({ networkFilter: "base" }).includes("https://sol-only.example"),
+  "the alias table resolves 'base' to its CAIP-2 and filters the other way round");
+ok(sellers({ networkFilter: SOL }).length === 3, "a raw CAIP-2 id works as the filter too");
+const echoed = routeQuery({ query: "chat completions", top: 10, include: "external", ...ctx, networkFilter: "solana" }).network;
+ok(echoed === SOL, "the response still echoes the resolved network");
+
+// The CALLER: the Solana SOR branch must ask for Solana rows, strictly.
+{
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+  const at = src.indexOf('} else if (chain === "solana") {');
+  const branch = src.slice(at, src.indexOf("} else {", at));
+  ok(/routeQuery\(\{[^}]*networkFilter: "solana"[^}]*strictNetwork: true/.test(branch),
+    "the Solana SOR branch ranks with networkFilter:'solana' + strictNetwork, so its window holds Solana rows only");
+}
+
+console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);
