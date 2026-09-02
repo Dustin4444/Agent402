@@ -252,7 +252,19 @@ export async function createSvmPaymentPayload(signer, paymentRequirements) {
     asset: req.asset,
     ...(req.extra ? { extra: req.extra } : {}),
   };
-  return { x402Version: paymentRequirements?.x402Version || 2, payload: { transaction: kit.getBase64EncodedWireTransaction(signed) }, accepted };
+  // The v2 wrap is the STOCK client's, field for field: @x402/core wraps every
+  // scheme payload with the 402's own `resource` and `extensions` beside
+  // `accepted` (client/index.mjs createPaymentPayload). A seller running the
+  // stock middleware tolerated their absence (sol.blockrun settled two buys
+  // without them, 2026-09-02); a seller with its own verifier did not -
+  // api.xfuel.app answered `payment_payload_invalid` to a transaction that was
+  // byte-for-byte the shape of the ones it settles for stock clients. Same
+  // lesson as the Tempo relay wire: hand-assemble nothing the library would
+  // have filled in.
+  const wrap = {};
+  if (paymentRequirements?.resource) wrap.resource = paymentRequirements.resource;
+  if (paymentRequirements?.extensions && typeof paymentRequirements.extensions === "object") wrap.extensions = paymentRequirements.extensions;
+  return { x402Version: paymentRequirements?.x402Version || 2, payload: { transaction: kit.getBase64EncodedWireTransaction(signed) }, ...wrap, accepted };
 }
 
 /** Bucketed SVM spending-wallet status for /api/gateway-status - the

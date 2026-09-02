@@ -256,6 +256,21 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
     "`accepted.extra` carries the feePayer/blockhash the facilitator needs");
   ok(p.payload && typeof p.payload.transaction === "string" && p.payload.transaction.length > 0,
     "the payload still carries the signed base64 wire transaction");
+  // The v2 wrap must match the STOCK client's: `resource` + `extensions` from
+  // the 402 ride beside `accepted`. blockrun's stock middleware tolerated
+  // their absence; xfuel's own verifier answered payment_payload_invalid to an
+  // otherwise identical transaction (2026-09-02).
+  const resource = { url: "https://seller.example/v1/chat/completions", description: "chat", mimeType: "application/json" };
+  const extensions = { bazaar: { info: { input: { type: "http" } } } };
+  const wrapped = await createSvmPaymentPayload(signer, { x402Version: 2, resource, extensions, accepts: [req] });
+  ok(wrapped.resource && wrapped.resource.url === resource.url && wrapped.resource.mimeType === resource.mimeType,
+    "the payload carries the 402's `resource` like the stock client's wrap does");
+  ok(wrapped.extensions && wrapped.extensions.bazaar && wrapped.extensions.bazaar.info.input.type === "http",
+    "and echoes the 402's `extensions` (the stock client merges them in)");
+  ok(!("resource" in p) && !("extensions" in p),
+    "a 402 that carries neither gets neither - nothing is invented");
+  ok(JSON.stringify(Object.keys(wrapped).sort()) === JSON.stringify(["accepted", "extensions", "payload", "resource", "x402Version"]),
+    "and the wrap has exactly the stock field set, nothing extra for a strict verifier to trip on");
 }
 
 console.log(fail ? `FAILED: ${pass} passed, ${fail} failed` : `OK: ${pass} passed, ${fail} failed`);
