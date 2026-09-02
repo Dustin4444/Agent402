@@ -33,6 +33,7 @@ import {
   clampToMargin, flexAttempts, cacheControlPref, upstreamUserId, PROVIDER_SORT_ENABLED,
   fetchOpenRouter, throwUpstreamError, streamOpenRouterTo, bad, MAX_IMAGES,
   refuseCostVariants, checkBlockCacheControl, meteredQuoteForProbe, costFor,
+  assertUpstreamBody,
 } from "./llm-gateway-kit.js";
 import { METER_MARKUP, METER_MIN_SETTLE_USD, setMeterSentinel } from "../gateway-meter.js";
 
@@ -351,6 +352,7 @@ export function makeMessagesHandler(tierSlug) {
         const text = await res.text();
         let data;
         try { data = JSON.parse(text); } catch { throw bad("Upstream returned non-JSON", 502); }
+        assertUpstreamBody(data);
         if (data?.stop_reason === "refusal" && isEmptyMaxTokens({ ...data, stop_reason: "max_tokens" })) {
           lastErr = bad("Upstream declined the request (safety filter) - rephrase the prompt, or pick a different model", 502);
           refusedModel = model;

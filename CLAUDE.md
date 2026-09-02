@@ -2285,6 +2285,24 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   every report composite among them - are unexamined by CI on every run. Audited by booting FREE_MODE locally with the
   keys pulled from Railway into a 0600 scratchpad file (never committed, shredded after) and driving them against
   real upstreams.
+  **The synthesis half now has a DRIVER: `scripts/audit-metered.mjs` (2026-09-02, NOT in CI - it spends).** Boot FREE_MODE
+  with the prod keys (Railway vars into a 0600 scratch file, OPENROUTER_API_KEY = the audit key, CDP keys included) and run
+  `TARGET_URL=http://127.0.0.1:PORT node scripts/audit-metered.mjs [--only a,b] [--out file.json]`: it reads METERED_SLUGS from
+  the sweep's own source, each slug's method/path/example from `/openapi.json`, drives it with a 5-min bound, and grades
+  with the sweep's `missingDocumentedKeys` + `emptyPromisedArrays` (ok / defect = our 4xx/500 or a hollow 200 / upstream =
+  502-504, 429 / skipped = no op or identity-bound). First pass 2026-09-02: 147 driven, 112 ok, and THREE real findings, all
+  fixed the same day: (1) **`callOpenRouter` and every other wire's parser checked only `res.ok`** - OpenRouter answered
+  HTTP 200 with `{error:{message:"…temporarily rate-limited upstream"}}` and no choices on the auto tier's own example, and
+  our route relayed it as a 200 = a PAID EMPTY ANSWER; `assertUpstreamBody()` now throws 503 (rate limit, walkable) / 502 on
+  a body carrying `error` and no output, at all eight parse sites (chat, Messages, Responses, images, embeddings, rerank,
+  speech); a body with output beside an error is returned as-is. The retired ox tier's "alpha has ended" 200-body is the
+  same class and now 502s. (2) **The Responses wire hardcoded a 1,024 default budget** (ignored `tier.defaultMaxTokens`) and
+  (3) **the premium tier had no `defaultMaxTokens`** while its default model reasons before it speaks, so `/v1/premium/
+  responses`' own documented example (`max_output_tokens: 128`) answered 502 "reasoning consumed it"; premium now carries
+  `defaultMaxTokens: 4_096`, the Responses wire uses the tier's default, and a tier with one publishes no budget in its
+  example. Not defects, for the next reader: identity-bound routes 400 on a free boot (the driver skips them), X/Hunter/
+  Apollo are unlisted without keys, token-risk's empty `tables` on WETH/Base is the Blockscout paid-leg outage (holders
+  come from there), and the two Blockscout tools are that outage.
   **USE THE AUDIT KEY FOR OPENROUTER, NOT PROD'S (2026-08-30, after the spend was traced):** the OpenRouter account now
   carries a second API key, `Agent402 Audit (local metered-tool audits)`, with its own $50/month limit - export it as
   `OPENROUTER_API_KEY` for the local boot. Why: this audit costs REAL money and was invisible to every accounting surface

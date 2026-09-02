@@ -29,6 +29,7 @@ import {
   fetchOpenRouter, throwUpstreamError, streamOpenRouterTo, bad, MAX_IMAGES,
   defaultReasoningFor, validateReasoning,
   refuseCostVariants,
+  assertUpstreamBody,
 } from "./llm-gateway-kit.js";
 
 import { METER_MARKUP, METER_MIN_SETTLE_USD, setMeterSentinel } from "../gateway-meter.js";
@@ -158,8 +159,13 @@ export function validateResponsesRequest(input, tierSlug) {
   }
   if (acc.chars > tier.maxInputChars) throw bad(`Input too large (${acc.chars} chars). The ${tierSlug} tier allows up to ${tier.maxInputChars} chars`);
   if (acc.images > MAX_IMAGES) throw bad(`Too many images (${acc.images}). Maximum is ${MAX_IMAGES} per request`);
-  let maxOut = input.max_output_tokens != null ? parseInt(input.max_output_tokens, 10) : Math.min(1024, tier.maxTokens);
-  if (!Number.isFinite(maxOut) || maxOut < 1) maxOut = Math.min(1024, tier.maxTokens);
+  // The tier's own default budget, like the chat wire: a premium model that
+  // reasons before it speaks spent a hardcoded 1024 entirely on reasoning and
+  // our own documented example answered 502 "reasoning consumed it"
+  // (2026-09-02 audit); the chat wire has given such tiers 4,096 since 08-19.
+  const tierDefaultMax = Math.min(tier.defaultMaxTokens || 1024, tier.maxTokens);
+  let maxOut = input.max_output_tokens != null ? parseInt(input.max_output_tokens, 10) : tierDefaultMax;
+  if (!Number.isFinite(maxOut) || maxOut < 1) maxOut = tierDefaultMax;
   if (maxOut > tier.maxTokens) maxOut = tier.maxTokens;
 
   const body = { model: isRouted ? undefined : model, input: input.input, max_output_tokens: maxOut, store: false };
@@ -302,6 +308,7 @@ export function makeResponsesHandler(tierSlug) {
         const text = await res.text();
         let data;
         try { data = JSON.parse(text); } catch { throw bad("Upstream returned non-JSON", 502); }
+        assertUpstreamBody(data);
         if (data?.status === "failed" || data?.error) {
           lastErr = bad(`Upstream error: ${String(data?.error?.message || data?.error?.code || "response failed").slice(0, 200)}`, 502);
           continue;
@@ -374,7 +381,13 @@ export const LLM_RESPONSES_TOOLS = Object.entries(RESPONSES_PATH_BY_TIER).map(([
   ...(tierSlug === "v1-chat-metered" ? { quote: (body) => meteredResponsesQuoteUsd(body).usd } : {}),
   discovery: {
     bodyType: "json",
-    input: tierSlug === "v1-chat-auto" ? { input: "Summarize x402 in one sentence.", max_output_tokens: 128 } : { model: EXAMPLE_MODEL_BY_TIER[tierSlug], input: "Summarize x402 in one sentence.", max_output_tokens: 128 },
+    // A tier whose default model reasons before it speaks (it carries
+    // defaultMaxTokens) publishes NO budget in its example: 128 tokens were
+    // consumed entirely by reasoning on the premium tier and our own example
+    // answered 502 (2026-09-02 audit). The tier default leaves room.
+    input: tierSlug === "v1-chat-auto"
+      ? { input: "Summarize x402 in one sentence.", max_output_tokens: 128 }
+      : { model: EXAMPLE_MODEL_BY_TIER[tierSlug], input: "Summarize x402 in one sentence.", ...(TIERS[tierSlug]?.defaultMaxTokens ? {} : { max_output_tokens: 128 }) },
     inputSchema: INPUT_SCHEMA,
     output: { example: EXAMPLE_OUT },
   },
