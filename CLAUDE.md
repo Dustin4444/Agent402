@@ -2138,6 +2138,12 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   resolver's own builders memoized 60 s (`dispatchEvidence`). `scripts/test-dispatch-eligibility.js` (offline, readout rows
   as fixtures, resolver call site pinned from source) + booted pins in test-shortlinks + page pins in
   test-marketplace-index-page. A row the handler did not label renders NO badge, never a guessed one.
+  **Row-level network inheritance (same day):** the live check showed api.strale.io's ranked row (`/x402/v2/image-to-text`,
+  $0.054, 3,769 Bazaar calls) as `network_unknown` because the seller's OpenAPI documents the priced v2 paths while only its
+  manifest rows carry accepts, so the router never dispatched to it. `decoratedRemoteTools` now gives a row with NO observed
+  accepts its SELLER's known networks (own tools + Bazaar union, the same union the index seller row shows) flagged
+  `networksInferred: true`; a seller with nothing known anywhere stays unknown. Money-safe because payX402 pins the accept
+  from the live 402 before signing. Pinned in test-route-network-filter.
 - **Router aliases + short-term token rule (2026-08-28, from an outside email that had the facts wrong but the symptom right):**
   `/api/route?q=ip geolocation` ranked a $0.05 external seller above our $0.003 `asn-info` ("ASN + IP geolocation"): the
   lexical scorer weights the SLUG, and ours says neither word; worse, the two-letter term "ip" substring-matched gzip /

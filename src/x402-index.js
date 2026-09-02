@@ -3803,6 +3803,24 @@ const toolStaticsMemo = new WeakMap(); // tool (local or decorated) -> { slug, n
 function decoratedRemoteTools(v) {
   let d = remotePoolMemo.get(v);
   if (d) return d;
+  // Seller-level payment networks: the union of every chain this seller's
+  // OWN crawled 402s advertise plus the Bazaar's settled view of the same
+  // origin - the same union the /api/index seller row carries. A route the
+  // seller documents in OpenAPI (priced, so a buy candidate) has no accepts
+  // of its own until a probe reaches it, and until 2026-09-02 such a row
+  // ranked with `networks: []`: api.strale.io's /x402/v2/image-to-text
+  // (3,769 settled calls that month) read as network_unknown and the router
+  // never dispatched to it, while the seller's manifest rows beside it said
+  // Base. So a row with NO observed accepts inherits its seller's known
+  // networks, flagged `networksInferred`; a row that observed its own keeps
+  // them. Money-safe: payX402 pins the accept from the LIVE 402 before it
+  // signs, so an inferred chain the route does not actually offer fails the
+  // buy with nothing spent - inference only decides who gets tried.
+  const sellerOrigin = (v.tools || [])[0]?.seller || null;
+  const sellerNets = [...new Set([
+    ...(v.tools || []).flatMap((t) => t.networks || []),
+    ...(sellerOrigin ? (bazaarToolsByOrigin.get(sellerOrigin) || []) : []).flatMap((t) => t.networks || []),
+  ])];
   d = (v.tools || [])
     // paid:false = the seller's own doc says this operation is free.
     // It lists on the marketplace, but it is never a BUY candidate —
@@ -3811,6 +3829,7 @@ function decoratedRemoteTools(v) {
     .filter((t) => t.paid !== false)
     .map((t) => ({
       ...t,
+      ...(!(Array.isArray(t.networks) && t.networks.length) && sellerNets.length ? { networks: sellerNets, networksInferred: true } : {}),
       sellerHome: v.manifest?.homepage || t.seller,
       sellerName: v.manifest?.name || t.seller,
       health: healthScore(v),
@@ -4078,6 +4097,9 @@ export function routeQuery({ query, top, include, networkFilter, strictNetwork =
       score,
       health: t.health,
       ...(Array.isArray(t.networks) && t.networks.length ? { networks: t.networks } : {}),
+      // Says when those networks were inherited from the seller rather than
+      // observed on this route's own 402 (see decoratedRemoteTools).
+      ...(t.networksInferred ? { networksInferred: true } : {}),
       // Quote-guided execution: tell the buyer exactly which route-execute tier
       // runs this result and what to pay (x402 is fixed-price, so the buyer must
       // pick the tier that covers the tool's underlying price). null = above the
