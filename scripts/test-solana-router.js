@@ -80,18 +80,21 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
     { signature: "self", blockTime: now - 90, err: null },// SELF-transfer - must not count
     { signature: "out", blockTime: now - 90, err: null }, // outbound (debit) - must not count
     { signature: "c", blockTime: now - 60, err: { InstructionError: [] } }, // failed tx - filtered before read
-    { signature: "d", blockTime: now - 40 * 3600, err: null },              // outside the window
+    { signature: "d", blockTime: now - 40 * 3600, err: null },              // 40h ago: INSIDE the 7d window now (was outside at 15h)
+    { signature: "old", blockTime: now - 8 * 24 * 3600, err: null },        // 8 days ago: OUTSIDE the 7d window - a credit here must NOT count
   ];
   const txs = {
     a: { credit: true, funder: "FACILITATORshared1111111111111111111111111" },
     b: { credit: true, funder: "FACILITATORshared1111111111111111111111111" }, // SAME facilitator - must STILL count (2, not 1)
+    d: { credit: true, funder: "FUNDERddddddddddddddddddddddddddddddddddd1" }, // 40h ago, inside 7d -> counts (window widened from 15h)
+    old: { credit: true, funder: "FUNDERoooooooooooooooooooooooooooooooooo1" }, // 8d ago, outside 7d -> excluded by the window filter
     self: { credit: true, funder: payTo },   // seller funding itself
     out: { credit: false, funder: "FUNDERaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1" }, // debit
   };
   const counted = await solanaInboundCount(payTo, {
     fetchImpl: rpcStub({ getTokenAccountsByOwner: { value: [{ pubkey: "ATA111" }] }, getSignaturesForAddress: sigs }, txs),
   });
-  ok(counted === 2, "counts direction-verified CREDITS (funded by a non-self account) - self-transfer and outbound excluded; a shared facilitator sender still counts");
+  ok(counted === 3, "counts direction-verified CREDITS inside the 7d window (a, b, d) - self-transfer/outbound excluded, a shared facilitator sender still counts, and the 8-day-old credit is outside the window");
   // 20 self-transfers = the cheap spoof the review flagged; they all have funder === payTo.
   const spoofSigs = Array.from({ length: 20 }, (_, i) => ({ signature: `s${i}`, blockTime: now - 60, err: null }));
   const spoofTxs = Object.fromEntries(spoofSigs.map((x) => [x.signature, { credit: true, funder: payTo }]));
