@@ -25,7 +25,7 @@ import {
   OFFER_SWEEP_AFTER_MS, MAX_OPEN_OFFERS,
   CANARY_PRODUCT_KEY, CANARY_PRODUCT, CANARY_PERIOD_SECONDS, productDefFor, isCanaryProduct,
   subscriptionFeePayerPolicy, SUB_FEE_PAYER_MAX_GAS,
-  isTransientChargeError, TRANSIENT_CHARGE_BACKOFF_MS,
+  isTransientChargeError, TRANSIENT_CHARGE_BACKOFF_MS, isSendPhaseAmbiguity, expectedRenewalMemo,
 } from "../src/mpp-subscriptions.js";
 import { MONITOR_PRODUCTS } from "../src/stripe-subscriptions.js";
 
@@ -95,6 +95,7 @@ const advance = (ms) => { clock += ms; };
 function makeEngine(opts = {}) {
   const calls = { activate: 0, charge: 0, sales: [] };
   let chargeBehaviour = () => ({ reference: `0xtx${calls.charge}` });
+  let findBehaviour = { found: false };
   const engine = createMppSubscriptions({
     secretKey: SECRET, realm: REALM,
     storePath: join(tmp, `${opts.name || "store"}.json`),
@@ -125,6 +126,7 @@ function makeEngine(opts = {}) {
       });
       return { receipt: { method: "tempo", status: "success", reference: "0xactivation", timestamp: new Date(clock).toISOString() } };
     },
+    findRenewalOnChain: async (args) => { calls.find = (calls.find || 0) + 1; return typeof findBehaviour === "function" ? findBehaviour(args) : findBehaviour; },
     chargePeriod: async (rec, { periodIndex }) => {
       calls.charge++;
       const r = chargeBehaviour(rec, periodIndex);
@@ -136,7 +138,7 @@ function makeEngine(opts = {}) {
       return r;
     },
   });
-  return { engine, calls, setCharge: (fn) => { chargeBehaviour = fn; } };
+  return { engine, calls, setCharge: (fn) => { chargeBehaviour = fn; }, setFind: (v) => { findBehaviour = v; } };
 }
 
 /** A real buyer: signs the challenge's key authorization with a viem account. */
@@ -409,6 +411,76 @@ let liveSubId = null, liveHeader = null, liveToken = null, liveBuyer = null;
     t.setCharge(() => ({ reference: "0xafter-blip" }));
     advance(TRANSIENT_CHARGE_BACKOFF_MS + 1000);
     ok(await t.engine.refreshStatus(ts.subId) === "active" && t.engine.get(ts.subId).lastChargedPeriod === 1, "and the retry after the short backoff pulls the period");
+  }
+
+  // A SEND-PHASE failure (canary run 33659899394: eth_sendRawTransactionSync
+  // timed out after the transfer was handed to the RPC) may have moved money.
+  // The next pull asks the chain first; only "never landed" signs again.
+  {
+    const sendTimeout = Object.assign(new Error("The request took too long to respond.\n\nURL: https://rpc.tempo.xyz/\nRequest body: {\"method\":\"eth_sendRawTransactionSync\",\"params\":[\"0x76f9\"]}"), { name: "TimeoutError", details: "The request timed out." });
+    ok(isSendPhaseAmbiguity(sendTimeout) === true, "a timeout on eth_sendRawTransactionSync is a send-phase ambiguity");
+    const estimateTimeout = Object.assign(new Error("Request body: {\"method\":\"eth_estimateGas\"}"), { name: "TimeoutError", details: "The request timed out." });
+    ok(isSendPhaseAmbiguity(estimateTimeout) === false && isTransientChargeError(estimateTimeout) === true, "a timeout BEFORE the send is transient but not ambiguous (nothing could have moved)");
+    ok(isSendPhaseAmbiguity(new Error("eth_sendRawTransactionSync: insufficient funds")) === false, "a refusal that names the send call is not ambiguous");
+    const memo = await expectedRenewalMemo({ lookupKey: "lk", subscriptionId: "mpp_x", periodIndex: 1 });
+    ok(/^0x[0-9a-f]{64}$/.test(memo), `the expected memo is bytes32 (${memo.slice(0, 12)}...)`);
+    // Pinned against mppx's OWN encoder (imported by file path: the package
+    // does not export it) so a drift in their memo layout fails here, not on
+    // a real renewal that then gets charged twice.
+    const theirs = (await import("../node_modules/mppx/dist/tempo/Attribution.js")).encode({ serverId: "lk", challengeId: "renewal:mpp_x:1" });
+    ok(theirs.toLowerCase() === memo.toLowerCase(), "our expected memo equals mppx's Attribution.encode for the same lookupKey + renewal reference");
+    ok(memo.slice(10, 12) === "01" && memo.slice(32, 52) === "0".repeat(20), "memo layout: version byte 0x01 at offset 4, ten zero bytes (no clientId) at offset 15");
+    ok((await expectedRenewalMemo({ lookupKey: "lk", subscriptionId: "mpp_x", periodIndex: 2 })) !== memo, "a different period is a different memo (the check is per period)");
+
+    // (a) landed: the chain says the timed-out send settled -> recorded, never re-sent.
+    const a = makeEngine({ name: "ambiguous-landed" });
+    const offA = await a.engine.mintOffer({ product: "fund-monitor", target: "Some Manager LP" });
+    const cA = await signCredential(Challenge.deserialize(offA.header));
+    const subA = await a.engine.activateFromCredential(cA.header);
+    await a.engine.warm();
+    a.setCharge(() => sendTimeout);
+    advance(PERIOD);
+    ok(await a.engine.refreshStatus(subA.subId) === "past_due", "a send-phase failure leaves the subscription past_due");
+    const recA = a.engine.get(subA.subId);
+    ok(recA.unconfirmedCharge?.periodIndex === 1 && recA.unconfirmedCharge.at, "and remembers that period 1 has an UNCONFIRMED send");
+    const chargesA = a.calls.charge;
+    a.setFind(({ periodIndex, sinceMs }) => (periodIndex === 1 && sinceMs < clock ? { found: true, tx: "0xlanded" } : { found: false }));
+    a.setCharge(() => ({ reference: "0xMUST-NOT-HAPPEN" }));
+    advance(TRANSIENT_CHARGE_BACKOFF_MS + 1000);
+    ok(await a.engine.refreshStatus(subA.subId) === "active", "the next pull asks the chain first and finds the transfer -> active");
+    const afterA = a.engine.get(subA.subId);
+    ok(afterA.lastChargedPeriod === 1 && afterA.lastChargeTx === "0xlanded" && !afterA.unconfirmedCharge, "the landed transaction is recorded as period 1's charge");
+    ok(a.calls.charge === chargesA && a.calls.find === 1, "and NOTHING was signed again (no second transfer)");
+
+    // (b) never landed: the chain says nothing -> charged now, once.
+    const b = makeEngine({ name: "ambiguous-clean" });
+    const offB = await b.engine.mintOffer({ product: "fund-monitor", target: "Some Manager LP" });
+    const cB = await signCredential(Challenge.deserialize(offB.header));
+    const subB = await b.engine.activateFromCredential(cB.header);
+    await b.engine.warm();
+    b.setCharge(() => sendTimeout);
+    advance(PERIOD);
+    ok(await b.engine.refreshStatus(subB.subId) === "past_due", "(b) send-phase failure -> past_due");
+    b.setFind({ found: false });
+    b.setCharge(() => ({ reference: "0xsecond-try" }));
+    advance(TRANSIENT_CHARGE_BACKOFF_MS + 1000);
+    ok(await b.engine.refreshStatus(subB.subId) === "active" && b.engine.get(subB.subId).lastChargeTx === "0xsecond-try" && !b.engine.get(subB.subId).unconfirmedCharge, "(b) the chain shows no transfer -> charged now, flag cleared");
+
+    // (c) chain unreadable: wait, never sign.
+    const c = makeEngine({ name: "ambiguous-unreadable" });
+    const offC = await c.engine.mintOffer({ product: "fund-monitor", target: "Some Manager LP" });
+    const cC = await signCredential(Challenge.deserialize(offC.header));
+    const subC = await c.engine.activateFromCredential(cC.header);
+    await c.engine.warm();
+    c.setCharge(() => sendTimeout);
+    advance(PERIOD);
+    await c.engine.refreshStatus(subC.subId);
+    const chargesC = c.calls.charge;
+    c.setFind(null);
+    c.setCharge(() => ({ reference: "0xMUST-NOT-HAPPEN" }));
+    advance(TRANSIENT_CHARGE_BACKOFF_MS + 1000);
+    ok(await c.engine.refreshStatus(subC.subId) === "past_due" && c.calls.charge === chargesC, "(c) an unreadable chain waits and signs nothing");
+    ok(Date.parse(c.engine.get(subC.subId).nextChargeAttemptAt) - clock <= TRANSIENT_CHARGE_BACKOFF_MS + 1000, "(c) and retries the chain read on the short backoff");
   }
 
   // Recovery.

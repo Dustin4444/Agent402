@@ -2551,7 +2551,20 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   tempo-volume run had rpc.tempo.xyz answering in 7-20 s (the morning's green run had no volume overlap). Nobody was charged.
   The renewal then backed off a full HOUR, which is the wrong price for a slow RPC: `isTransientChargeError` (RPC/network
   shapes, read through viem's nested `cause.details`) now retries in `TRANSIENT_CHARGE_BACKOFF_MS` (2 min x attempts,
-  capped at the hour); a refused transfer keeps the hour. test-mpp-subscriptions 127. **Tollbooth 0.10.0 (same day): MPP on the EDGE gate** - `tollbooth/edge-mpp.js` (Web Crypto
+  capped at the hour); a refused transfer keeps the hour. **The next canary (run 33659899394) failed a different way and
+  found the real hole: `eth_sendRawTransactionSync` TIMED OUT after the transfer had been handed to the RPC** (viem's default
+  10 s request timeout; the sync send waits for inclusion). The chain showed it never landed that time, but nothing in the
+  path could know that, and mppx renews with Tempo's EXPIRING nonce, so a retry is a NEW transaction that lands beside an
+  earlier one that did - a double charge with no attacker. Now: (1) the subscriptions engine always supplies ITS OWN viem
+  client with a 30 s timeout (`TEMPO_SUBSCRIPTION_RPC_TIMEOUT_MS`; before, `TEMPO_RPC_URL` was unset on Railway so mppx's
+  default client ran); (2) a send-phase failure (`isSendPhaseAmbiguity`: the error names the send call and is
+  timeout/network shaped) is remembered as `rec.unconfirmedCharge = {at, periodIndex}`, and the next pull asks the CHAIN
+  first (`findRenewalOnChain`: Transfer logs payer -> our recipient since the attempt, value = the period amount, AND the
+  transaction's transferWithMemo memo equal to mppx's attribution for `renewal:<subscriptionId>:<period>` -
+  `expectedRenewalMemo` reproduces `tempo/Attribution.js` byte for byte and the test pins it against mppx's own encoder by
+  file-path import): landed -> recorded in BOTH stores (mppx `put`, ours) and booked, nothing signed; never landed ->
+  charged now; chain unreadable -> wait on the short backoff, never sign. (3) the canary waits 135 s for the server's
+  transient retry before calling the rail broken. test-mpp-subscriptions 143. **Tollbooth 0.10.0 (same day): MPP on the EDGE gate** - `tollbooth/edge-mpp.js` (Web Crypto
   HMAC) mints one evm/charge challenge for the edge quote beside the x402 accepts block and translates an
   `Authorization: Payment` credential (HMAC-bound, unexpired, minted for THAT resource) to PAYMENT-SIGNATURE for the
   operator's `verifyX402`; the wire codec moved to `tollbooth/mpp-codec.js` (runtime-agnostic, shared with the Node build).
