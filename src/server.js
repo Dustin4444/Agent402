@@ -334,6 +334,7 @@ import { sellPage } from "./sell.js";
 import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledgerBuyerConcentration, ledgerSyncState } from "./revenue-ledger.js";
 import { x402EconomySnapshot, economySnapshotCached, warmEconomySnapshot } from "./x402-economy.js";
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate } from "./settlement-proof.js";
+import { dispatchEligibility, dispatchLegend } from "./dispatch-eligibility.js";
 import { spend as sharedSpend, refund as sharedRefund, sharedLimitEnabled } from "./shared-limit.js";
 import { recordSale, salesSummary, externalByNetwork, mppSales, cardSales, mppTxHashes, txFromPaymentResponse, tempoDailyRevenue, tempoDailyRecordingSince, proofFeed, externalDailyRevenue } from "./sales-ledger.js";
 import { recordShadowSettlement, startShadowLedger, shadowLedgerReport, shadowLedgerEnabled } from "./stripe-shadow-ledger.js";
@@ -965,6 +966,58 @@ function buildSettledByOrigin() {
   } catch { /* evidence is additive; never break routing when a source is down */ }
   return m;
 }
+// Dispatch labelling for the public surfaces (src/dispatch-eligibility.js):
+// the SAME function the resolver's Base gate runs, applied to /api/index
+// sellers, /api/route rows and the marketplace roster, so "routable" can no
+// longer be read as "the router will pay this seller". The settlement
+// evidence maps are the resolver's own builders, memoized for a minute: they
+// walk the leaderboard, the Bazaar feed and the economy snapshot, which is
+// fine once per resolve and not fine once per crawler-hit page render.
+const DISPATCH_EVIDENCE_TTL_MS = 60_000;
+let dispatchEvidenceCache = null;
+function dispatchEvidence() {
+  if (dispatchEvidenceCache && Date.now() - dispatchEvidenceCache.at < DISPATCH_EVIDENCE_TTL_MS) return dispatchEvidenceCache;
+  let settled = new Map(), payers = new Map();
+  try { settled = buildSettledByOrigin(); payers = buildPayersByOrigin(); } catch { /* evidence is additive; an unreadable source labels nothing eligible on Base */ }
+  dispatchEvidenceCache = { at: Date.now(), settled, payers };
+  return dispatchEvidenceCache;
+}
+function spendChainsConfigured() {
+  return ["base", ...(avmBuyerConfigured() ? ["algorand"] : []), ...(tempoBuyerConfigured() ? ["tempo"] : []), ...(svmBuyerConfigured() ? ["solana"] : [])];
+}
+// Row-level decoration: seller-level fields (index) or route-row fields
+// (price + template known). `networks` is ALWAYS an array on the way out and
+// `paymentNetworksKnown` says whether it was learned, so a buyer agent never
+// has to infer "unknown" from a missing key.
+function withDispatchFields(row, { local = false, rowLevel = false } = {}) {
+  if (!row || typeof row !== "object") return row;
+  const ev = dispatchEvidence();
+  const origin = norm(row.seller || row.origin || "");
+  const networks = Array.isArray(row.networks) ? row.networks : [];
+  const verdict = dispatchEligibility({
+    local,
+    routable: local ? true : (row.routable !== undefined ? !!row.routable : true),
+    networks,
+    settled: ev.settled.get(origin) || 0,
+    payers: ev.payers.get(origin),
+    ...(rowLevel ? { priceUsd: row.priceUsd ?? null, urlTemplate: !!row.urlTemplate } : {}),
+    spendChains: spendChainsConfigured(),
+    minSettled: SOR_MIN_SETTLED_TX,
+    minPayers: SOR_MIN_DISTINCT_PAYERS,
+  });
+  return {
+    ...row,
+    networks,
+    paymentNetworksKnown: local ? true : networks.length > 0,
+    routerDispatchEligible: verdict.eligible,
+    routerDispatchReason: verdict.reason,
+    ...(Object.keys(verdict.chains || {}).length ? { routerDispatchByChain: verdict.chains } : {}),
+  };
+}
+function withDispatchSnapshot(snapshot) {
+  if (!snapshot || !Array.isArray(snapshot.sellers)) return snapshot;
+  return { ...snapshot, sellers: snapshot.sellers.map((sel) => (sel?.local ? sel : withDispatchFields(sel))) };
+}
 async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wantModel = null } = {}) {
   // F4: never route to ourselves (paying our own endpoint over x402 = fee loss
   // / accidental self-recursion) — exclude our own host from candidates.
@@ -1055,7 +1108,9 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
       .map((r) => ({ ...r, settled: settledByOrigin.get(norm(r.seller)) || 0, payers: payersByOrigin.get(norm(r.seller)) }))
       // Count AND breadth. One implementation, shared with the test, so the
       // rule cannot drift from what is asserted about it.
-      .filter((r) => meetsRouterGate({ settled: r.settled, payers: r.payers, minSettled: SOR_MIN_SETTLED_TX, minPayers: SOR_MIN_DISTINCT_PAYERS }).ok)
+      // The SAME function that labels every public row (dispatch-eligibility.js),
+      // asked for its Base verdict, so the label and the decision cannot drift.
+      .filter((r) => dispatchEligibility({ routable: true, networks: r.networks, settled: r.settled, payers: r.payers, priceUsd: r.priceUsd, urlTemplate: !!r.urlTemplate, spendChains: ["base"], minSettled: SOR_MIN_SETTLED_TX, minPayers: SOR_MIN_DISTINCT_PAYERS }).chains.base?.eligible === true)
       .sort((a, b) => b.settled - a.settled)
       .slice(0, 5);
   }
@@ -4322,7 +4377,7 @@ for (const chainKey of Object.keys(SNAPSHOT_RAIL_LABEL)) {
         scanWallet ? getActivityForChain(chainKey, scanWallet) : Promise.resolve(null),
       ]);
       const rail = revSnap?.rails?.find((r) => r.rail === SNAPSHOT_RAIL_LABEL[chainKey]) || null;
-      htmlCache(res, 120, 600).send(marketPage(chainKey, BASE_URL, { snapshot, rail, activity, selectedSeller, wallet: rail?.wallet || undefined, leaderboardSnap: getLeaderboardSnapshot(), all: req.query.all === "1" , host: hostEntryFigures(chainKey) }));
+      htmlCache(res, 120, 600).send(marketPage(chainKey, BASE_URL, { snapshot: withDispatchSnapshot(snapshot), rail, activity, selectedSeller, wallet: rail?.wallet || undefined, leaderboardSnap: getLeaderboardSnapshot(), all: req.query.all === "1" , host: hostEntryFigures(chainKey) }));
     } catch (e) {
       res.status(500).type("text/plain").send("temporarily unavailable");
     }
@@ -4431,7 +4486,7 @@ app.get("/marketplace", async (req, res) => {
   try { leaderboardSnap = getLeaderboardSnapshot(); } catch { /* directory still renders */ }
   let economySnap = null;
   try { economySnap = await x402EconomySnapshot(); } catch { /* strip omitted */ }
-  htmlCache(res, 120, 600).send(marketPage(null, BASE_URL, { snapshot, leaderboardSnap, economySnap, all: req.query.all === "1", wallet: WALLET_ADDRESS, host: hostEntryFigures() }));
+  htmlCache(res, 120, 600).send(marketPage(null, BASE_URL, { snapshot: withDispatchSnapshot(snapshot), leaderboardSnap, economySnap, all: req.query.all === "1", wallet: WALLET_ADDRESS, host: hostEntryFigures() }));
 });
 // The host's own entry for the discovery surfaces: external-only ledger
 // figures, rendered outside every ranking and count (src/host-entry.js).
@@ -4511,7 +4566,7 @@ app.get("/api/index", (req, res) => {
     }
     const detail = sellerDetail(String(req.query.seller));
     if (!detail) return res.status(404).json({ error: "seller not found in the index", seller: String(req.query.seller).slice(0, 253) });
-    return res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300").json(detail);
+    return res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300").json({ ...withDispatchFields(detail), legend: dispatchLegend() });
   }
   // The full snapshot is ~1.4MB: every crawled origin with its health score,
   // its re-crawl history and its whole tool list. The per-origin HEALTH and
@@ -4531,7 +4586,7 @@ app.get("/api/index", (req, res) => {
   const sellers = Array.isArray(snap.sellers) ? snap.sellers : [];
   const perPage = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 250);
   const page = Math.max(parseInt(req.query.page, 10) || 0, 0);
-  const slice = sellers.slice(page * perPage, page * perPage + perPage).map(({ history, ...rest }) => rest);
+  const slice = sellers.slice(page * perPage, page * perPage + perPage).map(({ history, ...rest }) => (rest.local ? rest : withDispatchFields(rest)));
   res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300").json({
     ...snap,
     sellers: slice,
@@ -4540,6 +4595,7 @@ app.get("/api/index", (req, res) => {
     sellerCount: sellers.length,
     pages: Math.ceil(sellers.length / perPage),
     note: `Paginated: ${slice.length} of ${sellers.length} sellers. Use ?page=N&limit=<=250, or ?seller=<host> for one origin with its full detail.`,
+    legend: dispatchLegend(),
   });
 });
 // Self-serve listing: validate + rate-limit here; ALL probing happens inside
@@ -4619,7 +4675,14 @@ app.post("/api/mpp-index/register", async (req, res) => {
   const result = await registerMppOrigin(v.origin, { path: req.body?.path, method: req.body?.method });
   res.json(result);
 });
-const computeRoute = (q, k, include, net) => routeQuery({ query: q, top: k, include, networkFilter: net, ...indexCtx() });
+const computeRoute = (q, k, include, net) => {
+  const out = routeQuery({ query: q, top: k, include, networkFilter: net, ...indexCtx() });
+  // Every row says whether the router would pay it and why (the readout's
+  // finding: executeVia with no networks in the row read as "dispatchable").
+  out.results = (out.results || []).map((r) => withDispatchFields(r, { local: r.seller === "self", rowLevel: true }));
+  out.dispatchLegend = dispatchLegend();
+  return out;
+};
 const routeCachePath = "/api/route";
 const routeCachePolicy = CACHEABLE_ROUTES[routeCachePath];
 app.get("/api/route", (req, res) => {

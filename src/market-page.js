@@ -374,7 +374,19 @@ export function marketFilterBar(chainKey, _baseUrl) {
     <select class="mfb-sel" data-mfb-sort><option value="calls">most settled</option><option value="usd">volume</option><option value="buyers">buyers</option><option value="tools">tools</option><option value="health">health</option></select>
     <input class="mfb-search" data-mfb-search placeholder="search sellers">
   </div>
+  <p class="mfb-legend" style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin:6px 0 0;line-height:1.5;"><strong style="color:var(--muted);">healthy</strong> = the last crawl of the origin succeeded, nothing more. <strong style="color:var(--muted);">dispatch</strong> = this host's router will pay the seller on a buyer's behalf right now; a seller can be listed, healthy and still not dispatch-eligible (no known payment network, or no settlement history on Base yet). The reason is on each row and on <code>/api/index</code> as <code>routerDispatchReason</code>.</p>
   <script src="/js/market-filter-bar.js"></script>`;
+}
+
+  // Dispatch badge, rendered ONLY when the handler labelled the seller
+// (src/dispatch-eligibility.js via server.js withDispatchSnapshot); an
+// unlabelled snapshot renders no badge rather than a guessed one.
+function dispatchBadge(s) {
+  if (s.local || s.routerDispatchEligible === undefined) return "";
+  const reason = String(s.routerDispatchReason || "").replace(/_/g, " ");
+  return s.routerDispatchEligible
+    ? ` <span class="mlr-dispatch" title="the router will pay this seller on a buyer's behalf (${esc(reason)})" style="font-family:var(--font-mono);font-size:11px;color:var(--accent);">dispatch</span>`
+    : ` <span class="mlr-dispatch off" title="not dispatch-eligible: ${esc(reason)}" style="font-family:var(--font-mono);font-size:11px;color:var(--faint);">no dispatch &middot; ${esc(reason)}</span>`;
 }
 
 function categoryGroups(tools, { maxCategories = 12, maxPerCategory = 6 } = {}) {
@@ -697,7 +709,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
       <span class="mlr-name">${esc(s.displayName)}${s.local ? ' <span class="mlr-badge">THIS HOST</span>' : ""}${s.mpp === true ? ' <span class="mlr-mpp" title="Also reachable over the native MPP wire">MPP</span>' : ""}</span>
       <span class="mlr-host">${esc(hostOf(s.homepage))}</span>
       <span class="mlr-tools">${Number(s.toolCount) || 0} tool${s.toolCount === 1 ? "" : "s"}${paidSuffix(s)}${txSuffix(s)}${endpointsNote(s)}</span>
-      <span class="mlr-stat${good ? "" : " bad"}"><span class="mlr-dot"></span>${s.local ? "live" : (s.routable ? "healthy" : "unreachable")}</span>
+      <span class="mlr-stat${good ? "" : " bad"}"><span class="mlr-dot"></span>${s.local ? "live" : (s.routable ? "healthy" : "unreachable")}</span>${dispatchBadge(s)}
     </a>`;
       }).join("")
     : visibleRoster.map((s) => {
@@ -712,7 +724,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
       <div class="mlr-host">${esc(hostOf(s.homepage))}</div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
         <span style="color:var(--muted);font-family:var(--font-mono);font-size:13px;">${Number(s.toolCount) || 0} tool${s.toolCount === 1 ? "" : "s"}${paidSuffix(s)}${txSuffix(s)}${endpointsNote(s)}</span>
-        <span class="mlr-stat${good ? "" : " bad"}"><span class="mlr-dot"></span>${health}</span>
+        <span class="mlr-stat${good ? "" : " bad"}"><span class="mlr-dot"></span>${health}</span>${dispatchBadge(s)}
       </div>
       <a href="${activityHref(s)}" data-seller-link data-seller-host="${s.local ? "" : esc(hostOf(s.homepage).toLowerCase())}" data-seller-local="${s.local ? "1" : "0"}" style="font-family:var(--font-mono);font-size:12px;color:var(--accent);text-decoration:none;margin-top:2px;">${isSelected(s) ? "activity shown above" : "view activity →"}</a>
     </div>`;
@@ -1071,7 +1083,7 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
       </div>
       <span style="font-family:var(--font-mono);font-size:12.5px;">${chainCell(s)}</span>
       <span class="mlr-tools">${Number(s.toolCount) || 0} tool${s.toolCount === 1 ? "" : "s"}${paidSuffix(s)}${txSuffix(s)}${endpointsNote(s)}</span>
-      <span class="mlr-stat${good ? "" : " bad"}"><span class="mlr-dot"></span>${health}</span>
+      <span class="mlr-stat${good ? "" : " bad"}"><span class="mlr-dot"></span>${health}</span>${dispatchBadge(s)}
     </div>`;
   }).join("");
 

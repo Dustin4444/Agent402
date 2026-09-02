@@ -3518,6 +3518,10 @@ export function sellerDetail(originOrHost) {
       fetchedAt: v.fetchedAt ?? null,
       error: v.error || null,
       health: healthScore(v),
+      // The same two fields the snapshot carries, so the ?seller= detail can be
+      // dispatch-labelled from its own evidence (2026-09-02).
+      routable: isRoutable(v),
+      networks: [...new Set((v.tools || []).flatMap((t) => t.networks || []))],
       // Paywall liveness, measured separately from crawl health. `health` only
       // says the manifest parsed; a seller whose every paid route 500s scores a
       // perfect 1.0 on it. null = not probed yet (never assume healthy).
