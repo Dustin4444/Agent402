@@ -605,7 +605,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   120 tx reads per payTo per cycle (`truncated`), two-hour cadence, persisted WITH its cursors at
   `/data/solana-leaderboard.json`, warm-started. Each refresh PRIMES `primeSvmInboundCount` (solana-buyer) and both gates
   default to `cachedSolanaInboundCount`: a primed count that clears the floor answers with no RPC, one below it falls
-  through to a live read (stale data never refuses). Evidence feeds `buildSettledByOrigin`/`buildPayersByOrigin`.
+  through to a live read (stale data never refuses). **Evidence does NOT feed `buildSettledByOrigin`/`buildPayersByOrigin` (security review 2026-09-02, MED, fixed the same day):** the fold attributed a payTo's credits to every origin whose OWN manifest advertises that payTo, and those maps feed the BASE router gate, whose only belt (`provenPayToMatches`) binds a Base address - a fresh origin naming a heavily-paid third-party Solana payTo cleared the Base floor and would have been paid at its own Base address. Solana proven-ness is read from the chain at pay time against the accept's own payTo; the board only primes that read. Pinned from source in test-dispatch-eligibility.
   `GET /api/solana-leaderboard`: counts only, self row flagged, `stale`, `scannedAt`, `rpcCallsLastScan` - never the
   RPC's error text (stripped from public rows). `SOLANA_LEADERBOARD=off` disarms. The egress meter
   (`/__operator/egress.json`) is how the cost is read; its PLUMBING regex now skips the drain-aware and

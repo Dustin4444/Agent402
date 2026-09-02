@@ -82,6 +82,16 @@ ok(dispatchEligibility({ local: true }).reason === "local_catalog" && dispatchEl
   ok(/dispatchEligibility\(\{ routable: true, networks: r\.networks, settled: r\.settled, payers: r\.payers/.test(fn) && /\.chains\.base\?\.eligible === true\)/.test(fn), "resolveExternalSeller's Base gate is dispatchEligibility's Base verdict (label == decision)");
   ok(!/meetsRouterGate\(\{ settled: r\.settled/.test(fn), "the resolver no longer calls the raw gate beside the labelled one (two implementations would drift)");
   ok(/withDispatchFields\(r, \{ local: r\.seller === "self", rowLevel: true \}\)/.test(server), "/api/route rows are labelled with row-level price + template checks");
+  // Security review 2026-09-02: the Solana SPL leaderboard attributes a payTo's
+  // credits to every origin whose OWN manifest advertises that payTo (no
+  // ownership check), and provenPayToMatches can only bind a BASE address - so
+  // Solana evidence must never reach the maps the Base gate reads, or a fresh
+  // origin clears the Base floor by naming someone else's Solana payTo.
+  const settledFn = server.slice(server.indexOf("function buildSettledByOrigin()"), server.indexOf("function buildSettledByOrigin()") + 2500).split("\nfunction ")[0];
+  const payersFn = server.slice(server.indexOf("function buildPayersByOrigin()"), server.indexOf("function buildPayersByOrigin()") + 2500).split("\nfunction ")[0];
+  ok(!/solanaEvidenceByOrigin\(\)/.test(settledFn) && !/solanaEvidenceByOrigin\(\)/.test(payersFn), "Solana leaderboard evidence is NOT folded into the settled/payers maps the Base gate reads (self-declared payTo attribution cannot clear the Base floor)");
+  const crossChain = dispatchEligibility({ routable: true, networks: ["eip155:8453", "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"], settled: 0, payers: undefined, spendChains: ["base", "solana"], minSettled: 50, minPayers: 3 });
+  ok(crossChain.chains.base.reason === "settlement_required" && crossChain.chains.solana.reason === "settlement_checked_at_pay_time", "an origin with only Solana evidence stays settlement_required on Base while Solana is read at pay time");
   ok(/executeViaWhenEligible: executeVia, executeViaCallableNow: false/.test(server) && /\{ executeVia, executeViaCallableNow: true \}/.test(server), "withDispatchFields moves executeVia to executeViaWhenEligible on a non-eligible row and stamps executeViaCallableNow either way");
   ok(/withDispatchSnapshot\(snapshot\)/.test(server) && (server.match(/withDispatchSnapshot\(snapshot\)/g) || []).length >= 2, "the marketplace and chain pages render the labelled snapshot");
 }

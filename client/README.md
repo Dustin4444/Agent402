@@ -147,7 +147,8 @@ const { query, include, results } = await a.route(task, {
   include: "external",   // all | external | local
   network: "robinhood",  // optional chain filter (short name or CAIP-2)
 });
-// results[]: opaque server rows - { seller, slug, url, priceUsd, executeVia?, ... }
+// results[]: opaque server rows - { seller, slug, url, priceUsd, routerDispatchEligible, routerDispatchReason,
+//            executeVia? (only when executeViaCallableNow is true) | executeViaWhenEligible?, ... }
 
 // executeVia quotes which route-execute* tier fits a row's underlying price.
 // It does NOT bind that row: the tier re-resolves an eligible match under its
