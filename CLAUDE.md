@@ -2541,7 +2541,8 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
 - **mppx 0.9.2 (2026-09-02):** taken after a read of the 0.9.0-0.9.2 changelog: 0.9.0 removes machineUSD (never configured
   here) and adds dual MPP/x402 framework wrappers (unused - our shim is our own); 0.9.1 "fixed MCP payment errors to use the
   specification-defined JSON-RPC codes": `-32042` stays payment-required and `-32043` is a PRESENTED credential refused
-  (`MCP_PAYMENT_VERIFICATION_FAILED_CODE`, mcp-mpp.js; mcp-http.js sends it whenever a `problem` rides along; the 0.9 client
+  (`MCP_PAYMENT_VERIFICATION_FAILED_CODE`, mcp-mpp.js; mcp-http.js keys it on a credential having been PRESENTED in `_meta`, never
+  on the body - an unpaid 402 can carry a problem-shaped body too, which is what test-mcp-tasks' stub does; the 0.9 client
   reads challenges from either code, an 0.8 client stops re-paying a refused credential, which is the spec's intent). All
   thirteen MPP/Tempo/Stripe suites green on 0.9.2 offline; the live proof is the tempo canary + tempo-subscription canary
   dispatched after the deploy. **Tollbooth 0.10.0 (same day): MPP on the EDGE gate** - `tollbooth/edge-mpp.js` (Web Crypto
