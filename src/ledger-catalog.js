@@ -136,7 +136,7 @@ table{border-collapse:collapse;width:100%}
       <div style="font-family:var(--font-mono);font-size:12px;color:var(--green);margin-bottom:14px;">FREE TIER</div>
       <h2 style="font-weight:800;font-size:25px;margin:0 0 14px;color:var(--ink);">Pay with CPU, not USDC</h2>
       <p style="font-size:15px;line-height:1.6;color:var(--muted);margin:0 0 16px;">Every pure-CPU tool is payable in compute. Your machine solves a single-use sha256 puzzle - about 85,000 hashes, a tenth of a second - and the call goes through. No wallet, no funding, no signup.</p>
-      <pre style="margin:0 0 16px;background:var(--paper);border:1px solid var(--hairline);color:var(--on-dark);padding:14px;font-family:var(--font-mono);font-size:11.5px;line-height:1.75;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># the MCP connector solves it for you
+      <pre style="margin:0 0 16px;background:var(--surface);border:1px solid var(--dark-border);color:var(--on-dark);padding:14px;font-family:var(--font-mono);font-size:11.5px;line-height:1.75;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># the MCP connector solves it for you
 </span>claude mcp add --transport http \
   agent402 https://agent402.tools/mcp</pre>
       <a href="/playground" style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--green);padding-bottom:1px;">watch it run in the playground →</a>
@@ -145,7 +145,7 @@ table{border-collapse:collapse;width:100%}
       <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">PAID TOOLS</div>
       <h2 style="font-weight:800;font-size:25px;margin:0 0 14px;color:var(--ink);">Quoted before you're charged</h2>
       <p style="font-size:15px;line-height:1.6;color:var(--muted);margin:0 0 16px;">Anything that costs us money to run - live search, browser rendering, inference, stored memory - is priced per call and states its price in the 402 challenge. A failed call is never charged, and there is no key to leak.</p>
-      <pre style="margin:0 0 16px;background:var(--paper);border:1px solid var(--hairline);color:var(--on-dark);padding:14px;font-family:var(--font-mono);font-size:11.5px;line-height:1.75;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># price, asset and rail, before paying
+      <pre style="margin:0 0 16px;background:var(--surface);border:1px solid var(--dark-border);color:var(--on-dark);padding:14px;font-family:var(--font-mono);font-size:11.5px;line-height:1.75;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># price, asset and rail, before paying
 </span>curl -i https://agent402.tools/api/search \
   -d '{"q":"x402 adoption"}'</pre>
       <a href="/pricing" style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px;">the full price list →</a>
