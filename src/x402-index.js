@@ -3477,6 +3477,25 @@ export function allPayToOrigins(network = "eip155:8453") {
   return out;
 }
 
+/** Solana twin of allPayToOrigins: mainnet-label payTos (base58) -> origins.
+ *  The Solana leaderboard's scan list (src/solana-leaderboard.js). */
+export const SOLANA_MAINNET_LABELS = new Set(["solana:5eykt4usfv8p8njdtrepy1vzqkqzkvdp", "solana", "solana-mainnet", "solana-mainnet-beta"]);
+export function allSolanaPayToOrigins() {
+  const out = new Map();
+  const add = (addr, origin) => {
+    if (typeof addr !== "string" || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr)) return;
+    let set = out.get(addr);
+    if (!set) { set = new Set(); out.set(addr, set); }
+    set.add(origin);
+  };
+  const fromTool = (t, origin) => {
+    for (const [net, addr] of Object.entries(t?.payToByNetwork || {})) if (SOLANA_MAINNET_LABELS.has(String(net).toLowerCase())) add(addr, origin);
+  };
+  for (const [origin, v] of cache.entries()) for (const t of v?.tools || []) fromTool(t, origin);
+  for (const [origin, arr] of bazaarToolsByOrigin.entries()) for (const t of arr || []) fromTool(t, origin);
+  return out;
+}
+
 export function routableSellerSummaries() {
   const out = [];
   for (const [origin, v] of cache.entries()) {

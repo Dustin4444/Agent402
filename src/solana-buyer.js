@@ -104,11 +104,11 @@ async function rpcCall(method, params, { fetchImpl = fetch, timeoutMs = 6000 } =
 // raised to reach back across the wider window; the expensive tx reads stay
 // bounded by maxTxReads and short-circuited by stopAt at the floor.
 const SVM_WINDOW_MS = () => (Number(process.env.SOR_SVM_WINDOW_HOURS) || 168) * 3600 * 1000;
-export async function solanaInboundCount(payTo, { windowMs = SVM_WINDOW_MS(), limit = 500, fetchImpl = fetch, stopAt = Infinity, maxTxReads = 120 } = {}) {
+export async function solanaInboundCount(payTo, { windowMs = SVM_WINDOW_MS(), limit = 500, fetchImpl = fetch, stopAt = Infinity, maxTxReads = 120, detail = false } = {}) {
   if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(String(payTo || ""))) throw new Error("payTo is not a plausible Solana address");
   const accounts = await rpcCall("getTokenAccountsByOwner", [payTo, { mint: USDC_MINT }, { encoding: "jsonParsed" }], { fetchImpl });
   const ata = accounts?.value?.[0]?.pubkey;
-  if (!ata) return 0; // no USDC account = nobody has ever paid this address USDC
+  if (!ata) return detail ? { credits: 0, payers: 0, truncated: false, read: 0, recent: 0 } : 0; // no USDC account = nobody has ever paid this address USDC
   const sigs = await rpcCall("getSignaturesForAddress", [ata, { limit }], { fetchImpl });
   const cutoff = (Date.now() - windowMs) / 1000;
   const recent = (sigs || []).filter((sig) => !sig.err && Number(sig.blockTime || 0) >= cutoff).map((sig) => sig.signature);
@@ -116,6 +116,8 @@ export async function solanaInboundCount(payTo, { windowMs = SVM_WINDOW_MS(), li
   // slow public RPC blew the pay-path budget (503 fail-closed, 2026-09-01).
   // Between chunks, stop once the floor is met or the hard read cap is hit.
   const toRead = recent.slice(0, maxTxReads);
+  const truncated = recent.length > toRead.length;
+  const funders = new Set();
   const CHUNK = Number(process.env.SOR_SVM_TX_CONCURRENCY || "12");
   const readOne = (signature) =>
     rpcCall("getTransaction", [signature, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 }], { fetchImpl })
@@ -148,10 +150,42 @@ export async function solanaInboundCount(payTo, { windowMs = SVM_WINDOW_MS(), li
       const p2 = (meta.postTokenBalances || []).find((x) => x?.accountIndex === b.accountIndex);
       return Number(b?.uiTokenAmount?.amount || 0) > Number(p2?.uiTokenAmount?.amount || 0);
     });
-    if (fundedByOther) credits++;
+    if (fundedByOther) {
+      credits++;
+      for (const b of meta.preTokenBalances || []) if (b?.mint === USDC_MINT && b?.owner && b.owner !== payTo) funders.add(b.owner);
+    }
     }
   }
+  // detail: the leaderboard's batched scan wants the funder count and whether
+  // the read cap was hit; the gates keep the bare number.
+  if (detail) return { credits, payers: funders.size, truncated, read: toRead.length, recent: recent.length };
   return credits;
+}
+
+// PRIMED proof cache (2026-09-02): the Solana leaderboard's hourly batched scan
+// hands each payTo's credit count here, so a routed buy to a scanned seller
+// does not re-read the chain at pay time (the same seam as tempo-buyer's
+// primeTempoInboundCount). Consulted ONLY when the primed count already
+// clears the caller's floor: a primed count below the floor falls through to a
+// live read, so a seller proven since the last scan is never refused on stale
+// data, and an unreadable chain still fails closed on the live path.
+const SVM_PROOF_TTL_MS = Number(process.env.SOR_SVM_PROOF_TTL_MS) || 60 * 60_000;
+const svmProofCache = new Map(); // payTo -> { at, count }
+export function primeSvmInboundCount(payTo, count, now = Date.now()) {
+  if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(String(payTo || "")) || !Number.isFinite(count)) return;
+  svmProofCache.set(String(payTo), { at: now, count: Math.max(0, count | 0) });
+}
+export function primedSvmInboundCount(payTo, now = Date.now()) {
+  const hit = svmProofCache.get(String(payTo));
+  if (!hit || now - hit.at > SVM_PROOF_TTL_MS) return null;
+  return hit.count;
+}
+export function __resetSvmProofCacheForTest() { svmProofCache.clear(); }
+export async function cachedSolanaInboundCount(payTo, opts = {}) {
+  const primed = primedSvmInboundCount(payTo);
+  const floor = Number.isFinite(opts?.stopAt) ? opts.stopAt : Infinity;
+  if (primed != null && primed >= floor) return primed;
+  return solanaInboundCount(payTo, opts);
 }
 
 /**
@@ -160,7 +194,7 @@ export async function solanaInboundCount(payTo, { windowMs = SVM_WINDOW_MS(), li
  * rail alone). Fails CLOSED: an unreadable chain refuses the spend with a 503
  * the buyer is never charged for, exactly like the Tempo gate.
  */
-export async function assertProvenSolanaSeller(payTo, { minCount = Number(process.env.SOR_SVM_MIN_SETTLED_TX || process.env.SOR_MIN_SETTLED_TX || "20"), inboundFn = solanaInboundCount, allowUnprovenUpToAtomic = 0n, quotedAtomic = null } = {}) {
+export async function assertProvenSolanaSeller(payTo, { minCount = Number(process.env.SOR_SVM_MIN_SETTLED_TX || process.env.SOR_MIN_SETTLED_TX || "20"), inboundFn = cachedSolanaInboundCount, allowUnprovenUpToAtomic = 0n, quotedAtomic = null } = {}) {
   let inbound;
   try { inbound = await inboundFn(payTo, { stopAt: minCount }); }
   catch (e) { throw bad(`Cannot verify seller settlement history on Solana (${String(e?.message || e).slice(0, 80)}) - refusing to spend`, 503); }
@@ -362,7 +396,7 @@ export async function svmBuyerStatus({ fetchImpl = fetch } = {}) {
  * on. The pay-time gate in payX402 stays: this reads the PROBE's 402, the
  * seller writes both answers, and what we verify last must be what we sign.
  */
-export async function passesSolanaResolveGate({ header, body, inboundFn = solanaInboundCount, minCount = Number(process.env.SOR_SVM_MIN_SETTLED_TX || process.env.SOR_MIN_SETTLED_TX || "20") } = {}) {
+export async function passesSolanaResolveGate({ header, body, inboundFn = cachedSolanaInboundCount, minCount = Number(process.env.SOR_SVM_MIN_SETTLED_TX || process.env.SOR_MIN_SETTLED_TX || "20") } = {}) {
   let payTo = null;
   try {
     const doc = header

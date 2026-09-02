@@ -593,6 +593,17 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   burner via `autoSwap: true` - on-chain tx 0x28db1d76… swapped 1001 PathUSD → 1000 USDC.e
   and delivered 1000 USDC.e to our payTo, 200 + Payment-Receipt. Both canaries keep
   `autoSwap: true`.
+- **Solana SPL leaderboard (2026-09-02, `src/solana-leaderboard.js`):** the one rail whose proven-ness rested on a pay-time
+  read alone now has a batched scan: every Solana payTo the index knows (`allSolanaPayToOrigins`, mainnet label only, base58)
+  is read hourly with the gate's own `solanaInboundCount(payTo, { detail: true })` (credits = inbound USDC with a non-self
+  debit, plus funder count and a `truncated` flag past the 120-read cap), concurrency 2, previous row kept `stale` on an RPC
+  error (never zero a proven seller on a hiccup), persisted at `/data/solana-leaderboard.json`, warm-started. Each refresh
+  PRIMES `primeSvmInboundCount` in solana-buyer, and both gates now default to `cachedSolanaInboundCount`: a primed count that
+  clears the floor answers with no RPC; one below it falls through to a live read (stale data never refuses). Evidence
+  feeds `buildSettledByOrigin`/`buildPayersByOrigin`. `GET /api/solana-leaderboard` (counts only, self row flagged, `stale`,
+  `scannedAt`). `SOLANA_LEADERBOARD=off` disarms. Cost: ~N payTos x 2 RPC + capped tx reads per hour on Alchemy. Why counts
+  not funders: on Solana x402 the debited account is a shared facilitator, so distinct funders collapses to 1 for a real
+  seller. `scripts/test-solana-leaderboard.js` (offline stub RPC).
 - **SOR widened to dynamic-priced MPP sellers + Bazaar quality (2026-08-19, build #9):**
   `tempoCatalog` now admits `payment.dynamic` / non-integer-amount tempo/charge USDC.e endpoints
   (~185 registry endpoints) as candidates with `priceUsd:null, dynamic:true`; `rankTempoResources`
