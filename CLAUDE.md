@@ -1896,6 +1896,14 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `content-length` refused before `res.text()` in three kits. X page size capped at 25 posts (X bills per post RETURNED, so
   the page size is the cost lever). Hygiene: a literal NUL byte in a test made the file invisible to grep and secret
   scanners; gitleaks allowlist rows pinned to literals.
+- **Tokenized real-world assets (2026-09-02, `crypto-markets-kit.js`, five tools on the SAME CoinGecko Demo key):** CoinGecko's
+  `/rwas` endpoints (announced 08-31, live-verified on our key the same day: 649 assets = 461 tokenized stocks, 186 ETFs, 2
+  commodities; 33 issuers). `rwa-list` $0.003 (whole list, 10-min cache, type/q filters), `rwa-markets` $0.006 (ranked page or
+  ids; the market block is the ONCHAIN wrapper's `tokenized_market_data`, not the underlying's listing), `rwa-asset` $0.006
+  (`/rwas/{id}` is metadata-only on this plan whatever the query says, so it is joined with the asset's `/rwas/markets` row),
+  `rwa-issuers` $0.003, `rwa-issuer` $0.006 (aggregate cap/volume + tokens with contract per platform). `/rwas/{id}/tickers` is
+  paid-plan only, not offered. Registered: WALLET_ONLY, test-all NETWORK, the CoinGecko sample family in
+  test-non-metered-examples (19 -> 24). test-crypto-markets-kit 274.
 - **Second seller-landscape wave (2026-08-22, scope: everything servable right away and profitably on keys already held):** seven more kits, all wallet-only, offline tests in CI. KEYLESS: `crawl-kit.js` (`CRAWL_TOOLS`: site-map
   $0.005 robots+sitemap+homepage links <= 6 fetches; site-crawl $0.02 BFS <= 20 pages/depth 2, robots honoured, SSRF guard on
   every hop incl. redirects, 200+truncated once a page succeeded else 504), `crypto-signals-kit.js` (`CRYPTO_SIGNALS_TOOLS`:

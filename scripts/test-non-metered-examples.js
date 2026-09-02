@@ -97,6 +97,7 @@ const COINGECKO_SLUGS = new Set([
   "coin-price-by-contract", "coin-profile", "coin-history", "coin-ohlc", "coin-market-chart-range",
   "coin-categories", "global-defi", "exchanges", "exchange-tickers", "exchange-rates", "coin-search",
   "coins-list", "price-coingecko",
+  "rwa-list", "rwa-markets", "rwa-asset", "rwa-issuers", "rwa-issuer",
 ]);
 const CG_SAMPLE_SIZE = Number(process.env.NON_METERED_CG_SAMPLE) || 2;
 
@@ -506,8 +507,8 @@ function runControls() {
       "control: only CoinGecko-backed slugs are ever sampled");
     ok(!COINGECKO_SLUGS.has("price-pyth") && !COINGECKO_SLUGS.has("defi-tvl"),
       "control: Pyth and DefiLlama tools are NOT in the CoinGecko family - they have their own upstreams and stay swept");
-    ok(COINGECKO_SLUGS.has("crypto-price") && COINGECKO_SLUGS.has("coins-list") && COINGECKO_SLUGS.size === 19,
-      `control: the family is the full 19 CoinGecko-backed slugs (got ${COINGECKO_SLUGS.size})`);
+    ok(COINGECKO_SLUGS.has("crypto-price") && COINGECKO_SLUGS.has("coins-list") && COINGECKO_SLUGS.size === 24,
+      `control: the family is the full 24 CoinGecko-backed slugs (got ${COINGECKO_SLUGS.size})`);
     ok(coingeckoSample("x", 99).size === COINGECKO_SLUGS.size,
       "control: raising the sample past the family size sweeps all of them, so the cap is a budget and not a lock");
   }
