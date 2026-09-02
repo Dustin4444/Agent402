@@ -1339,6 +1339,17 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   matches `settle failed (402)` as a substring, so replacing the message would silently
   break the fallback's safety classification. `scripts/test-facilitator-diagnostics.js`
   (30 assertions, offline, in CI).
+- **A facilitator VERIFY that dies at the socket is resent once; a settle never is (2026-09-02, `facilitator-diagnostics.js`):**
+  test-verify-hint-live failed twice in CI (09-01 run 33579827783, 09-02 run 33621769411) with "402 with 0 facilitator
+  verifies", called a one-off the first time. The server's own lines (printed since #1147) explain it: `[loop-lag] event
+  loop blocked 5403ms` right after listen, then `[payments] facilitator VERIFY failed ... fetch failed [UND_ERR_SOCKET]`
+  with the stub facilitator having seen nothing. The boot /supported probe opens a keep-alive socket; a post-listen stall
+  over 5 s (Node's default idle timeout) lets the far side close it; the first verify is written to the dead pooled socket.
+  undici retries idempotent requests on a stale socket itself but a POST is not idempotent to it - a verify IS to us (moves
+  no money), so the facilitator fetch wrapper resends POST /verify or GET /supported ONCE on a socket-class error
+  (`isRetryableFacilitatorRead`: facilitator host, string/Buffer body, UND_ERR_SOCKET/ECONNRESET/EPIPE/ECONNREFUSED/
+  connect-timeout) and NEVER /settle. A response with a status is never retried. Pinned in test-facilitator-diagnostics
+  (45). The same class reaches prod buyers: a verify lost to a stale socket was a 402 for a payment nobody examined.
 - **Redis has REAL coverage in CI (2026-08-07):** nothing had ever connected to a redis.
   `test-shared-limit.js` injects a fake store on purpose (it proves "two callers share
   one counter", and a fake proves that exactly), which left the CLIENT path untested —
