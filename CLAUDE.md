@@ -2638,8 +2638,11 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   dropped rather than raising the bound, which is the belt that catches a model repriced upward. (4) The nano tier's
   `defaultModel` moved to `gpt-5.6-luna`: `gpt-4.1-nano` retires 2026-10-23 (its named successor). NOT done on purpose:
   `usage:{include:true}` is documented as a no-op but is KEPT, because the margin telemetry and the metered meter read
-  `usage.cost` and a docs line is not worth a silent telemetry loss. Dated and still to do: `gpt-image-1-mini` (link 2 of
-  /v1/images/fast) retires 2026-12-01, `openai/o4` canonical and the `gpt-4o-2024-05-13` row retire 2026-10-23, and
+  `usage.cost` and a docs line is not worth a silent telemetry loss. DONE 2026-09-02 ahead of the dates: `gpt-4.1-nano` left the nano/base prefixes (luna is the default,
+  gpt-5-nano stays and is admitted on base too), the `openai/o4` prefix + alias went (o4-mini by its own id, gpt-5.6-terra
+  added to premium), and link 2 of /v1/images/fast is `openai/gpt-5-image-mini` (identical $8/M image-token price; measured
+  live $0.0126 at medium, worstCaseUsd 0.013). The `gpt-4o-2024-05-13` cost row STAYS until the id leaves the catalog: it is
+  live at $5/$15 and the `openai/gpt-4o` prefix admits it, so removing the row made the live guard flag an under-count.
   `stealth/ox-alpha` has no upstream endpoints at all (the boot probe 503s it; set `OX_ALPHA_ENABLED=off` to stop advertising).
 - **Server telemetry is ANONYMOUS (2026-08-28, from a provider sweep):** every `capture()` in posthog.js now carries
   `$process_person_profile: false`. Measured: 307,424 of 311,256 events in seven days were server events on the single

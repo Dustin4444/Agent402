@@ -164,12 +164,12 @@ export const TOOLS = [
   {
     // Nano tier — the loop-priced gateway. Same upstream path as the base
     // tier; this leg proves the tier constants + model allowlist against a
-    // REAL completion daily (gpt-4.1-nano already served via v1-chat before
+    // REAL completion daily (gpt-5-nano (was gpt-4.1-nano until its 2026-10-23 retirement) already served via v1-chat before
     // the nano tier existed, so the model id itself is prod-proven).
     kit: "llm-nano",
     path: "/v1/nano/chat/completions",
     method: "POST",
-    body: { model: "openai/gpt-4.1-nano", messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 5 },
+    body: { model: "openai/gpt-5-nano", messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 5 },
     priceUsd: 0.003,
     check: (r) => isExactOkReply(r.choices?.[0]?.message?.content) || `expected an exact "OK" reply, got ${JSON.stringify(r).slice(0, 100)}`,
   },
@@ -184,12 +184,12 @@ export const TOOLS = [
     kit: "llm-metered",
     path: "/v1/metered/chat/completions",
     method: "POST",
-    // max_tokens 2000 on gpt-4.1-nano quotes ABOVE the $0.001 floor (the kit
+    // max_tokens 2000 on gpt-5-nano quotes ABOVE the $0.001 floor (the kit
     // computes the exact figure; test-canary-coverage pins priceUsd to it), so a
     // quote that silently collapses to the floor - an @x402 adapter change that
     // hides the body, say - changes what this leg pays and the pin fails.
-    body: { model: "openai/gpt-4.1-nano", messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 2000 },
-    priceUsd: 0.001125,
+    body: { model: "openai/gpt-5-nano", messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 2000 },
+    priceUsd: 0.001122,
     check: (r) => isExactOkReply(r.choices?.[0]?.message?.content) || `expected an exact "OK" reply, got ${JSON.stringify(r).slice(0, 100)}`,
   },
   {
@@ -309,7 +309,7 @@ export const TOOLS = [
     kit: "llm-responses",
     path: "/v1/nano/responses",
     method: "POST",
-    body: { model: "openai/gpt-4.1-nano", input: `Reply with exactly the word OK. (${EMBED_CANARY_INPUT.slice(-16)})`, max_output_tokens: 32 },
+    body: { model: "openai/gpt-5-nano", input: `Reply with exactly the word OK. (${EMBED_CANARY_INPUT.slice(-16)})`, max_output_tokens: 32 },
     priceUsd: 0.003,
     check: (r) =>
       (r.object === "response" && r.status === "completed" && Array.isArray(r.output) && r.output.some((o) => o.type === "message" && Array.isArray(o.content) && o.content.some((c) => c.type === "output_text" && typeof c.text === "string")) &&
@@ -1188,7 +1188,7 @@ async function main() {
   // (openclaw/index.js). Own try/catch, own rail key.
   await (async () => {
     const path = "/v1/metered/chat/completions";
-    const body = { model: "openai/gpt-4.1-nano", messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 2000 };
+    const body = { model: "openai/gpt-5-nano", messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 2000 };
     const init = () => ({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     try {
       const [{ UptoEvmScheme, getPermit2AllowanceReadParams }, { createPublicClient, http }, { base }] = await Promise.all([

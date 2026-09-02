@@ -337,7 +337,7 @@ export function makeResponsesHandler(tierSlug) {
 }
 
 const EXAMPLE_MODEL_BY_TIER = {
-  "v1-chat-nano": "openai/gpt-4.1-nano",
+  "v1-chat-nano": "openai/gpt-5.6-luna",
   "v1-chat": "openai/gpt-4o-mini",
   "v1-chat-pro": "openai/gpt-4o",
   "v1-chat-premium": "anthropic/claude-opus-5",
