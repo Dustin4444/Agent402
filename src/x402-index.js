@@ -1815,6 +1815,12 @@ export function carryForwardLearnedQuotes(tools, prev) {
     }
     if (!(Array.isArray(t.networks) && t.networks.length) && Array.isArray(hit.networks) && hit.networks.length) {
       t.networks = [...hit.networks];
+    } else if (Number(hit.networksVerifiedAt) > 0 && Array.isArray(hit.networks) && hit.networks.length) {
+      // A VERIFIED live read outranks a manifest claim: union the chains the
+      // 402 actually offered into the freshly rebuilt (manifest-shaped) row,
+      // and carry when they were verified so the weekly re-read keeps its clock.
+      t.networks = [...new Set([...(t.networks || []), ...hit.networks])];
+      t.networksVerifiedAt = hit.networksVerifiedAt;
     }
     // A route-level hit may change a current row's verb in exactly two cases:
     // the row INFERRED its verb (named none), or the hit is a recorded
@@ -1851,6 +1857,24 @@ export function quoteIsStale(t, now = Date.now()) {
   const at = Number(t?.quoteObservedAt);
   if (!Number.isFinite(at) || at <= 0) return true; // never stamped: refresh once
   return now - at >= QUOTE_MAX_AGE_MS;
+}
+
+// A manifest-priced, manifest-networked row was never read live: the crawler
+// had nothing to LEARN (price and chains both present), so a seller who added
+// a rail to their 402 middleware and not to their manifest stayed listed
+// single-chain forever (angel.finereli.com, 2026-09-02: live 402 offers Base
+// AND Algorand, manifest says Base, our row said Base; reported by the seller
+// on issue #1178). One live read, then a weekly one, unions what the 402
+// actually offers into the row. Learned quotes have their own clock
+// (quoteIsStale); this is the manifest-vs-402 consistency check.
+const NETWORKS_VERIFY_AGE_MS = Number(process.env.NETWORKS_VERIFY_AGE_MS) || 7 * 24 * 60 * 60 * 1000;
+export function networksNeedLiveVerify(t, now = Date.now()) {
+  if (!t || t.quoteSource === "live-402") return false;
+  if (!(Number(t.price) > 0)) return false;
+  if (!(Array.isArray(t.networks) && t.networks.length)) return false;
+  const at = Number(t.networksVerifiedAt);
+  if (!Number.isFinite(at) || at <= 0) return true;
+  return now - at >= NETWORKS_VERIFY_AGE_MS;
 }
 
 export function priceDisagreesWithOrigin(t) {
@@ -1901,7 +1925,7 @@ async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false } = {})
       // but could not price (the Solana isUsdc gap) LOCKED the row unpriced
       // for the 7-day staleness window: networks known, price null, never
       // probed again (measured 2026-09-01, sol.blockrun).
-      && ((!(Number(t.price) > 0) || !(Array.isArray(t.networks) && t.networks.length)) || priceDisagreesWithOrigin(t) || quoteIsStale(t))
+      && ((!(Number(t.price) > 0) || !(Array.isArray(t.networks) && t.networks.length)) || priceDisagreesWithOrigin(t) || quoteIsStale(t) || networksNeedLiveVerify(t))
       && probeMethodsFor(t).length                       // never PUT/PATCH/DELETE
       && probeDue(originUrl, `quote:${t.route}`),
   );
@@ -1970,6 +1994,9 @@ async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false } = {})
     // honest and useful half of the answer.
     if (learned.price != null && !(Number(tool.price) > 0)) tool.price = learned.price;
     if (learned.networks?.length) tool.networks = [...new Set([...(tool.networks || []), ...learned.networks])];
+    // The live 402 was read: the row's chains are verified as of now, whatever
+    // the manifest claimed (the union above never drops a manifest chain).
+    tool.networksVerifiedAt = Date.now();
     if (learned.method && learned.method !== tool.method) {
       // The stated verb did not answer a quote and this one did: a CORRECTION,
       // recorded as such so the next crawl's carry-forward can re-apply it to

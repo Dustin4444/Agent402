@@ -2484,6 +2484,15 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   ceiling. A FREE_MODE server answers no 402 anywhere, so the guard SKIPS rather than reporting a pass that measured nothing.
   Separately this sweep fixed a real drift: 38 workflow sites pinned the x402
   client at 2.16.0 against a 2.22.0 server, which the daily canary could never catch because it only pays OUR challenges.
+- **Manifest-vs-402 consistency (2026-09-02 evening, issue #1178's follow-up, from the seller themselves):** a manifest-priced,
+  manifest-networked row was NEVER read live - the crawler had nothing to learn (price and chains both present) - so a seller
+  who added a rail to their 402 middleware and not to their manifest stayed single-chain in our index (angel.finereli.com:
+  live 402 offered Base AND Algorand, manifest said Base, our row said Base). `networksNeedLiveVerify(t)`: such a row is a
+  live-402 candidate once (`networksVerifiedAt` absent), then every 7 days (`NETWORKS_VERIFY_AGE_MS`), inside the existing
+  probe budget/cap; a read unions the offered chains in (never drops a manifest chain) and stamps `networksVerifiedAt`;
+  `carryForwardLearnedQuotes` unions a VERIFIED remembered row's chains into the next crawl's manifest-shaped rebuild and
+  carries the stamp (an unverified remembered row keeps the old fill-a-gap rule). Learned quotes keep their own clock
+  (`quoteIsStale`; the "an origin-declared price never expires" pin stands). test-index-tools-catalog.
 - **A learned VERB was stamped onto every row of a path (2026-09-02, `carryForwardLearnedQuotes`):** minia2a.uk declares GET
   and POST on each of ~1,700 paths; the carry-forward map was keyed by ROUTE alone and overwrote every current row's `method`
   with the remembered row's, so 86 of the first 500 rows read `GET` with a `_post` slug (two GET rows per path, the POST
