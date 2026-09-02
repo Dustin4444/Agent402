@@ -127,13 +127,28 @@ export async function solanaInboundCount(payTo, { windowMs = SVM_WINDOW_MS(), li
     const batch = await Promise.all(toRead.slice(off, off + CHUNK).map(readOne));
     for (const tx of batch) {
     if (credits >= stopAt) break;
-    const meta = tx?.meta;
-    if (!meta || meta.err) continue;
-    const pre = (meta.preTokenBalances || []).find((b) => b?.mint === USDC_MINT && b?.owner === payTo);
-    const post = (meta.postTokenBalances || []).find((b) => b?.mint === USDC_MINT && b?.owner === payTo);
-    const preAmt = Number(pre?.uiTokenAmount?.amount || 0);
-    const postAmt = Number(post?.uiTokenAmount?.amount || 0);
-    if (!(postAmt > preAmt)) continue;               // the seller's balance did NOT rise: outbound or no-op, not a payment received
+    const verdict = creditFromTx(tx?.meta, payTo);
+    if (!verdict.credited) continue;
+    credits++;
+    if (verdict.funder) funders.add(verdict.funder);
+    }
+  }
+  // detail: the leaderboard's batched scan wants the funder count and whether
+  // the read cap was hit; the gates keep the bare number.
+  if (detail) return { credits, payers: funders.size, truncated, read: toRead.length, recent: recent.length };
+  return credits;
+}
+
+/** The credit rule, PURE and shared with the Solana leaderboard's incremental
+ *  scan: a transaction credits the seller when its USDC balance ROSE and some
+ *  account other than the seller's was debited (self-funding excluded). */
+export function creditFromTx(meta, payTo) {
+  if (!meta || meta.err) return { credited: false, funder: null };
+  const pre = (meta.preTokenBalances || []).find((b) => b?.mint === USDC_MINT && b?.owner === payTo);
+  const post = (meta.postTokenBalances || []).find((b) => b?.mint === USDC_MINT && b?.owner === payTo);
+  const preAmt = Number(pre?.uiTokenAmount?.amount || 0);
+  const postAmt = Number(post?.uiTokenAmount?.amount || 0);
+  if (!(postAmt > preAmt)) return { credited: false, funder: null };  // the seller's balance did NOT rise: outbound or no-op
     // SELF-TRANSFER DEFENCE. Some USDC account OTHER than the seller must be
     // the one debited, or this is the seller funding itself to fake volume
     // (the spoof the review flagged). On Solana x402 that debited account is
@@ -145,22 +160,17 @@ export async function solanaInboundCount(payTo, { windowMs = SVM_WINDOW_MS(), li
     // real money per fake and is bounded downstream by cap + the per-payer
     // spend ceiling. Closing it fully needs parsing the x402 buyer identity
     // from the payment instruction, deferred.
-    const fundedByOther = (meta.preTokenBalances || []).some((b) => {
-      if (b?.mint !== USDC_MINT || b?.owner === payTo) return false;
-      const p2 = (meta.postTokenBalances || []).find((x) => x?.accountIndex === b.accountIndex);
-      return Number(b?.uiTokenAmount?.amount || 0) > Number(p2?.uiTokenAmount?.amount || 0);
-    });
-    if (fundedByOther) {
-      credits++;
-      for (const b of meta.preTokenBalances || []) if (b?.mint === USDC_MINT && b?.owner && b.owner !== payTo) funders.add(b.owner);
-    }
-    }
-  }
-  // detail: the leaderboard's batched scan wants the funder count and whether
-  // the read cap was hit; the gates keep the bare number.
-  if (detail) return { credits, payers: funders.size, truncated, read: toRead.length, recent: recent.length };
-  return credits;
+  let funder = null;
+  const fundedByOther = (meta.preTokenBalances || []).some((b) => {
+    if (b?.mint !== USDC_MINT || b?.owner === payTo) return false;
+    const p2 = (meta.postTokenBalances || []).find((x) => x?.accountIndex === b.accountIndex);
+    const debited = Number(b?.uiTokenAmount?.amount || 0) > Number(p2?.uiTokenAmount?.amount || 0);
+    if (debited && !funder) funder = b.owner || null;
+    return debited;
+  });
+  return { credited: fundedByOther, funder: fundedByOther ? funder : null };
 }
+export const solanaRpc = (method, params, opts) => rpcCall(method, params, opts);
 
 // PRIMED proof cache (2026-09-02): the Solana leaderboard's hourly batched scan
 // hands each payTo's credit count here, so a routed buy to a scanned seller

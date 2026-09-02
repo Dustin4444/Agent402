@@ -593,17 +593,26 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   burner via `autoSwap: true` - on-chain tx 0x28db1d76… swapped 1001 PathUSD → 1000 USDC.e
   and delivered 1000 USDC.e to our payTo, 200 + Payment-Receipt. Both canaries keep
   `autoSwap: true`.
-- **Solana SPL leaderboard (2026-09-02, `src/solana-leaderboard.js`):** the one rail whose proven-ness rested on a pay-time
-  read alone now has a batched scan: every Solana payTo the index knows (`allSolanaPayToOrigins`, mainnet label only, base58)
-  is read hourly with the gate's own `solanaInboundCount(payTo, { detail: true })` (credits = inbound USDC with a non-self
-  debit, plus funder count and a `truncated` flag past the 120-read cap), concurrency 2, previous row kept `stale` on an RPC
-  error (never zero a proven seller on a hiccup), persisted at `/data/solana-leaderboard.json`, warm-started. Each refresh
-  PRIMES `primeSvmInboundCount` in solana-buyer, and both gates now default to `cachedSolanaInboundCount`: a primed count that
-  clears the floor answers with no RPC; one below it falls through to a live read (stale data never refuses). Evidence
-  feeds `buildSettledByOrigin`/`buildPayersByOrigin`. `GET /api/solana-leaderboard` (counts only, self row flagged, `stale`,
-  `scannedAt`). `SOLANA_LEADERBOARD=off` disarms. Cost: ~N payTos x 2 RPC + capped tx reads per hour on Alchemy. Why counts
-  not funders: on Solana x402 the debited account is a shared facilitator, so distinct funders collapses to 1 for a real
-  seller. `scripts/test-solana-leaderboard.js` (offline stub RPC).
+- **Solana SPL leaderboard (2026-09-02, `src/solana-leaderboard.js`) - INCREMENTAL, because the first version cost 3,122
+  Alchemy calls in its first hour:** every Solana payTo the index knows (`allSolanaPayToOrigins`, mainnet label only,
+  base58) keeps three things across cycles - its USDC token account (resolved once; a payTo with NONE is re-checked daily,
+  not every cycle), the newest signature seen (`getSignaturesForAddress` with `until`, plus a dedupe belt against the
+  event log so an RPC that ignores the cursor cannot double-count), and the credited events inside the 7-day window
+  (`creditFromTx`, the gate's rule extracted pure: balance rose AND a non-self account was debited; funder recorded).
+  A cycle costs one signatures read per payTo with an account plus one `getTransaction` per NEW inbound transfer
+  chain-wide (measured second-cycle cost in the test: 1 call for a quiet payTo, 0 for an empty one). One payTo at a time
+  (two in parallel drew 37 Alchemy 429s/timeouts on the first live scan), one retry, previous row kept `stale` on error,
+  120 tx reads per payTo per cycle (`truncated`), two-hour cadence, persisted WITH its cursors at
+  `/data/solana-leaderboard.json`, warm-started. Each refresh PRIMES `primeSvmInboundCount` (solana-buyer) and both gates
+  default to `cachedSolanaInboundCount`: a primed count that clears the floor answers with no RPC, one below it falls
+  through to a live read (stale data never refuses). Evidence feeds `buildSettledByOrigin`/`buildPayersByOrigin`.
+  `GET /api/solana-leaderboard`: counts only, self row flagged, `stale`, `scannedAt`, `rpcCallsLastScan` - never the
+  RPC's error text (stripped from public rows). `SOLANA_LEADERBOARD=off` disarms. The egress meter
+  (`/__operator/egress.json`) is how the cost is read; its PLUMBING regex now skips the drain-aware and
+  facilitator-diagnostics fetch wrappers (every host read as `drain-abort.js` within an hour of that wrapper shipping).
+  First live scan (14:56Z): 357 payTos, 80 active, ten past the cap (glim, Nansen, svm402, 0x, blockrun, Oblique, Laso 61
+  payers, Bitrefill 213 payers) - "Solana is one wallet" was a 15-hour reading; it is not. `scripts/test-solana-leaderboard.js`
+  (29, offline stub RPC; incremental cost pinned per cycle; mutation-checked on the cursor + dedupe).
 - **SOR widened to dynamic-priced MPP sellers + Bazaar quality (2026-08-19, build #9):**
   `tempoCatalog` now admits `payment.dynamic` / non-integer-amount tempo/charge USDC.e endpoints
   (~185 registry endpoints) as candidates with `priceUsd:null, dynamic:true`; `rankTempoResources`
