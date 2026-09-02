@@ -15,11 +15,20 @@ const RPC = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
 const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const SPENDER = process.env.SOLANA_SPENDING_ADDRESS || "8KqQG8MefNvQEQmp9gBjov39DXcWsUpSeqjL9pPCGKKE";
 const ROUTE_ALLOWED = new Set(["/api/route/execute", "/api/route/execute-plus", "/api/route/execute-pro"]);
-const ROUTE = process.env.ROUTE || "/api/route/execute";
+// Defaults = the combination PROVEN on chain 2026-09-02 (tx 4a2GPKp6...): the
+// task text ranks sol.blockrun.ai's /api/v1/exa/search first (its rows are
+// named by path, so path-shaped text is what matches), $0.012 fits the
+// execute-plus cap, and the route pays blockrun's shared Solana payTo, which
+// clears the proven-seller gate by thousands. The old default ("list supported
+// rpc chains") matched no Solana seller at all, and "us stock price" resolves
+// to blockrun's Pyth-backed feed, which 502s on every ticker since Pyth went
+// keyed (2026-08-26) - 23 red runs on 2026-09-01 proved the seller's upstream,
+// not our rail.
+const ROUTE = process.env.ROUTE || "/api/route/execute-plus";
 if (!ROUTE_ALLOWED.has(ROUTE)) { console.error(`refusing ROUTE=${JSON.stringify(ROUTE)}: not one of ${[...ROUTE_ALLOWED].join(", ")}`); process.exit(2); }
-const TASK = process.env.TASK || "list supported rpc chains";
-const PARAMS = process.env.PARAMS ? JSON.parse(process.env.PARAMS) : {};
-const EXPECT_TEXT = process.env.EXPECT_TEXT || "solana";
+const TASK = process.env.TASK || "api v1 exa search";
+const PARAMS = process.env.PARAMS ? JSON.parse(process.env.PARAMS) : { query: "bitcoin" };
+const EXPECT_TEXT = process.env.EXPECT_TEXT || "results";
 import { createHmac } from "node:crypto";
 const raw = (process.env.SOLANA_BURNER_KEY || "").trim();
 if (!raw) { console.error("need SOLANA_BURNER_KEY"); process.exit(2); }
@@ -77,12 +86,36 @@ const payloadOk = resultText.toLowerCase().includes(EXPECT_TEXT.toLowerCase());
 console.log(`result contains ${JSON.stringify(EXPECT_TEXT)}:`, payloadOk, `(result ${resultText.length} chars)`);
 try { const { writeFileSync } = await import("node:fs"); writeFileSync(process.env.RESPONSE_OUT || "solana-sor-response.json", JSON.stringify(out)); } catch { /* best-effort */ }
 const r = out?.receipt || {};
-await new Promise((res) => setTimeout(res, 6000));
-const after = await usdcOf(SPENDER);
-console.log(`spending wallet USDC after: ${after} (delta ${before != null && after != null ? (after - before).toFixed(6) : "?"}); receipt:`, JSON.stringify(r).slice(0, 400));
+// The spend is proven from the CHAIN, not from a single balance re-read: the
+// first version slept 6 s and read the balance once, and a lagging RPC node
+// answered the pre-buy figure - a settled, on-chain-verified buy (tx
+// 4a2GPKp6..., 2026-09-02 00:29Z, spender -0.01 / seller +0.01) reported
+// NOT PROVEN. Preferred proof: the receipt's settleTx, read at confirmed
+// commitment, must debit the spending wallet's USDC by at least the seller
+// price. Fallback (no tx named): poll the balance for up to 45 s.
+const owed = Number(r.underlyingPriceUsd || 0);
+let after = null, proof = "";
+if (r.settleTx) {
+  for (let i = 0; i < 15 && !proof; i++) {
+    const tx = await rpc("getTransaction", [r.settleTx, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0, commitment: "confirmed" }]).catch(() => null);
+    if (tx && !tx.meta?.err) {
+      const at = (list, owner) => Number((list || []).find((b) => b?.mint === USDC_MINT && b?.owner === owner)?.uiTokenAmount?.amount || 0) / 1e6;
+      const debit = at(tx.meta?.preTokenBalances, SPENDER) - at(tx.meta?.postTokenBalances, SPENDER);
+      if (debit >= owed - 1e-6 && debit > 0) proof = `tx ${r.settleTx} debits the spending wallet ${debit.toFixed(6)} USDC at slot ${tx.slot}`;
+      else { console.error(`settle tx found but the spending wallet's USDC delta is ${debit.toFixed(6)} (owed ${owed})`); break; }
+    } else if (tx?.meta?.err) { console.error("settle tx FAILED on chain:", JSON.stringify(tx.meta.err)); break; }
+    else await new Promise((res) => setTimeout(res, 3000));
+  }
+}
+for (let i = 0; i < 15 && !proof; i++) {
+  await new Promise((res) => setTimeout(res, 3000));
+  after = await usdcOf(SPENDER);
+  if (before != null && after != null && before - after >= owed - 1e-6 && before - after > 0) proof = `balance fell ${(before - after).toFixed(6)} USDC`;
+}
+if (after == null) after = await usdcOf(SPENDER);
+console.log(`spending wallet USDC after: ${after} (delta ${before != null && after != null ? (after - before).toFixed(6) : "?"}); proof: ${proof || "none"}; receipt:`, JSON.stringify(r).slice(0, 400));
 const ok = paid.status === 200 && r.external === true && String(r.settleNetwork || "") === "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
-  && out.result && payloadOk
-  && before != null && after != null && before - after >= Number(r.underlyingPriceUsd || 0) - 1e-6 && before - after > 0;
+  && out.result && payloadOk && Boolean(proof);
 if (ok) console.log(`PROVEN: Solana buyer -> route-execute -> external Solana seller ${r.seller} paid from the spending wallet (seller $${r.underlyingPriceUsd}${r.settleTx ? `, tx https://solscan.io/tx/${r.settleTx}` : ""}); payload delivered (${resultText.length} chars)`);
 else console.error(`NOT PROVEN${paid.status === 404 || paid.status === 409 ? ` - router said: ${JSON.stringify(out?.error || out).slice(0, 300)}` : ""}`);
 process.exit(ok ? 0 : 1);
