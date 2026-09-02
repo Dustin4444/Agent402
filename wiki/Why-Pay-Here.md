@@ -13,7 +13,7 @@ On the metered gateway every 402 quotes this exact request from its own body. A 
 
 ## 02 / Failure - A failed call is not charged, and the response proves it.
 
-Settlement runs after the handler answers and an error status cancels it, so a response with no payment receipt, or a receipt marked success:false, moved no money. A retry that carries an idempotency key replays the paid answer instead of paying again. The one residual case, a settled receipt on an error response, is detected by our own alarm and recorded as a debt in a refund ledger, never written off silently.
+Settlement runs after the handler answers and an error status cancels it, so a response with no payment receipt, or a receipt marked success:false, moved no money. A retry that carries the same idempotency key and the same payment credential replays the paid answer instead of paying again. The one residual case, a settled receipt on an error response, is detected by our own alarm and recorded as a debt in a refund ledger, never written off silently.
 
 - Uptime measured from outside: https://agent402.tools/status
 - How the paywall settles: https://agent402.tools/guides/x402-and-mpp

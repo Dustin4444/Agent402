@@ -243,6 +243,61 @@ let pass = 0; const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); 
   }
 }
 
+// Offline (#1126): the default Idempotency-Key survives an AGENT-LEVEL retry.
+// A lost response is retried one level up - the framework calls call() again -
+// so the key must be stable across call() invocations on one client, fresh per
+// invocation only when the caller opted out of caching, and distinct between
+// client instances. Driven on the credits path, where the server binds the key
+// to the credits key hash and replays the paid answer (the wallet path signs a
+// fresh authorization per call() and is documented as a new payment).
+{
+  const creditsKey = `a402_${"B".repeat(32)}`;
+  const mk = () => {
+    const keys = [];
+    let n = 0;
+    const c = new Agent402({
+      baseUrl: "https://seller.example",
+      creditsKey,
+      fetchImpl: async (url, init) => {
+        keys.push(init.headers["Idempotency-Key"]);
+        // First send: the response is LOST after the server has charged.
+        if (++n === 1) throw new Error("socket hang up");
+        return { ok: true, status: 200, json: async () => ({ value: 7 }) };
+      },
+    });
+    c._catalog = new Map([["answer", { method: "POST", path: "/answer", computePayable: false, price: "$0.01" }]]);
+    return { c, keys };
+  };
+  {
+    const { c, keys } = mk();
+    let lost = false;
+    try { await c.call("answer", { q: 1 }); } catch { lost = true; }
+    const out = await c.call("answer", { q: 1 }); // the framework's retry
+    ok(lost && out.value === 7 && keys.length === 2 && keys[0] === keys[1] && /^a402-[0-9a-f]{24}$/.test(keys[0]),
+      "a retried call() after a lost response reuses the same default Idempotency-Key");
+    const other = await c.call("answer", { q: 2 });
+    ok(other.value === 7 && keys[2] !== keys[0], "different params on the same client get a different key");
+  }
+  {
+    const { c, keys } = mk();
+    try { await c.call("answer", { q: 1 }, { cache: false }); } catch { /* lost */ }
+    await c.call("answer", { q: 1 }, { cache: false });
+    ok(keys[0] !== keys[1], "{ cache: false } means distinct purchases: a fresh key per invocation");
+  }
+  {
+    const { c, keys } = mk();
+    try { await c.call("answer", { q: 1 }, { idempotencyKey: "mine-1" }); } catch { /* lost */ }
+    await c.call("answer", { q: 1 }, { idempotencyKey: "mine-1" });
+    ok(keys[0] === "mine-1" && keys[1] === "mine-1", "an explicit idempotencyKey always wins");
+  }
+  {
+    const a = mk(), b = mk();
+    try { await a.c.call("answer", { q: 1 }); } catch { /* lost */ }
+    try { await b.c.call("answer", { q: 1 }); } catch { /* lost */ }
+    ok(a.keys[0] !== b.keys[0], "two client instances buying the same thing are two purchases (per-client salt)");
+  }
+}
+
 // Offline: route() is read-only discovery - exact query encoding, bounded k,
 // include/network filters, empty results, non-2xx errors, and no /api/pricing.
 {
