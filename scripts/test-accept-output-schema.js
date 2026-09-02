@@ -29,8 +29,12 @@ const pr = { x402Version: 2, accepts: [{ scheme: "exact", network: "eip155:8453"
 }
 {
   const src = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
-  ok(src.indexOf("app.use(mppShim);") > 0 && src.indexOf("app.use(createOutputSchemaAppender());") > src.indexOf("app.use(mppShim);"), "mounted AFTER the MPP shim (LIFO writeHead wrappers: this one runs first, the shim mints its challenge from the enriched accept)");
-  const between = src.slice(src.indexOf("app.use(mppShim);"), src.indexOf("app.use(createOutputSchemaAppender());"));
+  // Matched as a STATEMENT at line start, not a substring: a commented-out
+  // mount still contains the text and passed the first draft of this pin.
+  const mountAt = src.search(/^\s*app\.use\(createOutputSchemaAppender\(\)\);\s*$/m);
+  const shimAt = src.search(/^\s*app\.use\(mppShim\);\s*$/m);
+  ok(shimAt > 0 && mountAt > shimAt, "mounted AFTER the MPP shim (LIFO writeHead wrappers: this one runs first, the shim mints its challenge from the enriched accept)");
+  const between = mountAt > shimAt ? src.slice(shimAt + "app.use(mppShim);".length, mountAt) : "";
   ok(!/app\.use\(/.test(between.replace("app.use(mppShim);", "")), "and directly after it (nothing else mounts in between)");
 }
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
