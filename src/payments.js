@@ -2,6 +2,7 @@ import { handlerInputOf } from "./handler-input.js";
 import { boundedResponseSchemaFor } from "./openapi-schema.js";
 import { paymentMiddleware } from "@x402/express";
 import { HTTPFacilitatorClient, x402ResourceServer } from "@x402/core/server";
+import { installAcceptOutputSchema, withOutputSchemaOnFirstAccept, outputSchemaFromExtensions, acceptOutputSchemaEnabled } from "./accept-output-schema.js";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
 import { UptoEvmScheme } from "@x402/evm/upto/server";
 import { ExactSvmScheme } from "@x402/svm/exact/server";
@@ -1090,6 +1091,10 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
     }
   }
 
+  // accepts[0].outputSchema (src/accept-output-schema.js): the accept below
+  // declares it, this patch carries it onto the requirement the core builds -
+  // the one object that is both the 402 and what verify matches against.
+  installAcceptOutputSchema(x402ResourceServer);
   let server = new x402ResourceServer(facilitatorClients)
     .registerExtension(bazaarResourceServerExtension)
     .registerExtension(builderCodeResourceServerExtension);
@@ -1258,7 +1263,9 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
       return [
         route,
         {
-          accepts: acceptsFor(item),
+          // The first accept declares the extension's typed output schema (one
+          // copy - the buyer echoes its chosen accept back in the payment).
+          accepts: withOutputSchemaOnFirstAccept(acceptsFor(item), acceptOutputSchemaEnabled() ? outputSchemaFromExtensions(ext) : null),
           description: listingDescription,
           // Per-TOOL service name, not the host name.
           //

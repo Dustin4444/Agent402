@@ -2382,15 +2382,33 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   also alias, or a gate that priced the request before dispatch leaves the handler an un-aliased input while the
   "one object" test still passes. Filled names ride on `req.__aliasedParams` for telemetry. Mutation-tested: breaking
   each of the three rules fails the suite.
-- **`accepts[0].outputSchema` on every 402 (2026-09-02, `src/accept-output-schema.js`):** the spec's own field, carrying the
-  SAME bounded schema the Bazaar extension already carries, on the FIRST accept only (thirteen copies would be echoed back
-  by every buyer; measured on prod's widest sampled challenge, 11,108 bytes, +~540 stays under the 12,000 ceiling). It
-  cannot be declared in the route config - `@x402/core`'s `buildPaymentRequirements` copies only scheme/network/amount/
-  asset/payTo/maxTimeoutSeconds/extra - so it is added to the built PAYMENT-REQUIRED header at writeHead, mounted AFTER
-  mppShim (LIFO: it runs first, the shim mints its evm challenge from the enriched accept). Safe because the core matches
-  an echoed `accepted` by scheme + network only and its requirements schema admits `outputSchema`. Pinned in
-  test-bazaar-contracts (every route: accepts[0] equals the extension schema, later accepts carry none) and
-  test-accept-output-schema (pure rewrite + mount order). This closes the "example is not a schema" item.
+- **`accepts[0].outputSchema` on every 402 (2026-09-02, `src/accept-output-schema.js`, `scripts/test-accept-output-schema.js`
+  24 in CI):** the spec's own field, carrying the SAME bounded schema the Bazaar extension already carries, on the FIRST
+  accept only (thirteen copies would be echoed back by every buyer; measured on prod's widest sampled challenge, 11,108
+  bytes, +~540 stays under the 12,000 ceiling). **The first draft rewrote the outgoing PAYMENT-REQUIRED header and failed
+  CI's "an unmodified x402 client settles" control, and the reason is the rule for ANY accept-level field:** `@x402/core`
+  builds ONE requirements list per request (`buildPaymentRequirementsFromOptions`), serialises it into the 402 AND
+  deep-equals the buyer's echoed `accepted` against it at verify (`paymentRequirementsMatchAccepted`: every field but
+  `extra` must match, key order ignored). A field the header carries and the requirement does not is a field every
+  honest buyer echoes back and the server has never seen - "no matching requirements" on every payment. The builder
+  copies only scheme/payTo/price/network/maxTimeoutSeconds/extra from a route accept, so the field cannot be declared
+  upstream either. Now: the catalog route's first accept DECLARES `outputSchema` (payments.js, from the same extension
+  object) and a prototype patch on `x402ResourceServer.buildPaymentRequirementsFromOptions` (installed before the server
+  is constructed; the facilitator-patch seam) stamps it onto the requirement built from that accept - the one object that
+  is both the 402 and what verify compares. **Two strict codecs then surfaced, both handled:** (1) OUR MPP shim rebuilt
+  the x402 payload through mppx's `encodePaymentSignature`, whose eip155-typed zod schema STRIPS undeclared fields from
+  `accepted` - every native MPP buy failed to match; the shim now validates through mppx and emits the same base64-JSON
+  wire with the HMAC-bound RAW accept. (2) mppx's own x402 CLIENT protocol parses each accept through that schema and
+  echoes the stripped object, so a buyer built on it would be refused on the Base accept - the patch also wraps
+  `findMatchingRequirements`: when nothing matches and the echoed accept carries NO `outputSchema`, OUR advertised schema
+  for that scheme + network is restored onto it (in place, so verify/settle see the advertised accept) and the match
+  runs again; a different amount/payTo stays refused, a DIFFERENT echoed schema is never overwritten, v1 untouched.
+  `ACCEPT_OUTPUT_SCHEMA=off` stops declaring the field (a facilitator whose /verify parser refuses it is one flag away;
+  the paid canary's Base leg is the live proof CDP does not - it sends the matched requirement, field included).
+  Pinned: test-bazaar-contracts (every route: accepts[0] equals the extension schema, later accepts none),
+  test-x402-v1-accepts (the stock-client control), test-mpp-shim (native buy + the hand-encoded stripped echo), the unit
+  test (stamp by scheme+network, restore rules, install once, payments.js order). Running the paid-path suites in
+  PARALLEL locally fails test-mpp-shim's stats delta - they share one local stats DB; run it alone.
 - **Typed output schema on the 402 itself (2026-08-29, `boundedSchemaFromExample`):** the OpenAPI fix left the surface a
   buyer reads AT THE MOMENT OF PAYING still example-only - `accepts[].outputSchema` was absent on every route and the
   `bazaar` discovery extension carried `output.example` with no schema. The extension now also carries a TYPED schema

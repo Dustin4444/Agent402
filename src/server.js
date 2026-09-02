@@ -175,7 +175,6 @@ import { indexToolsPage, INDEX_TOOLS_PAGE_SIZE } from "./index-tools-page.js";
 import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankBy } from "./leaderboard.js";
 import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus, facilitatorSupportReport, setComputePayablePaths } from "./payments.js";
 import { createMppShim } from "./mpp-shim.js";
-import { createOutputSchemaAppender } from "./accept-output-schema.js";
 import { createTempoChallengeAppender, createTempoGate, tempoTxFromReceiptHeader } from "./mpp-tempo.js";
 import { createStripeChallengeAppender, createStripeGate, stripeTxFromReceiptHeader } from "./mpp-stripe.js";
 import { confirmTempoSettlement } from "./tempo-confirm.js";
@@ -5590,11 +5589,6 @@ if (!FREE_MODE) {
     app.use(mppShim);
     console.log("MPP dual-stack shim enabled (WWW-Authenticate/Authorization Payment ↔ x402 headers)");
   }
-  // accepts[0].outputSchema on every 402 (src/accept-output-schema.js): mounted
-  // AFTER mppShim so it runs first at writeHead and the shim mints its evm
-  // challenge from the enriched accept.
-  app.use(createOutputSchemaAppender());
-
   // Dedicated replay guard for Tempo credentials — never shared with the
   // x402 one instantiated later (identity spaces never collide, and this
   // gate mounts well before that one exists in this file). See
