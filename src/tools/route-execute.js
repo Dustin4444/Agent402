@@ -382,7 +382,8 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
             // and the seller answers both, so the check has to happen again
             // against the accept actually signed. Null = no chain-derived
             // address on record, which is not a failure - see provenPayToMatches.
-            paid = await payExternal(extUrl, { method: extMethod, body: extBody, maxAtomic: BigInt(Math.round(cap * 1e6)), chain, provenPayTo: ext.provenPayTo || null, ...(tempoBudgetMs != null ? { timeoutMs: Math.max(3000, remainingMs()) } : {}) });
+            if (ext.unproven) console.warn(`[sor] paying UNPROVEN ${chain} seller ${ext.seller} (${ext.price}) - every proven candidate was exhausted; loss bounded by the unproven allowance`);
+            paid = await payExternal(extUrl, { method: extMethod, body: extBody, maxAtomic: BigInt(Math.round(cap * 1e6)), chain, provenPayTo: ext.provenPayTo || null, allowUnproven: ext.unproven === true, ...(tempoBudgetMs != null ? { timeoutMs: Math.max(3000, remainingMs()) } : {}) });
           } catch (e) {
             // The exposure DELIBERATELY stands. It is tempting to clear it here
             // ("the buy failed, so we never spent"), but payExternal can throw
@@ -460,6 +461,9 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
               settleNetwork: chainCaip2,
               wire: extWire,
               resolvedBy: "task-external",
+              // A buyer should know when the seller that served them had no
+              // settlement history on this chain when we paid it.
+              ...(ext.unproven ? { sellerProof: "unproven" } : {}),
               ts,
               ...(callRefFrom(req, ext.slug, ts) ? { callRef: callRefFrom(req, ext.slug, ts) } : {}),
             },

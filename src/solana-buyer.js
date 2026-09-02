@@ -160,14 +160,42 @@ export async function solanaInboundCount(payTo, { windowMs = SVM_WINDOW_MS(), li
  * rail alone). Fails CLOSED: an unreadable chain refuses the spend with a 503
  * the buyer is never charged for, exactly like the Tempo gate.
  */
-export async function assertProvenSolanaSeller(payTo, { minCount = Number(process.env.SOR_SVM_MIN_SETTLED_TX || process.env.SOR_MIN_SETTLED_TX || "20"), inboundFn = solanaInboundCount } = {}) {
+export async function assertProvenSolanaSeller(payTo, { minCount = Number(process.env.SOR_SVM_MIN_SETTLED_TX || process.env.SOR_MIN_SETTLED_TX || "20"), inboundFn = solanaInboundCount, allowUnprovenUpToAtomic = 0n, quotedAtomic = null } = {}) {
   let inbound;
   try { inbound = await inboundFn(payTo, { stopAt: minCount }); }
   catch (e) { throw bad(`Cannot verify seller settlement history on Solana (${String(e?.message || e).slice(0, 80)}) - refusing to spend`, 503); }
   if (inbound < minCount) {
+    // UNPROVEN ALLOWANCE (2026-09-02). The chain was readable and the seller
+    // simply has too little history. The floor exists so a spend cannot be
+    // lost to a seller that never delivers; on Solana the loss per attempt is
+    // the quote itself, so a small enough quote is a bounded risk rather than
+    // an unbounded one. The caller (route-execute, via the resolver) opts in
+    // per candidate, and only after every proven candidate is exhausted.
+    let quote = null;
+    try { quote = quotedAtomic != null ? BigInt(String(quotedAtomic)) : null; } catch { quote = null; }
+    if (allowUnprovenUpToAtomic > 0n && quote != null && quote > 0n && quote <= allowUnprovenUpToAtomic) {
+      console.log(`[solana-buyer] paying UNPROVEN seller ${String(payTo).slice(0, 8)}… (${inbound} recent credits, floor ${minCount}) - quote ${quote} atomic is within the unproven allowance ${allowUnprovenUpToAtomic}`);
+      return inbound;
+    }
     throw bad(`Seller payTo ${String(payTo).slice(0, 8)}… has ${inbound} recent inbound USDC payments on Solana (floor ${minCount}) - not routable yet`, 409);
   }
   return inbound;
+}
+
+/**
+ * How much a single spend to an UNPROVEN Solana seller may be, in USDC atomic
+ * units. Default $0.01. `SOR_SVM_UNPROVEN_MAX_USD=0` (or `off`) disables the
+ * tier and restores the hard floor. Measured before this existed: two
+ * long-tail Solana sellers with ZERO on-chain history each settled a stock
+ * @x402/svm payment and delivered (2026-09-02, $0.001 and $0.002), while the
+ * one proven seller under the cap for the same task refused every payment.
+ */
+export function svmUnprovenAllowanceAtomic() {
+  const raw = String(process.env.SOR_SVM_UNPROVEN_MAX_USD ?? "0.01").trim().toLowerCase();
+  if (raw === "off") return 0n;
+  const usd = Number(raw);
+  if (!Number.isFinite(usd) || usd <= 0) return 0n;
+  return BigInt(Math.round(usd * 1e6));
 }
 
 /**
@@ -347,7 +375,7 @@ export async function passesSolanaResolveGate({ header, body, inboundFn = solana
   let inbound;
   try { inbound = await inboundFn(payTo, { stopAt: minCount }); }
   catch (e) { return { ok: false, payTo, reason: `chain unreadable (${String(e?.message || e).slice(0, 60)})` }; }
-  if (inbound < minCount) return { ok: false, payTo, reason: `${inbound} recent inbound USDC payments (floor ${minCount})` };
+  if (inbound < minCount) return { ok: false, payTo, inbound, reason: `${inbound} recent inbound USDC payments (floor ${minCount})` };
   return { ok: true, payTo, inbound };
 }
 

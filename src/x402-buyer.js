@@ -269,7 +269,7 @@ export function _spentThisWindow() { return spentThisWindow; } // test hook
  * A 200 on the bare request means the endpoint is free — returned with no
  * spend. Only a 402 triggers a payment; anything else is a 502.
  */
-export async function payX402(url, { maxAtomic, method = "GET", body, headers = {}, timeoutMs = 20000, maxBytes = DEFAULT_MAX_BYTES, trusted = false, chain = "base", provenPayTo = null, sellerProof = null, notDebited = null } = {}) {
+export async function payX402(url, { maxAtomic, method = "GET", body, headers = {}, timeoutMs = 20000, maxBytes = DEFAULT_MAX_BYTES, trusted = false, chain = "base", provenPayTo = null, sellerProof = null, notDebited = null, allowUnproven = false } = {}) {
   if (maxAtomic == null) throw bad("payX402 requires maxAtomic (the margin-guard ceiling)", 500);
   const chainCfg = BUYER_CHAINS[chain];
   if (!chainCfg) throw bad(`payX402: unknown chain "${chain}" (known: ${Object.keys(BUYER_CHAINS).join(", ")})`, 500);
@@ -373,8 +373,14 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
   // mainnet. Non-Solana chains have their own gates (Base: settled/payers in
   // the resolver; Algorand: registry verifications; Tempo: payTempo's own).
   if (chain === "solana") {
-    const { assertProvenSolanaSeller } = await import("./solana-buyer.js");
-    await (sellerProof || assertProvenSolanaSeller)(payable.payTo);
+    const { assertProvenSolanaSeller, svmUnprovenAllowanceAtomic } = await import("./solana-buyer.js");
+    // `allowUnproven` is set by route-execute only for a candidate the
+    // resolver admitted under the unproven allowance (after every proven
+    // candidate was exhausted); the gate then accepts a thin history when the
+    // quote is within that allowance, and still refuses an unreadable chain.
+    await (sellerProof || assertProvenSolanaSeller)(payable.payTo, allowUnproven
+      ? { allowUnprovenUpToAtomic: svmUnprovenAllowanceAtomic(), quotedAtomic }
+      : {});
   }
   const spendToken = reserveSpend(quotedAtomic); // F3 belt — before signing (throws 429 if over the window budget)
   let committed = false;

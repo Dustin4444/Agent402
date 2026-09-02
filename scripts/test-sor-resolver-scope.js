@@ -22,6 +22,11 @@ ok(decl > 0 && branch > 0 && decl < branch, "provenPayToByOrigin is declared at 
 ok(!/var provenPayToByOrigin/.test(fn), "no `var provenPayToByOrigin` inside a branch (the hoisted-undefined shape)");
 ok(/provenPayToByOrigin = buildProvenPayToByOrigin\(\)/.test(fn), "the Base branch still assigns the proven-payTo evidence");
 ok((fn.match(/provenPayToByOrigin[?.]+get\(/g) || []).length >= 1, "the post-probe check still reads the map (so an undefined map would have been fatal on the non-Base legs)");
+ok(/r\.unproven = true/.test(fn) && /Number\.isFinite\(gate\.inbound\)/.test(fn),
+  "the Solana gate admits an UNPROVEN candidate only when the chain was readable (a count came back) and the quote is within the allowance");
+ok(/resolved\.filter\(\(x\) => !x\.unproven\)\.length >= Math\.max\(1, limit\)/.test(fn), "only PROVEN candidates count toward the limit");
+ok(/resolved\.sort\(\(a, b\) => \(a\.unproven \? 1 : 0\) - \(b\.unproven \? 1 : 0\)\)/.test(fn) && fn.indexOf("resolved.sort(") < fn.indexOf("resolved.splice("),
+  "proven candidates are ordered before unproven ones, then the limit applies");
 ok(/sellerRefusedRecently\(r\.seller, chain\)/.test(fn) && fn.indexOf("sellerRefusedRecently(r.seller, chain)") < fn.indexOf("await assertPublicUrl(r.url)"),
   "the resolve loop skips a seller that refused a payment on this chain BEFORE probing it (the memo x402-buyer writes after a chain-verified refusal)");
 ok(/resolved\.push\(\{[^\n]*wire: r\.wire/.test(fn), "the resolved candidate carries its wire (a Tempo seller settles over MPP; the receipt said x402 before)");
