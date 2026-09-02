@@ -538,6 +538,17 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   pinned FROM SOURCE in `test-external-spend-guard.js` (31) because the two mutations are not equally visible: letting
   `adjustSpend` raise fails three assertions, but quietly handing the caller the declared price again fails NOTHING -
   the primitive stays correct and is simply given the wrong number.
+  **Resolve-time model check (2026-09-02, `sellerServesModel` in x402-buyer.js):** an LLM task names a model and the
+  model namespace is the SELLER'S own - "chat completions" + `gpt-4o-mini` on Solana resolved to api.xfuel.app, which
+  settled the $0.01 and answered 400 model_not_found, and xfuel KEEPS the money on a 400 (our chain check saw the
+  debit, so no fallthrough). Every OpenAI-shaped seller publishes GET .../models for free (blockrun + netintel list
+  gpt-4o-mini; xfuel, openrelay, ai-rook, agentexchange do not), so route-execute hands `params.model` to
+  `resolveExternalSeller({ wantModel })`, which reads the candidate's list (chat-shaped routes only: chat/completions,
+  completions, messages, responses -> /models; cached 10 min per list URL; SSRF-guarded; 5 s) and SKIPS a seller whose
+  READABLE list lacks the model, before the probe. Only "not-served" decides: no list, empty list, unparseable, non-chat
+  route or no model requested is "unknown" and changes nothing (openrelay answers gpt-4o-mini with MiniMax - mapping is
+  not a defect). Prefix-tolerant both ways (`openai/gpt-4o-mini` ~ `gpt-4o-mini`), never substring. Pinned in
+  test-solana-router (95), test-sor-resolver-scope (14, call site from source), test-route-execute (64).
   **External settlement is CHAIN-MATCHED (2026-07-23):** the buyer's payment network picks
   the spending wallet — `eip155:8453` → Base (X402_UPSTREAM_BUYER_KEY, the proven path),
   Algorand mainnet CAIP-2 → the AVM spending wallet (`ALGORAND_UPSTREAM_BUYER_MNEMONIC`,

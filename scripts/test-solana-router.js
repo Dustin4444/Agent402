@@ -435,5 +435,48 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
     "and the wrap has exactly the stock field set, nothing extra for a strict verifier to trip on");
 }
 
+// ---- 9. resolve-time model-list check ------------------------------------
+// An LLM task names a model; the namespace is the seller's own. On Solana,
+// "chat completions" + gpt-4o-mini resolved to a seller that settled the
+// $0.01 and then answered 400 model_not_found, keeping the money. Every
+// OpenAI-shaped seller publishes GET .../models for free, so the resolver
+// reads it and skips a seller whose readable list lacks the model. Only
+// "not-served" decides; a missing/empty list or a non-chat route is unknown.
+{
+  const { modelsUrlFor, modelListed, sellerServesModel, __resetModelListsForTest } = await import("../src/x402-buyer.js");
+  ok(modelsUrlFor("https://s.example/v1/chat/completions") === "https://s.example/v1/models", "chat/completions -> /v1/models");
+  ok(modelsUrlFor("https://s.example/api/v1/chat/completions?x=1") === "https://s.example/api/v1/models", "prefixed route keeps its prefix, query dropped");
+  ok(modelsUrlFor("https://s.example/v1/messages") === "https://s.example/v1/models" && modelsUrlFor("https://s.example/v1/responses") === "https://s.example/v1/models", "messages + responses wires too");
+  ok(modelsUrlFor("https://s.example/api/v1/exa/search") === null && modelsUrlFor("not a url") === null, "a non-chat route (or garbage) has no model list");
+  ok(modelListed(["openai/gpt-4o-mini"], "gpt-4o-mini") && modelListed(["gpt-4o-mini"], "openai/gpt-4o-mini") && modelListed(["GPT-4o-mini"], "gpt-4o-mini"), "provider prefix and case are tolerated both ways");
+  ok(!modelListed(["xfuel/auto", "theta/glm_5_3"], "gpt-4o-mini") && !modelListed(["gpt-4o-mini-2024"], "gpt-4o-mini"), "a different id is not a match (no substring matching)");
+  let hits = 0;
+  const srv = createServer((req, res) => {
+    hits++;
+    if (req.url === "/v1/models") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ object: "list", data: [{ id: "xfuel/auto" }, { id: "theta/glm_5_3" }] })); return; }
+    if (req.url === "/wide/v1/models") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ data: [{ id: "openai/gpt-4o-mini" }] })); return; }
+    if (req.url === "/empty/v1/models") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ data: [] })); return; }
+    if (req.url === "/html/v1/models") { res.writeHead(200, { "content-type": "text/html" }); res.end("<html>"); return; }
+    res.writeHead(404); res.end("no");
+  });
+  await new Promise((r) => srv.listen(0, "127.0.0.1", r));
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  __resetModelListsForTest();
+  const t = { trusted: true };
+  ok((await sellerServesModel(`${base}/v1/chat/completions`, "gpt-4o-mini", t)).verdict === "not-served", "a readable list without the model -> not-served (the xfuel shape)");
+  ok((await sellerServesModel(`${base}/v1/chat/completions`, "theta/glm_5_3", t)).verdict === "served", "a listed model -> served");
+  ok(hits === 1, "the list was read ONCE for both verdicts (cached per list URL)");
+  ok((await sellerServesModel(`${base}/wide/v1/chat/completions`, "gpt-4o-mini", t)).verdict === "served", "prefix-listed model -> served (the blockrun shape)");
+  ok((await sellerServesModel(`${base}/empty/v1/chat/completions`, "gpt-4o-mini", t)).verdict === "unknown", "an EMPTY list is unknown, never a refusal");
+  ok((await sellerServesModel(`${base}/html/v1/chat/completions`, "gpt-4o-mini", t)).verdict === "unknown", "an unparseable list is unknown");
+  ok((await sellerServesModel(`${base}/nolist/v1/chat/completions`, "gpt-4o-mini", t)).verdict === "unknown", "a 404 list is unknown (fail open)");
+  ok((await sellerServesModel(`${base}/v1/chat/completions`, "", t)).verdict === "unknown" && (await sellerServesModel(`${base}/v1/chat/completions`, null, t)).verdict === "unknown", "no model requested -> unknown, nothing fetched");
+  ok((await sellerServesModel(`${base}/api/v1/exa/search`, "gpt-4o-mini", t)).verdict === "unknown", "a non-chat route is unknown (a model param on a search tool is not our call)");
+  const before = hits;
+  await sellerServesModel(`${base}/v1/chat/completions`, "gpt-4o-mini", { ...t, now: Date.now() + 11 * 60 * 1000 });
+  ok(hits === before + 1, "the cache expires after 10 minutes and the list is re-read");
+  srv.close();
+}
+
 console.log(fail ? `FAILED: ${pass} passed, ${fail} failed` : `OK: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

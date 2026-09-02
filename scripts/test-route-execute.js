@@ -190,6 +190,18 @@ await expectErr({ slug: "broken-tool", params: {} }, 422, "underlying tool 422 p
   ok(r.receipt.underlyingPriceUsd === 0.12 && r.receipt.paidUsd === 0.55, "external receipt shows underlying (from live quote) vs paid tier");
   ok(r.result.proof === "0xabc" && r.result.untrustedContent === true, "external result relayed + marked untrustedContent");
 
+  // The requested model reaches the resolver (it skips chat sellers whose
+  // published model list lacks it); absent or blank, nothing is passed.
+  {
+    const seen = [];
+    const spy = buildRouteExecuteTool({ getCatalog: () => CATALOG, tier: { slug: "route-execute-max", execPriceUsd: 0.55, underlyingMaxUsd: 0.5 },
+      resolveExternal: async (task, opts) => { seen.push(opts.wantModel); return EXT; }, payExternal, externalEnabled: () => true });
+    await spy.handler({ task: "chat completions", include: "external", params: { model: " gpt-4o-mini ", messages: [] } }, {});
+    await spy.handler({ task: "chat completions", include: "external", params: { messages: [] } }, {});
+    await spy.handler({ task: "chat completions", include: "external", params: { model: "" } }, {});
+    ok(seen[0] === "gpt-4o-mini" && seen[1] === null && seen[2] === null, "resolver receives the trimmed params.model, null when absent or blank");
+  }
+
   // THE CALLER PATH for the payTo binding. payX402's own tests hand it a
   // provenPayTo directly, which proves the comparison and says nothing about
   // whether anything ever SUPPLIES one - the same shape of hole that left the

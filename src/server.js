@@ -965,7 +965,7 @@ function buildSettledByOrigin() {
   } catch { /* evidence is additive; never break routing when a source is down */ }
   return m;
 }
-async function resolveExternalSeller(task, { cap, chain = "base", limit = 1 } = {}) {
+async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wantModel = null } = {}) {
   // F4: never route to ourselves (paying our own endpoint over x402 = fee loss
   // / accidental self-recursion) — exclude our own host from candidates.
   const ourHost = (() => { try { return new URL(BASE_URL).host.toLowerCase(); } catch { return ""; } })();
@@ -1061,7 +1061,7 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1 } = 
   }
   const { assertPublicUrl, ssrfDispatcher } = await import("./tools/fetch-guard.js");
   const resolved = [];
-  const { sellerRefusedRecently } = await import("./x402-buyer.js");
+  const { sellerRefusedRecently, sellerServesModel } = await import("./x402-buyer.js");
   for (const r of candidates) {
     let live = false;
     // A seller that refused our payment on this chain (paid retry 402/401,
@@ -1069,6 +1069,14 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1 } = 
     // keeps ranking first and every call burns a full round trip on it.
     const refusal = sellerRefusedRecently(r.seller, chain);
     if (refusal) { console.log(`[sor] skipping ${chain} candidate ${r.seller}: refused a payment ${Math.round((Date.now() - refusal.at) / 60000)} min ago (HTTP ${refusal.status})`); continue; }
+    // An LLM task names a model, and the model namespace is the seller's own:
+    // a chat seller whose published model list is readable and does not carry
+    // it is skipped BEFORE the probe (api.xfuel.app settled and then 400'd
+    // model_not_found, keeping the $0.01, 2026-09-02). Unknown never skips.
+    if (wantModel) {
+      const served = await sellerServesModel(r.url, wantModel);
+      if (served.verdict === "not-served") { console.log(`[sor] skipping ${chain} candidate ${r.seller}: its model list (${served.ids} ids at ${served.modelsUrl}) does not carry "${wantModel}"`); continue; }
+    }
     try {
       // SSRF: the seller URL is external, crawled data — a proven seller's
       // registered origin could still DNS-rebind to a private address between
