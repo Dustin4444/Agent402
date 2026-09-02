@@ -810,6 +810,17 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   (`worker/server.js`) has the same close-then-deadline drain. Boot instrumentation (`[boot]` lines: per-step
   event-loop hold after listen + worst 60 s stall) exists because prod shows ~18 s with a bound listener
   answering nothing - read the next deploy's log before guessing.
+  **In-flight composites are CUT OFF on SIGTERM (2026-09-02, `src/drain-abort.js`):** the drain refused to START a
+  composite but could not stop one running, so a report (30 s-4 min of OpenRouter/Brave/EDGAR calls) ran to the 75 s
+  deadline with the money spent and no 200 ever written - pure loss on every deploy that caught one. Now a composite
+  runs in an AsyncLocalStorage scope (the dispatcher for `EXPENSIVE_COMPOSITE_SLUGS`, and `_humanGenerate` for card/
+  monitor runs) and a global fetch wrapper joins the process-wide drain signal (`AbortSignal.any` with the caller's own)
+  onto every outbound call made inside it; `shutdown()` aborts the controller right after `draining = true`, every
+  waiting upstream call rejects, the handler throws, the route answers 503 with a retry-in-a-minute message (never
+  charged), and the process can exit as soon as the socket closes. A fetch outside a scope is untouched, so an ordinary
+  in-flight request still completes after SIGTERM (test-drain-on-sigterm). Honest bound: a generation already finished
+  upstream is billed anyway; the abort saves every call not yet started or still generating. `scripts/test-drain-abort.js`
+  (offline + four source pins), in the pricing lane.
   **Railway service settings, set to what they should be 2026-08-25 (dashboard state, not in the repo):** `agent402`
   runs ONE replica in us-west2 (`railway scale --service agent402 --environment production us-west2=1`; the
   dashboard had drifted to 2, which with a single volume only doubled boot cost) and `RATE_LIMIT_REPLICAS=1`
