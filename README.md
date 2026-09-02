@@ -153,7 +153,7 @@ Boots straight from the repo's `railway.toml` + `Dockerfile`. Optional plugins a
 | **Crypto derivatives & options** | `perp-markets`, `perp-funding`, `perp-funding-screener`, `perp-basis`, `perp-open-interest`, `perp-klines`, `perp-orderbook` (live perpetuals: mark/oracle price, funding, OI, candles, depth); `options-summary`, `crypto-options-chain`, `options-ticker`, `options-volume` (options book, IV and greeks, onchain options volume) - $0.002 to $0.005 a call, no exchange account |
 | **DeFi & stablecoins** | `defi-yields` (screen pools by chain, project, TVL and stablecoin-only), `defi-yield-history`, `defi-protocols`, `defi-protocol`, `defi-chains`, `defi-chain-tvl-history`, `defi-fees`, `defi-dex-volume`, `stablecoins`, `stablecoin-supply-history` - $0.002 to $0.003 a call |
 | **Solana token intel** | `sol-token-safety` (authorities, liquidity, holder concentration, graded), `sol-token-report` (full risk write-up), `sol-token-holders`, `sol-token-pairs`, `sol-token-search`, `sol-trending`, `sol-price`, `sol-swap-quote`, `sol-token-lookup` - the due-diligence pass an agent needs before it touches a mint |
-| **Crypto market coverage** | `crypto-news`, `crypto-indicators` (RSI, MACD, moving averages, computed here), `crypto-market-pulse`, `coin-profile`, `coin-history`, `coin-ohlc`, `coin-market-chart-range`, `coin-categories`, `coin-price-by-contract` (price by token ADDRESS, no coin id needed), `global-defi`, `exchanges`, `exchange-tickers`, `exchange-rates`, `coin-search`, `coins-list` |
+| **Crypto market coverage** | `crypto-news`, `crypto-indicators` (RSI, MACD, moving averages, computed here), `crypto-market-pulse`, `coin-profile`, `coin-history`, `coin-ohlc`, `coin-market-chart-range`, `coin-categories`, `coin-price-by-contract` (price by token ADDRESS, no coin id needed), `global-defi`, `exchanges`, `exchange-tickers`, `exchange-rates`, `coin-search`, `coins-list` - plus tokenized real-world assets from the same CoinGecko key: `rwa-list`, `rwa-markets`, `rwa-asset`, `rwa-issuers`, `rwa-issuer` (tokenized stocks, ETFs and commodities with onchain market data and the issuers behind them) |
 | **Indexed chain data** | `asset-transfers` (filtered transfer history), `token-balances`, `token-allowance`, `tx-receipt` (decoded transfers), `block-receipts`, `token-price-history` - indexed reads across the major EVM chains, no node and no key of your own |
 | **Farcaster social** | `fc-cast-search`, `fc-channel-feed`, `fc-trending`, `fc-user-casts`, `fc-cast`, `fc-cast-replies`, `fc-channel`, `fc-user-search`, `fc-cast-metrics` - search, feeds and engagement metrics on the onchain social graph |
 | **Site crawling** | `site-map` (enumerate a site's URLs) and `site-crawl` (breadth-first crawl to clean markdown, robots-respecting, hard page/depth/time budgets) - the deterministic pair behind any "read this whole site" task |
@@ -314,6 +314,15 @@ curl -X POST https://agent402.tools/api/route \
 curl 'https://agent402.tools/api/leaderboard?top=25&include=external'
 ```
 
+**Dispatch is labelled, never implied:** every `/api/route` row and `/api/index`
+seller carries `routerDispatchEligible` and `routerDispatchReason` (`crawl_failed`,
+`network_unknown`, `settlement_required`, `settlement_checked_at_pay_time`,
+`eligible`, ...); `executeVia` appears only on a row the router will pay right
+now (`executeViaCallableNow: true`), otherwise the tier moves to
+`executeViaWhenEligible`. `routable` is crawl readiness, never a promise to pay.
+A manifest-priced route is also read live once and then weekly, so the chains
+its 402 actually offers reach the row even when the seller's manifest lags.
+
 **Health-aware:** sellers whose last few crawls errored are excluded from the
 router (a buyer routed to a dead seller wastes money). Healthier sellers also
 break ties at equal match score and price, so flaky-but-cheap sellers lose to
@@ -422,6 +431,11 @@ and agents pay in USDC on Base (or Solana, Polygon, Arbitrum, Monad, Celo, Avala
 Algorand - or USDG on Robinhood Chain via `PAYMENT_NETWORKS=…,robinhood` +
 `ROBINHOOD_FACILITATOR_URL`) via standard x402 clients:
 
+Every 402 is valid under `@x402/core`'s own schemas (at most five tags, CI-checked
+on all routes) and carries a typed output schema twice: in the `bazaar` discovery
+extension and as `accepts[0].outputSchema` on the first accept, so a client that
+reads the spec's field sees the response shape before paying.
+
 ```js
 import { wrapFetchWithPayment } from "@x402/fetch";
 import { x402Client } from "@x402/core/client";
@@ -527,6 +541,11 @@ evm challenges from the same 402, or give it a Tempo relay key
 (`createTollbooth({ tempo: { apiKey, recipient, currency, splits } })`) and it
 settles MPP `tempo/charge` credentials on Tempo with optional split payments,
 with no x402 middleware at all.
+Since 0.10.0 the **edge build speaks MPP too**: with `secret`, `payTo` and your
+`verifyX402` callback set, every 402 carries a `WWW-Authenticate: Payment`
+challenge beside the x402 quote, and an `Authorization: Payment` credential
+(HMAC-bound to that challenge, unexpired, minted for that exact resource) is
+translated to `PAYMENT-SIGNATURE` and handed to the same verifier.
 
 ## Repository map
 

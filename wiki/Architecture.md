@@ -71,7 +71,7 @@ the x402 payment headers on acceptance and refuse identity-bound routes (memory,
 `my-usage`), where the signed wallet is the identity.
 
 **The hosted MCP connector is payable over MPP too** (`src/mcp-mpp.js`): a paid call
-arrives as JSON-RPC error `-32042` + challenges / `_meta` credential, and the connector
+arrives as JSON-RPC error `-32042` (`-32043` for a refused credential) + challenges / `_meta` credential, and the connector
 replays it as a loopback HTTP request to its own paid route so the gates above keep
 sole settlement authority.
 
