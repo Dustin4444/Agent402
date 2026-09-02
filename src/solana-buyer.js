@@ -93,7 +93,18 @@ async function rpcCall(method, params, { fetchImpl = fetch, timeoutMs = 6000 } =
  * verifies in ~20-25 reads and a cold address gives up quickly. Throws on RPC
  * failure - the CALLER treats that as refusal (fail closed).
  */
-export async function solanaInboundCount(payTo, { windowMs = 15 * 3600 * 1000, limit = 200, fetchImpl = fetch, stopAt = Infinity, maxTxReads = 120 } = {}) {
+// Window: 7 DAYS by default (SOR_SVM_WINDOW_HOURS overrides). Solana's x402
+// volume is concentrated - one seller (sol.blockrun) dominates settlements and
+// almost every other seller has only a handful of inbound credits in any 15h
+// slice, so a 15h window admitted exactly ONE routable seller and the rail had
+// no fallback when that one seller's upstream was down (2026-09-01). The TRUST
+// BAR is unchanged - still 20 real, self-transfer-defended inbound credits - it
+// is only measured over a period that matches Solana's slower settlement cadence
+// so established-but-thinner sellers can qualify. `limit` (one sig fetch) is
+// raised to reach back across the wider window; the expensive tx reads stay
+// bounded by maxTxReads and short-circuited by stopAt at the floor.
+const SVM_WINDOW_MS = () => (Number(process.env.SOR_SVM_WINDOW_HOURS) || 168) * 3600 * 1000;
+export async function solanaInboundCount(payTo, { windowMs = SVM_WINDOW_MS(), limit = 500, fetchImpl = fetch, stopAt = Infinity, maxTxReads = 120 } = {}) {
   if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(String(payTo || ""))) throw new Error("payTo is not a plausible Solana address");
   const accounts = await rpcCall("getTokenAccountsByOwner", [payTo, { mint: USDC_MINT }, { encoding: "jsonParsed" }], { fetchImpl });
   const ata = accounts?.value?.[0]?.pubkey;
