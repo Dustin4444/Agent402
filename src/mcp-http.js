@@ -20,7 +20,7 @@ import {
   McpError,
 } from "@modelcontextprotocol/sdk/types.js";
 import {
-  MCP_PAYMENT_REQUIRED_CODE, MCP_RECEIPT_META, credentialHeaderFromMeta, challengesFromHeader, receiptFromHeader, challengeIdFromMeta,
+  MCP_PAYMENT_REQUIRED_CODE, MCP_PAYMENT_VERIFICATION_FAILED_CODE, MCP_RECEIPT_META, credentialHeaderFromMeta, challengesFromHeader, receiptFromHeader, challengeIdFromMeta,
 } from "./mcp-mpp.js";
 import {
   TASKS_EXTENSION, TASK_INVALID_PARAMS, TASK_MISSING_CAPABILITY, TASK_INTERNAL_ERROR,
@@ -501,10 +501,11 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           return { content: [{ type: "text", text: walletRequiredText(entry.def) }], isError: true };
         }
         const problem = r.json && typeof r.json === "object" && typeof r.json.type === "string" ? r.json : undefined;
-        // mppx's wire: -32042 + {httpStatus, challenges, problem?}. A rejected
+        // mppx's wire: -32042 (unpaid) / -32043 (a presented credential refused) +
+        // {httpStatus, challenges, problem?}. A rejected
         // credential (problem present) says why; a first ask carries only the
         // challenges. Price rides inside each challenge's request.amount.
-        throw new McpError(MCP_PAYMENT_REQUIRED_CODE, problem?.detail || `Payment Required: ${entry.def.price} per call (pay with an MPP credential in _meta["org.paymentauth/credential"])`, { httpStatus: 402, challenges, ...(problem ? { problem } : {}) });
+        throw new McpError(problem ? MCP_PAYMENT_VERIFICATION_FAILED_CODE : MCP_PAYMENT_REQUIRED_CODE, problem?.detail || `Payment Required: ${entry.def.price} per call (pay with an MPP credential in _meta["org.paymentauth/credential"])`, { httpStatus: 402, challenges, ...(problem ? { problem } : {}) });
       }
       if (r.status >= 400) {
         onServed(entry.def.slug, { latencyMs: Date.now() - startedAt, errored: true, statusCode: r.status, errorMessage: String(r.json?.error || r.text || r.status).slice(0, 200), inputKeys: Object.keys(params || {}) });
