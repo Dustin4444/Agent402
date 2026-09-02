@@ -238,7 +238,7 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
 // way, so every "chat completions" on Solana died on it. The wallet's own
 // USDC account answers the real question; the seller cannot influence it.
 {
-  const { payX402, sellerRefusedRecently, noteSellerRefusal, __resetSellerRefusalsForTest } = await import("../src/x402-buyer.js");
+  const { payX402, sellerRefusedRecently, noteSellerRefusal, __resetSellerRefusalsForTest, _spentThisWindow } = await import("../src/x402-buyer.js");
   const { confirmSvmNotDebited } = await import("../src/solana-buyer.js");
   __resetSellerRefusalsForTest();
   // Stub seller that REFUSES every paid retry the way xfuel does.
@@ -261,14 +261,18 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
   const buy = (notDebited) => payX402(refuserUrl, { maxAtomic: "10000", chain: "solana", trusted: true, sellerProof: async () => 25, notDebited }).then(() => null, (e) => e);
 
   let asked = null;
+  const heldBefore = _spentThisWindow();
   const e1 = await buy(async (q) => { asked = q; return { debited: false, observed: 0 }; });
   ok(e1 && e1.statusCode === 502 && e1.committed === false && e1.refused === true, "refused + chain shows NO debit -> the error is uncommitted (safe to try the next seller) and flagged refused");
+  ok(_spentThisWindow() === heldBefore, "and the spend hold was RELEASED (the window budget is back where it was)");
   ok(asked && typeof asked.wallet === "string" && Number.isInteger(asked.sinceUnix) && asked.sinceUnix <= Math.floor(Date.now() / 1000), "the chain check is asked about OUR wallet since the moment the header went out");
   ok(sellerRefusedRecently(refuserOrigin, "solana") && sellerRefusedRecently(refuserOrigin, "solana").status === 402, "the refusing seller is memoized for this chain");
   ok(!sellerRefusedRecently(refuserOrigin, "base"), "the memo is per chain - the same seller on Base is untouched");
   __resetSellerRefusalsForTest();
+  const heldBefore2 = _spentThisWindow();
   const e2 = await buy(async () => ({ debited: true, signature: "abc" }));
   ok(e2 && e2.committed === true && !e2.refused, "refused but the chain shows a DEBIT -> post-commit stance kept (we may have paid; no second spend)");
+  ok(_spentThisWindow() === heldBefore2 + 5000n, "and the hold STANDS (5000 atomic still counted against the window)");
   ok(!sellerRefusedRecently(refuserOrigin, "solana"), "a debited refusal is not memoized as a refusal");
   const e3 = await buy(async () => { throw new Error("RPC 429"); });
   ok(e3 && e3.committed === true, "unreadable chain -> post-commit stance kept (fail closed)");

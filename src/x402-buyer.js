@@ -508,17 +508,19 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
           console.warn(`[x402-buyer] ${where} refused the payment and the chain shows no debit (${verdict.observed} tx read) - not charged, seller memoized as refusing on ${chain}`);
           const e = bad(`Seller refused the payment (HTTP ${paid.status}); chain shows no debit, nothing charged`, 502);
           e.refused = true;
-          e.committed = false;
           throw e;
         }
       }
       throw bad(`Seller rejected the paid retry (HTTP ${paid.status})`, 502);
     }
     } catch (postCommitErr) {
-      // `committed:false` is set ONLY by the chain-truth refusal path above,
-      // after the wallet was read; every other post-commit throw is stamped
-      // true, as before.
-      if (postCommitErr && typeof postCommitErr === "object" && postCommitErr.committed !== false) postCommitErr.committed = true;
+      // ONE source of truth: the `committed` variable, which the finally also
+      // reads to release the hold. The chain-truth refusal path above is the
+      // only place that flips it back to false, after the wallet was read;
+      // every other post-commit throw carries true, as before. (Stamping a
+      // literal here let a mutation that never flipped the variable pass the
+      // suite - the error said "not committed" while the hold stood.)
+      if (postCommitErr && typeof postCommitErr === "object") postCommitErr.committed = committed;
       throw postCommitErr;
     }
 
