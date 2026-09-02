@@ -417,7 +417,9 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
             // use, time-boxed credential).
             const spentMaybe = e?.committed === true;
             if (hasNext && !spentMaybe && chain !== "tempo") {
-              console.warn(`[sor] seller ${ext.seller} failed pre-payment (${sc}) - trying next candidate, nothing spent`);
+              console.warn(e?.refused
+                ? `[sor] seller ${ext.seller} refused the payment and the chain shows no debit - trying next candidate, nothing spent`
+                : `[sor] seller ${ext.seller} failed pre-payment (${sc}) - trying next candidate, nothing spent`);
               continue;
             }
             throw lastErr;

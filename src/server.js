@@ -1061,8 +1061,14 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1 } = 
   }
   const { assertPublicUrl, ssrfDispatcher } = await import("./tools/fetch-guard.js");
   const resolved = [];
+  const { sellerRefusedRecently } = await import("./x402-buyer.js");
   for (const r of candidates) {
     let live = false;
+    // A seller that refused our payment on this chain (paid retry 402/401,
+    // chain showed no debit) is skipped until its memo expires - otherwise it
+    // keeps ranking first and every call burns a full round trip on it.
+    const refusal = sellerRefusedRecently(r.seller, chain);
+    if (refusal) { console.log(`[sor] skipping ${chain} candidate ${r.seller}: refused a payment ${Math.round((Date.now() - refusal.at) / 60000)} min ago (HTTP ${refusal.status})`); continue; }
     try {
       // SSRF: the seller URL is external, crawled data — a proven seller's
       // registered origin could still DNS-rebind to a private address between

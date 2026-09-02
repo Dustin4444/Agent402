@@ -22,6 +22,8 @@ ok(decl > 0 && branch > 0 && decl < branch, "provenPayToByOrigin is declared at 
 ok(!/var provenPayToByOrigin/.test(fn), "no `var provenPayToByOrigin` inside a branch (the hoisted-undefined shape)");
 ok(/provenPayToByOrigin = buildProvenPayToByOrigin\(\)/.test(fn), "the Base branch still assigns the proven-payTo evidence");
 ok((fn.match(/provenPayToByOrigin[?.]+get\(/g) || []).length >= 1, "the post-probe check still reads the map (so an undefined map would have been fatal on the non-Base legs)");
+ok(/sellerRefusedRecently\(r\.seller, chain\)/.test(fn) && fn.indexOf("sellerRefusedRecently(r.seller, chain)") < fn.indexOf("await assertPublicUrl(r.url)"),
+  "the resolve loop skips a seller that refused a payment on this chain BEFORE probing it (the memo x402-buyer writes after a chain-verified refusal)");
 ok(/resolved\.push\(\{[^\n]*wire: r\.wire/.test(fn), "the resolved candidate carries its wire (a Tempo seller settles over MPP; the receipt said x402 before)");
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
