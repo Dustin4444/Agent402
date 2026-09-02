@@ -1050,6 +1050,15 @@ export function normaliseManifestTools(manifest, originUrl) {
         const row = {
           seller: originUrl,
           method: method || "GET",
+          // A manifest entry that names no verb is published as GET, the wire
+          // default - but SAY SO, so a later merge with rows that observed the
+          // real verb (OpenAPI, a live 402) can correct it instead of trusting a
+          // default as a declaration. Until 2026-09-02 minia2a.uk's two entries
+          // per path (ids x402_ip_geo_get / x402_ip_geo_post, no method) both
+          // published as GET; a seller whose POST route rejects GET would have
+          // been listed as GET, answered 405 to every buyer, and been recorded
+          // as broken by us.
+          ...(method ? {} : { methodInferred: true }),
           route,
           slug,
           name: name || u.pathname,
@@ -1307,7 +1316,9 @@ export function mergeManifestIntoTools(manifestTools = [], existing = []) {
       manifestMethods.length <= 1 && observedMethods.length === 1 ? observedMethods[0] : null;
     for (const i of indices) replaced.add(i);
     for (const e of entries) {
-      append.push({ ...e, method: forceObserved || e.method || "GET" });
+      // A defaulted verb that the observed row corrects is no longer inferred.
+      const { methodInferred, ...rest } = e;
+      append.push({ ...rest, method: forceObserved || e.method || "GET", ...(methodInferred && !forceObserved ? { methodInferred: true } : {}) });
     }
   }
   const out = existing.filter((_, i) => !replaced.has(i));
@@ -1769,13 +1780,26 @@ let crawlCycle = 0;   // rotates the per-cycle visiting order so the budget is f
  * key would miss the row it just fixed.
  */
 export function carryForwardLearnedQuotes(tools, prev) {
-  const learned = new Map();
+  // Keyed by METHOD + route, with a route-only fallback for the price and
+  // networks. Until 2026-09-02 the map was keyed by route alone and the
+  // remembered row's VERB was stamped onto every current row on that route,
+  // so a path with GET and POST (minia2a.uk: 86 such paths in the first 500
+  // rows) came out as two GETs - the POST operation mislabelled, and a seller
+  // whose POST route rejects GET would answer 405 to every buyer we sent and
+  // be recorded as broken by us. A remembered verb may only replace a verb
+  // the current row INFERRED (a manifest or llms.txt entry that named none);
+  // a declared verb is the seller's own statement and stands.
+  const learnedExact = new Map();
+  const learnedByRoute = new Map();
   for (const t of prev?.tools || []) {
-    if (t?.quoteSource === "live-402" && typeof t.route === "string") learned.set(t.route, t);
+    if (t?.quoteSource !== "live-402" || typeof t.route !== "string") continue;
+    learnedExact.set(`${String(t.method || "GET").toUpperCase()} ${t.route}`, t);
+    if (!learnedByRoute.has(t.route)) learnedByRoute.set(t.route, t);
   }
-  if (!learned.size) return tools;
+  if (!learnedExact.size) return tools;
   for (const t of tools) {
-    const hit = learned.get(t.route);
+    const exact = learnedExact.get(`${String(t.method || "GET").toUpperCase()} ${t.route}`);
+    const hit = exact || learnedByRoute.get(t.route);
     if (!hit) continue;
     // A carried-forward quote FILLS A GAP; it never overrides what this crawl
     // just read from the origin. `originDeclaredPrice` is set by the OpenAPI
@@ -1792,7 +1816,16 @@ export function carryForwardLearnedQuotes(tools, prev) {
     if (!(Array.isArray(t.networks) && t.networks.length) && Array.isArray(hit.networks) && hit.networks.length) {
       t.networks = [...hit.networks];
     }
-    if (hit.method && hit.method !== t.method) { t.method = hit.method; t.methodInferred = false; }
+    // A route-level hit may change a current row's verb in exactly two cases:
+    // the row INFERRED its verb (named none), or the hit is a recorded
+    // CORRECTION of this very verb (the probe saw it fail and the other answer).
+    // A learned verb that simply answered on its own row is not evidence about
+    // a sibling verb - that reading is what mislabelled minia2a's POST rows.
+    if (!exact && hit.method && hit.method !== t.method
+        && (t.methodInferred === true || hit.methodCorrectedFrom === String(t.method || "GET").toUpperCase())) {
+      if (hit.methodCorrectedFrom) t.methodCorrectedFrom = hit.methodCorrectedFrom;
+      t.method = hit.method; t.methodInferred = false;
+    }
     // Only claim "live-402" for a price this crawl is actually standing behind:
     // a row the origin priced today is origin-declared, not live-learned.
     if (!originPricedThisCrawl) t.quoteSource = "live-402";
@@ -1937,7 +1970,14 @@ async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false } = {})
     // honest and useful half of the answer.
     if (learned.price != null && !(Number(tool.price) > 0)) tool.price = learned.price;
     if (learned.networks?.length) tool.networks = [...new Set([...(tool.networks || []), ...learned.networks])];
-    if (learned.method && learned.method !== tool.method) { tool.method = learned.method; tool.methodInferred = false; }
+    if (learned.method && learned.method !== tool.method) {
+      // The stated verb did not answer a quote and this one did: a CORRECTION,
+      // recorded as such so the next crawl's carry-forward can re-apply it to
+      // the freshly rebuilt row (which will state the wrong verb again) without
+      // ever touching a row whose own verb was never probed.
+      tool.methodCorrectedFrom = String(tool.method || "GET").toUpperCase();
+      tool.method = learned.method; tool.methodInferred = false;
+    }
     tool.quoteSource = "live-402";
     // WHEN we learned it. Without this a learned price has no age, so nothing
     // can tell a quote observed an hour ago from one observed in July - and a

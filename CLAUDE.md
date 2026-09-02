@@ -2366,6 +2366,19 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   ceiling. A FREE_MODE server answers no 402 anywhere, so the guard SKIPS rather than reporting a pass that measured nothing.
   Separately this sweep fixed a real drift: 38 workflow sites pinned the x402
   client at 2.16.0 against a 2.22.0 server, which the daily canary could never catch because it only pays OUR challenges.
+- **A learned VERB was stamped onto every row of a path (2026-09-02, `carryForwardLearnedQuotes`):** minia2a.uk declares GET
+  and POST on each of ~1,700 paths; the carry-forward map was keyed by ROUTE alone and overwrote every current row's `method`
+  with the remembered row's, so 86 of the first 500 rows read `GET` with a `_post` slug (two GET rows per path, the POST
+  operation mislabelled). A seller whose POST route rejects GET would be published as GET, answer 405 to every buyer we
+  sent, and be recorded broken by us - the seller-side twin of our own POST-on-GET 405. Traced by running the real
+  ingestion on the live documents (OpenAPI + manifest came out GET+POST correctly; the Bazaar holds no minia2a rows), so
+  the flip had to be a later step. Now: the map is keyed by METHOD + route with a route-only fallback for price and
+  networks; a remembered verb replaces a current one only when the row INFERRED its verb (a manifest/llms.txt entry that
+  named none - `normaliseManifestTools` now stamps `methodInferred: true`, which `probeMethodsFor` already honours by trying
+  both verbs) or when the remembered row is a recorded CORRECTION of that verb (`methodCorrectedFrom`, written by
+  `enrichLiveQuotes` when the stated verb did not answer and the other did). Pinned in test-index-tools-catalog (49),
+  test-x402-live-quote (36), test-single-resource-manifest (26). Rows persisted before the marker existed lose a prior
+  correction until the 7-day quote refresh re-probes them - accepted, because the old rule mislabelled far more.
 - **A learned price could rise but never fall (2026-08-29, reported from OUTSIDE with two unauthenticated curls, issue #1043):**
   a seller cut `/audit` from $0.50 to $0.05 on 2026-08-20 and our index was still quoting the old number NINE DAYS and dozens
   of crawls later - a 10x overquote on their listing, and enough to push the route into the wrong route-execute tier. Three

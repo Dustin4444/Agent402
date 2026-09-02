@@ -117,7 +117,10 @@ const HEADER = Buffer.from(JSON.stringify({ x402Version: 2, accepts: [REAL_ACCEP
 {
   const { carryForwardLearnedQuotes } = await import("../src/x402-index.js");
   const prev = { tools: [
-    { route: "/a", method: "POST", price: 0.99, networks: ["eip155:8453"], quoteSource: "live-402" },
+    // /a was CORRECTED by the probe: the catalogue's GET did not answer, POST
+    // did. The probe records that (methodCorrectedFrom), and the carry-forward
+    // re-applies it only because the record says which verb failed.
+    { route: "/a", method: "POST", methodCorrectedFrom: "GET", price: 0.99, networks: ["eip155:8453"], quoteSource: "live-402" },
     { route: "/b", method: "GET", price: null, networks: ["eip155:8453"], quoteSource: "live-402" },
     { route: "/c", method: "GET", price: 5, networks: [], quoteSource: undefined },
   ] };
@@ -132,8 +135,15 @@ const HEADER = Buffer.from(JSON.stringify({ x402Version: 2, accepts: [REAL_ACCEP
   const by = Object.fromEntries(out.map((t) => [t.route, t]));
 
   ok(by["/a"].price === 0.99, `a learned price survives the rebuild (got ${by["/a"].price})`);
-  ok(by["/a"].method === "POST" && by["/a"].methodInferred === false,
+  ok(by["/a"].method === "POST" && by["/a"].methodInferred === false && by["/a"].methodCorrectedFrom === "GET",
     "a learned METHOD correction survives too - the catalogue said GET for a POST-only route");
+  // The correction is evidence about GET on /a, and only that: a learned POST
+  // with NO correction record is a row that answered on its own verb, and it
+  // says nothing about a sibling GET (2026-09-02: route-keyed carry-forward
+  // stamped minia2a.uk's learned verb onto every row of the path).
+  const sibling = carryForwardLearnedQuotes([{ route: "/e", method: "GET", price: null, networks: [] }],
+    { tools: [{ route: "/e", method: "POST", price: 0.5, networks: ["eip155:8453"], quoteSource: "live-402" }] })[0];
+  ok(sibling.method === "GET" && sibling.price === 0.5, "a learned POST without a correction record never rewrites a declared GET on the same route (price still carried)");
   ok(by["/b"].networks.includes("eip155:8453") && by["/b"].price === null,
     "networks-only knowledge survives without inventing a price");
   ok(by["/c"].price === null,

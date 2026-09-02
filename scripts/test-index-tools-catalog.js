@@ -124,6 +124,26 @@ const page = (results, extra = {}) =>
   )[0];
   check(`a stale learned quote never overwrites today's origin price (got ${kept.price})`, kept.price === 0.05);
   check("and it is not re-stamped live-402, which made a nine-day-old price look fresh", kept.quoteSource !== "live-402");
+  // Keyed by method + route (2026-09-02): a path with GET and POST keeps each
+  // row's own verb. Before, the remembered row's verb was stamped onto every
+  // current row on the route, and minia2a.uk's POST operations came out GET.
+  {
+    const prev = { tools: [
+      { method: "GET", route: "/x402/ip-geo", price: 0.5, networks: ["eip155:8453"], quoteSource: "live-402" },
+      { method: "POST", route: "/x402/ip-geo", price: 0.5, networks: ["eip155:8453"], quoteSource: "live-402" },
+    ] };
+    const cur = [
+      { method: "GET", route: "/x402/ip-geo", slug: "x402_ip_geo_get" },
+      { method: "POST", route: "/x402/ip-geo", slug: "x402_ip_geo_post" },
+    ];
+    const out = carryForwardLearnedQuotes(cur, prev);
+    check("GET and POST rows on one route each keep their own verb when both were learned", out.map((r) => r.method).join(",") === "GET,POST" && out.every((r) => r.price === 0.5));
+    const onlyGet = { tools: [{ method: "GET", route: "/x402/ip-geo", price: 0.5, networks: ["eip155:8453"], quoteSource: "live-402" }] };
+    const declared = carryForwardLearnedQuotes([{ method: "POST", route: "/x402/ip-geo", slug: "p" }], onlyGet)[0];
+    check("a DECLARED POST keeps its verb when only GET was learned on the route, and still takes the price + networks", declared.method === "POST" && declared.price === 0.5 && declared.networks.length === 1);
+    const inferred = carryForwardLearnedQuotes([{ method: "GET", methodInferred: true, route: "/x402/ip-geo", slug: "i" }], { tools: [{ method: "POST", route: "/x402/ip-geo", price: 0.5, quoteSource: "live-402" }] })[0];
+    check("an INFERRED verb adopts the verb that was observed to answer the quote", inferred.method === "POST" && inferred.methodInferred === false);
+  }
   const filled = carryForwardLearnedQuotes([{ route: "/x" }], { tools: [{ route: "/x", price: 0.02, quoteSource: "live-402" }] })[0];
   check("a genuine gap is still filled, and says so", filled.price === 0.02 && filled.quoteCarriedForward === true);
 
