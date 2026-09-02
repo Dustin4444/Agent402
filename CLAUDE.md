@@ -960,6 +960,20 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   article-digest/search-news, content-grade/readability-score, contact-verify/spf-check, trend-analysis/fred-series,
   markdown-convert/text-diff) - they deliver real steps, just fewer than the tool page promises, and each needs its own
   judgment.
+- **Every tool a pack advertises now RUNS, and a conditional leg can be skipped without being charged (2026-09-02):**
+  ten packs listed a tool in `toolSlugs` their `PACK_STEPS` never invoked (structured-scrape/html-meta, ipo-watch/
+  search-news, jwt-toolkit/jwt-sign, fx-monitor/fx-historical, page-audit/sitemap, article-digest/search-news,
+  content-grade/readability-score, contact-verify/spf-check, trend-analysis/fred-series, markdown-convert/text-diff) - the
+  tool page promised it, the buyer never got it. Each now runs it from the pack's own args or a prior step (jwt-toolkit and
+  page-audit became CHAINS: jwt-sign re-issues the claims jwt-decode read; sitemap takes the URLs robots-check DECLARES
+  first - stripe.com, the pack's own example, has no /sitemap.xml - with the conventional paths as `mapInputs` fallbacks).
+  **`step.when(args, prior)`** is new in the runner: false = the leg does not apply to this input and is reported
+  `skipped: true` (ok, never a failure, never counted in "N/M succeeded"); trend-analysis uses it so fred-series runs only
+  when stock-history served nothing, and every downstream step reads `bakeOffValues(p)` from whichever fetcher served. A
+  pack whose every ATTEMPTED step fails still refuses. `test-skill-pack-steps` (760) now asserts the converse rule too:
+  every advertised tool is a step (`ADVERTISED_NOT_RUN` must name any justified omission with a reason; it is empty) and
+  pins the `when` semantics offline; all ten verified against their published examples on a keyless boot (the two
+  Brave-backed legs self-report not-ours there, as designed).
 - **Every guard we owned asserted SHAPE, never OUTCOME (2026-08-31, `scripts/test-pack-examples.js`):** the root cause behind nine
   packs selling broken for two months. The example sweep asserts an HTTP 200 and the documented TOP-LEVEL keys, and
   `{pack, args, steps, summary}` is a valid shape whether the steps returned data or all threw - so `0/N steps succeeded` passed

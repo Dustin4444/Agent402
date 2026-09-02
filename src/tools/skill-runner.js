@@ -221,30 +221,27 @@ export const PACK_STEPS = {
     mode: "chain",
     steps: [
       // Equity ticker: fetch OHLCV (range from horizon arg if provided).
-      // Yahoo bars come back as [{time,open,high,low,close,volume}]; downstream
-      // steps pull close[] from .bars (not a top-level .close array).
+      // Yahoo bars come back as [{time,open,high,low,close,volume}].
       { slug: "stock-history", mapInput: (a) => ({ symbol: a.series, range: a.horizon || "1y" }) },
-      { slug: "stats-summary",   mapInput: (_a, p) => ({ values: (p["stock-history"]?.bars ?? []).map((b) => b.close) }) },
-      { slug: "moving-average",  mapInput: (_a, p) => ({ values: (p["stock-history"]?.bars ?? []).map((b) => b.close), window: 20, which: "both" }) },
+      // Macro indicator: the workflow's own "for a FRED series id" branch,
+      // advertised in toolSlugs and never run until 2026-09-02. Runs ONLY
+      // when stock-history served nothing (a FRED id is not a ticker), so an
+      // equity run does not pay for a leg that cannot apply.
+      { slug: "fred-series", when: (_a, p) => !((p["stock-history"]?.bars ?? []).length), skipReason: "series was served as an equity ticker by stock-history",
+        mapInput: (a) => ({ seriesId: a.series }) },
+      // Every downstream step reads the values from whichever fetcher served.
+      { slug: "stats-summary",   mapInput: (_a, p) => ({ values: bakeOffValues(p) }) },
+      { slug: "moving-average",  mapInput: (_a, p) => ({ values: bakeOffValues(p), window: 20, which: "both" }) },
       { slug: "linear-regression", mapInput: (_a, p) => {
-          const close = (p["stock-history"]?.bars ?? []).map((b) => b.close);
-          return { x: close.map((_, i) => i), y: close };
+          const v = bakeOffValues(p);
+          return { x: v.map((_, i) => i), y: v };
       } },
-      { slug: "outliers",        mapInput: (_a, p) => ({ values: (p["stock-history"]?.bars ?? []).map((b) => b.close) }) },
-      // Correlation needs two series — self-correlation is a placeholder that
-      // returns 1.0; agents will typically pass a benchmark via a follow-up
-      // call. Replace with a real benchmark fetch (e.g. SPY) when ready.
-      { slug: "correlation",     mapInput: (_a, p) => {
-          const close = (p["stock-history"]?.bars ?? []).map((b) => b.close);
-          return { x: close, y: close };
-      } },
-      // forecast-eval requires testSize + method. Default to drift on ~10% of
-      // the series (min 5) — a reasonable backtest size; agents can re-call
-      // forecast-eval directly to sweep methods if they want a model comparison.
+      { slug: "outliers",        mapInput: (_a, p) => ({ values: bakeOffValues(p) }) },
+      { slug: "correlation",     mapInput: (_a, p) => { const v = bakeOffValues(p); return { x: v, y: v }; } },
       { slug: "forecast-eval",   mapInput: (_a, p) => {
-          const close = (p["stock-history"]?.bars ?? []).map((b) => b.close);
-          const testSize = Math.max(5, Math.floor(close.length / 10));
-          return { values: close, testSize, method: "drift" };
+          const v = bakeOffValues(p);
+          const testSize = Math.max(5, Math.floor(v.length / 10));
+          return { values: v, testSize, method: "drift" };
       } },
     ],
   },
@@ -1054,6 +1051,8 @@ export const PACK_STEPS = {
           html: String(p["render"]?.markdown ?? p["extract"]?.markdown ?? ""),
           limit: 50,
       }) },
+      // Advertised in toolSlugs and never run until 2026-09-02.
+      { slug: "html-meta",   mapInput: async (a) => ({ html: await fetchPageHtml(a.url) }) },
     ],
   },
 
@@ -1613,6 +1612,8 @@ export const PACK_STEPS = {
     steps: [
       { slug: "edgar-recent-ipos", mapInput: () => ({ days: 14 }) },
       { slug: "search",            mapInput: () => ({ q: "recent IPO filings SEC", count: 5 }) },
+      // Advertised and never run until 2026-09-02: the workflow's own third step.
+      { slug: "search-news",       mapInput: () => ({ q: "IPO pricing debut S-1 filing", count: 5, freshness: "pw" }) },
     ],
   },
 
@@ -1645,6 +1646,9 @@ export const PACK_STEPS = {
       { slug: "fx-rate",      mapInput: () => ({ from: "GBP", to: "USD" }) },
       { slug: "fx-rate",      mapInput: () => ({ from: "JPY", to: "USD" }) },
       { slug: "fx-dashboard", mapInput: () => ({}) },
+      // Advertised and never run until 2026-09-02: EUR/USD a week back, the
+      // reference the workflow says a spot rate must be read against.
+      { slug: "fx-historical", mapInput: () => ({ from: "EUR", to: "USD", date: new Date(Date.now() - 7 * 86400e3).toISOString().slice(0, 10) }) },
     ],
   },
 
@@ -1743,12 +1747,21 @@ export const PACK_STEPS = {
   // Sitemap removed — unreliable (many sites 404 at /sitemap.xml, causes
   // consistent partial-failures without adding actionable signal).
   "page-audit": {
-    mode: "fanout",
+    // Chain, so the sitemap step can read the sitemaps robots.txt DECLARES:
+    // stripe.com (the pack's own example) has no /sitemap.xml, its robots names
+    // /sitemap/sitemap.xml. The conventional paths are fallbacks only.
+    mode: "chain",
     steps: [
       { slug: "extract",      mapInput: (a) => ({ url: a.url }) },
       { slug: "meta",         mapInput: (a) => ({ url: a.url }) },
       { slug: "http-headers", mapInput: (a) => ({ url: a.url }) },
       { slug: "robots-check", mapInput: (a) => ({ url: a.url }) },
+      // Advertised and never run until 2026-09-02: the workflow's fifth step.
+      { slug: "sitemap",      mapInputs: (a, p) => {
+          const origin = new URL(a.url).origin;
+          const declared = (p["robots-check"]?.sitemaps ?? []).filter((u) => typeof u === "string" && /^https?:\/\//.test(u)).slice(0, 3);
+          return [...declared, `${origin}/sitemap.xml`, `${origin}/sitemap_index.xml`].map((url) => ({ url }));
+      } },
     ],
   },
 
@@ -1883,6 +1896,8 @@ export const PACK_STEPS = {
     steps: [
       { slug: "markdown-to-html",  mapInput: (a) => ({ markdown: a.markdown }) },
       { slug: "html-to-markdown",  mapInput: (_a, p) => ({ html: p["markdown-to-html"]?.html ?? "" }) },
+      // Advertised and never run until 2026-09-02: the diff IS the fidelity report.
+      { slug: "text-diff",         mapInput: (a, p) => ({ a: String(a.markdown ?? ""), b: String(p["html-to-markdown"]?.markdown ?? "") }) },
     ],
   },
 
@@ -1926,6 +1941,8 @@ export const PACK_STEPS = {
     steps: [
       { slug: "search", mapInput: (a) => ({ q: a.topic, count: 5 }) },
       { slug: "answer", mapInput: (a) => ({ q: a.topic }) },
+      // Advertised and never run until 2026-09-02: the workflow's third step.
+      { slug: "search-news", mapInput: (a) => ({ q: a.topic, count: 5, freshness: "pw" }) },
     ],
   },
 
@@ -1955,6 +1972,12 @@ export const PACK_STEPS = {
     steps: [
       { slug: "extract",  mapInput: (a) => ({ url: a.url }) },
       { slug: "keywords", mapInput: (_a, p) => ({ text: p["extract"]?.markdown || "" }) },
+      // Advertised and never run until 2026-09-02: the other half of the grade.
+      { slug: "readability-score", mapInput: (_a, p) => {
+          const text = p["extract"]?.markdown || "";
+          if (!text.trim()) throw Object.assign(new Error("nothing extracted to score"), { statusCode: 422 });
+          return { text };
+      } },
     ],
   },
 
@@ -2050,6 +2073,8 @@ export const PACK_STEPS = {
           const domain = String(a.email || "").split("@")[1] || "";
           return { host: domain, type: "MX" };
       } },
+      // Advertised and never run until 2026-09-02: the workflow's third step.
+      { slug: "spf-check",      mapInput: (a) => ({ domain: String(a.email || "").split("@")[1] || "" }) },
     ],
   },
 
@@ -2085,10 +2110,19 @@ export const PACK_STEPS = {
 
   // JWT decode + verify.
   "jwt-toolkit": {
-    mode: "fanout",
+    // Chain, not fanout: jwt-sign re-issues the claims jwt-decode read (the
+    // workflow's third step, advertised and never run until 2026-09-02).
+    mode: "chain",
     steps: [
       { slug: "jwt-decode",  mapInput: (a) => ({ token: a.token }) },
       { slug: "jwt-verify",  mapInput: (a) => ({ token: a.token, secret: "test" }) },
+      { slug: "jwt-sign",    mapInput: (_a, p) => {
+          const payload = p["jwt-decode"]?.payload;
+          if (!payload || typeof payload !== "object" || !Object.keys(payload).length) {
+            throw Object.assign(new Error("no claims decoded to re-sign"), { statusCode: 422 });
+          }
+          return { payload, secret: "test", alg: "HS256" };
+      } },
     ],
   },
 
@@ -2524,6 +2558,17 @@ async function runPack(packSlug, args, ctx) {
     // this event is what lets cost reconciliations attribute upstream spend
     // (e.g. Brave answer) to pack fan-out. Fire-and-forget, never throws.
     const startedAt = Date.now();
+    // A step may declare `when(args, prior)`: false = this leg does not apply
+    // to THIS input (trend-analysis: fred-series when the series was an equity
+    // ticker that stock-history already served). A skipped leg is reported as
+    // skipped, never as a failure the buyer paid for, and never counts toward
+    // "N/M succeeded" (2026-09-02; before this the only way to express a
+    // conditional leg was to let the loser fail, charged as a partial result).
+    if (typeof step.when === "function") {
+      let applies = true;
+      try { applies = !!(await step.when(args, prior)); } catch { applies = true; }
+      if (!applies) return { slug: step.slug, ok: true, skipped: true, reason: step.skipReason || "not applicable to this input" };
+    }
     try {
       const handler = lookupHandler(step.slug, ctx);
       if (!handler) {
@@ -2575,7 +2620,8 @@ async function runPack(packSlug, args, ctx) {
     steps = await Promise.all(config.steps.map(runStep));
   }
 
-  const okCount = steps.filter((s) => s.ok).length;
+  const attempted = steps.filter((s) => !s.skipped);
+  const okCount = attempted.filter((s) => s.ok).length;
   // Zero successful steps is not a partial success, it is a non-delivery, and
   // a 200 charges for it: @x402/express settles any response under 400. Four
   // packs shipped in exactly that state for two months. Refuse instead, so
@@ -2585,9 +2631,9 @@ async function runPack(packSlug, args, ctx) {
   // was the caller's input (4xx), 400 is the honest answer and a 502 would
   // blame an upstream that was never at fault; anything else is ours or the
   // upstream's, so 502.
-  if (steps.length > 0 && okCount === 0) {
-    const allClientErrors = steps.every((s) => s.statusCode >= 400 && s.statusCode < 500);
-    const reasons = steps.map((s) => `${s.slug}: ${s.error}`).join("; ");
+  if (attempted.length > 0 && okCount === 0) {
+    const allClientErrors = attempted.every((s) => s.statusCode >= 400 && s.statusCode < 500);
+    const reasons = attempted.map((s) => `${s.slug}: ${s.error}`).join("; ");
     throw Object.assign(
       new Error(`No step in the "${packSlug}" pack succeeded, so there is nothing to return (not charged). ${reasons}`),
       { statusCode: allClientErrors ? 400 : 502 }
@@ -2603,7 +2649,7 @@ async function runPack(packSlug, args, ctx) {
     // escalation; it is a stated guarantee the code did not keep.
     args: redactSecretArgs(args),
     steps,
-    summary: `${okCount}/${steps.length} steps succeeded`,
+    summary: `${okCount}/${attempted.length} steps succeeded${steps.length > attempted.length ? ` (${steps.length - attempted.length} skipped as not applicable)` : ""}`,
   };
 }
 
