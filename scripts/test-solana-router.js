@@ -231,6 +231,78 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
   ok(v1Body.ok === true, "a v1 body-carried challenge parses too");
 }
 
+// --- a REFUSED payment falls through on chain truth (2026-09-02) -----------
+// A seller that answers 402 to the paid retry is refusing the payment. Its
+// status line is its own, so the buyer kept the hold and never tried another
+// seller - and api.xfuel.app refused the reference @x402/svm client the same
+// way, so every "chat completions" on Solana died on it. The wallet's own
+// USDC account answers the real question; the seller cannot influence it.
+{
+  const { payX402, sellerRefusedRecently, noteSellerRefusal, __resetSellerRefusalsForTest } = await import("../src/x402-buyer.js");
+  const { confirmSvmNotDebited } = await import("../src/solana-buyer.js");
+  __resetSellerRefusalsForTest();
+  // Stub seller that REFUSES every paid retry the way xfuel does.
+  const refuser = createServer((req, res) => {
+    const pay = req.headers["payment-signature"] || req.headers["x-payment"];
+    res.setHeader("content-type", "application/json");
+    if (!pay) {
+      const accepts = [{ scheme: "exact", network: MAINNET, asset: USDC, amount: "5000", payTo: "J7aN3PLJnTCF5qpEnvJHJsnCjcGuqC2rYtEM8Gv3xwg", maxTimeoutSeconds: 60,
+        extra: { feePayer: "8Y9wxHqJt3mfMUv7pQnBRZUKGdCwjrLBGWtaeu6AGFfe", recentBlockhash: "GfVcyD4kkTrj4bKc7WA9sZCin9JDbdT4Zkd3EittNR1W", lastValidBlockHeight: "250000000" } }];
+      res.statusCode = 402;
+      res.setHeader("payment-required", Buffer.from(JSON.stringify({ x402Version: 2, error: "payment required", accepts })).toString("base64"));
+      res.end("{}"); return;
+    }
+    res.statusCode = 402;
+    res.end(JSON.stringify({ error: { message: "Payment could not be settled: payment_payload_invalid", code: "payment_payload_invalid" } }));
+  });
+  await new Promise((r) => refuser.listen(0, "127.0.0.1", r));
+  const refuserUrl = `http://127.0.0.1:${refuser.address().port}/v1/chat/completions`;
+  const refuserOrigin = `http://127.0.0.1:${refuser.address().port}`;
+  const buy = (notDebited) => payX402(refuserUrl, { maxAtomic: "10000", chain: "solana", trusted: true, sellerProof: async () => 25, notDebited }).then(() => null, (e) => e);
+
+  let asked = null;
+  const e1 = await buy(async (q) => { asked = q; return { debited: false, observed: 0 }; });
+  ok(e1 && e1.statusCode === 502 && e1.committed === false && e1.refused === true, "refused + chain shows NO debit -> the error is uncommitted (safe to try the next seller) and flagged refused");
+  ok(asked && typeof asked.wallet === "string" && Number.isInteger(asked.sinceUnix) && asked.sinceUnix <= Math.floor(Date.now() / 1000), "the chain check is asked about OUR wallet since the moment the header went out");
+  ok(sellerRefusedRecently(refuserOrigin, "solana") && sellerRefusedRecently(refuserOrigin, "solana").status === 402, "the refusing seller is memoized for this chain");
+  ok(!sellerRefusedRecently(refuserOrigin, "base"), "the memo is per chain - the same seller on Base is untouched");
+  __resetSellerRefusalsForTest();
+  const e2 = await buy(async () => ({ debited: true, signature: "abc" }));
+  ok(e2 && e2.committed === true && !e2.refused, "refused but the chain shows a DEBIT -> post-commit stance kept (we may have paid; no second spend)");
+  ok(!sellerRefusedRecently(refuserOrigin, "solana"), "a debited refusal is not memoized as a refusal");
+  const e3 = await buy(async () => { throw new Error("RPC 429"); });
+  ok(e3 && e3.committed === true, "unreadable chain -> post-commit stance kept (fail closed)");
+  ok(!sellerRefusedRecently(refuserOrigin, "solana"), "and nothing memoized on an unreadable chain");
+  // Memo TTL: a seller that fixes its rail is retried after the window.
+  noteSellerRefusal("https://fixed.example", "solana", 402);
+  ok(sellerRefusedRecently("https://fixed.example", "solana") !== null, "a fresh memo is visible");
+  ok(sellerRefusedRecently("https://fixed.example", "solana", Date.now() + 7 * 3600 * 1000) === null, "and gone after the TTL (6 h default)");
+  refuser.close();
+
+  // confirmSvmNotDebited against a stub RPC, all four outcomes.
+  const W = "5xVcvJQ6jLe5tYv7aYQ4gCXoR1yzz9Vc3Nc7qF2wD1Zd";
+  const mkRpc = (sigs, txs, fail) => async (_u, init) => {
+    const { method, params } = JSON.parse(init.body);
+    const reply = (result) => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), { status: 200, headers: { "content-type": "application/json" } });
+    if (fail) return new Response("{}", { status: 429 });
+    if (method === "getTokenAccountsByOwner") return reply({ value: [{ pubkey: "ATA" }] });
+    if (method === "getSignaturesForAddress") return reply(sigs);
+    if (method === "getTransaction") return reply(txs[params[0]] || null);
+    return reply(null);
+  };
+  const nowS = Math.floor(Date.now() / 1000);
+  const bal = (owner, amt) => ({ mint: USDC, owner, uiTokenAmount: { amount: String(amt) } });
+  const debitTx = { meta: { err: null, preTokenBalances: [bal(W, 1000000)], postTokenBalances: [bal(W, 995000)] } };
+  const creditTx = { meta: { err: null, preTokenBalances: [bal(W, 1000000)], postTokenBalances: [bal(W, 1005000)] } };
+  const fast = { wallet: W, sinceUnix: nowS - 10, graceMs: 0, pollMs: 0 };
+  ok((await confirmSvmNotDebited({ ...fast, fetchImpl: mkRpc([], {}) })).debited === false, "no signatures since the mark -> not debited");
+  ok((await confirmSvmNotDebited({ ...fast, fetchImpl: mkRpc([{ signature: "s1", blockTime: nowS }], { s1: debitTx }) })).debited === true, "a recent transaction that LOWERED our USDC -> debited");
+  ok((await confirmSvmNotDebited({ ...fast, fetchImpl: mkRpc([{ signature: "s2", blockTime: nowS }], { s2: creditTx }) })).debited === false, "a recent INBOUND transfer is not a debit");
+  ok((await confirmSvmNotDebited({ ...fast, fetchImpl: mkRpc([{ signature: "s3", blockTime: nowS - 3600 }], { s3: debitTx }) })).debited === false, "a debit from BEFORE the mark does not count");
+  let threw = null; try { await confirmSvmNotDebited({ ...fast, fetchImpl: mkRpc([], {}, true) }); } catch (e) { threw = e; }
+  ok(threw, "an unreadable RPC throws - never 'not debited' by default");
+}
+
 // --- the payload carries `accepted` (2026-09-01) ---------------------------
 // A hand-built SVM payload MUST echo back the requirement it satisfies as
 // `accepted`; without it the seller's facilitator throws `unexpected_verify_error`

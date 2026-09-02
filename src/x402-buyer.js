@@ -214,6 +214,32 @@ let spendWindowStart = 0, spentThisWindow = 0n;
 // that reliably fails the paid leg can't inflate the counter into false 429s
 // for everyone (self-DoS). Refund only within the SAME window — a rolled window
 // already zeroed the counter.
+// Sellers that REFUSED a payment we sent (402/401 on the paid retry, and the
+// chain shows no debit). A seller whose verifier rejects stock x402 payments
+// on a chain will reject the next one too, and while it ranks first every
+// buyer's call spends one full 402 -> sign -> refuse round trip on it before
+// the fallthrough reaches a seller that works (api.xfuel.app on Solana,
+// 2026-09-02: the reference @x402/svm client got the same refusal). Keyed by
+// origin + chain, TTL-bounded, size-bounded; consulted by the SOR resolver so
+// the refused seller is skipped at resolve time, and forgotten after the TTL
+// so a seller that fixes its rail is tried again without a redeploy.
+const SELLER_REFUSAL_TTL_MS = Number(process.env.SOR_SELLER_REFUSAL_TTL_MS || 6 * 3600 * 1000);
+const SELLER_REFUSAL_MAX = 500;
+const sellerRefusals = new Map(); // "chain|origin" -> { at, status }
+const refusalKey = (origin, chain) => `${chain}|${String(origin || "").toLowerCase().replace(/\/+$/, "")}`;
+export function noteSellerRefusal(origin, chain, status) {
+  if (!origin || !chain) return;
+  if (sellerRefusals.size >= SELLER_REFUSAL_MAX) sellerRefusals.delete(sellerRefusals.keys().next().value);
+  sellerRefusals.set(refusalKey(origin, chain), { at: Date.now(), status });
+}
+export function sellerRefusedRecently(origin, chain, now = Date.now()) {
+  const hit = sellerRefusals.get(refusalKey(origin, chain));
+  if (!hit) return null;
+  if (now - hit.at > SELLER_REFUSAL_TTL_MS) { sellerRefusals.delete(refusalKey(origin, chain)); return null; }
+  return hit;
+}
+export function __resetSellerRefusalsForTest() { sellerRefusals.clear(); }
+
 export function reserveSpend(atomic) {
   const now = Date.now();
   if (now - spendWindowStart > SPEND_WINDOW_MS) { spendWindowStart = now; spentThisWindow = 0n; }
@@ -243,7 +269,7 @@ export function _spentThisWindow() { return spentThisWindow; } // test hook
  * A 200 on the bare request means the endpoint is free — returned with no
  * spend. Only a 402 triggers a payment; anything else is a 502.
  */
-export async function payX402(url, { maxAtomic, method = "GET", body, headers = {}, timeoutMs = 20000, maxBytes = DEFAULT_MAX_BYTES, trusted = false, chain = "base", provenPayTo = null, sellerProof = null } = {}) {
+export async function payX402(url, { maxAtomic, method = "GET", body, headers = {}, timeoutMs = 20000, maxBytes = DEFAULT_MAX_BYTES, trusted = false, chain = "base", provenPayTo = null, sellerProof = null, notDebited = null } = {}) {
   if (maxAtomic == null) throw bad("payX402 requires maxAtomic (the margin-guard ceiling)", 500);
   const chainCfg = BUYER_CHAINS[chain];
   if (!chainCfg) throw bad(`payX402: unknown chain "${chain}" (known: ${Object.keys(BUYER_CHAINS).join(", ")})`, 500);
@@ -381,6 +407,9 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
     const { freshSsrfDispatcher } = await import("./tools/fetch-guard.js");
     const paidDispatcher = freshSsrfDispatcher();
     const paidHeaders = { ...reqInit.headers, ...payHeaders, "Access-Control-Expose-Headers": "PAYMENT-RESPONSE,X-PAYMENT-RESPONSE" };
+    // Wall-clock mark BEFORE the payment header leaves: the chain-truth check
+    // after a refusal asks "did our wallet move since here".
+    const sentAtUnix = Math.floor(Date.now() / 1000);
     let paid;
     try {
       paid = await fetch(url, { ...reqInit, dispatcher: paidDispatcher, signal: AbortSignal.timeout(timeoutMs), headers: paidHeaders });
@@ -457,10 +486,39 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
       } catch { why = "(body unreadable)"; }
       const where = (() => { try { return new URL(url).host; } catch { return "seller"; } })();
       console.warn(`[x402-buyer] ${where} rejected the paid retry: HTTP ${paid.status} content-type=${paid.headers.get("content-type") || "-"} body=${why || "(empty)"}`);
+      // A 402/401 on the PAID retry is the seller refusing the payment. Their
+      // word alone is not proof we were not charged (they control the status
+      // line), but on Solana the CHAIN is: if our wallet's USDC did not move
+      // since the header went out, nothing settled, the hold is released and
+      // the caller may try the next seller. An unreadable chain, or a debit,
+      // keeps the post-commit stance. Base has no equivalent yet (an EIP-3009
+      // nonce could be checked the same way; not built).
+      if ((paid.status === 402 || paid.status === 401) && chain === "solana") {
+        let verdict = null;
+        try {
+          const check = notDebited || (await import("./solana-buyer.js")).confirmSvmNotDebited;
+          verdict = await check({ wallet: buyer.address, sinceUnix: sentAtUnix });
+        } catch (e) {
+          console.warn(`[x402-buyer] ${where}: refusal chain check unreadable (${String(e?.message || e).slice(0, 80)}) - keeping the hold`);
+        }
+        if (verdict && verdict.debited === false) {
+          committed = false; // provably unpaid: the finally releases the hold
+          const origin = (() => { try { return new URL(url).origin; } catch { return null; } })();
+          noteSellerRefusal(origin, chain, paid.status);
+          console.warn(`[x402-buyer] ${where} refused the payment and the chain shows no debit (${verdict.observed} tx read) - not charged, seller memoized as refusing on ${chain}`);
+          const e = bad(`Seller refused the payment (HTTP ${paid.status}); chain shows no debit, nothing charged`, 502);
+          e.refused = true;
+          e.committed = false;
+          throw e;
+        }
+      }
       throw bad(`Seller rejected the paid retry (HTTP ${paid.status})`, 502);
     }
     } catch (postCommitErr) {
-      if (postCommitErr && typeof postCommitErr === "object") postCommitErr.committed = true;
+      // `committed:false` is set ONLY by the chain-truth refusal path above,
+      // after the wallet was read; every other post-commit throw is stamped
+      // true, as before.
+      if (postCommitErr && typeof postCommitErr === "object" && postCommitErr.committed !== false) postCommitErr.committed = true;
       throw postCommitErr;
     }
 
