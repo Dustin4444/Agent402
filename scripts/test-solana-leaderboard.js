@@ -85,6 +85,11 @@ const idx = await import("../src/x402-index.js");
   const ev = lb.solanaEvidenceByOrigin(snap);
   ok(ev.settled.get("https://sol.example") === 3 && ev.payers.get("https://sol.example") === 1 && ev.settled.get("https://flaky.example") === 25, "evidence maps are keyed by origin for the resolver");
   ok(lb.getSolanaLeaderboardSnapshot({ now: Date.now() + 4 * 60 * 60_000 }).stale === true, "an hourly board older than three refreshes reads stale");
+  ok(view.rows.every((r) => !("error" in r)) && snap.rows.some((r) => r.error), "public rows never carry the RPC's error text (the internal row keeps it)");
+  // One retry: a read that fails once and then answers counts as readable.
+  let attempts = 0;
+  const flaky = await lb.scanSolanaSellers(new Map([[A, new Set(["https://sol.example"])]]), { readFn: async (p) => { if (++attempts === 1) throw new Error("Solana RPC HTTP 429"); return buyer.solanaInboundCount(p, { detail: true }); }, retryPauseMs: 0 });
+  ok(attempts === 2 && flaky.errors === 0 && flaky.rows[0].credits === 3, "a 429 on the first read is retried once before the row is marked unreadable");
 }
 // ---- 4. priming the pay-time gate --------------------------------------------
 {

@@ -26,7 +26,12 @@ import { readFileSync, writeFileSync, renameSync } from "node:fs";
 
 export const SOLANA_LB_CACHE_FILE = process.env.SOLANA_LB_CACHE_FILE || "/data/solana-leaderboard.json";
 const REFRESH_MS = Number(process.env.SOLANA_LB_REFRESH_MS) || 60 * 60_000;
-const CONCURRENCY = Number(process.env.SOLANA_LB_CONCURRENCY) || 2;
+// One payTo at a time: each read already fans out 12 concurrent getTransaction
+// calls, and two payTos in parallel drew Alchemy 429s + 6 s timeouts on 37 of
+// 357 payTos on the first live scan (2026-09-02). A failed read is retried
+// once after a pause before the row is marked unreadable.
+const CONCURRENCY = Number(process.env.SOLANA_LB_CONCURRENCY) || 1;
+const RETRY_PAUSE_MS = Number(process.env.SOLANA_LB_RETRY_PAUSE_MS) || 1500;
 const MAX_PAYTOS = Number(process.env.SOLANA_LB_MAX_PAYTOS) || 600;
 const STALE_MS = 3 * REFRESH_MS;
 
@@ -53,7 +58,7 @@ export function rankSolanaRows(rows, { self = null } = {}) {
  * Failures are counted, never fatal - the previous row for that payTo is kept
  * marked stale so one RPC hiccup does not zero a proven seller.
  */
-export async function scanSolanaSellers(payTos, { readFn, concurrency = CONCURRENCY, now = Date.now(), previous = current.rows, maxPayTos = MAX_PAYTOS, windowHours = null } = {}) {
+export async function scanSolanaSellers(payTos, { readFn, concurrency = CONCURRENCY, now = Date.now(), previous = current.rows, maxPayTos = MAX_PAYTOS, windowHours = null, retryPauseMs = RETRY_PAUSE_MS } = {}) {
   const prevBy = new Map((previous || []).map((r) => [r.payTo, r]));
   const list = [...payTos.entries()].slice(0, maxPayTos);
   const rows = [];
@@ -65,7 +70,9 @@ export async function scanSolanaSellers(payTos, { readFn, concurrency = CONCURRE
       if (!entry) return;
       const [payTo, origins] = entry;
       try {
-        const r = await readFn(payTo);
+        let r;
+        try { r = await readFn(payTo); }
+        catch (first) { await new Promise((res) => setTimeout(res, retryPauseMs)); r = await readFn(payTo); }
         rows.push({ payTo, origins: [...origins].sort(), credits: Number(r?.credits) || 0, payers: Number(r?.payers) || 0, truncated: !!r?.truncated, at: Date.now() });
       } catch (e) {
         errors++;
@@ -93,7 +100,10 @@ export function solanaEvidenceByOrigin(snapshot = current) {
 }
 
 export function getSolanaLeaderboardSnapshot({ self = null, now = Date.now() } = {}) {
-  const rows = rankSolanaRows(current.rows, { self });
+  // Public rows carry counts and flags, never the RPC's own words (the
+  // leaderboard-redaction rule: an error string on a public surface is a
+  // provider detail at best and a key-bearing URL at worst).
+  const rows = rankSolanaRows(current.rows.map(({ error, ...r }) => r), { self });
   return {
     network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
     asset: "USDC",
