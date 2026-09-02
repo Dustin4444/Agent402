@@ -25,6 +25,23 @@ const t0 = Date.now();
 r = await databasesStatus({ pings: { leads: never, analytics: never }, timeoutMs: 150, cacheMs: 0 });
 ok(r.leads.status === "unreachable" && Date.now() - t0 < 1000, "hung ping -> unreachable within timeout");
 
+// (2b) a FAILED reading is not held for the long cache: the observers'
+// second reading 20-30 s later must be a fresh ping (2026-09-02: five pages,
+// each a single failed ping read twice against the 60 s cache).
+{
+  resetDatabasesStatusCache();
+  let n = 0; let now2 = 5_000_000; const logs = [];
+  const flaky = { leads: async () => { n++; if (n === 1) throw new Error("timeout"); return true; }, analytics: async () => true };
+  const first = await databasesStatus({ pings: flaky, now: () => now2, timeoutMs: 200, cacheMs: 60_000, failureCacheMs: 5_000, log: (l) => logs.push(l) });
+  ok(first.leads.status === "unreachable", "first reading: the failed ping reads unreachable");
+  ok(logs.length === 1 && /\[db-status\] leads ping failed after \d+ms: timeout/.test(logs[0]), `a failed ping leaves a redacted server-log line (${logs[0]})`);
+  const second = await databasesStatus({ pings: flaky, now: () => now2 + 20_000, timeoutMs: 200, cacheMs: 60_000, failureCacheMs: 5_000, log: () => {} });
+  ok(second.leads.status === "ok" && n === 2, "a reading 20 s later re-pings and clears (a failure is cached 5 s, never 60 s)");
+  const third = await databasesStatus({ pings: flaky, now: () => now2 + 30_000, timeoutMs: 200, cacheMs: 60_000, failureCacheMs: 5_000, log: () => {} });
+  ok(third.leads.status === "ok" && n === 2, "a SUCCESS keeps the 60 s cache (no connection storm)");
+  resetDatabasesStatusCache();
+}
+
 // (3) cache: a second call inside the window does not ping again
 resetDatabasesStatusCache();
 let calls = 0;
