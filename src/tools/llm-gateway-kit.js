@@ -295,7 +295,8 @@ export const TIERS = {
     // the tier allowlist (server-chosen, caps still enforced by the body).
     fallbacks: ["deepseek/deepseek-chat", "openai/gpt-4o-mini"],
     prefixes: [
-      "openai/gpt-4.1-nano", "openai/gpt-5-nano",
+      // gpt-4.1-nano retired here 2026-09-02 ahead of OpenAI's 2026-10-23 removal; gpt-5.6-luna is its named successor and the tier default.
+      "openai/gpt-5-nano",
       // gpt-5.6-luna: $0.10/$0.60 after OpenAI's 2026-07-30 cut — frontier-lab
       // efficiency in the nano price class (live-verified 2026-08-04).
       "openai/gpt-5.6-luna",
@@ -321,7 +322,9 @@ export const TIERS = {
     maxTokens: 2048,
     maxPrice: { prompt: 2.5, completion: 8 }, // family prefixes reach mistral-large ~$2/$6, qwen-max ~$1.6/$6.4
     prefixes: [
-      "openai/gpt-4o-mini", "openai/gpt-4.1-mini", "openai/gpt-4.1-nano",
+      // gpt-5-nano is admitted on base as well (a nano model on a pricier tier is
+      // harmless), the way gpt-4.1-nano was until its 2026-10-23 retirement.
+      "openai/gpt-4o-mini", "openai/gpt-4.1-mini", "openai/gpt-5-nano",
       // gpt-5.6-terra was admitted here when it listed at $1/$6. It lists at
       // $2/$12 today (live 2026-08-28), OVER this tier's completion bound, so
       // `provider.max_price` refused every non-flex attempt and each call burnt
@@ -422,7 +425,9 @@ export const TIERS = {
       // gpt-5.6-sol needs its own entry: prefix matching is boundary-aware
       // ("openai/gpt-5" matches gpt-5-*, not gpt-5.6-*). claude-opus covers
       // claude-opus-5 ($5/$25) and claude-opus-5-fast ($10/$50).
-      "openai/gpt-5", "openai/gpt-5.6-sol", "openai/o3", "openai/o4",
+      // openai/o4 (the never-released flagship prefix) retired 2026-09-02 ahead of its
+      // 2026-10-23 removal: o4-mini stays by its own id, gpt-5.6-terra is the successor.
+      "openai/gpt-5", "openai/gpt-5.6-sol", "openai/gpt-5.6-terra", "openai/o3", "openai/o4-mini",
       "anthropic/claude-opus",
     ],
   },
@@ -602,9 +607,6 @@ export const PREFIX_CANONICAL = Object.freeze({
   "anthropic/claude-sonnet": "anthropic/claude-sonnet-5",
   "anthropic/claude-haiku": "anthropic/claude-haiku-4.5",
   "x-ai/grok": "x-ai/grok-4.6",
-  // RETIRES 2026-10-23 -> openai/gpt-5.6-terra (OpenAI deprecations, read
-  // 2026-08-28). o4-mini is live today; drop this prefix on that date.
-  "openai/o4": "openai/o4-mini",
   "google/gemini-3.1-pro": "google/gemini-3.1-pro-preview",
 });
 
@@ -687,7 +689,6 @@ export const MODEL_COST = [
   ["openai/o3-mini", { prompt: 1.1, completion: 4.4 }],
   ["openai/o3", { prompt: 2, completion: 8 }],
   ["openai/o4-mini", { prompt: 1.1, completion: 4.4 }],
-  ["openai/o4", { prompt: 20, completion: 80 }], // unreleased flagship - assume pro-tier pricing until known
   ["openai/gpt-5-nano", { prompt: 0.05, completion: 0.4 }],
   ["openai/gpt-5-mini", { prompt: 0.25, completion: 2 }],
   // gpt-5.6 family — explicit entries are LOAD-BEARING: costFor's plain
@@ -700,6 +701,10 @@ export const MODEL_COST = [
   // checks every row against the live catalog on each run.
   ["openai/gpt-5.6-sol", { prompt: 2, completion: 10 }],   // live 2026-08-28 (was 6/35: the clamp cut max_tokens ~3.5x too hard)
   ["openai/gpt-5.6-terra", { prompt: 2, completion: 12 }], // live 2026-08-28: the row was UNDER the real price
+  // Nano-tier small models, live 2026-09-02 (exact rows so the clamp prices
+  // them at cost instead of the tier bound).
+  ["mistralai/ministral-8b-2512", { prompt: 0.15, completion: 0.15 }],
+  ["mistralai/ministral-3b-2512", { prompt: 0.1, completion: 0.1 }],
   ["openai/gpt-5.6-luna", { prompt: 0.2, completion: 1.2 }], // live 2026-08-19: $0.20/$1.20 (was $1)
   // gpt-5-pro / gpt-5-image (+ -mini, :batch) sit under the "openai/gpt-5"
   // prefix at far higher rates - explicit so the family rate never prices them
@@ -708,10 +713,12 @@ export const MODEL_COST = [
   ["openai/gpt-5-image", { prompt: 10, completion: 10 }],
   ["openai/gpt-5", { prompt: 1.25, completion: 10 }],
   ["openai/gpt-4o-mini", { prompt: 0.15, completion: 0.6 }],
-  // RETIRES 2026-10-23 -> openai/gpt-5.6-sol. Live today at its launch price.
+  // STILL LIVE upstream at $5/$15 until OpenAI removes it on 2026-10-23, and the
+  // "openai/gpt-4o" prefix admits it, so the row stays until the id is gone: with
+  // no row the plain gpt-4o price would UNDER-count it (the live guard says so).
+  // Delete this row once the live guard reports the id absent.
   ["openai/gpt-4o-2024-05-13", { prompt: 5, completion: 15 }],
   ["openai/gpt-4o", { prompt: 2.5, completion: 10 }],
-  ["openai/gpt-4.1-nano", { prompt: 0.1, completion: 0.4 }],
   ["openai/gpt-4.1-mini", { prompt: 0.4, completion: 1.6 }],
   ["openai/gpt-4.1", { prompt: 2, completion: 8 }],
   // claude-opus covers claude-opus-5 ($5/$25) and -fast ($10/$50) — the $15/$75
@@ -843,7 +850,6 @@ const IMAGE_TOKENS = 1600;   // conservative flat per-image input estimate (high
 // (2.46x / 1.62x on <=1,536 patches): ~3.8k / ~2.5k worst case.
 const IMAGE_TOKENS_BY_MODEL = [
   ["openai/gpt-4o-mini", 48_200],
-  ["openai/gpt-4.1-nano", 3_800],
   ["openai/gpt-4.1-mini", 2_500],
 ];
 export function imageTokensFor(model) {
@@ -2943,9 +2949,9 @@ export const LLM_GATEWAY_TOOLS = [
     category: "llm",
     price: "$0.003",
     description:
-      "OpenAI-compatible chat completions, nano tier: gpt-4.1-nano, gpt-5-nano, gemini flash-lite, small llama/ministral/qwen, deepseek-chat - $0.003 per call in USDC over x402, priced for high-frequency agent loops. Same wire format as /v1/chat/completions with loop-sized caps (12k chars in, 768 tokens out). Streaming supported (stream: true). No API key, no signup.",
+      "OpenAI-compatible chat completions, nano tier: gpt-5.6-luna, gpt-5-nano, gemini flash-lite, small llama/ministral/qwen, deepseek-chat - $0.003 per call in USDC over x402, priced for high-frequency agent loops. Same wire format as /v1/chat/completions with loop-sized caps (12k chars in, 768 tokens out). Streaming supported (stream: true). No API key, no signup.",
     tags: SHARED_TAGS,
-    discovery: { bodyType: "json", input: { ...EXAMPLE, model: "openai/gpt-4.1-nano" }, inputSchema: INPUT_SCHEMA, output: { example: { ...EXAMPLE_OUT, model: "openai/gpt-4.1-nano" } } },
+    discovery: { bodyType: "json", input: { ...EXAMPLE, model: "openai/gpt-5.6-luna" }, inputSchema: INPUT_SCHEMA, output: { example: { ...EXAMPLE_OUT, model: "openai/gpt-4.1-nano" } } },
     handler: makeHandler("v1-chat-nano"),
   },
   {

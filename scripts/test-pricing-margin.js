@@ -139,13 +139,13 @@ console.log("\n# failover chain — every candidate model re-clamped at its own 
   globalThis.fetch = async (url, init) => {
     const body = JSON.parse(init.body);
     outbounds.push(body);
-    if (body.model === "openai/gpt-4.1-nano") return { ok: false, status: 502, text: async () => "provider down" };
+    if (body.model === "mistralai/ministral-8b-2512") return { ok: false, status: 502, text: async () => "provider down" };
     return { ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-m", model: body.model, choices: [{ index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" }] }) };
   };
   const nanoTool = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-chat-nano");
-  const res = await nanoTool.handler({ model: "gpt-4.1-nano", messages: [{ role: "user", content: "hi" }], max_tokens: 768, n: 4 });
+  const res = await nanoTool.handler({ model: "mistralai/ministral-8b-2512", messages: [{ role: "user", content: "hi" }], max_tokens: 768, n: 4 });
   ok(res.model === "deepseek/deepseek-chat", `failover still serves the buyer (served ${res.model})`);
-  ok(outbounds[0].model === "openai/gpt-4.1-nano" && outbounds[0].max_tokens === 768, "primary model keeps its own clamp (768 out — no behavior change)");
+  ok(outbounds[0].model === "mistralai/ministral-8b-2512" && outbounds[0].max_tokens === 768, "primary model keeps its own clamp (768 out — no behavior change)");
   const fb = outbounds[1];
   ok(fb.model === "deepseek/deepseek-chat" && fb.max_tokens < 768, `fallback outbound is re-clamped at its own cost (max_tokens ${fb.max_tokens} < 768)`);
   const fbWc = worstCaseUpstreamCost(fb, nano, 0);
