@@ -69,11 +69,15 @@ export const IMAGE_TIERS = {
       // $0.014/megapixel, locked 1024x1024 billed as 1 MP (measured $0.014).
       { model: "black-forest-labs/flux.2-klein-4b", provider: "black-forest-labs", params: {}, worstCaseUsd: 0.014,
         listed: { unit: "megapixel", maxCostUsd: 0.014 } },
-      // $8/M image tokens x 1056 (medium) + $2/M text x ~1k prompt tokens.
-      // RETIRES 2026-12-01 -> gpt-image-2 (OpenAI deprecations). Verified LIVE
-      // 2026-08-28 in OpenRouter's IMAGE catalog (/api/v1/images/models); it is
-      // absent from the default chat-model list, which is not the same thing.
-      { model: "openai/gpt-image-1-mini", provider: "openai", params: { quality: "medium" }, worstCaseUsd: 0.0105,
+      // $8/M image tokens x ~1568 (medium, measured) + $2.5/M text prompt tokens.
+      // gpt-5-image-mini replaced gpt-image-1-mini here 2026-09-02, ahead of the
+      // latter's 2026-12-01 retirement: identical image_output pricing
+      // ($0.000008/token) and prompt pricing on OpenRouter's endpoint listing,
+      // read live that day; gpt-image-2 ($0.00003/token, ~$0.032 at medium) does
+      // not fit under this tier's bound. Verified LIVE in the IMAGE catalog
+      // (/api/v1/images/models); absent from the chat-model list, which is not
+      // the same thing.
+      { model: "openai/gpt-5-image-mini", provider: "openai", params: { quality: "medium" }, worstCaseUsd: 0.013, // measured live 2026-09-02: 1568 image tokens at medium = $0.0126
         listed: { unit: "token", maxCostUsd: 0.000008 } },
     ],
   },
@@ -361,7 +365,7 @@ export const IMAGES_FAST_TOOLS = [
     category: "llm",
     price: "$0.020",
     description:
-      "Budget text-to-image over x402 - OpenAI images wire (prompt in, inline base64 out) at $0.02 per picture, a quarter of the flagship /v1/images/generations price. Served by FLUX.2 Klein 4B (about 2 seconds per image, 1024x1024 JPEG) with GPT Image 1 Mini as the failover. n locked to 1, text-to-image only, size and quality fixed. Point any OpenAI SDK's images.generate() at base_url https://agent402.tools/v1 and call /images/fast.",
+      "Budget text-to-image over x402 - OpenAI images wire (prompt in, inline base64 out) at $0.02 per picture, a quarter of the flagship /v1/images/generations price. Served by FLUX.2 Klein 4B (about 2 seconds per image, 1024x1024 JPEG) with GPT-5 Image Mini as the failover. n locked to 1, text-to-image only, size and quality fixed. Point any OpenAI SDK's images.generate() at base_url https://agent402.tools/v1 and call /images/fast.",
     tags: ["image-generation", "images", "text-to-image", "generate", "generate-image", "create-image", "picture", "cheap", "flux", "budget", "fast", ...SHARED_TAGS],
     discovery: {
       bodyType: "json",
