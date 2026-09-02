@@ -2124,7 +2124,16 @@ async function robotsGroupsFor(originUrl, fetchText) {
 }
 
 /** The matched rule when this origin's robots.txt forbids us this path, else null. */
-export async function robotsForbids(originUrl, path, { fetchText } = {}) {
+const OPENAPI_PATH = "/openapi.json";
+// True when some group in this robots.txt is addressed to US by name (the
+// same substring rule robotsAllows uses to pick a group). A rule written for
+// Agent402 specifically is a deliberate refusal and is honoured everywhere.
+function robotsNamesUs(groups) {
+  const ua = ROBOTS_UA.toLowerCase();
+  return groups.some((g) => (g.agents || []).some((a) => a !== "*" && ua.includes(String(a).toLowerCase())));
+}
+
+export async function robotsForbids(originUrl, path, { fetchText, manifestPublished = false } = {}) {
   // The x402 discovery document is EXEMPT from robots gating. robots.txt is a
   // control on content crawling; /.well-known/x402 is a protocol endpoint
   // (RFC 8615) a seller publishes for the sole purpose of being fetched by
@@ -2132,24 +2141,42 @@ export async function robotsForbids(originUrl, path, { fetchText } = {}) {
   // default - otherwise permanently hides the very document the seller serves
   // to be found: measured live 2026-09-01 on sol.blockrun.ai (manifest 200,
   // robots Disallow /, entry stuck as textless registry synthesis, invisible
-  // to every route query). Everything else the crawler touches - openapi,
-  // llms.txt, homepages, tool probes - stays robots-honoured.
+  // to every route query). Everything else the crawler touches - llms.txt,
+  // homepages, tool probes - stays robots-honoured.
+  //
+  // ONE extension (2026-09-02): once a seller has published that manifest,
+  // /openapi.json at the same origin is read even under a BLANKET Disallow.
+  // The manifest is the seller's opt-in to machine discovery, and the OpenAPI
+  // is the document that NAMES the routes the manifest lists as bare
+  // "POST /api/v1/exa/search" strings. Without it, sol.blockrun.ai's 128
+  // routes carried their path as their name and could not match ordinary
+  // task text ("web search" finds nothing in "/api/v1/search"), while the
+  // seller's own OpenAPI called that route "Grok Live Search" with a
+  // description - measured 2026-09-02, the same day the Solana router was
+  // proven against them by typing the path. The exemption never ADDS routes
+  // (the merge only enriches paths the manifest or a registry already
+  // vouched for), applies only with the manifest in hand (the no-manifest
+  // fallback stays robots-honoured), and yields to a robots group that names
+  // Agent402 specifically: a blanket `User-agent: *` `Disallow: /` on an API
+  // host is a default, a rule addressed to us is a decision.
   if (path === WELL_KNOWN_PATH) return null;
   const groups = await robotsGroupsFor(originUrl, fetchText);
   if (!groups.length) return null;
   const verdict = robotsAllows(groups, ROBOTS_UA, path);
-  return verdict.allowed ? null : (verdict.matchedRule || "Disallow");
+  if (verdict.allowed) return null;
+  if (manifestPublished && path === OPENAPI_PATH && !robotsNamesUs(groups)) return null;
+  return verdict.matchedRule || "Disallow";
 }
 export function __resetRobotsCacheForTest() { robotsCache.clear(); }
 
 /** Fetch `path` on `originUrl` unless it is backed off, recording the outcome.
  *  Every per-origin probe in the crawl goes through here so a new one cannot be
  *  added ungated the way /agents.json and /llms.txt were. */
-async function probePath(originUrl, path, opts) {
+async function probePath(originUrl, path, { manifestPublished = false, ...opts } = {}) {
   if (!probeDue(originUrl, path)) throw new Error(`probe backed off: ${path}`);
   // Every per-origin probe already funnels through here, so this is the one
   // place robots has to be checked for it to be checked everywhere.
-  const forbidden = await robotsForbids(originUrl, path);
+  const forbidden = await robotsForbids(originUrl, path, { manifestPublished });
   if (forbidden) throw Object.assign(new Error(`robots.txt forbids ${path} (${forbidden})`), { robotsBlocked: true });
   try {
     // CONDITIONAL REQUEST. We visit every seller every CRAWL_INTERVAL_MS, which
@@ -2234,7 +2261,13 @@ function oncePerCrawl() {
 
 async function crawlSeller(originUrl) {
   const once = oncePerCrawl();
-  const fetchOpenapi = () => once("/openapi.json", () => probePath(originUrl, "/openapi.json", { maxBytes: MAX_OPENAPI_BYTES }));
+  // `manifestPublished` is set by the well-known branch only: once the seller's
+  // manifest is in hand, robotsForbids reads /openapi.json under a blanket
+  // Disallow (see the exemption there). The no-manifest fallback below calls
+  // this without the flag and stays fully robots-honoured. `once` keys on the
+  // path, so whichever branch runs first decides - and the manifest branch
+  // runs first only when the manifest was actually fetched.
+  const fetchOpenapi = (extra = {}) => once("/openapi.json", () => probePath(originUrl, "/openapi.json", { maxBytes: MAX_OPENAPI_BYTES, ...extra }));
   const prev = cache.get(originUrl);
   try {
     // A manifest that has 404'd repeatedly is not re-probed every cycle.
@@ -2255,7 +2288,7 @@ async function crawlSeller(originUrl) {
     // small. So those are what the cache carries.
     let openapiTools = null, openapiRoutes = null;
     try {
-      const res = await fetchOpenapi();
+      const res = await fetchOpenapi({ manifestPublished: true });
       if (res.notModified && prev?.openapiTools) {
         openapiTools = prev.openapiTools;
         openapiRoutes = prev.openapiRoutes || [];
