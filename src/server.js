@@ -34,6 +34,7 @@ import {
 import { payerFromRequest, payerFromPaymentResponse, paymentHeaderOf, paymentIdentifierOf } from "./payer.js";
 import { runInAbortableScope, abortInFlightComposites, installDrainAwareFetch, isDrainAbort } from "./drain-abort.js";
 import { startSolanaLeaderboard, getSolanaLeaderboardSnapshot, solanaEvidenceByOrigin } from "./solana-leaderboard.js";
+import { creditFromTx as solanaCreditFromTx } from "./solana-buyer.js";
 import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpendFailure, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS, isLongRunningSlug, _compositeGuardState, compositeUsageSnapshot, withCompositeContext } from "./composite-spend-guard.js";
 // Single-upstream-call routes that run long (40 s+): EVM exact only, like the
 // composites (settle-after on SVM/AVM/Tempo is work done, never charged), but
@@ -7026,7 +7027,8 @@ if (String(process.env.MPP_INDEX_CRAWL || "").toLowerCase() === "off") {
     // payTo the index knows, primed into the pay-time gate (src/solana-leaderboard.js).
     startSolanaLeaderboard({
       listPayTos: async () => (await import("./x402-index.js")).allSolanaPayToOrigins(),
-      readFn: async (payTo) => (await import("./solana-buyer.js")).solanaInboundCount(payTo, { detail: true }),
+      rpc: (method, params) => import("./solana-buyer.js").then((m) => m.solanaRpc(method, params)),
+      creditFromTx: (meta, payTo) => solanaCreditFromTx(meta, payTo),
       prime: (payTo, count) => import("./solana-buyer.js").then((m) => m.primeSvmInboundCount(payTo, count)),
       windowHours: Number(process.env.SOR_SVM_WINDOW_HOURS) || 168,
     });

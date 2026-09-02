@@ -70,11 +70,36 @@ const idx = await import("../src/x402-index.js");
   ok(!m.has(B) && !m.has("0x" + "a".repeat(40)), "a DEVNET label and an EVM payTo are never listed");
   cache.clear();
 }
-// ---- 3. the scan: ranking, self, stale-on-error, evidence ------------------
+// ---- 3. the incremental reader ----------------------------------------------
+// Cycle 1 on a payTo reads its token account, its recent signatures and each
+// transaction; cycle 2 passes `until` = the newest signature seen and reads
+// NOTHING new (one RPC call); a payTo with no USDC account costs one call and
+// is then skipped for a day; events outside the window are pruned.
+{
+  const rpcLog = [];
+  const rpcFn = async (method, params) => { rpcLog.push(method); const res = await fetch(process.env.SOLANA_RPC_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) }); const j = await res.json(); if (j.error) throw new Error("Solana RPC error: " + j.error.message); return j.result; };
+  const windowMs = 7 * 24 * 3600e3;
+  const st = {};
+  const r1 = await lb.readPayToIncremental(A, st, { rpc: rpcFn, creditFromTx: buyer.creditFromTx, windowMs });
+  ok(r1.credits === 3 && r1.payers === 1 && r1.rpcCalls === 6 && st.ata && st.lastSig === "s1" && st.events.length === 3, `cycle 1: account + signatures + 4 tx reads = 6 RPC calls, 3 credits, cursor at the newest signature (got ${JSON.stringify(r1)})`);
+  rpcLog.length = 0;
+  const r2 = await lb.readPayToIncremental(A, st, { rpc: rpcFn, creditFromTx: buyer.creditFromTx, windowMs });
+  ok(r2.credits === 3 && r2.rpcCalls === 1 && rpcLog.join(",") === "getSignaturesForAddress", `cycle 2: ONE signatures read with until=lastSig, no transaction reads, credits carried (got ${r2.rpcCalls} calls: ${rpcLog.join(",")})`);
+  const stB = {};
+  const b1 = await lb.readPayToIncremental(B, stB, { rpc: rpcFn, creditFromTx: buyer.creditFromTx, windowMs });
+  rpcLog.length = 0;
+  const b2 = await lb.readPayToIncremental(B, stB, { rpc: rpcFn, creditFromTx: buyer.creditFromTx, windowMs });
+  ok(b1.rpcCalls === 1 && b2.rpcCalls === 0 && stB.ata === null && b2.credits === 0, "a payTo with no USDC account costs one call, then nothing for a day");
+  const b3 = await lb.readPayToIncremental(B, stB, { rpc: rpcFn, creditFromTx: buyer.creditFromTx, windowMs, now: Date.now() + 25 * 3600e3 });
+  ok(b3.rpcCalls === 1, "and is re-checked after the day");
+  const pruned = await lb.readPayToIncremental(A, st, { rpc: rpcFn, creditFromTx: buyer.creditFromTx, windowMs, now: Date.now() + 8 * 24 * 3600e3 });
+  ok(pruned.credits === 0 && st.events.length === 0, "events older than the window are pruned on the next read");
+}
+// ---- 3b. the scan: ranking, self, stale-on-error, evidence ------------------
 {
   const payTos = new Map([[A, new Set(["https://sol.example"])], [B, new Set(["https://none.example"])], [C, new Set(["https://flaky.example"])]]);
   const readFn = (p) => buyer.solanaInboundCount(p, { detail: true });
-  const snap = await lb.scanSolanaSellers(payTos, { readFn, concurrency: 2, previous: [{ payTo: C, origins: ["https://flaky.example"], credits: 25, payers: 1, at: 1 }] });
+  const snap = await lb.scanSolanaSellers(payTos, { readFn, concurrency: 2, previous: [{ payTo: C, origins: ["https://flaky.example"], credits: 25, payers: 1, at: 1 }], retryPauseMs: 0 });
   ok(snap.scanned === 3 && snap.errors === 1, `three payTos scanned, one unreadable (${snap.errors})`);
   const byP = Object.fromEntries(snap.rows.map((r) => [r.payTo, r]));
   ok(byP[A].credits === 3 && byP[B].credits === 0 && byP[C].credits === 25 && byP[C].stale === true, "an RPC failure keeps the PREVIOUS row marked stale rather than zeroing a proven seller");
@@ -84,9 +109,8 @@ const idx = await import("../src/x402-index.js");
   ok(view.stale === false && view.sellers === 3 && typeof view.scannedAt === "string", "the snapshot says when it was scanned and is not stale right after");
   const ev = lb.solanaEvidenceByOrigin(snap);
   ok(ev.settled.get("https://sol.example") === 3 && ev.payers.get("https://sol.example") === 1 && ev.settled.get("https://flaky.example") === 25, "evidence maps are keyed by origin for the resolver");
-  ok(lb.getSolanaLeaderboardSnapshot({ now: Date.now() + 4 * 60 * 60_000 }).stale === true, "an hourly board older than three refreshes reads stale");
+  ok(lb.getSolanaLeaderboardSnapshot({ now: Date.now() + 7 * 60 * 60_000 }).stale === true, "a two-hourly board older than three refreshes reads stale");
   ok(view.rows.every((r) => !("error" in r)) && snap.rows.some((r) => r.error), "public rows never carry the RPC's error text (the internal row keeps it)");
-  // One retry: a read that fails once and then answers counts as readable.
   let attempts = 0;
   const flaky = await lb.scanSolanaSellers(new Map([[A, new Set(["https://sol.example"])]]), { readFn: async (p) => { if (++attempts === 1) throw new Error("Solana RPC HTTP 429"); return buyer.solanaInboundCount(p, { detail: true }); }, retryPauseMs: 0 });
   ok(attempts === 2 && flaky.errors === 0 && flaky.rows[0].credits === 3, "a 429 on the first read is retried once before the row is marked unreadable");
@@ -109,15 +133,22 @@ const idx = await import("../src/x402-index.js");
   ok(g2.ok === true && g2.inbound === 100 && rpcCalls === c0, "the resolve-time gate takes the primed count without touching the chain");
   buyer.__resetSvmProofCacheForTest();
 }
-// ---- 5. refresh + persist + warm start --------------------------------------
+// ---- 5. refresh (incremental, stateful) + persist + warm start ---------------
 {
   lb.__resetSolanaLeaderboardForTest();
   const primed = [];
-  await lb.refreshSolanaLeaderboard({ listPayTos: async () => new Map([[A, new Set(["https://sol.example"])]]), readFn: (p) => buyer.solanaInboundCount(p, { detail: true }), prime: (p, n) => primed.push([p, n]), windowHours: 168 });
-  ok(primed.length === 1 && primed[0][0] === A && primed[0][1] === 3, "a refresh primes every readable row into the gate");
+  const rpcFn = async (method, params) => { const res = await fetch(process.env.SOLANA_RPC_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) }); const j = await res.json(); if (j.error) throw new Error("Solana RPC error: " + j.error.message); return j.result; };
+  const listPayTos = async () => new Map([[A, new Set(["https://sol.example"])], [B, new Set(["https://none.example"])]]);
+  await lb.refreshSolanaLeaderboard({ listPayTos, rpc: rpcFn, creditFromTx: buyer.creditFromTx, prime: (p, n) => primed.push([p, n]), windowHours: 168 });
+  const first = lb.getSolanaLeaderboardSnapshot();
+  ok(primed.length === 2 && primed[0][0] === A && primed[0][1] === 3, "a refresh primes every readable row into the gate");
+  ok(first.rpcCallsLastScan === 7 && lb._stateForTest()[A]?.lastSig === "s1", `first refresh: 7 RPC calls (6 for the active payTo, 1 for the empty one), cursor stored (got ${first.rpcCallsLastScan})`);
+  await lb.refreshSolanaLeaderboard({ listPayTos, rpc: rpcFn, creditFromTx: buyer.creditFromTx, prime: () => {}, windowHours: 168 });
+  const second = lb.getSolanaLeaderboardSnapshot();
+  ok(second.rpcCallsLastScan === 1 && second.rows.find((r) => r.payTo === A)?.credits === 3, `second refresh: ONE RPC call in total (nothing new on the active payTo, the empty one skipped for a day) (got ${second.rpcCallsLastScan})`);
   lb.__resetSolanaLeaderboardForTest();
   ok(lb.getSolanaLeaderboardSnapshot().rows.length === 0, "reset is empty");
-  ok(lb.loadPersistedSolanaLeaderboard() === true && lb.getSolanaLeaderboardSnapshot().rows.length === 1 && lb.getSolanaLeaderboardSnapshot().warmStarted === true, "the persisted board warm-starts the next boot");
+  ok(lb.loadPersistedSolanaLeaderboard() === true && lb.getSolanaLeaderboardSnapshot().rows.length === 2 && lb.getSolanaLeaderboardSnapshot().warmStarted === true && lb._stateForTest()[A]?.lastSig === "s1", "the persisted board AND its per-payTo cursors warm-start the next boot");
 }
 rpc.close();
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
