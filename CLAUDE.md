@@ -2544,8 +2544,14 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   (`MCP_PAYMENT_VERIFICATION_FAILED_CODE`, mcp-mpp.js; mcp-http.js keys it on a credential having been PRESENTED in `_meta`, never
   on the body - an unpaid 402 can carry a problem-shaped body too, which is what test-mcp-tasks' stub does; the 0.9 client
   reads challenges from either code, an 0.8 client stops re-paying a refused credential, which is the spec's intent). All
-  thirteen MPP/Tempo/Stripe suites green on 0.9.2 offline; the live proof is the tempo canary + tempo-subscription canary
-  dispatched after the deploy. **Tollbooth 0.10.0 (same day): MPP on the EDGE gate** - `tollbooth/edge-mpp.js` (Web Crypto
+  thirteen MPP/Tempo/Stripe suites green on 0.9.2 offline. Live proof after the deploy: the charge canary
+  (tempo-canary-verify.yml, run 33657484283) settled; the subscription canary FAILED its renewal (run 33657453172) and the
+  cause was NOT the bump: prod's log read `transaction expired: current block timestamp 1788367998 >= validBefore 1788367996`
+  at eth_estimateGas - viem's Tempo chain config stamps `validBefore = now + 25 s` on every request, and that minute our own
+  tempo-volume run had rpc.tempo.xyz answering in 7-20 s (the morning's green run had no volume overlap). Nobody was charged.
+  The renewal then backed off a full HOUR, which is the wrong price for a slow RPC: `isTransientChargeError` (RPC/network
+  shapes, read through viem's nested `cause.details`) now retries in `TRANSIENT_CHARGE_BACKOFF_MS` (2 min x attempts,
+  capped at the hour); a refused transfer keeps the hour. test-mpp-subscriptions 127. **Tollbooth 0.10.0 (same day): MPP on the EDGE gate** - `tollbooth/edge-mpp.js` (Web Crypto
   HMAC) mints one evm/charge challenge for the edge quote beside the x402 accepts block and translates an
   `Authorization: Payment` credential (HMAC-bound, unexpired, minted for THAT resource) to PAYMENT-SIGNATURE for the
   operator's `verifyX402`; the wire codec moved to `tollbooth/mpp-codec.js` (runtime-agnostic, shared with the Node build).

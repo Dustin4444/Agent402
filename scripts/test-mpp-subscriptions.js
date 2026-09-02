@@ -25,6 +25,7 @@ import {
   OFFER_SWEEP_AFTER_MS, MAX_OPEN_OFFERS,
   CANARY_PRODUCT_KEY, CANARY_PRODUCT, CANARY_PERIOD_SECONDS, productDefFor, isCanaryProduct,
   subscriptionFeePayerPolicy, SUB_FEE_PAYER_MAX_GAS,
+  isTransientChargeError, TRANSIENT_CHARGE_BACKOFF_MS,
 } from "../src/mpp-subscriptions.js";
 import { MONITOR_PRODUCTS } from "../src/stripe-subscriptions.js";
 
@@ -386,6 +387,29 @@ let liveSubId = null, liveHeader = null, liveToken = null, liveBuyer = null;
   ok(await engine.refreshStatus(sub.subId) === "past_due" && calls.charge === before, "inside the backoff window no further pull is attempted");
   advance(CHARGE_BACKOFF_MS + 1000);
   ok(await engine.refreshStatus(sub.subId) === "past_due" && calls.charge === before + 1, "after the backoff it retries once");
+
+  // A TRANSIENT failure (RPC slow, validBefore lapsed - canary run 33657453172)
+  // retries in minutes; a refused transfer keeps the hour. Classified through
+  // viem's shape: the server's words sit in `details` on a nested cause.
+  {
+    const viemShaped = Object.assign(new Error("Execution reverted for an unknown reason.\n\nRequest body: {...}"), { name: "EstimateGasExecutionError", cause: Object.assign(new Error("An internal error was received."), { details: "Revm error: transaction expired: current block timestamp 1788367998 >= validBefore 1788367996" }) });
+    ok(isTransientChargeError(viemShaped) === true, "a validBefore-lapsed estimateGas error is transient (read from the nested cause's details)");
+    ok(isTransientChargeError(new Error("insufficient funds for gas * price + value")) === false && isTransientChargeError(new Error("key authorization revoked")) === false, "a refused transfer is not transient");
+    const t = makeEngine({ name: "transient" });
+    const off = await t.engine.mintOffer({ product: "fund-monitor", target: "Some Manager LP" });
+    const c = await signCredential(Challenge.deserialize(off.header));
+    const ts = await t.engine.activateFromCredential(c.header);
+    await t.engine.warm();
+    t.setCharge(() => viemShaped);
+    advance(PERIOD);
+    ok(await t.engine.refreshStatus(ts.subId) === "past_due", "a transient charge failure still leaves the subscription past_due (fail closed)");
+    const tr = t.engine.get(ts.subId);
+    const wait = Date.parse(tr.nextChargeAttemptAt) - clock;
+    ok(wait > 0 && wait <= TRANSIENT_CHARGE_BACKOFF_MS + 1000, `a transient failure retries in ${Math.round(TRANSIENT_CHARGE_BACKOFF_MS / 60000)} minutes, not an hour (got ${Math.round(wait / 1000)}s)`);
+    t.setCharge(() => ({ reference: "0xafter-blip" }));
+    advance(TRANSIENT_CHARGE_BACKOFF_MS + 1000);
+    ok(await t.engine.refreshStatus(ts.subId) === "active" && t.engine.get(ts.subId).lastChargedPeriod === 1, "and the retry after the short backoff pulls the period");
+  }
 
   // Recovery.
   h.setCharge(() => ({ reference: "0xrecovered" }));
