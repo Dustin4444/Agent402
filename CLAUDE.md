@@ -2313,6 +2313,14 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   it now re-probes after 30 s and files only if the second read agrees, which a stopped Postgres container still
   fails. Pinned in `test-db-status.js` (20) and mutation-checked by deleting the sleep. When adding an alarm that
   reads a live prod surface: one reading is never an outage here, because our own deploys produce that reading.
+  **It paged five more times on 2026-09-02 (issues #1161/#1164/#1166/#1167/#1182), each minutes after one of our deploys,
+  "confirmed by a second reading" - and the second reading was the SAME failed ping:** `databasesStatus` cached every
+  reading 60 s, the Cloudflare Worker confirms 30 s later and the heartbeat 30 s later, so one failed `SELECT 1` (the
+  boot log showed both pools ready at 20:07:58; the 20:11 ping still failed, most likely a post-listen stall longer than
+  the 5 s ping timeout - measured 7.8 s and 11.6 s that boot) read as two. Now a FAILED reading is cached 5 s
+  (`FAILURE_CACHE_MS`, a success keeps 60 s), the ping timeout is 12 s (over the measured stalls, under the observers'
+  15 s fetch budget), and a failed ping logs `[db-status] <db> ping failed after Nms: timeout|<code>` so the next false
+  page has evidence. test-db-status 24, mutation-checked (holding a failure for the long cache fails it).
 - **Broken-tool audit with PRODUCTION KEYS (2026-08-29): the 156 metered tools are the blind spot, and one flagship was
   crashing.** Both catalog sweeps EXCLUDE the metered set (third-party keys CI lacks, upstream spend), so ~156 tools -
   every report composite among them - are unexamined by CI on every run. Audited by booting FREE_MODE locally with the
