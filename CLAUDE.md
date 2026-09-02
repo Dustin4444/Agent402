@@ -2198,6 +2198,11 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   resolver's own builders memoized 60 s (`dispatchEvidence`). `scripts/test-dispatch-eligibility.js` (offline, readout rows
   as fixtures, resolver call site pinned from source) + booted pins in test-shortlinks + page pins in
   test-marketplace-index-page. A row the handler did not label renders NO badge, never a guessed one.
+  **`executeVia` is an affordance, gated on the verdict (2026-09-02 evening, the readout's second pass):** a `/api/route`
+  row the router will not pay right now no longer carries `executeVia` (a buyer agent read it as a callable action); the
+  tier moves to `executeViaWhenEligible` and `executeViaCallableNow` says false in so many words, eligible rows keep
+  `executeVia` + `executeViaCallableNow: true`; legend entries for all three. Pinned booted in test-shortlinks and from
+  source in test-dispatch-eligibility.
   **Row-level network inheritance (same day):** the live check showed api.strale.io's ranked row (`/x402/v2/image-to-text`,
   $0.054, 3,769 Bazaar calls) as `network_unknown` because the seller's OpenAPI documents the priced v2 paths while only its
   manifest rows carry accepts, so the router never dispatched to it. `decoratedRemoteTools` now gives a row with NO observed

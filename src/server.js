@@ -1012,13 +1012,25 @@ function withDispatchFields(row, { local = false, rowLevel = false } = {}) {
     minSettled: SOR_MIN_SETTLED_TX,
     minPayers: SOR_MIN_DISTINCT_PAYERS,
   });
+  // `executeVia` names the route-execute tier that covers this row's price. On
+  // a row the router will NOT pay right now it read as a callable affordance
+  // (outside buyer-agent readout, 2026-09-02, second pass), so it is only
+  // present when the verdict is eligible; otherwise the tier moves to
+  // `executeViaWhenEligible` and `executeViaCallableNow` says false in so many
+  // words. The tier is still useful (it is what the buyer would pay once the
+  // seller proves out), it just must not look like a button.
+  const { executeVia, ...rest } = row;
+  const affordance = executeVia === undefined ? {} : (verdict.eligible
+    ? { executeVia, executeViaCallableNow: true }
+    : { executeViaWhenEligible: executeVia, executeViaCallableNow: false });
   return {
-    ...row,
+    ...rest,
     networks,
     paymentNetworksKnown: local ? true : networks.length > 0,
     routerDispatchEligible: verdict.eligible,
     routerDispatchReason: verdict.reason,
     ...(Object.keys(verdict.chains || {}).length ? { routerDispatchByChain: verdict.chains } : {}),
+    ...affordance,
   };
 }
 function withDispatchSnapshot(snapshot) {

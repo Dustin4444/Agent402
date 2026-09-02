@@ -59,6 +59,15 @@ try {
     ok(rt.dispatchLegend && /crawl readiness/.test(rt.dispatchLegend.routable) && rt.dispatchLegend.routerDispatchReason.settlement_required, "/api/route carries the dispatch legend");
     ok(rt.results.length > 0 && rt.results.every((r) => typeof r.routerDispatchEligible === "boolean" && typeof r.routerDispatchReason === "string" && Array.isArray(r.networks) && typeof r.paymentNetworksKnown === "boolean"), "every route row carries routerDispatchEligible, routerDispatchReason, networks[] and paymentNetworksKnown");
     ok(rt.results.filter((r) => r.seller === "self").every((r) => r.routerDispatchEligible === true && r.routerDispatchReason === "local_catalog"), "local rows are local_catalog");
+    // executeVia is an affordance, so it only appears on rows the router will
+    // pay right now; otherwise the tier moves to executeViaWhenEligible and
+    // executeViaCallableNow says so (outside buyer-agent readout, second pass).
+    const rows = rt.results;
+    ok(rows.every((r) => !(r.executeVia !== undefined && r.executeViaWhenEligible !== undefined)), "no route row carries both executeVia and executeViaWhenEligible");
+    ok(rows.filter((r) => r.executeVia !== undefined).every((r) => r.routerDispatchEligible === true && r.executeViaCallableNow === true), "executeVia appears only on dispatch-eligible rows, with executeViaCallableNow true");
+    ok(rows.filter((r) => r.executeViaWhenEligible !== undefined).every((r) => r.routerDispatchEligible === false && r.executeViaCallableNow === false), "a non-eligible row carries executeViaWhenEligible + executeViaCallableNow false, never executeVia");
+    ok(rows.filter((r) => r.seller === "self" && r.priceUsd !== undefined).some((r) => r.executeVia !== undefined && r.executeViaCallableNow === true) || rows.every((r) => r.executeVia === undefined), "local priced rows keep executeVia (they are always dispatchable)");
+    ok(typeof rt.dispatchLegend.executeViaCallableNow === "string" && /key on this/.test(rt.dispatchLegend.executeViaCallableNow), "the legend explains executeViaCallableNow");
     const ix = await (await fetch(`${base}/api/index?limit=5`)).json();
     ok(ix.legend && /crawl readiness/.test(ix.legend.routable), "/api/index carries the legend");
     ok(ix.sellers.filter((x) => !x.local).every((x) => typeof x.routerDispatchEligible === "boolean" && typeof x.routerDispatchReason === "string"), "every external index seller is labelled");

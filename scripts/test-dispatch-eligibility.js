@@ -82,6 +82,7 @@ ok(dispatchEligibility({ local: true }).reason === "local_catalog" && dispatchEl
   ok(/dispatchEligibility\(\{ routable: true, networks: r\.networks, settled: r\.settled, payers: r\.payers/.test(fn) && /\.chains\.base\?\.eligible === true\)/.test(fn), "resolveExternalSeller's Base gate is dispatchEligibility's Base verdict (label == decision)");
   ok(!/meetsRouterGate\(\{ settled: r\.settled/.test(fn), "the resolver no longer calls the raw gate beside the labelled one (two implementations would drift)");
   ok(/withDispatchFields\(r, \{ local: r\.seller === "self", rowLevel: true \}\)/.test(server), "/api/route rows are labelled with row-level price + template checks");
+  ok(/executeViaWhenEligible: executeVia, executeViaCallableNow: false/.test(server) && /\{ executeVia, executeViaCallableNow: true \}/.test(server), "withDispatchFields moves executeVia to executeViaWhenEligible on a non-eligible row and stamps executeViaCallableNow either way");
   ok(/withDispatchSnapshot\(snapshot\)/.test(server) && (server.match(/withDispatchSnapshot\(snapshot\)/g) || []).length >= 2, "the marketplace and chain pages render the labelled snapshot");
 }
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
