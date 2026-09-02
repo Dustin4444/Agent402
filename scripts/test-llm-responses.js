@@ -14,7 +14,13 @@ ok(LLM_RESPONSES_TOOLS.length === 6 && LLM_RESPONSES_TOOLS.every((t) => t.route 
 // ---- validation ----
 const v = validateResponsesRequest({ model: "openai/gpt-4o-mini", input: "hi", instructions: "terse", max_output_tokens: 99999, temperature: 0.1, text: { format: { type: "text" } } }, base);
 ok(v.body.model === "openai/gpt-4o-mini" && v.body.max_output_tokens === TIERS[base].maxTokens && v.body.store === false && v.body.instructions === "terse" && v.body.text.format.type === "text", `valid body: max_output_tokens clamped to the cap (${v.body.max_output_tokens}), store forced false, instructions/text pass`);
-ok(validateResponsesRequest({ model: "openai/gpt-4o-mini", input: "hi" }, base).body.max_output_tokens === Math.min(1024, TIERS[base].maxTokens), "max_output_tokens defaults like the chat wire");
+ok(validateResponsesRequest({ model: "openai/gpt-4o-mini", input: "hi" }, base).body.max_output_tokens === Math.min(TIERS[base].defaultMaxTokens || 1024, TIERS[base].maxTokens), "max_output_tokens defaults to the tier's own budget, like the chat wire");
+{
+  const reasoning = "v1-chat-premium";
+  const model = TIERS[reasoning].defaultModel;
+  const v = validateResponsesRequest({ model, input: "hi" }, reasoning);
+  ok(v.body.max_output_tokens === Math.min(TIERS[reasoning].defaultMaxTokens, TIERS[reasoning].maxTokens) && v.body.max_output_tokens > 1024, `a tier whose model reasons before it speaks gets its generous default (${reasoning}: ${v.body.max_output_tokens}), not a hardcoded 1024 that reasoning consumes`);
+}
 for (const [label, body] of [
   ["no input", { model: "openai/gpt-4o-mini" }],
   ["previous_response_id", { model: "openai/gpt-4o-mini", input: "hi", previous_response_id: "resp_1" }],

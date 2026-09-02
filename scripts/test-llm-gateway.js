@@ -256,6 +256,32 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   await (await nano.handler({ model: "gpt-4.1-nano", messages: [{ role: "user", content: "hi" }], stream: true })).__sse(res2);
   ok(tried.join(",") === "openai/gpt-4.1-nano,deepseek/deepseek-chat" && res2.ended, `pre-stream failover walks the chain (tried ${tried.join(",")})`);
 
+  // An upstream HTTP 200 whose body is an error with NO output (OpenRouter's
+  // shape for a provider rate limit after the response line) is an upstream
+  // failure, not an answer: the chain walks, and a chain that ends that way
+  // surfaces 503/502 (never a paid empty 200). Measured on the auto tier's own
+  // example 2026-09-02.
+  {
+    const { assertUpstreamBody } = await import("../src/tools/llm-gateway-kit.js");
+    let e1 = null; try { assertUpstreamBody({ id: "gen-1", error: { message: "openai/gpt-5.6-luna is temporarily rate-limited upstream. Please retry shortly" } }); } catch (e) { e1 = e; }
+    ok(e1?.statusCode === 503 && /rate-limited/.test(e1.message), "200 + {error: rate-limited} + no choices -> 503 (walkable)");
+    let e2 = null; try { assertUpstreamBody({ error: { code: 500, message: "provider exploded" } }); } catch (e) { e2 = e; }
+    ok(e2?.statusCode === 502, "200 + a non-rate-limit error + no output -> 502");
+    ok(assertUpstreamBody({ error: { message: "partial" }, choices: [{ message: { content: "x" } }] })?.choices?.length === 1, "an error beside real output is returned as-is (partial answers are the buyer's)");
+    ok(assertUpstreamBody({ choices: [] })?.choices?.length === 0 && assertUpstreamBody(null) === null, "no error field -> untouched (the empty-refusal / empty-length walks judge those)");
+    const walked = [];
+    globalThis.fetch = async (url, init) => {
+      const body = JSON.parse(init.body); walked.push(body.model);
+      if (walked.length === 1) return { ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-1", error: { message: "temporarily rate-limited upstream" } }), headers: { get: () => "application/json" } };
+      return { ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-2", model: body.model, choices: [{ index: 0, message: { role: "assistant", content: "ok" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1 } }), headers: { get: () => "application/json" } };
+    };
+    const out = await nano.handler({ model: "gpt-4.1-nano", messages: [{ role: "user", content: "hi" }] }, { header: () => undefined, headers: {}, ip: "127.0.0.1" });
+    ok(walked.length === 2 && out?.choices?.[0]?.message?.content === "ok", `a 200-with-error link is walked past, the next link answers (tried ${walked.join(",")})`);
+    globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-x", error: { message: "temporarily rate-limited upstream" } }), headers: { get: () => "application/json" } });
+    let all = null; try { await nano.handler({ model: "gpt-4.1-nano", messages: [{ role: "user", content: "hi" }] }, { header: () => undefined, headers: {}, ip: "127.0.0.1" }); } catch (e) { all = e; }
+    ok(all && all.statusCode >= 500 && all.statusCode < 600, `a chain that is rate-limited end to end surfaces ${all?.statusCode}, never a paid empty 200`);
+  }
+
   // Validation still precedes everything: wrong-tier model rejects with 400.
   let threw = null;
   try { await nano.handler({ model: "openai/gpt-4o", messages: [{ role: "user", content: "hi" }], stream: true }); } catch (e) { threw = e; }

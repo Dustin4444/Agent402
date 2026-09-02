@@ -44,7 +44,7 @@
 // the chat tiers). Content is fetched with our key (the unsigned URLs 401
 // without it - measured) and returned inline as base64, never as a URL that
 // would expose our job ids.
-import { bad, fetchOpenRouter, throwUpstreamError, MARGIN, OPENROUTER_ATTRIBUTION } from "./llm-gateway-kit.js";
+import { bad, fetchOpenRouter, throwUpstreamError, assertUpstreamBody, MARGIN, OPENROUTER_ATTRIBUTION } from "./llm-gateway-kit.js";
 import { redactSecrets } from "./redact.js";
 
 export const OPENROUTER_IMAGES_URL = "https://openrouter.ai/api/v1/images";
@@ -208,6 +208,7 @@ async function imageTierHandler(tierSlug, input) {
       const text = await res.text();
       let parsed;
       try { parsed = JSON.parse(text); } catch { throw bad("Upstream returned non-JSON", 502); }
+        assertUpstreamBody(parsed);
       const first = Array.isArray(parsed?.data) ? parsed.data[0] : null;
       if (!first || typeof first.b64_json !== "string" || !first.b64_json) throw bad("Upstream returned no image - retry, or rephrase the prompt", 502);
 

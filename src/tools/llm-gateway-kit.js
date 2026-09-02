@@ -400,6 +400,11 @@ export const TIERS = {
     // this one keeps the global limit on purpose.
     maxInputChars: 200_000,
     maxTokens: 8192,
+    // A tier whose default model REASONS before it speaks (claude-opus-5) needs
+    // room before the first visible token: on the Responses wire a hardcoded
+    // 1,024 was consumed entirely by reasoning and our own documented example
+    // answered 502 (2026-09-02 audit). Same lever the ox tier already had.
+    defaultMaxTokens: 4_096,
     maxPrice: { prompt: 20, completion: 100 }, // priciest allowlisted: claude opus ~$15/$75
     // Server tools (see SERVER_TOOL_POLICY): the $0.50 price buys two search
     // steps and richer results. The clamp still decides per request - premium
@@ -1775,12 +1780,35 @@ export async function throwUpstreamError(res) {
   throw bad(`Upstream error: ${msg}`, 502);
 }
 
+/** OpenRouter can answer HTTP 200 with an error object and NO output - a
+ *  provider rate limit or provider error surfaced after the response line was
+ *  committed. Measured 2026-09-02 on the auto tier's own documented example:
+ *  `{"id":"gen-…","error":{"message":"openai/gpt-5.6-luna is temporarily
+ *  rate-limited upstream…"}}`, status 200, no choices - and our route relayed
+ *  it as a 200, which on prod is a PAID empty answer, the same class the
+ *  empty-refusal and empty-length walks exist for. A body that carries an
+ *  error and no output is an upstream failure: 503 for a rate limit (the
+ *  chain walks on 502/503/504), 502 otherwise. A body with output beside an
+ *  error (a partial answer) is returned as-is. Applied at every place a wire
+ *  parses an upstream 200. */
+export function assertUpstreamBody(data) {
+  if (!data || typeof data !== "object" || !data.error) return data;
+  const has = (k) => Array.isArray(data[k]) && data[k].length > 0;
+  if (has("choices") || has("output") || has("content") || has("data")) return data;
+  const err = typeof data.error === "object" ? data.error : { message: String(data.error) };
+  const msg = redactSecrets(String(err.message || err.code || "upstream error")).slice(0, 200);
+  const code = Number(err.code);
+  const rateLimited = code === 429 || /rate.?limit/i.test(msg);
+  throw bad(`Upstream error: ${msg}`, rateLimited ? 503 : 502);
+}
+
 async function callOpenRouter(body) {
   const res = await fetchOpenRouter(body);
   if (!res.ok) await throwUpstreamError(res);
   const text = await res.text();
   let data;
   try { data = JSON.parse(text); } catch { throw bad("Upstream returned non-JSON", 502); }
+  assertUpstreamBody(data);
   // Full OpenAI wire shape passes through untouched (id, object, created,
   // model, choices incl. tool_calls, usage) — drop-in fidelity is the product.
   return data;
@@ -2134,6 +2162,7 @@ async function embeddingsHandler(input, req) {
   const text = await res.text();
   let data;
   try { data = JSON.parse(text); } catch { throw bad("Upstream returned non-JSON", 502); }
+  assertUpstreamBody(data);
   // Full OpenAI wire shape passes through untouched (object, data[], model,
   // usage). Store unless the buyer opted out; oversized batches are skipped
   // by the store's own per-entry byte cap. FR4-01 class: defer the write to
@@ -2229,6 +2258,7 @@ async function rerankHandler(input, req) {
   const text = await res.text();
   let data;
   try { data = JSON.parse(text); } catch { throw bad("Upstream returned non-JSON", 502); }
+  assertUpstreamBody(data);
   if (!Array.isArray(data?.results)) throw bad("Upstream returned no results", 502);
   // Billing fields are operator telemetry, never buyer-visible; search_units stays (a count, not a bill).
   if (data.usage && typeof data.usage === "object") {
@@ -2323,6 +2353,7 @@ async function imagesHandler(input, req) {
       const text = await res.text();
       let parsed;
       try { parsed = JSON.parse(text); } catch { throw bad("Upstream returned non-JSON", 502); }
+      assertUpstreamBody(parsed);
       const imgs = parsed?.choices?.[0]?.message?.images;
       if (!Array.isArray(imgs) || imgs.length === 0) throw bad("Upstream returned no image - retry, or rephrase the prompt", 502);
       data = parsed; servedTier = parsed.service_tier || (flex ? "flex" : "default");
