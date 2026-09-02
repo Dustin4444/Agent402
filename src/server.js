@@ -33,7 +33,7 @@ import {
 } from "./tools/memory.js";
 import { payerFromRequest, payerFromPaymentResponse, paymentHeaderOf, paymentIdentifierOf } from "./payer.js";
 import { runInAbortableScope, abortInFlightComposites, installDrainAwareFetch, isDrainAbort } from "./drain-abort.js";
-import { startSolanaLeaderboard, getSolanaLeaderboardSnapshot, solanaEvidenceByOrigin } from "./solana-leaderboard.js";
+import { startSolanaLeaderboard, getSolanaLeaderboardSnapshot } from "./solana-leaderboard.js";
 import { creditFromTx as solanaCreditFromTx } from "./solana-buyer.js";
 import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpendFailure, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS, isLongRunningSlug, _compositeGuardState, compositeUsageSnapshot, withCompositeContext } from "./composite-spend-guard.js";
 // Single-upstream-call routes that run long (40 s+): EVM exact only, like the
@@ -906,9 +906,18 @@ const norm = (u) => String(u || "").replace(/\/+$/, "").toLowerCase();
 // exposes uniqueBuyers per operator, and the chain join carries payers per
 // merchant address. An origin absent from both has no payer evidence, which is
 // different from having zero payers.
+// NOT folded here: the Solana SPL leaderboard's evidence (solanaEvidenceByOrigin).
+// It attributes a payTo's on-chain credits to every origin whose crawled tools
+// ADVERTISE that payTo - a claim the seller writes into its own manifest, with
+// no ownership check - and these maps feed the BASE router gate, whose only
+// belt against "name a heavily-settled wallet, inherit its history, get paid
+// somewhere else" is provenPayToMatches on a BASE address. A cross-chain
+// address can never satisfy that binding, so Solana counts folded here let a
+// fresh origin clear the Base floor by naming someone else's Solana payTo
+// (security review 2026-09-02). Solana proven-ness is read from the chain at
+// pay time against the accept's own payTo; the board only primes that read.
 function buildPayersByOrigin() {
   const m = new Map();
-  try { for (const [o, n] of solanaEvidenceByOrigin().payers) if (n > 0) m.set(norm(o), Math.max(m.get(norm(o)) || 0, n)); } catch { /* additive */ }
   for (const row of (getLeaderboardSnapshot()?.leaderboard || [])) {
     const n = Number(row.uniqueBuyers || 0);
     if (!n) continue;
@@ -946,9 +955,7 @@ function buildProvenPayToByOrigin() {
 
 function buildSettledByOrigin() {
   const m = new Map();
-  // Solana credits scanned by the SPL leaderboard (2026-09-02): the first
-  // settlement evidence the resolver has ever had for a Solana row.
-  try { for (const [o, n] of solanaEvidenceByOrigin().settled) if (n > 0) m.set(norm(o), Math.max(m.get(norm(o)) || 0, n)); } catch { /* additive */ }
+  // Solana credits are deliberately NOT folded here - see buildPayersByOrigin.
   for (const [o, c] of Object.entries(SOR_SEED_ORIGINS)) m.set(norm(o), Number(c) || 0);
   for (const row of (getLeaderboardSnapshot()?.leaderboard || [])) {
     for (const o of (Array.isArray(row.origins) ? row.origins : [row.homepage])) {
