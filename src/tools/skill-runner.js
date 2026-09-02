@@ -2288,9 +2288,16 @@ export const PACK_STEPS = {
     mode: "chain",
     steps: [
       { slug: "feed-parse", mapInput: (a) => ({ url: a.url, limit: 10 }) },
-      { slug: "extract",    mapInput: (_a, p) => ({
-          url: p["feed-parse"]?.items?.[0]?.link ?? "",
-      }) },
+      // The newest item is whichever page the publisher put first that minute,
+      // and some of those pages are not extractable (paywall shell, video
+      // page, a JS-only article). Reading only items[0] failed the pack's own
+      // published example in CI on 2026-09-02 and passed on the next four runs
+      // - a publisher lottery, charged to the buyer as a missing step. Walk the
+      // newest items until one reads (same treatment as crypto-dossier).
+      { slug: "extract",    mapInputs: (_a, p) => {
+          const links = (p["feed-parse"]?.items ?? []).map((it) => it?.link).filter((u) => typeof u === "string" && /^https?:\/\//i.test(u));
+          return [...new Set(links)].slice(0, 6).map((url) => ({ url }));
+      } },
       { slug: "keywords",   mapInput: (_a, p) => ({
           text: (p["feed-parse"]?.items ?? [])
             .map((it) => [it?.title, it?.summary].filter(Boolean).join(" - "))
