@@ -27,6 +27,9 @@
     "start": "node index.js",
     "test": "node test.js"
   },
+  "overrides": {
+    "qs": "6.16.0"
+  },
   "dependencies": {
     "express": "^5.0.0",
     "@x402/core": "2.21.0",
