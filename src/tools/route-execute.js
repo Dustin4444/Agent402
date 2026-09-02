@@ -293,9 +293,13 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           // 5xx from the PAID leg advances - a 4xx cancels settlement and means
           // our request is wrong, and a receipt means we already paid.
           const MAX_CANDIDATES = Math.max(1, Number(process.env.SOR_MAX_CANDIDATES || "3"));
+          // The requested model rides into resolution so a chat seller that
+          // publishes a model list without it is skipped before anything is
+          // probed or paid (a seller can charge on the 400 it answers).
+          const wantModel = typeof input.params?.model === "string" && input.params.model.trim() ? input.params.model.trim() : null;
           let candidateList = []; let chain = chains[0];
           for (const c of chains) {
-            const found = await resolveExternal(input.task, { cap, baseUrl, chain: c, limit: MAX_CANDIDATES });
+            const found = await resolveExternal(input.task, { cap, baseUrl, chain: c, limit: MAX_CANDIDATES, wantModel });
             const list = Array.isArray(found) ? found : (found ? [found] : []);
             if (list.length) { candidateList = list; chain = c; break; }
           }

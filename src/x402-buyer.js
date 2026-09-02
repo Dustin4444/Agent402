@@ -240,6 +240,83 @@ export function sellerRefusedRecently(origin, chain, now = Date.now()) {
 }
 export function __resetSellerRefusalsForTest() { sellerRefusals.clear(); }
 
+// Resolve-time "does this seller serve the requested model" check. An LLM
+// task carries a model id in its params, and the model namespace is
+// seller-specific: on Solana, "chat completions" with model gpt-4o-mini
+// resolved to api.xfuel.app, which settled the $0.01 and then answered 400
+// model_not_found - and keeps the money on a 400 (measured 2026-09-02; our
+// chain check saw the debit and correctly did not fall through). blockrun and
+// netintel serve that id, xfuel and openrelay do not, and every OpenAI-shaped
+// seller on the list publishes GET .../models for free. So before a candidate
+// is probed or paid, read its model list once (cached 10 min per list URL,
+// SSRF-guarded, bounded) and SKIP a seller whose list is readable and does
+// not carry the model. Fail OPEN on anything else: no list, an empty list, a
+// non-chat route, or no model requested is "unknown" and changes nothing,
+// because a seller that maps or ignores the model id (openrelay answered
+// gpt-4o-mini with MiniMax) is not a defect to refuse on.
+const CHAT_ROUTE_RE = /\/(chat\/completions|completions|messages|responses)\/?$/i;
+const MODEL_LIST_TTL_MS = 10 * 60 * 1000;
+const MODEL_LIST_MAX = 500;
+const MODEL_LIST_MAX_BYTES = 512 * 1024;
+const modelLists = new Map(); // modelsUrl -> { at, ids | null }
+/** The seller's model-list URL for a chat-shaped route, else null. */
+export function modelsUrlFor(url) {
+  try {
+    const u = new URL(String(url || ""));
+    if (!CHAT_ROUTE_RE.test(u.pathname)) return null;
+    u.pathname = u.pathname.replace(CHAT_ROUTE_RE, "/models");
+    u.search = ""; u.hash = "";
+    return u.toString();
+  } catch { return null; }
+}
+/** Provider-prefix tolerant: "openai/gpt-4o-mini" serves "gpt-4o-mini" and vice versa. */
+export function modelListed(ids, model) {
+  const m = String(model || "").trim().toLowerCase();
+  if (!m) return true;
+  return (ids || []).some((raw) => {
+    const id = String(raw || "").trim().toLowerCase();
+    return id === m || id.endsWith(`/${m}`) || m.endsWith(`/${id}`);
+  });
+}
+async function readModelList(modelsUrl, { fetchImpl, trusted }) {
+  try {
+    if (!trusted) await assertPublicUrl(modelsUrl);
+    const r = await fetchImpl(modelsUrl, {
+      headers: { Accept: "application/json" },
+      ...(trusted ? {} : { dispatcher: ssrfDispatcher }),
+      redirect: "manual",
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!r.ok) return null;
+    const text = (await r.text()).slice(0, MODEL_LIST_MAX_BYTES);
+    const j = JSON.parse(text);
+    const list = Array.isArray(j?.data) ? j.data : Array.isArray(j?.models) ? j.models : Array.isArray(j) ? j : null;
+    if (!list) return null;
+    const ids = list.map((m) => (typeof m === "string" ? m : (m?.id || m?.name || ""))).map((x) => String(x).trim()).filter(Boolean);
+    return ids.length ? ids : null;
+  } catch { return null; }
+}
+/**
+ * { verdict: "served" | "not-served" | "unknown", reason?, ids?, modelsUrl? }.
+ * Only "not-served" is a decision; "unknown" must leave routing unchanged.
+ */
+export async function sellerServesModel(url, model, { fetchImpl = fetch, trusted = false, now = Date.now() } = {}) {
+  if (typeof model !== "string" || !model.trim()) return { verdict: "unknown", reason: "no model requested" };
+  const modelsUrl = modelsUrlFor(url);
+  if (!modelsUrl) return { verdict: "unknown", reason: "not a chat-shaped route" };
+  let entry = modelLists.get(modelsUrl);
+  if (!entry || now - entry.at > MODEL_LIST_TTL_MS) {
+    if (modelLists.size >= MODEL_LIST_MAX) modelLists.delete(modelLists.keys().next().value);
+    entry = { at: now, ids: await readModelList(modelsUrl, { fetchImpl, trusted }) };
+    modelLists.set(modelsUrl, entry);
+  }
+  if (!entry.ids) return { verdict: "unknown", reason: "no readable model list", modelsUrl };
+  return modelListed(entry.ids, model)
+    ? { verdict: "served", ids: entry.ids.length, modelsUrl }
+    : { verdict: "not-served", ids: entry.ids.length, modelsUrl };
+}
+export function __resetModelListsForTest() { modelLists.clear(); }
+
 export function reserveSpend(atomic) {
   const now = Date.now();
   if (now - spendWindowStart > SPEND_WINDOW_MS) { spendWindowStart = now; spentThisWindow = 0n; }
