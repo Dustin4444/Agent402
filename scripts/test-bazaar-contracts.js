@@ -150,6 +150,14 @@ try {
 
     const example = extension.info?.output?.example;
     const outputSchema = extension.schema?.properties?.output?.properties?.example;
+    // accepts[0].outputSchema (2026-09-02): the spec's own field carries the
+    // extension's typed schema, on the FIRST accept only (one copy, never per
+    // rail: the buyer echoes the challenge back).
+    const accepts = Array.isArray(paymentRequired.accepts) ? paymentRequired.accepts : [];
+    if (outputSchema) {
+      if (JSON.stringify(accepts[0]?.outputSchema) !== JSON.stringify(outputSchema)) fail(route, "accepts[0].outputSchema is not the extension's typed output schema");
+      if (accepts.slice(1).some((a) => a.outputSchema !== undefined)) fail(route, "outputSchema duplicated onto a later accept");
+    } else if (accepts[0]?.outputSchema !== undefined) fail(route, "accepts[0].outputSchema present with no extension schema to source it");
     if (example === undefined || !outputSchema) continue;
     if (JSON.stringify(outputSchema).length > 500) fail(route, "output schema exceeds the 500-byte budget");
 

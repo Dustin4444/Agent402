@@ -5589,7 +5589,6 @@ if (!FREE_MODE) {
     app.use(mppShim);
     console.log("MPP dual-stack shim enabled (WWW-Authenticate/Authorization Payment ↔ x402 headers)");
   }
-
   // Dedicated replay guard for Tempo credentials — never shared with the
   // x402 one instantiated later (identity spaces never collide, and this
   // gate mounts well before that one exists in this file). See

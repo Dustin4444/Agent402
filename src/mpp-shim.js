@@ -325,12 +325,23 @@ export function translateCredentialDetailed(authorizationHeader, { secretKey }) 
   if (!payload.success) return reject("invalid-payload", "Credential payload does not match the evm/charge schema (from, to, value, validAfter, validBefore, nonce, signature).");
   const { from, to, value, validAfter, validBefore, nonce, signature } = payload.data;
   const authorization = { from, to, value, validAfter, validBefore, nonce };
+  // mppx's encoder runs the payload through ITS zod schema, which STRIPS every
+  // field its eip155-typed PaymentRequirements does not declare - and our
+  // first accept declares `outputSchema` (src/accept-output-schema.js), which
+  // the paywall deep-equals against the echoed `accepted`. So: validate the
+  // shape through mppx exactly as before (a malformed payload still throws
+  // here), then emit the same base64-JSON wire with the accept RAW - the
+  // HMAC-bound bytes the client echoed, byte-exact what the paywall
+  // advertised. Found 2026-09-02 by test-mpp-shim's native buy: the schema
+  // strip turned every MPP payment into "no matching requirements".
+  const validated = x402.Header.encodePaymentSignature({
+    x402Version: 2,
+    accepted,
+    payload: { authorization, signature },
+  });
+  const canonical = JSON.parse(Buffer.from(validated, "base64").toString("utf8"));
   return {
-    paymentSignature: x402.Header.encodePaymentSignature({
-      x402Version: 2,
-      accepted,
-      payload: { authorization, signature },
-    }),
+    paymentSignature: Buffer.from(JSON.stringify({ ...canonical, accepted }), "utf8").toString("base64"),
     // Returned so the caller can run the EIP-712 domain diagnosis without
     // decoding the credential a second time (src/mpp-evm-domain.js).
     accepted,
