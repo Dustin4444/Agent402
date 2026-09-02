@@ -605,17 +605,25 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
       // not charged (they control the status line), but on Solana the CHAIN is: if our wallet's USDC did not move
       // since the header went out, nothing settled, the hold is released and
       // the caller may try the next seller. An unreadable chain, or a debit,
-      // keeps the post-commit stance. Base has no equivalent yet (an EIP-3009
-      // nonce could be checked the same way; not built).
+      // keeps the post-commit stance. On Base the answer is EXACT: the EIP-3009
+      // nonce we signed is either consumed on the USDC contract
+      // (authorizationState) or it is not - no wallet window, no confusion
+      // from a concurrent buy (src/evm-authorization-state.js, 2026-09-02).
       // Any non-200 on Solana is checked the same way: a seller's 400 on our
       // input, or its 5xx, after a payment that never settled is equally
       // provable from our wallet, and equally safe to try elsewhere (2026-09-02:
       // xfuel answers 400 to a model id it does not serve, uncharged).
-      if (chain === "solana") {
+      const evmAuth = chain === "base" ? payload?.payload?.authorization : null;
+      const evmCheckable = !!(evmAuth && /^0x[0-9a-fA-F]{64}$/.test(String(evmAuth.nonce || "")) && /^0x[0-9a-fA-F]{40}$/.test(String(signable?.asset || "")));
+      if (chain === "solana" || evmCheckable) {
         let verdict = null;
         try {
-          const check = notDebited || (await import("./solana-buyer.js")).confirmSvmNotDebited;
-          verdict = await check({ wallet: buyer.address, sinceUnix: sentAtUnix });
+          const check = notDebited || (chain === "solana"
+            ? (await import("./solana-buyer.js")).confirmSvmNotDebited
+            : (await import("./evm-authorization-state.js")).confirmEvmAuthorizationUnused);
+          verdict = chain === "solana"
+            ? await check({ wallet: buyer.address, sinceUnix: sentAtUnix })
+            : await check({ token: signable.asset, authorizer: evmAuth.from || buyer.address, nonce: evmAuth.nonce, chain, wallet: buyer.address, sinceUnix: sentAtUnix });
         } catch (e) {
           console.warn(`[x402-buyer] ${where}: refusal chain check unreadable (${String(e?.message || e).slice(0, 80)}) - keeping the hold`);
         }

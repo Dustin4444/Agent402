@@ -549,6 +549,13 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   route or no model requested is "unknown" and changes nothing (openrelay answers gpt-4o-mini with MiniMax - mapping is
   not a defect). Prefix-tolerant both ways (`openai/gpt-4o-mini` ~ `gpt-4o-mini`), never substring. Pinned in
   test-solana-router (95), test-sor-resolver-scope (14, call site from source), test-route-execute (64).
+  **Base chain-truth refusal (2026-09-02, `src/evm-authorization-state.js`):** the Solana-only "refused payment -> read
+  the chain -> fall through" now has its Base twin, and it is EXACT rather than a wallet window: the EIP-3009 nonce we
+  signed is either consumed on the token (`authorizationState(authorizer, nonce)`, selector 0xe94a0102, pinned against
+  viem) or it is not. payX402 asks it on any non-200 paid retry on Base when the payload carries a nonce; false after the
+  8 s grace = provably unpaid (hold released, error uncommitted + `refused`, seller memoized 6 h on base, route-execute
+  tries the next candidate); true or an unreadable RPC keeps the post-commit stance. Base only (`AGENT402_BASE_RPC`);
+  other EVM rails still take the seller's word. test-x402-buyer.
   **External settlement is CHAIN-MATCHED (2026-07-23):** the buyer's payment network picks
   the spending wallet — `eip155:8453` → Base (X402_UPSTREAM_BUYER_KEY, the proven path),
   Algorand mainnet CAIP-2 → the AVM spending wallet (`ALGORAND_UPSTREAM_BUYER_MNEMONIC`,
