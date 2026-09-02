@@ -5,8 +5,10 @@ instance) - the buy side of [Agentic Finance](https://agent402.tools/agentic-fin
 agents paying per request over x402 or MPP. **Resolve a task to a tool, then call it - with payment handled for
 you.** Free pure-CPU tools settle with a built-in proof-of-work (no wallet, zero
 dependencies); wallet-only tools settle via an x402- or MPP-wrapped fetch you
-provide, or by card through a prepaid credits key. Results are cached, and
-retries reuse an `Idempotency-Key` so a lost response never double-charges.
+provide, or by card through a prepaid credits key. Results are cached, and every
+send carries an `Idempotency-Key` that is stable per client and per operation, so
+a retried lost response replays the paid answer on the credits and proof-of-work
+paths (the wallet path is different: see "Retries and double charges").
 
 ```bash
 npm install agent402-client
@@ -89,14 +91,32 @@ credits call reserves its price like a wallet call). A payment `fetch` still win
 when both are given, and free pure-CPU tools keep settling with proof-of-work.
 The same Bearer header also reads the balance directly, e.g. `curl -H "Authorization: Bearer a402_..." https://agent402.tools/api/credits/balance`.
 
-## Retries never double-charge
+## Retries and double charges
 
-Every paid call the SDK makes carries an `Idempotency-Key`, so a retry of a
-call whose response was lost replays the original result instead of paying
-again. If your x402 client attaches the standard `payment-identifier`
-extension to its payloads instead, Agent402 honours that id the same way (an
-exact retry with the same credential replays; a fresh authorization with the
-same id is a new payment).
+Every send carries an `Idempotency-Key`. By default it is derived from the
+client instance plus the operation (slug, params, output validator), so it is
+the same key when the SDK retries inside one `call()` AND when your framework
+calls `client.call(slug, params)` again after a timeout or a dropped connection.
+With `{ cache: false }` on the call, identical calls are treated as distinct
+purchases and the key is fresh per invocation. Pass `idempotencyKey` yourself to
+override either behavior. Keys are scoped to the client instance: two processes
+buying the same thing are two purchases.
+
+What the server does with it depends on how the call was paid:
+
+- **Prepaid credits and proof-of-work:** the server binds the key to the credits
+  key (or the accepted solution) plus the route and body, and replays the
+  original 200 for ten minutes. A retry of a lost response is not debited again.
+- **x402 wallet:** the server binds the key to the exact signed authorization.
+  An exact retry (same signed header, same key) replays without a second
+  settlement, and that is what the `payment-identifier` extension gives a stock
+  x402 client. A fresh `call()` through an `@x402/fetch`-wrapped fetch signs a
+  fresh authorization, which the server deliberately treats as a new payment
+  (a client-chosen id on an unverified payload is never a cross-authorization
+  dedupe). So on the wallet path a retry after a lost response can settle twice;
+  the `Idempotency-Key` cannot prevent that on its own. If that matters for your
+  workload, use a credits key for the tools you retry, or keep the signed
+  request and resend it yourself.
 
 ## Workflows (skill packs)
 

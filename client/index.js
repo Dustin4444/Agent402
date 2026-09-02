@@ -2,8 +2,13 @@
 // instance). Resolve a task to a tool, then call it with payment handled for you:
 //   - free pure-CPU tools settle with a built-in proof-of-work (no wallet, zero deps),
 //   - wallet-only tools settle via an x402-wrapped fetch you provide (@x402/fetch),
-// results are cached (tools are deterministic), and retries reuse an
-// Idempotency-Key so a lost response never double-charges.
+// results are cached (tools are deterministic), and every send carries an
+// Idempotency-Key that is stable per client instance and per operation while
+// caching is on, so a retry of a lost response (inside call() or by the caller
+// invoking call() again) replays the paid answer on the credits and PoW paths
+// instead of paying twice. A wallet buyer's fresh call() signs a fresh
+// authorization, which the server treats as a new payment by design - see
+// README "Retries and double charges".
 //
 //   import { Agent402 } from "agent402-client";
 //   const a = new Agent402();                       // free tier, proof-of-work
@@ -12,13 +17,13 @@
 //
 //   // paid tools: pass an x402-wrapped fetch (your wallet signs)
 //   const a = new Agent402({ fetch: payFetch });
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 // Keep in lockstep with package.json. Every request the SDK issues carries
 // `User-Agent: agent402-client/<version>` - a standard header, no extra
 // network calls - so a seller can attribute traffic (and settled payments)
 // to this SDK. Product token only; nothing about the caller rides along.
-const VERSION = "0.8.2";
+const VERSION = "0.8.3";
 const USER_AGENT = `agent402-client/${VERSION}`;
 // 32MB: about a hundred times any realistic response from this catalog (the
 // largest is a base64 image at a few MB), so it cannot break a legitimate
@@ -58,6 +63,14 @@ export class Agent402 {
     this.f = (url, init = {}) => fetchImpl(url, { ...init, headers: { "User-Agent": USER_AGENT, ...(init.headers || {}) } });
     this._catalog = null;
     this._cache = cache ? new Map() : null;
+    // Salt for the default Idempotency-Key: one per client instance, so the key
+    // for (slug, params) is stable across call() invocations on THIS client
+    // (an agent framework retrying a lost response gets the replay) and still
+    // distinct between sessions (two processes buying the same thing are two
+    // purchases). Issue #1126: the old default mixed Date.now() + Math.random()
+    // per invocation, which protected retries inside one call() and nothing
+    // the header promised beyond it.
+    this._idemSalt = randomBytes(12).toString("hex");
     // Spending policy (defends the x402 "wallet drain via uncapped spending"
     // failure mode): optional hard ceilings enforced BEFORE any payment is
     // signed. A malicious or misconfigured 402 that quotes an inflated price is
@@ -297,7 +310,16 @@ export class Agent402 {
       return stored;
     }
 
-    const idem = idempotencyKey || `a402-${createHash("sha256").update(`${cacheKey}:${Date.now()}:${Math.random()}`).digest("hex").slice(0, 24)}`;
+    // Default key = stable per (client instance, slug, params, validator) while
+    // caching is on: the SDK already treats that tuple as one operation (a
+    // second identical call is served from cache without payment), so the
+    // idempotency key agrees with the cache key instead of contradicting it.
+    // With { cache: false } the caller has said identical calls are distinct
+    // purchases, so the key is fresh per invocation, as before. An explicit
+    // idempotencyKey always wins.
+    const idem = idempotencyKey || (cache
+      ? `a402-${createHash("sha256").update(`${this._idemSalt}:${cacheKey}`).digest("hex").slice(0, 24)}`
+      : `a402-${createHash("sha256").update(`${cacheKey}:${Date.now()}:${Math.random()}`).digest("hex").slice(0, 24)}`);
     const send = (extraHeaders = {}, useFetch = this.f) => {
       // UA set here too (not only in the this.f wrapper) so the x402 payFetch
       // path - the one that settles real payments - always carries it.
