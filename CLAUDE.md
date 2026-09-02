@@ -810,6 +810,17 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   (`worker/server.js`) has the same close-then-deadline drain. Boot instrumentation (`[boot]` lines: per-step
   event-loop hold after listen + worst 60 s stall) exists because prod shows ~18 s with a bound listener
   answering nothing - read the next deploy's log before guessing.
+  **In-flight composites are CUT OFF on SIGTERM (2026-09-02, `src/drain-abort.js`):** the drain refused to START a
+  composite but could not stop one running, so a report (30 s-4 min of OpenRouter/Brave/EDGAR calls) ran to the 75 s
+  deadline with the money spent and no 200 ever written - pure loss on every deploy that caught one. Now a composite
+  runs in an AsyncLocalStorage scope (the dispatcher for `EXPENSIVE_COMPOSITE_SLUGS`, and `_humanGenerate` for card/
+  monitor runs) and a global fetch wrapper joins the process-wide drain signal (`AbortSignal.any` with the caller's own)
+  onto every outbound call made inside it; `shutdown()` aborts the controller right after `draining = true`, every
+  waiting upstream call rejects, the handler throws, the route answers 503 with a retry-in-a-minute message (never
+  charged), and the process can exit as soon as the socket closes. A fetch outside a scope is untouched, so an ordinary
+  in-flight request still completes after SIGTERM (test-drain-on-sigterm). Honest bound: a generation already finished
+  upstream is billed anyway; the abort saves every call not yet started or still generating. `scripts/test-drain-abort.js`
+  (offline + four source pins), in the pricing lane.
   **Railway service settings, set to what they should be 2026-08-25 (dashboard state, not in the repo):** `agent402`
   runs ONE replica in us-west2 (`railway scale --service agent402 --environment production us-west2=1`; the
   dashboard had drifted to 2, which with a single volume only doubled boot cost) and `RATE_LIMIT_REPLICAS=1`
@@ -960,6 +971,20 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   article-digest/search-news, content-grade/readability-score, contact-verify/spf-check, trend-analysis/fred-series,
   markdown-convert/text-diff) - they deliver real steps, just fewer than the tool page promises, and each needs its own
   judgment.
+- **Every tool a pack advertises now RUNS, and a conditional leg can be skipped without being charged (2026-09-02):**
+  ten packs listed a tool in `toolSlugs` their `PACK_STEPS` never invoked (structured-scrape/html-meta, ipo-watch/
+  search-news, jwt-toolkit/jwt-sign, fx-monitor/fx-historical, page-audit/sitemap, article-digest/search-news,
+  content-grade/readability-score, contact-verify/spf-check, trend-analysis/fred-series, markdown-convert/text-diff) - the
+  tool page promised it, the buyer never got it. Each now runs it from the pack's own args or a prior step (jwt-toolkit and
+  page-audit became CHAINS: jwt-sign re-issues the claims jwt-decode read; sitemap takes the URLs robots-check DECLARES
+  first - stripe.com, the pack's own example, has no /sitemap.xml - with the conventional paths as `mapInputs` fallbacks).
+  **`step.when(args, prior)`** is new in the runner: false = the leg does not apply to this input and is reported
+  `skipped: true` (ok, never a failure, never counted in "N/M succeeded"); trend-analysis uses it so fred-series runs only
+  when stock-history served nothing, and every downstream step reads `bakeOffValues(p)` from whichever fetcher served. A
+  pack whose every ATTEMPTED step fails still refuses. `test-skill-pack-steps` (760) now asserts the converse rule too:
+  every advertised tool is a step (`ADVERTISED_NOT_RUN` must name any justified omission with a reason; it is empty) and
+  pins the `when` semantics offline; all ten verified against their published examples on a keyless boot (the two
+  Brave-backed legs self-report not-ours there, as designed).
 - **Every guard we owned asserted SHAPE, never OUTCOME (2026-08-31, `scripts/test-pack-examples.js`):** the root cause behind nine
   packs selling broken for two months. The example sweep asserts an HTTP 200 and the documented TOP-LEVEL keys, and
   `{pack, args, steps, summary}` is a valid shape whether the steps returned data or all threw - so `0/N steps succeeded` passed

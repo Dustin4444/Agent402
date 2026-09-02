@@ -32,6 +32,7 @@ import {
   PERSISTENT as memoryPersistent,
 } from "./tools/memory.js";
 import { payerFromRequest, payerFromPaymentResponse, paymentHeaderOf, paymentIdentifierOf } from "./payer.js";
+import { runInAbortableScope, abortInFlightComposites, installDrainAwareFetch, isDrainAbort } from "./drain-abort.js";
 import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpendFailure, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS, isLongRunningSlug, _compositeGuardState, compositeUsageSnapshot, withCompositeContext } from "./composite-spend-guard.js";
 // Single-upstream-call routes that run long (40 s+): EVM exact only, like the
 // composites (settle-after on SVM/AVM/Tempo is work done, never charged), but
@@ -1381,6 +1382,8 @@ for (const [route, def] of Object.entries(CATALOG)) {
 // by an invoice: they all looked like ordinary traffic until someone totalled
 // it up, and nothing was totalling it up.
 installEgressMeter();
+// Composite runs inherit the drain signal on every outbound fetch (src/drain-abort.js).
+installDrainAwareFetch();
 
 const app = express();
 // Drop the Express fingerprint header (security audit A402-13): no reason to
@@ -2323,7 +2326,7 @@ const _humanGenerate = async (kind, slug, input, ctx = {}) => {
     const pseudoReq = { header: (n) => (String(n).toLowerCase() === "authorization" ? key : undefined), headers: { authorization: key } };
     // Margin telemetry sees the door and the price it sold for (card/monitor),
     // not the kit's agent-tier price - see withCompositeContext.
-    const out = await withCompositeContext({ rail: ctx?.rail || "card", priceUsd: ctx?.priceUsd }, () => h(arg, pseudoReq));
+    const out = await runInAbortableScope(() => withCompositeContext({ rail: ctx?.rail || "card", priceUsd: ctx?.priceUsd }, () => h(arg, pseudoReq)));
     const report = out?.dossier || out?.report;
     if (!report) throw new Error("empty report");
     // Deliver a BUNDLE, not just prose: the report plus the structured data
@@ -6697,7 +6700,12 @@ for (const tool of ALL_KIT) {
       // explains the fix. Fail-open: non-AVM and unreadable payments pass.
       await assertAvmValidityCovers(req, tool.slug);
 
-      const result = await tool.handler(input, req);
+      // A composite runs in an abortable scope: on SIGTERM every upstream call
+      // it is waiting on is cut off (503, never charged) instead of running to
+      // the drain deadline with the money already spent - src/drain-abort.js.
+      const result = EXPENSIVE_COMPOSITE_SLUGS.has(tool.slug)
+        ? await runInAbortableScope(() => tool.handler(input, req))
+        : await tool.handler(input, req);
 
       // A handler that spent real money upstream (external route-execute) leaves
       // a handle on the request. Resolve it against the FINAL response, not the
@@ -6756,6 +6764,9 @@ for (const tool of ALL_KIT) {
     } catch (err) {
       errored = true;
       status = err.statusCode || 500;
+      // A composite cut off by the drain is a 503 with the reason, whatever
+      // shape the aborted upstream call surfaced it in (>= 400: not charged).
+      if (isDrainAbort(err)) { status = 503; err = Object.assign(new Error("This host is redeploying and stopped the run before it finished; nothing was charged. Retry in a minute."), { statusCode: 503 }); }
       if (res.headersSent) { try { res.end(); } catch { /* stream already gone */ } return; }
       // Probe detection: a 4xx with zero meaningful input keys is a scanning/
       // discovery call (agent probing endpoints without arguments), not a real
@@ -7099,6 +7110,12 @@ function shutdown(signal, { code = 0, deadlineMs = DRAIN_DEADLINE_MS } = {}) {
   // PostHog is disabled); the drain deadline below still governs exit.
   shutdownPostHog().catch(() => {});
   console.log(`${signal} received - closing listener, draining in-flight requests (exit ${code})`);
+  // Cut off every composite in flight NOW: its upstream calls reject, the
+  // handler throws, the buyer sees a 503 (never charged) and the replacement
+  // container takes the retry - instead of the run finishing the deploy
+  // deadline with the money spent and nobody to receive the answer.
+  const cut = abortInFlightComposites(signal);
+  if (cut) console.log(`[drain] aborted ${cut} in-flight composite run(s) - upstream calls cut, nobody charged`);
   httpServer.close(() => process.exit(code));
   // server.close() waits for ALL connections, including idle keep-alive
   // sockets agents hold open between calls. Sweep those now and every few

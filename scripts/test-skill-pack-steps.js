@@ -47,6 +47,14 @@ for (const pack of SKILL_PACKS) {
     const buildable = typeof s.mapInput === "function" || typeof s.mapInputs === "function";
     ok(buildable, `${pack.slug}: step ${s.slug} can build its input (mapInput or mapInputs)`);
   }
+  // The converse, since 2026-09-02: every tool the pack ADVERTISES is a step.
+  // Ten packs listed a tool in toolSlugs their runner never invoked (the tool
+  // page promised it, the buyer never got it); each now runs it or the
+  // workflow was wrong. A justified omission must be named here with a reason.
+  const ADVERTISED_NOT_RUN = {};
+  const ran = new Set(stepSlugs);
+  const notRun = (pack.toolSlugs || []).filter((slug) => !ran.has(slug) && !(ADVERTISED_NOT_RUN[pack.slug] || []).includes(slug));
+  ok(notRun.length === 0, `${pack.slug}: every advertised tool runs as a step${notRun.length ? ` (advertised, never run: ${notRun.join(", ")})` : ""}`);
   const promised = new Set(pack.toolSlugs || []);
   const undeclared = stepSlugs.filter((s) => promised.size && !promised.has(s));
   ok(
@@ -85,6 +93,39 @@ for (const pack of SKILL_PACKS) {
     noResults.length === 0,
     "extract offers nothing when the search returned nothing, rather than a dead candidate"
   );
+}
+
+
+// ---- `when`: a conditional leg is skipped, never failed (2026-09-02) --------
+{
+  const { __test: { runPack } } = await import("../src/tools/skill-runner.js");
+  const { SKILL_PACKS } = await import("../src/skills.js");
+  const packIndex = new Map(SKILL_PACKS.map((p) => [p.slug, p]));
+  const bars = Array.from({ length: 40 }, (_, i) => ({ close: 100 + Math.sin(i) * 3 + i * 0.2 }));
+  const calls = [];
+  const rec = (slug, out) => (input) => { calls.push(slug); return out(input); };
+  const inline = {
+    "stock-history": rec("stock-history", () => ({ bars })),
+    "fred-series": rec("fred-series", () => ({ observations: bars.map((b, i) => ({ date: String(i), value: b.close })) })),
+    "stats-summary": rec("stats-summary", (i) => ({ n: i.values.length })),
+    "moving-average": rec("moving-average", () => ({})), "linear-regression": rec("linear-regression", () => ({})),
+    "outliers": rec("outliers", () => ({})), "correlation": rec("correlation", () => ({})), "forecast-eval": rec("forecast-eval", () => ({})),
+  };
+  const ctx = { packIndex, catalog: {}, inlineHandlers: inline };
+  const equity = await runPack("trend-analysis", { series: "AAPL" }, ctx);
+  const fred = equity.steps.find((s) => s.slug === "fred-series");
+  ok(fred && fred.skipped === true && fred.ok === true && !calls.includes("fred-series"), "an equity series skips the fred-series leg (reported skipped, handler never called)");
+  ok(/7\/7 steps succeeded \(1 skipped as not applicable\)/.test(equity.summary), `the summary counts only attempted steps (got "${equity.summary}")`);
+  calls.length = 0;
+  inline["stock-history"] = rec("stock-history", () => { throw Object.assign(new Error("Yahoo: not found"), { statusCode: 404 }); });
+  const macro = await runPack("trend-analysis", { series: "UNRATE" }, ctx);
+  ok(calls.includes("fred-series") && macro.steps.find((s) => s.slug === "fred-series")?.ok === true && !macro.steps.find((s) => s.slug === "fred-series")?.skipped, "a FRED id runs the fred-series leg when stock-history served nothing");
+  ok(macro.steps.find((s) => s.slug === "stats-summary")?.result?.n === 40, "downstream steps read the values from whichever fetcher served");
+  const down = () => { throw Object.assign(new Error("down"), { statusCode: 502 }); };
+  const dead = Object.fromEntries(Object.keys(inline).map((k) => [k, down]));
+  let refused = null;
+  try { await runPack("trend-analysis", { series: "AAPL" }, { ...ctx, inlineHandlers: dead }); } catch (e) { refused = e; }
+  ok(refused && /No step in the "trend-analysis" pack succeeded/.test(refused.message), "all attempted steps failing still refuses (nothing to sell)");
 }
 
 console.log(`\n${passed} passed, 0 failed (${SKILL_PACKS.length} packs checked)`);
