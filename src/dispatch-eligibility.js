@@ -118,6 +118,7 @@ export function dispatchLegend() {
     health: "a score from the last crawl outcomes of this origin; 1 = every recent crawl succeeded.",
     networks: "chains the seller's own 402 challenges advertise; empty means the crawl could not learn any.",
     paymentNetworksKnown: "true when at least one payment network was learned from the seller's 402s.",
+    networksInferred: "present and true on a route row that observed no accepts of its own and inherited the chains its seller advertises elsewhere (other routes, or the Bazaar's settled view); the router still pins the chain from the live 402 before it signs.",
     routerDispatchEligible: "true when this host's Smart Order Router will pay the seller on a buyer's behalf right now on at least one chain it holds a spending wallet for.",
     routerDispatchReason: DISPATCH_REASONS,
   };
