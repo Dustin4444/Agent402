@@ -139,7 +139,10 @@ const payHeaders = http.encodePaymentSignatureHeader(payload);
 // Header-name compatibility: @x402/core v2.16 emits only PAYMENT-SIGNATURE,
 // but some sellers (Stelar: error "X-PAYMENT header required", 2026-07-23)
 // read only the X-PAYMENT name. Mirror the same value under both.
-if (payHeaders["PAYMENT-SIGNATURE"] && !payHeaders["X-PAYMENT"]) payHeaders["X-PAYMENT"] = payHeaders["PAYMENT-SIGNATURE"];
+// PAID_DEMO_MIRROR=off sends ONLY PAYMENT-SIGNATURE - the pure stock-client
+// shape - so a seller that reads X-PAYMENT first (and takes the v1 path on it)
+// can be told apart from one that refuses the payment itself (2026-09-02).
+if (process.env.PAID_DEMO_MIRROR !== "off" && payHeaders["PAYMENT-SIGNATURE"] && !payHeaders["X-PAYMENT"]) payHeaders["X-PAYMENT"] = payHeaders["PAYMENT-SIGNATURE"];
 const paid = await fetch(url, {
   ...reqInit,
   headers: { ...reqInit.headers, ...payHeaders, "Access-Control-Expose-Headers": "PAYMENT-RESPONSE,X-PAYMENT-RESPONSE" },

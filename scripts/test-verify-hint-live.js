@@ -14,7 +14,11 @@ import { getFreePorts } from "./lib/free-port.js";
 const [PORT, FAC_PORT] = await getFreePorts(2);
 const B = `http://127.0.0.1:${PORT}`;
 let pass = 0, facilitator = null, proc = null;
-const fail = (m) => { console.error("FAIL:", m); proc?.kill("SIGKILL"); facilitator?.close(); process.exit(1); };
+const fail = (m) => {
+  console.error("FAIL:", m);
+  if (typeof serverLog !== "undefined" && serverLog.length) { console.error("--- server output (last lines) ---"); for (const l of serverLog) console.error(l); console.error("--- end server output ---"); }
+  proc?.kill("SIGKILL"); facilitator?.close(); process.exit(1);
+};
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else fail(m); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -43,8 +47,15 @@ proc = spawn("node", ["src/server.js"], {
     CDP_API_KEY_ID: "", CDP_API_KEY_SECRET: "", PAYMENT_NETWORKS: "base", MPP_SECRET_KEY: "",
     X402_INDEX_CRAWL: "off", MPP_INDEX_CRAWL: "off", MONITOR_SCHEDULER: "off", FREE_ALERTS: "off", FOLLOWUPS: "off",
   },
-  stdio: "ignore",
+  // Keep the server's own output: a one-off in CI (run 33579827783, 2026-09-02)
+  // answered 402 to the first paid request with the stub facilitator seeing
+  // ZERO verifies, and with stdio ignored the reason the paywall logged was
+  // gone with the runner. The last lines are printed on failure only.
+  stdio: ["ignore", "pipe", "pipe"],
 });
+const serverLog = [];
+const keepLog = (chunk) => { for (const line of String(chunk).split("\n")) { if (line.trim()) serverLog.push(line.slice(0, 400)); } if (serverLog.length > 80) serverLog.splice(0, serverLog.length - 80); };
+proc.stdout.on("data", keepLog); proc.stderr.on("data", keepLog);
 
 const credential = (accepted, nonce) => Buffer.from(JSON.stringify({
   x402Version: 2, resource: accepted.resource, accepted,
@@ -66,6 +77,7 @@ try {
   // graceful {isValid:false}: no failure hook fires in @x402/core - the afterVerify hook must catch it
   const H1 = credential(accepted, "0x" + "aa".repeat(32));
   const first = await pay(H1);
+  if (!(first.status === 402 && verifies === 1)) console.error("first paid response body:", (await first.text().catch(() => "(unreadable)")).slice(0, 600));
   ok(first.status === 402 && verifies === 1, `graceful isValid:false -> 402 after one facilitator verify (got ${first.status}, verifies ${verifies})`);
   const retry = await pay(H1);
   const rb = await retry.json();

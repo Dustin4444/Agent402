@@ -23,6 +23,10 @@ on:
         description: "Pinned CAIP-2 chain to pay on (must be among the live accepts)"
         required: false
         default: "eip155:8453"
+      mirror:
+        description: "Mirror the credential under X-PAYMENT too (default on); 'off' = pure stock client, PAYMENT-SIGNATURE only"
+        required: false
+        default: "on"
       target:
         description: "Seller base URL - defaults to our prod; set to buy from an EXTERNAL x402 seller (ecosystem demos)"
         required: false
@@ -54,6 +58,7 @@ jobs:
         env:
           BURNER_KEY: ${{ secrets.BURNER_KEY }}
           SOLANA_BURNER_KEY: ${{ secrets.SOLANA_BURNER_KEY }}
+          PAID_DEMO_MIRROR: ${{ github.event.inputs.mirror }}
           STELLAR_BURNER_SECRET: ${{ secrets.STELLAR_BURNER_SECRET }}
           ALGORAND_BURNER_MNEMONIC: ${{ secrets.ALGORAND_BURNER_MNEMONIC }}
           DEMO_PATH: ${{ inputs.path }}
