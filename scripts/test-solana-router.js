@@ -160,9 +160,10 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
   // Stub seller: bare request -> 402 with a real solana/exact accept; a
   // request carrying a payment header -> 200 + the header captured.
   const sellerPayTo = "J7aN3PLJnTCF5qpEnvJHJsnCjcGuqC2rYtEM8Gv3xwg";
-  let seenPayment = null;
+  let seenPayment = null, seenHeaderNames = null;
   const seller = createServer((req, res) => {
     const pay = req.headers["payment-signature"] || req.headers["x-payment"];
+    if (pay) seenHeaderNames = { sig: "payment-signature" in req.headers, xp: "x-payment" in req.headers };
     if (!pay) {
       const accepts = [{
         scheme: "exact", network: MAINNET, asset: USDC, amount: "5000",
@@ -194,6 +195,8 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
   ok(out?.result?.okFromSeller === true, "OFFLINE e2e: the real @x402/svm scheme signed and the seller served the paid request");
   ok(proofChecked === sellerPayTo, "the proven-seller gate ran against the accept's OWN payTo before signing");
   ok(out.quote?.usd === 0.005 && out.quote?.network === MAINNET, "receipt quote carries the atomic amount and mainnet network");
+  ok(seenHeaderNames && seenHeaderNames.sig === true && seenHeaderNames.xp === false,
+    "a v2 challenge is paid with PAYMENT-SIGNATURE ONLY - no X-PAYMENT mirror (a seller reading X-PAYMENT first takes its v1 path; xfuel's has no Solana branch, 2026-09-02)");
   {
     const decoded = JSON.parse(Buffer.from(seenPayment, "base64").toString("utf8"));
     const txB64 = decoded?.payload?.transaction;
@@ -242,9 +245,11 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
   const { confirmSvmNotDebited } = await import("../src/solana-buyer.js");
   __resetSellerRefusalsForTest();
   // Stub seller that REFUSES every paid retry the way xfuel does.
+  let refuserPaidAttempts = 0;
   const refuser = createServer((req, res) => {
     const pay = req.headers["payment-signature"] || req.headers["x-payment"];
     res.setHeader("content-type", "application/json");
+    if (pay) refuserPaidAttempts++;
     if (!pay) {
       const accepts = [{ scheme: "exact", network: MAINNET, asset: USDC, amount: "5000", payTo: "J7aN3PLJnTCF5qpEnvJHJsnCjcGuqC2rYtEM8Gv3xwg", maxTimeoutSeconds: 60,
         extra: { feePayer: "8Y9wxHqJt3mfMUv7pQnBRZUKGdCwjrLBGWtaeu6AGFfe", recentBlockhash: "GfVcyD4kkTrj4bKc7WA9sZCin9JDbdT4Zkd3EittNR1W", lastValidBlockHeight: "250000000" } }];
@@ -265,6 +270,7 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
   const e1 = await buy(async (q) => { asked = q; return { debited: false, observed: 0 }; });
   ok(e1 && e1.statusCode === 502 && e1.committed === false && e1.refused === true, "refused + chain shows NO debit -> the error is uncommitted (safe to try the next seller) and flagged refused");
   ok(_spentThisWindow() === heldBefore, "and the spend hold was RELEASED (the window budget is back where it was)");
+  ok(refuserPaidAttempts === 1, "a 402 that does NOT name X-PAYMENT (payment_payload_invalid) gets no header-name resend - one paid attempt");
   ok(asked && typeof asked.wallet === "string" && Number.isInteger(asked.sinceUnix) && asked.sinceUnix <= Math.floor(Date.now() / 1000), "the chain check is asked about OUR wallet since the moment the header went out");
   ok(sellerRefusedRecently(refuserOrigin, "solana") && sellerRefusedRecently(refuserOrigin, "solana").status === 402, "the refusing seller is memoized for this chain");
   ok(!sellerRefusedRecently(refuserOrigin, "base"), "the memo is per chain - the same seller on Base is untouched");
@@ -338,6 +344,53 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
   ok(g.ok === false && g.inbound === 3, "the resolve gate reports the COUNT on a short-history refusal, so the resolver can tell 'thin' from 'unreadable'");
   const gu = await passesSolanaResolveGate({ header: hdr, inboundFn: dead });
   ok(gu.ok === false && gu.inbound === undefined, "and reports no count when the chain was unreadable");
+}
+
+// --- header names follow the challenge version; X-PAYMENT resend by evidence --
+{
+  const { payX402 } = await import("../src/x402-buyer.js");
+  let v1Headers = null;
+  const v1 = createServer((req, res) => {
+    const pay = req.headers["payment-signature"] || req.headers["x-payment"];
+    res.setHeader("content-type", "application/json");
+    if (!pay) {
+      res.statusCode = 402;
+      res.end(JSON.stringify({ x402Version: 1, error: "X-PAYMENT header required", accepts: [{ scheme: "exact", network: MAINNET, asset: USDC, maxAmountRequired: "5000", payTo: "J7aN3PLJnTCF5qpEnvJHJsnCjcGuqC2rYtEM8Gv3xwg", maxTimeoutSeconds: 60, resource: "http://stub/v1", description: "stub", mimeType: "application/json",
+        extra: { feePayer: "8Y9wxHqJt3mfMUv7pQnBRZUKGdCwjrLBGWtaeu6AGFfe", recentBlockhash: "GfVcyD4kkTrj4bKc7WA9sZCin9JDbdT4Zkd3EittNR1W", lastValidBlockHeight: "250000000" } }] }));
+      return;
+    }
+    v1Headers = { sig: "payment-signature" in req.headers, xp: "x-payment" in req.headers };
+    res.end(JSON.stringify({ okFromV1: true }));
+  });
+  await new Promise((r) => v1.listen(0, "127.0.0.1", r));
+  const out = await payX402(`http://127.0.0.1:${v1.address().port}/v1`, { maxAtomic: "10000", chain: "solana", trusted: true, sellerProof: async () => 25 }).catch((e) => ({ err: e }));
+  ok(out?.result?.okFromV1 === true, "a v1 (body) challenge is still payable");
+  ok(v1Headers && v1Headers.xp === true && v1Headers.sig === false, "and a v1 challenge is paid under X-PAYMENT alone - the v1 header name @x402/core emits");
+  v1.close();
+  // Stelar shape: a v2 challenge from a seller that reads ONLY X-PAYMENT and
+  // says so. First paid attempt (spec header) -> 402 naming X-PAYMENT; the
+  // buyer resends the SAME credential under both names once -> 200.
+  let attempts = [];
+  const stelar = createServer((req, res) => {
+    res.setHeader("content-type", "application/json");
+    const sig = req.headers["payment-signature"], xp = req.headers["x-payment"];
+    if (!sig && !xp) {
+      const accepts = [{ scheme: "exact", network: MAINNET, asset: USDC, amount: "5000", payTo: "J7aN3PLJnTCF5qpEnvJHJsnCjcGuqC2rYtEM8Gv3xwg", maxTimeoutSeconds: 60,
+        extra: { feePayer: "8Y9wxHqJt3mfMUv7pQnBRZUKGdCwjrLBGWtaeu6AGFfe", recentBlockhash: "GfVcyD4kkTrj4bKc7WA9sZCin9JDbdT4Zkd3EittNR1W", lastValidBlockHeight: "250000000" } }];
+      res.statusCode = 402;
+      res.setHeader("payment-required", Buffer.from(JSON.stringify({ x402Version: 2, error: "payment required", accepts })).toString("base64"));
+      res.end("{}"); return;
+    }
+    attempts.push({ sig: !!sig, xp: !!xp, same: !!sig && !!xp && sig === xp });
+    if (!xp) { res.statusCode = 402; res.end(JSON.stringify({ error: "X-PAYMENT header required" })); return; }
+    res.end(JSON.stringify({ okFromStelar: true }));
+  });
+  await new Promise((r) => stelar.listen(0, "127.0.0.1", r));
+  const st = await payX402(`http://127.0.0.1:${stelar.address().port}/thing`, { maxAtomic: "10000", chain: "solana", trusted: true, sellerProof: async () => 25 }).catch((e) => ({ err: e }));
+  ok(st?.result?.okFromStelar === true, "a v2 seller that names X-PAYMENT in its 402 is paid on the resend");
+  ok(attempts.length === 2 && attempts[0].sig && !attempts[0].xp && attempts[1].sig && attempts[1].xp && attempts[1].same,
+    "exactly two paid attempts: spec header alone, then the IDENTICAL credential under both names");
+  stelar.close();
 }
 
 // --- the payload carries `accepted` (2026-09-01) ---------------------------

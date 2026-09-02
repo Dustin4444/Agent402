@@ -142,7 +142,12 @@ const payHeaders = http.encodePaymentSignatureHeader(payload);
 // PAID_DEMO_MIRROR=off sends ONLY PAYMENT-SIGNATURE - the pure stock-client
 // shape - so a seller that reads X-PAYMENT first (and takes the v1 path on it)
 // can be told apart from one that refuses the payment itself (2026-09-02).
-if (process.env.PAID_DEMO_MIRROR !== "off" && payHeaders["PAYMENT-SIGNATURE"] && !payHeaders["X-PAYMENT"]) payHeaders["X-PAYMENT"] = payHeaders["PAYMENT-SIGNATURE"];
+// Default: mirror only on a v1 challenge (a v2 seller reading X-PAYMENT first
+// takes its v1 path; xfuel's has no Solana branch). PAID_DEMO_MIRROR=on forces
+// the mirror, =off never mirrors.
+// Default: no mirror (the stock client shape). PAID_DEMO_MIRROR=on forces it.
+const shouldMirror = process.env.PAID_DEMO_MIRROR === "on";
+if (shouldMirror && payHeaders["PAYMENT-SIGNATURE"] && !payHeaders["X-PAYMENT"]) payHeaders["X-PAYMENT"] = payHeaders["PAYMENT-SIGNATURE"];
 const paid = await fetch(url, {
   ...reqInit,
   headers: { ...reqInit.headers, ...payHeaders, "Access-Control-Expose-Headers": "PAYMENT-RESPONSE,X-PAYMENT-RESPONSE" },

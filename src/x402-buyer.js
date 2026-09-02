@@ -402,7 +402,17 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
     // Header-name compatibility: @x402/core emits only PAYMENT-SIGNATURE; some
     // sellers read only the X-PAYMENT name (Stelar, found 2026-07-23). Mirror
     // the identical value under both so either implementation sees the payment.
-    if (payHeaders["PAYMENT-SIGNATURE"] && !payHeaders["X-PAYMENT"]) payHeaders["X-PAYMENT"] = payHeaders["PAYMENT-SIGNATURE"];
+    // ...but ONLY for a v1 challenge. A v2 seller may read X-PAYMENT FIRST and
+    // treat its presence as "v1 client" - api.xfuel.app does, and its v1 path
+    // has no Solana branch, so every mirrored v2 SVM payment came back
+    // "payment_payload_invalid" while the same credential under
+    // PAYMENT-SIGNATURE alone cleared verification (measured 2026-09-02, both
+    // with our builder and with @x402/fetch). The v2 spec names one header;
+    // sending two lets the seller pick the wrong one.
+    // So: NO send-time mirror. @x402/core already emits X-PAYMENT (alone) for a
+    // v1 challenge and PAYMENT-SIGNATURE (alone) for v2. The one v2 seller that
+    // reads ONLY X-PAYMENT (Stelar, 2026-07-23) says so in its 402 body, and is
+    // handled by the single evidence-driven resend below.
     // Fresh timeout AND a fresh pinned connection for the paid leg. The
     // timeout must not inherit the bare leg's spent budget, and the paid
     // retry must not reuse the bare leg's kept-alive socket: a live seller's
@@ -463,6 +473,27 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
     // the spend hold. We only refund when the paid leg never got a response
     // (sign threw, or the fetch rejected on network error / timeout).
     committed = true;
+    // X-PAYMENT-BY-NAME RESEND (once). A v2 seller that reads only the legacy
+    // header name answers the spec header with a 402 whose body names
+    // X-PAYMENT ("X-PAYMENT header required", Stelar 2026-07-23). That body is
+    // the evidence; a seller that took the payment and failed says something
+    // else. Resend the IDENTICAL credential under both names exactly once;
+    // any other 402 (xfuel's payment_payload_invalid included) never triggers
+    // it. Same credential, so no second authorization exists to double-spend.
+    if ((paid.status === 402 || paid.status === 401) && payHeaders["PAYMENT-SIGNATURE"] && !paidHeaders["X-PAYMENT"]) {
+      let sniff = "";
+      try { sniff = (await paid.clone().text()).slice(0, 2000); } catch { sniff = ""; }
+      if (/x-payment/i.test(sniff)) {
+        const host = (() => { try { return new URL(url).host; } catch { return "seller"; } })();
+        console.warn(`[x402-buyer] ${host} asked for X-PAYMENT by name on a v2 challenge - resending the same credential under both header names (once)`);
+        try {
+          const { freshSsrfDispatcher: freshAgain } = await import("./tools/fetch-guard.js");
+          paid = await fetch(url, { ...reqInit, dispatcher: freshAgain(), signal: AbortSignal.timeout(timeoutMs), headers: { ...paidHeaders, "X-PAYMENT": payHeaders["PAYMENT-SIGNATURE"] } });
+        } catch (e) {
+          console.warn(`[x402-buyer] ${host}: X-PAYMENT resend failed (${String(e?.message || e).slice(0, 80)}) - keeping the first response`);
+        }
+      }
+    }
     // Every throw from here on is POST-COMMIT: the signed authorization
     // reached the seller and MAY have been settled. Stamp committed on it so a
     // caller trying multiple sellers (route-execute's fallthrough) knows this
@@ -492,14 +523,18 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
       } catch { why = "(body unreadable)"; }
       const where = (() => { try { return new URL(url).host; } catch { return "seller"; } })();
       console.warn(`[x402-buyer] ${where} rejected the paid retry: HTTP ${paid.status} content-type=${paid.headers.get("content-type") || "-"} body=${why || "(empty)"}`);
-      // A 402/401 on the PAID retry is the seller refusing the payment. Their
-      // word alone is not proof we were not charged (they control the status
-      // line), but on Solana the CHAIN is: if our wallet's USDC did not move
+      // A 402/401 on the PAID retry is the seller refusing the payment; a 4xx/5xx
+      // is the seller failing after it. Their word alone is not proof we were
+      // not charged (they control the status line), but on Solana the CHAIN is: if our wallet's USDC did not move
       // since the header went out, nothing settled, the hold is released and
       // the caller may try the next seller. An unreadable chain, or a debit,
       // keeps the post-commit stance. Base has no equivalent yet (an EIP-3009
       // nonce could be checked the same way; not built).
-      if ((paid.status === 402 || paid.status === 401) && chain === "solana") {
+      // Any non-200 on Solana is checked the same way: a seller's 400 on our
+      // input, or its 5xx, after a payment that never settled is equally
+      // provable from our wallet, and equally safe to try elsewhere (2026-09-02:
+      // xfuel answers 400 to a model id it does not serve, uncharged).
+      if (chain === "solana") {
         let verdict = null;
         try {
           const check = notDebited || (await import("./solana-buyer.js")).confirmSvmNotDebited;
