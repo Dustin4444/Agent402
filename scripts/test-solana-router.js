@@ -307,6 +307,39 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
   ok(threw, "an unreadable RPC throws - never 'not debited' by default");
 }
 
+// --- the UNPROVEN allowance (2026-09-02) -----------------------------------
+// Two Solana sellers with zero on-chain history each settled a stock payment
+// and delivered; the one proven seller for the same task refused every
+// payment. The floor stays the default; a small quote to a thin seller is a
+// bounded loss the operator chose to accept, and only after proven sellers.
+{
+  const { assertProvenSolanaSeller, passesSolanaResolveGate, svmUnprovenAllowanceAtomic } = await import("../src/solana-buyer.js");
+  const thin = async () => 0;
+  const outcome = (opts) => assertProvenSolanaSeller("J7aN3PLJnTCF5qpEnvJHJsnCjcGuqC2rYtEM8Gv3xwg", { inboundFn: thin, ...opts }).then(() => "paid", (e) => e.statusCode);
+  ok((await outcome({})) === 409, "no allowance: a thin seller is refused 409 as before");
+  ok((await outcome({ allowUnprovenUpToAtomic: 10000n, quotedAtomic: "1000" })) === "paid", "allowance $0.01, quote $0.001 -> the thin seller is paid");
+  ok((await outcome({ allowUnprovenUpToAtomic: 10000n, quotedAtomic: "10000" })) === "paid", "quote exactly AT the allowance is paid");
+  ok((await outcome({ allowUnprovenUpToAtomic: 10000n, quotedAtomic: "10001" })) === 409, "one atomic over the allowance -> 409");
+  ok((await outcome({ allowUnprovenUpToAtomic: 10000n, quotedAtomic: null })) === 409, "no quote to bound -> 409");
+  ok((await outcome({ allowUnprovenUpToAtomic: 0n, quotedAtomic: "1" })) === 409, "allowance 0 -> the hard floor");
+  const dead = async () => { throw new Error("RPC 429"); };
+  ok((await assertProvenSolanaSeller("J7aN3PLJnTCF5qpEnvJHJsnCjcGuqC2rYtEM8Gv3xwg", { inboundFn: dead, allowUnprovenUpToAtomic: 10000n, quotedAtomic: "1" }).then(() => "paid", (e) => e.statusCode)) === 503,
+    "an UNREADABLE chain is still refused 503 even under the allowance - unproven is not unverifiable");
+  const saved = process.env.SOR_SVM_UNPROVEN_MAX_USD;
+  delete process.env.SOR_SVM_UNPROVEN_MAX_USD;
+  ok(svmUnprovenAllowanceAtomic() === 10000n, "default allowance is $0.01");
+  process.env.SOR_SVM_UNPROVEN_MAX_USD = "off"; ok(svmUnprovenAllowanceAtomic() === 0n, "'off' disables the tier");
+  process.env.SOR_SVM_UNPROVEN_MAX_USD = "0"; ok(svmUnprovenAllowanceAtomic() === 0n, "'0' disables the tier");
+  process.env.SOR_SVM_UNPROVEN_MAX_USD = "abc"; ok(svmUnprovenAllowanceAtomic() === 0n, "a malformed value disables rather than widens");
+  process.env.SOR_SVM_UNPROVEN_MAX_USD = "0.002"; ok(svmUnprovenAllowanceAtomic() === 2000n, "a custom allowance is honoured");
+  if (saved === undefined) delete process.env.SOR_SVM_UNPROVEN_MAX_USD; else process.env.SOR_SVM_UNPROVEN_MAX_USD = saved;
+  const hdr = Buffer.from(JSON.stringify({ accepts: [{ network: MAINNET, payTo: "J7aN3PLJnTCF5qpEnvJHJsnCjcGuqC2rYtEM8Gv3xwg" }] })).toString("base64");
+  const g = await passesSolanaResolveGate({ header: hdr, inboundFn: async () => 3 });
+  ok(g.ok === false && g.inbound === 3, "the resolve gate reports the COUNT on a short-history refusal, so the resolver can tell 'thin' from 'unreadable'");
+  const gu = await passesSolanaResolveGate({ header: hdr, inboundFn: dead });
+  ok(gu.ok === false && gu.inbound === undefined, "and reports no count when the chain was unreadable");
+}
+
 // --- the payload carries `accepted` (2026-09-01) ---------------------------
 // A hand-built SVM payload MUST echo back the requirement it satisfies as
 // `accepted`; without it the seller's facilitator throws `unexpected_verify_error`

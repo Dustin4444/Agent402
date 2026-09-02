@@ -1111,8 +1111,20 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1 } = 
         const { passesSolanaResolveGate } = await import("./solana-buyer.js");
         const gate = await passesSolanaResolveGate({ header: probe.headers.get("payment-required"), body: probeBody });
         if (!gate.ok) {
-          console.log(`[sor] skipping solana candidate ${r.seller}: ${gate.reason}`);
-          live = false;
+          // UNPROVEN TIER: the chain was readable (gate.inbound is a number)
+          // and only the count is short. Keep the candidate, marked, when its
+          // quote is within the unproven allowance; it is ordered AFTER every
+          // proven candidate below and paid only if those are exhausted.
+          // Unreadable chain / unreadable accept stay skipped.
+          const { svmUnprovenAllowanceAtomic } = await import("./solana-buyer.js");
+          const allowance = Number(svmUnprovenAllowanceAtomic()) / 1e6;
+          if (Number.isFinite(gate.inbound) && allowance > 0 && r.priceUsd > 0 && r.priceUsd <= allowance) {
+            r.unproven = true; r.settled = gate.inbound;
+            console.log(`[sor] admitting solana candidate ${r.seller} as UNPROVEN (${gate.reason}; ${r.priceUsd} is within the ${allowance} unproven allowance) - tried after proven sellers`);
+          } else {
+            console.log(`[sor] skipping solana candidate ${r.seller}: ${gate.reason}`);
+            live = false;
+          }
         }
       }
       if (live) {
@@ -1151,10 +1163,16 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1 } = 
     // `wire` rides through: a Tempo candidate settles over MPP and its receipt
     // must say so (the first live Tempo SOR buy labelled it x402, 2026-08-27).
     if (live) {
-      resolved.push({ seller: r.seller, slug: r.slug, url: r.url, method: r.method, price: r.price, priceUsd: r.priceUsd, networks: r.networks, settled: r.settled, wire: r.wire || "x402", provenPayTo: provenPayToByOrigin?.get(norm(r.seller)) || null, route: r.route || null, guaranteedPaths: r.responseContract?.guaranteedPaths || [] });
-      if (resolved.length >= Math.max(1, limit)) break;
+      resolved.push({ seller: r.seller, slug: r.slug, url: r.url, method: r.method, price: r.price, priceUsd: r.priceUsd, networks: r.networks, settled: r.settled, wire: r.wire || "x402", provenPayTo: provenPayToByOrigin?.get(norm(r.seller)) || null, route: r.route || null, guaranteedPaths: r.responseContract?.guaranteedPaths || [], ...(r.unproven ? { unproven: true } : {}) });
+      // Only PROVEN candidates count toward the limit: an unproven one must
+      // never crowd out a proven seller ranked below it.
+      if (resolved.filter((x) => !x.unproven).length >= Math.max(1, limit)) break;
     }
   }
+  // Proven first, unproven last (stable: rank order kept within each tier),
+  // then the limit.
+  resolved.sort((a, b) => (a.unproven ? 1 : 0) - (b.unproven ? 1 : 0));
+  resolved.splice(Math.max(1, limit));
   // limit === 1 (the default, every existing caller) returns the single object
   // or null, unchanged. A caller asking for more gets the ranked live list, so
   // route-execute can fall through to the next seller when one 5xxs on the paid

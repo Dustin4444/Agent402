@@ -332,6 +332,20 @@ await expectErr({ slug: "broken-tool", params: {} }, 422, "underlying tool 422 p
     const r = await mk(pay, async () => [A, B]).handler({ task: "t", include: "external" }, {});
     ok(calls.length === 2 && r.receipt.seller === B.seller, "a pre-commit 4xx (nothing spent) falls through - the next seller may accept the same params");
   }
+  // A REFUSES the payment and the buyer proved on chain it was not charged
+  // (committed:false + refused) -> falls through; B was admitted UNPROVEN, so
+  // the buyer is told to allow it and the receipt says so (2026-09-02).
+  {
+    const U = { ...B, unproven: true };
+    let calls = [], opts = [];
+    const pay = async (url, o) => { calls.push(url); opts.push(o); if (url === A.url) throw err("Seller refused the payment (HTTP 402); chain shows no debit, nothing charged", 502, { committed: false, refused: true }); return good; };
+    const r = await mk(pay, async () => [A, U]).handler({ task: "t", include: "external" }, {});
+    ok(calls.length === 2 && r.receipt.seller === B.seller, "a chain-verified refusal (committed:false) falls through to the next candidate");
+    ok(opts[0].allowUnproven === false && opts[1].allowUnproven === true, "allowUnproven rides to the buyer ONLY for the candidate the resolver admitted unproven");
+    ok(r.receipt.sellerProof === "unproven", "the receipt says the serving seller was unproven");
+    const r2 = await mk(async () => good, async () => [A]).handler({ task: "t", include: "external" }, {});
+    ok(!("sellerProof" in r2.receipt), "a proven seller's receipt carries no such flag");
+  }
   // Every candidate fails PRE-commit -> throw the last error, both attempted.
   {
     let calls = [];
