@@ -127,5 +127,73 @@ ok(/npm install -g npm@11\./.test(wf), "publish job pins an npm CLI new enough t
 ok(!wf.includes("pull_request_target"), "no pull_request_target in the deploy workflow (fork-PR privilege escalation)");
 ok(/npm publish --provenance/.test(wf), "publishes carry --provenance");
 
+// --- 6. the OIDC credential never shares a job with a lifecycle script ------
+// The id-token is the publish credential under trusted publishing: npm
+// exchanges it for a short-lived publish token on every `npm publish`. Until
+// 2026-09-03 the same job also ran a scripted `npm ci` (better-sqlite3 needs
+// its prebuild for the server-booting gates), so a dependency's postinstall
+// executed in a job that could publish under every name we own - the same
+// shape as section 1, one level up: not a token in `env:`, a credential in
+// the job. The gates now live in `publish-gate` (no id-token, no registry-url,
+// no environment) and `publish` requires that job's SUCCESS and installs
+// nothing. Parsed, not grepped: a step-level regex cannot tell which JOB a
+// line belongs to, and the whole point is the job boundary.
+const { load: loadYaml } = await import("js-yaml");
+const jobs = loadYaml(wf).jobs || {};
+const runsOf = (j) => (j.steps || []).map((s) => String(s.run || ""));
+const holdsIdToken = ([, j]) => j.permissions && j.permissions["id-token"] === "write";
+const credentialJobs = Object.entries(jobs).filter(holdsIdToken).map(([n]) => n);
+ok(credentialJobs.length === 1 && credentialJobs[0] === "publish",
+  `exactly one job holds id-token: write, and it is publish (found: ${credentialJobs.join(", ") || "none"})`);
+for (const name of credentialJobs) {
+  const j = jobs[name];
+  // An install of anything but the npm CLI itself (pinned, --ignore-scripts)
+  // is a lifecycle script beside the credential. `npm ci` with no flag, `npm
+  // install <pkg>`, `npm --prefix x ci` - all of them.
+  const installs = runsOf(j).flatMap((r) => r.split("\n")).map((l) => l.trim())
+    .filter((l) => /^npm(\s+--prefix\s+\S+)?\s+(ci|install|i)\b/.test(l) && !l.startsWith("#"))
+    .filter((l) => !/^npm install -g npm@\d+\.\d+\.\d+ --ignore-scripts$/.test(l));
+  ok(installs.length === 0, `${name}: no dependency install runs beside the OIDC credential${installs.length ? ` (found: ${installs.join(" | ")})` : ""}`);
+  // The gates execute third-party code (server boot, adapter self-installs).
+  const gateLike = (j.steps || []).filter((s) => /^(Gate |MCP e2e gate|MCP package gate|Boot FREE_MODE)/.test(String(s.name || "")));
+  ok(gateLike.length === 0, `${name}: no gate step runs beside the OIDC credential${gateLike.length ? ` (found: ${gateLike.map((s) => s.name).join(" | ")})` : ""}`);
+  // `npx` installs a tree at run time; it is allowed only with lifecycle
+  // scripts disabled for that step, and only a pinned version.
+  for (const s of j.steps || []) {
+    const run = String(s.run || "");
+    if (!/\bnpx\s/.test(run)) continue;
+    const label = String(s.name || "").slice(0, 40);
+    ok(String(s.env?.NPM_CONFIG_IGNORE_SCRIPTS) === "true", `${name}: npx step "${label}" disables lifecycle scripts`);
+    for (const m of run.matchAll(/\bnpx\s+(?:-y\s+)?([^\s]+)/g)) {
+      ok(/@\d+\.\d+\.\d+$/.test(m[1]), `${name}: npx runs an exactly pinned package (${m[1]})`);
+    }
+  }
+  ok((j.steps || []).some((s) => s.with && s.with["registry-url"]),
+    `${name}: setup-node declares registry-url (npm publish resolves the registry from it)`);
+}
+// The gate job: the tests still run, somewhere without the credential, and the
+// credential job cannot start unless they SUCCEEDED (a skipped gate is not a
+// passed gate: !cancelled() drops the implicit success()).
+const gate = jobs["publish-gate"];
+ok(!!gate, "publish-gate job exists");
+if (gate) {
+  ok(!(gate.permissions && gate.permissions["id-token"]), "publish-gate holds no id-token");
+  ok(!gate.environment, "publish-gate is outside the protected environment (nothing there to protect)");
+  ok(!(gate.steps || []).some((s) => s.with && s.with["registry-url"]), "publish-gate's setup-node has no registry-url (no npmrc auth line to strip)");
+  const gateSteps = (gate.steps || []).map((s) => String(s.name || ""));
+  ok(gateSteps.some((n) => /^MCP e2e gate/.test(n)) && gateSteps.filter((n) => /^Gate /.test(n)).length >= 10,
+    `publish-gate runs the package gates (${gateSteps.filter((n) => /^Gate |gate/.test(n)).length} gate steps)`);
+  ok(runsOf(gate).some((r) => /\bnpm ci\b/.test(r)), "publish-gate installs the tree (the server-booting gates need better-sqlite3's prebuild)");
+  const pub = jobs.publish || {};
+  ok([].concat(pub.needs || []).includes("publish-gate"), "publish needs publish-gate");
+  ok(String(pub.if || "").includes("needs.publish-gate.result == 'success'"), "publish requires publish-gate to have SUCCEEDED (not merely not-failed)");
+  ok(String(pub.if || "").includes("!cancelled()"), "publish keeps !cancelled() so the written-out success checks are what gate it");
+  // Same triggers: a gate that fires on a different condition than the job it
+  // protects is a gate that can be skipped while publish still waits on
+  // nothing.
+  ok(String(gate.if || "").replace(/\s+/g, " ").trim() === String(pub.if || "").replace(/\s+/g, " ").replace(/&& needs\.publish-gate\.result == 'success'/, "").trim(),
+    "publish-gate fires on exactly publish's own condition (minus the gate requirement itself)");
+}
+
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
