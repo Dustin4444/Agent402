@@ -3887,7 +3887,16 @@ jobs:
           # Tempo MPP settlement (native tempo/charge via Tempo's relay — challenge wiring + settlement-ordering proof — offline)
           t node scripts/test-mpp-tempo-shim.js
 
-  publish:
+  publish-gate:
+    # Every per-package gate that used to run INSIDE the publish job. It is a
+    # separate job for one reason: these gates execute third-party code (a
+    # scripted `npm ci` so better-sqlite3 fetches its prebuilt binary, a booted
+    # FREE_MODE server, adapter tests that self-install their frameworks), and
+    # the job that publishes holds `id-token: write`, the credential npm
+    # exchanges for a publish token. A dependency's install script running
+    # beside that credential could publish under our names. Here there is no
+    # id-token, no registry-url, no environment and nothing to steal; publish
+    # needs this job's SUCCESS and runs only the publish commands themselves.
     needs: [markers, tree-gate, test, test-sweeps, test-sweeps2, test-paid, test-paid2, test-unit-a, test-unit-a2, test-unit-a3, test-unit-a4, test-unit-b, test-unit-b2, test-unit-b3, test-unit-b4, test-unit-c, test-unit-c2, test-unit-d, test-pricing]
     # The lanes are `needs:`, so this used to inherit an implicit success() and
     # nothing else was required. !cancelled() removes that implicit check, so
@@ -3905,23 +3914,22 @@ jobs:
         github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' || needs.markers.outputs.publish == 'true'
       )
     runs-on: ubuntu-latest
-    # F01: publishing packages mutates a production artifact — gate it behind the
-    # same protected environment as deploy (see the deploy job comment).
-    environment: "agent402 / production"
     permissions:
       contents: read
-      id-token: write   # GitHub OIDC → authorize the io.github.mikeypetrillo/* MCP Registry namespace
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
-      # NOTE: this gate and the test job are the ONLY installs that still run
+      # NOTE: this job and the test lanes are the ONLY installs that still run
       # dependency lifecycle scripts, because better-sqlite3 downloads its
       # prebuilt binary from one (the server cannot boot without it). Every
-      # other install in this repo is --ignore-scripts. Keep it that way: if a
-      # step here ever stops needing a native build, add the flag.
+      # other install in this repo is --ignore-scripts, and the `publish` job
+      # that follows installs NOTHING at all: it holds `id-token: write`, and
+      # a lifecycle script next to that credential could publish under our
+      # names, which is why these gates live here and not there. Keep it that
+      # way: a new gate that needs node_modules belongs in THIS job; if a step
+      # here ever stops needing a native build, add the flag.
       - name: MCP e2e gate before publishing
         run: |
           npm ci
@@ -3966,13 +3974,138 @@ jobs:
             }
             console.log("mcp versions aligned at", a, "· server.json.description =", dlen, "chars");
           '
+      - name: Gate agent402-tollbooth (tests run with NO npm token in env)
+        run: |
+          node tollbooth/test.js && node tollbooth/edge.test.js && node tollbooth/features.test.js && node tollbooth/tempo.test.js   # gate: node + edge + feature/security + tempo assertions must pass before shipping
+
+      - name: Gate agent402-client (tests run with NO npm token in env)
+        run: |
+          node client/test.js            # gate: the buyer SDK must pass before shipping
+          node scripts/test-client-caps.js  # gate: spending-cap safety must pass too
+
+      - name: Gate agent402-openclaw (tests run with NO npm token in env)
+        run: node openclaw/test.js
+
+      - name: Boot FREE_MODE server for adapter tests
+        run: |
+          FREE_MODE=true PORT=3090 node src/server.js > /tmp/a402-adapter.log 2>&1 &
+          echo $! > /tmp/a402-adapter.pid
+          for i in $(seq 1 20); do
+            curl -sf http://127.0.0.1:3090/health >/dev/null && { echo "server up"; break; }
+            sleep 0.5
+          done
+          curl -sf http://127.0.0.1:3090/health >/dev/null || { echo "FREE_MODE server failed to boot"; cat /tmp/a402-adapter.log; exit 1; }
+
+      - name: Gate agent402-openai-tools (tests run with NO npm token in env)
+        run: |
+          # Gate: tool list builds + execute() returns a real result against the FREE_MODE server.
+          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/openai-tools/test.js
+
+      - name: Gate agent402-anthropic-tools (tests run with NO npm token in env)
+        run: |
+          # Install agent402-client locally for the test (same self-bootstrap as openai-tools/test.js).
+          ( cd adapters/anthropic-tools && npm install ../../client --no-save --silent )
+          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/anthropic-tools/test.js
+
+      - name: Gate agent402-ai-sdk (tests run with NO npm token in env)
+        run: |
+          # Test self-bootstraps agent402-client + ai (Vercel AI SDK) into its own node_modules.
+          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/ai-sdk/test.js
+
+      - name: Gate agent402-langchain (tests run with NO npm token in env)
+        run: |
+          # Test self-bootstraps agent402-client + @langchain/core + zod.
+          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/langchain/test.js
+
+      - name: Gate agent402-openai-agents (tests run with NO npm token in env)
+        run: |
+          # Test runs framework-agnostic spec path; @openai/agents is an
+          # optional peerDep so consumers install it on their side.
+          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/openai-agents/test.js
+
+      - name: Gate agent402-llamaindex (tests run with NO npm token in env)
+        run: |
+          # Test self-bootstraps agent402-client + llamaindex.
+          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/llamaindex/test.js
+
+      - name: Gate agent402-strands (tests run with NO npm token in env)
+        run: |
+          # Test self-bootstraps agent402-client + stubs @strands-agents/sdk
+          # so we don't pull AWS Bedrock + uuid + yaml transitively just to
+          # verify the adapter shape.
+          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/strands/test.js
+
+      - name: Gate agent402-agentkit (tests run with NO npm token in env)
+        run: |
+          # Test self-bootstraps agent402-client + stubs @coinbase/agentkit to
+          # the one export the adapter uses (customActionProvider).
+          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/agentkit/test.js
+
+      - name: Gate elizaos-plugin-agent402 (tests run with NO npm token in env)
+        run: |
+          # Self-bootstraps agent402-client; no @elizaos/core at runtime (types only).
+          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/eliza/test.js
+
+      - name: Gate agent402-google-adk (tests run with NO npm token in env)
+        run: |
+          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/google-adk/test.js
+
+      - name: Stop adapter-test server
+        if: always()
+        run: kill "$(cat /tmp/a402-adapter.pid 2>/dev/null)" 2>/dev/null || true
+
+  publish:
+    needs: [markers, tree-gate, test, test-sweeps, test-sweeps2, test-paid, test-paid2, test-unit-a, test-unit-a2, test-unit-a3, test-unit-a4, test-unit-b, test-unit-b2, test-unit-b3, test-unit-b4, test-unit-c, test-unit-c2, test-unit-d, test-pricing, publish-gate]
+    # The lanes are `needs:`, so this used to inherit an implicit success() and
+    # nothing else was required. !cancelled() removes that implicit check, so
+    # the success requirement is written out - and the ONLY accepted alternative
+    # is tree-gate proving this exact tree already passed the full suite on the
+    # dev branch. A lane that FAILED, errored, or was skipped for any other
+    # reason still blocks the release.
+    if: >-
+      !cancelled()
+      && (
+        needs.tree-gate.outputs.skip == 'true'
+        || ( needs.test.result == 'success' && needs.test-sweeps.result == 'success' && needs.test-paid.result == 'success' && needs.test-paid2.result == 'success' && needs.test-unit-a.result == 'success' && needs.test-unit-a2.result == 'success' && needs.test-unit-b.result == 'success' && needs.test-unit-b2.result == 'success' && needs.test-unit-c.result == 'success' && needs.test-unit-c2.result == 'success' && needs.test-unit-a3.result == 'success' && needs.test-unit-a4.result == 'success' && needs.test-unit-b3.result == 'success' && needs.test-unit-b4.result == 'success' && needs.test-sweeps2.result == 'success' && needs.test-unit-d.result == 'success' && needs.test-pricing.result == 'success' )
+      )
+      && (
+        github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' || needs.markers.outputs.publish == 'true'
+      )
+      && needs.publish-gate.result == 'success'
+    runs-on: ubuntu-latest
+    # F01: publishing packages mutates a production artifact — gate it behind the
+    # same protected environment as deploy (see the deploy job comment).
+    # publish-gate is deliberately OUTSIDE this environment: it holds no
+    # credential, so there is nothing for the environment to protect there.
+    environment: "agent402 / production"
+    # This job is the only one with id-token: write, so it executes NOTHING it
+    # did not write itself: no `npm ci`, no lifecycle script, no gate. Every
+    # test moved to publish-gate (which this job requires to have SUCCEEDED).
+    # What remains needs no node_modules - `npm publish --provenance` packs the
+    # working tree, no published package declares a prepack/prepare/
+    # prepublishOnly script (test-supply-chain-guards pins the install hooks),
+    # `npm view` is registry-only, the version reads are `node -p` on a JSON
+    # file, and scripts/mcp-find-latest-version.js imports nothing. The two
+    # third-party executables that DO run here are a checksum-verified
+    # mcp-publisher binary and `npx` of a pinned ClawHub CLI with lifecycle
+    # scripts disabled (see that step). Adding an install here re-opens the
+    # hole this split closes.
+    permissions:
+      contents: read
+      id-token: write   # GitHub OIDC → authorize the io.github.mikeypetrillo/* MCP Registry namespace
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
       # Trusted publishing (OIDC) needs npm >= 11.5.1; node 22 ships npm 10.x.
       # Pinned exactly (our own supply-chain doctrine: no floating installs of
-      # anything that can execute), and deliberately 11.x not 12.x - npm 12
-      # disables install scripts by default, which would stop better-sqlite3
-      # building for the server-booting gates ABOVE this line. Placed here so
-      # only the publish steps see the new CLI; the gates keep running on the
-      # runner's stock npm.
+      # anything that can execute). Still 11.x, the line every publish so far
+      # has gone out on; npm 12's default of disabling install scripts no
+      # longer matters either way, because this job installs nothing - the
+      # server-booting gates run in publish-gate on the runner's stock npm.
+      # Nothing in this job runs before this step except checkout/setup-node.
       #
       # TRUSTED PUBLISHING (OIDC) - no npm token exists in this workflow.
       # Auth comes from the job's id-token: write, exchanged by the npm CLI
@@ -4031,8 +4164,9 @@ jobs:
               sed -i.bak '/_authToken/d' "$NPMRC"
               # sed -i leaves $NPMRC.bak holding the ORIGINAL auth line. Empty
               # today, but it would hold a real token under the documented
-              # NODE_AUTH_TOKEN rollback - and this job runs third-party gate
-              # code after this step. Delete it.
+              # NODE_AUTH_TOKEN rollback - and this job still runs a pinned
+              # third-party CLI (ClawHub) and a downloaded publisher binary
+              # after this step. Delete it.
               rm -f "$NPMRC.bak"
               echo "--- npmrc after ---"; sed -E 's/(=).*/\1<redacted>/' "$NPMRC"
             else
@@ -4107,9 +4241,10 @@ jobs:
                 echo "::error::Fix on npmjs.com (needs an owner + 2FA; a token cannot set it): package → Settings → Trusted Publisher → GitHub Actions, organization/repository MikeyPetrillo/Agent402, workflow file deploy.yml, environment 'agent402 / production' (with the spaces, exactly as the claim above prints it)."
               fi
               # A successful exchange body is {"token":"npm_..."} - a live
-              # short-lived publish credential. Later steps in THIS job execute
-              # third-party code (server boot, adapter gates), so the response
-              # must not outlive the probe.
+              # short-lived publish credential. The gates moved to publish-gate,
+              # but later steps in THIS job still execute third-party code (the
+              # ClawHub CLI, the mcp-publisher binary), so the response must
+              # not outlive the probe.
               rm -f /tmp/oidc-out.txt
             else
               echo "could not mint a GitHub OIDC token for the npm audience"
@@ -4134,10 +4269,6 @@ jobs:
             sleep 15
           done
 
-      - name: Gate agent402-tollbooth (tests run with NO npm token in env)
-        run: |
-          node tollbooth/test.js && node tollbooth/edge.test.js && node tollbooth/features.test.js && node tollbooth/tempo.test.js   # gate: node + edge + feature/security + tempo assertions must pass before shipping
-
       - name: Publish agent402-tollbooth to npm
         run: |
           cd tollbooth
@@ -4150,11 +4281,6 @@ jobs:
             echo "published agent402-tollbooth@$VERSION → https://www.npmjs.com/package/agent402-tollbooth"
           fi
 
-      - name: Gate agent402-client (tests run with NO npm token in env)
-        run: |
-          node client/test.js            # gate: the buyer SDK must pass before shipping
-          node scripts/test-client-caps.js  # gate: spending-cap safety must pass too
-
       - name: Publish agent402-client to npm
         run: |
           cd client
@@ -4166,9 +4292,6 @@ jobs:
             npm publish --provenance --access public
             echo "published agent402-client@$VERSION → https://www.npmjs.com/package/agent402-client"
           fi
-
-      - name: Gate agent402-openclaw (tests run with NO npm token in env)
-        run: node openclaw/test.js
 
       - name: Publish agent402-openclaw to npm
         run: |
@@ -4193,10 +4316,20 @@ jobs:
       # in the runner home). Idempotent: an already-published version is skipped,
       # never re-uploaded. A missing token skips loudly instead of failing the
       # npm publish that already happened.
+      #
+      # This is the one `npx` in the id-token job. The CLI's pinned tree
+      # (47 packages, measured 2026-09-03) carries no preinstall/install/
+      # postinstall script - only `prepare` entries, which npm never runs for a
+      # registry install - so nothing executes at install time today. The env
+      # below makes that a rule rather than an observation: a future version
+      # of a transitive dependency that grows an install hook is skipped, not
+      # run, beside the OIDC credential. The CLI itself still runs (verified:
+      # `--help` under NPM_CONFIG_IGNORE_SCRIPTS=true).
       - name: Publish agent402-openclaw to ClawHub
         env:
           CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
           CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub-config.json
+          NPM_CONFIG_IGNORE_SCRIPTS: "true"
         run: |
           if [ -z "$CLAWHUB_TOKEN" ]; then echo "::warning::CLAWHUB_TOKEN not set - ClawHub release skipped"; exit 0; fi
           VERSION=$(node -p "require('./openclaw/package.json').version")
@@ -4218,21 +4351,6 @@ jobs:
           fi
           rm -f "$CLAWHUB_CONFIG_PATH"
 
-      - name: Boot FREE_MODE server for adapter tests
-        run: |
-          FREE_MODE=true PORT=3090 node src/server.js > /tmp/a402-adapter.log 2>&1 &
-          echo $! > /tmp/a402-adapter.pid
-          for i in $(seq 1 20); do
-            curl -sf http://127.0.0.1:3090/health >/dev/null && { echo "server up"; break; }
-            sleep 0.5
-          done
-          curl -sf http://127.0.0.1:3090/health >/dev/null || { echo "FREE_MODE server failed to boot"; cat /tmp/a402-adapter.log; exit 1; }
-
-      - name: Gate agent402-openai-tools (tests run with NO npm token in env)
-        run: |
-          # Gate: tool list builds + execute() returns a real result against the FREE_MODE server.
-          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/openai-tools/test.js
-
       - name: Publish agent402-openai-tools to npm
         run: |
           cd adapters/openai-tools
@@ -4244,12 +4362,6 @@ jobs:
             npm publish --provenance --access public
             echo "published agent402-openai-tools@$VERSION → https://www.npmjs.com/package/agent402-openai-tools"
           fi
-
-      - name: Gate agent402-anthropic-tools (tests run with NO npm token in env)
-        run: |
-          # Install agent402-client locally for the test (same self-bootstrap as openai-tools/test.js).
-          ( cd adapters/anthropic-tools && npm install ../../client --no-save --silent )
-          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/anthropic-tools/test.js
 
       - name: Publish agent402-anthropic-tools to npm
         run: |
@@ -4263,11 +4375,6 @@ jobs:
             echo "published agent402-anthropic-tools@$VERSION → https://www.npmjs.com/package/agent402-anthropic-tools"
           fi
 
-      - name: Gate agent402-ai-sdk (tests run with NO npm token in env)
-        run: |
-          # Test self-bootstraps agent402-client + ai (Vercel AI SDK) into its own node_modules.
-          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/ai-sdk/test.js
-
       - name: Publish agent402-ai-sdk to npm
         run: |
           cd adapters/ai-sdk
@@ -4278,11 +4385,6 @@ jobs:
             npm publish --provenance --access public
             echo "published agent402-ai-sdk@$VERSION → https://www.npmjs.com/package/agent402-ai-sdk"
           fi
-
-      - name: Gate agent402-langchain (tests run with NO npm token in env)
-        run: |
-          # Test self-bootstraps agent402-client + @langchain/core + zod.
-          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/langchain/test.js
 
       - name: Publish agent402-langchain to npm
         run: |
@@ -4295,12 +4397,6 @@ jobs:
             echo "published agent402-langchain@$VERSION → https://www.npmjs.com/package/agent402-langchain"
           fi
 
-      - name: Gate agent402-openai-agents (tests run with NO npm token in env)
-        run: |
-          # Test runs framework-agnostic spec path; @openai/agents is an
-          # optional peerDep so consumers install it on their side.
-          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/openai-agents/test.js
-
       - name: Publish agent402-openai-agents to npm
         run: |
           cd adapters/openai-agents
@@ -4311,11 +4407,6 @@ jobs:
             npm publish --provenance --access public
             echo "published agent402-openai-agents@$VERSION → https://www.npmjs.com/package/agent402-openai-agents"
           fi
-
-      - name: Gate agent402-llamaindex (tests run with NO npm token in env)
-        run: |
-          # Test self-bootstraps agent402-client + llamaindex.
-          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/llamaindex/test.js
 
       - name: Publish agent402-llamaindex to npm
         run: |
@@ -4328,13 +4419,6 @@ jobs:
             echo "published agent402-llamaindex@$VERSION → https://www.npmjs.com/package/agent402-llamaindex"
           fi
 
-      - name: Gate agent402-strands (tests run with NO npm token in env)
-        run: |
-          # Test self-bootstraps agent402-client + stubs @strands-agents/sdk
-          # so we don't pull AWS Bedrock + uuid + yaml transitively just to
-          # verify the adapter shape.
-          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/strands/test.js
-
       - name: Publish agent402-strands to npm
         run: |
           cd adapters/strands
@@ -4346,12 +4430,6 @@ jobs:
             echo "published agent402-strands@$VERSION → https://www.npmjs.com/package/agent402-strands"
           fi
 
-      - name: Gate agent402-agentkit (tests run with NO npm token in env)
-        run: |
-          # Test self-bootstraps agent402-client + stubs @coinbase/agentkit to
-          # the one export the adapter uses (customActionProvider).
-          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/agentkit/test.js
-
       - name: Publish agent402-agentkit to npm
         run: |
           cd adapters/agentkit
@@ -4362,11 +4440,6 @@ jobs:
             npm publish --provenance --access public
             echo "published agent402-agentkit@$VERSION -> https://www.npmjs.com/package/agent402-agentkit"
           fi
-
-      - name: Gate elizaos-plugin-agent402 (tests run with NO npm token in env)
-        run: |
-          # Self-bootstraps agent402-client; no @elizaos/core at runtime (types only).
-          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/eliza/test.js
 
       - name: Publish elizaos-plugin-agent402 to npm
         run: |
@@ -4382,10 +4455,6 @@ jobs:
             echo "published elizaos-plugin-agent402@$VERSION -> https://www.npmjs.com/package/elizaos-plugin-agent402"
           fi
 
-      - name: Gate agent402-google-adk (tests run with NO npm token in env)
-        run: |
-          AGENT402_BASE_URL=http://127.0.0.1:3090 node adapters/google-adk/test.js
-
       - name: Publish agent402-google-adk to npm
         run: |
           cd adapters/google-adk
@@ -4396,10 +4465,6 @@ jobs:
             npm publish --provenance --access public
             echo "published agent402-google-adk@$VERSION → https://www.npmjs.com/package/agent402-google-adk"
           fi
-
-      - name: Stop adapter-test server
-        if: always()
-        run: kill "$(cat /tmp/a402-adapter.pid 2>/dev/null)" 2>/dev/null || true
 
       - name: Publish to the official MCP Registry (GitHub OIDC, no secret)
         env:
