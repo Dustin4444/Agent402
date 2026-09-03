@@ -17,6 +17,9 @@
 //      COIN           - default ETH (any symbol crypto-price accepts)
 //      DRY_RUN=1      - buy nothing, deploy nothing: estimate the deployment
 //                       gas from this wallet with placeholder data and exit.
+//      AGENT402_PAYEES - optional comma-separated payTo allowlist (lowercased
+//                       EVM addresses); a 402 naming any other payee is refused
+//                       before signing. The live proof pins the Agent402 treasury.
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -80,7 +83,8 @@ const fetchImpl = async (input, init) => {
   if (rh) { try { receipt = JSON.parse(Buffer.from(rh, "base64").toString("utf8")); } catch { /* keep null */ } }
   return res;
 };
-const [find, call] = await agent402Actions({ baseUrl: TARGET, fetchImpl, maxPerCallUsd: 0.02 });
+const payees = (process.env.AGENT402_PAYEES || "").split(",").map((a) => a.trim().toLowerCase()).filter(Boolean);
+const [find, call] = await agent402Actions({ baseUrl: TARGET, fetchImpl, maxPerCallUsd: 0.02, payees: payees.length ? payees : null });
 
 const found = JSON.parse(await find.invoke(find.schema.parse({ task: `live ${COIN} price in USD`, k: 5 })));
 const row = found.results.find((r) => r.slug === SLUG);
@@ -119,5 +123,5 @@ if (!consistent) { console.error("NOT PROVEN: the deployed snapshot does not mat
 console.log(`PROVEN: one wallet bought ${coinKey} at $${quote.price} from ${TARGET} for ${row.price} over x402 and deployed it to Base.`);
 console.log(`  payment  https://basescan.org/tx/${receipt.transaction}`);
 console.log(`  deploy   https://basescan.org/tx/${deployHash}`);
-console.log(`  contract https://basescan.org/address/${address}#readContract`);
+console.log(`  contract https://basescan.org/address/${address}`);
 console.log(JSON.stringify({ paymentTx: receipt.transaction, deployTx: deployHash, contract: address, price: quote.price, observedAt: quote.lastUpdated, gasUsed: String(deployReceipt.gasUsed) }));

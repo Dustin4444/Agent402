@@ -5,7 +5,8 @@ name: AgentKit data-to-deploy live proof
 # agent402.tools over x402 (crypto-price, $0.01 USDC on Base), then deploys
 # Agent402PriceSnapshot to Base mainnet carrying the price and the payment tx.
 # Costs $0.01 USDC plus Base gas for one small contract (measured under
-# $0.001). Installs the PINNED tree in scripts/agentkit-live/ (never resolve a
+# $0.001). The paying client refuses any payee but the Agent402 treasury
+# (AGENT402_PAYEES) and any call over $0.02 (maxPerCallUsd in agent.js). Installs the PINNED tree in scripts/agentkit-live/ (never resolve a
 # third-party tree fresh beside a funded key). Dispatch-only.
 on:
   workflow_dispatch:
@@ -49,4 +50,4 @@ jobs:
           [ -n "$BURNER_KEY" ] || { echo "::error::BURNER_KEY secret missing"; exit 1; }
           echo "::add-mask::$BURNER_KEY"
           # Allowlisted env: the third-party tree sees the burner key and nothing else.
-          cd /tmp/akdeploy && env -i PATH="$PATH" HOME="$HOME" AGENT_WALLET_KEY="$BURNER_KEY" COIN="${COIN:-ETH}" DRY_RUN="${DRY_RUN:-0}" TARGET_URL="https://agent402.tools" AGENTKIT_ADAPTER="agent402-agentkit" node agent.js
+          cd /tmp/akdeploy && env -i PATH="$PATH" HOME="$HOME" AGENT_WALLET_KEY="$BURNER_KEY" AGENT402_PAYEES="0xabf4fabd7c416fb67202e5f9002389fc75e2a9d0" COIN="${COIN:-ETH}" DRY_RUN="${DRY_RUN:-0}" TARGET_URL="https://agent402.tools" AGENTKIT_ADAPTER="agent402-agentkit" node agent.js

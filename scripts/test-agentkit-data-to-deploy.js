@@ -37,14 +37,14 @@ ok(data.length > artifact.bytecode.length + 6 * 64, "constructor args encoded af
 
 // agent.js: the script pins the same things the test does.
 const agent = read("agent.js");
-for (const s of ['const SLUG = "crypto-price"', "encodeDeployData(", "walletProvider.sendTransaction({ data })", 'functionName: "snapshot"', "receipt.transaction", "process.exit(1)", "DRY_RUN"]) {
+for (const s of ['const SLUG = "crypto-price"', "payees: payees.length ? payees : null", "maxPerCallUsd: 0.02", "encodeDeployData(", "walletProvider.sendTransaction({ data })", 'functionName: "snapshot"', "receipt.transaction", "process.exit(1)", "DRY_RUN"]) {
   ok(agent.includes(s), `agent.js carries ${JSON.stringify(s)}`);
 }
 ok(!/AGENT_WALLET_KEY\s*=\s*["']0x[0-9a-f]{64}/i.test(agent), "no key literal in the example");
 
 // The live workflow ships exactly the files the script reads.
 const wf = readFileSync(new URL("../.github/workflows/agentkit-data-to-deploy.yml", import.meta.url), "utf8");
-for (const s of ["examples/agentkit-data-to-deploy/agent.js", "examples/agentkit-data-to-deploy/contracts/artifact.json", "scripts/agentkit-live/package-lock.json", "npm ci --ignore-scripts", "env -i ", "add-mask", "workflow_dispatch"]) {
+for (const s of ["AGENT402_PAYEES=\"0xabf4fabd7c416fb67202e5f9002389fc75e2a9d0\"", "examples/agentkit-data-to-deploy/agent.js", "examples/agentkit-data-to-deploy/contracts/artifact.json", "scripts/agentkit-live/package-lock.json", "npm ci --ignore-scripts", "env -i ", "add-mask", "workflow_dispatch"]) {
   ok(wf.includes(s), `workflow carries ${JSON.stringify(s)}`);
 }
 ok(!/\bon:\s*\n\s*(push|schedule|pull_request)/.test(wf), "the funded-key workflow is dispatch-only");
@@ -53,5 +53,10 @@ ok(!/\bon:\s*\n\s*(push|schedule|pull_request)/.test(wf), "the funded-key workfl
 const pkg = JSON.parse(read("package.json"));
 const pinned = JSON.parse(readFileSync(new URL("./agentkit-live/package.json", import.meta.url), "utf8"));
 for (const [name, v] of Object.entries(pinned.dependencies)) ok(pkg.dependencies[name] === v, `example pins ${name}@${v} like the proof tree`);
+
+// CI recompiles the artifact from source with the pinned solc and diffs it.
+const ci = readFileSync(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8");
+ok(ci.includes("node scripts/test-agentkit-data-to-deploy.js"), "this test runs in a CI lane");
+ok(ci.includes("solc@0.8.28 && node contracts/compile.js") && ci.includes("git diff --exit-code -- examples/agentkit-data-to-deploy/contracts/artifact.json"), "CI recompiles the artifact from the committed source and requires byte equality");
 
 console.log(`test-agentkit-data-to-deploy: ${n} assertions ok`);

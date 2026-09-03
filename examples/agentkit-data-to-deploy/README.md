@@ -34,7 +34,14 @@ and buys nothing.
 
 The contract is compiled once with `npm run compile` (solc 0.8.28, committed as
 `contracts/artifact.json`, source hash inside) so a run deploys a known blob
-and needs no compiler.
+and needs no compiler. CI recompiles it from the source with the same solc and
+requires the bytes to match. To show the source on Basescan, verify the
+deployed address there with the same settings (solc 0.8.28, optimizer 200 runs,
+EVM cancun, no metadata hash).
+
+Spend bounds ride with every paid call: `maxPerCallUsd` refuses anything over
+$0.02 before signing, and `AGENT402_PAYEES` (optional) refuses any 402 that
+names a payee outside the allowlist.
 
 To hand the same three actions to a model instead of a script, wrap them with
 `agent402ActionProvider()` and pass it to `AgentKit.from({ walletProvider,
