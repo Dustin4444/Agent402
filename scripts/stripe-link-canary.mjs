@@ -62,21 +62,32 @@ console.log(`baseline /api/revenue/mpp byNetwork.stripe = ${before}`);
 // 3. spend request (shared payment token), approved by the operator in the Link app
 const context = `Agent402 daily Stripe card canary: one $0.50 purchase of ${ROUTE} on ${TARGET} over the MPP stripe/charge challenge, proving the live card rail settles end to end. Recorded as internal traffic.`;
 console.log("creating spend request (approve it in the Link app within ~10 minutes)...");
-const sr = linkCli(["spend-request", "create", "--credential-type", "shared_payment_token", "--network-id", PROFILE, "--amount", "50", "--currency", "usd", "--context", context, "--request-approval"]);
+const PRESET = (process.env.STRIPE_CANARY_SPEND_REQUEST_ID || "").trim(); // an already-approved request (a rerun after a late approval)
+const sr = PRESET ? { json: [{ id: PRESET, status: "preset" }], out: "", status: 0 } : linkCli(["spend-request", "create", "--credential-type", "shared_payment_token", "--network-id", PROFILE, "--amount", "50", "--currency", "usd", "--context", context, "--request-approval"]);
 // the CLI answers an ARRAY of one spend request; --request-approval sends the push and returns pending_approval
 const srObj = Array.isArray(sr.json) ? sr.json[0] : (sr.json?.spend_request || sr.json);
 const srId = srObj?.id || (sr.out.match(/\b(lsrq_[A-Za-z0-9]+)\b/) || [])[1];
 if (!srId) fail(`spend request not created: ${redact(sr.out).slice(0, 400)}`);
 console.log(`spend request ${srId} status=${srObj?.status || "?"}; approve at ${srObj?.approval_url || "the Link app"} (waiting up to ${APPROVAL_WAIT_S}s)`);
 // poll until the operator approves (terminal statuses end the poll; anything but approved fails)
-const polled = linkCli(["spend-request", "retrieve", srId, "--interval", "5", "--timeout", String(APPROVAL_WAIT_S)], { timeoutMs: (APPROVAL_WAIT_S + 60) * 1000 });
-const polledObj = Array.isArray(polled.json) ? polled.json[0] : polled.json;
-const srStatus = polledObj?.status || (polled.out.match(/"status":\s*"([a-z_]+)"/g) || []).pop()?.match(/"([a-z_]+)"$/)?.[1] || "?";
-console.log(`spend request ${srId} final status=${srStatus} (exit ${polled.status})`);
+// Our own retrieve loop: the CLI's --interval poll returned pending_approval once with exit 0 while the
+// approval landed inside the window (run 33710477233), so the status is re-read here until the deadline.
+const deadline = Date.now() + APPROVAL_WAIT_S * 1000;
+let srStatus = "?";
+while (Date.now() < deadline) {
+  const polled = linkCli(["spend-request", "retrieve", srId], { timeoutMs: 60_000 });
+  const polledObj = Array.isArray(polled.json) ? polled.json[0] : polled.json;
+  srStatus = polledObj?.status || srStatus;
+  if (srStatus === "approved" || /denied|expired|canceled|cancelled|failed/.test(srStatus)) break;
+  await new Promise((r) => setTimeout(r, 10_000));
+}
+console.log(`spend request ${srId} final status=${srStatus}`);
 if (srStatus !== "approved") fail(`spend request ${srId} was not approved in time (status ${srStatus})`);
 
 // 4. pay
-const hdrs = ["-H", "content-type: application/json"];
+// NO content-type here: the CLI sets application/json itself and a second one is joined into
+// "application/json, application/json", which the JSON body parser refuses (run 33710477233: 400, no body).
+const hdrs = [];
 const hb2 = heartbeat(); if (hb2) hdrs.push("-H", `X-Heartbeat-Token: ${hb2}`);
 const pay = linkCli(["mpp", "pay", url, "--spend-request-id", srId, "--method", "POST", "--data", BODY, ...hdrs], { timeoutMs: 180_000 });
 console.log(`mpp pay exit=${pay.status}: ${redact(pay.out).slice(0, 600)}`);
