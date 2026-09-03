@@ -991,6 +991,17 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   article-digest/search-news, content-grade/readability-score, contact-verify/spf-check, trend-analysis/fred-series,
   markdown-convert/text-diff) - they deliver real steps, just fewer than the tool page promises, and each needs its own
   judgment.
+- **Skill-pack prices are DERIVED, not declared (2026-09-02, `scripts/pack-prices.js` + `scripts/test-pack-pricing-rule.js` in the
+  sweeps lane):** the old `PACK_PRICES` table was a hand-written premium ($0.05-$1.50) with no relation to the tools a pack runs,
+  which after the 08-28 floor cuts left packs costing 10x-100x their parts (the operator's decision: option 2). Rule: a pack costs
+  the SUM of its advertised `toolSlugs` prices (unique slugs, read from the live `/api/pricing`) minus a 10% bundle discount
+  (`PACK_DISCOUNT`), rounded UP to the $0.001 settlement floor (`ceilMilli`, floor `PACK_FLOOR_USD`); range now $0.003 to $0.168.
+  `--write` regenerates the table in `src/skills.js` (GENERATED header, one comment per row with tool count + parts); the
+  default mode is the CI check (fails on drift or an unknown tool), so repricing a tool means re-running `--write` in the same
+  PR. Prices compare as whole milli-dollars (`milli()`) and print with three decimals - the first cut rounded $0.171 to $0.17
+  in the table and the check flagged five packs it had just written. `PACK_PRICE_RANGE` (skills.js) derives the range the
+  /skills hero and FAQ quote ("How is a pack priced?"), the wiki Skill-Packs rows and the four paid-canary pack legs were
+  repriced from the table, and test-skills-index-page pins the derived text. Retire/reprice a tool -> the pack follows.
 - **Every tool a pack advertises now RUNS, and a conditional leg can be skipped without being charged (2026-09-02):**
   ten packs listed a tool in `toolSlugs` their `PACK_STEPS` never invoked (structured-scrape/html-meta, ipo-watch/
   search-news, jwt-toolkit/jwt-sign, fx-monitor/fx-historical, page-audit/sitemap, article-digest/search-news,

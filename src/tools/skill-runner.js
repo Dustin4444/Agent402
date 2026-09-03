@@ -2678,7 +2678,7 @@ export function buildSkillTools({ getCatalog, inlineHandlers = {} }) {
       name: `Skill: ${pack.title}`,
       slug: `skill-${slug}`,
       category: "skill-pack",
-      price: `$${price.toFixed(price < 0.1 ? 3 : 2)}`,
+      price: `$${price.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}` /* whole milli-dollars: the derived pack price is charged as derived, never rounded to a cent */,
       description:
         `Bundled execution of the ${pack.title} workflow - ${pack.tagline} ` +
         `One x402 payment runs ${pack.toolSlugs.length} underlying tools (${pack.toolSlugs.join(", ")}); ` +
