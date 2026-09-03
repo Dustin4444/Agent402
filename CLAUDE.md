@@ -582,10 +582,42 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   **Base chain-truth refusal (2026-09-02, `src/evm-authorization-state.js`):** the Solana-only "refused payment -> read
   the chain -> fall through" now has its Base twin, and it is EXACT rather than a wallet window: the EIP-3009 nonce we
   signed is either consumed on the token (`authorizationState(authorizer, nonce)`, selector 0xe94a0102, pinned against
-  viem) or it is not. payX402 asks it on any non-200 paid retry on Base when the payload carries a nonce; false after the
-  8 s grace = provably unpaid (hold released, error uncommitted + `refused`, seller memoized 6 h on base, route-execute
-  tries the next candidate); true or an unreadable RPC keeps the post-commit stance. Base only (`AGENT402_BASE_RPC`);
-  other EVM rails still take the seller's word. test-x402-buyer.
+  viem) or it is not. payX402 asks it on any non-200 paid retry on Base when the payload carries a nonce; false once the
+  credential can no longer settle (was "after an 8 s grace" until 2026-09-03, see the next entry) = provably unpaid (hold
+  released, error uncommitted + `refused`, seller memoized 6 h on base, route-execute tries the next candidate); true or
+  an unreadable RPC keeps the post-commit stance. Base only (`AGENT402_BASE_RPC`); other EVM rails still take the
+  seller's word. test-x402-buyer.
+  **Refuse-then-settle-late closed (2026-09-03, security review):** the chain read above was taken 8 s after the refusal,
+  but the credential we sent stayed settleable long past it - an EIP-3009 authorization until its `validBefore`, which the
+  scheme derives from the SELLER's `maxTimeoutSeconds` (300 s is common), and a Solana transaction until its blockhash
+  expires (~60-90 s) - so a seller could answer 402, wait, and settle after route-execute had paid the next candidate.
+  Now a fallthrough happens ONLY once the credential can no longer settle. Base: `capEvmValidity` (x402-buyer) hands the
+  EVM scheme an accept whose `maxTimeoutSeconds` is capped at the refusal window (`SOR_REFUSAL_WINDOW_S`), so the SIGNED
+  `validBefore` is now + window whatever the seller advertised, while the accept ECHOED to the seller is restored to the
+  seller's own value (the facilitator deep-equals the echo against its requirements; the signature covers only the
+  authorization); the refusal branch then asks `confirmEvmAuthorizationUnused` to poll until that `validBefore` (+ slack)
+  and the result carries `expired` - only unused AND expired releases the hold. Solana: `createSvmPaymentPayload` attaches
+  the signed blockhash as a non-enumerable property and `confirmSvmNotDebited({ blockhash })` polls the debit read and
+  `isBlockhashValid` until the chain says the blockhash is dead. A debit seen at any point keeps the post-commit stance;
+  unused-but-still-live (the wait bound reached, or a checker that attached no expiry) keeps it too and is never memoized
+  as a refusal. The wait is bounded by `SOR_REFUSAL_MAX_WAIT_MS` and by the request: route-execute hands its remaining
+  external deadline (`SOR_EXTERNAL_DEADLINE_MS`, or the Tempo budget) in as `refusalMaxWaitMs`, and a cut-short wait keeps
+  the hold, so the bound is money-safe. Pinned in test-x402-buyer (signed validBefore <= now + window against an accept
+  saying 300; echo keeps 300; consumed-inside-window is a debit; still-live holds) and test-solana-router (blockhash mode
+  of the checker, still-live holds).
+  **Shared-wallet evidence is BOUND to its wallet (2026-09-03, `src/evidence-binding.js`, `scripts/test-sor-payto-binding.js`
+  in CI):** the x402 leaderboard groups origins by payTo, so an origin whose registry listing merely NAMED a heavily paid
+  third-party wallet sat in that wallet's row and inherited its `callsSettled`/`uniqueBuyers` in `buildSettledByOrigin` /
+  `buildPayersByOrigin`; `provenPayToByOrigin` had no address of its own for such an origin ("unknown" does not refuse), so
+  it cleared the Base floor on someone else's money and its live 402 named its own payTo. Now `buildEvidenceBindingByOrigin`
+  keeps the WALLETS beside the counts (leaderboard row `wallets`, and the Base payTo each Bazaar quality row was measured at
+  - `foldBazaarQuality` now records `payTos`), `dispatchEligibility` takes `evidence` + `livePayTo`, and `evidencePayToVerdict`
+  rules: own evidence (the seed, or the chain join on the origin's own address) clearing the gate = today's behavior; a gate
+  cleared on inherited evidence requires the origin's live 402 to pay one of the wallets it was inherited from - a different
+  address is `evidence_payto_mismatch`, an unreadable one `evidence_payto_unverified`, both surfaced as `settlement_required`
+  with that `detail` (legend `routerDispatchDetail`). The resolver runs it post-probe through `baseLiveGate` on the probe's
+  402 before anything is signed (warn line names the reason and both wallets); the public label uses the crawled advertised
+  Base payTo as the stand-in. Mutation-checked: disabling the verdict fails the fixture's attacker assertions.
   **External settlement is CHAIN-MATCHED (2026-07-23):** the buyer's payment network picks
   the spending wallet — `eip155:8453` → Base (X402_UPSTREAM_BUYER_KEY, the proven path),
   Algorand mainnet CAIP-2 → the AVM spending wallet (`ALGORAND_UPSTREAM_BUYER_MNEMONIC`,

@@ -186,6 +186,7 @@ await expectErr({ slug: "broken-tool", params: {} }, 422, "underlying tool 422 p
   const r = await on.handler({ task: "summarize a twitter thread", include: "external", params: { circuit: "c" } }, {});
   ok(paidWith?.url === EXT.url && paidWith.opts.method === "POST" && paidWith.opts.body.circuit === "c", "external ON: pays the resolved seller url with the params body");
   ok(paidWith.opts.maxAtomic === 500000n, "external ON: margin cap passed as atomic (cap $0.50 → 500000)");
+  ok(Number.isFinite(paidWith.opts.refusalMaxWaitMs) && paidWith.opts.refusalMaxWaitMs > 0 && paidWith.opts.refusalMaxWaitMs <= 240_000, "external ON: the buyer's refusal wait is bounded by this request's remaining external deadline (refusalMaxWaitMs), so a wait for a credential to expire never outlives the request");
   ok(r.receipt.seller === EXT.seller && r.receipt.external === true && r.receipt.settleTx === "0xTX", "external receipt carries seller + external flag + settle tx");
   ok(r.receipt.underlyingPriceUsd === 0.12 && r.receipt.paidUsd === 0.55, "external receipt shows underlying (from live quote) vs paid tier");
   ok(r.result.proof === "0xabc" && r.result.untrustedContent === true, "external result relayed + marked untrustedContent");

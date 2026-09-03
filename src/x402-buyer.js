@@ -202,6 +202,41 @@ export async function readAfterSpend(res, maxBytes) {
   catch { return { raw: body.slice(0, 4000), ...(truncated ? { _truncated: true } : {}) }; }
 }
 
+// REFUSE-THEN-SETTLE-LATE (2026-09-03). A refused paid retry falls through to
+// the next seller ONLY once the credential we sent can no longer settle. The
+// signed EIP-3009 authorization stays valid until its validBefore, and the
+// scheme derives validBefore from the SELLER's maxTimeoutSeconds (300 s is
+// common) - so with the old 8 s grace a seller could answer 402, wait, and
+// settle after we had paid somebody else. Two parts: (1) we cap OUR
+// validBefore at now + SOR_REFUSAL_WINDOW_S when signing (the facilitator only
+// needs it in the future at verify, and a paid retry completes in seconds);
+// (2) the refusal branch waits for that expiry, re-reads the chain, and only
+// an authorization still unused AFTER expiry releases the hold. Solana's
+// credential is a signed transaction bounded by its blockhash instead, so
+// there the wait is "until isBlockhashValid says no" (~60-90 s). The whole
+// wait is bounded by SOR_REFUSAL_MAX_WAIT_MS and by the caller's own budget
+// (route-execute hands its remaining deadline in as refusalMaxWaitMs).
+export const REFUSAL_EXPIRY_SLACK_S = 5; // clock skew between us and the facilitator
+export function refusalWindowSeconds() {
+  const n = Number(process.env.SOR_REFUSAL_WINDOW_S);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 30;
+}
+export function refusalMaxWaitMsDefault() {
+  const n = Number(process.env.SOR_REFUSAL_MAX_WAIT_MS);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 90_000;
+}
+/** The accept we hand the EVM scheme to SIGN: the seller's entry with
+ *  maxTimeoutSeconds capped at the refusal window, so the authorization's
+ *  validBefore is now + window at most. The accept ECHOED back to the seller
+ *  keeps the seller's own value (payX402 restores it) because the facilitator
+ *  deep-equals the echo against the seller's requirements. Pure; exported for
+ *  the test. */
+export function capEvmValidity(accept, windowS = refusalWindowSeconds()) {
+  const theirs = Number(accept?.maxTimeoutSeconds);
+  const capped = Number.isFinite(theirs) && theirs > 0 ? Math.min(theirs, windowS) : windowS;
+  return { ...accept, maxTimeoutSeconds: capped };
+}
+
 // F3 belt: bound external spend per rolling window regardless of buyer
 // settlement, so a forced-cancellation drain can't be farmed even before the
 // low hot-wallet balance runs out. Per-process; Date.now() is fine server-side.
@@ -342,11 +377,15 @@ export function _spentThisWindow() { return spentThisWindow; } // test hook
  *                   the margin guard. A quote above it fails 502, never signs.
  * @param method/body  request shape (POST body is a JSON-serializable object).
  * @param timeoutMs / maxBytes  bounds.
+ * @param refusalMaxWaitMs  the most the refusal branch may wait for the
+ *                   credential to expire before it gives up on proving "not
+ *                   charged" (the caller's remaining request budget); a wait
+ *                   that hits the bound keeps the hold.
  *
  * A 200 on the bare request means the endpoint is free — returned with no
  * spend. Only a 402 triggers a payment; anything else is a 502.
  */
-export async function payX402(url, { maxAtomic, method = "GET", body, headers = {}, timeoutMs = 20000, maxBytes = DEFAULT_MAX_BYTES, trusted = false, chain = "base", provenPayTo = null, sellerProof = null, notDebited = null, allowUnproven = false } = {}) {
+export async function payX402(url, { maxAtomic, method = "GET", body, headers = {}, timeoutMs = 20000, maxBytes = DEFAULT_MAX_BYTES, trusted = false, chain = "base", provenPayTo = null, sellerProof = null, notDebited = null, allowUnproven = false, refusalMaxWaitMs = refusalMaxWaitMsDefault() } = {}) {
   if (maxAtomic == null) throw bad("payX402 requires maxAtomic (the margin-guard ceiling)", 500);
   const chainCfg = BUYER_CHAINS[chain];
   if (!chainCfg) throw bad(`payX402: unknown chain "${chain}" (known: ${Object.keys(BUYER_CHAINS).join(", ")})`, 500);
@@ -472,9 +511,22 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
     // transport throws undici "invalid content-length header" after any
     // custom-dispatcher (ssrf) seller fetch - see createSvmPaymentPayload.
     // Every other chain uses the registered scheme unchanged.
+    // EVM: the scheme signs validBefore = now + accept.maxTimeoutSeconds, so
+    // the accept it SIGNS carries the refusal window as its ceiling
+    // (capEvmValidity), and the accept it ECHOES is restored to the seller's
+    // own entry below - the facilitator deep-equals the echo against the
+    // seller's requirements, and maxTimeoutSeconds is one of the compared
+    // fields, while the signature itself covers only the authorization.
+    const signAccept = chain === "base" ? capEvmValidity(signable) : signable;
     const payload = chain === "solana"
       ? await (await import("./solana-buyer.js")).createSvmPaymentPayload(buyer.signer, { ...paymentRequired, accepts: [signable] })
-      : await client.createPaymentPayload({ ...paymentRequired, accepts: [signable] });
+      : await client.createPaymentPayload({ ...paymentRequired, accepts: [signAccept] });
+    if (chain === "base" && payload && typeof payload === "object" && payload.accepted && signAccept !== signable) {
+      const accepted = { ...payload.accepted };
+      if (signable.maxTimeoutSeconds === undefined) delete accepted.maxTimeoutSeconds;
+      else accepted.maxTimeoutSeconds = signable.maxTimeoutSeconds;
+      payload.accepted = accepted;
+    }
     const payHeaders = http.encodePaymentSignatureHeader(payload);
     // Header-name compatibility: @x402/core emits only PAYMENT-SIGNATURE; some
     // sellers read only the X-PAYMENT name (Stelar, found 2026-07-23). Mirror
@@ -613,28 +665,48 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
       // input, or its 5xx, after a payment that never settled is equally
       // provable from our wallet, and equally safe to try elsewhere (2026-09-02:
       // xfuel answers 400 to a model id it does not serve, uncharged).
+      //
+      // "NO DEBIT" IS FINAL ONLY ONCE THE CREDENTIAL HAS EXPIRED (2026-09-03).
+      // The seller's answer does not retire the credential: an EIP-3009
+      // authorization settles until its validBefore and a Solana transaction
+      // broadcasts until its blockhash expires, so a reading taken inside that
+      // window can be overtaken by a late settle after we have paid the next
+      // candidate. The chain check is therefore asked to run until the
+      // credential's own expiry (validBefore + slack on Base, the blockhash
+      // on Solana), bounded by refusalMaxWaitMs, and it reports whether the
+      // expiry was reached. A debit seen at ANY point keeps the post-commit
+      // stance; unused-but-still-live (the bound cut the wait short, or a
+      // checker that could not attach an expiry) keeps it too - only
+      // expired + unused releases the hold and falls through.
       const evmAuth = chain === "base" ? payload?.payload?.authorization : null;
-      const evmCheckable = !!(evmAuth && /^0x[0-9a-fA-F]{64}$/.test(String(evmAuth.nonce || "")) && /^0x[0-9a-fA-F]{40}$/.test(String(signable?.asset || "")));
+      const evmCheckable = !!(evmAuth && /^0x[0-9a-fA-F]{64}$/.test(String(evmAuth.nonce || "")) && /^0x[0-9a-fA-F]{40}$/.test(String(signable?.asset || "")) && /^\d+$/.test(String(evmAuth.validBefore || "")));
+      const svmBlockhash = chain === "solana" && typeof payload?.recentBlockhash === "string" ? payload.recentBlockhash : null;
       if (chain === "solana" || evmCheckable) {
         let verdict = null;
+        const maxWaitMs = Math.max(0, Number(refusalMaxWaitMs) || 0);
         try {
           const check = notDebited || (chain === "solana"
             ? (await import("./solana-buyer.js")).confirmSvmNotDebited
             : (await import("./evm-authorization-state.js")).confirmEvmAuthorizationUnused);
           verdict = chain === "solana"
-            ? await check({ wallet: buyer.address, sinceUnix: sentAtUnix })
-            : await check({ token: signable.asset, authorizer: evmAuth.from || buyer.address, nonce: evmAuth.nonce, chain, wallet: buyer.address, sinceUnix: sentAtUnix });
+            ? await check({ wallet: buyer.address, sinceUnix: sentAtUnix, blockhash: svmBlockhash, maxWaitMs })
+            : await check({ token: signable.asset, authorizer: evmAuth.from || buyer.address, nonce: evmAuth.nonce, chain, wallet: buyer.address, sinceUnix: sentAtUnix, untilUnix: Number(evmAuth.validBefore) + REFUSAL_EXPIRY_SLACK_S, maxWaitMs });
         } catch (e) {
           console.warn(`[x402-buyer] ${where}: refusal chain check unreadable (${String(e?.message || e).slice(0, 80)}) - keeping the hold`);
         }
-        if (verdict && verdict.debited === false) {
+        if (verdict && verdict.debited === false && verdict.expired === true) {
           committed = false; // provably unpaid: the finally releases the hold
           const origin = (() => { try { return new URL(url).origin; } catch { return null; } })();
           noteSellerRefusal(origin, chain, paid.status);
-          console.warn(`[x402-buyer] ${where} refused the payment and the chain shows no debit (${verdict.observed} tx read) - not charged, seller memoized as refusing on ${chain}`);
-          const e = bad(`Seller refused the payment (HTTP ${paid.status}); chain shows no debit, nothing charged`, 502);
+          console.warn(`[x402-buyer] ${where} refused the payment and the chain shows no debit after the credential expired (${verdict.observed} tx read) - not charged, seller memoized as refusing on ${chain}`);
+          const e = bad(`Seller refused the payment (HTTP ${paid.status}); the credential expired unused, nothing charged`, 502);
           e.refused = true;
           throw e;
+        }
+        if (verdict && verdict.debited === false) {
+          console.warn(`[x402-buyer] ${where} refused the payment and the chain shows no debit yet, but the credential is still live (wait bound ${maxWaitMs}ms) - keeping the hold, not trying another seller`);
+          // Buyer-facing text stays status-only (test-buyer-rejection-diagnostics pins it); the warn line above carries the reason.
+          throw bad(`Seller rejected the paid retry (HTTP ${paid.status})`, 502);
         }
       }
       throw bad(`Seller rejected the paid retry (HTTP ${paid.status})`, 502);

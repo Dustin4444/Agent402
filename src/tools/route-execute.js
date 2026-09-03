@@ -286,6 +286,17 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           const tempoBudgetMs = req?.mppTempoCredential ? (Number(process.env.SOR_TEMPO_BUDGET_MS) || 16000) : null;
           const startedAt = Date.now();
           const remainingMs = () => (tempoBudgetMs == null ? null : tempoBudgetMs - (Date.now() - startedAt));
+          // REQUEST-SCOPED BOUND for the buyer's refusal wait. After a refused
+          // paid retry payX402 waits for the credential it sent to EXPIRE before
+          // it will treat "no debit" as proof and fall through to the next
+          // seller (up to ~90 s on Solana, the refusal window on Base). That
+          // wait must never outlive this request: every chain gets a deadline
+          // (the Tempo budget where one exists, else SOR_EXTERNAL_DEADLINE_MS,
+          // under the 300 s our own 402 advertises), and the remaining budget
+          // rides into payExternal as refusalMaxWaitMs. A wait cut short keeps
+          // the hold (nothing falls through), so the bound is money-safe.
+          const externalDeadlineMs = tempoBudgetMs ?? Math.max(30_000, Number(process.env.SOR_EXTERNAL_DEADLINE_MS) || 240_000);
+          const refusalBudgetMs = () => Math.max(0, externalDeadlineMs - (Date.now() - startedAt));
           // FALLTHROUGH ON A SELLER 5xx. Resolve up to SOR_MAX_CANDIDATES live
           // sellers (ranked, settled-desc) for the first chain that has any, so
           // a seller whose OWN upstream is down (sol.blockrun's Pyth feed,
@@ -394,7 +405,7 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
             // against the accept actually signed. Null = no chain-derived
             // address on record, which is not a failure - see provenPayToMatches.
             if (ext.unproven) console.warn(`[sor] paying UNPROVEN ${chain} seller ${ext.seller} (${ext.price}) - every proven candidate was exhausted; loss bounded by the unproven allowance`);
-            paid = await payExternal(extUrl, { method: extMethod, body: extBody, maxAtomic: BigInt(Math.round(cap * 1e6)), chain, provenPayTo: ext.provenPayTo || null, allowUnproven: ext.unproven === true, ...(tempoBudgetMs != null ? { timeoutMs: Math.max(3000, remainingMs()) } : {}) });
+            paid = await payExternal(extUrl, { method: extMethod, body: extBody, maxAtomic: BigInt(Math.round(cap * 1e6)), chain, provenPayTo: ext.provenPayTo || null, allowUnproven: ext.unproven === true, refusalMaxWaitMs: refusalBudgetMs(), ...(tempoBudgetMs != null ? { timeoutMs: Math.max(3000, remainingMs()) } : {}) });
           } catch (e) {
             // The exposure DELIBERATELY stands. It is tempting to clear it here
             // ("the buy failed, so we never spent"), but payExternal can throw

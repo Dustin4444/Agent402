@@ -3634,6 +3634,8 @@ jobs:
           t node scripts/test-verify-hint-live.js
           # Router dispatch eligibility, labelled: one function for the resolver's Base gate and every public row (offline)
           t node scripts/test-dispatch-eligibility.js
+          # Shared-wallet settlement evidence counts only where the live 402 pays: fake leaderboard row + fake 402s, call sites pinned (offline)
+          t node scripts/test-sor-payto-binding.js
           # In-flight composites are cut off on SIGTERM: scope wrapper + fetch signal + shutdown seam (offline)
           t node scripts/test-drain-abort.js
           # Solana SPL leaderboard: batched credits scan, primed gate, payTo list, ranking, persistence (offline stub RPC)

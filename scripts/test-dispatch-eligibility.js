@@ -62,6 +62,16 @@ ok(spendChainsOf(["eip155:8453", SOL, "eip155:1"]).join(",") === "base,solana", 
 }
 // Local row.
 ok(dispatchEligibility({ local: true }).reason === "local_catalog" && dispatchEligibility({ local: true }).eligible === true, "this host's own row is local_catalog");
+// Shared-wallet evidence is bound to its wallet (2026-09-03; the full fixture
+// lives in test-sor-payto-binding.js). Here: the label surface only.
+{
+  const W = "0x" + "aa".repeat(20), X = "0x" + "bb".repeat(20);
+  const evidence = { payTos: new Set([W]), ownSettled: 0, ownPayers: undefined };
+  const at = (livePayTo) => dispatchEligibility({ routable: true, networks: ["eip155:8453"], settled: 5000, payers: 40, spendChains: all, evidence, livePayTo });
+  ok(at(W).eligible === true && at(X).eligible === false && at(X).reason === "settlement_required" && at(X).chains.base.detail === "evidence_payto_mismatch", "history inherited from wallet W counts only for an origin paid at W; paid at X reads settlement_required (evidence_payto_mismatch)");
+  ok(at(null).eligible === false && at(null).chains.base.detail === "evidence_payto_unverified", "and an unreadable own address reads settlement_required (evidence_payto_unverified), never eligible");
+  ok(dispatchEligibility({ routable: true, networks: ["eip155:8453"], settled: 5000, payers: 40, spendChains: all, evidence: { payTos: new Set([W]), ownSettled: 600, ownPayers: 9 }, livePayTo: X }).eligible === true, "an origin whose OWN evidence clears the floor is not bound");
+}
 // Unknown networks that are not spend chains at all.
 {
   const v = dispatchEligibility({ routable: true, networks: ["eip155:1"], settled: 100, payers: 5, spendChains: all });

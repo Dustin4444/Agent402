@@ -181,32 +181,69 @@ ok(t3 && /no \w+\/exact\/USDC accept/i.test(t3.message), "F2: non-mainnet-USDC a
   let n = 0; const flip = async () => ({ json: async () => ({ result: ++n >= 3 ? "0x" + "0".repeat(63) + "1" : "0x" + "0".repeat(64) }) });
   let clock = 0; const late = await confirmEvmAuthorizationUnused({ ...args, graceMs: 10_000, pollMs: 0, fetchImpl: flip, now: () => (clock += 1000) });
   ok(late.debited === true && late.observed === 3, "a settlement that lands during the grace is seen (polled, not read once)");
+  ok(unused.expired === null, "a legacy read with no expiry attached reports expired:null (never final)");
 
-  // Through payX402 on Base: v2 challenge, paid retry refused with 402.
+  // --- refuse-then-settle-late (2026-09-03): the wait runs to the credential's
+  // own expiry, and only an expiry the clock actually reached makes "unused"
+  // final. Fake clock: 1 s per read, expiry at t=10 s.
+  {
+    const neverUsed = async () => ({ json: async () => ({ result: "0x" + "0".repeat(64) }) });
+    let t = 0; const clock = () => (t += 1000);
+    const reached = await confirmEvmAuthorizationUnused({ ...args, untilUnix: 10, maxWaitMs: 60_000, pollMs: 0, fetchImpl: neverUsed, now: clock });
+    ok(reached.debited === false && reached.expired === true && reached.observed >= 9, "unused through the credential's expiry -> expired:true (provably unpaid)");
+    t = 0;
+    const cut = await confirmEvmAuthorizationUnused({ ...args, untilUnix: 10, maxWaitMs: 3_000, pollMs: 0, fetchImpl: neverUsed, now: clock });
+    ok(cut.debited === false && cut.expired === false && cut.observed <= 4, "a wait cut short by the caller's bound reports expired:false (the credential is still live)");
+    t = 0; let reads = 0;
+    const lateSettle = async () => ({ json: async () => ({ result: ++reads >= 4 ? "0x" + "0".repeat(63) + "1" : "0x" + "0".repeat(64) }) });
+    const consumed = await confirmEvmAuthorizationUnused({ ...args, untilUnix: 10, maxWaitMs: 60_000, pollMs: 0, fetchImpl: lateSettle, now: clock });
+    ok(consumed.debited === true && consumed.observed === 4, "a settle that lands INSIDE the window (after the old 8 s grace would have given up) is seen as a debit");
+  }
+
+  // Through payX402 on Base: v2 challenge, paid retry refused with 402. The
+  // seller's accept says maxTimeoutSeconds 300; the authorization we SIGN must
+  // still expire at now + the refusal window, and the accept we ECHO must keep
+  // the seller's 300 (the facilitator deep-equals it against the requirements).
   __resetSellerRefusalsForTest();
-  let asked = null; let paidAttempts = 0;
-  const v2accept = { scheme: "exact", network: "eip155:8453", asset: USDC, amount: "1000", payTo: "0x" + "ee".repeat(20), maxTimeoutSeconds: 60, extra: { name: "USD Coin", version: "2" } };
+  let asked = null; let paidAttempts = 0; let sentPayload = null;
+  const v2accept = { scheme: "exact", network: "eip155:8453", asset: USDC, amount: "1000", payTo: "0x" + "ee".repeat(20), maxTimeoutSeconds: 300, extra: { name: "USD Coin", version: "2" } };
   const v2hdr = Buffer.from(JSON.stringify({ x402Version: 2, accepts: [v2accept] })).toString("base64");
   globalThis.fetch = async (url, init) => {
     const paid = init?.headers?.["PAYMENT-SIGNATURE"] || init?.headers?.["payment-signature"] || init?.headers?.["X-PAYMENT"];
     if (!paid) return { status: 402, headers: { get: (h) => (h.toLowerCase() === "payment-required" ? v2hdr : null) }, json: async () => ({}), text: async () => "{}" };
     paidAttempts++;
+    try { sentPayload = JSON.parse(Buffer.from(paid, "base64").toString("utf8")); } catch { sentPayload = null; }
     return { status: 402, headers: { get: () => "application/json" }, json: async () => ({ error: "payment_verification_failed" }), text: async () => JSON.stringify({ error: "payment_verification_failed" }) };
   };
-  const buy = (notDebited) => payX402("https://refuser.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, chain: "base", notDebited }).then(() => null, (e) => e);
+  const buy = (notDebited, extra = {}) => payX402("https://refuser.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, chain: "base", notDebited, ...extra }).then(() => null, (e) => e);
   const held0 = _spentThisWindow();
-  const r1 = await buy(async (q) => { asked = q; return { debited: false, observed: 1 }; });
-  ok(r1 && r1.statusCode === 502 && r1.committed === false && r1.refused === true, "Base: refused + nonce unused -> uncommitted, flagged refused (route-execute tries the next seller)");
+  const t0 = Math.floor(Date.now() / 1000);
+  const r1 = await buy(async (q) => { asked = q; return { debited: false, observed: 1, expired: true }; }, { refusalMaxWaitMs: 12345 });
+  const t1 = Math.floor(Date.now() / 1000);
+  ok(r1 && r1.statusCode === 502 && r1.committed === false && r1.refused === true, "Base: refused + nonce unused AFTER expiry -> uncommitted, flagged refused (route-execute tries the next seller)");
   ok(_spentThisWindow() === held0, "Base: and the spend hold was released");
   ok(asked && asked.token === USDC && /^0x[0-9a-f]{40}$/i.test(asked.authorizer) && /^0x[0-9a-f]{64}$/i.test(asked.nonce) && asked.chain === "base", "the chain check is asked about the token, OUR authorizer and the nonce we signed");
+  const vb = Number(sentPayload?.payload?.authorization?.validBefore);
+  ok(Number.isFinite(vb) && vb <= t1 + 30 && vb >= t0 + 25, `the SIGNED validBefore is now + the 30 s refusal window (got +${vb - t0}s) even though the accept said maxTimeoutSeconds 300`);
+  ok(sentPayload?.accepted?.maxTimeoutSeconds === 300, "the ECHOED accept keeps the seller's own maxTimeoutSeconds (the facilitator's requirements match)");
+  ok(asked.untilUnix === vb + 5 && asked.maxWaitMs === 12345, "the chain check is told to wait until the signed validBefore (+ slack), bounded by the caller's refusalMaxWaitMs");
   ok(sellerRefusedRecently("https://refuser.example", "base")?.status === 402 && !sellerRefusedRecently("https://refuser.example", "solana"), "the refusing seller is memoized on base only");
   __resetSellerRefusalsForTest();
+  const heldLive = _spentThisWindow();
+  const rLive = await buy(async () => ({ debited: false, observed: 1, expired: false }));
+  ok(rLive && rLive.committed === true && !rLive.refused && /rejected the paid retry/i.test(rLive.message) && _spentThisWindow() === heldLive + 1000n, "Base: unused but the credential is STILL LIVE (bound cut the wait) -> hold stands, no fallthrough");
+  ok(!sellerRefusedRecently("https://refuser.example", "base"), "a still-live refusal is not memoized as a refusal");
+  const rNoExpiry = await buy(async () => ({ debited: false, observed: 1 }));
+  ok(rNoExpiry && rNoExpiry.committed === true && !rNoExpiry.refused, "Base: a checker that attaches no expiry never releases the hold (the old 8 s grace shape is no longer proof)");
   const held1 = _spentThisWindow();
   const r2 = await buy(async () => ({ debited: true, observed: 1 }));
   ok(r2 && r2.committed === true && !r2.refused && _spentThisWindow() === held1 + 1000n, "Base: nonce consumed -> post-commit stance kept, hold stands");
   const r3 = await buy(async () => { throw new Error("RPC 429"); });
   ok(r3 && r3.committed === true && !sellerRefusedRecently("https://refuser.example", "base"), "Base: unreadable chain -> post-commit stance kept, nothing memoized");
-  ok(paidAttempts === 3, "one paid attempt per buy (a refusal that does not name X-PAYMENT gets no resend)");
+  ok(paidAttempts === 5, "one paid attempt per buy (a refusal that does not name X-PAYMENT gets no resend)");
+  // The pure cap: never above the window, never rewrites a shorter seller value upward.
+  const { capEvmValidity } = await import("../src/x402-buyer.js");
+  ok(capEvmValidity({ maxTimeoutSeconds: 300 }, 30).maxTimeoutSeconds === 30 && capEvmValidity({ maxTimeoutSeconds: 10 }, 30).maxTimeoutSeconds === 10 && capEvmValidity({}, 30).maxTimeoutSeconds === 30, "capEvmValidity: min(seller, window), and a missing seller value takes the window");
 }
 
 globalThis.fetch = origFetch;
