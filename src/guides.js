@@ -782,7 +782,7 @@ tool, per network:
   quoted on Optimism is bumped to cover that fee, so what you're quoted is
   what actually clears.
 - **Monad, Celo** - each on its own dedicated facilitator.
-- **Stellar** - USDC via a Soroban-based facilitator (OpenZeppelin Channels);
+- **Stellar** - USDC via our own self-hosted Soroban facilitator (open source, in this repository; OpenZeppelin Channels as the settlement fallback);
   settlement here is confirmed against the chain itself, not just trusted
   from the facilitator's word, because Stellar's ~5-second ledger close can
   outlast a synchronous HTTP request.
