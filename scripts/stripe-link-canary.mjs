@@ -32,7 +32,10 @@ const heartbeat = () => {
 const linkCli = (args, { timeoutMs = 120_000 } = {}) => {
   const r = spawnSync("npx", ["-y", `@stripe/link-cli@${LINK_CLI}`, ...args, "--format", "json"], {
     encoding: "utf8", timeout: timeoutMs,
-    env: { ...process.env, LINK_ACCESS_TOKEN: process.env.LINK_ACCESS_TOKEN, LINK_REFRESH_TOKEN: process.env.LINK_REFRESH_TOKEN },
+    // Minimal env: the CLI (and anything npx resolves for it) sees the Link tokens and nothing else -
+    // never POW_SECRET or the rest of the job environment (review note 2026-09-03).
+    env: { PATH: process.env.PATH, HOME: process.env.HOME, TMPDIR: process.env.TMPDIR || "/tmp", npm_config_cache: process.env.npm_config_cache || "", NO_COLOR: "1",
+      LINK_ACCESS_TOKEN: process.env.LINK_ACCESS_TOKEN, LINK_REFRESH_TOKEN: process.env.LINK_REFRESH_TOKEN },
   });
   const out = (r.stdout || "") + (r.stderr || "");
   let json = null;
