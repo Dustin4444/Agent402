@@ -46,6 +46,9 @@ import { countTokens as countEmbeddingTokens, setMergeCacheSize as setEmbeddingM
 setEmbeddingMergeCacheSize(2000); // separate encoder instance, same retention hazard
 import { redactSecrets } from "./redact.js";
 import { payerFromRequest, paymentHeaderOf } from "../payer.js";
+// Settle-failure breaker: every gateway handler consults it FIRST (see the
+// module header) - refuses before any upstream call, arms the outcome listener.
+import { gatewaySettleBreakerCheck } from "../gateway-settle-breaker.js";
 
 const OPENROUTER_KEY = () => (process.env.OPENROUTER_API_KEY || "").trim();
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -2150,6 +2153,7 @@ export function embeddingsCacheKey(input) {
 }
 
 async function embeddingsHandler(input, req) {
+  gatewaySettleBreakerCheck(req);
   const body = validateEmbeddingsRequest(input);
   const key = OPENAI_KEY();
   if (!key) throw bad("Embeddings gateway not configured (OPENAI_API_KEY unset)", 503);
@@ -2245,6 +2249,7 @@ export function rerankCacheKey(input) {
   return createHash("sha256").update(`v1-rerank\n${stableStringify(body)}`).digest("hex");
 }
 async function rerankHandler(input, req) {
+  gatewaySettleBreakerCheck(req);
   const body = validateRerankRequest(input);
   const key = OPENROUTER_KEY();
   if (!key) throw bad("Rerank gateway not configured (OPENROUTER_API_KEY unset)", 503);
@@ -2332,6 +2337,7 @@ export function validateImagesRequest(input) {
 }
 
 async function imagesHandler(input, req) {
+  gatewaySettleBreakerCheck(req);
   const { prompt, zdr } = validateImagesRequest(input);
   const user = upstreamUserId(req);
   const upstreamBody = {
@@ -2559,7 +2565,8 @@ export function validateSpeechRequest(input) {
   return { bodies, contentType: SPEECH_FORMATS[format] };
 }
 
-async function speechHandler(input) {
+async function speechHandler(input, req) {
+  gatewaySettleBreakerCheck(req);
   const { bodies, contentType } = validateSpeechRequest(input);
   const key = OPENROUTER_KEY();
   if (!key) throw bad("LLM gateway not configured (OPENROUTER_API_KEY unset)", 503);
@@ -2608,6 +2615,7 @@ function countImages(messages) {
 
 function makeHandler(tierSlug) {
   return async (input, req) => {
+    gatewaySettleBreakerCheck(req);
     // Availability gate (stealth tiers): the boot probe found the id gone
     // upstream, so answer BEFORE spending a round-trip on a model that no
     // longer exists. 503 is >=400, and @x402/express cancels settlement for

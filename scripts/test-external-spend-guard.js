@@ -207,14 +207,159 @@ const A = "0xAbCdEf0123456789AbCdEf0123456789AbCdEf01";
 // repo keeps rediscovering, so the call site is read directly.
 {
   const src = await readFile(new URL("../src/tools/route-execute.js", import.meta.url), "utf8");
-  ok(/maySpend\(\s*spendPayer\s*,\s*cap\s*\)/.test(src),
-    "route-execute authorizes against the tier cap, not the seller's declared price");
-  ok(/noteSpend\(\s*spendPayer\s*,\s*cap\s*\)/.test(src),
-    "route-execute books the tier cap as the worst-case exposure");
+  ok(/maySpend\(\s*spendPayer\s*,\s*cap\s*,\s*\{\s*chain\s*\}\s*\)/.test(src),
+    "route-execute authorizes against the tier cap, not the seller's declared price, and names the chain the spend leaves from");
+  ok(/noteSpend\(\s*spendPayer\s*,\s*cap\s*,\s*\{\s*chain\s*\}\s*\)/.test(src),
+    "route-execute books the tier cap as the worst-case exposure, against the chain wallet too");
   ok(/adjustSpend\(\s*spendHandle\s*,\s*underlyingUsd\s*\)/.test(src),
     "route-execute corrects the exposure down to the amount actually quoted");
   ok(src.indexOf("adjustSpend(spendHandle") > src.indexOf("const underlyingUsd"),
     "the correction happens AFTER the real quote is known, never before");
+  ok(/allowed\.code\s*===\s*"wallet_daily_ceiling"/.test(src) && /paused for everyone/.test(src),
+    "route-execute tells the buyer a wallet_daily_ceiling refusal is a global pause, not their own limit");
+}
+
+// --- the per-CHAIN-WALLET daily ceiling ----------------------------------------
+// The per-payer ceiling is keyed on the buyer, so rotating wallets or IPs walks
+// around it and the only hard bound on a spending wallet was its balance. The
+// daily ceiling is keyed on the CHAIN the money leaves from, counts settled and
+// unsettled spend alike over a rolling 24 h, and refuses with its own code so a
+// caller can say "global pause" rather than "your limit".
+const guard = await import("../src/external-spend-guard.js");
+const { walletDailySpentUsd, walletDailyStatus, walletDailyCeilingUsd, WALLET_CHAINS, __config } = guard;
+const noEnv = () => { for (const k of Object.keys(process.env)) if (k.startsWith("SOR_WALLET_DAILY_MAX_USD")) delete process.env[k]; };
+
+{
+  __reset(); noEnv();
+  const CEIL = { walletDailyMaxUsd: 1.0 };
+  const P = "0x6666666666666666666666666666666666666666";
+  ok(maySpend(P, 0.4, { chain: "base", ...CEIL }).ok, "under the ceiling: allowed");
+  const h1 = noteSpend(P, 0.4, { chain: "base" });
+  resolveSpend(h1, true); // SETTLED - and it still counts toward the day
+  ok(walletDailySpentUsd("base") === 0.4 && payerExposureUsd(P) === 0,
+    "a SETTLED spend clears the payer's exposure but still counts against the chain wallet's day");
+  ok(maySpend(P, 0.6, { chain: "base", ...CEIL }).ok, "exactly AT the ceiling: allowed (the check is on the total, inclusive)");
+  noteSpend(P, 0.6, { chain: "base" });
+  const over = maySpend(P, 0.001, { chain: "base", ...CEIL });
+  ok(over.ok === false && over.code === "wallet_daily_ceiling" && over.chain === "base",
+    `one tenth of a cent OVER the ceiling is refused with the distinct code (got ${JSON.stringify(over)})`);
+  ok(/every buyer/i.test(over.reason) && /24 h/.test(over.reason),
+    `the refusal says it is a global pause on the chain (got: ${over.reason})`);
+  ok(over.spentUsd === 1.0 && over.ceilingUsd === 1.0, "the refusal carries the figures");
+  // A DIFFERENT payer is refused on the same chain - it is the wallet that is capped.
+  ok(maySpend("0x7777777777777777777777777777777777777777", 0.001, { chain: "base", ...CEIL }).ok === false,
+    "rotating to a fresh payer does not help: the ceiling is per chain wallet, not per buyer");
+  ok(maySpend(null, 0.001, { chain: "base", ...CEIL }).ok === false,
+    "an unattributable payer is refused too - the chain check runs before the payer check");
+  // Another chain is untouched.
+  ok(maySpend(P, 0.9, { chain: "solana", ...CEIL }).ok, "another chain's wallet has its own day");
+  // A per-payer refusal carries NO code, so the two are distinguishable.
+  const perPayer = maySpend(P, 5, { maxUnsettledUsd: 0.5, chain: "solana", walletDailyMaxUsd: 100 });
+  ok(perPayer.ok === false && perPayer.code === undefined && /has not settled/.test(perPayer.reason),
+    "a per-payer refusal has no code; only the wallet ceiling does");
+}
+
+{
+  // An unattributable payer with a chain is RECORDED against the chain (the
+  // Blockscout buys have no request and so no payer).
+  __reset(); noEnv();
+  const h = noteSpend(null, 0.005, { chain: "base" });
+  ok(h && h.payer === null && h.chain === "base" && typeof h.id === "number",
+    `a payer-less spend with a chain gets a chain-only handle (got ${JSON.stringify(h)})`);
+  ok(walletDailySpentUsd("base") === 0.005, "and counts toward that wallet's day");
+  ok(noteSpend(null, 0.5) === null, "with neither payer nor chain nothing is recorded (unchanged)");
+  adjustSpend(h, 0.002);
+  ok(walletDailySpentUsd("base") === 0.002, "adjustSpend lowers the chain row to the real quote");
+  adjustSpend(h, 9);
+  ok(walletDailySpentUsd("base") === 0.002, "and only ever lowers it");
+  let threw = null;
+  try { resolveSpend(h, true); resolveSpend(h, false); } catch (e) { threw = e; }
+  ok(!threw && walletDailySpentUsd("base") === 0.002, "resolving a chain-only handle is a no-op on the chain ledger (a settled buy still spent the money)");
+  // The legacy positional `now` still works.
+  const h2 = noteSpend("0x8888888888888888888888888888888888888888", 0.1, 1_000_000);
+  ok(h2 && payerExposureUsd("0x8888888888888888888888888888888888888888", 1_000_000 + 60_000) === 0.1, "noteSpend(payer, usd, now) keeps its legacy positional form");
+}
+
+{
+  // Rolling window: spend ages out after 24 h, not at midnight.
+  __reset(); noEnv();
+  const t0 = 5_000_000_000;
+  noteSpend(null, 10, { chain: "solana", now: t0 });
+  noteSpend(null, 10, { chain: "solana", now: t0 + 12 * 3600_000 });
+  ok(walletDailySpentUsd("solana", t0 + 23 * 3600_000) === 20, "both spends stand 23 h later");
+  // Reads prune what has aged out under the clock they are given, so the
+  // refusal-then-allow pair runs BEFORE the later reads below.
+  ok(maySpend(null, 5, { chain: "solana", walletDailyMaxUsd: 20, now: t0 + 23 * 3600_000 }).ok === false
+     && maySpend(null, 5, { chain: "solana", walletDailyMaxUsd: 20, now: t0 + 25 * 3600_000 }).ok === true,
+    "a refusal at hour 23 ($20 + $5 over a $20 ceiling) becomes an allow at hour 25 ($10 + $5) as the window rolls");
+  ok(walletDailySpentUsd("solana", t0 + 24 * 3600_000 + 1) === 10, "the first ages out at 24 h; the second still counts");
+  ok(walletDailySpentUsd("solana", t0 + 36 * 3600_000 + 1) === 0, "and the second at its own 24 h");
+}
+
+{
+  // Env: default, per-chain override, off/0, malformed.
+  __reset(); noEnv();
+  ok(walletDailyCeilingUsd("base") === __config.DEFAULT_WALLET_DAILY_MAX_USD, "no env: the default ceiling");
+  process.env.SOR_WALLET_DAILY_MAX_USD = "3";
+  ok(walletDailyCeilingUsd("base") === 3 && walletDailyCeilingUsd("tempo") === 3, "SOR_WALLET_DAILY_MAX_USD sets every chain");
+  process.env.SOR_WALLET_DAILY_MAX_USD_SOLANA = "0.5";
+  ok(walletDailyCeilingUsd("solana") === 0.5 && walletDailyCeilingUsd("base") === 3, "SOR_WALLET_DAILY_MAX_USD_<CHAIN> overrides one chain only");
+  noteSpend(null, 0.5, { chain: "solana" });
+  ok(maySpend(null, 0.001, { chain: "solana" }).ok === false && maySpend(null, 0.001, { chain: "base" }).ok === true,
+    "the override is what the check reads (solana paused at $0.50, base still open at $3)");
+  process.env.SOR_WALLET_DAILY_MAX_USD_SOLANA = "off";
+  ok(walletDailyCeilingUsd("solana") === null && maySpend(null, 999, { chain: "solana" }).ok === true, "`off` disables the ceiling for that chain");
+  process.env.SOR_WALLET_DAILY_MAX_USD_SOLANA = "0";
+  ok(walletDailyCeilingUsd("solana") === null, "`0` disables it too");
+  process.env.SOR_WALLET_DAILY_MAX_USD_SOLANA = "lots";
+  ok(walletDailyCeilingUsd("solana") === 3, "a malformed per-chain value falls back to the global setting, never to disabled");
+  delete process.env.SOR_WALLET_DAILY_MAX_USD_SOLANA;
+  process.env.SOR_WALLET_DAILY_MAX_USD = "banana";
+  ok(walletDailyCeilingUsd("base") === __config.DEFAULT_WALLET_DAILY_MAX_USD, "a malformed global value falls back to the DEFAULT, never to disabled");
+  process.env.SOR_WALLET_DAILY_MAX_USD = "off";
+  ok(walletDailyCeilingUsd("base") === null && maySpend(null, 1e6, { chain: "base" }).ok === true, "`off` globally disables every chain's ceiling");
+  noEnv();
+}
+
+{
+  // Status: counts only, every known chain present, paused flag honest.
+  __reset(); noEnv();
+  noteSpend("0x9999999999999999999999999999999999999999", 2, { chain: "tempo" });
+  noteSpend(null, 1, { chain: "tempo" });
+  const st = walletDailyStatus();
+  ok(WALLET_CHAINS.every((c) => st.chains[c]), `every chain wallet has a row (${Object.keys(st.chains).join(", ")})`);
+  ok(st.chains.tempo.spentUsd === 3 && st.chains.tempo.calls === 2 && st.chains.tempo.paused === false
+     && st.chains.tempo.ceilingUsd === __config.DEFAULT_WALLET_DAILY_MAX_USD
+     && st.chains.tempo.remainingUsd === __config.DEFAULT_WALLET_DAILY_MAX_USD - 3,
+    `the tempo row carries spent/calls/ceiling/remaining (got ${JSON.stringify(st.chains.tempo)})`);
+  ok(st.chains.base.spentUsd === 0 && st.chains.base.calls === 0, "an untouched chain reads zero");
+  process.env.SOR_WALLET_DAILY_MAX_USD_TEMPO = "3";
+  ok(walletDailyStatus().chains.tempo.paused === true, "paused reads true once spend reaches the ceiling");
+  noEnv();
+  ok(!/0x9999/.test(JSON.stringify(st)), "status never carries a payer");
+}
+
+{
+  // The default ceiling must clear a single largest-tier call, or that tier is
+  // dead on arrival for every buyer (the same coupling as the unsettled ceiling).
+  const { EXEC_TIERS } = await import("../src/tools/route-execute.js");
+  const biggest = Math.max(...EXEC_TIERS.map((t) => t.underlyingMaxUsd));
+  ok(__config.DEFAULT_WALLET_DAILY_MAX_USD >= biggest,
+    `the default daily wallet ceiling ($${__config.DEFAULT_WALLET_DAILY_MAX_USD}) covers the largest tier's underlying cap ($${biggest})`);
+}
+
+// --- Blockscout buys book against the Base wallet too --------------------------
+// They do not go through route-execute, so the kit books itself: worst case
+// before the buy, corrected to the quote after, chain "base", refused 503 when
+// the wallet has hit its day.
+{
+  const src = await readFile(new URL("../src/tools/blockscout-kit.js", import.meta.url), "utf8");
+  ok(/maySpend\(\s*null\s*,\s*capUsd\s*,\s*\{\s*chain:\s*"base"\s*\}\s*\)/.test(src), "blockscout-kit checks the Base wallet's daily ceiling before every paid attempt");
+  ok(/noteSpend\(\s*null\s*,\s*capUsd\s*,\s*\{\s*chain:\s*"base"\s*\}\s*\)/.test(src), "blockscout-kit books the margin-guard cap against the Base wallet");
+  ok(/adjustSpend\(\s*spendHandle\s*,\s*paid\.quote\.usd\s*\)/.test(src), "blockscout-kit corrects the booking down to the seller's quote");
+  ok(src.indexOf("noteSpend(null, capUsd") < src.indexOf("await payX402(url, opts)") && src.indexOf("adjustSpend(spendHandle") > src.indexOf("await payX402(url, opts)"),
+    "booked before the buy, corrected after it");
+  ok(/,\s*503\)/.test(src.slice(src.indexOf("async function payBlockscoutOnce"))), "a ceiling refusal there is a 503 (a >= 400 cancels the buyer's settlement)");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

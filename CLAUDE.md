@@ -342,6 +342,23 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   provider prefs next to `max_price`, lives in the normalized body (distinct cache entries),
   stripped from the top-level outbound body. All tiers in `WALLET_ONLY_SLUGS` and
   test-all's lenient NETWORK set.
+- **Gateway settle-failure breaker (2026-09-03, `src/gateway-settle-breaker.js`, `scripts/test-gateway-settle-breaker.js`
+  56 in CI):** the /v1 tiers had no equivalent of the composite guard, so a payment that verified and then failed to settle
+  (funds moved between verify and settle, a raced nonce, a facilitator refusal) cost the upstream call with nothing charged,
+  in seconds, repeatably. Every gateway handler (chat tiers incl. metered/grounded, Messages, Responses, embeddings, rerank,
+  images, speech) now calls `gatewaySettleBreakerCheck(req)` as its FIRST statement: refuses 429 for a wallet with too many
+  settle failures in the window, 503 for every tier once the GLOBAL count trips, before validation and before any upstream
+  call (a >= 400 cancels settlement, nobody pays for the refusal), else arms ONE `req.res` finish listener that records the
+  FINAL outcome under the same key the consult used - the composite guard's derivation (signed EVM payer, else the Tempo
+  payer, else the client IP). A final 402 after the handler ran, or a `PAYMENT-RESPONSE` receipt with `success:false`, is a
+  settle failure on any rail (x402 rewrite, the Tempo gate's post-handler broadcast failure); a 200 clears the wallet; a
+  4xx/5xx the handler threw is neither. The seam is `req.res` (Express sets it) because handlers never see the response and
+  server.js was not touched; the invariant it rests on - no gateway kit throws a 402 of its own - is pinned from source, and
+  the consult's placement is pinned per handler. Not caught, accepted: a MALFORMED facilitator response at settle (vendor
+  answers 502, indistinguishable from a handler 502). Env `GATEWAY_SETTLE_BREAKER_MAX` / `_WINDOW_MS` / `_GLOBAL_MAX`
+  (defaults: see CLAUDE.local.md); in memory, a restart resets it; `gatewaySettleBreakerStatus()` is counts only. The test
+  runs the control (open breaker reaches the stubbed upstream once) BEFORE the refusal cases, so removing the consult line
+  fails the run rather than passing silently - verified by removing it.
 - **Metered gateway tier (2026-08-26, `v1-chat-metered`, `POST /v1/metered/chat/completions`):** the 402 PRICE IS A
   PER-REQUEST QUOTE. `@x402/core` resolves a `price(context)` function on every request (payments.js `acceptsForItem`:
   a catalog item with `quote(body)` advertises a function price on every option, exact + upto), so the amount is
@@ -537,6 +554,20 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   pinned FROM SOURCE in `test-external-spend-guard.js` (31) because the two mutations are not equally visible: letting
   `adjustSpend` raise fails three assertions, but quietly handing the caller the declared price again fails NOTHING -
   the primitive stays correct and is simply given the wrong number.
+  **Per-chain-wallet daily ceiling (2026-09-03, same module, test-external-spend-guard 73):** the per-payer ceiling is keyed
+  on the buyer (address, else Tempo payer, else IP), so rotating wallets or IPs walks around it and the only hard bound on
+  a spending wallet (Base, Solana, Algorand, Tempo) was its balance. `maySpend`/`noteSpend` now take `{ chain }` (the
+  wallet the money leaves from; route-execute passes its resolved `chain`, pinned from source) and ALSO book every spend
+  against that chain over a rolling 24 h, settled and unsettled alike - a settled buy still left the wallet - refusing with
+  its own `code: "wallet_daily_ceiling"` (the per-payer refusal carries none) so route-execute's 429 tells the buyer it is
+  a global pause on that chain, not their own limit; the chain check runs before the payer check, so an unattributable
+  payer is bounded too. `adjustSpend` lowers the chain row with the payer row. Blockscout's supply-chain buys
+  (`buyBlockscout` -> `payBlockscoutOnce`) do NOT go through route-execute, so the kit books itself against `base` (cap
+  before the buy, corrected to the quote after; a ceiling refusal there is a 503, nobody charged). Env
+  `SOR_WALLET_DAILY_MAX_USD` for every chain, `SOR_WALLET_DAILY_MAX_USD_<CHAIN>` per chain, `0`/`off` disables, a malformed
+  value reads as unset never as off (defaults: see CLAUDE.local.md); in memory only, a restart resets the day exactly like
+  the per-payer guard, the wallet balance alarms remain the outer backstop. `walletDailyStatus()` is counts only, built for
+  the x402-buyer status reporters and not yet wired to any surface.
   **Resolve-time model check (2026-09-02, `sellerServesModel` in x402-buyer.js):** an LLM task names a model and the
   model namespace is the SELLER'S own - "chat completions" + `gpt-4o-mini` on Solana resolved to api.xfuel.app, which
   settled the $0.01 and answered 400 model_not_found, and xfuel KEEPS the money on a 400 (our chain check saw the

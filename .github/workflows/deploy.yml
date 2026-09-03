@@ -888,7 +888,7 @@ jobs:
       # runs in its own process, in the same order; `t` groups its log and names it
       # with its elapsed time, and a failure prints the failing script as an error.
       # The original step names ride above each script so the WHY stays here.
-      - name: Offline suites (3 scripts, one process each)
+      - name: Offline suites (4 scripts, one process each)
         run: |
           set -euo pipefail
           t() { local s=$SECONDS; echo "::group::$*"; "$@" || { echo "::endgroup::"; echo "::error::failed: $*"; exit 1; }; echo "::endgroup::"; echo "ok  $* ($((SECONDS - s))s)"; }
@@ -898,6 +898,8 @@ jobs:
           t node scripts/test-trial.js
           # LLM gateway validation (OpenAI-compat tiers, caps, env-gated 503)
           t node scripts/test-llm-gateway.js
+          # Gateway settle-failure breaker (per-payer + global refusal before any upstream call, finish-listener outcomes, source pins - offline)
+          t node scripts/test-gateway-settle-breaker.js
 
       - name: Tollbooth tests (pay-per-crawl gate — node + edge/Web-Crypto)
         run: node tollbooth/test.js && node tollbooth/edge.test.js && node tollbooth/features.test.js && node tollbooth/tempo.test.js
