@@ -550,7 +550,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   call with the burner, refuses above `max_usd`, prints the seller's real body - use it before any kit relays an outside
   seller's response). The per-payer daily budget + E.164/address validation + destination hashing live in that commit's
   `outreach-kit.js` if a send-tool ever earns its way back: the evidence would be "send" tasks arriving on the router.
-- **Attest a settled call on Base (2026-09-03, `src/tools/attest-kit.js`, `attest`, `POST /api/attest` $0.010, `scripts/test-attest-kit.js`
+- **Attest a settled call on Base (2026-09-03, `src/tools/attest-kit.js`, `attest`, `POST /api/attest` $0.050 (was $0.010 for one afternoon), `scripts/test-attest-kit.js`
   54 in CI):** the dispatcher now records sha256 of the exact JSON bytes `res.json` sends (`req.__responseSha256`, on the sale row as
   `response_sha256`; NULL for streamed/binary bodies and pre-column rows), and `POST /api/attest {tx}` looks the settlement tx up in the
   sales ledger (`saleByTx`) and writes an Ethereum Attestation Service attestation on Base (EAS `0x4200…0021`, schema registered lazily
@@ -559,10 +559,13 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   servedAt, uint64 priceMicroUsd` (payer/tx are strings so Solana/Stellar/Algorand ids fit; EAS recipient = the EVM payer, else zero).
   Non-revocable, no expiry; one attestation per sale (a repeat returns the existing UID, `setAttestation` is write-once). Money: the
   attestation moves NO value (EAS `value: 0`, fixed contract address) and costs only Base gas, bounded by `ATTEST_MAX_GAS_USD` (default
-  $0.005, refused 503 before signing; `ATTEST_ETH_USD` default 5000 is a deliberately high ETH price, `L1_FEE_FACTOR` 1.5 covers the
+  $0.035 - MEASURED on the first live run: an attest of this schema is 616k gas, ~$0.009 real, $0.028 under the bound, so the
+  $0.005 ceiling of the first cut refused every call and the tool was repriced $0.010 -> $0.050; refused 503 before signing; `ATTEST_ETH_USD` default 5000 is a deliberately high ETH price, `L1_FEE_FACTOR` 1.5 covers the
   L1 data fee) and booked against the Base wallet's daily ceiling (`maySpend`/`noteSpend`/`adjustSpend` chain "base"); no digest
   -> 422, unknown tx -> 404, no key / no ETH / paused -> 503, all uncharged. **The spending wallet needs ETH on Base for this** (it
-  held 0 ETH when built; x402 payments are gasless so nothing ever put ETH there). Paid-canary leg `attest` attests the `/api/hash` leg's
+  held 0 ETH when built; Mike funded 0.003 ETH 2026-09-03 17:00Z; the schema registered itself in
+  0x76e7369481716a00a844596c48e3cd7b1fe0f2d2dee5e95d98b3fa6991e87046 and the estimate that followed hit a node behind that
+  block ("execution reverted") - the registry is now re-read until visible and a reverted estimate retries once). Paid-canary leg `attest` attests the `/api/hash` leg's
   fresh sale (legs may now declare `body: (ctx) => ...`, `ctx.lastSettledTx` is the previous settled leg's receipt tx). Research that
   shaped it (same day): EAS schema #1287 (2,977 per-call MCP receipts, no response hash), Stelar's x402-receipts (body-hashed,
   merkle-batched), the x402 Offer & Receipt extension (no body hash, tx omitted); ERC-8004 takes it only as a cited URI/hash inside

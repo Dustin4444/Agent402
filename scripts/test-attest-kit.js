@@ -110,7 +110,7 @@ eq(calls.attest, 1, "no second send for the same sale");
 
 // --- 7. gas ceiling + spend guard + wallet-without-gas, all uncharged 503s
 ledger.recordSale({ slug: "uuid", priceUsd: 0.001, rail: "usdc", network: "eip155:8453", payer: null, tx: "0x" + "ee".repeat(32), wire: "x402", responseSha256: responseDigest({ u: 1 }) });
-estimateUsd = 0.05;
+estimateUsd = 0.5;
 await rejects(() => handler({ tx: "0x" + "ee".repeat(32) }), 503, /gas is high/);
 eq(calls.attest, 1, "over-ceiling: nothing signed");
 estimateUsd = 0.002;
@@ -139,7 +139,9 @@ ok(/"attest",/.test(nonMetered), "attest is in METERED_SLUGS (CI has no wallet)"
 const testAll = readFileSync(new URL("./test-all.js", import.meta.url), "utf8");
 ok(testAll.includes('"/api/attest"'), "attest is in test-all's NETWORK set");
 // The tool's own worst case sits under the 70% rule: $0.005 gas ceiling on a $0.010 price.
-ok(0.005 <= 0.7 * 0.01, "gas ceiling under 70% of price");
+eq(tool.price, "$0.050", "priced from the MEASURED 616k-gas attest, not the 150k guess");
+ok(0.035 <= 0.7 * 0.05, "gas ceiling ($0.035) under 70% of price");
+ok(0.0277 < 0.035, "the first live run's bounded estimate ($0.0277) clears the ceiling");
 
 rmSync(dir, { recursive: true, force: true });
 console.log(`test-attest-kit: ${n} assertions ok`);
