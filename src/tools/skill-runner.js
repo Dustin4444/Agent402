@@ -2065,6 +2065,17 @@ export const PACK_STEPS = {
   },
 
   // Email verification: validate + MX check.
+  "agent-outreach": {
+    mode: "fanout",
+    steps: [
+      { slug: "sms-send",   mapInput: (a) => ({ to: a.phone, message: a.message }) },
+      { slug: "email-send", mapInput: (a) => ({ to: a.email, subject: a.subject, body: a.message }) },
+      // A voice call only when the caller gave the call an objective: a
+      // message is not a phone call, and each leg pays an outside seller.
+      { slug: "voice-call", when: (a) => !!String(a.objective || "").trim(), skipReason: "no call objective given; voice-call only runs with one",
+        mapInput: (a) => ({ to: a.phone, objective: a.objective }) },
+    ],
+  },
   "contact-verify": {
     mode: "fanout",
     steps: [
