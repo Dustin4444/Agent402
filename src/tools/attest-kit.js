@@ -31,6 +31,12 @@
 import { createHash } from "node:crypto";
 import { saleByTx, setAttestation } from "../sales-ledger.js";
 import { maySpend, noteSpend, adjustSpend } from "../external-spend-guard.js";
+import { payerFromRequest } from "../payer.js";
+
+// Slugs whose sales are never attestable (memory reads, the usage report):
+// set by server.js from the catalog's own identity-bound predicate.
+let identityBoundSlugs = new Set();
+export function setIdentityBoundSlugs(set) { identityBoundSlugs = new Set(set || []); }
 
 export const EAS_ADDRESS = "0x4200000000000000000000000000000000000021";
 export const SCHEMA_REGISTRY_ADDRESS = "0x4200000000000000000000000000000000000020";
@@ -227,13 +233,25 @@ export function makeAttestHandler(deps = {}) {
   const persist = deps.setAttestation || setAttestation;
   const spend = deps.spend || { maySpend, noteSpend, adjustSpend };
   const getChain = deps.chain ? async () => deps.chain : realChain;
-  return async (input) => {
+  const payerOf = deps.payerOf || payerFromRequest;
+  return async (input, req) => {
     const tx = normalizeTx(input?.tx);
     if (!tx) throw bad('Provide "tx": the settlement transaction from the PAYMENT-RESPONSE (or Payment-Receipt) header of a call you paid for - an EVM hash, a Solana or Stellar signature, or an Algorand id.', 400);
+    // Who is asking. The route is identity-bound (EVM exact only, like the
+    // memory family), so the signed EIP-3009 payer is always derivable here
+    // and a non-EVM buyer was never offered the route, never charged.
+    const caller = payerOf(req);
+    if (!caller) throw bad("Attestations are written for the buyer of a sale, so this call must be paid with a signed EVM authorization from the wallet that made the purchase. Nothing was charged.", 403);
     const sale = lookup(tx);
-    if (!sale) throw bad(`No settled sale on this server carries transaction ${tx}. Attestations cover calls this server served and settled; check the hash from your receipt. Nothing was charged.`, 404);
+    // The three refusals below say the same thing on purpose: a wallet that did
+    // not make a purchase learns nothing about whether the tx is ours, what it
+    // bought, or whether it was digested. Only the buyer sees the detail.
+    const notYours = () => bad(`No sale of yours settled in transaction ${tx}. Attestations cover calls this wallet paid for on this server; check the hash from your own receipt. Nothing was charged.`, 403);
+    if (!sale) throw notYours();
+    if (!sale.payer || String(sale.payer).toLowerCase() !== String(caller).toLowerCase()) throw notYours();
+    if (identityBoundSlugs.has(sale.slug)) throw bad("This sale is of a wallet-scoped route (memory or usage) and is not attestable: an attestation is public and permanent. Nothing was charged.", 403);
     if (!/^[0-9a-f]{64}$/i.test(String(sale.responseSha256 || ""))) {
-      throw bad(`Sale ${tx} (${sale.slug}) has no recorded response digest - it was a streamed or binary response, or was served before digests were recorded (2026-09-03). There is nothing to bind the payment to, so no attestation is written. Nothing was charged.`, 422);
+      throw bad(`Your sale in ${tx} has no recorded response digest - it was a streamed or binary response, or was served before digests were recorded (2026-09-03). There is nothing to bind the payment to, so no attestation is written. Nothing was charged.`, 422);
     }
     const uid = await schemaUid();
     const fields = attestationFields(sale);
@@ -290,7 +308,7 @@ export const ATTEST_TOOLS = [
     category: "agent",
     price: "$0.050",
     description:
-      "Write an on-chain attestation (Ethereum Attestation Service on Base) that binds a call you paid for to the bytes you received: the tool slug, sha256 of the JSON response, the settlement chain and transaction, the payer, the time served and the price, signed by this server's wallet. Give it the settlement transaction from the PAYMENT-RESPONSE (or Payment-Receipt) header of any settled call; the attestation UID and its public page on base.easscan.org come back. Use it when an agent has to prove afterwards what data it acted on. The record is public and permanent: it names the payer and the tool, which the settlement transaction already exposes on chain. One attestation per sale (a repeat returns the existing UID); refused, uncharged, when the transaction is not a sale of this server, when the response was streamed or binary, or when Base gas would exceed the tool's own ceiling.",
+      "Write an on-chain attestation (Ethereum Attestation Service on Base) that binds a call you paid for to the bytes you received: the tool slug, sha256 of the JSON response, the settlement chain and transaction, the payer, the time served and the price, signed by this server's wallet. Give it the settlement transaction from the PAYMENT-RESPONSE (or Payment-Receipt) header of any settled call; the attestation UID and its public page on base.easscan.org come back. Use it when an agent has to prove afterwards what data it acted on. Only the buyer can attest a sale: this call must be paid with a signed EVM authorization from the same wallet, and sales of wallet-scoped routes (memory, usage) are never attestable. The record is public and permanent: it names the payer and the tool. One attestation per sale (a repeat returns the existing UID); refused, uncharged, when the transaction is not a sale of this server, when the response was streamed or binary, or when Base gas would exceed the tool's own ceiling.",
     tags: ["attestation", "eas", "provenance", "receipt", "audit", "base", "x402"],
     discovery: {
       bodyType: "json",

@@ -557,7 +557,14 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   in the SchemaRegistry `0x4200…0020`, UID derived as EAS derives it and pinned against a live schema) from the Base spending wallet
   `X402_UPSTREAM_BUYER_KEY`: `string slug, bytes32 responseSha256, string settlementNetwork, string settlementTx, string payer, uint64
   servedAt, uint64 priceMicroUsd` (payer/tx are strings so Solana/Stellar/Algorand ids fit; EAS recipient = the EVM payer, else zero).
-  Non-revocable, no expiry; one attestation per sale (a repeat returns the existing UID, `setAttestation` is write-once). Money: the
+  Non-revocable, no expiry; one attestation per sale (a repeat returns the existing UID, `setAttestation` is write-once). **Bound to the buyer (same-day security review):** the route is IDENTITY-BOUND (`isIdentityBoundRoute` names `attest` beside the memory
+  family and my-usage, so it is EVM exact only and the Tempo/credits gates refuse it - a non-EVM buyer is never charged then
+  refused), the handler compares `payerFromRequest(req)` with the sale row's payer and answers ONE 403 for "not yours" and
+  "unknown tx" alike (a stranger learns nothing about whether a tx is ours or what it bought), sales of identity-bound slugs
+  (memory, usage) are never attestable (`setIdentityBoundSlugs`, fed by server.js from the catalog's own predicate), and the
+  uncharged 422 no longer names the slug. Same review: `external-seller-probe.js` now enforces its cap on the accept it SIGNS
+  (a client policy: Base exact, at or under the cap, to the payee the bare 402 named; the EVM scheme is registered for
+  eip155:8453 only) - before, the cap was checked on the bare 402 and the paying fetch paid whatever the second 402 quoted. Money: the
   attestation moves NO value (EAS `value: 0`, fixed contract address) and costs only Base gas, bounded by `ATTEST_MAX_GAS_USD` (default
   $0.035 - MEASURED on the first live run: an attest of this schema is 616k gas, ~$0.009 real, $0.028 under the bound, so the
   $0.005 ceiling of the first cut refused every call and the tool was repriced $0.010 -> $0.050; refused 503 before signing; `ATTEST_ETH_USD` default 5000 is a deliberately high ETH price, `L1_FEE_FACTOR` 1.5 covers the

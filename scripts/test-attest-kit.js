@@ -17,7 +17,9 @@ process.env.X402_INDEX_CRAWL = "off";
 const ledger = await import("../src/sales-ledger.js");
 const guard = await import("../src/external-spend-guard.js");
 const kit = await import("../src/tools/attest-kit.js");
-const { makeAttestHandler, schemaUid, attestationFields, encodeAttestationData, normalizeTx, responseDigest, ATTEST_SCHEMA, ATTEST_TOOLS, ZERO_ADDRESS } = kit;
+const { makeAttestHandler, schemaUid, attestationFields, encodeAttestationData, normalizeTx, responseDigest, ATTEST_SCHEMA, ATTEST_TOOLS, ZERO_ADDRESS, setIdentityBoundSlugs } = kit;
+const BUYER = "0x902dcf34e53695bdea2ffb354b1a2e58bd598256";
+const asBuyer = { payerOf: () => BUYER };
 
 let n = 0;
 const ok = (c, m) => { n++; assert.ok(c, m); };
@@ -87,10 +89,14 @@ const chain = {
   estimateUsd: async () => { calls.estimate++; return estimateUsd; },
   attest: async (uid, recipient, data) => { calls.attest++; calls.last = { uid, recipient, data }; return { uid: "0x" + "11".repeat(32), attestTx: "0x" + "22".repeat(32), block: "1" }; },
 };
-const handler = makeAttestHandler({ chain });
+const handler = makeAttestHandler({ chain, ...asBuyer });
 await rejects(() => handler({}), 400, /tx/);
-await rejects(() => handler({ tx: "0x" + "00".repeat(32) }), 404, /No settled sale/);
-await rejects(() => handler({ tx: "5Sig" + "x".repeat(60) }), 422, /no recorded response digest/);
+await rejects(() => handler({ tx: "0x" + "00".repeat(32) }), 403, /No sale of yours/);
+// the Solana row's payer is a base58 address, not this caller: refused as "not yours" before the digest is even considered
+await rejects(() => handler({ tx: "5Sig" + "x".repeat(60) }), 403, /No sale of yours/);
+// a digest-less sale OF THIS BUYER is a 422 that names the tx but never the slug
+ledger.recordSale({ slug: "render", priceUsd: 0.005, rail: "usdc", network: "eip155:8453", payer: BUYER, tx: "0x" + "dd".repeat(32), wire: "x402" });
+{ let e = null; try { await handler({ tx: "0x" + "dd".repeat(32) }); } catch (x) { e = x; } eq(e?.statusCode, 422, "own digest-less sale -> 422"); ok(!/render/.test(String(e?.message)), "the 422 never names the slug"); }
 eq(calls.attest, 0, "nothing signed on any refusal");
 const out = await handler({ tx: TX.toUpperCase().replace("0X", "0x") });
 eq(out.uid, "0x" + "11".repeat(32), "uid returned");
@@ -109,14 +115,14 @@ eq(again.uid, out.uid, "same uid");
 eq(calls.attest, 1, "no second send for the same sale");
 
 // --- 7. gas ceiling + spend guard + wallet-without-gas, all uncharged 503s
-ledger.recordSale({ slug: "uuid", priceUsd: 0.001, rail: "usdc", network: "eip155:8453", payer: null, tx: "0x" + "ee".repeat(32), wire: "x402", responseSha256: responseDigest({ u: 1 }) });
+ledger.recordSale({ slug: "uuid", priceUsd: 0.001, rail: "usdc", network: "eip155:8453", payer: BUYER, tx: "0x" + "ee".repeat(32), wire: "x402", responseSha256: responseDigest({ u: 1 }) });
 estimateUsd = 0.5;
 await rejects(() => handler({ tx: "0x" + "ee".repeat(32) }), 503, /gas is high/);
 eq(calls.attest, 1, "over-ceiling: nothing signed");
 estimateUsd = 0.002;
-const paused = makeAttestHandler({ chain, spend: { maySpend: () => ({ ok: false, reason: "wallet daily ceiling reached." }), noteSpend: () => null, adjustSpend: () => {} } });
+const paused = makeAttestHandler({ chain, ...asBuyer, spend: { maySpend: () => ({ ok: false, reason: "wallet daily ceiling reached." }), noteSpend: () => null, adjustSpend: () => {} } });
 await rejects(() => paused({ tx: "0x" + "ee".repeat(32) }), 503, /paused/);
-const broke = makeAttestHandler({ chain: { ...chain, attest: async () => { throw new Error("insufficient funds for gas * price + value"); } } });
+const broke = makeAttestHandler({ chain: { ...chain, attest: async () => { throw new Error("insufficient funds for gas * price + value"); } }, ...asBuyer });
 await rejects(() => broke({ tx: "0x" + "ee".repeat(32) }), 503, /no ETH/);
 eq(ledger.saleByTx("0x" + "ee".repeat(32)).attestUid, null, "a failed send persists nothing");
 // the spend is booked against the base wallet and corrected to the estimate
@@ -124,6 +130,26 @@ guard.__reset();
 await handler({ tx: "0x" + "ee".repeat(32) });
 const spent = guard.walletDailySpentUsd("base");
 ok(spent > 0 && spent <= 0.0021, `base wallet booked the estimate (${spent})`);
+
+// --- 7b. binding: only the buyer, never a wallet-scoped sale, never an unsigned caller
+{
+  const other = makeAttestHandler({ chain, payerOf: () => "0x" + "99".repeat(20) });
+  let e1 = null; try { await other({ tx: TX }); } catch (x) { e1 = x; }
+  let e2 = null; try { await other({ tx: "0x" + "00".repeat(32) }); } catch (x) { e2 = x; }
+  eq(e1?.statusCode, 403, "another wallet cannot attest this buyer's sale");
+  eq(String(e1?.message).replace(TX, "T"), String(e2?.message).replace("0x" + "00".repeat(32), "T"), "not-yours and unknown-tx are the same message: the tx's existence is not confirmed to a stranger");
+  const unsigned = makeAttestHandler({ chain, payerOf: () => null });
+  await rejects(() => unsigned({ tx: TX }), 403, /signed EVM authorization/);
+  ledger.recordSale({ slug: "memory-get", priceUsd: 0.001, rail: "usdc", network: "eip155:8453", payer: BUYER, tx: "0x" + "aa".repeat(32), wire: "x402", responseSha256: responseDigest({ v: 1 }) });
+  setIdentityBoundSlugs(new Set(["memory-get", "my-usage", "attest"]));
+  await rejects(() => handler({ tx: "0x" + "aa".repeat(32) }), 403, /wallet-scoped/);
+  const before = calls.attest;
+  eq(calls.attest, before, "no attestation was signed for the wallet-scoped sale");
+  const payments = readFileSync(new URL("../src/payments.js", import.meta.url), "utf8");
+  ok(/isIdentityBoundRoute = \(def\) =>[\s\S]*def\?\.slug === "attest"/.test(payments), "attest is identity-bound in payments.js (EVM exact only, so a non-EVM buyer is never charged then refused)");
+  const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+  ok(server.includes("setIdentityBoundSlugs(new Set(Object.values(CATALOG).filter((d) => d.identityBound)"), "server hands the kit the catalog's own identity-bound slugs");
+}
 
 // --- 8. catalog entry + registrations
 const tool = ATTEST_TOOLS[0];
