@@ -97,7 +97,9 @@ ok(engine.preEnrolCredits({ keyId: "k2def", email: "new@example.com" }) === null
 for (let i = 0; i < MAX_PER_EMAIL; i++) engine.preEnrolCredits({ keyId: `cap${i}`, email: "many@example.com" });
 await throws(engine.signup({ email: "many@example.com", creditsKey: "a402_livekey" }), 400, `the per-address cap (${MAX_PER_EMAIL}) holds`);
 const st = engine.stats();
-ok(typeof st.active === "number" && st.digestsSent >= 3 && !JSON.stringify(st).includes("example.com") && !JSON.stringify(st).includes(wallet.toLowerCase()), "stats are counts only: no addresses, no payers");
+// Counts only: no "@" (an email) and no payer id anywhere in the operator JSON.
+const statsJson = JSON.stringify(st);
+ok(typeof st.active === "number" && st.digestsSent >= 3 && !/@/.test(statsJson) && !statsJson.includes(wallet.toLowerCase()) && !statsJson.includes("k1abc"), "stats are counts only: no addresses, no payers");
 // ---- disabled without a secret
 const off = createWalletDigest({ storePath: join(dir, "off.json"), secret: "", sendEmail: async () => true, usage: () => ({}), verifySignature: async () => true, log: () => {} });
 ok(off.enabled() === false && off.preEnrolCredits({ keyId: "x", email: "a@b.co" }) === null, "no secret: signup disabled and no link is ever minted (links must be unforgeable)");
