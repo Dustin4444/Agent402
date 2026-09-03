@@ -53,6 +53,10 @@ function needAddress(input) {
 // api host is a FIXED first-party allowlist, so trusted:true skips the SSRF
 // resolve (it's not a caller-supplied URL). $0.005 margin-guard ceiling.
 import { payX402, quoteWithinCap } from "../x402-buyer.js";
+// The Base spending wallet's rolling 24 h ceiling (external-spend-guard.js).
+// These buys do not go through route-execute, so they book themselves: no
+// attributable payer here (the handler never sees the request), chain "base".
+import { maySpend, noteSpend, adjustSpend } from "../external-spend-guard.js";
 const BLOCKSCOUT_API = (process.env.BLOCKSCOUT_API_URL || "https://api.blockscout.com").replace(/\/$/, "");
 export const UPSTREAM_MAX_ATOMIC = 5000n; // $0.005 in 6-decimal USDC
 export const upstreamQuoteAcceptable = (amountAtomic) => quoteWithinCap(amountAtomic, UPSTREAM_MAX_ATOMIC);
@@ -80,15 +84,30 @@ async function buyBlockscout(path) {
   const url = `${BLOCKSCOUT_API}${path}`;
   const opts = { maxAtomic: UPSTREAM_MAX_ATOMIC, trusted: true, timeoutMs: UPSTREAM_TIMEOUT_MS };
   try {
-    const { result } = await payX402(url, opts);
+    const { result } = await payBlockscoutOnce(url, opts);
     return result;
   } catch (err) {
     if (!isTransientUpstream(err)) throw err;
     console.warn(`[blockscout] transient upstream failure on ${path} (${err?.message ?? err}) - retrying once`);
     await new Promise((r) => setTimeout(r, 750));
-    const { result } = await payX402(url, opts);
+    const { result } = await payBlockscoutOnce(url, opts);
     return result;
   }
+}
+
+/** One paid attempt, booked against the Base wallet's daily ceiling: the worst
+ *  case (the margin-guard cap) is booked before the buy and corrected down to
+ *  the seller's real quote after it. Refused 503 (a >= 400 cancels the buyer's
+ *  settlement, nobody charged) when the wallet has hit its ceiling. The retry
+ *  above is a SECOND buy (the first authorization is spent), so it books again. */
+async function payBlockscoutOnce(url, opts) {
+  const capUsd = Number(UPSTREAM_MAX_ATOMIC) / 1e6;
+  const allowed = maySpend(null, capUsd, { chain: "base" });
+  if (!allowed.ok) throw bad(`Blockscout lookups are briefly paused: ${allowed.reason} Nothing was charged; retry later.`, 503);
+  const spendHandle = noteSpend(null, capUsd, { chain: "base" });
+  const paid = await payX402(url, opts);
+  if (paid?.quote && Number.isFinite(paid.quote.usd)) adjustSpend(spendHandle, paid.quote.usd);
+  return paid;
 }
 
 /** A 5xx from the SELLER after we paid, or a timeout - both recover on a

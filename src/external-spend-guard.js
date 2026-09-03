@@ -61,6 +61,68 @@ function exemptSet() {
 const ledger = new Map();
 let seq = 0;
 
+// ---------------------------------------------------------------------------
+// PER-CHAIN-WALLET DAILY CEILING.
+//
+// The per-payer ceiling above is keyed on the buyer (address, else Tempo payer,
+// else IP), so rotating wallets or IPs sidesteps it, and the only hard bound on
+// what the spending wallets (Base, Solana, Algorand, Tempo) can lose in a day
+// was their balance. This is the bound that does not care who the buyer is:
+// every upstream spend is ALSO booked against the CHAIN it was paid from, over
+// a rolling 24 h, settled or not - a settled buy is still money that left the
+// wallet - and a spend that would take the chain past its ceiling is refused
+// with its own reason (`wallet_daily_ceiling`) so the caller can tell the buyer
+// this is a global pause, not their own limit. In memory only: a restart
+// resets the day, the same as the per-payer guard, and the wallet balance
+// alarms remain the outer backstop.
+//
+// `SOR_WALLET_DAILY_MAX_USD` is the default for every chain;
+// `SOR_WALLET_DAILY_MAX_USD_<CHAIN>` (BASE, SOLANA, ALGORAND, TEMPO) overrides
+// one; `0` or `off` disables the ceiling for that scope. A MALFORMED value is
+// treated as unset - a per-chain typo falls through to the global setting, a
+// global typo to the default - never as disabled (a typo must not select the
+// unbounded behaviour - the fee-bid lesson).
+const DEFAULT_WALLET_DAILY_MAX_USD = 25;
+const WALLET_DAY_MS = 24 * 60 * 60_000;
+export const WALLET_CHAINS = ["base", "solana", "algorand", "tempo"];
+
+// chain -> [{ id, usd, at }]  (settled and unsettled alike; ages out at 24 h)
+const chainLedger = new Map();
+
+const chainKeyOf = (chain) => (typeof chain === "string" && chain.trim() ? chain.trim().toLowerCase() : null);
+
+function parseCeiling(raw) {
+  if (raw == null || String(raw).trim() === "") return undefined; // not set
+  const s = String(raw).trim();
+  if (/^off$/i.test(s)) return null;
+  const n = Number(s);
+  if (!Number.isFinite(n) || n < 0) return undefined; // malformed reads as unset, never as off
+  return n === 0 ? null : n;
+}
+
+/** The daily ceiling for a chain in USD, or null when disabled. Read at call
+ *  time so an operator can move it without a redeploy of this module's state. */
+export function walletDailyCeilingUsd(chain) {
+  const k = chainKeyOf(chain);
+  const per = k ? parseCeiling(process.env[`SOR_WALLET_DAILY_MAX_USD_${k.toUpperCase()}`]) : undefined;
+  if (per !== undefined) return per;
+  const all = parseCeiling(process.env.SOR_WALLET_DAILY_MAX_USD);
+  return all === undefined ? DEFAULT_WALLET_DAILY_MAX_USD : all;
+}
+
+function pruneChain(k, now) {
+  const rows = (chainLedger.get(k) || []).filter((r) => now - r.at < WALLET_DAY_MS);
+  if (rows.length) chainLedger.set(k, rows); else chainLedger.delete(k);
+  return rows;
+}
+
+/** Upstream spend booked against a chain's wallet in the last 24 h (settled + unsettled). */
+export function walletDailySpentUsd(chain, now = Date.now()) {
+  const k = chainKeyOf(chain);
+  if (!k) return 0;
+  return pruneChain(k, now).reduce((s, r) => s + r.usd, 0);
+}
+
 const keyOf = (payer) => {
   if (typeof payer !== "string" || !payer.trim()) return null;
   // EVM addresses are case-insensitive; base58/Stellar/Algorand are NOT, and
@@ -90,7 +152,30 @@ export function payerExposureUsd(payer, now = Date.now()) {
  * payer we cannot read, and the tier cap still bounds a single call. This is a
  * per-payer debt ceiling, not an identity requirement.
  */
-export function maySpend(payer, usd, { maxUnsettledUsd = DEFAULT_MAX_UNSETTLED_USD, now = Date.now() } = {}) {
+export function maySpend(payer, usd, { maxUnsettledUsd = DEFAULT_MAX_UNSETTLED_USD, now = Date.now(), chain = null, walletDailyMaxUsd } = {}) {
+  // The chain-wallet ceiling is checked FIRST and for every caller, attributable
+  // payer or not: it bounds the wallet, not the buyer. `code` is the field a
+  // caller branches on - the per-payer refusal below carries none.
+  const ck = chainKeyOf(chain);
+  if (ck) {
+    const ceiling = walletDailyMaxUsd !== undefined ? walletDailyMaxUsd : walletDailyCeilingUsd(ck);
+    if (ceiling != null) {
+      const spent = walletDailySpentUsd(ck, now);
+      const next = spent + (Number(usd) || 0);
+      if (next > ceiling) {
+        return {
+          ok: false,
+          code: "wallet_daily_ceiling",
+          chain: ck,
+          spentUsd: spent,
+          ceilingUsd: ceiling,
+          reason:
+            `the ${ck} spending wallet has reached its daily ceiling ($${spent.toFixed(3)} of $${ceiling} in the last 24 h);` +
+            ` external routing on ${ck} is paused for every buyer, not this wallet in particular, until earlier spend ages out of the window.`,
+        };
+      }
+    }
+  }
   const k = keyOf(payer);
   if (!k) return { ok: true, reason: "payer not attributable - bounded by the tier cap alone" };
   if (exemptSet().has(k.toLowerCase())) return { ok: true, reason: "exempt" };
@@ -108,15 +193,30 @@ export function maySpend(payer, usd, { maxUnsettledUsd = DEFAULT_MAX_UNSETTLED_U
   return { ok: true, exposure };
 }
 
-/** Record an upstream spend as UNSETTLED. Returns a handle to resolve later. */
-export function noteSpend(payer, usd, now = Date.now()) {
+/** Record an upstream spend as UNSETTLED against the payer, and against the
+ *  chain wallet it is paid from when `chain` is given. Returns a handle to
+ *  resolve later. The third argument is either a timestamp (legacy) or
+ *  `{ now, chain }`. A spend with no attributable payer AND no chain records
+ *  nothing (null); with a chain it still counts toward that wallet's day. */
+export function noteSpend(payer, usd, opts = undefined) {
+  const o = typeof opts === "number" ? { now: opts } : (opts && typeof opts === "object" ? opts : {});
+  const now = Number.isFinite(o.now) ? o.now : Date.now();
   const k = keyOf(payer);
-  if (!k) return null;
-  const row = { id: ++seq, usd: Number(usd) || 0, at: now, settled: false };
-  const rows = prune(ledger.get(k) || [], now);
-  rows.push(row);
-  ledger.set(k, rows);
-  return { payer: k, id: row.id };
+  const ck = chainKeyOf(o.chain);
+  if (!k && !ck) return null;
+  const id = ++seq;
+  const amount = Number(usd) || 0;
+  if (k) {
+    const rows = prune(ledger.get(k) || [], now);
+    rows.push({ id, usd: amount, at: now, settled: false });
+    ledger.set(k, rows);
+  }
+  if (ck) {
+    const rows = pruneChain(ck, now);
+    rows.push({ id, usd: amount, at: now });
+    chainLedger.set(ck, rows);
+  }
+  return { payer: k, id, chain: ck };
 }
 
 /**
@@ -134,14 +234,15 @@ export function noteSpend(payer, usd, now = Date.now()) {
  * Only ever lowers: the booked figure is the cap, and nothing may exceed it.
  */
 export function adjustSpend(handle, usd) {
-  if (!handle?.payer) return;
-  const rows = ledger.get(handle.payer);
-  if (!rows) return;
-  const row = rows.find((r) => r.id === handle.id);
-  if (!row) return;
+  if (!handle || typeof handle !== "object") return;
   const actual = Number(usd);
   if (!Number.isFinite(actual) || actual < 0) return;
-  if (actual < row.usd) row.usd = actual;
+  const lower = (rows) => {
+    const row = rows?.find((r) => r.id === handle.id);
+    if (row && actual < row.usd) row.usd = actual;
+  };
+  if (handle.payer) lower(ledger.get(handle.payer));
+  if (handle.chain) lower(chainLedger.get(handle.chain));
 }
 
 /**
@@ -177,6 +278,24 @@ export function exposureSnapshot(now = Date.now()) {
   return out.sort((a, b) => b.unsettledUsd - a.unsettledUsd);
 }
 
+/** Counts only: what each chain wallet has spent upstream in the last 24 h
+ *  against its ceiling. Built for the status reporters (x402-buyer's
+ *  `avmBuyerStatus` and friends could carry it); never a payer, never a key. */
+export function walletDailyStatus(now = Date.now()) {
+  const chains = {};
+  for (const k of new Set([...WALLET_CHAINS, ...chainLedger.keys()])) {
+    const rows = pruneChain(k, now);
+    const spentUsd = Number(rows.reduce((s, r) => s + r.usd, 0).toFixed(6));
+    const ceilingUsd = walletDailyCeilingUsd(k);
+    chains[k] = {
+      spentUsd, calls: rows.length, ceilingUsd,
+      remainingUsd: ceilingUsd == null ? null : Number(Math.max(0, ceilingUsd - spentUsd).toFixed(6)),
+      paused: ceilingUsd != null && spentUsd >= ceilingUsd,
+    };
+  }
+  return { windowMs: WALLET_DAY_MS, chains };
+}
+
 /** Test-only. */
-export function __reset() { ledger.clear(); seq = 0; }
-export const __config = { DEFAULT_MAX_UNSETTLED_USD, STALE_MS };
+export function __reset() { ledger.clear(); chainLedger.clear(); seq = 0; }
+export const __config = { DEFAULT_MAX_UNSETTLED_USD, STALE_MS, DEFAULT_WALLET_DAILY_MAX_USD, WALLET_DAY_MS };

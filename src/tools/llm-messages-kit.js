@@ -36,6 +36,7 @@ import {
   assertUpstreamBody,
 } from "./llm-gateway-kit.js";
 import { METER_MARKUP, METER_MIN_SETTLE_USD, setMeterSentinel } from "../gateway-meter.js";
+import { gatewaySettleBreakerCheck } from "../gateway-settle-breaker.js";
 
 const OPENROUTER_MESSAGES_URL = "https://openrouter.ai/api/v1/messages";
 const IMAGE_TOKENS = 1600; // same flat per-image estimate as the chat wire
@@ -266,6 +267,8 @@ function stripBilling(usage) {
 
 export function makeMessagesHandler(tierSlug) {
   return async function messagesHandler(input, req) {
+    // Settle-failure breaker first: refuse (nobody charged) before any upstream call.
+    gatewaySettleBreakerCheck(req);
     const tier = TIERS[tierSlug];
     const { body, probe, imageCount, isRouted, routedCategory, routedQuality, chain, defaultedModel } = validateMessagesRequest(input, tierSlug);
     // Metered belt (same as the chat wire): the price this request was gated

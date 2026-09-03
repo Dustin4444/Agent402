@@ -33,6 +33,7 @@ import {
 } from "./llm-gateway-kit.js";
 
 import { METER_MARKUP, METER_MIN_SETTLE_USD, setMeterSentinel } from "../gateway-meter.js";
+import { gatewaySettleBreakerCheck } from "../gateway-settle-breaker.js";
 const OPENROUTER_RESPONSES_URL = "https://openrouter.ai/api/v1/responses";
 const MAX_TOOLS = 64;
 const MAX_INPUT_ITEMS = 200;
@@ -224,6 +225,8 @@ function stripBilling(usage) {
 
 export function makeResponsesHandler(tierSlug) {
   return async function responsesHandler(input, req) {
+    // Settle-failure breaker first: refuse (nobody charged) before any upstream call.
+    gatewaySettleBreakerCheck(req);
     const tier = TIERS[tierSlug];
     const { body, probe, imageCount, isRouted, routedCategory, routedQuality, chain, defaultedModel } = validateResponsesRequest(input, tierSlug);
     const structured = body.text?.format?.type === "json_schema" || body.text?.format?.type === "json_object";
