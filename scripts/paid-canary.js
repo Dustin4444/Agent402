@@ -448,7 +448,7 @@ export const TOOLS = [
     path: "/api/skill/financial-analysis",
     method: "POST",
     body: { ticker: "AAPL" },
-    priceUsd: 0.04,
+    priceUsd: 0.033,
     check: (r) => (r.pack === "financial-analysis" && Array.isArray(r.steps) && r.steps.filter((s) => s.ok).length >= 2) || `expected pack=financial-analysis with >=2 ok steps, got ${JSON.stringify(r).slice(0, 120)}`,
   },
   {
@@ -456,7 +456,7 @@ export const TOOLS = [
     path: "/api/skill/market-brief",
     method: "POST",
     body: { coin: "bitcoin" },
-    priceUsd: 0.025,
+    priceUsd: 0.024,
     check: (r) => (r.pack === "market-brief" && Array.isArray(r.steps) && r.steps.filter((s) => s.ok).length >= 2) || `expected pack=market-brief with >=2 ok steps, got ${JSON.stringify(r).slice(0, 120)}`,
   },
   // Stellar (USDC on Stellar) settlement is tested via a separate mechanism —
@@ -470,7 +470,7 @@ export const TOOLS = [
     path: "/api/skill/domain-intel",
     method: "POST",
     body: { domain: "stripe.com" },
-    priceUsd: 0.25,
+    priceUsd: 0.018,
     check: (r) => (r.pack === "domain-intel" && r.steps?.every(s => s.ok)) || `expected ALL steps ok, got ${r.steps?.map(s=>s.ok?'✓':'✗ '+s.slug).join(',')}`,
   },
   {
@@ -478,7 +478,7 @@ export const TOOLS = [
     path: "/api/skill/company-dossier",
     method: "POST",
     body: { ticker: "AAPL" },
-    priceUsd: 0.50,
+    priceUsd: 0.064,
     check: (r) => (r.pack === "company-dossier" && r.steps?.every(s => s.ok)) || `expected ALL steps ok, got ${r.steps?.map(s=>s.ok?'✓':'✗ '+s.slug).join(',')}`,
   },
   {

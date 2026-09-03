@@ -2711,6 +2711,8 @@ jobs:
 
       - name: Docs truth (every documented route, slug and price matches the served catalog)
         run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-docs-truth.js
+      - name: Skill-pack pricing rule (every pack = sum of its tools minus 10%, recomputed from the live catalog)
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-pack-pricing-rule.js
 
       - name: Public-surface leak gate (no buyer addresses, no per-tool revenue, operator feeds stay 404)
         run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-public-surface-leak.js
