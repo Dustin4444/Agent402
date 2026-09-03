@@ -1919,7 +1919,7 @@ export function quoteProbeCapFor(tools) {
   return LIVE_QUOTE_PROBES_PER_CRAWL;
 }
 
-async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false } = {}) {
+export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false } = {}) {
   if (!Array.isArray(tools) || !tools.length) return tools;
   const candidates = tools.filter(
     (t) => t
@@ -1961,6 +1961,7 @@ async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false } = {})
   if (!ignoreBudget) liveQuoteBudget -= rotated.length;
 
   const { assertPublicUrl, ssrfDispatcher } = await import("./tools/fetch-guard.js");
+  const dropped = new Set();
   for (const tool of rotated) {
     const target = `${originUrl}${tool.route}`;
     let learned = null;
@@ -2008,11 +2009,27 @@ async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false } = {})
     // the manifest claimed (the union above never drops a manifest chain).
     tool.networksVerifiedAt = Date.now();
     if (learned.method && learned.method !== tool.method) {
-      // The stated verb did not answer a quote and this one did: a CORRECTION,
-      // recorded as such so the next crawl's carry-forward can re-apply it to
-      // the freshly rebuilt row (which will state the wrong verb again) without
-      // ever touching a row whose own verb was never probed.
-      tool.methodCorrectedFrom = String(tool.method || "GET").toUpperCase();
+      // The stated verb did not answer a quote and this one did. When the
+      // seller ALSO declares the answering verb on this route (an OpenAPI that
+      // lists GET and POST on one path, where only POST is real), the stated
+      // row is a declaration the seller does not honour: correcting it would
+      // leave two identical rows on the path, and keeping it would send buyers
+      // a verb that 405s. Drop it; the sibling already represents the route.
+      const stated = String(tool.method || "GET").toUpperCase();
+      const sibling = tools.find((o) => o !== tool && o.route === tool.route && String(o.method || "").toUpperCase() === learned.method);
+      if (sibling) {
+        if (learned.price != null && !(Number(sibling.price) > 0)) sibling.price = learned.price;
+        if (learned.networks?.length) sibling.networks = [...new Set([...(sibling.networks || []), ...learned.networks])];
+        sibling.networksVerifiedAt = Date.now();
+        dropped.add(tool);
+        console.log(`[x402-index] live-402: ${originUrl}${tool.route} refuses ${stated} and answers ${learned.method}; the seller declares both, dropping the ${stated} row (sibling kept)`);
+        continue;
+      }
+      // Otherwise a CORRECTION, recorded as such so the next crawl's
+      // carry-forward can re-apply it to the freshly rebuilt row (which will
+      // state the wrong verb again) without ever touching a row whose own verb
+      // was never probed.
+      tool.methodCorrectedFrom = stated;
       tool.method = learned.method; tool.methodInferred = false;
     }
     tool.quoteSource = "live-402";
@@ -2027,6 +2044,9 @@ async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false } = {})
     // price appear and hope - which is how an inert feature hides.
     console.log(`[x402-index] live-402 quote: ${originUrl}${tool.route} -> ${learned.price == null ? "networks only" : "$" + learned.price} (${learned.method})`);
   }
+  // Two call sites ignore the return value and read the array they passed, so
+  // a dropped row must leave the array itself, not just the returned copy.
+  if (dropped.size) for (let i = tools.length - 1; i >= 0; i--) if (dropped.has(tools[i])) tools.splice(i, 1);
   return tools;
 }
 
