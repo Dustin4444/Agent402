@@ -282,7 +282,7 @@ export function createStripeGate({ validate = validateStripeCredential, settle =
       req.stripeSettling = true;
       // The stripe credential is the ONLY payment evidence: drop any x402
       // header riding alongside it (same identity-spoof defense as tempo).
-      for (const h of ["payment-signature", "x-payment", "payment-identifier"]) delete req.headers[h];
+      for (const h of ["payment-signature", "x-payment", "payment-identifier", "x-pow-solution"]) delete req.headers[h];
 
       const originalWriteHead = res.writeHead.bind(res);
       const originalWrite = res.write.bind(res);

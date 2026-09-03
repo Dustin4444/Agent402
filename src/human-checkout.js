@@ -29,6 +29,7 @@
 // Checkout Sessions + Refunds write; it settles to your Stripe balance only.
 import Stripe from "stripe";
 import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync, unlinkSync, readdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { sendReportReadyEmail } from "./email.js";
 
@@ -169,6 +170,12 @@ export const STALE_CLAIM_MS = 10 * 60_000;   // a claim older than this with no 
 const MAX_TAKEOVERS = 1;                      // one regeneration after an abandonment, then refund
 const REFUND_RETRY_MS = 30_000;
 const MAX_REFUND_ATTEMPTS = 6;
+// Failure breaker (review 2026-09-03): every failed generation is refunded, and Stripe keeps its fee on a
+// refund, so an input engineered to fail costs us the fee plus the upstream spend each time. After
+// FAIL_MAX failures from one buyer address inside FAIL_WINDOW_MS the next paid session is refunded
+// WITHOUT a generation attempt (the fee is still lost, the upstream spend is not). Default: see CLAUDE.local.md.
+const FAIL_MAX = Math.max(1, Number(process.env.HUMAN_CHECKOUT_FAIL_MAX) || 3);
+const FAIL_WINDOW_MS = 24 * 60 * 60 * 1000;
 const MEM_CACHE_MAX = 500;
 const SESSION_RE = /^cs_[A-Za-z0-9_]+$/;
 
@@ -307,12 +314,26 @@ export function createHumanCheckout({ stripe, generate, baseUrl, storeDir, onSal
     return recordError(id, { payment_intent: rec.paymentIntent }, refundId, rec.error.replace(/ Your refund is being processed\.$/, ""));
   }
 
+  const FAILURES = join(dir, "_failures.json");   // sha256(buyer email) prefix -> [failure ms] inside FAIL_WINDOW_MS
+  const failKeyOf = (session) => {
+    const e = String(session?.customer_details?.email || session?.customer_email || "").trim().toLowerCase();
+    return e ? createHash("sha256").update(e).digest("hex").slice(0, 24) : null;
+  };
+  const recentFailures = (k) => (k && (readIndex(FAILURES)[k] || []).filter((t) => now() - Number(t) < FAIL_WINDOW_MS)) || [];
+  const noteFailure = (k) => { if (!k) return; patchIndex(FAILURES, k, [...recentFailures(k), now()]); };
+
   function startJob(sessionId, session, p, input, { takeover = 0 } = {}) {
     const claim = { status: "generating", kind: p.kind, slug: p.slug, at: new Date(now()).toISOString(), claimedAt: now(), takeovers: takeover, pid: process.pid };
     writeRec(sessionId, claim);
     patchIndex(INFLIGHT, sessionId, now());
     const job = (async () => {
+      const failKey = failKeyOf(session);
       try {
+        if (recentFailures(failKey).length >= FAIL_MAX) {
+          log(`[human-checkout] ${sessionId} (${p.slug}): buyer address has ${FAIL_MAX}+ failed reports in the window - refunded without a generation attempt`);
+          const refundId = await refundSession(session);
+          return recordError(sessionId, session, refundId, "Recent reports for this email address could not be completed, so this purchase was refunded without a new attempt. Please try again tomorrow, or email us with the input you used.");
+        }
         // generate() may return a plain report string (legacy / tests) or a
         // bundle { report, title, sources, tables }. Normalize either way.
         const g = await generate(p.kind, p.slug, input, { buyerKey: `human:${sessionId}`, rail: "card", priceUsd: Number(p.price) / 100 });
@@ -343,6 +364,7 @@ export function createHumanCheckout({ stripe, generate, baseUrl, storeDir, onSal
         return rec;
       } catch (err) {
         log(`[human-checkout] report failed for ${sessionId} (${p.slug}): ${String(err?.message || err).slice(0, 160)}`);
+        noteFailure(failKey);
         const refundId = await refundSession(session);
         const failEmail = session.customer_details?.email || session.customer_email;
         if (failEmail) { try { onFailed?.({ email: failEmail, product: p.slug, label: p.label, refunded: Boolean(refundId) }); } catch { /* never breaks the refund path */ } }

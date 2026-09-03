@@ -193,6 +193,7 @@ jobs:
           FRED_API_KEY: ""
           FRED_API_KEY_V2: ""
           E2B_API_KEY: ""
+          COINGECKO_API_KEY: ""
         run: npm ci
       - id: gate
         env:

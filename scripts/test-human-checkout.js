@@ -21,6 +21,12 @@ const sessions = {
   cs_unpaid: { id: "cs_unpaid", payment_status: "unpaid", metadata: { product: "dossier", input: "AAPL" } },
   cs_fail: { id: "cs_fail", payment_status: "paid", payment_intent: "pi_fail", metadata: { product: "research", input: "FAIL" } },
   cs_fail2: { id: "cs_fail2", payment_status: "paid", payment_intent: "pi_fail2", metadata: { product: "research", input: "FAIL" } },
+  // failure breaker: one buyer address, three failed reports, then a fourth that WOULD succeed
+  cs_g1: { id: "cs_g1", payment_status: "paid", payment_intent: "pi_g1", customer_details: { email: "Griefer@Example.com" }, metadata: { product: "research", input: "FAIL" } },
+  cs_g2: { id: "cs_g2", payment_status: "paid", payment_intent: "pi_g2", customer_details: { email: "griefer@example.com" }, metadata: { product: "research", input: "FAIL" } },
+  cs_g3: { id: "cs_g3", payment_status: "paid", payment_intent: "pi_g3", customer_details: { email: "griefer@example.com" }, metadata: { product: "research", input: "FAIL" } },
+  cs_g4: { id: "cs_g4", payment_status: "paid", payment_intent: "pi_g4", customer_details: { email: "griefer@example.com" }, metadata: { product: "dossier", input: "AAPL" } },
+  cs_other: { id: "cs_other", payment_status: "paid", payment_intent: "pi_other", customer_details: { email: "someone-else@example.com" }, metadata: { product: "dossier", input: "AAPL" } },
   cs_sub: { id: "cs_sub", mode: "subscription", payment_status: "paid", metadata: { product: "domain-monitor", target: "x.com" } },
   cs_nometa: { id: "cs_nometa", payment_status: "paid", payment_intent: "pi_nometa", metadata: {} },
   cs_long: { id: "cs_long", payment_status: "paid", payment_intent: "pi_long", metadata: { product: "research", ...chunkInput("Q".repeat(1200)) } },
@@ -167,6 +173,17 @@ if (!hadLegacy) {
   try { rmSync(legacyPath + ".migrated"); } catch { /* ignore */ }
 } else {
   ok(true, "legacy import skipped: a real legacy store exists on this machine (not touched)");
+}
+
+// --- failure breaker: after three failed reports from one address, the next paid session is refunded with NO generation attempt
+{
+  refundFail = false;
+  for (const id of ["cs_g1", "cs_g2", "cs_g3"]) { await hc.fulfill(id); await settle(id); }
+  const before = genCalls, refundsBefore = refunds.length;
+  await hc.fulfill("cs_g4"); const g4 = await settle("cs_g4");
+  ok(g4?.status === "error" && genCalls === before && refunds.length === refundsBefore + 1 && /refunded without a new attempt/.test(g4.error || ""), "fourth paid session from the same address (case-insensitive) is refunded without calling generate");
+  await hc.fulfill("cs_other"); const other = await settle("cs_other");
+  ok(other?.status === "done" && genCalls === before + 1, "a different address is unaffected by the breaker");
 }
 
 try { rmSync(DIR, { recursive: true, force: true }); rmSync(LEG, { recursive: true, force: true }); } catch { /* ignore */ }

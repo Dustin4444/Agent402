@@ -562,7 +562,7 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
       // header is unverified, yet payerFromRequest() would read its
       // authorization.from as the payer (memory identity, my-usage,
       // idempotency seeding, telemetry). Security review 2026-08-19.
-      for (const h of ["payment-signature", "x-payment", "payment-identifier"]) delete req.headers[h];
+      for (const h of ["payment-signature", "x-payment", "payment-identifier", "x-pow-solution"]) delete req.headers[h];
 
       // Buffering mechanics verified against node_modules/@x402/express's
       // own paymentVerified branch (dist/esm/index.mjs) rather than
