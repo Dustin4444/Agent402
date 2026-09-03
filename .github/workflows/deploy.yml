@@ -2348,6 +2348,7 @@ jobs:
           # Sales ledger unit tests (named sales, internal/external classification, revenue math — offline)
           t node scripts/test-sales-ledger.js
           t node scripts/test-attest-kit.js
+          t node scripts/test-outreach-kit.js
           # Repo-wide: no count-named field is the length of a LIMITed query result (source scan, offline)
           t node scripts/test-capped-counts.js
           t node scripts/test-proof.js

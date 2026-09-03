@@ -541,6 +541,19 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   quotes ABOVE the floor so a collapsed quote is visible. **First real metered settlement:** paid-canary run
   32962953735, `llm-metered -> settled $0.001` (2026-08-26 11:28Z). Card rail first live settlement:
   pi_3U8VOXRaPcokjIwV0WvAvBAb (2026-08-26 01:12Z) - recorded here because the repo carried no evidence of it.
+- **Agent outreach, routed to an outside seller (2026-09-03, `src/tools/outreach-kit.js`, `scripts/test-outreach-kit.js` 52 in CI):**
+  `sms-send` $0.010, `email-send` $0.010, `voice-call` $0.020 (POST /api/<slug>) and the `agent-outreach` skill pack (fanout; the
+  voice leg runs only `when` an objective is given). Fulfilled by win.oneshotagent.com (`/v1/tools/{sms/send,email/send,voice/call}`,
+  $0.001 each on Base from its LIVE 402, payTo 0x9fb3…1d9A) paid from the Base spending wallet through `payX402` with the
+  Blockscout pattern: margin guard `OUTREACH_MAX_ATOMIC` (under 70% of price), `maySpend`/`noteSpend`/`adjustSpend` on chain
+  base, one bounded attempt, payX402's 402 mapped to OUR 503 (a kit never throws a 402 of its own), wallet unset 503, seller
+  failure 502 - all uncharged. Chosen from our own index (the one origin dispatch-eligible on Base for all three channels,
+  7,175 settled / 18 buyers); `OUTREACH_ORIGIN` swaps the seller. Abuse bounds: E.164 + address validation, length caps,
+  per-payer daily budget `OUTREACH_MAX_PER_PAYER_DAY` (25) under a global `OUTREACH_MAX_PER_DAY` (500), both 429 before any
+  spend, destinations hashed in logs. The seller's 200 shapes were NOT documented in its OpenAPI, so `result` relays them
+  as-is and the examples promise `{}` there until `external-seller-probe.yml` (dispatch, `spending` environment, one paid
+  call with the burner, refuses above `max_usd`) has shown a real one - then update the examples. WALLET_ONLY, test-all
+  NETWORK, METERED_SLUGS; keyless CI answers 503 and the pack refuses uncharged.
 - **Attest a settled call on Base (2026-09-03, `src/tools/attest-kit.js`, `attest`, `POST /api/attest` $0.010, `scripts/test-attest-kit.js`
   54 in CI):** the dispatcher now records sha256 of the exact JSON bytes `res.json` sends (`req.__responseSha256`, on the sale row as
   `response_sha256`; NULL for streamed/binary bodies and pre-column rows), and `POST /api/attest {tx}` looks the settlement tx up in the

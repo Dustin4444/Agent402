@@ -106,6 +106,7 @@ export const PACK_PRICES = {
   "timezone-planner": 0.004, // 3 tools, parts $0.004
   "webhook-intake": 0.007, // 5 tools, parts $0.007
   "markdown-convert": 0.006, // 3 tools, parts $0.006
+  "agent-outreach": 0.036, // 3 tools, parts $0.04
 };
 // Derived once from the table: the honest range for every surface that quotes it.
 const fmtPackUsd = (n) => n.toFixed(3).replace(/0+$/, "").replace(/\.$/, ""); // whole milli-dollars, never rounded away
@@ -2622,6 +2623,29 @@ export const SKILL_PACKS = [
       "Round-trip markdown using Agent402: (1) markdown-to-html {markdown:\"# Hello\\n\\nThis is **bold** and _italic_.\"} - get HTML. (2) html-to-markdown on the result - verify round-trip. (3) text-diff {a:<original>, b:<round-tripped>} - quantify what changed. Return {html, roundTripped, diff}.",
   },
 
+  {
+    slug: "agent-outreach",
+    title: "Agent outreach",
+    tagline:
+      "Reach a person from an agent: send an SMS, send an email, and optionally place an AI voice call, in one paid call.",
+    useCase:
+      "An agent has finished something for a human and needs to tell them: text a summary, email the details, and when the matter needs a conversation, place a short AI voice call with an objective. One payment to Agent402; the sends are fulfilled by an outside x402 seller paid from Agent402's own wallet, and the seller's receipts come back with the result.",
+    promptArgs: [
+      { name: "phone", description: "Destination phone number in E.164 form", required: true, substitute: "+15005550006" },
+      { name: "email", description: "Destination email address", required: true, substitute: "agent@example.com" },
+      { name: "subject", description: "Email subject line", required: true, substitute: "Your report is ready" },
+      { name: "message", description: "The message text (SMS and email body)", required: true, substitute: "The market brief you asked for is ready at https://agent402.tools/r/example" },
+      { name: "objective", description: "Optional: an objective for a voice call; no call is placed without one", required: false, substitute: "" },
+    ],
+    toolSlugs: ["sms-send", "email-send", "voice-call"],
+    workflow: [
+      "Call sms-send with to=<phone> and message=<message>.",
+      "Call email-send with to=<email>, subject=<subject> and body=<message>.",
+      "Only when an objective is given, call voice-call with to=<phone> and objective=<objective>; a message with no objective is not a phone call.",
+    ],
+    claudePrompt:
+      "Reach the person at +15005550006 and agent@example.com using Agent402's agent-outreach skill pack: (1) sms-send the message, (2) email-send it with the subject 'Your report is ready', and (3) only if I gave you an objective for a call, voice-call them with it. Report each channel's seller receipt.",
+  },
 ];
 
 // HTML escape — copied from guides.js/pages.js to keep skills self-contained.
