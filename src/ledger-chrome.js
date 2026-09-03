@@ -903,7 +903,7 @@ ${process.env.GOOGLE_SITE_VERIFICATION ? `<meta name="google-site-verification" 
 <link rel="canonical" href="${esc(canonical)}">
 <meta property="og:type" content="website">
 <meta property="og:url" content="${esc(canonical)}">
-<meta property="og:site_name" content="Agent402.Tools">
+<meta property="og:site_name" content="Agent402">
 <meta property="og:title" content="${esc(title)}">
 <meta property="og:description" content="${esc(description)}">
 <meta property="og:image" content="${esc(og)}">

@@ -118,7 +118,7 @@ ${CHROME_HEAD_LINKS}
 <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1">
 <meta property="og:type" content="website">
 <meta property="og:url" content="${canonical}">
-<meta property="og:site_name" content="Agent402.Tools">
+<meta property="og:site_name" content="Agent402">
 <meta property="og:title" content="${esc(title)}">
 <meta property="og:description" content="${esc(description)}">
 ${social}
@@ -731,7 +731,7 @@ export function openapiSpec(baseUrl, catalog) {
       // The title/description here are what x402scan, MPPScan and every
       // OpenAPI-reading directory display as OUR NAME - keep them aligned with
       // the homepage: both wires (x402 + MPP), not "x402 server".
-      title: "Agent402.Tools - 500+ pay-per-call tools for AI agents over x402 + MPP",
+      title: "Agent402: 500+ pay-per-call tools for AI agents over x402 + MPP",
       version: "2.1.0",
       description:
         // Template literal, not a plain string: this is the spec description
