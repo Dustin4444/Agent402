@@ -47,9 +47,13 @@ const CHAIN_ID = 8453;
 const BASE_RPCS = [process.env.AGENT402_BASE_RPC, "https://mainnet.base.org", "https://base.publicnode.com", "https://base-rpc.publicnode.com"].filter(Boolean);
 // Gas ceilings in USD. ATTEST_ETH_USD is a deliberately HIGH ETH price so the
 // bound is honest when ETH moves up between deploys (a lower real price only
-// makes the estimate more conservative). Measured 2026-09-03: a snapshot
-// deployment used 489k gas at 0.006 gwei; an EAS attest is ~150k.
-const MAX_GAS_USD = () => envNum("ATTEST_MAX_GAS_USD", 0.005);
+// makes the estimate more conservative). MEASURED on the first live run
+// (2026-09-03, canary 33782355596): an attest of this schema is 616,058 gas -
+// EAS stores the encoded data, and seven fields with four strings are ~25
+// storage slots - which at 0.006 gwei is 0.0000037 ETH, about $0.009 at the
+// day's ETH price and $0.028 under the 5000 x 1.5 bound. The first cut
+// assumed ~150k and priced the tool at $0.010; the ceiling refused every call.
+const MAX_GAS_USD = () => envNum("ATTEST_MAX_GAS_USD", 0.035);
 const SCHEMA_MAX_GAS_USD = () => envNum("ATTEST_SCHEMA_MAX_GAS_USD", 0.05);
 const ETH_USD = () => envNum("ATTEST_ETH_USD", 5000);
 // Base charges an L1 data fee beside the L2 gas that estimateGas reports; the
@@ -157,6 +161,9 @@ async function realChain() {
         const s = await publicClient.readContract({ address: SCHEMA_REGISTRY_ADDRESS, abi: REGISTRY_ABI, functionName: "getSchema", args: [uid] });
         if (s && s.uid && s.uid !== ZERO_BYTES32) { schemaChecked = true; return; }
         await serial(async () => {
+          // Re-read inside the lock: a concurrent call may have registered it.
+          const again = await publicClient.readContract({ address: SCHEMA_REGISTRY_ADDRESS, abi: REGISTRY_ABI, functionName: "getSchema", args: [uid] });
+          if (again && again.uid && again.uid !== ZERO_BYTES32) return;
           const gas = await publicClient.estimateGas({ account, to: SCHEMA_REGISTRY_ADDRESS, data: (await import("viem")).encodeFunctionData({ abi: REGISTRY_ABI, functionName: "register", args: [ATTEST_SCHEMA, ZERO_ADDRESS, false] }) });
           const usd = await costUsd(gas);
           if (usd > SCHEMA_MAX_GAS_USD()) throw bad(`Registering the attestation schema would cost about $${usd.toFixed(4)} in gas, over the $${SCHEMA_MAX_GAS_USD()} ceiling. Nothing was charged; retry when Base gas is lower.`, 503);
@@ -164,13 +171,28 @@ async function realChain() {
           const rcpt = await publicClient.waitForTransactionReceipt({ hash, timeout: 90_000 });
           if (rcpt.status !== "success") throw bad("Registering the attestation schema failed on chain. Nothing was charged.", 503);
           console.log(`[attest] schema ${uid} registered on Base in ${hash}`);
+          // The public RPC is load-balanced: the first live run estimated the
+          // attest against a node that had not seen the registration block and
+          // got "execution reverted". Wait until the registry reads back.
+          for (let i = 0; i < 20; i++) {
+            const seen = await publicClient.readContract({ address: SCHEMA_REGISTRY_ADDRESS, abi: REGISTRY_ABI, functionName: "getSchema", args: [uid] });
+            if (seen && seen.uid && seen.uid !== ZERO_BYTES32) break;
+            await new Promise((r) => setTimeout(r, 3000));
+          }
         });
         schemaChecked = true;
       },
       async estimateUsd(uid, recipient, data) {
         const { encodeFunctionData } = await import("viem");
         const callData = encodeFunctionData({ abi: EAS_ABI, functionName: "attest", args: [{ schema: uid, data: { recipient, expirationTime: 0n, revocable: false, refUID: ZERO_BYTES32, data, value: 0n } }] });
-        const gas = await publicClient.estimateGas({ account, to: EAS_ADDRESS, data: callData });
+        // One retry on a revert: a lagging node behind the schema's block.
+        let gas;
+        try { gas = await publicClient.estimateGas({ account, to: EAS_ADDRESS, data: callData }); }
+        catch (e) {
+          if (!/revert/i.test(String(e?.shortMessage || e?.message))) throw e;
+          await new Promise((r) => setTimeout(r, 4000));
+          gas = await publicClient.estimateGas({ account, to: EAS_ADDRESS, data: callData });
+        }
         return costUsd(gas);
       },
       async attest(uid, recipient, data) {
@@ -266,7 +288,7 @@ export const ATTEST_TOOLS = [
     name: "Attest a settled call on Base",
     slug: "attest",
     category: "agent",
-    price: "$0.010",
+    price: "$0.050",
     description:
       "Write an on-chain attestation (Ethereum Attestation Service on Base) that binds a call you paid for to the bytes you received: the tool slug, sha256 of the JSON response, the settlement chain and transaction, the payer, the time served and the price, signed by this server's wallet. Give it the settlement transaction from the PAYMENT-RESPONSE (or Payment-Receipt) header of any settled call; the attestation UID and its public page on base.easscan.org come back. Use it when an agent has to prove afterwards what data it acted on. The record is public and permanent: it names the payer and the tool, which the settlement transaction already exposes on chain. One attestation per sale (a repeat returns the existing UID); refused, uncharged, when the transaction is not a sale of this server, when the response was streamed or binary, or when Base gas would exceed the tool's own ceiling.",
     tags: ["attestation", "eas", "provenance", "receipt", "audit", "base", "x402"],

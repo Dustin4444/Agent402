@@ -60,7 +60,7 @@ export const TOOLS = [
     path: "/api/attest",
     method: "POST",
     body: (ctx) => ({ tx: ctx.lastSettledTx || "0x" + "00".repeat(32) }),
-    priceUsd: 0.01,
+    priceUsd: 0.05,
     check: (r) => (/^0x[0-9a-f]{64}$/i.test(r.uid || "") && r.existing === false && /^0x[0-9a-f]{64}$/i.test(r.attestTx || "") && r.data?.slug === "hash" && String(r.attestationUrl || "").startsWith("https://base.easscan.org/attestation/view/0x"))
       || `expected a fresh EAS attestation of the hash sale, got ${JSON.stringify(r).slice(0, 160)}`,
   },
