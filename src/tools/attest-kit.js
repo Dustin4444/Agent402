@@ -271,6 +271,7 @@ export const ATTEST_TOOLS = [
       "Write an on-chain attestation (Ethereum Attestation Service on Base) that binds a call you paid for to the bytes you received: the tool slug, sha256 of the JSON response, the settlement chain and transaction, the payer, the time served and the price, signed by this server's wallet. Give it the settlement transaction from the PAYMENT-RESPONSE (or Payment-Receipt) header of any settled call; the attestation UID and its public page on base.easscan.org come back. Use it when an agent has to prove afterwards what data it acted on. The record is public and permanent: it names the payer and the tool, which the settlement transaction already exposes on chain. One attestation per sale (a repeat returns the existing UID); refused, uncharged, when the transaction is not a sale of this server, when the response was streamed or binary, or when Base gas would exceed the tool's own ceiling.",
     tags: ["attestation", "eas", "provenance", "receipt", "audit", "base", "x402"],
     discovery: {
+      bodyType: "json",
       input: { tx: "0x2f1fecade9bd945e7817c11e5a34cafe6b349dd8c92a7587efed1de476bddfeb" },
       inputSchema: {
         properties: {

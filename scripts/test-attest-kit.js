@@ -131,6 +131,7 @@ eq(tool.slug, "attest", "slug");
 eq(tool.route, "POST /api/attest", "route");
 eq(tool.price, "$0.010", "price");
 ok(tool.discovery.inputSchema.required.includes("tx"), "tx required");
+eq(tool.discovery.bodyType, "json", "POST tool declares bodyType for the Bazaar extension (a missing one is an invalid extension at boot)");
 const pow = readFileSync(new URL("../src/pow.js", import.meta.url), "utf8");
 ok(/"attest",/.test(pow), "attest is wallet-only (never PoW: it spends gas)");
 const nonMetered = readFileSync(new URL("./test-non-metered-examples.js", import.meta.url), "utf8");
