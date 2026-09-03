@@ -300,8 +300,11 @@ export function enabledNetworks(network) {
 // (security audit A402-03). The wallet-scoped memory family and the
 // wallet-keyed my-usage report are the only such routes. Marked centrally where
 // the catalog is assembled; keyed here so code and tests share one definition.
+// `attest` joined 2026-09-03: an attestation is written for the BUYER of a sale,
+// so the handler must know who is paying, and only a signed EVM authorization
+// tells it before settlement.
 export const isIdentityBoundRoute = (def) =>
-  def?.category === "memory" || def?.slug === "my-usage";
+  def?.category === "memory" || def?.slug === "my-usage" || def?.slug === "attest";
 
 // Build the `accepts` list for one catalog item. EVM rails always apply. For an
 // identity-bound route that is ALL it advertises, so a buyer can never settle on

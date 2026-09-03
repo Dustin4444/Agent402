@@ -294,7 +294,7 @@ import { FARCASTER_SOCIAL_TOOLS, farcasterSocialEnabled } from "./tools/farcaste
 // Listed only when a Neynar/Warpcast key is present (same rule as the X data kit).
 const FARCASTER_SOCIAL_TOOLS_ENABLED = farcasterSocialEnabled() ? FARCASTER_SOCIAL_TOOLS : [];
 import { CRYPTO_MARKETS_TOOLS } from "./tools/crypto-markets-kit.js";
-import { ATTEST_TOOLS } from "./tools/attest-kit.js";
+import { ATTEST_TOOLS, setIdentityBoundSlugs } from "./tools/attest-kit.js";
 import { DEFI_TOOLS } from "./tools/defi-kit.js";
 import { CRYPTO_SIGNALS_TOOLS } from "./tools/crypto-signals-kit.js";
 import { CRAWL_TOOLS } from "./tools/crawl-kit.js";
@@ -1444,6 +1444,11 @@ for (const def of Object.values(CATALOG)) {
   // (see acceptsForItem) and no Tempo challenge (see mpp-tempo).
   if (isLongRunningSlug(def.slug)) def.longRunning = true;
 }
+// The attest tool refuses to attest a sale of an identity-bound route (a
+// memory read or a usage report is the buyer's own business, and an
+// attestation is public and permanent); it learns which slugs those are here,
+// from the same predicate, so the two can never disagree.
+setIdentityBoundSlugs(new Set(Object.values(CATALOG).filter((d) => d.identityBound).map((d) => d.slug)));
 
 // Boot-time guard: the retired pairwise-converter 410 handler (see the
 // RETIRED_CONVERT_API_RE block below) owns both /api/convert-…-to-… and
