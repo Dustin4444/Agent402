@@ -156,7 +156,7 @@ export const CRYPTO_TOOLS = [
     category: "data",
     price: "$0.010",
     description:
-      "Live crypto prices for one or many coins in any vs_currency (usd, eur, btc, eth, etc). Returns last price, 24h change %, 24h volume, and market cap per coin. The simplest crypto price read - for ranked market-cap tables use crypto-market, for candles use crypto-history, and when you need an oracle-grade price with a confidence interval use price-pyth. Accepts ticker symbols (BTC, ETH, SOL) for the top ~50 by market cap, or canonical CoinGecko ids (e.g. \"render-token\") for any of the ~15k tracked coins. Batched: up to 25 coins per call. Backed by CoinGecko's public API - keyless.",
+      "Live crypto prices for one or many coins in any vs_currency (usd, eur, btc, eth, etc). Returns last price, 24h change %, 24h volume, and market cap per coin. The simplest crypto price read - for ranked market-cap tables use crypto-market, for candles use crypto-history. Accepts ticker symbols (BTC, ETH, SOL) for the top ~50 by market cap, or canonical CoinGecko ids (e.g. \"render-token\") for any of the ~15k tracked coins. Batched: up to 25 coins per call. Backed by CoinGecko's public API - keyless.",
     tags: ["crypto", "price", "market-data", "bitcoin", "ethereum", "defi"],
     discovery: {
       input: { coins: "BTC,ETH,SOL", currency: "usd" },

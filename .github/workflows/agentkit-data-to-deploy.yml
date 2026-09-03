@@ -1,0 +1,53 @@
+name: AgentKit data-to-deploy live proof
+
+# Runs examples/agentkit-data-to-deploy/agent.js against production with the
+# canary burner: an AgentKit ViemWalletProvider buys the live ETH price from
+# agent402.tools over x402 (crypto-price, $0.01 USDC on Base), then deploys
+# Agent402PriceSnapshot to Base mainnet carrying the price and the payment tx.
+# Costs $0.01 USDC plus Base gas for one small contract (measured under
+# $0.001). The paying client refuses any payee but the Agent402 treasury
+# (AGENT402_PAYEES) and any call over $0.02 (maxPerCallUsd in agent.js). Installs the PINNED tree in scripts/agentkit-live/ (never resolve a
+# third-party tree fresh beside a funded key). Dispatch-only.
+on:
+  workflow_dispatch:
+    inputs:
+      coin:
+        description: "Symbol to buy and pin (crypto-price accepts the top ~50 by market cap)"
+        default: "ETH"
+        required: false
+      dry_run:
+        description: "1 = estimate gas only, buy and deploy nothing"
+        default: "0"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: Install the PINNED proof tree + the adapter tarball + the example
+        run: |
+          TGZ=$(cd "$GITHUB_WORKSPACE/adapters/agentkit" && npm pack --silent | tail -1)
+          mkdir -p /tmp/akdeploy/contracts
+          cp "$GITHUB_WORKSPACE"/scripts/agentkit-live/package.json "$GITHUB_WORKSPACE"/scripts/agentkit-live/package-lock.json /tmp/akdeploy/
+          cp "$GITHUB_WORKSPACE"/examples/agentkit-data-to-deploy/agent.js /tmp/akdeploy/
+          cp "$GITHUB_WORKSPACE"/examples/agentkit-data-to-deploy/contracts/artifact.json /tmp/akdeploy/contracts/
+          cd /tmp/akdeploy && npm ci --ignore-scripts --no-audit --no-fund
+          npm i --no-save --ignore-scripts --no-audit --no-fund "$GITHUB_WORKSPACE/adapters/agentkit/$TGZ"
+      - name: Buy the price over x402, deploy the snapshot to Base, read it back
+        env:
+          BURNER_KEY: ${{ secrets.BURNER_KEY }}
+          COIN: ${{ inputs.coin }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          [ -n "$BURNER_KEY" ] || { echo "::error::BURNER_KEY secret missing"; exit 1; }
+          echo "::add-mask::$BURNER_KEY"
+          # Allowlisted env: the third-party tree sees the burner key and nothing else.
+          cd /tmp/akdeploy && env -i PATH="$PATH" HOME="$HOME" AGENT_WALLET_KEY="$BURNER_KEY" AGENT402_PAYEES="0xabf4fabd7c416fb67202e5f9002389fc75e2a9d0" COIN="${COIN:-ETH}" DRY_RUN="${DRY_RUN:-0}" TARGET_URL="https://agent402.tools" AGENTKIT_ADAPTER="agent402-agentkit" node agent.js
