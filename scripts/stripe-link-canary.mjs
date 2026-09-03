@@ -11,6 +11,9 @@ import { spawnSync } from "node:child_process";
 
 const TARGET = (process.env.TARGET_URL || "https://agent402.tools").replace(/\/+$/, "");
 const ROUTE = process.env.STRIPE_CANARY_ROUTE || "/v1/premium/chat/completions";
+// A path only: "@other.host/x" appended to the target would move the whole URL (and the payment
+// credential + heartbeat token) to another host. Review note 2026-09-03.
+if (!/^\/[A-Za-z0-9\/_.-]*$/.test(ROUTE)) { console.error(`FAIL - STRIPE_CANARY_ROUTE must be a bare path, got ${JSON.stringify(ROUTE)}`); process.exit(1); }
 const PROFILE = (process.env.STRIPE_PROFILE_ID || "").trim();
 const LINK_CLI = process.env.LINK_CLI_VERSION || "0.16.0";
 const APPROVAL_WAIT_S = Number(process.env.STRIPE_CANARY_APPROVAL_WAIT_S || 720);
