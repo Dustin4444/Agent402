@@ -62,12 +62,18 @@ console.log(`baseline /api/revenue/mpp byNetwork.stripe = ${before}`);
 // 3. spend request (shared payment token), approved by the operator in the Link app
 const context = `Agent402 daily Stripe card canary: one $0.50 purchase of ${ROUTE} on ${TARGET} over the MPP stripe/charge challenge, proving the live card rail settles end to end. Recorded as internal traffic.`;
 console.log("creating spend request (approve it in the Link app within ~10 minutes)...");
-const sr = linkCli(["spend-request", "create", "--credential-type", "shared_payment_token", "--network-id", PROFILE, "--amount", "50", "--currency", "usd", "--context", context, "--request-approval"], { timeoutMs: APPROVAL_WAIT_S * 1000 });
-const srId = sr.json?.id || sr.json?.spend_request?.id || (sr.out.match(/\b(lsrq_[A-Za-z0-9]+)\b/) || [])[1];
-const srStatus = sr.json?.status || sr.json?.spend_request?.status || "";
-console.log(`spend request: ${srId || "?"} status=${srStatus || "?"} exit=${sr.status}`);
+const sr = linkCli(["spend-request", "create", "--credential-type", "shared_payment_token", "--network-id", PROFILE, "--amount", "50", "--currency", "usd", "--context", context, "--request-approval"]);
+// the CLI answers an ARRAY of one spend request; --request-approval sends the push and returns pending_approval
+const srObj = Array.isArray(sr.json) ? sr.json[0] : (sr.json?.spend_request || sr.json);
+const srId = srObj?.id || (sr.out.match(/\b(lsrq_[A-Za-z0-9]+)\b/) || [])[1];
 if (!srId) fail(`spend request not created: ${redact(sr.out).slice(0, 400)}`);
-if (srStatus && !/approved|active|succeeded/i.test(srStatus)) fail(`spend request ${srId} not approved (status ${srStatus})`);
+console.log(`spend request ${srId} status=${srObj?.status || "?"}; approve at ${srObj?.approval_url || "the Link app"} (waiting up to ${APPROVAL_WAIT_S}s)`);
+// poll until the operator approves (terminal statuses end the poll; anything but approved fails)
+const polled = linkCli(["spend-request", "retrieve", srId, "--interval", "5", "--timeout", String(APPROVAL_WAIT_S)], { timeoutMs: (APPROVAL_WAIT_S + 60) * 1000 });
+const polledObj = Array.isArray(polled.json) ? polled.json[0] : polled.json;
+const srStatus = polledObj?.status || (polled.out.match(/"status":\s*"([a-z_]+)"/g) || []).pop()?.match(/"([a-z_]+)"$/)?.[1] || "?";
+console.log(`spend request ${srId} final status=${srStatus} (exit ${polled.status})`);
+if (srStatus !== "approved") fail(`spend request ${srId} was not approved in time (status ${srStatus})`);
 
 // 4. pay
 const hdrs = ["-H", "content-type: application/json"];
