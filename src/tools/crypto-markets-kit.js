@@ -84,22 +84,10 @@ function headers() {
 // traffic has to be paced here rather than discovered at the upstream 429. A
 // caller that arrives with an empty bucket gets 503 (capacity) and is not
 // charged; a cache hit never takes a token.
-const cgRatePerMin = () => Math.max(1, parseInt(process.env.COINGECKO_MAX_PER_MIN || "25", 10) || 25);
-let cgTokens = null, cgRefilledAt = 0;
-function takeCgToken(now) {
-  const cap = cgRatePerMin();
-  if (cgTokens === null) { cgTokens = cap; cgRefilledAt = now; }
-  const elapsed = now - cgRefilledAt;
-  if (elapsed > 0) {
-    cgTokens = Math.min(cap, cgTokens + (elapsed / 60_000) * cap);
-    cgRefilledAt = now;
-  }
-  if (cgTokens < 1) return false;
-  cgTokens -= 1;
-  return true;
-}
-/** Test seam: refill the bucket (offline suites make dozens of stubbed calls). */
-export function resetCgRateLimit() { cgTokens = null; cgRefilledAt = 0; }
+// The bucket is SHARED with crypto-kit since 2026-09-03 (src/tools/coingecko-rate.js):
+// one Demo key, one minute budget, whichever kit spends it.
+import { takeCgToken, resetCgRateLimit } from "./coingecko-rate.js";
+export { resetCgRateLimit };
 
 async function cgGet(path, params, ttlMs) {
   const url = new URL(CG_BASE + path);

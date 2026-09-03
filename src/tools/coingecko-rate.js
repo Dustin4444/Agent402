@@ -1,0 +1,35 @@
+// One token bucket for EVERY CoinGecko call this server makes.
+//
+// The Demo plan meters the key at 30 requests a minute, account-wide. Two kits
+// read it: crypto-markets-kit (the 17 market/RWA tools) kept a private bucket
+// at 25/min, and crypto-kit (crypto-price, crypto-market, crypto-history and
+// friends) sent the same key with no bucket at all, so under load the two
+// together overran the key and every caller of either kit saw 429s. The
+// bucket lives here now and both kits draw from it; a caller that finds it
+// empty is refused 503 BEFORE any upstream call (a >= 400 cancels settlement,
+// nobody pays for the refusal). COINGECKO_MAX_PER_MIN tunes it (default 25,
+// under the plan's 30 so the retry-after-429 path keeps a little room).
+const cgRatePerMin = () => Math.max(1, parseInt(process.env.COINGECKO_MAX_PER_MIN || "25", 10) || 25);
+let cgTokens = null, cgRefilledAt = 0;
+
+/** Take one request's worth of budget; false when the minute is spent. */
+export function takeCgToken(now = Date.now()) {
+  const cap = cgRatePerMin();
+  if (cgTokens === null) { cgTokens = cap; cgRefilledAt = now; }
+  const elapsed = now - cgRefilledAt;
+  if (elapsed > 0) {
+    cgTokens = Math.min(cap, cgTokens + (elapsed / 60_000) * cap);
+    cgRefilledAt = now;
+  }
+  if (cgTokens < 1) return false;
+  cgTokens -= 1;
+  return true;
+}
+
+/** Test seam: refill the bucket (offline suites make dozens of stubbed calls). */
+export function resetCgRateLimit() { cgTokens = null; cgRefilledAt = 0; }
+
+/** True for any CoinGecko API host (api./pro-api. ...). */
+export function isCoinGeckoHost(hostname) {
+  return String(hostname || "").toLowerCase().endsWith("coingecko.com");
+}

@@ -33,7 +33,7 @@
 // Route PostHog captures to the in-memory sink before anything imports it.
 process.env.POSTHOG_TEST_CAPTURE = "1";
 process.env.OPENROUTER_API_KEY = "test-key";
-delete process.env.OX_ALPHA_ENABLED;
+process.env.OX_ALPHA_ENABLED = "on"; // OFF by default since 2026-09-03; these tests exercise the tier switched on
 
 const {
   TIERS, MARGIN, OX_MODEL, OX_ROUTE, STEALTH_MODEL_IDS,
@@ -237,13 +237,14 @@ try {
 
 // ---------------------------------------------------------------------------
 console.log("\n# 8. vanish tolerance - availability gate and boot probe");
-ok(oxAlphaAvailable() === true, "tier is available by default (id verified live 2026-08-22)");
+ok(oxAlphaAvailable() === true, "tier is available when switched on (id verified live 2026-08-22)");
 {
   process.env.OX_ALPHA_ENABLED = "off";
   ok(oxAlphaAvailable() === false, "OX_ALPHA_ENABLED=off disables the tier (operator kill switch)");
   ok(!modelsList().data.some((m) => m.id === OX_MODEL), "a disabled tier is not advertised on GET /v1/models");
   delete process.env.OX_ALPHA_ENABLED;
-  ok(oxAlphaAvailable() === true, "removing the switch re-enables it");
+  ok(oxAlphaAvailable() === false, "unset = OFF: a fresh self-host never advertises the dead stealth tier");
+  process.env.OX_ALPHA_ENABLED = "on";
 }
 {
   // A successful catalog read that does NOT list the id disables the tier.

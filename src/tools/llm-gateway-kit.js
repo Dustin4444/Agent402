@@ -90,7 +90,11 @@ export const OX_ROUTE = "/v1/ox/chat/completions";
 /** Ids the live-catalog CI guard must tolerate losing. */
 export const STEALTH_MODEL_IDS = Object.freeze([OX_MODEL]);
 const OX_MODELS_CATALOG_URL = "https://openrouter.ai/api/v1/models";
-const OX_ENABLED = () => String(process.env.OX_ALPHA_ENABLED || "on").toLowerCase() !== "off";
+// Default OFF since 2026-09-03: stealth/ox-alpha has had no upstream endpoints
+// since early September (the boot probe 503s it; prod runs OX_ALPHA_ENABLED=OFF),
+// and a fresh self-host must not advertise a dead tier. "on" re-enables it if
+// the listing ever returns.
+const OX_ENABLED = () => String(process.env.OX_ALPHA_ENABLED || "off").toLowerCase() === "on";
 // Set true ONLY by a successful catalog read that did not list the id. An
 // unreadable catalog never sets it (fail open).
 let oxUpstreamMissing = false;

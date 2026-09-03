@@ -2753,7 +2753,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   added to premium), and link 2 of /v1/images/fast is `openai/gpt-5-image-mini` (identical $8/M image-token price; measured
   live $0.0126 at medium, worstCaseUsd 0.013). The `gpt-4o-2024-05-13` cost row STAYS until the id leaves the catalog: it is
   live at $5/$15 and the `openai/gpt-4o` prefix admits it, so removing the row made the live guard flag an under-count.
-  `stealth/ox-alpha` has no upstream endpoints at all (the boot probe 503s it; set `OX_ALPHA_ENABLED=off` to stop advertising).
+  `stealth/ox-alpha` has no upstream endpoints at all (the boot probe 503s it); since 2026-09-03 the tier is OFF BY DEFAULT (`OX_ALPHA_ENABLED=on` re-enables it if the listing returns; prod already ran `OFF`). Same day: **one CoinGecko bucket for both kits** (`src/tools/coingecko-rate.js`, 25/min, `COINGECKO_MAX_PER_MIN`): crypto-markets-kit had a private bucket and crypto-kit (crypto-price and friends) sent the same Demo key with none, so together they could overrun the key; crypto-kit now refuses 503 (uncharged) before the call when the shared minute is spent, and its description no longer says "keyless". `scripts/test-coingecko-rate.js`.
 - **Server telemetry is ANONYMOUS (2026-08-28, from a provider sweep):** every `capture()` in posthog.js now carries
   `$process_person_profile: false`. Measured: 307,424 of 311,256 events in seven days were server events on the single
   constant id `agent402-server`, and PostHog bills an event WITH person processing at roughly five times the anonymous
