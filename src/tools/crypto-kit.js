@@ -17,6 +17,7 @@
 // use the same assertPublicUrl + native fetch pattern as finance-kit for
 // consistency and to keep the per-host UA option open.
 import { assertPublicUrl } from "./fetch-guard.js";
+import { takeCgToken, isCoinGeckoHost } from "./coingecko-rate.js";
 import { redactSecrets } from "./redact.js";
 
 function bad(message, statusCode = 400) {
@@ -98,7 +99,14 @@ async function jsonGet(url, host = "CoinGecko") {
   // helper also hits Coinbase Exchange (crypto-orderbook), and the key must
   // never ride a request to another host.
   const cgKey = process.env.COINGECKO_API_KEY;
-  const sendCgKey = Boolean(cgKey) && safeUrl.hostname.toLowerCase().includes("coingecko");
+  const sendCgKey = Boolean(cgKey) && isCoinGeckoHost(safeUrl.hostname);
+  // The key's minute budget is ONE bucket shared with crypto-markets-kit
+  // (coingecko-rate.js). Refuse before the upstream call when it is spent:
+  // 503 is never charged, and a call that went out anyway would only spend
+  // the 429 retry both kits then pay for.
+  if (isCoinGeckoHost(safeUrl.hostname) && !takeCgToken(Date.now())) {
+    throw bad("CoinGecko is rate limited right now, retry in a few seconds. You were not charged.", 503);
+  }
   const attempt = (timeout) =>
     fetch(safeUrl, {
       headers: {
@@ -156,7 +164,7 @@ export const CRYPTO_TOOLS = [
     category: "data",
     price: "$0.010",
     description:
-      "Live crypto prices for one or many coins in any vs_currency (usd, eur, btc, eth, etc). Returns last price, 24h change %, 24h volume, and market cap per coin. The simplest crypto price read - for ranked market-cap tables use crypto-market, for candles use crypto-history. Accepts ticker symbols (BTC, ETH, SOL) for the top ~50 by market cap, or canonical CoinGecko ids (e.g. \"render-token\") for any of the ~15k tracked coins. Batched: up to 25 coins per call. Backed by CoinGecko's public API - keyless.",
+      "Live crypto prices for one or many coins in any vs_currency (usd, eur, btc, eth, etc). Returns last price, 24h change %, 24h volume, and market cap per coin. The simplest crypto price read - for ranked market-cap tables use crypto-market, for candles use crypto-history. Accepts ticker symbols (BTC, ETH, SOL) for the top ~50 by market cap, or canonical CoinGecko ids (e.g. \"render-token\") for any of the ~15k tracked coins. Batched: up to 25 coins per call. Backed by CoinGecko's API (this server's Demo key when configured, else the shared keyless rate).",
     tags: ["crypto", "price", "market-data", "bitcoin", "ethereum", "defi"],
     discovery: {
       input: { coins: "BTC,ETH,SOL", currency: "usd" },
