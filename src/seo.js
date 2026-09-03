@@ -117,6 +117,7 @@ Disallow: /api/m/
 Disallow: /api/credits/
 Disallow: /api/convert/
 Disallow: /api/monitors/
+Disallow: /api/pow/
 Disallow: /api/buy
 ${costly}
 
