@@ -1,5 +1,7 @@
 # agent402-tollbooth
 
+Part of [Agent402](https://agent402.tools), the open-source paid door for AI agents.
+
 **Open-source, self-hostable pay-per-crawl for x402 and MPP. Put it in front of
 any site or API: humans browse free, AI crawlers and agents pay per request** -
 in USDC over the [x402 protocol](https://x402.org), over

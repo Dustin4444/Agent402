@@ -1,5 +1,7 @@
 # agent402-openclaw
 
+Part of [Agent402](https://agent402.tools), the open-source paid door for AI agents.
+
 Agent402 as an [OpenClaw](https://openclaw.ai) model provider: auto-routed and
 explicit frontier models at a **flat per-call price**, paid **by card** (a prepaid
 credits key, no wallet) or in **USDC over x402** from a wallet. The same key and
