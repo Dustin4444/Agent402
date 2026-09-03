@@ -2914,6 +2914,19 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   The samples for the three changed kits were regenerated on the fixed code. Recipe: `scratchpad/make-samples.sh` shape - pull keys with
   `railway variables -s agent402 -e production --json` into a 0600 env file, boot FREE_MODE on a free port, POST each route, save
   `{product,input,title,report,sources,tables,meta,at,generatedWith}`; never commit the env file.
+- **Weekly spend digest + the homepage sentence (2026-09-02 night, `src/wallet-digest.js`, `src/digest-page.js`,
+  `assets/js/digest-signup.js`, `scripts/test-wallet-digest.js` 29 in CI):** 92 of 250 buyers in 60 days bought once and
+  nothing ever spoke to them again, because a wallet has no inbox. `/digest` subscribes an email to the identity a buyer
+  already pays with: an EVM wallet proved by `personal_sign` over `digestProofMessage` (address + email + timestamp,
+  15-min window, verified with viem `verifyMessage`) or a credits key proved by presenting it (`keyIdOf`, never stored)
+  - a new key's claim email carries its own signed confirm link (`preEnrolCredits` -> `digestLinkFor` in credits.js).
+  Same posture as free-alerts: double opt-in (the click is the consent), signed unsubscribe that drops the address,
+  `List-Unsubscribe` headers, 3 per address, 5,000 store, pending TTL 3 days, counts-only `/__operator/digest.json`,
+  `POST /__operator/digest/run?force=1`. One email a week from `payerUsage(payer, {days:7})` (calls, dollars, top
+  tools, chains; `balanceById` + top-up link for a credits key); a quiet week after the first digest sends nothing
+  but still advances the clock. Tick hourly (first +10 min); `WALLET_DIGEST=off` disarms. Secret rule = the alerts'.
+  Same commit: the hero now leads with the one sentence - "No account. No API key. No card on file." / "Pay for any API
+  call without an account." - pinned in test-home-page.
 - **Free email alerts = the lead magnet on the free report pages (2026-08-28, day 2 of the reports bet; `src/free-alerts.js`,
   `assets/js/alert-signup.js`, `scripts/test-free-alerts.js` 35 in CI):** a visitor on `/reports/insider/<T>`, `/reports/fund/<m>`,
   `/reports/dossier/<T>` or a sample report enters an email; we watch that one target with the SAME free daily probe the paid

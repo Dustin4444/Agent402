@@ -90,6 +90,7 @@ so every claim below is verifiable in code.</p>
   <li><b>Memory tools.</b> Data written via <code>/api/memory</code> is stored on our server keyed to the
   paying wallet, readable only by that wallet (or wallets it explicitly grants), until the owner deletes
   it or its TTL expires. A tamper-evident audit log of accesses is kept for the namespace owner.</li>
+  <li><b>Weekly spend digest.</b> If you subscribe an email to a wallet (by signing a message with it) or to a credits key (by presenting it), we store that address, the wallet address or the key's id, and the dates we sent to it, only after you click the confirmation link. Each digest carries an unsubscribe link that removes the address. The key itself is never stored by the form.</li>
   <li><b>Free email alerts.</b> If you enter an email on a free report page to be told when a company, fund, domain or product changes, we store that address, the subject you chose and the dates we checked and emailed, and we send you a confirmation link first: nothing is watched and nothing else is sent until you click it. Alert emails go out at most once a day, only when something changed, through the same transactional provider, and every one carries a one-click unsubscribe link that ends the alert and stops all email. We do not use the address for anything else and do not share it.</li>
 </ul>
 

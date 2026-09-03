@@ -178,6 +178,7 @@ export function sitemapXml(baseUrl, catalog) {
     { loc: `${baseUrl}/agentic-finance`, priority: "0.9" },
     { loc: `${baseUrl}/why`, priority: "0.8" },
     { loc: `${baseUrl}/markets`, priority: "0.8" },
+    { loc: `${baseUrl}/digest`, priority: "0.6" },
     { loc: `${baseUrl}/security`, priority: "0.7" },
     { loc: `${baseUrl}/company`, priority: "0.7" },
     { loc: `${baseUrl}/proof`, priority: "0.7" },
@@ -247,6 +248,7 @@ export function sitemapPages(baseUrl, catalog) {
     { loc: `${baseUrl}/agentic-finance`, priority: "0.9" },
     { loc: `${baseUrl}/why`, priority: "0.8" },
     { loc: `${baseUrl}/markets`, priority: "0.8" },
+    { loc: `${baseUrl}/digest`, priority: "0.6" },
     { loc: `${baseUrl}/security`, priority: "0.7" },
     { loc: `${baseUrl}/company`, priority: "0.7" },
     { loc: `${baseUrl}/glossary`, priority: "0.8" },
@@ -473,6 +475,7 @@ ${toolSections}
 - [Tool docs](${baseUrl}/tools): human-readable documentation per tool
 - [Security](${baseUrl}/security): disclosure policy with safe harbor, what data is held, key handling, controls in the serving path and on the code
 - [Company](${baseUrl}/company): Havok Holdings LLC, what it sells, where the proof is, role mailboxes
+- [Weekly digest](${baseUrl}/digest): one email a week with what a wallet or credits key spent here (calls, dollars, tools, chains); double opt-in, signed unsubscribe
 - [Markets](${baseUrl}/markets): the keyless crypto market-data calls (market pulse, perps, options, DeFi, stablecoins, news, indicators) with one curl to copy
 - [Prepaid card credits](${baseUrl}/credits): no wallet? buy $20-$100 of credits by card, then call any paid tool with the header "Authorization: Bearer a402_..." (debited per call on success; balance at GET /api/credits/balance)
 - [Agentic Finance](${baseUrl}/agentic-finance): what the category is and where Agent402 sits in it
