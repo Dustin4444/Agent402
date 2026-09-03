@@ -49,6 +49,7 @@ const PAGES = [
   { path: "/what-is-mpp", titleSubstr: "MPP" },
   { path: "/agentic-finance", titleSubstr: "Agentic Finance" },
   { path: "/why",         titleSubstr: "Why pay here" },
+  { path: "/digest",      titleSubstr: "Weekly spend digest" },
   { path: "/markets",     titleSubstr: "market data" },
   { path: "/security",    titleSubstr: "Security" },
   { path: "/company",     titleSubstr: "Havok Holdings" },

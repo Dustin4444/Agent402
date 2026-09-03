@@ -143,6 +143,8 @@ import { securityPage } from "./security-page.js";
 import { companyPage } from "./company.js";
 import { sampleJson, sampleMeta, SAMPLE_PRODUCTS } from "./sample-reports.js";
 import { createFreeAlerts, alertFormHtml, ALERT_KIND_FOR_REPORT_KIND } from "./free-alerts.js";
+import { createWalletDigest } from "./wallet-digest.js";
+import { digestPage } from "./digest-page.js";
 import { createFollowups } from "./followups.js";
 import { monitorForKind as fuMonitorForKind } from "./report-upgrade.js";
 import { SAMPLES as fuSamples } from "./sample-reports.js";
@@ -339,7 +341,7 @@ import { x402EconomySnapshot, economySnapshotCached, warmEconomySnapshot } from 
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate } from "./settlement-proof.js";
 import { dispatchEligibility, dispatchLegend } from "./dispatch-eligibility.js";
 import { spend as sharedSpend, refund as sharedRefund, sharedLimitEnabled } from "./shared-limit.js";
-import { recordSale, salesSummary, externalByNetwork, mppSales, cardSales, mppTxHashes, txFromPaymentResponse, tempoDailyRevenue, tempoDailyRecordingSince, proofFeed, externalDailyRevenue } from "./sales-ledger.js";
+import { recordSale, salesSummary, externalByNetwork, mppSales, cardSales, mppTxHashes, txFromPaymentResponse, tempoDailyRevenue, tempoDailyRecordingSince, proofFeed, externalDailyRevenue, payerUsage } from "./sales-ledger.js";
 import { recordShadowSettlement, startShadowLedger, shadowLedgerReport, shadowLedgerEnabled } from "./stripe-shadow-ledger.js";
 import { reconcileSettlements } from "./settlement-reconcile.js";
 import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
@@ -1544,6 +1546,26 @@ const _freeAlerts = createFreeAlerts({
   onEvent: ({ step, kind }) => { try { capturePostHogHumanFunnel({ step, kind }); } catch { /* telemetry never breaks the engine */ } },
 });
 if (process.env.FREE_ALERTS !== "off") _freeAlerts.start();
+// Weekly spend digest (src/wallet-digest.js): the one place the site asks a
+// buyer for an inbox. Keyed to the identity they already pay with (an EVM
+// wallet proved by signature, or a credits key), double opt-in, signed
+// unsubscribe, nothing sent for a quiet week. Same secret rule as the alerts.
+// Created BEFORE the credits engine so a new key's claim email can carry its
+// own signed confirm link; the credits accessors are read lazily.
+const _walletDigest = createWalletDigest({
+  secret: (process.env.FREE_ALERTS_SECRET || process.env.POW_SECRET || process.env.MPP_SECRET_KEY || "").trim(),
+  baseUrl: BASE_URL,
+  sendEmail: faSendEmail,
+  usage: (payer, opts) => payerUsage(payer, opts),
+  creditsBalance: (keyId) => (_credits && typeof _credits.balanceById === "function" ? _credits.balanceById(keyId) : null),
+  creditsKeyId: (key) => (_credits && typeof _credits.keyIdOf === "function" ? _credits.keyIdOf(key) : null),
+  verifySignature: async ({ address, message, signature }) => {
+    const { verifyMessage } = await import("viem");
+    return verifyMessage({ address, message, signature });
+  },
+  onEvent: ({ step, kind }) => { try { capturePostHogHumanFunnel({ step, kind }); } catch { /* telemetry never breaks the engine */ } },
+});
+if (process.env.WALLET_DIGEST !== "off") _walletDigest.start();
 // Post-purchase follow-ups (src/followups.js): two emails at most per card
 // purchase, stoppable, plus the immediate failure notice. Same secret rule.
 const _followups = createFollowups({
@@ -1597,6 +1619,42 @@ app.get("/alerts/unsubscribe", (req, res) => {
 });
 // One-click unsubscribe (RFC 8058): mail clients POST the List-Unsubscribe URL.
 app.post("/alerts/unsubscribe", (req, res) => { const r = _freeAlerts.unsubscribe(String(req.query.id || ""), String(req.query.k || "")); res.status(r.ok ? 200 : 400).json({ ok: r.ok }); });
+// ---- weekly digest routes (src/wallet-digest.js) ----
+app.get("/digest", (_req, res) => htmlCache(res, 300, 900).send(digestPage(BASE_URL)));
+app.post("/api/digest", express.json({ limit: "8kb" }), async (req, res) => {
+  if (alertsSignupLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many signups from this address. Try again in a few minutes." });
+  const b = req.body || {};
+  if (typeof b.website === "string" && b.website) return res.json({ ok: true, status: "pending" }); // honeypot
+  const emailKey = createHash("sha256").update(String(b.email || "").trim().toLowerCase()).digest("hex").slice(0, 32);
+  if (alertsEmailLimiter.check(`e:${emailKey}`).limited) return res.json({ ok: true, status: "pending" });
+  try { res.json(await _walletDigest.signup({ email: b.email, wallet: b.wallet, message: b.message, signature: b.signature, creditsKey: b.creditsKey, source: b.source })); }
+  catch (e) {
+    if (e?.buyerSafe && e.statusCode) return res.status(e.statusCode).json({ error: String(e.message).slice(0, 200) });
+    console.warn("[wallet-digest] signup failed:", String(e?.message || e).slice(0, 160));
+    res.status(500).json({ error: "Could not subscribe. Please try again." });
+  }
+});
+app.get("/digest/confirm", (req, res) => {
+  const r = _walletDigest.confirm(String(req.query.id || ""), String(req.query.k || ""));
+  res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html");
+  if (!r.ok) return res.status(400).send(alertPage("That link did not work", `<p>The confirmation link is invalid or the digest was unsubscribed. <a href="/digest">Subscribe again</a>.</p>`));
+  res.send(alertPage("Digest confirmed", `<p>Your first digest arrives within the hour, then one a week. Nothing is sent for a quiet week. <a href="/tools/my-usage">See the full history now</a>.</p>`));
+});
+app.get("/digest/unsubscribe", (req, res) => {
+  const r = _walletDigest.unsubscribe(String(req.query.id || ""), String(req.query.k || ""));
+  res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html");
+  if (!r.ok) return res.status(400).send(alertPage("That link did not work", `<p>The unsubscribe link is invalid. <a href="/contact">Contact us</a> and we will remove you by hand.</p>`));
+  res.send(alertPage("Unsubscribed", `<p>No more digests. Your address has been removed. <a href="/digest">Subscribe again</a> any time.</p>`));
+});
+app.post("/digest/unsubscribe", (req, res) => { const r = _walletDigest.unsubscribe(String(req.query.id || ""), String(req.query.k || "")); res.status(r.ok ? 200 : 400).json({ ok: r.ok }); });
+app.get("/__operator/digest.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  res.set("Cache-Control", "no-store").json(_walletDigest.stats());
+});
+app.post("/__operator/digest/run", async (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  res.set("Cache-Control", "no-store").json(await _walletDigest.tick({ force: req.query.force === "1" }));
+});
 app.get("/__operator/alerts.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   res.set("Cache-Control", "no-store").json(_freeAlerts.stats());
@@ -1653,6 +1711,7 @@ try {
     // the money once - when it is spent (rail "credits" below).
     onLoad: ({ pack, priceUsd, keyId, paymentIntent }) => recordSale({ slug: `credits:${pack}`, priceUsd, rail: "card-prepaid", network: "stripe", payer: keyId, tx: paymentIntent, wire: "stripe-checkout" }),
     onDebit: ({ slug, priceUsd, keyId }) => recordSale({ slug, priceUsd, rail: "credits", network: "stripe", payer: keyId, tx: null, wire: "credits" }),
+    digestLinkFor: ({ keyId, email }) => _walletDigest.preEnrolCredits({ keyId, email }),
   }) : null;
 } catch (e) { console.warn("[credits] init failed:", String(e?.message || e).slice(0, 200)); _credits = null; }
 // Manage/cancel bearer for monitor subscribers: a keyed token over the report

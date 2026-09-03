@@ -103,7 +103,7 @@ const catalog = {
   // stronger invariant now is its absence.
   ok(!/<script src="https?:\/\//.test(html), "homepage loads no third-party script (no CDN tags)");
   ok(html.includes('<script src="/js/home-hero.js">'), "homepage behavior script is first-party");
-  ok(html.includes("Wallet or card. Same key, same receipts."), "hero eyebrow leads with the one thing a per-token router cannot offer: wallet or card on one key, with receipts");
+  ok(html.includes("No account. No API key. No card on file.") && html.includes("Pay for any API call"), "hero leads with the one sentence: pay for any API call without an account, key or card on file");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
