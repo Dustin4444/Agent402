@@ -129,7 +129,7 @@ ok(spent > 0 && spent <= 0.0021, `base wallet booked the estimate (${spent})`);
 const tool = ATTEST_TOOLS[0];
 eq(tool.slug, "attest", "slug");
 eq(tool.route, "POST /api/attest", "route");
-eq(tool.price, "$0.010", "price");
+eq(tool.price, "$0.050", "price");
 ok(tool.discovery.inputSchema.required.includes("tx"), "tx required");
 eq(tool.discovery.bodyType, "json", "POST tool declares bodyType for the Bazaar extension (a missing one is an invalid extension at boot)");
 const pow = readFileSync(new URL("../src/pow.js", import.meta.url), "utf8");
@@ -140,7 +140,7 @@ const testAll = readFileSync(new URL("./test-all.js", import.meta.url), "utf8");
 ok(testAll.includes('"/api/attest"'), "attest is in test-all's NETWORK set");
 // The tool's own worst case sits under the 70% rule: $0.005 gas ceiling on a $0.010 price.
 eq(tool.price, "$0.050", "priced from the MEASURED 616k-gas attest, not the 150k guess");
-ok(0.035 <= 0.7 * 0.05, "gas ceiling ($0.035) under 70% of price");
+ok(35000 <= (50000 * 7) / 10, "gas ceiling ($0.035) under 70% of price (micro-USD, no float)");
 ok(0.0277 < 0.035, "the first live run's bounded estimate ($0.0277) clears the ceiling");
 
 rmSync(dir, { recursive: true, force: true });
