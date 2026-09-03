@@ -98,6 +98,7 @@ const COINGECKO_SLUGS = new Set([
   "coin-categories", "global-defi", "exchanges", "exchange-tickers", "exchange-rates", "coin-search",
   "coins-list", "price-coingecko",
   "rwa-list", "rwa-markets", "rwa-asset", "rwa-issuers", "rwa-issuer",
+  "attest",  // attest-kit.js: spends Base gas from the spending wallet, unset in CI
 ]);
 const CG_SAMPLE_SIZE = Number(process.env.NON_METERED_CG_SAMPLE) || 2;
 

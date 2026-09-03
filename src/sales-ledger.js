@@ -72,6 +72,14 @@ try { db.exec("ALTER TABLE sales ADD COLUMN wire TEXT"); } catch { /* exists */ 
 // ledger can prove per row (see proofFeed / GET /api/proof). NULL on flat
 // routes and pre-column rows.
 try { db.exec("ALTER TABLE sales ADD COLUMN quote_usd REAL"); } catch { /* exists */ }
+// Additive columns (2026-09-03, the attest tool): sha256 of the JSON body the
+// buyer received (hex, recorded by the dispatcher for JSON responses only;
+// NULL for streamed/binary bodies and pre-column rows), and the EAS
+// attestation written for this sale on Base, once one exists.
+try { db.exec("ALTER TABLE sales ADD COLUMN response_sha256 TEXT"); } catch { /* exists */ }
+try { db.exec("ALTER TABLE sales ADD COLUMN attest_uid TEXT"); } catch { /* exists */ }
+try { db.exec("ALTER TABLE sales ADD COLUMN attest_tx TEXT"); } catch { /* exists */ }
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_sales_tx ON sales (tx)"); } catch { /* exists */ }
 
 // Boot-time reclassification (2026-08-20): `internal` is decided at record
 // time, so a wallet that JOINS the burner/test set later leaves stale
@@ -95,7 +103,7 @@ try {
 } catch (e) { console.warn(`[sales-ledger] internal reclassification sweep failed: ${String(e?.message || e).slice(0, 200)}`); }
 
 const insertSale = db.prepare(
-  "INSERT INTO sales (ts, slug, price_usd, rail, network, payer, tx, internal, wire, quote_usd) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  "INSERT INTO sales (ts, slug, price_usd, rail, network, payer, tx, internal, wire, quote_usd, response_sha256) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 );
 
 /** Settle tx hash/signature out of the base64 PAYMENT-RESPONSE receipt. */
@@ -113,7 +121,7 @@ export function txFromPaymentResponse(headerValue) {
  * Record one served catalog call. Fire-and-forget from the serving path:
  * never throws, and a broken disk only costs the row, not the response.
  */
-export function recordSale({ slug, priceUsd, rail, network, payer, tx, synthetic, wire, quoteUsd }) {
+export function recordSale({ slug, priceUsd, rail, network, payer, tx, synthetic, wire, quoteUsd, responseSha256 }) {
   try {
     const p = normalizePayerAddress(payer); // lowercases EVM only — base58/Stellar stay case-exact
     const internal = Boolean(synthetic) || rail === "heartbeat" || (p !== null && BURNERS.has(p));
@@ -128,9 +136,38 @@ export function recordSale({ slug, priceUsd, rail, network, payer, tx, synthetic
       tx ? String(tx) : null,
       internal ? 1 : 0,
       wire ? String(wire) : null,
-      Number.isFinite(q) && q > 0 ? q : null
+      Number.isFinite(q) && q > 0 ? q : null,
+      /^[0-9a-f]{64}$/i.test(String(responseSha256 || "")) ? String(responseSha256).toLowerCase() : null
     );
   } catch { /* never break serving for accounting */ }
+}
+
+const selectByTx = db.prepare(
+  "SELECT id, ts, slug, price_usd, rail, network, payer, tx, internal, wire, quote_usd, response_sha256, attest_uid, attest_tx FROM sales WHERE tx = ? ORDER BY id DESC LIMIT 1"
+);
+const updateAttestation = db.prepare("UPDATE sales SET attest_uid = ?, attest_tx = ? WHERE id = ? AND attest_uid IS NULL");
+
+/** The newest sale settled by this transaction (hash or signature, as the
+ *  receipt carried it), or null. Read by the attest tool: a settlement we did
+ *  not record is not ours to attest. */
+export function saleByTx(tx) {
+  const t = String(tx || "").trim();
+  if (!t) return null;
+  const r = selectByTx.get(t);
+  if (!r) return null;
+  return {
+    id: r.id, ts: r.ts, slug: r.slug, priceUsd: Number(r.price_usd) || 0, rail: r.rail, network: r.network || null,
+    payer: r.payer || null, tx: r.tx, internal: !!r.internal, wire: r.wire || null,
+    responseSha256: r.response_sha256 || null, attestUid: r.attest_uid || null, attestTx: r.attest_tx || null,
+  };
+}
+
+/** Record the attestation written for a sale. Write-once: a second call for
+ *  the same row is a no-op (returns false), so a racing double attest can
+ *  never overwrite the first UID. */
+export function setAttestation(id, { uid, attestTx }) {
+  try { return updateAttestation.run(String(uid), attestTx ? String(attestTx) : null, Number(id)).changes === 1; }
+  catch { return false; }
 }
 
 const qExtBySlug = db.prepare(`

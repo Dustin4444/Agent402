@@ -541,6 +541,23 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   quotes ABOVE the floor so a collapsed quote is visible. **First real metered settlement:** paid-canary run
   32962953735, `llm-metered -> settled $0.001` (2026-08-26 11:28Z). Card rail first live settlement:
   pi_3U8VOXRaPcokjIwV0WvAvBAb (2026-08-26 01:12Z) - recorded here because the repo carried no evidence of it.
+- **Attest a settled call on Base (2026-09-03, `src/tools/attest-kit.js`, `attest`, `POST /api/attest` $0.010, `scripts/test-attest-kit.js`
+  54 in CI):** the dispatcher now records sha256 of the exact JSON bytes `res.json` sends (`req.__responseSha256`, on the sale row as
+  `response_sha256`; NULL for streamed/binary bodies and pre-column rows), and `POST /api/attest {tx}` looks the settlement tx up in the
+  sales ledger (`saleByTx`) and writes an Ethereum Attestation Service attestation on Base (EAS `0x4200…0021`, schema registered lazily
+  in the SchemaRegistry `0x4200…0020`, UID derived as EAS derives it and pinned against a live schema) from the Base spending wallet
+  `X402_UPSTREAM_BUYER_KEY`: `string slug, bytes32 responseSha256, string settlementNetwork, string settlementTx, string payer, uint64
+  servedAt, uint64 priceMicroUsd` (payer/tx are strings so Solana/Stellar/Algorand ids fit; EAS recipient = the EVM payer, else zero).
+  Non-revocable, no expiry; one attestation per sale (a repeat returns the existing UID, `setAttestation` is write-once). Money: the
+  attestation moves NO value (EAS `value: 0`, fixed contract address) and costs only Base gas, bounded by `ATTEST_MAX_GAS_USD` (default
+  $0.005, refused 503 before signing; `ATTEST_ETH_USD` default 5000 is a deliberately high ETH price, `L1_FEE_FACTOR` 1.5 covers the
+  L1 data fee) and booked against the Base wallet's daily ceiling (`maySpend`/`noteSpend`/`adjustSpend` chain "base"); no digest
+  -> 422, unknown tx -> 404, no key / no ETH / paused -> 503, all uncharged. **The spending wallet needs ETH on Base for this** (it
+  held 0 ETH when built; x402 payments are gasless so nothing ever put ETH there). Paid-canary leg `attest` attests the `/api/hash` leg's
+  fresh sale (legs may now declare `body: (ctx) => ...`, `ctx.lastSettledTx` is the previous settled leg's receipt tx). Research that
+  shaped it (same day): EAS schema #1287 (2,977 per-call MCP receipts, no response hash), Stelar's x402-receipts (body-hashed,
+  merkle-batched), the x402 Offer & Receipt extension (no body hash, tx omitted); ERC-8004 takes it only as a cited URI/hash inside
+  someone else's feedback. `/why` receipts point names it.
 - **Route-and-execute (`POST /api/route/execute`, $0.01, `src/tools/route-execute.js`):**
   resolves a task/slug via `findTools`, dispatches the underlying internal tool (underlying
   price cap $0.005), returns `{result, receipt}`; underlying errors pass through.
