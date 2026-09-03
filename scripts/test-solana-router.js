@@ -267,14 +267,23 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
 
   let asked = null;
   const heldBefore = _spentThisWindow();
-  const e1 = await buy(async (q) => { asked = q; return { debited: false, observed: 0 }; });
-  ok(e1 && e1.statusCode === 502 && e1.committed === false && e1.refused === true, "refused + chain shows NO debit -> the error is uncommitted (safe to try the next seller) and flagged refused");
+  const e1 = await buy(async (q) => { asked = q; return { debited: false, observed: 0, expired: true }; });
+  ok(e1 && e1.statusCode === 502 && e1.committed === false && e1.refused === true, "refused + chain shows NO debit after the blockhash EXPIRED -> the error is uncommitted (safe to try the next seller) and flagged refused");
   ok(_spentThisWindow() === heldBefore, "and the spend hold was RELEASED (the window budget is back where it was)");
   ok(refuserPaidAttempts === 1, "a 402 that does NOT name X-PAYMENT (payment_payload_invalid) gets no header-name resend - one paid attempt");
   ok(asked && typeof asked.wallet === "string" && Number.isInteger(asked.sinceUnix) && asked.sinceUnix <= Math.floor(Date.now() / 1000), "the chain check is asked about OUR wallet since the moment the header went out");
+  ok(asked.blockhash === "GfVcyD4kkTrj4bKc7WA9sZCin9JDbdT4Zkd3EittNR1W" && Number.isFinite(asked.maxWaitMs) && asked.maxWaitMs > 0, "the chain check is told the blockhash the credential was signed against (so it can wait for THAT to expire) and the wait bound");
   ok(sellerRefusedRecently(refuserOrigin, "solana") && sellerRefusedRecently(refuserOrigin, "solana").status === 402, "the refusing seller is memoized for this chain");
   ok(!sellerRefusedRecently(refuserOrigin, "base"), "the memo is per chain - the same seller on Base is untouched");
   __resetSellerRefusalsForTest();
+  // refuse-then-settle-late (2026-09-03): "no debit" while the blockhash is
+  // still valid is NOT proof - the seller can still broadcast. Hold stands.
+  const heldLive = _spentThisWindow();
+  const eLive = await buy(async () => ({ debited: false, observed: 0, expired: false }));
+  ok(eLive && eLive.committed === true && !eLive.refused && /still live/.test(eLive.message) && _spentThisWindow() === heldLive + 5000n, "refused + no debit but the blockhash is STILL VALID (wait bound reached) -> post-commit stance kept, hold stands, no fallthrough");
+  ok(!sellerRefusedRecently(refuserOrigin, "solana"), "and a still-live refusal is not memoized as a refusal");
+  const eNoExpiry = await buy(async () => ({ debited: false, observed: 0 }));
+  ok(eNoExpiry && eNoExpiry.committed === true && !eNoExpiry.refused, "a checker that attaches no expiry verdict never releases the hold");
   const heldBefore2 = _spentThisWindow();
   const e2 = await buy(async () => ({ debited: true, signature: "abc" }));
   ok(e2 && e2.committed === true && !e2.refused, "refused but the chain shows a DEBIT -> post-commit stance kept (we may have paid; no second spend)");
@@ -291,13 +300,15 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
 
   // confirmSvmNotDebited against a stub RPC, all four outcomes.
   const W = "5xVcvJQ6jLe5tYv7aYQ4gCXoR1yzz9Vc3Nc7qF2wD1Zd";
-  const mkRpc = (sigs, txs, fail) => async (_u, init) => {
+  const mkRpc = (sigs, txs, fail, bhValid = null) => async (_u, init) => {
     const { method, params } = JSON.parse(init.body);
     const reply = (result) => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), { status: 200, headers: { "content-type": "application/json" } });
     if (fail) return new Response("{}", { status: 429 });
     if (method === "getTokenAccountsByOwner") return reply({ value: [{ pubkey: "ATA" }] });
-    if (method === "getSignaturesForAddress") return reply(sigs);
+    if (method === "getSignaturesForAddress") return reply(typeof sigs === "function" ? sigs() : sigs);
     if (method === "getTransaction") return reply(txs[params[0]] || null);
+    // isBlockhashValid: a scripted sequence, last answer repeats.
+    if (method === "isBlockhashValid") { const v = bhValid.length > 1 ? bhValid.shift() : bhValid[0]; return reply({ value: v }); }
     return reply(null);
   };
   const nowS = Math.floor(Date.now() / 1000);
@@ -311,6 +322,23 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
   ok((await confirmSvmNotDebited({ ...fast, fetchImpl: mkRpc([{ signature: "s3", blockTime: nowS - 3600 }], { s3: debitTx }) })).debited === false, "a debit from BEFORE the mark does not count");
   let threw = null; try { await confirmSvmNotDebited({ ...fast, fetchImpl: mkRpc([], {}, true) }); } catch (e) { threw = e; }
   ok(threw, "an unreadable RPC throws - never 'not debited' by default");
+  ok((await confirmSvmNotDebited({ ...fast, fetchImpl: mkRpc([], {}) })).expired === null, "the legacy grace read (no blockhash) reports expired:null - never final");
+  // Blockhash-bounded mode (2026-09-03): the wait runs until the chain says
+  // the blockhash is no longer valid, and only THEN is "no debit" final.
+  {
+    let t = 0; const clock = () => (t += 1000); const noSleep = async () => {};
+    const bh = { wallet: W, sinceUnix: nowS - 10, blockhash: "BH", pollMs: 0, now: clock, sleep: noSleep };
+    const expired = await confirmSvmNotDebited({ ...bh, maxWaitMs: 60_000, fetchImpl: mkRpc([], {}, false, [true, true, false]) });
+    ok(expired.debited === false && expired.expired === true, "polls isBlockhashValid until it reads false -> expired:true (provably unpaid)");
+    let polls = 0;
+    const lateDebit = await confirmSvmNotDebited({ ...bh, maxWaitMs: 60_000, fetchImpl: mkRpc(() => (++polls >= 2 ? [{ signature: "s9", blockTime: nowS }] : []), { s9: debitTx }, false, [true]) });
+    ok(lateDebit.debited === true && lateDebit.signature === "s9", "a debit that lands on a later poll, while the blockhash is still valid, is seen as charged");
+    t = 0;
+    const cut = await confirmSvmNotDebited({ ...bh, maxWaitMs: 2_500, fetchImpl: mkRpc([], {}, false, [true]) });
+    ok(cut.debited === false && cut.expired === false, "the caller's bound reached while the blockhash is still valid -> expired:false (the hold must stand)");
+    let bad = null; try { await confirmSvmNotDebited({ ...bh, maxWaitMs: 60_000, fetchImpl: mkRpc([], {}, false, ["yes"]) }); } catch (e) { bad = e; }
+    ok(bad && /isBlockhashValid unreadable/.test(bad.message), "a non-boolean isBlockhashValid answer throws (fail closed), never reads as expired");
+  }
 }
 
 // --- the UNPROVEN allowance (2026-09-02) -----------------------------------
@@ -433,6 +461,11 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
     "a 402 that carries neither gets neither - nothing is invented");
   ok(JSON.stringify(Object.keys(wrapped).sort()) === JSON.stringify(["accepted", "extensions", "payload", "resource", "x402Version"]),
     "and the wrap has exactly the stock field set, nothing extra for a strict verifier to trip on");
+  // The blockhash the tx was signed against rides OFF the wire (2026-09-03):
+  // the refusal branch needs it to know when the credential can no longer
+  // land, and a strict verifier must never see it.
+  ok(p.recentBlockhash === req.extra.recentBlockhash && !Object.keys(p).includes("recentBlockhash") && JSON.parse(JSON.stringify(p)).recentBlockhash === undefined,
+    "the payload carries the signed blockhash as a NON-ENUMERABLE property (readable by the buyer, absent from the wire)");
 }
 
 // ---- 9. resolve-time model-list check ------------------------------------

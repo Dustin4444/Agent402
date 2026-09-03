@@ -329,14 +329,24 @@ export function bazaarQualityFor(origin) {
 }
 export function bazaarQualityEntries() { return [...bazaarQualityByOrigin.entries()]; }
 export function _setBazaarQualityForTest(origin, q) { if (q) bazaarQualityByOrigin.set(origin, q); else bazaarQualityByOrigin.delete(origin); }
-function foldBazaarQuality(map, origin, q) {
+// `basePayTo` (2026-09-03): the Base-mainnet payTo the counted resource
+// DECLARES, kept beside the counts as `payTos` so the router can bind the
+// inherited history to the wallet it belongs to (src/evidence-binding.js) -
+// a quality count is Coinbase's measurement of settlements at that resource's
+// payTo, and it must not clear the Base floor for an origin whose live 402
+// asks to be paid somewhere else.
+const BAZAAR_QUALITY_MAX_PAYTOS = 8;
+function foldBazaarQuality(map, origin, q, basePayTo = null) {
   if (!q || typeof q !== "object") return;
   const calls = Number(q.l30DaysTotalCalls) || 0, payers = Number(q.l30DaysUniquePayers) || 0;
   const last = typeof q.lastCalledAt === "string" ? q.lastCalledAt : null;
-  const cur = map.get(origin) || { calls30d: 0, payers30d: 0, lastCalledAt: null };
+  const cur = map.get(origin) || { calls30d: 0, payers30d: 0, lastCalledAt: null, payTos: [] };
   cur.calls30d += calls;
   cur.payers30d = Math.max(cur.payers30d, payers);
   if (last && (!cur.lastCalledAt || last > cur.lastCalledAt)) cur.lastCalledAt = last;
+  const w = typeof basePayTo === "string" && /^0x[0-9a-f]{40}$/i.test(basePayTo) ? basePayTo.toLowerCase() : null;
+  if (!Array.isArray(cur.payTos)) cur.payTos = [];
+  if (w && !cur.payTos.includes(w) && cur.payTos.length < BAZAAR_QUALITY_MAX_PAYTOS) cur.payTos.push(w);
   map.set(origin, cur);
 }
 
@@ -536,7 +546,7 @@ async function discoverOneSource(source, selfOrigin) {
           arr.push(t);
           toolsByOrigin.set(origin, arr);
         }
-        if (qualityByOrigin && item.quality) foldBazaarQuality(qualityByOrigin, origin, item.quality);
+        if (qualityByOrigin && item.quality) foldBazaarQuality(qualityByOrigin, origin, item.quality, t?.payToByNetwork?.["eip155:8453"] || null);
       }
     }
     if (toolsByOrigin) {

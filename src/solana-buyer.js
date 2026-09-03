@@ -336,7 +336,13 @@ export async function createSvmPaymentPayload(signer, paymentRequirements) {
   const wrap = {};
   if (paymentRequirements?.resource) wrap.resource = paymentRequirements.resource;
   if (paymentRequirements?.extensions && typeof paymentRequirements.extensions === "object") wrap.extensions = paymentRequirements.extensions;
-  return { x402Version: paymentRequirements?.x402Version || 2, payload: { transaction: kit.getBase64EncodedWireTransaction(signed) }, ...wrap, accepted };
+  const out = { x402Version: paymentRequirements?.x402Version || 2, payload: { transaction: kit.getBase64EncodedWireTransaction(signed) }, ...wrap, accepted };
+  // The blockhash the transaction was signed against, NON-ENUMERABLE so it
+  // never reaches the wire (the header is JSON.stringify of this object). The
+  // buyer needs it after a refusal: the credential can settle until this
+  // blockhash expires, and only then is "no debit" final (confirmSvmNotDebited).
+  Object.defineProperty(out, "recentBlockhash", { value: recentBlockhash, enumerable: false });
+  return out;
 }
 
 /**
@@ -346,37 +352,61 @@ export async function createSvmPaymentPayload(signer, paymentRequirements) {
  * to treat any seen response as "maybe charged" and never tried another
  * seller (the post-commit rule in x402-buyer). On Solana the question has an
  * observable answer that the seller cannot influence: the wallet's own USDC
- * token account. Polls for `graceMs` (a Solana transfer lands in ~1-2 s;
- * the grace covers a slow facilitator broadcast), reading every signature
- * newer than `sinceUnix` (minus 5 s of clock slack) and its balance deltas.
- *   { debited: true, signature }  - a transaction lowered our USDC: charged
- *   { debited: false, observed }  - nothing lowered it within the grace
+ * token account, read for every signature newer than `sinceUnix` (minus 5 s
+ * of clock slack) and its balance deltas.
+ *   { debited: true, signature }            - a transaction lowered our USDC: charged
+ *   { debited: false, observed, expired }   - nothing lowered it when the wait ended
+ *
+ * WHEN THE WAIT ENDS (2026-09-03): the credential we sent is a signed
+ * transaction, and a signed transaction can be broadcast until its recent
+ * blockhash expires (~60-90 s) whatever the seller answered - so a seller can
+ * refuse, wait, and settle after we have paid the next candidate. With
+ * `blockhash` given, the poll runs until `isBlockhashValid` reports it EXPIRED
+ * (bounded by `maxWaitMs`) and the result carries `expired: true` only when
+ * the chain itself said so; a wait cut short by the bound reports
+ * `expired: false`, and the caller must keep the hold. Without a blockhash the
+ * legacy `graceMs` poll runs and `expired` is null - never final.
  * THROWS on any RPC failure: an unreadable chain is "maybe charged", never
  * "not charged" - the caller keeps the hold and does not retry elsewhere.
  * A concurrent buy from the same wallet inside the window reads as debited,
- * which errs toward the safe side. Injectable RPC for tests.
+ * which errs toward the safe side. Injectable RPC + clock + sleep for tests.
  */
-export async function confirmSvmNotDebited({ wallet, sinceUnix, graceMs = 8000, pollMs = 2000, fetchImpl = fetch, now = Date.now } = {}) {
+export async function confirmSvmNotDebited({ wallet, sinceUnix, graceMs = 8000, blockhash = null, maxWaitMs = 90_000, pollMs = 2000, fetchImpl = fetch, now = Date.now, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
   if (!wallet) throw new Error("confirmSvmNotDebited: wallet required");
   const accounts = await rpcCall("getTokenAccountsByOwner", [wallet, { mint: USDC_MINT }, { encoding: "jsonParsed" }], { fetchImpl });
   const ata = accounts?.value?.[0]?.pubkey;
-  if (!ata) return { debited: false, observed: 0 }; // no USDC account: nothing could have moved
   const cutoff = Number(sinceUnix) - 5;
-  const deadline = now() + graceMs;
+  const started = now();
+  const untilExpiry = typeof blockhash === "string" && blockhash.length > 0;
+  const deadline = started + (untilExpiry ? Math.max(0, Number(maxWaitMs) || 0) : graceMs);
   let observed = 0;
   for (;;) {
-    const sigs = await rpcCall("getSignaturesForAddress", [ata, { limit: 20 }], { fetchImpl });
-    const recent = (sigs || []).filter((s) => !s.err && Number(s.blockTime || 0) >= cutoff);
-    observed = recent.length;
-    for (const s of recent) {
-      const tx = await rpcCall("getTransaction", [s.signature, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 }], { fetchImpl });
-      const meta = tx?.meta;
-      if (!meta || meta.err) continue;
-      const bal = (list) => Number((list || []).find((b) => b?.mint === USDC_MINT && b?.owner === wallet)?.uiTokenAmount?.amount || 0);
-      if (bal(meta.postTokenBalances) < bal(meta.preTokenBalances)) return { debited: true, signature: s.signature };
+    if (ata) {
+      const sigs = await rpcCall("getSignaturesForAddress", [ata, { limit: 20 }], { fetchImpl });
+      const recent = (sigs || []).filter((s) => !s.err && Number(s.blockTime || 0) >= cutoff);
+      observed = recent.length;
+      for (const s of recent) {
+        const tx = await rpcCall("getTransaction", [s.signature, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 }], { fetchImpl });
+        const meta = tx?.meta;
+        if (!meta || meta.err) continue;
+        const bal = (list) => Number((list || []).find((b) => b?.mint === USDC_MINT && b?.owner === wallet)?.uiTokenAmount?.amount || 0);
+        if (bal(meta.postTokenBalances) < bal(meta.preTokenBalances)) return { debited: true, signature: s.signature };
+      }
+    } else if (!untilExpiry) {
+      return { debited: false, observed: 0, expired: null }; // no USDC account: nothing could have moved
     }
-    if (now() >= deadline) return { debited: false, observed };
-    await new Promise((r) => setTimeout(r, pollMs));
+    if (untilExpiry) {
+      // The chain's own word on whether the credential can still land. A
+      // non-boolean answer is unreadable and throws (fail closed).
+      const valid = await rpcCall("isBlockhashValid", [blockhash, { commitment: "confirmed" }], { fetchImpl });
+      const v = valid?.value;
+      if (typeof v !== "boolean") throw new Error("isBlockhashValid unreadable");
+      if (!v) return { debited: false, observed, expired: true };
+      if (now() >= deadline) return { debited: false, observed, expired: false };
+    } else if (now() >= deadline) {
+      return { debited: false, observed, expired: null };
+    }
+    await sleep(pollMs);
   }
 }
 

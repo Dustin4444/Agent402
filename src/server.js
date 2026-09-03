@@ -339,6 +339,7 @@ import { sellPage } from "./sell.js";
 import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledgerBuyerConcentration, ledgerSyncState } from "./revenue-ledger.js";
 import { x402EconomySnapshot, economySnapshotCached, warmEconomySnapshot } from "./x402-economy.js";
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate } from "./settlement-proof.js";
+import { buildEvidenceBinding, baseLiveGate } from "./evidence-binding.js";
 import { dispatchEligibility, dispatchLegend } from "./dispatch-eligibility.js";
 import { spend as sharedSpend, refund as sharedRefund, sharedLimitEnabled } from "./shared-limit.js";
 import { recordSale, salesSummary, externalByNetwork, mppSales, cardSales, mppTxHashes, txFromPaymentResponse, tempoDailyRevenue, tempoDailyRecordingSince, proofFeed, externalDailyRevenue, payerUsage } from "./sales-ledger.js";
@@ -982,6 +983,44 @@ function buildSettledByOrigin() {
   } catch { /* evidence is additive; never break routing when a source is down */ }
   return m;
 }
+// origin -> { payTos, ownSettled, ownPayers }: the SAME sources as the two maps
+// above, with the WALLETS kept beside the counts (src/evidence-binding.js).
+// The leaderboard and Bazaar folds above credit an origin with a wallet's
+// history because a registry listing NAMED that wallet, and a listing is
+// written by whoever lists - so a fresh origin naming a heavily paid
+// third-party wallet cleared the Base floor and, having no address of its own
+// for provenPayToMatches to bind, was paid wherever its live 402 pointed
+// (security review 2026-09-03). The resolver's post-probe gate (baseLiveGate)
+// and the public label (withDispatchFields) both read this map, so inherited
+// history counts for an origin only when the origin's own 402 pays one of the
+// wallets it was inherited from; the seed and the chain join are the origin's
+// OWN evidence and keep today's behavior.
+function buildEvidenceBindingByOrigin() {
+  let chainProven = null;
+  try {
+    const econ = economySnapshotCached();
+    if (econ?.topMerchants?.length) chainProven = provenByChain({ sellers: routableSellerSummaries(), merchants: econ.topMerchants });
+  } catch { /* additive; an unreadable chain join leaves only shared evidence, which is then bound */ }
+  return buildEvidenceBinding({
+    seedOrigins: SOR_SEED_ORIGINS,
+    leaderboardRows: getLeaderboardSnapshot()?.leaderboard || [],
+    bazaarQuality: bazaarQualityEntries(),
+    chainProven,
+  });
+}
+// origin -> the Base payTo the CRAWL saw the origin advertise (registry items
+// only, like payToByNetwork itself). The label-time stand-in for the live
+// 402's payTo: the resolver reads the real thing before it signs.
+function buildAdvertisedBasePayToByOrigin() {
+  const m = new Map();
+  try {
+    for (const s of routableSellerSummaries()) {
+      const addr = s?.payToByNetwork?.["eip155:8453"];
+      if (typeof s?.origin === "string" && typeof addr === "string" && /^0x[0-9a-f]{40}$/i.test(addr)) m.set(norm(s.origin), addr.toLowerCase());
+    }
+  } catch { /* label-time only */ }
+  return m;
+}
 // Dispatch labelling for the public surfaces (src/dispatch-eligibility.js):
 // the SAME function the resolver's Base gate runs, applied to /api/index
 // sellers, /api/route rows and the marketplace roster, so "routable" can no
@@ -993,9 +1032,10 @@ const DISPATCH_EVIDENCE_TTL_MS = 60_000;
 let dispatchEvidenceCache = null;
 function dispatchEvidence() {
   if (dispatchEvidenceCache && Date.now() - dispatchEvidenceCache.at < DISPATCH_EVIDENCE_TTL_MS) return dispatchEvidenceCache;
-  let settled = new Map(), payers = new Map();
+  let settled = new Map(), payers = new Map(), binding = new Map(), advertised = new Map();
   try { settled = buildSettledByOrigin(); payers = buildPayersByOrigin(); } catch { /* evidence is additive; an unreadable source labels nothing eligible on Base */ }
-  dispatchEvidenceCache = { at: Date.now(), settled, payers };
+  try { binding = buildEvidenceBindingByOrigin(); advertised = buildAdvertisedBasePayToByOrigin(); } catch { /* an unreadable binding leaves the label unbound, the resolver still binds live */ }
+  dispatchEvidenceCache = { at: Date.now(), settled, payers, binding, advertised };
   return dispatchEvidenceCache;
 }
 function spendChainsConfigured() {
@@ -1020,6 +1060,13 @@ function withDispatchFields(row, { local = false, rowLevel = false } = {}) {
     spendChains: spendChainsConfigured(),
     minSettled: SOR_MIN_SETTLED_TX,
     minPayers: SOR_MIN_DISTINCT_PAYERS,
+    // Inherited (shared-wallet) evidence is bound to its wallet: at label time
+    // the stand-in for the live 402 is the Base payTo the crawl saw the origin
+    // advertise (or the row's own), so an origin whose history is inherited
+    // and whose own address is unknown or different reads settlement_required
+    // here - and the resolver reads the REAL 402 before it signs.
+    evidence: ev.binding.get(origin),
+    livePayTo: (typeof row.payToByNetwork?.["eip155:8453"] === "string" ? row.payToByNetwork["eip155:8453"] : null) ?? ev.advertised.get(origin) ?? null,
   });
   // `executeVia` names the route-execute tier that covers this row's price. On
   // a row the router will NOT pay right now it read as a callable affordance
@@ -1125,6 +1172,10 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
     const settledByOrigin = buildSettledByOrigin();
     const payersByOrigin = buildPayersByOrigin();
     provenPayToByOrigin = buildProvenPayToByOrigin();
+    // The wallets each origin's settled/payers evidence was INHERITED from
+    // (shared leaderboard rows, Bazaar-listed payTos), read once per resolve
+    // and re-checked against the live 402 below (baseLiveGate).
+    const bindingByOrigin = buildEvidenceBindingByOrigin();
     candidates = (results || [])
       .filter((r) => r.seller && r.url && r.priceUsd > 0 && r.priceUsd <= cap && Array.isArray(r.networks) && r.networks.includes("eip155:8453"))
       // Never SPEND against an unsubstituted OpenAPI path template
@@ -1133,7 +1184,7 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
       // `urlTemplate`, because an agent that knows the parameter can use them.
       .filter((r) => !r.urlTemplate)
       .filter((r) => hostOf(r.url) && hostOf(r.url) !== ourHost)
-      .map((r) => ({ ...r, settled: settledByOrigin.get(norm(r.seller)) || 0, payers: payersByOrigin.get(norm(r.seller)) }))
+      .map((r) => ({ ...r, settled: settledByOrigin.get(norm(r.seller)) || 0, payers: payersByOrigin.get(norm(r.seller)), binding: bindingByOrigin.get(norm(r.seller)) || null }))
       // Count AND breadth. One implementation, shared with the test, so the
       // rule cannot drift from what is asserted about it.
       // The SAME function that labels every public row (dispatch-eligibility.js),
@@ -1229,13 +1280,35 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
         // only refuse on a positive MISMATCH, so sellers proven by a source
         // that cannot name an address are unaffected.
         const provenPayTo = provenPayToByOrigin.get(norm(r.seller));
-        if (provenPayTo) {
+        // The probe body reads once; both checks below share the decoded payTo.
+        let livePayTo = null, liveRead = false;
+        const readLivePayTo = async () => {
+          if (liveRead) return livePayTo;
+          liveRead = true;
           let body = "";
           try { body = (await probe.text()).slice(0, 4000); } catch { /* header-only quote */ }
-          const livePayTo = payToFromLive402({ header: probe.headers.get("payment-required"), body });
-          const verdict = provenPayToMatches({ provenPayTo, livePayTo });
+          livePayTo = payToFromLive402({ header: probe.headers.get("payment-required"), body });
+          return livePayTo;
+        };
+        if (provenPayTo) {
+          const verdict = provenPayToMatches({ provenPayTo, livePayTo: await readLivePayTo() });
           if (verdict.verdict === "mismatch") {
             console.warn(`[sor] refusing ${r.seller}: ${verdict.reason} (proven ${verdict.provenPayTo}, live ${verdict.livePayTo})`);
+            live = false;
+          }
+        }
+        // SHARED-WALLET EVIDENCE COUNTS ONLY WHERE THE MONEY GOES (2026-09-03).
+        // The pre-probe filter cleared this candidate on settled/payers that may
+        // have been INHERITED from a leaderboard row keyed by someone else's
+        // wallet, or from a Bazaar listing naming one. Re-run the SAME labelled
+        // gate with the origin's binding and the address its live 402 actually
+        // asks us to pay: inherited history counts only when that address is
+        // one of the wallets it came from; unreadable is not a match. An origin
+        // whose own evidence clears the floor is untouched by this.
+        if (live && chain === "base" && r.binding) {
+          const gate = baseLiveGate({ networks: r.networks, settled: r.settled, payers: r.payers, priceUsd: r.priceUsd, urlTemplate: !!r.urlTemplate, minSettled: SOR_MIN_SETTLED_TX, minPayers: SOR_MIN_DISTINCT_PAYERS, binding: r.binding, livePayTo: await readLivePayTo() });
+          if (!gate.ok) {
+            console.warn(`[sor] refusing ${r.seller}: ${gate.detail} (evidence wallets ${gate.payTos.length ? gate.payTos.join(",") : "none"}, live ${gate.livePayTo || "unreadable"})`);
             live = false;
           }
         }
@@ -1280,6 +1353,9 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
 async function diagnoseExternalSeller(task, { cap }) {
   const { results } = routeQuery({ query: task, top: 20, include: "external", ...indexCtx() });
   const settledByOrigin = buildSettledByOrigin();
+  // Was read below but never declared here (a ReferenceError on every
+  // diagnostic call since the breadth gate landed); declared 2026-09-03.
+  const payersByOrigin = buildPayersByOrigin();
   const ourHost = (() => { try { return new URL(BASE_URL).host.toLowerCase(); } catch { return ""; } })();
   const hostOf = (u) => { try { return new URL(u).host.toLowerCase(); } catch { return ""; } };
   const { assertPublicUrl, ssrfDispatcher } = await import("./tools/fetch-guard.js");
