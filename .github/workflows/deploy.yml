@@ -2039,6 +2039,7 @@ jobs:
           t node scripts/test-price-prose.js
           # "Live 402 quote (a priceless row learns its price from the challenge; unpriceable never becomes $0; PUT/PATCH/DELETE never probed — offline)"
           t node scripts/test-x402-live-quote.js
+          t node scripts/test-live-quote-method-refused.js
           # Paid smoke buyer preflight (external targets require an outcome assertion before key/client/network work)
           t node scripts/test-smoke-buy.js
           # "Every paid route's PAYMENT-REQUIRED document parses under the OFFICIAL @x402/core
