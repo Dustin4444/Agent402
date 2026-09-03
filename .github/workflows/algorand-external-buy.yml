@@ -30,6 +30,10 @@ permissions:
 
 jobs:
   buy:
+    # Money moves out of a spending wallet on dispatch: the `spending` GitHub
+    # environment requires the operator's approval click before this job runs
+    # (write access alone used to be enough). Scheduled canaries stay ungated.
+    environment: spending
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
