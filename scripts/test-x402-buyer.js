@@ -231,7 +231,7 @@ ok(t3 && /no \w+\/exact\/USDC accept/i.test(t3.message), "F2: non-mainnet-USDC a
   __resetSellerRefusalsForTest();
   const heldLive = _spentThisWindow();
   const rLive = await buy(async () => ({ debited: false, observed: 1, expired: false }));
-  ok(rLive && rLive.committed === true && !rLive.refused && /still live/.test(rLive.message) && _spentThisWindow() === heldLive + 1000n, "Base: unused but the credential is STILL LIVE (bound cut the wait) -> hold stands, no fallthrough");
+  ok(rLive && rLive.committed === true && !rLive.refused && /rejected the paid retry/i.test(rLive.message) && _spentThisWindow() === heldLive + 1000n, "Base: unused but the credential is STILL LIVE (bound cut the wait) -> hold stands, no fallthrough");
   ok(!sellerRefusedRecently("https://refuser.example", "base"), "a still-live refusal is not memoized as a refusal");
   const rNoExpiry = await buy(async () => ({ debited: false, observed: 1 }));
   ok(rNoExpiry && rNoExpiry.committed === true && !rNoExpiry.refused, "Base: a checker that attaches no expiry never releases the hold (the old 8 s grace shape is no longer proof)");

@@ -280,7 +280,7 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
   // still valid is NOT proof - the seller can still broadcast. Hold stands.
   const heldLive = _spentThisWindow();
   const eLive = await buy(async () => ({ debited: false, observed: 0, expired: false }));
-  ok(eLive && eLive.committed === true && !eLive.refused && /still live/.test(eLive.message) && _spentThisWindow() === heldLive + 5000n, "refused + no debit but the blockhash is STILL VALID (wait bound reached) -> post-commit stance kept, hold stands, no fallthrough");
+  ok(eLive && eLive.committed === true && !eLive.refused && /rejected the paid retry/i.test(eLive.message) && _spentThisWindow() === heldLive + 5000n, "refused + no debit but the blockhash is STILL VALID (wait bound reached) -> post-commit stance kept, hold stands, no fallthrough");
   ok(!sellerRefusedRecently(refuserOrigin, "solana"), "and a still-live refusal is not memoized as a refusal");
   const eNoExpiry = await buy(async () => ({ debited: false, observed: 0 }));
   ok(eNoExpiry && eNoExpiry.committed === true && !eNoExpiry.refused, "a checker that attaches no expiry verdict never releases the hold");

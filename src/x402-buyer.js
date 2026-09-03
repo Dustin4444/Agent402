@@ -705,7 +705,8 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
         }
         if (verdict && verdict.debited === false) {
           console.warn(`[x402-buyer] ${where} refused the payment and the chain shows no debit yet, but the credential is still live (wait bound ${maxWaitMs}ms) - keeping the hold, not trying another seller`);
-          throw bad(`Seller rejected the paid retry (HTTP ${paid.status}); the credential is still live so it cannot be proven unpaid within this request's budget`, 502);
+          // Buyer-facing text stays status-only (test-buyer-rejection-diagnostics pins it); the warn line above carries the reason.
+          throw bad(`Seller rejected the paid retry (HTTP ${paid.status})`, 502);
         }
       }
       throw bad(`Seller rejected the paid retry (HTTP ${paid.status})`, 502);
