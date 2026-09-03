@@ -17,7 +17,8 @@ ok(rate.takeCgToken(t0) && rate.takeCgToken(t0) && rate.takeCgToken(t0), "three 
 ok(!rate.takeCgToken(t0), "the fourth is refused");
 ok(rate.takeCgToken(t0 + 20_001), "a third of a minute later one token has refilled");
 ok(!rate.takeCgToken(t0 + 20_001), "and only one");
-ok(rate.isCoinGeckoHost("api.coingecko.com") && rate.isCoinGeckoHost("pro-api.coingecko.com") && !rate.isCoinGeckoHost("api.exchange.coinbase.com"), "host test");
+ok(rate.isCoinGeckoHost("api.coingecko.com") && rate.isCoinGeckoHost("pro-api.coingecko.com") && rate.isCoinGeckoHost("COINGECKO.COM") && !rate.isCoinGeckoHost("api.exchange.coinbase.com"), "host test");
+ok(!rate.isCoinGeckoHost("evilcoingecko.com") && !rate.isCoinGeckoHost("coingecko.com.attacker.example"), "a host that merely ends in the letters never gets the key (CodeQL js/incomplete-url-substring-sanitization)");
 eq(markets.resetCgRateLimit, rate.resetCgRateLimit, "crypto-markets-kit re-exports the SHARED reset (one bucket, not two)");
 
 // crypto-kit refuses before fetching when the bucket is empty

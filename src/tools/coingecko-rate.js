@@ -29,7 +29,10 @@ export function takeCgToken(now = Date.now()) {
 /** Test seam: refill the bucket (offline suites make dozens of stubbed calls). */
 export function resetCgRateLimit() { cgTokens = null; cgRefilledAt = 0; }
 
-/** True for any CoinGecko API host (api./pro-api. ...). */
+/** True for coingecko.com and its subdomains (api., pro-api.) and nothing
+ *  else: this decides whether the API KEY rides the request, so a host that
+ *  merely ENDS in the letters (evilcoingecko.com) must read false. */
 export function isCoinGeckoHost(hostname) {
-  return String(hostname || "").toLowerCase().endsWith("coingecko.com");
+  const h = String(hostname || "").toLowerCase();
+  return h === "coingecko.com" || h.endsWith(".coingecko.com");
 }
