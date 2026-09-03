@@ -55,7 +55,7 @@ function capabilityMap(catalog, powSlugs) {
  * /.well-known/x402. Designed so a discovery agent can decide "use this seller"
  * from a single GET, then drill into /openapi.json or each route's 402 for terms.
  */
-export function serviceManifest({ baseUrl, network, networks, wallet, walletName, catalog, toolCount, powSlugs, powDifficulty, prices }) {
+export function serviceManifest({ baseUrl, network, networks, wallet, walletName, payToByNetwork = null, catalog, toolCount, powSlugs, powDifficulty, prices }) {
   const powEligible = [...powSlugs];
   return {
     spec: "agent402-service-manifest/1",
@@ -126,6 +126,12 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
         priceRange: priceRange(Object.values(prices)),
         payTo: wallet || null,
         payToName: walletName || null,
+        // The EVM payTo above serves every EVM rail; Solana, Stellar and
+        // Algorand settle to their own addresses (each 402 carries the exact
+        // one per accept). Listed here so a reader of the manifest alone does
+        // not conclude a non-EVM rail pays to an EVM address (an outside
+        // reader did, 2026-09-03). Only rails with a configured address appear.
+        ...(payToByNetwork && Object.keys(payToByNetwork).length ? { payToByNetwork } : {}),
         nonCustodial: true,
         ...(process.env.BASE_BUILDER_CODE ? { builderCode: process.env.BASE_BUILDER_CODE } : {}),
       },

@@ -35,6 +35,11 @@ ok(m.twoSided?.tollbooth?.npm === "agent402-tollbooth", "tollbooth advertised");
 ok(m.payment.x402.version === 2 && m.payment.x402.currency === "USDC", "x402 payment shape");
 ok(JSON.stringify(m.payment.x402.networks) === JSON.stringify(["base", "polygon"]), "networks passed through");
 ok(m.payment.x402.payTo === WALLET, "payTo is the wallet");
+{
+  const m2 = serviceManifest({ baseUrl: BASE, network: "base", networks: ["base", "stellar", "solana"], wallet: WALLET, walletName: "agent402.base.eth", catalog: CATALOG, toolCount: Object.keys(CATALOG).length, powSlugs: POW, powDifficulty: 20, prices: PRICES, payToByNetwork: { evm: WALLET, stellar: "GDNJXCKW7ZM7EXAMPLE", solana: "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin" } });
+  ok(m2.payment.x402.payToByNetwork.stellar === "GDNJXCKW7ZM7EXAMPLE" && m2.payment.x402.payToByNetwork.evm === WALLET, "payToByNetwork lists each rail's own address beside the EVM payTo");
+  ok(!("payToByNetwork" in m.payment.x402), "no per-network map when none is given (manifest shape unchanged)");
+}
 ok(m.payment.x402.priceRange === "$0.001–$0.005", `price range derived (got ${m.payment.x402.priceRange})`);
 ok(m.payment.proofOfWork.difficultyBits === 20, "pow difficulty");
 ok(m.payment.proofOfWork.eligibleTools === 1, "pow eligible count");
