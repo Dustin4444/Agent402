@@ -52,6 +52,19 @@ export const TOOLS = [
     check: (r) => r.hex?.startsWith("b94d27b9") || `expected hex starting with b94d27b9, got ${JSON.stringify(r).slice(0, 80)}`,
   },
   {
+    // Attests the /api/hash sale just settled: proves the dispatcher recorded
+    // the response digest, the ledger found the tx, and the spending wallet
+    // wrote the EAS attestation on Base (gas from that wallet). A fresh sale
+    // every run, so `existing` must be false and the uid a real bytes32.
+    kit: "attest",
+    path: "/api/attest",
+    method: "POST",
+    body: (ctx) => ({ tx: ctx.lastSettledTx || "0x" + "00".repeat(32) }),
+    priceUsd: 0.01,
+    check: (r) => (/^0x[0-9a-f]{64}$/i.test(r.uid || "") && r.existing === false && /^0x[0-9a-f]{64}$/i.test(r.attestTx || "") && r.data?.slug === "hash" && String(r.attestationUrl || "").startsWith("https://base.easscan.org/attestation/view/0x"))
+      || `expected a fresh EAS attestation of the hash sale, got ${JSON.stringify(r).slice(0, 160)}`,
+  },
+  {
     kit: "edgar",
     path: "/api/edgar-company-lookup?ticker=AAPL",
     method: "GET",
@@ -492,6 +505,13 @@ export const TOOLS = [
 ];
 
 // Why a paid request 402'd. On a settle FAILURE the middleware attaches the
+/** The settlement tx out of a base64 PAYMENT-RESPONSE header, or null. */
+function txFromReceiptHeader(h) {
+  if (!h) return null;
+  try { const r = JSON.parse(Buffer.from(h, "base64").toString("utf8")); return r?.success === true && typeof r.transaction === "string" ? r.transaction : null; }
+  catch { return null; }
+}
+
 // FAILED receipt to the 402's PAYMENT-RESPONSE header ({ success:false,
 // errorReason, errorMessage }) — THAT is where the facilitator's actual
 // rejection reason lives. The payment-required header on the same response is
@@ -852,12 +872,18 @@ async function main() {
   }
 
   const results = [];
+  // Run context for legs whose body depends on an earlier leg (the attest leg
+  // attests the settlement tx of the leg before it).
+  const ctx = { lastSettledTx: null, lastSettledPath: null };
   for (const t of TOOLS) {
     const url = `${TARGET}${t.path}`;
     const init = { method: t.method };
-    if (t.body) { init.headers = { "Content-Type": "application/json" }; init.body = JSON.stringify(t.body); }
+    const body = typeof t.body === "function" ? t.body(ctx) : t.body;
+    if (body) { init.headers = { "Content-Type": "application/json" }; init.body = JSON.stringify(body); }
     try {
       const res = await payOnceWithRetryOn5xx(url, init);
+      const settledTx = txFromReceiptHeader(res.headers.get("payment-response") || res.headers.get("x-payment-response"));
+      if (res.status === 200 && settledTx) { ctx.lastSettledTx = settledTx; ctx.lastSettledPath = t.path; }
       const body = t.raw ? await res.text().catch(() => "") : await res.json().catch(() => ({}));
       const shapeOk = res.status === 200 ? t.check(body) : false;
       const row = { kit: t.kit, path: t.path, status: res.status, shapeOk, priceUsd: t.priceUsd, strictShape: t.strictShape === true };

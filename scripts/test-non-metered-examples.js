@@ -131,6 +131,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // identity surface. Keep in sync with the class of spend — adding a new keyed
 // upstream means listing its slugs here (and skill packs resolve transitively).
 const METERED_SLUGS = new Set([
+  "attest",  // attest-kit.js: spends Base gas from the spending wallet, unset in CI
   // Brave Search subscription
   "search", "search-news", "search-images", "search-videos", "search-suggest", "answer", "multi-search",
   "llm-context",      // Brave /llm/context - same subscription, billed per call
