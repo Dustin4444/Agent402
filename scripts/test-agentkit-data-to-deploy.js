@@ -37,7 +37,7 @@ ok(data.length > artifact.bytecode.length + 6 * 64, "constructor args encoded af
 
 // agent.js: the script pins the same things the test does.
 const agent = read("agent.js");
-for (const s of ['const SLUG = "crypto-price"', "payees: payees.length ? payees : null", "maxPerCallUsd: 0.02", "encodeDeployData(", "walletProvider.sendTransaction({ data })", 'functionName: "snapshot"', "receipt.transaction", "process.exit(1)", "DRY_RUN"]) {
+for (const s of ['const SLUG = "crypto-price"', "payees: payees.length ? payees : null", "maxPerCallUsd: 0.02", "blockNumber: deployReceipt.blockNumber", "retrying once in 5 s", "encodeDeployData(", "walletProvider.sendTransaction({ data })", 'functionName: "snapshot"', "receipt.transaction", "process.exit(1)", "DRY_RUN"]) {
   ok(agent.includes(s), `agent.js carries ${JSON.stringify(s)}`);
 }
 ok(!/AGENT_WALLET_KEY\s*=\s*["']0x[0-9a-f]{64}/i.test(agent), "no key literal in the example");

@@ -92,7 +92,18 @@ console.log("find:", found.results.map((r) => `${r.slug} ${r.price}`).join(", ")
 if (!row) { console.error(`agent402_find did not surface ${SLUG}`); process.exit(1); }
 
 const t0 = Date.now();
-const out = JSON.parse(await call.invoke(walletProvider, call.schema.parse({ slug: SLUG, params: { coins: COIN, currency: "usd" } })));
+// One retry on a 5xx: Agent402 cancels settlement on any >= 400, so a failed
+// call is never charged and the retry costs nothing unless it succeeds
+// (measured 2026-09-03: a 504 from a just-deployed container's boot stall).
+async function buyOnce() { return JSON.parse(await call.invoke(walletProvider, call.schema.parse({ slug: SLUG, params: { coins: COIN, currency: "usd" } }))); }
+let out;
+try { out = await buyOnce(); }
+catch (e) {
+  if (!/HTTP 5\d\d/.test(String(e?.message))) throw e;
+  console.warn(`first buy failed (${e.message}) - not charged, retrying once in 5 s`);
+  await new Promise((r) => setTimeout(r, 5000));
+  out = await buyOnce();
+}
 const coinKey = Object.keys(out.coins || {})[0];
 const quote = coinKey ? out.coins[coinKey] : null;
 if (!quote || typeof quote.price !== "number") { console.error("no price in the tool's answer:", JSON.stringify(out).slice(0, 300)); process.exit(1); }
@@ -113,7 +124,19 @@ if (deployReceipt.status !== "success" || !deployReceipt.contractAddress) { cons
 const address = deployReceipt.contractAddress;
 
 // ---- 4. read it back from the chain and check every field -------------------
-const snap = await publicClient.readContract({ address, abi: artifact.abi, functionName: "snapshot" });
+// A load-balanced public RPC can answer the read from a node that has not
+// seen the deployment's block yet (measured 2026-09-03: "returned no data"
+// half a second after the receipt), so read at the receipt's own block and
+// retry a lagging node for up to a minute.
+let snap;
+for (let attempt = 1; ; attempt++) {
+  try { snap = await publicClient.readContract({ address, abi: artifact.abi, functionName: "snapshot", blockNumber: deployReceipt.blockNumber }); break; }
+  catch (e) {
+    if (attempt >= 20) throw e;
+    console.warn(`read-back attempt ${attempt} failed (${String(e?.shortMessage || e?.message).slice(0, 80)}) - node lagging, retrying`);
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+}
 const [buyer, symbol, currency, price, at, source, paymentTx] = snap;
 const consistent = buyer.toLowerCase() === account.address.toLowerCase() && symbol === COIN && currency === "usd"
   && price === priceMicro && at === observedAt && source === SOURCE && paymentTx.toLowerCase() === receipt.transaction.toLowerCase();
