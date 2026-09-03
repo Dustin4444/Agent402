@@ -3769,6 +3769,10 @@ app.get("/docs/:slug", (req, res) => {
 const MANIFEST = serviceManifest({
   baseUrl: BASE_URL, network: NETWORK, networks: enabledNetworks(NETWORK),
   wallet: WALLET_ADDRESS, walletName: WALLET_ENS, catalog: CATALOG,
+  payToByNetwork: Object.fromEntries([
+    ["evm", WALLET_ADDRESS], ["solana", (process.env.SOLANA_WALLET_ADDRESS || "").trim()],
+    ["stellar", (process.env.STELLAR_WALLET_ADDRESS || "").trim()], ["algorand", (process.env.ALGORAND_WALLET_ADDRESS || "").trim()],
+  ].filter(([, v]) => v)),
   toolCount: Object.keys(CATALOG).length, powSlugs: POW_SLUGS,
   powDifficulty: POW_DIFFICULTY, prices: TOOL_PRICES,
 });

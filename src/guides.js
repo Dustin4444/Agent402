@@ -776,13 +776,15 @@ tool, per network:
 - **Base** - the primary rail, settled via Coinbase's CDP facilitator (also
   where [x402 Bazaar](https://docs.cdp.coinbase.com/x402/docs/bazaar)
   discovery lives).
-- **Solana, Polygon, Arbitrum, Avalanche, Sei** - settled via the PayAI
-  facilitator, free up to a generous monthly settlement quota.
+- **Solana, Polygon, Arbitrum** - settled via Coinbase CDP first (it advertises
+  these networks too), with PayAI as the fallback.
+- **Avalanche, Sei** - settled via the PayAI facilitator, free up to a
+  generous monthly settlement quota.
 - **Optimism** - settled via Solvador, a fee-charging facilitator; the price
   quoted on Optimism is bumped to cover that fee, so what you're quoted is
   what actually clears.
 - **Monad, Celo** - each on its own dedicated facilitator.
-- **Stellar** - USDC via a Soroban-based facilitator (OpenZeppelin Channels);
+- **Stellar** - USDC via our own self-hosted Soroban facilitator (open source, in this repository; OpenZeppelin Channels as the settlement fallback);
   settlement here is confirmed against the chain itself, not just trusted
   from the facilitator's word, because Stellar's ~5-second ledger close can
   outlast a synchronous HTTP request.

@@ -6,9 +6,9 @@ Agent402.Tools is an open-source, self-hostable x402 + MCP server with 500+ pay-
 
 ## Stellar Integration
 
-Agent402 accepts USDC payments on Stellar via the x402 protocol through an x402 Stellar facilitator (the OpenZeppelin channel service is the default; a self-hosted facilitator is supported via `STELLAR_FACILITATOR_URL`). First confirmed Stellar settlement: July 4, 2026.
+Agent402 accepts USDC payments on Stellar via the x402 protocol through its own self-hosted x402 Stellar facilitator (open source, in this repository, live on mainnet since 2026-08-13; the OpenZeppelin channel service is the settlement fallback, and `STELLAR_FACILITATOR_URL` points a self-host at either). First confirmed Stellar settlement: July 4, 2026.
 
-- **Facilitator:** x402 Stellar facilitator (OpenZeppelin channel service by default, or self-hosted)
+- **Facilitator:** self-hosted x402 Stellar facilitator (this repository), OpenZeppelin channel service as fallback
 - **Asset:** USDC on Stellar (Soroban token contract `CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75`)
 - **Seller wallet:** `GDNJXCKW7ZM7GEEVP674TWPU26YJNBQ2FI4ZIPRKTPTNUEJMDHFJWWRL`
 - **Settlement:** ~5 seconds, fees sponsored by facilitator
