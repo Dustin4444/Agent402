@@ -57,6 +57,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   "rwa-list", "rwa-markets", "rwa-asset", "rwa-issuers", "rwa-issuer",  // crypto-markets-kit.js (egress)
   "attest",  // attest-kit.js (writes an EAS attestation on Base from the spending wallet: gas, never free)
   "sms-send", "email-send", "voice-call",  // outreach-kit.js (pays an outside seller from the spending wallet)
+  "skill-agent-outreach",  // the pack: every step spends from the wallet
   "defi-yields", "defi-yield-history", "defi-protocols", "defi-protocol", "defi-chains", "defi-chain-tvl-history", "stablecoins", "stablecoin-supply-history", "defi-fees", "defi-dex-volume",  // defi-kit.js (egress)
   "crypto-news", "crypto-indicators", "crypto-market-pulse",  // crypto-signals-kit.js (egress)
   "site-map", "site-crawl",  // crawl-kit.js (egress)

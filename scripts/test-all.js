@@ -70,6 +70,7 @@ const NETWORK = new Set([
   "/api/rwa-list", "/api/rwa-markets", "/api/rwa-asset", "/api/rwa-issuers", "/api/rwa-issuer",  // crypto-markets-kit.js
   "/api/attest",  // attest-kit.js (needs the spending wallet + Base gas; keyless CI answers 503)
   "/api/sms-send", "/api/email-send", "/api/voice-call",  // outreach-kit.js (pays an outside seller; keyless CI answers 503)
+  "/api/skill/agent-outreach",  // the pack of the three: every step pays the outside seller
   "/api/defi-yields", "/api/defi-yield-history", "/api/defi-protocols", "/api/defi-protocol", "/api/defi-chains", "/api/defi-chain-tvl-history", "/api/stablecoins", "/api/stablecoin-supply-history", "/api/defi-fees", "/api/defi-dex-volume",  // defi-kit.js
   "/api/crypto-news", "/api/crypto-indicators", "/api/crypto-market-pulse",  // crypto-signals-kit.js
   "/api/site-map", "/api/site-crawl",  // crawl-kit.js

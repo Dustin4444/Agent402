@@ -2644,7 +2644,7 @@ export const SKILL_PACKS = [
       "Only when an objective is given, call voice-call with to=<phone> and objective=<objective>; a message with no objective is not a phone call.",
     ],
     claudePrompt:
-      "Reach the person at +15005550006 and agent@example.com using Agent402's agent-outreach skill pack: (1) sms-send the message, (2) email-send it with the subject 'Your report is ready', and (3) only if I gave you an objective for a call, voice-call them with it. Report each channel's seller receipt.",
+      "Reach the person at +15005550006 and agent@example.com using Agent402's agent-outreach skill pack with the message 'The market brief you asked for is ready at https://agent402.tools/r/example': (1) sms-send it, (2) email-send it with the subject 'Your report is ready', and (3) only if I gave you an objective for a call, voice-call them with it. Report each channel's seller receipt.",
   },
 ];
 
