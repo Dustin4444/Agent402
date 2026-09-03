@@ -55,6 +55,14 @@ import { agent402Actions } from "agent402-agentkit";
 const actions = await agent402Actions();   // [{ name, description, schema, invoke }]
 ```
 
+## Example: buy data, ship it to Base
+
+[`examples/agentkit-data-to-deploy`](https://github.com/MikeyPetrillo/Agent402/tree/main/examples/agentkit-data-to-deploy)
+is one script on one wallet: `agent402_call` buys the live ETH price over x402
+for one cent, then `walletProvider.sendTransaction` deploys a contract to Base
+mainnet that stores the price and the payment transaction hash. Proven from CI
+against production.
+
 ## Options and spend bounds
 
 `agent402ActionProvider({ baseUrl, fetchImpl, zod, maxPerCallUsd, dailyLimitUsd, maxPerHostUsd, payees })`

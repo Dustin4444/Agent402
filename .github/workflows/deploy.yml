@@ -2855,6 +2855,7 @@ jobs:
           AGENT402_BASE_URL=http://127.0.0.1:3091 node adapters/strands/test.js
           AGENT402_BASE_URL=http://127.0.0.1:3091 node adapters/google-adk/test.js
           AGENT402_BASE_URL=http://127.0.0.1:3091 node adapters/agentkit/test.js
+          node scripts/test-agentkit-data-to-deploy.js
           AGENT402_BASE_URL=http://127.0.0.1:3091 node adapters/eliza/test.js
           # Python adapter (agent402-langchain): requests-only keeps CI lean; the
           # test skips the langchain-native path gracefully without langchain-core,
