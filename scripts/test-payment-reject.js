@@ -93,6 +93,21 @@ ok(/maxTimeoutSeconds/.test(classify(withMissing)?.detail || ""), "a MISSING fie
   ok(v.fields.length <= 6, "bounded, so it cannot inflate the rollup key space");
 }
 
+// A surplus v1 `maxAmountRequired` beside `amount` is annotated with whether it
+// agrees with the v2 price. The 2026-09-03 telemetry named the field and could
+// not say whether the retrying buyer disagreed about the price or merely said
+// it twice - which decides whether the fault is theirs or ours.
+{
+  const auth = { from: "0x" + "11".repeat(20), to: PAY_TO, value: "20000", validAfter: "0", validBefore: String(NOW + 300), nonce: "0x" + "cd".repeat(32) };
+  const same = classify(b64({ x402Version: 2, scheme: "exact", network: "eip155:8453", accepted: { ...accept(), maxAmountRequired: 20000 }, payload: { authorization: auth, signature: "0x" + "44".repeat(65) } }));
+  ok(same?.reason === "requirements-mismatch" && same.fields.includes("maxAmountRequired(=amount)"),
+    `a numeric v1 alias equal to amount is annotated (=amount) (${JSON.stringify(same?.fields)})`);
+  const diff = classify(b64({ x402Version: 2, scheme: "exact", network: "eip155:8453", accepted: { ...accept(), maxAmountRequired: "999" }, payload: { authorization: auth, signature: "0x" + "44".repeat(65) } }));
+  ok(diff?.reason === "requirements-mismatch" && diff.fields.includes("maxAmountRequired(!=amount)"),
+    `a v1 alias that disagrees is annotated (!=amount) (${JSON.stringify(diff?.fields)})`);
+  ok(!JSON.stringify(same.fields).includes("20000") && !JSON.stringify(diff.fields).includes("999"), "the annotation never carries a value");
+}
+
 // When we refuse but cannot say why, record the SHAPE - key names only. Three
 // classifier revisions each reproduced a live 402 loop's symptom and none was
 // the client's real payload, so the next unclassified refusal has to answer

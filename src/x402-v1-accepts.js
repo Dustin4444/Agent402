@@ -35,6 +35,30 @@
  *  payment path. */
 const V1_TO_V2 = Object.freeze({ maxAmountRequired: "amount" });
 
+/**
+ * Do two price fields name the SAME base-unit amount? Numeric equality, not
+ * JSON equality: the surplus-alias rule below shipped 2026-08-30 comparing
+ * `JSON.stringify` of both, and the /api/render buyer came back on 2026-09-03
+ * still refused ~1,800 times in fourteen hours with the classifier naming
+ * `maxAmountRequired` beside an `amount` that matched ours. A client that
+ * copies the v2 string into a v1 NUMBER (`10000` vs `"10000"`) says the same
+ * price twice, and a rule that reads those as a disagreement keeps refusing a
+ * correct payment. Both values must parse as whole non-negative integers;
+ * anything else falls back to exact JSON equality, so a genuinely different
+ * price (or junk) is still left exactly as sent.
+ */
+function sameAmount(a, b) {
+  const asInt = (v) => {
+    if (typeof v === "bigint") return v;
+    if (typeof v === "number") return Number.isSafeInteger(v) && v >= 0 ? BigInt(v) : null;
+    if (typeof v === "string" && /^\d{1,40}$/.test(v)) return BigInt(v);
+    return null;
+  };
+  const x = asInt(a), y = asInt(b);
+  if (x != null && y != null) return x === y;
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 export function v1AcceptsTranslationEnabled() {
   return String(process.env.AGENT402_X402_V1_ACCEPTS || "").trim().toLowerCase() !== "off";
 }
@@ -57,7 +81,7 @@ export function translateV1Accepts(payload) {
         next[v2] = next[v1];
         delete next[v1];
         translated.push(v1);
-      } else if (JSON.stringify(next[v1]) === JSON.stringify(next[v2])) {
+      } else if (sameAmount(next[v1], next[v2])) {
         // BOTH names, SAME value: a hybrid client that emits the v2 field and
         // also keeps the v1 alias. The v1 key is surplus - we never advertised
         // it - and dropping it cannot change the terms agreed, because the

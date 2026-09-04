@@ -39,7 +39,8 @@ ok(/basis && idSecret/.test(derive), "no secret means NO id - never a reversible
 ok(!/createHash\("sha256"\)\.update\(basis\)/.test(derive), "the bare-hash construction is gone");
 ok(/slice\(0, 32\)/.test(derive), "truncated to 32 hex, matching the gateway's upstream user id");
 ok(/`a402:\$\{/.test(derive), "prefixed a402: like the existing derived ids");
-ok(/credentialKeyOf/.test(derive), "falls back to the credential when no payer is readable (SVM/Stellar)");
+ok(/svm-payer:\$\{svm\}/.test(derive), "an SVM payload's buyer is read from its signed transaction (svm-payer.js) - a credential is per attempt, a wallet is not");
+ok(/credentialKeyOf/.test(derive), "falls back to the credential when no payer is readable (Stellar)");
 ok(/catch \{ \/\* telemetry is best-effort \*\/ \}/.test(derive), "a derivation failure never breaks the payment path");
 
 // The property that matters: same payer -> same id, and the id cannot be reversed.

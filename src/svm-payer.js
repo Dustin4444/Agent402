@@ -1,0 +1,105 @@
+// The BUYER behind a Solana x402 payment, read from the signed transaction.
+//
+// verify_failed's derived payer id fell back to the CREDENTIAL for SVM
+// payloads ("SVM/Stellar payloads carry no readable payer"), and a credential
+// is a signed transaction with a fresh memo nonce every time - so one wallet
+// retrying is one id per attempt. Measured 2026-09-03/04: ~200 Solana verify
+// failures an hour, every one `simulation failed ... Custom:1` (the token
+// program's InsufficientFunds), and 197 distinct payer ids for 197 events. The
+// question the id exists to answer - one empty wallet looping, or two hundred
+// wallets hitting a fault of ours - could not be asked.
+//
+// The payload's `transaction` is the base64 wire transaction the buyer
+// PARTIALLY signed (the facilitator's fee payer signs later). Its static
+// account keys open with the required signers: the fee payer first, then the
+// buyer whose token account the transfer debits (solana-buyer.js builds ours
+// in exactly that order; @x402/svm's scheme client does the same). So the
+// buyer is the first required signer that is not the accept's `extra.feePayer`.
+//
+// Dependency-free: a compact-u16 reader, a legacy/v0 message header walk and a
+// base58 encoder for the comparison, no RPC, no @solana/kit. Pure, bounded,
+// never throws: null whenever the bytes are not the shape described, because a
+// wrong payer id is worse than none.
+
+const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+/** base58 of a byte array (Bitcoin alphabet, the Solana address form). */
+export function base58Encode(bytes) {
+  let n = 0n;
+  for (const b of bytes) n = (n << 8n) | BigInt(b);
+  let out = "";
+  while (n > 0n) { out = B58[Number(n % 58n)] + out; n /= 58n; }
+  for (const b of bytes) { if (b !== 0) break; out = "1" + out; }
+  return out;
+}
+
+/** Solana's compact-u16 (shortvec): 1-3 bytes, 7 bits each, little-endian. */
+function readCompactU16(bytes, at) {
+  let value = 0, shift = 0, pos = at;
+  for (let i = 0; i < 3; i++) {
+    if (pos >= bytes.length) return null;
+    const b = bytes[pos++];
+    value |= (b & 0x7f) << shift;
+    if ((b & 0x80) === 0) return { value, next: pos };
+    shift += 7;
+  }
+  return null;
+}
+
+/**
+ * The required signers of a wire transaction, as base58 addresses, in
+ * account-key order (fee payer first). Null on any shape mismatch.
+ * @param {string} txBase64
+ */
+export function svmRequiredSigners(txBase64) {
+  try {
+    if (typeof txBase64 !== "string" || !txBase64 || txBase64.length > 4096) return null;
+    const bytes = Buffer.from(txBase64, "base64");
+    if (!bytes.length) return null;
+    const sigs = readCompactU16(bytes, 0);
+    if (!sigs || sigs.value < 1 || sigs.value > 8) return null;
+    let at = sigs.next + 64 * sigs.value; // skip the signatures
+    if (at >= bytes.length) return null;
+    // Versioned messages carry a version prefix byte with the high bit set;
+    // a legacy message begins directly with the 3-byte header.
+    if ((bytes[at] & 0x80) !== 0) {
+      const version = bytes[at] & 0x7f;
+      if (version !== 0) return null; // only v0 exists today
+      at += 1;
+    }
+    if (at + 3 > bytes.length) return null;
+    const numRequiredSignatures = bytes[at];
+    at += 3;
+    if (numRequiredSignatures < 1 || numRequiredSignatures !== sigs.value) return null;
+    const keys = readCompactU16(bytes, at);
+    if (!keys || keys.value < numRequiredSignatures || keys.value > 64) return null;
+    at = keys.next;
+    if (at + 32 * keys.value > bytes.length) return null;
+    const out = [];
+    for (let i = 0; i < numRequiredSignatures; i++) out.push(base58Encode(bytes.subarray(at + 32 * i, at + 32 * (i + 1))));
+    return out;
+  } catch { return null; }
+}
+
+/**
+ * The buyer's address for an SVM x402 payment: the first required signer that
+ * is not the fee payer named by the accept (`requirements.extra.feePayer`).
+ * When no fee payer is known, a two-signer transaction still resolves to its
+ * second signer (the scheme's fixed layout); a single-signer one to that
+ * signer. Null when the payload carries no readable transaction.
+ * @param {object} paymentPayload the decoded x402 payload ({payload:{transaction}})
+ * @param {{feePayer?: string}} [opts]
+ */
+export function svmPayerFromPayload(paymentPayload, { feePayer } = {}) {
+  try {
+    const tx = paymentPayload?.payload?.transaction ?? paymentPayload?.transaction;
+    const signers = svmRequiredSigners(tx);
+    if (!signers) return null;
+    const fp = typeof feePayer === "string" && feePayer ? feePayer : null;
+    if (fp) {
+      const buyer = signers.find((s) => s !== fp);
+      return buyer || null;
+    }
+    return signers.length >= 2 ? signers[1] : signers[0];
+  } catch { return null; }
+}

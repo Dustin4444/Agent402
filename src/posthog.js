@@ -354,19 +354,32 @@ export function capturePostHogPaywall({ slug, priceUsd, powEligible, synthetic, 
 function flushPaywallRollup() {
   try {
     if (paywallCounts.size) {
-      const entries = [...paywallCounts.values()].sort((a, b) => b.count - a.count);
-      paywallCounts = new Map();
-      for (const e of entries.slice(0, PAYWALL_TOP_SLUGS)) {
-        capture("paywall_402", { slug: e.slug, count: e.count, priceUsd: e.priceUsd, powEligible: e.powEligible, synthetic: e.synthetic, attempt: e.attempt, ...(e.reason ? { reason: e.reason } : {}), ...(e.shape ? { shape: e.shape } : {}) });
+      // Top slugs PER ATTEMPT BUCKET, not top slugs overall. Measured
+      // 2026-09-04 over 14 days: 17,184 of 27,837 failed USDC attempts
+      // (62%) had flushed as `_other` with no slug, because a single
+      // window's first-contact quotes (attempt "none", crawlers walking 550
+      // routes) outnumber every failed-payment row and took all fifty
+      // named slots. The one bucket that diagnoses a fault of ours was the
+      // one whose slug was thrown away. Now each attempt bucket keeps its
+      // own top PAYWALL_TOP_SLUGS (at most 3 x 50 named rows + 3 "_other"
+      // rows per flush); sum(count) is still the exact total.
+      const byAttempt = new Map();
+      for (const e of paywallCounts.values()) {
+        const list = byAttempt.get(e.attempt) || [];
+        list.push(e);
+        byAttempt.set(e.attempt, list);
       }
-      const rest = entries.slice(PAYWALL_TOP_SLUGS);
-      if (rest.length) {
-        // Fold the long tail per `attempt` (not into one bucket) so the
-        // couldn't-pay vs wouldn't-pay split survives for tail slugs too —
-        // at most three "_other" rows, and sum(count) stays the exact total.
-        const byAttempt = new Map();
-        for (const e of rest) byAttempt.set(e.attempt, (byAttempt.get(e.attempt) || 0) + e.count);
-        for (const [attempt, count] of byAttempt) {
+      paywallCounts = new Map();
+      for (const [attempt, list] of byAttempt) {
+        list.sort((a, b) => b.count - a.count);
+        for (const e of list.slice(0, PAYWALL_TOP_SLUGS)) {
+          capture("paywall_402", { slug: e.slug, count: e.count, priceUsd: e.priceUsd, powEligible: e.powEligible, synthetic: e.synthetic, attempt: e.attempt, ...(e.reason ? { reason: e.reason } : {}), ...(e.shape ? { shape: e.shape } : {}) });
+        }
+        // Fold this bucket's long tail into one "_other" row so the
+        // couldn't-pay vs wouldn't-pay split survives for tail slugs too.
+        const rest = list.slice(PAYWALL_TOP_SLUGS);
+        if (rest.length) {
+          const count = rest.reduce((s, e) => s + e.count, 0);
           capture("paywall_402", { slug: "_other", count, priceUsd: 0, powEligible: false, synthetic: false, attempt });
         }
       }
