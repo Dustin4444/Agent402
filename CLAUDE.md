@@ -2865,6 +2865,27 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   query + body, and `cacheKeyFor` keys on the merged input, so the GET cache cannot serve a different body's answer). A GET on a
   POST-only tool still 405s with `Allow` (a GET carries no body). Pinned in test-wrong-method-405 (served + body honoured) and
   test-head-paywall (unpaid POST alias -> 402 with PAYMENT-REQUIRED, garbage payment refused).
+- **The "failed USDC attempts" PostHog alert was mis-measuring, and the telemetry under it could not name a fault (2026-09-04):**
+  the alert on the Pay-time gate insight (`sum(count)` of `paywall_402{attempt=usdc_failed}`, upper 20/day) ran DAILY at ~01:05 UTC with
+  `check_ongoing_interval: true`, so it evaluated the FIRST HOUR of each UTC day: it read 0-11 on twelve of fourteen days, paged
+  on 08-30 (443) and 09-04 (204) from one hour of a loop, and never saw the 3,795 of 09-03. The two-week baseline is 400-5,000/day,
+  because the metric counts whoever is looping: a render buyer echoing a v1 `maxAmountRequired` (~200/h), one empty Base wallet
+  walking the catalog at 08:00 and 20:00 UTC (~300 verify failures each, `under-price`), and since 09-03 12:00Z a Solana client at
+  ~200/h whose every payment simulates to the token program's `Custom:1` = InsufficientFunds. Retuned in PostHog (not code): the
+  completed day, upper 4,000 (one day of the last fourteen), renamed "(completed day)"; the June "Tool errors - 5xx spike (>5/day)"
+  alert is DISABLED (all-traffic incl. canary, under the daily upstream-502 baseline, and duplicated by the external-only 5xx alert at 25).
+  Three telemetry fixes in code, each mutation-visible in its test: (1) **the rollup kept the top 50 slugs OVERALL**, so a window's
+  first-contact quotes (crawlers x 550 routes) took every named slot and 62% of failed USDC attempts over 14 days (17,184 of 27,837)
+  flushed as `_other` with no slug - `flushPaywallRollup` now keeps the top 50 PER ATTEMPT BUCKET (test-posthog-funnel 75); (2) the
+  v1 accepts shim compared the surplus `maxAmountRequired` to `amount` with `JSON.stringify`, so a client copying the v2 STRING into
+  a v1 NUMBER read as a price disagreement and stayed refused - `sameAmount` compares whole non-negative integers numerically, junk
+  still falls back to exact equality (test-x402-v1-accepts 23), and the classifier annotates the field `maxAmountRequired(=amount)`
+  / `(!=amount)` so the next flush says which (test-payment-reject 37); (3) `verify_failed.payerKey` for an SVM payload was derived
+  from the CREDENTIAL, and a Solana credential is a fresh transaction per attempt, so one wallet looping read as 197 payers in 197
+  events - `src/svm-payer.js` (dependency-free: compact-u16, legacy/v0 header walk, base58) reads the buyer as the first required
+  signer that is not the accept's `extra.feePayer`, pinned against transactions @solana/kit itself builds in both message versions
+  (`scripts/test-svm-payer.js` 26, in CI). Verify-failure telemetry property names: `errorReason`, `network`, `path`, `payerKey`,
+  `payerBalanceBucket` (a first query here used `reason` and read null - check `read-data-schema` before grouping).
 - **A rejected payment is answered in the buyer's terms (2026-08-28, `src/verify-hint.js`, `scripts/test-verify-hint.js` 18 in CI):**
   every verify failure surviving in Railway's removed-deployment logs read `[CDP (Base)] invalid_payload: contract call failed: unable
   to call contract: execution reverted` - CDP simulating the USDC transferWithAuthorization and the transfer reverting (an EMPTY wallet,

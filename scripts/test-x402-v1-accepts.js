@@ -51,6 +51,16 @@ ok(both.payload.accepted.amount === "20000" && !("maxAmountRequired" in both.pay
 ok(both.translated.join(",").includes("surplus"), "and it reports that it dropped a surplus alias, not a rename");
 ok(translateV1Accepts(wrap({ ...base, amount: "20000", maxAmountRequired: "999" })) === null,
   "BOTH names with DIFFERENT values is left alone - a real disagreement about price must still fail");
+// Same price, different SPELLING: a client that copies the v2 string into a v1
+// NUMBER. The surplus rule shipped comparing JSON, so `20000` beside `"20000"`
+// read as a disagreement and the render buyer was still refused ~1,800 times
+// in fourteen hours on 2026-09-03. Equality is numeric now; junk still is not.
+const numeric = translateV1Accepts(wrap({ ...base, amount: "20000", maxAmountRequired: 20000 }));
+ok(!!numeric && numeric.payload.accepted.amount === "20000" && !("maxAmountRequired" in numeric.payload.accepted),
+  "a NUMERIC v1 alias equal to the string v2 amount is dropped as surplus");
+ok(translateV1Accepts(wrap({ ...base, amount: "20000", maxAmountRequired: 20001 })) === null, "a numeric alias one unit off is still a disagreement");
+ok(translateV1Accepts(wrap({ ...base, amount: "20000", maxAmountRequired: "2e4" })) === null, "a non-integer spelling is never coerced into agreement");
+ok(translateV1Accepts(wrap({ ...base, amount: "20000", maxAmountRequired: 20000.5 })) === null, "a fractional alias is never coerced into agreement");
 for (const junk of [null, undefined, "str", 42, [], { accepted: [] }, { accepted: "x" }]) {
   if (translateV1Accepts(junk) !== null) fail(`junk input ${JSON.stringify(junk)} should be a no-op`);
 }

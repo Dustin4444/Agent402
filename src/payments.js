@@ -1581,6 +1581,17 @@ async function recordVerifyFailure(ctx, reason) {
     const idSecret = process.env.TELEMETRY_ID_SECRET || process.env.POW_SECRET || process.env.MPP_SECRET_KEY || "";
     const from = ctx?.paymentPayload?.payload?.authorization?.from;
     let basis = from ? `payer:${String(from).toLowerCase()}` : null;
+    // An SVM payload carries no `authorization.from`, but its signed
+    // transaction names the buyer (svm-payer.js): the first required signer
+    // that is not the accept's fee payer. Before this the fallback below
+    // keyed on the credential, and a Solana credential is a fresh transaction
+    // per attempt, so one looping wallet read as a new payer every time
+    // (197 ids for 197 events, 2026-09-04). Never lowercased: base58.
+    if (!basis && /^solana:/.test(String(ctx?.requirements?.network || ""))) {
+      const { svmPayerFromPayload } = await import("./svm-payer.js");
+      const svm = svmPayerFromPayload(ctx?.paymentPayload, { feePayer: ctx?.requirements?.extra?.feePayer });
+      if (svm) basis = `svm-payer:${svm}`;
+    }
     if (!basis) {
       const { credentialKeyOf } = await import("./verify-hint.js");
       const cred = credentialKeyOf(ctx?.paymentPayload);

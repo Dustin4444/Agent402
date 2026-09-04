@@ -134,6 +134,31 @@ ok(got.some((e) => e.properties.slug === "_other"), "_other remainder event pres
 const total = got.reduce((s, e) => s + e.properties.count, 0);
 ok(total === expectedTotal, `sum(count) is the exact 402 total — nothing sampled away (${total} = ${expectedTotal})`);
 
+// --- unit: a FAILED attempt never loses its slug to the first-contact tail ------
+// Measured 2026-09-04: 62% of failed USDC attempts over 14 days had flushed as
+// `_other`, because one window's first-contact quotes (crawlers walking 550
+// routes) outnumber every failed-payment row and took all fifty named slots.
+// The top-N is per attempt bucket now: a handful of usdc_failed rows beside a
+// flood of "none" rows keep their slug and reason.
+for (let i = 0; i < 60; i++) for (let n = 0; n < 3; n++) capturePostHogPaywall({ slug: `crawl-${i}`, priceUsd: 0.001, powEligible: true, synthetic: false });
+capturePostHogPaywall({ slug: "render", priceUsd: 0.01, powEligible: false, synthetic: false, attempt: "usdc_failed", reason: "requirements-mismatch", shape: "f:maxAmountRequired(=amount)" });
+capturePostHogPaywall({ slug: "evm-rpc", priceUsd: 0.002, powEligible: false, synthetic: false, attempt: "usdc_failed" });
+capturePostHogPaywall({ slug: "hash", priceUsd: 0.001, powEligible: true, synthetic: false, attempt: "pow_failed" });
+_flushPaywallRollupForTest();
+got = take();
+const failedRows = got.filter((e) => e.properties.attempt === "usdc_failed");
+ok(failedRows.length === 2 && failedRows.every((e) => e.properties.slug !== "_other"),
+  `usdc_failed rows keep their slug beside 60 busier first-contact slugs (${failedRows.map((e) => e.properties.slug).join(",")})`);
+ok(failedRows.find((e) => e.properties.slug === "render")?.properties.reason === "requirements-mismatch"
+  && failedRows.find((e) => e.properties.slug === "render")?.properties.shape === "f:maxAmountRequired(=amount)",
+  "and the reason + shape ride with the named row");
+ok(got.filter((e) => e.properties.attempt === "pow_failed").length === 1 && got.find((e) => e.properties.attempt === "pow_failed").properties.slug === "hash",
+  "pow_failed keeps its slug too");
+const noneRows = got.filter((e) => e.properties.attempt === "none");
+ok(noneRows.length === 51 && noneRows.filter((e) => e.properties.slug === "_other").length === 1,
+  `the first-contact bucket still folds to top-50 + one _other (${noneRows.length})`);
+ok(got.reduce((s, e) => s + e.properties.count, 0) === 180 + 3, "sum(count) is still the exact total across buckets");
+
 // --- unit: settlement ------------------------------------------------------------
 capturePostHogSettlement({ slug: "hash", rail: "usdc", network: "eip155:8453", priceUsd: 0.001, synthetic: false });
 capturePostHogSettlement({ slug: "hash", rail: "pow", network: null, priceUsd: 0.001, synthetic: false });

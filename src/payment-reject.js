@@ -35,6 +35,8 @@ function decodeB64Json(value) {
 }
 
 const asBig = (v) => { try { return BigInt(String(v)); } catch { return null; } };
+/** Two price fields naming the same whole base-unit amount (a number and its string spelling agree). */
+const sameInteger = (a, b) => { const x = asBig(a), y = asBig(b); return x != null && y != null && x === y; };
 
 /** The advertised accepts, from our own PAYMENT-REQUIRED header. */
 export function advertisedAccepts(paymentRequiredHeader) {
@@ -127,7 +129,16 @@ export function classifyPaymentRejection({ paymentHeader, paymentRequiredHeader,
       const keys = [...new Set([...Object.keys(match), ...Object.keys(payload.accepted)])];
       const differing = keys.filter((k) => JSON.stringify(match[k]) !== JSON.stringify(payload.accepted[k]));
       if (differing.length) {
-        return { reason: "requirements-mismatch", retry: "rebuild-payment", fields: differing.slice(0, 6),
+        // A surplus v1 `maxAmountRequired` beside `amount` is annotated with
+        // whether it AGREES with the v2 price: `(=amount)` means the same
+        // price said twice (the translator should have dropped it - a fault
+        // of ours if it still refuses), `(!=amount)` a real disagreement.
+        // Without this the telemetry of 2026-09-03 could not say which of the
+        // two the retrying render buyer was, and those need opposite fixes.
+        const annotated = differing.map((k) => (k === "maxAmountRequired" && match.maxAmountRequired === undefined && payload.accepted.amount !== undefined)
+          ? `${k}(${sameInteger(payload.accepted.maxAmountRequired, payload.accepted.amount) ? "=" : "!="}amount)`
+          : k);
+        return { reason: "requirements-mismatch", retry: "rebuild-payment", fields: annotated.slice(0, 6),
           // The FULL echoed key list, not just the diff. Knowing only which
           // key differed was not enough to fix the live buyer: `maxAmountRequired`
           // could be a v1 REPLACEMENT for `amount` or a surplus alias sitting
