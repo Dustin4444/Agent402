@@ -23,6 +23,16 @@ updates:
       # @x402 version set. NEVER auto-bump these; adopt a new line deliberately
       # (express+core+evm+fetch+svm+stellar+avm together) with a paid-canary run.
       - dependency-name: "@x402/*"
+      # @solana-program/token and compute-budget are imported by our Solana buyer
+      # but their versions are dictated by @x402/svm (^0.9.0 / ^0.11.0) and by
+      # the @solana/kit line they compile against. Declared 2026-09-04 so a tree
+      # change cannot drop them; the first grouped PR after that (#1218) bumped
+      # them to 0.16 / 0.18 and npm install died on ERESOLVE against
+      # @solana/kit 5. They move with the @x402 set, never on their own. No
+      # update-types qualifier on purpose: for 0.x packages Dependabot reads the
+      # middle digit as minor, so a "semver-major" ignore would never match
+      # (the @zxing note below).
+      - dependency-name: "@solana-program/*"
       # better-sqlite3 major: native module; v13 has no working prebuilt for the
       # node:22-slim deploy image and breaks the Railway build (verified 2026-07-24).
       # Revisit only with a container-build test.
