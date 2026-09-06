@@ -112,15 +112,15 @@
       "slug": "earthquakes",
       "name": "a week of strong quakes",
       "input": {
-        "minMag": "5.5",
+        "minMag": "4.5",
         "period": "week"
       },
       "expect": {
         "gte": {
-          "count": 0
+          "count": 1
         },
         "populated": [
-          "quakes"
+          "quakes[0].mag"
         ]
       }
     },
