@@ -6894,7 +6894,10 @@ for (const tool of ALL_KIT) {
       // and a burst across wallets pauses the paid catalog 503 for one window.
       // A settled 200 clears the wallet; a 4xx the handler threw is neither.
       // FREE_MODE has no settlement, so nothing to breaker there.
-      if (!FREE_MODE && WALLET_ONLY_SLUGS.has(tool.slug)) gatewaySettleBreakerCheck(req);
+      // global:false - per-wallet only. A catalog read costs a fraction of a
+      // cent; pausing every paid tool over twelve of them would be a lever, not
+      // a guard. The /v1 tiers keep their own global pause inside their handlers.
+      if (!FREE_MODE && WALLET_ONLY_SLUGS.has(tool.slug)) gatewaySettleBreakerCheck(req, { global: false });
 
       // A composite runs in an abortable scope: on SIGTERM every upstream call
       // it is waiting on is cut off (503, never charged) instead of running to

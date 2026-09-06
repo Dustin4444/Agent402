@@ -353,8 +353,10 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   protect); the refusal names the cause and carries Retry-After. Proven on a paid boot against a stub facilitator that
   verifies and refuses to settle: MAX calls run the handler and end 402, the next is 429 with no settle attempt, another
   wallet is served, `/api/hash` (PoW-eligible) still reaches its handler for the blocked wallet, a settled 200 restarts the
-  count; mutation-checked by deleting the consult line. Residual: one facilitator rail failing to settle for everyone trips
-  the GLOBAL pause for one window - during which the alternative was serving every call for free.
+  count; mutation-checked by deleting the consult line. **Per-wallet ONLY (the operator, same evening): the catalog consult
+  passes `global:false`, so it neither honours nor feeds the GLOBAL pause** - a catalog read costs a fraction of a cent and
+  twelve failed settlements must never pause the paid catalog or the LLM tiers (that is a lever, not a guard). A rail that
+  stops settling produces 402s per call, as before. The global pause stays where each wasted call costs real money: /v1.
 - **Gateway settle-failure breaker (2026-09-03, `src/gateway-settle-breaker.js`, `scripts/test-gateway-settle-breaker.js`
   56 in CI):** the /v1 tiers had no equivalent of the composite guard, so a payment that verified and then failed to settle
   (funds moved between verify and settle, a raced nonce, a facilitator refusal) cost the upstream call with nothing charged,
