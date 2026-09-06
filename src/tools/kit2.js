@@ -140,7 +140,11 @@ const MORSE = {
 const MORSE_REV = Object.fromEntries(Object.entries(MORSE).map(([k, v]) => [v, k]));
 
 const HTML_ENT = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
-const HTML_ENT_REV = { amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'", apos: "'", nbsp: " ", copy: "©", reg: "®" };
+// The HTML 4 named entities (252) plus &#39;. The first cut decoded seven names
+// and returned every other one VERBATIM as a 200 - a partially decoded string
+// is a wrong answer that looks right (corpus, 2026-09-06). Generated from the
+// `entities` package's own decoder; never hand-edit a code point here.
+const HTML_ENT_REV = {"#39":"'","nbsp":" ","iexcl":"¡","cent":"¢","pound":"£","curren":"¤","yen":"¥","brvbar":"¦","sect":"§","uml":"¨","copy":"©","ordf":"ª","laquo":"«","not":"¬","shy":"­","reg":"®","macr":"¯","deg":"°","plusmn":"±","sup2":"²","sup3":"³","acute":"´","micro":"µ","para":"¶","middot":"·","cedil":"¸","sup1":"¹","ordm":"º","raquo":"»","frac14":"¼","frac12":"½","frac34":"¾","iquest":"¿","Agrave":"À","Aacute":"Á","Acirc":"Â","Atilde":"Ã","Auml":"Ä","Aring":"Å","AElig":"Æ","Ccedil":"Ç","Egrave":"È","Eacute":"É","Ecirc":"Ê","Euml":"Ë","Igrave":"Ì","Iacute":"Í","Icirc":"Î","Iuml":"Ï","ETH":"Ð","Ntilde":"Ñ","Ograve":"Ò","Oacute":"Ó","Ocirc":"Ô","Otilde":"Õ","Ouml":"Ö","times":"×","Oslash":"Ø","Ugrave":"Ù","Uacute":"Ú","Ucirc":"Û","Uuml":"Ü","Yacute":"Ý","THORN":"Þ","szlig":"ß","agrave":"à","aacute":"á","acirc":"â","atilde":"ã","auml":"ä","aring":"å","aelig":"æ","ccedil":"ç","egrave":"è","eacute":"é","ecirc":"ê","euml":"ë","igrave":"ì","iacute":"í","icirc":"î","iuml":"ï","eth":"ð","ntilde":"ñ","ograve":"ò","oacute":"ó","ocirc":"ô","otilde":"õ","ouml":"ö","divide":"÷","oslash":"ø","ugrave":"ù","uacute":"ú","ucirc":"û","uuml":"ü","yacute":"ý","thorn":"þ","yuml":"ÿ","fnof":"ƒ","Alpha":"Α","Beta":"Β","Gamma":"Γ","Delta":"Δ","Epsilon":"Ε","Zeta":"Ζ","Eta":"Η","Theta":"Θ","Iota":"Ι","Kappa":"Κ","Lambda":"Λ","Mu":"Μ","Nu":"Ν","Xi":"Ξ","Omicron":"Ο","Pi":"Π","Rho":"Ρ","Sigma":"Σ","Tau":"Τ","Upsilon":"Υ","Phi":"Φ","Chi":"Χ","Psi":"Ψ","Omega":"Ω","alpha":"α","beta":"β","gamma":"γ","delta":"δ","epsilon":"ε","zeta":"ζ","eta":"η","theta":"θ","iota":"ι","kappa":"κ","lambda":"λ","mu":"μ","nu":"ν","xi":"ξ","omicron":"ο","pi":"π","rho":"ρ","sigmaf":"ς","sigma":"σ","tau":"τ","upsilon":"υ","phi":"φ","chi":"χ","psi":"ψ","omega":"ω","thetasym":"ϑ","upsih":"ϒ","piv":"ϖ","bull":"•","hellip":"…","prime":"′","Prime":"″","oline":"‾","frasl":"⁄","weierp":"℘","image":"ℑ","real":"ℜ","trade":"™","alefsym":"ℵ","larr":"←","uarr":"↑","rarr":"→","darr":"↓","harr":"↔","crarr":"↵","lArr":"⇐","uArr":"⇑","rArr":"⇒","dArr":"⇓","hArr":"⇔","forall":"∀","part":"∂","exist":"∃","empty":"∅","nabla":"∇","isin":"∈","notin":"∉","ni":"∋","prod":"∏","sum":"∑","minus":"−","lowast":"∗","radic":"√","prop":"∝","infin":"∞","ang":"∠","and":"∧","or":"∨","cap":"∩","cup":"∪","int":"∫","there4":"∴","sim":"∼","cong":"≅","asymp":"≈","ne":"≠","equiv":"≡","le":"≤","ge":"≥","sub":"⊂","sup":"⊃","nsub":"⊄","sube":"⊆","supe":"⊇","oplus":"⊕","otimes":"⊗","perp":"⊥","sdot":"⋅","lceil":"⌈","rceil":"⌉","lfloor":"⌊","rfloor":"⌋","lang":"⟨","rang":"⟩","loz":"◊","spades":"♠","clubs":"♣","hearts":"♥","diams":"♦","quot":"\"","amp":"&","lt":"<","gt":">","apos":"'","OElig":"Œ","oelig":"œ","Scaron":"Š","scaron":"š","Yuml":"Ÿ","circ":"ˆ","tilde":"˜","ensp":" ","emsp":" ","thinsp":" ","zwnj":"‌","zwj":"‍","lrm":"‎","rlm":"‏","ndash":"–","mdash":"—","lsquo":"‘","rsquo":"’","sbquo":"‚","ldquo":"“","rdquo":"”","bdquo":"„","dagger":"†","Dagger":"‡","permil":"‰","lsaquo":"‹","rsaquo":"›","euro":"€"};
 
 const encoding = [
   {
@@ -335,8 +339,12 @@ const text = [
     handler: (i) => {
       const t = cap(need(i, "text"), 1_000_000);
       let lines = t.split("\n");
-      if (i.unique === true || i.unique === "true") lines = [...new Set(lines)];
       const ci = i.ci === true || i.ci === "true";
+      if (i.unique === true || i.unique === "true") {
+        // unique under ci folds case too: "a" and "A" are one line (first
+        // spelling kept), otherwise ci:true + unique:true still returned both.
+        const seen = new Set(); lines = lines.filter((l) => { const k = ci ? l.toLowerCase() : l; if (seen.has(k)) return false; seen.add(k); return true; });
+      }
       if (i.order === "numeric") lines.sort((a, b) => parseFloat(a) - parseFloat(b));
       else lines.sort((a, b) => (ci ? a.toLowerCase().localeCompare(b.toLowerCase()) : a.localeCompare(b)));
       if (i.order === "desc") lines.reverse();
@@ -541,14 +549,17 @@ const conversion = [
     tags: ["querystring", "url", "parse", "convert"],
     discovery: { bodyType: "json", input: { value: "a=1&b=hello%20world&a=2", mode: "parse" }, inputSchema: { properties: { value: { description: "String to parse or object to build" }, mode: { type: "string", description: "parse | build" } }, required: ["value"] }, output: { example: { result: { a: ["1", "2"], b: "hello world" } } } },
     handler: (i) => {
-      if (i.mode === "build") {
+      const mode = i.mode === undefined || i.mode === null || i.mode === "" ? "parse" : String(i.mode);
+      if (mode !== "parse" && mode !== "build") throw bad('"mode" must be parse or build');
+      if (mode === "build") {
         const obj = parseMaybeJson(i.value, "value");
         if (!obj || typeof obj !== "object") throw bad('"value" must be an object to build');
         const sp = new URLSearchParams();
         for (const [k, v] of Object.entries(obj)) (Array.isArray(v) ? v : [v]).forEach((x) => sp.append(k, String(x)));
         return { result: sp.toString() };
       }
-      const sp = new URLSearchParams(String(need(i, "value", "any")).replace(/^\?/, ""));
+      if (typeof need(i, "value", "any") !== "string") throw bad('"value" must be a query string to parse (use mode "build" for an object)');
+      const sp = new URLSearchParams(String(i.value).replace(/^\?/, ""));
       const out = {};
       for (const k of new Set(sp.keys())) {
         const all = sp.getAll(k);

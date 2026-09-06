@@ -1,0 +1,429 @@
+{
+  "about": "Free public data: FX (frankfurter/open.er-api), US Treasury fiscal data, World Bank, open-meteo, NHTSA, openFDA (tier 1). fred-* need a key and are tier 2.",
+  "cases": [
+    {
+      "slug": "fx-rate",
+      "name": "GBP to JPY with amount",
+      "input": {
+        "from": "GBP",
+        "to": "JPY",
+        "amount": 10
+      },
+      "expect": {
+        "equals": {
+          "from": "GBP",
+          "to": "JPY",
+          "amount": 10
+        },
+        "gt": {
+          "rate": 100,
+          "result": 1000
+        },
+        "populated": [
+          "date"
+        ]
+      }
+    },
+    {
+      "slug": "fx-rate",
+      "name": "unknown currency is a 400",
+      "input": {
+        "from": "USD",
+        "to": "ZZZ"
+      },
+      "expect": {
+        "status": 400,
+        "matches": {
+          "error": "currency"
+        }
+      }
+    },
+    {
+      "slug": "fx-historical",
+      "name": "a weekend date resolves to the last business day",
+      "input": {
+        "from": "EUR",
+        "to": "USD",
+        "date": "2024-06-15"
+      },
+      "expect": {
+        "gt": {
+          "rate": 1.0
+        },
+        "lt": {
+          "rate": 1.2
+        },
+        "populated": [
+          "date",
+          "source"
+        ]
+      }
+    },
+    {
+      "slug": "fx-timeseries",
+      "name": "one month of CHF/USD",
+      "input": {
+        "from": "CHF",
+        "to": "USD",
+        "startDate": "2024-03-01",
+        "endDate": "2024-03-31"
+      },
+      "expect": {
+        "gte": {
+          "count": 18
+        },
+        "minCount": {
+          "series": 18
+        }
+      }
+    },
+    {
+      "slug": "fx-timeseries",
+      "name": "end before start is a 400",
+      "input": {
+        "from": "USD",
+        "to": "EUR",
+        "startDate": "2024-03-31",
+        "endDate": "2024-03-01"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "fx-dashboard",
+      "name": "dashboard carries the majors",
+      "input": {},
+      "expect": {
+        "populated": [
+          "rates.EUR",
+          "rates.JPY",
+          "rates.GBP",
+          "usdStrengthIndex",
+          "date"
+        ]
+      }
+    },
+    {
+      "slug": "treasury-yield-curve",
+      "name": "all tenors populated",
+      "input": {},
+      "expect": {
+        "populated": [
+          "recordDate",
+          "mo3",
+          "yr2",
+          "yr10",
+          "yr30"
+        ],
+        "gt": {
+          "yr10": 0
+        }
+      }
+    },
+    {
+      "slug": "treasury-debt",
+      "name": "debt is tens of trillions",
+      "input": {},
+      "expect": {
+        "gt": {
+          "totalPublicDebtOutstanding": 30000000000000
+        },
+        "populated": [
+          "recordDate"
+        ]
+      }
+    },
+    {
+      "slug": "treasury-avg-rates",
+      "name": "rates table non-empty",
+      "input": {},
+      "expect": {
+        "populated": [
+          "recordDate",
+          "rates"
+        ],
+        "minCount": {
+          "rates": 3
+        }
+      }
+    },
+    {
+      "slug": "world-bank-indicator",
+      "name": "population of Brazil, three years",
+      "input": {
+        "country": "BR",
+        "indicator": "SP.POP.TOTL",
+        "startYear": 2019,
+        "endYear": 2021
+      },
+      "expect": {
+        "equals": {
+          "count": 3
+        },
+        "gt": {
+          "series[0].value": 200000000
+        },
+        "populated": [
+          "indicatorName"
+        ]
+      }
+    },
+    {
+      "slug": "world-bank-indicator",
+      "name": "unknown indicator is a 400 naming the input",
+      "input": {
+        "country": "BR",
+        "indicator": "NOT.A.REAL.ONE",
+        "startYear": 2019,
+        "endYear": 2020
+      },
+      "expect": {
+        "status": 400,
+        "matches": {
+          "error": "indicator|not valid"
+        }
+      }
+    },
+    {
+      "slug": "world-bank-search",
+      "name": "search finds unemployment indicators",
+      "input": {
+        "q": "unemployment",
+        "rows": 5
+      },
+      "expect": {
+        "gte": {
+          "count": 1
+        },
+        "populated": [
+          "indicators[0].code",
+          "indicators[0].name"
+        ]
+      }
+    },
+    {
+      "slug": "weather-current",
+      "name": "southern hemisphere point",
+      "input": {
+        "lat": -33.8688,
+        "lon": 151.2093
+      },
+      "expect": {
+        "populated": [
+          "current.temperature",
+          "source"
+        ],
+        "equals": {
+          "lat": -33.8688
+        }
+      }
+    },
+    {
+      "slug": "weather-current",
+      "name": "imperial units",
+      "input": {
+        "lat": 25.7617,
+        "lon": -80.1918,
+        "units": "fahrenheit"
+      },
+      "expect": {
+        "populated": [
+          "current.temperature"
+        ],
+        "gt": {
+          "current.temperature": 50
+        },
+        "matches": {
+          "current.unit": "F"
+        }
+      }
+    },
+    {
+      "slug": "weather-current",
+      "name": "units imperial is an alias, never a silent celsius",
+      "input": {
+        "lat": 25.7617,
+        "lon": -80.1918,
+        "units": "imperial"
+      },
+      "expect": {
+        "matches": {
+          "current.unit": "F"
+        }
+      }
+    },
+    {
+      "slug": "weather-current",
+      "name": "unknown units is a 400",
+      "input": {
+        "lat": 25.7617,
+        "lon": -80.1918,
+        "units": "kelvin"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "weather-current",
+      "name": "out of range latitude is a 400",
+      "input": {
+        "lat": 95,
+        "lon": 0
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "weather-forecast",
+      "name": "NWS forecast for Chicago",
+      "input": {
+        "lat": 41.8781,
+        "lon": -87.6298
+      },
+      "expect": {
+        "minCount": {
+          "periods": 5
+        },
+        "populated": [
+          "periods[0].temperature",
+          "location"
+        ]
+      }
+    },
+    {
+      "slug": "weather-forecast",
+      "name": "a point outside the US is a self-explaining error, not a 500",
+      "input": {
+        "lat": 48.8566,
+        "lon": 2.3522
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "weather-daily",
+      "name": "three days for Reykjavik",
+      "input": {
+        "lat": 64.1466,
+        "lon": -21.9426,
+        "days": 3
+      },
+      "expect": {
+        "count": {
+          "days": 3
+        },
+        "populated": [
+          "days[0].tempMax",
+          "source"
+        ]
+      }
+    },
+    {
+      "slug": "weather-air-quality",
+      "name": "AQI for Los Angeles",
+      "input": {
+        "lat": 34.0522,
+        "lon": -118.2437
+      },
+      "expect": {
+        "populated": [
+          "airQuality",
+          "source"
+        ]
+      }
+    },
+    {
+      "slug": "vehicle-recalls",
+      "name": "a model with known recalls",
+      "input": {
+        "make": "toyota",
+        "model": "camry",
+        "year": 2018
+      },
+      "expect": {
+        "gte": {
+          "count": 1
+        },
+        "populated": [
+          "recalls[0]"
+        ]
+      }
+    },
+    {
+      "slug": "vehicle-recalls",
+      "name": "a made-up model is an honest zero",
+      "input": {
+        "make": "toyota",
+        "model": "zzzzmodel",
+        "year": 2018
+      },
+      "expect": {
+        "equals": {
+          "count": 0
+        },
+        "empty": [
+          "recalls"
+        ],
+        "populated": [
+          "note"
+        ]
+      }
+    },
+    {
+      "slug": "drug-recalls",
+      "name": "a drug with recall history",
+      "input": {
+        "q": "metformin",
+        "limit": 3
+      },
+      "expect": {
+        "gte": {
+          "count": 1,
+          "total": 1
+        },
+        "populated": [
+          "recalls[0]"
+        ]
+      }
+    },
+    {
+      "slug": "drug-recalls",
+      "name": "no match is an honest zero",
+      "input": {
+        "q": "zzqxnotadrug",
+        "limit": 3
+      },
+      "expect": {
+        "equals": {
+          "count": 0
+        },
+        "empty": [
+          "recalls"
+        ]
+      }
+    },
+    {
+      "slug": "drug-adverse-events",
+      "name": "a widely reported drug",
+      "input": {
+        "drug": "ibuprofen",
+        "limit": 5
+      },
+      "expect": {
+        "equals": {
+          "count": 5
+        },
+        "gt": {
+          "topReactions[0].reports": 1000
+        },
+        "populated": [
+          "topReactions[0].reaction"
+        ]
+      }
+    }
+  ]
+}

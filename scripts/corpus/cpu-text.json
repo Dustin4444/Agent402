@@ -1,0 +1,1202 @@
+{
+  "about": "Pure-CPU text, encoding and parsing tools (tier 0). Inputs deliberately unlike each tool's documented example.",
+  "cases": [
+    {
+      "slug": "hash",
+      "name": "sha512 of unicode text",
+      "input": {
+        "text": "héllo wörld ✓",
+        "algo": "sha512"
+      },
+      "expect": {
+        "equals": {
+          "algo": "sha512"
+        },
+        "matches": {
+          "hex": "^[0-9a-f]{128}$"
+        },
+        "populated": [
+          "base64"
+        ]
+      }
+    },
+    {
+      "slug": "hash",
+      "name": "md5 of empty-ish single char",
+      "input": {
+        "text": "a",
+        "algo": "md5"
+      },
+      "expect": {
+        "equals": {
+          "hex": "0cc175b9c0f1b6a831c399e269772661"
+        }
+      }
+    },
+    {
+      "slug": "hash",
+      "name": "unknown algo is a self-explaining 400",
+      "input": {
+        "text": "x",
+        "algo": "sha9"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "checksum",
+      "name": "known vector",
+      "input": {
+        "data": "The quick brown fox jumps over the lazy dog"
+      },
+      "expect": {
+        "equals": {
+          "md5": "9e107d9d372bb6826bd81d3542a419d6",
+          "sha1": "2fd4e1c67a2d28fced849ee1bb76e7391b93eb12",
+          "crc32": "414fa339"
+        },
+        "matches": {
+          "sha512": "^[0-9a-f]{128}$"
+        }
+      }
+    },
+    {
+      "slug": "querystring",
+      "name": "build from an object",
+      "input": {
+        "value": {
+          "q": "hello world",
+          "n": 2,
+          "tags": [
+            "a",
+            "b"
+          ]
+        },
+        "mode": "build"
+      },
+      "expect": {
+        "matches": {
+          "result": "^q=hello(%20|\\+)world&n=2&tags=a&tags=b$"
+        }
+      }
+    },
+    {
+      "slug": "querystring",
+      "name": "unknown mode is a 400",
+      "input": {
+        "value": "a=1",
+        "mode": "stringify"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "querystring",
+      "name": "object in parse mode is a 400, never [object Object]",
+      "input": {
+        "value": {
+          "a": 1
+        }
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "querystring",
+      "name": "parse nested and repeated keys",
+      "input": {
+        "value": "x=1&x=2&y=%C3%A9&empty=",
+        "mode": "parse"
+      },
+      "expect": {
+        "populated": [
+          "result"
+        ],
+        "truthy": [
+          "result.x"
+        ]
+      }
+    },
+    {
+      "slug": "regex",
+      "name": "named groups, multiline",
+      "input": {
+        "pattern": "^(?<key>\\w+)=(?<val>\\d+)$",
+        "flags": "gm",
+        "text": "a=1\nb=22\nc=x\nd=4"
+      },
+      "expect": {
+        "equals": {
+          "matchCount": 3
+        },
+        "count": {
+          "matches": 3
+        }
+      }
+    },
+    {
+      "slug": "regex",
+      "name": "no match is an honest zero",
+      "input": {
+        "pattern": "\\d{4}-\\d{2}-\\d{2}",
+        "flags": "g",
+        "text": "no dates here"
+      },
+      "expect": {
+        "equals": {
+          "matchCount": 0
+        },
+        "empty": [
+          "matches"
+        ]
+      }
+    },
+    {
+      "slug": "regex",
+      "name": "invalid pattern is a 400",
+      "input": {
+        "pattern": "(unclosed",
+        "text": "x"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "text-stats",
+      "name": "short multi-paragraph text",
+      "input": {
+        "text": "One two three. Four five!\n\nSix seven eight nine ten."
+      },
+      "expect": {
+        "equals": {
+          "words": 10,
+          "paragraphs": 2
+        },
+        "gte": {
+          "sentences": 3
+        },
+        "gt": {
+          "characters": 40,
+          "estimatedTokens": 5
+        }
+      }
+    },
+    {
+      "slug": "redact",
+      "name": "phone, email, card and ip",
+      "input": {
+        "text": "call +1 (415) 555-0199 or mail jo@corp.io, card 4111 1111 1111 1111 from 10.0.0.7"
+      },
+      "expect": {
+        "populated": [
+          "result",
+          "counts"
+        ],
+        "matches": {
+          "result": "^(?!.*jo@corp\\.io).*$"
+        }
+      }
+    },
+    {
+      "slug": "redact",
+      "name": "nothing to redact leaves text intact",
+      "input": {
+        "text": "plain sentence with nothing sensitive"
+      },
+      "expect": {
+        "equals": {
+          "result": "plain sentence with nothing sensitive"
+        }
+      }
+    },
+    {
+      "slug": "morse",
+      "name": "decode with word gaps",
+      "input": {
+        "text": ".... . .-.. .-.. --- / .-- --- .-. .-.. -..",
+        "mode": "decode"
+      },
+      "expect": {
+        "matches": {
+          "result": "^HELLO WORLD$"
+        }
+      }
+    },
+    {
+      "slug": "morse",
+      "name": "encode digits",
+      "input": {
+        "text": "SOS 2026",
+        "mode": "encode"
+      },
+      "expect": {
+        "matches": {
+          "result": "^\\.\\.\\. --- \\.\\.\\. / \\.\\.--- ----- \\.\\.--- -\\.\\.\\.\\.$"
+        }
+      }
+    },
+    {
+      "slug": "rot13",
+      "name": "shift 3 (caesar) round trip",
+      "input": {
+        "text": "Xyz abc",
+        "shift": 3
+      },
+      "expect": {
+        "equals": {
+          "result": "Abc def"
+        }
+      }
+    },
+    {
+      "slug": "rot13",
+      "name": "default shift on mixed case",
+      "input": {
+        "text": "Hello, World!"
+      },
+      "expect": {
+        "equals": {
+          "result": "Uryyb, Jbeyq!"
+        }
+      }
+    },
+    {
+      "slug": "html-entities",
+      "name": "decode named + numeric entities",
+      "input": {
+        "text": "&lt;p&gt;caf&eacute; &#169; &amp; &#x263A;",
+        "mode": "decode"
+      },
+      "expect": {
+        "equals": {
+          "result": "<p>café © & ☺"
+        }
+      }
+    },
+    {
+      "slug": "extract-entities",
+      "name": "multiple of each kind",
+      "input": {
+        "text": "cc @bob and @alice: a@b.co, c@d.org; see https://a.io/x and http://b.io #one #two"
+      },
+      "expect": {
+        "count": {
+          "emails": 2,
+          "urls": 2,
+          "mentions": 2,
+          "hashtags": 2
+        }
+      }
+    },
+    {
+      "slug": "extract-entities",
+      "name": "none found is four empty arrays",
+      "input": {
+        "text": "nothing to find in this sentence"
+      },
+      "expect": {
+        "empty": [
+          "emails",
+          "urls",
+          "mentions",
+          "hashtags"
+        ]
+      }
+    },
+    {
+      "slug": "base64",
+      "name": "decode unicode",
+      "input": {
+        "text": "aMOpbGxvIOKclA==",
+        "mode": "decode"
+      },
+      "expect": {
+        "equals": {
+          "result": "héllo ✔"
+        }
+      }
+    },
+    {
+      "slug": "base64",
+      "name": "encode binary-ish",
+      "input": {
+        "text": "\u0000\u0001\u0002",
+        "mode": "encode"
+      },
+      "expect": {
+        "equals": {
+          "result": "AAEC"
+        }
+      }
+    },
+    {
+      "slug": "base32",
+      "name": "decode",
+      "input": {
+        "text": "NBSWY3DP",
+        "mode": "decode"
+      },
+      "expect": {
+        "equals": {
+          "result": "hello"
+        }
+      }
+    },
+    {
+      "slug": "base58",
+      "name": "decode a bitcoin-style string",
+      "input": {
+        "text": "9Ajdvzr",
+        "mode": "decode"
+      },
+      "expect": {
+        "equals": {
+          "result": "Hello"
+        }
+      }
+    },
+    {
+      "slug": "csv-to-json",
+      "name": "semicolon delimiter, quoted field with comma",
+      "input": {
+        "csv": "name;city\n\"Doe, Jane\";Oslo\nBob;Rome\n",
+        "delimiter": ";"
+      },
+      "expect": {
+        "equals": {
+          "count": 2,
+          "rows[0].name": "Doe, Jane",
+          "rows[1].city": "Rome"
+        }
+      }
+    },
+    {
+      "slug": "csv-to-json",
+      "name": "header false gives arrays",
+      "input": {
+        "csv": "1,2\n3,4",
+        "header": false
+      },
+      "expect": {
+        "equals": {
+          "count": 2
+        },
+        "populated": [
+          "rows[0]"
+        ]
+      }
+    },
+    {
+      "slug": "csv-to-md",
+      "name": "three columns four rows",
+      "input": {
+        "csv": "a,b,c\n1,2,3\n4,5,6\n7,8,9"
+      },
+      "expect": {
+        "matches": {
+          "markdown": "^\\| *a *\\| *b *\\| *c *\\|"
+        },
+        "minCount": {
+          "markdown": 40
+        }
+      }
+    },
+    {
+      "slug": "json-to-csv",
+      "name": "nested + missing keys across rows",
+      "input": {
+        "json": [
+          {
+            "id": 1,
+            "meta": {
+              "k": "v"
+            }
+          },
+          {
+            "id": 2,
+            "extra": true
+          }
+        ]
+      },
+      "expect": {
+        "equals": {
+          "rows": 2,
+          "columns": 3
+        },
+        "matches": {
+          "csv": "^id,meta\\.k,extra\\n1,v,\\n2,,true"
+        }
+      }
+    },
+    {
+      "slug": "json-to-csv",
+      "name": "empty array is a self-explaining 400",
+      "input": {
+        "json": []
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "json-flatten",
+      "name": "unflatten dotted keys",
+      "input": {
+        "json": {
+          "a.b.c": 1,
+          "a.d": 2,
+          "e": 3
+        },
+        "mode": "unflatten"
+      },
+      "expect": {
+        "equals": {
+          "result": {
+            "a": {
+              "b": {
+                "c": 1
+              },
+              "d": 2
+            },
+            "e": 3
+          }
+        }
+      }
+    },
+    {
+      "slug": "json-flatten",
+      "name": "flatten arrays",
+      "input": {
+        "json": {
+          "xs": [
+            1,
+            {
+              "y": 2
+            }
+          ]
+        },
+        "mode": "flatten"
+      },
+      "expect": {
+        "populated": [
+          "result"
+        ],
+        "equals": {
+          "result.xs.0": 1,
+          "result.xs.1.y": 2
+        }
+      }
+    },
+    {
+      "slug": "json-merge",
+      "name": "b overrides scalars, arrays replaced",
+      "input": {
+        "a": {
+          "x": 1,
+          "list": [
+            1,
+            2
+          ],
+          "deep": {
+            "k": "a"
+          }
+        },
+        "b": {
+          "x": 2,
+          "list": [
+            3
+          ],
+          "deep": {
+            "j": "b"
+          }
+        }
+      },
+      "expect": {
+        "equals": {
+          "result.x": 2,
+          "result.deep": {
+            "k": "a",
+            "j": "b"
+          }
+        }
+      }
+    },
+    {
+      "slug": "json-query",
+      "name": "path miss is found:false",
+      "input": {
+        "json": {
+          "a": [
+            1
+          ]
+        },
+        "path": "a[5].z"
+      },
+      "expect": {
+        "equals": {
+          "found": false
+        }
+      }
+    },
+    {
+      "slug": "json-query",
+      "name": "nested object value",
+      "input": {
+        "json": {
+          "users": [
+            {
+              "n": "x",
+              "tags": [
+                "p",
+                "q"
+              ]
+            }
+          ]
+        },
+        "path": "users[0].tags[1]"
+      },
+      "expect": {
+        "equals": {
+          "found": true,
+          "value": "q"
+        }
+      }
+    },
+    {
+      "slug": "json-validate",
+      "name": "invalid payload lists errors",
+      "input": {
+        "data": {
+          "age": -1
+        },
+        "schema": {
+          "type": "object",
+          "required": [
+            "name"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "age": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      },
+      "expect": {
+        "equals": {
+          "valid": false
+        },
+        "minCount": {
+          "errors": 2
+        }
+      }
+    },
+    {
+      "slug": "json-validate",
+      "name": "valid nested array schema",
+      "input": {
+        "data": {
+          "xs": [
+            1,
+            2
+          ]
+        },
+        "schema": {
+          "type": "object",
+          "properties": {
+            "xs": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "expect": {
+        "equals": {
+          "valid": true
+        },
+        "empty": [
+          "errors"
+        ]
+      }
+    },
+    {
+      "slug": "yaml-to-json",
+      "name": "nested maps, lists, multiline",
+      "input": {
+        "yaml": "svc:\n  ports:\n    - 80\n    - 443\n  note: |\n    two\n    lines\n"
+      },
+      "expect": {
+        "equals": {
+          "json.svc.ports": [
+            80,
+            443
+          ]
+        },
+        "matches": {
+          "json.svc.note": "two\\s+lines"
+        }
+      }
+    },
+    {
+      "slug": "yaml-to-json",
+      "name": "bad yaml is a 400",
+      "input": {
+        "yaml": "a: [1, 2"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "markdown-to-html",
+      "name": "table, code, link",
+      "input": {
+        "markdown": "| a | b |\n|---|---|\n| 1 | 2 |\n\n`code` and [link](https://x.io)\n\n- item"
+      },
+      "expect": {
+        "matches": {
+          "html": "<table|<code>code</code>"
+        },
+        "minCount": {
+          "html": 60
+        }
+      }
+    },
+    {
+      "slug": "sort-lines",
+      "name": "desc, unique, case-insensitive",
+      "input": {
+        "text": "b\nA\na\nC\nb",
+        "order": "desc",
+        "unique": true,
+        "ci": true
+      },
+      "expect": {
+        "equals": {
+          "lines": 3
+        },
+        "matches": {
+          "result": "^C\\n[bB]\\n[aA]$"
+        }
+      }
+    },
+    {
+      "slug": "dedupe-lines",
+      "name": "case-insensitive dedupe counts",
+      "input": {
+        "text": "x\nX\ny\nx\nz",
+        "ci": true
+      },
+      "expect": {
+        "equals": {
+          "kept": 3,
+          "removed": 2
+        }
+      }
+    },
+    {
+      "slug": "text-diff",
+      "name": "additions and removals counted",
+      "input": {
+        "a": "one\ntwo\nthree",
+        "b": "one\n2\nthree\nfour"
+      },
+      "expect": {
+        "equals": {
+          "added": 2,
+          "removed": 1,
+          "unchanged": 2
+        },
+        "populated": [
+          "diff"
+        ]
+      }
+    },
+    {
+      "slug": "text-diff",
+      "name": "identical inputs",
+      "input": {
+        "a": "same\ntext",
+        "b": "same\ntext"
+      },
+      "expect": {
+        "equals": {
+          "added": 0,
+          "removed": 0,
+          "unchanged": 2
+        }
+      }
+    },
+    {
+      "slug": "text-chunk",
+      "name": "unknown unit is a 400, never a silent chars fallback",
+      "input": {
+        "text": "w1 w2 w3 w4 w5 w6 w7 w8 w9 w10 w11 w12",
+        "size": 5,
+        "overlap": 1,
+        "unit": "words"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "text-chunk",
+      "name": "token chunks on gpt-4o",
+      "input": {
+        "text": "The x402 protocol lets an agent pay for a single request, and payment terms travel with the request itself so no account is needed.",
+        "size": 8,
+        "overlap": 2,
+        "unit": "tokens"
+      },
+      "expect": {
+        "equals": {
+          "unit": "tokens",
+          "size": 8,
+          "overlap": 2
+        },
+        "gte": {
+          "count": 3
+        },
+        "populated": [
+          "chunks[0]"
+        ]
+      }
+    },
+    {
+      "slug": "readability",
+      "name": "dense academic prose scores lower than simple",
+      "input": {
+        "text": "Notwithstanding the aforementioned considerations, the epistemological ramifications necessitate comprehensive reevaluation of methodological presuppositions."
+      },
+      "expect": {
+        "lt": {
+          "readingEase": 40
+        },
+        "gt": {
+          "gradeLevel": 12
+        },
+        "equals": {
+          "sentences": 1
+        }
+      }
+    },
+    {
+      "slug": "token-count",
+      "name": "long repeated text on gpt-4o-mini",
+      "input": {
+        "text": "the quick brown fox jumps over the lazy dog. ",
+        "model": "gpt-4o-mini"
+      },
+      "expect": {
+        "gte": {
+          "tokens": 8
+        },
+        "lt": {
+          "tokens": 20
+        },
+        "equals": {
+          "characters": 45
+        },
+        "populated": [
+          "encoding"
+        ]
+      }
+    },
+    {
+      "slug": "url-parse",
+      "name": "auth, ipv6 host, repeated params",
+      "input": {
+        "url": "http://user:pw@[::1]:3000/p/q?x=1&x=2&y=%20"
+      },
+      "expect": {
+        "equals": {
+          "protocol": "http:",
+          "port": "3000",
+          "pathname": "/p/q"
+        },
+        "populated": [
+          "query"
+        ]
+      }
+    },
+    {
+      "slug": "url-parse",
+      "name": "not a url is a 400",
+      "input": {
+        "url": "not a url"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "user-agent",
+      "name": "iPhone Safari",
+      "input": {
+        "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
+      },
+      "expect": {
+        "matches": {
+          "browser": "safari",
+          "os": "ios"
+        },
+        "equals": {
+          "bot": false
+        }
+      }
+    },
+    {
+      "slug": "user-agent",
+      "name": "Googlebot is a bot",
+      "input": {
+        "ua": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+      },
+      "expect": {
+        "equals": {
+          "bot": true
+        }
+      }
+    },
+    {
+      "slug": "mime",
+      "name": "reverse lookup by type",
+      "input": {
+        "type": "application/pdf"
+      },
+      "expect": {
+        "equals": {
+          "extensions": [
+            "pdf"
+          ]
+        }
+      }
+    },
+    {
+      "slug": "mime",
+      "name": "unknown extension is a 400",
+      "input": {
+        "ext": "zzzq"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "jwt-decode",
+      "name": "expired token reads expired:true",
+      "input": {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ4IiwiZXhwIjoxMDAwMDAwMDAwfQ.PvBfCkr_nqf3YkPBHR2DOrfx1mFyLnsi8bdM8N_L7Es"
+      },
+      "expect": {
+        "equals": {
+          "expired": true,
+          "payload.sub": "x",
+          "header.alg": "HS256"
+        }
+      }
+    },
+    {
+      "slug": "jwt-decode",
+      "name": "garbage is a 400",
+      "input": {
+        "token": "not.a.jwt"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "jwt-verify",
+      "name": "wrong secret is valid:false",
+      "input": {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZ2VudDQwMiIsIm5hbWUiOiJkZW1vIGFnZW50IiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjk5OTk5OTk5OTl9.NqggPBGuLX1OA7Yu_4rc9C8mb2nE4cRcZQnQJdM9y2E",
+        "secret": "definitely-wrong"
+      },
+      "expect": {
+        "equals": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "slug": "card-validate",
+      "name": "amex passes luhn with brand",
+      "input": {
+        "number": "3782 822463 10005"
+      },
+      "expect": {
+        "equals": {
+          "valid": true,
+          "length": 15
+        },
+        "matches": {
+          "brand": "amex|american"
+        }
+      }
+    },
+    {
+      "slug": "card-validate",
+      "name": "luhn failure",
+      "input": {
+        "number": "4242424242424241"
+      },
+      "expect": {
+        "equals": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "slug": "uuid-validate",
+      "name": "v4 uuid",
+      "input": {
+        "uuid": "9b2e4f1a-6c3d-4e8f-9a1b-2c3d4e5f6a7b"
+      },
+      "expect": {
+        "equals": {
+          "valid": true,
+          "version": 4
+        }
+      }
+    },
+    {
+      "slug": "uuid-validate",
+      "name": "malformed is valid:false",
+      "input": {
+        "uuid": "9b2e4f1a-6c3d-4e8f-9a1b"
+      },
+      "expect": {
+        "equals": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "slug": "cidr",
+      "name": "ipv4 /30 and a miss",
+      "input": {
+        "cidr": "10.1.2.0/30",
+        "contains": "10.1.3.1"
+      },
+      "expect": {
+        "equals": {
+          "totalAddresses": 4,
+          "usableHosts": 2,
+          "contains": false,
+          "broadcast": "10.1.2.3"
+        }
+      }
+    },
+    {
+      "slug": "cidr",
+      "name": "single host /32",
+      "input": {
+        "cidr": "203.0.113.9/32"
+      },
+      "expect": {
+        "equals": {
+          "totalAddresses": 1,
+          "prefix": 32
+        }
+      }
+    },
+    {
+      "slug": "roman",
+      "name": "roman to integer",
+      "input": {
+        "value": "MCMXCIV"
+      },
+      "expect": {
+        "equals": {
+          "result": 1994
+        }
+      }
+    },
+    {
+      "slug": "roman",
+      "name": "3999 upper bound",
+      "input": {
+        "value": 3999
+      },
+      "expect": {
+        "equals": {
+          "result": "MMMCMXCIX"
+        }
+      }
+    },
+    {
+      "slug": "calc",
+      "name": "precedence with ^ and %",
+      "input": {
+        "expr": "2^3 * (1 + 1) - 10 % 4"
+      },
+      "expect": {
+        "equals": {
+          "result": 14
+        }
+      }
+    },
+    {
+      "slug": "calc",
+      "name": "division by zero is not a silent Infinity 200",
+      "input": {
+        "expr": "1/0"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "lorem",
+      "name": "exact word count",
+      "input": {
+        "words": "25"
+      },
+      "expect": {
+        "matches": {
+          "text": "^(\\S+\\s+){24}\\S+[.]?$"
+        }
+      }
+    },
+    {
+      "slug": "address-label",
+      "name": "unknown address is found:false",
+      "input": {
+        "address": "0x1111111111111111111111111111111111111111"
+      },
+      "expect": {
+        "equals": {
+          "found": false
+        }
+      }
+    },
+    {
+      "slug": "address-label",
+      "name": "weth on base",
+      "input": {
+        "address": "0x4200000000000000000000000000000000000006"
+      },
+      "expect": {
+        "equals": {
+          "found": true
+        },
+        "minCount": {
+          "labels": 1
+        }
+      }
+    },
+    {
+      "slug": "b20-feature-id",
+      "name": "a second feature name",
+      "input": {
+        "feature": "base.smart_wallet"
+      },
+      "expect": {
+        "matches": {
+          "featureId": "^0x[0-9a-f]{64}$",
+          "calldata": "^0x"
+        }
+      }
+    },
+    {
+      "slug": "captcha-generate",
+      "name": "alnum captcha level 3",
+      "input": {
+        "type": "alnum",
+        "difficulty": 3
+      },
+      "expect": {
+        "equals": {
+          "type": "alnum"
+        },
+        "populated": [
+          "prompt",
+          "salt",
+          "answerHash",
+          "verify"
+        ]
+      }
+    },
+    {
+      "slug": "captcha-generate",
+      "name": "unknown type is a 400, never a silent math captcha",
+      "input": {
+        "type": "text"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "uuid",
+      "name": "v4, count 5, all distinct",
+      "input": {
+        "version": "4",
+        "count": "5"
+      },
+      "expect": {
+        "count": {
+          "uuids": 5
+        },
+        "matches": {
+          "uuids[0]": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        }
+      }
+    },
+    {
+      "slug": "ulid",
+      "name": "one ulid",
+      "input": {
+        "count": "1"
+      },
+      "expect": {
+        "count": {
+          "ulids": 1
+        },
+        "matches": {
+          "ulids[0]": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        }
+      }
+    },
+    {
+      "slug": "random",
+      "name": "five values in a two-wide range",
+      "input": {
+        "min": "7",
+        "max": "8",
+        "count": "5"
+      },
+      "expect": {
+        "count": {
+          "integers": 5
+        },
+        "matches": {
+          "integers[0]": "^[78]$",
+          "integers[4]": "^[78]$"
+        }
+      }
+    },
+    {
+      "slug": "random",
+      "name": "min above max is a 400",
+      "input": {
+        "min": "9",
+        "max": "1"
+      },
+      "expect": {
+        "status": 400
+      }
+    }
+  ]
+}

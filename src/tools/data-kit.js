@@ -181,6 +181,10 @@ export const DATA_TOOLS = [
         // rate table per base (/v6/latest/<FROM>), so the cross-rate is
         // computed client-side from that table. Response shape is identical
         // to the Frankfurter path; `date` is ER-API's last-update day (UTC).
+        // Frankfurter answers 404 for a code it does not list; fetch-guard
+        // relabels that 422 "check the URL", which blames a URL the buyer
+        // never saw (corpus, 2026-09-06). Name the input instead.
+        if (e.statusCode === 422 && /HTTP 404/.test(String(e.message))) throw bad(`unknown currency code: ${from}/${to} is not a listed pair (ECB reference currencies only, e.g. USD, EUR, GBP, JPY, CHF)`);
         if (e.statusCode !== 502 && e.statusCode !== 504) throw e;
         console.warn(`[fx-rate] frankfurter failed (${e.message}) - falling back to open.er-api.com`);
         // Identity branch mirrors the Frankfurter one: touch the upstream (USD

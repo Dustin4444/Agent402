@@ -130,7 +130,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Tools whose example answers burn Mike's third-party budget / buyer wallet /
 // identity surface. Keep in sync with the class of spend — adding a new keyed
 // upstream means listing its slugs here (and skill packs resolve transitively).
-const METERED_SLUGS = new Set([
+export const METERED_SLUGS = new Set([
   "attest",  // attest-kit.js: spends Base gas from the spending wallet, unset in CI
   // Brave Search subscription
   "search", "search-news", "search-images", "search-videos", "search-suggest", "answer", "multi-search",

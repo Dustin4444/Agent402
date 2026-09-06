@@ -1,0 +1,419 @@
+{
+  "about": "Prediction markets, PDFs, geocoding, barcodes, our own x402 index surfaces and keyless skill packs (tier 1).",
+  "cases": [
+    {
+      "slug": "polymarket-search",
+      "name": "active markets about bitcoin",
+      "input": {
+        "query": "bitcoin",
+        "limit": 3,
+        "activeOnly": true
+      },
+      "expect": {
+        "gte": {
+          "count": 1
+        },
+        "populated": [
+          "markets[0].question",
+          "source"
+        ]
+      }
+    },
+    {
+      "slug": "polymarket-search",
+      "name": "gibberish is an honest zero",
+      "input": {
+        "query": "zzqx-nothing-matches-this",
+        "limit": 3
+      },
+      "expect": {
+        "equals": {
+          "count": 0
+        },
+        "empty": [
+          "markets"
+        ]
+      }
+    },
+    {
+      "slug": "polymarket-price-history",
+      "name": "unknown token id is an honest zero with a note",
+      "input": {
+        "tokenId": "1",
+        "interval": "1d"
+      },
+      "expect": {
+        "equals": {
+          "count": 0
+        },
+        "populated": [
+          "note"
+        ]
+      }
+    },
+    {
+      "slug": "kalshi-markets",
+      "name": "open markets carry populated prices",
+      "input": {
+        "status": "open",
+        "limit": 3
+      },
+      "expect": {
+        "equals": {
+          "count": 3
+        },
+        "populated": [
+          "markets[0].ticker",
+          "markets[0].title",
+          "markets[0].status"
+        ]
+      }
+    },
+    {
+      "slug": "kalshi-markets",
+      "name": "settled markets",
+      "input": {
+        "status": "settled",
+        "limit": 2
+      },
+      "expect": {
+        "equals": {
+          "count": 2
+        },
+        "populated": [
+          "markets[0].ticker"
+        ]
+      }
+    },
+    {
+      "slug": "kalshi-event",
+      "name": "unknown event ticker is a 404, not a 500",
+      "input": {
+        "eventTicker": "ZZQX-NOT-AN-EVENT-99"
+      },
+      "expect": {
+        "status": 404
+      }
+    },
+    {
+      "slug": "pdf-info",
+      "name": "a small government pdf",
+      "input": {
+        "url": "https://www.irs.gov/pub/irs-pdf/fw9.pdf"
+      },
+      "expect": {
+        "gte": {
+          "pages": 3
+        },
+        "gt": {
+          "bytes": 10000
+        },
+        "equals": {
+          "encrypted": false
+        }
+      }
+    },
+    {
+      "slug": "pdf-info",
+      "name": "a non-pdf url is a 4xx, not a 500",
+      "input": {
+        "url": "https://example.com"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "pdf-to-markdown",
+      "name": "W-9 text",
+      "input": {
+        "url": "https://www.irs.gov/pub/irs-pdf/fw9.pdf"
+      },
+      "expect": {
+        "gte": {
+          "pages": 3
+        },
+        "gt": {
+          "wordCount": 500
+        },
+        "matches": {
+          "markdown": "Taxpayer Identification"
+        }
+      }
+    },
+    {
+      "slug": "pdf-extract-pages",
+      "name": "last page only",
+      "input": {
+        "url": "https://www.irs.gov/pub/irs-pdf/fw9.pdf",
+        "pages": "2"
+      },
+      "expect": {
+        "equals": {
+          "pages": 1
+        },
+        "gt": {
+          "bytes": 1000
+        },
+        "matches": {
+          "pdfBase64": "^JVBER"
+        }
+      }
+    },
+    {
+      "slug": "pdf-extract-pages",
+      "name": "page out of range is a 400",
+      "input": {
+        "url": "https://www.irs.gov/pub/irs-pdf/fw9.pdf",
+        "pages": "900-901"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "reverse-geocode",
+      "name": "Tokyo station",
+      "input": {
+        "lat": 35.6812,
+        "lon": 139.7671
+      },
+      "expect": {
+        "matches": {
+          "displayName": "Tokyo|東京|Chiyoda|千代田"
+        },
+        "populated": [
+          "address",
+          "source"
+        ]
+      }
+    },
+    {
+      "slug": "reverse-geocode",
+      "name": "open ocean is an honest miss, not a 500",
+      "input": {
+        "lat": -45,
+        "lon": -150
+      },
+      "expect": {
+        "status": 404
+      }
+    },
+    {
+      "slug": "barcode-lookup",
+      "name": "a well-known EAN",
+      "input": {
+        "code": "3017620422003"
+      },
+      "expect": {
+        "equals": {
+          "found": true
+        },
+        "populated": [
+          "product"
+        ]
+      }
+    },
+    {
+      "slug": "barcode-lookup",
+      "name": "unknown code is found:false",
+      "input": {
+        "code": "0000000000000"
+      },
+      "expect": {
+        "equals": {
+          "found": false
+        }
+      }
+    },
+    {
+      "slug": "bestsellers",
+      "name": "7 days by sales",
+      "input": {
+        "days": 7,
+        "sort": "sales",
+        "limit": 5
+      },
+      "expect": {
+        "equals": {
+          "days": 7,
+          "sort": "sales"
+        },
+        "populated": [
+          "totals",
+          "generatedAt"
+        ]
+      }
+    },
+    {
+      "slug": "bestsellers",
+      "name": "days over the cap is clamped and echoed",
+      "input": {
+        "days": 999
+      },
+      "expect": {
+        "equals": {
+          "days": 90
+        }
+      }
+    },
+    {
+      "slug": "x402-trending",
+      "name": "unknown include falls back to external and says so",
+      "input": {
+        "sort": "buyers",
+        "limit": 5,
+        "include": "local"
+      },
+      "expect": {
+        "equals": {
+          "sort": "buyers",
+          "include": "external"
+        },
+        "populated": [
+          "window",
+          "generatedAt"
+        ]
+      }
+    },
+    {
+      "slug": "demand-radar",
+      "name": "qualified only, recent first",
+      "input": {
+        "sort": "recent",
+        "limit": 5,
+        "qualifiedOnly": true
+      },
+      "expect": {
+        "equals": {
+          "sort": "recent",
+          "qualifiedOnly": true
+        },
+        "populated": [
+          "qualifyMinCallers",
+          "qualifyMinSpanHours"
+        ],
+        "gte": {
+          "qualifiedClusters": 0
+        }
+      }
+    },
+    {
+      "slug": "route-execute",
+      "name": "a task string resolves to a local tool",
+      "input": {
+        "task": "sha256 hash of a string",
+        "params": {
+          "text": "corpus",
+          "algo": "sha256"
+        }
+      },
+      "expect": {
+        "equals": {
+          "result.hex": "6b17b8fcc411a533c822a5117e33cf73fa6766739d7d36ac86dc4bea883af4fe",
+          "receipt.slug": "hash",
+          "receipt.resolvedBy": "task"
+        }
+      }
+    },
+    {
+      "slug": "route-execute",
+      "name": "unknown slug is a 404",
+      "input": {
+        "slug": "zzq-not-a-tool",
+        "params": {}
+      },
+      "expect": {
+        "status": 404
+      }
+    },
+    {
+      "slug": "skill-locale-brief",
+      "name": "a second country",
+      "input": {
+        "country": "Brazil"
+      },
+      "expect": {
+        "equals": {
+          "pack": "locale-brief"
+        },
+        "minCount": {
+          "steps": 2
+        },
+        "populated": [
+          "summary"
+        ]
+      }
+    },
+    {
+      "slug": "skill-trip-planner",
+      "name": "two stops",
+      "input": {
+        "stops": "Boston MA, Portland ME",
+        "startIso": "2026-10-01T09:00:00Z"
+      },
+      "expect": {
+        "equals": {
+          "pack": "trip-planner"
+        },
+        "minCount": {
+          "steps": 1
+        },
+        "populated": [
+          "summary"
+        ]
+      }
+    },
+    {
+      "slug": "skill-financial-analysis",
+      "name": "a second ticker",
+      "input": {
+        "ticker": "MSFT"
+      },
+      "expect": {
+        "equals": {
+          "pack": "financial-analysis"
+        },
+        "minCount": {
+          "steps": 2
+        },
+        "populated": [
+          "summary"
+        ]
+      }
+    },
+    {
+      "slug": "stock-quote",
+      "name": "a non-US listing",
+      "input": {
+        "symbol": "SAP.DE"
+      },
+      "expect": {
+        "equals": {
+          "symbol": "SAP.DE"
+        },
+        "gt": {
+          "price": 1
+        },
+        "populated": [
+          "currency",
+          "exchange",
+          "previousClose"
+        ]
+      }
+    },
+    {
+      "slug": "stock-quote",
+      "name": "unknown symbol is a self-explaining 422",
+      "input": {
+        "symbol": "ZZQXNOTASYMBOL"
+      },
+      "expect": {
+        "status": 422,
+        "matches": {
+          "error": "unknown symbol"
+        }
+      }
+    }
+  ]
+}

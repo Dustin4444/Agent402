@@ -546,7 +546,10 @@ export const MACRO_TOOLS = [
       // World Bank's idiosyncratic response: a 2-element array [meta, rows].
       if (!Array.isArray(j) || j.length < 2 || !Array.isArray(j[1])) {
         const msg = Array.isArray(j) && j[0]?.message?.[0]?.value ? j[0].message[0].value : "World Bank returned no series";
-        throw bad(msg, 502);
+        // "The provided parameter value is not valid" is the World Bank
+        // refusing OUR INPUT (an unknown indicator or country) - a 400 the
+        // buyer can act on, not an upstream outage (corpus, 2026-09-06).
+        throw bad(/not valid|invalid/i.test(msg) ? `${msg} (check the indicator and country codes)` : msg, /not valid|invalid/i.test(msg) ? 400 : 502);
       }
       const rows = j[1];
       const series = rows

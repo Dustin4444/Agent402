@@ -1121,6 +1121,29 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   every advertised tool is a step (`ADVERTISED_NOT_RUN` must name any justified omission with a reason; it is empty) and
   pins the `when` semantics offline; all ten verified against their published examples on a keyless boot (the two
   Brave-backed legs self-report not-ours there, as designed).
+- **Correctness corpus: a SECOND input per tool, asserting VALUES (2026-09-06, `scripts/test-corpus.js` + `scripts/corpus/*.json`,
+  `scripts/test-corpus-harness.js` 31 offline):** outsiders kept finding hollow 200s because every guard drives the ONE documented
+  example and checks shape; the paid canaries prove settlement, never correctness (the operator: they "prove we make money").
+  The corpus drives each tool with inputs unlike its example on a FREE_MODE boot (no payment) and asserts populated fields,
+  exact values, honest empties (`count`/`note`/`found:false`, never a bare `[]`) and self-explaining 4xx. Tiers are DERIVED
+  from the live catalog: T0 pure-CPU (`computePayable`) runs on every push in the unit-d lane (~3 s self-booted), T1 free
+  public upstreams run nightly (`corpus-nightly.yml`, heartbeat-style issue), T2 = `METERED_SLUGS` by hand with the audit key.
+  Classification is probe-classify's: expectation miss / our 4xx on a valid input / 500 = fatal; 502-504/429/network =
+  upstream, reported; a not-configured 503 = skipped; a control case with a planted wrong expectation runs first. First pass
+  over the top-200 slugs (by outside buyers, 60 d): 295 cases, ~half the misses were my expectations and the rest were
+  real - all silent fallbacks or hollow answers: `querystring` unknown mode parsed an object into `[object Object]`;
+  `html-entities` decoded 7 names and returned the other 245 verbatim (HTML 4 table now, generated from `entities`);
+  `text-chunk unit:"words"` silently chunked by chars, `captcha-generate type:"text"` silently minted math, `weather-*
+  units:"imperial"` silently served celsius (all 400 now; imperial/f are fahrenheit aliases); `sort-lines unique+ci` kept
+  both spellings; `crypto-price` of an unknown symbol was a 200 with `coins:{}` and `price-coingecko` a 200 of null rows
+  (404 when nothing resolves, `unknown[]` on a partial miss); `fx-rate` blamed "the URL" for an unknown currency and
+  `world-bank-indicator` relayed "parameter value is not valid" as a 502 (both 400 naming the input); `vehicle-recalls`
+  relayed NHTSA's HTTP-400-with-a-success-body for an unknown model as a 502 (count 0 + note now); `defi-tvl` answered
+  `category:null` and three null changes on uniswap AND aave because DefiLlama's /protocol document no longer carries them
+  (category from defi-kit's cached list incl. parent slugs, changes derived from the document's own TVL series); every
+  Polygon read went to polygon-rpc.com ("tenant disabled" since 07-31) and chain-kit treated the refusal as an ANSWER so
+  the fallbacks were never tried (provider refusals now fall through). Local CoinGecko cases report rate-limited (the
+  shared keyless bucket), not fatal. Writing a case against the boot IS its first run; extend by kit file, top-200 first.
 - **Every guard we owned asserted SHAPE, never OUTCOME (2026-08-31, `scripts/test-pack-examples.js`):** the root cause behind nine
   packs selling broken for two months. The example sweep asserts an HTTP 200 and the documented TOP-LEVEL keys, and
   `{pack, args, steps, summary}` is a valid shape whether the steps returned data or all threw - so `0/N steps succeeded` passed

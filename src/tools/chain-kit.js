@@ -175,7 +175,7 @@ const EVM_RPC_TIMEOUT_MS = 8_000;
 const PUBLIC_RPCS = {
   ethereum: ["https://ethereum-rpc.publicnode.com", "https://eth.drpc.org", "https://cloudflare-eth.com"],
   base:     ["https://mainnet.base.org", "https://base-rpc.publicnode.com", "https://base.drpc.org"],
-  polygon:  ["https://polygon-rpc.com", "https://polygon-bor-rpc.publicnode.com", "https://polygon.drpc.org"],
+  polygon:  ["https://polygon-bor-rpc.publicnode.com", "https://polygon.drpc.org"],
   arbitrum: ["https://arb1.arbitrum.io/rpc", "https://arbitrum-one-rpc.publicnode.com", "https://arbitrum.drpc.org"],
   optimism: ["https://mainnet.optimism.io", "https://optimism-rpc.publicnode.com", "https://optimism.drpc.org"],
 };
@@ -204,6 +204,12 @@ export async function publicJsonRpc(network, method, params) {
       try { data = JSON.parse(text); } catch { lastErr = new Error(`non-JSON from upstream (HTTP ${res.status})`); continue; }
       if (data.error) {
         const msg = redactSecrets(String(data.error.message || "unknown node error")).slice(0, 300);
+        // A JSON-RPC error is normally an ANSWER (a revert, a bad param) and is
+        // never retried on another node. A provider refusing US - a disabled
+        // key, a 403 tenant block, a rate limit - is transport, and the next
+        // endpoint should be asked (polygon-rpc.com answered every call with
+        // "tenant disabled" and the fallbacks were never tried, 2026-09-06).
+        if (/api key|tenant disabled|forbidden|\b403\b|rate limit|too many requests|quota|unauthorized/i.test(msg)) { lastErr = new Error(`provider refused: ${msg}`); continue; }
         const err = bad(`Node error: ${msg}`, 502);
         // Carry the JSON-RPC error code so callers (tx-simulate) can tell a
         // revert verdict (code 3) from node-side failures like rate limits.

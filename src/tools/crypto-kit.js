@@ -207,7 +207,12 @@ export const CRYPTO_TOOLS = [
           lastUpdated: row.last_updated_at ? new Date(row.last_updated_at * 1000).toISOString() : null,
         };
       }
-      return { currency, count: Object.keys(out).length, coins: out };
+      // A symbol nothing resolved to used to come back as a 200 with coins:{}
+      // and count 0 - a charged answer with nothing in it (corpus, 2026-09-06).
+      // Nothing known -> 404 naming the input; a partial miss is listed.
+      const unknown = ids.filter((id) => !out[id]);
+      if (!Object.keys(out).length) throw bad(`unknown coin(s): ${unknown.join(", ")} - use a CoinGecko id or a listed symbol`, 404);
+      return { currency, count: Object.keys(out).length, coins: out, ...(unknown.length ? { unknown } : {}) };
     },
   },
 

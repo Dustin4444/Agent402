@@ -81,7 +81,7 @@ const NETWORKS = {
   },
   polygon: {
     chainId: 137, usdc: "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359", name: "USD Coin",
-    rpcs: ["https://polygon-rpc.com", "https://polygon-bor-rpc.publicnode.com", "https://polygon.drpc.org"],
+    rpcs: ["https://polygon-bor-rpc.publicnode.com", "https://polygon.drpc.org"],
   },
   arbitrum: {
     chainId: 42161, usdc: "0xaf88d065e77c8cc2239327c5edb3a432268e5831", name: "USD Coin",

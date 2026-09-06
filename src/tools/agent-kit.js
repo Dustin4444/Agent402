@@ -167,7 +167,8 @@ export const AGENT_TOOLS = [
     },
     handler: async (i) => {
       const text = cap(need(i, "text"));
-      const unit = i.unit === "tokens" ? "tokens" : "chars";
+      const unit = i.unit === undefined || i.unit === null || i.unit === "" ? "chars" : String(i.unit);
+      if (unit !== "chars" && unit !== "tokens") { const e = new Error('"unit" must be chars or tokens'); e.statusCode = 400; throw e; }
       const size = clampInt(i.size, 800, 1, 100_000);
       const overlap = clampInt(i.overlap, 0, 0, size - 1);
       const step = size - overlap;
