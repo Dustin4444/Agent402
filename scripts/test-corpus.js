@@ -11,7 +11,7 @@
 // the tool works. This runs on a FREE_MODE boot, pays nothing, and for most of
 // the catalog reaches nothing that bills.
 //
-// Corpus files: scripts/corpus/*.json  ->  { "cases": [ { slug, name, input,
+// Corpus files: scripts/corpus/*.json  ->  { "pace"?: ms, "cases": [ { slug, name, input,
 // expect: { status?, populated?, equals?, count?, minCount?, maxCount?,
 // matches?, truthy?, falsy?, empty? }, requires? } ] }
 //   populated: paths that must exist and be non-null / non-empty
@@ -119,9 +119,10 @@ function loadCorpus() {
   const cases = [];
   for (const f of files) {
     const doc = JSON.parse(readFileSync(path.join(CORPUS_DIR, f), "utf8"));
+    const pace = Number(doc.pace) > 0 ? Number(doc.pace) : 0;
     for (const c of doc.cases || []) {
       if (!c.slug || !c.name) throw new Error(`${f}: every case needs slug + name`);
-      cases.push({ ...c, file: f });
+      cases.push({ ...c, file: f, pace });
     }
   }
   return cases;
@@ -192,6 +193,7 @@ async function main() {
 
     const selected = cases.filter((c) => (!ONLY || ONLY.has(c.slug)));
     const results = [];
+    const paceNext = new Map();
     const counts = { ok: 0, fatal: 0, upstream: 0, skipped: 0, filtered: 0, unknown: 0 };
     let i = 0;
     const worker = async () => {
@@ -203,6 +205,10 @@ async function main() {
         if (!wantTiers.has(tier)) { counts.filtered++; continue; }
         if (c.requires === "payer" && !process.env.CORPUS_PAYER) { results.push({ ...c, tier, kind: "skipped", note: "identity-bound (no payer on a free boot)" }); counts.skipped++; continue; }
         if (!configured(c)) { results.push({ ...c, tier, kind: "skipped", note: `needs ${c.requires}` }); counts.skipped++; continue; }
+        // A file may declare `pace` (ms): its cases start no closer together
+        // than that, whatever the concurrency - rate-limited upstreams
+        // (CoinGecko demo: 30/min shared) otherwise read as failures.
+        if (c.pace) { const at = Math.max(Date.now(), paceNext.get(c.file) || 0); paceNext.set(c.file, at + c.pace); await new Promise((r) => setTimeout(r, at - Date.now())); }
         let out;
         try { out = await drive(base, ep, c.input); }
         catch (err) { out = { status: 0, body: null, ms: 0, netError: err?.cause?.code || err?.name || String(err) }; }

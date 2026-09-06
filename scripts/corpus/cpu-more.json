@@ -1,0 +1,2437 @@
+{
+  "about": "Remaining pure-CPU tools (tier 0): conversions, finance maths, forecasting, compression, dates, text, HTML parsing, keyless packs.",
+  "cases": [
+    {
+      "slug": "base-convert",
+      "name": "decimal to hex",
+      "input": {
+        "value": "255",
+        "from": 10,
+        "to": 16
+      },
+      "expect": {
+        "matches": {
+          "result": "^ff$"
+        }
+      }
+    },
+    {
+      "slug": "base-convert",
+      "name": "digit outside the base is a 400",
+      "input": {
+        "value": "129",
+        "from": 8,
+        "to": 10
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "html-to-markdown",
+      "name": "list, link and code",
+      "input": {
+        "html": "<ul><li>one</li><li><a href=\"https://x.io\">two</a></li></ul><pre><code>x = 1</code></pre>"
+      },
+      "expect": {
+        "matches": {
+          "markdown": "\\bone\\b[\\s\\S]*\\[two\\]\\(https://x\\.io\\)[\\s\\S]*x = 1"
+        }
+      }
+    },
+    {
+      "slug": "ics-parse",
+      "name": "two events, one all-day",
+      "input": {
+        "ics": "BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//t//EN\nBEGIN:VEVENT\nUID:a\nSUMMARY:Standup\nDTSTART:20260901T090000Z\nDTEND:20260901T091500Z\nEND:VEVENT\nBEGIN:VEVENT\nUID:b\nSUMMARY:Holiday\nDTSTART;VALUE=DATE:20260907\nDTEND;VALUE=DATE:20260908\nEND:VEVENT\nEND:VCALENDAR"
+      },
+      "expect": {
+        "equals": {
+          "count": 2
+        },
+        "populated": [
+          "events[0].summary",
+          "events[1].start"
+        ]
+      }
+    },
+    {
+      "slug": "ics-parse",
+      "name": "not a calendar is a 400",
+      "input": {
+        "ics": "hello"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "json-diff",
+      "name": "nested change and removal",
+      "input": {
+        "a": {
+          "k": {
+            "v": 1
+          },
+          "gone": true
+        },
+        "b": {
+          "k": {
+            "v": 2
+          }
+        }
+      },
+      "expect": {
+        "equals": {
+          "equal": false
+        },
+        "minCount": {
+          "differences": 2
+        }
+      }
+    },
+    {
+      "slug": "json-diff",
+      "name": "equal objects with different key order",
+      "input": {
+        "a": {
+          "x": 1,
+          "y": [
+            1,
+            2
+          ]
+        },
+        "b": {
+          "y": [
+            1,
+            2
+          ],
+          "x": 1
+        }
+      },
+      "expect": {
+        "equals": {
+          "equal": true
+        },
+        "empty": [
+          "differences"
+        ]
+      }
+    },
+    {
+      "slug": "json-format",
+      "name": "invalid json is valid:false with a reason",
+      "input": {
+        "json": "{\"a\":}"
+      },
+      "expect": {
+        "equals": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "slug": "json-format",
+      "name": "indent 4 of an array",
+      "input": {
+        "json": "[1,{\"b\":2}]",
+        "indent": 4
+      },
+      "expect": {
+        "equals": {
+          "valid": true
+        },
+        "matches": {
+          "formatted": "\\n    \\{"
+        }
+      }
+    },
+    {
+      "slug": "json-to-yaml",
+      "name": "nested list of maps",
+      "input": {
+        "json": {
+          "items": [
+            {
+              "id": 1,
+              "ok": true
+            },
+            {
+              "id": 2
+            }
+          ]
+        }
+      },
+      "expect": {
+        "matches": {
+          "yaml": "items:\\s*\\n\\s*- id: 1"
+        }
+      }
+    },
+    {
+      "slug": "jsonl",
+      "name": "from-jsonl with a blank line",
+      "input": {
+        "data": "{\"a\":1}\n\n{\"a\":2}\n",
+        "mode": "from-jsonl"
+      },
+      "expect": {
+        "equals": {
+          "count": 2,
+          "result[1].a": 2
+        }
+      }
+    },
+    {
+      "slug": "jsonl",
+      "name": "unknown mode is a 400",
+      "input": {
+        "data": [
+          {
+            "a": 1
+          }
+        ],
+        "mode": "sideways"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "openapi-redact",
+      "name": "strips descriptions and examples",
+      "input": {
+        "spec": {
+          "openapi": "3.0.0",
+          "info": {
+            "title": "T",
+            "version": "1",
+            "description": "secret-ish prose"
+          },
+          "paths": {
+            "/a": {
+              "get": {
+                "description": "long",
+                "responses": {
+                  "200": {
+                    "description": "ok",
+                    "content": {
+                      "application/json": {
+                        "example": {
+                          "big": "x"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "expect": {
+        "gt": {
+          "removed.descriptions": 0,
+          "removed.examples": 0
+        },
+        "lt": {
+          "sizeAfter": 229
+        },
+        "matches": {
+          "spec": "^(?!.*secret-ish prose)"
+        }
+      }
+    },
+    {
+      "slug": "openapi-required-params",
+      "name": "post with body and query params",
+      "input": {
+        "spec": {
+          "openapi": "3.0.0",
+          "paths": {
+            "/o": {
+              "post": {
+                "operationId": "mk",
+                "parameters": [
+                  {
+                    "name": "dry",
+                    "in": "query",
+                    "required": true,
+                    "schema": {
+                      "type": "boolean"
+                    }
+                  },
+                  {
+                    "name": "opt",
+                    "in": "query"
+                  }
+                ],
+                "requestBody": {
+                  "required": true,
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "type": "object",
+                        "required": [
+                          "sku"
+                        ],
+                        "properties": {
+                          "sku": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "responses": {
+                  "201": {}
+                }
+              }
+            }
+          }
+        },
+        "operationId": "mk"
+      },
+      "expect": {
+        "equals": {
+          "method": "POST",
+          "path": "/o",
+          "hasBody": true
+        },
+        "matches": {
+          "bodyContentType": "json"
+        },
+        "minCount": {
+          "required": 1
+        }
+      }
+    },
+    {
+      "slug": "openapi-resolve-refs",
+      "name": "resolves a schema ref, flags a missing one",
+      "input": {
+        "spec": {
+          "openapi": "3.0.0",
+          "components": {
+            "schemas": {
+              "U": {
+                "type": "object"
+              }
+            }
+          },
+          "paths": {
+            "/u": {
+              "get": {
+                "responses": {
+                  "200": {
+                    "content": {
+                      "application/json": {
+                        "schema": {
+                          "$ref": "#/components/schemas/U"
+                        }
+                      }
+                    }
+                  },
+                  "404": {
+                    "content": {
+                      "application/json": {
+                        "schema": {
+                          "$ref": "#/components/schemas/Missing"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "expect": {
+        "gte": {
+          "resolved": 1
+        },
+        "minCount": {
+          "unresolved": 1
+        },
+        "populated": [
+          "spec"
+        ]
+      }
+    },
+    {
+      "slug": "openapi-security-summary",
+      "name": "one open operation among secured ones",
+      "input": {
+        "spec": {
+          "openapi": "3.0.0",
+          "components": {
+            "securitySchemes": {
+              "key": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-Key"
+              }
+            }
+          },
+          "security": [
+            {
+              "key": []
+            }
+          ],
+          "paths": {
+            "/a": {
+              "get": {
+                "responses": {
+                  "200": {}
+                }
+              }
+            },
+            "/open": {
+              "get": {
+                "security": [],
+                "responses": {
+                  "200": {}
+                }
+              }
+            }
+          }
+        }
+      },
+      "expect": {
+        "minCount": {
+          "schemes": 1,
+          "operations": 2
+        },
+        "populated": [
+          "summary"
+        ]
+      }
+    },
+    {
+      "slug": "srt-convert",
+      "name": "vtt to srt",
+      "input": {
+        "input": "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHi\n\n00:00:02.500 --> 00:00:04.000\nThere\n",
+        "to": "srt"
+      },
+      "expect": {
+        "matches": {
+          "detected": "vtt",
+          "result": "00:00:01,000 --> 00:00:02,000"
+        },
+        "equals": {
+          "count": 2,
+          "to": "srt"
+        }
+      }
+    },
+    {
+      "slug": "srt-convert",
+      "name": "unknown target is a 400",
+      "input": {
+        "input": "1\n00:00:01,000 --> 00:00:02,000\nHi\n",
+        "to": "docx"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "xml-to-json",
+      "name": "repeated elements become an array",
+      "input": {
+        "xml": "<r><i>1</i><i>2</i><n>x</n></r>"
+      },
+      "expect": {
+        "populated": [
+          "json"
+        ],
+        "equals": {
+          "json.r.n": "x"
+        },
+        "count": {
+          "json.r.i": 2
+        }
+      }
+    },
+    {
+      "slug": "xml-to-json",
+      "name": "malformed xml is a 400",
+      "input": {
+        "xml": "<a><b></a>"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "solidity-scan",
+      "name": "reentrancy and selfdestruct flagged",
+      "input": {
+        "source": "pragma solidity ^0.8.0;\ncontract V {\n  mapping(address=>uint) b;\n  function w() external { (bool ok,) = msg.sender.call{value: b[msg.sender]}(\"\"); require(ok); b[msg.sender] = 0; }\n  function kill() external { selfdestruct(payable(msg.sender)); }\n}"
+      },
+      "expect": {
+        "minCount": {
+          "findings": 2
+        },
+        "populated": [
+          "summary",
+          "disclaimer"
+        ]
+      }
+    },
+    {
+      "slug": "solidity-scan",
+      "name": "clean contract has no findings",
+      "input": {
+        "source": "pragma solidity ^0.8.0;\ncontract C { uint public x; function set(uint v) external { x = v; } }"
+      },
+      "expect": {
+        "equals": {
+          "summary.high": 0,
+          "summary.medium": 0
+        }
+      }
+    },
+    {
+      "slug": "a2a-card-validate",
+      "name": "a card missing its url is invalid with errors",
+      "input": {
+        "card": {
+          "protocolVersion": "0.3.0",
+          "name": "X"
+        }
+      },
+      "expect": {
+        "equals": {
+          "valid": false
+        },
+        "minCount": {
+          "errors": 1
+        }
+      }
+    },
+    {
+      "slug": "amortization",
+      "name": "12 rows of a 1 year loan",
+      "input": {
+        "principal": 1200,
+        "annualRate": 0.12,
+        "termYears": 1,
+        "maxRows": 12
+      },
+      "expect": {
+        "equals": {
+          "periods": 12,
+          "rowsReturned": 12
+        },
+        "gt": {
+          "payment": 106
+        },
+        "lt": {
+          "payment": 107
+        },
+        "count": {
+          "schedule": 12
+        }
+      }
+    },
+    {
+      "slug": "annuity",
+      "name": "annuity due is worth more than ordinary",
+      "input": {
+        "payment": 100,
+        "ratePerPeriod": 0.05,
+        "periods": 10,
+        "type": "due"
+      },
+      "expect": {
+        "equals": {
+          "type": "due"
+        },
+        "gt": {
+          "presentValue": 810
+        },
+        "lt": {
+          "presentValue": 811
+        }
+      }
+    },
+    {
+      "slug": "black-scholes",
+      "name": "deep in-the-money put",
+      "input": {
+        "type": "put",
+        "spot": 50,
+        "strike": 100,
+        "timeToExpiryYears": 0.5,
+        "riskFreeRate": 0.03,
+        "volatility": 0.25
+      },
+      "expect": {
+        "gt": {
+          "price": 48
+        },
+        "lt": {
+          "delta": -0.9
+        }
+      }
+    },
+    {
+      "slug": "black-scholes",
+      "name": "unknown type is a 400",
+      "input": {
+        "type": "straddle",
+        "spot": 100,
+        "strike": 100,
+        "timeToExpiryYears": 1,
+        "riskFreeRate": 0.05,
+        "volatility": 0.2
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "bond-ytm",
+      "name": "par bond yields its coupon",
+      "input": {
+        "price": 1000,
+        "faceValue": 1000,
+        "couponRate": 0.04,
+        "years": 5,
+        "periodsPerYear": 1
+      },
+      "expect": {
+        "gt": {
+          "yieldToMaturity": 0.0399
+        },
+        "lt": {
+          "yieldToMaturity": 0.0401
+        },
+        "equals": {
+          "converged": true
+        }
+      }
+    },
+    {
+      "slug": "brotli-compress",
+      "name": "repetitive text compresses well, hex out",
+      "input": {
+        "input": "abcabcabcabcabcabcabcabcabcabcabcabcabcabc",
+        "inputFormat": "utf8",
+        "quality": 11
+      },
+      "expect": {
+        "equals": {
+          "algorithm": "brotli",
+          "inputBytes": 42
+        },
+        "gt": {
+          "ratio": 0.5
+        },
+        "lt": {
+          "outputBytes": 20
+        },
+        "populated": [
+          "output"
+        ]
+      }
+    },
+    {
+      "slug": "brotli-decompress",
+      "name": "documented blob as hex",
+      "input": {
+        "input": "iwWAaGVsbG8gd29ybGQhAw==",
+        "outputFormat": "hex"
+      },
+      "expect": {
+        "equals": {
+          "output": "68656c6c6f20776f726c6421"
+        }
+      }
+    },
+    {
+      "slug": "brotli-decompress",
+      "name": "garbage is a 400",
+      "input": {
+        "input": "aGVsbG8=",
+        "outputFormat": "utf8"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "compress-compare",
+      "name": "picks a best algorithm",
+      "input": {
+        "input": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+        "inputFormat": "utf8"
+      },
+      "expect": {
+        "equals": {
+          "inputBytes": 60
+        },
+        "minCount": {
+          "results": 2
+        },
+        "populated": [
+          "best"
+        ]
+      }
+    },
+    {
+      "slug": "correlation",
+      "name": "perfect negative",
+      "input": {
+        "x": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "y": [
+          8,
+          6,
+          4,
+          2
+        ]
+      },
+      "expect": {
+        "equals": {
+          "r": -1,
+          "rSquared": 1,
+          "n": 4
+        },
+        "populated": [
+          "interpretation"
+        ]
+      }
+    },
+    {
+      "slug": "correlation",
+      "name": "constant series is a 400 (undefined r), not NaN",
+      "input": {
+        "x": [
+          1,
+          1,
+          1
+        ],
+        "y": [
+          1,
+          2,
+          3
+        ]
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "country-info",
+      "name": "lookup by alpha-2 code",
+      "input": {
+        "code": "NZ"
+      },
+      "expect": {
+        "equals": {
+          "found": true
+        },
+        "matches": {
+          "country.name": "New Zealand"
+        },
+        "populated": [
+          "country.capital",
+          "country.region"
+        ]
+      }
+    },
+    {
+      "slug": "country-info",
+      "name": "unknown name is found:false",
+      "input": {
+        "name": "Atlantis"
+      },
+      "expect": {
+        "equals": {
+          "found": false
+        }
+      }
+    },
+    {
+      "slug": "date-format",
+      "name": "iso input with offset",
+      "input": {
+        "datetime": "2026-03-01T12:00:00+02:00"
+      },
+      "expect": {
+        "equals": {
+          "unix": 1772359200,
+          "iso": "2026-03-01T10:00:00.000Z",
+          "dayOfWeek": "Sunday"
+        },
+        "populated": [
+          "rfc2822",
+          "relative"
+        ]
+      }
+    },
+    {
+      "slug": "date-format",
+      "name": "garbage is a 400",
+      "input": {
+        "datetime": "yesterday-ish"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "effective-annual-rate",
+      "name": "continuous compounding",
+      "input": {
+        "nominalAnnualRate": 0.1,
+        "continuous": true
+      },
+      "expect": {
+        "gt": {
+          "effectiveAnnualRate": 0.1051
+        },
+        "lt": {
+          "effectiveAnnualRate": 0.1052
+        }
+      }
+    },
+    {
+      "slug": "forecast-eval",
+      "name": "holt-winters needs a period, and says so",
+      "input": {
+        "values": [
+          10,
+          14,
+          18,
+          22,
+          11,
+          15,
+          19,
+          23,
+          12,
+          16,
+          20,
+          24
+        ],
+        "testSize": 4,
+        "method": "holt-winters"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "forecast-eval",
+      "name": "ses on a noisy flat series",
+      "input": {
+        "values": [
+          50,
+          52,
+          49,
+          51,
+          50,
+          53,
+          48,
+          50,
+          51,
+          49,
+          52,
+          50
+        ],
+        "testSize": 3,
+        "method": "ses"
+      },
+      "expect": {
+        "equals": {
+          "n": 12,
+          "testSize": 3,
+          "trainSize": 9
+        },
+        "gte": {
+          "mape": 0
+        },
+        "count": {
+          "forecast": 3
+        }
+      }
+    },
+    {
+      "slug": "forecast-holt",
+      "name": "linear trend continues",
+      "input": {
+        "values": [
+          10,
+          20,
+          30,
+          40,
+          50,
+          60
+        ],
+        "horizon": 2
+      },
+      "expect": {
+        "count": {
+          "forecast": 2
+        },
+        "gt": {
+          "forecast[1].point": 70
+        },
+        "equals": {
+          "n": 6
+        }
+      }
+    },
+    {
+      "slug": "forecast-holt-winters",
+      "name": "auto-detected period",
+      "input": {
+        "values": [
+          10,
+          14,
+          18,
+          22,
+          11,
+          15,
+          19,
+          23,
+          12,
+          16,
+          20,
+          24,
+          13,
+          17,
+          21,
+          25
+        ],
+        "horizon": 4
+      },
+      "expect": {
+        "equals": {
+          "period": 4
+        },
+        "populated": [
+          "periodSource"
+        ],
+        "count": {
+          "forecast": 4
+        }
+      }
+    },
+    {
+      "slug": "forecast-holt-winters",
+      "name": "too few values for the period is a 400",
+      "input": {
+        "values": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "horizon": 2,
+        "period": 4
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "forecast-ses",
+      "name": "alpha out of range is a 400",
+      "input": {
+        "values": [
+          3,
+          9,
+          4,
+          7
+        ],
+        "horizon": 2,
+        "alpha": 1
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "forecast-ses",
+      "name": "high alpha tracks the last value",
+      "input": {
+        "values": [
+          3,
+          9,
+          4,
+          7
+        ],
+        "horizon": 2,
+        "alpha": 0.9
+      },
+      "expect": {
+        "count": {
+          "forecast": 2
+        },
+        "gt": {
+          "forecast[0].point": 6
+        },
+        "lt": {
+          "forecast[0].point": 7.5
+        }
+      }
+    },
+    {
+      "slug": "gzip",
+      "name": "hex input, level 9",
+      "input": {
+        "input": "68656c6c6f68656c6c6f68656c6c6f68656c6c6f",
+        "inputFormat": "hex",
+        "level": 9
+      },
+      "expect": {
+        "equals": {
+          "algorithm": "gzip",
+          "inputBytes": 20
+        },
+        "populated": [
+          "output"
+        ],
+        "matches": {
+          "output": "^H4sI"
+        }
+      }
+    },
+    {
+      "slug": "gunzip",
+      "name": "documented blob as hex",
+      "input": {
+        "input": "H4sIAAAAAAAACstIzcnJVyjPL8pJUQQAbcK0AwwAAAA=",
+        "outputFormat": "hex"
+      },
+      "expect": {
+        "matches": {
+          "output": "^[0-9a-f]{24}$"
+        },
+        "equals": {
+          "outputBytes": 12
+        }
+      }
+    },
+    {
+      "slug": "gunzip",
+      "name": "not gzip is a 400",
+      "input": {
+        "input": "aGVsbG8="
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "irr",
+      "name": "a project that loses money has a negative irr",
+      "input": {
+        "cashflows": [
+          -1000,
+          200,
+          200,
+          200,
+          200
+        ]
+      },
+      "expect": {
+        "lt": {
+          "irr": 0
+        },
+        "equals": {
+          "converged": true
+        }
+      }
+    },
+    {
+      "slug": "irr",
+      "name": "all-positive cashflows are a 400",
+      "input": {
+        "cashflows": [
+          100,
+          200,
+          300
+        ]
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "loan-payment",
+      "name": "biweekly payments",
+      "input": {
+        "principal": 10000,
+        "annualRate": 0.05,
+        "termYears": 2,
+        "paymentsPerYear": 26
+      },
+      "expect": {
+        "equals": {
+          "periods": 52
+        },
+        "gt": {
+          "payment": 200
+        },
+        "lt": {
+          "payment": 205
+        }
+      }
+    },
+    {
+      "slug": "moving-average",
+      "name": "ema only, window 2",
+      "input": {
+        "values": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "window": 2,
+        "which": "ema"
+      },
+      "expect": {
+        "equals": {
+          "window": 2
+        },
+        "populated": [
+          "ema"
+        ]
+      }
+    },
+    {
+      "slug": "moving-average",
+      "name": "window larger than the series is a 400",
+      "input": {
+        "values": [
+          1,
+          2
+        ],
+        "window": 5
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "npv",
+      "name": "zero discount rate is the plain sum",
+      "input": {
+        "cashflows": [
+          -100,
+          60,
+          60
+        ],
+        "discountRate": 0
+      },
+      "expect": {
+        "equals": {
+          "npv": 20,
+          "undiscountedSum": 20
+        },
+        "count": {
+          "presentValues": 3
+        }
+      }
+    },
+    {
+      "slug": "outliers",
+      "name": "zscore method with threshold",
+      "input": {
+        "values": [
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          1000
+        ],
+        "method": "zscore",
+        "threshold": 2
+      },
+      "expect": {
+        "equals": {
+          "method": "zscore",
+          "outlierCount": 1,
+          "outliers[0].value": 1000
+        }
+      }
+    },
+    {
+      "slug": "outliers",
+      "name": "no outliers is an honest empty",
+      "input": {
+        "values": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "method": "iqr"
+      },
+      "expect": {
+        "equals": {
+          "outlierCount": 0
+        },
+        "empty": [
+          "outliers"
+        ]
+      }
+    },
+    {
+      "slug": "sharpe-ratio",
+      "name": "annualised from monthly returns",
+      "input": {
+        "returns": [
+          0.01,
+          0.02,
+          -0.01,
+          0.015,
+          0.005,
+          0.02
+        ],
+        "riskFreeRate": 0,
+        "periodsPerYear": 12
+      },
+      "expect": {
+        "gt": {
+          "sharpe": 0
+        },
+        "populated": [
+          "mean",
+          "stdDev"
+        ]
+      }
+    },
+    {
+      "slug": "sharpe-ratio",
+      "name": "one return is a 400 (no deviation)",
+      "input": {
+        "returns": [
+          0.1
+        ]
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "easter-date",
+      "name": "2027 easter",
+      "input": {
+        "year": 2027
+      },
+      "expect": {
+        "equals": {
+          "easter": "2027-03-28",
+          "goodFriday": "2027-03-26"
+        }
+      }
+    },
+    {
+      "slug": "epoch-convert",
+      "name": "milliseconds unit",
+      "input": {
+        "epoch": 1782000000000,
+        "unit": "milliseconds"
+      },
+      "expect": {
+        "matches": {
+          "iso": "^2026-06-2"
+        },
+        "populated": [
+          "components.year"
+        ]
+      }
+    },
+    {
+      "slug": "epoch-convert",
+      "name": "date to epoch",
+      "input": {
+        "date": "2000-01-01T00:00:00Z"
+      },
+      "expect": {
+        "equals": {
+          "epoch.seconds": 946684800,
+          "epoch.milliseconds": 946684800000
+        }
+      }
+    },
+    {
+      "slug": "leap-year",
+      "name": "1900 is not a leap year",
+      "input": {
+        "year": 1900
+      },
+      "expect": {
+        "equals": {
+          "isLeap": false,
+          "daysInYear": 365,
+          "nextLeap": 1904
+        }
+      }
+    },
+    {
+      "slug": "crc32",
+      "name": "known vector",
+      "input": {
+        "text": "The quick brown fox jumps over the lazy dog"
+      },
+      "expect": {
+        "equals": {
+          "hex": "414fa339",
+          "uint": 1095738169
+        }
+      }
+    },
+    {
+      "slug": "hex",
+      "name": "decode",
+      "input": {
+        "text": "6869",
+        "mode": "decode"
+      },
+      "expect": {
+        "equals": {
+          "result": "hi"
+        }
+      }
+    },
+    {
+      "slug": "hex",
+      "name": "odd-length decode is a 400",
+      "input": {
+        "text": "abc",
+        "mode": "decode"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "hmac",
+      "name": "rfc vector sha256",
+      "input": {
+        "text": "The quick brown fox jumps over the lazy dog",
+        "key": "key",
+        "algo": "sha256"
+      },
+      "expect": {
+        "equals": {
+          "hex": "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8"
+        }
+      }
+    },
+    {
+      "slug": "hmac",
+      "name": "sha1",
+      "input": {
+        "text": "The quick brown fox jumps over the lazy dog",
+        "key": "key",
+        "algo": "sha1"
+      },
+      "expect": {
+        "equals": {
+          "hex": "de7c9b85b8b78aa6bc8a7a36f70a90701c9db4d9"
+        }
+      }
+    },
+    {
+      "slug": "jwt-sign",
+      "name": "HS512 token has three parts",
+      "input": {
+        "payload": {
+          "sub": "u1",
+          "exp": 4102444800
+        },
+        "secret": "k",
+        "alg": "HS512"
+      },
+      "expect": {
+        "equals": {
+          "alg": "HS512"
+        },
+        "matches": {
+          "token": "^eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$"
+        }
+      }
+    },
+    {
+      "slug": "jwt-sign",
+      "name": "unsupported alg is a 400",
+      "input": {
+        "payload": {
+          "a": 1
+        },
+        "secret": "k",
+        "alg": "none"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "totp",
+      "name": "8 digits",
+      "input": {
+        "secret": "JBSWY3DPEHPK3PXP",
+        "digits": 8
+      },
+      "expect": {
+        "matches": {
+          "code": "^\\d{8}$"
+        },
+        "gt": {
+          "secondsRemaining": 0
+        }
+      }
+    },
+    {
+      "slug": "totp",
+      "name": "not base32 is a 400",
+      "input": {
+        "secret": "not base32!!"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "url-code",
+      "name": "decode plus and percent",
+      "input": {
+        "text": "a%20b%26c",
+        "mode": "decode"
+      },
+      "expect": {
+        "equals": {
+          "result": "a b&c"
+        }
+      }
+    },
+    {
+      "slug": "password",
+      "name": "three without symbols",
+      "input": {
+        "length": "16",
+        "symbols": "false",
+        "count": "3"
+      },
+      "expect": {
+        "count": {
+          "passwords": 3
+        },
+        "matches": {
+          "passwords[0]": "^[A-Za-z0-9]{16}$"
+        },
+        "gt": {
+          "entropyBits": 60
+        }
+      }
+    },
+    {
+      "slug": "qr",
+      "name": "png bytes at a small size",
+      "input": {
+        "text": "corpus",
+        "size": "128"
+      },
+      "expect": {
+        "truthy": [
+          "__binary"
+        ],
+        "matches": {
+          "contentType": "image/png"
+        },
+        "gt": {
+          "bytes": 200
+        }
+      }
+    },
+    {
+      "slug": "geo-distance",
+      "name": "london to paris",
+      "input": {
+        "from": {
+          "lat": 51.5074,
+          "lng": -0.1278
+        },
+        "to": {
+          "lat": 48.8566,
+          "lng": 2.3522
+        }
+      },
+      "expect": {
+        "gt": {
+          "km": 340,
+          "miles": 211
+        },
+        "lt": {
+          "km": 345
+        }
+      }
+    },
+    {
+      "slug": "number-format",
+      "name": "compact currency",
+      "input": {
+        "value": 1234567,
+        "currency": "USD",
+        "compact": true
+      },
+      "expect": {
+        "matches": {
+          "result": "1\\.2M"
+        }
+      }
+    },
+    {
+      "slug": "stats",
+      "name": "single value",
+      "input": {
+        "numbers": [
+          7
+        ]
+      },
+      "expect": {
+        "equals": {
+          "count": 1,
+          "mean": 7,
+          "median": 7,
+          "stddev": 0
+        }
+      }
+    },
+    {
+      "slug": "unit-convert",
+      "name": "km to miles",
+      "input": {
+        "value": 10,
+        "from": "km",
+        "to": "miles"
+      },
+      "expect": {
+        "gt": {
+          "result": 6.21
+        },
+        "lt": {
+          "result": 6.22
+        }
+      }
+    },
+    {
+      "slug": "unit-convert",
+      "name": "incompatible units is a 400",
+      "input": {
+        "value": 1,
+        "from": "km",
+        "to": "celsius"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "x402-market-pulse",
+      "name": "top 3 by buyers",
+      "input": {
+        "top": 3,
+        "sort": "buyers"
+      },
+      "expect": {
+        "equals": {
+          "sortedBy": "buyers"
+        },
+        "populated": [
+          "asOf",
+          "window",
+          "ecosystem"
+        ]
+      }
+    },
+    {
+      "slug": "case",
+      "name": "snake from camel",
+      "input": {
+        "text": "helloWorldExample",
+        "to": "snake"
+      },
+      "expect": {
+        "equals": {
+          "result": "hello_world_example"
+        }
+      }
+    },
+    {
+      "slug": "case",
+      "name": "unknown case is a 400",
+      "input": {
+        "text": "x",
+        "to": "spongebob"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "count",
+      "name": "no find term still counts",
+      "input": {
+        "text": "a b\nc d e"
+      },
+      "expect": {
+        "equals": {
+          "words": 5,
+          "lines": 2,
+          "characters": 9
+        }
+      }
+    },
+    {
+      "slug": "keywords",
+      "name": "keywords from a real paragraph",
+      "input": {
+        "text": "Central banks set interest rates to steer inflation. When inflation runs hot the central bank raises interest rates; when growth stalls the central bank cuts interest rates. Markets watch every central bank meeting for hints about future interest rates.",
+        "limit": 5
+      },
+      "expect": {
+        "minCount": {
+          "keywords": 3,
+          "phrases": 1
+        },
+        "matches": {
+          "keywords[0].term": "central|interest|rates",
+          "phrases[0].term": "interest rates|central bank"
+        }
+      }
+    },
+    {
+      "slug": "levenshtein",
+      "name": "identical strings",
+      "input": {
+        "a": "same",
+        "b": "same"
+      },
+      "expect": {
+        "equals": {
+          "distance": 0,
+          "similarity": 1
+        }
+      }
+    },
+    {
+      "slug": "levenshtein",
+      "name": "completely different",
+      "input": {
+        "a": "abc",
+        "b": "xyz"
+      },
+      "expect": {
+        "equals": {
+          "distance": 3,
+          "similarity": 0
+        }
+      }
+    },
+    {
+      "slug": "readability-score",
+      "name": "syllable-heavy prose",
+      "input": {
+        "text": "Extraordinarily complicated institutional arrangements necessitate unprecedented administrative reorganisation."
+      },
+      "expect": {
+        "gt": {
+          "syllables": 30,
+          "fleschKincaidGrade": 15
+        },
+        "lt": {
+          "fleschReadingEase": 20
+        },
+        "equals": {
+          "sentences": 1
+        }
+      }
+    },
+    {
+      "slug": "slugify",
+      "name": "custom separator",
+      "input": {
+        "text": "  Über Straße & Co.  ",
+        "separator": "_"
+      },
+      "expect": {
+        "equals": {
+          "slug": "uber_strasse_co"
+        }
+      }
+    },
+    {
+      "slug": "truncate",
+      "name": "no truncation needed",
+      "input": {
+        "text": "short",
+        "length": 10
+      },
+      "expect": {
+        "equals": {
+          "result": "short",
+          "truncated": false
+        }
+      }
+    },
+    {
+      "slug": "truncate",
+      "name": "custom suffix, character mode",
+      "input": {
+        "text": "abcdefghij",
+        "length": 5,
+        "suffix": "…",
+        "words": false
+      },
+      "expect": {
+        "equals": {
+          "truncated": true
+        },
+        "matches": {
+          "result": "^abcd…$|^abcde…$"
+        }
+      }
+    },
+    {
+      "slug": "age",
+      "name": "as-of date pinned",
+      "input": {
+        "birthdate": "1990-05-20",
+        "asOf": "2026-05-19"
+      },
+      "expect": {
+        "equals": {
+          "years": 35,
+          "months": 11
+        },
+        "gt": {
+          "totalDays": 13000
+        }
+      }
+    },
+    {
+      "slug": "age",
+      "name": "future birthdate is a 400",
+      "input": {
+        "birthdate": "2999-01-01"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "business-days",
+      "name": "a holiday inside the range is excluded",
+      "input": {
+        "from": "2026-12-21",
+        "to": "2026-12-28",
+        "holidays": [
+          "2026-12-25"
+        ]
+      },
+      "expect": {
+        "equals": {
+          "calendarDays": 7,
+          "businessDays": 4
+        }
+      }
+    },
+    {
+      "slug": "cron-next",
+      "name": "monthly on the 1st from a fixed point",
+      "input": {
+        "expr": "0 0 1 * *",
+        "count": 2,
+        "from": "2026-01-15T00:00:00Z"
+      },
+      "expect": {
+        "count": {
+          "next": 2
+        },
+        "matches": {
+          "next[0]": "^2026-02-01T00:00",
+          "next[1]": "^2026-03-01T00:00"
+        }
+      }
+    },
+    {
+      "slug": "cron-next",
+      "name": "bad expression is a 400",
+      "input": {
+        "expr": "99 99 * * *"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "date-diff",
+      "name": "reverse order is negative",
+      "input": {
+        "from": "2026-06-11",
+        "to": "2026-06-01"
+      },
+      "expect": {
+        "equals": {
+          "days": -10
+        },
+        "populated": [
+          "human"
+        ]
+      }
+    },
+    {
+      "slug": "duration",
+      "name": "days and seconds",
+      "input": {
+        "value": "1d 2h 3s"
+      },
+      "expect": {
+        "equals": {
+          "seconds": 93603,
+          "iso8601": "P1DT2H3S"
+        }
+      }
+    },
+    {
+      "slug": "duration",
+      "name": "unparseable is a 400",
+      "input": {
+        "value": "a while"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "relative-time",
+      "name": "future relative",
+      "input": {
+        "time": "2026-06-13T12:00:00Z",
+        "from": "2026-06-11T12:00:00Z"
+      },
+      "expect": {
+        "equals": {
+          "seconds": 172800
+        },
+        "matches": {
+          "result": "in 2 days"
+        }
+      }
+    },
+    {
+      "slug": "csv-lint",
+      "name": "ragged row is reported",
+      "input": {
+        "text": "a,b,c\n1,2,3\n4,5\n"
+      },
+      "expect": {
+        "equals": {
+          "valid": false
+        },
+        "minCount": {
+          "errors": 1
+        }
+      }
+    },
+    {
+      "slug": "csv-lint",
+      "name": "semicolon delimiter detected or accepted",
+      "input": {
+        "text": "a;b\n1;2\n3;4",
+        "delimiter": ";"
+      },
+      "expect": {
+        "equals": {
+          "valid": true,
+          "rows": 3,
+          "columns": 2
+        }
+      }
+    },
+    {
+      "slug": "iban-validate",
+      "name": "a GB iban",
+      "input": {
+        "iban": "GB82 WEST 1234 5698 7654 32"
+      },
+      "expect": {
+        "equals": {
+          "valid": true,
+          "country": "GB"
+        }
+      }
+    },
+    {
+      "slug": "iban-validate",
+      "name": "bad check digits",
+      "input": {
+        "iban": "DE89370400440532013001"
+      },
+      "expect": {
+        "equals": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "slug": "isbn-validate",
+      "name": "isbn-10",
+      "input": {
+        "isbn": "0-306-40615-2"
+      },
+      "expect": {
+        "equals": {
+          "valid": true
+        },
+        "matches": {
+          "format": "10"
+        }
+      }
+    },
+    {
+      "slug": "isbn-validate",
+      "name": "bad isbn-13 checksum",
+      "input": {
+        "isbn": "9780306406158"
+      },
+      "expect": {
+        "equals": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "slug": "json-pointer",
+      "name": "escaped keys",
+      "input": {
+        "json": {
+          "a/b": {
+            "c~d": 5
+          }
+        },
+        "pointer": "/a~1b/c~0d"
+      },
+      "expect": {
+        "equals": {
+          "found": true,
+          "value": 5
+        }
+      }
+    },
+    {
+      "slug": "json-pointer",
+      "name": "missing path is found:false",
+      "input": {
+        "json": {
+          "a": 1
+        },
+        "pointer": "/b/c"
+      },
+      "expect": {
+        "equals": {
+          "found": false
+        }
+      }
+    },
+    {
+      "slug": "json-schema-infer",
+      "name": "two samples widen a type",
+      "input": {
+        "samples": [
+          {
+            "id": 1,
+            "tag": "x"
+          },
+          {
+            "id": 2,
+            "tag": null
+          }
+        ]
+      },
+      "expect": {
+        "equals": {
+          "samples": 2,
+          "schema.type": "object"
+        },
+        "populated": [
+          "schema.properties.id",
+          "schema.properties.tag"
+        ]
+      }
+    },
+    {
+      "slug": "password-strength",
+      "name": "weak password rated weak",
+      "input": {
+        "password": "password"
+      },
+      "expect": {
+        "lt": {
+          "score": 2,
+          "entropyBits": 40
+        },
+        "populated": [
+          "rating",
+          "crackTime"
+        ]
+      }
+    },
+    {
+      "slug": "password-strength",
+      "name": "long random passphrase rated strong",
+      "input": {
+        "password": "correct-horse-battery-staple-9X!v"
+      },
+      "expect": {
+        "gte": {
+          "score": 3
+        },
+        "gt": {
+          "entropyBits": 80
+        }
+      }
+    },
+    {
+      "slug": "semver",
+      "name": "prerelease sorts before release",
+      "input": {
+        "a": "1.0.0-beta.1",
+        "b": "1.0.0"
+      },
+      "expect": {
+        "equals": {
+          "comparison": -1,
+          "aGreater": false,
+          "equal": false
+        }
+      }
+    },
+    {
+      "slug": "semver",
+      "name": "invalid version is a 400",
+      "input": {
+        "a": "1.2",
+        "b": "1.2.3"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "sql-cert-verify",
+      "name": "garbage certificate is valid:false with a reason",
+      "input": {
+        "sql": "SELECT 1",
+        "certificate": "bm90LWEtY2VydA"
+      },
+      "expect": {
+        "equals": {
+          "valid": false
+        },
+        "populated": [
+          "reason"
+        ]
+      }
+    },
+    {
+      "slug": "webhook-verify",
+      "name": "wrong signature is valid:false",
+      "input": {
+        "provider": "github",
+        "payload": "{\"hello\":\"world\"}",
+        "secret": "it's a secret",
+        "signature": "sha256=0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expect": {
+        "equals": {
+          "valid": false,
+          "provider": "github"
+        },
+        "populated": [
+          "reason"
+        ]
+      }
+    },
+    {
+      "slug": "webhook-verify",
+      "name": "stripe scheme with a stale timestamp is rejected for age",
+      "input": {
+        "provider": "stripe",
+        "payload": "{}",
+        "secret": "whsec_x",
+        "signature": "t=1600000000,v1=00",
+        "toleranceSeconds": 300
+      },
+      "expect": {
+        "equals": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "slug": "html-links",
+      "name": "regex filter, dedupe, relative resolved",
+      "input": {
+        "html": "<a href='/a'>1</a><a href='https://b.io/x'>2</a><a href='https://b.io/x'>3</a><a href='mailto:x@y.z'>4</a>",
+        "base": "https://site.io",
+        "filter": "^https://b\\.io",
+        "unique": true
+      },
+      "expect": {
+        "equals": {
+          "count": 1
+        },
+        "matches": {
+          "links[0].href": "^https://b\\.io/x$"
+        }
+      }
+    },
+    {
+      "slug": "html-links",
+      "name": "relative href resolved against base",
+      "input": {
+        "html": "<a href='/a'>1</a>",
+        "base": "https://site.io"
+      },
+      "expect": {
+        "equals": {
+          "count": 1,
+          "links[0].href": "https://site.io/a"
+        }
+      }
+    },
+    {
+      "slug": "html-meta",
+      "name": "canonical and json-ld",
+      "input": {
+        "html": "<html><head><title>T</title><link rel=canonical href='https://c.io/p'><script type='application/ld+json'>{\"@type\":\"Article\"}</script></head></html>"
+      },
+      "expect": {
+        "equals": {
+          "title": "T",
+          "canonical": "https://c.io/p"
+        },
+        "minCount": {
+          "jsonLd": 1
+        }
+      }
+    },
+    {
+      "slug": "html-select",
+      "name": "attribute extraction",
+      "input": {
+        "html": "<div><a href='/x' class='k'>x</a><a href='/y'>y</a></div>",
+        "selector": "a.k",
+        "attr": "href"
+      },
+      "expect": {
+        "equals": {
+          "count": 1,
+          "matches[0].href": "/x"
+        }
+      }
+    },
+    {
+      "slug": "html-select",
+      "name": "invalid selector is a 400",
+      "input": {
+        "html": "<p>x</p>",
+        "selector": "p["
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "html-strip",
+      "name": "scoped to a selector",
+      "input": {
+        "html": "<nav>menu</nav><main><p>body text</p></main>",
+        "selector": "main"
+      },
+      "expect": {
+        "matches": {
+          "text": "^body text$"
+        },
+        "equals": {
+          "chars": 9
+        }
+      }
+    },
+    {
+      "slug": "html-table",
+      "name": "no table is a self-explaining 400",
+      "input": {
+        "html": "<p>no tables here</p>"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "html-table",
+      "name": "csv format of a headerless table",
+      "input": {
+        "html": "<table><tr><td>1</td><td>2</td></tr><tr><td>3</td><td>4</td></tr></table>",
+        "format": "csv"
+      },
+      "expect": {
+        "equals": {
+          "format": "csv"
+        },
+        "matches": {
+          "csv": "^1,2\\n3,4$"
+        }
+      }
+    },
+    {
+      "slug": "image-resize",
+      "name": "upscale to 32px jpeg",
+      "input": {
+        "image": "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAJUlEQVR4AYXBAQEAIAyAMKSSnUxrJ99AtrXPfXxIkCBBggQJEgZ5JwJ01a+JcwAAAABJRU5ErkJggg==",
+        "width": 32,
+        "format": "jpeg"
+      },
+      "expect": {
+        "truthy": [
+          "__binary"
+        ],
+        "matches": {
+          "contentType": "image/jpeg"
+        },
+        "gt": {
+          "bytes": 100
+        }
+      }
+    },
+    {
+      "slug": "image-resize",
+      "name": "zero width is a 400",
+      "input": {
+        "image": "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAJUlEQVR4AYXBAQEAIAyAMKSSnUxrJ99AtrXPfXxIkCBBggQJEgZ5JwJ01a+JcwAAAABJRU5ErkJggg==",
+        "width": 0
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "image-thumbnail",
+      "name": "png thumbnail at 16",
+      "input": {
+        "image": "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAJUlEQVR4AYXBAQEAIAyAMKSSnUxrJ99AtrXPfXxIkCBBggQJEgZ5JwJ01a+JcwAAAABJRU5ErkJggg==",
+        "size": 16,
+        "format": "png"
+      },
+      "expect": {
+        "truthy": [
+          "__binary"
+        ],
+        "matches": {
+          "contentType": "image/png"
+        },
+        "gt": {
+          "bytes": 50
+        }
+      }
+    },
+    {
+      "slug": "seller-trust",
+      "name": "an origin we have never seen is an honest unknown",
+      "input": {
+        "origin": "never-seen-zq7x.example"
+      },
+      "expect": {
+        "populated": [
+          "origin"
+        ]
+      }
+    },
+    {
+      "slug": "skill-decode-blob",
+      "name": "base64 json blob",
+      "input": {
+        "blob": "eyJoZWxsbyI6IndvcmxkIn0="
+      },
+      "expect": {
+        "equals": {
+          "pack": "decode-blob"
+        },
+        "minCount": {
+          "steps": 1
+        },
+        "populated": [
+          "summary"
+        ]
+      }
+    },
+    {
+      "slug": "skill-json-pipeline",
+      "name": "nested objects",
+      "input": {
+        "json": "[{\"n\":\"a\",\"m\":{\"k\":1}},{\"n\":\"b\",\"m\":{\"k\":2}}]"
+      },
+      "expect": {
+        "equals": {
+          "pack": "json-pipeline"
+        },
+        "minCount": {
+          "steps": 2
+        }
+      }
+    },
+    {
+      "slug": "skill-jwt-toolkit",
+      "name": "a real HS256 token",
+      "input": {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ4IiwiZXhwIjoxMDAwMDAwMDAwfQ.PvBfCkr_nqf3YkPBHR2DOrfx1mFyLnsi8bdM8N_L7Es"
+      },
+      "expect": {
+        "equals": {
+          "pack": "jwt-toolkit"
+        },
+        "minCount": {
+          "steps": 2
+        }
+      }
+    },
+    {
+      "slug": "skill-loan-comparison",
+      "name": "two other loans",
+      "input": {
+        "loanA": "$50,000 at 7% for 5 years",
+        "loanB": "$50,000 at 8% for 3 years"
+      },
+      "expect": {
+        "equals": {
+          "pack": "loan-comparison"
+        },
+        "minCount": {
+          "steps": 2
+        },
+        "populated": [
+          "summary"
+        ]
+      }
+    },
+    {
+      "slug": "skill-markdown-convert",
+      "name": "a table and a link",
+      "input": {
+        "markdown": "| a | b |\n|---|---|\n| 1 | 2 |\n\n[x](https://x.io)"
+      },
+      "expect": {
+        "equals": {
+          "pack": "markdown-convert"
+        },
+        "minCount": {
+          "steps": 2
+        }
+      }
+    },
+    {
+      "slug": "skill-number-crunch",
+      "name": "values with an outlier",
+      "input": {
+        "values": "5, 5, 6, 5, 400, 6"
+      },
+      "expect": {
+        "equals": {
+          "pack": "number-crunch"
+        },
+        "minCount": {
+          "steps": 2
+        }
+      }
+    },
+    {
+      "slug": "skill-text-analyze",
+      "name": "longer prose",
+      "input": {
+        "text": "Monetary policy transmits through credit, expectations and exchange rates. Each channel operates on a different lag, which is why central banks speak of long and variable lags."
+      },
+      "expect": {
+        "equals": {
+          "pack": "text-analyze"
+        },
+        "minCount": {
+          "steps": 2
+        }
+      }
+    },
+    {
+      "slug": "skill-text-hygiene",
+      "name": "text with pii",
+      "input": {
+        "text": "contact jane@corp.io or 415-555-0100 re: ticket 7"
+      },
+      "expect": {
+        "equals": {
+          "pack": "text-hygiene"
+        },
+        "minCount": {
+          "steps": 1
+        }
+      }
+    },
+    {
+      "slug": "skill-timezone-planner",
+      "name": "europe to australia",
+      "input": {
+        "time": "2026-11-05T15:00:00",
+        "from": "Europe/Berlin",
+        "to": "Australia/Sydney"
+      },
+      "expect": {
+        "equals": {
+          "pack": "timezone-planner"
+        },
+        "minCount": {
+          "steps": 1
+        }
+      }
+    },
+    {
+      "slug": "skill-webhook-intake",
+      "name": "wrong signature does not throw",
+      "input": {
+        "rawBody": "{\"a\":1}",
+        "provider": "github",
+        "secret": "s",
+        "signature": "sha256=00"
+      },
+      "expect": {
+        "equals": {
+          "pack": "webhook-intake"
+        },
+        "minCount": {
+          "steps": 1
+        }
+      }
+    }
+  ]
+}

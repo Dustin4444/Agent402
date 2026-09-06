@@ -249,7 +249,8 @@ export const AGENT_TOOLS = [
       output: { example: { mode: "to-jsonl", result: '{"a":1}\n{"a":2}', count: 2 } },
     },
     handler: (i) => {
-      const mode = i.mode === "from-jsonl" ? "from-jsonl" : "to-jsonl";
+      const mode = i.mode === undefined || i.mode === null || i.mode === "" ? "to-jsonl" : String(i.mode);
+      if (mode !== "to-jsonl" && mode !== "from-jsonl") { const e = new Error('"mode" must be to-jsonl or from-jsonl'); e.statusCode = 400; throw e; }
       if (mode === "to-jsonl") {
         const arr = parseMaybeJson(i.data, "data");
         if (!Array.isArray(arr)) throw bad('"data" must be a JSON array for to-jsonl');
