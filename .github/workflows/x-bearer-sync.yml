@@ -45,6 +45,6 @@ jobs:
           set -euo pipefail
           BODY=$(jq -n --arg p "$RAILWAY_PROJECT_ID" --arg e "$RAILWAY_ENV_ID" --arg s "$RAILWAY_SERVICE_ID" --arg t "$X_BEARER_TOKEN" \
             '{query:"mutation($p:String!, $e:String!, $s:String!, $v:EnvironmentVariables!) { variableCollectionUpsert(input: { projectId: $p, environmentId: $e, serviceId: $s, variables: $v }) }", variables:{p:$p,e:$e,s:$s,v:{X_BEARER_TOKEN:$t}}}')
-          RESP=$(curl -sS --max-time 30 -X POST https://backboard.railway.com/graphql/v2 -H "Authorization: Bearer $RAILWAY_API_TOKEN" -H "Content-Type: application/json" --data "$BODY")
+          RESP=$(curl -sS --max-time 30 -X POST https://backboard.railway.app/graphql/v2 -H "Authorization: Bearer $RAILWAY_API_TOKEN" -H "Content-Type: application/json" --data "$BODY")
           echo "$RESP" | jq -e '.data.variableCollectionUpsert' >/dev/null || { echo "::error::variable upsert failed: $(echo "$RESP" | jq -c '.errors // .' )"; exit 1; }
           echo "X_BEARER_TOKEN written; Railway will redeploy main's head and the five x-data tools list on the next boot"
