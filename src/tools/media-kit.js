@@ -117,6 +117,25 @@ export async function normalizeAudio(buffer, { targetLufs = -16 } = {}) {
 // "you passed a webpage URL." Status 422 → counts as client_errored on the
 // dashboard, which is the honest attribution.
 const NON_MEDIA_CT = /^(text\/|application\/(json|xml|xhtml\+xml|javascript|x-javascript|ld\+json))/i;
+/** Does the body START like a media container? Magic bytes for the formats
+ *  ffmpeg is asked to read here: Ogg, MP3 (ID3 or a frame sync), FLAC, WAV/AVI
+ *  (RIFF), MP4/M4A/MOV (ftyp at offset 4), WebM/MKV (EBML), AIFF (FORM), AAC
+ *  ADTS, Opus-in-Ogg is Ogg. Exported for the test. A host that answers a
+ *  media URL with an HTML block page and HTTP 200 (Wikimedia does this to
+ *  GitHub runners) used to reach ffmpeg and be reported as "media could not
+ *  be processed (is the input a valid audio/video file?)" - blaming the
+ *  buyer's file for the source's refusal (corpus nightly, 2026-09-06). */
+export function looksLikeMedia(buffer) {
+  if (!buffer || buffer.length < 12) return false;
+  const b = buffer;
+  const s4 = b.subarray(0, 4).toString("latin1");
+  if (s4 === "OggS" || s4 === "fLaC" || s4 === "RIFF" || s4 === "FORM") return true;
+  if (b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) return true; // ID3
+  if (b[0] === 0xff && (b[1] & 0xe6) === 0xe2) return true; // MPEG audio frame sync (MP3/AAC ADTS)
+  if (b.subarray(4, 8).toString("latin1") === "ftyp") return true; // MP4 family
+  if (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) return true; // EBML (WebM/MKV)
+  return false;
+}
 const fetchMedia = async (url) => {
   const { buffer, contentType } = await safeFetch(url, { binary: true, maxBytes: MAX_MEDIA_BYTES });
   if (contentType && NON_MEDIA_CT.test(contentType)) {
@@ -124,6 +143,14 @@ const fetchMedia = async (url) => {
       `Source URL returned Content-Type "${contentType.split(";")[0]}", not audio/video - did you pass a webpage URL instead of a direct media file URL?`,
       422
     );
+  }
+  if (!looksLikeMedia(buffer)) {
+    const head = buffer.subarray(0, 16).toString("latin1").replace(/[^\x20-\x7e]/g, ".");
+    // The source answered, but not with a media file: an HTML block page, an
+    // error page with a media Content-Type, a truncated body. That is the
+    // SOURCE's doing, so it is a 502 (never charged), and the message names
+    // what came back instead of asking whether the buyer's file is valid.
+    throw bad(`Source URL did not serve a media file (HTTP 200, ${buffer.length} bytes starting "${head}") - the host may be refusing this fetch or serving a webpage; try a direct file URL`, 502);
   }
   return buffer;
 };
