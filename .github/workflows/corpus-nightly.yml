@@ -39,7 +39,11 @@ jobs:
         with:
           node-version: 22
       - name: Install
-        run: npm ci --ignore-scripts
+        # --ignore-scripts is the repo's supply-chain rule (no dependency
+        # lifecycle scripts); better-sqlite3 is the one native module the
+        # server needs, rebuilt explicitly (the first run booted nothing:
+        # "Could not locate the bindings file", issue #1233).
+        run: npm ci --ignore-scripts && npm rebuild better-sqlite3
 
       - name: Run the corpus (self-booted FREE_MODE server, no keys)
         id: corpus
@@ -72,6 +76,11 @@ jobs:
           RUN="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           if [ "$RESULT" != "0" ]; then
             FAILS=$(grep -E '^FAIL ' corpus.log | head -30 || true)
+            # A run that produced no FAIL lines and still exited non-zero is the
+            # HARNESS failing (a boot error, an upstream storm, nothing driven):
+            # say so and carry the log tail, never an empty code block.
+            if [ -z "$FAILS" ]; then FAILS="(no per-tool FAIL lines - the harness itself did not complete; log tail follows)
+          $(tail -25 corpus.log)"; fi
             BODY="The nightly correctness corpus found tools answering wrong on a second input. Run: $RUN
 
           Only OUR code failing reaches here: a hollow 200, a silent fallback, our own 4xx on a valid input, or a 500. Upstream 502/503/504/429 are reported in the log and never open this issue.
