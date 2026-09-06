@@ -130,6 +130,19 @@ export const TOOLS = [
     check: (r) => (r.symbol === "AAPL" && r.currency === "USD" && r.price > 1) || `expected AAPL/USD/price>1, got ${JSON.stringify(r).slice(0, 80)}`,
   },
   {
+    // X data (2026-09-06): the app-only bearer is minted in Actions and the
+    // app is pay-per-use on a PREPAID balance, so a dead bearer or an empty
+    // balance is an uncharged 503 nobody sees. One post read a day
+    // ($0.005 of X credit) keeps the rail proven on prod, not on the first
+    // outside buyer. Post 20 is Jack's first tweet - stable forever.
+    kit: "x-data",
+    path: "/api/x-tweet",
+    method: "POST",
+    body: { id: "20" },
+    priceUsd: 0.008,
+    check: (r) => (r?.tweet?.id === "20" && /twttr/.test(String(r?.tweet?.text)) && r?.tweet?.author?.username === "jack") || `expected tweet 20 by jack, got ${JSON.stringify(r).slice(0, 100)}`,
+  },
+  {
     // Options-chain rides the Yahoo relay's options endpoint (session-crumb
     // handshake handled server-side) — a different relay path than
     // stock-quote's chart endpoint, so this leg keeps the deployed options
