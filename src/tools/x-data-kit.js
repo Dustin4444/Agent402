@@ -92,8 +92,52 @@ function takeBool(raw, field) {
 }
 
 // --- upstream --------------------------------------------------------------
+// ---- daily upstream spend cap ----------------------------------------------
+// X's pay-per-use plan draws down a PREPAID balance (about $12 when the
+// tools went live, 2026-09-06) and that same balance pays for our own posts,
+// so buyers must not be able to drain it. Every read is priced BEFORE the
+// call at X's card ($0.005 per post, $0.010 per user), refused 503 (uncharged)
+// once the UTC day's booked spend would pass X_DATA_DAILY_MAX_USD, and booked
+// AFTER the call at what X actually returned (it bills per item returned).
+// In memory: a restart resets the day, like the other spend guards; the
+// prepaid balance itself is the outer bound.
+const X_POST_READ_USD = 0.005;
+const X_USER_READ_USD = 0.010;
+const X_DATA_DAILY_MAX_USD = () => { const n = Number(process.env.X_DATA_DAILY_MAX_USD); return Number.isFinite(n) && n >= 0 ? n : 1; };
+const xSpend = { day: "", micro: 0, refused: 0 };
+const utcDay = (now = Date.now()) => new Date(now).toISOString().slice(0, 10);
+const xSpendToday = (now = Date.now()) => { const d = utcDay(now); if (xSpend.day !== d) { xSpend.day = d; xSpend.micro = 0; xSpend.refused = 0; } return xSpend.micro / 1e6; };
+/** Worst-case cost of one read at X's card, from the path and params. */
+export function estimateXReadUsd(path, params = {}) {
+  if (/^\/tweets\/search\/recent$/.test(path) || /^\/users\/[^/]+\/tweets$/.test(path)) return (Math.max(1, Number(params.max_results) || 10)) * X_POST_READ_USD;
+  if (/^\/tweets\/[^/]+$/.test(path)) return X_POST_READ_USD;
+  if (path === "/users/by") return (String(params.usernames || "").split(",").filter(Boolean).length || 1) * X_USER_READ_USD;
+  if (/^\/users\/by\/username\//.test(path)) return X_USER_READ_USD;
+  return X_USER_READ_USD; // an endpoint this table does not know is priced as a user read
+}
+/** Actual cost of what came back: X bills per item returned. */
+export function actualXReadUsd(path, data) {
+  const n = Array.isArray(data?.data) ? data.data.length : (data?.data ? 1 : 0);
+  const perItem = (/^\/tweets/.test(path) || /\/tweets$/.test(path)) ? X_POST_READ_USD : X_USER_READ_USD;
+  return n * perItem;
+}
+/** Counts only - never a token or a buyer. */
+export function xDataSpendStatus(now = Date.now()) {
+  const spent = xSpendToday(now);
+  const cap = X_DATA_DAILY_MAX_USD();
+  return { day: xSpend.day, spentUsd: Number(spent.toFixed(4)), capUsd: cap, refusedToday: xSpend.refused, status: cap > 0 && spent >= cap ? "capped" : "ok" };
+}
+export function _xSpendReset() { xSpend.day = ""; xSpend.micro = 0; xSpend.refused = 0; }
+export function _xSpendBook(usd) { xSpendToday(); xSpend.micro += Math.round(usd * 1e6); }
+
 async function xGet(path, params = {}) {
   const token = requireBearer();
+  const cap = X_DATA_DAILY_MAX_USD();
+  const estimate = estimateXReadUsd(path, params);
+  if (cap > 0 && xSpendToday() + estimate > cap) {
+    xSpend.refused++;
+    throw bad(`X data tools have reached today's upstream spend cap ($${cap.toFixed(2)} per UTC day) - retry after 00:00 UTC. Nothing was charged for this request.`, 503);
+  }
   const url = new URL(X_API + path);
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
@@ -127,6 +171,7 @@ async function xGet(path, params = {}) {
   let data;
   try { data = await res.json(); } catch { throw bad("X API returned non-JSON", 502); }
   if (!data || typeof data !== "object") throw bad("X API returned an unexpected payload", 502);
+  _xSpendBook(actualXReadUsd(path, data));
   return data;
 }
 
@@ -482,7 +527,7 @@ export const X_DATA_TOOLS = [
   },
 ];
 
-export const __test = { takeUsername, takeId, takeMaxResults, takeToken, shapeTweet, shapeUser, X_API };
+export const __test = { takeUsername, takeId, takeMaxResults, takeToken, shapeTweet, shapeUser, X_API, xGet };
 
 // Free text in these results is written by third parties (headlines, posts,
 // casts, token names and descriptions, page titles). Anyone can mint a token or
