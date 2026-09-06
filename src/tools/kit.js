@@ -1503,12 +1503,15 @@ const validationTools = [
     tags: ["email", "validate", "mx", "deliverability"],
     discovery: {
       bodyType: "json",
-      input: { email: "ada@example.com" },
+      input: { email: "someone@gmail.com" },
       inputSchema: {
         properties: { email: { type: "string", description: "Email address to check" } },
         required: ["email"],
       },
-      output: { example: { email: "ada@example.com", syntaxValid: true, domain: "example.com", mxRecords: ["mail.example.com"], deliverableDomain: true } },
+      // example.com publishes a null MX (RFC 7505: accepts no mail), so its
+      // honest answer is deliverableDomain:false with no records; the
+      // documented example must show a domain that does receive mail.
+      output: { example: { email: "someone@gmail.com", syntaxValid: true, domain: "gmail.com", mxRecords: ["gmail-smtp-in.l.google.com", "alt1.gmail-smtp-in.l.google.com"], deliverableDomain: true } },
     },
     handler: async (input) => {
       const email = need(input, "email").trim();
