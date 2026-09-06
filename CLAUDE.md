@@ -1172,6 +1172,23 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   not exist" relayed as an upstream 422 (404); Blockscout's second timeout surfaced as a bare 500 (504 saying so). Recipe:
   `railway variables -s agent402 -e production --json` -> `export K=v` file (0600), swap `OPENROUTER_API_KEY` for the audit
   key, boot FREE_MODE with `X402_SYNC_ON_START=false`, `node scripts/test-corpus.js --tier 2`, `rm` the env file.
+  **Independent review of the day's 30 handler changes (same evening, two fresh agents, no shared context; PR #1230):** the
+  operator asked whether the "defects" were real or the corpus author's bias. Verdict: ~20 were real, 6 were DOCUMENTED
+  default behaviour relabelled as defects (captcha type, jsonl mode, earthquakes period, sort-lines unique+ci, dex-pair's
+  zero-address sentinel, defi-tvl's "null where DefiLlama does not expose it"), and 3 fixes had introduced new wrongness.
+  Corrected: `dex-pair` keeps the zero address its description promises (plus `exists:false` + note) - the 404 contradicted
+  the published contract; `weather-alerts` accepts NWS's marine area codes (GM/PZ/... were working 200s and had become
+  400s); chain-kit's provider-refusal fallthrough excludes reverts and no longer matches "forbidden/unauthorized/quota"
+  (contracts revert with those words; a paid tx-simulate verdict would have become an 8-round-trip 502); `price-coingecko`
+  and `crypto-price` blame an unsupported CURRENCY on the currency, never on the ids; every new enum check is
+  case-insensitive (`Parse`, `TO-JSONL`, `Alnum`, `Tokens`, `Day` were 200s); `earthquakes.minMag` is as strict as `period`;
+  `units:"imperial"` now flips wind to mph as well as temperature to F; `nft-metadata` no longer synthesises a title;
+  `sol-token-holders` reports null supply/concentration beside the null holder count; `defi-tvl` carries `changeSource`
+  per figure. Runner: `UPSTREAM_TEXT` no longer matches "upstream"/"timeout"/"aborted" in a 4xx (our own messages carry
+  those words; fetch-guard's exact relabels are listed instead), a run that drove nothing or was mostly upstream exits 1;
+  cross-surface allows at most 10% route/find misses (was 50%). Lesson: a silent default named in the tool's OWN
+  description is a contract, not a defect - check the description before the 400, and never make a documented sentinel an
+  error.
 - **Every guard we owned asserted SHAPE, never OUTCOME (2026-08-31, `scripts/test-pack-examples.js`):** the root cause behind nine
   packs selling broken for two months. The example sweep asserts an HTTP 200 and the documented TOP-LEVEL keys, and
   `{pack, args, steps, summary}` is a valid shape whether the steps returned data or all threw - so `0/N steps succeeded` passed

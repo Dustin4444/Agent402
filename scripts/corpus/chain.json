@@ -36,6 +36,20 @@
     },
     {
       "slug": "crypto-price",
+      "name": "unsupported currency is a 400 naming it",
+      "input": {
+        "coins": "BTC",
+        "currency": "zzz"
+      },
+      "expect": {
+        "status": 400,
+        "matches": {
+          "error": "currency"
+        }
+      }
+    },
+    {
+      "slug": "crypto-price",
       "name": "a partial miss lists the unknown id",
       "input": {
         "coins": "BTC,ZZQX9"
@@ -138,6 +152,22 @@
       },
       "expect": {
         "status": 404
+      }
+    },
+    {
+      "slug": "price-coingecko",
+      "name": "unsupported vsCurrency blames the currency, not the ids",
+      "input": {
+        "ids": [
+          "bitcoin"
+        ],
+        "vsCurrency": "zzz"
+      },
+      "expect": {
+        "status": 400,
+        "matches": {
+          "error": "vsCurrency"
+        }
       }
     },
     {
@@ -673,12 +703,15 @@
       "expect": {
         "matches": {
           "poolAddress": "^0xd0b53d9277642d899df5c87a3966a349a798f224$"
+        },
+        "equals": {
+          "exists": true
         }
       }
     },
     {
       "slug": "dex-pair",
-      "name": "no pool at that fee is an honest null or 404",
+      "name": "no pool is the documented zero-address sentinel with exists:false",
       "input": {
         "tokenA": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
         "tokenB": "0x1111111111111111111111111111111111111111",
@@ -686,7 +719,13 @@
         "network": "base"
       },
       "expect": {
-        "status": 404
+        "equals": {
+          "exists": false,
+          "poolAddress": "0x0000000000000000000000000000000000000000"
+        },
+        "populated": [
+          "note"
+        ]
       }
     },
     {

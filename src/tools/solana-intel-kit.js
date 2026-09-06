@@ -549,14 +549,14 @@ export const SOLANA_INTEL_TOOLS = [
         mint,
         symbol: r?.tokenMeta?.symbol ?? null,
         decimals,
-        supply: rawSupply != null && decimals != null ? round(rawSupply / 10 ** decimals, 2) : null,
+        supply: rawSupply != null && decimals != null && (rawSupply > 0 || h.rows.length) ? round(rawSupply / 10 ** decimals, 2) : null,
         // RugCheck publishes holder data for launch-style tokens; for a mint it
         // does not track (USDC) it answers 0 rows and totalHolders 0, which read
         // as "this token has no holders" (corpus, 2026-09-06). Say "no data".
         totalHolders: h.rows.length === 0 && !(num(r?.totalHolders) > 0) ? null : num(r?.totalHolders),
         ...(h.rows.length === 0 ? { note: "RugCheck publishes no holder data for this mint (common for major stablecoins and long-established tokens); totalHolders is unknown, not zero" } : {}),
         holders: h.rows,
-        concentration: h.concentration,
+        concentration: h.rows.length ? h.concentration : null,
         source: "rugcheck",
         fetchedAt: stamp(),
       };

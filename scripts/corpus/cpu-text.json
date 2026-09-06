@@ -94,6 +94,19 @@
     },
     {
       "slug": "querystring",
+      "name": "mode is case-insensitive",
+      "input": {
+        "value": "a=1",
+        "mode": "Parse"
+      },
+      "expect": {
+        "equals": {
+          "result.a": "1"
+        }
+      }
+    },
+    {
+      "slug": "querystring",
       "name": "object in parse mode is a 400, never [object Object]",
       "input": {
         "value": {
@@ -752,6 +765,20 @@
     },
     {
       "slug": "text-chunk",
+      "name": "unit is case-insensitive",
+      "input": {
+        "text": "a b c d e f",
+        "size": 3,
+        "unit": "Tokens"
+      },
+      "expect": {
+        "equals": {
+          "unit": "tokens"
+        }
+      }
+    },
+    {
+      "slug": "text-chunk",
       "name": "token chunks on gpt-4o",
       "input": {
         "text": "The x402 protocol lets an agent pay for a single request, and payment terms travel with the request itself so no account is needed.",
@@ -1136,6 +1163,18 @@
       },
       "expect": {
         "status": 400
+      }
+    },
+    {
+      "slug": "captcha-generate",
+      "name": "type is case-insensitive",
+      "input": {
+        "type": "Alnum"
+      },
+      "expect": {
+        "equals": {
+          "type": "alnum"
+        }
       }
     },
     {

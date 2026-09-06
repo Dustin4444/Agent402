@@ -171,9 +171,9 @@ async function main() {
         if (JSON.stringify(f.required ?? []) !== JSON.stringify(docReq ?? [])) findDrift.push(`${e.slug}: find required ${JSON.stringify(f.required)} vs openapi ${JSON.stringify(docReq)}`);
       }
     }
-    ok(routeMissing < sample.length / 2, `/api/route surfaces our own row for a tool's name (${sample.length - routeMissing} of ${sample.length} sampled)`);
+    ok(routeMissing <= Math.ceil(sample.length * 0.1), `/api/route surfaces our own row for a tool's name (${sample.length - routeMissing} of ${sample.length} sampled; at most 10% may miss - lexical ranking, not a fault)`);
     ok(routeDrift.length === 0, `/api/route local rows carry pricing's method, path and price${routeDrift.length ? ` - ${routeDrift.slice(0, 4).join("; ")}` : ""}`);
-    ok(findMissing < sample.length / 2, `/api/find surfaces the tool for its own name (${sample.length - findMissing} of ${sample.length} sampled)`);
+    ok(findMissing <= Math.ceil(sample.length * 0.1), `/api/find surfaces the tool for its own name (${sample.length - findMissing} of ${sample.length} sampled; at most 10% may miss)`);
     ok(findDrift.length === 0, `/api/find rows carry pricing's route+price and OpenAPI's example+required${findDrift.length ? ` - ${findDrift.slice(0, 4).join("; ")}` : ""}`);
   } finally {
     if (child) child.kill("SIGTERM");

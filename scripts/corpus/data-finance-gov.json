@@ -112,15 +112,15 @@
       "slug": "earthquakes",
       "name": "a week of strong quakes",
       "input": {
-        "minMag": "5.5",
+        "minMag": "4.5",
         "period": "week"
       },
       "expect": {
         "gte": {
-          "count": 0
+          "count": 1
         },
         "populated": [
-          "quakes"
+          "quakes[0].mag"
         ]
       }
     },
@@ -129,6 +129,31 @@
       "name": "bad period is a 400",
       "input": {
         "period": "decade"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "earthquakes",
+      "name": "period is case-insensitive",
+      "input": {
+        "minMag": "2.5",
+        "period": "Week"
+      },
+      "expect": {
+        "equals": {
+          "period": "week",
+          "minMag": "2.5"
+        }
+      }
+    },
+    {
+      "slug": "earthquakes",
+      "name": "unknown minMag is a 400, never a silent 4.5",
+      "input": {
+        "minMag": "9",
+        "period": "day"
       },
       "expect": {
         "status": 400
@@ -772,7 +797,8 @@
           "count": 0
         },
         "populated": [
-          "alerts"
+          "area",
+          "source"
         ]
       }
     },
@@ -784,6 +810,21 @@
       },
       "expect": {
         "status": 400
+      }
+    },
+    {
+      "slug": "weather-alerts",
+      "name": "a marine area code is accepted",
+      "input": {
+        "area": "GM"
+      },
+      "expect": {
+        "equals": {
+          "area": "GM"
+        },
+        "gte": {
+          "count": 0
+        }
       }
     },
     {

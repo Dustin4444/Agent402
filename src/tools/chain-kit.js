@@ -209,7 +209,14 @@ export async function publicJsonRpc(network, method, params) {
         // key, a 403 tenant block, a rate limit - is transport, and the next
         // endpoint should be asked (polygon-rpc.com answered every call with
         // "tenant disabled" and the fallbacks were never tried, 2026-09-06).
-        if (/api key|tenant disabled|forbidden|\b403\b|rate limit|too many requests|quota|unauthorized/i.test(msg)) { lastErr = new Error(`provider refused: ${msg}`); continue; }
+        // A contract's own revert reason travels in the same message
+        // ("execution reverted: UNAUTHORIZED"); a revert is an ANSWER and must
+        // never be reclassified as a refusal (security review, 2026-09-06).
+        const isRevert = data.error.code === 3 || /execution reverted|revert/i.test(msg);
+        // Provider-side refusals only ("tenant disabled", a dead key, a 429);
+        // "forbidden"/"unauthorized"/"quota" are left out because contracts
+        // revert with exactly those words (independent review, 2026-09-06).
+        if (!isRevert && /api key|tenant disabled|\b403\b|rate limit|too many requests/i.test(msg)) { lastErr = new Error(`provider refused: ${msg}`); continue; }
         const err = bad(`Node error: ${msg}`, 502);
         // Carry the JSON-RPC error code so callers (tx-simulate) can tell a
         // revert verdict (code 3) from node-side failures like rate limits.
@@ -618,7 +625,7 @@ export const CHAIN_TOOLS = [
         // raw.metadata (name, description, `traits`) and leaves the top-level
         // name empty, so BAYC #1 read title "" with no attributes
         // (keyed corpus, 2026-09-06). Read both shapes.
-        title: data.name || data.raw?.metadata?.name || (data.contract?.name ? `${data.contract.name} #${tokenId}` : null),
+        title: data.name || data.raw?.metadata?.name || null,
         collection: data.contract?.name ?? null,
         standard: data.tokenType ?? null,
         description: data.description || data.raw?.metadata?.description || null,

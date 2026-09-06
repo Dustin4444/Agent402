@@ -44,7 +44,9 @@ ok(T({ status: 503, body: { error: "x" }, tier: 0 }) === "fatal", "a 503 from a 
 ok(T({ status: 503, body: { error: "search is not configured (BRAVE_API_KEY)" }, tier: 2 }) === "skipped", "a not-configured 503 is skipped");
 ok(T({ status: 0, body: null, netError: "ECONNRESET", tier: 1 }) === "upstream", "a network error is upstream");
 ok(T({ status: 400, body: { error: "\"x\" is required" }, tier: 1, expectFails: ["status 400, expected 200"] }) === "fatal", "our own 400 on a valid input is fatal");
-ok(T({ status: 422, body: { error: "Source URL timed out" }, tier: 1, expectFails: ["status 422, expected 200"] }) === "upstream", "a 4xx whose text blames the network is upstream on a networked tool");
+ok(T({ status: 422, body: { error: "Source URL timed out" }, tier: 1, expectFails: ["status 422, expected 200"] }) === "upstream", "fetch-guard's own relabelled upstream timeout (422 'Source URL timed out') is upstream on a networked tool");
+ok(T({ status: 400, body: { error: '"timeout" must be a number' }, tier: 1, expectFails: ["status 400, expected 200"] }) === "fatal", "our own 400 that merely contains the word timeout is fatal (review, 2026-09-06)");
+ok(T({ status: 404, body: { error: "Price feed upstream: not found (check ids)" }, tier: 1, expectFails: ["status 404, expected 200"] }) === "fatal", "our own 404 that contains the word upstream is fatal");
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

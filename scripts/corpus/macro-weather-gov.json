@@ -249,7 +249,8 @@
       },
       "expect": {
         "matches": {
-          "current.unit": "F"
+          "current.unit": "F",
+          "current.windUnit": "^mph$"
         }
       }
     },

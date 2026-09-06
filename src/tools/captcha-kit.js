@@ -77,7 +77,7 @@ export const CAPTCHA_TOOLS = [
       output: { example: { type: "math", prompt: "What is 3 + 4?", salt: "…", answerHash: "…", algo: "sha256", verify: "sha256(salt + answer.trim().toLowerCase().replace(/\\s+/g,'')) === answerHash" } },
     },
     handler: (input) => {
-      const type = input?.type === undefined || input?.type === null || input?.type === "" ? "math" : String(input.type);
+      const type = input?.type === undefined || input?.type === null || input?.type === "" ? "math" : String(input.type).trim().toLowerCase();
       if (type !== "math" && type !== "alnum") { const e = new Error('"type" must be math or alnum'); e.statusCode = 400; throw e; }
       const { prompt, answer } = makeChallenge(type, input?.difficulty);
       const salt = randomBytes(16).toString("hex");

@@ -130,7 +130,11 @@ const FDA_SORT = "&sort=recall_initiation_date:desc";
 // instead of forcing the agent to know "CA". Includes the 50 states plus DC and
 // the inhabited territories (the NWS area endpoint covers all of them).
 // Territories and marine-adjacent areas NWS accepts beside the 50 states + DC.
-const NWS_EXTRA_AREAS = new Set(["PR", "VI", "GU", "AS", "MP", "DC", "PW", "FM", "MH"]);
+const NWS_EXTRA_AREAS = new Set([
+  "PR", "VI", "GU", "AS", "MP", "DC", "PW", "FM", "MH",
+  // NWS marine areas (api.weather.gov `area` accepts these too; GM/PZ verified live 2026-09-06)
+  "AM", "AN", "AP", "GM", "LC", "LE", "LH", "LM", "LO", "LS", "PH", "PK", "PM", "PS", "PZ", "SL",
+]);
 const STATE_NAME_TO_CODE = {
   alabama: "AL", alaska: "AK", arizona: "AZ", arkansas: "AR", california: "CA",
   colorado: "CO", connecticut: "CT", delaware: "DE", florida: "FL", georgia: "GA",
@@ -236,7 +240,7 @@ export const GOV_TOOLS = [
       }
       // NWS answers HTTP 400 for a code it does not know ("ZZ"), which getJson
       // relays as a 502 the buyer cannot act on (corpus, 2026-09-06).
-      if (!Object.values(STATE_NAME_TO_CODE).includes(area) && !NWS_EXTRA_AREAS.has(area)) throw bad(`"area" ${area} is not a US state or territory code NWS knows (e.g. CA, TX, PR, GU)`);
+      if (!Object.values(STATE_NAME_TO_CODE).includes(area) && !NWS_EXTRA_AREAS.has(area)) throw bad(`"area" ${area} is not a US state, territory or marine area code NWS knows (e.g. CA, TX, PR, GU, GM)`);
       const data = await getJson(`https://api.weather.gov/alerts/active?area=${area}`);
       const alerts = (data.features ?? []).slice(0, 20).map((f) => ({
         event: f.properties?.event ?? null,
@@ -265,8 +269,9 @@ export const GOV_TOOLS = [
       output: { example: { count: 6, quakes: [{ mag: 5.2, place: "120 km SSE of Hihifo, Tonga", time: "2026-06-12T03:14:00.000Z", depthKm: 10, lon: -173.9, lat: -16.9, url: "https://earthquake.usgs.gov/…" }] } },
     },
     handler: async (i) => {
-      const mag = ["significant", "4.5", "2.5", "1.0", "all"].includes(String(i.minMag)) ? String(i.minMag) : "4.5";
-      const period = i.period === undefined || i.period === null || i.period === "" ? "day" : String(i.period);
+      const mag = i.minMag === undefined || i.minMag === null || i.minMag === "" ? "4.5" : String(i.minMag).trim().toLowerCase();
+      if (!["significant", "4.5", "2.5", "1.0", "all"].includes(mag)) throw bad('"minMag" must be significant, 4.5, 2.5, 1.0, or all');
+      const period = i.period === undefined || i.period === null || i.period === "" ? "day" : String(i.period).trim().toLowerCase();
       if (!["hour", "day", "week", "month"].includes(period)) throw bad('"period" must be hour, day, week, or month');
       const data = await getJson(`https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/${mag}_${period}.geojson`);
       const quakes = (data.features ?? []).slice(0, 20).map((f) => ({

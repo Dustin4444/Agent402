@@ -75,25 +75,27 @@ function bad(message, statusCode = 400) {
 // authorization against the WRONG domain, which a facilitator's exact/EIP-3009
 // verify then silently rejects - so it is explicit per chain, never assumed.
 const NETWORKS = {
+  // Alchemy first on every chain it serves when the key is set (the operator, 2026-09-06: the paid,
+  // monitored provider leads; the free public nodes are the fallback, never the primary).
   base: {
     chainId: 8453, usdc: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", name: "USD Coin",
-    rpcs: ["https://mainnet.base.org", "https://base-rpc.publicnode.com", "https://base.drpc.org"],
+    rpcs: [...(process.env.ALCHEMY_API_KEY ? [`https://base-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`] : []), "https://mainnet.base.org", "https://base-rpc.publicnode.com", "https://base.drpc.org"],
   },
   polygon: {
     chainId: 137, usdc: "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359", name: "USD Coin",
-    rpcs: ["https://polygon-bor-rpc.publicnode.com", "https://polygon.drpc.org"],
+    rpcs: [...(process.env.ALCHEMY_API_KEY ? [`https://polygon-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`] : []), "https://polygon-bor-rpc.publicnode.com", "https://polygon.drpc.org"],
   },
   arbitrum: {
     chainId: 42161, usdc: "0xaf88d065e77c8cc2239327c5edb3a432268e5831", name: "USD Coin",
-    rpcs: ["https://arb1.arbitrum.io/rpc", "https://arbitrum-one-rpc.publicnode.com", "https://arbitrum.drpc.org"],
+    rpcs: [...(process.env.ALCHEMY_API_KEY ? [`https://arb-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`] : []), "https://arb1.arbitrum.io/rpc", "https://arbitrum-one-rpc.publicnode.com", "https://arbitrum.drpc.org"],
   },
   optimism: {
     chainId: 10, usdc: "0x0b2c639c533813f4aa9d7837caf62653d097ff85", name: "USD Coin",
-    rpcs: ["https://mainnet.optimism.io", "https://optimism-rpc.publicnode.com", "https://optimism.drpc.org"],
+    rpcs: [...(process.env.ALCHEMY_API_KEY ? [`https://opt-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`] : []), "https://mainnet.optimism.io", "https://optimism-rpc.publicnode.com", "https://optimism.drpc.org"],
   },
   ethereum: {
     chainId: 1, usdc: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", name: "USD Coin",
-    rpcs: ["https://ethereum-rpc.publicnode.com", "https://eth.drpc.org", "https://cloudflare-eth.com"],
+    rpcs: [...(process.env.ALCHEMY_API_KEY ? [`https://eth-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`] : []), "https://ethereum-rpc.publicnode.com", "https://eth.drpc.org", "https://cloudflare-eth.com"],
   },
   // Monad (EVM L1, chain 143). Native Circle USDC, but the on-chain EIP-712
   // domain name is "USDC" not "USD Coin" (same fact src/payments.js's
@@ -637,7 +639,9 @@ export const X402_TOOLS = [
       // signature and the paid radar answered an empty array to every buyer
       // for six weeks; the example sweep excused it as "cold boot". An
       // outside buyer found it on 2026-09-06 by reading /api/wishes beside it.
-      return computeDemandRadar(getWishesAggregate({ limit: 500, detailed: true }), i);
+      // The whole board, so qualifiedClusters here is the beacon's own count
+      // (a 500-row slice diverged once the board passed 500 clusters).
+      return computeDemandRadar(getWishesAggregate({ limit: 100_000, detailed: true }), i);
     },
   },
   {

@@ -96,7 +96,10 @@ export function checkExpect(expect, status, body) {
 }
 
 const NOT_CONFIGURED = /not configured|not set|missing api key|no api key|OPENROUTER_API_KEY|BRAVE_API_KEY|E2B_API_KEY|X402_UPSTREAM_BUYER_KEY|ALCHEMY_API_KEY|OPENAI_API_KEY|COINGECKO_API_KEY|FRED_API_KEY|unavailable on this server|requires a key/i;
-const UPSTREAM_TEXT = /fetch failed|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|socket hang up|timed? ?out|aborted|rate limit|too many requests|upstream|temporarily/i;
+// Deliberately narrow: only network-class words. "upstream", "timeout" and
+// "aborted" appear in OUR OWN 4xx messages, and a 4xx that names the input is
+// ours (independent review, 2026-09-06).
+const UPSTREAM_TEXT = /fetch failed|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|socket hang up|rate.?limit|too many requests|Source URL (timed out|returned HTTP 5\d\d|is unreachable)/i;
 
 /** What one outcome says about OUR code. */
 export function classify({ status, body, netError, expectFails, tier }) {
@@ -233,7 +236,10 @@ async function main() {
     // what must never pass is a run that drove nothing for no stated reason.
     const accounted = driven + counts.skipped + counts.filtered;
     if (selected.length && accounted < selected.length * 0.5 && !ONLY) { console.error(`corpus: only ${accounted} of ${selected.length} cases were driven or skipped for a reason; refusing to report clean`); process.exit(1); }
-    if (driven === 0 && selected.length) console.log(`corpus: nothing driven (${counts.skipped} skipped: keys absent on this boot) - not a pass, not a failure`);
+    if (driven === 0 && selected.length) { console.error(`corpus: nothing driven (${counts.skipped} skipped, ${counts.filtered} tier-filtered) - a run that measured nothing is not a pass`); process.exit(1); }
+    // An upstream storm is not a pass either: if most of what was driven came
+    // back as "upstream", the run learned nothing about our code.
+    if (counts.upstream > driven / 2) { console.error(`corpus: ${counts.upstream} of ${driven} driven cases were upstream failures - refusing to report clean`); process.exit(1); }
     process.exit(counts.fatal || counts.unknown ? 1 : 0);
   } finally {
     if (child) child.kill("SIGTERM");
