@@ -90,14 +90,21 @@ export function gatewaySettleBreakerGlobalPaused(now = Date.now()) {
 }
 
 /** A payment was presented, the handler served, and settlement FAILED. */
-export function recordGatewaySettleFailure(key, now = Date.now()) {
-  globalFails = inWindow(globalFails, now);
-  globalFails.push(now);
-  if (globalFails.length >= GLOBAL_MAX_FAILS) {
-    globalPausedUntil = now + WINDOW_MS;
-    globalFails = [];
-    globalTrips++;
-    console.warn(`[gateway-breaker] ${GLOBAL_MAX_FAILS} unsettled gateway calls inside ${Math.round(WINDOW_MS / 1000)} s - pausing every /v1 tier until ${new Date(globalPausedUntil).toISOString()}`);
+export function recordGatewaySettleFailure(key, now = Date.now(), { global = true } = {}) {
+  // `global:false` (the wallet-only catalog consult): the failure counts
+  // against the WALLET only. A catalog read costs a fraction of a cent, so
+  // twelve of them must never pause the LLM tiers - that would hand anyone
+  // with twelve failed settlements a lever on the gateway (the operator,
+  // 2026-09-06).
+  if (global) {
+    globalFails = inWindow(globalFails, now);
+    globalFails.push(now);
+    if (globalFails.length >= GLOBAL_MAX_FAILS) {
+      globalPausedUntil = now + WINDOW_MS;
+      globalFails = [];
+      globalTrips++;
+      console.warn(`[gateway-breaker] ${GLOBAL_MAX_FAILS} unsettled gateway calls inside ${Math.round(WINDOW_MS / 1000)} s - pausing every /v1 tier until ${new Date(globalPausedUntil).toISOString()}`);
+    }
   }
   if (!key) return;
   const arr = inWindow(fails.get(key) || [], now);
@@ -121,7 +128,7 @@ function decodeReceipt(res) {
 
 /** Arm ONE finish listener per request on `req.res`, recording the FINAL
  *  outcome under `key`. Exported for the test; the check below calls it. */
-export function armGatewaySettleBreaker(req, key) {
+export function armGatewaySettleBreaker(req, key, { global = true } = {}) {
   if (!req || typeof req !== "object" || req.__gatewaySettleBreakerArmed) return false;
   const res = req.res;
   if (!res || typeof res.once !== "function") return false;
@@ -130,7 +137,7 @@ export function armGatewaySettleBreaker(req, key) {
     try {
       const st = res.statusCode;
       const receipt = decodeReceipt(res);
-      if (st === 402 || receipt?.success === false) recordGatewaySettleFailure(key);
+      if (st === 402 || receipt?.success === false) recordGatewaySettleFailure(key, Date.now(), { global });
       else if (st === 200) recordGatewaySettleSuccess(key);
       // Anything else (a 4xx/5xx the handler threw) was never settled and is
       // not this wallet's doing: neither counted nor cleared.
@@ -144,9 +151,12 @@ export function armGatewaySettleBreaker(req, key) {
  * and before any upstream call. Throws 503 while the global pause holds, 429
  * while this buyer is blocked; otherwise arms the outcome listener.
  */
-export function gatewaySettleBreakerCheck(req, { now = Date.now() } = {}) {
+export function gatewaySettleBreakerCheck(req, { now = Date.now(), global = true } = {}) {
   const key = gatewaySettleBreakerKey(req);
-  const g = gatewaySettleBreakerGlobalPaused(now);
+  // The wallet-only catalog consults with global:false: no global pause is
+  // honoured and none is fed. Only the /v1 tiers, where a wasted call costs
+  // real money, take part in the global pause.
+  const g = global ? gatewaySettleBreakerGlobalPaused(now) : { paused: false };
   if (g.paused) {
     const secs = Math.max(1, Math.ceil((g.until - now) / 1000));
     const e = new Error(`Paid tools are briefly paused after a burst of payments that verified and then failed to settle; retry after ${new Date(g.until).toISOString()} (about ${secs} s). Nothing was charged for this request.`);
@@ -164,7 +174,7 @@ export function gatewaySettleBreakerCheck(req, { now = Date.now() } = {}) {
     try { req?.res?.setHeader?.("Retry-After", String(secs)); } catch { /* headers are best-effort */ }
     throw e;
   }
-  armGatewaySettleBreaker(req, key);
+  armGatewaySettleBreaker(req, key, { global });
 }
 
 /** Counts only - never a key, address or IP. */

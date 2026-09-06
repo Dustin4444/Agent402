@@ -49,7 +49,7 @@ proc = spawn("node", ["src/server.js"], {
     WALLET_ADDRESS: "0x000000000000000000000000000000000000dEaD", NETWORK: "base",
     FACILITATOR_URL: `http://127.0.0.1:${FAC_PORT}`, AGENT402_BASE_RPC: `http://127.0.0.1:${FAC_PORT}/rpc`,
     CDP_API_KEY_ID: "", CDP_API_KEY_SECRET: "", PAYMENT_NETWORKS: "base", MPP_SECRET_KEY: "",
-    GATEWAY_SETTLE_BREAKER_MAX: String(MAX), GATEWAY_SETTLE_BREAKER_WINDOW_MS: "600000", GATEWAY_SETTLE_BREAKER_GLOBAL_MAX: "50",
+    GATEWAY_SETTLE_BREAKER_MAX: String(MAX), GATEWAY_SETTLE_BREAKER_WINDOW_MS: "600000", GATEWAY_SETTLE_BREAKER_GLOBAL_MAX: "4",
     X402_INDEX_CRAWL: "off", MPP_INDEX_CRAWL: "off", MONITOR_SCHEDULER: "off", FREE_ALERTS: "off", FOLLOWUPS: "off", WALLET_DIGEST: "off",
   },
   stdio: ["ignore", "pipe", "pipe"],
@@ -120,6 +120,14 @@ try {
     ok(last === 402, `after a settled 200 the count restarts: ${MAX} new failures from wallet B are all served (last status ${last})`);
     const r2 = await pay(WALLET_ONLY, PAYER_B);
     ok(r2.status === 429, `... and the next is 429 (got ${r2.status})`);
+  }
+  // Per-wallet ONLY: by now 8+ catalog settle failures have happened across two
+  // wallets, well past GLOBAL_MAX (4) - and a THIRD wallet is still served,
+  // because catalog failures neither honour nor feed the global pause.
+  {
+    const before = settles;
+    const r = await pay(WALLET_ONLY, "0x00000000000000000000000000000000000000c3");
+    ok(r.status === 402 && settles === before + 1, `no global pause from catalog failures: a third wallet still reaches the handler (status ${r.status})`);
   }
   // Status surface stays counts-only.
   {
