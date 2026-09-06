@@ -618,7 +618,7 @@ export const CHAIN_TOOLS = [
         // raw.metadata (name, description, `traits`) and leaves the top-level
         // name empty, so BAYC #1 read title "" with no attributes
         // (keyed corpus, 2026-09-06). Read both shapes.
-        title: data.name || data.raw?.metadata?.name || (data.contract?.name ? `${data.contract.name} #${String(input?.tokenId ?? tokenId ?? "")}` : null),
+        title: data.name || data.raw?.metadata?.name || (data.contract?.name ? `${data.contract.name} #${tokenId}` : null),
         collection: data.contract?.name ?? null,
         standard: data.tokenType ?? null,
         description: data.description || data.raw?.metadata?.description || null,
