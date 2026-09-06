@@ -94,7 +94,7 @@ export const EVM = {
     // Alchemy first (reliable getLogs); free RPCs fail on historical queries.
     rpcs: [
       ...(process.env.ALCHEMY_API_KEY ? [`https://polygon-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`] : []),
-      "https://polygon.drpc.org", "https://polygon-rpc.com",
+      "https://polygon.drpc.org",
     ],
     explorer: (a) => `https://polygonscan.com/address/${a}#tokentxns`,
     tx: (h) => `https://polygonscan.com/tx/${h}`,
