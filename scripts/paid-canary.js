@@ -130,6 +130,20 @@ export const TOOLS = [
     check: (r) => (r.symbol === "AAPL" && r.currency === "USD" && r.price > 1) || `expected AAPL/USD/price>1, got ${JSON.stringify(r).slice(0, 80)}`,
   },
   {
+    // ffmpeg on PROD, daily (2026-09-06): the Docker image refuses to build
+    // without ffmpeg, but nothing bought a media tool on prod between buyers,
+    // so a runtime regression (a base-image drift after the build check, a
+    // broken worker pool) would wait for a customer. media-info runs ffprobe
+    // on a 2 s WAV served by our own /fixtures - no third-party host, so a
+    // block page can never masquerade as a media failure here.
+    kit: "media",
+    path: "/api/media-info",
+    method: "POST",
+    body: { url: "https://agent402.tools/fixtures/sample-audio.wav" },
+    priceUsd: 0.005,
+    check: (r) => (r?.durationSec > 1 && Array.isArray(r?.streams) && r.streams.length >= 1 && typeof r?.formatName === "string") || `expected ffprobe output with duration and streams, got ${JSON.stringify(r).slice(0, 100)}`,
+  },
+  {
     // X data (2026-09-06): the app-only bearer is minted in Actions and the
     // app is pay-per-use on a PREPAID balance, so a dead bearer or an empty
     // balance is an uncharged 503 nobody sees. One post read a day
