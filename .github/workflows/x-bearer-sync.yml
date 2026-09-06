@@ -1,0 +1,50 @@
+# Mint the X (Twitter) API v2 app-only bearer from the consumer key + secret
+# that already live in Actions (the announce workflow's OAuth 1.0a app) and
+# write it to Railway as X_BEARER_TOKEN, which is the rollout switch for the
+# five x-data tools (x-search-recent, x-user, x-user-tweets, x-tweet,
+# x-users-lookup). The app is on X's pay-per-use plan; the tools are priced
+# above X's per-read rates (2026-08-27). The bearer never touches a log:
+# it is masked the moment it exists and travels only in the GraphQL body.
+#
+# Writing a variable makes Railway redeploy MAIN's head (the var-write race
+# in CLAUDE.md), so dispatch this only when main is what should be live.
+name: X bearer sync
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      X_API_KEY: ${{ secrets.X_API_KEY }}
+      X_API_SECRET: ${{ secrets.X_API_SECRET }}
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_PROJECT_ID: 85396406-dd2f-49e5-8f97-eb520cbc3db3
+      RAILWAY_ENV_ID: 943b0f6e-75f6-42be-aa74-97a92a21cae4
+      RAILWAY_SERVICE_ID: afea0772-f065-4726-a916-0d542386efa8
+    steps:
+      - name: Mint the app-only bearer (OAuth 2.0 client credentials)
+        id: mint
+        run: |
+          set -euo pipefail
+          [ -n "$X_API_KEY" ] && [ -n "$X_API_SECRET" ] || { echo "::error::X_API_KEY / X_API_SECRET are not set as Actions secrets"; exit 1; }
+          [ -n "$RAILWAY_API_TOKEN" ] || { echo "::error::RAILWAY_TOKEN is not set"; exit 1; }
+          RESP=$(curl -sS --max-time 30 -u "$X_API_KEY:$X_API_SECRET" --data-urlencode 'grant_type=client_credentials' https://api.x.com/oauth2/token)
+          TOKEN=$(printf '%s' "$RESP" | jq -r '.access_token // empty')
+          [ -n "$TOKEN" ] || { echo "::error::X did not return a bearer: $(printf '%s' "$RESP" | jq -c 'del(.access_token)' 2>/dev/null || echo '(non-JSON)')"; exit 1; }
+          echo "::add-mask::$TOKEN"
+          printf 'X_BEARER_TOKEN=%s\n' "$TOKEN" >> "$GITHUB_ENV"
+          echo "minted a bearer of ${#TOKEN} chars"
+      - name: Write X_BEARER_TOKEN to the agent402 service on Railway
+        run: |
+          set -euo pipefail
+          BODY=$(jq -n --arg p "$RAILWAY_PROJECT_ID" --arg e "$RAILWAY_ENV_ID" --arg s "$RAILWAY_SERVICE_ID" --arg t "$X_BEARER_TOKEN" \
+            '{query:"mutation($p:String!, $e:String!, $s:String!, $v:EnvironmentVariables!) { variableCollectionUpsert(input: { projectId: $p, environmentId: $e, serviceId: $s, variables: $v }) }", variables:{p:$p,e:$e,s:$s,v:{X_BEARER_TOKEN:$t}}}')
+          RESP=$(curl -sS --max-time 30 -X POST https://backboard.railway.com/graphql/v2 -H "Authorization: Bearer $RAILWAY_API_TOKEN" -H "Content-Type: application/json" --data "$BODY")
+          echo "$RESP" | jq -e '.data.variableCollectionUpsert' >/dev/null || { echo "::error::variable upsert failed: $(echo "$RESP" | jq -c '.errors // .' )"; exit 1; }
+          echo "X_BEARER_TOKEN written; Railway will redeploy main's head and the five x-data tools list on the next boot"
