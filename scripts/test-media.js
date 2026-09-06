@@ -96,5 +96,20 @@ try { await probeMedia(Buffer.from("not media")); fail("garbage should be reject
 console.log("validation ✓ (bitrate, LUFS range, non-media rejected)");
 
 rmSync(dir, { recursive: true, force: true });
+// --- looksLikeMedia: the pre-ffmpeg sniff (2026-09-06) ---------------------------
+{
+  const { looksLikeMedia } = await import("../src/tools/media-kit.js");
+  const cases = [
+    ["OggS" + "\0".repeat(20), true, "Ogg"], ["fLaC" + "\0".repeat(20), true, "FLAC"], ["RIFF....WAVEfmt ", true, "WAV"],
+    ["ID3\x04\0\0\0\0\0\0\0\0", true, "MP3 with ID3"], ["\xff\xfb\x90\0" + "\0".repeat(12), true, "MP3 frame sync"],
+    ["\0\0\0\x18ftypisom\0\0\0\0", true, "MP4/M4A"], ["\x1a\x45\xdf\xa3" + "\0".repeat(12), true, "WebM/MKV"],
+    ["<!DOCTYPE html><html>", false, "HTML block page"], ["{\"error\":\"rate limited\"}", false, "JSON error page"], ["", false, "empty"], ["short", false, "too short"],
+  ];
+  for (const [bytes, want, label] of cases) {
+    const got = looksLikeMedia(Buffer.from(bytes, "latin1"));
+    if (got === want) { console.log(`ok - looksLikeMedia: ${label} -> ${want}`); } else { console.error(`FAIL - looksLikeMedia: ${label} expected ${want}, got ${got}`); process.exitCode = 1; }
+  }
+}
+
 console.log("\nmedia-kit: all assertions passed");
-process.exit(0);
+process.exit(process.exitCode || 0);
