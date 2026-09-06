@@ -241,3 +241,28 @@ if (stashed === undefined) delete process.env.X_BEARER_TOKEN; else process.env.X
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);
+
+// --- daily upstream spend cap (2026-09-06): the prepaid X balance is shared with our own posts --
+{
+  const { estimateXReadUsd, actualXReadUsd, xDataSpendStatus, _xSpendReset, _xSpendBook } = await import("../src/tools/x-data-kit.js");
+  let p = 0, f = 0; const ok = (c, m) => { if (c) { p++; console.log(`ok - cap: ${m}`); } else { f++; console.error(`FAIL - cap: ${m}`); } };
+  ok(Math.abs(estimateXReadUsd("/tweets/search/recent", { max_results: 10 }) - 0.05) < 1e-9, "10 posts estimate $0.05");
+  ok(Math.abs(estimateXReadUsd("/users/by", { usernames: "a,b,c" }) - 0.03) < 1e-9, "3 users estimate $0.03");
+  ok(Math.abs(estimateXReadUsd("/tweets/123") - 0.005) < 1e-9 && Math.abs(estimateXReadUsd("/users/by/username/x") - 0.01) < 1e-9, "single post / single user");
+  ok(Math.abs(actualXReadUsd("/tweets/search/recent", { data: [1, 2, 3] }) - 0.015) < 1e-9 && actualXReadUsd("/tweets/search/recent", { data: [] }) === 0, "actual bills per item returned, an empty page costs nothing");
+  process.env.X_BEARER_TOKEN = "test-bearer"; process.env.X_DATA_DAILY_MAX_USD = "0.06";
+  _xSpendReset(); _xSpendBook(0.02);
+  const realFetch = globalThis.fetch; let fetched = 0; globalThis.fetch = async () => { fetched++; return new Response(JSON.stringify({ data: [{ id: "1" }] }), { status: 200, headers: { "content-type": "application/json" } }); };
+  try {
+    const r1 = await __test.xGet("/tweets/search/recent", { max_results: 5 }); // $0.025 estimate: 0.02 + 0.025 <= 0.06 -> allowed, books $0.005 actual
+    ok(Array.isArray(r1.data) && fetched === 1 && Math.abs(xDataSpendStatus().spentUsd - 0.025) < 1e-6, `under the cap: fetched, booked the actual ($${xDataSpendStatus().spentUsd})`);
+    let threw = null; try { await __test.xGet("/tweets/search/recent", { max_results: 10 }); } catch (e) { threw = e; } // 0.025 + 0.05 > 0.06 -> refused before fetch
+    ok(threw?.statusCode === 503 && /spend cap/.test(threw.message) && fetched === 1, "over the cap: 503 before any fetch, names the cap");
+    ok(xDataSpendStatus().refusedToday === 1 && xDataSpendStatus().status === "ok", "status counts the refusal; the cap is not yet reached by booked spend");
+    process.env.X_DATA_DAILY_MAX_USD = "0"; threw = null; try { await __test.xGet("/tweets/1"); } catch (e) { threw = e; }
+    ok(threw === null && fetched === 2, "cap 0 disables the guard");
+    process.env.X_DATA_DAILY_MAX_USD = "junk"; _xSpendReset(); _xSpendBook(0.99); threw = null; try { await __test.xGet("/tweets/search/recent", { max_results: 10 }); } catch (e) { threw = e; }
+    ok(threw?.statusCode === 503, "a malformed cap reads as the $1 default, never as disabled");
+  } finally { globalThis.fetch = realFetch; delete process.env.X_BEARER_TOKEN; delete process.env.X_DATA_DAILY_MAX_USD; _xSpendReset(); }
+  console.log(`cap: ${p} passed, ${f} failed`); if (f) process.exitCode = 1;
+}
