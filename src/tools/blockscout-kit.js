@@ -90,8 +90,15 @@ async function buyBlockscout(path) {
     if (!isTransientUpstream(err)) throw err;
     console.warn(`[blockscout] transient upstream failure on ${path} (${err?.message ?? err}) - retrying once`);
     await new Promise((r) => setTimeout(r, 750));
-    const { result } = await payBlockscoutOnce(url, opts);
-    return result;
+    try {
+      const { result } = await payBlockscoutOnce(url, opts);
+      return result;
+    } catch (err2) {
+      // A second timeout surfaced as a bare 500 ("The operation was aborted
+      // due to timeout"), i.e. as OUR bug; it is the upstream not answering.
+      if (!isTransientUpstream(err2)) throw err2;
+      throw bad(`Blockscout did not answer within ${Math.round(UPSTREAM_TIMEOUT_MS / 1000)} s on two attempts - retry shortly`, 504);
+    }
   }
 }
 

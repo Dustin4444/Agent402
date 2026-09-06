@@ -681,6 +681,9 @@ async function fredGetJsonOnce(url, extraHeaders = {}, timeoutMs = 15_000) {
     const msg = redactSecrets(body?.error_message || body?.message || text || `HTTP ${res.status}`).slice(0, 200);
     // FRED 4xx with a key set almost always means a bad/expired/whitespace key —
     // attribute as caller-fixable (422) so it shows up in client_errored.
+    // "The series does not exist" is FRED refusing the buyer's id, not an
+    // outage: a 404 naming it (corpus, 2026-09-06).
+    if (res.status === 400 && /does not exist/i.test(msg)) throw bad(`FRED has no such series (${msg.trim()})`, 404);
     throw bad(`FRED upstream HTTP ${res.status}: ${msg}`, res.status >= 500 ? 502 : 422);
   }
   if (!body) throw bad("FRED returned non-JSON response", 502);

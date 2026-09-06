@@ -1162,6 +1162,16 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   radar (same qualifiedClusters/threshold/bar, flagged rows add up). First run: `/v1/models` advertised the five speech models
   on a boot with the speech route off (gated on `OPENROUTER_TTS_ENABLED` now, test-llm-gateway sets it). A surface pair
   that disagrees is always OUR defect - the test never reports upstream.
+  **Keyed tier-2 pass (same day, PR #1229, prod keys pulled into a 0600 scratch env with the OpenRouter AUDIT key, shredded
+  after; reports/media gated off, well under a dollar):** every LLM wire on every tier answered and stripped its billing
+  fields; seven defects were ours: `l2-gas-comparison` (Alchemy path) silently dropped an unknown network; `dex-pair` shipped
+  the zero address as a 200 when no pool exists (404); `transcribe`/`transcribe-pro` promised `duration` and always answered
+  null though the margin cap had measured it (filled from the probe); `nft-metadata` read Alchemy's OLD document shape - v3
+  nests an OpenSea-shaped `raw.metadata` with `traits` and an empty top-level name, so BAYC #1 had no title and no
+  attributes (both shapes read now); `token-price` by address answered `symbol:null` (token metadata); FRED "The series does
+  not exist" relayed as an upstream 422 (404); Blockscout's second timeout surfaced as a bare 500 (504 saying so). Recipe:
+  `railway variables -s agent402 -e production --json` -> `export K=v` file (0600), swap `OPENROUTER_API_KEY` for the audit
+  key, boot FREE_MODE with `X402_SYNC_ON_START=false`, `node scripts/test-corpus.js --tier 2`, `rm` the env file.
 - **Every guard we owned asserted SHAPE, never OUTCOME (2026-08-31, `scripts/test-pack-examples.js`):** the root cause behind nine
   packs selling broken for two months. The example sweep asserts an HTTP 200 and the documented TOP-LEVEL keys, and
   `{pack, args, steps, summary}` is a valid shape whether the steps returned data or all threw - so `0/N steps succeeded` passed

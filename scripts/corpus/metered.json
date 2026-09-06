@@ -1,65 +1,542 @@
 {
   "about": "Paid-upstream tools (tier 2): OpenRouter/OpenAI wires, Brave, E2B, Blockscout, FRED, the browser worker. Skipped on a keyless boot; run weekly with the audit key (--tier 2). Cheap links only.",
   "cases": [
-    { "slug": "search", "name": "a query with many results", "input": { "q": "federal reserve", "count": 3 }, "requires": "BRAVE_API_KEY",
-      "expect": { "equals": { "count": 3 }, "minCount": { "results": 3 }, "populated": ["results[0].url", "results[0].title"], "equals": { "untrustedContent": true } } },
-    { "slug": "search-news", "name": "past-day news", "input": { "q": "stock market", "count": 3, "freshness": "pd" }, "requires": "BRAVE_API_KEY",
-      "expect": { "minCount": { "results": 1 }, "populated": ["results[0].url"] } },
-    { "slug": "answer", "name": "a factual question", "input": { "q": "what year did the euro banknotes enter circulation?" }, "requires": "BRAVE_ANSWERS_API_KEY",
-      "expect": { "matches": { "answer": "2002" }, "gte": { "citationCount": 1 } } },
-    { "slug": "llm", "name": "json mode answers valid json", "input": { "model": "gpt-4o-mini", "messages": [{ "role": "user", "content": "Return a JSON object with key ok set to true." }], "max_tokens": 32, "response_format": { "type": "json_object" } }, "requires": "OPENAI_API_KEY",
-      "expect": { "matches": { "choices[0].message.content": "\"ok\"\\s*:\\s*true" }, "populated": ["usage"] } },
-    { "slug": "v1-chat", "name": "system prompt honoured on nano-class model", "input": { "model": "openai/gpt-4o-mini", "messages": [{ "role": "system", "content": "Answer with the single word PONG." }, { "role": "user", "content": "ping" }], "max_tokens": 5 }, "requires": "OPENROUTER_API_KEY",
-      "expect": { "matches": { "choices[0].message.content": "pong" }, "populated": ["usage.total_tokens"], "falsy": ["usage.cost"] } },
-    { "slug": "v1-chat", "name": "an unknown model is a 400, never an upstream 502", "input": { "model": "openai/not-a-model-zzq", "messages": [{ "role": "user", "content": "hi" }] }, "requires": "OPENROUTER_API_KEY",
-      "expect": { "status": 400 } },
-    { "slug": "v1-embeddings", "name": "batch of two", "input": { "input": ["alpha", "beta"] }, "requires": "OPENROUTER_API_KEY",
-      "expect": { "count": { "data": 2 }, "minCount": { "data[0].embedding": 256 }, "populated": ["model"] } },
-    { "slug": "embed", "name": "unicode text", "input": { "text": "naïve café ☕" }, "requires": "OPENAI_API_KEY",
-      "expect": { "gte": { "dimensions": 256 }, "minCount": { "embedding": 256 } } },
-    { "slug": "moderate", "name": "clearly violent text is flagged", "input": { "text": "I will find you and hurt you badly tonight." }, "requires": "OPENAI_API_KEY",
-      "expect": { "equals": { "flagged": true }, "populated": ["categories", "category_scores"] } },
-    { "slug": "tts", "name": "short text as wav", "input": { "text": "corpus check", "voice": "nova", "format": "wav" }, "requires": "OPENAI_API_KEY",
-      "expect": { "equals": { "format": "wav", "chars": 12 }, "minCount": { "audio": 1000 } } },
-    { "slug": "image-gen", "name": "a second prompt returns an image", "input": { "prompt": "A blue circle on a white background, flat vector" }, "requires": "OPENAI_API_KEY",
-      "expect": { "minCount": { "image": 5000 }, "populated": ["size", "quality"] } },
-    { "slug": "code-run-pro", "name": "javascript with stdout and a result", "input": { "code": "console.log('out'); [1,2,3].reduce((a,b)=>a+b,0)", "language": "javascript" }, "requires": "E2B_API_KEY",
-      "expect": { "matches": { "stdout": "out" }, "falsy": ["error"] } },
-    { "slug": "code-run-pro", "name": "a runtime error is reported, not a 500", "input": { "code": "raise ValueError('boom')", "language": "python" }, "requires": "E2B_API_KEY",
-      "expect": { "matches": { "error": "boom|ValueError" } } },
-    { "slug": "contract-inspect", "name": "WETH on base", "input": { "chain": "base", "address": "0x4200000000000000000000000000000000000006" }, "requires": "X402_UPSTREAM_BUYER_KEY",
-      "expect": { "equals": { "isVerified": true }, "gte": { "abiEntries": 5 }, "populated": ["name"] } },
-    { "slug": "onchain-sql", "name": "a second read-only query", "input": { "sql": "SELECT block_number FROM base.blocks ORDER BY block_number DESC LIMIT 2" }, "requires": "CDP_API_KEY_ID",
-      "expect": { "equals": { "rowCount": 2 }, "gt": { "rows[0].block_number": 30000000 } } },
-    { "slug": "onchain-sql", "name": "a write statement is refused 400", "input": { "sql": "DELETE FROM base.blocks" }, "requires": "CDP_API_KEY_ID",
-      "expect": { "status": 400 } },
-    { "slug": "onchain-sql-schema", "name": "schema lists base tables", "input": {}, "requires": "CDP_API_KEY_ID",
-      "expect": { "populated": ["schema"] } },
-    { "slug": "render", "name": "a static page renders with a title", "input": { "url": "https://example.com" }, "requires": "WORKER_URL",
-      "expect": { "equals": { "rendered": true }, "matches": { "title": "Example Domain" }, "gt": { "wordCount": 5 } } },
-    { "slug": "screenshot", "name": "png bytes come back", "input": { "url": "https://example.com", "fullPage": "false" }, "requires": "WORKER_URL",
-      "expect": { "truthy": ["__binary"], "matches": { "contentType": "image/png" }, "gt": { "bytes": 5000 } } },
-    { "slug": "fred-series-info", "name": "a second series", "input": { "seriesId": "GDP" }, "requires": "FRED_API_KEY",
-      "expect": { "equals": { "id": "GDP" }, "matches": { "frequency": "quarter" }, "populated": ["units", "observationEnd"] } },
-    { "slug": "fred-series-info", "name": "unknown series is a 404", "input": { "seriesId": "ZZQXNOTASERIES" }, "requires": "FRED_API_KEY",
-      "expect": { "status": 404 } },
-    { "slug": "fred-search", "name": "search returns ids", "input": { "q": "housing starts", "limit": 3 }, "requires": "FRED_API_KEY",
-      "expect": { "gte": { "count": 1 }, "populated": ["results[0].id", "results[0].title"] } },
-    { "slug": "fred-release-calendar", "name": "a week of releases", "input": { "days": 7 }, "requires": "FRED_API_KEY",
-      "expect": { "gte": { "count": 1 }, "populated": ["releases[0]"] } },
-    { "slug": "fed-funds", "name": "90 days of history", "input": { "days": 90 }, "requires": "FRED_API_KEY",
-      "expect": { "gt": { "current": 0 }, "minCount": { "history": 50 } } },
-    { "slug": "unemployment-rate", "name": "24 months", "input": { "months": 24 }, "requires": "FRED_API_KEY",
-      "expect": { "gt": { "current": 1 }, "lt": { "current": 15 }, "count": { "history": 24 } } },
-    { "slug": "cpi-yoy", "name": "inflation is a plausible number", "input": {}, "requires": "FRED_API_KEY",
-      "expect": { "gt": { "inflationYoYPct": -5 }, "lt": { "inflationYoYPct": 20 }, "populated": ["date"] } },
-    { "slug": "treasury-yield-curve", "name": "curve tenors are ordered numbers", "input": {},
-      "expect": { "gt": { "yr30": 0, "mo1": 0 } } },
-    { "slug": "research-company", "name": "a second ticker with filings", "input": { "ticker": "NVDA", "filingsLimit": 2, "newsCount": 2 }, "requires": "BRAVE_API_KEY",
-      "expect": { "equals": { "ticker": "NVDA" }, "minCount": { "filings10K": 1, "sources": 1 }, "populated": ["quote"] } },
-    { "slug": "memory-remember", "name": "store then recall", "input": { "text": "corpus note: the blue deploy failed on tuesday", "meta": { "topic": "corpus" } }, "requires": "payer",
-      "expect": { "equals": { "stored": true }, "populated": ["id"] } },
-    { "slug": "memory-cas", "name": "swap on an absent key", "input": { "key": "corpus/lock", "expected": null, "value": "a", "ttlSeconds": 5 }, "requires": "payer",
-      "expect": { "equals": { "swapped": true, "value": "a" } } }
+    {
+      "slug": "search",
+      "name": "a query with many results",
+      "input": {
+        "q": "federal reserve",
+        "count": 3
+      },
+      "requires": "BRAVE_API_KEY",
+      "expect": {
+        "equals": {
+          "untrustedContent": true
+        },
+        "minCount": {
+          "results": 3
+        },
+        "populated": [
+          "results[0].url",
+          "results[0].title"
+        ]
+      }
+    },
+    {
+      "slug": "search-news",
+      "name": "past-day news",
+      "input": {
+        "q": "stock market",
+        "count": 3,
+        "freshness": "pd"
+      },
+      "requires": "BRAVE_API_KEY",
+      "expect": {
+        "minCount": {
+          "results": 1
+        },
+        "populated": [
+          "results[0].url"
+        ]
+      }
+    },
+    {
+      "slug": "answer",
+      "name": "a factual question",
+      "input": {
+        "q": "what year did the euro banknotes enter circulation?"
+      },
+      "requires": "BRAVE_ANSWERS_API_KEY",
+      "expect": {
+        "matches": {
+          "answer": "2002"
+        },
+        "gte": {
+          "citationCount": 1
+        }
+      }
+    },
+    {
+      "slug": "llm",
+      "name": "json mode answers valid json",
+      "input": {
+        "model": "gpt-4o-mini",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Return a JSON object with key ok set to true."
+          }
+        ],
+        "max_tokens": 32,
+        "response_format": {
+          "type": "json_object"
+        }
+      },
+      "requires": "OPENAI_API_KEY",
+      "expect": {
+        "matches": {
+          "choices[0].message.content": "\"ok\"\\s*:\\s*true"
+        },
+        "populated": [
+          "usage"
+        ]
+      }
+    },
+    {
+      "slug": "v1-chat",
+      "name": "system prompt honoured on nano-class model",
+      "input": {
+        "model": "openai/gpt-4o-mini",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Answer with the single word PONG."
+          },
+          {
+            "role": "user",
+            "content": "ping"
+          }
+        ],
+        "max_tokens": 5
+      },
+      "requires": "OPENROUTER_API_KEY",
+      "expect": {
+        "matches": {
+          "choices[0].message.content": "pong"
+        },
+        "populated": [
+          "usage.total_tokens"
+        ],
+        "falsy": [
+          "usage.cost"
+        ]
+      }
+    },
+    {
+      "slug": "v1-chat",
+      "name": "an unknown model is a 400, never an upstream 502",
+      "input": {
+        "model": "openai/not-a-model-zzq",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ]
+      },
+      "requires": "OPENROUTER_API_KEY",
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "v1-embeddings",
+      "name": "batch of two",
+      "input": {
+        "input": [
+          "alpha",
+          "beta"
+        ]
+      },
+      "requires": "OPENROUTER_API_KEY",
+      "expect": {
+        "count": {
+          "data": 2
+        },
+        "minCount": {
+          "data[0].embedding": 256
+        },
+        "populated": [
+          "model"
+        ]
+      }
+    },
+    {
+      "slug": "embed",
+      "name": "unicode text",
+      "input": {
+        "text": "naïve café ☕"
+      },
+      "requires": "OPENAI_API_KEY",
+      "expect": {
+        "gte": {
+          "dimensions": 256
+        },
+        "minCount": {
+          "embedding": 256
+        }
+      }
+    },
+    {
+      "slug": "moderate",
+      "name": "clearly violent text is flagged",
+      "input": {
+        "text": "I will find you and hurt you badly tonight."
+      },
+      "requires": "OPENAI_API_KEY",
+      "expect": {
+        "equals": {
+          "flagged": true
+        },
+        "populated": [
+          "categories",
+          "category_scores"
+        ]
+      }
+    },
+    {
+      "slug": "tts",
+      "name": "short text as wav",
+      "input": {
+        "text": "corpus check",
+        "voice": "nova",
+        "format": "wav"
+      },
+      "requires": "OPENAI_API_KEY",
+      "expect": {
+        "equals": {
+          "format": "wav",
+          "chars": 12
+        },
+        "minCount": {
+          "audio": 1000
+        }
+      }
+    },
+    {
+      "slug": "image-gen",
+      "name": "a second prompt returns an image",
+      "input": {
+        "prompt": "A blue circle on a white background, flat vector"
+      },
+      "requires": "OPENAI_API_KEY",
+      "expect": {
+        "minCount": {
+          "image": 5000
+        },
+        "populated": [
+          "size",
+          "quality"
+        ]
+      }
+    },
+    {
+      "slug": "code-run-pro",
+      "name": "javascript with stdout and a result",
+      "input": {
+        "code": "console.log('out'); [1,2,3].reduce((a,b)=>a+b,0)",
+        "language": "javascript"
+      },
+      "requires": "E2B_API_KEY",
+      "expect": {
+        "matches": {
+          "stdout": "out"
+        },
+        "falsy": [
+          "error"
+        ]
+      }
+    },
+    {
+      "slug": "code-run-pro",
+      "name": "a runtime error is reported, not a 500",
+      "input": {
+        "code": "raise ValueError('boom')",
+        "language": "python"
+      },
+      "requires": "E2B_API_KEY",
+      "expect": {
+        "matches": {
+          "error.message": "boom",
+          "error.name": "ValueError"
+        }
+      }
+    },
+    {
+      "slug": "contract-inspect",
+      "name": "WETH on base",
+      "input": {
+        "chain": "base",
+        "address": "0x4200000000000000000000000000000000000006"
+      },
+      "requires": "X402_UPSTREAM_BUYER_KEY",
+      "expect": {
+        "equals": {
+          "isVerified": true
+        },
+        "gte": {
+          "abiEntries": 5
+        },
+        "populated": [
+          "name"
+        ]
+      }
+    },
+    {
+      "slug": "onchain-sql",
+      "name": "a second read-only query",
+      "input": {
+        "sql": "SELECT block_number FROM base.blocks ORDER BY block_number DESC LIMIT 2"
+      },
+      "requires": "CDP_API_KEY_ID",
+      "expect": {
+        "equals": {
+          "rowCount": 2
+        },
+        "gt": {
+          "rows[0].block_number": 30000000
+        }
+      }
+    },
+    {
+      "slug": "onchain-sql",
+      "name": "a write statement is refused 400",
+      "input": {
+        "sql": "DELETE FROM base.blocks"
+      },
+      "requires": "CDP_API_KEY_ID",
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "onchain-sql-schema",
+      "name": "schema lists base tables",
+      "input": {},
+      "requires": "CDP_API_KEY_ID",
+      "expect": {
+        "populated": [
+          "schema"
+        ]
+      }
+    },
+    {
+      "slug": "render",
+      "name": "a static page renders with a title",
+      "input": {
+        "url": "https://example.com"
+      },
+      "requires": "WORKER_URL",
+      "expect": {
+        "equals": {
+          "rendered": true
+        },
+        "matches": {
+          "title": "Example Domain"
+        },
+        "gt": {
+          "wordCount": 5
+        }
+      }
+    },
+    {
+      "slug": "screenshot",
+      "name": "png bytes come back",
+      "input": {
+        "url": "https://example.com",
+        "fullPage": "false"
+      },
+      "requires": "WORKER_URL",
+      "expect": {
+        "truthy": [
+          "__binary"
+        ],
+        "matches": {
+          "contentType": "image/png"
+        },
+        "gt": {
+          "bytes": 5000
+        }
+      }
+    },
+    {
+      "slug": "fred-series-info",
+      "name": "a second series",
+      "input": {
+        "seriesId": "GDP"
+      },
+      "requires": "FRED_API_KEY",
+      "expect": {
+        "equals": {
+          "id": "GDP"
+        },
+        "matches": {
+          "frequency": "quarter"
+        },
+        "populated": [
+          "units",
+          "observationEnd"
+        ]
+      }
+    },
+    {
+      "slug": "fred-series-info",
+      "name": "unknown series is a 404",
+      "input": {
+        "seriesId": "ZZQXNOTASERIES"
+      },
+      "requires": "FRED_API_KEY",
+      "expect": {
+        "status": 404
+      }
+    },
+    {
+      "slug": "fred-search",
+      "name": "search returns ids",
+      "input": {
+        "q": "housing starts",
+        "limit": 3
+      },
+      "requires": "FRED_API_KEY",
+      "expect": {
+        "gte": {
+          "count": 1
+        },
+        "populated": [
+          "results[0].id",
+          "results[0].title"
+        ]
+      }
+    },
+    {
+      "slug": "fred-release-calendar",
+      "name": "a week of releases",
+      "input": {
+        "days": 7
+      },
+      "requires": "FRED_API_KEY",
+      "expect": {
+        "gte": {
+          "count": 1
+        },
+        "populated": [
+          "releases[0]"
+        ]
+      }
+    },
+    {
+      "slug": "fed-funds",
+      "name": "90 days of history",
+      "input": {
+        "days": 90
+      },
+      "requires": "FRED_API_KEY",
+      "expect": {
+        "gt": {
+          "current": 0
+        },
+        "minCount": {
+          "history": 50
+        }
+      }
+    },
+    {
+      "slug": "unemployment-rate",
+      "name": "24 months",
+      "input": {
+        "months": 24
+      },
+      "requires": "FRED_API_KEY",
+      "expect": {
+        "gt": {
+          "current": 1
+        },
+        "lt": {
+          "current": 15
+        },
+        "minCount": {
+          "history": 22
+        },
+        "maxCount": {
+          "history": 24
+        }
+      }
+    },
+    {
+      "slug": "cpi-yoy",
+      "name": "inflation is a plausible number",
+      "input": {},
+      "requires": "FRED_API_KEY",
+      "expect": {
+        "gt": {
+          "inflationYoYPct": -5
+        },
+        "lt": {
+          "inflationYoYPct": 20
+        },
+        "populated": [
+          "date"
+        ]
+      }
+    },
+    {
+      "slug": "treasury-yield-curve",
+      "name": "curve tenors are ordered numbers",
+      "input": {},
+      "expect": {
+        "gt": {
+          "yr30": 0,
+          "mo1": 0
+        }
+      }
+    },
+    {
+      "slug": "research-company",
+      "name": "a second ticker with filings",
+      "input": {
+        "ticker": "NVDA",
+        "filingsLimit": 2,
+        "newsCount": 2
+      },
+      "requires": "BRAVE_API_KEY",
+      "expect": {
+        "equals": {
+          "ticker": "NVDA"
+        },
+        "minCount": {
+          "filings10K": 1,
+          "sources": 1
+        },
+        "populated": [
+          "quote"
+        ]
+      }
+    },
+    {
+      "slug": "memory-remember",
+      "name": "store then recall",
+      "input": {
+        "text": "corpus note: the blue deploy failed on tuesday",
+        "meta": {
+          "topic": "corpus"
+        }
+      },
+      "requires": "payer",
+      "expect": {
+        "equals": {
+          "stored": true
+        },
+        "populated": [
+          "id"
+        ]
+      }
+    },
+    {
+      "slug": "memory-cas",
+      "name": "swap on an absent key",
+      "input": {
+        "key": "corpus/lock",
+        "expected": null,
+        "value": "a",
+        "ttlSeconds": 5
+      },
+      "requires": "payer",
+      "expect": {
+        "equals": {
+          "swapped": true,
+          "value": "a"
+        }
+      }
+    }
   ]
 }
