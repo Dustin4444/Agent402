@@ -318,10 +318,12 @@ async function l2Tvl({ limit } = {}) {
 // 5. l2-gas-comparison — current gas snapshot across L1 + supported L2s
 // ----------------------------------------------------------------------------
 async function l2GasComparison({ networks } = {}) {
-  const requested = Array.isArray(networks) && networks.length
-    ? networks.map((n) => String(n).toLowerCase().trim()).filter((n) => NETWORKS[n])
-    : Object.keys(NETWORKS);
-  if (!requested.length) throw bad("No valid networks requested; supported: " + Object.keys(NETWORKS).join(", "));
+  const named = Array.isArray(networks) && networks.length ? networks.map((n) => String(n).toLowerCase().trim()) : null;
+  // An unknown name used to be dropped silently, so ["base","narnia"] answered
+  // with base alone and the caller never learned (corpus, 2026-09-06).
+  const unknown = (named || []).filter((n) => !NETWORKS[n]);
+  if (unknown.length) throw bad(`Unknown network(s): ${unknown.join(", ")}; supported: ${Object.keys(NETWORKS).join(", ")}`);
+  const requested = named || Object.keys(NETWORKS);
   // Fail-fast on missing key so 503 surfaces cleanly instead of being
   // swallowed per-chain by Promise.allSettled below.
   requireAlchemyKey();

@@ -102,7 +102,7 @@ export async function assertWithinDurationCap(buf, filename, tierSlug) {
   return durationSec;
 }
 
-async function callOpenAI(audioBuffer, filename, model, language) {
+async function callOpenAI(audioBuffer, filename, model, language, probedDuration = null) {
   const key = OPENAI_KEY();
   if (!key) throw bad("OpenAI not configured", 503);
 
@@ -152,7 +152,9 @@ async function callOpenAI(audioBuffer, filename, model, language) {
     provider: "openai",
     text: data.text ?? "",
     language: data.language ?? null,
-    duration: data.duration ?? null,
+    // OpenAI's json response carries no duration; we measured it locally for
+    // the cap, so the promised field is populated (corpus, 2026-09-06).
+    duration: data.duration ?? (Number.isFinite(probedDuration) ? Math.round(probedDuration * 100) / 100 : null),
   };
 }
 
@@ -160,9 +162,9 @@ function makeHandler(tierSlug) {
   return async (input) => {
     const { url, language } = validateInput(input);
     const { buf, filename } = await fetchAudio(url);
-    await assertWithinDurationCap(buf, filename, tierSlug);
+    const probedDuration = await assertWithinDurationCap(buf, filename, tierSlug); // measured for the margin cap; also the answer's duration
     const tier = TIERS[tierSlug];
-    return callOpenAI(buf, filename, tier.model, language);
+    return callOpenAI(buf, filename, tier.model, language, probedDuration);
   };
 }
 

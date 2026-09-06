@@ -437,7 +437,9 @@ export const CHAIN_TOOLS = [
       return {
         contract,
         network: network.name,
-        symbol: row?.symbol ?? null,
+        // The prices API carries no symbol for a by-address lookup; read it
+        // from token metadata so the promised field is populated.
+        symbol: row?.symbol ?? (await jsonRpc(network, "alchemy_getTokenMetadata", [contract]).then((m) => m?.symbol ?? null).catch(() => null)),
         priceUsd,
         lastUpdated: priceObj?.lastUpdatedAt ?? null,
       };
@@ -612,12 +614,16 @@ export const CHAIN_TOOLS = [
         contract,
         tokenId,
         network: network.name,
-        title: data.name ?? null,
+        // Alchemy's v3 document now nests an OpenSea-shaped record under
+        // raw.metadata (name, description, `traits`) and leaves the top-level
+        // name empty, so BAYC #1 read title "" with no attributes
+        // (keyed corpus, 2026-09-06). Read both shapes.
+        title: data.name || data.raw?.metadata?.name || (data.contract?.name ? `${data.contract.name} #${String(input?.tokenId ?? tokenId ?? "")}` : null),
         collection: data.contract?.name ?? null,
         standard: data.tokenType ?? null,
-        description: data.description ?? null,
+        description: data.description || data.raw?.metadata?.description || null,
         image: data.image?.cachedUrl ?? data.image?.originalUrl ?? null,
-        attributes: data.raw?.metadata?.attributes ?? [],
+        attributes: data.raw?.metadata?.attributes ?? data.raw?.metadata?.traits ?? [],
       };
     },
   },

@@ -846,17 +846,16 @@
     },
     {
       "slug": "nft-metadata",
-      "name": "azuki #100",
+      "name": "bayc #1 has traits",
       "input": {
-        "contract": "0xed5af388653567af2f388e6224dc7c4b3241c544",
-        "tokenId": "100",
+        "contract": "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
+        "tokenId": "1",
         "network": "ethereum"
       },
       "expect": {
         "populated": [
           "title",
-          "image",
-          "attributes"
+          "image"
         ],
         "minCount": {
           "attributes": 3
