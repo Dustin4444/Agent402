@@ -118,6 +118,29 @@ const agg = (clusters, over = {}) => ({
   ok(computeDemandRadar(agg([cl("x", 1, { api: 1 })]), { minCount: "2" }).radar.length === 0, "string minCount (GET query) parses");
 }
 
+// --- qualification read-through (2026-09-06: a buyer bought the radar beside the free
+// beacon, which said "1 qualified cluster", and could not tell which row it was) ----
+{
+  const rows = [
+    cl("q", 6, { api: 3, mcp: 3 }, { callers: 3, qualified: true, firstSeen: "2026-07-01T00:00:00.000Z", lastSeen: "2026-07-02T12:00:00.000Z" }),
+    cl("one-caller", 9, { api: 9 }, { callers: 1, qualified: false }),
+    cl("legacy", 4, { api: 4 }),
+  ];
+  const out = computeDemandRadar(agg(rows, { qualifyMinCallers: 3, qualifyMinSpanHours: 24 }), {});
+  const q = out.radar.find((r) => r.text === "q"), one = out.radar.find((r) => r.text === "one-caller"), legacy = out.radar.find((r) => r.text === "legacy");
+  ok(q.callers === 3 && q.qualified === true, "a qualified cluster reads callers + qualified:true");
+  ok(q.spanHours === 36, "spanHours is first-to-last in hours (36h)");
+  ok(one.callers === 1 && one.qualified === false, "a one-caller cluster is NOT qualified whatever its count (9 signals)");
+  ok(legacy.callers === 0 && legacy.qualified === false && legacy.spanHours === 216, "a row with no caller data reads callers 0, qualified false (never guessed true)");
+  ok(out.qualifiedClusters === 1, "envelope qualifiedClusters matches the beacon's count (1)");
+  ok(out.qualifyMinCallers === 3 && out.qualifyMinSpanHours === 24 && out.qualifiedOnly === false, "envelope echoes the bar + the qualifiedOnly flag");
+  const only = computeDemandRadar(agg(rows), { qualifiedOnly: "true" });
+  ok(only.radar.length === 1 && only.radar[0].text === "q" && only.qualifiedOnly === true && only.matchedClusters === 1, "qualifiedOnly (GET string) keeps only the qualified row");
+  ok(computeDemandRadar(agg(rows), { qualifiedOnly: true, minCount: 7 }).radar.length === 0, "qualifiedOnly composes with minCount");
+  ok(computeDemandRadar(agg(rows), { qualifiedOnly: "yes" }).radar.length === 3, "a non-boolean qualifiedOnly is off, never a silent filter");
+  ok(computeDemandRadar(agg([cl("bad", 2, { api: 2 }, { firstSeen: "junk", lastSeen: null })]), {}).radar[0].spanHours === null, "unparseable timestamps give spanHours null, not NaN");
+}
+
 // --- empty / missing aggregate: clean envelope, never throws ----------------------
 {
   const empty = computeDemandRadar(agg([]), {});
