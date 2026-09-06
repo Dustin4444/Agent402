@@ -138,3 +138,16 @@ const agg = (clusters, over = {}) => ({
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
+
+// --- the handler must ask for the DETAILED aggregate: the beacon-only default
+// carries no cluster rows, and the paid radar was empty for six weeks because
+// of exactly this call (2026-07-21 to 2026-09-06). Pinned from source.
+{
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/tools/x402-kit.js", import.meta.url), "utf8");
+  const ok2 = (c, m) => { if (!c) { console.error("FAIL -", m); process.exit(1); } console.log("ok -", m); };
+  ok2(src.includes("computeDemandRadar(getWishesAggregate({ limit: 500, detailed: true }), i)"), "demand-radar handler reads the detailed aggregate (cluster rows), not the public beacon");
+  const beacon = computeDemandRadar({ distinctClusters: 1055, totalWishes: 4010, threshold: 5, qualifiedClusters: 1 }, { minCount: 1 });
+  ok2(beacon.matchedClusters === 0 && beacon.distinctClusters === 1055, "a beacon-only aggregate yields the hollow envelope the buyer saw (1055 clusters, 0 rows)");
+}
+

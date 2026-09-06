@@ -630,7 +630,12 @@ export const X402_TOOLS = [
     },
     handler: async (i) => {
       const { getWishesAggregate } = await import("../wish.js");
-      return computeDemandRadar(getWishesAggregate({ limit: 500 }), i);
+      // detailed:true is what carries the cluster rows. When the public feed
+      // became beacon-only (bf13630d, 2026-07-21) this call kept the old
+      // signature and the paid radar answered an empty array to every buyer
+      // for six weeks; the example sweep excused it as "cold boot". An
+      // outside buyer found it on 2026-09-06 by reading /api/wishes beside it.
+      return computeDemandRadar(getWishesAggregate({ limit: 500, detailed: true }), i);
     },
   },
   {

@@ -550,6 +550,14 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   call with the burner, refuses above `max_usd`, prints the seller's real body - use it before any kit relays an outside
   seller's response). The per-payer daily budget + E.164/address validation + destination hashing live in that commit's
   `outreach-kit.js` if a send-tool ever earns its way back: the evidence would be "send" tasks arriving on the router.
+- **demand-radar sold an EMPTY radar for six weeks (2026-07-21 to 2026-09-06, found by an outside buyer):** when the public
+  /api/wishes feed became beacon-only (bf13630d) the paid radar's handler kept calling `getWishesAggregate({ limit: 500 })`
+  without `detailed: true`, so `agg.clusters` was undefined and every buyer got real totals with `radar: []` and
+  `matchedClusters: 0`. PostHog: 193 external settlements from 17 wallets ($0.965) in that window bought nothing. Nobody
+  inside noticed because `EMPTY_ARRAY_OK` in sweep-shape.js excuses an empty radar as "cold boot" - the excuse is correct
+  on a keyless CI boot and blind on prod. Fixed (`detailed: true`), pinned from source in test-demand-radar (the
+  beacon-only envelope reproduces the hollow answer). Lesson, again: a hollow 200 passes every shape check; a board-backed
+  tool needs a prod-side "non-empty when the board is non-empty" assertion (the daily canary buys it - add that leg).
 - **Attest a settled call on Base (2026-09-03, `src/tools/attest-kit.js`, `attest`, `POST /api/attest` $0.050 (was $0.010 for one afternoon), `scripts/test-attest-kit.js`
   54 in CI):** the dispatcher now records sha256 of the exact JSON bytes `res.json` sends (`req.__responseSha256`, on the sale row as
   `response_sha256`; NULL for streamed/binary bodies and pre-column rows), and `POST /api/attest {tx}` looks the settlement tx up in the
