@@ -149,7 +149,7 @@ export function gatewaySettleBreakerCheck(req, { now = Date.now() } = {}) {
   const g = gatewaySettleBreakerGlobalPaused(now);
   if (g.paused) {
     const secs = Math.max(1, Math.ceil((g.until - now) / 1000));
-    const e = new Error(`The LLM gateway is briefly paused after a burst of payments that verified and then failed to settle; retry after ${new Date(g.until).toISOString()} (about ${secs} s). Nothing was charged for this request.`);
+    const e = new Error(`Paid tools are briefly paused after a burst of payments that verified and then failed to settle; retry after ${new Date(g.until).toISOString()} (about ${secs} s). Nothing was charged for this request.`);
     e.statusCode = 503;
     e.retryAfterMs = g.until - now;
     try { req?.res?.setHeader?.("Retry-After", String(secs)); } catch { /* headers are best-effort */ }
@@ -158,7 +158,7 @@ export function gatewaySettleBreakerCheck(req, { now = Date.now() } = {}) {
   const b = gatewaySettleBreakerBlocked(key, now);
   if (b.blocked) {
     const secs = Math.max(1, Math.ceil((b.until - now) / 1000));
-    const e = new Error(`Recent payments from this wallet failed to settle (${b.fails} in the last ${Math.round(WINDOW_MS / 60_000)} min: they verified, the call was served, and the transfer did not go through); the gateway refuses new calls from it until ${new Date(b.until).toISOString()} (about ${secs} s). Nothing was charged for this request. Check the wallet's USDC balance on the paying chain before retrying.`);
+    const e = new Error(`Recent payments from this wallet failed to settle (${b.fails} in the last ${Math.round(WINDOW_MS / 60_000)} min: they verified, the call was served, and the transfer did not go through); paid tools refuse new calls from it until ${new Date(b.until).toISOString()} (about ${secs} s). Nothing was charged for this request. Check the wallet's USDC balance on the paying chain before retrying.`);
     e.statusCode = 429;
     e.retryAfterMs = b.until - now;
     try { req?.res?.setHeader?.("Retry-After", String(secs)); } catch { /* headers are best-effort */ }

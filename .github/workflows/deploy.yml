@@ -3647,6 +3647,8 @@ jobs:
           # A rejected payment is answered in the buyer's terms (balance vs stale authorization) on the 402 (offline)
           t node scripts/test-verify-hint.js
           t node scripts/test-verify-hint-live.js
+          # Settle-failure breaker on EVERY wallet-only tool (paid boot, stub facilitator verifies then refuses to settle)
+          t node scripts/test-paid-settle-breaker.js
           # Router dispatch eligibility, labelled: one function for the resolver's Base gate and every public row (offline)
           t node scripts/test-dispatch-eligibility.js
           # Shared-wallet settlement evidence counts only where the live 402 pays: fake leaderboard row + fake 402s, call sites pinned (offline)

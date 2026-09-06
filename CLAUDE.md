@@ -342,6 +342,19 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   provider prefs next to `max_price`, lives in the normalized body (distinct cache entries),
   stripped from the top-level outbound body. All tiers in `WALLET_ONLY_SLUGS` and
   test-all's lenient NETWORK set.
+- **Settle-failure breaker on EVERY wallet-only tool (2026-09-06, dispatcher consult in server.js, `scripts/test-paid-settle-breaker.js`
+  16 in CI):** the same breaker the /v1 tiers consult inside their handlers now runs in the dispatcher for every slug in
+  `WALLET_ONLY_SLUGS` (skipped under FREE_MODE, where nothing settles). Why: with Alchemy first on every chain read, a payment
+  that verifies and then fails to settle costs an upstream read with nothing charged; per read that is a fraction of a cent,
+  so the breaker bounds the LOOP, not the read - a wallet gets `GATEWAY_SETTLE_BREAKER_MAX` such outcomes per window before a
+  429 that runs BEFORE the handler (a >= 400 cancels settlement, the refusal is free), and a burst across wallets pauses the
+  paid catalog 503 for one window. What a customer keeps: a buyer whose payments settle never meets it (a 200 clears the
+  count); a 4xx the handler threw is neither counted nor cleared; PoW-eligible tools are not consulted (nothing upstream to
+  protect); the refusal names the cause and carries Retry-After. Proven on a paid boot against a stub facilitator that
+  verifies and refuses to settle: MAX calls run the handler and end 402, the next is 429 with no settle attempt, another
+  wallet is served, `/api/hash` (PoW-eligible) still reaches its handler for the blocked wallet, a settled 200 restarts the
+  count; mutation-checked by deleting the consult line. Residual: one facilitator rail failing to settle for everyone trips
+  the GLOBAL pause for one window - during which the alternative was serving every call for free.
 - **Gateway settle-failure breaker (2026-09-03, `src/gateway-settle-breaker.js`, `scripts/test-gateway-settle-breaker.js`
   56 in CI):** the /v1 tiers had no equivalent of the composite guard, so a payment that verified and then failed to settle
   (funds moved between verify and settle, a raced nonce, a facilitator refusal) cost the upstream call with nothing charged,

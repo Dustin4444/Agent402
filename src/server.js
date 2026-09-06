@@ -36,6 +36,7 @@ import { runInAbortableScope, abortInFlightComposites, installDrainAwareFetch, i
 import { startSolanaLeaderboard, getSolanaLeaderboardSnapshot } from "./solana-leaderboard.js";
 import { creditFromTx as solanaCreditFromTx } from "./solana-buyer.js";
 import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpendFailure, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS, isLongRunningSlug, _compositeGuardState, compositeUsageSnapshot, withCompositeContext } from "./composite-spend-guard.js";
+import { gatewaySettleBreakerCheck } from "./gateway-settle-breaker.js";
 // Single-upstream-call routes that run long (40 s+): EVM exact only, like the
 // composites (settle-after on SVM/AVM/Tempo is work done, never charged), but
 // not composite-spend-guarded (one bounded upstream price).
@@ -6881,6 +6882,19 @@ for (const tool of ALL_KIT) {
       // spend burned. The thrown 422 cancels settlement (never charged) and
       // explains the fix. Fail-open: non-AVM and unreadable payments pass.
       await assertAvmValidityCovers(req, tool.slug);
+
+      // Settle-failure breaker for EVERY wallet-only tool (2026-09-06; the /v1
+      // tiers consult it inside their handlers already and the call is
+      // idempotent per request). @x402/express settles AFTER the handler, so a
+      // payment that verifies and then fails to settle has cost the upstream
+      // read (Alchemy, CoinGecko, Blockscout, Brave ...) with nothing charged.
+      // Per-read that is a fraction of a cent; the breaker bounds the LOOP: a
+      // wallet gets MAX_FAILS such outcomes per window before a 429 that runs
+      // before the handler (a >= 400 cancels settlement - the refusal is free),
+      // and a burst across wallets pauses the paid catalog 503 for one window.
+      // A settled 200 clears the wallet; a 4xx the handler threw is neither.
+      // FREE_MODE has no settlement, so nothing to breaker there.
+      if (!FREE_MODE && WALLET_ONLY_SLUGS.has(tool.slug)) gatewaySettleBreakerCheck(req);
 
       // A composite runs in an abortable scope: on SIGTERM every upstream call
       // it is waiting on is cut off (503, never charged) instead of running to
