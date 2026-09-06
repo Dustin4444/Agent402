@@ -23,6 +23,7 @@ import { CRYPTO_TOOLS } from "../src/tools/crypto-kit.js";
 import { FINANCE_TOOLS } from "../src/tools/finance-kit.js";
 import { ENRICH_TOOLS } from "../src/tools/enrich-kit.js";
 import { SEARCH_TOOLS } from "../src/tools/search.js";
+import { X_DATA_TOOLS } from "../src/tools/x-data-kit.js";
 import { WEB_TOOLS } from "../src/tools/web-kit.js";
 import { IMAGE_TOOLS } from "../src/tools/image-kit.js";
 import { KIT2 } from "../src/tools/kit2.js";
@@ -101,6 +102,9 @@ for (const leg of CANARY_LEGS) {
 pass++; console.log(`ok - all ${CANARY_LEGS.length} canary legs are well-shaped (kit/path/method/priceUsd/check)`);
 
 const legFor = (route) => CANARY_LEGS.find((l) => l.path === route || l.path.startsWith(`${route}?`));
+const xt = legFor("/api/x-tweet");
+ok(!!xt && xt.method === "POST" && xt.body?.id === "20", "canary has an x-tweet leg (POST, post 20) - the X bearer + prepaid balance are proven daily on prod, not by the first buyer");
+if (xt) ok(xt.priceUsd === advertised(X_DATA_TOOLS, "x-tweet"), `x-tweet leg priceUsd (${xt?.priceUsd}) matches the kit's advertised price ($${advertised(X_DATA_TOOLS, "x-tweet")})`);
 const sq = legFor("/api/stock-quote");
 ok(!!sq, "canary has a stock-quote leg");
 if (sq) ok(sq.priceUsd === advertised(FINANCE_TOOLS, "stock-quote"), `stock-quote leg priceUsd (${sq?.priceUsd}) matches the kit's advertised price ($${advertised(FINANCE_TOOLS, "stock-quote")}) — no stale display price`);
