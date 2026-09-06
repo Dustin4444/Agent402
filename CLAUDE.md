@@ -1136,6 +1136,15 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   every advertised tool is a step (`ADVERTISED_NOT_RUN` must name any justified omission with a reason; it is empty) and
   pins the `when` semantics offline; all ten verified against their published examples on a keyless boot (the two
   Brave-backed legs self-report not-ours there, as designed).
+- **The media kit was never tested on CI (found 2026-09-06 by the nightly corpus's first real run):** `scripts/test-media.js`
+  printed `SKIP: ffmpeg not installed in this environment (CI and production have it)` on EVERY CI run since the kit shipped -
+  ubuntu-latest carries no ffmpeg, the deploy lane never installed it, and a skip is green. Production was never affected
+  (the Dockerfile installs ffmpeg and boot fails without it). Now: the unit-d lane and `corpus-nightly.yml` apt-install ffmpeg
+  before the tests; under `CI` a missing ffmpeg FAILS test-media instead of skipping; media-kit answers a missing binary as a
+  503 "not installed on this server" (our configuration, uncharged) instead of the 422 "is the input a valid audio/video
+  file?" that blamed the buyer's file; and `fetchMedia` sniffs the downloaded bytes (`looksLikeMedia`) so a host serving an
+  HTML block page with HTTP 200 is a 502 naming what came back, never an "invalid file". The rule, again: a skipped
+  integration test is not coverage - under CI, skip must be fail.
 - **Correctness corpus: a SECOND input per tool, asserting VALUES (2026-09-06, `scripts/test-corpus.js` + `scripts/corpus/*.json`,
   `scripts/test-corpus-harness.js` 31 offline):** outsiders kept finding hollow 200s because every guard drives the ONE documented
   example and checks shape; the paid canaries prove settlement, never correctness (the operator: they "prove we make money").
