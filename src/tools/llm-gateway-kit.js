@@ -1357,7 +1357,11 @@ export function validateRequest(input, tierSlug, { clamp = true } = {}) {
     const home = tierFor(model);
     throw bad(
       home
-        ? `Model "${model}" is served by the ${home} tier - call ${TIERS[home].route.split(" ")[1]} (price $${tierPriceLabel(TIERS[home].price)}/call) instead.`
+        // Name BOTH ways forward: the model's flat home tier and the metered
+        // route, which serves the same model at a per-request quote (a client
+        // looped on this 400 every 90 s for two hours on 2026-09-06 without a
+        // cheaper option being named).
+        ? `Model "${model}" is served by the ${home} tier - call ${TIERS[home].route.split(" ")[1]} (price $${tierPriceLabel(TIERS[home].price)}/call), or ${TIERS["v1-chat-metered"] ? `${TIERS["v1-chat-metered"].route.split(" ")[1]} (the same model, quoted per request from $${tierPriceLabel(TIERS["v1-chat-metered"].price)})` : "the metered route"} instead.`
         : `Model "${model}" is not in the gateway allowlist. GET /v1/models lists every supported model and its tier.`
     );
   }
