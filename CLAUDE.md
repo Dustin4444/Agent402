@@ -558,6 +558,11 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   on a keyless CI boot and blind on prod. Fixed (`detailed: true`), pinned from source in test-demand-radar (the
   beacon-only envelope reproduces the hollow answer). Lesson, again: a hollow 200 passes every shape check; a board-backed
   tool needs a prod-side "non-empty when the board is non-empty" assertion (the daily canary buys it - add that leg).
+  **Rows carry the board's own qualification read (2026-09-06, the same buyer's second question):** the paid rows had counts and
+  timestamps but no `callers` and no `qualified`, so a buyer reading `/api/wishes` ("1 qualified cluster") beside a ten-row radar
+  could not tell which row it was. `computeDemandRadar` now passes through `callers`, `qualified` (never re-derived: the rule is
+  `clusterQualifies` in wish.js) and `spanHours`, takes `qualifiedOnly`, and the envelope carries `qualifiedClusters` (the beacon's
+  own count), `qualifyMinCallers`, `qualifyMinSpanHours`. Legacy clusters with no caller data read callers 0 / qualified false.
 - **Attest a settled call on Base (2026-09-03, `src/tools/attest-kit.js`, `attest`, `POST /api/attest` $0.050 (was $0.010 for one afternoon), `scripts/test-attest-kit.js`
   54 in CI):** the dispatcher now records sha256 of the exact JSON bytes `res.json` sends (`req.__responseSha256`, on the sale row as
   `response_sha256`; NULL for streamed/binary bodies and pre-column rows), and `POST /api/attest {tx}` looks the settlement tx up in the

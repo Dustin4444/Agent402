@@ -603,7 +603,7 @@ export const X402_TOOLS = [
   {
     route: "GET /api/demand-radar", name: "agent demand radar", slug: "demand-radar", category: "research", price: "$0.005",
     description:
-      "What agents want that no one is serving yet - the paid intelligence layer over Agent402's agent-demand board, for x402 sellers deciding what to build next. Ranks the aggregated wish clusters (searches that found nothing + explicit tool requests) and adds the analysis the free raw feed (/api/wishes) doesn't have: signalType classifies each cluster as 'explicit-request' (agents proactively asked - build it), 'discoverability' (dominated by find-misses - the capability may exist but ranking failed, so improve discovery before building), or 'mixed'; nearThreshold marks clusters within 2 signals of the build threshold (the strongest build signals), with gapToThreshold as the exact distance; obvious operator/CI test traffic is flagged noise:true, never silently dropped. sort: 'count' (default) or 'recent' (by lastSeen); minCount filters low-signal noise. ?sort=count&limit=10",
+      "What agents want that no one is serving yet - the paid intelligence layer over Agent402's agent-demand board, for x402 sellers deciding what to build next. Ranks the aggregated wish clusters (searches that found nothing + explicit tool requests) and adds the analysis the free raw feed (/api/wishes) doesn't have: signalType classifies each cluster as 'explicit-request' (agents proactively asked - build it), 'discoverability' (dominated by find-misses - the capability may exist but ranking failed, so improve discovery before building), or 'mixed'; nearThreshold marks clusters within 2 signals of the build threshold (the strongest build signals), with gapToThreshold as the exact distance; obvious operator/CI test traffic is flagged noise:true, never silently dropped. Every row also carries the board's own qualification read: callers (distinct day-scoped callers), spanHours (first to last signal) and qualified:true when the cluster clears the bar the free /api/wishes counts (qualifyMinCallers distinct callers AND either two signal sources or qualifyMinSpanHours of span) - a repeated submission from one caller never qualifies, however many times it asks. sort: 'count' (default) or 'recent' (by lastSeen); minCount filters low-signal noise; qualifiedOnly:true keeps only qualified clusters (qualifiedClusters in the envelope is the same count the free beacon reports). ?sort=count&limit=10",
     tags: ["demand", "market-intelligence", "x402", "agents", "wishes", "research"],
     discovery: {
       input: { sort: "count", limit: 10, minCount: 1 },
@@ -612,17 +612,19 @@ export const X402_TOOLS = [
           sort: { type: "string", enum: ["count", "recent"], description: "Ranking lens: count=most-demanded first (default), recent=most recently seen first" },
           limit: { type: "integer", description: "How many clusters to return (1-50, default 10)" },
           minCount: { type: "integer", description: "Only clusters with at least this many signals (default 1)" },
+          qualifiedOnly: { type: "boolean", description: "Only clusters that clear the board's qualification bar (distinct callers + span or sources); default false" },
         },
       },
       output: {
         example: {
           totalWishes: 42, distinctClusters: 17, buildThreshold: 5,
-          sort: "count", minCount: 1, limit: 10, matchedClusters: 17,
+          sort: "count", minCount: 1, limit: 10, qualifiedOnly: false, matchedClusters: 17,
+          qualifiedClusters: 3, qualifyMinCallers: 3, qualifyMinSpanHours: 24,
           radar: [{
             text: "reverse geocode coordinates to street address",
-            count: 4, sources: { api: 3, mcp: 1, "find-miss": 0 },
-            firstSeen: "2026-07-01T09:00:00.000Z", lastSeen: "2026-07-13T18:30:00.000Z",
-            signalType: "explicit-request", nearThreshold: true, gapToThreshold: 1, noise: false,
+            count: 4, sources: { api: 3, mcp: 1, "find-miss": 0 }, callers: 3,
+            firstSeen: "2026-07-01T09:00:00.000Z", lastSeen: "2026-07-13T18:30:00.000Z", spanHours: 297.5,
+            qualified: true, signalType: "explicit-request", nearThreshold: true, gapToThreshold: 1, noise: false,
           }],
           generatedAt: "2026-07-14T00:00:05.000Z",
         },
@@ -833,7 +835,16 @@ export function computeDemandRadar(agg, input = {}) {
   const sort = SORTS.has(String(input?.sort || "").toLowerCase()) ? String(input.sort).toLowerCase() : "count";
   const limit = Math.min(Math.max(parseInt(input?.limit, 10) || 10, 1), 50);
   const minCount = Math.max(parseInt(input?.minCount, 10) || 1, 1);
+  const qualifiedOnly = input?.qualifiedOnly === true || String(input?.qualifiedOnly || "").toLowerCase() === "true";
   const threshold = Number(agg?.threshold) || 0;
+  const qualifyMinCallers = Number(agg?.qualifyMinCallers) || 0;
+  const qualifyMinSpanHours = Number(agg?.qualifyMinSpanHours) || 0;
+  // An outside buyer (2026-09-06) bought the radar beside the free beacon and
+  // could not tell WHICH of the ten rows was the one qualified cluster the
+  // beacon counted: the rows carried counts and timestamps, never the caller
+  // count or the verdict. Pass the board's own read through, never re-derive
+  // it here (the rule lives in wish.js clusterQualifies).
+  let qualifiedClusters = 0;
 
   const rows = (Array.isArray(agg?.clusters) ? agg.clusters : [])
     .map((c) => {
@@ -852,19 +863,27 @@ export function computeDemandRadar(agg, input = {}) {
               : "mixed";
       const text = String(c?.text || "");
       const noise = NOISE_EXACT.has(text) || NOISE_MARKERS.some((m) => text.includes(m));
+      const callers = Number(c?.callers) || 0;
+      const qualified = c?.qualified === true;
+      if (qualified) qualifiedClusters++;
+      const first = Date.parse(c?.firstSeen || ""), last = Date.parse(c?.lastSeen || "");
+      const spanHours = Number.isFinite(first) && Number.isFinite(last) && last >= first ? Math.round(((last - first) / 3_600_000) * 10) / 10 : null;
       return {
         text,
         count,
         sources,
+        callers,
         firstSeen: c?.firstSeen || null,
         lastSeen: c?.lastSeen || null,
+        spanHours,
+        qualified,
         signalType,
         nearThreshold: threshold > 0 && count >= threshold - NEAR_BAND,
         gapToThreshold: threshold > 0 ? Math.max(threshold - count, 0) : null,
         noise,
       };
     })
-    .filter((r) => r.count >= minCount);
+    .filter((r) => r.count >= minCount && (!qualifiedOnly || r.qualified));
 
   const lastMs = (r) => Date.parse(r.lastSeen || "") || 0;
   rows.sort(
@@ -880,7 +899,11 @@ export function computeDemandRadar(agg, input = {}) {
     sort,
     minCount,
     limit,
+    qualifiedOnly,
     matchedClusters: rows.length,
+    qualifiedClusters,
+    qualifyMinCallers,
+    qualifyMinSpanHours,
     radar: rows.slice(0, limit),
     generatedAt: new Date().toISOString(),
   };
