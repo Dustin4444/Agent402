@@ -109,7 +109,7 @@ export const WEATHER_TOOLS = [
         latitude: lat, longitude: lon,
         current: "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m",
         temperature_unit: tempUnit,
-        wind_speed_unit: "kmh",
+        wind_speed_unit: tempUnit === "fahrenheit" ? "mph" : "kmh",
         timezone: "auto",
       });
       const data = await getJson(`https://api.open-meteo.com/v1/forecast?${params}`);
@@ -130,7 +130,7 @@ export const WEATHER_TOOLS = [
           windSpeed: c.wind_speed_10m ?? null,
           windDirection: c.wind_direction_10m ?? null,
           windGusts: c.wind_gusts_10m ?? null,
-          windUnit: "km/h",
+          windUnit: tempUnit === "fahrenheit" ? "mph" : "km/h",
           pressure: c.pressure_msl ?? null,
           isDay: c.is_day === 1,
         },
@@ -182,7 +182,7 @@ export const WEATHER_TOOLS = [
         latitude: lat, longitude: lon,
         daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,uv_index_max,sunrise,sunset",
         temperature_unit: tempUnit,
-        wind_speed_unit: "kmh",
+        wind_speed_unit: tempUnit === "fahrenheit" ? "mph" : "kmh",
         timezone: "auto",
         forecast_days: days,
       });
@@ -200,7 +200,7 @@ export const WEATHER_TOOLS = [
         precipProbability: d.precipitation_probability_max?.[idx] ?? null,
         windMax: d.wind_speed_10m_max?.[idx] ?? null,
         windGusts: d.wind_gusts_10m_max?.[idx] ?? null,
-        windUnit: "km/h",
+        windUnit: tempUnit === "fahrenheit" ? "mph" : "km/h",
         uvIndex: d.uv_index_max?.[idx] ?? null,
         sunrise: d.sunrise?.[idx]?.split("T")[1] ?? null,
         sunset: d.sunset?.[idx]?.split("T")[1] ?? null,
@@ -251,7 +251,7 @@ export const WEATHER_TOOLS = [
         latitude: lat, longitude: lon,
         hourly: "temperature_2m,relative_humidity_2m,precipitation_probability,precipitation,weather_code,cloud_cover,wind_speed_10m,wind_direction_10m",
         temperature_unit: tempUnit,
-        wind_speed_unit: "kmh",
+        wind_speed_unit: tempUnit === "fahrenheit" ? "mph" : "kmh",
         timezone: "auto",
         forecast_hours: hours,
       });
@@ -270,7 +270,7 @@ export const WEATHER_TOOLS = [
         cloudCover: h.cloud_cover?.[idx] ?? null,
         windSpeed: h.wind_speed_10m?.[idx] ?? null,
         windDirection: h.wind_direction_10m?.[idx] ?? null,
-        windUnit: "km/h",
+        windUnit: tempUnit === "fahrenheit" ? "mph" : "km/h",
       }));
       return { lat, lon, hours: result, source: "api.open-meteo.com (CC BY 4.0)" };
     },
@@ -328,7 +328,7 @@ export const WEATHER_TOOLS = [
         start_date: start, end_date: end,
         daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max",
         temperature_unit: tempUnit,
-        wind_speed_unit: "kmh",
+        wind_speed_unit: tempUnit === "fahrenheit" ? "mph" : "kmh",
         timezone: "auto",
       });
       const data = await getJson(`https://archive-api.open-meteo.com/v1/archive?${params}`);
@@ -343,7 +343,7 @@ export const WEATHER_TOOLS = [
         unit: tempUnit === "fahrenheit" ? "°F" : "°C",
         precipSum: d.precipitation_sum?.[idx] ?? 0,
         windMax: d.wind_speed_10m_max?.[idx] ?? null,
-        windUnit: "km/h",
+        windUnit: tempUnit === "fahrenheit" ? "mph" : "km/h",
       }));
       return { lat, lon, days: result, source: "api.open-meteo.com (CC BY 4.0)" };
     },

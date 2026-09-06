@@ -223,8 +223,12 @@ export const DEX_TOOLS = [
       const poolAddress = decodeAddr(slots(raw)[0] || "0".repeat(64));
       // The factory answers the zero address when no pool exists for that
       // pair + fee; that used to ship as a 200 (corpus, 2026-09-06).
-      if (/^0x0{40}$/i.test(poolAddress)) throw bad(`no ${network.name} pool for that token pair at fee tier ${fee}`, 404);
-      return { network: network.name, tokenA, tokenB, fee, poolAddress };
+      // The description promises the zero address when no pool exists (a
+      // legitimate factory answer agents poll for); an earlier cut today made
+      // it a 404 and contradicted the published contract. Keep the sentinel
+      // and say it in a second field.
+      const exists = !/^0x0{40}$/i.test(poolAddress);
+      return { network: network.name, tokenA, tokenB, fee, poolAddress, exists, ...(exists ? {} : { note: "no pool deployed for this pair at this fee tier (poolAddress is the zero-address sentinel)" }) };
     },
   },
 

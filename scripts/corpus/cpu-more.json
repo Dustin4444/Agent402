@@ -198,6 +198,24 @@
       }
     },
     {
+      "slug": "jsonl",
+      "name": "mode is case-insensitive",
+      "input": {
+        "data": [
+          {
+            "a": 1
+          }
+        ],
+        "mode": "TO-JSONL"
+      },
+      "expect": {
+        "equals": {
+          "mode": "to-jsonl",
+          "count": 1
+        }
+      }
+    },
+    {
       "slug": "openapi-redact",
       "name": "strips descriptions and examples",
       "input": {

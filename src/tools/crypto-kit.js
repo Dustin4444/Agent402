@@ -212,6 +212,7 @@ export const CRYPTO_TOOLS = [
       // Nothing known -> 404 naming the input; a partial miss is listed.
       const unknown = ids.filter((id) => !out[id]);
       if (!Object.keys(out).length) throw bad(`unknown coin(s): ${unknown.join(", ")} - use a CoinGecko id or a listed symbol`, 404);
+      if (Object.values(out).every((row) => row.price === null)) throw bad(`currency "${currency}" is not supported by CoinGecko's simple price endpoint (try usd, eur, gbp, btc, eth)`);
       return { currency, count: Object.keys(out).length, coins: out, ...(unknown.length ? { unknown } : {}) };
     },
   },

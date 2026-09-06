@@ -116,7 +116,11 @@ export const PRICE_FEED_TOOLS = [
       });
       // Every id unknown was a 200 of null rows (corpus, 2026-09-06): 404
       // naming the ids instead; a partial miss keeps its null rows and lists them.
-      const unknown = prices.filter((p) => p.price === null).map((p) => p.id);
+      // A row that exists but lacks the requested currency key is a
+      // CURRENCY miss, never an unknown id (review, 2026-09-06).
+      const knownIds = ids.filter((id) => data[id]);
+      if (knownIds.length && knownIds.every((id) => typeof data[id]?.[vs] !== "number")) throw bad(`vsCurrency "${vs}" is not supported by CoinGecko's simple price endpoint (try usd, eur, gbp, btc, eth)`);
+      const unknown = ids.filter((id) => !data[id]);
       if (unknown.length === prices.length) throw bad(`unknown CoinGecko id(s): ${unknown.join(", ")}`, 404);
       return { count: prices.length, vsCurrency: vs, prices, ...(unknown.length ? { unknown } : {}) };
     },
@@ -210,6 +214,10 @@ export const PRICE_FEED_TOOLS = [
         typeof data?.[docField] === "number" ? data[docField]
           : typeof listRow?.[listField] === "number" ? listRow[listField]
             : pctFromSeries(daysBack);
+      const sourceOf = (docField, listField) =>
+        typeof data?.[docField] === "number" ? "defillama-protocol"
+          : typeof listRow?.[listField] === "number" ? "defillama-protocols-list"
+            : "derived-from-tvl-series";
       return {
         protocol,
         name: data?.name ?? null,
@@ -218,6 +226,10 @@ export const PRICE_FEED_TOOLS = [
         change24h: pick("change_1d", "change1dPct", 1),
         change7d:  pick("change_7d", "change7dPct", 7),
         change30d: pick("change_1m", "change30dPct", 30),
+        // Where each change figure came from (review, 2026-09-06): the
+        // document, DefiLlama's protocol list, or our own arithmetic on the
+        // document's daily TVL series.
+        changeSource: { change24h: sourceOf("change_1d", "change1dPct"), change7d: sourceOf("change_7d", "change7dPct"), change30d: sourceOf("change_1m", "change30dPct") },
         chainTvls,
       };
     },

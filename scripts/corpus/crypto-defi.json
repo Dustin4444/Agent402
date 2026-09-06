@@ -1069,7 +1069,8 @@
       "expect": {
         "equals": {
           "symbol": "USDC",
-          "totalHolders": null
+          "totalHolders": null,
+          "concentration": null
         },
         "populated": [
           "note"

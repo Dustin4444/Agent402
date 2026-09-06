@@ -167,7 +167,7 @@ export const AGENT_TOOLS = [
     },
     handler: async (i) => {
       const text = cap(need(i, "text"));
-      const unit = i.unit === undefined || i.unit === null || i.unit === "" ? "chars" : String(i.unit);
+      const unit = i.unit === undefined || i.unit === null || i.unit === "" ? "chars" : String(i.unit).trim().toLowerCase();
       if (unit !== "chars" && unit !== "tokens") { const e = new Error('"unit" must be chars or tokens'); e.statusCode = 400; throw e; }
       const size = clampInt(i.size, 800, 1, 100_000);
       const overlap = clampInt(i.overlap, 0, 0, size - 1);
@@ -249,7 +249,7 @@ export const AGENT_TOOLS = [
       output: { example: { mode: "to-jsonl", result: '{"a":1}\n{"a":2}', count: 2 } },
     },
     handler: (i) => {
-      const mode = i.mode === undefined || i.mode === null || i.mode === "" ? "to-jsonl" : String(i.mode);
+      const mode = i.mode === undefined || i.mode === null || i.mode === "" ? "to-jsonl" : String(i.mode).trim().toLowerCase();
       if (mode !== "to-jsonl" && mode !== "from-jsonl") { const e = new Error('"mode" must be to-jsonl or from-jsonl'); e.statusCode = 400; throw e; }
       if (mode === "to-jsonl") {
         const arr = parseMaybeJson(i.data, "data");

@@ -549,7 +549,7 @@ const conversion = [
     tags: ["querystring", "url", "parse", "convert"],
     discovery: { bodyType: "json", input: { value: "a=1&b=hello%20world&a=2", mode: "parse" }, inputSchema: { properties: { value: { description: "String to parse or object to build" }, mode: { type: "string", description: "parse | build" } }, required: ["value"] }, output: { example: { result: { a: ["1", "2"], b: "hello world" } } } },
     handler: (i) => {
-      const mode = i.mode === undefined || i.mode === null || i.mode === "" ? "parse" : String(i.mode);
+      const mode = i.mode === undefined || i.mode === null || i.mode === "" ? "parse" : String(i.mode).trim().toLowerCase();
       if (mode !== "parse" && mode !== "build") throw bad('"mode" must be parse or build');
       if (mode === "build") {
         const obj = parseMaybeJson(i.value, "value");
