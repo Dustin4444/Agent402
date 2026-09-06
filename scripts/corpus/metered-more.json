@@ -1,0 +1,1420 @@
+{
+  "about": "Tier 2, the rest: LLM wires on every tier, Blockscout and Alchemy reads, FRED, Brave, report composites and media. Report composites ($0.10-0.65 upstream each) and image/video/TTS links are gated behind CORPUS_REPORTS=1 / CORPUS_MEDIA=1 so a weekly keyed run stays under a couple of dollars unless asked.",
+  "cases": [
+    {
+      "slug": "attest",
+      "name": "a tx that is not ours is one 403",
+      "input": {
+        "tx": "0x1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "requires": "payer",
+      "expect": {
+        "status": 403
+      }
+    },
+    {
+      "slug": "route-execute-plus",
+      "name": "a local slug through the plus tier",
+      "input": {
+        "slug": "hash",
+        "params": {
+          "text": "corpus",
+          "algo": "sha256"
+        }
+      },
+      "expect": {
+        "equals": {
+          "result.hex": "6b17b8fcc411a533c822a5117e33cf73fa6766739d7d36ac86dc4bea883af4fe"
+        }
+      }
+    },
+    {
+      "slug": "route-execute-max",
+      "name": "a local slug through the max tier",
+      "input": {
+        "slug": "hash",
+        "params": {
+          "text": "corpus",
+          "algo": "sha256"
+        }
+      },
+      "expect": {
+        "equals": {
+          "result.hex": "6b17b8fcc411a533c822a5117e33cf73fa6766739d7d36ac86dc4bea883af4fe"
+        }
+      }
+    },
+    {
+      "slug": "code-run",
+      "name": "python arithmetic on the base tier",
+      "input": {
+        "code": "print(6*7)",
+        "language": "python"
+      },
+      "requires": "E2B_API_KEY",
+      "expect": {
+        "matches": {
+          "stdout": "42"
+        },
+        "falsy": [
+          "error"
+        ]
+      }
+    },
+    {
+      "slug": "embed-large",
+      "name": "a second text",
+      "input": {
+        "text": "second corpus sentence"
+      },
+      "requires": "OPENAI_API_KEY",
+      "expect": {
+        "gte": {
+          "dimensions": 1024
+        },
+        "minCount": {
+          "embedding": 1024
+        }
+      }
+    },
+    {
+      "slug": "image-gen-hd",
+      "name": "hd link answers an image",
+      "input": {
+        "prompt": "A green square on white, flat vector"
+      },
+      "requires": "CORPUS_MEDIA",
+      "expect": {
+        "minCount": {
+          "image": 5000
+        }
+      }
+    },
+    {
+      "slug": "image-gen-premium",
+      "name": "premium link answers an image",
+      "input": {
+        "prompt": "A green square on white, flat vector"
+      },
+      "requires": "CORPUS_MEDIA",
+      "expect": {
+        "minCount": {
+          "image": 5000
+        }
+      }
+    },
+    {
+      "slug": "llm-pro",
+      "name": "json mode on gpt-4o",
+      "input": {
+        "model": "gpt-4o",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Return a JSON object with key n set to 3."
+          }
+        ],
+        "max_tokens": 32,
+        "response_format": {
+          "type": "json_object"
+        }
+      },
+      "requires": "OPENAI_API_KEY",
+      "expect": {
+        "matches": {
+          "choices[0].message.content": "\"n\"\\s*:\\s*3"
+        }
+      }
+    },
+    {
+      "slug": "llm-premium",
+      "name": "a short premium answer",
+      "input": {
+        "model": "o3-mini",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Reply with the single word PONG."
+          }
+        ],
+        "max_tokens": 64
+      },
+      "requires": "CORPUS_MEDIA",
+      "expect": {
+        "matches": {
+          "choices[0].message.content": "pong"
+        }
+      }
+    },
+    {
+      "slug": "transcribe",
+      "name": "the sample ogg",
+      "input": {
+        "url": "https://upload.wikimedia.org/wikipedia/commons/c/c8/Example.ogg"
+      },
+      "requires": "OPENAI_API_KEY",
+      "expect": {
+        "populated": [
+          "text",
+          "duration"
+        ],
+        "minCount": {
+          "text": 10
+        }
+      }
+    },
+    {
+      "slug": "transcribe-pro",
+      "name": "the sample ogg on the pro model",
+      "input": {
+        "url": "https://upload.wikimedia.org/wikipedia/commons/c/c8/Example.ogg"
+      },
+      "requires": "OPENAI_API_KEY",
+      "expect": {
+        "populated": [
+          "text",
+          "duration"
+        ]
+      }
+    },
+    {
+      "slug": "tts-hd",
+      "name": "short wav on the hd model",
+      "input": {
+        "text": "corpus",
+        "voice": "nova",
+        "format": "wav"
+      },
+      "requires": "CORPUS_MEDIA",
+      "expect": {
+        "equals": {
+          "format": "wav"
+        },
+        "minCount": {
+          "audio": 1000
+        }
+      }
+    },
+    {
+      "slug": "address-profile",
+      "name": "WETH on base is a verified contract",
+      "input": {
+        "chain": "base",
+        "address": "0x4200000000000000000000000000000000000006"
+      },
+      "requires": "X402_UPSTREAM_BUYER_KEY",
+      "expect": {
+        "equals": {
+          "isContract": true,
+          "isVerified": true
+        }
+      }
+    },
+    {
+      "slug": "token-holders",
+      "name": "USDC on base has holders",
+      "input": {
+        "chain": "base",
+        "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "limit": 3
+      },
+      "requires": "X402_UPSTREAM_BUYER_KEY",
+      "expect": {
+        "gt": {
+          "holderCount": 1000
+        },
+        "count": {
+          "holders": 3
+        }
+      }
+    },
+    {
+      "slug": "token-info",
+      "name": "WETH on base",
+      "input": {
+        "chain": "base",
+        "address": "0x4200000000000000000000000000000000000006"
+      },
+      "requires": "X402_UPSTREAM_BUYER_KEY",
+      "expect": {
+        "equals": {
+          "symbol": "WETH",
+          "decimals": 18
+        }
+      }
+    },
+    {
+      "slug": "tx-inspect",
+      "name": "a settled x402 payment",
+      "input": {
+        "chain": "base",
+        "hash": "0x09f85fcf1844d85277b8cce528efc8d25c6df632b1fed1c8337f078901a69562"
+      },
+      "requires": "X402_UPSTREAM_BUYER_KEY",
+      "expect": {
+        "matches": {
+          "status": "ok|success|1"
+        },
+        "populated": [
+          "method"
+        ]
+      }
+    },
+    {
+      "slug": "asset-transfers",
+      "name": "outgoing usdc from a busy wallet",
+      "input": {
+        "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "direction": "out",
+        "category": [
+          "erc20"
+        ],
+        "maxCount": 3
+      },
+      "requires": "ALCHEMY_API_KEY",
+      "expect": {
+        "populated": [
+          "transfers"
+        ]
+      }
+    },
+    {
+      "slug": "block-receipts",
+      "name": "a small block on base",
+      "input": {
+        "block": "20000000",
+        "network": "base",
+        "limit": 3
+      },
+      "requires": "ALCHEMY_API_KEY",
+      "expect": {
+        "equals": {
+          "block": 20000000
+        },
+        "populated": [
+          "summary",
+          "receipts[0]"
+        ]
+      }
+    },
+    {
+      "slug": "farcaster-by-address",
+      "name": "an address with no farcaster account is found:false",
+      "input": {
+        "address": "0x000000000000000000000000000000000000dEaD"
+      },
+      "requires": "NEYNAR_API_KEY",
+      "expect": {
+        "equals": {
+          "found": false
+        }
+      }
+    },
+    {
+      "slug": "nft-holdings",
+      "name": "a wallet with nfts on ethereum",
+      "input": {
+        "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "network": "ethereum"
+      },
+      "requires": "ALCHEMY_API_KEY",
+      "expect": {
+        "gt": {
+          "totalCount": 0
+        },
+        "populated": [
+          "nfts[0]"
+        ]
+      }
+    },
+    {
+      "slug": "token-allowance",
+      "name": "zero allowance reads as 0, not null",
+      "input": {
+        "contract": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+        "owner": "0x000000000000000000000000000000000000dEaD",
+        "spender": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+        "network": "ethereum"
+      },
+      "requires": "ALCHEMY_API_KEY",
+      "expect": {
+        "equals": {
+          "symbol": "USDC"
+        },
+        "populated": [
+          "allowance"
+        ]
+      }
+    },
+    {
+      "slug": "token-balances",
+      "name": "two tokens on ethereum",
+      "input": {
+        "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "contracts": [
+          "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+          "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+        ],
+        "network": "ethereum"
+      },
+      "requires": "ALCHEMY_API_KEY",
+      "expect": {
+        "count": {
+          "tokens": 2
+        }
+      }
+    },
+    {
+      "slug": "token-price-history",
+      "name": "WETH by symbol, 3 days hourly",
+      "input": {
+        "symbol": "WETH",
+        "interval": "1h",
+        "days": 3
+      },
+      "requires": "ALCHEMY_API_KEY",
+      "expect": {
+        "gte": {
+          "count": 24
+        },
+        "gt": {
+          "last": 100
+        }
+      }
+    },
+    {
+      "slug": "tx-receipt",
+      "name": "a base tx receipt",
+      "input": {
+        "hash": "0x09f85fcf1844d85277b8cce528efc8d25c6df632b1fed1c8337f078901a69562",
+        "network": "base"
+      },
+      "requires": "ALCHEMY_API_KEY",
+      "expect": {
+        "equals": {
+          "status": "success"
+        },
+        "gt": {
+          "blockNumber": 50000000
+        }
+      }
+    },
+    {
+      "slug": "fred-release-observations",
+      "name": "a different release",
+      "input": {
+        "releaseId": 10,
+        "startDate": "2026-01-01",
+        "endDate": "2026-03-01"
+      },
+      "requires": "FRED_API_KEY",
+      "expect": {
+        "gte": {
+          "count": 1
+        },
+        "populated": [
+          "releaseName",
+          "series[0]"
+        ]
+      }
+    },
+    {
+      "slug": "fred-series",
+      "name": "monthly unrate, one year",
+      "input": {
+        "seriesId": "UNRATE",
+        "startDate": "2025-01-01",
+        "endDate": "2025-12-31"
+      },
+      "requires": "FRED_API_KEY",
+      "expect": {
+        "equals": {
+          "count": 12
+        },
+        "populated": [
+          "observations[0].value"
+        ]
+      }
+    },
+    {
+      "slug": "fred-series",
+      "name": "unknown series is a 404",
+      "input": {
+        "seriesId": "ZZQXNOPE"
+      },
+      "requires": "FRED_API_KEY",
+      "expect": {
+        "status": 404
+      }
+    },
+    {
+      "slug": "sahm-rule",
+      "name": "value and threshold populated",
+      "input": {},
+      "requires": "FRED_API_KEY",
+      "expect": {
+        "populated": [
+          "date",
+          "value",
+          "threshold"
+        ]
+      }
+    },
+    {
+      "slug": "domain-audit",
+      "name": "a second domain",
+      "input": {
+        "domain": "github.com"
+      },
+      "requires": "CORPUS_REPORTS",
+      "expect": {
+        "populated": [
+          "report",
+          "grade",
+          "composite",
+          "sources"
+        ]
+      }
+    },
+    {
+      "slug": "domain-audit-pro",
+      "name": "a second domain",
+      "input": {
+        "domain": "github.com"
+      },
+      "requires": "CORPUS_REPORTS",
+      "expect": {
+        "populated": [
+          "report",
+          "grade"
+        ]
+      }
+    },
+    {
+      "slug": "dossier",
+      "name": "a second ticker",
+      "input": {
+        "ticker": "MSFT",
+        "focus": [
+          "risks"
+        ]
+      },
+      "requires": "CORPUS_REPORTS",
+      "expect": {
+        "populated": [
+          "dossier",
+          "sources"
+        ],
+        "equals": {
+          "ticker": "MSFT"
+        }
+      }
+    },
+    {
+      "slug": "dossier-max",
+      "name": "a second ticker",
+      "input": {
+        "ticker": "MSFT"
+      },
+      "requires": "CORPUS_REPORTS",
+      "expect": {
+        "populated": [
+          "dossier"
+        ]
+      }
+    },
+    {
+      "slug": "filing-report",
+      "name": "a second ticker",
+      "input": {
+        "ticker": "MSFT",
+        "days": 30
+      },
+      "requires": "CORPUS_REPORTS",
+      "expect": {
+        "populated": [
+          "report",
+          "sources"
+        ]
+      }
+    },
+    {
+      "slug": "fund-report",
+      "name": "a second manager",
+      "input": {
+        "manager": "Bridgewater Associates"
+      },
+      "requires": "CORPUS_REPORTS",
+      "expect": {
+        "populated": [
+          "report",
+          "cik",
+          "sources"
+        ]
+      }
+    },
+    {
+      "slug": "fund-report-max",
+      "name": "a second manager",
+      "input": {
+        "manager": "Bridgewater Associates"
+      },
+      "requires": "CORPUS_REPORTS",
+      "expect": {
+        "populated": [
+          "report"
+        ]
+      }
+    },
+    {
+      "slug": "insider-report",
+      "name": "a second ticker",
+      "input": {
+        "ticker": "MSFT",
+        "days": 90
+      },
+      "requires": "CORPUS_REPORTS",
+      "expect": {
+        "populated": [
+          "report",
+          "sources"
+        ]
+      }
+    },
+    {
+      "slug": "linkedin-article",
+      "name": "a second topic, short, no images",
+      "input": {
+        "topic": "What a per-request price means for API buyers",
+        "length": "short",
+        "images": {
+          "cover": false,
+          "inline": 0
+        }
+      },
+      "requires": "CORPUS_REPORTS",
+      "expect": {
+        "populated": [
+          "article",
+          "post",
+          "title"
+        ]
+      }
+    },
+    {
+      "slug": "market-brief",
+      "name": "a second query",
+      "input": {
+        "query": "Who sells stablecoin settlement infrastructure to AI agents in 2026?",
+        "recency": "year"
+      },
+      "requires": "CORPUS_REPORTS",
+      "expect": {
+        "populated": [
+          "report",
+          "sources"
+        ],
+        "minCount": {
+          "sources": 3
+        }
+      }
+    },
+    {
+      "slug": "recall-report",
+      "name": "a second drug",
+      "input": {
+        "query": "metformin"
+      },
+      "requires": "CORPUS_REPORTS",
+      "expect": {
+        "populated": [
+          "report",
+          "sources"
+        ]
+      }
+    },
+    {
+      "slug": "research",
+      "name": "a second question",
+      "input": {
+        "query": "What does the x402 protocol change for API sellers?",
+        "recency": "year"
+      },
+      "requires": "CORPUS_REPORTS",
+      "expect": {
+        "populated": [
+          "report"
+        ],
+        "minCount": {
+          "sources": 3
+        }
+      }
+    },
+    {
+      "slug": "research-pro",
+      "name": "a second question",
+      "input": {
+        "query": "What does the x402 protocol change for API sellers?",
+        "recency": "year"
+      },
+      "requires": "CORPUS_REPORTS",
+      "expect": {
+        "populated": [
+          "report"
+        ]
+      }
+    },
+    {
+      "slug": "research-max",
+      "name": "a second question",
+      "input": {
+        "query": "What does the x402 protocol change for API sellers?",
+        "recency": "year"
+      },
+      "requires": "CORPUS_REPORTS",
+      "expect": {
+        "populated": [
+          "report"
+        ]
+      }
+    },
+    {
+      "slug": "ticker-pack",
+      "name": "a second ticker",
+      "input": {
+        "ticker": "MSFT",
+        "days": 90
+      },
+      "requires": "CORPUS_REPORTS",
+      "expect": {
+        "populated": [
+          "report",
+          "evidence"
+        ]
+      }
+    },
+    {
+      "slug": "token-brief",
+      "name": "a second mint",
+      "input": {
+        "mint": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
+      },
+      "requires": "CORPUS_REPORTS",
+      "expect": {
+        "populated": [
+          "report",
+          "sources"
+        ]
+      }
+    },
+    {
+      "slug": "token-risk",
+      "name": "a second token on base",
+      "input": {
+        "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "chain": "base"
+      },
+      "requires": "CORPUS_REPORTS",
+      "expect": {
+        "populated": [
+          "report",
+          "sources"
+        ]
+      }
+    },
+    {
+      "slug": "token-risk-pro",
+      "name": "a second token on base",
+      "input": {
+        "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "chain": "base"
+      },
+      "requires": "CORPUS_REPORTS",
+      "expect": {
+        "populated": [
+          "report"
+        ]
+      }
+    },
+    {
+      "slug": "v1-chat-auto",
+      "name": "router discloses the served model",
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Reply with exactly: OK"
+          }
+        ],
+        "max_tokens": 5,
+        "quality": "fast"
+      },
+      "requires": "OPENROUTER_API_KEY",
+      "expect": {
+        "populated": [
+          "agent402_router.served",
+          "choices[0].message.content"
+        ],
+        "falsy": [
+          "usage.cost"
+        ]
+      }
+    },
+    {
+      "slug": "v1-chat-auto-messages",
+      "name": "anthropic wire on the router",
+      "input": {
+        "max_tokens": 32,
+        "messages": [
+          {
+            "role": "user",
+            "content": "Reply with exactly: OK"
+          }
+        ]
+      },
+      "requires": "OPENROUTER_API_KEY",
+      "expect": {
+        "equals": {
+          "type": "message"
+        },
+        "populated": [
+          "content[0].text"
+        ]
+      }
+    },
+    {
+      "slug": "v1-chat-auto-responses",
+      "name": "responses wire on the router",
+      "input": {
+        "input": "Reply with exactly: OK",
+        "max_output_tokens": 32
+      },
+      "requires": "OPENROUTER_API_KEY",
+      "expect": {
+        "equals": {
+          "object": "response",
+          "status": "completed"
+        },
+        "populated": [
+          "output"
+        ]
+      }
+    },
+    {
+      "slug": "v1-chat-grounded",
+      "name": "grounded answer carries citations",
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "What is the latest stable Python 3 release? One line, cite the source."
+          }
+        ],
+        "max_tokens": 120
+      },
+      "requires": "CORPUS_REPORTS",
+      "expect": {
+        "populated": [
+          "choices[0].message.content",
+          "choices[0].message.annotations"
+        ]
+      }
+    },
+    {
+      "slug": "v1-chat-messages",
+      "name": "system prompt honoured",
+      "input": {
+        "model": "anthropic/claude-haiku-4.5",
+        "max_tokens": 16,
+        "system": "Answer with the single word PONG.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "ping"
+          }
+        ]
+      },
+      "requires": "OPENROUTER_API_KEY",
+      "expect": {
+        "matches": {
+          "content[0].text": "pong"
+        },
+        "falsy": [
+          "usage.cost"
+        ]
+      }
+    },
+    {
+      "slug": "v1-chat-metered",
+      "name": "metered chat answers and the quote rides along",
+      "input": {
+        "model": "openai/gpt-4o-mini",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Reply with exactly: OK"
+          }
+        ],
+        "max_tokens": 5
+      },
+      "requires": "OPENROUTER_API_KEY",
+      "expect": {
+        "matches": {
+          "choices[0].message.content": "ok"
+        },
+        "falsy": [
+          "usage.cost"
+        ]
+      }
+    },
+    {
+      "slug": "v1-chat-metered-messages",
+      "name": "metered anthropic wire",
+      "input": {
+        "model": "anthropic/claude-haiku-4.5",
+        "max_tokens": 16,
+        "messages": [
+          {
+            "role": "user",
+            "content": "Reply with exactly: OK"
+          }
+        ]
+      },
+      "requires": "OPENROUTER_API_KEY",
+      "expect": {
+        "populated": [
+          "content[0].text"
+        ],
+        "falsy": [
+          "usage.cost"
+        ]
+      }
+    },
+    {
+      "slug": "v1-chat-metered-responses",
+      "name": "metered responses wire",
+      "input": {
+        "model": "openai/gpt-4o-mini",
+        "input": "Reply with exactly: OK",
+        "max_output_tokens": 16
+      },
+      "requires": "OPENROUTER_API_KEY",
+      "expect": {
+        "equals": {
+          "status": "completed"
+        },
+        "populated": [
+          "output"
+        ]
+      }
+    },
+    {
+      "slug": "v1-chat-nano",
+      "name": "nano default model answers",
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Reply with exactly: OK"
+          }
+        ],
+        "max_tokens": 5
+      },
+      "requires": "OPENROUTER_API_KEY",
+      "expect": {
+        "populated": [
+          "choices[0].message.content",
+          "agent402_default_model"
+        ]
+      }
+    },
+    {
+      "slug": "v1-chat-nano-messages",
+      "name": "nano anthropic wire",
+      "input": {
+        "model": "google/gemini-2.5-flash-lite",
+        "max_tokens": 16,
+        "messages": [
+          {
+            "role": "user",
+            "content": "Reply with exactly: OK"
+          }
+        ]
+      },
+      "requires": "OPENROUTER_API_KEY",
+      "expect": {
+        "populated": [
+          "content[0].text"
+        ]
+      }
+    },
+    {
+      "slug": "v1-chat-nano-responses",
+      "name": "nano responses wire",
+      "input": {
+        "model": "openai/gpt-5.6-luna",
+        "input": "Reply with exactly: OK",
+        "max_output_tokens": 32
+      },
+      "requires": "OPENROUTER_API_KEY",
+      "expect": {
+        "equals": {
+          "status": "completed"
+        }
+      }
+    },
+    {
+      "slug": "v1-chat-pro",
+      "name": "pro tier answers",
+      "input": {
+        "model": "openai/gpt-4o",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Reply with exactly: OK"
+          }
+        ],
+        "max_tokens": 5
+      },
+      "requires": "OPENROUTER_API_KEY",
+      "expect": {
+        "matches": {
+          "choices[0].message.content": "ok"
+        }
+      }
+    },
+    {
+      "slug": "v1-chat-pro-messages",
+      "name": "pro anthropic wire",
+      "input": {
+        "model": "anthropic/claude-sonnet-5",
+        "max_tokens": 16,
+        "messages": [
+          {
+            "role": "user",
+            "content": "Reply with exactly: OK"
+          }
+        ]
+      },
+      "requires": "OPENROUTER_API_KEY",
+      "expect": {
+        "populated": [
+          "content[0].text"
+        ]
+      }
+    },
+    {
+      "slug": "v1-chat-pro-responses",
+      "name": "pro responses wire",
+      "input": {
+        "model": "openai/gpt-4o",
+        "input": "Reply with exactly: OK",
+        "max_output_tokens": 16
+      },
+      "requires": "OPENROUTER_API_KEY",
+      "expect": {
+        "equals": {
+          "status": "completed"
+        }
+      }
+    },
+    {
+      "slug": "v1-chat-premium",
+      "name": "premium tier answers",
+      "input": {
+        "model": "anthropic/claude-opus-5",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Reply with exactly: OK"
+          }
+        ],
+        "max_tokens": 8
+      },
+      "requires": "CORPUS_MEDIA",
+      "expect": {
+        "matches": {
+          "choices[0].message.content": "ok"
+        }
+      }
+    },
+    {
+      "slug": "v1-chat-premium-messages",
+      "name": "premium anthropic wire",
+      "input": {
+        "model": "anthropic/claude-opus-5",
+        "max_tokens": 16,
+        "messages": [
+          {
+            "role": "user",
+            "content": "Reply with exactly: OK"
+          }
+        ]
+      },
+      "requires": "CORPUS_MEDIA",
+      "expect": {
+        "populated": [
+          "content[0].text"
+        ]
+      }
+    },
+    {
+      "slug": "v1-chat-premium-responses",
+      "name": "premium responses wire has a default budget",
+      "input": {
+        "model": "anthropic/claude-opus-5",
+        "input": "Reply with exactly: OK"
+      },
+      "requires": "CORPUS_MEDIA",
+      "expect": {
+        "equals": {
+          "status": "completed"
+        }
+      }
+    },
+    {
+      "slug": "v1-chat-responses",
+      "name": "base responses wire",
+      "input": {
+        "model": "openai/gpt-4o-mini",
+        "input": "Reply with exactly: OK",
+        "max_output_tokens": 16
+      },
+      "requires": "OPENROUTER_API_KEY",
+      "expect": {
+        "equals": {
+          "status": "completed"
+        },
+        "populated": [
+          "output"
+        ]
+      }
+    },
+    {
+      "slug": "v1-images",
+      "name": "one image",
+      "input": {
+        "prompt": "A blue triangle on white, flat vector"
+      },
+      "requires": "CORPUS_MEDIA",
+      "expect": {
+        "count": {
+          "data": 1
+        },
+        "minCount": {
+          "data[0].b64_json": 5000
+        }
+      }
+    },
+    {
+      "slug": "v1-images-fast",
+      "name": "one fast image",
+      "input": {
+        "prompt": "A blue triangle on white, flat vector"
+      },
+      "requires": "CORPUS_MEDIA",
+      "expect": {
+        "count": {
+          "data": 1
+        }
+      }
+    },
+    {
+      "slug": "v1-images-pro",
+      "name": "one pro image",
+      "input": {
+        "prompt": "A blue triangle on white, flat vector"
+      },
+      "requires": "CORPUS_MEDIA",
+      "expect": {
+        "count": {
+          "data": 1
+        }
+      }
+    },
+    {
+      "slug": "v1-rerank",
+      "name": "the relevant document ranks first",
+      "input": {
+        "query": "which city is in Japan?",
+        "documents": [
+          "Lyon is in France.",
+          "Osaka is in Japan.",
+          "Porto is in Portugal."
+        ],
+        "top_n": 1
+      },
+      "requires": "OPENROUTER_API_KEY",
+      "expect": {
+        "equals": {
+          "results[0].index": 1
+        },
+        "count": {
+          "results": 1
+        }
+      }
+    },
+    {
+      "slug": "v1-videos",
+      "name": "one clip",
+      "input": {
+        "prompt": "A paper boat on a pond, close up",
+        "aspect_ratio": "16:9"
+      },
+      "requires": "CORPUS_MEDIA",
+      "expect": {
+        "count": {
+          "data": 1
+        }
+      }
+    },
+    {
+      "slug": "memory-write",
+      "name": "write a key",
+      "input": {
+        "key": "corpus/k1",
+        "value": {
+          "n": 1
+        },
+        "ttlSeconds": 60
+      },
+      "requires": "payer",
+      "expect": {
+        "equals": {
+          "key": "corpus/k1"
+        },
+        "gt": {
+          "bytes": 0
+        }
+      }
+    },
+    {
+      "slug": "memory-read",
+      "name": "read it back",
+      "input": {
+        "key": "corpus/k1"
+      },
+      "requires": "payer",
+      "expect": {
+        "populated": [
+          "keys"
+        ]
+      }
+    },
+    {
+      "slug": "memory-incr",
+      "name": "increment by 5",
+      "input": {
+        "key": "corpus/counter",
+        "by": 5
+      },
+      "requires": "payer",
+      "expect": {
+        "gte": {
+          "value": 5
+        }
+      }
+    },
+    {
+      "slug": "memory-log",
+      "name": "log has entries",
+      "input": {
+        "limit": "5"
+      },
+      "requires": "payer",
+      "expect": {
+        "populated": [
+          "entries"
+        ]
+      }
+    },
+    {
+      "slug": "memory-recall",
+      "name": "recall finds the remembered note",
+      "input": {
+        "query": "blue deploy tuesday",
+        "k": 2
+      },
+      "requires": "payer",
+      "expect": {
+        "populated": [
+          "results"
+        ]
+      }
+    },
+    {
+      "slug": "memory-forget",
+      "name": "unknown id is deleted:false",
+      "input": {
+        "id": "no-such-id-zq7x"
+      },
+      "requires": "payer",
+      "expect": {
+        "equals": {
+          "deleted": false
+        }
+      }
+    },
+    {
+      "slug": "memory-grant",
+      "name": "grant read",
+      "input": {
+        "grantee": "0x2222222222222222222222222222222222222222",
+        "mode": "read",
+        "ttlSeconds": 60
+      },
+      "requires": "payer",
+      "expect": {
+        "equals": {
+          "mode": "read"
+        },
+        "populated": [
+          "expiresAt"
+        ]
+      }
+    },
+    {
+      "slug": "memory-grants",
+      "name": "grants list",
+      "input": {},
+      "requires": "payer",
+      "expect": {
+        "populated": [
+          "grants"
+        ]
+      }
+    },
+    {
+      "slug": "memory-revoke",
+      "name": "revoke it",
+      "input": {
+        "grantee": "0x2222222222222222222222222222222222222222"
+      },
+      "requires": "payer",
+      "expect": {
+        "equals": {
+          "revoked": true
+        }
+      }
+    },
+    {
+      "slug": "my-usage",
+      "name": "7 days",
+      "input": {
+        "days": 7
+      },
+      "requires": "payer",
+      "expect": {
+        "equals": {
+          "days": 7
+        },
+        "populated": [
+          "totals",
+          "wallet"
+        ]
+      }
+    },
+    {
+      "slug": "llm-context",
+      "name": "grounding chunks for a second query",
+      "input": {
+        "query": "Sahm rule recession indicator",
+        "maxTokens": 1024
+      },
+      "requires": "BRAVE_API_KEY",
+      "expect": {
+        "gte": {
+          "totalChunks": 1
+        },
+        "populated": [
+          "chunks[0]"
+        ],
+        "equals": {
+          "untrustedContent": true
+        }
+      }
+    },
+    {
+      "slug": "multi-search",
+      "name": "two queries",
+      "input": {
+        "queries": [
+          "Sahm rule",
+          "yield curve inversion"
+        ],
+        "count": 2
+      },
+      "requires": "BRAVE_API_KEY",
+      "expect": {
+        "count": {
+          "searches": 2
+        },
+        "gte": {
+          "totalResults": 2
+        }
+      }
+    },
+    {
+      "slug": "pdf-summarize",
+      "name": "the W-9 in 60 words",
+      "input": {
+        "url": "https://www.irs.gov/pub/irs-pdf/fw9.pdf",
+        "maxWords": 60
+      },
+      "requires": "OPENAI_API_KEY",
+      "expect": {
+        "populated": [
+          "summary"
+        ],
+        "lt": {
+          "summaryWordCount": 90
+        }
+      }
+    },
+    {
+      "slug": "search-images",
+      "name": "a second image query",
+      "input": {
+        "q": "mount fuji",
+        "count": 3
+      },
+      "requires": "BRAVE_API_KEY",
+      "expect": {
+        "minCount": {
+          "results": 1
+        },
+        "populated": [
+          "results[0].url"
+        ]
+      }
+    },
+    {
+      "slug": "search-suggest",
+      "name": "a second prefix",
+      "input": {
+        "q": "stablec",
+        "count": 3
+      },
+      "requires": "BRAVE_SUGGEST_API_KEY",
+      "expect": {
+        "minCount": {
+          "suggestions": 1
+        }
+      }
+    },
+    {
+      "slug": "search-videos",
+      "name": "a second video query",
+      "input": {
+        "q": "x402 protocol demo",
+        "count": 3
+      },
+      "requires": "BRAVE_API_KEY",
+      "expect": {
+        "populated": [
+          "results"
+        ]
+      }
+    }
+  ]
+}

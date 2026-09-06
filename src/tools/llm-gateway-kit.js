@@ -3262,7 +3262,10 @@ export function modelsList() {
     owned_by: "google",
     x402: { tier: "v1-images", endpoint: IMAGES_PATH, priceUsd: IMAGES_PRICE, maxPromptChars: IMAGES_MAX_PROMPT_CHARS, imagesPerCall: 1 },
   });
-  for (const m of SPEECH_MODELS) {
+  // The speech route is registered only under OPENROUTER_TTS_ENABLED=true
+  // (server.js GATEWAY_TOOLS_ENABLED); a boot without it advertised the five
+  // TTS models at an endpoint that answered 404 (cross-surface test, 2026-09-06).
+  for (const m of process.env.OPENROUTER_TTS_ENABLED === "true" ? SPEECH_MODELS : []) {
     data.push({
       id: m.id,
       object: "model",

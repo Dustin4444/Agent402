@@ -1,0 +1,1442 @@
+{
+  "about": "Tier 1: keyless skill packs on second inputs (a 200 means at least one step succeeded; the summary counts them), plus media, PDF, feed and crawl tools.",
+  "cases": [
+    {
+      "slug": "route-execute-pro",
+      "name": "a local slug through the pro tier",
+      "input": {
+        "slug": "checksum",
+        "params": {
+          "data": "corpus"
+        }
+      },
+      "expect": {
+        "equals": {
+          "receipt.slug": "checksum"
+        },
+        "matches": {
+          "result.md5": "^[0-9a-f]{32}$"
+        }
+      }
+    },
+    {
+      "slug": "captcha-verify",
+      "name": "turnstile test secret always passes",
+      "input": {
+        "provider": "turnstile",
+        "secret": "1x0000000000000000000000000000000AA",
+        "token": "any"
+      },
+      "expect": {
+        "equals": {
+          "provider": "turnstile",
+          "success": true
+        }
+      }
+    },
+    {
+      "slug": "captcha-verify",
+      "name": "turnstile always-fail secret",
+      "input": {
+        "provider": "turnstile",
+        "secret": "2x0000000000000000000000000000000AA",
+        "token": "any"
+      },
+      "expect": {
+        "equals": {
+          "success": false
+        },
+        "minCount": {
+          "errorCodes": 1
+        }
+      }
+    },
+    {
+      "slug": "archive-snapshot",
+      "name": "a long-archived site",
+      "input": {
+        "url": "https://www.wikipedia.org",
+        "timestamp": "2015"
+      },
+      "expect": {
+        "equals": {
+          "available": true
+        },
+        "populated": [
+          "snapshot"
+        ]
+      }
+    },
+    {
+      "slug": "audio-convert",
+      "name": "ogg to mp3 at 64k",
+      "input": {
+        "url": "https://upload.wikimedia.org/wikipedia/commons/c/c8/Example.ogg",
+        "bitrate": "64k"
+      },
+      "expect": {
+        "equals": {
+          "format": "mp3"
+        },
+        "gt": {
+          "bytes": 10000
+        },
+        "minCount": {
+          "mp3Base64": 1000
+        }
+      }
+    },
+    {
+      "slug": "audio-normalize",
+      "name": "target -16 lufs",
+      "input": {
+        "url": "https://upload.wikimedia.org/wikipedia/commons/c/c8/Example.ogg",
+        "targetLufs": -16
+      },
+      "expect": {
+        "equals": {
+          "targetLufs": -16
+        },
+        "gt": {
+          "bytes": 10000
+        }
+      }
+    },
+    {
+      "slug": "favicon-grab",
+      "name": "a site with a declared icon",
+      "input": {
+        "url": "https://www.wikipedia.org"
+      },
+      "expect": {
+        "equals": {
+          "found": true
+        },
+        "populated": [
+          "iconUrl",
+          "contentType"
+        ],
+        "gt": {
+          "bytes": 100
+        }
+      }
+    },
+    {
+      "slug": "feed-parse",
+      "name": "an atom feed",
+      "input": {
+        "url": "https://github.com/nodejs/node/releases.atom",
+        "limit": 3
+      },
+      "expect": {
+        "matches": {
+          "format": "atom"
+        },
+        "count": {
+          "items": 3
+        },
+        "gte": {
+          "itemCount": 3
+        },
+        "populated": [
+          "items[0].title"
+        ]
+      }
+    },
+    {
+      "slug": "feed-parse",
+      "name": "a non-feed url is a 4xx",
+      "input": {
+        "url": "https://example.com"
+      },
+      "expect": {
+        "status": 422
+      }
+    },
+    {
+      "slug": "image-crop",
+      "name": "rotate and flip",
+      "input": {
+        "url": "https://raw.githubusercontent.com/ianare/exif-samples/master/jpg/Canon_40D.jpg",
+        "left": 0,
+        "top": 0,
+        "width": 40,
+        "height": 30,
+        "rotate": 90,
+        "flip": "horizontal",
+        "dataUri": true
+      },
+      "expect": {
+        "equals": {
+          "width": 30,
+          "height": 40
+        },
+        "matches": {
+          "dataUri": "^data:image/"
+        }
+      }
+    },
+    {
+      "slug": "image-dominant-color",
+      "name": "one colour",
+      "input": {
+        "url": "https://raw.githubusercontent.com/ianare/exif-samples/master/jpg/Canon_40D.jpg",
+        "colors": 1
+      },
+      "expect": {
+        "count": {
+          "colors": 1
+        },
+        "populated": [
+          "colors[0]",
+          "width"
+        ]
+      }
+    },
+    {
+      "slug": "image-exif",
+      "name": "a png with no exif is hasExif:false, not a 500",
+      "input": {
+        "url": "https://tesseract.projectnaptha.com/img/eng_bw.png"
+      },
+      "expect": {
+        "equals": {
+          "hasExif": false
+        },
+        "populated": [
+          "width",
+          "height"
+        ]
+      }
+    },
+    {
+      "slug": "images-to-pdf",
+      "name": "one image",
+      "input": {
+        "urls": [
+          "https://tesseract.projectnaptha.com/img/eng_bw.png"
+        ]
+      },
+      "expect": {
+        "equals": {
+          "pages": 1
+        },
+        "matches": {
+          "pdfBase64": "^JVBER"
+        }
+      }
+    },
+    {
+      "slug": "media-info",
+      "name": "duration of the sample",
+      "input": {
+        "url": "https://upload.wikimedia.org/wikipedia/commons/c/c8/Example.ogg"
+      },
+      "expect": {
+        "gt": {
+          "durationSec": 1
+        },
+        "populated": [
+          "formatName",
+          "streams[0]"
+        ]
+      }
+    },
+    {
+      "slug": "pdf",
+      "name": "W-9 text",
+      "input": {
+        "url": "https://www.irs.gov/pub/irs-pdf/fw9.pdf"
+      },
+      "expect": {
+        "gte": {
+          "pages": 3
+        },
+        "matches": {
+          "text": "Taxpayer"
+        }
+      }
+    },
+    {
+      "slug": "pdf-merge",
+      "name": "two small pdfs",
+      "input": {
+        "urls": [
+          "https://www.irs.gov/pub/irs-pdf/fw9.pdf",
+          "https://www.irs.gov/pub/irs-pdf/fw9.pdf"
+        ]
+      },
+      "expect": {
+        "gte": {
+          "pages": 6
+        },
+        "matches": {
+          "pdfBase64": "^JVBER"
+        }
+      }
+    },
+    {
+      "slug": "pdf-rotate",
+      "name": "rotate one page 180",
+      "input": {
+        "url": "https://www.irs.gov/pub/irs-pdf/fw9.pdf",
+        "degrees": 180,
+        "pages": "1"
+      },
+      "expect": {
+        "gte": {
+          "pages": 3
+        },
+        "matches": {
+          "pdfBase64": "^JVBER"
+        }
+      }
+    },
+    {
+      "slug": "pdf-rotate",
+      "name": "bad degrees is a 400",
+      "input": {
+        "url": "https://www.irs.gov/pub/irs-pdf/fw9.pdf",
+        "degrees": 45
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "site-crawl",
+      "name": "two pages of iana",
+      "input": {
+        "url": "https://www.iana.org",
+        "limit": 2,
+        "maxDepth": 1
+      },
+      "expect": {
+        "gte": {
+          "crawled": 1
+        },
+        "populated": [
+          "pages[0]"
+        ],
+        "equals": {
+          "untrustedContent": true
+        }
+      }
+    },
+    {
+      "slug": "site-map",
+      "name": "search within a site map",
+      "input": {
+        "url": "https://www.iana.org",
+        "limit": 20,
+        "search": "domains"
+      },
+      "expect": {
+        "gte": {
+          "total": 1
+        },
+        "populated": [
+          "urls[0]"
+        ],
+        "matches": {
+          "urls[0]": "domains"
+        }
+      }
+    },
+    {
+      "slug": "unshorten-url",
+      "name": "a t.co style hop chain via github",
+      "input": {
+        "url": "http://github.com"
+      },
+      "expect": {
+        "matches": {
+          "finalUrl": "^https://github\\.com"
+        },
+        "gte": {
+          "redirects": 1
+        },
+        "minCount": {
+          "hops": 2
+        }
+      }
+    },
+    {
+      "slug": "skill-any-to-markdown",
+      "name": "a second page",
+      "input": {
+        "url": "https://www.iana.org"
+      },
+      "expect": {
+        "equals": {
+          "pack": "any-to-markdown"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-api-health",
+      "name": "a second api",
+      "input": {
+        "url": "https://api.coingecko.com/api/v3/ping"
+      },
+      "expect": {
+        "equals": {
+          "pack": "api-health"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-api-investigation",
+      "name": "a second endpoint",
+      "input": {
+        "endpoint": "https://api.github.com/repos/nodejs/node"
+      },
+      "expect": {
+        "equals": {
+          "pack": "api-investigation"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-brand-protection",
+      "name": "a second brand",
+      "input": {
+        "domain": "github.com"
+      },
+      "expect": {
+        "equals": {
+          "pack": "brand-protection"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-cheapest-rail",
+      "name": "two networks",
+      "input": {
+        "networks": "base,arbitrum"
+      },
+      "expect": {
+        "equals": {
+          "pack": "cheapest-rail"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-company-dossier",
+      "name": "a second ticker",
+      "input": {
+        "ticker": "MSFT"
+      },
+      "expect": {
+        "equals": {
+          "pack": "company-dossier"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-competitor-scan",
+      "name": "a second site",
+      "input": {
+        "url": "https://github.com"
+      },
+      "expect": {
+        "equals": {
+          "pack": "competitor-scan"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-contact-verify",
+      "name": "a second address",
+      "input": {
+        "email": "someone@github.com"
+      },
+      "expect": {
+        "equals": {
+          "pack": "contact-verify"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-content-extraction",
+      "name": "a second url",
+      "input": {
+        "urls": "https://www.iana.org/domains"
+      },
+      "expect": {
+        "equals": {
+          "pack": "content-extraction"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-content-grade",
+      "name": "a wikipedia article",
+      "input": {
+        "url": "https://en.wikipedia.org/wiki/HTTP_402"
+      },
+      "expect": {
+        "equals": {
+          "pack": "content-grade"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-contract-audit",
+      "name": "WETH on base",
+      "input": {
+        "address": "0x4200000000000000000000000000000000000006",
+        "network": "base",
+        "data": "0x18160ddd"
+      },
+      "expect": {
+        "equals": {
+          "pack": "contract-audit"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-crypto-dossier",
+      "name": "a second coin",
+      "input": {
+        "coin": "solana"
+      },
+      "expect": {
+        "equals": {
+          "pack": "crypto-dossier"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-crypto-research",
+      "name": "a second coin",
+      "input": {
+        "coin": "ETH"
+      },
+      "expect": {
+        "equals": {
+          "pack": "crypto-research"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-defi-dashboard",
+      "name": "default run",
+      "input": {},
+      "expect": {
+        "equals": {
+          "pack": "defi-dashboard"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-defi-protocol-scanner",
+      "name": "a second protocol",
+      "input": {
+        "protocol": "lido"
+      },
+      "expect": {
+        "equals": {
+          "pack": "defi-protocol-scanner"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-dns-network-ops",
+      "name": "a second domain",
+      "input": {
+        "domain": "github.com"
+      },
+      "expect": {
+        "equals": {
+          "pack": "dns-network-ops"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-document-brief",
+      "name": "a second pdf",
+      "input": {
+        "url": "https://www.irs.gov/pub/irs-pdf/fw9.pdf"
+      },
+      "expect": {
+        "equals": {
+          "pack": "document-brief"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-document-intel",
+      "name": "a second pdf",
+      "input": {
+        "url": "https://www.irs.gov/pub/irs-pdf/fw9.pdf"
+      },
+      "expect": {
+        "equals": {
+          "pack": "document-intel"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-domain-age",
+      "name": "a second domain",
+      "input": {
+        "domain": "wikipedia.org"
+      },
+      "expect": {
+        "equals": {
+          "pack": "domain-age"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-domain-intel",
+      "name": "a second domain",
+      "input": {
+        "domain": "github.com"
+      },
+      "expect": {
+        "equals": {
+          "pack": "domain-intel"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-earnings-deep-dive",
+      "name": "a second ticker",
+      "input": {
+        "ticker": "MSFT"
+      },
+      "expect": {
+        "equals": {
+          "pack": "earnings-deep-dive"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-earnings-watch",
+      "name": "a second ticker",
+      "input": {
+        "ticker": "NVDA"
+      },
+      "expect": {
+        "equals": {
+          "pack": "earnings-watch"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-email-deliverability",
+      "name": "a second domain",
+      "input": {
+        "domain": "github.com"
+      },
+      "expect": {
+        "equals": {
+          "pack": "email-deliverability"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-email-security",
+      "name": "a second domain",
+      "input": {
+        "domain": "github.com"
+      },
+      "expect": {
+        "equals": {
+          "pack": "email-security"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-entity-enrich",
+      "name": "a second company",
+      "input": {
+        "name": "Microsoft",
+        "domain": "microsoft.com",
+        "ticker": "MSFT"
+      },
+      "expect": {
+        "equals": {
+          "pack": "entity-enrich"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-feed-watch",
+      "name": "an atom feed",
+      "input": {
+        "url": "https://github.com/nodejs/node/releases.atom"
+      },
+      "expect": {
+        "equals": {
+          "pack": "feed-watch"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-financial-research",
+      "name": "a second ticker",
+      "input": {
+        "ticker": "MSFT"
+      },
+      "expect": {
+        "equals": {
+          "pack": "financial-research"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-fixed-income-desk",
+      "name": "a different coupon",
+      "input": {
+        "couponRate": "0.03"
+      },
+      "expect": {
+        "equals": {
+          "pack": "fixed-income-desk"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-forecasting-bake-off",
+      "name": "a second series",
+      "input": {
+        "series": "MSFT",
+        "horizon": "10"
+      },
+      "expect": {
+        "equals": {
+          "pack": "forecasting-bake-off"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-fraud-signals",
+      "name": "a second domain",
+      "input": {
+        "domain": "github.com"
+      },
+      "expect": {
+        "equals": {
+          "pack": "fraud-signals"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-fx-monitor",
+      "name": "default run",
+      "input": {},
+      "expect": {
+        "equals": {
+          "pack": "fx-monitor"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-gas-optimizer",
+      "name": "default run",
+      "input": {},
+      "expect": {
+        "equals": {
+          "pack": "gas-optimizer"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-insider-alert",
+      "name": "a second ticker",
+      "input": {
+        "ticker": "NVDA"
+      },
+      "expect": {
+        "equals": {
+          "pack": "insider-alert"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-link-preview",
+      "name": "a second url",
+      "input": {
+        "url": "https://www.iana.org"
+      },
+      "expect": {
+        "equals": {
+          "pack": "link-preview"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-location-intel",
+      "name": "a second address",
+      "input": {
+        "address": "350 Fifth Avenue New York NY"
+      },
+      "expect": {
+        "equals": {
+          "pack": "location-intel"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-macro-context",
+      "name": "a different date",
+      "input": {
+        "asOfDate": "2026-03-15"
+      },
+      "expect": {
+        "equals": {
+          "pack": "macro-context"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-market-brief",
+      "name": "a second coin",
+      "input": {
+        "coin": "ethereum"
+      },
+      "expect": {
+        "equals": {
+          "pack": "market-brief"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-market-open",
+      "name": "a second ticker",
+      "input": {
+        "ticker": "MSFT"
+      },
+      "expect": {
+        "equals": {
+          "pack": "market-open"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-media-pipeline",
+      "name": "a second image",
+      "input": {
+        "uploadPath": "https://tesseract.projectnaptha.com/img/eng_bw.png"
+      },
+      "expect": {
+        "equals": {
+          "pack": "media-pipeline"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-nft-portfolio",
+      "name": "a second wallet",
+      "input": {
+        "address": "0xb8c2C29ee19D8307cb7255e1Cd9CbDE883A267d5"
+      },
+      "expect": {
+        "equals": {
+          "pack": "nft-portfolio"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      },
+      "requires": "ALCHEMY_API_KEY"
+    },
+    {
+      "slug": "skill-openapi-audit",
+      "name": "the petstore spec",
+      "input": {
+        "url": "https://petstore3.swagger.io/api/v3/openapi.json"
+      },
+      "expect": {
+        "equals": {
+          "pack": "openapi-audit"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-options-analytics",
+      "name": "a second ticker",
+      "input": {
+        "ticker": "MSFT"
+      },
+      "expect": {
+        "equals": {
+          "pack": "options-analytics"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-page-audit",
+      "name": "a second site",
+      "input": {
+        "url": "https://github.com"
+      },
+      "expect": {
+        "equals": {
+          "pack": "page-audit"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-pdf-pipeline",
+      "name": "a second pdf",
+      "input": {
+        "url": "https://www.irs.gov/pub/irs-pdf/fw9.pdf"
+      },
+      "expect": {
+        "equals": {
+          "pack": "pdf-pipeline"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-price-monitor",
+      "name": "second pair",
+      "input": {
+        "ticker": "MSFT",
+        "coin": "ethereum"
+      },
+      "expect": {
+        "equals": {
+          "pack": "price-monitor"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-schema-evolution",
+      "name": "a removed path",
+      "input": {
+        "oldSpec": "{\"openapi\":\"3.0.0\",\"paths\":{\"/a\":{\"get\":{\"responses\":{\"200\":{}}}},\"/b\":{\"get\":{\"responses\":{\"200\":{}}}}}}",
+        "newSpec": "{\"openapi\":\"3.0.0\",\"paths\":{\"/a\":{\"get\":{\"responses\":{\"200\":{}}}}}}"
+      },
+      "expect": {
+        "equals": {
+          "pack": "schema-evolution"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-sec-filings-deep-dive",
+      "name": "a second ticker",
+      "input": {
+        "ticker": "MSFT"
+      },
+      "expect": {
+        "equals": {
+          "pack": "sec-filings-deep-dive"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-security-audit",
+      "name": "a second domain",
+      "input": {
+        "domain": "github.com"
+      },
+      "expect": {
+        "equals": {
+          "pack": "security-audit"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-seo-audit",
+      "name": "a second site",
+      "input": {
+        "url": "https://www.iana.org"
+      },
+      "expect": {
+        "equals": {
+          "pack": "seo-audit"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-ssl-audit",
+      "name": "a second domain",
+      "input": {
+        "domain": "github.com"
+      },
+      "expect": {
+        "equals": {
+          "pack": "ssl-audit"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-status-snapshot",
+      "name": "a second site",
+      "input": {
+        "url": "https://www.iana.org"
+      },
+      "expect": {
+        "equals": {
+          "pack": "status-snapshot"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-structured-scrape",
+      "name": "a table page",
+      "input": {
+        "url": "https://www.iana.org/domains/root/db",
+        "target": "the top-level domains and their types"
+      },
+      "expect": {
+        "equals": {
+          "pack": "structured-scrape"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-tx-forensics",
+      "name": "a second base tx",
+      "input": {
+        "hash": "0x2f1fecade9bd945e7817c11e5a34cafe6b349dd8c92a7587efed1de476bddfeb",
+        "network": "base"
+      },
+      "expect": {
+        "equals": {
+          "pack": "tx-forensics"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-url-inspector",
+      "name": "a second url",
+      "input": {
+        "url": "https://github.com"
+      },
+      "expect": {
+        "equals": {
+          "pack": "url-inspector"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-user-onboarding",
+      "name": "a second user",
+      "input": {
+        "email": "grace@example.com",
+        "password": "An0therStr0ngPass!",
+        "displayName": "Grace Hopper",
+        "totpSecret": "JBSWY3DPEHPK3PXP",
+        "totpCode": "000000"
+      },
+      "expect": {
+        "equals": {
+          "pack": "user-onboarding"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-wallet-audit",
+      "name": "a second wallet",
+      "input": {
+        "address": "0xb8c2C29ee19D8307cb7255e1Cd9CbDE883A267d5"
+      },
+      "expect": {
+        "equals": {
+          "pack": "wallet-audit"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      },
+      "requires": "ALCHEMY_API_KEY"
+    },
+    {
+      "slug": "skill-wallet-readiness",
+      "name": "a second wallet",
+      "input": {
+        "address": "0x77065d81e18ad403BCD6e9A0616b288e16744121"
+      },
+      "expect": {
+        "equals": {
+          "pack": "wallet-readiness"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      },
+      "requires": "ALCHEMY_API_KEY"
+    },
+    {
+      "slug": "skill-weather-brief",
+      "name": "a second city",
+      "input": {
+        "lat": "35.6762",
+        "lon": "139.6503"
+      },
+      "expect": {
+        "equals": {
+          "pack": "weather-brief"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-world-data",
+      "name": "a second country",
+      "input": {
+        "country": "JP"
+      },
+      "expect": {
+        "equals": {
+          "pack": "world-data"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-yield-dashboard",
+      "name": "default run",
+      "input": {},
+      "expect": {
+        "equals": {
+          "pack": "yield-dashboard"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-macro-economics",
+      "name": "default run",
+      "input": {},
+      "expect": {
+        "equals": {
+          "pack": "macro-economics"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      },
+      "requires": "FRED_API_KEY"
+    },
+    {
+      "slug": "skill-macro-dashboard",
+      "name": "default run",
+      "input": {},
+      "expect": {
+        "equals": {
+          "pack": "macro-dashboard"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      },
+      "requires": "FRED_API_KEY"
+    },
+    {
+      "slug": "skill-inflation-check",
+      "name": "default run",
+      "input": {},
+      "expect": {
+        "equals": {
+          "pack": "inflation-check"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      },
+      "requires": "FRED_API_KEY"
+    },
+    {
+      "slug": "skill-fred-snapshot",
+      "name": "default run",
+      "input": {},
+      "expect": {
+        "equals": {
+          "pack": "fred-snapshot"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      },
+      "requires": "FRED_API_KEY"
+    },
+    {
+      "slug": "skill-trend-analysis",
+      "name": "a second series",
+      "input": {
+        "series": "MSFT",
+        "horizon": "6mo"
+      },
+      "expect": {
+        "equals": {
+          "pack": "trend-analysis"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      }
+    },
+    {
+      "slug": "skill-ipo-watch",
+      "name": "default run",
+      "input": {},
+      "expect": {
+        "equals": {
+          "pack": "ipo-watch"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      },
+      "requires": "BRAVE_API_KEY"
+    },
+    {
+      "slug": "skill-article-digest",
+      "name": "a second topic",
+      "input": {
+        "topic": "stablecoin regulation"
+      },
+      "expect": {
+        "equals": {
+          "pack": "article-digest"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      },
+      "requires": "BRAVE_API_KEY"
+    },
+    {
+      "slug": "skill-regulatory-watch",
+      "name": "a second theme",
+      "input": {
+        "theme": "stablecoin issuers",
+        "lookbackDays": "30"
+      },
+      "expect": {
+        "equals": {
+          "pack": "regulatory-watch"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      },
+      "requires": "BRAVE_API_KEY"
+    },
+    {
+      "slug": "skill-search-and-cite",
+      "name": "a second question",
+      "input": {
+        "question": "What is the current US federal funds rate target range?"
+      },
+      "expect": {
+        "equals": {
+          "pack": "search-and-cite"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      },
+      "requires": "BRAVE_API_KEY"
+    },
+    {
+      "slug": "skill-onchain-analyst",
+      "name": "a second query",
+      "input": {
+        "sql": "SELECT COUNT(*) AS n FROM base.blocks WHERE block_number > 50000000"
+      },
+      "expect": {
+        "equals": {
+          "pack": "onchain-analyst"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      },
+      "requires": "CDP_API_KEY_ID"
+    },
+    {
+      "slug": "skill-subtitle-pipeline",
+      "name": "srt output",
+      "input": {
+        "url": "https://upload.wikimedia.org/wikipedia/commons/c/c8/Example.ogg",
+        "format": "srt"
+      },
+      "expect": {
+        "equals": {
+          "pack": "subtitle-pipeline"
+        },
+        "matches": {
+          "summary": "^[1-9]"
+        }
+      },
+      "requires": "OPENAI_API_KEY"
+    }
+  ]
+}

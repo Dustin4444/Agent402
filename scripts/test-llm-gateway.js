@@ -5,6 +5,7 @@
 // The Ox Alpha tier is OFF by default since 2026-09-03 (dead upstream); this
 // suite exercises the full tier set, so switch it on before the kit loads.
 process.env.OX_ALPHA_ENABLED = "on";
+process.env.OPENROUTER_TTS_ENABLED = "true"; // modelsList lists the speech models only when the route is on (2026-09-06)
 import { TIERS, canonicalModel, PREFIX_CANONICAL, meteredQuoteUsd, METERED_MAX_QUOTE_USD, tierAllows, tierFor, validateRequest, modelsList, LLM_GATEWAY_TOOLS, stableStringify, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, AUTO_RANKINGS, classifyPrompt, validateEmbeddingsRequest, embeddingsCacheKey, EMBEDDINGS_PATH, isEmptyRefusal, tokenizerFactor, NEW_TOKENIZER_FACTOR } from "../src/tools/llm-gateway-kit.js";
 
 let pass = 0, fail = 0;

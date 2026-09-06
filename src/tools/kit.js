@@ -931,7 +931,11 @@ const textTools = [
     handler: (input) => {
       const text = capText(need(input, "text"), 10_000);
       const sep = typeof input.separator === "string" && input.separator.length === 1 ? input.separator : "-";
+      // Letters NFKD cannot decompose (ß, æ, ø, œ, đ, ł, þ, ð) were DROPPED, so
+      // "Straße" slugged to "stra-e" (corpus, 2026-09-06). Transliterate first.
+      const TRANSLIT = { "ß": "ss", "æ": "ae", "Æ": "AE", "ø": "o", "Ø": "O", "œ": "oe", "Œ": "OE", "đ": "d", "Đ": "D", "ł": "l", "Ł": "L", "þ": "th", "Þ": "TH", "ð": "d", "Ð": "D" };
       const slug = text
+        .replace(/[ßæÆøØœŒđĐłŁþÞðÐ]/g, (c) => TRANSLIT[c])
         .normalize("NFKD")
         .replace(/[̀-ͯ]/g, "")
         .toLowerCase()
@@ -1499,12 +1503,15 @@ const validationTools = [
     tags: ["email", "validate", "mx", "deliverability"],
     discovery: {
       bodyType: "json",
-      input: { email: "ada@example.com" },
+      input: { email: "someone@gmail.com" },
       inputSchema: {
         properties: { email: { type: "string", description: "Email address to check" } },
         required: ["email"],
       },
-      output: { example: { email: "ada@example.com", syntaxValid: true, domain: "example.com", mxRecords: ["mail.example.com"], deliverableDomain: true } },
+      // example.com publishes a null MX (RFC 7505: accepts no mail), so its
+      // honest answer is deliverableDomain:false with no records; the
+      // documented example must show a domain that does receive mail.
+      output: { example: { email: "someone@gmail.com", syntaxValid: true, domain: "gmail.com", mxRecords: ["gmail-smtp-in.l.google.com", "alt1.gmail-smtp-in.l.google.com"], deliverableDomain: true } },
     },
     handler: async (input) => {
       const email = need(input, "email").trim();
@@ -1513,7 +1520,10 @@ const validationTools = [
       let mxRecords = [];
       if (domain) {
         try {
-          mxRecords = (await resolveMx(domain)).sort((a, b) => a.priority - b.priority).map((r) => r.exchange);
+          // RFC 7505 null MX ("0 .") declares the domain accepts NO mail; Node
+          // hands it back as exchange "" or "." and it used to count as a
+          // record, so example.com read deliverable (corpus, 2026-09-06).
+          mxRecords = (await resolveMx(domain)).sort((a, b) => a.priority - b.priority).map((r) => r.exchange).filter((x) => x && x !== ".");
         } catch {
           mxRecords = [];
         }
@@ -2213,6 +2223,9 @@ const networkTools = [
     handler: async (input) => {
       const { html: xml } = await safeFetch(need(input, "url"), { maxBytes: 5 * 1024 * 1024 });
       const isIndex = /<sitemapindex/i.test(xml);
+      // An HTML page (or anything without a sitemap root) used to answer
+      // {type:"urlset", count:0, urls:[]} - a hollow 200 (corpus, 2026-09-06).
+      if (!isIndex && !/<urlset/i.test(xml)) throw bad("the URL did not return a sitemap (no <urlset> or <sitemapindex> root)");
       const blocks = [...xml.matchAll(/<(?:url|sitemap)>([\s\S]*?)<\/(?:url|sitemap)>/gi)].slice(0, 500);
       const urls = blocks.map((b) => {
         const loc = b[1].match(/<loc>\s*([^<]+?)\s*<\/loc>/i)?.[1] ?? null;

@@ -1143,7 +1143,25 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   (category from defi-kit's cached list incl. parent slugs, changes derived from the document's own TVL series); every
   Polygon read went to polygon-rpc.com ("tenant disabled" since 07-31) and chain-kit treated the refusal as an ANSWER so
   the fallbacks were never tried (provider refusals now fall through). Local CoinGecko cases report rate-limited (the
-  shared keyless bucket), not fatal. Writing a case against the boot IS its first run; extend by kit file, top-200 first.
+  shared keyless bucket), not fatal; a corpus file may declare `pace` (ms between case starts) for such upstreams.
+  **Second pass, the other ~370 tools (same day, PR #1228): 558 of 569 slugs covered, 750+ cases; nine more tool-side
+  defects:** `jsonl` unknown mode silently to-jsonl and `earthquakes` unknown period silently "day" (400 now); `slugify`
+  DROPPED letters NFKD cannot decompose ("Straße" -> "stra-e"; ß/æ/ø/œ/đ/ł/þ/ð transliterated now); `email-validate` counted
+  an RFC 7505 null MX ("0 .") as a mail server, so example.com read deliverable; `sitemap` answered `{urlset, count:0}` for a
+  page that is not a sitemap (400 now); `sol-token-holders` said USDC has 0 holders when RugCheck simply publishes none
+  (null + note now); `weather-alerts` relayed NWS's HTTP 400 for an unknown area as a 502 (validated against the state list
+  first); `gov-data` carries a `note` that `totalFound` is the page size because data.gov v4 publishes no catalog-wide total.
+  The paid reports, image/video/TTS links and premium chat tiers are gated behind `CORPUS_REPORTS=1` / `CORPUS_MEDIA=1` so a
+  keyed weekly run stays under a couple of dollars unless asked.
+  **Cross-surface pairs (`scripts/test-cross-surface.js`, 24, unit-d lane, same PR):** the two finds that started this were
+  both "two of our surfaces disagree" (beacon vs radar, route rows vs index), and no test had ever read two surfaces side by
+  side. It asserts /health, /api/pricing, /openapi.json (x-price, x-payment-info, the MPP offer in micro-USD),
+  /.well-known/x402 (one resource per paid path, none stale), /v1/models (every advertised endpoint and price exists; every
+  flat chat model carries the metered twin; each tier's defaultModel is listed under that tier), /api/route local rows and
+  /api/find (method, path, price, and find's example/required are the OpenAPI document's) and the wishes beacon vs the
+  radar (same qualifiedClusters/threshold/bar, flagged rows add up). First run: `/v1/models` advertised the five speech models
+  on a boot with the speech route off (gated on `OPENROUTER_TTS_ENABLED` now, test-llm-gateway sets it). A surface pair
+  that disagrees is always OUR defect - the test never reports upstream.
 - **Every guard we owned asserted SHAPE, never OUTCOME (2026-08-31, `scripts/test-pack-examples.js`):** the root cause behind nine
   packs selling broken for two months. The example sweep asserts an HTTP 200 and the documented TOP-LEVEL keys, and
   `{pack, args, steps, summary}` is a valid shape whether the steps returned data or all threw - so `0/N steps succeeded` passed
