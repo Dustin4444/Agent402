@@ -5009,6 +5009,8 @@ app.get("/fonts/:file", (req, res) => {
 const FIXTURE_FILES = {
   "sample-invoice.pdf": "application/pdf",
   "sample-image.png": "image/png",
+  // 2 s 440 Hz sine, 8 kHz mono PCM: the paid canary's media-info leg probes it with ffprobe on prod (2026-09-06)
+  "sample-audio.wav": "audio/wav",
 };
 app.get("/fixtures/:file", (req, res) => {
   const file = String(req.params.file || "");
