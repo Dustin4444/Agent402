@@ -275,7 +275,7 @@ function isUpstreamMediaSourceFlake(slug, status, body, threw) {
     return true;
   }
   // Fetch-guard upstream HTTP errors on the example media URL.
-  if ((status === 502 || status === 503 || status === 504) && /Source URL returned HTTP|fetch failed|ECONNRESET|ETIMEDOUT/i.test(msg)) {
+  if ((status === 502 || status === 503 || status === 504) && /Source URL returned HTTP|Source URL did not serve a media file|fetch failed|ECONNRESET|ETIMEDOUT/i.test(msg)) {
     return true;
   }
   return false;
