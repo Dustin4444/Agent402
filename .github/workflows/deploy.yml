@@ -4847,6 +4847,7 @@ jobs:
       # challenge ids. Presence is the rollout switch: unset → shim not
       # mounted, server stays pure-x402.
       MPP_SECRET_KEY: ${{ secrets.MPP_SECRET_KEY }}
+      X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
       # Offsite /data backup (src/backup.js) - Railway Bucket S3 creds. All
       # four inject together or not at all (a half-armed backup would look
       # configured while uploading nothing). Endpoint+bucket are repo
@@ -4896,6 +4897,7 @@ jobs:
           [ -n "$FRED_API_KEY_V2" ] && echo "::add-mask::$FRED_API_KEY_V2"
           [ -n "$YAHOO_RELAY_TOKEN" ] && echo "::add-mask::$YAHOO_RELAY_TOKEN"
           [ -n "$MPP_SECRET_KEY" ] && echo "::add-mask::$MPP_SECRET_KEY"
+          [ -n "$X_BEARER_TOKEN" ] && echo "::add-mask::$X_BEARER_TOKEN"
           [ -n "$BACKUP_S3_KEY_ID" ] && echo "::add-mask::$BACKUP_S3_KEY_ID"
           [ -n "$BACKUP_S3_SECRET" ] && echo "::add-mask::$BACKUP_S3_SECRET"
           [ -n "$RAILWAY_API_TOKEN" ] || { echo "No Railway token provided"; exit 1; }
@@ -5113,6 +5115,12 @@ jobs:
           fi
           if [ -n "$MPP_SECRET_KEY" ]; then
             VARS=$(echo "$VARS" | jq --arg v "$MPP_SECRET_KEY" '. + {MPP_SECRET_KEY:$v}')
+          fi
+          # X app-only bearer (the five x-data tools' rollout switch). Minted and
+          # first written by x-bearer-sync.yml; rides here too if it is ever
+          # added as an Actions secret, so a rotation flows with the deploy.
+          if [ -n "$X_BEARER_TOKEN" ]; then
+            VARS=$(echo "$VARS" | jq --arg v "$X_BEARER_TOKEN" '. + {X_BEARER_TOKEN:$v}')
           fi
           # Offsite backup: all four or none - partial config would report
           # "configured" while every upload fails.
