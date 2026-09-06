@@ -33,6 +33,12 @@ updates:
       # middle digit as minor, so a "semver-major" ignore would never match
       # (the @zxing note below).
       - dependency-name: "@solana-program/*"
+      # @solana/kit itself: @solana-program/* declare a peer of kit ^5 and
+      # @coinbase/cdp-sdk depends on kit ^5, so a kit major (5 -> 8, #1214)
+      # cannot install until that whole line moves. It moves with the @x402 set,
+      # deliberately, with a paid-canary run; a weekly red PR proves nothing.
+      - dependency-name: "@solana/kit"
+        update-types: ["version-update:semver-major"]
       # better-sqlite3 major: native module; v13 has no working prebuilt for the
       # node:22-slim deploy image and breaks the Railway build (verified 2026-07-24).
       # Revisit only with a container-build test.
