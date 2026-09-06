@@ -12,6 +12,10 @@ const fail = (m) => { console.error("FAIL:", m); process.exit(1); };
 try {
   execFileSync("ffmpeg", ["-version"], { stdio: "ignore" });
 } catch {
+  // On CI a missing ffmpeg is a FAILURE, not a skip: this line skipped on
+  // every CI run since the kit shipped (ubuntu-latest carries no ffmpeg) and
+  // nobody noticed - the "skipped integration test" class (2026-09-06).
+  if (process.env.CI) { console.error("FAIL: ffmpeg is not installed on this CI runner - install it in the lane (apt-get install -y ffmpeg) rather than skipping the media tests"); process.exit(1); }
   console.log("SKIP: ffmpeg not installed in this environment (CI and production have it)");
   process.exit(0);
 }

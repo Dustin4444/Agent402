@@ -31,6 +31,10 @@ function run(bin, args) {
   return new Promise((resolve, reject) => {
     execFile(bin, args, { timeout: FFMPEG_TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
       if (err) {
+        // A missing binary is OUR configuration, never the buyer's file: say
+        // so as a 503 (uncharged). The 422 wording blamed the file for a
+        // runner without ffmpeg (corpus nightly, 2026-09-06).
+        if (err.code === "ENOENT") return reject(bad(`${bin} is not installed on this server - the media tools are unavailable here`, 503));
         const why = err.killed ? "processing timed out" : "media could not be processed";
         return reject(bad(`${why} (is the input a valid audio/video file?)`, 422));
       }

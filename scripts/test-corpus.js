@@ -95,7 +95,7 @@ export function checkExpect(expect, status, body) {
   return fails;
 }
 
-const NOT_CONFIGURED = /not configured|not set|missing api key|no api key|OPENROUTER_API_KEY|BRAVE_API_KEY|E2B_API_KEY|X402_UPSTREAM_BUYER_KEY|ALCHEMY_API_KEY|OPENAI_API_KEY|COINGECKO_API_KEY|FRED_API_KEY|unavailable on this server|requires a key/i;
+const NOT_CONFIGURED = /not configured|not set|not installed on this server|missing api key|no api key|OPENROUTER_API_KEY|BRAVE_API_KEY|E2B_API_KEY|X402_UPSTREAM_BUYER_KEY|ALCHEMY_API_KEY|OPENAI_API_KEY|COINGECKO_API_KEY|FRED_API_KEY|unavailable on this server|requires a key/i;
 // Deliberately narrow: only network-class words. "upstream", "timeout" and
 // "aborted" appear in OUR OWN 4xx messages, and a 4xx that names the input is
 // ours (independent review, 2026-09-06).

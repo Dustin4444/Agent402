@@ -38,6 +38,8 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
+      - name: ffmpeg (the media tools; ubuntu-latest does not ship it)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null && ffmpeg -version | head -1
       - name: Install
         # --ignore-scripts is the repo's supply-chain rule (no dependency
         # lifecycle scripts); better-sqlite3 is the one native module the
