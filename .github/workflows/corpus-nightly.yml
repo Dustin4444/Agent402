@@ -1,0 +1,91 @@
+# Nightly correctness corpus, tiers 0 + 1: every tool driven with inputs other
+# than its documented example on a FREE_MODE boot (no payment, no keys), asserting
+# the answer is populated rather than merely shaped. Tier 0 (pure CPU) also runs
+# on every push in deploy.yml; this run adds tier 1, the free public upstreams
+# (SEC, openFDA, DefiLlama, Hyperliquid, CoinGecko demo, open-meteo, public RPCs,
+# Kalshi, Polymarket), which are rate-limited and belong to a nightly cadence, not
+# a per-push one. Costs nothing. Upstream failures are reported, never fatal; only
+# OUR code failing (a hollow 200, a silent fallback, our own 4xx on a valid input,
+# a 500) opens the issue. Heartbeat-style: one issue, closed on the next clean run.
+name: Correctness corpus (nightly)
+
+on:
+  schedule:
+    - cron: "17 5 * * *" # daily ~05:17 UTC
+  workflow_dispatch:
+    inputs:
+      tier:
+        description: "Tiers to run (0,1 default; 2 needs keys and spends)"
+        default: "0,1"
+        required: false
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: corpus-nightly
+  cancel-in-progress: false
+
+jobs:
+  corpus:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: Install
+        run: npm ci --ignore-scripts
+
+      - name: Run the corpus (self-booted FREE_MODE server, no keys)
+        id: corpus
+        env:
+          TIER: ${{ inputs.tier || '0,1' }}
+        run: |
+          set +e
+          node scripts/test-corpus.js --tier "$TIER" --concurrency 3 --json corpus-report.json | tee corpus.log
+          code=${PIPESTATUS[0]}
+          echo "exit=$code" >> "$GITHUB_OUTPUT"
+          tail -1 corpus.log
+          exit 0
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: corpus-report
+          path: |
+            corpus-report.json
+            corpus.log
+          if-no-files-found: ignore
+
+      - name: Page (open / update / close the issue)
+        if: always()
+        env:
+          RESULT: ${{ steps.corpus.outputs.exit }}
+        run: |
+          TITLE="Correctness corpus FAILING"
+          OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          RUN="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          if [ "$RESULT" != "0" ]; then
+            FAILS=$(grep -E '^FAIL ' corpus.log | head -30 || true)
+            BODY="The nightly correctness corpus found tools answering wrong on a second input. Run: $RUN
+
+          Only OUR code failing reaches here: a hollow 200, a silent fallback, our own 4xx on a valid input, or a 500. Upstream 502/503/504/429 are reported in the log and never open this issue.
+
+          \`\`\`
+          $FAILS
+          \`\`\`
+
+          Reproduce locally: \`node scripts/test-corpus.js --only <slug>\` (boots its own FREE_MODE server). Decide first whether the tool or the expectation is wrong (scripts/corpus/README.md)."
+            if [ -n "$OPEN" ]; then
+              gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "Still failing at $(date -u +%FT%TZ). Run: $RUN"
+            else
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY"
+            fi
+          elif [ -n "$OPEN" ]; then
+            gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: the corpus passed at $(date -u +%FT%TZ). Run: $RUN"
+          fi

@@ -8,6 +8,7 @@
 // Wallet-only (each call costs egress + counts against the upstream's public
 // rate limit), never PoW-eligible. Covered by scripts/test-price-feed-kit.js.
 
+import { protocols as llamaProtocols } from "./defi-kit.js";
 const TIMEOUT_MS = 10_000;
 
 function bad(message, statusCode = 400) {
@@ -37,6 +38,9 @@ async function feedFetch(url) {
   }
   if (res.status === 429) throw bad("Price feed rate limit reached upstream - retry shortly", 503);
   if (res.status === 404) throw bad("Price feed upstream: not found (check ids / contract)", 404);
+  // DefiLlama answers 400 for a protocol slug it does not know: that is the
+  // buyer's input being refused, not an outage (corpus, 2026-09-06).
+  if (res.status === 400) throw bad("Price feed upstream: not found or rejected (check the protocol / ids / contract)", 404);
   if (!res.ok) throw bad(`Price feed upstream error (HTTP ${res.status})`, 502);
   const ct = res.headers.get("content-type") || "";
   if (!ct.includes("json")) {
@@ -110,7 +114,11 @@ export const PRICE_FEED_TOOLS = [
           change24h: wantChange && typeof row[`${vs}_24h_change`] === "number" ? row[`${vs}_24h_change`] : null,
         };
       });
-      return { count: prices.length, vsCurrency: vs, prices };
+      // Every id unknown was a 200 of null rows (corpus, 2026-09-06): 404
+      // naming the ids instead; a partial miss keeps its null rows and lists them.
+      const unknown = prices.filter((p) => p.price === null).map((p) => p.id);
+      if (unknown.length === prices.length) throw bad(`unknown CoinGecko id(s): ${unknown.join(", ")}`, 404);
+      return { count: prices.length, vsCurrency: vs, prices, ...(unknown.length ? { unknown } : {}) };
     },
   },
 
@@ -176,14 +184,40 @@ export const PRICE_FEED_TOOLS = [
       const tvlUsd = typeof headlineTvl === "number" && headlineTvl > 0
         ? headlineTvl
         : chainTvls.reduce((a, b) => a + (b.tvlUsd || 0), 0);
+      // DefiLlama's /protocol/{slug} document stopped carrying category and
+      // the change_* fields (measured 2026-09-06: null on uniswap AND aave), so
+      // every buyer got a category:null, change:null answer on the biggest
+      // protocols - the promised fields, never populated. The category comes
+      // from the cached /protocols list (defi-kit) and the changes are derived
+      // from the document's own daily TVL series, which it still carries.
+      let listRow = null;
+      try {
+        const rows = (await llamaProtocols()).value; // defi-kit's cache wrapper: { value, fetchedAt, cached, stale }
+        // A parent slug (uniswap, aave) has no row of its own: its children
+        // (uniswap-v3 ...) carry parentProtocol = the parent slug.
+        listRow = rows.find((r) => r.slug === protocol) ?? rows.find((r) => r.parentProtocol === protocol) ?? null;
+      } catch { /* the list is a bonus; the document answers alone */ }
+      const pctFromSeries = (daysBack) => {
+        if (!tvlSeries || tvlSeries.length < 2 || !(tvlUsd > 0)) return null;
+        const last = tvlSeries[tvlSeries.length - 1];
+        const target = Number(last?.date) - daysBack * 86400;
+        let ref = null;
+        for (let k = tvlSeries.length - 2; k >= 0; k--) { if (Number(tvlSeries[k]?.date) <= target) { ref = tvlSeries[k]; break; } }
+        const base = Number(ref?.totalLiquidityUSD);
+        return Number.isFinite(base) && base > 0 ? Number((((tvlUsd / base) - 1) * 100).toFixed(2)) : null;
+      };
+      const pick = (docField, listField, daysBack) =>
+        typeof data?.[docField] === "number" ? data[docField]
+          : typeof listRow?.[listField] === "number" ? listRow[listField]
+            : pctFromSeries(daysBack);
       return {
         protocol,
         name: data?.name ?? null,
-        category: data?.category ?? null,
+        category: data?.category ?? listRow?.category ?? null,
         tvlUsd,
-        change24h: typeof data?.change_1d === "number" ? data.change_1d : null,
-        change7d:  typeof data?.change_7d === "number" ? data.change_7d : null,
-        change30d: typeof data?.change_1m === "number" ? data.change_1m : null,
+        change24h: pick("change_1d", "change1dPct", 1),
+        change7d:  pick("change_7d", "change7dPct", 7),
+        change30d: pick("change_1m", "change30dPct", 30),
         chainTvls,
       };
     },

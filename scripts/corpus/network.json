@@ -1,0 +1,514 @@
+{
+  "about": "DNS, TLS, HTTP and email-posture tools on public infrastructure (tier 1). Targets are stable, well-known hosts.",
+  "cases": [
+    {
+      "slug": "dns",
+      "name": "TXT records of a domain that publishes SPF",
+      "input": {
+        "name": "google.com",
+        "type": "TXT"
+      },
+      "expect": {
+        "equals": {
+          "type": "TXT"
+        },
+        "minCount": {
+          "records": 1
+        },
+        "matches": {
+          "records": "v=spf1"
+        }
+      }
+    },
+    {
+      "slug": "dns",
+      "name": "AAAA of cloudflare",
+      "input": {
+        "name": "cloudflare.com",
+        "type": "AAAA"
+      },
+      "expect": {
+        "minCount": {
+          "records": 1
+        },
+        "matches": {
+          "records[0]": ":"
+        }
+      }
+    },
+    {
+      "slug": "dns",
+      "name": "nonexistent name is an honest empty, not a 500",
+      "input": {
+        "name": "does-not-exist-zq7x.example.com",
+        "type": "A"
+      },
+      "expect": {
+        "empty": [
+          "records"
+        ]
+      }
+    },
+    {
+      "slug": "dns-lookup",
+      "name": "NS records",
+      "input": {
+        "host": "cloudflare.com",
+        "type": "NS"
+      },
+      "expect": {
+        "gte": {
+          "count": 2
+        },
+        "populated": [
+          "records[0]",
+          "queriedAt"
+        ]
+      }
+    },
+    {
+      "slug": "dns-lookup",
+      "name": "CNAME on a known alias",
+      "input": {
+        "host": "www.github.com",
+        "type": "CNAME"
+      },
+      "expect": {
+        "gte": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "slug": "dns-propagation",
+      "name": "resolvers agree on a stable A record",
+      "input": {
+        "host": "one.one.one.one",
+        "type": "A"
+      },
+      "expect": {
+        "equals": {
+          "consistent": true
+        },
+        "minCount": {
+          "resolvers": 3
+        }
+      }
+    },
+    {
+      "slug": "tls-cert",
+      "name": "a wildcard-covered host reports SANs",
+      "input": {
+        "host": "www.cloudflare.com"
+      },
+      "expect": {
+        "gt": {
+          "daysRemaining": 0
+        },
+        "minCount": {
+          "altNames": 1
+        },
+        "populated": [
+          "issuer",
+          "validTo"
+        ]
+      }
+    },
+    {
+      "slug": "tls-cert",
+      "name": "host with no TLS listener is a clean error, not a hang",
+      "input": {
+        "host": "does-not-exist-zq7x.example.com"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "whois",
+      "name": "a .org domain",
+      "input": {
+        "domain": "wikipedia.org"
+      },
+      "expect": {
+        "populated": [
+          "registrar",
+          "created",
+          "nameservers"
+        ],
+        "minCount": {
+          "nameservers": 1
+        }
+      }
+    },
+    {
+      "slug": "whois",
+      "name": "not a domain is a 400",
+      "input": {
+        "domain": "not a domain"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "http-check",
+      "name": "a redirecting url reports the final url",
+      "input": {
+        "url": "http://github.com"
+      },
+      "expect": {
+        "equals": {
+          "up": true
+        },
+        "matches": {
+          "finalUrl": "^https://github\\.com"
+        },
+        "gt": {
+          "latencyMs": 0
+        }
+      }
+    },
+    {
+      "slug": "http-check",
+      "name": "a 404 is up:true with status 404",
+      "input": {
+        "url": "https://httpbin.org/status/404"
+      },
+      "expect": {
+        "equals": {
+          "status": 404
+        }
+      }
+    },
+    {
+      "slug": "http-headers",
+      "name": "security headers on a hardened site",
+      "input": {
+        "url": "https://github.com"
+      },
+      "expect": {
+        "equals": {
+          "status": 200
+        },
+        "populated": [
+          "headers",
+          "security"
+        ],
+        "gte": {
+          "security.score": 0
+        }
+      }
+    },
+    {
+      "slug": "meta",
+      "name": "a page with open graph tags",
+      "input": {
+        "url": "https://github.com/about"
+      },
+      "expect": {
+        "populated": [
+          "title",
+          "og"
+        ],
+        "minCount": {
+          "og": 1
+        }
+      }
+    },
+    {
+      "slug": "tech-stack",
+      "name": "detects the server on a well-known host",
+      "input": {
+        "url": "https://www.cloudflare.com"
+      },
+      "expect": {
+        "populated": [
+          "detected",
+          "fetchedAt"
+        ],
+        "minCount": {
+          "detected": 1
+        }
+      }
+    },
+    {
+      "slug": "email-deliverability",
+      "name": "a domain with spf + dmarc",
+      "input": {
+        "domain": "github.com"
+      },
+      "expect": {
+        "equals": {
+          "spf.hasRecord": true,
+          "dmarc.hasRecord": true
+        },
+        "gt": {
+          "score": 40
+        },
+        "minCount": {
+          "mx.records": 1
+        },
+        "populated": [
+          "summary",
+          "checks"
+        ]
+      }
+    },
+    {
+      "slug": "email-deliverability",
+      "name": "an unresolvable domain is a scored answer, not a 500",
+      "input": {
+        "domain": "does-not-exist-zq7x.example.com"
+      },
+      "expect": {
+        "populated": [
+          "score",
+          "summary"
+        ],
+        "equals": {
+          "spf.hasRecord": false,
+          "dmarc.hasRecord": false
+        }
+      }
+    },
+    {
+      "slug": "spf-check",
+      "name": "spf with includes, recursive lookup count",
+      "input": {
+        "domain": "github.com"
+      },
+      "expect": {
+        "equals": {
+          "hasRecord": true
+        },
+        "gte": {
+          "lookupCountRecursive": 1
+        },
+        "populated": [
+          "mechanisms",
+          "all",
+          "raw"
+        ]
+      }
+    },
+    {
+      "slug": "spf-check",
+      "name": "no spf is hasRecord:false",
+      "input": {
+        "domain": "does-not-exist-zq7x.example.com"
+      },
+      "expect": {
+        "equals": {
+          "hasRecord": false
+        }
+      }
+    },
+    {
+      "slug": "dmarc-check",
+      "name": "reject policy with rua",
+      "input": {
+        "domain": "github.com"
+      },
+      "expect": {
+        "equals": {
+          "hasRecord": true
+        },
+        "matches": {
+          "policy": "reject|quarantine|none"
+        },
+        "populated": [
+          "raw",
+          "reportingUris"
+        ]
+      }
+    },
+    {
+      "slug": "dmarc-check",
+      "name": "no dmarc is hasRecord:false",
+      "input": {
+        "domain": "does-not-exist-zq7x.example.com"
+      },
+      "expect": {
+        "equals": {
+          "hasRecord": false
+        }
+      }
+    },
+    {
+      "slug": "dkim-lookup",
+      "name": "missing selector is hasRecord:false",
+      "input": {
+        "domain": "github.com",
+        "selector": "nosuchselector"
+      },
+      "expect": {
+        "equals": {
+          "hasRecord": false,
+          "fullName": "nosuchselector._domainkey.github.com"
+        }
+      }
+    },
+    {
+      "slug": "ip-info",
+      "name": "ipv6 address",
+      "input": {
+        "ip": "2606:4700:4700::1111"
+      },
+      "expect": {
+        "equals": {
+          "version": 6
+        },
+        "populated": [
+          "scope"
+        ]
+      }
+    },
+    {
+      "slug": "ip-info",
+      "name": "private range is scope private",
+      "input": {
+        "ip": "192.168.0.1"
+      },
+      "expect": {
+        "matches": {
+          "scope": "private"
+        }
+      }
+    },
+    {
+      "slug": "ip-info",
+      "name": "not an ip is a 400",
+      "input": {
+        "ip": "999.1.1.1"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "asn-info",
+      "name": "cloudflare address",
+      "input": {
+        "ip": "1.1.1.1"
+      },
+      "expect": {
+        "equals": {
+          "asn": "AS13335"
+        },
+        "populated": [
+          "owner",
+          "prefix",
+          "country"
+        ]
+      }
+    },
+    {
+      "slug": "asn-info",
+      "name": "lookup by host name",
+      "input": {
+        "host": "github.com"
+      },
+      "expect": {
+        "populated": [
+          "ip",
+          "asn",
+          "owner"
+        ]
+      }
+    },
+    {
+      "slug": "extract",
+      "name": "wikipedia article body",
+      "input": {
+        "url": "https://en.wikipedia.org/wiki/HTTP_402"
+      },
+      "expect": {
+        "populated": [
+          "title",
+          "markdown"
+        ],
+        "gt": {
+          "wordCount": 100
+        },
+        "equals": {
+          "untrustedContent": true
+        }
+      }
+    },
+    {
+      "slug": "extract",
+      "name": "non-http scheme is a 400",
+      "input": {
+        "url": "ftp://example.com/x"
+      },
+      "expect": {
+        "status": 400
+      }
+    },
+    {
+      "slug": "a2a-card-fetch",
+      "name": "a site with no agent card is a self-explaining 404",
+      "input": {
+        "url": "https://example.com"
+      },
+      "expect": {
+        "status": 404
+      }
+    },
+    {
+      "slug": "x402-quote",
+      "name": "a free route reports paymentRequired:false",
+      "input": {
+        "url": "https://agent402.tools/health",
+        "method": "GET"
+      },
+      "expect": {
+        "equals": {
+          "paymentRequired": false,
+          "status": 200
+        }
+      }
+    },
+    {
+      "slug": "x402-quote",
+      "name": "a paid GET route quotes accepts",
+      "input": {
+        "url": "https://agent402.tools/api/stock-quote?symbol=AAPL",
+        "method": "GET"
+      },
+      "expect": {
+        "equals": {
+          "paymentRequired": true,
+          "status": 402
+        },
+        "minCount": {
+          "accepts": 3
+        },
+        "populated": [
+          "accepts[0].amount",
+          "accepts[0].network"
+        ]
+      }
+    },
+    {
+      "slug": "x402-audit",
+      "name": "a non-x402 site scores low with reachable:true",
+      "input": {
+        "url": "https://example.com",
+        "method": "GET"
+      },
+      "expect": {
+        "equals": {
+          "reachable": true,
+          "paymentRequired": false
+        },
+        "populated": [
+          "grade",
+          "checks",
+          "summary"
+        ]
+      }
+    }
+  ]
+}

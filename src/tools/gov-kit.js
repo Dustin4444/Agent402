@@ -470,12 +470,23 @@ export const GOV_TOOLS = [
       const model = String(i.model ?? "").trim();
       const year = parseInt(i.year, 10);
       if (!make || !model || !Number.isFinite(year)) throw bad('"make", "model", and "year" are all required');
-      const data = await getJson(
-        `https://api.nhtsa.gov/recalls/recallsByVehicle?make=${encodeURIComponent(make)}&model=${encodeURIComponent(model)}&modelYear=${year}`,
-      );
+      let data;
+      try {
+        data = await getJson(
+          `https://api.nhtsa.gov/recalls/recallsByVehicle?make=${encodeURIComponent(make)}&model=${encodeURIComponent(model)}&modelYear=${year}`,
+        );
+      } catch (e) {
+        // NHTSA answers HTTP 400 with {"Count":0,"Message":"Results returned
+        // successfully","results":[]} for a make/model it does not know
+        // (measured 2026-09-06). That is an empty answer, not an outage: say
+        // so instead of relaying a 502 the buyer cannot act on.
+        if (e?.upstreamStatus === 400) data = { results: [], note: "NHTSA has no record of this make/model/year combination" };
+        else throw e;
+      }
       const results = Array.isArray(data.results) ? data.results : [];
       return {
         make, model, year,
+        ...(data.note ? { note: data.note } : {}),
         count: results.length,
         recalls: results.slice(0, 25).map((r) => ({
           campaign: r.NHTSACampaignNumber ?? null,

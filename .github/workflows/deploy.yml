@@ -1375,7 +1375,7 @@ jobs:
       # runs in its own process, in the same order; `t` groups its log and names it
       # with its elapsed time, and a failure prints the failing script as an error.
       # The original step names ride above each script so the WHY stays here.
-      - name: Offline suites (20 scripts, one process each)
+      - name: Offline suites (22 scripts, one process each)
         run: |
           set -euo pipefail
           t() { local s=$SECONDS; echo "::group::$*"; "$@" || { echo "::endgroup::"; echo "::error::failed: $*"; exit 1; }; echo "::endgroup::"; echo "ok  $* ($((SECONDS - s))s)"; }
@@ -2419,6 +2419,10 @@ jobs:
           t() { local s=$SECONDS; echo "::group::$*"; "$@" || { echo "::endgroup::"; echo "::error::failed: $*"; exit 1; }; echo "::endgroup::"; echo "ok  $* ($((SECONDS - s))s)"; }
           # Demand-radar seller intel (signalType, near-threshold, noise flag, wallet-only — offline)
           t node scripts/test-demand-radar.js
+          # Correctness corpus harness (expectation checking + outcome classification, offline)
+          t node scripts/test-corpus-harness.js
+          # Correctness corpus, tier 0: every pure-CPU tool on a SECOND input, values asserted (self-booted FREE_MODE, ~3 s)
+          t node scripts/test-corpus.js --tier 0 --concurrency 6
           # Util-kit tests (jwt-sign, uuid-v5, group-by, json-to-xml, geo-distance, color-contrast)
           t node scripts/test-util-kit.js
           # x-data kit (offline)

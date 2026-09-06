@@ -347,7 +347,7 @@ function trimProtocol(p) {
   };
 }
 
-async function protocols() {
+export async function protocols() {
   return cached("protocols", async () => {
     const json = await llamaGet(PROTOCOLS, { timeout: BULK_TIMEOUT_MS });
     if (!Array.isArray(json)) throw bad("DefiLlama returned an unexpected response shape", 502);

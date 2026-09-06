@@ -54,6 +54,17 @@ function weatherCondition(code) {
   return WMO_CODES[code] ?? `Unknown (${code})`;
 }
 
+
+// units: "celsius" (default) | "fahrenheit", with the spellings buyers reach
+// for. An unknown value is a 400 - the first cut served celsius for
+// units:"imperial" and the buyer could not tell (corpus, 2026-09-06).
+function tempUnitOf(raw) {
+  const u = String(raw ?? "").trim().toLowerCase();
+  if (u === "" || u === "celsius" || u === "c" || u === "metric") return "celsius";
+  if (u === "fahrenheit" || u === "f" || u === "imperial") return "fahrenheit";
+  const e = new Error('"units" must be celsius or fahrenheit'); e.statusCode = 400; throw e;
+}
+
 export const WEATHER_TOOLS = [
   {
     route: "GET /api/weather-current",
@@ -93,7 +104,7 @@ export const WEATHER_TOOLS = [
     },
     handler: async (i) => {
       const { lat, lon } = requireCoords(i);
-      const tempUnit = String(i.units ?? "").toLowerCase() === "fahrenheit" ? "fahrenheit" : "celsius";
+      const tempUnit = tempUnitOf(i.units);
       const params = new URLSearchParams({
         latitude: lat, longitude: lon,
         current: "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m",
@@ -166,7 +177,7 @@ export const WEATHER_TOOLS = [
     handler: async (i) => {
       const { lat, lon } = requireCoords(i);
       const days = Math.min(Math.max(parseInt(i.days, 10) || 7, 1), 16);
-      const tempUnit = String(i.units ?? "").toLowerCase() === "fahrenheit" ? "fahrenheit" : "celsius";
+      const tempUnit = tempUnitOf(i.units);
       const params = new URLSearchParams({
         latitude: lat, longitude: lon,
         daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,uv_index_max,sunrise,sunset",
@@ -235,7 +246,7 @@ export const WEATHER_TOOLS = [
     handler: async (i) => {
       const { lat, lon } = requireCoords(i);
       const hours = Math.min(Math.max(parseInt(i.hours, 10) || 48, 1), 168);
-      const tempUnit = String(i.units ?? "").toLowerCase() === "fahrenheit" ? "fahrenheit" : "celsius";
+      const tempUnit = tempUnitOf(i.units);
       const params = new URLSearchParams({
         latitude: lat, longitude: lon,
         hourly: "temperature_2m,relative_humidity_2m,precipitation_probability,precipitation,weather_code,cloud_cover,wind_speed_10m,wind_direction_10m",
@@ -311,7 +322,7 @@ export const WEATHER_TOOLS = [
       if (isNaN(endDate.getTime())) throw bad('"end" is not a valid date');
       if (endDate < startDate) throw bad('"end" must be on or after "start"');
       if ((endDate - startDate) / 86400000 > 366) throw bad("Date range must be 1 year or less");
-      const tempUnit = String(i.units ?? "").toLowerCase() === "fahrenheit" ? "fahrenheit" : "celsius";
+      const tempUnit = tempUnitOf(i.units);
       const params = new URLSearchParams({
         latitude: lat, longitude: lon,
         start_date: start, end_date: end,
