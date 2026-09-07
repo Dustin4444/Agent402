@@ -376,13 +376,21 @@ function checkShape(path, method, op, body) {
 // sweep sampled out this run. Default off, so a local `test-all` alone still
 // covers the whole catalog.
 let strictCovered = new Set();
+// The CoinGecko family is handed over WHOLE, sampled or not: the CI lane
+// carries COINGECKO_API_KEY, so each family call here is a keyed Demo-plan
+// credit on the PRODUCTION key's 10k/month quota (measured 400-1,050 a day,
+// 2026-09-07 - see coingeckoFamilyKeys). The strict sweep samples 2 per
+// commit, the nightly corpus drives all of them keyed and paced.
+let coingeckoHanded = new Set();
 if (process.env.TEST_ALL_SKIP_STRICT_COVERED === "1") {
-  const { strictScopeKeys } = await import("./test-non-metered-examples.js");
+  const { strictScopeKeys, coingeckoFamilyKeys } = await import("./test-non-metered-examples.js");
   const pricing = await (await fetch(`${TARGET}/api/pricing`)).json();
   strictCovered = strictScopeKeys(spec, pricing);
   if (strictCovered.size < 300) {
     console.error(`TEST_ALL_SKIP_STRICT_COVERED is set but the strict sweep's scope is only ${strictCovered.size} routes - the hand-over is broken; sweeping everything here instead`);
     strictCovered = new Set();
+  } else {
+    coingeckoHanded = coingeckoFamilyKeys(spec, pricing);
   }
 }
 
@@ -394,7 +402,7 @@ function buildGetUrl(path, op) {
   return `${TARGET}${path}${[...qs].length ? `?${qs}` : ""}`;
 }
 
-let braveSkipped = 0, e2bSkipped = 0, strictSkipped = 0;
+let braveSkipped = 0, e2bSkipped = 0, strictSkipped = 0, coingeckoSkipped = 0;
 const timings = [];
 // The sweep used to be one serial await-fetch per endpoint. Locally that is
 // ~2 minutes because almost nothing reaches the network; in CI, where the real
@@ -417,6 +425,7 @@ for (const [path, methods] of paths) {
     // dedicated skill-pack tests in test-mcp-all.js exercise the prompts.
     if (cat === "workflows") continue;
     if (strictCovered.has(`${method} ${path}`)) { strictSkipped++; continue; }
+    if (coingeckoHanded.has(`${method} ${path}`)) { coingeckoSkipped++; continue; }
     cats[cat] = cats[cat] || { pass: 0, total: 0 };
     cats[cat].total++;
 
@@ -490,7 +499,7 @@ for (const r of results) {
 }
 
 const totalOps = paths.reduce((a, [, m]) => a + Object.keys(m).length, 0);
-console.log(`\nExercised ${totalOps - braveSkipped - e2bSkipped - strictSkipped} endpoints at ${TARGET}${strictSkipped ? ` (handed ${strictSkipped} route(s) to the strict non-metered sweep - TEST_ALL_SKIP_STRICT_COVERED)` : ""}${braveSkipped ? ` (skipped ${braveSkipped} Brave route(s) — set BRAVE_LIVE_TEST=1 to include; paid-canary covers post-deploy verification)` : ""}${e2bSkipped ? ` (skipped ${e2bSkipped} E2B route(s) — set E2B_LIVE_TEST=1 to include; test-code-run-kit covers live in CI)` : ""}\n`);
+console.log(`\nExercised ${totalOps - braveSkipped - e2bSkipped - strictSkipped - coingeckoSkipped} endpoints at ${TARGET}${strictSkipped ? ` (handed ${strictSkipped} route(s) to the strict non-metered sweep - TEST_ALL_SKIP_STRICT_COVERED)` : ""}${coingeckoSkipped ? ` (handed ${coingeckoSkipped} CoinGecko route(s) to the sampled sweep + nightly corpus - keyed Demo credits)` : ""}${braveSkipped ? ` (skipped ${braveSkipped} Brave route(s) — set BRAVE_LIVE_TEST=1 to include; paid-canary covers post-deploy verification)` : ""}${e2bSkipped ? ` (skipped ${e2bSkipped} E2B route(s) — set E2B_LIVE_TEST=1 to include; test-code-run-kit covers live in CI)` : ""}\n`);
 // Where the wall-clock actually went. Printed always: a slow sweep that only
 // reports a total gives the next reader nothing to act on.
 {

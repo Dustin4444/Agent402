@@ -1213,6 +1213,25 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   cross-surface allows at most 10% route/find misses (was 50%). Lesson: a silent default named in the tool's OWN
   description is a contract, not a defect - check the description before the 400, and never make a documented sentinel an
   error.
+- **CI was spending the PRODUCTION CoinGecko key's monthly quota (2026-09-07, found by reading the dashboard the corpus
+  pointed at):** the Demo plan is 10,000 credits a month and the dashboard read 400-1,050 credits a DAY since 08-24 against
+  ~10 production calls a day (PostHog, 26 CoinGecko-backed slugs, 30 d) - the month's quota would have run out around the
+  24th and prod's CoinGecko tools would have 429'd for the rest of it. Mechanism: the key entered the sweeps lane on 08-24 so
+  the strict sweep's 2-per-commit SAMPLE would be reliable (deploy.yml's own comment: "Key plus sampling ... the quota lasts"),
+  and `test-all` in the SAME lane kept driving the other 22 family routes "so somebody exercises them" - with the key, ~24
+  keyed credits per push run x ~45 push runs a day. Third CI-spend leak of this shape (Brave, E2B, now this). Now
+  `coingeckoFamilyKeys()` (test-non-metered-examples) hands the WHOLE family to the sample under
+  `TEST_ALL_SKIP_STRICT_COVERED`, reported by count in test-all's summary; pinned from source in `test-brave-leak.js` (rule 7).
+  Same day, from running the nightly corpus by hand instead of waiting for it: (1) `price-coingecko` (price-feed-kit) sent
+  the key with NO bucket - the 08-28 shared-bucket fix reached crypto-kit and crypto-markets-kit only; it takes `takeCgToken`
+  now; (2) the corpus paced cases PER FILE and the 37 CoinGecko cases sit in three files, so three clocks started 60/min
+  against the 25/min bucket and 13 cases were never verified on the first nightly - `paceKey` (doc or case level, default the
+  file) shares one clock across files, every CoinGecko case carries `"paceKey":"coingecko","pace":5000`, the nightly gets
+  the Demo key (free; ~37 credits a night) and keeps the booted server's log (`--server-log`, uploaded) because
+  `defi-tvl [uniswap]` 504'd at exactly 10 s in two of three full runs and 200'd in 458 ms in the third with no log to say
+  why. Keyless CoinGecko from ONE IP cannot be measured back to back (the second local run was throttled from its first
+  call): a keyed run is the only honest one, 35/35 on the shared clock. Do not upgrade the plan for this: with CI off the
+  key, prod's own use is ~1% of it.
 - **Every guard we owned asserted SHAPE, never OUTCOME (2026-08-31, `scripts/test-pack-examples.js`):** the root cause behind nine
   packs selling broken for two months. The example sweep asserts an HTTP 200 and the documented TOP-LEVEL keys, and
   `{pack, args, steps, summary}` is a valid shape whether the steps returned data or all threw - so `0/N steps succeeded` passed

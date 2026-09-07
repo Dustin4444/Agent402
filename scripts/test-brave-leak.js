@@ -209,5 +209,23 @@ ok(unnamed.length === 0,
 ok(!/caller = "unknown"/.test(searchSrc),
   'the "unknown" default is gone - omitting a caller must be visible, not silent');
 
+// 7. CoinGecko is the third CI-spend leak of this shape (Brave, E2B, then this).
+//    The sweeps lane carries COINGECKO_API_KEY so the strict sweep's 2-per-commit
+//    SAMPLE is reliable, and the lenient sweep in the SAME lane kept driving the
+//    other 22 family routes with that key "so somebody exercises them" - every
+//    one a keyed Demo-plan credit on the PRODUCTION key's 10,000/month quota.
+//    Measured 400-1,050 a day (CoinGecko dashboard, 2026-09-07) against ~10
+//    production calls a day: the month's quota would have run out before the
+//    month did, and prod's CoinGecko tools would have 429'd for the rest of it.
+//    test-all must hand the WHOLE family over when it runs beside the strict
+//    sweep, and the hand-over must be the family function, not a hand list.
+{
+  const nonMetered = readFileSync(new URL("./test-non-metered-examples.js", import.meta.url), "utf8");
+  ok(/export function coingeckoFamilyKeys\(/.test(nonMetered), "the CoinGecko family is exported as one function (coingeckoFamilyKeys)");
+  ok(/coingeckoHanded = coingeckoFamilyKeys\(spec, pricing\)/.test(testAll), "test-all takes the whole family from coingeckoFamilyKeys under TEST_ALL_SKIP_STRICT_COVERED");
+  ok(/if \(coingeckoHanded\.has\(`\$\{method\} \$\{path\}`\)\) \{ coingeckoSkipped\+\+; continue; \}/.test(testAll), "test-all's sweep loop skips every handed CoinGecko route (the leak was this line missing)");
+  ok(/coingeckoSkipped/.test(testAll.slice(testAll.indexOf("console.log(`\\nExercised"))), "the hand-over is reported by count in the summary line, never silent");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -39,7 +39,7 @@
 //   TARGET_URL=http://127.0.0.1:3000 node scripts/test-corpus.js [--tier 0|1|2|all]
 //     [--only slug,slug] [--file name] [--json out.json] [--concurrency 4]
 //   (no TARGET_URL: boots its own FREE_MODE server on a free port)
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createWriteStream, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -57,6 +57,11 @@ const JSON_OUT = opt("--json", "");
 const CONCURRENCY = Math.max(1, parseInt(opt("--concurrency", "4"), 10) || 4);
 const TIMEOUT_MS = Math.max(5000, parseInt(opt("--timeout", "60000"), 10) || 60000);
 const VERBOSE = args.includes("--verbose");
+// --server-log <path>: the self-booted server's stdout+stderr, appended live.
+// Without it the boot log is kept only until /health answers and a kit's own
+// "[price-feed] upstream unreachable: … → TimeoutError" line (the one fact
+// that separates a slow upstream from a blocked event loop) is lost.
+const SERVER_LOG = opt("--server-log", "");
 
 // ---------------------------------------------------------------- helpers
 export function getPath(obj, p) {
@@ -102,6 +107,17 @@ const NOT_CONFIGURED = /not configured|not set|not installed on this server|miss
 const UPSTREAM_TEXT = /fetch failed|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|socket hang up|rate.?limit|too many requests|Source URL (timed out|returned HTTP 5\d\d|is unreachable)/i;
 
 /** What one outcome says about OUR code. */
+/** Pace scheduling, pure: reserve the next start slot on the case's clock and
+ *  return how long to wait for it. `paceNext` maps paceKey -> next free ms.
+ *  A case with no pace never waits and never advances any clock. */
+export function paceWaitMs(c, paceNext, now) {
+  if (!(c.pace > 0)) return 0;
+  const key = c.paceKey || c.file;
+  const at = Math.max(now, paceNext.get(key) || 0);
+  paceNext.set(key, at + c.pace);
+  return at - now;
+}
+
 export function classify({ status, body, netError, expectFails, tier }) {
   if (netError) return { kind: "upstream", note: `network: ${netError}` };
   const msg = String(body?.error ?? body?.message ?? "");
@@ -122,10 +138,18 @@ function loadCorpus() {
   const cases = [];
   for (const f of files) {
     const doc = JSON.parse(readFileSync(path.join(CORPUS_DIR, f), "utf8"));
-    const pace = Number(doc.pace) > 0 ? Number(doc.pace) : 0;
+    const docPace = Number(doc.pace) > 0 ? Number(doc.pace) : 0;
+    // A pace clock is keyed by `paceKey` (default: the file), so cases that
+    // share one rate-limited upstream can share ONE clock across files: the
+    // CoinGecko cases live in three files, and three per-file clocks at 3 s
+    // each started 60/min against a 25/min bucket (nightly 2026-09-06: 13
+    // cases never verified). A case may override both fields.
+    const docKey = typeof doc.paceKey === "string" && doc.paceKey ? doc.paceKey : f;
     for (const c of doc.cases || []) {
       if (!c.slug || !c.name) throw new Error(`${f}: every case needs slug + name`);
-      cases.push({ ...c, file: f, pace });
+      const pace = Number(c.pace) > 0 ? Number(c.pace) : docPace;
+      const paceKey = typeof c.paceKey === "string" && c.paceKey ? c.paceKey : docKey;
+      cases.push({ ...c, file: f, pace, paceKey });
     }
   }
   return cases;
@@ -139,8 +163,10 @@ async function bootServer() {
     stdio: ["ignore", "pipe", "pipe"],
   });
   let log = "";
-  child.stdout.on("data", (d) => { log += d; });
-  child.stderr.on("data", (d) => { log += d; });
+  const sink = SERVER_LOG ? createWriteStream(SERVER_LOG, { flags: "a" }) : null;
+  const onData = (d) => { log += d; if (sink) sink.write(d); };
+  child.stdout.on("data", onData);
+  child.stderr.on("data", onData);
   const base = `http://127.0.0.1:${port}`;
   const t0 = Date.now();
   while (Date.now() - t0 < 120_000) {
@@ -208,10 +234,12 @@ async function main() {
         if (!wantTiers.has(tier)) { counts.filtered++; continue; }
         if (c.requires === "payer" && !process.env.CORPUS_PAYER) { results.push({ ...c, tier, kind: "skipped", note: "identity-bound (no payer on a free boot)" }); counts.skipped++; continue; }
         if (!configured(c)) { results.push({ ...c, tier, kind: "skipped", note: `needs ${c.requires}` }); counts.skipped++; continue; }
-        // A file may declare `pace` (ms): its cases start no closer together
-        // than that, whatever the concurrency - rate-limited upstreams
-        // (CoinGecko demo: 30/min shared) otherwise read as failures.
-        if (c.pace) { const at = Math.max(Date.now(), paceNext.get(c.file) || 0); paceNext.set(c.file, at + c.pace); await new Promise((r) => setTimeout(r, at - Date.now())); }
+        // A file (or case) may declare `pace` (ms): cases on the same
+        // `paceKey` clock start no closer together than that, whatever the
+        // concurrency - rate-limited upstreams (CoinGecko demo: 30/min shared)
+        // otherwise read as failures.
+        const wait = paceWaitMs(c, paceNext, Date.now());
+        if (wait > 0) await new Promise((r) => setTimeout(r, wait));
         let out;
         try { out = await drive(base, ep, c.input); }
         catch (err) { out = { status: 0, body: null, ms: 0, netError: err?.cause?.code || err?.name || String(err) }; }

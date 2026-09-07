@@ -94,7 +94,9 @@
         "matches": {
           "categories[0].name": "meme"
         }
-      }
+      },
+      "paceKey": "coingecko",
+      "pace": 5000
     },
     {
       "slug": "coin-history",
@@ -116,7 +118,9 @@
           "date",
           "marketCap"
         ]
-      }
+      },
+      "paceKey": "coingecko",
+      "pace": 5000
     },
     {
       "slug": "coin-history",
@@ -130,7 +134,9 @@
         "matches": {
           "error": "365"
         }
-      }
+      },
+      "paceKey": "coingecko",
+      "pace": 5000
     },
     {
       "slug": "coin-market-chart-range",
@@ -148,7 +154,9 @@
           "summary",
           "granularity"
         ]
-      }
+      },
+      "paceKey": "coingecko",
+      "pace": 5000
     },
     {
       "slug": "coin-ohlc",
@@ -165,7 +173,9 @@
           "bars[0]",
           "summary"
         ]
-      }
+      },
+      "paceKey": "coingecko",
+      "pace": 5000
     },
     {
       "slug": "coin-price-by-contract",
@@ -182,7 +192,9 @@
         "populated": [
           "tokens[0]"
         ]
-      }
+      },
+      "paceKey": "coingecko",
+      "pace": 5000
     },
     {
       "slug": "coin-profile",
@@ -202,7 +214,9 @@
         "minCount": {
           "categories": 1
         }
-      }
+      },
+      "paceKey": "coingecko",
+      "pace": 5000
     },
     {
       "slug": "coin-profile",
@@ -212,7 +226,9 @@
       },
       "expect": {
         "status": 422
-      }
+      },
+      "paceKey": "coingecko",
+      "pace": 5000
     },
     {
       "slug": "coin-search",
@@ -226,7 +242,9 @@
           "counts",
           "coins[0].id"
         ]
-      }
+      },
+      "paceKey": "coingecko",
+      "pace": 5000
     },
     {
       "slug": "coins-list",
@@ -244,7 +262,9 @@
         "populated": [
           "coins[0].id"
         ]
-      }
+      },
+      "paceKey": "coingecko",
+      "pace": 5000
     },
     {
       "slug": "contract-code",
@@ -405,7 +425,9 @@
         "count": {
           "bids": 3
         }
-      }
+      },
+      "paceKey": "coingecko",
+      "pace": 5000
     },
     {
       "slug": "crypto-orderbook",
@@ -415,7 +437,9 @@
       },
       "expect": {
         "status": 422
-      }
+      },
+      "paceKey": "coingecko",
+      "pace": 5000
     },
     {
       "slug": "defi-chain-tvl-history",
@@ -641,7 +665,9 @@
         "gt": {
           "rates[0].perBtc": 1000
         }
-      }
+      },
+      "paceKey": "coingecko",
+      "pace": 5000
     },
     {
       "slug": "exchange-tickers",
@@ -658,7 +684,9 @@
         "populated": [
           "tickers[0]"
         ]
-      }
+      },
+      "paceKey": "coingecko",
+      "pace": 5000
     },
     {
       "slug": "exchanges",
@@ -675,7 +703,9 @@
           "exchange.name",
           "exchange.country"
         ]
-      }
+      },
+      "paceKey": "coingecko",
+      "pace": 5000
     },
     {
       "slug": "global-defi",
@@ -688,7 +718,9 @@
         "populated": [
           "topCoin"
         ]
-      }
+      },
+      "paceKey": "coingecko",
+      "pace": 5000
     },
     {
       "slug": "options-summary",
@@ -915,7 +947,9 @@
         "populated": [
           "market"
         ]
-      }
+      },
+      "paceKey": "coingecko",
+      "pace": 5000
     },
     {
       "slug": "rwa-asset",
@@ -925,7 +959,9 @@
       },
       "expect": {
         "status": 422
-      }
+      },
+      "paceKey": "coingecko",
+      "pace": 5000
     },
     {
       "slug": "rwa-issuer",
@@ -935,7 +971,9 @@
       },
       "expect": {
         "status": 422
-      }
+      },
+      "paceKey": "coingecko",
+      "pace": 5000
     },
     {
       "slug": "rwa-issuers",
@@ -948,7 +986,9 @@
         "populated": [
           "issuers[0].id"
         ]
-      }
+      },
+      "paceKey": "coingecko",
+      "pace": 5000
     },
     {
       "slug": "rwa-list",
@@ -964,7 +1004,9 @@
         "equals": {
           "assets[0].id": "tesla"
         }
-      }
+      },
+      "paceKey": "coingecko",
+      "pace": 5000
     },
     {
       "slug": "rwa-markets",
@@ -982,7 +1024,9 @@
         "populated": [
           "markets[0]"
         ]
-      }
+      },
+      "paceKey": "coingecko",
+      "pace": 5000
     },
     {
       "slug": "selector-lookup",
@@ -1213,7 +1257,9 @@
         "populated": [
           "coins[0]"
         ]
-      }
+      },
+      "paceKey": "coingecko",
+      "pace": 5000
     },
     {
       "slug": "stablecoin-supply-history",
