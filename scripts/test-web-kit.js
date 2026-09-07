@@ -121,10 +121,13 @@ if (process.env.WEB_LIVE_TEST === "1") {
 // hit never consults memgator.
 {
   const realFetch = globalThis.fetch;
+  // Route by HOSTNAME equality, never a substring of the URL (CodeQL
+  // js/incomplete-url-substring-sanitization flagged the first draft).
+  const hostOf = (input) => { try { return new URL(String(input)).hostname; } catch { return ""; } };
   const script = (wayback, memgator) => async (input) => {
     const u = String(input);
-    if (u.includes("archive.org/wayback/available")) return new Response(JSON.stringify(wayback), { status: 200, headers: { "content-type": "application/json" } });
-    if (u.includes("memgator.cs.odu.edu")) {
+    if (hostOf(input) === "archive.org") return new Response(JSON.stringify(wayback), { status: 200, headers: { "content-type": "application/json" } });
+    if (hostOf(input) === "memgator.cs.odu.edu") {
       if (memgator === 404) return new Response("", { status: 404 });
       return new Response(JSON.stringify(memgator), { status: 200, headers: { "content-type": "application/json" } });
     }
@@ -145,7 +148,7 @@ if (process.env.WEB_LIVE_TEST === "1") {
 
     let memgatorAsked = false;
     const hit = { url: "https://www.wikipedia.org", archived_snapshots: { closest: { status: "200", available: true, url: "http://web.archive.org/web/20151231235819/https://www.wikipedia.org/", timestamp: "20151231235819" } } };
-    globalThis.fetch = async (input) => { if (String(input).includes("memgator")) memgatorAsked = true; return script(hit, 404)(input); };
+    globalThis.fetch = async (input) => { if (hostOf(input) === "memgator.cs.odu.edu") memgatorAsked = true; return script(hit, 404)(input); };
     const c = await h("archive-snapshot")({ url: "https://www.wikipedia.org", timestamp: "2015" });
     ok(c.available === true && c.source === "web.archive.org" && !memgatorAsked, "archive-snapshot: a real Wayback hit never consults memgator");
   } finally {
