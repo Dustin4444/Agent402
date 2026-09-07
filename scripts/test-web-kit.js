@@ -112,6 +112,47 @@ if (process.env.WEB_LIVE_TEST === "1") {
   console.log("(skipping live upstream calls — set WEB_LIVE_TEST=1 to enable)");
 }
 
+// archive-snapshot: an EMPTY Wayback answer is not "never archived". The
+// availability API returned `archived_snapshots: {}` for wikipedia.org@2015
+// on the 2026-09-07 nightly (a 200, 5.1 s) and the handler sold that as
+// available:false without asking the Memento aggregator. Stubbed fetch:
+// (a) empty Wayback + a memento -> available:true from memgator; (b) empty +
+// memgator 404 -> available:false naming BOTH archives; (c) a real Wayback
+// hit never consults memgator.
+{
+  const realFetch = globalThis.fetch;
+  const script = (wayback, memgator) => async (input) => {
+    const u = String(input);
+    if (u.includes("archive.org/wayback/available")) return new Response(JSON.stringify(wayback), { status: 200, headers: { "content-type": "application/json" } });
+    if (u.includes("memgator.cs.odu.edu")) {
+      if (memgator === 404) return new Response("", { status: 404 });
+      return new Response(JSON.stringify(memgator), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    throw new Error(`unexpected fetch ${u}`);
+  };
+  const empty = { url: "https://www.wikipedia.org", archived_snapshots: {}, timestamp: "2015" };
+  const memento = { mementos: { closest: { datetime: "2015-01-01T00:00:58Z", uri: "https://web.archive.org/web/20150101000058/http://wikipedia.org/" } } };
+  try {
+    globalThis.fetch = script(empty, memento);
+    const a = await h("archive-snapshot")({ url: "https://www.wikipedia.org", timestamp: "2015" });
+    ok(a.available === true && a.source === "memgator.cs.odu.edu" && a.snapshot?.timestamp === "20150101000058",
+      "archive-snapshot: an empty Wayback answer is checked against the Memento aggregator and its memento is served");
+
+    globalThis.fetch = script(empty, 404);
+    const b = await h("archive-snapshot")({ url: "https://www.wikipedia.org", timestamp: "2015" });
+    ok(b.available === false && b.snapshot === null && b.source === "web.archive.org+memgator.cs.odu.edu" && /neither/.test(b.note || ""),
+      "archive-snapshot: only two archives agreeing on nothing reads as not archived, and says so");
+
+    let memgatorAsked = false;
+    const hit = { url: "https://www.wikipedia.org", archived_snapshots: { closest: { status: "200", available: true, url: "http://web.archive.org/web/20151231235819/https://www.wikipedia.org/", timestamp: "20151231235819" } } };
+    globalThis.fetch = async (input) => { if (String(input).includes("memgator")) memgatorAsked = true; return script(hit, 404)(input); };
+    const c = await h("archive-snapshot")({ url: "https://www.wikipedia.org", timestamp: "2015" });
+    ok(c.available === true && c.source === "web.archive.org" && !memgatorAsked, "archive-snapshot: a real Wayback hit never consults memgator");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
 console.log(`\npassed: ${pass} | failed: ${fail} | live ok: ${liveOk} | live upstream-errors (tolerated): ${liveErr}`);
 const liveOptIn = process.env.WEB_LIVE_TEST === "1";
 if (fail > 0 || (liveOptIn && liveOk === 0)) { console.error("web-kit: FAILED"); process.exit(1); }

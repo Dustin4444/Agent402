@@ -305,13 +305,47 @@ export const WEB_TOOLS = [
       }
       const closest = data?.archived_snapshots?.closest;
       const available = closest?.available === true && typeof closest?.url === "string";
+      if (!available) {
+        // An EMPTY Wayback answer is not "never archived": the availability
+        // API returns `archived_snapshots: {}` under load and answered exactly
+        // that for wikipedia.org@2015 on the 2026-09-07 nightly (5.1 s, a 200),
+        // while the same query answers a 2015-12-31 capture on retry. So an
+        // empty answer asks the Memento aggregator before it is believed; a
+        // memento found there is the answer, and only two archives agreeing
+        // on "nothing" reads as not archived - named as such in `source`.
+        let m = null, mementoAsked = false;
+        try { m = await mementoClosest(url, timestamp); mementoAsked = true; }
+        catch (err) { console.warn(`[archive-snapshot] archive.org answered empty and memgator failed (${err.message}) - answering empty`); }
+        const mClosest = m?.mementos?.closest;
+        if (typeof mClosest?.uri === "string" && mClosest.uri.length > 0) {
+          return {
+            url,
+            requestedTimestamp: timestamp,
+            available: true,
+            snapshot: {
+              url: mClosest.uri,
+              timestamp: mClosest.datetime ? mClosest.datetime.replace(/\D/g, "").slice(0, 14) : null,
+              status: null,
+            },
+            source: "memgator.cs.odu.edu",
+          };
+        }
+        return {
+          url,
+          requestedTimestamp: timestamp,
+          available: false,
+          snapshot: null,
+          source: mementoAsked ? "web.archive.org+memgator.cs.odu.edu" : "web.archive.org",
+          note: mementoAsked
+            ? "neither web.archive.org nor the Memento aggregator (13 archives) holds a capture"
+            : "web.archive.org holds no capture and the Memento aggregator could not be reached",
+        };
+      }
       return {
         url,
         requestedTimestamp: timestamp,
         available,
-        snapshot: available
-          ? { url: closest.url, timestamp: closest.timestamp ?? null, status: closest.status ?? null }
-          : null,
+        snapshot: { url: closest.url, timestamp: closest.timestamp ?? null, status: closest.status ?? null },
         source: "web.archive.org",
       };
     },
