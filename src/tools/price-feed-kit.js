@@ -16,7 +16,14 @@ function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
 }
 
-async function feedFetch(url) {
+// DefiLlama's /protocol/{slug} document is 2-10 MB rendered at their origin;
+// a CDN miss takes past 10 s from a cold region (the nightly corpus 504'd
+// `uniswap` at exactly 10 s in three of four runs, 2026-09-06/07, the server
+// log naming api.llama.fi → TimeoutError) while a warm read is 0.2 s. A 504 is
+// never charged, so waiting longer costs the buyer nothing but the wait.
+const LLAMA_DOC_TIMEOUT_MS = 25_000;
+
+async function feedFetch(url, { timeout = TIMEOUT_MS } = {}) {
   const host = new URL(url).hostname;
   const headers = { Accept: "application/json" };
   // CoinGecko demo key rides along when configured (call-time read, same header
@@ -35,7 +42,7 @@ async function feedFetch(url) {
   try {
     res = await fetch(url, {
       headers,
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeout),
     });
   } catch (err) {
     // Keep the evidence: the transport cause must reach the server log, not
@@ -167,7 +174,7 @@ export const PRICE_FEED_TOOLS = [
       const protocol = typeof i.protocol === "string" ? i.protocol.trim().toLowerCase() : "";
       if (!protocol) throw bad(`"protocol" is required`);
       if (!/^[a-z0-9-]+$/.test(protocol)) throw bad(`"protocol" must be a slug (lowercase, alphanumerics + hyphens)`);
-      const data = await feedFetch(`https://api.llama.fi/protocol/${protocol}`);
+      const data = await feedFetch(`https://api.llama.fi/protocol/${protocol}`, { timeout: LLAMA_DOC_TIMEOUT_MS });
       // DeFiLlama returns chainTvls as an object keyed by chain. Flatten for the
       // caller — they don't want to iterate object keys.
       // DeFiLlama's chainTvls object also carries aggregate pseudo-keys
