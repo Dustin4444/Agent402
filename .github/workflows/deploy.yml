@@ -4552,7 +4552,20 @@ jobs:
           tar -xzf "$asset" mcp-publisher
           cd mcp
           ../mcp-publisher login github-oidc
-          ../mcp-publisher publish
+          # The registry validates the npm version EXISTS before it registers
+          # it, and npm takes ~a minute to serve a version it just accepted
+          # (0.13.1: published 01:49:00, visible 01:49:54, registry 400
+          # "version '0.13.1' was not found (status: 404)" at 01:49:18, run
+          # 34073854085). Retry only that propagation 404, never any other
+          # refusal, for up to ~3 minutes.
+          for attempt in 1 2 3 4 5 6 7 8 9; do
+            if out=$(../mcp-publisher publish 2>&1); then printf '%s\n' "$out"; break; fi
+            printf '%s\n' "$out"
+            if [ "$attempt" = 9 ] || ! printf '%s' "$out" | grep -q "was not found (status: 404)"; then
+              echo "::error::registry publish failed (attempt $attempt)"; exit 1
+            fi
+            echo "npm has not served $VER yet (attempt $attempt) - waiting 20s"; sleep 20
+          done
           echo "published io.github.mikeypetrillo/agent402@$VER → https://registry.modelcontextprotocol.io"
           # Deprecate the version this publish just superseded. Only ever
           # touches the ONE immediately-previous version - never a bulk
