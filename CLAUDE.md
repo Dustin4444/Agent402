@@ -86,7 +86,8 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
   - `[test]` → full test job · `[deploy]` → Railway deploy · `[publish]` → npm + MCP Registry.
     **Since 2026-08-25 every push to the dev branch runs all test lanes with or without `[test]`** (a
     skipped lane satisfies a GitHub required check, so marker-less pushes were a loophole); `[deploy]` /
-    `[publish]` still gate their jobs. A PR from our own dev branch does NOT run lanes on the
+    `[publish]` still gate their jobs, and since 2026-09-07 both run ONLY from `main` (the production environment's
+    branch policy names `main` alone) - put the marker in the PR TITLE so the merge commit carries it. A PR from our own dev branch does NOT run lanes on the
     `pull_request` event (the push run of the same commit provides the check runs); forks and other
     branches keep full PR lanes. The "protect main" ruleset requires every lane + markers + gitleaks +
     CodeQL + Socket (add new lane names there when splitting). Merge with `scripts/merge-on-green.sh <pr>` (push-event run, every lane green,
@@ -3274,8 +3275,13 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   failures1h, threshold}` on `/api/gateway-status` (counts only), threshold `OPERATOR_AUTH_FAIL_ALERT` (default: see CLAUDE.local.md); heartbeat
   leg "Operator token guessing ELEVATED" opens/closes an issue; a boot-log WARN fires at most every 10 min. test-operator-auth 36.
 - **GitHub control plane hardened (2026-08-28, applied by the operator's `gh` session):** the `agent402 / production`
-  environment carries a deployment branch policy of PROTECTED BRANCHES ONLY, so the deploy job runs only from `main` (a
-  dev-branch `[deploy]` push can no longer ship prod - the policy enforces what the 2026-08-25 rule asked for); the
+  environment carried a deployment branch policy of PROTECTED BRANCHES ONLY, believed to confine the deploy and publish
+  jobs to `main`. **IT DID NOT (measured 2026-09-07):** the dev-branch push run of the 0.13.1 bump created a real
+  deployment to the environment from `claude/sweet-brown-i99jl3` at 01:48Z and published to npm from there, with no
+  protection rule on that branch (rules API: none; the only ruleset targets `~DEFAULT_BRANCH`). The policy is now
+  CUSTOM BRANCH POLICIES = `main` only (set the same day via the environments API); a dev-branch `[deploy]`/`[publish]`
+  job is refused by the environment before it starts, so the marker on the merge commit (PR title) is the only path,
+  and a dev push carrying `[publish]` shows a refused publish job on its run - expected, not a package failure; the
   "protect main" ruleset's admin bypass is `pull_request` mode (merge-on-green.sh's `--admin` merge still works; a direct
   push to main by an admin session does not); Dependabot security updates are ON (fix PRs are opened, never auto-merged);
   the unused `NPM_TOKEN` Actions secret is deleted (publishing is OIDC). No required reviewer on the environment: with one
