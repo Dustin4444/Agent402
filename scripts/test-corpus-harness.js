@@ -4,7 +4,7 @@
 // relies on is asserted here, so a change that quietly weakens an assertion
 // (a `populated` that accepts [], a 500 read as upstream) fails this file
 // before it can turn the corpus green.
-import { checkExpect, classify, getPath } from "./test-corpus.js";
+import { checkExpect, classify, getPath, paceWaitMs } from "./test-corpus.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
@@ -47,6 +47,21 @@ ok(T({ status: 400, body: { error: "\"x\" is required" }, tier: 1, expectFails: 
 ok(T({ status: 422, body: { error: "Source URL timed out" }, tier: 1, expectFails: ["status 422, expected 200"] }) === "upstream", "fetch-guard's own relabelled upstream timeout (422 'Source URL timed out') is upstream on a networked tool");
 ok(T({ status: 400, body: { error: '"timeout" must be a number' }, tier: 1, expectFails: ["status 400, expected 200"] }) === "fatal", "our own 400 that merely contains the word timeout is fatal (review, 2026-09-06)");
 ok(T({ status: 404, body: { error: "Price feed upstream: not found (check ids)" }, tier: 1, expectFails: ["status 404, expected 200"] }) === "fatal", "our own 404 that contains the word upstream is fatal");
+
+// pace: cases sharing a paceKey share ONE clock across files. Three per-file
+// clocks at 3 s each started the CoinGecko cases 60/min against a 25/min
+// bucket (nightly 2026-09-06: 13 cases rate-limited, never verified).
+{
+  const clocks = new Map();
+  const a = { file: "chain.json", paceKey: "coingecko", pace: 5000 };
+  const b = { file: "crypto-defi.json", paceKey: "coingecko", pace: 5000 };
+  ok(paceWaitMs(a, clocks, 1000) === 0, "the first case on a clock starts at once");
+  ok(paceWaitMs(b, clocks, 1000) === 5000, "a case in ANOTHER file on the same paceKey waits the full pace");
+  ok(paceWaitMs({ file: "other.json", paceKey: "other.json", pace: 3000 }, clocks, 1000) === 0, "a different key is a different clock");
+  ok(paceWaitMs({ file: "x.json", pace: 0 }, clocks, 1000) === 0 && !clocks.has("x.json"), "no pace: never waits, never reserves a slot");
+  ok(paceWaitMs({ file: "chain.json", pace: 3000 }, clocks, 1000) === 0 && clocks.get("chain.json") === 4000, "no paceKey falls back to the file as the clock");
+  ok(paceWaitMs(a, clocks, 20_000) === 0 && clocks.get("coingecko") === 25_000, "a clock in the past restarts from now");
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

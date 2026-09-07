@@ -9,6 +9,7 @@
 // rate limit), never PoW-eligible. Covered by scripts/test-price-feed-kit.js.
 
 import { protocols as llamaProtocols } from "./defi-kit.js";
+import { takeCgToken, isCoinGeckoHost } from "./coingecko-rate.js";
 const TIMEOUT_MS = 10_000;
 
 function bad(message, statusCode = 400) {
@@ -21,8 +22,14 @@ async function feedFetch(url) {
   // CoinGecko demo key rides along when configured (call-time read, same header
   // as crypto-kit's jsonGet). Keyless CoinGecko is metered per IP — and our
   // egress IP is shared with every other Railway tenant.
-  if (host === "api.coingecko.com" && process.env.COINGECKO_API_KEY) {
-    headers["x-cg-demo-api-key"] = process.env.COINGECKO_API_KEY;
+  if (isCoinGeckoHost(host)) {
+    if (process.env.COINGECKO_API_KEY) headers["x-cg-demo-api-key"] = process.env.COINGECKO_API_KEY;
+    // The key's minute budget is ONE bucket shared with crypto-kit and
+    // crypto-markets-kit (coingecko-rate.js). This kit sent the same key with
+    // no bucket at all (the 2026-08-28 fix reached the other two kits only), so
+    // under load it overran the key for every caller. Refuse before the call
+    // when the minute is spent: 503 is never charged.
+    if (!takeCgToken(Date.now())) throw bad("CoinGecko is rate limited right now, retry in a few seconds. You were not charged.", 503);
   }
   let res;
   try {

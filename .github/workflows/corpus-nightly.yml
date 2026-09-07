@@ -1,5 +1,6 @@
 # Nightly correctness corpus, tiers 0 + 1: every tool driven with inputs other
-# than its documented example on a FREE_MODE boot (no payment, no keys), asserting
+# than its documented example on a FREE_MODE boot (no payment; the only key is the free
+# CoinGecko Demo key, see the run step), asserting
 # the answer is populated rather than merely shaped. Tier 0 (pure CPU) also runs
 # on every push in deploy.yml; this run adds tier 1, the free public upstreams
 # (SEC, openFDA, DefiLlama, Hyperliquid, CoinGecko demo, open-meteo, public RPCs,
@@ -47,13 +48,23 @@ jobs:
         # "Could not locate the bindings file", issue #1233).
         run: npm ci --ignore-scripts && npm rebuild better-sqlite3
 
-      - name: Run the corpus (self-booted FREE_MODE server, no keys)
+      - name: Run the corpus (self-booted FREE_MODE server; only the free CoinGecko Demo key)
         id: corpus
         env:
           TIER: ${{ inputs.tier || '0,1' }}
+          # The CoinGecko Demo key (free plan, spends nothing): keyless CoinGecko
+          # from a shared GitHub egress IP rate-limited 13 of the 37 CoinGecko
+          # cases on the first nightly (2026-09-06), so those tools were never
+          # verified. With the key the server's own 25/min bucket is the bound
+          # and the cases' shared `paceKey` clock keeps under it.
+          COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
         run: |
           set +e
-          node scripts/test-corpus.js --tier "$TIER" --concurrency 3 --json corpus-report.json | tee corpus.log
+          # --server-log keeps the booted server's own stdout/stderr: a kit's
+          # "[price-feed] upstream unreachable: … → TimeoutError" line is the
+          # only thing that separates a slow upstream from our own event loop,
+          # and the runner otherwise drops the log once /health answers.
+          node scripts/test-corpus.js --tier "$TIER" --concurrency 3 --json corpus-report.json --server-log server.log | tee corpus.log
           code=${PIPESTATUS[0]}
           echo "exit=$code" >> "$GITHUB_OUTPUT"
           tail -1 corpus.log
@@ -66,6 +77,7 @@ jobs:
           path: |
             corpus-report.json
             corpus.log
+            server.log
           if-no-files-found: ignore
 
       - name: Page (open / update / close the issue)

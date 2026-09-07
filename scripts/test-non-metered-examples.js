@@ -568,11 +568,23 @@ export function strictScope(spec, pricing) {
 }
 
 /** "METHOD /path" keys this sweep will actually assert on THIS commit - the
- *  CoinGecko tools sampled out of the run are deliberately NOT in the set, so
- *  the lenient sweep keeps exercising them rather than nobody doing so. */
+ *  CoinGecko tools sampled out of the run are NOT in the set. */
 export function strictScopeKeys(spec, pricing) {
   const { work } = strictScope(spec, pricing);
   return new Set(work.filter((t) => !(COINGECKO_SLUGS.has(t.slug) && !CG_LIVE.has(t.slug))).map((t) => `${t.method} ${t.path}`));
+}
+
+/** "METHOD /path" keys of the WHOLE CoinGecko family, sampled or not. The
+ *  lenient sweep in the same CI lane hands ALL of them over: it used to keep
+ *  the sampled-out tools "so somebody exercises them", but the lane carries
+ *  COINGECKO_API_KEY, so every one of those calls was a keyed Demo-plan
+ *  credit - measured 400-1,050 credits a day on the 10,000 a month plan
+ *  (dashboard, 2026-09-07) against ~10 production calls a day, which would
+ *  have exhausted the PRODUCTION key's quota before month end. The sample
+ *  covers the family across commits; the nightly corpus drives all of it. */
+export function coingeckoFamilyKeys(spec, pricing) {
+  const { work } = strictScope(spec, pricing);
+  return new Set(work.filter((t) => COINGECKO_SLUGS.has(t.slug)).map((t) => `${t.method} ${t.path}`));
 }
 
 async function main() {

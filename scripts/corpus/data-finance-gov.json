@@ -59,7 +59,9 @@
         "populated": [
           "coins[0]"
         ]
-      }
+      },
+      "paceKey": "coingecko",
+      "pace": 5000
     },
     {
       "slug": "device-recalls",
