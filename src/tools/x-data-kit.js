@@ -247,17 +247,22 @@ async function resolveUserId(username) {
 }
 
 // --- tools -------------------------------------------------------------------
+// The documented example is a REAL tweet that will not go away (id 20, the
+// first tweet on the platform): the earlier placeholder id 1800000000000000000
+// answered 404 on X, so every sweep that drove the tool's own example paid for
+// "Not found on X" (Algorand rail canary, 2026-09-07). Metrics are
+// illustrative; the id, author and text are what X returns.
 const TWEET_EXAMPLE = {
-  id: "1800000000000000000",
-  text: "x402 lets an agent pay for an API call with one HTTP round trip.",
-  createdAt: "2026-08-20T14:05:00.000Z",
+  id: "20",
+  text: "just setting up my twttr",
+  createdAt: "2006-03-21T20:50:14.000Z",
   lang: "en",
-  authorId: "1234567890",
-  author: { username: "example_dev", name: "Example Dev", verified: false },
-  conversationId: "1800000000000000000",
+  authorId: "12",
+  author: { username: "jack", name: "jack", verified: false },
+  conversationId: "20",
   possiblySensitive: false,
-  metrics: { likes: 12, retweets: 3, replies: 1, quotes: 0, bookmarks: 2, impressions: 1400 },
-  url: "https://x.com/example_dev/status/1800000000000000000",
+  metrics: { likes: 180000, retweets: 120000, replies: 10000, quotes: 30000, bookmarks: 5000, impressions: 0 },
+  url: "https://x.com/jack/status/20",
 };
 
 const USER_EXAMPLE = {

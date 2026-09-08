@@ -21,11 +21,22 @@ export const isUpstreamOutage = (status, body) =>
   status === 502 || status === 503 || status === 504 ||
   /Seller rejected the paid retry|upstream error|operation was aborted|aborted due to timeout|ECONNRESET|ETIMEDOUT|socket hang up|Bad Gateway|Gateway Time-?out|fetch failed/i.test(String(body || ""));
 
+// OUR OWN gate refusing the credential before any facilitator is asked: the
+// body carries the gate's "Payment rejected" with a named reason (requirements-
+// mismatch, replay, expired ...). It is fast BECAUSE nothing went to the chain,
+// and that speed used to read as "throttle" - the metered Messages wire failed
+// this way for two weekly runs (2026-08-31, 09-07) and was filed as our own
+// wallet being rate-limited. A named refusal is a rail verdict whatever its
+// latency.
+export const isGateRefusal = (status, body) =>
+  status === 402 && /"error"\s*:\s*"Payment rejected"/.test(String(body || "")) && /"reason"\s*:\s*"/.test(String(body || ""));
+
 // Terminal shape of one paid attempt:
 // "ok" | "empty" | "fast-402" | "throttle" | "slow-402" | "other".
 export const outcomeOf = (a) =>
   a.status === 200 && String(a.body || "").trim() ? "ok"
     : a.status === 200 ? "empty"
+      : isGateRefusal(a.status, a.body) ? "slow-402"
       : a.status === 402 && a.elapsedMs < FAST_REJECT_MS ? "fast-402"
         : isThrottle(a.status, a.body) ? "throttle"
           : a.status === 402 ? "slow-402"
