@@ -4586,6 +4586,12 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      # The project id is KNOWN (repo var). Railway's `projects` listing query
+      # answered "Internal Server Error" for account tokens on 2026-09-08 (the
+      # CLI's `railway list` failed the same way while `project(id:)` reads
+      # worked), which failed three deploy attempts of a green main. With the
+      # id in hand every step goes straight to project(id:).
+      RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
 
@@ -4650,7 +4656,8 @@ jobs:
               -H "Authorization: Bearer $RAILWAY_API_TOKEN" -H "Content-Type: application/json" \
               --data @-
           }
-          PROJECT_ID=$(jq -n '{query:"query { projects { edges { node { id name } } } }"}' | gql \
+          PROJECT_ID="${RAILWAY_PROJECT_ID:-}"
+          [ -n "$PROJECT_ID" ] || PROJECT_ID=$(jq -n '{query:"query { projects { edges { node { id name } } } }"}' | gql \
             | jq -r '.data.projects.edges[] | select(.node.name=="agent402") | .node.id' | head -1)
           ENV_ID=$(jq -n --arg id "$PROJECT_ID" '{query:"query($id:String!) { project(id: $id) { environments { edges { node { id name } } } } }", variables:{id:$id}}' | gql \
             | jq -r '.data.project.environments.edges[] | select(.node.name=="production") | .node.id' | head -1)
@@ -4751,7 +4758,8 @@ jobs:
               -H "Authorization: Bearer $RAILWAY_API_TOKEN" -H "Content-Type: application/json" \
               --data @-
           }
-          PROJECT_ID=$(jq -n '{query:"query { projects { edges { node { id name } } } }"}' | gql \
+          PROJECT_ID="${RAILWAY_PROJECT_ID:-}"
+          [ -n "$PROJECT_ID" ] || PROJECT_ID=$(jq -n '{query:"query { projects { edges { node { id name } } } }"}' | gql \
             | jq -r '.data.projects.edges[] | select(.node.name=="agent402") | .node.id' | head -1)
           ENV_ID=$(jq -n --arg id "$PROJECT_ID" '{query:"query($id:String!) { project(id: $id) { environments { edges { node { id name } } } } }", variables:{id:$id}}' | gql \
             | jq -r '.data.project.environments.edges[] | select(.node.name=="production") | .node.id' | head -1)
@@ -4846,6 +4854,12 @@ jobs:
     environment: "agent402 / production"
     env:
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      # The project id is KNOWN (repo var). Railway's `projects` listing query
+      # answered "Internal Server Error" for account tokens on 2026-09-08 (the
+      # CLI's `railway list` failed the same way while `project(id:)` reads
+      # worked), which failed three deploy attempts of a green main. With the
+      # id in hand every step goes straight to project(id:).
+      RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
       # The key ID and wallet address are not sensitive (the wallet address is
       # public on-chain); only the Railway token and CDP secret live in secrets.
       CDP_KEY_ID: ${{ secrets.CDP_API_KEY_ID || 'ff16e708-0590-4a24-8a17-b0e978143f68' }}
@@ -4928,8 +4942,11 @@ jobs:
               -H "Authorization: Bearer $RAILWAY_API_TOKEN" -H "Content-Type: application/json" \
               --data @-
           }
-          PROJECT_ID=$(jq -n '{query:"query { projects { edges { node { id name } } } }"}' | gql \
-            | jq -r --arg n "$PROJECT_NAME" '.data.projects.edges[] | select(.node.name==$n) | .node.id' | head -1)
+          PROJECT_ID="${RAILWAY_PROJECT_ID:-}"
+          if [ -z "$PROJECT_ID" ]; then
+            PROJECT_ID=$(jq -n '{query:"query { projects { edges { node { id name } } } }"}' | gql \
+              | jq -r --arg n "$PROJECT_NAME" '.data.projects.edges[] | select(.node.name==$n) | .node.id' | head -1)
+          fi
           if [ -z "$PROJECT_ID" ]; then
             RESP=$(jq -n --arg n "$PROJECT_NAME" '{query:"mutation($n:String) { projectCreate(input: { name: $n }) { id } }", variables:{n:$n}}' | gql)
             echo "$RESP"
