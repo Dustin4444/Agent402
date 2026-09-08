@@ -226,6 +226,26 @@ for (const t of tools) {
     const bareBody = await bare.json().catch(() => undefined);
     paymentRequired = http.getPaymentRequiredResponse((n) => bare.headers.get(n), bareBody);
     exampleInput = paymentRequired?.extensions?.bazaar?.info?.input || {};
+    // A function-priced route (the metered tiers) quotes its 402 from the
+    // BODY: the bare `{}` request above quoted the floor, the paid retry
+    // below sends the example body, and the accept echoed with the payment
+    // then names an amount the gate no longer derives - "requirements-
+    // mismatch", filed as a rail failure for two weeks running on
+    // /v1/metered/messages and /v1/metered/responses (2026-08-31, 09-07)
+    // while the chat wire passed only because its example quotes the floor
+    // too. So once the example is known, ask for the 402 AGAIN with the body
+    // that will actually be paid, and sign against that quote. One more
+    // unpaid request per POST tool; a flat-priced route quotes the same.
+    if (t.method === "POST" && exampleInput.body && Object.keys(exampleInput.body).length) {
+      const quoted = await fetch(`${TARGET}${t.path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json", ...heartbeatHeaders() },
+        body: JSON.stringify(exampleInput.body),
+        signal: AbortSignal.timeout(30000),
+      });
+      const quotedBody = await quoted.json().catch(() => undefined);
+      if (quoted.status === 402) paymentRequired = http.getPaymentRequiredResponse((n) => quoted.headers.get(n), quotedBody);
+    }
   } catch (e) { report.toolFail.push({ key, slug: t.slug, reason: `challenge: ${String(e.message).slice(0, 120)}` }); continue; }
 
   const accepts = (paymentRequired.accepts || []).filter((a) => String(a.network || "").startsWith(AVM_CAIP2_PREFIX));

@@ -1979,7 +1979,15 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `algorand:*`) — these three FAIL the run — plus **upstream** (a persistent third-party/edge
   outage: reported prominently, buyer never charged, **does NOT fail the run**, same doctrine as
   the external buyer) and **throttle**/**rate-limited** (our own burst). The pure classifiers
-  (`outcomeOf`, `isUpstreamOutage`, `isThrottle`) live in `scripts/avm-canary-classify.js`
+  **The sweep quoted the 402 for `{}` and paid with the example body (fixed 2026-09-08):** on a function-priced route
+  (the metered tiers) the accept it echoed named the floor while the gate re-derived the example's quote, so the gate
+  answered `requirements-mismatch` in 40 ms - and a FAST 402 read as "throttle", so `/v1/metered/messages` failed two
+  weekly runs (08-31, 09-07) filed as our own wallet being rate-limited, and Responses joined it the week its default
+  output budget grew (the chat wire passed only because its example quotes the floor). Now the sweep re-fetches the 402
+  WITH the example body before signing, and `isGateRefusal` (our gate's "Payment rejected" + a named reason) is a rail
+  verdict whatever its latency. Same run: x-tweet's documented example was a made-up id that 404s on X - it is tweet 20 now.
+  The pure classifiers
+  (`outcomeOf`, `isUpstreamOutage`, `isThrottle`, `isGateRefusal`) live in `scripts/avm-canary-classify.js`
   (side-effect-free so they unit-test without booting the sweep) and are pinned by
   `scripts/test-algorand-canary-classify.js` (21, in CI). One issue, heartbeat style; a passing
   run auto-closes it. Before this, ANY blip over 500 buys kept the issue permanently open
