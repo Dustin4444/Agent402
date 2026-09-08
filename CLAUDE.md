@@ -1214,6 +1214,25 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   cross-surface allows at most 10% route/find misses (was 50%). Lesson: a silent default named in the tool's OWN
   description is a contract, not a defect - check the description before the 400, and never make a documented sentinel an
   error.
+- **Seller dossier (2026-09-08, `src/tools/seller-dossier.js`, `seller-dossier`, `POST /api/seller-dossier {origin}` $0.05,
+  `scripts/test-seller-dossier.js` 23 in unit-d):** everything we already hold about ONE external x402 origin, assembled: identity
+  + crawl history (registration first/last-routable/last-settled, robots block, paywall probe, listing-injection verdict), the
+  catalog with PER-ROW price provenance (live-402 vs manifest, observedAt, stale past 7 d, carried forward, disagrees 2x with the
+  origin's own declaration, method inferred/corrected, URL template, networks verification due), advertised wallets vs paid wallets
+  (own chain evidence, INHERITED wallets from the evidence binding, shared payTo claims with the other claimants), settlement
+  evidence per SOURCE (Base leaderboard, Bazaar "their measurement", Solana SPL "never folded into the Base gate", MPP offers +
+  recipient transfers), the router's `dispatchEligibility` verdict + byChain + detail + refusal memos per configured chain, and
+  `deliveryObservation` rows for the routes our router actually paid. Ends in sentence FLAGS, no score (a number reads as a verdict
+  we did not measure); unobserved sources read `observed:false`, never 0; unknown breadth is null. Deps-injected like seller-trust
+  (the tool file imports nothing stateful; server.js hands in `sellerDetail`, the new raw `sellerEntry()` accessor for the
+  provenance stamps `sellerDetail` drops, `withDispatchFields`, `dispatchEvidence().binding`, the Base leaderboard row, `bazaarQualityFor`,
+  `solanaEvidenceByOrigin`, the MPP index + board, `sellerRefusedRecently` per `spendChainsConfigured()`, `getSellerRegistrations`,
+  `deliveryObservation`, `sharedPayToClaims`; thresholds = the router's own constants). Never fetches the seller. WALLET_ONLY (the
+  bestsellers argument); in `SHAPE_HAPPY_PATH_ONLY` because a keyless CI boot indexes nothing and the honest answer for an
+  unindexed origin is a different shape. Why $0.05 and why now: the ecosystem-data line (bestsellers/demand-radar/x402-trending) has
+  the most distinct buyers of anything we sell (46 wallets/60 d), the question "what do you know about this seller" arrived by
+  email three times in one week, and the inputs are ours alone; `seller-trust` ($0.005, 2 buyers) stays as the cheap gate read.
+  Next rungs if it sells: a card-priced written report and a $5/mo seller monitor.
 - **CI was spending the PRODUCTION CoinGecko key's monthly quota (2026-09-07, found by reading the dashboard the corpus
   pointed at):** the Demo plan is 10,000 credits a month and the dashboard read 400-1,050 credits a DAY since 08-24 against
   ~10 production calls a day (PostHog, 26 CoinGecko-backed slugs, 30 d) - the month's quota would have run out around the

@@ -1692,7 +1692,7 @@
       "slug": "slugify",
       "name": "custom separator",
       "input": {
-        "text": "  Über Straße & Co.  ",
+        "text": "  \u00dcber Stra\u00dfe & Co.  ",
         "separator": "_"
       },
       "expect": {
@@ -1721,7 +1721,7 @@
       "input": {
         "text": "abcdefghij",
         "length": 5,
-        "suffix": "…",
+        "suffix": "\u2026",
         "words": false
       },
       "expect": {
@@ -1729,7 +1729,7 @@
           "truncated": true
         },
         "matches": {
-          "result": "^abcd…$|^abcde…$"
+          "result": "^abcd\u2026$|^abcde\u2026$"
         }
       }
     },
@@ -2287,6 +2287,39 @@
         "populated": [
           "origin"
         ]
+      }
+    },
+    {
+      "slug": "seller-dossier",
+      "name": "an origin we have never seen is an honest unknown, with the evidence sources still named",
+      "input": {
+        "origin": "never-seen-zq7x.example"
+      },
+      "expect": {
+        "equals": {
+          "listed": false
+        },
+        "populated": [
+          "origin",
+          "reason",
+          "howToList",
+          "flags",
+          "settlementEvidence.base.source",
+          "settlementEvidence.bazaar.source"
+        ]
+      }
+    },
+    {
+      "slug": "seller-dossier",
+      "name": "a bare word is not a host",
+      "input": {
+        "origin": "nothost"
+      },
+      "expect": {
+        "status": 400,
+        "matches": {
+          "error": "host"
+        }
       }
     },
     {

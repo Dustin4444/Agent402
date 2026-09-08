@@ -4397,6 +4397,22 @@ export function _cacheForTests() {
   return cache;
 }
 
+/** The RAW crawl entry for one origin or bare host (the object sellerDetail
+ *  projects from), for readers that need the per-tool provenance stamps the
+ *  projection drops: quoteSource, quoteObservedAt, quoteCarriedForward,
+ *  originDeclaredPrice, priceResolvedFrom, networksVerifiedAt, methodInferred,
+ *  methodCorrectedFrom. Read-only by convention: callers must not mutate it.
+ *  null when the origin was never crawled. */
+export function sellerEntry(originOrHost) {
+  const q = String(originOrHost || "").trim().toLowerCase().slice(0, 253);
+  if (!q) return null;
+  const hostOf = (u) => { try { return new URL(u).host.toLowerCase(); } catch { return ""; } };
+  for (const [origin, v] of cache.entries()) {
+    if (origin.toLowerCase() === q || hostOf(origin) === q) return { origin, ...v };
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Third-party tool catalog (/marketplace/tools)
 // ---------------------------------------------------------------------------
