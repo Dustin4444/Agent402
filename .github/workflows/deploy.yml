@@ -2319,6 +2319,8 @@ jobs:
           t node scripts/test-cdp-kit.js
           # Seller-trust honesty invariants (no evidence never reads as a bad verdict; advertised ≠ settled — offline)
           t node scripts/test-seller-trust.js
+          # Seller-dossier honesty invariants (unknown is unknown; inherited wallets named; no score; flags name their evidence — offline)
+          t node scripts/test-seller-dossier.js
           # Package integrity (files allowlist covers every import; no sibling dep range excludes what we ship — offline)
           t node scripts/test-package-integrity.js
           # Every SOLD skill pack has a real step config (a pack without one answers 200 with 0/N steps and still charges — offline)

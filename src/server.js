@@ -33,7 +33,7 @@ import {
 } from "./tools/memory.js";
 import { payerFromRequest, payerFromPaymentResponse, paymentHeaderOf, paymentIdentifierOf } from "./payer.js";
 import { runInAbortableScope, abortInFlightComposites, installDrainAwareFetch, isDrainAbort } from "./drain-abort.js";
-import { startSolanaLeaderboard, getSolanaLeaderboardSnapshot } from "./solana-leaderboard.js";
+import { startSolanaLeaderboard, getSolanaLeaderboardSnapshot, solanaEvidenceByOrigin } from "./solana-leaderboard.js";
 import { creditFromTx as solanaCreditFromTx } from "./solana-buyer.js";
 import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpendFailure, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS, isLongRunningSlug, _compositeGuardState, compositeUsageSnapshot, withCompositeContext } from "./composite-spend-guard.js";
 import { gatewaySettleBreakerCheck } from "./gateway-settle-breaker.js";
@@ -169,7 +169,7 @@ import { installEgressMeter, egressReport } from "./egress-meter.js";
 import { acpFeed, acpManifest } from "./acp.js";
 import { findTools, findRelatedSellers } from "./find.js";
 import { recordWish, getWishesAggregate, annotateServed, WISH_SERVED_MIN_SCORE } from "./wish.js";
-import { allPayToOrigins, indexSnapshot, sellerDetail, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories, bazaarQualityEntries, indexWarmStartInProgress } from "./x402-index.js";
+import { allPayToOrigins, indexSnapshot, sellerDetail, sellerEntry, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories, bazaarQualityEntries, bazaarQualityFor, indexWarmStartInProgress, quoteIsStale, priceDisagreesWithOrigin, networksNeedLiveVerify, looksLikeListingInjection } from "./x402-index.js";
 import { startMppCrawler, registerMppOrigin, validateOriginInput as validateMppOriginInput, mppIndexSnapshot } from "./mpp-index.js";
 import { startMppLeaderboard, mppLeaderboardSnapshot } from "./mpp-leaderboard.js";
 import { tempoSelfRecipient } from "./mpp-tempo.js";
@@ -340,7 +340,7 @@ import { CHAIN_PAGES, marketSellers, marketOperatorCount, marketPage, marketPane
 import { sellPage } from "./sell.js";
 import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledgerBuyerConcentration, ledgerSyncState } from "./revenue-ledger.js";
 import { x402EconomySnapshot, economySnapshotCached, warmEconomySnapshot } from "./x402-economy.js";
-import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate } from "./settlement-proof.js";
+import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate, sharedPayToClaims } from "./settlement-proof.js";
 import { buildEvidenceBinding, baseLiveGate } from "./evidence-binding.js";
 import { dispatchEligibility, dispatchLegend } from "./dispatch-eligibility.js";
 import { spend as sharedSpend, refund as sharedRefund, sharedLimitEnabled } from "./shared-limit.js";
@@ -360,7 +360,9 @@ for (const def of ALL_KIT) if (Object.hasOwn(REPORT_TIERS, def.slug) && typeof d
 import { buildSkillTools } from "./tools/skill-runner.js";
 import { buildRouteExecuteTool, EXEC_TIERS } from "./tools/route-execute.js";
 import { buildSellerTrustTool } from "./tools/seller-trust.js";
-import { payX402, avmBuyerConfigured, avmBuyerStatus } from "./x402-buyer.js";
+import { buildSellerDossierTool } from "./tools/seller-dossier.js";
+import { deliveryObservation } from "./response-observation.js";
+import { payX402, avmBuyerConfigured, avmBuyerStatus, sellerRefusedRecently } from "./x402-buyer.js";
 import { svmBuyerConfigured, svmBuyerStatus, SOLANA_NETWORK_LABELS } from "./solana-buyer.js";
 import { payTempo, tempoBuyerConfigured, tempoBuyerStatus } from "./tempo-buyer.js";
 import { issueChallenge, verifySolution, isComputePayable, powInfo, POW_DIFFICULTY, WALLET_ONLY_SLUGS, verifyHeartbeatToken } from "./pow.js";
@@ -1425,6 +1427,60 @@ for (const tier of EXEC_TIERS) {
     sorThreshold: SOR_MIN_SETTLED_TX,
     sorCap: EXEC_TIERS[0].underlyingMaxUsd,
     settlementNetwork: "eip155:8453",
+    selfHost: (() => { try { return new URL(BASE_URL).host.toLowerCase(); } catch { return ""; } })(),
+  });
+  if (CATALOG[tool.route]) throw new Error(`Duplicate route: ${tool.route}`);
+  CATALOG[tool.route] = tool;
+  ALL_KIT.push(tool);
+}
+
+// Seller dossier - every evidence source the router and the marketplace already
+// keep, assembled for one origin. Same injection discipline as seller-trust:
+// the tool file imports nothing stateful, each accessor is handed in here from
+// the singleton that owns it, and the thresholds are the router's own
+// constants so the dossier can never disagree with what the router does.
+{
+  const hostOfUrl = (u) => { try { return new URL(u).host.toLowerCase(); } catch { return ""; } };
+  const tool = buildSellerDossierTool({
+    getSellerDetail: (host) => sellerDetail(host),
+    getSellerEntry: (host) => sellerEntry(host),
+    getDispatchRow: (detail) => withDispatchFields(detail),
+    getEvidenceBinding: (origin) => dispatchEvidence().binding.get(norm(origin)) || null,
+    getLeaderboardRow: (origin, host) => {
+      const snap = getLeaderboardSnapshot();
+      const rows = Array.isArray(snap?.leaderboard) ? snap.leaderboard : [];
+      const k = norm(origin);
+      const row = rows.find((r) => (r.origins || []).some((o) => norm(o) === k) || norm(r.homepage) === k || hostOfUrl(r.homepage) === host);
+      return row ? { ...row, window: snap.windowLabel || null } : null;
+    },
+    getBazaarQuality: (origin) => bazaarQualityFor(origin) || null,
+    getSolanaEvidence: (origin) => {
+      const ev = solanaEvidenceByOrigin();
+      const k = norm(origin);
+      return ev.settled.has(k) ? { credits: ev.settled.get(k) || 0, payers: ev.payers.get(k) || 0 } : null;
+    },
+    getMpp: (origin, host) => {
+      const k = norm(origin);
+      const seller = (mppIndexSnapshot().sellers || []).find((x) => norm(x.origin) === k || hostOfUrl(x.origin) === host || hostOfUrl(x.serviceUrl) === host);
+      if (!seller) return null;
+      const recipients = new Set((seller.offers || []).map((o) => String(o.recipient || "").toLowerCase()).filter(Boolean));
+      const rows = (mppLeaderboardSnapshot().rows || []).filter((r) => recipients.has(String(r.recipient || "").toLowerCase()));
+      return { verified: seller.verified === true, lastProbeOk: seller.lastProbeOk === true, offers: seller.offers || [], recipients: rows };
+    },
+    getRefusals: (origin) => spendChainsConfigured()
+      .map((chain) => { const r = sellerRefusedRecently(origin, chain); return r ? { chain, at: r.at, status: r.status } : null; })
+      .filter(Boolean),
+    getRegistration: (origin) => { const k = norm(origin); return getSellerRegistrations().find((r) => norm(r.origin) === k) || null; },
+    getDelivery: (origin, method, route) => deliveryObservation(origin, method, route),
+    getSharedClaims: () => {
+      const out = {};
+      for (const c of sharedPayToClaims({ sellers: routableSellerSummaries(), network: "eip155:8453" })) out[String(c.payTo).toLowerCase()] = c.origins;
+      return out;
+    },
+    helpers: { quoteIsStale, priceDisagreesWithOrigin, networksNeedLiveVerify, looksLikeListingInjection },
+    sorThreshold: SOR_MIN_SETTLED_TX,
+    sorPayers: SOR_MIN_DISTINCT_PAYERS,
+    sorCap: EXEC_TIERS[0].underlyingMaxUsd,
     selfHost: (() => { try { return new URL(BASE_URL).host.toLowerCase(); } catch { return ""; } })(),
   });
   if (CATALOG[tool.route]) throw new Error(`Duplicate route: ${tool.route}`);
