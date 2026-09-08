@@ -143,6 +143,21 @@ if (rn) {
   ok(typeof rn.check({ rendered: true, title: "Something Else", markdown: "x" }) === "string", "render leg check rejects an unexpected page (title mismatch)");
 }
 
+// The seller-dossier leg is the prod-side "non-empty for a real origin"
+// assertion a board-backed tool needs (demand-radar sold an empty radar for
+// six weeks because a keyless boot excused the empty shape). Its check must
+// refuse the honest-unindexed shape and a hollow indexed one.
+const sd = legFor("/api/seller-dossier");
+ok(!!sd, "canary has a seller-dossier leg (proves the assembled answer on prod, where the index is warm)");
+if (sd) {
+  ok(sd.method === "POST" && typeof sd.body?.origin === "string" && sd.body.origin.includes("."), "seller-dossier leg POSTs a real { origin }");
+  ok(sd.priceUsd === 0.05, `seller-dossier leg priceUsd (${sd?.priceUsd}) matches the advertised $0.05`);
+  ok(sd.check({ listed: true, catalog: { paidToolCount: 3 }, flags: [], settlementEvidence: { base: { callsSettled: 12 }, bazaar: { observed: false } } }) === true, "seller-dossier check accepts an indexed dossier with evidence");
+  ok(typeof sd.check({ listed: false, reason: "not in our index", flags: ["x"] }) === "string", "seller-dossier check refuses the unindexed shape (a cold index on prod would be a real defect)");
+  ok(typeof sd.check({ listed: true, catalog: { paidToolCount: 0 }, flags: [], settlementEvidence: { base: { callsSettled: 1 } } }) === "string", "seller-dossier check refuses an indexed dossier with no priced catalog");
+  ok(typeof sd.check({ listed: true, catalog: { paidToolCount: 3 }, flags: [], settlementEvidence: { base: { observed: false }, bazaar: { observed: false } } }) === "string", "seller-dossier check refuses a dossier with no observed settlement source");
+}
+
 // The metered leg proves the per-request exact quote end to end. Its priceUsd
 // must equal what the kit quotes for ITS OWN body: the leg's display price is
 // then the same number the 402 will carry, and a change to the quote

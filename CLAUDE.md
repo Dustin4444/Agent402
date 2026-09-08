@@ -919,6 +919,11 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `authorization.from` — memory identity depends on it, never weaken. `payerFromPaymentResponse`
   (facilitator settle-receipt `payer`) is the fallback for SVM/Stellar, telemetry/sales only.
   Never lowercase base58/Stellar addresses (EVM only).
+- **Railway project id is a repo VARIABLE, never looked up by name (2026-09-08):** `RAILWAY_PROJECT_ID` (vars) feeds every
+  Railway step; the `projects` listing query answered plain-text "Internal Server Error" for account tokens for over an
+  hour (the CLI's `railway list` failed identically while `project(id:)` reads and the MCP connector worked) and three
+  reruns of a green main's deploy job died at "Find or create project". The listing is now the fallback when the var is
+  unset. If a deploy fails at that step again: check `railway list` from a terminal before blaming the token.
 - **Deploy safety (live-buyer protection):** deploy job runs `scripts/deploy-quiet-gate.js`
   BEFORE the Railway variable upsert (the upsert itself can trigger a redeploy) — polls
   `/api/stats` `recentCalls`, waits for 180s with no external USDC call (heartbeat/PoW never

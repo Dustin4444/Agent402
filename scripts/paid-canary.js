@@ -157,6 +157,24 @@ export const TOOLS = [
     check: (r) => (r?.tweet?.id === "20" && /twttr/.test(String(r?.tweet?.text)) && r?.tweet?.author?.username === "jack") || `expected tweet 20 by jack, got ${JSON.stringify(r).slice(0, 100)}`,
   },
   {
+    // Seller dossier (2026-09-08): a board-backed tool needs a prod-side
+    // "non-empty for a real origin" assertion, the demand-radar lesson (it
+    // sold an empty radar for six weeks because every shape check excused an
+    // empty answer as a cold boot). A keyless CI boot indexes nothing, so only
+    // prod can prove the assembled answer. api.strale.io is a large, indexed,
+    // dispatch-eligible seller with settlement evidence; the check asserts the
+    // INDEXED shape with a priced catalog and at least one evidence source
+    // observed, never merely a 200.
+    kit: "seller-dossier",
+    path: "/api/seller-dossier",
+    method: "POST",
+    body: { origin: "api.strale.io" },
+    priceUsd: 0.05,
+    check: (r) => (r?.listed === true && r?.catalog?.paidToolCount > 0 && Array.isArray(r?.flags)
+      && ((r?.settlementEvidence?.base?.callsSettled > 0) || (r?.settlementEvidence?.bazaar?.calls30d > 0)))
+      || `expected an indexed dossier with a priced catalog and observed settlement evidence, got ${JSON.stringify(r).slice(0, 140)}`,
+  },
+  {
     // Options-chain rides the Yahoo relay's options endpoint (session-crumb
     // handshake handled server-side) — a different relay path than
     // stock-quote's chart endpoint, so this leg keeps the deployed options
