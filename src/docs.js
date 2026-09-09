@@ -65,7 +65,12 @@ function transformWikilinks(md) {
     .replace(/\[\[([^\]]+)\]\]/g, (_m, name) => {
       const slug = slugFromPageName(name);
       return `[${name.trim()}](/docs/${slug})`;
-    });
+    })
+    // GitHub-wiki-style RELATIVE markdown links, `[text](Page-Slug)`: on the
+    // wiki they resolve to the sibling page; served under /docs they resolved
+    // to the site root and 404'd (five of them, found by the 2026-09-09 link
+    // crawl). Only a slug that names a real wiki page is rewritten.
+    .replace(/\]\(([A-Za-z0-9][A-Za-z0-9-]*)\)/g, (m, slug) => (VALID_SLUGS.has(slug) ? `](/docs/${slug})` : m));
 }
 
 // Parse the GitHub-flavored _Sidebar.md into a normalized structure we can

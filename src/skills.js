@@ -2951,6 +2951,7 @@ ${packTool ? `
     <span class="sk-buy-unit">per call &middot; one payment for the whole workflow</span>
   </div>
   <div class="sk-buy-route">${e(packTool.route)}</div>
+  <div style="font-family:var(--font-mono);font-size:12.5px;margin:8px 0 0;"><a href="/tools/skill-${e(pack.slug)}" style="color:var(--muted);">Sample output + API docs &rarr;</a></div>
   <p class="sk-buy-note">${pack.toolSlugs.length} tools run server-side in one request. You pay once, settle once, and get a single response - no orchestration, no per-step payments, and a partial-success envelope if any step fails. USDC over x402 on any supported chain.</p>
 </div>` : ""}
 
