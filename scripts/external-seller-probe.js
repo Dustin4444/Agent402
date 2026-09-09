@@ -7,7 +7,7 @@
 // Dispatch-only (.github/workflows/external-seller-probe.yml); never in CI.
 //
 //   BURNER_KEY=0x... PROBE_URL=https://seller/route PROBE_METHOD=POST \
-//   PROBE_BODY='{"...":"..."}' PROBE_MAX_USD=0.01 node scripts/external-seller-probe.js
+//   PROBE_BODY='{"...":"..."}' PROBE_HEADERS='{"Idempotency-Key":"..."}' PROBE_MAX_USD=0.01 node scripts/external-seller-probe.js
 import { createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
@@ -21,6 +21,16 @@ if (!(Number.isFinite(maxUsd) && maxUsd > 0)) { console.error(`PROBE_MAX_USD mus
 const maxAtomic = BigInt(Math.round(maxUsd * 1e6));
 let body;
 if (process.env.PROBE_BODY) { try { body = JSON.parse(process.env.PROBE_BODY); } catch { console.error("PROBE_BODY is not JSON"); process.exit(2); } }
+// Optional extra request headers (a JSON object of header -> value): some
+// sellers gate the paid route on their own keys (Idempotency-Key, a receipt
+// recovery id). Never the payment header - the paying fetch owns that.
+let extraHeaders = {};
+if (process.env.PROBE_HEADERS) {
+  try { extraHeaders = JSON.parse(process.env.PROBE_HEADERS); } catch { console.error("PROBE_HEADERS is not JSON"); process.exit(2); }
+  if (!extraHeaders || typeof extraHeaders !== "object" || Array.isArray(extraHeaders)) { console.error("PROBE_HEADERS must be a JSON object"); process.exit(2); }
+  for (const k of Object.keys(extraHeaders)) if (/^(payment-signature|x-payment|authorization)$/i.test(k)) { console.error(`PROBE_HEADERS may not set ${k}`); process.exit(2); }
+}
+const reqHeaders = () => ({ ...(body ? { "content-type": "application/json" } : {}), ...extraHeaders });
 
 const account = privateKeyToAccount(pk.startsWith("0x") ? pk : `0x${pk}`);
 const { x402Client, wrapFetchWithPayment } = await import("@x402/fetch");
@@ -31,7 +41,7 @@ registerExactEvmScheme(client, { signer: account, networks: ["eip155:8453"] });
 
 // Refuse before signing when the seller's quote exceeds the cap: read the bare
 // 402 first, and only then let the paying fetch retry.
-const bare = await fetch(url, { method, headers: body ? { "content-type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+const bare = await fetch(url, { method, headers: reqHeaders(), body: body ? JSON.stringify(body) : undefined });
 console.log(`bare: HTTP ${bare.status}`);
 if (bare.status !== 402) { console.log((await bare.text()).slice(0, 2000)); process.exit(bare.status === 200 ? 0 : 1); }
 const pr = bare.headers.get("payment-required");
@@ -65,7 +75,7 @@ const payFetch = wrapFetchWithPayment(async (input, init) => {
   return res;
 }, client);
 const t0 = Date.now();
-const res = await payFetch(url, { method, headers: body ? { "content-type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+const res = await payFetch(url, { method, headers: reqHeaders(), body: body ? JSON.stringify(body) : undefined });
 const text = await res.text();
 console.log(`paid: HTTP ${res.status} in ${Date.now() - t0} ms, content-type ${res.headers.get("content-type")}`);
 console.log(`receipt: ${JSON.stringify(receipt)}`);
