@@ -1437,7 +1437,7 @@ export function revenuePage(baseUrl, snap) {
       : `<span style="color:var(--muted);">${hasBalance ? "none in the recent window" : "-"}</span>`;
     return `<tr>
       <td><strong>${esc(r.rail)}</strong> <span style="color:var(--muted);">${esc(r.asset)}</span></td>
-      <td class="num">${c ? Number(c.inboundCount).toLocaleString() : "-"}${c && !c.caughtUp ? `<span style="color:var(--muted);" title="ledger still syncing"> +</span>` : ""}</td>
+      <td class="num">${c ? Number(c.inboundCount).toLocaleString() : "-"}${c && !c.caughtUp ? `<span style="display:block;font-size:10.5px;font-weight:400;color:var(--muted);">still syncing</span>` : ""}</td>
       <td class="num">${c && c.externalCount ? Number(c.externalCount).toLocaleString() : "0"}</td>
       <td class="num">$${c ? esc(String(c.externalUsd)) : "0"}</td>
       <td>${proof}</td>
