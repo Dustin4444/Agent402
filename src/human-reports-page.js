@@ -248,7 +248,7 @@ const sampleLink = (slug) => { const p = sampleLinkFor(slug); return p ? `<a hre
 export function reportDeliveryPage(sessionId, { api = "/api/r/", waitCopy = "Most reports take one to three minutes; the deepest take up to five. Keep this page open, it appears here automatically.", baseUrl = "https://agent402.tools", robots = "noindex, nofollow", title = "Your report - Agent402", description = "Your Agent402 report.", canonical = `${baseUrl}/reports`, note = "Your report is yours to keep - bookmark this page or use the link we emailed you.", jsonLd, extraHtml = "", extraScripts = "" } = {}) {
   const body = `
 <div class="wrap" style="padding-top:28px;">
-  <div id="app" data-session="${esc(sessionId)}" data-api="${esc(api)}" data-monitors="${esc(monitorMapJson())}"><div class="status"><h2><span class="spin"></span>Preparing your report…</h2><p>${esc(waitCopy)}</p><p id="rv-elapsed" style="font-family:var(--font-mono);font-size:12px;color:var(--faint);"></p></div></div>
+  <div id="app" data-session="${esc(sessionId)}" data-api="${esc(api)}" data-monitors="${esc(monitorMapJson())}"><div class="status">${/^index/.test(robots) ? `<h1>${esc(title)}</h1><p><span class="spin"></span>${esc(waitCopy)}</p>` : `<h2><span class="spin"></span>Preparing your report…</h2><p>${esc(waitCopy)}</p>`}<p id="rv-elapsed" style="font-family:var(--font-mono);font-size:12px;color:var(--faint);"></p></div></div>
   ${extraHtml}
   ${note ? `<p class="note no-print">${esc(note)}</p>` : ""}
 </div>

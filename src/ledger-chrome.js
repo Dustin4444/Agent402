@@ -1,6 +1,7 @@
 import { RAILS, RAILS_AMP, RAILS_OS } from "./rails.js";
 import { mppChallengeRails } from "./mpp-shim.js";
 import { tempoEnabled } from "./mpp-tempo.js";
+import { metaTitle, metaDescription } from "./seo-meta.js";
 // Machine Ledger design system — shared chrome for the Agent402 marketing site.
 // Exports the status line, nav, footers (full + compact), design-token CSS,
 // and a ledgerShell() wrapper that composes a full HTML page.
@@ -864,7 +865,12 @@ function posthogSnippet(baseUrl) {
   // text (CSP hardening, 2026-08-16).
   return jsonScriptTag("posthog-config", { key, cfg }) + '<script src="/js/posthog-loader.js"></script>';
 }
-export function ledgerShell({ title, description, canonical, baseUrl, activePath = "", ogImage, jsonLd, extraCss = "", body, robots = "index, follow, max-image-preview:large" }) {
+export function ledgerShell({ title: rawTitle, description: rawDescription, canonical, baseUrl, activePath = "", ogImage, jsonLd, extraCss = "", body, robots = "index, follow, max-image-preview:large" }) {
+  // The snippet is derived here, once, for every page (see seo-meta.js): a
+  // page author writes the paragraph, the shell serves what a search result
+  // and a link preview can actually show.
+  const title = metaTitle(rawTitle);
+  const description = metaDescription(rawDescription);
   const og = ogImage || (baseUrl + "/card.png" + (ogImageVersion ? `?v=${ogImageVersion}` : ""));
   // Base ecosystem JSON-LD - every page rendered through the ledger shell
   // carries this so crawlers and discovery agents see Base chain support

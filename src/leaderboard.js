@@ -31,6 +31,7 @@ import { EVM } from "./revenue-live.js";
 import { redactSecrets } from "./tools/redact.js";
 import { NETWORKS } from "./payments.js";
 import { CHROME_HEAD_LINKS, CHROME_CSS, renderHeader, renderFooter } from "./chrome.js";
+import { applyMetaTrims } from "./seo-meta.js";
 
 // Base block time is ~2s, so 24h ≈ 43200 blocks and 7d ≈ 302400 blocks. A
 // wider window surfaces sellers with bursty (vs. constant) traffic — without
@@ -918,7 +919,7 @@ export function leaderboardPage(snapshot, { baseUrl, sort }) {
   const windowLabel = snapshot?.windowLabel || windowLabelFromBlocks(snapshot?.scannedBlocks);
   const windowHuman = windowLabel === "-" ? "the scan window" : `last ${windowLabel}`;
 
-  return `<!doctype html>
+  return applyMetaTrims(`<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -1007,5 +1008,5 @@ curl -s ${esc(baseUrl)}/api/leaderboard?window=7d           # window hint (defau
 
 </div>
 ${renderFooter()}
-</body></html>`;
+</body></html>`);
 }

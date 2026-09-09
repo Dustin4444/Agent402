@@ -1,4 +1,5 @@
 import { CHROME_HEAD_LINKS, CHROME_CSS, renderHeader, renderFooter } from "./chrome.js";
+import { applyMetaTrims } from "./seo-meta.js";
 
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -176,7 +177,7 @@ export function integrationsPage(baseUrl) {
         </div>
       </div>`).join("\n");
 
-  return `<!DOCTYPE html>
+  return applyMetaTrims(`<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -225,5 +226,5 @@ ${cards}
 </main>
 ${renderFooter()}
 </body>
-</html>`;
+</html>`);
 }

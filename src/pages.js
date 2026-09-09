@@ -97,7 +97,10 @@ function card(t) {
   return `<div class="card"><h3><a href="/tools/${t.slug}">${esc(t.name)}</a></h3><div class="price">${priceLine(t)} · <code>${t.method} ${esc(t.path)}</code></div><p>${esc(t.description.length > 120 ? t.description.slice(0, 120) + "…" : t.description)}</p></div>`;
 }
 
-function head({ title, description, canonical, jsonLd, image }) {
+function head({ title: rawTitle, description: rawDescription, canonical, jsonLd, image }) {
+  // Snippet trims live in one place (seo-meta.js); see ledgerShell for why.
+  const title = metaTitle(rawTitle);
+  const description = metaDescription(rawDescription);
   const blocks = (Array.isArray(jsonLd) ? jsonLd : [jsonLd])
     .filter(Boolean)
     .map((b) => `<script type="application/ld+json">${JSON.stringify(b)}</script>`)
@@ -283,6 +286,7 @@ export function toolPage(baseUrl, tool, related, { computePayable = false, powDi
 import { x402Client } from "@x402/core/client";
 import { registerExactEvmScheme } from "@x402/evm/exact/client";
 import { privateKeyToAccount } from "viem/accounts";
+import { metaTitle, metaDescription } from "./seo-meta.js";
 
 const client = new x402Client();
 registerExactEvmScheme(client, { signer: privateKeyToAccount(KEY) });

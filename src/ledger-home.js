@@ -137,8 +137,11 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   const chipsHtml = capabilityChipsHtml(tools);
 
   const canonical = baseUrl + "/";
-  const title = `Agent402: 500+ pay-per-call tools for AI agents, metered models and finished reports, over x402, MPP or card`;
-  const description = `Agent402 is the applied layer of Agentic Finance: the open index, Smart Order Router and on-chain ranking for agents that pay and get paid over x402 and MPP. Sell your API for USDC per call, or give your AI agent ${fmtNum(count)} pay-per-call tools. No signup, no API keys - the wallet is the identity.`;
+  // Title <= 70 and description <= 155 (the shell trims, but the homepage
+  // snippet is written to fit so nothing is cut). Counts stay evergreen.
+  const title = `Agent402: 500+ pay-per-call tools for AI agents over x402 and MPP`;
+  // The exact live count (fmtNum(count)) stays out of the snippet on purpose: marketing counts are evergreen.
+  const description = `Agentic Finance for AI agents: 500+ pay-per-call tools, metered models and finished reports over x402 and MPP, or by card. No signup, no API keys. Sell your API for USDC per call.`;
 
   const orgLd = { "@type": "Organization", "@id": `${baseUrl}/#organization`, name: "Agent402", alternateName: ["Agent402.Tools", "Agent402 Tools", "agent402.tools"], url: baseUrl, knowsAbout: ["Agentic Finance", "AIFI", "x402", "Machine Payments Protocol (MPP)", "agentic payments", "AI agents"], logo: { "@type": "ImageObject", url: `${baseUrl}/logo.png` }, email: "mike@agent402.tools", parentOrganization: { "@type": "Organization", name: "Havok Holdings LLC" }, sameAs: ["https://github.com/MikeyPetrillo/Agent402", "https://x.com/Agent402Tools", "https://www.npmjs.com/package/agent402-mcp", "https://www.npmjs.com/package/agent402-client", "https://www.npmjs.com/package/agent402-tollbooth", "https://pypi.org/project/agent402-langchain/", "https://www.x402scan.com/server/07eb3020-932a-436d-a739-557b6e47101d"] };
   const websiteLd = { "@type": "WebSite", "@id": `${baseUrl}/#website`, name: "Agent402", alternateName: ["Agent402.Tools", "Agent402 Tools", "Agent402 - applied layer of Agentic Finance"], url: baseUrl, publisher: { "@id": `${baseUrl}/#organization` }, description: "The applied layer of Agentic Finance: open index, Smart Order Router and on-chain ranking for agents paying and getting paid over x402 and MPP.", about: { "@type": "DefinedTerm", name: "Agentic Finance", alternateName: "AIFI", url: `${baseUrl}/agentic-finance` }, potentialAction: { "@type": "SearchAction", target: `${baseUrl}/api/find?q={search_term_string}`, "query-input": "required name=search_term_string" } };
