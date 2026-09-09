@@ -904,7 +904,7 @@ export function ledgerBuyerConcentration(wallets) {
   };
 }
 
-export function startRevenueLedger({ walletAddress, solanaWallet, stellarWallet, algorandWallet, baseExtraWallets = [] }) {
+export function startRevenueLedger({ walletAddress, solanaWallet, stellarWallet, algorandWallet, baseExtraWallets = [], algorandExtraWallets = [] }) {
   const enabled = HAS_DATA_DIR || process.env.REVENUE_LEDGER === "true";
   if (loopStarted || !enabled || (!walletAddress && !solanaWallet && !stellarWallet && !algorandWallet)) return false;
   loopStarted = true;
@@ -957,6 +957,20 @@ export function startRevenueLedger({ walletAddress, solanaWallet, stellarWallet,
       } catch (e) {
         allCaughtUp = false;
         console.warn(`revenue-ledger: algorand sync tick failed (will retry): ${String(e?.message || e).slice(0, 100)}`);
+      }
+    }
+    // The AVM spending wallet receives route-execute's Algorand leg (revenue,
+    // same rule as the Base extra). ledgerSummary() has folded it into the
+    // chain's row since 2026-07 but nothing scanned it, so it never had a
+    // cursor row and the row read "not caught up" forever (/revenue: Algorand
+    // "still syncing", 2026-09-09) while its inbound went unrecorded.
+    for (const w of algorandExtraWallets.filter(Boolean)) {
+      try {
+        const r = await syncAlgorand(w);
+        if (!r.caughtUp) allCaughtUp = false;
+      } catch (e) {
+        allCaughtUp = false;
+        console.warn(`revenue-ledger: algorand extra-wallet sync tick failed (will retry): ${String(e?.message || e).slice(0, 100)}`);
       }
     }
     setTimeout(tick, allCaughtUp ? 300_000 : 20_000).unref?.();

@@ -4,7 +4,7 @@
 // ledgerSummary, per-chain splits, and the "don't start in CI" gate.
 //
 //   node scripts/test-revenue-ledger.js
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -205,6 +205,21 @@ if (!existsSync("/data")) {
     const st = ledgerSyncState().find((x) => x.chain === "algorand" && x.wallet === ALW.slice(0, 10));
     ok(st?.caughtUp === true, "ledgerSyncState reads the completed walk as caught up");
   } finally { globalThis.fetch = realFetch; db.close(); }
+}
+
+// --- every wallet the summary folds is a wallet the tick scans (2026-09-09) -
+// ledgerSummary() ANDs caught_up across the chain's wallets, so a wallet in the
+// summary with no cursor row reads "not caught up" forever. The Algorand
+// spending wallet was folded in and never scanned: /revenue showed Algorand
+// "still syncing" with the treasury scan complete. Pin the tick's wallet set
+// against the summary's from source, so the next extra wallet cannot repeat it.
+{
+  const src = readFileSync(new URL("../src/revenue-ledger.js", import.meta.url), "utf8");
+  const tick = src.slice(src.indexOf("export function startRevenueLedger("), src.indexOf("revenue-ledger: sync loop started"));
+  ok(/algorandExtraWallets\s*=\s*\[\]/.test(tick) && /for \(const w of algorandExtraWallets/.test(tick) && /syncAlgorand\(w\)/.test(tick), "the tick scans every algorandExtraWallets entry with syncAlgorand");
+  ok(/for \(const w of baseExtraWallets/.test(tick) && /syncEvmChain\("base", w/.test(tick), "the tick scans every baseExtraWallets entry on base");
+  const pairs = src.slice(src.indexOf("function walletPairs("), src.indexOf("}", src.indexOf("function walletPairs(")) + 1);
+  for (const key of ["baseExtraWallets", "algorandExtraWallets"]) ok(pairs.includes(key) && tick.includes(key), `${key}: folded by the summary AND scanned by the tick`);
 }
 
 rmSync(dir, { recursive: true, force: true });
