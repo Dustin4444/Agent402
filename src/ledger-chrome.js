@@ -386,7 +386,7 @@ const NAV_ZONES = [
   [
     // Reports carries the whole "for people" set (reports, monitors, credits):
     // Monitors is a subscription to a report, not a second product line.
-    { href: "/reports", label: "Reports", panel: "people" },
+    { href: "/reports", label: "For people", panel: "people" },
     { href: "/tools", label: "Tools", panel: "tools" },
   ],
   [
@@ -396,8 +396,8 @@ const NAV_ZONES = [
   ],
   [
     { href: "/sell", label: "Sell", panel: "sell" },
-    { href: "/docs", label: "Docs" },
-    { href: "/why", label: "Why" },
+    { href: "/docs", label: "Docs", panel: "docs" },
+    { href: "/why", label: "Why", panel: "why" },
   ],
 ];
 
@@ -477,30 +477,24 @@ function chainRowHtml(c, live) {
 // away from itself.
 function marketPanelNav(chainInfo) {
   const rows = chainInfo.chains.map((c) => chainRowHtml(c, chainInfo.live)).join("\n                ");
+  // Marketplaces ONLY (2026-09-09): the x402 index, the MPP index, the
+  // leaderboard and the transactions ledger are four views of one seller
+  // set. Explainers (what is x402, agentic finance) live under Docs.
   return `<span class="mlnav-dd">
               <span style="display:block;width:340px;border:1px solid var(--hairline);border-radius:12px;overflow:hidden;background:var(--card);box-shadow:0 18px 40px rgba(17,19,21,.12);">
-                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">FIND A TOOL · OR BROWSE SELLERS</span>
-                <a href="/tools" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">search our catalog</span><span style="color:var(--faint);">by task</span></a>
-                <a href="/guides/smart-order-router" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">smart order router</span><span style="color:var(--faint);">auto-pick a seller</span></a>
-                <a href="/playground" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--hairline);"><span style="font-weight:700;">playground</span><span style="color:var(--faint);">try free · PoW</span></a>
-                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">BY CHAIN</span>
-                ${rows}
-                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">BOTH WIRES</span>
+                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">SELLERS, INDEXED AND VERIFIED</span>
+                <a href="/marketplace" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">x402 marketplace</span><span style="color:var(--faint);">every indexed seller</span></a>
                 <a href="/mpp-marketplace" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">MPP marketplace</span><span style="color:var(--faint);">verified sellers</span></a>
                 <a href="/leaderboard" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">leaderboard</span><span style="color:var(--faint);">settled on-chain</span></a>
                 <a href="/revenue" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">transactions</span><span style="color:var(--faint);">our rails, every settle</span></a>
-                <a href="/marketplace/tools" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">every tool indexed</span><span style="color:var(--faint);">ours + third-party</span></a>
-                <a href="/agentic-finance" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--hairline);"><span style="font-weight:700;">agentic finance</span><span style="color:var(--faint);">the big picture</span></a>
-                <a href="/what-is-x402" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--hairline);"><span style="font-weight:700;">what is x402?</span><span style="color:var(--faint);">start here</span></a>
-                <a href="/marketplace" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--surface);color:var(--on-dark);"><span style="font-weight:700;">the full directory →</span><span style="color:var(--dk-muted);">/marketplace</span></a>
+                <a href="/marketplace/tools" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--hairline);"><span style="font-weight:700;">every tool indexed</span><span style="color:var(--faint);">ours + third-party</span></a>
+                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">BY CHAIN</span>
+                ${rows}
+                <a href="/guides/smart-order-router" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--surface);color:var(--on-dark);"><span style="font-weight:700;">buy from any seller with one call</span><span style="opacity:.7;">→</span></a>
               </span>
             </span>`;
 }
 
-// "Our tools" dropdown (new, Aug 2026 revamp) - catalog/skills/playground/
-// pricing, the four items that had a top-level nav slot before the flat
-// 6-item redesign left no room for them. Same visual pattern as the other
-// two panels.
 // "For people" dropdown under Reports: the three card-payable doors.
 function peoplePanelNav() {
   return `<span class="mlnav-dd">
@@ -510,6 +504,43 @@ function peoplePanelNav() {
                 <a href="/monitors" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">monitors</span><span style="color:var(--faint);">watch one target monthly</span></a>
                 <a href="/credits" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--hairline);"><span style="font-weight:700;">credits</span><span style="color:var(--faint);">pay by card, use every tool</span></a>
                 <a href="/reports" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--surface);color:var(--on-dark);"><span style="font-weight:700;">get a report</span><span style="opacity:.7;">→</span></a>
+              </span>
+            </span>`;
+}
+
+// Docs dropdown (2026-09-09): the build pages. blog, changelog, quickstart
+// and guides had their only chrome link in the homepage's retired
+// seven-column footer and went unlinked for a day.
+function docsPanelNav() {
+  return `<span class="mlnav-dd">
+              <span style="display:block;width:300px;border:1px solid var(--hairline);border-radius:12px;overflow:hidden;background:var(--card);box-shadow:0 18px 40px rgba(17,19,21,.12);">
+                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">BUILD ON AGENT402</span>
+                <a href="/docs" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">docs</span><span style="color:var(--faint);">API, MCP, SDKs</span></a>
+                <a href="/quickstart" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">quickstart</span><span style="color:var(--faint);">first paid call in a minute</span></a>
+                <a href="/guides" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">guides</span><span style="color:var(--faint);">hosts, router, selling</span></a>
+                <a href="/integrations" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--hairline);"><span style="font-weight:700;">integrations</span><span style="color:var(--faint);">frameworks and adapters</span></a>
+                <a href="/blog" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">blog</span><span style="color:var(--faint);"></span></a>
+                <a href="/changelog" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">changelog</span><span style="color:var(--faint);">what shipped</span></a>
+                <a href="/docs" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--surface);color:var(--on-dark);"><span style="font-weight:700;">read the docs</span><span style="opacity:.7;">→</span></a>
+              </span>
+            </span>`;
+}
+
+// Why dropdown (2026-09-09, the operator: the concept pages belong here, not
+// under Docs): why pay here, then what x402, MPP and agentic finance are.
+function whyPanelNav() {
+  return `<span class="mlnav-dd">
+              <span style="display:block;width:300px;border:1px solid var(--hairline);border-radius:12px;overflow:hidden;background:var(--card);box-shadow:0 18px 40px rgba(17,19,21,.12);">
+                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">WHY PAY HERE</span>
+                <a href="/why" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">seven things</span><span style="color:var(--faint);">each with its proof</span></a>
+                <a href="/proof" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--hairline);"><span style="font-weight:700;">receipts</span><span style="color:var(--faint);">metered calls against their quotes</span></a>
+                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">WHAT THIS IS</span>
+                <a href="/101" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">x402 &amp; MPP 101</span><span style="color:var(--faint);">the walkthrough</span></a>
+                <a href="/what-is-x402" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">what is x402</span><span style="color:var(--faint);">the HTTP 402 protocol</span></a>
+                <a href="/what-is-mpp" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">what is MPP</span><span style="color:var(--faint);">the Payment auth scheme</span></a>
+                <a href="/agentic-finance" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">agentic finance</span><span style="color:var(--faint);">the category</span></a>
+                <a href="/glossary" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">glossary</span><span style="color:var(--faint);">the terms</span></a>
+                <a href="/why" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--surface);color:var(--on-dark);"><span style="font-weight:700;">why pay here</span><span style="opacity:.7;">→</span></a>
               </span>
             </span>`;
 }
@@ -540,7 +571,7 @@ function sellPanelHtml() {
             </span>`;
 }
 
-const PANEL_HTML = { marketplace: marketPanelNav, people: () => peoplePanelNav(), sell: sellPanelHtml, tools: () => ourToolsPanelNav() };
+const PANEL_HTML = { marketplace: marketPanelNav, people: () => peoplePanelNav(), sell: sellPanelHtml, tools: () => ourToolsPanelNav(), docs: () => docsPanelNav(), why: () => whyPanelNav() };
 
 function directLinkHtml(l, activePath) {
   const active = l.href === activePath;
@@ -621,6 +652,10 @@ function mobileMenuHtml(chainInfo, activePath) {
       ${mmLink("/what-is-x402", "what is x402 / MPP", activePath === "/what-is-x402")}
       ${mmLink("/agentic-finance", "agentic finance", activePath === "/agentic-finance")}
       ${mmLink("/glossary", "glossary", activePath === "/glossary")}
+      ${mmLink("/quickstart", "quickstart", activePath === "/quickstart")}
+      ${mmLink("/guides", "guides", activePath === "/guides")}
+      ${mmLink("/blog", "blog", activePath === "/blog")}
+      ${mmLink("/changelog", "changelog", activePath === "/changelog")}
       ${mmLink("/revenue", "transactions · on-chain", activePath === "/revenue")}
       ${mmLink("/status", "status · uptime", activePath === "/status")}
       ${mmLink("/integrations", "integrations", activePath === "/integrations")}
@@ -648,6 +683,8 @@ function nav(activePath) {
     // inside the marketplace panel either.
     marketplace: new Set(["/marketplace", "/mpp-marketplace", "/leaderboard", "/revenue", "/marketplace/tools", ...chainInfo.chains.map((c) => c.href)]),
     people: new Set(["/reports", "/monitors", "/credits"]),
+    docs: new Set(["/docs", "/quickstart", "/guides", "/integrations", "/blog", "/changelog"]),
+    why: new Set(["/why", "/proof", "/101", "/what-is-x402", "/what-is-mpp", "/agentic-finance", "/glossary"]),
     sell: new Set(["/sell", "/tollbooth", "/tollbooth/cloud", "/contribute"]),
     tools: new Set(["/tools", "/skills", "/playground", "/pricing"]),
   };
@@ -671,6 +708,7 @@ function nav(activePath) {
       ${zone3}
     </div>
     <div style="margin-left:auto;display:flex;align-items:center;gap:12px;">
+      <a class="ml-nav-gh" href="/status" style="font-family:var(--font-mono);font-size:12px;color:var(--muted);text-decoration:none;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;" title="Uptime from two outside observers"><span aria-hidden="true" style="width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;"></span>status</a>
       <a class="ml-nav-gh" href="/llms.txt" style="font-family:var(--font-mono);font-size:12px;color:var(--muted);text-decoration:none;padding:8px 13px;border:1px solid var(--hairline);border-radius:999px;background:var(--card);white-space:nowrap;">llms.txt</a>
       ${activePath === "/reports" ? "" : `<a class="ml-nav-cta" href="/reports" style="background:var(--btn-bg);color:var(--btn-fg);font-family:var(--font-body);font-weight:500;font-size:13.5px;text-decoration:none;padding:9px 16px;border-radius:999px;box-shadow:var(--btn-shadow);white-space:nowrap;">Get a report</a>`}
       <button type="button" class="ml-theme-toggle" aria-label="Switch between dark and light theme" title="Theme">
