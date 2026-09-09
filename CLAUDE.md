@@ -606,6 +606,17 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   shaped it (same day): EAS schema #1287 (2,977 per-call MCP receipts, no response hash), Stelar's x402-receipts (body-hashed,
   merkle-batched), the x402 Offer & Receipt extension (no body hash, tx omitted); ERC-8004 takes it only as a cited URI/hash inside
   someone else's feedback. `/why` receipts point names it.
+- **Revenue ledger: every wallet the summary folds must be a wallet the tick scans (2026-09-09):** `/revenue` read Algorand
+  "still syncing" for a day with the treasury scan complete. `ledgerSummary()` ANDs `caught_up` across a chain's wallets
+  (treasury + the chain's spending wallet), and the tick scanned `baseExtraWallets` but never `algorandExtraWallets`, so the
+  AVM spending wallet had no cursor row, the chain row could never read caught up, and its inbound (route-execute's Algorand
+  leg) was never recorded. The tick scans it now; `test-revenue-ledger` pins tick-vs-summary wallet parity from source.
+  Two more things fixed on the way, both real but neither the cause: an EMPTY page ended a scan before the cursor write
+  (`markCaughtUp`), and the Algorand indexer serves NEWEST-FIRST with no order parameter, so `syncAlgorand` now walks
+  `next-token` with `min-round` pinned per tick (a cut walk persists its token in `newest_sig`; keyed one-shot migrations
+  live in `ledger_meta`, `runLedgerMigrations()`). **A claim made and retracted the same day:** PR #1256 said exactly 1,000
+  Algorand rows had been lost to the old paging; a unique-id count of the indexer gives 6,220 = the ledger. The hand walk
+  had counted one page twice. Before claiming rows are missing, count DISTINCT ids on both sides, never page totals.
 - **Route-and-execute (`POST /api/route/execute`, $0.01, `src/tools/route-execute.js`):**
   resolves a task/slug via `findTools`, dispatches the underlying internal tool (underlying
   price cap $0.005), returns `{result, receipt}`; underlying errors pass through.
