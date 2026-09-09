@@ -1,6 +1,4 @@
 import { RAILS, RAILS_AMP, RAILS_OS } from "./rails.js";
-import { mppChallengeRails } from "./mpp-shim.js";
-import { tempoEnabled } from "./mpp-tempo.js";
 import { metaTitle, metaDescription } from "./seo-meta.js";
 // Machine Ledger design system — shared chrome for the Agent402 marketing site.
 // Exports the status line, nav, footers (full + compact), design-token CSS,
@@ -35,6 +33,7 @@ export function jsonScriptTag(id, value) {
 // tracks the surrounding text color (var(--muted), hover states) exactly
 // like the plain-text "github" link it replaces used to, with no separate
 // color rule needed.
+const X_ICON_SVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>`;
 const GITHUB_ICON_SVG = `<svg width="19" height="19" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>`;
 
 // ---------------------------------------------------------------------------
@@ -385,21 +384,20 @@ function statusLine() {
 // (was 6, now 7: sell / x402 / mpp / leaderboard / our tools / 101 / docs).
 const NAV_ZONES = [
   [
-    { href: "/reports", label: "Reports" },
-    { href: "/monitors", label: "Monitors" },
+    // Reports carries the whole "for people" set (reports, monitors, credits):
+    // Monitors is a subscription to a report, not a second product line.
+    { href: "/reports", label: "Reports", panel: "people" },
     { href: "/tools", label: "Tools", panel: "tools" },
   ],
   [
-    // Both are MARKETPLACES (the x402 index and the MPP index) - the shared
-    // storefront glyph + title say so; the word is the wire each one indexes.
-    { href: "/marketplace", label: "x402", panel: "marketplace", icon: "market", title: "x402 marketplace" },
-    { href: "/mpp-marketplace", label: "MPP", panel: "mpp", icon: "market", title: "MPP marketplace" },
-    { href: "/leaderboard", label: "Leaderboard" },
+    // ONE marketplace word: the x402 index, the MPP index and the leaderboard
+    // are three views of the same seller set and live in one dropdown.
+    { href: "/marketplace", label: "Marketplace", panel: "marketplace", icon: "market", title: "x402 and MPP marketplaces" },
   ],
   [
     { href: "/sell", label: "Sell", panel: "sell" },
-    { href: "/why", label: "Why" },
     { href: "/docs", label: "Docs" },
+    { href: "/why", label: "Why" },
   ],
 ];
 
@@ -487,6 +485,9 @@ function marketPanelNav(chainInfo) {
                 <a href="/playground" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--hairline);"><span style="font-weight:700;">playground</span><span style="color:var(--faint);">try free · PoW</span></a>
                 <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">BY CHAIN</span>
                 ${rows}
+                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">BOTH WIRES</span>
+                <a href="/mpp-marketplace" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">MPP marketplace</span><span style="color:var(--faint);">verified sellers</span></a>
+                <a href="/leaderboard" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">leaderboard</span><span style="color:var(--faint);">settled on-chain</span></a>
                 <a href="/marketplace/tools" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">every tool indexed</span><span style="color:var(--faint);">ours + third-party</span></a>
                 <a href="/agentic-finance" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--hairline);"><span style="font-weight:700;">agentic finance</span><span style="color:var(--faint);">the big picture</span></a>
                 <a href="/what-is-x402" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--hairline);"><span style="font-weight:700;">what is x402?</span><span style="color:var(--faint);">start here</span></a>
@@ -495,39 +496,23 @@ function marketPanelNav(chainInfo) {
             </span>`;
 }
 
-// MPP marketplace dropdown (new, split out of the combined "marketplace"
-// trigger 2026-08-17 so both protocols get an equally visible top-level nav
-// word). No by-chain breakdown here - MPP sellers aren't chain-scoped the
-// way x402's rails are, and no live per-category provider is wired at nav
-// level yet (kept simple on purpose; see the MPP marketplace plan). Same
-// visual pattern as the other two panels.
-function mppPanelNav() {
-  const rails = mppChallengeRails();
-  const acceptedNote = rails.length
-    ? `<span style="display:block;padding:8px 16px;font-size:11px;color:var(--faint);${tempoEnabled() ? "" : "border-bottom:1px solid var(--hairline);"}">we accept MPP on ${rails.map((r) => esc(r.name)).join(" & ")}</span>`
-    : "";
-  // Tempo is a SEPARATE MPP payment method (its own TIP-1034 relay, never
-  // x402-settled) — a distinct row, never merged into acceptedNote above.
-  const tempoNote = tempoEnabled()
-    ? `<span style="display:block;padding:4px 16px 8px;font-size:11px;color:var(--faint);border-bottom:1px solid var(--hairline);">...and natively via Tempo</span>`
-    : "";
-  return `<span class="mlnav-dd">
-              <span style="display:block;width:300px;border:1px solid var(--hairline);border-radius:12px;overflow:hidden;background:var(--card);box-shadow:0 18px 40px rgba(17,19,21,.12);">
-                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">THE MPP PROTOCOL MARKETPLACE</span>
-                ${acceptedNote}
-                ${tempoNote}
-                <a href="/mpp-marketplace#sellers" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">browse verified sellers</span><span style="color:var(--faint);">live-probed</span></a>
-                <a href="/mpp-marketplace#list-api" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">list your API</span><span style="color:var(--faint);">free · one call</span></a>
-                <a href="/what-is-mpp" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--hairline);"><span style="font-weight:700;">what is MPP?</span><span style="color:var(--faint);">start here</span></a>
-                <a href="/mpp-marketplace" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--surface);color:var(--on-dark);"><span style="font-weight:700;">the full directory →</span><span style="color:var(--dk-muted);">/mpp-marketplace</span></a>
-              </span>
-            </span>`;
-}
-
 // "Our tools" dropdown (new, Aug 2026 revamp) - catalog/skills/playground/
 // pricing, the four items that had a top-level nav slot before the flat
 // 6-item redesign left no room for them. Same visual pattern as the other
 // two panels.
+// "For people" dropdown under Reports: the three card-payable doors.
+function peoplePanelNav() {
+  return `<span class="mlnav-dd">
+              <span style="display:block;width:300px;border:1px solid var(--hairline);border-radius:12px;overflow:hidden;background:var(--card);box-shadow:0 18px 40px rgba(17,19,21,.12);">
+                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">FOR PEOPLE · CARD OR USDC</span>
+                <a href="/reports" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">reports</span><span style="color:var(--faint);">finished, cited, $2 and up</span></a>
+                <a href="/monitors" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">monitors</span><span style="color:var(--faint);">watch one target monthly</span></a>
+                <a href="/credits" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--hairline);"><span style="font-weight:700;">credits</span><span style="color:var(--faint);">pay by card, use every tool</span></a>
+                <a href="/reports" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--surface);color:var(--on-dark);"><span style="font-weight:700;">get a report</span><span style="opacity:.7;">→</span></a>
+              </span>
+            </span>`;
+}
+
 function ourToolsPanelNav() {
   return `<span class="mlnav-dd">
               <span style="display:block;width:280px;border:1px solid var(--hairline);border-radius:12px;overflow:hidden;background:var(--card);box-shadow:0 18px 40px rgba(17,19,21,.12);">
@@ -554,7 +539,7 @@ function sellPanelHtml() {
             </span>`;
 }
 
-const PANEL_HTML = { marketplace: marketPanelNav, mpp: () => mppPanelNav(), sell: sellPanelHtml, tools: () => ourToolsPanelNav() };
+const PANEL_HTML = { marketplace: marketPanelNav, people: () => peoplePanelNav(), sell: sellPanelHtml, tools: () => ourToolsPanelNav() };
 
 function directLinkHtml(l, activePath) {
   const active = l.href === activePath;
@@ -639,7 +624,6 @@ function mobileMenuHtml(chainInfo, activePath) {
       ${mmLink("/status", "status · uptime", activePath === "/status")}
       ${mmLink("/integrations", "integrations", activePath === "/integrations")}
       ${mmLink("/llms.txt", "llms.txt · for agents", false)}
-      <a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" class="ml-mm-link">github</a>
     </div>
   </div>`;
 }
@@ -661,8 +645,8 @@ function nav(activePath) {
     // future chain page lights it up with zero nav edits. Leaderboard is now
     // its own top-level item (not folded into this set) since it's no longer
     // inside the marketplace panel either.
-    marketplace: new Set(["/marketplace", ...chainInfo.chains.map((c) => c.href)]),
-    mpp: new Set(["/mpp-marketplace"]),
+    marketplace: new Set(["/marketplace", "/mpp-marketplace", "/leaderboard", "/marketplace/tools", ...chainInfo.chains.map((c) => c.href)]),
+    people: new Set(["/reports", "/monitors", "/credits"]),
     sell: new Set(["/sell", "/tollbooth", "/tollbooth/cloud", "/contribute"]),
     tools: new Set(["/tools", "/skills", "/playground", "/pricing"]),
   };
@@ -686,7 +670,6 @@ function nav(activePath) {
       ${zone3}
     </div>
     <div style="margin-left:auto;display:flex;align-items:center;gap:12px;">
-      <a class="ml-nav-gh" href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" aria-label="GitHub" title="GitHub" style="display:flex;align-items:center;color:var(--muted);text-decoration:none;">${GITHUB_ICON_SVG}</a>
       <a class="ml-nav-gh" href="/llms.txt" style="font-family:var(--font-mono);font-size:12px;color:var(--muted);text-decoration:none;padding:8px 13px;border:1px solid var(--hairline);border-radius:999px;background:var(--card);white-space:nowrap;">llms.txt</a>
       ${activePath === "/reports" ? "" : `<a class="ml-nav-cta" href="/reports" style="background:var(--btn-bg);color:var(--btn-fg);font-family:var(--font-body);font-weight:500;font-size:13.5px;text-decoration:none;padding:9px 16px;border-radius:999px;box-shadow:var(--btn-shadow);white-space:nowrap;">Get a report</a>`}
       <button type="button" class="ml-theme-toggle" aria-label="Switch between dark and light theme" title="Theme">
@@ -707,49 +690,9 @@ function nav(activePath) {
 // Footer - full 5-column (home page)
 // ---------------------------------------------------------------------------
 
-export function ledgerFooterFull() {
-  return `<footer style="border-top:1px solid var(--hairline);background:var(--footer-bg);">
-  <div style="max-width:1180px;margin:0 auto;padding:48px 30px 32px;">
-    <div class="ml-ft-grid" style="display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr 1fr 1fr 1fr;gap:24px;">
-      <div>
-        <a href="/" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;text-decoration:none;color:var(--ink);">
-          <span aria-hidden="true" style="width:22px;height:22px;border-radius:6px;background:var(--brand-mark);display:inline-block;"></span>
-          <span style="font-weight:600;font-size:16px;letter-spacing:-.01em;">Agent402</span>
-        </a>
-        <p style="font-size:13px;line-height:1.6;color:var(--muted);margin:0;max-width:260px;">500+ pay-per-call tools and finished reports for people and agents. USDC over x402 and MPP, or card. Open source.</p>
-      </div>
-      <div>
-        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">for people</div>
-        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/why" style="color:var(--muted);text-decoration:none;">Why pay here</a><a href="/reports" style="color:var(--muted);text-decoration:none;">Reports</a><a href="/monitors" style="color:var(--muted);text-decoration:none;">Monitors</a><a href="/credits" style="color:var(--muted);text-decoration:none;">Credits</a><a href="/faq" style="color:var(--muted);text-decoration:none;">FAQ</a><a href="/company" style="color:var(--muted);text-decoration:none;">Company</a><a href="/security" style="color:var(--muted);text-decoration:none;">Security</a></div>
-      </div>
-      <div>
-        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">for agents</div>
-        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/skills" style="color:var(--muted);text-decoration:none;">Skill packs</a><a href="/tools" style="color:var(--muted);text-decoration:none;">Tool catalog</a><a href="/markets" style="color:var(--muted);text-decoration:none;">Markets</a><a href="/tools/category/llm" style="color:var(--muted);text-decoration:none;">LLM gateway</a><a href="/pricing" style="color:var(--muted);text-decoration:none;">Pricing</a><a href="/integrations" style="color:var(--muted);text-decoration:none;">Integrations</a><a href="/playground" style="color:var(--muted);text-decoration:none;">Playground</a></div>
-      </div>
-      <div>
-        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">marketplace</div>
-        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/marketplace" style="color:var(--muted);text-decoration:none;">Marketplace</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">Leaderboard</a><a href="/guides/smart-order-router" style="color:var(--muted);text-decoration:none;">Router</a><a href="/marketplace/tools" style="color:var(--muted);text-decoration:none;">Every tool indexed</a><a href="/revenue" style="color:var(--muted);text-decoration:none;">Transactions</a></div>
-      </div>
-      <div>
-        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">for sellers</div>
-        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/sell" style="color:var(--muted);text-decoration:none;">Start selling</a><a href="/tollbooth" style="color:var(--muted);text-decoration:none;">Tollbooth</a><a href="/contribute" style="color:var(--muted);text-decoration:none;">Contribute a tool</a></div>
-      </div>
-      <div>
-        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">learn</div>
-        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/docs" style="color:var(--muted);text-decoration:none;">Docs</a><a href="/quickstart" style="color:var(--muted);text-decoration:none;">Quickstart</a><a href="/guides" style="color:var(--muted);text-decoration:none;">Guides</a><a href="/faq" style="color:var(--muted);text-decoration:none;">FAQ</a><a href="/blog" style="color:var(--muted);text-decoration:none;">Blog</a><a href="/changelog" style="color:var(--muted);text-decoration:none;">Changelog</a></div>
-      </div>
-      <div>
-        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">machine</div>
-        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/openapi.json" style="color:var(--muted);text-decoration:none;">OpenAPI</a><a href="/llms.txt" style="color:var(--muted);text-decoration:none;">llms.txt</a><a href="/docs#add" style="color:var(--muted);text-decoration:none;">MCP connector</a><a href="/api/stats" style="color:var(--muted);text-decoration:none;">Stats</a><a href="/api/status" style="color:var(--muted);text-decoration:none;">Status JSON</a><a href="/.well-known/x402" style="color:var(--muted);text-decoration:none;">.well-known/x402</a></div>
-      </div>
-    </div>
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:36px;padding-top:18px;border-top:1px solid var(--hairline);font-family:var(--font-mono);font-size:12px;color:var(--faint);">
-      <span>© 2026 Havok Holdings LLC · open-source x402 + MCP server · <a href="mailto:mike@agent402.tools" style="color:var(--muted);text-decoration:underline;">mike@agent402.tools</a></span>
-      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/status" style="color:var(--muted);text-decoration:none;">status</a><a href="/privacy" style="color:var(--muted);text-decoration:none;">privacy</a><a href="/terms" style="color:var(--muted);text-decoration:none;">terms</a><a href="/transparency" style="color:var(--muted);text-decoration:none;">transparency</a><a href="/contact" style="color:var(--muted);text-decoration:none;">contact</a><a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" style="color:var(--muted);text-decoration:none;">github</a><a href="https://x.com/Agent402Tools" rel="noopener" style="color:var(--muted);text-decoration:none;">𝕏</a></span>
-    </div>
-  </div>
-</footer>`;
-}
+// One footer for every page (2026-09-09): the seven-column homepage footer
+// repeated the nav dropdowns link for link. Kept as a name so old imports resolve.
+export const ledgerFooterFull = () => ledgerFooterCompact();
 
 // ---------------------------------------------------------------------------
 // Footer - compact single-row (sub-pages)
@@ -774,11 +717,11 @@ export function ledgerFooterCompact() {
   <div style="max-width:1180px;margin:0 auto;padding:26px 30px;font-family:var(--font-mono);font-size:12px;color:var(--faint);">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
       <a href="/" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);"><span aria-hidden="true" style="width:18px;height:18px;border-radius:5px;background:var(--brand-mark);display:inline-block;"></span><span style="font-weight:600;font-size:14px;font-family:var(--font-sans);letter-spacing:-.01em;">Agent402</span></a>
-      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/reports" style="color:var(--muted);text-decoration:none;">reports</a><a href="/monitors" style="color:var(--muted);text-decoration:none;">monitors</a><a href="/credits" style="color:var(--muted);text-decoration:none;">credits</a><a href="/tools" style="color:var(--muted);text-decoration:none;">catalog</a><a href="/pricing" style="color:var(--muted);text-decoration:none;">pricing</a><a href="/marketplace" style="color:var(--muted);text-decoration:none;">marketplace</a><a href="/sell" style="color:var(--muted);text-decoration:none;">sell</a><a href="/docs" style="color:var(--muted);text-decoration:none;">docs</a><a href="/why" style="color:var(--muted);text-decoration:none;">why</a><a href="/security" style="color:var(--muted);text-decoration:none;">security</a><a href="/company" style="color:var(--muted);text-decoration:none;">company</a></span>
+      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/reports" style="color:var(--muted);text-decoration:none;">reports</a><a href="/monitors" style="color:var(--muted);text-decoration:none;">monitors</a><a href="/credits" style="color:var(--muted);text-decoration:none;">credits</a><a href="/tools" style="color:var(--muted);text-decoration:none;">catalog</a><a href="/pricing" style="color:var(--muted);text-decoration:none;">pricing</a><a href="/marketplace" style="color:var(--muted);text-decoration:none;">marketplace</a><a href="/sell" style="color:var(--muted);text-decoration:none;">sell</a><a href="/docs" style="color:var(--muted);text-decoration:none;">docs</a><a href="/why" style="color:var(--muted);text-decoration:none;">why</a><a href="/company" style="color:var(--muted);text-decoration:none;">company</a></span>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--hairline);">
       <span>© 2026 Havok Holdings LLC · <a href="mailto:mike@agent402.tools" style="color:var(--muted);text-decoration:underline;">mike@agent402.tools</a></span>
-      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/status" style="color:var(--muted);text-decoration:none;">status</a><a href="/transparency" style="color:var(--muted);text-decoration:none;">transparency</a><a href="/privacy" style="color:var(--muted);text-decoration:none;">privacy</a><a href="/terms" style="color:var(--muted);text-decoration:none;">terms</a><a href="/contact" style="color:var(--muted);text-decoration:none;">contact</a><a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" style="color:var(--muted);text-decoration:none;">github</a><a href="https://x.com/Agent402Tools" rel="noopener" style="color:var(--muted);text-decoration:none;">𝕏</a></span>
+      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/status" style="color:var(--muted);text-decoration:none;">status</a><a href="/security" style="color:var(--muted);text-decoration:none;">security</a><a href="/transparency" style="color:var(--muted);text-decoration:none;">transparency</a><a href="/privacy" style="color:var(--muted);text-decoration:none;">privacy</a><a href="/terms" style="color:var(--muted);text-decoration:none;">terms</a><a href="/company#contact" style="color:var(--muted);text-decoration:none;">contact</a><a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" aria-label="GitHub" title="GitHub" style="display:inline-flex;align-items:center;color:var(--muted);text-decoration:none;">${GITHUB_ICON_SVG}</a><a href="https://x.com/Agent402Tools" rel="noopener" aria-label="X" title="X" style="display:inline-flex;align-items:center;color:var(--muted);text-decoration:none;">${X_ICON_SVG}</a></span>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:10px;">
       <span style="letter-spacing:.1em;text-transform:uppercase;">for agents</span>

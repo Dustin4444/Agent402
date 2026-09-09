@@ -134,7 +134,6 @@ import { operatorPage, operatorLoginPage } from "./operator.js";
 import { privacyPage } from "./privacy.js";
 import { termsPage } from "./terms.js";
 import { transparencyPage, repoTraffic } from "./transparency.js";
-import { contactPage } from "./contact.js";
 import { quickstartPage } from "./quickstart.js";
 import { whatIsX402Page } from "./what-is-x402.js";
 import { whatIsMppPage } from "./what-is-mpp.js";
@@ -1720,7 +1719,7 @@ if (process.env.FOLLOWUPS !== "off") _followups.start();
 app.get("/followups/stop", (req, res) => {
   const r = _followups.stop(String(req.query.id || ""), String(req.query.k || ""));
   res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html");
-  if (!r.ok) return res.status(400).send(alertPage("That link did not work", `<p>The link is invalid. <a href="/contact">Contact us</a> and we will stop the emails by hand.</p>`));
+  if (!r.ok) return res.status(400).send(alertPage("That link did not work", `<p>The link is invalid. <a href="/company#contact">Contact us</a> and we will stop the emails by hand.</p>`));
   res.send(alertPage("Done", `<p>No more follow-up emails about that purchase. Your report link keeps working.</p><p><a href="/reports">Back to reports</a></p>`));
 });
 app.post("/followups/stop", (req, res) => { const r = _followups.stop(String(req.query.id || ""), String(req.query.k || "")); res.status(r.ok ? 200 : 400).json({ ok: r.ok }); });
@@ -1755,7 +1754,7 @@ app.get("/alerts/confirm", (req, res) => {
 app.get("/alerts/unsubscribe", (req, res) => {
   const r = _freeAlerts.unsubscribe(String(req.query.id || ""), String(req.query.k || ""));
   res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html");
-  if (!r.ok) return res.status(400).send(alertPage("That link did not work", `<p>The unsubscribe link is invalid. <a href="/contact">Contact us</a> and we will remove you by hand.</p>`));
+  if (!r.ok) return res.status(400).send(alertPage("That link did not work", `<p>The unsubscribe link is invalid. <a href="/company#contact">Contact us</a> and we will remove you by hand.</p>`));
   res.send(alertPage("Unsubscribed", `<p>No more emails about ${escHtml(r.target)}. <a href="/reports">Back to reports</a></p>`));
 });
 // One-click unsubscribe (RFC 8058): mail clients POST the List-Unsubscribe URL.
@@ -1784,7 +1783,7 @@ app.get("/digest/confirm", (req, res) => {
 app.get("/digest/unsubscribe", (req, res) => {
   const r = _walletDigest.unsubscribe(String(req.query.id || ""), String(req.query.k || ""));
   res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html");
-  if (!r.ok) return res.status(400).send(alertPage("That link did not work", `<p>The unsubscribe link is invalid. <a href="/contact">Contact us</a> and we will remove you by hand.</p>`));
+  if (!r.ok) return res.status(400).send(alertPage("That link did not work", `<p>The unsubscribe link is invalid. <a href="/company#contact">Contact us</a> and we will remove you by hand.</p>`));
   res.send(alertPage("Unsubscribed", `<p>No more digests. Your address has been removed. <a href="/digest">Subscribe again</a> any time.</p>`));
 });
 app.post("/digest/unsubscribe", (req, res) => { const r = _walletDigest.unsubscribe(String(req.query.id || ""), String(req.query.k || "")); res.status(r.ok ? 200 : 400).json({ ok: r.ok }); });
@@ -2302,7 +2301,8 @@ app.get("/.well-known/*doc", (req, res, next) => {
 app.get("/privacy", (_req, res) => htmlCache(res, 300, 900).send(privacyPage(BASE_URL)));
 app.get("/terms", (_req, res) => htmlCache(res, 300, 900).send(termsPage(BASE_URL)));
 app.get("/transparency", async (_req, res) => htmlCache(res, 300, 900).send(transparencyPage(BASE_URL, await repoTraffic().catch(() => null))));
-app.get("/contact", (_req, res) => htmlCache(res, 300, 900).send(contactPage(BASE_URL)));
+// /contact folded into /company (2026-09-09): one page for who we are and how to reach us.
+app.get("/contact", (_req, res) => res.redirect(301, "/company#contact"));
 app.get("/quickstart", (_req, res) => htmlCache(res, 300, 900).send(quickstartPage(BASE_URL)));
 app.get("/what-is-x402", (_req, res) => htmlCache(res, 300, 900).send(whatIsX402Page(BASE_URL, {
   stats: getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }),

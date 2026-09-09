@@ -4,7 +4,7 @@
 // exists (the 8 per-chain marketplaces, the open Index, the Smart Order Router,
 // the on-chain leaderboard) into one story, with a seller onramp and a buyer
 // onramp. Every number is live (passed in by the route), never hardcoded.
-import { ledgerShell, ledgerFooterFull, esc } from "./ledger-chrome.js";
+import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 import { CHAIN_PAGES } from "./market-page.js";
 import { chainMark, CHAIN_ORDER } from "./chain-logos.js";
 import { RAILS_AMP } from "./rails.js";
@@ -124,6 +124,6 @@ export function marketplacesPage(baseUrl, { chainSellerCounts = {}, indexSnapsho
   return ledgerShell({
     title, description, canonical: `${baseUrl}/marketplaces`, baseUrl, activePath: "/marketplaces", jsonLd,
     extraCss: `@media (max-width:900px){.mkts-grid{grid-template-columns:repeat(2,1fr) !important}.mkts-pillars{grid-template-columns:1fr !important}.mkts-onramps{grid-template-columns:1fr !important}}@media (max-width:600px){.mkts-grid{grid-template-columns:1fr !important}}`,
-    body: body + ledgerFooterFull(),
+    body: body + ledgerFooterCompact(),
   });
 }
