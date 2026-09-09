@@ -3,7 +3,7 @@
 // transcript, real PoW demo, sell block, index/leaderboard, lane-level
 // demand teaser, FAQ, closing CTA, footer.
 
-import { ledgerShell, ledgerFooterFull, esc } from "./ledger-chrome.js";
+import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 import { toolList } from "./pages.js";
 import { isComputePayable } from "./pow.js";
 import { RAILS } from "./rails.js";
@@ -477,7 +477,7 @@ curl -X POST /api/hash \\
   </div>
 </section>
 
-${ledgerFooterFull()}
+${ledgerFooterCompact()}
 
 <script src="/js/home-hero.js"></script>`;
 

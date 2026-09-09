@@ -292,7 +292,6 @@ export function sitemapPages(baseUrl, catalog) {
     { loc: `${baseUrl}/privacy`, priority: "0.4" },
     { loc: `${baseUrl}/terms`, priority: "0.4" },
     { loc: `${baseUrl}/transparency`, priority: "0.4" },
-    { loc: `${baseUrl}/contact`, priority: "0.5" },
   ];
   return subSitemap(urls, lastmod);
 }
