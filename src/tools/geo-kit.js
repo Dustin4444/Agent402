@@ -136,7 +136,7 @@ export const GEO_TOOLS = [
     name: "Geocode address",
     slug: "geocode",
     category: "data",
-    price: "$0.003",
+    price: "$0.002",
     description:
       "Resolve a free-form address or place name to coordinates: lat/lon, display name, bounding box, place type. OpenStreetMap/Nominatim, no key. ?q=1600+Pennsylvania+Ave+Washington+DC&limit=1.",
     tags: ["geocoding", "address", "lat-lon", "openstreetmap", "nominatim", "maps"],

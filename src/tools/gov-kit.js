@@ -156,7 +156,7 @@ const STATE_NAME_TO_CODE = {
 const openFdaKeyParam = () => (process.env.OPENFDA_API_KEY ? `&api_key=${encodeURIComponent(process.env.OPENFDA_API_KEY.trim())}` : "");
 export const GOV_TOOLS = [
   {
-    route: "GET /api/gov-data", name: "US gov dataset search", slug: "gov-data", category: "data", price: "$0.003",
+    route: "GET /api/gov-data", name: "US gov dataset search", slug: "gov-data", category: "data", price: "$0.002",
     description:
       "Search 300,000+ US government datasets on catalog.data.gov (Catalog API): titles, publishing org, formats, and direct resource URLs - the index agents need before fetching public data. ?q=electric+vehicles&rows=5.",
     tags: ["data.gov", "datasets", "open-data", "government", "catalog"],
@@ -219,7 +219,7 @@ export const GOV_TOOLS = [
     },
   },
   {
-    route: "GET /api/weather-alerts", name: "US weather alerts", slug: "weather-alerts", category: "data", price: "$0.003",
+    route: "GET /api/weather-alerts", name: "US weather alerts", slug: "weather-alerts", category: "data", price: "$0.002",
     description:
       "Active National Weather Service alerts for a US state as clean JSON: event, severity, headline, affected areas, onset/expiry. Live government data, no key. ?area=CA.",
     tags: ["weather", "alerts", "nws", "noaa", "government"],
@@ -254,7 +254,7 @@ export const GOV_TOOLS = [
     },
   },
   {
-    route: "GET /api/earthquakes", name: "Recent earthquakes (USGS)", slug: "earthquakes", category: "data", price: "$0.003",
+    route: "GET /api/earthquakes", name: "Recent earthquakes (USGS)", slug: "earthquakes", category: "data", price: "$0.002",
     description:
       "Real-time USGS earthquake feed: magnitude, place, time, depth, coordinates. Live government data, no key. ?minMag=4.5&period=day (minMag: significant|4.5|2.5|1.0|all; period: hour|day|week|month).",
     tags: ["earthquakes", "earthquake", "feed", "usgs", "geology", "government", "real-time"],

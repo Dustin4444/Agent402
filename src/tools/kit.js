@@ -671,7 +671,7 @@ const dataTools = [
     name: "YAML to JSON",
     slug: "yaml-to-json",
     category: "conversion",
-    price: "$0.002",
+    price: "$0.001",
     description: "Parse YAML into JSON (safe schema - no code execution).",
     tags: ["yaml", "json", "convert", "config"],
     discovery: {
@@ -697,7 +697,7 @@ const dataTools = [
     name: "JSON to YAML",
     slug: "json-to-yaml",
     category: "conversion",
-    price: "$0.002",
+    price: "$0.001",
     description: "Convert JSON to YAML.",
     tags: ["json", "yaml", "convert", "config"],
     discovery: {
@@ -754,7 +754,7 @@ const dataTools = [
     name: "Markdown to HTML",
     slug: "markdown-to-html",
     category: "conversion",
-    price: "$0.002",
+    price: "$0.001",
     description: "Render CommonMark + GFM markdown to HTML.",
     tags: ["markdown", "html", "convert", "render"],
     discovery: {
@@ -776,7 +776,7 @@ const dataTools = [
     name: "HTML to Markdown",
     slug: "html-to-markdown",
     category: "conversion",
-    price: "$0.002",
+    price: "$0.001",
     description: "Convert an HTML fragment or document you already have into clean markdown. (To fetch + convert a live URL, use /api/extract.)",
     tags: ["html", "markdown", "convert"],
     discovery: {
@@ -1066,7 +1066,7 @@ const textTools = [
     name: "Text diff",
     slug: "text-diff",
     category: "text",
-    price: "$0.002",
+    price: "$0.001",
     description: "Line-by-line diff of two texts (LCS). Returns unified-style ops and change counts. Up to 2000 lines per side.",
     tags: ["diff", "compare", "text"],
     discovery: {
@@ -1275,7 +1275,7 @@ const timeTools = [
     name: "Cron next runs",
     slug: "cron-next",
     category: "time",
-    price: "$0.002",
+    price: "$0.001",
     description: "Parse a 5-field cron expression and return the next N run times (UTC).",
     tags: ["cron", "schedule", "time"],
     discovery: {
@@ -2206,7 +2206,7 @@ const networkTools = [
     name: "Sitemap reader",
     slug: "sitemap",
     category: "network",
-    price: "$0.003",
+    price: "$0.002",
     description: "Fetch and parse a sitemap.xml (or sitemap index): returns up to 500 URLs with lastmod, or the child sitemaps of an index.",
     tags: ["sitemap", "crawling", "seo", "urls"],
     discovery: {
@@ -2240,7 +2240,7 @@ const networkTools = [
     name: "QR code",
     slug: "qr",
     category: "identifiers",
-    price: "$0.002",
+    price: "$0.001",
     description: "Generate a QR code PNG from any text or URL. ?text=…&size=256 (128-1024).",
     tags: ["qr", "qrcode", "png", "generator"],
     mimeType: "image/png",

@@ -194,7 +194,7 @@ export const AGENT_TOOLS = [
     },
   },
   {
-    route: "POST /api/json-validate", name: "JSON Schema validate", slug: "json-validate", category: "data", price: "$0.002",
+    route: "POST /api/json-validate", name: "JSON Schema validate", slug: "json-validate", category: "data", price: "$0.001",
     description:
       "Validate a JSON document against a JSON Schema (draft-07 subset) and get the list of violations. Supports type, required, properties, items, enum, const, min/max, length, pattern, format, anyOf/allOf/oneOf/not, additionalProperties. Deterministic - check an agent's structured output before you trust it.",
     tags: ["json-schema", "validate", "structured-output", "draft-07"],

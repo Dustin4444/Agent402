@@ -278,7 +278,7 @@ export const ENRICH_TOOLS = [
     name: "Legal entity (LEI) lookup",
     slug: "lei-lookup",
     category: "data",
-    price: "$0.01",
+    price: "$0.005",
     description:
       "Look up a legal entity in the official GLEIF registry. Pass a 20-character LEI for the full record - legal name, jurisdiction, legal form, addresses, registration status, and the reported direct + ultimate parent entities - or pass a company name to fulltext-search the registry and get ranked candidate LEIs. Unknown LEIs return {found:false}; parents that aren't reported return null. Official registry data, keyless.",
     tags: ["data", "lei", "gleif", "legal-entity", "company", "enrichment", "kyc"],

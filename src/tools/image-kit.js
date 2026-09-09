@@ -207,7 +207,7 @@ const EXAMPLE_IMAGE_URL = "https://raw.githubusercontent.com/ianare/exif-samples
 
 export const IMAGE_TOOLS = [
   {
-    route: "POST /api/image-resize", name: "Image resize", slug: "image-resize", category: "web", price: "$0.005",
+    route: "POST /api/image-resize", name: "Image resize", slug: "image-resize", category: "web", price: "$0.001",
     description:
       "Resize an image to given pixel dimensions. Send a base64 PNG/JPEG/BMP and width and/or height (give one to scale proportionally). Returns the resized image. Deterministic, no network.",
     tags: ["image", "resize", "scale", "thumbnail", "png", "jpeg"],
@@ -252,7 +252,7 @@ export const IMAGE_TOOLS = [
     },
   },
   {
-    route: "POST /api/image-thumbnail", name: "Image thumbnail", slug: "image-thumbnail", category: "web", price: "$0.005",
+    route: "POST /api/image-thumbnail", name: "Image thumbnail", slug: "image-thumbnail", category: "web", price: "$0.001",
     description:
       "Make a square thumbnail of an image - scales and center-crops to NxN (default 128). Send a base64 image and optional size. Returns the thumbnail. Deterministic, no network.",
     tags: ["image", "thumbnail", "crop", "square", "preview"],
@@ -347,7 +347,7 @@ export const IMAGE_TOOLS = [
     },
   },
   {
-    route: "POST /api/image-crop", name: "Image crop", slug: "image-crop", category: "web", price: "$0.005",
+    route: "POST /api/image-crop", name: "Image crop", slug: "image-crop", category: "web", price: "$0.002",
     description:
       "Crop an image to a pixel box, and/or rotate (90/180/270) and flip it - applied in that order. Send a public image URL or a base64 image. Returns the result as binary, or as a JSON data URI with dataUri:true. Deterministic.",
     tags: ["image", "crop", "rotate", "flip", "transform"],

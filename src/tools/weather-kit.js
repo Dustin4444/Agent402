@@ -71,7 +71,7 @@ export const WEATHER_TOOLS = [
     name: "Current weather (global)",
     slug: "weather-current",
     category: "data",
-    price: "$0.003",
+    price: "$0.002",
     description:
       "Current weather conditions for any location on Earth: temperature, feels-like, humidity, wind speed/direction/gusts, precipitation, cloud cover, pressure, and human-readable condition. Open-Meteo, no key, global. ?lat=48.86&lon=2.35.",
     tags: ["weather", "current", "temperature", "wind", "global", "open-meteo"],
@@ -143,7 +143,7 @@ export const WEATHER_TOOLS = [
     name: "Daily forecast (global)",
     slug: "weather-daily",
     category: "data",
-    price: "$0.003",
+    price: "$0.002",
     description:
       "7-day daily weather forecast for any location: high/low temp, precipitation sum and probability, max wind, UV index, sunrise/sunset. Open-Meteo, no key, global. ?lat=35.68&lon=139.69.",
     tags: ["weather", "forecast", "daily", "global", "open-meteo"],
@@ -213,7 +213,7 @@ export const WEATHER_TOOLS = [
     name: "Hourly forecast (global)",
     slug: "weather-hourly",
     category: "data",
-    price: "$0.003",
+    price: "$0.002",
     description:
       "48-hour hourly weather forecast for any location: temperature, precipitation probability and amount, wind, cloud cover, humidity. Open-Meteo, no key, global. ?lat=-33.87&lon=151.21.",
     tags: ["weather", "forecast", "hourly", "global", "open-meteo"],
@@ -353,7 +353,7 @@ export const WEATHER_TOOLS = [
     name: "Air quality (global)",
     slug: "weather-air-quality",
     category: "data",
-    price: "$0.003",
+    price: "$0.002",
     description:
       "Current air quality index and pollutant concentrations for any location: US AQI, PM2.5, PM10, ozone, NO2, SO2, CO. Open-Meteo air quality API, no key, global. ?lat=28.61&lon=77.23.",
     tags: ["weather", "air-quality", "aqi", "pollution", "pm25", "global", "open-meteo"],

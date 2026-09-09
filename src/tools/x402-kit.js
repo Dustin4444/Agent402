@@ -214,7 +214,7 @@ const NETWORK_PARAM = { type: "string", description: `chain: ${NETWORK_NAMES.joi
 
 export const X402_TOOLS = [
   {
-    route: "GET /api/x402-market-pulse", name: "x402 market pulse", slug: "x402-market-pulse", category: "payments", price: "$0.01",
+    route: "GET /api/x402-market-pulse", name: "x402 market pulse", slug: "x402-market-pulse", category: "payments", price: "$0.001",
     description:
       "Live cross-provider x402 market sentiment. topProviders: the top x402 sellers ecosystem-wide, ranked by REAL on-chain activity (Agent402 included and flagged isSelf:true). Pick the lens with sort: 'usd' (revenue, default - whale-skewable), 'buyers' (distinct paying wallets - broadest adoption/reach), or 'calls' (raw volume). Every row carries all metrics plus callsPerBuyer (intensity), so revenue and actual ecosystem usage are both visible. topToolCategories: the tool-category supply mix the whole market offers (from every indexed seller's manifest). Per-tool purchase counts are not on-chain, so demand is provider-level - the honest whole-market read. ?top=10&sort=buyers",
     tags: ["x402", "market", "sentiment", "leaderboard", "ecosystem", "providers", "intelligence", "discovery"],

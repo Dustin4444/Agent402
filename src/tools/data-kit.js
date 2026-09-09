@@ -134,7 +134,7 @@ export const DATA_TOOLS = [
     },
   },
   {
-    route: "GET /api/fx-rate", name: "Currency exchange rate", slug: "fx-rate", category: "data", price: "$0.003",
+    route: "GET /api/fx-rate", name: "Currency exchange rate", slug: "fx-rate", category: "data", price: "$0.002",
     description:
       "Live currency conversion using European Central Bank reference rates (via Frankfurter). Converts an amount between two currencies and returns the rate and date. ?from=USD&to=EUR&amount=100",
     tags: ["currency", "forex", "fx", "exchange-rate", "convert", "ecb"],
@@ -307,7 +307,7 @@ export const DATA_TOOLS = [
     },
   },
   {
-    route: "GET /api/country-info", name: "Country info", slug: "country-info", category: "data", price: "$0.002",
+    route: "GET /api/country-info", name: "Country info", slug: "country-info", category: "data", price: "$0.001",
     description:
       "Country facts by name or ISO code: official name, capital, region, currencies, languages, timezones, dialing code, TLD, and more. Committed open dataset (world-countries, ODbL, plus the IANA timezone country map) - offline and deterministic. ?name=Japan or ?code=JP",
     tags: ["country", "geography", "currency", "language", "timezone", "dialing-code", "iso-3166"],

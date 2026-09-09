@@ -2488,6 +2488,16 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   external-vs-external ordering is unchanged. Re-run the sweep after deploy (the recipe is a 20-line node loop over
   `/api/pricing` endpoints -> `/api/route?q=<name>&top=3`) and expect the outside-first count to fall to genuine cases
   (cheaper or better-matched sellers).
+- **78 more tools repriced against proven peers (2026-09-09, the operator's go):** the 08-28 sweep repeated over every priced
+  tool through `/api/route?include=external` (peers with >= 3 Bazaar payers in 30 d at an equal or better match score): cheaper
+  on 138, equal on 130, pricier on 303 - most of the 303 are false matches (the lexical router pairs research-pro with a $0.001
+  hash endpoint) or tools with real upstream cost, where the margin ladders govern. What was like-for-like, spot-checked by
+  hand, moved in three classes: 28 pure-CPU tools to $0.001; 28 tools on free unmetered upstreams (Open-Meteo, frankfurter,
+  DNS, DefiLlama, Hyperliquid, USGS, RSS) to $0.002; 22 free data feeds (EDGAR, FRED, Treasury, World Bank, Yahoo relay,
+  GLEIF) from $0.010-$0.025 to $0.005. Untouched: every LLM tier, report, X, Brave, E2B, image/speech, Alchemy (PAYG CU) and
+  CoinGecko (Demo quota) tool - a peer at $0.001 hitting a free API is not the same product. Pack prices re-derived
+  (`pack-prices.js --write`), two canary pins and three kit-test pins followed. Recipe: the sweep is a 30-line node loop over
+  `/api/pricing` endpoints -> `/api/route?q=<name>&include=external&top=12`, bucketed by `computePayable` and upstream class.
 - **16 pure-CPU / free-upstream tools cut to the floor (2026-08-28, priced against comparable listings):**
   measured first - against PROVEN outside peers (Bazaar payers30d >= 3, equal route score) we were cheaper on 80 tools,
   equal on 37, pricier on 36; two-thirds of the 36 carry real upstream cost (Brave, E2B, CoinGecko, LLM) and stay. The
