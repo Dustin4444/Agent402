@@ -50,7 +50,10 @@ if (TARGET) {
     catch (e) { ok(false, `${p}: ${e.message}`); continue; }
     // Measure the TEXT a search engine shows, not the escaped source: "&amp;"
     // is one character on the page (tollbooth/cloud's title read 74 escaped, 70 real).
-    const unesc = (s) => s.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+    // One pass over the five entities (a chained replace decodes "&amp;lt;"
+    // twice - CodeQL js/double-escaping - and this measures, so it must not).
+    const ENT = { "&amp;": "&", "&quot;": '"', "&#39;": "'", "&lt;": "<", "&gt;": ">" };
+    const unesc = (s) => s.replace(/&(?:amp|quot|#39|lt|gt);/g, (m) => ENT[m]);
     const title = unesc((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || "");
     const desc = unesc((html.match(/<meta name="description" content="([^"]*)"/i) || [])[1] || "");
     const h1 = (html.match(/<h1\b/gi) || []).length;
