@@ -1,7 +1,7 @@
 // The plugin against a REAL OpenClaw, the way a user gets it - not the fake
 // plugin api in test.js. Every green run of that file proved the plugin against
 // OUR MODEL of OpenClaw; this proves it against OpenClaw:
-//   npm i openclaw@<pinned>      (the actual host, ~90 MB, Node >= 22.22)
+//   npm i openclaw@<pinned>      (the actual host, ~90 MB; 2026.9.x needs Node >= 24.16, 2026.8.x took 22.22)
 //   npm pack + npm i -g <tgz>    (the bin SYMLINK path - 0.1.0/0.1.1 were no-ops through it)
 //   openclaw plugins install <tgz>   (the documented install; 0.1.0-0.2.0 were REFUSED here:
 //                                    "plugin manifest requires configSchema")
@@ -31,7 +31,7 @@ const pkgDir = new URL(".", import.meta.url).pathname;
 // same file against @latest on a schedule and opens an issue, so a host change
 // still reaches us - as a page, not as a blocked merge. Raise the pin when
 // that watcher goes red and the plugin has been fixed to match.
-const OPENCLAW_SPEC = process.env.OPENCLAW_SPEC || "openclaw@2026.8.1";
+const OPENCLAW_SPEC = process.env.OPENCLAW_SPEC || "openclaw@2026.9.3";
 
 // ASYNC spawn only: the stub gateway lives in this process, and a synchronous
 // spawn blocks the event loop so nothing the child asks the stub is answered
@@ -138,7 +138,9 @@ try {
   const pi = await sh(oc, ["plugins", "install", tgz, "--force", ...CONSENT], { env, cwd: home });
   ok(pi.status === 0 && /Installed plugin: agent402/.test(pi.out), `openclaw plugins install <tgz> accepts the package (exit ${pi.status}: ${(/Reason:\s*([^\n]+(?:\n(?!\[)[^\n]*)*)/.exec(pi.out)?.[1] || pi.out).trim().replace(/\s+/g, " ").slice(0, 900) || "<no output>"})`);
   const insp = await sh(oc, ["plugins", "inspect", "agent402"], { env });
-  ok(/Status: loaded/.test(insp.out) && /text-inference: agent402/.test(insp.out), "openclaw plugins inspect agent402: loaded, registers text-inference");
+  // 2026.9.x prints "Status: enabled" where 2026.8.x printed "Status: loaded";
+  // the capability line is the same on both.
+  ok(/Status: (loaded|enabled)/.test(insp.out) && /text-inference: agent402/.test(insp.out), `openclaw plugins inspect agent402: loaded, registers text-inference (exit ${insp.status}: ${insp.out.trim().replace(/\s+/g, " ").slice(0, 600) || "<no output>"})`);
   // Consent given at install time does not survive into the gateway's runtime:
   // 2026.8.1 quarantines the plugin until it is enabled with consent too (the
   // refusal names this command itself). Without it the gateway loads every other

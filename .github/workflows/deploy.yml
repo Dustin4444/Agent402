@@ -870,6 +870,9 @@ jobs:
       # this proves it against OpenClaw. It found the manifest refusal
       # (configSchema) and the auto-primary context overflow that 0.1.0-0.2.0
       # shipped with. npm registry only; no money moves.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
       - name: OpenClaw provider plugin against a REAL OpenClaw install
         # Third-party install (PINNED in the test; openclaw-latest.yml tracks
         # @latest on a schedule) with lifecycle scripts + its binary run
@@ -882,6 +885,12 @@ jobs:
           E2B_API_KEY: ""
           COINGECKO_API_KEY: ""
         run: node openclaw/test-real-install.js
+      # The pinned host (2026.9.x) requires Node >= 24.16; the lane itself
+      # stays on 22 (prod's floor), so Node 24 is scoped to this one step and
+      # the lane's version is restored right after.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
 
       # ONE STEP, MANY SCRIPTS (2026-08-25): GitHub spends ~0.7 s of runner setup
       # per step and this lane had over a hundred one-line steps. Each script still
