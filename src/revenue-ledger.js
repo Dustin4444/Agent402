@@ -89,6 +89,26 @@ CREATE TABLE IF NOT EXISTS cursors (
   PRIMARY KEY (chain, wallet)
 );`);
 
+// Ledger-wide one-shot migrations, keyed so each runs once per database.
+db.exec(`CREATE TABLE IF NOT EXISTS ledger_meta (key TEXT PRIMARY KEY, value TEXT)`);
+export function runLedgerMigrations() {
+  const has = (k) => Boolean(db.prepare("SELECT 1 FROM ledger_meta WHERE key = ?").get(k));
+  const mark = (k) => db.prepare("INSERT OR REPLACE INTO ledger_meta (key, value) VALUES (?, ?)").run(k, new Date().toISOString());
+  const applied = [];
+  // 2026-09-09: the Algorand scanner skipped one full descending page per
+  // walk, so rows below the live cursor were never read. Reset the cursor
+  // once; the next ticks re-walk the account (a few pages) and the transfers
+  // primary key makes the re-read a no-op for everything already held.
+  if (!has("algorand-rescan-2026-09-09")) {
+    const r = db.prepare("UPDATE cursors SET next_block = 0, newest_sig = NULL, caught_up = 0 WHERE chain = 'algorand'").run();
+    mark("algorand-rescan-2026-09-09");
+    applied.push(`algorand-rescan-2026-09-09 (${r.changes} cursor row${r.changes === 1 ? "" : "s"} reset)`);
+  }
+  return applied;
+}
+for (const line of runLedgerMigrations()) console.log(`revenue-ledger: migration ${line}`);
+
+
 const upsertTransfer = db.prepare(`INSERT OR IGNORE INTO transfers
   (chain, wallet, txid, tx_hash, block, when_ts, payer, usd, asset, external)
   VALUES (@chain, @wallet, @txid, @tx_hash, @block, @when_ts, @payer, @usd, @asset, @external)`);
@@ -429,18 +449,36 @@ const ALGORAND_USDC_ASA = 31566704;
 export async function syncAlgorand(wallet, { maxPages = 5 } = {}) {
   const chain = "algorand";
   const cur = getCursor.get(chain, wallet);
-  let minRound = cur?.next_block ?? 0;
   const ours = new Set([...OUR_ALGORAND_WALLETS, wallet]);
+  // The indexer serves an account's transactions NEWEST FIRST and has no order
+  // parameter, so one tick is one WALK: min-round pinned at the cursor for the
+  // whole walk, pages followed by the indexer's own next-token until a short
+  // page. The cursor moves only when the walk completes. The earlier loop
+  // bumped min-round past the newest round of each page, which on a full
+  // descending page skipped every row between the old cursor and that page's
+  // oldest row - measured 2026-09-09: 7,220 inbound transfers at the indexer,
+  // 6,220 in the ledger, exactly one page lost. A walk cut short by maxPages
+  // persists its next-token (JSON in newest_sig) and resumes next tick.
+  const minRound = cur?.next_block ?? 0;
+  let token = null;
+  let highestRound = minRound - 1;
+  if (cur?.newest_sig) {
+    try {
+      const w = JSON.parse(cur.newest_sig);
+      if (w && w.walkFrom === minRound && typeof w.next === "string" && w.next) {
+        token = w.next;
+        if (Number.isFinite(Number(w.high))) highestRound = Math.max(highestRound, Number(w.high));
+      }
+    } catch { /* a legacy or foreign value: start the walk over from min-round */ }
+  }
   let sawEnd = false;
   for (let pages = 0; pages < maxPages && !sawEnd; pages++) {
     const path =
       `/v2/accounts/${wallet}/transactions?asset-id=${ALGORAND_USDC_ASA}` +
-      `&tx-type=axfer&min-round=${minRound}&limit=1000`;
+      `&tx-type=axfer&min-round=${minRound}&limit=1000` + (token ? `&next=${encodeURIComponent(token)}` : "");
     const res = await getJsonAcross(ALGORAND_INDEXER_LIST, path, { timeoutMs: 8000 });
     if (!res.ok) throw new Error(res.error || `indexer HTTP ${res.status}`);
     const txns = res.json?.transactions || [];
-    if (!txns.length) { sawEnd = true; markCaughtUp(chain, wallet); break; }
-    let highestRound = minRound - 1;
     for (const t of txns) {
       const xfer = t["asset-transfer-transaction"];
       if (!xfer || xfer["asset-id"] !== ALGORAND_USDC_ASA || xfer.receiver !== wallet) continue;
@@ -455,14 +493,21 @@ export async function syncAlgorand(wallet, { maxPages = 5 } = {}) {
       });
       if (Number.isFinite(t["confirmed-round"])) highestRound = Math.max(highestRound, t["confirmed-round"]);
     }
-    if (txns.length < 1000) sawEnd = true;
-    minRound = highestRound + 1;
-    putCursor.run({
-      chain, wallet, next_block: minRound, newest_sig: null,
-      backfilled: sawEnd ? 1 : 0, caught_up: sawEnd ? 1 : 0,
-      updated_ts: Math.floor(Date.now() / 1000),
-    });
-    if (!sawEnd) await sleep(150); // stay polite to AlgoNode
+    const nextToken = typeof res.json?.["next-token"] === "string" ? res.json["next-token"] : null;
+    if (txns.length < 1000 || !nextToken) {
+      sawEnd = true;
+      putCursor.run({
+        chain, wallet, next_block: highestRound + 1, newest_sig: null,
+        backfilled: 1, caught_up: 1, updated_ts: Math.floor(Date.now() / 1000),
+      });
+    } else {
+      token = nextToken;
+      putCursor.run({
+        chain, wallet, next_block: minRound, newest_sig: JSON.stringify({ walkFrom: minRound, next: token, high: highestRound }),
+        backfilled: cur?.backfilled ? 1 : 0, caught_up: 0, updated_ts: Math.floor(Date.now() / 1000),
+      });
+      await sleep(150); // stay polite to AlgoNode
+    }
   }
   return { caughtUp: sawEnd };
 }

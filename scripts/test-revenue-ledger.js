@@ -146,6 +146,67 @@ if (!existsSync("/data")) {
   } finally { globalThis.fetch = realFetch; db.close(); }
 }
 
+// --- Algorand: a descending indexer is walked to completion (2026-09-09) ------
+// The indexer serves newest-first with no order parameter. The old loop bumped
+// min-round past each page's newest round, so a full page skipped every older
+// row between the cursor and that page - prod lost exactly 1,000 of 7,220
+// inbound transfers. A fake indexer with the real semantics (min-round filter,
+// newest-first, next-token) must yield every row, resume a walk cut by
+// maxPages, and read only the tail on the next tick.
+{
+  const { syncAlgorand, ledgerSyncState, runLedgerMigrations } = await import("../src/revenue-ledger.js");
+  const Database = (await import("better-sqlite3")).default;
+  const db = new Database(process.env.REVENUE_LEDGER_DB);
+  const ALW = "WALKTESTWALLETXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
+  const PAYER = "SOMEALGOBUYERXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
+  let chain = []; // ascending rounds
+  const addRows = (from, to) => { for (let r = from; r <= to; r++) chain.push({ id: `ALGOWALK${r}`, sender: PAYER, "confirmed-round": r, "round-time": 1790000000 + r, "asset-transfer-transaction": { "asset-id": 31566704, receiver: ALW, amount: 1000 } }); };
+  addRows(1, 2300);
+  const pagesServed = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const u = new URL(String(url));
+    const minRound = Number(u.searchParams.get("min-round") || 0);
+    const next = u.searchParams.get("next");
+    const limit = Number(u.searchParams.get("limit") || 1000);
+    const desc = chain.filter((x) => x["confirmed-round"] >= minRound).sort((a, b) => b["confirmed-round"] - a["confirmed-round"]);
+    const start = next ? Number(next.replace("tok-", "")) : 0;
+    const page = desc.slice(start, start + limit);
+    pagesServed.push({ minRound, next, n: page.length });
+    const body = { transactions: page };
+    if (start + limit < desc.length) body["next-token"] = `tok-${start + limit}`;
+    return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const count = () => db.prepare("SELECT COUNT(*) AS n FROM transfers WHERE chain='algorand' AND wallet=?").get(ALW).n;
+  const cursor = () => db.prepare("SELECT * FROM cursors WHERE chain='algorand' AND wallet=?").get(ALW);
+  try {
+    // A walk cut by maxPages persists its token and does not move the cursor.
+    let r = await syncAlgorand(ALW, { maxPages: 1 });
+    ok(r.caughtUp === false && count() === 1000, `a one-page walk holds 1,000 rows and is not caught up (got ${count()})`);
+    ok(cursor().next_block === 0 && /tok-1000/.test(cursor().newest_sig || ""), "the cut walk keeps min-round and remembers its next-token");
+    // The next tick resumes from the token and completes the walk.
+    r = await syncAlgorand(ALW, { maxPages: 5 });
+    ok(r.caughtUp === true && count() === 2300, `the resumed walk yields every row (got ${count()} of 2300)`);
+    ok(cursor().next_block === 2301 && cursor().newest_sig === null && cursor().caught_up === 1, "a completed walk moves the cursor past the newest round and clears the token");
+    ok(pagesServed.every((p) => p.minRound === 0), "min-round stays pinned for the whole walk");
+    // New rows land; the next tick reads only the tail.
+    addRows(2301, 2305);
+    const before = pagesServed.length;
+    r = await syncAlgorand(ALW);
+    ok(r.caughtUp === true && count() === 2305, `the tail tick picks up the five new rows (got ${count()})`);
+    ok(pagesServed.slice(before).every((p) => p.minRound === 2301) && pagesServed.slice(before)[0].n === 5, "the tail tick asks from the cursor and gets only the new rows");
+    // The one-shot rescan migration resets the cursor once, then never again.
+    db.prepare("DELETE FROM ledger_meta WHERE key = 'algorand-rescan-2026-09-09'").run();
+    const applied = runLedgerMigrations();
+    ok(applied.length === 1 && cursor().next_block === 0 && cursor().caught_up === 0, "the rescan migration resets the algorand cursor to round 0");
+    ok(runLedgerMigrations().length === 0 && cursor().next_block === 0, "the migration is keyed and does not run twice");
+    r = await syncAlgorand(ALW, { maxPages: 5 });
+    ok(r.caughtUp === true && count() === 2305 && cursor().next_block === 2306, "the rescan re-walks the account and the primary key dedupes every row already held");
+    const st = ledgerSyncState().find((x) => x.chain === "algorand" && x.wallet === ALW.slice(0, 10));
+    ok(st?.caughtUp === true, "ledgerSyncState reads the completed walk as caught up");
+  } finally { globalThis.fetch = realFetch; db.close(); }
+}
+
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
