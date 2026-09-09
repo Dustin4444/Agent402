@@ -194,7 +194,7 @@ export function x402101Page(baseUrl) {
 <section class="s101-slide" id="${esc(s.id)}" data-index="${i}">
   <div class="s101-in">
     <div class="s101-kicker">${esc(s.kicker)}</div>
-    <h2 class="s101-h">${s.headline}</h2>
+    ${i === 0 ? `<h1 class="s101-h">${s.headline}</h1>` : `<h2 class="s101-h">${s.headline}</h2>`}
     ${s.body}
     <aside class="s101-notes"><span>Speaker notes</span>${esc(s.notes)}</aside>
   </div>

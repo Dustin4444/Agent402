@@ -1,6 +1,7 @@
 import { CHROME_HEAD_LINKS, CHROME_CSS, renderHeader, renderFooter } from "./chrome.js";
 import { toolList, CATEGORIES } from "./pages.js";
 import { isComputePayable } from "./pow.js";
+import { applyMetaTrims } from "./seo-meta.js";
 
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -48,7 +49,7 @@ export function pricingPage(baseUrl, catalog) {
     })
     .join("\n");
 
-  return `<!DOCTYPE html>
+  return applyMetaTrims(`<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -212,5 +213,5 @@ ${renderHeader("/pricing")}
 </div>
 ${renderFooter()}
 </body>
-</html>`;
+</html>`);
 }

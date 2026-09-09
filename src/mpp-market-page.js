@@ -176,12 +176,17 @@ export function mppMarketPage(baseUrl, snapshot, leaderboard = null, { host = nu
     ? `<p style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);margin-top:10px;">${discoveredTotal.toLocaleString("en-US")} candidate origins discovered, ${verifiedCount.toLocaleString("en-US")} independently verified so far - a gap is normal (re-probe pending, or a listing that no longer answers), never hidden.</p>`
     : "";
 
+  // The roster is the long tail under the leaderboard: folded by default so
+  // the page reads leaderboard -> method -> FAQ, open when the board is empty
+  // (then the roster is the only evidence on the page).
   const rosterHtml = `
-  <h2 id="sellers" style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1px solid var(--hairline);padding-bottom:8px;">Verified MPP sellers</h2>
-  <p style="font-size:13px;color:var(--faint);margin:-6px 0 12px;">Every row here made a real, unpaid request that came back with a genuine WWW-Authenticate: Payment challenge - a registry listing alone is never enough to appear here.</p>
-  <div style="display:flex;flex-direction:column;gap:8px;">${rows}</div>
-  ${honesty}
-  ${gapNote}`;
+  <details id="sellers" style="margin:40px 0 0;"${(leaderboard?.rows || []).length ? "" : " open"}>
+    <summary style="cursor:pointer;font-size:21px;font-weight:800;border-bottom:1px solid var(--hairline);padding-bottom:8px;margin:0 0 14px;list-style:none;">Verified MPP sellers <span style="font-family:var(--font-mono);font-size:12px;font-weight:400;color:var(--muted);">· ${verifiedCount.toLocaleString("en-US")} rows, folded · click to open</span></summary>
+    <p style="font-size:13px;color:var(--faint);margin:-6px 0 12px;">Every row here made a real, unpaid request that came back with a genuine WWW-Authenticate: Payment challenge - a registry listing alone is never enough to appear here.</p>
+    <div style="display:flex;flex-direction:column;gap:8px;">${rows}</div>
+    ${honesty}
+    ${gapNote}
+  </details>`;
 
   const statsHtml = `
   <div class="ml-2col ml-4col" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:26px 0 0;">
