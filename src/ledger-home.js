@@ -104,17 +104,6 @@ const CAPABILITY_CHIPS = [
   ["v1-videos", "Text to video"],
 ];
 
-function capabilityChipsHtml(tools) {
-  const bySlug = new Map(tools.map((t) => [t.slug, t]));
-  return CAPABILITY_CHIPS
-    .map(([slug, label]) => {
-      const t = bySlug.get(slug);
-      if (!t) return "";
-      return `<a href="/tools/${esc(slug)}" class="hm-chip"><span style="color:var(--ink);">${esc(label)}</span><span style="color:var(--faint);">${esc(t.price)}</span></a>`;
-    })
-    .filter(Boolean)
-    .join("");
-}
 
 export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, skillPacks, { settledOnChain = 0 } = {}) {
   const tools = toolList(catalog);
@@ -134,7 +123,6 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   const rails = railsByVolume(stats);
   const attributed = rails.reduce((sum, r) => sum + r.n, 0);
   const board = externalLeaderboardRows(leaderboardSnapshot);
-  const chipsHtml = capabilityChipsHtml(tools);
 
   const canonical = baseUrl + "/";
   // Title <= 70 and description <= 155 (the shell trims, but the homepage
@@ -309,30 +297,6 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   </div>
 </section>
 
-<section style="max-width:1180px;margin:0 auto;padding:34px 30px 0;">
-  <div style="display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:14px;">
-    <span class="hm-kicker" style="margin:0;">$ GET /why</span>
-    <span style="font-size:13.5px;color:var(--muted);">What is different about paying here. Every claim links to the surface that proves it.</span>
-  </div>
-  <div class="hm-why" style="display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1px solid var(--hairline);background:var(--card);">
-    ${[
-      ["Pay for what the model used", "The metered gateway quotes each request from its own body; upto settles the actual usage under that ceiling, with a receipt on every response.", "/why#actual"],
-      ["A failed call is not charged", "Settlement runs after the answer and an error cancels it, so a response with no receipt moved no money; a keyed retry replays the paid answer instead of paying twice.", "/why#never-charged"],
-      ["One key buys everything", "Models on three wires, embeddings, images, speech, 500+ tools, memory and finished reports, all on the same wallet or credits key.", "/why#one-key"],
-      ["No wallet required", "Prepaid credits by card and card checkout for reports, beside USDC or USDG on twelve chains and native MPP.", "/why#no-wallet"],
-    ].map(([h3, p, href]) => `<a href="${href}" style="display:block;padding:20px 22px;border-right:1px solid var(--hairline);text-decoration:none;color:inherit;"><div style="font-weight:700;font-size:15.5px;color:var(--ink);margin-bottom:8px;">${h3}</div><div style="font-size:13.5px;line-height:1.55;color:var(--muted);">${p}</div></a>`).join("")}
-  </div>
-  <div style="margin-top:14px;font-family:var(--font-mono);font-size:13px;"><a href="/why" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--ink);padding-bottom:1px;">all seven, with proof →</a></div>
-</section>
-
-${chipsHtml ? `<section style="max-width:1180px;margin:0 auto;padding:34px 30px 0;">
-  <div style="display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:14px;">
-    <span class="hm-kicker" style="margin:0;">$ GET /api/find?q=funding+rate</span>
-    <span style="font-size:13.5px;color:var(--muted);">Live derivatives, DeFi, Solana and market data as deterministic JSON. Flat price per call, no exchange account and no data-vendor contract.</span>
-  </div>
-  <div style="display:flex;flex-wrap:wrap;gap:10px;">${chipsHtml}</div>
-  <div style="margin-top:14px;font-family:var(--font-mono);font-size:13px;"><a href="/tools/category/crypto" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--ink);padding-bottom:1px;">all crypto and DeFi tools →</a></div>
-</section>` : ""}
 
 <section style="max-width:1180px;margin:0 auto;padding:64px 30px 0;">
   <div class="hm-kicker">$ GET /api/pow/challenge?slug=hash</div>

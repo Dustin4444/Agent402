@@ -1244,7 +1244,6 @@ async function refreshSnapshot({ walletAddress, solanaWallet }) {
 }
 
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-const short = (a) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "-");
 
 // Explorer links for a settlement's tx hash, keyed by rail. Used by the
 // MPP-wire section below.
@@ -1308,96 +1307,45 @@ function railThroughput(snap) {
   return { onchain, tempoMpp, total: onchain + tempoMpp };
 }
 
-// Rail throughput — the big combined numbers, wearing their provenance.
-// Being paid proves demand; a rail that settles real on-chain transactions
-// every two hours proves the plumbing. Both matter (Mike, 2026-08-20), so
-// the combined counts get a PROMINENT band of their own instead of leaking
-// into revenue-shaped headlines. Everything here includes our own traffic
-// and says so in the same breath.
-function railThroughputSection(snap) {
-  const at = snap.allTime;
-  const { onchain, tempoMpp, total } = railThroughput(snap);
-  const railCount = Array.isArray(snap.rails) ? snap.rails.length : 0;
-  const agents = Number(snap.agents?.buyers || 0);
-  if (!total) return "";
-  const stat = (n, label, sub) => `
-    <div style="min-width:0;">
-      <div style="font-family:var(--font-mono);font-size:30px;font-weight:700;color:var(--ink);line-height:1.1;">${n.toLocaleString()}</div>
-      <div style="font-family:var(--font-mono);font-size:12px;color:var(--muted);margin-top:4px;">${label}</div>
-      ${sub ? `<div style="font-family:var(--font-mono);font-size:11px;color:var(--muted);margin-top:2px;">${sub}</div>` : ""}
-    </div>`;
-  return `
-  <div style="border:1px solid var(--hairline);background:var(--card);padding:18px 20px;margin:0 0 26px;">
-    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;border-bottom:1px dashed var(--dash);padding-bottom:10px;margin-bottom:14px;">
-      <span style="font-weight:800;font-size:17px;">Rail throughput <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);font-weight:400;">· every settled on-chain transaction, ours included</span></span>
-      <span style="font-family:var(--font-mono);font-size:11.5px;color:var(--muted);">throughput proves the rails · the revenue figure up top counts only money from others</span>
-    </div>
-    <div class="ml-2col" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;">
-      ${stat(total, "settled transactions all-time", `across ${railCount} rails + the MPP wire`)}
-      ${agents ? stat(agents, "distinct agents have paid", "unique external wallets - the adoption number") : ""}
-      ${stat(onchain, "on-chain (x402 + evm MPP)", "USDC transfers to our rail wallets, ours incl.")}
-      ${stat(tempoMpp, "native MPP on Tempo", "~200/day volume + daily canaries")}
-    </div>
-    <p style="font-size:12.5px;color:var(--muted);margin:14px 0 0;max-width:860px;">We run our own money through the same gates buyers use, continuously: a daily paid canary on every rail, ~200 Tempo MPP settlements a day, and weekly full-catalog sweeps. Those are real on-chain transactions - that is the point - but they are <strong>ours</strong>, so they live here and never in a revenue number. The chart above splits External / Internal explicitly.</p>
-  </div>`;
-}
-
-// MPP by rail — the same card language as the x402 rail cards below, one per
-// rail that has settled over the wire (plus the offered-but-quiet rails, so a
-// rail with zero settlements is shown as live-and-waiting, not omitted).
+// MPP by rail - one row per rail that settles over the wire (offered-but-quiet
+// rails included, so a rail with zero settlements shows as live-and-waiting).
+// The page is PUBLIC, so it renders the same aggregate /api/revenue/mpp serves
+// unauthenticated callers - a per-settlement list pairing tool with price is a
+// purchase feed. Count 0 and "rows withheld" are different statements; this
+// table only ever makes the first when it is true.
 function mppRailsSection(mpp) {
-  // The page is PUBLIC, so it renders the same aggregate /api/revenue/mpp
-  // serves unauthenticated callers - a per-settlement list pairing tool with
-  // price is a purchase feed, which is what the rest of this page was already
-  // reduced to stop publishing. Count 0 and "rows withheld" are different
-  // statements; this section only ever makes the first when it is true.
   const count = Number(mpp?.count || 0);
   const rails = { ...(mpp?.rails || {}) };
-  // Legacy shape (byNetwork counts only, no per-rail hashes) still renders.
   if (!Object.keys(rails).length && mpp?.byNetwork) {
     for (const [n, c] of Object.entries(mpp.byNetwork)) rails[n] = { count: c, external: null, lastAt: null, txs: [] };
   }
   for (const n of Object.keys(MPP_RAIL_META)) if (!rails[n]) rails[n] = { count: 0, external: 0, lastAt: null, txs: [] };
   const entries = Object.entries(rails).sort((a, b) => (b[1].count - a[1].count) || a[0].localeCompare(b[0]));
-  const cards = entries.map(([n, r]) => {
+  const rows = entries.map(([n, r]) => {
     const meta = MPP_RAIL_META[n] || { label: mppRailLabel(n), asset: "USDC", how: "" };
-    const live = true; // offered rails are live by construction; a rail only appears here because it is offered or has settled
-    const dot = `<span style="display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:11px;color:var(--green);"><span style="width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;"></span>${live ? "live" : ""}</span>`;
-    // Three, labelled by their actual hash. Eight links called tx1..tx8 is not
-    // evidence anyone can use: the label carries no information, nobody opens
-    // the eighth, and the row reads as filler on a page whose whole argument is
-    // "check us on-chain". A short hash is checkable at a glance and matches
-    // what an explorer shows.
-    const txLinks = (r.txs || []).slice(0, 3).map((tx) => {
-      const short = String(tx).slice(0, 10);
-      const href = txHref(n, tx);
-      return href ? `<a href="${esc(href)}" rel="noopener" title="${esc(String(tx))}">${esc(short)}…</a>` : `<span>${esc(short)}…</span>`;
-    }).join(" · ");
-    return `
-    <div style="border:1px solid var(--hairline);background:var(--card);padding:18px 20px;min-width:0;">
-      <div style="border-bottom:1px dashed var(--dash);padding-bottom:10px;margin-bottom:12px;">
-        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;">
-          <span style="font-weight:800;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(meta.label)} <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);font-weight:400;">· ${esc(meta.asset)}</span></span>
-          ${dot}
-        </div>
-        <div style="font-family:var(--font-mono);margin-top:6px;"><span style="font-size:22px;font-weight:700;color:var(--accent);">${r.count}</span><span style="display:block;font-size:11px;color:var(--muted);margin-top:2px;">through the rail (ours incl.)${r.external != null ? ` · <strong style="color:var(--ink);">${r.external}</strong> external` : ""}</span></div>
-      </div>
-      <div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;">
-        ${meta.how ? `<div style="color:var(--muted);">${esc(meta.how)}</div>` : ""}
-        ${r.lastAt ? `<div>last settled <span style="color:var(--muted);">${esc(String(r.lastAt).slice(0, 16))}Z</span></div>` : `<div style="color:var(--muted);">offered on every 402 - no MPP-wire settlement on this rail yet</div>`}
-        ${txLinks ? `<div style="color:var(--muted);">verify on-chain: ${txLinks}</div>` : ""}
-      </div>
-    </div>`;
+    // One proof link, labelled by its hash: checkable at a glance, matches an explorer.
+    const tx = (r.txs || [])[0];
+    const href = tx ? txHref(n, tx) : null;
+    const proof = tx ? (href ? `<a href="${esc(href)}" rel="noopener" title="${esc(String(tx))}">${esc(String(tx).slice(0, 10))}…</a>` : `${esc(String(tx).slice(0, 10))}…`) : `<span style="color:var(--muted);">none yet</span>`;
+    return `<tr>
+      <td><strong>${esc(meta.label)}</strong> <span style="color:var(--muted);">${esc(meta.asset)}</span></td>
+      <td class="num">${Number(r.count).toLocaleString()}</td>
+      <td class="num">${r.external != null ? Number(r.external).toLocaleString() : "-"}</td>
+      <td>${r.lastAt ? esc(String(r.lastAt).slice(0, 16)) + "Z" : '<span style="color:var(--muted);">offered, no settlement yet</span>'}</td>
+      <td>${proof}</td>
+    </tr>`;
   }).join("\n");
   return `
-    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:44px 0 6px;">
-      <h2 style="font-family:var(--font-body);font-weight:800;font-size:26px;letter-spacing:-.01em;margin:0;">MPP wire <span style="color:var(--muted);font-weight:400;">· by rail</span></h2>
-      <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);"><strong style="color:var(--ink);">${count}</strong> settlement${count === 1 ? "" : "s"} over <code>Authorization: Payment</code> · <a href="/api/revenue/mpp">/api/revenue/mpp</a></span>
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:40px 0 6px;">
+      <h2 style="font-family:var(--font-body);font-weight:800;font-size:22px;letter-spacing:-.01em;margin:0;">MPP wire <span style="color:var(--muted);font-weight:400;">· by rail</span></h2>
+      <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);"><strong style="color:var(--ink);">${count.toLocaleString()}</strong> settlement${count === 1 ? "" : "s"} over <code>Authorization: Payment</code> · <a href="/api/revenue/mpp">/api/revenue/mpp</a></span>
     </div>
-    <p style="font-size:13.5px;color:var(--muted);margin:0 0 16px;max-width:760px;">Settlements whose credential arrived over the <strong>MPP</strong> wire rather than x402's <code>PAYMENT-SIGNATURE</code>. On Base and Celo that is the same on-chain USDC settlement as x402 (the shim translates the credential); on Tempo it is native USDC.e (PathUSD accepted) through Tempo's relay. <strong>These counts are throughput, not revenue</strong> - the bulk is our own volume + canary runs exercising the rails continuously; the external column is money from others. Recorded from the sales ledger, which began attributing the wire on 2026-07-24.</p>
-    <div class="ml-2col rv-mpp" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;">${cards}</div>`;
+    <p style="font-size:13.5px;color:var(--muted);margin:0 0 12px;max-width:70ch;">Payments whose credential arrived over the <strong>MPP</strong> wire. Throughput, ours included: most of it is our own daily volume exercising the rails; the external column is money from others.</p>
+    <div class="rv-tablewrap"><table class="rv-table">
+      <thead><tr><th>Rail</th><th class="num">Settlements</th><th class="num">External</th><th>Last settled</th><th>Proof</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
 }
-
 
 // Revenue chart — stacked-by-chain daily/cumulative series from
 // /api/revenue/daily. Hand-rolled SVG, no libraries. Palette: the validated
@@ -1426,6 +1374,7 @@ export function revenueChartSection() {
   .rvz-wrap{position:relative}
   .rvz-empty{font-family:var(--font-mono);font-size:12.5px;color:var(--muted);padding:30px 0;text-align:center}
   .rvz details{margin-top:12px;font-size:12.5px}
+  .rvz details.rvz-adv{margin-top:0}
   .rvz details summary{cursor:pointer;font-family:var(--font-mono);color:var(--muted)}
   .rvz table{border-collapse:collapse;font-family:var(--font-mono);font-size:11.5px;margin-top:8px;width:100%}
   .rvz th,.rvz td{border:1px solid var(--dash);padding:3px 8px;text-align:right}
@@ -1433,17 +1382,22 @@ export function revenueChartSection() {
   </style>
   <div class="rvz" id="rvz">
     <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;">
-      <span style="font-weight:800;font-size:17px;">Revenue over time <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);">· by chain · from the settlement ledger</span></span>
+      <span style="font-weight:800;font-size:17px;">Over time <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);">· by chain · external only unless you widen it</span></span>
       <a href="/api/revenue/daily" style="font-family:var(--font-mono);font-size:12px;">raw data →</a>
     </div>
     <div class="rvz-controls" style="margin-top:12px">
       <span class="rvz-seg" id="rvzMode"><button data-v="cum" class="on">Cumulative</button><button data-v="daily">Daily</button></span>
       <span class="rvz-seg" id="rvzMetric"><button data-v="usd" class="on">Revenue $</button><button data-v="tx">Transactions</button><button data-v="buyers">Buyers</button></span>
-      <span class="rvz-seg" id="rvzScope"><button data-v="ext" class="on">External</button><button data-v="int">Internal (canary)</button><button data-v="both">Both</button></span>
-      <span class="rvz-seg" id="rvzWire"><button data-v="all" class="on">All wires</button><button data-v="x402">x402</button><button data-v="mpp">MPP</button></span>
-      <span class="rvz-seg" id="rvzTraffic"><button data-v="paid" class="on">Paid</button><button data-v="free">Free (PoW)</button><button data-v="both">Both</button></span>
-      <span class="rvz-seg" id="rvzSettle"><button data-v="all" class="on">All revenue</button><button data-v="sor">SOR (self-funded)</button><button data-v="direct">Direct</button></span>
     </div>
+    <details class="rvz-adv" style="margin:0 0 12px;">
+      <summary>more filters: ours vs external, wire, free tier, self-funded</summary>
+      <div class="rvz-controls" style="margin-top:10px">
+        <span class="rvz-seg" id="rvzScope"><button data-v="ext" class="on">External</button><button data-v="int">Internal (canary)</button><button data-v="both">Both</button></span>
+        <span class="rvz-seg" id="rvzWire"><button data-v="all" class="on">All wires</button><button data-v="x402">x402</button><button data-v="mpp">MPP</button></span>
+        <span class="rvz-seg" id="rvzTraffic"><button data-v="paid" class="on">Paid</button><button data-v="free">Free (PoW)</button><button data-v="both">Both</button></span>
+        <span class="rvz-seg" id="rvzSettle"><button data-v="all" class="on">All revenue</button><button data-v="sor">SOR (self-funded)</button><button data-v="direct">Direct</button></span>
+      </div>
+    </details>
     <p id="rvzBuyersNote" style="font-family:var(--font-mono);font-size:11.5px;color:var(--muted);margin:0 0 10px;display:none;"></p>
     <p id="rvzFreeNote" style="font-family:var(--font-mono);font-size:11.5px;color:var(--muted);margin:0 0 10px;display:none;"></p>
     <p id="rvzScopeNote" style="font-family:var(--font-mono);font-size:11.5px;color:var(--muted);margin:0 0 10px;display:none;"></p>
@@ -1460,128 +1414,105 @@ export function revenuePage(baseUrl, snap) {
   const canonical = baseUrl + "/revenue";
   const title = "Transactions - x402 and MPP payment rails, every settle on-chain | Agent402";
   const description =
-    `Consolidated live view of the Agent402 revenue wallets across both payment wires (x402 and MPP) and every rail - ${RAILS_AMP}, plus Tempo. One page instead of a dozen explorer tabs; every figure links to its on-chain proof.`;
+    `Every payment through the Agent402 rails, external and our own, across both wires (x402 and MPP) and ${RAILS_AMP}, plus Tempo. Each figure links to its on-chain proof.`;
   const chainKeyByLabel = { ...Object.fromEntries(Object.entries(EVM).map(([k, c]) => [c.label, k])), Solana: "solana", Stellar: "stellar", Algorand: "algorand" };
-  const railCard = (r) => {
-    const at = snap.allTime?.perChain?.[chainKeyByLabel[r.rail]];
-    // Per-rail health: a successful balance read means the chain is up and we
-    // are settling on it, even when the recent-transfer window is quiet. Making
-    // this explicit stops a low-activity rail (or a partial transfer scan) from
-    // reading as "the chain is broken" when only the recent-activity list is
-    // empty. Green = live, red = the balance read itself failed.
-    // A balance present (fresh OR carried-forward from the last good read) means
-    // the chain is live and settling - a wallet balance barely moves between
-    // reads, so a carried-forward figure is still accurate to within minutes.
-    // Only a rail we've NEVER read (no balance at all) is genuinely unreachable.
-    // Carried-forward reads show "live · cached" so the freshness is honest.
+  const at = snap.allTime || {};
+  const perChainOf = (r) => at.perChain?.[chainKeyByLabel[r.rail]];
+  // One row per x402 rail. Transactions (ours included) is the liveness
+  // signal; external count + dollars is the revenue signal; the newest
+  // external buy is the one proof link a reader actually opens. The twelve
+  // cards this replaced each listed four recent transfers, a scan note and a
+  // wallet-explorer link - /api/revenue keeps every row.
+  const railRow = (r) => {
+    const c = perChainOf(r);
+    // A balance present (fresh or carried forward from the last good read)
+    // means the chain is live and settling; only a rail never read is
+    // unreachable. Carried-forward reads say "cached" so freshness is honest.
     const hasBalance = r.balance != null;
-    const stale = hasBalance && r.staleBalance;
-    const dotColor = hasBalance ? "var(--green)" : "var(--accent)";
-    const dotLabel = !hasBalance ? "unreachable" : stale ? "live · cached" : "live";
-    const statusDot = `<span style="display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:11px;color:${dotColor};"><span style="width:7px;height:7px;border-radius:50%;background:${dotColor};display:inline-block;"></span>${dotLabel}</span>`;
-    return `
-    <div style="border:1px solid var(--hairline);background:var(--card);padding:18px 20px;min-width:0;">
-      <div style="border-bottom:1px dashed var(--dash);padding-bottom:10px;margin-bottom:12px;">
-        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;">
-          <span style="font-weight:800;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(r.rail)} <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);font-weight:400;">· ${esc(r.asset)}</span></span>
-          ${statusDot}
-        </div>
-        <div style="font-family:var(--font-mono);margin-top:6px;"><span style="font-size:22px;font-weight:700;color:var(--accent);">${at ? at.inboundCount.toLocaleString() : "-"}</span><span style="display:block;font-size:11px;color:var(--muted);margin-top:2px;">transactions on this rail (ours incl.)${at && at.externalCount ? ` · <strong style="color:var(--ink);">${at.externalCount.toLocaleString()}</strong> external` : ""}${at && !at.caughtUp ? " · still syncing" : ""}</span>
-          <span style="display:block;font-family:var(--font-mono);font-size:12px;color:var(--muted);margin-top:5px;">$${at ? at.externalUsd : "0"} external revenue${Number.isFinite(r.externalUsd) ? ` · window $${r.externalUsd}` : ""}</span></div>
-      </div>
-      ${!hasBalance
-        ? `<div style="font-family:var(--font-mono);font-size:12px;color:var(--muted);">rail read unavailable - public RPC error (detail in <a href="/api/revenue">/api/revenue</a>)</div>`
-        : (() => {
-            // Cards show EXTERNAL transfers first (that is what the page is
-            // about; the header says so), capped at 4 so the grid stays even.
-            // Internal canary/test rows used to be listed inline and dimmed,
-            // which made every card ~350px tall and mostly our own money -
-            // twelve of them pushed the MPP wire off the bottom of the page.
-            // They still count, in one line, and /api/revenue keeps the rows.
-            const ext = r.recent.filter((t) => t.usd !== undefined && t.external);
-            const internal = r.recent.filter((t) => t.usd !== undefined && !t.external);
-            const other = r.recent.filter((t) => t.usd === undefined);
-            const rows = ext.slice(0, 4).map((t) => {
-              const when = t.when ? ` · <span style="color:var(--muted);">${esc(t.when.slice(0, 16))}Z</span>` : "";
-              return `<div>+$${t.usd ?? "?"} from <code>${esc(short(t.from))}</code> · <a href="${esc(t.tx)}" rel="noopener">tx</a>${when}</div>`;
-            });
-            const notes = [];
-            if (ext.length > 4) notes.push(`+ ${ext.length - 4} more external in the window`);
-            if (internal.length) notes.push(`${internal.length} internal canary/test transfer${internal.length === 1 ? "" : "s"} in the window (excluded from revenue)`);
-            if (other.length) notes.push(`${other.length} non-per-call transfer${other.length === 1 ? "" : "s"}`);
-            if (!ext.length && !internal.length && !other.length) notes.push("chain live, balance settling - no per-call activity in the recent scan window");
-            if (!ext.length && (internal.length || other.length)) notes.unshift("no external buys in the recent window");
-            return `<div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;">${rows.join("")}${notes.map((n) => `<div style="color:var(--muted);">${n}</div>`).join("")}${(ext.length || internal.length) ? `<div style="color:var(--muted);"><a href="/api/revenue">full window</a></div>` : ""}</div>`;
-          })()}
-      ${r.scanNote ? `<div style="margin-top:8px;font-family:var(--font-mono);font-size:11.5px;color:var(--muted);">${esc(r.scanNote)}</div>` : ""}
-      ${r.explorer ? `<div style="margin-top:12px;font-family:var(--font-mono);font-size:12px;"><a href="${esc(r.explorer)}" rel="noopener">open in explorer →</a></div>` : ""}
-    </div>`;
+    const status = !hasBalance ? `<span style="color:var(--accent);">unreachable</span>` : r.staleBalance ? `<span style="color:var(--green);">live</span> <span style="color:var(--muted);">cached</span>` : `<span style="color:var(--green);">live</span>`;
+    const ext = (r.recent || []).filter((t) => t.usd !== undefined && t.external);
+    const newest = ext[0];
+    const proof = newest
+      ? `<a href="${esc(newest.tx)}" rel="noopener">+$${esc(String(newest.usd))}</a>${newest.when ? ` <span style="color:var(--muted);">${esc(newest.when.slice(0, 10))}</span>` : ""}`
+      : `<span style="color:var(--muted);">${hasBalance ? "none in the recent window" : "-"}</span>`;
+    return `<tr>
+      <td><strong>${esc(r.rail)}</strong> <span style="color:var(--muted);">${esc(r.asset)}</span></td>
+      <td class="num">${c ? Number(c.inboundCount).toLocaleString() : "-"}${c && !c.caughtUp ? `<span style="color:var(--muted);" title="ledger still syncing"> +</span>` : ""}</td>
+      <td class="num">${c && c.externalCount ? Number(c.externalCount).toLocaleString() : "0"}</td>
+      <td class="num">$${c ? esc(String(c.externalUsd)) : "0"}</td>
+      <td>${proof}</td>
+      <td>${status}</td>
+      <td>${r.explorer ? `<a href="${esc(r.explorer)}" rel="noopener">explorer</a>` : "-"}</td>
+    </tr>`;
   };
+  const railsSorted = [...snap.rails].sort((a, b) => (Number(perChainOf(b)?.inboundCount) || 0) - (Number(perChainOf(a)?.inboundCount) || 0));
+  const partialNotes = snap.rails.filter((r) => r.scanNote).length;
+
+  // Hero: two numbers - throughput (every settled transaction, ours included:
+  // the rail-stability signal) and distinct paying agents (the demand signal).
+  // The dollar figure stays, external-only, one line under them: the decision
+  // (the operator, 2026-09-01) was to lead with the counts and never to REMOVE
+  // the revenue split. See railThroughput() for why MPP is Tempo-only here.
+  const throughput = railThroughput(snap).total;
+  const extCount = Number(at.allTimeExternalCount || 0);
+  const extUsd = Number(at.allTimeExternalUsd || 0);
+  const agents = Number(snap.agents?.buyers || 0);
+  const big = (n, label, sub) => `
+    <div style="min-width:0;">
+      <div style="font-family:var(--font-mono);font-size:40px;font-weight:700;color:var(--accent);line-height:1.05;">${n.toLocaleString()}</div>
+      <div style="font-size:14px;color:var(--ink);margin-top:6px;">${label}</div>
+      <div style="font-family:var(--font-mono);font-size:11.5px;color:var(--muted);margin-top:3px;">${sub}</div>
+    </div>`;
+  const hero = throughput ? `
+    <div class="ml-2col" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;margin:22px 0 14px;max-width:720px;">
+      ${big(throughput, "settled transactions, all-time", `x402 + MPP, ours included${at.syncing ? " · ledger still backfilling" : ""}`)}
+      ${agents ? big(agents, `distinct agent${agents === 1 ? "" : "s"} have paid us`, `unique outside wallets${snap.agents?.top5SharePct != null ? ` · top 5 = ${snap.agents.top5SharePct}% of their payments` : ""}`) : ""}
+    </div>
+    <p style="font-family:var(--font-mono);font-size:13px;color:var(--ink);margin:0 0 4px;"><strong>${extCount.toLocaleString()}</strong> external payment${extCount === 1 ? "" : "s"} · <strong>$${extUsd.toFixed(2)}</strong> revenue from others, settled on-chain${snap.card?.allTimeCount ? ` · <strong>${Number(snap.card.allTimeCount).toLocaleString()}</strong> card purchase${snap.card.allTimeCount === 1 ? "" : "s"} ($${Number(snap.card.allTimeUsd).toFixed(2)})` : ""}</p>` : "";
+
   const body = `
   <div style="max-width:1100px;margin:0 auto;padding:56px 30px;">
     <section>
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /api/revenue</div>
     <h1 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1.05;letter-spacing:-.02em;margin:0 0 8px;color:var(--ink);">Transactions.</h1>
-    <p style="font-size:16px;line-height:1.6;color:var(--muted);max-width:640px;margin:0 0 8px;">
-      Every payment that flows through our rails - both wires, <strong>x402</strong> and <strong>MPP</strong>, plus card purchases through Stripe, one page. Refreshed from public RPCs (60s cache), every figure verifiable at its explorer link.
-      Machine-readable: <a href="/api/revenue">/api/revenue</a> · <a href="/api/revenue/mpp">/api/revenue/mpp</a>.
+    <p style="font-size:16px;line-height:1.6;color:var(--muted);max-width:60ch;margin:0;">
+      Every payment through our rails, on both wires (<strong>x402</strong> and <strong>MPP</strong>) plus card purchases, read from the chain. Revenue counts only money from others; throughput counts our own canary and volume runs too. <a href="/transparency#revenue-figures">How the two are told apart</a>.
     </p>
-    ${(() => {
-      const at = snap.allTime;
-      const mpp = snap.mpp || {};
-      // TWO hero numbers - THROUGHPUT (every settled transaction, ours
-      // included: the rail-stability signal) and DISTINCT PAYING AGENTS (the
-      // demand signal). The dollar figure stays on the page, external-only
-      // and explorer-linked as always, but at footnote weight: the decision
-      // (the operator, 2026-09-01) was to lead with the strong counts and
-      // never to REMOVE the revenue split - hiding it would be the
-      // registry-inflation move this page calls out in others, and every
-      // figure here is independently derivable from the chain anyway.
-      // See railThroughput() for why MPP is Tempo-only here (no double
-      // count of on-chain-settled Base/Celo MPP).
-      const throughput = railThroughput(snap).total;
-      const extCount = Number(at?.allTimeExternalCount || 0);
-      const extUsd = Number(at?.allTimeExternalUsd || 0);
-      const agents = Number(snap.agents?.buyers || 0);
-      if (!throughput) return "";
-      return `<p style="font-family:var(--font-mono);font-size:15px;margin:0 0 6px;"><strong style="color:var(--accent);font-size:26px;">${throughput.toLocaleString()}</strong> settled transactions through our pay rails <span style="color:var(--muted);">- x402 + MPP, all-time · <strong>ours included</strong>: we run ~200 Tempo MPP settles/day plus a daily canary on every rail, so the plumbing is exercised continuously${at?.syncing ? " · ledger backfilling - total still rising" : ""}</span></p>
-    ${agents ? `<p style="font-family:var(--font-mono);font-size:15px;margin:0 0 6px;"><strong style="color:var(--accent);font-size:26px;">${agents.toLocaleString()}</strong> distinct agent${agents === 1 ? "" : "s"} have paid us <span style="color:var(--muted);">- unique external wallets across all rails${snap.agents?.top5SharePct != null ? ` · top 5 = ${snap.agents.top5SharePct}% of external payments` : ""}</span></p>` : ""}
-    <p style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);margin:0 0 4px;">${extCount.toLocaleString()} external payment${extCount === 1 ? "" : "s"} · $${extUsd.toFixed(4)} real revenue settled on-chain, external only, each linked to its explorer proof</p>
-    ${snap.card?.allTimeCount ? `<p style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);margin:0 0 4px;">${Number(snap.card.allTimeCount).toLocaleString()} card purchase${snap.card.allTimeCount === 1 ? "" : "s"} (reports, monitors, credits via Stripe, external only) · $${Number(snap.card.allTimeUsd).toFixed(2)} all-time · ${Number(snap.card.count).toLocaleString()} in the last ${snap.card.days} days${snap.card.lastAt ? ` · last ${esc(String(snap.card.lastAt).slice(0, 13))}Z` : ""}</p>` : ""}`;
-    })()}
-    <p style="font-family:var(--font-mono);font-size:13px;color:var(--muted);margin:0 0 30px;">as of ${esc(snap.asOf)} · external in recent window <strong style="color:var(--accent);">$${(snap.windowExternalUsd ?? 0).toFixed(4)}</strong><br>the big number is <strong style="color:var(--ink);">total throughput</strong> (ours included - the rail-stability signal); every <strong style="color:var(--accent);">revenue</strong> figure is external only - our own canary/test/funding money is never counted as earnings (wallet balances are float, not shown)</p>
+    ${hero}
+    <p style="font-family:var(--font-mono);font-size:12px;color:var(--muted);margin:0 0 28px;">as of ${esc(snap.asOf)} · 60s cache · <a href="/api/revenue">/api/revenue</a> · <a href="/api/revenue/mpp">/api/revenue/mpp</a> · <a href="/api/revenue/daily">/api/revenue/daily</a></p>
     </section>
     <section>
     ${revenueChartSection()}
     </section>
     <section>
-    ${railThroughputSection(snap)}
-    </section>
-    <section>
-    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:44px 0 6px;">
-      <h2 style="font-family:var(--font-body);font-weight:800;font-size:26px;letter-spacing:-.01em;margin:0;">x402 rails <span style="color:var(--muted);font-weight:400;">· by chain</span></h2>
-      <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);"><strong style="color:var(--ink);">${snap.rails.length}</strong> chains, ranked by transactions · <a href="/api/revenue">/api/revenue</a></span>
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:36px 0 6px;">
+      <h2 style="font-family:var(--font-body);font-weight:800;font-size:22px;letter-spacing:-.01em;margin:0;">x402 rails <span style="color:var(--muted);font-weight:400;">· by chain</span></h2>
+      <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);"><strong style="color:var(--ink);">${snap.rails.length}</strong> chains, ranked by transactions</span>
     </div>
-    <p style="font-size:13.5px;color:var(--muted);margin:0 0 16px;max-width:760px;">One card per chain we accept x402 on. The headline is the number of transactions settled on that rail (ours included - the adoption/liveness signal), with external revenue underneath; the rows are the newest external buys in the recent scan window, each linked to its explorer proof.</p>
-    <div class="ml-2col rv-rails" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;">
-      ${[...snap.rails].sort((a, b) => (Number(snap.allTime?.perChain?.[chainKeyByLabel[b.rail]]?.inboundCount) || 0) - (Number(snap.allTime?.perChain?.[chainKeyByLabel[a.rail]]?.inboundCount) || 0)).map(railCard).join("\n")}
-    </div>
+    <p style="font-size:13.5px;color:var(--muted);margin:0 0 12px;max-width:70ch;">Transactions count every settlement on the rail, ours included. External is money from others. Proof is the newest outside buy in the recent window, linked to its explorer.</p>
+    <div class="rv-tablewrap"><table class="rv-table">
+      <thead><tr><th>Rail</th><th class="num">Transactions</th><th class="num">External</th><th class="num">External $</th><th>Latest outside buy</th><th>Status</th><th>Wallet</th></tr></thead>
+      <tbody>${railsSorted.map(railRow).join("\n")}</tbody>
+    </table></div>
+    ${partialNotes ? `<p style="font-family:var(--font-mono);font-size:11.5px;color:var(--muted);margin:8px 0 0;">${partialNotes} rail${partialNotes === 1 ? "" : "s"} read partially from public RPCs this refresh (balances are live; detail in <a href="/api/revenue">/api/revenue</a>).</p>` : ""}
     </section>
     <section>
     ${mppRailsSection(snap.mpp)}
     </section>
     <section>
-    <p style="font-size:13.5px;color:var(--muted);margin-top:34px;">Recent-window transfers are the last few hours of inbound stablecoin on each rail, classified with the same rule as the daily revenue digest: a payment is <strong>external</strong> only if it comes from a wallet that isn't ours (canary/test burners are excluded) and is per-call-sized (≤ $${MAX_CALL_USD}); bigger inbound is funding or tests, not a buy. Rails read best-effort: a flaky public RPC marks that rail unavailable without hiding the others.</p>
-    <p style="font-size:13.5px;color:var(--muted);margin-top:10px;">Don't take our word for it: <a href="https://www.x402scan.com/server/07eb3020-932a-436d-a739-557b6e47101d" rel="noopener">x402scan indexes our on-chain settlements independently →</a> Their totals count <em>all</em> traffic to our wallets - including our own canary and test buys - so they read higher than the external-only figures above. Their seller row also groups our upstream <strong>spending</strong> wallet in with the treasury, and that wallet receives the revenue from the tools that fund external purchases, so part of what appears there as demand is our own self-funding loop rather than a third party paying us. Both figures are correct; they measure different things, and the external-only series above is the one that answers "did someone else pay for this".</p>
+    <p style="font-size:13.5px;color:var(--muted);margin-top:30px;max-width:70ch;">Check us independently: <a href="https://www.x402scan.com/server/07eb3020-932a-436d-a739-557b6e47101d" rel="noopener">x402scan indexes our settlements</a>. Their totals include our own traffic, so they read higher than the external figures here; <a href="/transparency#revenue-figures">why the two differ</a>.</p>
     </section>
   </div>
   ${ledgerFooterCompact(baseUrl)}`;
   return ledgerShell({
     title, description, canonical, baseUrl, activePath: "/revenue",
     jsonLd: { "@context": "https://schema.org", "@type": "WebPage", name: title, url: canonical, description },
-    // Rail grids: 3-up on wide screens, 2-up on medium, 1-up on phones (the
-    // shared .ml-2col rule below 900px collapses everything to one column).
-    extraCss: `@media (max-width:1100px){ .rv-rails, .rv-mpp { grid-template-columns: repeat(2, minmax(0,1fr)) !important; } }`,
+    extraCss: `.rv-tablewrap{overflow-x:auto;border:1px solid var(--hairline);background:var(--card)}
+.rv-table{border-collapse:collapse;width:100%;min-width:640px;font-family:var(--font-mono);font-size:12.5px}
+.rv-table th,.rv-table td{padding:8px 12px;border-bottom:1px solid var(--dash);text-align:left;white-space:nowrap;vertical-align:baseline}
+.rv-table th{font-size:11px;font-weight:600;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+.rv-table th.num,.rv-table td.num{text-align:right;font-variant-numeric:tabular-nums}
+.rv-table tbody tr:last-child td{border-bottom:none}`,
     body,
   });
 }

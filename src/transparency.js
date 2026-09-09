@@ -3,6 +3,7 @@
 // (launched by a community member, not the team). Every factual claim on this
 // page links to an immutable on-chain record so readers verify, not trust.
 import { ledgerShell, ledgerFooterCompact } from "./ledger-chrome.js";
+import { MAX_CALL_USD } from "./revenue-live.js";
 
 const TOKEN_CA = "0x380344a48378df060EB24fF6B8Acb511E14B8BA3";
 const LAUNCHER = "0x7cC76f7c351e341b50FA60012b4ABC886868A945";
@@ -175,6 +176,32 @@ and these are the receipts:</p>
   curated tools that serve agents.</li>
 </ul>
 </details>
+
+<h2 id="revenue-figures">How the revenue figures are counted</h2>
+<p>The <a href="/revenue">transactions page</a> shows two kinds of number and keeps them apart on purpose.</p>
+<ul>
+  <li><strong>Throughput</strong> is every settled transaction through our pay rails, our own included. We run
+  our own money through the same gates buyers use, continuously: a daily paid canary on every rail, about 200
+  Tempo MPP settlements a day, and weekly full-catalog sweeps. Those are real on-chain transactions, which is the
+  point, but they are ours, so they prove the plumbing and never count as earnings.</li>
+  <li><strong>Revenue</strong> is external only. A payment counts as external when it comes from a wallet that is
+  not ours (canary, test and funding wallets are excluded) and is per-call sized, at most ${MAX_CALL_USD};
+  anything bigger is funding or a test, not a buy. The chart's "Internal" filter shows the excluded traffic
+  explicitly rather than hiding it.</li>
+  <li><strong>MPP</strong> settlements on Base and Celo are the same on-chain USDC transfer as x402 (the shim
+  translates the credential), so they are already inside the on-chain count; only Tempo, MPP's native rail, is
+  added on top. The sales ledger began recording the wire on 2026-07-24, so earlier days read as x402 because
+  the wire was not recorded, not because no MPP traffic existed.</li>
+  <li><strong>Self-funded (SOR)</strong> revenue is settled to the dedicated spending wallet that pays outside
+  sellers and upstream data on a buyer's behalf. It is real revenue from others and the chart can split it out
+  by receiving wallet.</li>
+  <li><strong>x402scan</strong> indexes our settlements independently. Their totals count all traffic to our
+  wallets, our own canary and test buys included, and their seller row groups the spending wallet with the
+  treasury, so part of what appears there as demand is our own self-funding loop. Both figures are correct;
+  the external-only series on /revenue is the one that answers "did someone else pay for this".</li>
+  <li>Rails are read best effort from public RPCs with a 60-second cache: a flaky RPC marks that rail
+  unreachable without hiding the others, and wallet balances are float, not shown.</li>
+</ul>
 
 <h2>Questions</h2>
 <p>Contact <a href="https://x.com/Agent402Tools" rel="noopener">@Agent402Tools on X</a> for further details.</p>
