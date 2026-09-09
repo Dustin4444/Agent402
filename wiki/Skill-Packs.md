@@ -28,24 +28,24 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 
 | Pack | Price | What it solves |
 |---|---|---|
-| [**security-audit**](https://agent402.tools/skills/security-audit) | $0.019 | Enumerate a domain's external attack surface: certs, DNS posture, email auth, HTTP headers, tech stack. |
-| [**email-deliverability**](https://agent402.tools/skills/email-deliverability) | $0.016 | Diagnose why a domain's email lands in spam: SPF, DMARC, DKIM strength, MX, composite score. |
-| [**fraud-signals**](https://agent402.tools/skills/fraud-signals) | $0.031 | Is this domain a phishing site / typosquat / scam? Pull the reputation signals before you click. |
-| [**domain-intel**](https://agent402.tools/skills/domain-intel) | $0.018 | Full domain security + SEO intel: WHOIS, DNS, TLS, headers, tech stack, robots, certificate transparency. |
-| [**ssl-audit**](https://agent402.tools/skills/ssl-audit) | $0.009 | TLS/SSL posture: live certificate inspection, HTTP security headers, and CAA DNS records. |
+| [**security-audit**](https://agent402.tools/skills/security-audit) | $0.017 | Enumerate a domain's external attack surface: certs, DNS posture, email auth, HTTP headers, tech stack. |
+| [**email-deliverability**](https://agent402.tools/skills/email-deliverability) | $0.012 | Diagnose why a domain's email lands in spam: SPF, DMARC, DKIM strength, MX, composite score. |
+| [**fraud-signals**](https://agent402.tools/skills/fraud-signals) | $0.027 | Is this domain a phishing site / typosquat / scam? Pull the reputation signals before you click. |
+| [**domain-intel**](https://agent402.tools/skills/domain-intel) | $0.016 | Full domain security + SEO intel: WHOIS, DNS, TLS, headers, tech stack, robots, certificate transparency. |
+| [**ssl-audit**](https://agent402.tools/skills/ssl-audit) | $0.006 | TLS/SSL posture: live certificate inspection, HTTP security headers, and CAA DNS records. |
 | [**email-security**](https://agent402.tools/skills/email-security) | $0.009 | Full email auth posture: SPF, DMARC, DKIM, and a composite deliverability score. |
-| [**brand-protection**](https://agent402.tools/skills/brand-protection) | $0.03 | Is this domain legitimate? WHOIS age, DNS, scam/phishing search, and HTTP headers for a trust read. |
-| [**domain-age**](https://agent402.tools/skills/domain-age) | $0.01 | How old and legit is this domain? WHOIS registration, DNS resolution, and TLS certificate in one pass. |
+| [**brand-protection**](https://agent402.tools/skills/brand-protection) | $0.027 | Is this domain legitimate? WHOIS age, DNS, scam/phishing search, and HTTP headers for a trust read. |
+| [**domain-age**](https://agent402.tools/skills/domain-age) | $0.008 | How old and legit is this domain? WHOIS registration, DNS resolution, and TLS certificate in one pass. |
 
 ## Web extraction & document intelligence (9)
 
 | Pack | Price | What it solves |
 |---|---|---|
-| [**content-extraction**](https://agent402.tools/skills/content-extraction) | $0.05 | Turn arbitrary URLs and PDFs into clean structured text - articles, page metadata, PDF pages, OCR. |
+| [**content-extraction**](https://agent402.tools/skills/content-extraction) | $0.050 | Turn arbitrary URLs and PDFs into clean structured text - articles, page metadata, PDF pages, OCR. |
 | [**structured-scrape**](https://agent402.tools/skills/structured-scrape) | $0.032 | Pull structured data out of any page deterministically - articles, tables, elements by CSS selector. |
-| [**any-to-markdown**](https://agent402.tools/skills/any-to-markdown) | $0.033 | "I have a URL but it might be HTML, PDF, or an image - give me clean markdown either way." |
-| [**document-intel**](https://agent402.tools/skills/document-intel) | $0.033 | Turn any PDF or image URL into structured data - metadata, text, page ranges, OCR, barcodes. |
-| [**link-preview**](https://agent402.tools/skills/link-preview) | $0.022 | Turn a URL into a card-shaped preview - OpenGraph/Twitter metadata + normalized social image + thumbnail. |
+| [**any-to-markdown**](https://agent402.tools/skills/any-to-markdown) | $0.032 | "I have a URL but it might be HTML, PDF, or an image - give me clean markdown either way." |
+| [**document-intel**](https://agent402.tools/skills/document-intel) | $0.031 | Turn any PDF or image URL into structured data - metadata, text, page ranges, OCR, barcodes. |
+| [**link-preview**](https://agent402.tools/skills/link-preview) | $0.015 | Turn a URL into a card-shaped preview - OpenGraph/Twitter metadata + normalized social image + thumbnail. |
 | [**pdf-pipeline**](https://agent402.tools/skills/pdf-pipeline) | $0.014 | Full PDF pipeline - metadata, markdown conversion, and first-page extraction in one call. |
 | [**url-inspector**](https://agent402.tools/skills/url-inspector) | $0.006 | Quick URL health + metadata - parse the structure, verify reachability, and pull page metadata. |
 | [**content-grade**](https://agent402.tools/skills/content-grade) | $0.012 | Grade a page's content quality - extract the readable content then analyze keyword density. |
@@ -55,48 +55,48 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 
 | Pack | Price | What it solves |
 |---|---|---|
-| [**seo-audit**](https://agent402.tools/skills/seo-audit) | $0.012 | Can search engines and AI crawlers index this page? Reachability, TLS, robots, sitemap, meta/OG, link graph. |
-| [**page-audit**](https://agent402.tools/skills/page-audit) | $0.018 | Full page SEO + security audit: content, metadata, HTTP headers, robots policy, and sitemap health. |
+| [**seo-audit**](https://agent402.tools/skills/seo-audit) | $0.011 | Can search engines and AI crawlers index this page? Reachability, TLS, robots, sitemap, meta/OG, link graph. |
+| [**page-audit**](https://agent402.tools/skills/page-audit) | $0.017 | Full page SEO + security audit: content, metadata, HTTP headers, robots policy, and sitemap health. |
 | [**competitor-scan**](https://agent402.tools/skills/competitor-scan) | $0.014 | What's a competitor running? Tech stack, HTTP headers, WHOIS, and page metadata in one call. |
-| [**status-snapshot**](https://agent402.tools/skills/status-snapshot) | $0.012 | "Is this site healthy, addressable, and crawlable - right now?" DNS → HTTP → headers → TLS → robots. |
+| [**status-snapshot**](https://agent402.tools/skills/status-snapshot) | $0.009 | "Is this site healthy, addressable, and crawlable - right now?" DNS → HTTP → headers → TLS → robots. |
 
 ## Finance (9)
 
 | Pack | Price | What it solves |
 |---|---|---|
-| [**financial-research**](https://agent402.tools/skills/financial-research) | $0.168 | SEC filings + real-time quotes + history + macro context for a single ticker. |
+| [**financial-research**](https://agent402.tools/skills/financial-research) | $0.114 | SEC filings + real-time quotes + history + macro context for a single ticker. |
 | [**financial-analysis**](https://agent402.tools/skills/financial-analysis) | $0.033 | Quick company snapshot: live quote, 9 key financial metrics, and upcoming earnings. |
-| [**company-dossier**](https://agent402.tools/skills/company-dossier) | $0.064 | Comprehensive company research in one call: quote, financials, filings, insider trades, news. |
+| [**company-dossier**](https://agent402.tools/skills/company-dossier) | $0.046 | Comprehensive company research in one call: quote, financials, filings, insider trades, news. |
 | [**earnings-watch**](https://agent402.tools/skills/earnings-watch) | $0.033 | Is this company reporting soon and what's the consensus? Earnings calendar, quote, recent results. |
-| [**earnings-deep-dive**](https://agent402.tools/skills/earnings-deep-dive) | $0.064 | Everything before a company reports: the upcoming date, latest financials, recent filings, live quote, and fresh news in one pass. |
-| [**insider-alert**](https://agent402.tools/skills/insider-alert) | $0.028 | Insider buying/selling for a stock: Form 4 trades, live quote, and recent SEC filings. |
-| [**price-monitor**](https://agent402.tools/skills/price-monitor) | $0.038 | Side-by-side snapshot of a stock and a crypto asset: live quotes, 1-year history, date-stamped compare. |
-| [**options-analytics**](https://agent402.tools/skills/options-analytics) | $0.035 | Price a European option on a live stock: current quote, volatility from recent history, Black-Scholes fair value plus the full greeks, and catalyst news. |
+| [**earnings-deep-dive**](https://agent402.tools/skills/earnings-deep-dive) | $0.055 | Everything before a company reports: the upcoming date, latest financials, recent filings, live quote, and fresh news in one pass. |
+| [**insider-alert**](https://agent402.tools/skills/insider-alert) | $0.010 | Insider buying/selling for a stock: Form 4 trades, live quote, and recent SEC filings. |
+| [**price-monitor**](https://agent402.tools/skills/price-monitor) | $0.029 | Side-by-side snapshot of a stock and a crypto asset: live quotes, 1-year history, date-stamped compare. |
+| [**options-analytics**](https://agent402.tools/skills/options-analytics) | $0.026 | Price a European option on a live stock: current quote, volatility from recent history, Black-Scholes fair value plus the full greeks, and catalyst news. |
 | [**market-open**](https://agent402.tools/skills/market-open) | $0.025 | Pre-trade snapshot for one ticker before the bell: live quote, pre-market quote, options surface, dividend posture, and today's earnings calendar. |
 
 ## Macro & SEC (12)
 
 | Pack | Price | What it solves |
 |---|---|---|
-| [**macro-economics**](https://agent402.tools/skills/macro-economics) | $0.072 | Pull the canonical US macro dataset - yield curve, CPI, unemployment, fed funds, Sahm rule. |
-| [**macro-context**](https://agent402.tools/skills/macro-context) | $0.086 | "Is the economic backdrop you're modeling against still current?" - refresh the macro snapshot. |
-| [**sec-filings-deep-dive**](https://agent402.tools/skills/sec-filings-deep-dive) | $0.104 | Full EDGAR picture of one company: filings, key financial time series, insider trades, full-text search. |
-| [**regulatory-watch**](https://agent402.tools/skills/regulatory-watch) | $0.077 | "Who just filed / bought / IPO'd?" - EDGAR full-text search, recent filings, Form 4s, 13F, IPO calendar. |
-| [**ipo-watch**](https://agent402.tools/skills/ipo-watch) | $0.05 | What's going public? Recent S-1/IPO filings from EDGAR plus a web search for IPO news. |
-| [**yield-dashboard**](https://agent402.tools/skills/yield-dashboard) | $0.032 | Current yield-curve snapshot: full Treasury curve, key spreads, and average rates. |
-| [**fixed-income-desk**](https://agent402.tools/skills/fixed-income-desk) | $0.039 | Read the rate environment and price a bond in one workflow: live Treasury curve, the recession-signal spread, inflation context, then bond price and yield at current rates. |
-| [**inflation-check**](https://agent402.tools/skills/inflation-check) | $0.045 | Is the economy in recession territory? CPI, fed funds, unemployment, and Sahm rule. |
-| [**fx-monitor**](https://agent402.tools/skills/fx-monitor) | $0.019 | Major currency snapshot: EUR/USD, GBP/USD, JPY/USD plus the full FX dashboard. |
-| [**fred-snapshot**](https://agent402.tools/skills/fred-snapshot) | $0.014 | Key Fed indicators - fed funds rate, unemployment, and CPI - in one call. |
-| [**world-data**](https://agent402.tools/skills/world-data) | $0.009 | GDP and population for a country - two key World Bank indicators. |
-| [**macro-dashboard**](https://agent402.tools/skills/macro-dashboard) | $0.129 | The full macro plus crypto dashboard in one call: 5 FRED series, 5 Treasury reads, the curve spread, crypto market/trending/global, and live gas. |
+| [**macro-economics**](https://agent402.tools/skills/macro-economics) | $0.036 | Pull the canonical US macro dataset - yield curve, CPI, unemployment, fed funds, Sahm rule. |
+| [**macro-context**](https://agent402.tools/skills/macro-context) | $0.041 | "Is the economic backdrop you're modeling against still current?" - refresh the macro snapshot. |
+| [**sec-filings-deep-dive**](https://agent402.tools/skills/sec-filings-deep-dive) | $0.029 | Full EDGAR picture of one company: filings, key financial time series, insider trades, full-text search. |
+| [**regulatory-watch**](https://agent402.tools/skills/regulatory-watch) | $0.023 | "Who just filed / bought / IPO'd?" - EDGAR full-text search, recent filings, Form 4s, 13F, IPO calendar. |
+| [**ipo-watch**](https://agent402.tools/skills/ipo-watch) | $0.041 | What's going public? Recent S-1/IPO filings from EDGAR plus a web search for IPO news. |
+| [**yield-dashboard**](https://agent402.tools/skills/yield-dashboard) | $0.014 | Current yield-curve snapshot: full Treasury curve, key spreads, and average rates. |
+| [**fixed-income-desk**](https://agent402.tools/skills/fixed-income-desk) | $0.017 | Read the rate environment and price a bond in one workflow: live Treasury curve, the recession-signal spread, inflation context, then bond price and yield at current rates. |
+| [**inflation-check**](https://agent402.tools/skills/inflation-check) | $0.023 | Is the economy in recession territory? CPI, fed funds, unemployment, and Sahm rule. |
+| [**fx-monitor**](https://agent402.tools/skills/fx-monitor) | $0.009 | Major currency snapshot: EUR/USD, GBP/USD, JPY/USD plus the full FX dashboard. |
+| [**fred-snapshot**](https://agent402.tools/skills/fred-snapshot) | $0.005 | Key Fed indicators - fed funds rate, unemployment, and CPI - in one call. |
+| [**world-data**](https://agent402.tools/skills/world-data) | $0.005 | GDP and population for a country - two key World Bank indicators. |
+| [**macro-dashboard**](https://agent402.tools/skills/macro-dashboard) | $0.077 | The full macro plus crypto dashboard in one call: 5 FRED series, 5 Treasury reads, the curve spread, crypto market/trending/global, and live gas. |
 
 ## Time series & forecasting (2)
 
 | Pack | Price | What it solves |
 |---|---|---|
-| [**trend-analysis**](https://agent402.tools/skills/trend-analysis) | $0.033 | Take any numeric series and run the full workup - descriptives, moving averages, trend, outliers, forecast. |
-| [**forecasting-bake-off**](https://agent402.tools/skills/forecasting-bake-off) | $0.032 | Backtest all four methods (naive/drift, SES, Holt, Holt-Winters), rank by RMSE, forecast with the winner. |
+| [**trend-analysis**](https://agent402.tools/skills/trend-analysis) | $0.015 | Take any numeric series and run the full workup - descriptives, moving averages, trend, outliers, forecast. |
+| [**forecasting-bake-off**](https://agent402.tools/skills/forecasting-bake-off) | $0.014 | Backtest all four methods (naive/drift, SES, Holt, Holt-Winters), rank by RMSE, forecast with the winner. |
 
 ## Crypto & onchain (13)
 
@@ -120,9 +120,9 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 
 | Pack | Price | What it solves |
 |---|---|---|
-| [**dns-network-ops**](https://agent402.tools/skills/dns-network-ops) | $0.018 | End-to-end DNS health check: records, multi-resolver propagation, WHOIS, ASN, robots.txt, reachability. |
+| [**dns-network-ops**](https://agent402.tools/skills/dns-network-ops) | $0.014 | End-to-end DNS health check: records, multi-resolver propagation, WHOIS, ASN, robots.txt, reachability. |
 | [**api-investigation**](https://agent402.tools/skills/api-investigation) | $0.018 | Point at an unknown API and figure out how to use it: auth, content type, version, rate limits, schema. |
-| [**schema-evolution**](https://agent402.tools/skills/schema-evolution) | $0.011 | "Did this API contract change in a way that breaks us?" - diff two OpenAPI snapshots, lint, validate. |
+| [**schema-evolution**](https://agent402.tools/skills/schema-evolution) | $0.008 | "Did this API contract change in a way that breaks us?" - diff two OpenAPI snapshots, lint, validate. |
 | [**api-health**](https://agent402.tools/skills/api-health) | $0.007 | Is this API endpoint healthy? Liveness check, response headers, and TLS certificate status. |
 
 ## Decoding & inspection (1)
@@ -136,24 +136,24 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | Pack | Price | What it solves |
 |---|---|---|
 | [**user-onboarding**](https://agent402.tools/skills/user-onboarding) | $0.009 | Take a signup form and run onboarding deterministically - validate, score, mint ID, slug, hash, verify 2FA. |
-| [**contact-verify**](https://agent402.tools/skills/contact-verify) | $0.008 | Verify an email is deliverable - syntax validation plus MX record check on the domain. |
-| [**entity-enrich**](https://agent402.tools/skills/entity-enrich) | $0.03 | Company name to verified identity plus web footprint: Wikidata facts, the LEI legal-entity record, the SEC filer, domain registration, tech stack, and brand favicon. |
+| [**contact-verify**](https://agent402.tools/skills/contact-verify) | $0.005 | Verify an email is deliverable - syntax validation plus MX record check on the domain. |
+| [**entity-enrich**](https://agent402.tools/skills/entity-enrich) | $0.023 | Company name to verified identity plus web footprint: Wikidata facts, the LEI legal-entity record, the SEC filer, domain registration, tech stack, and brand favicon. |
 
 ## Location & time (4)
 
 | Pack | Price | What it solves |
 |---|---|---|
-| [**location-intel**](https://agent402.tools/skills/location-intel) | $0.014 | Point at an address and assemble the brief - coords, address, nearby, weather, NWS alerts, seismic. |
-| [**trip-planner**](https://agent402.tools/skills/trip-planner) | $0.008 | Plan a multi-stop journey - geocode each stop, sum pairwise distances, add travel time, pull weather. |
-| [**weather-brief**](https://agent402.tools/skills/weather-brief) | $0.009 | Full weather briefing for a location: current conditions, 7-day forecast, and air quality. |
-| [**locale-brief**](https://agent402.tools/skills/locale-brief) | $0.006 | "Can I reach this counterparty this week?" Country facts, this year's public holidays, working days left this week, and the local time right now. |
+| [**location-intel**](https://agent402.tools/skills/location-intel) | $0.011 | Point at an address and assemble the brief - coords, address, nearby, weather, NWS alerts, seismic. |
+| [**trip-planner**](https://agent402.tools/skills/trip-planner) | $0.007 | Plan a multi-stop journey - geocode each stop, sum pairwise distances, add travel time, pull weather. |
+| [**weather-brief**](https://agent402.tools/skills/weather-brief) | $0.006 | Full weather briefing for a location: current conditions, 7-day forecast, and air quality. |
+| [**locale-brief**](https://agent402.tools/skills/locale-brief) | $0.005 | "Can I reach this counterparty this week?" Country facts, this year's public holidays, working days left this week, and the local time right now. |
 
 ## Media & accessibility (2)
 
 | Pack | Price | What it solves |
 |---|---|---|
-| [**media-pipeline**](https://agent402.tools/skills/media-pipeline) | $0.039 | "User uploaded a thing, normalize it before storing." Probe → decode → resize → thumbnail → convert. |
-| [**subtitle-pipeline**](https://agent402.tools/skills/subtitle-pipeline) | $0.03 | Audio URL to finished subtitles: transcribe the audio, emit SRT/WebVTT/JSON cues, and report length, reading time, and word count. |
+| [**media-pipeline**](https://agent402.tools/skills/media-pipeline) | $0.030 | "User uploaded a thing, normalize it before storing." Probe → decode → resize → thumbnail → convert. |
+| [**subtitle-pipeline**](https://agent402.tools/skills/subtitle-pipeline) | $0.030 | Audio URL to finished subtitles: transcribe the audio, emit SRT/WebVTT/JSON cues, and report length, reading time, and word count. |
 
 ## Search & citations (3)
 
@@ -161,7 +161,7 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 |---|---|---|
 | [**search-and-cite**](https://agent402.tools/skills/search-and-cite) | $0.119 | Research a question, return an answer with citations - synthesized take + SERP + news, verified by fetch. |
 | [**article-digest**](https://agent402.tools/skills/article-digest) | $0.108 | Quick research brief on any topic - web search results plus an AI-generated answer. |
-| [**feed-watch**](https://agent402.tools/skills/feed-watch) | $0.017 | Monitor an RSS/Atom feed: parse it, read the top story in full, extract the keywords driving the cycle, and diff the item list against your last run to isolate what is new. |
+| [**feed-watch**](https://agent402.tools/skills/feed-watch) | $0.016 | Monitor an RSS/Atom feed: parse it, read the top story in full, extract the keywords driving the cycle, and diff the item list against your last run to isolate what is new. |
 
 ---
 
