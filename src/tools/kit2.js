@@ -235,7 +235,7 @@ const encoding = [
     },
   },
   {
-    route: "POST /api/jwt-verify", name: "JWT verify (HMAC)", slug: "jwt-verify", category: "encoding", price: "$0.002",
+    route: "POST /api/jwt-verify", name: "JWT verify (HMAC)", slug: "jwt-verify", category: "encoding", price: "$0.001",
     description: "Verify an HS256/384/512 JWT signature against a secret and check expiry. Returns valid + decoded payload. (HMAC algorithms only.)",
     tags: ["jwt", "verify", "hmac", "auth"],
     discovery: { bodyType: "json", input: { token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZ2VudDQwMiIsIm5hbWUiOiJkZW1vIGFnZW50IiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjk5OTk5OTk5OTl9.NqggPBGuLX1OA7YuSlQ4S0INJfCOWnwXWT0XUIUrt3s", secret: "my-secret" }, inputSchema: { properties: { token: { type: "string" }, secret: { type: "string" } }, required: ["token", "secret"] }, output: { example: { valid: true, algorithm: "HS256", expired: false, payload: { sub: "agent402" } } } },
@@ -425,7 +425,7 @@ const text = [
     },
   },
   {
-    route: "POST /api/readability", name: "Readability", slug: "readability", category: "text", price: "$0.002",
+    route: "POST /api/readability", name: "Readability", slug: "readability", category: "text", price: "$0.001",
     description: "Flesch Reading Ease score and Flesch–Kincaid grade level for English text, plus word/sentence/syllable counts.",
     tags: ["readability", "flesch", "nlp", "text"],
     discovery: { bodyType: "json", input: { text: "The cat sat on the mat. It was warm." }, inputSchema: { properties: { text: { type: "string" } }, required: ["text"] }, output: { example: { readingEase: 100, gradeLevel: 0.5, words: 9, sentences: 2 } } },
@@ -675,7 +675,7 @@ const conversion = [
     },
   },
   {
-    route: "POST /api/ics-parse", name: "iCalendar parse (.ics)", slug: "ics-parse", category: "conversion", price: "$0.002",
+    route: "POST /api/ics-parse", name: "iCalendar parse (.ics)", slug: "ics-parse", category: "conversion", price: "$0.001",
     description:
       "Parse iCalendar (.ics) text into structured JSON events: summary, start/end, location, organizer, attendees, status, and RRULE. Optional bounded recurrence expansion (expand:true, capped occurrences). Deterministic, pure CPU - send the ICS text, not a URL.",
     tags: ["ics", "icalendar", "calendar", "vevent", "rrule", "parse", "convert"],
@@ -1029,7 +1029,7 @@ function percentile(sorted, p) {
 
 const math = [
   {
-    route: "POST /api/calc", name: "Calculator", slug: "calc", category: "math", price: "$0.002",
+    route: "POST /api/calc", name: "Calculator", slug: "calc", category: "math", price: "$0.001",
     description: "Safely evaluate an arithmetic expression (+ - * / % ^ and parentheses). No code execution - a real parser, not eval.",
     tags: ["calc", "math", "expression", "arithmetic"],
     discovery: { bodyType: "json", input: { expr: "2 + 3 * (4 - 1) ^ 2" }, inputSchema: { properties: { expr: { type: "string" } }, required: ["expr"] }, output: { example: { result: 29 } } },
@@ -1126,7 +1126,7 @@ const math = [
     },
   },
   {
-    route: "POST /api/cidr", name: "CIDR calculator", slug: "cidr", category: "math", price: "$0.002",
+    route: "POST /api/cidr", name: "CIDR calculator", slug: "cidr", category: "math", price: "$0.001",
     description: "Parse an IPv4 CIDR block: network address, broadcast, first/last host, netmask, and host count. Optionally test if an IP is inside it.",
     tags: ["cidr", "subnet", "ip", "network"],
     discovery: { bodyType: "json", input: { cidr: "192.168.1.0/24", contains: "192.168.1.42" }, inputSchema: { properties: { cidr: { type: "string" }, contains: { type: "string", description: "Optional IP to test for membership" } }, required: ["cidr"] }, output: { example: { cidr: "192.168.1.0/24", network: "192.168.1.0", broadcast: "192.168.1.255", netmask: "255.255.255.0", prefix: 24, firstHost: "192.168.1.1", lastHost: "192.168.1.254", totalAddresses: 256, usableHosts: 254, contains: true } } },
@@ -1155,7 +1155,7 @@ const math = [
     },
   },
   {
-    route: "POST /api/finance", name: "Finance", slug: "finance", category: "math", price: "$0.005",
+    route: "POST /api/finance", name: "Finance", slug: "finance", category: "math", price: "$0.001",
     description: 'Financial math. op: "compound" (future value of principal at a rate) or "loan" (monthly payment + total for a loan).',
     tags: ["finance", "interest", "loan", "compound", "money"],
     discovery: { bodyType: "json", input: { op: "loan", principal: 20000, annualRatePct: 6, months: 60 }, inputSchema: { properties: { op: { type: "string", description: "compound | loan" }, principal: { type: "number" }, annualRatePct: { type: "number" }, months: { type: "number" }, years: { type: "number" }, compoundsPerYear: { type: "number" } }, required: ["op", "principal", "annualRatePct"] }, output: { example: { monthlyPayment: 386.66, totalPaid: 23199.36, totalInterest: 3199.36 } } },
@@ -1370,7 +1370,7 @@ const validation = [
     },
   },
   {
-    route: "POST /api/json-schema-infer", name: "JSON Schema infer", slug: "json-schema-infer", category: "validation", price: "$0.002",
+    route: "POST /api/json-schema-infer", name: "JSON Schema infer", slug: "json-schema-infer", category: "validation", price: "$0.001",
     description:
       "Infer a draft-07 JSON Schema from sample JSON document(s). Send one sample as json, or several as samples. Heuristic merge rules: required = keys present in every sample, conflicting types become a type union, integer widens to number, and string formats (date-time, date, email, uri, uuid) are detected from values. Complements json-validate.",
     tags: ["json", "schema", "infer", "draft-07", "validate", "generate"],

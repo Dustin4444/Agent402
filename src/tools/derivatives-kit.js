@@ -423,7 +423,7 @@ export const DERIVATIVES_TOOLS = [
     name: "Perp funding rate and history",
     slug: "perp-funding",
     category: "crypto",
-    price: "$0.003",
+    price: "$0.002",
     description:
       "Current funding rate for one perpetual (hourly, per 8h and annualized) plus the last N hourly funding prints with premium, and window statistics (average, min, max, share of positive hours). limit = hours of history (default 24, max 500). Hyperliquid public data, no key.",
     tags: ["crypto", "derivatives", "perpetuals", "funding", "funding-history", "hyperliquid"],
@@ -491,7 +491,7 @@ export const DERIVATIVES_TOOLS = [
     name: "Perp funding screener",
     slug: "perp-funding-screener",
     category: "crypto",
-    price: "$0.003",
+    price: "$0.002",
     description:
       "Rank perpetuals by funding rate: the N most positive (longs pay shorts) and N most negative (shorts pay longs) markets with hourly, 8h and annualized rates, open interest and 24h volume. minVolumeUsd filters out illiquid markets (default $1M). The carry and basis-trade screen in one call. Hyperliquid public data.",
     tags: ["crypto", "derivatives", "perpetuals", "funding", "screener", "carry"],
@@ -741,7 +741,7 @@ export const DERIVATIVES_TOOLS = [
     name: "Perp premium and predicted funding",
     slug: "perp-basis",
     category: "crypto",
-    price: "$0.003",
+    price: "$0.002",
     description:
       "Basis view for one perpetual: mark, oracle and mid price, mark-vs-oracle premium in percent and bps, the impact premium the venue uses for funding, the current hourly funding, and the predicted next funding rate per venue (rate, interval, next funding time, 8h-normalized and annualized) as published by Hyperliquid's predictedFundings feed. No key.",
     tags: ["crypto", "derivatives", "perpetuals", "basis", "premium", "predicted-funding", "hyperliquid"],

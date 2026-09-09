@@ -18,7 +18,7 @@ const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail+
 // ----------------------------------------------------------------------------
 ok(ENRICH_TOOLS.length === 5, `5 tools exported (got ${ENRICH_TOOLS.length})`);
 const SPEC = {
-  "lei-lookup": { price: "$0.01", category: "data" },
+  "lei-lookup": { price: "$0.005", category: "data" },
   "wikidata-entity": { price: "$0.005", category: "data" },
   "gravatar-check": { price: "$0.002", category: "network" },
   "github-repo": { price: "$0.005", category: "data" },

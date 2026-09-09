@@ -280,7 +280,7 @@ let fxDashCache = null;
 
 export const MACRO_TOOLS = [
   {
-    route: "GET /api/treasury-yield-curve", name: "US Treasury daily yield curve", slug: "treasury-yield-curve", category: "data", price: "$0.010",
+    route: "GET /api/treasury-yield-curve", name: "US Treasury daily yield curve", slug: "treasury-yield-curve", category: "data", price: "$0.005",
     description:
       "Latest US Treasury daily constant-maturity yields (1mo, 3mo, 6mo, 1y, 2y, 3y, 5y, 7y, 10y, 20y, 30y) as clean JSON. Source: FRED DGS* series (St. Louis Fed), public domain, no key. No params - always returns the most recent published curve.",
     tags: ["treasury", "yield-curve", "interest-rates", "rates", "macro", "bonds", "fed", "10-year", "yields"],
@@ -292,7 +292,7 @@ export const MACRO_TOOLS = [
     handler: async () => fetchLatestYieldCurve(),
   },
   {
-    route: "GET /api/treasury-yield-history", name: "US Treasury yield history", slug: "treasury-yield-history", category: "data", price: "$0.015",
+    route: "GET /api/treasury-yield-history", name: "US Treasury yield history", slug: "treasury-yield-history", category: "data", price: "$0.005",
     description:
       "Last N business days of US Treasury constant-maturity yields, oldest→newest. Source: FRED DGS* series (St. Louis Fed), public domain. ?days=30 (1-250, default 30).",
     tags: ["treasury", "yield-curve", "history", "interest-rates", "rates", "macro", "bonds", "time-series"],
@@ -312,7 +312,7 @@ export const MACRO_TOOLS = [
     },
   },
   {
-    route: "GET /api/yield-curve-spread", name: "Treasury yield-curve spreads + inversion", slug: "yield-curve-spread", category: "data", price: "$0.015",
+    route: "GET /api/yield-curve-spread", name: "Treasury yield-curve spreads + inversion", slug: "yield-curve-spread", category: "data", price: "$0.005",
     description:
       "Derived 2s10s and 3m10y Treasury yield-curve spreads (in basis points) plus a boolean recession-signal flag when the curve is inverted. Source: FRED constant-maturity yields (public domain). No params.",
     tags: ["yield-curve", "spread", "2s10s", "3m10y", "inversion", "recession", "macro", "treasury", "rates", "bonds"],
@@ -337,7 +337,7 @@ export const MACRO_TOOLS = [
     },
   },
   {
-    route: "GET /api/treasury-debt", name: "US total public debt outstanding", slug: "treasury-debt", category: "data", price: "$0.005",
+    route: "GET /api/treasury-debt", name: "US total public debt outstanding", slug: "treasury-debt", category: "data", price: "$0.002",
     description:
       "Most recent total US public debt outstanding (the headline national-debt number, daily) from the Treasury \"Debt to the Penny\" feed. Public domain, no key. No params.",
     tags: ["national-debt", "treasury", "fiscal", "public-debt", "macro", "deficit", "government"],
@@ -361,7 +361,7 @@ export const MACRO_TOOLS = [
     },
   },
   {
-    route: "GET /api/treasury-avg-rates", name: "Average interest rates on Treasury securities", slug: "treasury-avg-rates", category: "data", price: "$0.010",
+    route: "GET /api/treasury-avg-rates", name: "Average interest rates on Treasury securities", slug: "treasury-avg-rates", category: "data", price: "$0.005",
     description:
       "Latest average interest rates the US Treasury is paying by security type (Bills, Notes, Bonds, TIPS, FRNs, marketable vs non-marketable). Public domain, no key. No params - returns the most recent reporting month.",
     tags: ["treasury", "interest-rates", "bills", "notes", "bonds", "tips", "frn", "macro", "cost-of-debt"],
@@ -393,7 +393,7 @@ export const MACRO_TOOLS = [
     },
   },
   {
-    route: "GET /api/fx-historical", name: "Historical FX rate by date", slug: "fx-historical", category: "data", price: "$0.003",
+    route: "GET /api/fx-historical", name: "Historical FX rate by date", slug: "fx-historical", category: "data", price: "$0.002",
     description:
       "Historical foreign-exchange rate for a specific date using European Central Bank reference rates (via Frankfurter). Returns the rate that was published on (or rolled forward to) the requested date. ?from=USD&to=EUR&date=2024-01-02",
     tags: ["forex", "fx", "currency", "historical", "exchange-rate", "ecb", "macro"],
@@ -422,7 +422,7 @@ export const MACRO_TOOLS = [
     },
   },
   {
-    route: "GET /api/fx-timeseries", name: "FX rate time series", slug: "fx-timeseries", category: "data", price: "$0.010",
+    route: "GET /api/fx-timeseries", name: "FX rate time series", slug: "fx-timeseries", category: "data", price: "$0.005",
     description:
       "Daily FX rates between two currencies across a date window using European Central Bank reference rates (via Frankfurter). ?from=USD&to=EUR&startDate=2024-01-02&endDate=2024-01-31",
     tags: ["forex", "fx", "currency", "time-series", "exchange-rate", "ecb", "macro", "history"],
@@ -456,7 +456,7 @@ export const MACRO_TOOLS = [
     },
   },
   {
-    route: "GET /api/fx-dashboard", name: "G10 FX dashboard vs USD", slug: "fx-dashboard", category: "data", price: "$0.015",
+    route: "GET /api/fx-dashboard", name: "G10 FX dashboard vs USD", slug: "fx-dashboard", category: "data", price: "$0.005",
     description:
       "Snapshot of all G10 spot exchange rates quoted against USD (EUR, GBP, JPY, CHF, CAD, AUD, NZD, SEK, NOK) using ECB reference rates. Includes the USD-strength index (simple geometric mean of inverse rates). No params.",
     tags: ["forex", "fx", "dashboard", "g10", "dxy", "usd-strength", "ecb", "macro"],
@@ -517,7 +517,7 @@ export const MACRO_TOOLS = [
     },
   },
   {
-    route: "GET /api/world-bank-indicator", name: "World Bank indicator series", slug: "world-bank-indicator", category: "data", price: "$0.010",
+    route: "GET /api/world-bank-indicator", name: "World Bank indicator series", slug: "world-bank-indicator", category: "data", price: "$0.005",
     description:
       "Fetch a World Bank indicator time series for a country (e.g. GDP, inflation, unemployment, population). Open data, no key. ?country=US&indicator=NY.GDP.MKTP.CD&startYear=2018&endYear=2022",
     tags: ["world-bank", "gdp", "inflation", "unemployment", "macro", "indicators", "country", "economic-data"],
@@ -567,7 +567,7 @@ export const MACRO_TOOLS = [
     },
   },
   {
-    route: "GET /api/world-bank-search", name: "Search World Bank indicators", slug: "world-bank-search", category: "data", price: "$0.005",
+    route: "GET /api/world-bank-search", name: "Search World Bank indicators", slug: "world-bank-search", category: "data", price: "$0.002",
     description:
       "Search the World Bank indicator catalog (1,400+ indicators across GDP, demographics, health, environment, education, etc.) by keyword. Returns indicator codes you can feed into /api/world-bank-indicator. ?q=inflation&rows=10",
     tags: ["world-bank", "indicators", "search", "macro", "economic-data", "catalog"],
@@ -722,7 +722,7 @@ async function fredObservations({ seriesId, startDate, endDate, limit, units, fr
 
 MACRO_TOOLS.push(
   {
-    route: "GET /api/fred-series", name: "FRED time series", slug: "fred-series", category: "data", price: "$0.015",
+    route: "GET /api/fred-series", name: "FRED time series", slug: "fred-series", category: "data", price: "$0.005",
     description:
       "Fetch any of FRED's ~800,000 economic time series by series ID - GDP (GDPC1), CPI (CPIAUCSL), unemployment (UNRATE), fed funds (DFF), and so on. Supports date windowing and the standard FRED units transformations (lin, chg, ch1, pch, pc1, pca, cca, log). ?seriesId=GDPC1&startDate=2018-01-01&endDate=2023-12-31&units=pc1 This product uses the FRED(R) API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.",
     tags: ["fred", "series", "time-series", "gdp", "cpi", "inflation", "unemployment", "fed", "macro", "economic-data", "st-louis-fed"],
@@ -874,7 +874,7 @@ MACRO_TOOLS.push(
     },
   },
   {
-    route: "GET /api/sahm-rule", name: "Sahm Rule recession indicator", slug: "sahm-rule", category: "data", price: "$0.015",
+    route: "GET /api/sahm-rule", name: "Sahm Rule recession indicator", slug: "sahm-rule", category: "data", price: "$0.005",
     description:
       "Real-time Sahm Rule recession indicator from FRED (SAHMREALTIME series). The Sahm Rule triggers when the 3-month moving average of US unemployment rises ≥0.50 percentage points above its prior-12-month low - historically a clean recession signal. No params.",
     tags: ["sahm-rule", "recession", "unemployment", "macro", "fred", "indicator", "signal"],
@@ -896,7 +896,7 @@ MACRO_TOOLS.push(
     },
   },
   {
-    route: "GET /api/cpi-yoy", name: "US CPI year-over-year inflation", slug: "cpi-yoy", category: "data", price: "$0.015",
+    route: "GET /api/cpi-yoy", name: "US CPI year-over-year inflation", slug: "cpi-yoy", category: "data", price: "$0.005",
     description:
       "Latest US Consumer Price Index year-over-year inflation rate (headline CPI-U) plus the trailing 12 months of YoY readings - the headline inflation number. Source: FRED CPIAUCSL with pc1 transformation. No params.",
     tags: ["cpi", "inflation", "yoy", "consumer-price-index", "macro", "fred", "bls", "headline-inflation"],
@@ -918,7 +918,7 @@ MACRO_TOOLS.push(
     },
   },
   {
-    route: "GET /api/unemployment-rate", name: "US unemployment rate (UNRATE)", slug: "unemployment-rate", category: "data", price: "$0.010",
+    route: "GET /api/unemployment-rate", name: "US unemployment rate (UNRATE)", slug: "unemployment-rate", category: "data", price: "$0.005",
     description:
       "Latest US unemployment rate plus a trailing N-month series for trend. Source: FRED UNRATE (Bureau of Labor Statistics). ?months=12 (1-120, default 12).",
     tags: ["unemployment", "unrate", "labor", "jobs", "bls", "fred", "macro"],
@@ -980,7 +980,7 @@ MACRO_TOOLS.push(
     //   50  = Employment Situation           53  = Gross Domestic Product
     //   91  = G.17 Industrial Production     151 = JOLTS
     // Full release list: https://fred.stlouisfed.org/releases
-    route: "GET /api/fred-release-observations", name: "FRED bulk release observations (v2)", slug: "fred-release-observations", category: "data", price: "$0.025",
+    route: "GET /api/fred-release-observations", name: "FRED bulk release observations (v2)", slug: "fred-release-observations", category: "data", price: "$0.005",
     description:
       "Bulk-fetch observations for every series in a FRED release in one call. Use it to grab an entire economic report (jobs report, CPI report, GDP release) without enumerating constituent series IDs first. Returns paginated; pass lastSeriesId + lastObservationDate back to fetch the next page. ?releaseId=18 for H.15 (Selected Interest Rates), 10 for CPI, 50 for Employment Situation, 53 for GDP. Source: FRED API v2 /release/observations endpoint. This product uses the FRED(R) API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.",
     tags: ["fred", "release", "bulk", "observations", "v2", "cpi", "jobs", "gdp", "h15", "interest-rates", "employment", "macro", "economic-data"],

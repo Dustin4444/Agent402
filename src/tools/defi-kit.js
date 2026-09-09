@@ -557,7 +557,7 @@ export const DEFI_TOOLS = [
     name: "DeFi yield screener",
     slug: "defi-yields",
     category: "crypto",
-    price: "$0.003",
+    price: "$0.002",
     description:
       "Screen DeFi yield pools (lending, LP, staking, vaults) across every chain from DefiLlama's free Yields dataset: filter by chain, project, token symbol, stablecoin-only, minimum TVL and minimum/maximum APY; sort by apy or tvl; limit up to 100. Each row carries pool id, project, chain, symbol, TVL, total/base/reward APY, 1d/7d/30d APY change, 30d mean APY, IL risk, exposure (single/multi), reward tokens and DefiLlama's outlier flag. The ~11MB upstream document is fetched once per 5 minutes and served from an in-process cache, so answers are bounded and fast. Keyless public data.",
     tags: ["crypto", "defi", "yield", "apy", "tvl", "pools", "defillama", "screener", "stablecoin"],
@@ -702,7 +702,7 @@ export const DEFI_TOOLS = [
     name: "DeFi protocols ranked by TVL",
     slug: "defi-protocols",
     category: "crypto",
-    price: "$0.003",
+    price: "$0.002",
     description:
       "DeFi protocols ranked by current TVL from DefiLlama's free protocol list: filter by category (Lending, Dexs, Liquid Staking, CDP, Yield...), chain (ranks by that chain's TVL), or a name search; limit up to 100. Rows carry global rank, name, slug, category, chains, TVL, 1h/1d/7d TVL change, market cap and mcap/TVL. CEX rows are excluded unless category is CEX or includeCex is true. The ~8.6MB upstream document is cached 5 minutes in-process. Keyless public data.",
     tags: ["crypto", "defi", "tvl", "protocols", "ranking", "defillama", "lending", "dex"],
@@ -1113,7 +1113,7 @@ export const DEFI_TOOLS = [
     kind: "fees",
     slug: "defi-fees",
     name: "DeFi protocol fees and revenue",
-    price: "$0.003",
+    price: "$0.002",
     description:
       "Protocols ranked by fees paid by users (or by protocol revenue with metric \"revenue\") over the last 24h from DefiLlama's free fees overview: per-protocol 24h/7d/30d/1y/all-time totals with 1d/7d/30d change, category and chains; optional chain scope, category filter and name search; chain-level rows (network gas fees) via type \"chain\"; sector totals. limit up to 100. Keyless public data.",
     tags: ["crypto", "defi", "fees", "revenue", "protocols", "ranking", "defillama"],
@@ -1138,7 +1138,7 @@ export const DEFI_TOOLS = [
     kind: "dexs",
     slug: "defi-dex-volume",
     name: "DEX volume by protocol",
-    price: "$0.003",
+    price: "$0.002",
     description:
       "Decentralized exchanges ranked by 24h spot trading volume from DefiLlama's free DEX overview: per-DEX 24h/7d/30d/1y/all-time volume with 1d/7d/30d change, category and chains; optional chain scope (Ethereum, Base, Solana, Arbitrum...), category filter and name search; sector totals and the list of chains with DEX volume. limit up to 100. Keyless public data.",
     tags: ["crypto", "defi", "dex", "volume", "trading", "ranking", "defillama", "uniswap"],

@@ -195,7 +195,7 @@ function diffEndpoint(route, beforeEntry, afterEntry) {
 
 export const API_TOOLS = [
   {
-    route: "POST /api/openapi-diff", name: "OpenAPI / Swagger diff", slug: "openapi-diff", category: "conversion", price: "$0.002",
+    route: "POST /api/openapi-diff", name: "OpenAPI / Swagger diff", slug: "openapi-diff", category: "conversion", price: "$0.001",
     description:
       "Compare two OpenAPI 3.x or Swagger 2.x documents and return a structured diff: added / removed / changed endpoints, with a conservative \"is any change breaking?\" flag. Breaking = an endpoint or required-2xx status was removed, a required parameter was added, an optional param became required, a param type changed, or a JSON body field became required. Pure CPU - deterministic, no network, no $ref dereferencing (resolve refs upstream if needed).",
     tags: ["openapi", "swagger", "diff", "breaking-change", "api"],
@@ -443,7 +443,7 @@ export const API_TOOLS = [
     },
   },
   {
-    route: "POST /api/openapi-extract", name: "OpenAPI endpoint extractor", slug: "openapi-extract", category: "conversion", price: "$0.002",
+    route: "POST /api/openapi-extract", name: "OpenAPI endpoint extractor", slug: "openapi-extract", category: "conversion", price: "$0.001",
     description:
       "Flatten an OpenAPI 3.x or Swagger 2.x spec into a structured list of callable endpoints - one row per operation with method, path, operationId, summary, tags, parameters (name / in / required / type), JSON-body flag, and documented response codes. Includes per-method and per-tag counts so an agent can pick what to call next without parsing the full spec. Output is sorted by path then method for stable, agent-friendly grouping. Pure CPU - deterministic, no network, no $ref dereferencing.",
     tags: ["openapi", "swagger", "extract", "endpoints", "api", "agent-readiness"],
@@ -672,7 +672,7 @@ export const API_TOOLS = [
     },
   },
   {
-    route: "POST /api/openapi-mock-response", name: "OpenAPI mock response generator", slug: "openapi-mock-response", category: "conversion", price: "$0.002",
+    route: "POST /api/openapi-mock-response", name: "OpenAPI mock response generator", slug: "openapi-mock-response", category: "conversion", price: "$0.001",
     description:
       "Synthesize a JSON response body for one operation + status code in an OpenAPI 3.x or Swagger 2.x spec. Locate the operation by operationId or method+path. Pick the response by explicit `status`, else the first 2xx, else the first documented response. Generation precedence: operation-level `example`/`examples` > schema `example` > recursive type-inferred walk (objects walk properties, arrays return [mock(items)], enums return the first value, $ref is surfaced literally). Returns a `source` tag so callers know the mock's fidelity. Pure CPU - deterministic, no network, no $ref dereferencing.",
     tags: ["openapi", "swagger", "mock", "response", "api", "agent-readiness"],
@@ -773,7 +773,7 @@ export const API_TOOLS = [
     },
   },
   {
-    route: "POST /api/openapi-search", name: "OpenAPI operation search", slug: "openapi-search", category: "conversion", price: "$0.002",
+    route: "POST /api/openapi-search", name: "OpenAPI operation search", slug: "openapi-search", category: "conversion", price: "$0.001",
     description:
       "Search operations in an OpenAPI 3.x or Swagger 2.x spec against a free-text query. Tokenizes the query (lowercase, alphanumeric runs), scores each operation by which fields the tokens match - operationId +3, path +3, tags +2, summary +2, description +1 per matched token - and returns ranked results with a `matches` array naming the contributing fields. Sort: score descending, then path ascending for stability. Limit defaults to 10 (max 100). Pure CPU - deterministic, no network, no $ref dereferencing.",
     tags: ["openapi", "swagger", "search", "ranking", "api", "agent-readiness"],
@@ -896,7 +896,7 @@ export const API_TOOLS = [
     },
   },
   {
-    route: "POST /api/openapi-validate-payload", name: "OpenAPI payload validator", slug: "openapi-validate-payload", category: "validation", price: "$0.002",
+    route: "POST /api/openapi-validate-payload", name: "OpenAPI payload validator", slug: "openapi-validate-payload", category: "validation", price: "$0.001",
     description:
       "Validate a JSON payload against the request or response schema for one operation in an OpenAPI 3.x or Swagger 2.x spec. Locate the operation by operationId or method+path; choose `part: \"request\"` or `part: \"response\"` (status defaults to the first 2xx). Deterministic subset of JSON Schema: type, required, enum, properties, items, additionalProperties:false, oneOf/anyOf/allOf, $ref-detection (not dereferenced). Returns `valid`, `schemaPresent` (false → no contract to check; result is vacuously valid), and ordered `errors[]` with stable rule codes. Pure CPU - deterministic, no network.",
     tags: ["openapi", "swagger", "validation", "json-schema", "api", "agent-readiness"],
@@ -975,7 +975,7 @@ export const API_TOOLS = [
     },
   },
   {
-    route: "POST /api/openapi-redact", name: "OpenAPI spec redactor", slug: "openapi-redact", category: "conversion", price: "$0.002",
+    route: "POST /api/openapi-redact", name: "OpenAPI spec redactor", slug: "openapi-redact", category: "conversion", price: "$0.001",
     description:
       "Shrink an OpenAPI 3.x or Swagger 2.x document for LLM context by stripping verbose meta-fields (examples, descriptions, summaries, tags, externalDocs, deprecated). Categories are explicit; default is `[\"examples\", \"descriptions\"]`. User-defined property names under `properties: { ... }` are protected - only the meta-field `example` keyword inside a property schema is removed, not a user property literally named \"example\". Returns the redacted spec plus `sizeBefore`/`sizeAfter` (JSON byte length) and per-category removal counts so callers can see how much context they saved. Pure CPU - deterministic, no network.",
     tags: ["openapi", "swagger", "redact", "shrink", "llm-context", "api"],
@@ -1034,7 +1034,7 @@ export const API_TOOLS = [
     },
   },
   {
-    route: "POST /api/openapi-resolve-refs", name: "OpenAPI $ref resolver", slug: "openapi-resolve-refs", category: "conversion", price: "$0.002",
+    route: "POST /api/openapi-resolve-refs", name: "OpenAPI $ref resolver", slug: "openapi-resolve-refs", category: "conversion", price: "$0.001",
     description:
       "Inline every local `$ref` in an OpenAPI 3.x or Swagger 2.x document so downstream tools see a self-contained spec. Resolves `#/components/...` (OpenAPI) and `#/definitions/...` (Swagger) JSON-pointer refs anywhere in the document, including inside components themselves. Per-branch cycle detection: if A→B→A, the second A is left as a `$ref` and recorded under `circular`. External refs (http://, file://, ./other.yaml) are never fetched - they're reported under `external` and left as-is. Sibling keys of `$ref` (e.g. a `description` next to a `$ref`) are dropped to match JSON Schema Draft 7 / OpenAPI 3.0 semantics. Returns the dereffed spec plus `resolved` (count inlined) and arrays of any refs that couldn't be inlined. Pure CPU - deterministic, no network.",
     tags: ["openapi", "swagger", "ref", "dereference", "resolve", "api"],
@@ -1101,7 +1101,7 @@ export const API_TOOLS = [
     },
   },
   {
-    route: "POST /api/openapi-security-summary", name: "OpenAPI security summary", slug: "openapi-security-summary", category: "conversion", price: "$0.002",
+    route: "POST /api/openapi-security-summary", name: "OpenAPI security summary", slug: "openapi-security-summary", category: "conversion", price: "$0.001",
     description:
       "Resolve authentication requirements across an OpenAPI 3.x or Swagger 2.x document. Returns the catalog of security schemes (`components.securitySchemes` in OpenAPI 3, `securityDefinitions` in Swagger 2) verbatim, the document-level default, and the *effective* security for each operation after layering. Honors the OpenAPI rule that `security: []` on an operation overrides the global default with \"explicitly open\" rather than inheriting it - so an agent sees `open: true` for that op and won't try to attach a token. Includes a `schemeUsage` count so callers know which scheme is actually needed. Operations are sorted `METHOD /path` for deterministic output. Pure CPU - deterministic, no network.",
     tags: ["openapi", "swagger", "security", "auth", "api"],

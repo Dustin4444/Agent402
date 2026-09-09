@@ -490,7 +490,7 @@ export const CRYPTO_SIGNALS_TOOLS = [
     name: "Crypto news headlines",
     slug: "crypto-news",
     category: "crypto",
-    price: "$0.004",
+    price: "$0.002",
     description:
       `Latest crypto headlines aggregated from the public RSS/Atom feeds of ${SOURCE_IDS.length} major outlets (${SOURCE_IDS.join(", ")}), normalized to title, url, source, publishedAt and a plain-text summary, deduplicated by URL and sorted newest first. Optional keyword filter on title + summary (all keywords must match, or match=any), source subset, time window (hours, max 168) and limit (max 50). Feeds are cached 5 minutes; a feed that fails is listed in errors[] and never blocks the rest. No key, no LLM.`,
     tags: ["crypto", "news", "headlines", "rss", "bitcoin", "ethereum", "defi", "signals"],
@@ -583,7 +583,7 @@ export const CRYPTO_SIGNALS_TOOLS = [
     name: "Crypto technical indicators",
     slug: "crypto-indicators",
     category: "crypto",
-    price: "$0.005",
+    price: "$0.002",
     description:
       "Technical indicators for one perpetual computed deterministically from Hyperliquid candles: RSI(14), MACD(12,26,9) with signal and histogram, EMA 20/50/200, SMA 20/50, Bollinger(20,2) with bandwidth and %B, ATR(14) and window VWAP. Returns the latest value of each, the last N series points (points, max 100), and a plain summary (trend vs EMA50, RSI zone, MACD cross on the latest bar). interval 1m to 1M, limit = candles used (default 200, max 500). Choose a subset with indicators. No key, no LLM.",
     tags: ["crypto", "technical-analysis", "indicators", "rsi", "macd", "ema", "bollinger", "atr", "vwap", "signals", "hyperliquid"],

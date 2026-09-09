@@ -89,7 +89,7 @@ function decodeBarcode({ data, width, height }) {
 
 export const BARCODE_TOOLS = [
   {
-    route: "POST /api/barcode-decode", name: "Barcode / QR decode", slug: "barcode-decode", category: "data", price: "$0.003",
+    route: "POST /api/barcode-decode", name: "Barcode / QR decode", slug: "barcode-decode", category: "data", price: "$0.001",
     description:
       "Decode a barcode or QR code from an image. Send a base64 PNG or JPEG (or a data: URL); returns the decoded text and the symbology. Reads QR, DataMatrix, and 1D barcodes (EAN/UPC/Code39/Code128/ITF/Codabar). Deterministic, no network, no model.",
     tags: ["barcode", "qr", "qr-code", "decode", "scanner", "ean", "upc", "datamatrix"],

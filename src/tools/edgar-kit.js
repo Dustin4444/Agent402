@@ -148,7 +148,7 @@ export const EDGAR_TOOLS = [
     name: "EDGAR company lookup (ticker → CIK)",
     slug: "edgar-company-lookup",
     category: "data",
-    price: "$0.005",
+    price: "$0.002",
     description:
       "Resolve a US stock ticker (e.g. AAPL) to its SEC CIK number, the primitive every other EDGAR call needs. Returns CIK in both zero-padded (0000320193) and integer form, plus the registered company name. Backed by SEC's company_tickers.json (public domain). ?ticker=AAPL",
     tags: ["edgar", "sec", "cik", "ticker", "lookup", "company", "stocks", "filings"],
@@ -181,7 +181,7 @@ export const EDGAR_TOOLS = [
     name: "EDGAR recent filings",
     slug: "edgar-filings",
     category: "data",
-    price: "$0.015",
+    price: "$0.005",
     description:
       "Recent SEC filings for a company by ticker or CIK, newest first. Optionally filter by form type (10-K, 10-Q, 8-K, 4, S-1, etc.). Each row links to the primary document on SEC.gov. Source: data.sec.gov/submissions (public domain). ?ticker=AAPL&form=10-K&limit=10",
     tags: ["edgar", "sec", "filings", "10-K", "10-Q", "8-K", "form-4", "insider", "annual-report", "quarterly"],
@@ -256,7 +256,7 @@ export const EDGAR_TOOLS = [
     name: "EDGAR XBRL company-concept (one tag, full history)",
     slug: "edgar-company-concept",
     category: "data",
-    price: "$0.015",
+    price: "$0.005",
     description:
       "Full reported history of a single XBRL concept for one company (e.g. quarterly Revenues for Apple). Each datapoint cites the accession number and filing that reported it, so you can trace the number back to a 10-K/10-Q. Source: data.sec.gov/api/xbrl/companyconcept. ?ticker=AAPL&taxonomy=us-gaap&tag=Revenues",
     tags: ["edgar", "sec", "xbrl", "financials", "fundamentals", "revenue", "earnings", "10-K", "10-Q"],
@@ -308,7 +308,7 @@ export const EDGAR_TOOLS = [
     name: "EDGAR XBRL company-facts (all tags)",
     slug: "edgar-company-facts",
     category: "data",
-    price: "$0.025",
+    price: "$0.005",
     description:
       "All XBRL concepts reported by a company. Default returns a compact summary per tag (label, unit, latest value, latest end date) - typically a few hundred KB. Pass tags=Revenues,Assets,NetIncomeLoss to get full time-series for just those concepts. Source: data.sec.gov/api/xbrl/companyfacts. ?ticker=AAPL",
     tags: ["edgar", "sec", "xbrl", "financials", "fundamentals", "facts", "company"],
@@ -396,7 +396,7 @@ export const EDGAR_TOOLS = [
     name: "EDGAR XBRL frame (cross-company snapshot)",
     slug: "edgar-xbrl-frame",
     category: "data",
-    price: "$0.025",
+    price: "$0.005",
     description:
       "All US public companies that reported a given XBRL tag for a given period, in one call. Killer endpoint for cross-sectional screens: 'every issuer's Revenues for CY2023Q1' or 'every issuer's Assets as of CY2023Q4I (instantaneous)'. Period format: CY{YYYY} (annual), CY{YYYY}Q{1-4} (quarterly), or CY{YYYY}Q{1-4}I (instantaneous balance-sheet items). Source: data.sec.gov/api/xbrl/frames. ?taxonomy=us-gaap&tag=Revenues&unit=USD&period=CY2023Q1",
     tags: ["edgar", "sec", "xbrl", "frames", "screen", "cross-section", "fundamentals", "financials"],
@@ -735,7 +735,7 @@ EDGAR_TOOLS.push(
     name: "EDGAR insider trades (Form 4)",
     slug: "edgar-insider-trades",
     category: "data",
-    price: "$0.015",
+    price: "$0.005",
     description:
       "Recent Form 4 insider transactions filed against a company (officer, director, or 10% holder trades). Backed by EDGAR's full-text search (efts.sec.gov) filtered by subject-company CIK - Form 4 is owned by each insider's CIK, not the company's, so this is the only single-call path. ?ticker=AAPL&days=30",
     tags: ["edgar", "sec", "insider", "form-4", "trades", "officers", "directors", "transactions"],
@@ -790,7 +790,7 @@ EDGAR_TOOLS.push(
     name: "EDGAR 13F-HR holdings (institutional positions)",
     slug: "edgar-13f-holdings",
     category: "data",
-    price: "$0.025",
+    price: "$0.005",
     description:
       "Top holdings from an institutional investment manager's most recent 13F-HR filing (managers >$100M AUM file quarterly). Parses the standard SEC informationtable.xml attached to the filing - returns issuer, CUSIP, shares, USD value, and voting authority for each position. Sorted by USD value, descending. Source: data.sec.gov + filing archive. ?cik=1067983 (Berkshire) or ?ticker=BRK-B",
     tags: ["edgar", "sec", "13F", "13F-HR", "holdings", "institutional", "fund", "hedge-fund", "portfolio"],
@@ -844,7 +844,7 @@ EDGAR_TOOLS.push(
     name: "EDGAR recent IPO filings (S-1 / 424B4)",
     slug: "edgar-recent-ipos",
     category: "data",
-    price: "$0.015",
+    price: "$0.005",
     description:
       "Recently-filed S-1 (initial registration) or 424B4 (final prospectus - actual priced IPO) filings across all US issuers. Default returns S-1 filings (companies preparing to IPO) in the last 30 days; pass form=424B4 for actual IPOs that priced. Source: EDGAR full-text search. ?days=30&form=S-1",
     tags: ["edgar", "sec", "ipo", "S-1", "424B4", "prospectus", "registration", "new-listings"],
@@ -907,7 +907,7 @@ EDGAR_TOOLS.push(
     name: "EDGAR full-text search",
     slug: "edgar-search",
     category: "data",
-    price: "$0.015",
+    price: "$0.005",
     description:
       'General-purpose full-text search across every SEC filing since 2001. Find any phrase in any filing - material-weakness language in 10-Ks, going-concern in 10-Qs, "Russia" exposure across all forms. Supports form-type, CIK, US-state, and date-window filters. Source: EDGAR full-text search (efts.sec.gov). ?q=going+concern&forms=10-Q&days=30',
     tags: ["edgar", "sec", "search", "full-text", "filings", "10-K", "10-Q", "8-K", "screen"],

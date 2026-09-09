@@ -442,7 +442,7 @@ export const TOOLS = [
     path: "/api/perp-funding",
     method: "POST",
     body: { coin: "BTC", points: 5 },
-    priceUsd: 0.003,
+    priceUsd: 0.002,
     // Real output shape (derivatives-kit perp-funding): {source, coin, markPx,
     // current:{hourly, per8h, aprPct, premiumPct}}. The first check named a
     // funding.hourlyPct field the tool never had, so this leg had warned on

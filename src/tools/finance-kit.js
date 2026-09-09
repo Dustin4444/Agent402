@@ -322,7 +322,7 @@ export const FINANCE_TOOLS = [
     name: "Stock historical bars",
     slug: "stock-history",
     category: "data",
-    price: "$0.015",
+    price: "$0.005",
     description:
       "Historical OHLCV bars for a symbol. Configurable interval (1m, 5m, 15m, 30m, 60m, 1d, 1wk, 1mo, 3mo) and range (1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max). Intraday intervals are limited by Yahoo to ~60 days of data. Returns a flat array of bars (time, open, high, low, close, volume) ready for charting or backtests.",
     tags: ["finance", "stocks", "history", "ohlcv", "backtest", "charting"],
