@@ -43,6 +43,18 @@ const catalog = {
   ok(html.includes("69") && html.includes("settled over the MPP wire"), "MPP wire count renders");
   ok(html.includes(">41</strong> of 40,233 paid calls"), "router-share disclosure renders the real viaRouter/viaUSDC numbers");
   ok(html.includes("Seller-One.example") && html.includes("agents.chain.link"), "external leaderboard rows render");
+  {
+    // The five-column mono table is ~520px wide; at a 375px viewport the card's
+    // overflow:hidden clipped the usdc/calls/buyers columns with no way to reach
+    // them (reported from outside 2026-09-08). It must sit in its own
+    // horizontal scroller so the page never scrolls sideways and the columns
+    // stay reachable.
+    const start = html.indexOf("OTHER SELLERS");
+    const seg = html.slice(start, html.indexOf("full leaderboard", start));
+    const wrap = seg.indexOf("overflow-x:auto"), tbl = seg.indexOf("<table");
+    ok(wrap >= 0 && tbl > wrap && /tabindex="0"/.test(seg), "the homepage leaderboard table sits inside a keyboard-reachable horizontal scroller");
+    ok(/min-width:520px/.test(seg), "the table keeps its natural width inside the scroller (columns scroll, never clip)");
+  }
   ok(!html.slice(html.indexOf('$ GET /api/leaderboard'), html.indexOf('$ GET /api/bestsellers')).includes(">Agent402.Tools<"), "Agent402's own row is excluded from the index/leaderboard section");
 }
 

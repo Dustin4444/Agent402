@@ -431,10 +431,16 @@ curl -X POST /api/hash \\
         <span style="font-size:11px;color:var(--dk-muted2);letter-spacing:.1em;">OTHER SELLERS · BY USDC SETTLED · 7d</span>
         <span style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--accent-lit);"><span style="width:6px;height:6px;border-radius:50%;background:var(--accent-lit);display:inline-block;animation:ml-pulse 1.8s ease-in-out infinite;"></span>LIVE</span>
       </div>
-      <table style="font-family:var(--font-mono);font-size:12.5px;width:100%;">
+      <!-- Five mono columns are ~520px wide; inside the card's overflow:hidden
+           at a 375px viewport the usdc/calls/buyers columns were clipped with
+           no way to reach them (reported from outside 2026-09-08). Wide content
+           scrolls inside its own container; the page never scrolls sideways. -->
+      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;" tabindex="0" aria-label="Seller leaderboard table, scrolls sideways on narrow screens">
+      <table style="font-family:var(--font-mono);font-size:12.5px;width:100%;min-width:520px;">
         <thead><tr style="border-bottom:1px solid var(--dark-border);color:var(--dk-muted3);"><th scope="col" style="text-align:left;font-weight:400;padding:9px 18px;width:34px;">#</th><th scope="col" style="text-align:left;font-weight:400;padding:9px 18px;">seller</th><th scope="col" style="text-align:right;font-weight:400;padding:9px 18px;">usdc settled</th><th scope="col" style="text-align:right;font-weight:400;padding:9px 18px;">calls</th><th scope="col" style="text-align:right;font-weight:400;padding:9px 18px;">buyers</th></tr></thead>
         <tbody>${leaderboardRowsHtml}</tbody>
       </table>
+      </div>
       <div style="padding:11px 18px;border-top:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;color:var(--dk-muted3);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;"><span>Agent402 excluded · hourly snapshot</span><a href="/leaderboard" style="color:var(--accent-lit);text-decoration:none;">full leaderboard →</a></div>
     </div>
 
