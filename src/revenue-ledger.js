@@ -273,6 +273,21 @@ async function syncEvmChain(chain, wallet, { maxChunks = 20 } = {}) {
 }
 
 /** Solana: one-time page-to-genesis backfill, then follow new signatures. */
+// An EMPTY page ends a scan, and that end has to be written: every scanner used
+// to `break` before its putCursor, so a wallet whose last non-empty page was a
+// FULL page kept caught_up=0 and a stale updated_ts for as long as nothing new
+// arrived - /revenue showed Algorand "still syncing" for ten hours on 2026-09-09
+// with the scan actually complete (6,220 rows, indexer answering in 200 ms).
+// The cursor itself is unchanged; only the verdict and the timestamp move.
+function markCaughtUp(chain, wallet) {
+  const cur = getCursor.get(chain, wallet);
+  putCursor.run({
+    chain, wallet,
+    next_block: cur?.next_block ?? null, newest_sig: cur?.newest_sig ?? null,
+    backfilled: 1, caught_up: 1, updated_ts: Math.floor(Date.now() / 1000),
+  });
+}
+
 export async function syncSolana(wallet, { maxPages = 5 } = {}) {
   const chain = "solana";
   // Signatures MUST be read from the USDC associated token account, not the
@@ -300,7 +315,7 @@ export async function syncSolana(wallet, { maxPages = 5 } = {}) {
     if (backfilled && newest) opts.until = newest;
     if (!backfilled && before) opts.before = before;
     const sigs = await rpcCall(SOLANA_RPCS, "getSignaturesForAddress", [tokenAccount, opts], 8000);
-    if (!Array.isArray(sigs) || !sigs.length) { sawEnd = true; break; }
+    if (!Array.isArray(sigs) || !sigs.length) { sawEnd = true; markCaughtUp(chain, wallet); break; }
     if (!newest) newest = sigs[0].signature;
     if (backfilled) newest = sigs[0].signature; // follow mode: advance the anchor
     for (const s of sigs) {
@@ -360,7 +375,7 @@ export async function syncStellar(wallet, { maxPages = 5 } = {}) {
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) throw new Error(`Horizon HTTP ${res.status}`);
     const records = (await res.json())?._embedded?.records || [];
-    if (!records.length) { sawEnd = true; break; }
+    if (!records.length) { sawEnd = true; markCaughtUp(chain, wallet); break; }
     for (const r of records) {
       cursor = r.paging_token;
       let usd = null, payer = null;
@@ -424,7 +439,7 @@ export async function syncAlgorand(wallet, { maxPages = 5 } = {}) {
     const res = await getJsonAcross(ALGORAND_INDEXER_LIST, path, { timeoutMs: 8000 });
     if (!res.ok) throw new Error(res.error || `indexer HTTP ${res.status}`);
     const txns = res.json?.transactions || [];
-    if (!txns.length) { sawEnd = true; break; }
+    if (!txns.length) { sawEnd = true; markCaughtUp(chain, wallet); break; }
     let highestRound = minRound - 1;
     for (const t of txns) {
       const xfer = t["asset-transfer-transaction"];

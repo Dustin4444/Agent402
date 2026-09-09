@@ -19,6 +19,10 @@ on:
         description: "JSON body (POST)"
         default: ""
         required: false
+      headers:
+        description: "Extra request headers as a JSON object (seller-side keys; never the payment header)"
+        default: ""
+        required: false
       max_usd:
         description: "Refuse to pay above this quote (USD)"
         default: "0.01"
@@ -48,8 +52,9 @@ jobs:
           PROBE_URL: ${{ inputs.url }}
           PROBE_METHOD: ${{ inputs.method }}
           PROBE_BODY: ${{ inputs.body }}
+          PROBE_HEADERS: ${{ inputs.headers }}
           PROBE_MAX_USD: ${{ inputs.max_usd }}
         run: |
           [ -n "$BURNER_KEY" ] || { echo "::error::BURNER_KEY secret missing"; exit 1; }
           echo "::add-mask::$BURNER_KEY"
-          cd /tmp/probe && env -i PATH="$PATH" HOME="$HOME" BURNER_KEY="$BURNER_KEY" PROBE_URL="$PROBE_URL" PROBE_METHOD="$PROBE_METHOD" PROBE_BODY="$PROBE_BODY" PROBE_MAX_USD="$PROBE_MAX_USD" node external-seller-probe.js
+          cd /tmp/probe && env -i PATH="$PATH" HOME="$HOME" BURNER_KEY="$BURNER_KEY" PROBE_URL="$PROBE_URL" PROBE_METHOD="$PROBE_METHOD" PROBE_BODY="$PROBE_BODY" PROBE_HEADERS="$PROBE_HEADERS" PROBE_MAX_USD="$PROBE_MAX_USD" node external-seller-probe.js

@@ -109,6 +109,43 @@ if (!existsSync("/data")) {
   }
 }
 
+// --- an EMPTY page must record "caught up" (2026-09-09) -----------------------
+// Every scanner exited on an empty page BEFORE its cursor write, so a wallet
+// whose last non-empty page was full kept caught_up=0 and a stale updated_ts
+// until something new landed: /revenue read Algorand "still syncing" for ten
+// hours with the scan complete. Seed the stale row, answer one empty page,
+// and require the verdict + timestamp to move while the cursor itself stays.
+{
+  const { syncStellar, syncAlgorand, ledgerSyncState } = await import("../src/revenue-ledger.js");
+  const Database = (await import("better-sqlite3")).default;
+  const db = new Database(process.env.REVENUE_LEDGER_DB);
+  const STW = "GDNJXCKW7ZM7GEEVP674TWPU26YJNBQ2FI4ZIPRKTPTNUEJMDHFJWWRL";
+  const ALW = "C7IIHG7SPLPZ5H7ZT6HW3UV2OQMQQE6Y2HBNGZXSLRJULE42BEE2OY2XIE";
+  const stale = 1700000000;
+  db.prepare("INSERT OR REPLACE INTO cursors (chain, wallet, next_block, newest_sig, backfilled, caught_up, updated_ts) VALUES (?,?,?,?,?,?,?)")
+    .run("stellar", STW, null, "12345-1", 1, 0, stale);
+  db.prepare("INSERT OR REPLACE INTO cursors (chain, wallet, next_block, newest_sig, backfilled, caught_up, updated_ts) VALUES (?,?,?,?,?,?,?)")
+    .run("algorand", ALW, 55000000, null, 1, 0, stale);
+  const realFetch = globalThis.fetch;
+  const seen = [];
+  globalThis.fetch = async (url) => {
+    const u = String(url); seen.push(u);
+    if (/horizon/.test(u)) return new Response(JSON.stringify({ _embedded: { records: [] } }), { status: 200, headers: { "content-type": "application/json" } });
+    return new Response(JSON.stringify({ transactions: [] }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const rs = await syncStellar(STW);
+    const ra = await syncAlgorand(ALW);
+    ok(rs.caughtUp === true && ra.caughtUp === true, "an empty page reports caught up from both scanners");
+    const rows = Object.fromEntries(ledgerSyncState().map((r) => [r.chain, r]));
+    ok(rows.stellar?.caughtUp === true && rows.stellar.staleSeconds < 60, `stellar: the cursor row now says caught up with a fresh timestamp (was stale caught_up=0)`);
+    ok(rows.algorand?.caughtUp === true && rows.algorand.staleSeconds < 60, `algorand: the cursor row now says caught up with a fresh timestamp`);
+    ok(rows.algorand?.nextBlock === 55000000, "the algorand cursor itself did not move on an empty page");
+    ok(db.prepare("SELECT newest_sig FROM cursors WHERE chain='stellar'").get().newest_sig === "12345-1", "the stellar paging token did not move on an empty page");
+    ok(seen.some((u) => /horizon/.test(u)) && seen.some((u) => /asset-id=31566704/.test(u)), "both scanners actually asked their upstream");
+  } finally { globalThis.fetch = realFetch; db.close(); }
+}
+
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
