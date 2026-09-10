@@ -45,5 +45,21 @@ const init = { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { na
   ok(r.body.result?.serverInfo?.name === "agent402", "/mcp still initializes as agent402");
 }
 done();
+// Two mounts, ONE task store (security review 2026-09-10): a second store over
+// the same directory shared records through disk but not the in-memory run
+// controllers, so a cancel on the other path could discard a paid result.
+{
+  process.env.AGENT402_MCP_TASKS = "on";
+  const { mountMcp, _sharedTaskStoreForTest } = await import("../src/mcp-http.js");
+  const fakeApp = { use() {}, post() {}, get() {}, delete() {} };
+  const { mkdtempSync } = await import("node:fs"); const { tmpdir } = await import("node:os"); const { join } = await import("node:path");
+  const dir = mkdtempSync(join(tmpdir(), "mcp-tasks-"));
+  const loopback = async () => ({ status: 402, headers: new Headers(), body: "" });
+  const catalog = { "POST /api/x": { slug: "x", name: "x", price: "$0.001", description: "x", category: "c", route: "POST /api/x", handler: async () => ({}), discovery: {} } };
+  mountMcp(fakeApp, catalog, { baseUrl: "http://t", isComputePayable: () => false, mppLoopback: loopback, taskStoreDir: dir });
+  const first = _sharedTaskStoreForTest();
+  mountMcp(fakeApp, catalog, { baseUrl: "http://t", isComputePayable: () => false, mppLoopback: loopback, taskStoreDir: dir, path: "/mcp/x", profile: { metaTools: false, flagshipSlugs: ["x"] } });
+  ok(first && _sharedTaskStoreForTest() === first, "a second mount reuses the first mount's task store (one runs map, so a cancel on either path aborts the run)");
+}
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

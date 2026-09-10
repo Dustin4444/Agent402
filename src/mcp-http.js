@@ -115,6 +115,9 @@ let mcpInFlight = 0;
 // the server; the catalog passed in is already filtered to the product. Built
 // for directory listings whose bar is "one hosted MCP URL, one job, unpaid
 // calls 402" and which refuse the full catalog as a tool dump.
+let sharedTaskStore = null;
+/** Test seam: how many task stores this process holds (must be at most one). */
+export function _sharedTaskStoreForTest() { return sharedTaskStore; }
 export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = () => {}, getLeaderboard = null, getMppLeaderboard = null, mppLoopback = null, taskStore = null, taskStoreDir = null, path = "/mcp", profile = null }) {
   const scoped = profile?.metaTools === false;
   const HIDDEN_WHEN_SCOPED = new Set([META_MCP_NAMES.search_tools, META_MCP_NAMES.find_tool, META_MCP_NAMES.call_tool, META_MCP_NAMES.request_tool, META_MCP_NAMES.list_top_sellers]);
@@ -141,8 +144,14 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
   // composites, every one of which is wallet-only, so with no paid path there is
   // nothing a task could carry. Construction runs the boot sweep, which resolves
   // any run orphaned by the previous process BEFORE the first tasks/get.
+  // ONE store per process, whatever the mount count (security review
+  // 2026-09-10): a second mount (/mcp/sec) built its own store over the same
+  // directory, so records were shared through disk but the in-memory `runs`
+  // map (the AbortControllers) was not - a tasks/cancel on the other path
+  // wrote "cancelled" without aborting the loopback, the run settled anyway,
+  // and the delivered 200 was discarded as a "you were not charged" cancel.
   const tasks = mcpTasksEnabled() && mppLoopback
-    ? (taskStore || createTaskStore({
+    ? (taskStore || (sharedTaskStore ??= createTaskStore({
       dir: taskStoreDir,
       // A settled 200 whose result we could not retain is the one charged-but-
       // undelivered case this path can produce. The refund ledger demands
@@ -161,7 +170,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           });
         } catch { /* recording a debt must never break the serving path */ }
       },
-    }))
+    })))
     : null;
 
   // Flagship first-class tools: demand SKUs agents should see without a
