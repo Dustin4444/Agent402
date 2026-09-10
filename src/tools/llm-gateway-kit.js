@@ -28,6 +28,7 @@
 // cache hooks res.json only).
 
 import { METER_MARKUP, METER_FLOOR_USD, METER_MIN_SETTLE_USD, setMeterSentinel } from "../gateway-meter.js";
+import { flattenNamespaceForChat } from "./tool-namespaces.js";
 import { createHash, createHmac } from "node:crypto";
 // Static import (not agent-kit's lazy pattern): validateRequest must stay
 // synchronous because promptCacheKey — called from the pre-paywall cache
@@ -588,6 +589,11 @@ TIERS["v1-chat-metered"] = {
   price: METER_MIN_SETTLE_USD,            // the FLOOR: what the catalog shows as "from"; the 402 quotes per request
   maxQuoteUsd: METERED_MAX_QUOTE_USD,
   maxInputChars: 200_000,
+  // An agent session is hundreds of turns; the flat tiers cap messages at 100
+  // as a size guard, but here the quote already grows with the body (chars and
+  // the 1 MB body limit still bound it), so the cap is the input-item cap.
+  maxMessages: 1000,
+  maxInputItems: 1000,
   maxTokens: 8192,
   defaultMaxTokens: 1024,
   maxPrice: { prompt: 20, completion: 100 },
@@ -668,7 +674,7 @@ export function tierFor(model) {
   return null;
 }
 
-const MAX_MESSAGES = 100;
+const MAX_MESSAGES = 100; // default; a tier may raise it (`maxMessages`) - the metered tier does, its quote grows with the body
 export const MAX_IMAGES = 4;
 const MAX_IMAGE_URL_LEN = 2048;
 const MAX_N = 4; // `n` multiplies output cost - bounded and priced in the margin clamp
@@ -1243,6 +1249,11 @@ function tiersOfferingServerTool(type) {
  *  pinned object replaces theirs rather than merging into it. Everything else
  *  is a self-explaining 400. */
 export function validateToolEntry(t, tier) {
+  // An OpenAI tool NAMESPACE (a Responses-API grouping of function tools that
+  // one buyer sent to this wire ~130 times on 2026-09-09 and was refused each
+  // time) flattens into its function tools, namespace context folded into each
+  // description. Returns an ARRAY; the caller flat-maps. Cost-neutral.
+  if (t && typeof t === "object" && t.type === "namespace") return flattenNamespaceForChat(t);
   if (t && typeof t === "object" && t.type === "function") {
     if (!t.function || typeof t.function !== "object") {
       throw bad('Unsupported tools entry (type "function"). An OpenAI function tool is {type:"function", function:{name, description, parameters}}.');
@@ -1368,7 +1379,11 @@ export function validateRequest(input, tierSlug, { clamp = true } = {}) {
 
   const messages = input.messages;
   if (!Array.isArray(messages) || messages.length === 0) throw bad('"messages" must be a non-empty array of {role, content} objects');
-  if (messages.length > MAX_MESSAGES) throw bad(`Too many messages (${messages.length}). Maximum is ${MAX_MESSAGES}`);
+  const maxMessages = Number.isFinite(tier.maxMessages) ? tier.maxMessages : MAX_MESSAGES;
+  if (messages.length > maxMessages) {
+    throw bad(`Too many messages (${messages.length}). Maximum is ${maxMessages} on ${tier.route.split(" ")[1]}` +
+      (!tier.metered && TIERS["v1-chat-metered"] ? ` (${TIERS["v1-chat-metered"].route.split(" ")[1]} allows ${TIERS["v1-chat-metered"].maxMessages}; it is quoted per request from the body)` : ""));
+  }
 
   let totalChars = 0;
   let totalImages = 0;
@@ -1429,7 +1444,7 @@ export function validateRequest(input, tierSlug, { clamp = true } = {}) {
     if (!Array.isArray(body.tools) || body.tools.length === 0) {
       throw bad('"tools" must be a non-empty array of {type:"function", ...} or {type:"openrouter:..."} entries');
     }
-    body.tools = body.tools.map((t) => validateToolEntry(t, tier));
+    body.tools = body.tools.flatMap((t) => { const v = validateToolEntry(t, tier); return Array.isArray(v) ? v : [v]; });
   }
   // The server-tool loop budget is SERVER-OWNED, exactly like
   // provider.max_price: it is what stands between a flat price and an agent
@@ -2928,7 +2943,7 @@ const INPUT_SCHEMA = {
     cache_control: { description: 'Optional - prompt caching preference. Default ON ({type:"ephemeral"}, 5-minute TTL): repeated prefixes across your turns are served from the provider cache (same price to you). Send false to disable. ttl:"1h" is not offered.' },
     reasoning: { type: "object", description: 'Optional - reasoning control for reasoning models: {effort: "none"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max", max_tokens?: int, exclude?: bool, enabled?: bool}. Reasoning tokens count against max_tokens. When omitted, reasoning-by-default models get a low effort on the budget tiers (so the cap is not spent thinking) and the model default on premium. OpenAI\'s reasoning_effort string is accepted too.' },
     max_completion_tokens: { type: "integer", description: "Optional - alias of max_tokens (newer OpenAI SDKs send this)." },
-    tools: { type: "array", description: 'Optional - OpenAI function tools {type:"function", function:{...}}. The pro and premium routes also accept the bounded server tools {type:"openrouter:web_search"}, {type:"openrouter:web_fetch"} and {type:"openrouter:datetime"}, which OpenRouter executes in an agent loop; GET /v1/models lists the per-tier step and per-tool limits. Those limits and the loop budget are server-owned - stop_server_tools_when and max_tool_calls are refused. A request carrying a server tool is never served from the prompt cache.' },
+    tools: { type: "array", description: 'Optional - OpenAI function tools {type:"function", function:{...}}, or a tool namespace {type:"namespace", name, description, tools:[...]} (flattened into its function tools, the namespace context folded into each description; tool_calls come back with the plain function name). The pro and premium routes also accept the bounded server tools {type:"openrouter:web_search"}, {type:"openrouter:web_fetch"} and {type:"openrouter:datetime"}, which OpenRouter executes in an agent loop; GET /v1/models lists the per-tier step and per-tool limits. Those limits and the loop budget are server-owned - stop_server_tools_when and max_tool_calls are refused. A request carrying a server tool is never served from the prompt cache.' },
   },
   required: ["model", "messages"],
 };

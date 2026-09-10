@@ -684,6 +684,37 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [{ type: "openrouter:advisor" }] }, "v1-chat"), "function", "openrouter:advisor rejected, error names the accepted shape");
   throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [fnTool, { type: "openrouter:subagent" }] }, "v1-chat"), "openrouter:*", "one bad entry poisons the whole array - no partial acceptance");
   throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [{ type: "function" }] }, "v1-chat"), "function", "type:function without a function object rejected");
+  // Tool NAMESPACES (2026-09-10): one buyer sent ~130 of these to /v1/metered
+  // on 09-09 and was refused every time. A namespace flattens into its function
+  // tools with the namespace context folded into each description; nested
+  // functions may be Responses-shaped or chat-shaped; nothing else nests.
+  {
+    const ns = { type: "namespace", name: "crm", description: "CRM tools", tools: [
+      { type: "function", name: "get_customer", description: "Fetch a customer.", parameters: { type: "object", properties: {} } },
+      { type: "function", function: { name: "list_orders", parameters: { type: "object" } } },
+    ] };
+    const v = validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [ns, fnTool] }, "v1-chat-metered");
+    ok(Array.isArray(v.tools) && v.tools.length === 3 && v.tools.every((t) => t.type === "function" && t.function?.name), "a namespace flattens into its function tools beside the plain ones (2 + 1 = 3 function entries outbound)");
+    ok(v.tools[0].function.name === "get_customer" && v.tools[0].function.description === "[crm] CRM tools. Fetch a customer." && v.tools[0].function.parameters?.type === "object", "a Responses-shaped nested function keeps its name and parameters; the description carries the namespace name and description first");
+    ok(v.tools[1].function.name === "list_orders" && v.tools[1].function.description === "[crm] CRM tools.", "a chat-shaped nested function ({function:{...}}) is read too; with no own description only the namespace context remains");
+    ok(!v.tools.some((t) => t.type === "namespace"), "no namespace entry survives to the outbound body (OpenRouter's support for the type is unverified; the model sees plain function tools)");
+    const tc = validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [ns], tool_choice: { type: "function", function: { name: "get_customer" } } }, "v1-chat-metered");
+    ok(tc.tool_choice?.function?.name === "get_customer", "tool_choice may name a function that came from a namespace");
+    throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [{ type: "namespace", name: "crm", tools: [{ type: "custom", name: "x" }] }] }, "v1-chat-metered"), "custom", "a non-function tool nested in a namespace is refused by name, never dropped");
+    throws(() => validateRequest({ model: "gpt-4o", messages: msg1(), tools: [{ type: "namespace", name: "crm", tools: [{ type: "openrouter:web_search" }] }] }, "v1-chat-pro"), "not served inside a namespace", "a server tool cannot ride inside a namespace even on a tier that sells it at the top level");
+    throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [{ type: "namespace", name: "crm", tools: [] }] }, "v1-chat-metered"), "non-empty", "an empty namespace is refused");
+    throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [{ type: "namespace", name: "bad name!", tools: [{ type: "function", name: "f" }] }] }, "v1-chat-metered"), "namespace name", "a namespace name outside [A-Za-z0-9_.-] is refused");
+    ok(validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [ns] }, "v1-chat").tools.length === 2, "namespaces work on the flat tiers too (they are ordinary function tools once flattened)");
+  }
+  // Per-tier message cap (2026-09-10): the flat tiers keep 100 as a size
+  // guard; the metered tier is quoted from the body, so an agent session of
+  // hundreds of turns is served there, and the flat-tier refusal names it.
+  {
+    const many = (n) => Array.from({ length: n }, (_, i) => ({ role: i % 2 ? "assistant" : "user", content: "x" }));
+    ok(validateRequest({ model: "gpt-4o-mini", messages: many(500) }, "v1-chat-metered").messages.length === 500, "the metered tier accepts 500 messages");
+    throws(() => validateRequest({ model: "gpt-4o-mini", messages: many(1001) }, "v1-chat-metered"), "Maximum is 1000", "the metered tier still caps at 1000 (the body limit and maxInputChars bound the rest)");
+    throws(() => validateRequest({ model: "gpt-4o-mini", messages: many(101) }, "v1-chat"), "/v1/metered/chat/completions allows 1000", "a flat tier's 100-message refusal names the metered route that would serve it");
+  }
   throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: "web" }, "v1-chat"), "array", "non-array tools rejected");
   throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [] }, "v1-chat"), "non-empty", "empty tools array rejected, not silently passed");
 
