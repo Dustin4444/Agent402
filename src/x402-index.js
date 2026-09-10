@@ -4101,8 +4101,8 @@ export function routeQuery({ query, top, include, networkFilter, strictNetwork =
     // query "json diff" scored json-diff 4+4 on the slug while a one-token slug
     // "diff" took 10 for its one exact term, so a compound slug lost to any
     // single-word slug sharing one of its words - measured on 79 of our own
-    // 585 tool names, and it bites every multi-word seller slug the same way.
-    // Neutral: a seller's csv-to-json is fully covered by "csv to json" too.
+    // 585 tool names, and it bites every multi-word slug in the index the same
+    // way. Neutral: any row's csv-to-json is fully covered by "csv to json" too.
     const covered = new Set(names.filter((n) => { const toks = splitTokens(n); return toks.length > 1 && toks.every((tok) => termSet.has(tok)); }));
     for (const term of terms) {
       // A term under three characters matches whole tokens only: "ip" used to
