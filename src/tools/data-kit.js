@@ -250,7 +250,7 @@ export const DATA_TOOLS = [
     },
   },
   {
-    route: "GET /api/public-holidays", name: "Public holidays", slug: "public-holidays", category: "time", price: "$0.002",
+    route: "GET /api/public-holidays", name: "Public holidays", slug: "public-holidays", category: "time", price: "$0.001",
     description:
       "Public holidays for a country and year via Nager.Date (keyless, 100+ countries): date, local name, English name, nationwide flag, and holiday types. Pairs with /api/business-days and /api/country-info. ?country=US&year=2026",
     tags: ["holidays", "public-holidays", "calendar", "country", "time", "nager"],

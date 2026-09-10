@@ -685,7 +685,7 @@ export const NETWORK_TOOLS = [
     name: "Email deliverability check",
     slug: "email-deliverability",
     category: "network",
-    price: "$0.005",
+    price: "$0.002",
     description:
       "End-to-end email-auth report for a domain: SPF + DMARC + DKIM (probes common selectors automatically) + MX records + score 0–100. The one call to make when 'why is our mail going to spam?' lands in your inbox.",
     tags: ["email", "email-auth", "deliverability", "spf", "dmarc", "dkim", "mx", "audit"],

@@ -623,7 +623,7 @@ export const NETWORK_TOOLS2 = [
     slug: "asn-info",
     aliases: ["ip-geolocation", "geoip", "ip-lookup"],
     category: "network",
-    price: "$0.002",
+    price: "$0.001",
     description:
       "Look up the Autonomous System (ASN), prefix, country, registry, and allocation date for an IPv4 address - or for a hostname (which is resolved first). Uses Team Cymru's free DNS-based IP→ASN mapping; no HTTPS upstream, no auth, no rate-limit headaches.",
     tags: ["security", "network", "geolocation", "asn"],
