@@ -42,6 +42,20 @@ ok(scored.slug === "asn-info" && (scored.matched?.slug ?? 0) <= 20, "two alias h
   ok(run2("text diff")[0]?.slug === "text-diff" && run2("text diff").find((r) => r.slug === "json-diff")?.why?.matchedOn?.slug === 4, "coverage is per slug: json-diff is NOT covered by \"text diff\" and keeps the substring score for its shared word");
   ok(run2("csv to json")[0]?.slug === "csv-to-json" && run2("csv to json")[0]?.why?.matchedOn?.slug === 30, "the rule is neutral: it applies to any row, including a three-token slug fully covered by its query");
 }
+// A row's own name is an implicit alias (2026-09-10, second pass): an outside
+// slug that is our tool's full name in snake_case must not out-score the tool
+// on its own name. Neutral: the outside row's name gets the same treatment.
+{
+  const { _cacheForTests: cacheFor } = await import("../src/x402-index.js");
+  const cache3 = cacheFor(); cache3.clear();
+  cache3.set("https://fm.example", { manifest: { name: "fm", homepage: "https://fm.example" }, openapiSummary: null, tools: [{ seller: "https://fm.example", method: "POST", route: "/cron_next_runs", slug: "cron_next_runs", name: "cron_next_runs", description: "Next runs of a cron expression.", category: "time", tags: [], price: 0.002, networks: ["eip155:8453"] }], fetchedAt: Date.now(), error: null, history: [1, 1, 1] });
+  const ctx3 = { baseUrl: "https://agent402.tools", catalog: { "POST /api/cron-next": { name: "Cron next runs", slug: "cron-next", category: "time", price: "$0.001", description: "Next run times for a cron expression.", tags: [], discovery: { input: {} } } }, prices: { "cron-next": 0.001 }, network: "base", toolCount: 1, walletName: "w" };
+  const r3 = routeQuery({ query: "cron next runs", top: 3, include: "all", ...ctx3 }).results;
+  const ours = r3.find((r) => r.slug === "cron-next"), theirs = r3.find((r) => r.slug === "cron_next_runs");
+  ok(ours && theirs && ours.why.matchedOn.slug === theirs.why.matchedOn.slug && ours.why.matchedOn.slug === 30, `our name in slug form scores like their full-name slug (ours ${ours?.why.matchedOn.slug}, theirs ${theirs?.why.matchedOn.slug})`);
+  ok(r3[0]?.slug === "cron-next", `on a tie the cheaper row leads (first: ${r3[0]?.slug})`);
+  cache3.clear();
+}
 // Bazaar-quality tie-break vs local rows (2026-08-28): an outside seller with
 // measured payers must not outrank our identical tool when OUR measurement is
 // missing; when ours is present the same metric applies to both sides.
