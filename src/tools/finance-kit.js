@@ -388,7 +388,7 @@ export const FINANCE_TOOLS = [
     name: "Earnings calendar",
     slug: "earnings-calendar",
     category: "data",
-    price: "$0.015",
+    price: "$0.001",
     description:
       "Earnings calendar for a given date - every company reporting that day with EPS estimate, EPS actual (if reported), and reporting time slot. Optional `symbol` filter narrows to one ticker. Defaults to today (UTC). Backed by Nasdaq's public calendar API.",
     tags: ["finance", "earnings", "calendar", "eps", "events"],

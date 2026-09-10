@@ -534,7 +534,7 @@ const CATALOG = {
     name: "Screenshot",
     slug: "screenshot",
     category: "web",
-    price: "$0.015",
+    price: "$0.004",
     description:
       "Screenshot any public URL in headless Chromium. Returns a PNG image. Use when you need VISUAL evidence (layout, charts, a rendered receipt); when you need the text, extract or render are cheaper and machine-readable. Query params: ?url=https://…&fullPage=true (optional).",
     tags: ["browser", "screenshot", "png", "visual"],

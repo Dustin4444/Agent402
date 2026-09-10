@@ -162,7 +162,7 @@ export const CRYPTO_TOOLS = [
     name: "Crypto price",
     slug: "crypto-price",
     category: "data",
-    price: "$0.010",
+    price: "$0.001",
     description:
       "Live crypto prices for one or many coins in any vs_currency (usd, eur, btc, eth, etc). Returns last price, 24h change %, 24h volume, and market cap per coin. The simplest crypto price read - for ranked market-cap tables use crypto-market, for candles use crypto-history. Accepts ticker symbols (BTC, ETH, SOL) for the top ~50 by market cap, or canonical CoinGecko ids (e.g. \"render-token\") for any of the ~15k tracked coins. Batched: up to 25 coins per call. Backed by CoinGecko's API (this server's Demo key when configured, else the shared keyless rate).",
     tags: ["crypto", "price", "market-data", "bitcoin", "ethereum", "defi"],
@@ -332,7 +332,7 @@ export const CRYPTO_TOOLS = [
     name: "Crypto trending",
     slug: "crypto-trending",
     category: "data",
-    price: "$0.008",
+    price: "$0.001",
     description:
       "Trending coins on CoinGecko in the last 24 hours, ranked by user search activity on the site (currently ~15 results). Includes coin id, symbol, market cap rank, current price (BTC-denominated), and score. Useful signal for detecting narrative shifts before they hit price charts.",
     tags: ["crypto", "trending", "discovery", "sentiment"],

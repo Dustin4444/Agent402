@@ -19,7 +19,7 @@ These exist because an agent mid-task cannot give itself a browser, a paid searc
 | `search` | $0.02 | Live web search over a paid index, no signup: the wallet is the credential |
 | `answer` | $0.08 | Web answer with inline citations: a one-call "ask the web" the model couldn't reach otherwise |
 | `render` | $0.02 | Real headless Chromium, JavaScript executed - reads SPAs that `extract` can't |
-| `screenshot` | $0.015 | PNG of any public page (viewport or full-page) |
+| `screenshot` | $0.004 | PNG of any public page (viewport or full-page) |
 | `extract` | $0.01 | Main-article extraction → clean markdown (title, byline, word count) |
 | `pdf-info`, `pdf-rotate`, `pdf-extract-pages`, `pdf-merge`, `images-to-pdf`, `pdf`, `pdf-to-markdown` | $0.001–$0.01 | Read and manipulate PDFs |
 | `media-info`, `audio-convert`, `audio-normalize` | $0.005–$0.02 | Real ffmpeg: probe, transcode to mp3, EBU R128 loudness normalize |
@@ -29,8 +29,8 @@ These exist because an agent mid-task cannot give itself a browser, a paid searc
 | `block-number`, `chain-info`, `block-info`, `contract-code`, `erc721-owner`, `event-logs` | $0.001–$0.003 | **Chain reads**: head block and chain metadata, a block by number/hash, deployed bytecode at an address, ERC-721 `ownerOf`, and decoded `eth_getLogs` event queries. Read primitives an agent can call without running a node or holding an RPC key |
 | `openapi-diff`, `openapi-lint`, `openapi-extract`, `openapi-to-curl`, `openapi-mock-response`, `openapi-search`, `openapi-validate-payload`, `openapi-redact`, `openapi-resolve-refs`, `openapi-security-summary`, `openapi-required-params` | $0.001–$0.002 | **API-kit** - work an OpenAPI 3.x / Swagger 2.x spec end-to-end: find the right operation, see its effective auth, know the minimum inputs, build a runnable curl, mock a response, validate a payload, diff two versions, score agent-readiness, shrink for LLM context, inline `$ref`s |
 | `fx-rate`, `gov-data`, `weather-forecast`, `weather-alerts`, `earthquakes`, `barcode-lookup` | $0.001–$0.005 | Live keyless data: ECB currency rates, data.gov datasets, NWS weather, USGS quakes, product barcode lookup |
-| `stock-quote`, `stock-dividends`, `stock-history`, `earnings-calendar` | $0.001–$0.015 | **finance-kit**: price, dividend history, OHLC history, and the upcoming/recent earnings calendar for any ticker. Fresh, no API key required |
-| `crypto-trending`, `crypto-global`, `crypto-price`, `crypto-market`, `crypto-history` | $0.008–$0.015 | **crypto-kit**: prices, market data, OHLC history, trending coins, total market cap. Multi-coin in one call |
+| `stock-quote`, `stock-dividends`, `stock-history`, `earnings-calendar` | $0.001–$0.005 | **finance-kit**: price, dividend history, OHLC history, and the upcoming/recent earnings calendar for any ticker. Fresh, no API key required |
+| `crypto-trending`, `crypto-global`, `crypto-price`, `crypto-market`, `crypto-history` | $0.001–$0.015 | **crypto-kit**: prices, market data, OHLC history, trending coins, total market cap. Multi-coin in one call |
 | `treasury-*`, `fred-*`, `cpi-yoy`, `fed-funds`, `sahm-rule`, `yield-curve-spread`, `world-bank-*` | $0.002–$0.01 | **macro-kit**: official macro time-series from the St. Louis Fed (FRED v1 + v2 bulk release observations), the US Treasury, and the World Bank |
 | `edgar-company-lookup`, `edgar-filings`, `edgar-company-concept`, `edgar-company-facts`, `edgar-xbrl-frame`, `edgar-insider-trades`, `edgar-13f-holdings`, `edgar-recent-ipos`, `edgar-search` | $0.002–$0.005 | **edgar-kit**, SEC EDGAR: ticker→CIK, filings, XBRL company facts and concepts, cross-company XBRL frames, insider Form 4, 13F holdings, recent IPOs, full-text search |
 | `image-resize`, `image-convert`, `image-thumbnail`, `barcode-decode` | $0.001–$0.005 | Pure-CPU image transforms + barcode/QR decode (jimp / zxing) |

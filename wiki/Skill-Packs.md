@@ -41,12 +41,12 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 
 | Pack | Price | What it solves |
 |---|---|---|
-| [**content-extraction**](https://agent402.tools/skills/content-extraction) | $0.050 | Turn arbitrary URLs and PDFs into clean structured text - articles, page metadata, PDF pages, OCR. |
+| [**content-extraction**](https://agent402.tools/skills/content-extraction) | $0.044 | Turn arbitrary URLs and PDFs into clean structured text - articles, page metadata, PDF pages, OCR. |
 | [**structured-scrape**](https://agent402.tools/skills/structured-scrape) | $0.032 | Pull structured data out of any page deterministically - articles, tables, elements by CSS selector. |
-| [**any-to-markdown**](https://agent402.tools/skills/any-to-markdown) | $0.032 | "I have a URL but it might be HTML, PDF, or an image - give me clean markdown either way." |
-| [**document-intel**](https://agent402.tools/skills/document-intel) | $0.030 | Turn any PDF or image URL into structured data - metadata, text, page ranges, OCR, barcodes. |
+| [**any-to-markdown**](https://agent402.tools/skills/any-to-markdown) | $0.026 | "I have a URL but it might be HTML, PDF, or an image - give me clean markdown either way." |
+| [**document-intel**](https://agent402.tools/skills/document-intel) | $0.024 | Turn any PDF or image URL into structured data - metadata, text, page ranges, OCR, barcodes. |
 | [**link-preview**](https://agent402.tools/skills/link-preview) | $0.015 | Turn a URL into a card-shaped preview - OpenGraph/Twitter metadata + normalized social image + thumbnail. |
-| [**pdf-pipeline**](https://agent402.tools/skills/pdf-pipeline) | $0.013 | Full PDF pipeline - metadata, markdown conversion, and first-page extraction in one call. |
+| [**pdf-pipeline**](https://agent402.tools/skills/pdf-pipeline) | $0.007 | Full PDF pipeline - metadata, markdown conversion, and first-page extraction in one call. |
 | [**url-inspector**](https://agent402.tools/skills/url-inspector) | $0.004 | Quick URL health + metadata - parse the structure, verify reachability, and pull page metadata. |
 | [**content-grade**](https://agent402.tools/skills/content-grade) | $0.012 | Grade a page's content quality - extract the readable content then analyze keyword density. |
 | [**document-brief**](https://agent402.tools/skills/document-brief) | $0.031 | Metadata, an AI-written summary, and a preview of the opening pages of a PDF - understand what a document says without reading the whole thing. |
@@ -65,14 +65,14 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | Pack | Price | What it solves |
 |---|---|---|
 | [**financial-research**](https://agent402.tools/skills/financial-research) | $0.114 | SEC filings + real-time quotes + history + macro context for a single ticker. |
-| [**financial-analysis**](https://agent402.tools/skills/financial-analysis) | $0.033 | Quick company snapshot: live quote, 9 key financial metrics, and upcoming earnings. |
+| [**financial-analysis**](https://agent402.tools/skills/financial-analysis) | $0.020 | Quick company snapshot: live quote, 9 key financial metrics, and upcoming earnings. |
 | [**company-dossier**](https://agent402.tools/skills/company-dossier) | $0.046 | Comprehensive company research in one call: quote, financials, filings, insider trades, news. |
-| [**earnings-watch**](https://agent402.tools/skills/earnings-watch) | $0.033 | Is this company reporting soon and what's the consensus? Earnings calendar, quote, recent results. |
-| [**earnings-deep-dive**](https://agent402.tools/skills/earnings-deep-dive) | $0.055 | Everything before a company reports: the upcoming date, latest financials, recent filings, live quote, and fresh news in one pass. |
+| [**earnings-watch**](https://agent402.tools/skills/earnings-watch) | $0.020 | Is this company reporting soon and what's the consensus? Earnings calendar, quote, recent results. |
+| [**earnings-deep-dive**](https://agent402.tools/skills/earnings-deep-dive) | $0.043 | Everything before a company reports: the upcoming date, latest financials, recent filings, live quote, and fresh news in one pass. |
 | [**insider-alert**](https://agent402.tools/skills/insider-alert) | $0.010 | Insider buying/selling for a stock: Form 4 trades, live quote, and recent SEC filings. |
-| [**price-monitor**](https://agent402.tools/skills/price-monitor) | $0.029 | Side-by-side snapshot of a stock and a crypto asset: live quotes, 1-year history, date-stamped compare. |
+| [**price-monitor**](https://agent402.tools/skills/price-monitor) | $0.021 | Side-by-side snapshot of a stock and a crypto asset: live quotes, 1-year history, date-stamped compare. |
 | [**options-analytics**](https://agent402.tools/skills/options-analytics) | $0.026 | Price a European option on a live stock: current quote, volatility from recent history, Black-Scholes fair value plus the full greeks, and catalyst news. |
-| [**market-open**](https://agent402.tools/skills/market-open) | $0.025 | Pre-trade snapshot for one ticker before the bell: live quote, pre-market quote, options surface, dividend posture, and today's earnings calendar. |
+| [**market-open**](https://agent402.tools/skills/market-open) | $0.012 | Pre-trade snapshot for one ticker before the bell: live quote, pre-market quote, options surface, dividend posture, and today's earnings calendar. |
 
 ## Macro & SEC (12)
 
@@ -89,7 +89,7 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | [**fx-monitor**](https://agent402.tools/skills/fx-monitor) | $0.009 | Major currency snapshot: EUR/USD, GBP/USD, JPY/USD plus the full FX dashboard. |
 | [**fred-snapshot**](https://agent402.tools/skills/fred-snapshot) | $0.005 | Key Fed indicators - fed funds rate, unemployment, and CPI - in one call. |
 | [**world-data**](https://agent402.tools/skills/world-data) | $0.005 | GDP and population for a country - two key World Bank indicators. |
-| [**macro-dashboard**](https://agent402.tools/skills/macro-dashboard) | $0.077 | The full macro plus crypto dashboard in one call: 5 FRED series, 5 Treasury reads, the curve spread, crypto market/trending/global, and live gas. |
+| [**macro-dashboard**](https://agent402.tools/skills/macro-dashboard) | $0.071 | The full macro plus crypto dashboard in one call: 5 FRED series, 5 Treasury reads, the curve spread, crypto market/trending/global, and live gas. |
 
 ## Time series & forecasting (2)
 
@@ -102,18 +102,18 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 
 | Pack | Price | What it solves |
 |---|---|---|
-| [**market-brief**](https://agent402.tools/skills/market-brief) | $0.024 | Quick crypto snapshot: price for a coin, trending coins, and global market stats in one call. |
-| [**crypto-research**](https://agent402.tools/skills/crypto-research) | $0.078 | Live price, market structure, OHLC history, trending status, global context, and news for a coin. |
-| [**crypto-dossier**](https://agent402.tools/skills/crypto-dossier) | $0.064 | Everything about a coin: live price, 90-day history, trending status, market context, news + top article. |
-| [**defi-protocol-scanner**](https://agent402.tools/skills/defi-protocol-scanner) | $0.042 | Due-diligence a DeFi protocol: live token price, market context, protocol TVL across chains, and recent news. |
-| [**defi-dashboard**](https://agent402.tools/skills/defi-dashboard) | $0.022 | DeFi overview: total TVL, ETH price, Base gas, and global crypto stats. |
-| [**nft-portfolio**](https://agent402.tools/skills/nft-portfolio) | $0.013 | NFT + wallet snapshot: NFT holdings, native balance, and ETH price for an address. |
+| [**market-brief**](https://agent402.tools/skills/market-brief) | $0.009 | Quick crypto snapshot: price for a coin, trending coins, and global market stats in one call. |
+| [**crypto-research**](https://agent402.tools/skills/crypto-research) | $0.063 | Live price, market structure, OHLC history, trending status, global context, and news for a coin. |
+| [**crypto-dossier**](https://agent402.tools/skills/crypto-dossier) | $0.050 | Everything about a coin: live price, 90-day history, trending status, market context, news + top article. |
+| [**defi-protocol-scanner**](https://agent402.tools/skills/defi-protocol-scanner) | $0.034 | Due-diligence a DeFi protocol: live token price, market context, protocol TVL across chains, and recent news. |
+| [**defi-dashboard**](https://agent402.tools/skills/defi-dashboard) | $0.014 | DeFi overview: total TVL, ETH price, Base gas, and global crypto stats. |
+| [**nft-portfolio**](https://agent402.tools/skills/nft-portfolio) | $0.005 | NFT + wallet snapshot: NFT holdings, native balance, and ETH price for an address. |
 | [**wallet-audit**](https://agent402.tools/skills/wallet-audit) | $0.005 | Full wallet review: balance, recent transactions, and token metadata for an address. |
 | [**wallet-readiness**](https://agent402.tools/skills/wallet-readiness) | $0.008 | "Can this wallet pay right now?" USDC on Base + Solana, live Base gas, and an Onramp funding link. |
 | [**onchain-analyst**](https://agent402.tools/skills/onchain-analyst) | $0.021 | Ask Base anything in SQL - your query runs against Coinbase's indexed, decoded chain data. |
-| [**gas-optimizer**](https://agent402.tools/skills/gas-optimizer) | $0.016 | Find the cheapest gas: Base gas, Ethereum gas, Base fee estimate, and ETH price for USD conversion. |
+| [**gas-optimizer**](https://agent402.tools/skills/gas-optimizer) | $0.008 | Find the cheapest gas: Base gas, Ethereum gas, Base fee estimate, and ETH price for USD conversion. |
 | [**tx-forensics**](https://agent402.tools/skills/tx-forensics) | $0.011 | Explain what an EVM transaction actually did: confirmation status, the raw transaction, decoded calldata with typed parameters, resolved function signature, and labeled counterparties. |
-| [**cheapest-rail**](https://agent402.tools/skills/cheapest-rail) | $0.018 | Where should an agent transact this minute? Live gas across L2s, a fee estimate, and ETH spot. |
+| [**cheapest-rail**](https://agent402.tools/skills/cheapest-rail) | $0.009 | Where should an agent transact this minute? Live gas across L2s, a fee estimate, and ETH spot. |
 | [**contract-audit**](https://agent402.tools/skills/contract-audit) | $0.022 | Triage a smart contract before an agent touches it: verified source, heuristic vulnerability scan, known-address check, selector resolution, and a read-only dry-run of the exact call. |
 
 ## Network, DevOps & API work (4)
@@ -143,8 +143,8 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 
 | Pack | Price | What it solves |
 |---|---|---|
-| [**location-intel**](https://agent402.tools/skills/location-intel) | $0.009 | Point at an address and assemble the brief - coords, address, nearby, weather, NWS alerts, seismic. |
-| [**trip-planner**](https://agent402.tools/skills/trip-planner) | $0.007 | Plan a multi-stop journey - geocode each stop, sum pairwise distances, add travel time, pull weather. |
+| [**location-intel**](https://agent402.tools/skills/location-intel) | $0.008 | Point at an address and assemble the brief - coords, address, nearby, weather, NWS alerts, seismic. |
+| [**trip-planner**](https://agent402.tools/skills/trip-planner) | $0.006 | Plan a multi-stop journey - geocode each stop, sum pairwise distances, add travel time, pull weather. |
 | [**weather-brief**](https://agent402.tools/skills/weather-brief) | $0.006 | Full weather briefing for a location: current conditions, 7-day forecast, and air quality. |
 | [**locale-brief**](https://agent402.tools/skills/locale-brief) | $0.004 | "Can I reach this counterparty this week?" Country facts, this year's public holidays, working days left this week, and the local time right now. |
 

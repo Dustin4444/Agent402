@@ -136,7 +136,7 @@ export const GEO_TOOLS = [
     name: "Geocode address",
     slug: "geocode",
     category: "data",
-    price: "$0.002",
+    price: "$0.001",
     description:
       "Resolve a free-form address or place name to coordinates: lat/lon, display name, bounding box, place type. OpenStreetMap/Nominatim, no key. ?q=1600+Pennsylvania+Ave+Washington+DC&limit=1.",
     tags: ["geocoding", "address", "lat-lon", "openstreetmap", "nominatim", "maps"],
@@ -198,7 +198,7 @@ export const GEO_TOOLS = [
     name: "Reverse geocode",
     slug: "reverse-geocode",
     category: "data",
-    price: "$0.002",
+    price: "$0.001",
     description:
       "Resolve a lat/lon to a structured postal address: road, house number, city, state, postcode, country (with ISO code). OpenStreetMap/Nominatim, no key. ?lat=38.8977&lon=-77.0365.",
     tags: ["reverse-geocoding", "address", "lat-lon", "openstreetmap", "nominatim", "maps"],
