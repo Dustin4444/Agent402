@@ -213,10 +213,12 @@ export async function publicJsonRpc(network, method, params) {
         // ("execution reverted: UNAUTHORIZED"); a revert is an ANSWER and must
         // never be reclassified as a refusal (security review, 2026-09-06).
         const isRevert = data.error.code === 3 || /execution reverted|revert/i.test(msg);
-        // Provider-side refusals only ("tenant disabled", a dead key, a 429);
-        // "forbidden"/"unauthorized"/"quota" are left out because contracts
-        // revert with exactly those words (independent review, 2026-09-06).
-        if (!isRevert && /api key|tenant disabled|\b403\b|rate limit|too many requests/i.test(msg)) { lastErr = new Error(`provider refused: ${msg}`); continue; }
+        // Provider-side refusals only ("tenant disabled", a dead key, a 429,
+        // publicnode's "Archive requests require a personal token" for an old
+        // block on the keyless path - the nightly corpus, 2026-09-10); "forbidden"/
+        // "unauthorized"/"quota" are left out because contracts revert with
+        // exactly those words (independent review, 2026-09-06).
+        if (!isRevert && /api key|tenant disabled|\b403\b|rate limit|too many requests|archive requests require|personal token/i.test(msg)) { lastErr = new Error(`provider refused: ${msg}`); continue; }
         const err = bad(`Node error: ${msg}`, 502);
         // Carry the JSON-RPC error code so callers (tx-simulate) can tell a
         // revert verdict (code 3) from node-side failures like rate limits.
