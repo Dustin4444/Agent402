@@ -576,7 +576,7 @@ const CATALOG = {
     name: "Memory write",
     slug: "memory-write",
     category: "memory",
-    price: "$0.002",
+    price: "$0.001",
     description:
       "Persistent key-value memory for agents, scoped to the paying wallet. Your x402 payment IS your authentication: the wallet that pays owns the namespace. No signup, no API keys. Exact-key storage for structured state - when you want retrieval by MEANING rather than key, use memory-remember + memory-recall instead. Body: {\"key\":\"…\",\"value\":any JSON,\"ttlSeconds\":3600?} to write (optional TTL), or {\"key\":\"…\",\"delete\":true} to remove. Add \"owner\":\"0x…\" to write into another wallet's namespace you've been granted. Values up to 64KB.",
     // Agents phrase this as "store data between sessions" / "remember this

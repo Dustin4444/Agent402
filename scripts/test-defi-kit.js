@@ -173,7 +173,7 @@ const countCalls = (pred) => calls.filter(pred).length;
     ok(t.route === `POST /api/${t.slug}`, `${t.slug}: route is POST /api/${t.slug}`);
     ok(t.category === "crypto", `${t.slug}: category crypto`);
     const usd = Number(String(t.price).replace("$", ""));
-    ok(usd >= 0.002 && usd <= 0.005, `${t.slug}: price ${t.price} within $0.002-$0.005`);
+    ok(usd >= 0.001 && usd <= 0.005, `${t.slug}: price ${t.price} within $0.001-$0.005 (free DefiLlama upstream; the floor is the settlement floor)`);
     ok(typeof t.handler === "function" && t.discovery?.bodyType === "json" && t.discovery.input && t.discovery.inputSchema?.properties && t.discovery.output?.example, `${t.slug}: discovery complete`);
     ok(Array.isArray(t.tags) && t.tags.includes("defillama"), `${t.slug}: tagged defillama`);
     ok(!/\u2014/.test(t.description + t.name), `${t.slug}: no em dash in copy`);

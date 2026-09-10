@@ -1948,7 +1948,7 @@ const networkTools = [
     name: "HTTP check",
     slug: "http-check",
     category: "network",
-    price: "$0.003",
+    price: "$0.001",
     description: "Check any public URL: status code, latency, final URL after redirects, and response headers. The uptime primitive for agent monitors.",
     // "website"/"site"/"up"/"down" are how an agent phrases this ("check if a
     // website is up"); the description says "public URL", so the query words

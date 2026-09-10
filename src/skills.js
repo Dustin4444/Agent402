@@ -32,7 +32,7 @@ export const PACK_PRICES = {
   "financial-research": 0.114, // 7 tools, parts $0.126
   "macro-economics": 0.036, // 7 tools, parts $0.04
   "macro-dashboard": 0.077, // 14 tools, parts $0.085
-  "dns-network-ops": 0.014, // 6 tools, parts $0.015
+  "dns-network-ops": 0.012, // 6 tools, parts $0.013
   "crypto-research": 0.078, // 7 tools, parts $0.086
   "content-extraction": 0.05, // 6 tools, parts $0.055
   "sec-filings-deep-dive": 0.029, // 7 tools, parts $0.032
@@ -40,11 +40,11 @@ export const PACK_PRICES = {
   "decode-blob": 0.007, // 7 tools, parts $0.007
   "trend-analysis": 0.015, // 8 tools, parts $0.016
   "forecasting-bake-off": 0.014, // 7 tools, parts $0.015
-  "document-intel": 0.031, // 7 tools, parts $0.034
-  "document-brief": 0.032, // 3 tools, parts $0.035
+  "document-intel": 0.03, // 7 tools, parts $0.033
+  "document-brief": 0.031, // 3 tools, parts $0.034
   "fraud-signals": 0.027, // 7 tools, parts $0.03
-  "api-investigation": 0.018, // 7 tools, parts $0.02
-  "location-intel": 0.011, // 6 tools, parts $0.012
+  "api-investigation": 0.017, // 7 tools, parts $0.018
+  "location-intel": 0.009, // 6 tools, parts $0.01
   "user-onboarding": 0.009, // 7 tools, parts $0.009
   "trip-planner": 0.007, // 6 tools, parts $0.007
   "macro-context": 0.041, // 8 tools, parts $0.045
@@ -54,12 +54,12 @@ export const PACK_PRICES = {
   "schema-evolution": 0.008, // 6 tools, parts $0.008
   "link-preview": 0.015, // 5 tools, parts $0.016
   "any-to-markdown": 0.032, // 6 tools, parts $0.035
-  "status-snapshot": 0.009, // 5 tools, parts $0.01
+  "status-snapshot": 0.008, // 5 tools, parts $0.008
   "weather-brief": 0.006, // 3 tools, parts $0.006
   "price-monitor": 0.029, // 5 tools, parts $0.032
   "wallet-readiness": 0.008, // 3 tools, parts $0.008
   "onchain-analyst": 0.021, // 3 tools, parts $0.023
-  "seo-audit": 0.011, // 6 tools, parts $0.012
+  "seo-audit": 0.009, // 6 tools, parts $0.01
   "cheapest-rail": 0.018, // 4 tools, parts $0.019
   "company-dossier": 0.046, // 5 tools, parts $0.051
   "domain-intel": 0.016, // 6 tools, parts $0.017
@@ -80,10 +80,10 @@ export const PACK_PRICES = {
   "competitor-scan": 0.014, // 4 tools, parts $0.015
   "page-audit": 0.017, // 5 tools, parts $0.018
   "article-digest": 0.108, // 3 tools, parts $0.12
-  "pdf-pipeline": 0.014, // 3 tools, parts $0.015
-  "url-inspector": 0.006, // 3 tools, parts $0.006
+  "pdf-pipeline": 0.013, // 3 tools, parts $0.014
+  "url-inspector": 0.004, // 3 tools, parts $0.004
   "content-grade": 0.012, // 3 tools, parts $0.013
-  "api-health": 0.007, // 3 tools, parts $0.007
+  "api-health": 0.005, // 3 tools, parts $0.005
   "world-data": 0.005, // 1 tools, parts $0.005
   "fred-snapshot": 0.005, // 1 tools, parts $0.005
   "contact-verify": 0.005, // 3 tools, parts $0.005

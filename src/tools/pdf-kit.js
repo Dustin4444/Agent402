@@ -118,7 +118,7 @@ export async function imagesToPdf(buffers) {
 // ---- catalog tools (fetch + delegate) -------------------------------------
 export const PDF_TOOLS = [
   {
-    route: "POST /api/pdf-info", name: "PDF info", slug: "pdf-info", category: "web", price: "$0.002",
+    route: "POST /api/pdf-info", name: "PDF info", slug: "pdf-info", category: "web", price: "$0.001",
     description:
       "Inspect a PDF without downloading the whole thing into your model: page count, title, author, subject, creator, producer, creation/modification dates, encryption flag, and byte size. Body: {\"url\":\"https://…/file.pdf\"}.",
     tags: ["pdf", "documents", "metadata", "convert-pdf"],

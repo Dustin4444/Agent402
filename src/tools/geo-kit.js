@@ -301,7 +301,7 @@ export const GEO_TOOLS = [
     name: "Place search",
     slug: "place-search",
     category: "data",
-    price: "$0.003",
+    price: "$0.001",
     description:
       "Search OpenStreetMap for places by keyword, optionally restricted to a bounding box or country. Returns ranked hits with coordinates and place type - e.g. coffee shops in a city, airports in a region. ?q=coffee&viewbox=-122.52,37.81,-122.35,37.70&bounded=1.",
     tags: ["places", "poi", "search", "openstreetmap", "nominatim", "maps"],

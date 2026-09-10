@@ -33,6 +33,23 @@ const ok = (cond, msg) => {
 
 const pricing = await (await fetch(`${TARGET}/api/pricing`)).json();
 const packs = await (await fetch(`${TARGET}/api/skill-packs.json`)).json();
+// /llms.txt quotes a price beside ~40 routes in prose. Those numbers were
+// hand-typed until 2026-09-10 and eleven were stale; they are derived from the
+// catalog now, and this pins that every "`METHOD /api/slug` ($x)" in the served
+// text equals the live price for that slug (an unknown slug prints no number).
+{
+  const llms = await (await fetch(`${TARGET}/llms.txt`)).text();
+  const bySlug = Object.fromEntries((pricing.endpoints || []).map((e) => [e.slug, String(e.price || "")]));
+  const re = /`(?:GET|POST) \/api\/([a-z0-9-]+)` \((\$[0-9.]+)\)/g;
+  let m, seen = 0, stale = 0;
+  while ((m = re.exec(llms))) {
+    seen++;
+    const live = bySlug[m[1]];
+    if (!live || Number(live.replace("$", "")) !== Number(m[2].replace("$", ""))) { stale++; console.log(`STALE llms.txt price: ${m[1]} says ${m[2]}, catalog says ${live || "(no such slug)"}`); }
+  }
+  console.log(`llms.txt: ${seen} route prices checked, ${stale} stale`);
+  if (seen < 20 || stale) { console.error(`FAIL: llms.txt route prices (${seen} seen, ${stale} stale)`); process.exit(1); }
+}
 const routeByPath = new Map();   // "/api/x" -> { price, method }
 const priceBySlug = new Map();
 for (const e of pricing.endpoints || []) {
