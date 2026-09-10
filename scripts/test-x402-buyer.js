@@ -122,6 +122,30 @@ ok(t3 && /no \w+\/exact\/USDC accept/i.test(t3.message), "F2: non-mainnet-USDC a
   try { await payX402("https://seller.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, provenPayTo: PROVEN }); } catch (e) { u2 = e; }
   ok(!(u2 && /Refusing to pay/.test(u2.message)), "payTo binding: an unreadable live payTo is UNKNOWN, never a refusal");
 
+  // WRONG EIP-712 DOMAIN NAME (2026-09-10): a v2 Base accept naming "USDC"
+  // (the token signs under "USD Coin") is refused BEFORE signing, marked
+  // `refused` so route-execute tries the next candidate, and memoized.
+  {
+    const { sellerRefusedRecently } = await import("../src/x402-buyer.js");
+    const v2 = (name) => ({ scheme: "exact", network: "eip155:8453", asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", amount: "1000", payTo: PROVEN, maxTimeoutSeconds: 60, extra: { name, version: "2" } });
+    const v2challenge = (accepts) => ({ status: 402, headers: { get: (n) => (String(n).toLowerCase() === "payment-required" ? Buffer.from(JSON.stringify({ x402Version: 2, accepts })).toString("base64") : null) }, json: async () => ({}), text: async () => "" });
+    globalThis.fetch = async () => v2challenge([v2("USDC")]);
+    let wd = null;
+    try { await payX402("https://wrongdomain.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, chain: "base" }); } catch (e) { wd = e; }
+    ok(wd && /EIP-712 name "USDC"/.test(wd.message) && /"USD Coin"/.test(wd.message) && /Nothing was signed/.test(wd.message), "wrong domain: a Base accept naming \"USDC\" is refused before signing, naming both names");
+    ok(wd && wd.refused === true && wd.statusCode === 502, "wrong domain: the error is marked refused (route-execute falls through) with a 502");
+    ok(_spentThisWindow() === 0n, "wrong domain: no budget held");
+    ok(!!sellerRefusedRecently("https://wrongdomain.example", "base"), "wrong domain: the seller is memoized as refusing on base for the TTL");
+    // Control: the same accept naming "USD Coin" passes the domain check. It
+    // is then refused by the payTo binding one line further down (the proven
+    // address differs), which proves the domain check threw nothing AND keeps
+    // this offline test from signing against the stub.
+    globalThis.fetch = async () => v2challenge([{ ...v2("USD Coin"), payTo: OTHER }]);
+    let rd = null;
+    try { await payX402("https://rightdomain.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, chain: "base", provenPayTo: PROVEN }); } catch (e) { rd = e; }
+    ok(rd && /Refusing to pay/.test(rd.message) && !/EIP-712 name/.test(rd.message) && !sellerRefusedRecently("https://rightdomain.example", "base"), "right domain: \"USD Coin\" passes the domain check (the later payTo binding is what refuses) and is not memoized");
+  }
+
   // The check must read the accept we SIGN, not accepts[0]: a decoy first entry
   // paying the proven address cannot launder an exact entry paying elsewhere.
   globalThis.fetch = async () => challenge([

@@ -11,6 +11,7 @@
 import { assertPublicUrl, ssrfDispatcher } from "./tools/fetch-guard.js";
 import { recordUpstreamSpend } from "./stats.js";
 import { provenPayToMatches } from "./settlement-proof.js";
+import { usdcDomainVerdict } from "./evm-usdc-domain.js";
 
 function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
@@ -441,6 +442,25 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
   // we sign.
   const payable = pickPayableAccept(paymentRequired.accepts, chain);
   if (!payable) throw bad(`Seller offers no ${chain}/exact/USDC accept - cannot pay from the ${chain} spending wallet`, 502);
+  // THE ACCEPT'S EIP-712 DOMAIN NAME MUST BE THE TOKEN'S OWN (2026-09-10).
+  // The scheme signs the authorization under `extra.name` from the accept it
+  // is handed, so a Base accept advertising "USDC" (the token signs under
+  // "USD Coin") yields a signature that recovers to nobody: the facilitator
+  // refuses it, the seller answers 402, and the chain-truth wait below would
+  // then spend the whole refusal window proving nothing moved. Refuse HERE,
+  // before anything is signed, and memoize the seller like any other refusal
+  // so the resolver skips it for the TTL. Positive mismatch only: another
+  // asset or a nameless accept is unknown and the scheme's registry default
+  // applies (src/evm-usdc-domain.js).
+  if (chain === "base") {
+    const domain = usdcDomainVerdict(payable);
+    if (domain.verdict === "wrong_domain") {
+      noteSellerRefusal((() => { try { return new URL(url).origin; } catch { return null; } })(), chain, 402);
+      const e = bad(`Seller's Base USDC accept advertises EIP-712 name ${JSON.stringify(domain.advertisedName)} but the token signs under ${JSON.stringify(domain.expectedName)} - no stock x402 signature can verify against it. Nothing was signed.`, 502);
+      e.refused = true;
+      throw e;
+    }
+  }
   const quotedAtomic = payable.amount ?? payable.maxAmountRequired;
   if (!quoteWithinCap(quotedAtomic, maxAtomic)) {
     throw bad(`Seller quote ${quotedAtomic} atomic exceeds the ${maxAtomic} cap - refusing to pay`, 402);

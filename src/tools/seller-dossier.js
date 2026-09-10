@@ -192,6 +192,8 @@ export function composeSellerDossier(a) {
   if (carried) flags.push(`${carried} price(s) were carried forward from an earlier crawl rather than read this cycle`);
   if (correctedMethod) flags.push(`${correctedMethod} route(s) answer a different HTTP method than the seller declared`);
   if (templates) flags.push(`${templates} route(s) carry a URL template the router cannot fill`);
+  const wrongDomain = toolRows.filter((t) => t.dispatch === "usdc_domain_mismatch").length;
+  if (wrongDomain) flags.push(`${wrongDomain} route(s) advertise a Base USDC accept under the wrong EIP-712 domain name; no stock x402 buyer can pay them until the seller's accept names the token's own domain`);
   if (!paidTools.length) flags.push("no priced route is indexed, so nothing here is routable");
 
   // ----------------------------------------------------------------- wallets

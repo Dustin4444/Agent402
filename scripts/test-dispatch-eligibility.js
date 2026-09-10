@@ -72,6 +72,24 @@ ok(dispatchEligibility({ local: true }).reason === "local_catalog" && dispatchEl
   ok(at(null).eligible === false && at(null).chains.base.detail === "evidence_payto_unverified", "and an unreadable own address reads settlement_required (evidence_payto_unverified), never eligible");
   ok(dispatchEligibility({ routable: true, networks: ["eip155:8453"], settled: 5000, payers: 40, spendChains: all, evidence: { payTos: new Set([W]), ownSettled: 600, ownPayers: 9 }, livePayTo: X }).eligible === true, "an origin whose OWN evidence clears the floor is not bound");
 }
+// A Base accept under the wrong EIP-712 domain name (HumanMirror 2026-09-10):
+// unpayable by every stock buyer, whatever its settlement history says.
+{
+  const BASE_USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+  const wrong = { asset: BASE_USDC, name: "USDC" }, right = { asset: BASE_USDC, name: "USD Coin" };
+  const v = dispatchEligibility({ routable: true, networks: ["eip155:8453"], settled: 5000, payers: 40, spendChains: all, usdcDomain: wrong });
+  ok(v.eligible === false && v.reason === "usdc_domain_mismatch" && v.chains.base.reason === "usdc_domain_mismatch", "a Base seller above the floor whose accept names \"USDC\" is refused usdc_domain_mismatch (history cannot make an unsignable accept payable)");
+  ok(/"USDC"/.test(v.chains.base.detail) && /"USD Coin"/.test(v.chains.base.detail) && v.chains.base.advertisedName === "USDC" && v.chains.base.expectedName === "USD Coin", "the Base verdict names the advertised and the expected domain name");
+  ok(dispatchEligibility({ routable: true, networks: ["eip155:8453"], settled: 5000, payers: 40, spendChains: all, usdcDomain: right }).eligible === true, "the same seller naming \"USD Coin\" is eligible");
+  ok(dispatchEligibility({ routable: true, networks: ["eip155:8453"], settled: 5000, payers: 40, spendChains: all, usdcDomain: null }).eligible === true && dispatchEligibility({ routable: true, networks: ["eip155:8453"], settled: 5000, payers: 40, spendChains: all }).eligible === true, "no observation (null / omitted) decides nothing");
+  ok(dispatchEligibility({ routable: true, networks: ["eip155:8453"], settled: 5000, payers: 40, spendChains: all, usdcDomain: { asset: "0x" + "ab".repeat(20), name: "USDC" } }).eligible === true, "another asset on Base is unknown, never a refusal");
+  const below = dispatchEligibility({ routable: true, networks: ["eip155:8453"], settled: 3, spendChains: all, usdcDomain: wrong });
+  ok(below.reason === "usdc_domain_mismatch", "a wrong domain outranks settlement_required (it is the thing to fix first, and it explains the missing history)");
+  const multi = dispatchEligibility({ routable: true, networks: ["eip155:8453", SOL], settled: 5000, payers: 40, spendChains: all, usdcDomain: wrong });
+  ok(multi.eligible === true && multi.chain === "solana" && multi.chains.base.reason === "usdc_domain_mismatch", "a seller also on Solana stays eligible there; the Base reason is still visible per chain");
+  ok(dispatchEligibility({ routable: true, networks: ["eip155:8453"], settled: 5000, payers: 40, priceUsd: 0, spendChains: all, usdcDomain: wrong }).reason === "price_unknown", "row-level blocks (price, template) still come first: nothing about the accept matters on a row the router never spends against");
+  ok(typeof dispatchLegend().evmDomainByNetwork === "string" && /usdc_domain_mismatch/.test(dispatchLegend().evmDomainByNetwork), "the legend explains evmDomainByNetwork and names the reason it feeds");
+}
 // Unknown networks that are not spend chains at all.
 {
   const v = dispatchEligibility({ routable: true, networks: ["eip155:1"], settled: 100, payers: 5, spendChains: all });
@@ -91,6 +109,16 @@ ok(dispatchEligibility({ local: true }).reason === "local_catalog" && dispatchEl
   const fn = server.slice(server.indexOf("async function resolveExternalSeller("), server.indexOf("async function diagnoseExternalSeller("));
   ok(/dispatchEligibility\(\{ routable: true, networks: r\.networks, settled: r\.settled, payers: r\.payers/.test(fn) && /\.chains\.base\?\.eligible === true\)/.test(fn), "resolveExternalSeller's Base gate is dispatchEligibility's Base verdict (label == decision)");
   ok(!/meetsRouterGate\(\{ settled: r\.settled/.test(fn), "the resolver no longer calls the raw gate beside the labelled one (two implementations would drift)");
+  // The wrong-domain observation reaches the decision at all three points: the
+  // crawl's observation in the pre-probe filter and the public label, and the
+  // LIVE accept after the probe (a seller who fixed it since the crawl is
+  // admitted; one who broke it since is not).
+  ok(/usdcDomain: r\.evmDomainByNetwork\?\.\["eip155:8453"\] \|\| null \}\)\.chains\.base\?\.eligible === true\)/.test(fn), "the resolver's pre-probe Base gate passes the crawl's domain observation");
+  ok(/usdcDomainVerdict\(liveBase\)/.test(fn) && /wrong_domain/.test(fn) && /live = false/.test(fn.slice(fn.indexOf("usdcDomainVerdict(liveBase)"))), "the resolver re-reads the LIVE Base accept's domain after the probe and refuses a wrong one");
+  ok(/usdcDomain: row\.evmDomainByNetwork\?\.\["eip155:8453"\] \|\| null,/.test(server), "withDispatchFields hands the row's observation to the label");
+  const buyer = readFileSync(new URL("../src/x402-buyer.js", import.meta.url), "utf8");
+  const pay = buyer.slice(buyer.indexOf("export async function payX402("));
+  ok(pay.indexOf("usdcDomainVerdict(payable)") > -1 && pay.indexOf("usdcDomainVerdict(payable)") < pay.indexOf("reserveSpend(quotedAtomic)"), "payX402 checks the accept it is about to SIGN, before any budget is held or anything signed");
   ok(/withDispatchFields\(r, \{ local: r\.seller === "self", rowLevel: true \}\)/.test(server), "/api/route rows are labelled with row-level price + template checks");
   // Security review 2026-09-02: the Solana SPL leaderboard attributes a payTo's
   // credits to every origin whose OWN manifest advertises that payTo (no

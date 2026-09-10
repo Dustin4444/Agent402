@@ -42,6 +42,7 @@ import { RAILS, railKey, truncateCaip2 } from "./rails.js";
 import { CHAIN_PAGES, marketSellers } from "./market-page.js";
 import { WELL_KNOWN_PATH, discoveryNote } from "./discovery-note.js";
 import { acceptsFromLive402, quoteFromAccepts, probeMethodsFor, isQuoteResponse } from "./x402-live-quote.js";
+import { evmDomainsOfAccepts } from "./evm-usdc-domain.js";
 import { summarize, fmtUsd, fmtPct } from "./economy.js";
 import { rankBy, canonicalHost, getLeaderboardSnapshot } from "./leaderboard.js";
 import { routeExecuteHint } from "./tools/route-execute.js";
@@ -776,6 +777,11 @@ export function bazaarItemToTool(item, originUrl) {
         .filter((a) => typeof a?.network === "string" && typeof a?.payTo === "string" && a.payTo)
         .map((a) => [a.network, a.payTo])
     ),
+    // The EIP-712 domain each EVM accept advertises (asset + extra.name). A
+    // Base accept naming "USDC" where the token signs under "USD Coin" is a
+    // challenge no stock buyer can pay; the router label reads this to say so
+    // (src/evm-usdc-domain.js). Omitted when no EVM accept carries a name.
+    ...(Object.keys(evmDomainsOfAccepts(accepts)).length ? { evmDomainByNetwork: evmDomainsOfAccepts(accepts) } : {}),
     provenance: "bazaar",
     // Coinbase-measured 30-day usage of THIS resource (null when absent).
     quality: item.quality && typeof item.quality === "object"
@@ -1832,6 +1838,10 @@ export function carryForwardLearnedQuotes(tools, prev) {
       t.networks = [...new Set([...(t.networks || []), ...hit.networks])];
       t.networksVerifiedAt = hit.networksVerifiedAt;
     }
+    // The domain observation rides with the verified read it came from: a
+    // manifest-shaped rebuild has no accepts of its own, and without this the
+    // label would forget a wrong-domain seller on every crawl.
+    if (!t.evmDomainByNetwork && hit.evmDomainByNetwork && typeof hit.evmDomainByNetwork === "object") t.evmDomainByNetwork = { ...hit.evmDomainByNetwork };
     // A route-level hit may change a current row's verb in exactly two cases:
     // the row INFERRED its verb (named none), or the hit is a recorded
     // CORRECTION of this very verb (the probe saw it fail and the other answer).
@@ -2005,6 +2015,9 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
     // honest and useful half of the answer.
     if (learned.price != null && !(Number(tool.price) > 0)) tool.price = learned.price;
     if (learned.networks?.length) tool.networks = [...new Set([...(tool.networks || []), ...learned.networks])];
+    // The live 402 is the current word on which EIP-712 domain each EVM
+    // accept advertises: it replaces any older observation on the row.
+    if (learned.evmDomainByNetwork) tool.evmDomainByNetwork = { ...learned.evmDomainByNetwork };
     // The live 402 was read: the row's chains are verified as of now, whatever
     // the manifest claimed (the union above never drops a manifest chain).
     tool.networksVerifiedAt = Date.now();
@@ -2020,6 +2033,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
       if (sibling) {
         if (learned.price != null && !(Number(sibling.price) > 0)) sibling.price = learned.price;
         if (learned.networks?.length) sibling.networks = [...new Set([...(sibling.networks || []), ...learned.networks])];
+        if (learned.evmDomainByNetwork) sibling.evmDomainByNetwork = { ...learned.evmDomainByNetwork };
         sibling.networksVerifiedAt = Date.now();
         dropped.add(tool);
         console.log(`[x402-index] live-402: ${originUrl}${tool.route} refuses ${stated} and answers ${learned.method}; the seller declares both, dropping the ${stated} row (sibling kept)`);
@@ -3594,6 +3608,7 @@ export function routableSellerSummaries() {
       }, {}),
       // Every advertised payTo, not just the first (see allPayTosByNetwork).
       payTosByNetwork: allPayTosByNetwork(v.tools),
+      evmDomainByNetwork: evmDomainUnion(v.tools),
     });
   }
   return out;
@@ -3607,6 +3622,18 @@ export function routableSellerSummaries() {
 // a live seller 2026-08-06: 236 paid routes, 22 authors, 22 distinct payTo, of
 // which the index kept one. Case-exact, since folding base58/base32 or
 // checksummed EVM addresses merges distinct payees (same rule as src/payer.js).
+/** First advertised EIP-712 domain per EVM network across a tool list, the
+ *  seller-level twin of payToByNetwork (first seen per network wins). */
+function evmDomainUnion(tools) {
+  const acc = {};
+  for (const t of tools || []) {
+    for (const [net, obs] of Object.entries(t?.evmDomainByNetwork || {})) {
+      if (!acc[net] && obs && typeof obs === "object" && typeof obs.asset === "string" && typeof obs.name === "string") acc[net] = { asset: obs.asset, name: obs.name };
+    }
+  }
+  return acc;
+}
+
 export function allPayTosByNetwork(tools) {
   return (tools || []).reduce((acc, t) => {
     for (const [net, addr] of Object.entries(t?.payToByNetwork || {})) {
@@ -3667,6 +3694,9 @@ export function sellerDetail(originOrHost) {
       // Every payee this origin advertises, so a venue hosting many authors is
       // not reported as a single seller (see allPayTosByNetwork).
       payTosByNetwork: allPayTosByNetwork(v.tools),
+      // The EIP-712 domain name each EVM accept advertises, first seen per
+      // network - the router label's evidence for usdc_domain_mismatch.
+      evmDomainByNetwork: evmDomainUnion(v.tools),
       routable: isRoutable(v),
       tools: (v.tools || []).slice(0, 500).map((t) => ({
         method: t.method || null,
@@ -3781,6 +3811,7 @@ export function indexSnapshot({ baseUrl, catalog, prices, network, toolCount, wa
         return acc;
       }, {}),
     payTosByNetwork: allPayTosByNetwork([...(bazaarToolsByOrigin.get(origin) || []), ...(v.tools || [])]),
+    evmDomainByNetwork: evmDomainUnion([...(bazaarToolsByOrigin.get(origin) || []), ...(v.tools || [])]),
   }));
   // Collapse http/https duplicates of the same host into one seller. A registry
   // can list the same origin under both schemes (algo.netintel.dev appeared as
@@ -3804,6 +3835,7 @@ export function indexSnapshot({ baseUrl, catalog, prices, network, toolCount, wa
     keep.stellarWallet = keep.stellarWallet || drop.stellarWallet;
     keep.algorandWallet = keep.algorandWallet || drop.algorandWallet;
     keep.payToByNetwork = { ...(drop.payToByNetwork || {}), ...(keep.payToByNetwork || {}) };
+    keep.evmDomainByNetwork = { ...(drop.evmDomainByNetwork || {}), ...(keep.evmDomainByNetwork || {}) };
     // Union, not overwrite: the two schemes of one host can advertise different
     // payees, and spreading one object over the other would drop a whole side.
     keep.payTosByNetwork = Object.entries({ ...(drop.payTosByNetwork || {}), ...(keep.payTosByNetwork || {}) })
@@ -3937,6 +3969,10 @@ function decoratedRemoteTools(v) {
     ...(v.tools || []).flatMap((t) => t.networks || []),
     ...(sellerOrigin ? (bazaarToolsByOrigin.get(sellerOrigin) || []) : []).flatMap((t) => t.networks || []),
   ])];
+  // Same inheritance for the advertised EIP-712 domain: a row that observed
+  // no accepts of its own reads the seller's (a wrong name is set once, in the
+  // seller's middleware, so every route on the origin carries it).
+  const sellerDomains = evmDomainUnion([...(v.tools || []), ...(sellerOrigin ? (bazaarToolsByOrigin.get(sellerOrigin) || []) : [])]);
   d = (v.tools || [])
     // paid:false = the seller's own doc says this operation is free.
     // It lists on the marketplace, but it is never a BUY candidate —
@@ -3946,6 +3982,7 @@ function decoratedRemoteTools(v) {
     .map((t) => ({
       ...t,
       ...(!(Array.isArray(t.networks) && t.networks.length) && sellerNets.length ? { networks: sellerNets, networksInferred: true } : {}),
+      ...(!t.evmDomainByNetwork && Object.keys(sellerDomains).length ? { evmDomainByNetwork: sellerDomains } : {}),
       sellerHome: v.manifest?.homepage || t.seller,
       sellerName: v.manifest?.name || t.seller,
       health: healthScore(v),
@@ -4216,6 +4253,9 @@ export function routeQuery({ query, top, include, networkFilter, strictNetwork =
       // Says when those networks were inherited from the seller rather than
       // observed on this route's own 402 (see decoratedRemoteTools).
       ...(t.networksInferred ? { networksInferred: true } : {}),
+      // The EIP-712 domain each EVM accept advertised (asset + name), so the
+      // dispatch label can refuse a Base accept no stock buyer can sign.
+      ...(t.evmDomainByNetwork && Object.keys(t.evmDomainByNetwork).length ? { evmDomainByNetwork: t.evmDomainByNetwork } : {}),
       // Quote-guided execution: tell the buyer exactly which route-execute tier
       // runs this result and what to pay (x402 is fixed-price, so the buyer must
       // pick the tier that covers the tool's underlying price). null = above the
