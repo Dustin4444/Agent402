@@ -44,6 +44,25 @@ for (const [label, body] of [
     { type: "function_call", call_id: "c1", name: "f", arguments: "{}" },
     { type: "function_call_output", call_id: "c1", output: "42" },
   ], tools: [{ type: "function", name: "f", parameters: { type: "object" } }] }, base);
+  // Tool namespaces on the Responses wire (2026-09-10): flattened outbound,
+  // the name -> namespace map puts `namespace` back on each function_call in
+  // the non-streamed output (OpenAI's FunctionCall item carries that field).
+  {
+    const { attributeNamespaces } = await import("../src/tools/tool-namespaces.js");
+    const ns = { type: "namespace", name: "crm", description: "CRM tools", tools: [{ type: "function", name: "get_customer", parameters: { type: "object" } }] };
+    const rv = validateResponsesRequest({ model: "openai/gpt-4o-mini", input: "hi", tools: [ns, { type: "function", name: "plain", parameters: { type: "object" } }] }, base);
+    ok(rv.body.tools.length === 2 && rv.body.tools[0].type === "function" && rv.body.tools[0].name === "get_customer" && /^\[crm\] CRM tools\./.test(rv.body.tools[0].description), "a namespace flattens into Responses-shaped function tools with the namespace context in the description");
+    ok(rv.namespaceOf?.get_customer === "crm" && rv.namespaceOf.plain === undefined, "the validator returns the name -> namespace map for the functions that came from a namespace only");
+    const out = [{ type: "function_call", name: "get_customer", call_id: "c1", arguments: "{}" }, { type: "function_call", name: "plain", call_id: "c2", arguments: "{}" }, { type: "function_call", name: "get_customer", call_id: "c3", arguments: "{}", namespace: "theirs" }];
+    attributeNamespaces(out, rv.namespaceOf);
+    ok(out[0].namespace === "crm" && out[1].namespace === undefined && out[2].namespace === "theirs", "output attribution: a namespaced function_call gets namespace, a plain one does not, an existing namespace is never overwritten");
+    let e = null; try { validateResponsesRequest({ model: "openai/gpt-4o-mini", input: "hi", tools: [{ type: "namespace", name: "crm", tools: [{ type: "web_search_preview" }] }] }, base); } catch (x) { e = x; }
+    ok(e && /not served inside a namespace/.test(e.message), "a server tool nested in a namespace is refused by name");
+    const items = (n) => Array.from({ length: n }, () => ({ role: "user", content: "x" }));
+    ok(validateResponsesRequest({ model: "openai/gpt-4o-mini", input: items(600) }, "v1-chat-metered").body.input.length === 600, "the metered Responses route accepts 600 input items");
+    let f = null; try { validateResponsesRequest({ model: "openai/gpt-4o-mini", input: items(201) }, base); } catch (x) { f = x; }
+    ok(f && /\/v1\/metered\/responses allows 1000/.test(f.message), "a flat tier's 200-item refusal names the metered route that would serve it");
+  }
   ok(r.imageCount === 1 && JSON.stringify(r.probe).length < 2000 && r.body.tools.length === 1 && r.body.input.length === 4, "item-list input with an image, function tools and tool outputs validates; probe drops the image payload");
   const auto = validateResponsesRequest({ input: "Write a python function that reverses a list" }, "v1-chat-auto");
   ok(auto.isRouted && auto.routedCategory === "code" && auto.body.model === undefined, `auto tier routes by prompt class (${auto.routedCategory})`);
