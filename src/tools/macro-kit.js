@@ -896,7 +896,7 @@ MACRO_TOOLS.push(
     },
   },
   {
-    route: "GET /api/cpi-yoy", name: "US CPI year-over-year inflation", slug: "cpi-yoy", category: "data", price: "$0.005",
+    route: "GET /api/cpi-yoy", name: "US CPI year-over-year inflation", slug: "cpi-yoy", aliases: ["us-cpi-year-over-year-inflation", "cpi-inflation", "inflation-rate"], category: "data", price: "$0.005",
     description:
       "Latest US Consumer Price Index year-over-year inflation rate (headline CPI-U) plus the trailing 12 months of YoY readings - the headline inflation number. Source: FRED CPIAUCSL with pc1 transformation. No params.",
     tags: ["cpi", "inflation", "yoy", "consumer-price-index", "macro", "fred", "bls", "headline-inflation"],
@@ -943,7 +943,7 @@ MACRO_TOOLS.push(
     },
   },
   {
-    route: "GET /api/fed-funds", name: "Effective federal funds rate", slug: "fed-funds", category: "data", price: "$0.010",
+    route: "GET /api/fed-funds", name: "Effective federal funds rate", slug: "fed-funds", aliases: ["effective-federal-funds-rate", "federal-funds-rate", "fed-funds-rate"], category: "data", price: "$0.010",
     description:
       "Current effective federal funds rate plus a trailing N-day series. Source: FRED DFF (Board of Governors). ?days=30 (1-365, default 30).",
     tags: ["fed-funds", "interest-rates", "monetary-policy", "fomc", "fed", "macro", "fred"],

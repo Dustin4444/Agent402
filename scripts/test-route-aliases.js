@@ -24,6 +24,24 @@ ok(run("ip")[0] === "ip-info" && !run("ip").includes("gzip"), `a bare short term
 ok(run("qr code")[0] === "qr", "unrelated ranking unchanged");
 const scored = routeQuery({ query: "geoip ip-geolocation", top: 5, include: "local", baseUrl: "http://agent402.test", catalog, toolCount: 5 }).results[0];
 ok(scored.slug === "asn-info" && (scored.matched?.slug ?? 0) <= 20, "two alias hits are the max per term, never summed across aliases");
+// Full-slug coverage (2026-09-10): a slug every token of which appears in the
+// query is an exact match for those tokens. Before, "json diff" scored json-diff
+// 4+4 while a one-token slug "diff" took 10, so any compound slug lost to a
+// single-word slug sharing one of its words (79 of our 585 tool names).
+{
+  const cat2 = Object.fromEntries([
+    tool("json-diff", "JSON diff", "Structural diff of two JSON documents."),
+    tool("diff", "Diff", "Diff two texts."),
+    tool("text-diff", "Text diff", "Line diff of two texts."),
+    tool("csv-to-json", "CSV to JSON", "Convert CSV rows to JSON."),
+  ]);
+  const run2 = (q) => routeQuery({ query: q, top: 5, include: "local", baseUrl: "http://agent402.test", catalog: cat2, toolCount: 4 }).results;
+  ok(run2("json diff")[0]?.slug === "json-diff", `a query covering every slug token outranks a one-word slug sharing one word (json diff -> ${run2("json diff").map((r) => r.slug).join(",")})`);
+  ok(run2("json diff")[0]?.why?.matchedOn?.slug === 20, "both covered tokens score as exact (10 each), not as substrings");
+  ok(run2("diff")[0]?.slug === "diff", `a bare one-word query still prefers the exact one-word slug (diff -> ${run2("diff").map((r) => r.slug).join(",")})`);
+  ok(run2("text diff")[0]?.slug === "text-diff" && run2("text diff").find((r) => r.slug === "json-diff")?.why?.matchedOn?.slug === 4, "coverage is per slug: json-diff is NOT covered by \"text diff\" and keeps the substring score for its shared word");
+  ok(run2("csv to json")[0]?.slug === "csv-to-json" && run2("csv to json")[0]?.why?.matchedOn?.slug === 30, "the rule is neutral: it applies to any row, including a three-token slug fully covered by its query");
+}
 // Bazaar-quality tie-break vs local rows (2026-08-28): an outside seller with
 // measured payers must not outrank our identical tool when OUR measurement is
 // missing; when ours is present the same metric applies to both sides.

@@ -424,7 +424,7 @@ export const SOLANA_INTEL_TOOLS = [
   {
     route: "POST /api/sol-token-report",
     name: "Solana token risk report (full)",
-    slug: "sol-token-report",
+    slug: "sol-token-report", aliases: ["solana-token-risk-report", "solana-token-risk"],
     category: "crypto",
     price: "$0.010",
     description:
@@ -513,7 +513,7 @@ export const SOLANA_INTEL_TOOLS = [
   {
     route: "POST /api/sol-token-holders",
     name: "Solana token holder concentration",
-    slug: "sol-token-holders",
+    slug: "sol-token-holders", aliases: ["solana-token-holder-concentration", "solana-token-holders"],
     category: "crypto",
     price: "$0.005",
     description:
@@ -615,7 +615,7 @@ export const SOLANA_INTEL_TOOLS = [
   {
     route: "POST /api/sol-token-search",
     name: "Search Solana tokens and pairs",
-    slug: "sol-token-search",
+    slug: "sol-token-search", aliases: ["search-solana-tokens-and-pairs", "solana-token-search"],
     category: "crypto",
     price: "$0.003",
     description:
@@ -668,7 +668,7 @@ export const SOLANA_INTEL_TOOLS = [
   {
     route: "POST /api/sol-trending",
     name: "Trending and newly profiled Solana tokens",
-    slug: "sol-trending",
+    slug: "sol-trending", aliases: ["trending-solana-tokens", "solana-trending-tokens"],
     category: "crypto",
     price: "$0.003",
     description:
@@ -788,7 +788,7 @@ export const SOLANA_INTEL_TOOLS = [
   {
     route: "POST /api/sol-swap-quote",
     name: "Solana swap quote (Jupiter)",
-    slug: "sol-swap-quote",
+    slug: "sol-swap-quote", aliases: ["solana-swap-quote-jupiter", "solana-swap-quote", "jupiter-quote"],
     category: "crypto",
     price: "$0.003",
     description:
@@ -861,7 +861,7 @@ export const SOLANA_INTEL_TOOLS = [
   {
     route: "POST /api/sol-token-lookup",
     name: "Solana token lookup (Jupiter)",
-    slug: "sol-token-lookup",
+    slug: "sol-token-lookup", aliases: ["solana-token-lookup-jupiter", "solana-token-lookup"],
     category: "crypto",
     price: "$0.002",
     description:

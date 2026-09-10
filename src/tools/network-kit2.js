@@ -497,7 +497,7 @@ export const NETWORK_TOOLS2 = [
   {
     route: "POST /api/cert-transparency",
     name: "Certificate transparency search",
-    slug: "cert-transparency",
+    slug: "cert-transparency", aliases: ["certificate-transparency-search", "certificate-transparency"],
     category: "network",
     price: "$0.005",
     description:

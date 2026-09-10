@@ -1380,7 +1380,7 @@ const timeTools = [
   {
     route: "POST /api/date-diff",
     name: "Date difference",
-    slug: "date-diff",
+    slug: "date-diff", aliases: ["date-difference", "days-between"],
     category: "time",
     price: "$0.001",
     description: "Difference between two dates/times in ms, seconds, minutes, hours, days, and a human summary.",
@@ -1999,7 +1999,7 @@ const networkTools = [
   {
     route: "POST /api/tls-cert",
     name: "TLS certificate",
-    slug: "tls-cert",
+    slug: "tls-cert", aliases: ["tls-certificate", "ssl-certificate"],
     category: "network",
     price: "$0.001",
     description: "Inspect the TLS certificate of any public host: subject, issuer, validity window, days remaining, SANs, and SHA-256 fingerprint.",

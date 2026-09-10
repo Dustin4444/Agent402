@@ -246,7 +246,7 @@ export const CALENDAR_TOOLS = [
   // 4. epoch-convert
   // ---------------------------------------------------------------------------
   {
-    route: "POST /api/epoch-convert", name: "Epoch / ISO converter", slug: "epoch-convert",
+    route: "POST /api/epoch-convert", name: "Epoch / ISO converter", slug: "epoch-convert", aliases: ["epoch-iso-converter", "epoch-to-iso", "unix-timestamp"],
     category: "date-time", price: "$0.001",
     description:
       "Convert between Unix epoch timestamps and ISO 8601 date strings in both directions. Provide either an epoch (seconds or milliseconds) or an ISO date string. Returns both representations plus UTC and date components.",

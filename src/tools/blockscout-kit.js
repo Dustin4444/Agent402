@@ -307,7 +307,7 @@ export const BLOCKSCOUT_TOOLS = [
   {
     route: "POST /api/tx-inspect",
     name: "Transaction inspect (multichain)",
-    slug: "tx-inspect",
+    slug: "tx-inspect", aliases: ["transaction-inspect-multichain", "transaction-inspect"],
     category: "chain",
     price: "$0.010",
     description:

@@ -424,7 +424,7 @@ export const CRYPTO_MARKETS_TOOLS = [
   {
     route: "GET /api/coin-history",
     name: "Coin snapshot on a date",
-    slug: "coin-history",
+    slug: "coin-history", aliases: ["coin-snapshot-on-a-date", "coin-snapshot", "historical-coin-price"],
     category: "crypto",
     price: "$0.005",
     description:
@@ -1009,7 +1009,7 @@ const RWA_TOOLS = [
   {
     route: "GET /api/rwa-list",
     name: "Tokenized assets list",
-    slug: "rwa-list",
+    slug: "rwa-list", aliases: ["tokenized-assets-list", "tokenized-assets", "tokenized-stocks"],
     category: "crypto",
     price: "$0.003",
     description:

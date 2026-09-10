@@ -506,7 +506,7 @@ const ROMAN = [[1000, "M"], [900, "CM"], [500, "D"], [400, "CD"], [100, "C"], [9
 
 const conversion = [
   {
-    route: "POST /api/csv-to-md", name: "CSV to Markdown table", slug: "csv-to-md", category: "conversion", price: "$0.002",
+    route: "POST /api/csv-to-md", name: "CSV to Markdown table", slug: "csv-to-md", aliases: ["csv-to-markdown", "csv-to-markdown-table"], category: "conversion", price: "$0.002",
     description: "Convert CSV into a GitHub-flavored Markdown table (first row is the header).",
     tags: ["csv", "markdown", "table", "convert"],
     discovery: { bodyType: "json", input: { csv: "name,age\nAda,36\nBob,40" }, inputSchema: { properties: { csv: { type: "string" }, delimiter: { type: "string" } }, required: ["csv"] }, output: { example: { markdown: "| name | age |\n| --- | --- |\n| Ada | 36 |\n| Bob | 40 |" } } },

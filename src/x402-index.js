@@ -43,7 +43,7 @@ import { CHAIN_PAGES, marketSellers } from "./market-page.js";
 import { WELL_KNOWN_PATH, discoveryNote } from "./discovery-note.js";
 import { acceptsFromLive402, quoteFromAccepts, probeMethodsFor, isQuoteResponse } from "./x402-live-quote.js";
 import { evmDomainsOfAccepts } from "./evm-usdc-domain.js";
-import { queryTerms, termMatcher } from "./query-terms.js";
+import { queryTerms, termMatcher, splitTokens } from "./query-terms.js";
 import { summarize, fmtUsd, fmtPct } from "./economy.js";
 import { rankBy, canonicalHost, getLeaderboardSnapshot } from "./leaderboard.js";
 import { routeExecuteHint } from "./tools/route-execute.js";
@@ -4028,6 +4028,7 @@ export function routeQuery({ query, top, include, networkFilter, strictNetwork =
   // Unicode-aware (src/query-terms.js): a CJK query used to tokenize to
   // nothing and answer zero rows (reported from outside 2026-09-10).
   const terms = queryTerms(q, { max: 32 });
+  const termSet = new Set(terms);
   const k = Math.min(Math.max(parseInt(top, 10) || 5, 1), 25);
   const inc = VALID_INCLUDE.has(include) ? include : "all";
   // ?network=robinhood (or a raw CAIP-2) keeps only tools whose crawled 402
@@ -4095,12 +4096,20 @@ export function routeQuery({ query, top, include, networkFilter, strictNetwork =
     // only" tells them to fix their slug, and it makes the neutrality claim
     // checkable by anyone instead of merely stated (asked for in #645).
     const matched = { slug: 0, name: 0, text: 0 };
+    // A slug (or alias) EVERY token of which appears in the query is an exact
+    // match for each of those tokens, not a substring one. Before 2026-09-10 a
+    // query "json diff" scored json-diff 4+4 on the slug while a one-token slug
+    // "diff" took 10 for its one exact term, so a compound slug lost to any
+    // single-word slug sharing one of its words - measured on 79 of our own
+    // 585 tool names, and it bites every multi-word slug in the index the same
+    // way. Neutral: any row's csv-to-json is fully covered by "csv to json" too.
+    const covered = new Set(names.filter((n) => { const toks = splitTokens(n); return toks.length > 1 && toks.every((tok) => termSet.has(tok)); }));
     for (const term of terms) {
       // A term under three characters matches whole tokens only: "ip" used to
       // substring-match gzip, gunzip and html-strip, which outranked every IP
       // tool for "ip geolocation" (2026-08-28).
       const hit = termMatcher(term);
-      const slugScore = Math.max(...names.map((n) => (n === term ? 10 : hit(n) ? 4 : 0)));
+      const slugScore = Math.max(...names.map((n) => (n === term ? 10 : (covered.has(n) && splitTokens(n).includes(term)) ? 10 : hit(n) ? 4 : 0)));
       if (slugScore) { score += slugScore; matched.slug += slugScore; }
       if (hit(name)) { score += 2; matched.name += 2; }
       if (hit(hay)) { score += 1; matched.text += 1; }

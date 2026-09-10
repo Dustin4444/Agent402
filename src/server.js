@@ -626,7 +626,7 @@ const CATALOG = {
   },
   "POST /api/memory/incr": {
     name: "Memory counter",
-    slug: "memory-incr",
+    slug: "memory-incr", aliases: ["memory-counter", "counter"],
     category: "memory",
     price: "$0.001",
     description:
@@ -648,7 +648,7 @@ const CATALOG = {
   },
   "POST /api/memory/cas": {
     name: "Memory compare-and-set",
-    slug: "memory-cas",
+    slug: "memory-cas", aliases: ["memory-compare-and-set", "compare-and-set"],
     category: "memory",
     price: "$0.001",
     description:

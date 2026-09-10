@@ -2961,7 +2961,7 @@ export const LLM_GATEWAY_TOOLS = [
   {
     route: "POST /v1/nano/chat/completions",
     name: "Chat completions - nano tier",
-    slug: "v1-chat-nano",
+    slug: "v1-chat-nano", aliases: ["chat-completions-nano-tier", "chat-completions-nano"],
     category: "llm",
     price: "$0.003",
     description:
@@ -3069,7 +3069,7 @@ export const LLM_GATEWAY_TOOLS = [
   {
     route: "POST /v1/premium/chat/completions",
     name: "Chat completions - premium tier",
-    slug: "v1-chat-premium",
+    slug: "v1-chat-premium", aliases: ["chat-completions-premium-tier", "chat-completions-premium"],
     category: "llm",
     price: "$0.50",
     description:
@@ -3130,7 +3130,7 @@ export const LLM_GATEWAY_TOOLS = [
   {
     route: "POST /v1/images/generations",
     name: "Image generation (OpenAI-compatible)",
-    slug: "v1-images",
+    slug: "v1-images", aliases: ["image-generation-openai-compatible", "image-generation"],
     category: "llm",
     price: "$0.080",
     description:

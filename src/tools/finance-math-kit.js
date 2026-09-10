@@ -548,7 +548,7 @@ export const FINANCE_MATH_TOOLS = [
 
   // --- Bond yield to maturity from price (bisection) -------------------------
   {
-    route: "POST /api/bond-ytm", name: "Bond yield to maturity", slug: "bond-ytm", category: "data", price: "$0.002",
+    route: "POST /api/bond-ytm", name: "Bond yield to maturity", slug: "bond-ytm", aliases: ["bond-yield-to-maturity", "yield-to-maturity"], category: "data", price: "$0.002",
     description: "Solve a bond's yield to maturity from its market price - the annual rate that present-values the coupons plus face to that price. Bracketed bisection root-find.",
     tags: ["finance", "bond", "ytm", "yield", "fixed-income"],
     discovery: {

@@ -443,7 +443,7 @@ export const API_TOOLS = [
     },
   },
   {
-    route: "POST /api/openapi-extract", name: "OpenAPI endpoint extractor", slug: "openapi-extract", category: "conversion", price: "$0.001",
+    route: "POST /api/openapi-extract", name: "OpenAPI endpoint extractor", slug: "openapi-extract", aliases: ["openapi-endpoint-extractor", "openapi-endpoints"], category: "conversion", price: "$0.001",
     description:
       "Flatten an OpenAPI 3.x or Swagger 2.x spec into a structured list of callable endpoints - one row per operation with method, path, operationId, summary, tags, parameters (name / in / required / type), JSON-body flag, and documented response codes. Includes per-method and per-tag counts so an agent can pick what to call next without parsing the full spec. Output is sorted by path then method for stable, agent-friendly grouping. Pure CPU - deterministic, no network, no $ref dereferencing.",
     tags: ["openapi", "swagger", "extract", "endpoints", "api", "agent-readiness"],
@@ -975,7 +975,7 @@ export const API_TOOLS = [
     },
   },
   {
-    route: "POST /api/openapi-redact", name: "OpenAPI spec redactor", slug: "openapi-redact", category: "conversion", price: "$0.001",
+    route: "POST /api/openapi-redact", name: "OpenAPI spec redactor", slug: "openapi-redact", aliases: ["openapi-spec-redactor", "openapi-redactor"], category: "conversion", price: "$0.001",
     description:
       "Shrink an OpenAPI 3.x or Swagger 2.x document for LLM context by stripping verbose meta-fields (examples, descriptions, summaries, tags, externalDocs, deprecated). Categories are explicit; default is `[\"examples\", \"descriptions\"]`. User-defined property names under `properties: { ... }` are protected - only the meta-field `example` keyword inside a property schema is removed, not a user property literally named \"example\". Returns the redacted spec plus `sizeBefore`/`sizeAfter` (JSON byte length) and per-category removal counts so callers can see how much context they saved. Pure CPU - deterministic, no network.",
     tags: ["openapi", "swagger", "redact", "shrink", "llm-context", "api"],

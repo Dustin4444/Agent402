@@ -958,7 +958,7 @@ export const DEFI_TOOLS = [
   {
     route: "POST /api/stablecoins",
     name: "Stablecoin supply by asset",
-    slug: "stablecoins",
+    slug: "stablecoins", aliases: ["stablecoin-supply-by-asset", "stablecoin-supply"],
     category: "crypto",
     price: "$0.003",
     description:
