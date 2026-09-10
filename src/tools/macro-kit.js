@@ -542,7 +542,10 @@ export const MACRO_TOOLS = [
       const startYear = Math.min(Math.max(parseInt(i.startYear, 10) || 2018, 1960), 2100);
       const endYear = Math.min(Math.max(parseInt(i.endYear, 10) || 2023, startYear), 2100);
       const url = `https://api.worldbank.org/v2/country/${country}/indicator/${indicator}?format=json&date=${startYear}:${endYear}&per_page=200`;
-      const j = await getJson(url);
+      // The World Bank API routinely takes 15-25 s on a cold indicator: the
+      // nightly corpus 504'd this at the 15 s default on two of three nights
+      // (2026-09-08/10) and the world-data pack lost both of its steps with it.
+      const j = await getJson(url, { timeoutMs: 25_000 });
       // World Bank's idiosyncratic response: a 2-element array [meta, rows].
       if (!Array.isArray(j) || j.length < 2 || !Array.isArray(j[1])) {
         const msg = Array.isArray(j) && j[0]?.message?.[0]?.value ? j[0].message[0].value : "World Bank returned no series";

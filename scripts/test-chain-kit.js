@@ -163,5 +163,26 @@ if (process.env.ALCHEMY_LIVE_TEST === "1" && process.env.ALCHEMY_API_KEY) {
 }
 
 // ----------------------------------------------------------------------------
+// Provider refusals fall through to the next public node; a revert does not
+// (2026-09-06 rule; the archive-token refusal added 2026-09-10 after the
+// nightly corpus 502'd a fixed Ethereum block on publicnode's keyless path).
+{
+  const { publicJsonRpc } = await import("../src/tools/chain-kit.js");
+  const savedKey = process.env.ALCHEMY_API_KEY; delete process.env.ALCHEMY_API_KEY;
+  const realFetch = globalThis.fetch;
+  const net = { name: "ethereum", subdomain: "eth-mainnet", chainId: 1 };
+  const answers = (list) => { let i = 0; return async () => ({ status: 200, text: async () => JSON.stringify(list[Math.min(i++, list.length - 1)]) }); };
+  try {
+    globalThis.fetch = answers([{ jsonrpc: "2.0", id: 1, error: { code: -32000, message: "Archive requests require a personal token. Get one at: https://www.allnodes.com/publicnode" } }, { jsonrpc: "2.0", id: 1, result: { number: "0x10" } }]);
+    const r = await publicJsonRpc(net, "eth_getBlockByNumber", ["0x10", false]);
+    ok(r?.number === "0x10", "publicnode's archive-token refusal falls through to the next node, which answers");
+    globalThis.fetch = answers([{ jsonrpc: "2.0", id: 1, error: { code: 3, message: "execution reverted: UNAUTHORIZED" } }, { jsonrpc: "2.0", id: 1, result: "0x" }]);
+    let e = null; try { await publicJsonRpc(net, "eth_call", [{}]); } catch (x) { e = x; }
+    ok(e && e.rpcCode === 3 && /reverted/.test(e.message), "a revert is an ANSWER and is never retried on another node");
+    globalThis.fetch = answers([{ jsonrpc: "2.0", id: 1, error: { message: "tenant disabled" } }, { jsonrpc: "2.0", id: 1, error: { message: "Archive requests require a personal token" } }, { jsonrpc: "2.0", id: 1, error: { message: "Archive requests require a personal token" } }]);
+    let f = null; try { await publicJsonRpc(net, "eth_getBlockByNumber", ["0x10", false]); } catch (x) { f = x; }
+    ok(f && f.statusCode === 502 && /RPC upstream unavailable/.test(f.message), "every node refusing ends in a 502 naming the last refusal, never a hollow answer");
+  } finally { globalThis.fetch = realFetch; if (savedKey !== undefined) process.env.ALCHEMY_API_KEY = savedKey; }
+}
 console.log(`\n${pass} passed, ${fail} failed, live: ${liveOk} ok / ${liveErr} err`);
 if (fail) process.exit(1);
