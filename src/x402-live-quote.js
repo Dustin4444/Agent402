@@ -31,6 +31,7 @@
 /** USDC is 6 decimals on every chain we accept. Anything else we refuse to
  *  price rather than guess - a wrong exponent is a 1000x pricing error. */
 const USDC_DECIMALS = 6;
+import { evmDomainsOfAccepts } from "./evm-usdc-domain.js";
 const USDC_NAME = /^(usdc|usd coin)$/i;
 
 /**
@@ -104,6 +105,10 @@ function isUsdc(a) {
 export function quoteFromAccepts(accepts) {
   const list = Array.isArray(accepts) ? accepts.filter((a) => a && typeof a === "object") : [];
   if (!list.length) return null;
+  // The EIP-712 domain each EVM accept advertises (asset + extra.name), kept
+  // beside the payTo so the router label can say "unpayable by a stock buyer"
+  // later without the 402 in hand (src/evm-usdc-domain.js).
+  const evmDomainByNetwork = evmDomainsOfAccepts(list);
 
   const preferred =
     list.find((a) => a.network === "eip155:8453" && isUsdc(a)) ||
@@ -127,6 +132,7 @@ export function quoteFromAccepts(accepts) {
     asset: typeof preferred?.asset === "string" ? preferred.asset : null,
     // Which entry priced it, so a surprising number can be traced to its source.
     network: typeof preferred?.network === "string" ? preferred.network : null,
+    ...(Object.keys(evmDomainByNetwork).length ? { evmDomainByNetwork } : {}),
   };
 }
 

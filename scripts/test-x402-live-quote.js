@@ -22,6 +22,16 @@ const REAL_ACCEPT = {
 };
 const HEADER = Buffer.from(JSON.stringify({ x402Version: 2, accepts: [REAL_ACCEPT] })).toString("base64");
 
+// NB this real accept names "USDC" on Base, where the token signs under "USD
+// Coin": that seller's whole catalog was unpayable by any stock buyer (the class
+// HumanMirror reproduced 2026-09-10). The reader records the advertised domain
+// so the router label can say so (src/evm-usdc-domain.js).
+{
+  const q = quoteFromAccepts([REAL_ACCEPT]);
+  ok(q?.evmDomainByNetwork?.["eip155:8453"]?.name === "USDC" && q.evmDomainByNetwork["eip155:8453"].asset === REAL_ACCEPT.asset,
+    "quoteFromAccepts records the EVM accept's advertised EIP-712 domain (asset + extra.name) per network");
+}
+
 // --- reading the challenge ---------------------------------------------------
 {
   ok(acceptsFromLive402({ header: HEADER })?.[0]?.amount === "990000",

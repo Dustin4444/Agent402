@@ -23,6 +23,7 @@
 //   -> router dispatch eligible.
 // The output is a boolean plus a reason string, never a bare boolean.
 import { meetsRouterGate } from "./settlement-proof.js";
+import { usdcDomainVerdict, usdcDomainMismatchDetail } from "./evm-usdc-domain.js";
 
 // Network label -> the spending chain that pays it. Kept in lockstep with
 // route-execute's EXTERNAL_CHAIN_BY_NETWORK (pinned by test-dispatch-
@@ -47,10 +48,11 @@ export const DISPATCH_REASONS = Object.freeze({
   settlement_checked_at_pay_time: "on this chain proven-ness is read from the chain at pay time (recent inbound USDC to the seller's own payTo); a thin history may still be tried under the small unproven allowance",
   price_unknown: "no seller price is known for this route, and the router never spends against an unknown price",
   url_template: "the route is an unsubstituted path template; the router never spends against it",
+  usdc_domain_mismatch: "the seller's USDC accept on this chain advertises an EIP-712 domain name that is not the token's own (Base USDC signs under \"USD Coin\"; Monad, Celo and Sei USDC under \"USDC\"), so a stock x402 buyer - this router included - signs an authorization the facilitator refuses and nothing settles; the seller has to fix the accept before anyone can pay it",
   eligible: "the router will pay this seller on a buyer's behalf",
   local_catalog: "this host's own tool; no external payment is involved",
 });
-const REASON_PRECEDENCE = ["crawl_failed", "network_unknown", "no_supported_route", "url_template", "price_unknown", "settlement_required"];
+const REASON_PRECEDENCE = ["crawl_failed", "network_unknown", "no_supported_route", "url_template", "price_unknown", "usdc_domain_mismatch", "settlement_required"];
 // `detail` values a settlement_required verdict can carry beyond the gate's
 // own sentence. Documented in the legend under routerDispatchDetail.
 export const DISPATCH_DETAILS = Object.freeze({
@@ -127,8 +129,10 @@ export function spendChainsOf(networks = []) {
  * @param {boolean} [o.local]         this host's own catalog row
  * @param {object} [o.evidence]       shared-wallet binding for the origin (see evidencePayToVerdict); omit = no binding
  * @param {string|null} [o.livePayTo] the Base address the origin's 402 asks to be paid at, when known
+ * @param {object|null} [o.usdcDomain] what the origin's Base USDC accept advertises ({asset, name}, the index's
+ *                                     evmDomainByNetwork["eip155:8453"] or the live accept); null/omit = unobserved
  */
-export function dispatchEligibility({ routable, networks = [], settled = 0, payers, priceUsd, urlTemplate = false, spendChains = ["base"], minSettled = 50, minPayers = 3, local = false, evidence, livePayTo = null } = {}) {
+export function dispatchEligibility({ routable, networks = [], settled = 0, payers, priceUsd, urlTemplate = false, spendChains = ["base"], minSettled = 50, minPayers = 3, local = false, evidence, livePayTo = null, usdcDomain = null } = {}) {
   if (local) return { eligible: true, reason: "local_catalog", chains: {} };
   const byChain = {};
   const advertised = spendChainsOf(networks);
@@ -148,6 +152,14 @@ export function dispatchEligibility({ routable, networks = [], settled = 0, paye
   for (const c of have) {
     if (rowBlock) { byChain[c] = { eligible: false, reason: rowBlock }; continue; }
     if (c === "base") {
+      // A Base accept advertising the wrong EIP-712 domain name is unpayable by
+      // every stock buyer, whatever its history says (the history predates the
+      // change, or belongs to a wallet paid over another path): refuse before
+      // the settlement gate, and say which name the token actually signs under.
+      // Only a POSITIVE mismatch on the chain's own USDC contract refuses;
+      // unobserved, another asset or no name is unknown and decides nothing.
+      const domain = usdcDomain ? usdcDomainVerdict(usdcDomain, "eip155:8453") : { verdict: "unknown" };
+      if (domain.verdict === "wrong_domain") { byChain[c] = { eligible: false, reason: "usdc_domain_mismatch", detail: usdcDomainMismatchDetail(domain), advertisedName: domain.advertisedName, expectedName: domain.expectedName }; continue; }
       const gate = meetsRouterGate({ settled: basis.settled, payers, minSettled, minPayers });
       byChain[c] = gate.ok ? { eligible: true, reason: "eligible" } : { eligible: false, reason: "settlement_required", detail: gate.reason };
       // Inherited (shared-wallet) evidence counts only where the money goes:
@@ -180,6 +192,7 @@ export function dispatchLegend() {
     networksInferred: "present and true on a route row that observed no accepts of its own and inherited the chains its seller advertises elsewhere (other routes, or the Bazaar's settled view); the router still pins the chain from the live 402 before it signs.",
     routerDispatchEligible: "true when this host's Smart Order Router will pay the seller on a buyer's behalf right now on at least one chain it holds a spending wallet for.",
     routerDispatchReason: DISPATCH_REASONS,
+    evmDomainByNetwork: "the EIP-712 domain (asset + extra.name) each of the seller's EVM accepts advertised on its 402; the router label refuses a Base accept whose name is not the token's own (usdc_domain_mismatch) because no stock x402 signature under it can verify.",
     routerDispatchDetail: { ...DISPATCH_DETAILS, _note: "settlement_required may carry one of these in routerDispatchByChain.base.detail beside the gate's own sentence; settlement history inherited through a shared payTo counts for an origin only when the origin's own 402 pays that wallet, which the router checks live before it signs" },
     executeVia: "present only on a row the router will pay right now: the route-execute tier (and price) that runs it. Its absence on a priced row is deliberate.",
     executeViaWhenEligible: "the route-execute tier this row WOULD run under once its seller is dispatch-eligible; not callable through the router today.",

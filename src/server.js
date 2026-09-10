@@ -342,6 +342,8 @@ import { x402EconomySnapshot, economySnapshotCached, warmEconomySnapshot } from 
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate, sharedPayToClaims } from "./settlement-proof.js";
 import { buildEvidenceBinding, baseLiveGate } from "./evidence-binding.js";
 import { dispatchEligibility, dispatchLegend } from "./dispatch-eligibility.js";
+import { usdcDomainVerdict, usdcDomainMismatchDetail } from "./evm-usdc-domain.js";
+import { acceptsFromLive402 } from "./x402-live-quote.js";
 import { spend as sharedSpend, refund as sharedRefund, sharedLimitEnabled } from "./shared-limit.js";
 import { recordSale, salesSummary, externalByNetwork, mppSales, cardSales, mppTxHashes, txFromPaymentResponse, tempoDailyRevenue, tempoDailyRecordingSince, proofFeed, externalDailyRevenue, payerUsage } from "./sales-ledger.js";
 import { recordShadowSettlement, startShadowLedger, shadowLedgerReport, shadowLedgerEnabled } from "./stripe-shadow-ledger.js";
@@ -1070,6 +1072,9 @@ function withDispatchFields(row, { local = false, rowLevel = false } = {}) {
     // here - and the resolver reads the REAL 402 before it signs.
     evidence: ev.binding.get(origin),
     livePayTo: (typeof row.payToByNetwork?.["eip155:8453"] === "string" ? row.payToByNetwork["eip155:8453"] : null) ?? ev.advertised.get(origin) ?? null,
+    // What the seller's Base USDC accept advertised as its EIP-712 domain (the
+    // crawl's observation); a wrong name is usdc_domain_mismatch on every row.
+    usdcDomain: row.evmDomainByNetwork?.["eip155:8453"] || null,
   });
   // `executeVia` names the route-execute tier that covers this row's price. On
   // a row the router will NOT pay right now it read as a callable affordance
@@ -1192,7 +1197,7 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
       // rule cannot drift from what is asserted about it.
       // The SAME function that labels every public row (dispatch-eligibility.js),
       // asked for its Base verdict, so the label and the decision cannot drift.
-      .filter((r) => dispatchEligibility({ routable: true, networks: r.networks, settled: r.settled, payers: r.payers, priceUsd: r.priceUsd, urlTemplate: !!r.urlTemplate, spendChains: ["base"], minSettled: SOR_MIN_SETTLED_TX, minPayers: SOR_MIN_DISTINCT_PAYERS }).chains.base?.eligible === true)
+      .filter((r) => dispatchEligibility({ routable: true, networks: r.networks, settled: r.settled, payers: r.payers, priceUsd: r.priceUsd, urlTemplate: !!r.urlTemplate, spendChains: ["base"], minSettled: SOR_MIN_SETTLED_TX, minPayers: SOR_MIN_DISTINCT_PAYERS, usdcDomain: r.evmDomainByNetwork?.["eip155:8453"] || null }).chains.base?.eligible === true)
       .sort((a, b) => b.settled - a.settled)
       .slice(0, 5);
   }
@@ -1283,16 +1288,32 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
         // only refuse on a positive MISMATCH, so sellers proven by a source
         // that cannot name an address are unaffected.
         const provenPayTo = provenPayToByOrigin.get(norm(r.seller));
-        // The probe body reads once; both checks below share the decoded payTo.
-        let livePayTo = null, liveRead = false;
+        // The probe body reads once; every check below shares the decoded 402.
+        let livePayTo = null, liveAccepts = null, liveRead = false;
         const readLivePayTo = async () => {
           if (liveRead) return livePayTo;
           liveRead = true;
           let body = "";
           try { body = (await probe.text()).slice(0, 4000); } catch { /* header-only quote */ }
           livePayTo = payToFromLive402({ header: probe.headers.get("payment-required"), body });
+          liveAccepts = acceptsFromLive402({ header: probe.headers.get("payment-required"), body });
           return livePayTo;
         };
+        // THE ACCEPT'S EIP-712 DOMAIN NAME (2026-09-10, HumanMirror). A Base
+        // accept advertising extra.name "USDC" cannot be paid by any stock
+        // buyer: the token signs under "USD Coin", the signature recovers to
+        // nobody, the facilitator refuses. The crawl's observation already
+        // labelled the row; this reads the LIVE accept so a seller who fixed
+        // it since the crawl is admitted and one who broke it since is not.
+        if (chain === "base") {
+          await readLivePayTo();
+          const liveBase = (liveAccepts || []).find((a) => a?.network === "eip155:8453" && String(a?.scheme || "exact") === "exact");
+          const domain = liveBase ? usdcDomainVerdict(liveBase) : { verdict: "unknown" };
+          if (domain.verdict === "wrong_domain") {
+            console.warn(`[sor] refusing ${r.seller}: ${usdcDomainMismatchDetail(domain)}`);
+            live = false;
+          }
+        }
         if (provenPayTo) {
           const verdict = provenPayToMatches({ provenPayTo, livePayTo: await readLivePayTo() });
           if (verdict.verdict === "mismatch") {
