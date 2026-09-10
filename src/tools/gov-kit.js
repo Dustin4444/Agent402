@@ -156,7 +156,7 @@ const STATE_NAME_TO_CODE = {
 const openFdaKeyParam = () => (process.env.OPENFDA_API_KEY ? `&api_key=${encodeURIComponent(process.env.OPENFDA_API_KEY.trim())}` : "");
 export const GOV_TOOLS = [
   {
-    route: "GET /api/gov-data", name: "US gov dataset search", slug: "gov-data", category: "data", price: "$0.002",
+    route: "GET /api/gov-data", name: "US gov dataset search", slug: "gov-data", aliases: ["us-gov-dataset-search", "dataset-search", "data-gov"], category: "data", price: "$0.002",
     description:
       "Search 300,000+ US government datasets on catalog.data.gov (Catalog API): titles, publishing org, formats, and direct resource URLs - the index agents need before fetching public data. ?q=electric+vehicles&rows=5.",
     tags: ["data.gov", "datasets", "open-data", "government", "catalog"],
@@ -707,7 +707,7 @@ export const GOV_TOOLS = [
   // mirrors 400/503 intermittently, which fails the "must work when an agent
   // wants it" bar. These two are stable, documented, keyless endpoints.)
   {
-    route: "GET /api/geo-lookup", name: "US location lookup (lat/lon)", slug: "geo-lookup", category: "data", price: "$0.003",
+    route: "GET /api/geo-lookup", name: "US location lookup (lat/lon)", slug: "geo-lookup", aliases: ["us-location-lookup", "lat-lon-lookup"], category: "data", price: "$0.003",
     description:
       "Resolve a US latitude/longitude to its county, state, and census block FIPS via the FCC Area API - the geographic context agents need for any coordinate. Live gov data, no key. ?lat=34.0522&lon=-118.2437",
     tags: ["geo", "location", "county", "census", "fips", "fcc", "government"],

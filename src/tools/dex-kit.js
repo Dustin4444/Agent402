@@ -180,7 +180,7 @@ export const DEX_TOOLS = [
   {
     route: "POST /api/dex-pair",
     name: "Resolve Uniswap V3 pool address",
-    slug: "dex-pair",
+    slug: "dex-pair", aliases: ["uniswap-v3-pool-address", "uniswap-pool", "dex-pool"],
     category: "crypto",
     price: "$0.001",
     description:

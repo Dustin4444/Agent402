@@ -635,7 +635,7 @@ export const ENRICH_TOOLS = [
   {
     route: "POST /api/favicon-grab",
     name: "Site favicon grabber",
-    slug: "favicon-grab",
+    slug: "favicon-grab", aliases: ["site-favicon-grabber", "favicon"],
     category: "web",
     price: "$0.003",
     description:

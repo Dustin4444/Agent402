@@ -101,7 +101,7 @@ export const COMPRESSION_TOOLS = [
   },
   // ---------------------------------------------------------------------------
   {
-    route: "POST /api/gunzip", name: "Gzip decompress", slug: "gunzip",
+    route: "POST /api/gunzip", name: "Gzip decompress", slug: "gunzip", aliases: ["gzip-decompress"],
     category: "data", price: "$0.001",
     description:
       "Decompress a base64-encoded gzip payload. Returns the result as utf8 (text) or base64 (binary). Refuses to expand past 10MB to defend against zip bombs.",

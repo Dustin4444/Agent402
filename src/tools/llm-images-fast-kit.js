@@ -361,7 +361,7 @@ export const IMAGES_FAST_TOOLS = [
   {
     route: `POST ${IMAGES_FAST_PATH}`,
     name: "Fast image generation (OpenAI-compatible, budget)",
-    slug: "v1-images-fast",
+    slug: "v1-images-fast", aliases: ["fast-image-generation", "budget-image-generation"],
     category: "llm",
     price: "$0.020",
     description:
@@ -378,7 +378,7 @@ export const IMAGES_FAST_TOOLS = [
   {
     route: `POST ${IMAGES_PRO_PATH}`,
     name: "Pro image generation (OpenAI-compatible)",
-    slug: "v1-images-pro",
+    slug: "v1-images-pro", aliases: ["pro-image-generation"],
     category: "llm",
     price: "$0.050",
     description:
