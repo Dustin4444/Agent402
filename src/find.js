@@ -5,6 +5,7 @@
 // Deterministic lexical ranking (no LLM, no tokens), consistent with the MCP
 // connector's search_tools weighting.
 import { toolList } from "./pages.js";
+import { queryTerms } from "./query-terms.js";
 import { rankSkillPacks } from "./skills.js";
 import { UNIT_CATEGORIES } from "./tools/convert-gen.js";
 import { UNIT_ALIASES } from "./tools/kit2.js";
@@ -91,7 +92,9 @@ export function findTools(catalog, query, { k = 5, baseUrl = "", powSlugs } = {}
   const q = String(query || "").slice(0, 500);
   // Strip stopwords + 1-char tokens — they match thousands of tools and add noise
   // without signal. Keep the cap tight so each scoring pass is bounded.
-  const rawTerms = q.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  // Unicode-aware (src/query-terms.js): CJK runs become bigrams + the run;
+  // Latin runs are unchanged.
+  const rawTerms = queryTerms(q, { max: 64 });
   const terms = rawTerms.filter((t) => t.length > 1 && !STOPWORDS.has(t)).slice(0, 32);
   // Unit-word synonym: "convert miles to kilometers"-style tasks used to hit a
   // dedicated pairwise slug; now they must resolve to unit-convert. One

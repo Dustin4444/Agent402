@@ -43,6 +43,7 @@ import { CHAIN_PAGES, marketSellers } from "./market-page.js";
 import { WELL_KNOWN_PATH, discoveryNote } from "./discovery-note.js";
 import { acceptsFromLive402, quoteFromAccepts, probeMethodsFor, isQuoteResponse } from "./x402-live-quote.js";
 import { evmDomainsOfAccepts } from "./evm-usdc-domain.js";
+import { queryTerms, termMatcher } from "./query-terms.js";
 import { summarize, fmtUsd, fmtPct } from "./economy.js";
 import { rankBy, canonicalHost, getLeaderboardSnapshot } from "./leaderboard.js";
 import { routeExecuteHint } from "./tools/route-execute.js";
@@ -4024,7 +4025,9 @@ function toolStatics(t) {
 
 export function routeQuery({ query, top, include, networkFilter, strictNetwork = false, baseUrl, catalog, prices, network, toolCount, walletName }) {
   const q = String(query || "").slice(0, 500);
-  const terms = q.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).slice(0, 32);
+  // Unicode-aware (src/query-terms.js): a CJK query used to tokenize to
+  // nothing and answer zero rows (reported from outside 2026-09-10).
+  const terms = queryTerms(q, { max: 32 });
   const k = Math.min(Math.max(parseInt(top, 10) || 5, 1), 25);
   const inc = VALID_INCLUDE.has(include) ? include : "all";
   // ?network=robinhood (or a raw CAIP-2) keeps only tools whose crawled 402
@@ -4096,7 +4099,7 @@ export function routeQuery({ query, top, include, networkFilter, strictNetwork =
       // A term under three characters matches whole tokens only: "ip" used to
       // substring-match gzip, gunzip and html-strip, which outranked every IP
       // tool for "ip geolocation" (2026-08-28).
-      const hit = term.length >= 3 ? (str) => str.includes(term) : (str) => str.split(/[^a-z0-9]+/).includes(term);
+      const hit = termMatcher(term);
       const slugScore = Math.max(...names.map((n) => (n === term ? 10 : hit(n) ? 4 : 0)));
       if (slugScore) { score += slugScore; matched.slug += slugScore; }
       if (hit(name)) { score += 2; matched.name += 2; }
@@ -4487,7 +4490,7 @@ export function allIndexedTools({ search = "", category = "", network = "", offs
   // once, from the authoritative catalog rather than a stale crawl of it.
   const rows = interleaveBySeller([...ourTools, ...flattenedThirdPartyTools(excludeOrigin)]);
   const q = String(search || "").trim().toLowerCase();
-  const terms = q ? q.split(/[^a-z0-9]+/).filter(Boolean).slice(0, 8) : [];
+  const terms = q ? queryTerms(q, { max: 8 }) : [];
   const cat = String(category || "").trim().toLowerCase();
   const net = String(network || "").trim().toLowerCase();
 
