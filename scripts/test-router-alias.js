@@ -148,3 +148,26 @@ seedPaid("https://other-production.up.railway.app", ["offer-preflight", "audit"]
 
 cache.clear();
 console.log("router-alias tests passed");
+
+// A manifest served from another origin by permanent redirect makes the
+// asking origin an alias of the target (2026-09-10: a seller's retired Sepolia
+// hostname 308'd its manifest to the mainnet one and stayed listed beside it
+// with its old chain, because the manifest carried no homepage field).
+{
+  const { redirectedOriginOf, indexSnapshot, routableSellerSummaries } = await import("../src/x402-index.js");
+  ok(redirectedOriginOf("https://old.example", "https://new.example/.well-known/x402") === "https://new.example", "redirectedOriginOf names the target origin of a cross-origin redirect");
+  ok(redirectedOriginOf("https://old.example", "https://old.example/.well-known/x402") === null && redirectedOriginOf("https://old.example", null) === null, "same-origin or absent final URL is not a redirect");
+  cache.clear();
+  seed("https://svc-mainnet.example", undefined, ["brief", "signal"]);
+  cache.set("https://svc-test.example", { manifest: { name: "seller" }, tools: ["brief", "signal"].map((s) => tool("https://svc-test.example", s)), fetchedAt: Date.now(), error: null, history: [1, 1, 1], redirectedTo: "https://svc-mainnet.example" });
+  const a = computeAliasOrigins(cache);
+  ok(a.has("https://svc-test.example") && !a.has("https://svc-mainnet.example"), "an origin whose manifest was redirected to a listed seller is that seller's alias (no homepage field needed)");
+  const sellers = routableSellerSummaries().map((s) => s.origin);
+  ok(sellers.includes("https://svc-mainnet.example") && !sellers.includes("https://svc-test.example"), "the alias is hidden from the seller summaries the index and rosters render");
+  const snap = indexSnapshot({ ...ctx });
+  ok(!(snap.sellers || []).some((s) => s.origin === "https://svc-test.example") && (snap.sellers || []).some((s) => s.origin === "https://svc-mainnet.example"), "and from the index snapshot, while the target stays listed");
+  cache.set("https://svc-test.example", { ...cache.get("https://svc-test.example"), redirectedTo: "https://elsewhere.example" });
+  ok(!computeAliasOrigins(cache).has("https://svc-test.example"), "a redirect to an origin we do not list folds nothing (the seller must exist in the cache)");
+  cache.clear();
+}
+

@@ -2345,11 +2345,22 @@ export function __validatorCountForTest() { return crawlValidators.size; }
  */
 async function probeDoc(originUrl, path, opts, prevParsed) {
   const res = await probePath(originUrl, path, opts);
-  if (!res.notModified) return { parsed: JSON.parse(res.html), reused: false };
-  if (prevParsed != null) return { parsed: prevParsed, reused: true };
+  if (!res.notModified) return { parsed: JSON.parse(res.html), reused: false, finalUrl: res.finalUrl || null };
+  if (prevParsed != null) return { parsed: prevParsed, reused: true, finalUrl: res.finalUrl || null };
   rememberValidator(originUrl, path, null);
   const fresh = await probePath(originUrl, path, opts);
-  return { parsed: JSON.parse(fresh.html), reused: false };
+  return { parsed: JSON.parse(fresh.html), reused: false, finalUrl: fresh.finalUrl || null };
+}
+
+/** The origin a document fetch was permanently redirected to, when it is a
+ *  DIFFERENT origin than the one asked; null otherwise. */
+export function redirectedOriginOf(originUrl, finalUrl) {
+  try {
+    if (!finalUrl) return null;
+    const a = new URL(originUrl), b = new URL(finalUrl);
+    if (canonicalHost(a.origin) === canonicalHost(b.origin)) return null;
+    return b.origin;
+  } catch { return null; }
 }
 
 // One crawl, one fetch of a given document. crawlSeller reached for
@@ -2388,6 +2399,13 @@ async function crawlSeller(originUrl) {
     // asking a question we already know the answer to.
     const manifestDoc = await probeDoc(originUrl, WELL_KNOWN_PATH, { maxBytes: MAX_MANIFEST_BYTES }, prev?.manifest);
     const manifest = manifestDoc.parsed;
+    // A manifest that arrives from ANOTHER origin (safeFetch followed a 301/308)
+    // is that origin's manifest: the seller retired this hostname and pointed it
+    // at the real one (2026-09-10, a seller wrote in about a Sepolia origin still
+    // listed beside its mainnet successor). Recorded so computeAliasOrigins can
+    // fold it without needing a homepage field the manifest may not carry.
+    const redirectedTo = redirectedOriginOf(originUrl, manifestDoc.finalUrl);
+    if (redirectedTo && redirectedTo !== prev?.redirectedTo) console.log(`[x402-index] ${originUrl}: manifest is served from ${redirectedTo} (permanent redirect) - treated as an alias of it`);
 
     // OpenAPI is the tool-level detail. Best-effort: a seller without one still
     // shows up in the Index based on their manifest alone.
@@ -2457,6 +2475,7 @@ async function crawlSeller(originUrl) {
       history: rollHistory(prev, true),
       // The ORIGIN itself served /.well-known/x402 — it answered us.
       originResponded: true,
+      ...(redirectedTo ? { redirectedTo } : {}),
       // WHICH surface produced this catalogue. Everything below is a fallback,
       // and a seller cannot fix a gap they cannot see — see discoveryNote().
       discoveryPath: WELL_KNOWN_PATH,
@@ -2700,7 +2719,10 @@ export function computeAliasOrigins(cacheMap) {
   const aliases = new Set();
   for (const [origin, v] of cacheMap) {
     const ownHost = canonicalHost(origin);
-    const homeHost = canonicalHost(v?.manifest?.homepage);
+    // A manifest served from another origin by permanent redirect is stronger
+    // evidence than a homepage field: the seller pointed the old hostname at
+    // the new one themselves. Same primary and subset rules apply.
+    const homeHost = canonicalHost(v?.redirectedTo) || canonicalHost(v?.manifest?.homepage);
     if (!ownHost || !homeHost || homeHost === ownHost) continue;
     const primary = byHost.get(homeHost);
     if (!primary || primary.origin === origin || primary.v?.error) continue;
@@ -3147,6 +3169,7 @@ function persistedEntries() {
       source: v.source ?? null,
       history: Array.isArray(v.history) ? v.history.slice(-10) : [],
       paywall: v.paywall ?? null,
+      ...(v.redirectedTo ? { redirectedTo: v.redirectedTo } : {}),
     }]);
   }
   return out;
@@ -3570,8 +3593,9 @@ export function allSolanaPayToOrigins() {
 
 export function routableSellerSummaries() {
   const out = [];
+  const aliasOrigins = computeAliasOrigins(cache);
   for (const [origin, v] of cache.entries()) {
-    if (v?.error || !isRoutable(v)) continue;
+    if (v?.error || !isRoutable(v) || aliasOrigins.has(origin)) continue;
     // The crawler can discover and cache the real, publicly-registered
     // agent402.tools origin regardless of what BASE_URL this instance is
     // configured with (see indexSnapshot's identical guard) - this feeds
@@ -3743,7 +3767,12 @@ export function indexSnapshot({ baseUrl, catalog, prices, network, toolCount, wa
     const o = String(origin).replace(/\/+$/, "").toLowerCase();
     return (selfBase && o === selfBase) || o === "https://agent402.tools";
   };
-  const remote = [...cache.entries()].filter(([origin]) => !isSelfOrigin(origin)).map(([origin, v]) => ({
+  // An alias origin (a retired hostname whose manifest now comes from, or whose
+  // homepage names, another listed seller) was hidden from the route pool but
+  // still rendered as its own seller on every listing - two rows for one
+  // service, the retired one still advertising its old chain (2026-09-10).
+  const aliasOrigins = computeAliasOrigins(cache);
+  const remote = [...cache.entries()].filter(([origin]) => !isSelfOrigin(origin) && !aliasOrigins.has(origin)).map(([origin, v]) => ({
     origin,
     displayName: v.manifest?.name || origin.replace(/^https?:\/\//, ""),
     homepage: v.manifest?.homepage || origin,
