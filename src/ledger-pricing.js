@@ -94,7 +94,7 @@ export function ledgerPricingPage(baseUrl, catalog) {
       </div>
       <!-- USDC -->
       <div style="padding:30px;background:var(--surface);position:relative;">
-        <div style="position:absolute;top:14px;right:18px;font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;color:var(--accent);border:1.5px solid var(--accent);padding:3px 8px;">x402</div>
+        <div style="position:absolute;top:14px;right:18px;font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;color:var(--accent-lit);border:1.5px solid var(--accent-lit);padding:3px 8px;">x402</div>
         <div style="font-family:var(--font-mono);font-size:12px;color:var(--dk-muted);letter-spacing:.08em;margin-bottom:12px;">PAID \u00b7 USDC ON BASE</div>
         <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px;">
           <span style="font-family:var(--font-body);font-weight:900;font-size:56px;letter-spacing:-.03em;color:var(--on-dark);">$0.001</span>
