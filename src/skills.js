@@ -26,13 +26,13 @@ export const PACK_PRICES = {
   "fixed-income-desk": 0.017, // 5 tools, parts $0.018
   "defi-protocol-scanner": 0.042, // 4 tools, parts $0.046
   "security-audit": 0.017, // 7 tools, parts $0.018
-  "email-deliverability": 0.012, // 6 tools, parts $0.013
+  "email-deliverability": 0.009, // 6 tools, parts $0.009
   "market-brief": 0.024, // 3 tools, parts $0.026
   "financial-analysis": 0.033, // 3 tools, parts $0.036
   "financial-research": 0.114, // 7 tools, parts $0.126
   "macro-economics": 0.036, // 7 tools, parts $0.04
   "macro-dashboard": 0.077, // 14 tools, parts $0.085
-  "dns-network-ops": 0.012, // 6 tools, parts $0.013
+  "dns-network-ops": 0.011, // 6 tools, parts $0.012
   "crypto-research": 0.078, // 7 tools, parts $0.086
   "content-extraction": 0.05, // 6 tools, parts $0.055
   "sec-filings-deep-dive": 0.029, // 7 tools, parts $0.032
@@ -42,10 +42,10 @@ export const PACK_PRICES = {
   "forecasting-bake-off": 0.014, // 7 tools, parts $0.015
   "document-intel": 0.03, // 7 tools, parts $0.033
   "document-brief": 0.031, // 3 tools, parts $0.034
-  "fraud-signals": 0.027, // 7 tools, parts $0.03
+  "fraud-signals": 0.027, // 7 tools, parts $0.029
   "api-investigation": 0.017, // 7 tools, parts $0.018
   "location-intel": 0.009, // 6 tools, parts $0.01
-  "user-onboarding": 0.009, // 7 tools, parts $0.009
+  "user-onboarding": 0.008, // 7 tools, parts $0.008
   "trip-planner": 0.007, // 6 tools, parts $0.007
   "macro-context": 0.041, // 8 tools, parts $0.045
   "regulatory-watch": 0.023, // 5 tools, parts $0.025
@@ -75,7 +75,7 @@ export const PACK_PRICES = {
   "wallet-audit": 0.005, // 3 tools, parts $0.005
   "gas-optimizer": 0.016, // 3 tools, parts $0.017
   "ssl-audit": 0.006, // 3 tools, parts $0.006
-  "email-security": 0.009, // 4 tools, parts $0.009
+  "email-security": 0.006, // 4 tools, parts $0.006
   "brand-protection": 0.027, // 4 tools, parts $0.03
   "competitor-scan": 0.014, // 4 tools, parts $0.015
   "page-audit": 0.017, // 5 tools, parts $0.018
@@ -86,7 +86,7 @@ export const PACK_PRICES = {
   "api-health": 0.005, // 3 tools, parts $0.005
   "world-data": 0.005, // 1 tools, parts $0.005
   "fred-snapshot": 0.005, // 1 tools, parts $0.005
-  "contact-verify": 0.005, // 3 tools, parts $0.005
+  "contact-verify": 0.004, // 3 tools, parts $0.004
   "domain-age": 0.008, // 3 tools, parts $0.008
   "contract-audit": 0.022, // 5 tools, parts $0.024
   "tx-forensics": 0.011, // 5 tools, parts $0.012
@@ -94,7 +94,7 @@ export const PACK_PRICES = {
   "entity-enrich": 0.023, // 6 tools, parts $0.025
   "feed-watch": 0.016, // 4 tools, parts $0.017
   "subtitle-pipeline": 0.03, // 3 tools, parts $0.033
-  "locale-brief": 0.005, // 4 tools, parts $0.005
+  "locale-brief": 0.004, // 4 tools, parts $0.004
   "jwt-toolkit": 0.003, // 3 tools, parts $0.003
   "text-analyze": 0.004, // 3 tools, parts $0.004
   "schema-guard": 0.004, // 4 tools, parts $0.004

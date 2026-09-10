@@ -29,11 +29,11 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | Pack | Price | What it solves |
 |---|---|---|
 | [**security-audit**](https://agent402.tools/skills/security-audit) | $0.017 | Enumerate a domain's external attack surface: certs, DNS posture, email auth, HTTP headers, tech stack. |
-| [**email-deliverability**](https://agent402.tools/skills/email-deliverability) | $0.012 | Diagnose why a domain's email lands in spam: SPF, DMARC, DKIM strength, MX, composite score. |
+| [**email-deliverability**](https://agent402.tools/skills/email-deliverability) | $0.009 | Diagnose why a domain's email lands in spam: SPF, DMARC, DKIM strength, MX, composite score. |
 | [**fraud-signals**](https://agent402.tools/skills/fraud-signals) | $0.027 | Is this domain a phishing site / typosquat / scam? Pull the reputation signals before you click. |
 | [**domain-intel**](https://agent402.tools/skills/domain-intel) | $0.016 | Full domain security + SEO intel: WHOIS, DNS, TLS, headers, tech stack, robots, certificate transparency. |
 | [**ssl-audit**](https://agent402.tools/skills/ssl-audit) | $0.006 | TLS/SSL posture: live certificate inspection, HTTP security headers, and CAA DNS records. |
-| [**email-security**](https://agent402.tools/skills/email-security) | $0.009 | Full email auth posture: SPF, DMARC, DKIM, and a composite deliverability score. |
+| [**email-security**](https://agent402.tools/skills/email-security) | $0.006 | Full email auth posture: SPF, DMARC, DKIM, and a composite deliverability score. |
 | [**brand-protection**](https://agent402.tools/skills/brand-protection) | $0.027 | Is this domain legitimate? WHOIS age, DNS, scam/phishing search, and HTTP headers for a trust read. |
 | [**domain-age**](https://agent402.tools/skills/domain-age) | $0.008 | How old and legit is this domain? WHOIS registration, DNS resolution, and TLS certificate in one pass. |
 
@@ -120,7 +120,7 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 
 | Pack | Price | What it solves |
 |---|---|---|
-| [**dns-network-ops**](https://agent402.tools/skills/dns-network-ops) | $0.012 | End-to-end DNS health check: records, multi-resolver propagation, WHOIS, ASN, robots.txt, reachability. |
+| [**dns-network-ops**](https://agent402.tools/skills/dns-network-ops) | $0.011 | End-to-end DNS health check: records, multi-resolver propagation, WHOIS, ASN, robots.txt, reachability. |
 | [**api-investigation**](https://agent402.tools/skills/api-investigation) | $0.017 | Point at an unknown API and figure out how to use it: auth, content type, version, rate limits, schema. |
 | [**schema-evolution**](https://agent402.tools/skills/schema-evolution) | $0.008 | "Did this API contract change in a way that breaks us?" - diff two OpenAPI snapshots, lint, validate. |
 | [**api-health**](https://agent402.tools/skills/api-health) | $0.005 | Is this API endpoint healthy? Liveness check, response headers, and TLS certificate status. |
@@ -135,8 +135,8 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 
 | Pack | Price | What it solves |
 |---|---|---|
-| [**user-onboarding**](https://agent402.tools/skills/user-onboarding) | $0.009 | Take a signup form and run onboarding deterministically - validate, score, mint ID, slug, hash, verify 2FA. |
-| [**contact-verify**](https://agent402.tools/skills/contact-verify) | $0.005 | Verify an email is deliverable - syntax validation plus MX record check on the domain. |
+| [**user-onboarding**](https://agent402.tools/skills/user-onboarding) | $0.008 | Take a signup form and run onboarding deterministically - validate, score, mint ID, slug, hash, verify 2FA. |
+| [**contact-verify**](https://agent402.tools/skills/contact-verify) | $0.004 | Verify an email is deliverable - syntax validation plus MX record check on the domain. |
 | [**entity-enrich**](https://agent402.tools/skills/entity-enrich) | $0.023 | Company name to verified identity plus web footprint: Wikidata facts, the LEI legal-entity record, the SEC filer, domain registration, tech stack, and brand favicon. |
 
 ## Location & time (4)
@@ -146,7 +146,7 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | [**location-intel**](https://agent402.tools/skills/location-intel) | $0.009 | Point at an address and assemble the brief - coords, address, nearby, weather, NWS alerts, seismic. |
 | [**trip-planner**](https://agent402.tools/skills/trip-planner) | $0.007 | Plan a multi-stop journey - geocode each stop, sum pairwise distances, add travel time, pull weather. |
 | [**weather-brief**](https://agent402.tools/skills/weather-brief) | $0.006 | Full weather briefing for a location: current conditions, 7-day forecast, and air quality. |
-| [**locale-brief**](https://agent402.tools/skills/locale-brief) | $0.005 | "Can I reach this counterparty this week?" Country facts, this year's public holidays, working days left this week, and the local time right now. |
+| [**locale-brief**](https://agent402.tools/skills/locale-brief) | $0.004 | "Can I reach this counterparty this week?" Country facts, this year's public holidays, working days left this week, and the local time right now. |
 
 ## Media & accessibility (2)
 

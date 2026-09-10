@@ -873,7 +873,7 @@ export const CHAIN_TOOLS = [
     name: "Block info",
     slug: "block-info",
     category: "crypto",
-    price: "$0.002",
+    price: "$0.001",
     description:
       "Header-level detail for one block on Ethereum, Base, Polygon, Arbitrum, or Optimism: hash, timestamp (unix + ISO), transaction count, gas used/limit, base fee. Pass a block number, 0x hex, or \"latest\". Keyless multi-endpoint failover. ?block=latest&network=base",
     tags: ["crypto", "block", "info", "header", "timestamp", "gas", "rpc", "evm"],

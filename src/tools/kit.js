@@ -1498,7 +1498,7 @@ const validationTools = [
     name: "Email validate",
     slug: "email-validate",
     category: "validation",
-    price: "$0.002",
+    price: "$0.001",
     description: "Validate an email address: syntax check plus live MX record lookup on the domain (deliverability signal, not a guarantee).",
     tags: ["email", "validate", "mx", "deliverability"],
     discovery: {
