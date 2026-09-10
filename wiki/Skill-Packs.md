@@ -44,21 +44,21 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | [**content-extraction**](https://agent402.tools/skills/content-extraction) | $0.050 | Turn arbitrary URLs and PDFs into clean structured text - articles, page metadata, PDF pages, OCR. |
 | [**structured-scrape**](https://agent402.tools/skills/structured-scrape) | $0.032 | Pull structured data out of any page deterministically - articles, tables, elements by CSS selector. |
 | [**any-to-markdown**](https://agent402.tools/skills/any-to-markdown) | $0.032 | "I have a URL but it might be HTML, PDF, or an image - give me clean markdown either way." |
-| [**document-intel**](https://agent402.tools/skills/document-intel) | $0.031 | Turn any PDF or image URL into structured data - metadata, text, page ranges, OCR, barcodes. |
+| [**document-intel**](https://agent402.tools/skills/document-intel) | $0.030 | Turn any PDF or image URL into structured data - metadata, text, page ranges, OCR, barcodes. |
 | [**link-preview**](https://agent402.tools/skills/link-preview) | $0.015 | Turn a URL into a card-shaped preview - OpenGraph/Twitter metadata + normalized social image + thumbnail. |
-| [**pdf-pipeline**](https://agent402.tools/skills/pdf-pipeline) | $0.014 | Full PDF pipeline - metadata, markdown conversion, and first-page extraction in one call. |
-| [**url-inspector**](https://agent402.tools/skills/url-inspector) | $0.006 | Quick URL health + metadata - parse the structure, verify reachability, and pull page metadata. |
+| [**pdf-pipeline**](https://agent402.tools/skills/pdf-pipeline) | $0.013 | Full PDF pipeline - metadata, markdown conversion, and first-page extraction in one call. |
+| [**url-inspector**](https://agent402.tools/skills/url-inspector) | $0.004 | Quick URL health + metadata - parse the structure, verify reachability, and pull page metadata. |
 | [**content-grade**](https://agent402.tools/skills/content-grade) | $0.012 | Grade a page's content quality - extract the readable content then analyze keyword density. |
-| [**document-brief**](https://agent402.tools/skills/document-brief) | $0.032 | Metadata, an AI-written summary, and a preview of the opening pages of a PDF - understand what a document says without reading the whole thing. |
+| [**document-brief**](https://agent402.tools/skills/document-brief) | $0.031 | Metadata, an AI-written summary, and a preview of the opening pages of a PDF - understand what a document says without reading the whole thing. |
 
 ## SEO & site audit (4)
 
 | Pack | Price | What it solves |
 |---|---|---|
-| [**seo-audit**](https://agent402.tools/skills/seo-audit) | $0.011 | Can search engines and AI crawlers index this page? Reachability, TLS, robots, sitemap, meta/OG, link graph. |
+| [**seo-audit**](https://agent402.tools/skills/seo-audit) | $0.009 | Can search engines and AI crawlers index this page? Reachability, TLS, robots, sitemap, meta/OG, link graph. |
 | [**page-audit**](https://agent402.tools/skills/page-audit) | $0.017 | Full page SEO + security audit: content, metadata, HTTP headers, robots policy, and sitemap health. |
 | [**competitor-scan**](https://agent402.tools/skills/competitor-scan) | $0.014 | What's a competitor running? Tech stack, HTTP headers, WHOIS, and page metadata in one call. |
-| [**status-snapshot**](https://agent402.tools/skills/status-snapshot) | $0.009 | "Is this site healthy, addressable, and crawlable - right now?" DNS → HTTP → headers → TLS → robots. |
+| [**status-snapshot**](https://agent402.tools/skills/status-snapshot) | $0.008 | "Is this site healthy, addressable, and crawlable - right now?" DNS → HTTP → headers → TLS → robots. |
 
 ## Finance (9)
 
@@ -120,10 +120,10 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 
 | Pack | Price | What it solves |
 |---|---|---|
-| [**dns-network-ops**](https://agent402.tools/skills/dns-network-ops) | $0.014 | End-to-end DNS health check: records, multi-resolver propagation, WHOIS, ASN, robots.txt, reachability. |
-| [**api-investigation**](https://agent402.tools/skills/api-investigation) | $0.018 | Point at an unknown API and figure out how to use it: auth, content type, version, rate limits, schema. |
+| [**dns-network-ops**](https://agent402.tools/skills/dns-network-ops) | $0.012 | End-to-end DNS health check: records, multi-resolver propagation, WHOIS, ASN, robots.txt, reachability. |
+| [**api-investigation**](https://agent402.tools/skills/api-investigation) | $0.017 | Point at an unknown API and figure out how to use it: auth, content type, version, rate limits, schema. |
 | [**schema-evolution**](https://agent402.tools/skills/schema-evolution) | $0.008 | "Did this API contract change in a way that breaks us?" - diff two OpenAPI snapshots, lint, validate. |
-| [**api-health**](https://agent402.tools/skills/api-health) | $0.007 | Is this API endpoint healthy? Liveness check, response headers, and TLS certificate status. |
+| [**api-health**](https://agent402.tools/skills/api-health) | $0.005 | Is this API endpoint healthy? Liveness check, response headers, and TLS certificate status. |
 
 ## Decoding & inspection (1)
 
@@ -143,7 +143,7 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 
 | Pack | Price | What it solves |
 |---|---|---|
-| [**location-intel**](https://agent402.tools/skills/location-intel) | $0.011 | Point at an address and assemble the brief - coords, address, nearby, weather, NWS alerts, seismic. |
+| [**location-intel**](https://agent402.tools/skills/location-intel) | $0.009 | Point at an address and assemble the brief - coords, address, nearby, weather, NWS alerts, seismic. |
 | [**trip-planner**](https://agent402.tools/skills/trip-planner) | $0.007 | Plan a multi-stop journey - geocode each stop, sum pairwise distances, add travel time, pull weather. |
 | [**weather-brief**](https://agent402.tools/skills/weather-brief) | $0.006 | Full weather briefing for a location: current conditions, 7-day forecast, and air quality. |
 | [**locale-brief**](https://agent402.tools/skills/locale-brief) | $0.005 | "Can I reach this counterparty this week?" Country facts, this year's public holidays, working days left this week, and the local time right now. |

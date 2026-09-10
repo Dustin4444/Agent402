@@ -369,7 +369,7 @@ export const GOV_TOOLS = [
     },
   },
   {
-    route: "GET /api/drug-adverse-events", name: "FDA drug adverse events", slug: "drug-adverse-events", category: "data", price: "$0.004",
+    route: "GET /api/drug-adverse-events", name: "FDA drug adverse events", slug: "drug-adverse-events", category: "data", price: "$0.001",
     description:
       "Top reported adverse reactions for a drug from the FDA FAERS database (openFDA), ranked by report count - a fast read on a drug's real-world safety signal. Live FDA data, no key. ?drug=aspirin&limit=10",
     tags: ["fda", "drug", "adverse-events", "faers", "openfda", "health", "government"],

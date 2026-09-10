@@ -1138,7 +1138,7 @@ export const DEFI_TOOLS = [
     kind: "dexs",
     slug: "defi-dex-volume",
     name: "DEX volume by protocol",
-    price: "$0.002",
+    price: "$0.001",
     description:
       "Decentralized exchanges ranked by 24h spot trading volume from DefiLlama's free DEX overview: per-DEX 24h/7d/30d/1y/all-time volume with 1d/7d/30d change, category and chains; optional chain scope (Ethereum, Base, Solana, Arbitrum...), category filter and name search; sector totals and the list of chains with DEX volume. limit up to 100. Keyless public data.",
     tags: ["crypto", "defi", "dex", "volume", "trading", "ranking", "defillama", "uniswap"],
