@@ -108,7 +108,17 @@ let mcpInFlight = 0;
  * decides the free set. `opts.onServed(slug, { latencyMs, errored })` feeds
  * both the stats counters and the analytics dashboard with full per-call meta.
  */
-export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = () => {}, getLeaderboard = null, getMppLeaderboard = null, mppLoopback = null, taskStore = null, taskStoreDir = null }) {
+// `path` + `profile` (2026-09-10): a SECOND mount of the same connector at
+// another path, serving ONE product. `profile = { serverName, instructions,
+// flagshipSlugs, mcpNames, metaTools:false }` lists only those tools (with
+// payment.info and server.describe), hides the catalog meta tools, and names
+// the server; the catalog passed in is already filtered to the product. Built
+// for directory listings whose bar is "one hosted MCP URL, one job, unpaid
+// calls 402" and which refuse the full catalog as a tool dump.
+export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = () => {}, getLeaderboard = null, getMppLeaderboard = null, mppLoopback = null, taskStore = null, taskStoreDir = null, path = "/mcp", profile = null }) {
+  const scoped = profile?.metaTools === false;
+  const HIDDEN_WHEN_SCOPED = new Set([META_MCP_NAMES.search_tools, META_MCP_NAMES.find_tool, META_MCP_NAMES.call_tool, META_MCP_NAMES.request_tool, META_MCP_NAMES.list_top_sellers]);
+  const listable = (arr) => (scoped ? arr.filter((t) => !HIDDEN_WHEN_SCOPED.has(t.name)) : arr);
   // Live per-tool prices for the skill-pack a la carte comparison. Built once
   // from the same catalog this connector serves, so the number an agent sees
   // next to a pack is the price it would actually pay for the steps.
@@ -162,7 +172,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
   // stays in Glama's ~3–15 well-scoped band: meta tools + these flagships.
   // Keep FLAGSHIP_SLUGS in sync with mcp/index.js DEFAULT_CURATED.
   const flagshipSet = new Set();
-  for (const slug of FLAGSHIP_SLUGS) {
+  for (const slug of (profile?.flagshipSlugs || FLAGSHIP_SLUGS)) {
     if (tools.has(slug)) flagshipSet.add(slug);
   }
 
@@ -174,7 +184,8 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
   // Listed MCP names use Smithery dot-notation (domain.action). CallTool also
   // accepts prior snake/digit aliases via resolveListedName + this map.
   const toSnake = (slug) => String(slug).replace(/-/g, "_");
-  const mcpNameOf = (slug) => FLAGSHIP_MCP_NAMES[slug] || toSnake(slug);
+  const NAMES = { ...FLAGSHIP_MCP_NAMES, ...(profile?.mcpNames || {}) };
+  const mcpNameOf = (slug) => NAMES[slug] || toSnake(slug);
   // Prior free-utility MCP names still route so older clients do not hard-break
   // after the flagship swap (they are no longer listed in tools/list).
   const LEGACY_MCP_ALIASES = {
@@ -188,7 +199,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
   // (dotted name, prior snake aliases, plain snake form, raw kebab slug).
   const namedToolSlugs = new Map();
   const dottedToSlug = Object.fromEntries(
-    Object.entries(FLAGSHIP_MCP_NAMES).map(([slug, dotted]) => [dotted, slug])
+    Object.entries(NAMES).map(([slug, dotted]) => [dotted, slug])
   );
   for (const slug of flagshipSet) {
     namedToolSlugs.set(mcpNameOf(slug), slug);
@@ -261,7 +272,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
   function buildServer(ip, signal) {
     const server = new Server(
       {
-        name: "agent402",
+        name: profile?.serverName || "agent402",
         version: VERSION,
         title: "Agent402",
         description: MCP_SERVER_DESCRIPTION,
@@ -279,7 +290,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           // possible here - a task only exists to carry a PAID composite run.
           ...(tasks ? { extensions: { [TASKS_EXTENSION]: {} } } : {}),
         },
-        instructions: mcpInitializeInstructions(baseUrl),
+        instructions: profile?.instructions || mcpInitializeInstructions(baseUrl),
       },
     );
 
@@ -315,7 +326,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
     const OPEN = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true };
     const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
     server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [
+      tools: listable([
         {
           name: META_MCP_NAMES.search_tools,
           title: "Search the Agent402 tool catalog",
@@ -450,7 +461,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           },
           outputSchema: META_OUTPUT_SCHEMAS["sellers.list"],
         }] : []),
-      ],
+      ]),
     }));
 
     /** Paid tool over native MPP: loopback to the real paid route.
@@ -628,6 +639,9 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
     server.setRequestHandler(CallToolRequestSchema, async (req) => {
       const { name: rawName, arguments: args = {} } = req.params;
       const name = resolveListedName(rawName);
+      if (scoped && HIDDEN_WHEN_SCOPED.has(name)) {
+        return { content: [{ type: "text", text: `${rawName} is not available on ${path} - this endpoint serves one product (${[...flagshipSet].map(mcpNameOf).join(", ")}). The full catalog connector is ${baseUrl}/mcp.` }], isError: true };
+      }
       try {
         if (name === "catalog.search") {
           // Funnel stage 1 (discovery) — same event the HTTP discovery
@@ -1072,7 +1086,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
   }
 
   // origin. DO NOT add Access-Control-Allow-Credentials here.
-  app.use("/mcp", (req, res, next) => {
+  app.use(path, (req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "POST, GET, DELETE, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization, Mcp-Session-Id, MCP-Protocol-Version, Last-Event-ID");
@@ -1084,7 +1098,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
   // Stateless mode: a fresh server+transport per POST, no session table. Every
   // JSON-RPC message (including initialize) is self-contained, which survives
   // redeploys and needs no sticky routing.
-  app.post("/mcp", async (req, res) => {
+  app.post(path, async (req, res) => {
     // req.ip is derived via the app's "trust proxy" setting, so it's the real
     // client IP (the edge-appended XFF hop) — NOT a spoofable client-supplied
     // X-Forwarded-For value. This is the only abuse control on the free tier,
@@ -1092,7 +1106,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
     const ip = (req.ip || req.socket.remoteAddress || "?").trim();
     // R-11 outer gate #1: per-IP raw-request cap, BEFORE allocating anything.
     if (mcpReqLimiter.check(ip).limited) {
-      return res.status(429).json({ jsonrpc: "2.0", error: { code: -32000, message: "Too many requests to /mcp - slow down and retry shortly." }, id: req.body?.id ?? null });
+      return res.status(429).json({ jsonrpc: "2.0", error: { code: -32000, message: `Too many requests to ${path} - slow down and retry shortly.` }, id: req.body?.id ?? null });
     }
     // MCP Tasks (io.modelcontextprotocol/tasks). Answered here, ahead of the SDK
     // transport, for two reasons: polling must not consume a transport slot (it
@@ -1158,12 +1172,12 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
   });
 
   // Stateless servers have no notification stream or session to manage.
-  app.get("/mcp", (_req, res) => res.status(405).json({
+  app.get(path, (_req, res) => res.status(405).json({
     jsonrpc: "2.0",
-    error: { code: -32000, message: "This MCP endpoint is stateless: POST JSON-RPC messages to /mcp." },
+    error: { code: -32000, message: `This MCP endpoint is stateless: POST JSON-RPC messages to ${path}.` },
     id: null,
   }));
-  app.delete("/mcp", (_req, res) => res.status(405).json({
+  app.delete(path, (_req, res) => res.status(405).json({
     jsonrpc: "2.0",
     error: { code: -32000, message: "Stateless endpoint - no session to terminate." },
     id: null,

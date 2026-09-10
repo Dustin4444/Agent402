@@ -3116,6 +3116,8 @@ jobs:
           t() { local s=$SECONDS; echo "::group::$*"; "$@" || { echo "::endgroup::"; echo "::error::failed: $*"; exit 1; }; echo "::endgroup::"; echo "ok  $* ($((SECONDS - s))s)"; }
           # Native MPP on /mcp (stock MCP SDK client + mppx McpClient pays a wallet-only tool via the real gates; stub facilitator; -32042 wire; RFC 9457 problem on tamper - offline)
           t node scripts/test-mcp-mpp.js
+          # One-product MCP endpoint (/mcp/sec): profile lists only the SEC tools, hides the catalog meta tools, /mcp unchanged (boots a free server)
+          t node scripts/test-mcp-sec.js
 
 
   test-sweeps:
