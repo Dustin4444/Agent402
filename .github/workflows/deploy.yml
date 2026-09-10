@@ -1406,6 +1406,8 @@ jobs:
           t node scripts/test-solana-router.js
           # Tool resolver (/api/find ranking, guards)
           t node scripts/test-find.js
+          # Unicode-aware query tokenization shared by /api/route, /api/find and the index search: CJK bigrams, short-Latin whole-token rule kept (offline)
+          t node scripts/test-query-terms.js
           # Revenue ledger unit tests (all-time external accounting, idempotent rescans, CI self-gate)
           t node scripts/test-revenue-ledger.js
           # Settle-fallback chain (PayAI -> Solvador; double-settle gate between fallbacks — offline)
