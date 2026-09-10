@@ -30,7 +30,7 @@ export function ledgerPricingPage(baseUrl, catalog) {
 
   const receiptRows = [
     ["Most tools - text, math, encoding, time, validation, convert", "$0.001"],
-    ["Agent memory - write, recall, grant, audit", "$0.002"],
+    ["Agent memory - write, recall, grant, audit", "from $0.001"],
     ["Payments & x402 - decode, verify, settle", "from $0.002"],
     ["Article extract - clean markdown out", "$0.010"],
     ["Headless browser - render & screenshot (real Chromium)", "$0.02"],
