@@ -36,14 +36,18 @@ try {
   // Reproduce the exact failure: one instant jump straight to the bottom,
   // the same motion a trackpad flick or the End key produces.
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-  await page.waitForTimeout(1000); // past the 150ms debounce and the 500ms fallback timer
-
-  const afterJump = await page.evaluate(() => {
-    const els = Array.from(document.querySelectorAll("header,section,[data-reveal]"));
-    return els.map((el) => getComputedStyle(el).opacity);
-  });
+  // "Stuck" means PERMANENTLY invisible, so the verdict is the settled state,
+  // not one sample. The reveal is a 150 ms debounce + a 500 ms fallback timer
+  // and then a .75 s opacity transition: a single read at 1 s caught a section
+  // mid-transition on a loaded runner (opacity 0.6 read as stuck, 2026-09-10,
+  // one failure in 30 days, 3/3 clean locally). Poll until every section
+  // settles at 1, up to 6 s; a section still short of 1 after that is stuck.
+  const readOpacities = () => page.evaluate(() => Array.from(document.querySelectorAll("header,section,[data-reveal]")).map((el) => getComputedStyle(el).opacity));
+  let afterJump = await readOpacities();
+  const deadline = Date.now() + 6000;
+  while (afterJump.some((o) => o !== "1") && Date.now() < deadline) { await page.waitForTimeout(200); afterJump = await readOpacities(); }
   const stuckCount = afterJump.filter((o) => o !== "1").length;
-  ok(stuckCount === 0, `every section is visible after a single instant scroll-to-bottom (${stuckCount}/${afterJump.length} stuck at opacity!=1)`);
+  ok(stuckCount === 0, `every section is visible after a single instant scroll-to-bottom (${stuckCount}/${afterJump.length} still short of opacity 1 after 6 s)`);
 
   // The animation intent must survive the fix: a fresh load with NO scroll at
   // all must still leave below-the-fold sections hidden, or the "safety net"
