@@ -97,7 +97,7 @@ export const EMBED_TOOLS = [
     name: "Text embeddings",
     slug: "embed",
     category: "ai",
-    price: "$0.005",
+    price: "$0.002",
     description:
       "Generate a text embedding vector using OpenAI text-embedding-3-small (1536 dimensions). Ideal for semantic search, RAG, and clustering. No API key needed; pay per call via x402. Text capped at 32k chars.",
     tags: [...SHARED_TAGS, "text-embedding-3-small"],

@@ -47,7 +47,7 @@ export function textToMarkdown(text) {
 
 export const DEMAND_TOOLS = [
   {
-    route: "POST /api/pdf-to-markdown", name: "PDF to Markdown", slug: "pdf-to-markdown", category: "web", price: "$0.01",
+    route: "POST /api/pdf-to-markdown", name: "PDF to Markdown", slug: "pdf-to-markdown", category: "web", price: "$0.003",
     description:
       "Convert a PDF to clean markdown: headings, paragraphs, and bullets reconstructed from the text layer - ready to drop into a model's context. Body: {\"url\":\"https://…/file.pdf\"}.",
     tags: ["pdf", "markdown", "convert-pdf", "pdf-to-markdown", "documents"],
