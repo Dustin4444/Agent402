@@ -82,7 +82,10 @@ const FAQS = [
 ];
 
 function costRow([label, value, tone]) {
-  const color = tone === "green" ? "var(--green)" : tone === "accent" ? "var(--accent)" : "var(--on-dark)";
+  // The panel is obsidian in BOTH themes, so its accent text is --accent-lit,
+  // the phosphor made for dark surfaces: light-mode --accent/--green are the
+  // deep greens for paper and read 2.5-3.5:1 here (rendered-contrast guard).
+  const color = tone === "green" || tone === "accent" ? "var(--accent-lit)" : "var(--on-dark)";
   return `<tr style="border-bottom:1px solid var(--dark-border);"><th scope="row" style="text-align:left;font-weight:400;padding:13px 18px;color:var(--dk-muted3);">${esc(label)}</th><td style="padding:13px 18px;text-align:right;color:${color};font-weight:700;">${esc(value)}</td></tr>`;
 }
 
@@ -129,8 +132,8 @@ table{border-collapse:collapse;width:100%}
     `<li style="display:grid;grid-template-columns:52px 1fr;gap:14px;padding:20px 22px;border-bottom:1px solid var(--hairline);"><span style="font-family:var(--font-mono);font-weight:700;font-size:13px;color:var(--accent);">${esc(n)}</span><div><h3 style="font-weight:800;font-size:16.5px;margin:0 0 7px;color:var(--ink);">${esc(t)}</h3><p style="font-size:14px;line-height:1.6;color:var(--muted);margin:0;">${esc(b)}</p></div></li>`
   ).join("");
   const whatWeReadHtml = WHAT_WE_READ.map(([label, value]) =>
-    `<tr style="border-bottom:1px solid var(--hairline);"><th scope="row" style="text-align:left;font-weight:400;padding:9px 13px;color:var(--dk-muted3);">${esc(label)}</th><td style="padding:9px 13px;text-align:right;color:var(--on-dark);">${esc(value)}</td></tr>`
-  ).join("") + `<tr><th scope="row" style="text-align:left;font-weight:400;padding:9px 13px;color:var(--dk-muted3);">what we never read</th><td style="padding:9px 13px;text-align:right;color:var(--accent-lit);">your keys or funds</td></tr>`;
+    `<tr style="border-bottom:1px solid var(--hairline);"><th scope="row" style="text-align:left;font-weight:400;padding:9px 13px;color:var(--muted);">${esc(label)}</th><td style="padding:9px 13px;text-align:right;color:var(--ink);">${esc(value)}</td></tr>`
+  ).join("") + `<tr><th scope="row" style="text-align:left;font-weight:400;padding:9px 13px;color:var(--muted);">what we never read</th><td style="padding:9px 13px;text-align:right;color:var(--accent);font-weight:700;">your keys or funds</td></tr>`;
   const surfacesHtml = SURFACES.map(([t, b, ref]) =>
     `<tr style="border-bottom:1px solid var(--hairline);"><th scope="row" style="text-align:left;font-weight:700;padding:16px 20px;color:var(--ink);width:220px;font-size:15px;">${esc(t)}</th><td style="padding:16px 20px;color:var(--muted);font-size:13.5px;line-height:1.55;">${esc(b)}</td><td style="padding:16px 20px;text-align:right;"><code style="font-family:var(--font-mono);font-size:11.5px;color:var(--ink);background:var(--card-zebra);padding:5px 9px;white-space:nowrap;">${esc(ref)}</code></td></tr>`
   ).join("");
@@ -140,7 +143,7 @@ table{border-collapse:collapse;width:100%}
   const railAssetBySlug = new Map(RAILS.map((r) => [railKey(r), r.asset]));
   const railsHtml = CHAIN_ORDER.map(([slug, name]) => {
     const asset = railAssetBySlug.get(slug) || "USDC";
-    return `<a href="/${slug}" title="${esc(name)} x402 marketplace" style="display:inline-flex;align-items:center;gap:8px;color:var(--on-dark2);text-decoration:none;">${chainMark(slug, 21)}<span style="font-family:var(--font-mono);font-size:12.5px;white-space:nowrap;">${esc(name)}</span><span style="font-family:var(--font-mono);font-size:10px;color:var(--faint);white-space:nowrap;">${esc(asset)}</span></a>`;
+    return `<a href="/${slug}" title="${esc(name)} x402 marketplace" style="display:inline-flex;align-items:center;gap:8px;color:var(--ink);text-decoration:none;">${chainMark(slug, 21)}<span style="font-family:var(--font-mono);font-size:12.5px;white-space:nowrap;">${esc(name)}</span><span style="font-family:var(--font-mono);font-size:10px;color:var(--faint);white-space:nowrap;">${esc(asset)}</span></a>`;
   }).join("");
   const commitmentsHtml = COMMITMENTS.map((c) =>
     `<tr style="border-bottom:1px solid var(--hairline);"><td style="padding:12px 14px;color:var(--accent);font-family:var(--font-mono);font-size:13px;width:26px;">✓</td><td style="padding:12px 14px;color:var(--muted);font-size:13.5px;line-height:1.5;">${esc(c)}</td></tr>`
@@ -159,7 +162,7 @@ table{border-collapse:collapse;width:100%}
       <div>
         <div style="font-family:var(--font-mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:20px;">for api operators &amp; site owners</div>
         <h1 style="font-weight:800;font-size:56px;line-height:.94;letter-spacing:-.035em;margin:0 0 22px;color:var(--ink);">Agents are buying.<br>Get <span style="color:var(--accent);">paid</span> for it.</h1>
-        <p style="font-size:18px;line-height:1.5;color:var(--on-dark2);margin:0 0 16px;">An AI agent cannot sign up for your API. It has no email, no card, and no way to accept your terms. What it can do is <strong style="color:var(--ink);font-weight:700;">pay a fraction of a cent per call, unattended</strong>, from its own wallet.</p>
+        <p style="font-size:18px;line-height:1.5;color:var(--muted);margin:0 0 16px;">An AI agent cannot sign up for your API. It has no email, no card, and no way to accept your terms. What it can do is <strong style="color:var(--ink);font-weight:700;">pay a fraction of a cent per call, unattended</strong>, from its own wallet.</p>
         <p style="font-size:16px;line-height:1.6;color:var(--muted);margin:0 0 30px;">Serve an x402 challenge, register your origin, and the index routes matching buyer tasks to you. Money moves buyer wallet to your wallet. We never hold it, and nothing is deducted from your price.</p>
         <div style="display:flex;flex-wrap:wrap;gap:11px;">
           <a href="#register" style="background:var(--accent);color:var(--on-accent);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 22px;">LIST AN x402 API →</a>
@@ -181,13 +184,13 @@ table{border-collapse:collapse;width:100%}
     <h2 style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0;color:var(--ink);">Demand you can't get anywhere else.</h2>
     <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">lanes shown · figures are a paid read</span>
   </div>
-  <p style="font-size:16.5px;line-height:1.6;color:var(--muted);max-width:720px;margin:0 0 28px;">Settlements land on chain, but <em style="color:var(--on-dark2);">which tool an agent bought</em> never does - so this ledger cannot be reconstructed from a block explorer by anyone, including us. It is the one dataset in the x402 ecosystem that only the seller who served the call can see. Here are the lanes agents spend most in, in order. The numbers behind them are a tool, not a marketing page.</p>
+  <p style="font-size:16.5px;line-height:1.6;color:var(--muted);max-width:720px;margin:0 0 28px;">Settlements land on chain, but <em style="color:var(--ink);">which tool an agent bought</em> never does - so this ledger cannot be reconstructed from a block explorer by anyone, including us. It is the one dataset in the x402 ecosystem that only the seller who served the call can see. Here are the lanes agents spend most in, in order. The numbers behind them are a tool, not a marketing page.</p>
   <div class="sl-scroll" style="border:1px solid var(--hairline);background:var(--card);">
     <table style="font-size:14px;">
       <caption style="text-align:left;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);padding:14px 18px;border-bottom:1px solid var(--hairline);">Where the buying is · ranked, figures withheld</caption>
       <thead><tr style="border-bottom:1px solid var(--hairline);font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);"><th scope="col" style="text-align:left;font-weight:700;padding:12px 18px;width:40px;">#</th><th scope="col" style="text-align:left;font-weight:700;padding:12px 18px;">lane</th><th scope="col" style="text-align:left;font-weight:700;padding:12px 18px;">what agents buy in it</th></tr></thead>
       <tbody>${lanesHtml}
-        <tr style="background:var(--footer-bg);"><th scope="row" style="text-align:left;font-weight:400;padding:16px 18px;color:var(--faint);font-family:var(--font-mono);font-size:12px;">the figures</th><td style="padding:16px 18px;color:var(--muted);font-size:13.5px;line-height:1.5;">Per-tool purchase counts, distinct buyers, revenue and buyer-diversity - plus each tool's trend against the previous window, over any 1-90 day span.</td><td style="padding:16px 18px;text-align:right;"><a href="/tools/bestsellers" style="font-family:var(--font-mono);font-size:13px;color:var(--accent-lit);text-decoration:none;white-space:nowrap;">$0.005 →</a></td></tr>
+        <tr style="background:var(--footer-bg);"><th scope="row" style="text-align:left;font-weight:400;padding:16px 18px;color:var(--faint);font-family:var(--font-mono);font-size:12px;">the figures</th><td style="padding:16px 18px;color:var(--muted);font-size:13.5px;line-height:1.5;">Per-tool purchase counts, distinct buyers, revenue and buyer-diversity - plus each tool's trend against the previous window, over any 1-90 day span.</td><td style="padding:16px 18px;text-align:right;"><a href="/tools/bestsellers" style="font-family:var(--font-mono);font-size:13px;color:var(--accent);text-decoration:none;white-space:nowrap;">$0.005 →</a></td></tr>
       </tbody>
     </table>
   </div>
@@ -263,7 +266,7 @@ x402-pay-to: 0xYourWallet&hellip;</pre>
   <div class="sl-scroll" style="border:1px solid var(--hairline);background:var(--card);">
     <table style="font-size:14px;">
       <tbody>${surfacesHtml}
-        <tr style="background:var(--footer-bg);"><th scope="row" style="text-align:left;font-weight:400;padding:16px 18px;color:var(--faint);font-family:var(--font-mono);font-size:12px;">+ the rest</th><td style="padding:16px 18px;color:var(--muted);font-size:13.5px;line-height:1.5;">Ranked by distinct buyers, sales, revenue or buyer-diversity - plus each tool's trend against the previous window, over any 1-90 day span.</td><td style="padding:16px 18px;text-align:right;"><a href="/tools/bestsellers" style="font-family:var(--font-mono);font-size:13px;color:var(--accent-lit);text-decoration:none;white-space:nowrap;">$0.005 →</a></td></tr>
+        <tr style="background:var(--footer-bg);"><th scope="row" style="text-align:left;font-weight:400;padding:16px 18px;color:var(--faint);font-family:var(--font-mono);font-size:12px;">+ the rest</th><td style="padding:16px 18px;color:var(--muted);font-size:13.5px;line-height:1.5;">Ranked by distinct buyers, sales, revenue or buyer-diversity - plus each tool's trend against the previous window, over any 1-90 day span.</td><td style="padding:16px 18px;text-align:right;"><a href="/tools/bestsellers" style="font-family:var(--font-mono);font-size:13px;color:var(--accent);text-decoration:none;white-space:nowrap;">$0.005 →</a></td></tr>
       </tbody>
     </table>
   </div>
@@ -272,7 +275,7 @@ x402-pay-to: 0xYourWallet&hellip;</pre>
 <section style="max-width:1180px;margin:0 auto;padding:60px 30px 0;">
   <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /.well-known/x402</div>
   <h2 style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0 0 16px;color:var(--ink);">Get paid on your chain.</h2>
-  <p style="font-size:16.5px;line-height:1.6;color:var(--muted);max-width:720px;margin:0 0 28px;">Advertise whichever rails you support. When a buyer pays on a chain you do not accept, the router settles with you on <em style="color:var(--on-dark2);">your</em> chain and relays the result - so a Solana buyer is not a lost sale for a Base-only seller. Gas is sponsored by the facilitator on EVM chains, so neither side needs the native token.</p>
+  <p style="font-size:16.5px;line-height:1.6;color:var(--muted);max-width:720px;margin:0 0 28px;">Advertise whichever rails you support. When a buyer pays on a chain you do not accept, the router settles with you on <em style="color:var(--ink);">your</em> chain and relays the result - so a Solana buyer is not a lost sale for a Base-only seller. Gas is sponsored by the facilitator on EVM chains, so neither side needs the native token.</p>
   <div style="border:1px solid var(--hairline);background:var(--card);padding:26px;">
     <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:18px;">x402 settlement rails - each links to that chain's marketplace</div>
     <div style="display:flex;flex-wrap:wrap;align-items:center;gap:18px 26px;">${railsHtml}</div>

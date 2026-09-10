@@ -3296,6 +3296,9 @@ jobs:
 
       - name: CSS tokens resolve (every :root custom property must actually resolve in a real browser, not just exist as text)
         run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-css-tokens-resolve.js
+      # Rendered text contrast: every visible text vs its real backdrop, both themes, 390 + 1280 px (Chromium; a dark-surface token on a light surface is invisible in light mode, /sell 2026-09-10)
+      - name: Text contrast (rendered, WCAG AA, both themes)
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-text-contrast.js
 
   test-sweeps2:
     # The second half of test-sweeps (2026-08-25, split by the seconds each item
