@@ -4018,6 +4018,14 @@ function toolStatics(t) {
     // geolocation tool but its slug says neither word, so "ip geolocation"
     // routed to a $0.05 external seller above our $0.003 one (2026-08-28).
     aliases: Array.isArray(t.aliases) ? t.aliases.map((a) => String(a).toLowerCase()).filter(Boolean) : [],
+    // The row's own NAME in slug form ("Cron next runs" -> cron-next-runs) is an
+    // implicit alias: a query that covers every word of the name is an exact
+    // match for the name. Applied to EVERY row, ours and the index's alike. It
+    // exists because the coverage rule (2026-09-10) credits a slug for each
+    // query word it carries, so an outside slug that IS a tool's full name in
+    // snake_case out-scored the tool's own shorter slug on its own name (49 of
+    // 585 after the first pass). Now both sides score the name the same way.
+    nameSlug: (() => { const toks = splitTokens(t.name); const ns = toks.join("-"); return toks.length > 1 && ns !== String(t.slug || "").toLowerCase() ? ns : null; })(),
   };
   toolStaticsMemo.set(t, st);
   return st;
@@ -4088,8 +4096,8 @@ export function routeQuery({ query, top, include, networkFilter, strictNetwork =
     if (!netOk(t)) continue;
     const st = toolStatics(t);
     if (st.injected) continue;
-    const { slug, name, hay, aliases } = st;
-    const names = aliases.length ? [slug, ...aliases] : [slug];
+    const { slug, name, hay, aliases, nameSlug } = st;
+    const names = [slug, ...aliases, ...(nameSlug ? [nameSlug] : [])];
     let score = 0;
     // Record WHERE the score came from, not just how much. A seller who loses a
     // routing decision learns nothing from silence; "matched on description
