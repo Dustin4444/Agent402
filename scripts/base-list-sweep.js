@@ -44,6 +44,13 @@ const BASE_CAIP2 = "eip155:8453";
 // OUTSIDE SELLER, so buying them from ourselves sends money to a stranger and
 // books against the Base wallet's daily ceiling. They can list on their own
 // the first time a real buyer uses them.
+// Methods here are a HINT for the bare probe only. The verb and the body that
+// get PAID are taken from the challenge's own documented example, because the
+// first run of this sweep hardcoded GET for three X tools and POST for
+// research-company and lost all four to a 400: the paywall answers a 402 on
+// either verb (the method-alias middleware runs the POST gate for a GET on a
+// POST-only path), so a wrong verb here does not fail until after payment is
+// signed. The challenge is the authority on how a route is called.
 const ROUTES = [
   "POST /v1/research", "POST /v1/research/pro", "POST /v1/research/max",
   "POST /v1/research/market-brief", "POST /v1/dossier", "POST /v1/dossier/max",
@@ -57,6 +64,9 @@ const ROUTES = [
   "POST /v1/videos/generations", "POST /api/image-gen-hd", "POST /api/image-gen-premium",
   "POST /api/tts-hd", "POST /api/tts-lite", "POST /api/transcribe-pro",
   "GET /api/x-search-recent", "GET /api/x-user-tweets", "GET /api/x-users-lookup",
+  // Back on the list once its example stopped pointing at a placeholder host
+  // that answers no 402 (2026-09-11). It now checks a $0.001 route on this
+  // host, so the example is a healthy seller end to end.
   "POST /api/seller-payability",
 ];
 
@@ -156,8 +166,11 @@ for (const entry of ROUTES) {
   if (DRY) { report.bought.push({ entry, usd, dry: true }); report.spentUsd += usd; processed++; continue; }
 
   let url = `${TARGET}${path}`;
-  const init = { method, headers: stamp({ "Content-Type": "application/json", Accept: "application/json" }), signal: AbortSignal.timeout(CALL_TIMEOUT_MS) };
-  if (method === "POST") init.body = JSON.stringify(example.body || {});
+  // The challenge names the verb this route is actually called with; fall back
+  // to the list's hint only when it does not.
+  const payMethod = (typeof example.method === "string" && /^(GET|POST)$/i.test(example.method)) ? example.method.toUpperCase() : method;
+  const init = { method: payMethod, headers: stamp({ "Content-Type": "application/json", Accept: "application/json" }), signal: AbortSignal.timeout(CALL_TIMEOUT_MS) };
+  if (payMethod === "POST") init.body = JSON.stringify(example.body || {});
   else if (example.queryParams) {
     const qs = new URLSearchParams();
     for (const [k, val] of Object.entries(example.queryParams)) if (val != null && typeof val !== "object") qs.set(k, String(val));
