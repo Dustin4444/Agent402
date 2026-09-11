@@ -112,7 +112,7 @@ import { latest13fFiling, resolveManager as edgarResolveManager } from "./tools/
 import { resolveSpend as resolveExternalSpend } from "./external-spend-guard.js";
 import { registerWellKnown, removeWellKnown, getWellKnown, listWellKnown } from "./well-known-store.js";
 import { backupPlan, backupStatus, runBackup, startBackupScheduler } from "./backup.js";
-import { datasetStatus, runDatasetSnapshot, startDatasetScheduler } from "./dataset-snapshot.js";
+import { datasetStatus, datasetRecorded, runDatasetSnapshot, startDatasetScheduler } from "./dataset-snapshot.js";
 import { assertAvmValidityCovers } from "./avm-validity.js";
 import { paymentReplayKey, createReplayGuard } from "./replay-guard.js";
 import { statusPage, statusSnapshot } from "./status.js";
@@ -3666,7 +3666,13 @@ app.post("/__operator/refunds/backfill", (req, res) => {
 });
 app.get("/__operator/dataset.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
-  res.set("Cache-Control", "no-store").json({ status: datasetStatus() });
+  // `status` is this process's memory and is wiped by every deploy; `recorded`
+  // asks the bucket, which is the actual record. A health check must read the
+  // second or it reports an outage after every deploy.
+  datasetRecorded().then(
+    (recorded) => res.set("Cache-Control", "no-store").json({ status: datasetStatus(), recorded }),
+    (e) => res.set("Cache-Control", "no-store").json({ status: datasetStatus(), recorded: { error: String(e.message) } })
+  );
 });
 // Write today's ecosystem snapshot by hand. Immutable: a day already recorded
 // is skipped unless ?force=1, which is for repairing a run that half-failed

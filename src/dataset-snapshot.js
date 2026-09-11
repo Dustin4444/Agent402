@@ -45,7 +45,7 @@
 // date-partitioned prefix is the conventional shape for an append-only record
 // and is readable by standard tooling without an index.
 import { gzipSync } from "node:zlib";
-import { putObject, objectExists, backupConfigured } from "./backup.js";
+import { putObject, objectExists, getObject, backupConfigured } from "./backup.js";
 import { priceToMicroUsd } from "./x402-index.js";
 
 export const DATASET_VERSION = "v1";
@@ -249,8 +249,57 @@ export function manifestFor({ day, tables, sources = {}, partial = null, force =
 const status = {
   lastAttempt: null, lastSuccess: null, lastError: null,
   lastDay: null, lastRows: null, lastSkipped: null,
+  // Per-table columns that came back entirely empty on the last run. Carried on
+  // the status surface so a health check can see a hollow column WITHOUT bucket
+  // credentials - the row count alone cannot tell a good day from a day whose
+  // headline column is null on every row, which is exactly what shipped once.
+  lastEmptyColumns: null,
 };
 export const datasetStatus = () => ({ ...status, configured: backupConfigured() });
+
+/**
+ * What the BUCKET says, not what this process remembers.
+ *
+ * The in-memory status above is wiped by every deploy, and this service
+ * redeploys several times a day - a health check reading it would report "no
+ * snapshot has ever run" every afternoon and be trained away as noise within a
+ * week. The record is the bucket, so ask the bucket: walk back a few days for
+ * the newest manifest and return its own row counts and columnFill.
+ *
+ * Bounded (at most `days` reads, 60 s cache) and never throws: an unreadable
+ * bucket reads `{ error }`, which is a different answer from "no day recorded"
+ * and must not be collapsed into it.
+ */
+let recordedCache = { at: 0, value: null };
+export async function datasetRecorded({ days = 3, now = Date.now() } = {}) {
+  if (!backupConfigured()) return { configured: false };
+  if (recordedCache.value && now - recordedCache.at < 60_000) return recordedCache.value;
+  const out = { configured: true, days: [], newest: null };
+  try {
+    for (let i = 0; i < days; i++) {
+      const day = new Date(now - i * 86400000).toISOString().slice(0, 10);
+      const raw = await getObject(`${DATASET_PREFIX}/dt=${day}/manifest.json`);
+      if (!raw) continue;
+      out.days.push(day);
+      if (!out.newest) {
+        const m = JSON.parse(raw.toString("utf8"));
+        out.newest = {
+          day: m.day,
+          writtenAt: m.writtenAt,
+          rows: Object.fromEntries(Object.entries(m.tables || {}).map(([n, t]) => [n, t.rows])),
+          emptyColumns: Object.fromEntries(Object.entries(m.tables || {})
+            .map(([n, t]) => [n, Object.entries(t.columnFill || {}).filter(([, v]) => v === 0).map(([k]) => k)])
+            .filter(([, c]) => c.length)),
+          partial: m.partial || null,
+        };
+      }
+    }
+  } catch (e) {
+    out.error = String(e.message).slice(0, 200);
+  }
+  recordedCache = { at: now, value: out };
+  return out;
+}
 
 let running = false;
 
@@ -308,10 +357,14 @@ export async function runDatasetSnapshot({
     await put(`${prefix}/manifest.json`, Buffer.from(JSON.stringify(manifest, null, 2), "utf8"));
 
     const rows = Object.fromEntries(Object.entries(tables).map(([n, t]) => [n, t.rows.length]));
+    const emptyCols = Object.fromEntries(Object.entries(manifest.tables)
+      .map(([n, t]) => [n, Object.entries(t.columnFill).filter(([, v]) => v === 0).map(([k]) => k)])
+      .filter(([, cols]) => cols.length));
     status.lastSuccess = new Date().toISOString();
     status.lastError = null;
     status.lastDay = day;
     status.lastRows = rows;
+    status.lastEmptyColumns = emptyCols;
     status.lastSkipped = null;
     log(`[dataset] OK dt=${day} ${Object.entries(rows).map(([n, c]) => `${n}=${c}`).join(" ")} (${(bytes / 1e6).toFixed(2)}MB gz)${Object.keys(partial).length ? ` PARTIAL: ${Object.keys(partial).join(",")}` : ""}`);
     return { ok: true, day, rows, bytes, partial };
