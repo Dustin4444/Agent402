@@ -611,7 +611,31 @@ function parsePrice(p) {
  *  which would publish "free" for "we could not read it". */
 export function priceToMicroUsd(p) {
   if (p == null || p === "") return null;
-  const n = typeof p === "number" ? p : parseFloat(String(p).replace(/[^0-9.]/g, ""));
+  if (typeof p === "number") return Number.isFinite(p) && p >= 0 ? Math.round(p * 1e6) : null;
+
+  // A seller may publish a price as an OBJECT. Read the shapes that actually
+  // appear in the crawl rather than dropping a price we were told: a bare
+  // {usd}, or Stripe-style minor units. Measured 2026-09-11: 21 routes carried
+  // {"amountMinor":50,"currency":"USD"} or {"usd":0.05} and every one of them
+  // published as null while the seller had stated the price plainly.
+  if (typeof p === "object") {
+    if (Number.isFinite(Number(p.usd))) return priceToMicroUsd(Number(p.usd));
+    if (Number.isFinite(Number(p.amountMinor)) && String(p.currency || "USD").toUpperCase() === "USD") {
+      return Math.round(Number(p.amountMinor) * 1e4); // cents -> micro-dollars
+    }
+    return priceToMicroUsd(p.display ?? p.price ?? p.amount ?? null);
+  }
+  if (typeof p !== "string") return null;
+
+  // Strip currency and separators, then require the remainder to be ONE number.
+  // The old rule deleted every non-digit and parsed whatever was left, so
+  // "$free (since 2026-09-02)" became 20260902 - a date welded into a price,
+  // and not a small error: five routes published at $20,260,902 while their
+  // seller was saying FREE. A string carrying several numbers is a sentence,
+  // not a price, and the honest answer is null.
+  const cleaned = p.replace(/[$,\s]|usdc?\b/gi, "");
+  if (!/^[0-9]*\.?[0-9]+$/.test(cleaned)) return null;
+  const n = parseFloat(cleaned);
   if (!Number.isFinite(n) || n < 0) return null;
   return Math.round(n * 1e6);
 }
