@@ -167,16 +167,35 @@ function makeResearchHandlerInner(tierSlug) {
 
     // 1) PLAN — decompose into sub-questions (bounded to the tier's subQ).
     const planPrompt = `${t.planFrame || "You are a research planner."} Break this question into ${t.subQ} focused, non-overlapping web-search sub-questions that together fully answer it. Return ONLY a JSON object: {"sub_questions": ["…"], "outline": ["section titles for the final report"]}.\n\nQuestion: ${query}${focus.length ? `\nEmphasize: ${focus.join(", ")}` : ""}${recency !== "any" ? `\nPrefer sources from the last ${recency}.` : ""}`;
-    let plan;
+    let plan, planError = null;
     try {
       const pd = await chat({ model: M.plan, messages: [{ role: "user", content: planPrompt }], max_tokens: 600, response_format: { type: "json_object" }, reasoning: { enabled: false } }, 45_000, user);
       spent += costOf(pd);
       plan = JSON.parse(textOf(pd) || "{}");
-    } catch {
+    } catch (e) {
+      // KEEP THE REASON. This catch used to be empty, so an upstream 429, a
+      // timeout and a malformed JSON body were indistinguishable from each
+      // other and from "the planner had nothing to say" - and the only visible
+      // symptom was a report built on one search. Found 2026-09-11 by reading
+      // a $1.10 research-max whose meta said searches_run 1.
       plan = null;
+      planError = String(e?.message || e).slice(0, 160);
+      console.warn(`[research] ${tierSlug}: planner failed (${planError}) - falling back to the raw question`);
     }
     let subQuestions = Array.isArray(plan?.sub_questions) ? plan.sub_questions.filter((s) => typeof s === "string" && s.trim()).slice(0, t.subQ) : [];
-    if (!subQuestions.length) subQuestions = [query]; // planner failed → search the question itself
+    const plannerFellBack = !subQuestions.length;
+    if (plannerFellBack) subQuestions = [query]; // planner failed → search the question itself
+    // A tier that PLANS more than one sub-question and got none is a pipeline
+    // failure, not a thin-evidence answer, and it must not be sold as the
+    // former. Before this, the fallback collapsed subQuestions to 1, `need`
+    // below is a THIRD of that, so one search cleared the evidence floor and a
+    // $1.10 report shipped on five sources instead of forty - less work than
+    // the $0.60 tier plans, at full price. The same failure that gutted the
+    // report also disarmed the guard meant to catch it. A >= 400 cancels
+    // settlement, so refusing here costs the buyer nothing and they retry.
+    if (plannerFellBack && t.subQ > 1) {
+      throw bad(`Research planning failed for this question, so the ${t.subQ}-part decomposition this tier is priced for could not be built${planError ? ` (${planError})` : ""}. Not charged; please retry.`, 502);
+    }
     const outline = Array.isArray(plan?.outline) ? plan.outline.filter((s) => typeof s === "string").slice(0, 8) : [];
 
     // 2) GROUNDED SEARCH — one Exa-grounded call per sub-question (concurrent,
