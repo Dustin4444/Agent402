@@ -365,7 +365,7 @@ import { buildSellerTrustTool } from "./tools/seller-trust.js";
 import { buildSellerDossierTool } from "./tools/seller-dossier.js";
 import { buildSellerPayabilityTool } from "./tools/seller-payability-kit.js";
 import { deliveryObservation } from "./response-observation.js";
-import { payX402, avmBuyerConfigured, avmBuyerStatus, sellerRefusedRecently } from "./x402-buyer.js";
+import { payX402, avmBuyerConfigured, avmBuyerStatus, sellerRefusedRecently, sellerDeliveryFailingRecently } from "./x402-buyer.js";
 import { svmBuyerConfigured, svmBuyerStatus, SOLANA_NETWORK_LABELS } from "./solana-buyer.js";
 import { payTempo, tempoBuyerConfigured, tempoBuyerStatus } from "./tempo-buyer.js";
 import { issueChallenge, verifySolution, isComputePayable, powInfo, POW_DIFFICULTY, WALLET_ONLY_SLUGS, verifyHeartbeatToken } from "./pow.js";
@@ -1052,6 +1052,21 @@ function spendChainsConfigured() {
 // (price + template known). `networks` is ALWAYS an array on the way out and
 // `paymentNetworksKnown` says whether it was learned, so a buyer agent never
 // has to infer "unknown" from a missing key.
+// What happened the last time our router PAID this seller, per spending chain.
+// The dispatch verdict is otherwise built entirely from crawl readiness and
+// settlement history, neither of which changes when a seller's backend starts
+// failing after payment - so without this a seller we have proven does not
+// deliver keeps `routerDispatchEligible: true` and `executeViaCallableNow:
+// true` on every public row until its settlement count decays, which it never
+// does. Null when nothing is recorded, which is the ordinary case.
+function deliveryFailingByChain(origin) {
+  const out = {};
+  for (const c of spendChainsConfigured()) {
+    const f = sellerDeliveryFailingRecently(origin, c);
+    if (f) out[c] = { at: new Date(f.at).toISOString(), status: f.status ?? null, ms: f.ms ?? null };
+  }
+  return Object.keys(out).length ? out : null;
+}
 function withDispatchFields(row, { local = false, rowLevel = false } = {}) {
   if (!row || typeof row !== "object") return row;
   const ev = dispatchEvidence();
@@ -1077,6 +1092,9 @@ function withDispatchFields(row, { local = false, rowLevel = false } = {}) {
     // What the seller's Base USDC accept advertised as its EIP-712 domain (the
     // crawl's observation); a wrong name is usdc_domain_mismatch on every row.
     usdcDomain: row.evmDomainByNetwork?.["eip155:8453"] || null,
+    // The last paid call we made to this seller on each chain, when it did not
+    // deliver. Outranks the settlement gate: history cannot see an outage.
+    deliveryFailing: local ? null : deliveryFailingByChain(origin),
   });
   // `executeVia` names the route-execute tier that covers this row's price. On
   // a row the router will NOT pay right now it read as a callable affordance
@@ -1213,6 +1231,16 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
     // keeps ranking first and every call burns a full round trip on it.
     const refusal = sellerRefusedRecently(r.seller, chain);
     if (refusal) { console.log(`[sor] skipping ${chain} candidate ${r.seller}: refused a payment ${Math.round((Date.now() - refusal.at) / 60000)} min ago (HTTP ${refusal.status})`); continue; }
+    // ...and a seller whose last PAID call did not deliver (5xx with no
+    // receipt, or no answer at all) is skipped the same way. The gate above is
+    // built from settlement history, which is evidence about the past: a
+    // seller can hold thousands of settled calls and be answering 500 to every
+    // one of them today, which is exactly what a paid probe found on our own
+    // top-ranked row for a task (2026-09-11), eleven days after a buyer said so
+    // through the wish board. Forgotten on the TTL, or the moment a call to
+    // that seller delivers.
+    const failing = sellerDeliveryFailingRecently(r.seller, chain);
+    if (failing) { console.log(`[sor] skipping ${chain} candidate ${r.seller}: its last paid call did not deliver ${Math.round((Date.now() - failing.at) / 60000)} min ago (${failing.status ? `HTTP ${failing.status}` : "no response"}${failing.ms ? `, ${Math.round(failing.ms / 1000)}s` : ""})`); continue; }
     // An LLM task names a model, and the model namespace is the seller's own:
     // a chat seller whose published model list is readable and does not carry
     // it is skipped BEFORE the probe (api.xfuel.app settled and then 400'd
@@ -1491,6 +1519,9 @@ for (const tier of EXEC_TIERS) {
     },
     getRefusals: (origin) => spendChainsConfigured()
       .map((chain) => { const r = sellerRefusedRecently(origin, chain); return r ? { chain, at: r.at, status: r.status } : null; })
+      .filter(Boolean),
+    getDeliveryFailures: (origin) => spendChainsConfigured()
+      .map((chain) => { const f = sellerDeliveryFailingRecently(origin, chain); return f ? { chain, at: f.at, status: f.status, ms: f.ms } : null; })
       .filter(Boolean),
     getRegistration: (origin) => { const k = norm(origin); return getSellerRegistrations().find((r) => norm(r.origin) === k) || null; },
     getDelivery: (origin, method, route) => deliveryObservation(origin, method, route),

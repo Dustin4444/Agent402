@@ -48,6 +48,8 @@ const TOOL_ROWS_MAX = 50;
  * @param {object|null} a.solana     { credits, payers } from solanaEvidenceByOrigin
  * @param {object|null} a.mpp        { verified, lastProbeOk, offers, recipients:[{recipient, transfers, payers, proven, routable}] }
  * @param {object[]} a.refusals      [{ chain, at, status }] from sellerRefusedRecently per configured chain
+ * @param {object[]} a.deliveryFailures  [{ chain, at, status, ms }] from sellerDeliveryFailingRecently per configured chain:
+ *                                what happened the last time our router PAID this seller there and got nothing back
  * @param {object|null} a.registration  { first_seen, last_routable_seen, last_settled_seen } from the registrations table
  * @param {Map|object} a.deliveries  key "METHOD route" -> deliveryObservation row
  * @param {object|null} a.sharedClaims  { payTo -> [origins] } for a payTo this origin claims that others claim too
@@ -59,7 +61,7 @@ const TOOL_ROWS_MAX = 50;
 export function composeSellerDossier(a) {
   const {
     host, detail, entry, dispatch, evidenceBinding, leaderboardRow, bazaar, solana, mpp,
-    refusals = [], registration, deliveries, sharedClaims, helpers = {}, thresholds = {}, self = false, now = Date.now(),
+    refusals = [], deliveryFailures = [], registration, deliveries, sharedClaims, helpers = {}, thresholds = {}, self = false, now = Date.now(),
   } = a;
   const generatedAt = new Date(now).toISOString();
   const origin = detail?.origin || `https://${host}`;
@@ -263,8 +265,12 @@ export function composeSellerDossier(a) {
       cheapestPaidToolUsd: prices.length ? prices[0] : null,
     },
     refusals: (refusals || []).map((r) => ({ chain: r.chain, at: iso(r.at), status: r.status ?? null })),
+    // A refusal is the seller declining our payment (nobody charged). This is
+    // the other outcome: the payment went out and nothing came back.
+    deliveryFailures: (deliveryFailures || []).map((r) => ({ chain: r.chain, at: iso(r.at), status: r.status ?? null, ms: r.ms ?? null })),
   };
   if (router.refusals.length) flags.push(`our router's last paid retry was refused on ${router.refusals.map((r) => r.chain).join(", ")}; those chains are skipped until the memo expires`);
+  for (const f of router.deliveryFailures) flags.push(`the last time our router paid this seller on ${f.chain} the call did not deliver (${f.status ? `HTTP ${f.status}` : "no response"}${f.ms ? ` after ${Math.round(f.ms / 1000)}s` : ""}, no settle receipt); that chain is skipped until the memo expires or a call succeeds`);
   if (!self && dispatch && dispatch.routerDispatchEligible !== true && dispatch.routerDispatchReason) flags.push(`router verdict: ${dispatch.routerDispatchReason}`);
   if (prices.length && thresholds.sorCap != null && prices[0] > thresholds.sorCap) flags.push(`the cheapest priced route ($${prices[0]}) is above the router's $${thresholds.sorCap} underlying cap for the cheapest tier`);
 
@@ -300,7 +306,7 @@ export function composeSellerDossier(a) {
 
 export function buildSellerDossierTool({
   getSellerDetail, getSellerEntry, getDispatchRow, getEvidenceBinding, getLeaderboardRow, getBazaarQuality,
-  getSolanaEvidence, getMpp, getRefusals, getRegistration, getDelivery, getSharedClaims, helpers = {},
+  getSolanaEvidence, getMpp, getRefusals, getDeliveryFailures, getRegistration, getDelivery, getSharedClaims, helpers = {},
   sorThreshold = 50, sorPayers = 3, sorCap = 0.005, selfHost = "", now = () => Date.now(),
 }) {
   return {
@@ -334,7 +340,7 @@ export function buildSellerDossierTool({
           catalog: { toolCount: 2, paidToolCount: 2, priceRangeUsd: { min: 0.01, max: 0.04 }, networksAdvertised: ["eip155:8453"], tools: [{ method: "POST", route: "/api/x", name: "X", priceUsd: 0.01, networks: ["eip155:8453"], price: { source: "live-402", observedAt: "2026-09-08T01:00:00.000Z", carriedForward: false, stale: false, originDeclaredUsd: 0.01, disagreesWithOrigin: false, conflict: null }, method_provenance: { inferred: false, correctedFrom: null }, networksVerifiedAt: null, networksVerificationDue: false, urlTemplate: null, dispatch: "settlement_required", ourPaidCalls: null }], toolsTruncated: false, priceProvenance: { stale: 0, carriedForward: 0, disagreeWithOrigin: 0, unpriced: 0, urlTemplates: 0, methodInferred: 0, methodCorrected: 0, networksVerificationDue: 0 } },
           wallets: { advertisedByNetwork: { "eip155:8453": ["0x1111111111111111111111111111111111111111"] }, base: { advertised: "0x1111111111111111111111111111111111111111", ownEvidence: { settled: 12, payers: 4, note: "chain join on this origin's OWN advertised address, plus any committed seed" }, inheritedFrom: [], inheritedNote: null, sharedWithOrigins: [] }, routerDispatchDetail: null },
           settlementEvidence: { base: { source: "on-chain leaderboard (Base USDC, ours)", callsSettled: 12, uniqueBuyers: 4, totalUsd: 0.18, wallets: ["0x1111111111111111111111111111111111111111"], window: null }, bazaar: { source: "Coinbase Bazaar, last 30 days (their measurement, not ours)", calls30d: 30, payers30d: 5, lastCalledAt: "2026-09-07T20:00:00.000Z", payTos: ["0x1111111111111111111111111111111111111111"] }, solana: { source: "Solana SPL leaderboard", observed: false }, mpp: { source: "MPP index", observed: false } },
-          router: { eligible: false, reason: "settlement_required", byChain: { base: { eligible: false, reason: "settlement_required" } }, executeVia: null, executeViaCallableNow: false, gate: { settlementThreshold: 50, distinctPayersThreshold: 3, underlyingCapUsd: 0.005, cheapestPaidToolUsd: 0.01 }, refusals: [] },
+          router: { eligible: false, reason: "settlement_required", byChain: { base: { eligible: false, reason: "settlement_required" } }, executeVia: null, executeViaCallableNow: false, gate: { settlementThreshold: 50, distinctPayersThreshold: 3, underlyingCapUsd: 0.005, cheapestPaidToolUsd: 0.01 }, refusals: [], deliveryFailures: [] },
           delivery: { source: "route-and-execute paid calls (ours)", routesObserved: 0, calls: 0, kept: 0, rows: [] },
           flags: ["router verdict: settlement_required", "the cheapest priced route ($0.01) is above the router's $0.005 underlying cap for the cheapest tier"],
           caveats: ["every count here is a floor: it is what our crawl, probes and chain reads have observed, never the seller's total"],
@@ -371,6 +377,7 @@ export function buildSellerDossierTool({
         solana: typeof getSolanaEvidence === "function" ? getSolanaEvidence(origin) : null,
         mpp: typeof getMpp === "function" ? getMpp(origin, host) : null,
         refusals: typeof getRefusals === "function" ? getRefusals(origin) : [],
+        deliveryFailures: typeof getDeliveryFailures === "function" ? getDeliveryFailures(origin) : [],
         registration: typeof getRegistration === "function" ? getRegistration(origin) : null,
         deliveries,
         sharedClaims: typeof getSharedClaims === "function" ? getSharedClaims() : null,

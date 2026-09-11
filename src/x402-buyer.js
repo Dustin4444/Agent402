@@ -276,6 +276,52 @@ export function sellerRefusedRecently(origin, chain, now = Date.now()) {
 }
 export function __resetSellerRefusalsForTest() { sellerRefusals.clear(); }
 
+// Sellers whose PAID call did not DELIVER. The memo above is the opposite
+// outcome and the milder one: the seller declined the payment and nobody was
+// charged. This one is the credential going out and nothing coming back.
+//
+// Measured 2026-09-11 on one of our own top-ranked rows: the index ranked it
+// #1 for its task and labelled the row callable, a paid probe from the burner
+// answered HTTP 500 after 120 seconds with no Payment-Receipt, and a buyer had
+// reported exactly that through the wish board eleven days earlier. The
+// dispatch verdict is built from crawl readiness and settlement EVIDENCE,
+// which is history, so it has no memory of delivery at all - a seller that
+// reliably fails after payment keeps its top ranking indefinitely.
+//
+// SINGLE STRIKE, CLEARED BY A SINGLE SUCCESS. The asymmetry is deliberate:
+// skipping a seller that had one transient 500 costs a fallthrough to the next
+// of several thousand candidates and lasts at most the TTL, while not skipping
+// one that is genuinely down costs every buyer a paid call that returns
+// nothing. A delivered 200 forgets the memo immediately, so a seller that
+// recovers is back the moment anything reaches it (a direct call, or the TTL
+// lapsing) - we never need a redeploy to un-blacklist anyone.
+//
+// TTL is a day rather than the refusal memo's six hours because the two
+// failures have different lifetimes: a refusal is a verifier disagreement that
+// a seller fixes with one deploy, while a backend that 500s after payment is
+// measured in days - this one had been doing it for eleven.
+const DELIVERY_FAIL_TTL_MS = Number(process.env.SOR_SELLER_DELIVERY_FAIL_TTL_MS || 24 * 3600 * 1000);
+const DELIVERY_FAIL_MAX = 500;
+const deliveryFailures = new Map(); // "chain|origin" -> { at, status, ms }
+export function noteSellerDeliveryFailure(origin, chain, { status = null, ms = null } = {}) {
+  if (!origin || !chain) return;
+  if (deliveryFailures.size >= DELIVERY_FAIL_MAX) deliveryFailures.delete(deliveryFailures.keys().next().value);
+  deliveryFailures.set(refusalKey(origin, chain), { at: Date.now(), status: Number.isFinite(status) ? status : null, ms: Number.isFinite(ms) ? Math.round(ms) : null });
+}
+/** A delivered 200 is proof the seller works right now; forget the memo. */
+export function clearSellerDeliveryFailure(origin, chain) {
+  if (!origin || !chain) return;
+  deliveryFailures.delete(refusalKey(origin, chain));
+}
+export function sellerDeliveryFailingRecently(origin, chain, now = Date.now()) {
+  const k = refusalKey(origin, chain);
+  const hit = deliveryFailures.get(k);
+  if (!hit) return null;
+  if (now - hit.at > DELIVERY_FAIL_TTL_MS) { deliveryFailures.delete(k); return null; }
+  return hit;
+}
+export function __resetSellerDeliveryFailuresForTest() { deliveryFailures.clear(); }
+
 // Resolve-time "does this seller serve the requested model" check. An LLM
 // task carries a model id in its params, and the model namespace is
 // seller-specific: on Solana, "chat completions" with model gpt-4o-mini
@@ -575,6 +621,10 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
     // Wall-clock mark BEFORE the payment header leaves: the chain-truth check
     // after a refusal asks "did our wallet move since here".
     const sentAtUnix = Math.floor(Date.now() / 1000);
+    const sentAtMs = Date.now();
+    // The seller's origin, for the two memos. Computed once, before anything
+    // can throw, so a failure path never has to reconstruct it.
+    const sellerOrigin = (() => { try { return new URL(url).origin; } catch { return null; } })();
     let paid;
     try {
       paid = await fetch(url, { ...reqInit, dispatcher: paidDispatcher, signal: AbortSignal.timeout(timeoutMs), headers: paidHeaders });
@@ -590,7 +640,22 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
       // rest of this function cannot tell the difference. Only this exact
       // cause takes the fallback; every other failure still throws.
       const cause = String(fetchErr?.cause || "");
-      if (!/invalid content-length/i.test(cause)) { paidDispatcher.close().catch(() => {}); throw fetchErr; }
+      if (!/invalid content-length/i.test(cause)) {
+        paidDispatcher.close().catch(() => {});
+        // A paid leg that TIMED OUT settled nothing (the finally releases the
+        // hold), but the buyer still waited the whole budget for an answer
+        // that never came, and the next buyer would too. Only a timeout is
+        // recorded, never an arbitrary network error: a timeout after the
+        // payment header went out is precisely "we waited and got nothing",
+        // whereas a transport error could as easily be our own egress, and
+        // memoizing a seller for our own outage would be the wrong error.
+        const timedOut = fetchErr?.name === "TimeoutError" || fetchErr?.cause?.name === "TimeoutError" || /timeouterror|the operation was aborted/i.test(`${fetchErr?.message || ""} ${cause}`);
+        if (timedOut) {
+          noteSellerDeliveryFailure(sellerOrigin, chain, { status: null, ms: Date.now() - sentAtMs });
+          console.warn(`[x402-buyer] ${(() => { try { return new URL(url).host; } catch { return "seller"; } })()}: the paid leg timed out after ${Date.now() - sentAtMs}ms - memoized as failing to deliver on ${chain}`);
+        }
+        throw fetchErr;
+      }
       console.warn(`[x402-buyer] paid leg fell back to undici.request for ${(() => { try { return new URL(url).host; } catch { return "seller"; } })()} (fetch rejected: ${cause.slice(0, 80)})`);
       const { request } = await import("undici");
       const r = await request(url, {
@@ -672,6 +737,18 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
       } catch { why = "(body unreadable)"; }
       const where = (() => { try { return new URL(url).host; } catch { return "seller"; } })();
       console.warn(`[x402-buyer] ${where} rejected the paid retry: HTTP ${paid.status} content-type=${paid.headers.get("content-type") || "-"} body=${why || "(empty)"}`);
+      // DELIVERY vs REFUSAL. A 5xx with no settle receipt is the seller's own
+      // backend failing AFTER our credential reached it: whether or not the
+      // payment settled, the buyer got nothing, and every buyer we send there
+      // next gets the same. Memoized here, BEFORE the chain-truth checks
+      // below, because those only run on Base and Solana - a Tempo or Algorand
+      // seller that 500s after payment would otherwise be recorded nowhere.
+      // A 402/401 is the refusal shape and is handled by its own memo further
+      // down; the two are kept separate because they need different answers.
+      if (paid.status >= 500 && !(paid.headers.get("payment-response") || paid.headers.get("x-payment-response"))) {
+        noteSellerDeliveryFailure(sellerOrigin, chain, { status: paid.status, ms: Date.now() - sentAtMs });
+        console.warn(`[x402-buyer] ${where} failed to deliver after payment (HTTP ${paid.status}, no receipt, ${Date.now() - sentAtMs}ms) - memoized as failing on ${chain}, the resolver will skip it`);
+      }
       // A 402/401 on the PAID retry is the seller refusing the payment; a 4xx/5xx
       // is the seller failing after it. Their word alone is not proof we were
       // not charged (they control the status line), but on Solana the CHAIN is: if our wallet's USDC did not move
@@ -716,8 +793,7 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
         }
         if (verdict && verdict.debited === false && verdict.expired === true) {
           committed = false; // provably unpaid: the finally releases the hold
-          const origin = (() => { try { return new URL(url).origin; } catch { return null; } })();
-          noteSellerRefusal(origin, chain, paid.status);
+          noteSellerRefusal(sellerOrigin, chain, paid.status);
           console.warn(`[x402-buyer] ${where} refused the payment and the chain shows no debit after the credential expired (${verdict.observed} tx read) - not charged, seller memoized as refusing on ${chain}`);
           const e = bad(`Seller refused the payment (HTTP ${paid.status}); the credential expired unused, nothing charged`, 502);
           e.refused = true;
@@ -748,6 +824,9 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
     if (receiptHdr) {
       try { const r = JSON.parse(Buffer.from(receiptHdr, "base64").toString("utf8")); tx = r?.transaction || null; net = r?.network || null; } catch { /* best-effort */ }
     }
+    // Delivered. Whatever this seller did last time, it works now: forget the
+    // delivery memo immediately rather than making the buyer wait out a TTL.
+    clearSellerDeliveryFailure(sellerOrigin, chain);
     recordUpstreamSpend("x402-buyer", Number(quotedAtomic) / 1e6);
     return {
       // F3: post-spend read never throws — the buyer must be charged (we paid).

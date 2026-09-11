@@ -82,6 +82,37 @@ Smart Order Router would spend buyer money there. The router's gate comes back
 It never fetches the seller at call time: this is accumulated crawl and
 settlement evidence, not a liveness probe.
 
+### `POST /api/seller-dossier` ($0.05, paid)
+
+The same question, answered from everything we hold rather than the gate alone.
+One origin in, and back comes identity and crawl history; the catalog with the
+**provenance of every price** (read from a live 402 or from the manifest, when
+it was read, whether it is stale, whether it disagrees with the seller's own
+declaration); the wallets the origin advertises set against the wallets that
+were actually paid, including evidence it inherits from a shared payTo and who
+else claims that wallet; settlement evidence kept **per source** rather than
+summed (our own Base leaderboard, the Bazaar's measurement labelled as theirs,
+Solana SPL credits, MPP transfers); the router's dispatch verdict per chain with
+its reason and any recent refusal; and what happened the times our router
+actually paid it.
+
+It ends in plain-English flags and deliberately carries **no score** - a number
+reads as a verdict we did not measure. Like `seller-trust` it never fetches the
+seller: it is the assembled record, which is why it is priced above the list
+endpoints.
+
+### `POST /api/seller-payability` ($0.10, paid)
+
+The live counterpart to the two reads above: this one **spends real USDC from
+our wallet** to find out whether a seller can actually be paid right now. It
+reports the unpaid call's status, the 402 decoded (accepts, chains, payTo,
+asset, price), whether the accept's EIP-712 domain name matches the token it
+names (the defect that silently makes a whole catalog unpayable to every stock
+client), whether a stock client's signed payment was accepted, the settlement
+receipt and transaction, a slice of the response body, and how long each leg
+took. Up to $0.02 of the seller's price per check. Point it at your own endpoint
+before you launch.
+
 ### SQL execution certificates
 
 `POST /api/sql-guard` ($0.004) reviews one SQL statement an agent is about to run

@@ -39,7 +39,7 @@ export const CATEGORIES = {
   research: { label: "Market & demand research", blurb: "Analyzed reads over this catalog's own demand and the open x402 ecosystem: what agents ask for, what sells, and company research." },
   agent: { label: "Routing & delegation", blurb: "The Smart Order Router: describe a task and it resolves the best-matching tool and runs it in one call, from this catalog or from an external x402 seller paid on your behalf. Three tiers by underlying price." },
   api: { label: "API primitives", blurb: "Building blocks for services that front an agent: CAPTCHA generation and verification." },
-  x402: { label: "x402 seller intelligence", blurb: "Evidence about other x402 sellers: crawl health, advertised chains, and observed on-chain settlement counts - the same gate the router applies before it spends on an external seller." },
+  x402: { label: "x402 seller intelligence", blurb: "Evidence about other x402 sellers, at three depths: the router's own gate field by field (crawl health, advertised chains, observed settlement counts), the assembled record for one origin (price provenance, advertised wallets against the wallets actually paid, settlement evidence per source, the dispatch verdict per chain), and a live payability check that buys one real call and reports every leg." },
 };
 
 /** Flatten the catalog into renderable tool descriptors. */
