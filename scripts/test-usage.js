@@ -41,7 +41,9 @@ const uEmpty = payerUsage("0x3333333333333333333333333333333333333333", { days: 
 ok(uEmpty.totals.calls === 0 && uEmpty.bySlug.length === 0 && uEmpty.recent.length === 0, "unknown wallet gets an empty (not erroring) report");
 
 // The tool: identity comes ONLY from the verified X-PAYMENT authorization.
-const tool = USAGE_TOOLS[0];
+// By SLUG, never by position: a tool appended to the kit must not be able to
+// re-point this at a different handler.
+const tool = USAGE_TOOLS.find((t) => t.slug === "my-usage");
 const header = Buffer.from(JSON.stringify({ payload: { authorization: { from: BUYER } } })).toString("base64");
 const reqWithPayment = { header: (n) => (n.toLowerCase() === "x-payment" ? header : undefined) };
 const viaTool = await tool.handler({ days: 30 }, reqWithPayment);

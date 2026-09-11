@@ -298,6 +298,15 @@ const qExtSlugWindow = db.prepare(`
 
 // Payer-scoped view (the /api/my-usage tool). Money rails only — PoW rows
 // carry no payer, so they can never appear in a wallet-keyed report anyway.
+const qPayerReceiptsTotal = db.prepare(
+  "SELECT COUNT(*) AS n FROM sales WHERE payer = ? AND internal = 0 AND ts >= ? AND ts <= ?"
+);
+const qPayerReceipts = db.prepare(`
+  SELECT ts, slug, price_usd, quote_usd, rail, network, wire, tx, response_sha256, attest_uid
+    FROM sales
+   WHERE payer = ? AND internal = 0 AND ts >= ? AND ts <= ?
+   ORDER BY ts DESC
+   LIMIT ?`);
 const qPayerTotals = db.prepare(`
   SELECT COUNT(*) AS n, SUM(price_usd) AS usd, MIN(ts) AS first_ts, MAX(ts) AS last_ts
   FROM sales WHERE payer = ? AND rail IN ${PAYING_RAILS_SQL} AND ts >= ?`);
@@ -356,6 +365,67 @@ export function externalSalesForSlugs(slugs, sinceMs, untilMs) {
         ORDER BY ts ASC`
     ).all(Number(sinceMs) || 0, Number(untilMs) || Date.now(), ...list);
   } catch { return []; }
+}
+
+/**
+ * One payer's settled calls as ACCOUNTING ROWS, newest first.
+ *
+ * payerUsage answers "how much have I spent" for a person reading a report.
+ * This answers "what do I post to the general ledger", which is a different
+ * shape: one row per settled payment, each carrying what was bought, the amount
+ * actually settled, the counterparty, and the independent evidence - the
+ * settlement transaction, the sha256 of the bytes delivered, and the EAS
+ * attestation UID where one was written. Those three are what makes a row
+ * auditable by someone who does not trust us, which is the whole point of
+ * handing it to a finance system.
+ *
+ * Identity-bound by the caller, never by a parameter: the route derives the
+ * payer from the signed authorization, so this can only ever return the
+ * caller's OWN rows. A global feed of who paid whom is the customer list we
+ * refuse to publish anywhere else, and an ERP does not want one anyway - it
+ * wants its own payables.
+ *
+ * Internal rows (our canaries, volume runs) are excluded: they are not
+ * anybody's purchases.
+ */
+export function payerReceipts(payer, { from = null, to = null, limit = 500 } = {}) {
+  const lo = from ? Date.parse(from) : Date.now() - 90 * 86_400_000;
+  const hi = to ? Date.parse(to) : Date.now();
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return { error: "unparseable from/to" };
+  const cap = Math.min(Math.max(limit, 1), 5000);
+  const rows = qPayerReceipts.all(payer, lo, hi, cap);
+  // UNCAPPED, deliberately. `returned` is this page; `total` is the window. A
+  // count-named field holding the length of a LIMITed result is how a capped
+  // query once got published as a business figure, and for an accounting
+  // consumer it is worse than useless: it would under-report payables and the
+  // reader would have no way to know.
+  const total = qPayerReceiptsTotal.get(payer, lo, hi)?.n || 0;
+  return {
+    wallet: payer,
+    from: new Date(lo).toISOString(),
+    to: new Date(hi).toISOString(),
+    returned: rows.length,
+    total,
+    // Stated so a consumer never mistakes a page for the period.
+    truncated: rows.length < total,
+    currency: "USD",
+    rows: rows.map((r) => ({
+      settledAt: new Date(r.ts).toISOString(),
+      item: r.slug,
+      // What was actually charged. On a metered call quotedUsd is the ceiling
+      // that was authorized and amountUsd is what settled under it - both are
+      // kept because the difference is the thing a buyer reconciles.
+      amountUsd: +Number(r.price_usd || 0).toFixed(6),
+      quotedUsd: r.quote_usd == null ? null : +Number(r.quote_usd).toFixed(6),
+      rail: r.rail,
+      network: r.network || null,
+      wire: r.wire || null,
+      // Evidence, all independently checkable without asking us.
+      settlementTx: r.tx || null,
+      responseSha256: r.response_sha256 || null,
+      attestationUid: r.attest_uid || null,
+    })),
+  };
 }
 
 export function payerUsage(payer, { days = 30, limit = 50 } = {}) {

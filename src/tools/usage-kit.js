@@ -9,12 +9,31 @@
 // SVM/Stellar payments carry no signed payer the server can verify, so they
 // get a self-explaining 400 instead of a report.
 import { payerFromRequest } from "../payer.js";
-import { payerUsage } from "../sales-ledger.js";
+import { payerUsage, payerReceipts } from "../sales-ledger.js";
 
 function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
 }
 
+
+/** Flat CSV for a subledger import. Every field is quoted and every embedded
+ *  quote doubled, so a slug containing a comma cannot shift a column; a leading
+ *  =,+,-,@ is prefixed with a quote because spreadsheet software executes those
+ *  as formulas (the same rule the paid report viewer already follows). */
+export function receiptsCsv(rows) {
+  const cell = (v) => {
+    let s = v === null || v === undefined ? "" : String(v);
+    if (/^[=+\-@]/.test(s)) s = `'${s}`;
+    return `"${s.replace(/"/g, '""')}"`;
+  };
+  const cols = ["settledAt", "item", "amountUsd", "quotedUsd", "rail", "network", "wire", "settlementTx", "responseSha256", "attestationUid"];
+  return [cols.map(cell).join(","), ...rows.map((r) => cols.map((c) => cell(r[c])).join(","))].join("\n");
+}
+
+// NOTE ordering: my-usage stays FIRST. Consumers index this array
+// positionally (scripts/test-usage.js reads USAGE_TOOLS[0]), so a new tool is
+// APPENDED - prepending one silently re-points every positional reference at
+// the wrong tool, which is exactly how this was caught.
 export const USAGE_TOOLS = [
   {
     route: "POST /api/my-usage",
@@ -60,6 +79,64 @@ export const USAGE_TOOLS = [
       const limit = input?.limit === undefined ? 50 : parseInt(input.limit, 10);
       if (Number.isNaN(limit) || limit < 1 || limit > 200) throw bad('"limit" must be an integer between 1 and 200 (default 50)');
       return payerUsage(wallet, { days, limit });
+    },
+  },
+  {
+    route: "POST /api/receipts",
+    name: "Receipts (your settled calls, as accounting rows)",
+    slug: "receipts",
+    category: "payments",
+    price: "$0.005",
+    description:
+      "Your own settled calls in the shape a finance system posts: one row per payment with what was bought, the amount settled, the quoted ceiling where one applied, and the evidence - settlement transaction, sha256 of the bytes delivered, and the on-chain attestation id where one exists. Keyed to the wallet that pays for the call, so nobody can read another wallet's payables; no account, no export request, no support ticket. Requires an EIP-3009 payment (USDC on Base, Polygon, or Arbitrum). Use format \"csv\" for a subledger import.",
+    tags: ["receipts", "accounting", "reconciliation", "audit", "erp"],
+    aliases: ["invoice", "invoices", "journal", "ledger-export", "accounts-payable"],
+    discovery: {
+      bodyType: "json",
+      input: { from: "2026-09-01", limit: 100 },
+      inputSchema: {
+        properties: {
+          from: { type: "string", description: "ISO date or timestamp, inclusive. Default 90 days ago." },
+          to: { type: "string", description: "ISO date or timestamp, inclusive. Default now." },
+          limit: { type: "number", description: "Max rows per page, 1-5000 (default 500). `total` is the uncapped count for the window and `truncated` says when the page is short of it." },
+          format: { type: "string", description: '"json" (default) or "csv" - the flat form a subledger imports.' },
+        },
+        required: [],
+      },
+      output: {
+        example: {
+          wallet: "0x902dcf34e53695bdea2ffb354b1a2e58bd598256",
+          from: "2026-09-01T00:00:00.000Z",
+          to: "2026-09-11T00:00:00.000Z",
+          returned: 2,
+          total: 2,
+          truncated: false,
+          currency: "USD",
+          rows: [
+            { settledAt: "2026-09-09T10:03:05.816Z", item: "v1-chat-metered", amountUsd: 0.642466, quotedUsd: 0.74, rail: "usdc", network: "solana", wire: "x402", settlementTx: "5Nk…", responseSha256: "9f86d0…", attestationUid: null },
+            { settledAt: "2026-09-08T13:15:07.000Z", item: "hash", amountUsd: 0.001, quotedUsd: null, rail: "usdc", network: "base", wire: "x402", settlementTx: "0x6563…", responseSha256: "2c26b4…", attestationUid: "0x76e736…" },
+          ],
+          note: "Every row's settlementTx is verifiable on the named chain without asking us.",
+        },
+      },
+    },
+    handler: async (input, req) => {
+      const wallet = payerFromRequest(req);
+      if (!wallet) {
+        throw bad(
+          "Receipts are keyed to the wallet that PAYS for the call. Pay via x402 with an EIP-3009 authorization (USDC on Base, Polygon, or Arbitrum) and the response covers that wallet's own payables. Solana/Stellar payments carry no signed payer the server can verify, so they cannot unlock receipts."
+        );
+      }
+      const limit = input?.limit === undefined ? 500 : parseInt(input.limit, 10);
+      if (Number.isNaN(limit) || limit < 1 || limit > 5000) throw bad('"limit" must be an integer between 1 and 5000 (default 500)');
+      const out = payerReceipts(wallet, { from: input?.from ?? null, to: input?.to ?? null, limit });
+      if (out.error) throw bad(`"from"/"to" must be an ISO date or timestamp (${out.error})`);
+      out.note = "Every row's settlementTx is verifiable on the named chain without asking us.";
+
+      const format = String(input?.format || "json").toLowerCase();
+      if (format === "csv") return { ...out, csv: receiptsCsv(out.rows) };
+      if (format !== "json") throw bad('"format" must be "json" or "csv"');
+      return out;
     },
   },
 ];
