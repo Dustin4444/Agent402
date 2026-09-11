@@ -197,6 +197,32 @@ async function s3(method, key, { body, contentLength, query = "" } = {}) {
   return res;
 }
 
+/** Object write for OTHER producers in this process (today: the dated dataset
+ *  snapshot). It shares this file's SigV4 signer deliberately - that signer was
+ *  proven against the live bucket before the first backup ran, and a second
+ *  hand-rolled copy is a second thing to get subtly wrong. Body must be a
+ *  Buffer: the length is signed, so a stream would have to be measured first. */
+export async function putObject(key, body) {
+  if (!Buffer.isBuffer(body)) throw new Error("putObject needs a Buffer body");
+  // No explicit content-length: undici derives it from a Buffer and REFUSES a
+  // caller-supplied one ("invalid content-length header", UND_ERR_INVALID_ARG).
+  // The streaming upload below does pass it, correctly - a stream cannot be
+  // measured, so undici requires the header there. That asymmetry is why the
+  // proven backup path never hit this and the first draft of this one did.
+  const res = await s3("PUT", key, { body });
+  if (!res.ok) throw new Error(`PUT ${key}: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
+  return { key, bytes: body.length };
+}
+
+/** Does this key already exist? The dataset snapshot asks before writing: a
+ *  day that has been recorded is never rewritten. */
+export async function objectExists(key) {
+  const res = await s3("HEAD", key);
+  if (res.status === 200) return true;
+  if (res.status === 404) return false;
+  throw new Error(`HEAD ${key}: HTTP ${res.status}`);
+}
+
 async function listAll(prefix) {
   // ListObjectsV2, paginated. Returns [{key, size}].
   const out = [];

@@ -112,6 +112,7 @@ import { latest13fFiling, resolveManager as edgarResolveManager } from "./tools/
 import { resolveSpend as resolveExternalSpend } from "./external-spend-guard.js";
 import { registerWellKnown, removeWellKnown, getWellKnown, listWellKnown } from "./well-known-store.js";
 import { backupPlan, backupStatus, runBackup, startBackupScheduler } from "./backup.js";
+import { datasetStatus, runDatasetSnapshot, startDatasetScheduler } from "./dataset-snapshot.js";
 import { assertAvmValidityCovers } from "./avm-validity.js";
 import { paymentReplayKey, createReplayGuard } from "./replay-guard.js";
 import { statusPage, statusSnapshot } from "./status.js";
@@ -168,7 +169,7 @@ import { installEgressMeter, egressReport } from "./egress-meter.js";
 import { acpFeed, acpManifest } from "./acp.js";
 import { findTools, findRelatedSellers } from "./find.js";
 import { recordWish, getWishesAggregate, annotateServed, WISH_SERVED_MIN_SCORE } from "./wish.js";
-import { allPayToOrigins, indexSnapshot, sellerDetail, sellerEntry, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories, bazaarQualityEntries, bazaarQualityFor, indexWarmStartInProgress, quoteIsStale, priceDisagreesWithOrigin, networksNeedLiveVerify, looksLikeListingInjection } from "./x402-index.js";
+import { allPayToOrigins, indexSnapshot, sellerDetail, sellerEntry, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories, bazaarQualityEntries, bazaarQualityFor, indexWarmStartInProgress, quoteIsStale, priceDisagreesWithOrigin, networksNeedLiveVerify, looksLikeListingInjection, crawlToolsByOrigin } from "./x402-index.js";
 import { startMppCrawler, registerMppOrigin, validateOriginInput as validateMppOriginInput, mppIndexSnapshot } from "./mpp-index.js";
 import { startMppLeaderboard, mppLeaderboardSnapshot } from "./mpp-leaderboard.js";
 import { tempoSelfRecipient } from "./mpp-tempo.js";
@@ -3662,6 +3663,25 @@ app.post("/__operator/refunds/backfill", (req, res) => {
   } catch (e) {
     res.status(500).json({ error: String(e.message) });
   }
+});
+app.get("/__operator/dataset.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  res.set("Cache-Control", "no-store").json({ status: datasetStatus() });
+});
+// Write today's ecosystem snapshot by hand. Immutable: a day already recorded
+// is skipped unless ?force=1, which is for repairing a run that half-failed
+// and is recorded in that day's manifest.
+app.post("/__operator/dataset/run", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  if (operatorHeavyLimited(req, res)) return;
+  runDatasetSnapshot({
+    ...datasetSources(),
+    ...(String(req.query.day || "").match(/^\d{4}-\d{2}-\d{2}$/) ? { day: req.query.day } : {}),
+    force: String(req.query.force || "") === "1",
+  }).then(
+    (r) => res.json(r),
+    (e) => res.status(500).json({ error: String(e.message) })
+  );
 });
 app.post("/__operator/backup/run", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
@@ -7379,7 +7399,23 @@ const bootStep = (name, fn) => {
   report.unref();
 }
 
+// Sources for the dated ecosystem snapshot. Each is a thunk so a dead
+// accessor costs its own table and not the day (the snapshot guards each
+// one); `sellers` joins the marketplace projection to the raw crawl tools,
+// which is where the per-route price provenance lives.
+const datasetSources = () => ({
+  sellers: () => {
+    const tools = crawlToolsByOrigin();
+    return (getIndexSnapshot()?.sellers || [])
+      .filter((s) => !s.local)
+      .map((s) => ({ ...s, tools: tools.get(s.origin) || [] }));
+  },
+  baseRows: () => getLeaderboardSnapshot()?.leaderboard || [],
+  solanaRows: () => getSolanaLeaderboardSnapshot()?.rows || [],
+  mppRows: () => mppLeaderboardSnapshot()?.rows || [],
+});
 bootStep("startBackupScheduler", () => startBackupScheduler());
+bootStep("startDatasetScheduler", () => startDatasetScheduler(datasetSources()));
 
 // Monitor scheduler timer (recurring report fulfilment). MONITOR_SCHEDULER=off
 // keeps the manual operator run available while disarming the timer.
