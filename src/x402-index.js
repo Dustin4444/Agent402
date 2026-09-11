@@ -4492,6 +4492,19 @@ export function _cacheForTests() {
  *  originDeclaredPrice, priceResolvedFrom, networksVerifiedAt, methodInferred,
  *  methodCorrectedFrom. Read-only by convention: callers must not mutate it.
  *  null when the origin was never crawled. */
+/** Every crawled seller's own tool rows, keyed by origin, raw.
+ *
+ *  For the dated dataset snapshot (src/dataset-snapshot.js), which needs the
+ *  per-route price provenance that the /api/index seller projection drops.
+ *  It hands over everything and makes NO publishing decision: the snapshot's
+ *  column allowlist is the single place that decides what is published, so
+ *  there is only one file to read to answer "what goes out". */
+export function crawlToolsByOrigin() {
+  const out = new Map();
+  for (const [origin, v] of cache.entries()) out.set(origin, Array.isArray(v.tools) ? v.tools : []);
+  return out;
+}
+
 export function sellerEntry(originOrHost) {
   const q = String(originOrHost || "").trim().toLowerCase().slice(0, 253);
   if (!q) return null;
