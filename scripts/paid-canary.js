@@ -208,7 +208,7 @@ export const TOOLS = [
     kit: "answer",
     path: "/api/answer?q=what+is+the+speed+of+light",
     method: "GET",
-    priceUsd: 0.21,
+    priceUsd: 0.08,
     check: (r) => (typeof r.answer === "string" && r.answer.length > 0 && r.citationCount > 0) || `expected non-empty answer + citationCount>0, got ${JSON.stringify(r).slice(0, 80)}`,
   },
   {

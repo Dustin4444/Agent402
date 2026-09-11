@@ -49,7 +49,7 @@ export const PACK_PRICES = {
   "trip-planner": 0.006, // 6 tools, parts $0.006
   "macro-context": 0.041, // 8 tools, parts $0.045
   "regulatory-watch": 0.023, // 5 tools, parts $0.025
-  "search-and-cite": 0.236, // 5 tools, parts $0.262
+  "search-and-cite": 0.119, // 5 tools, parts $0.132
   "media-pipeline": 0.03, // 6 tools, parts $0.033
   "schema-evolution": 0.008, // 6 tools, parts $0.008
   "link-preview": 0.015, // 5 tools, parts $0.016
@@ -79,7 +79,7 @@ export const PACK_PRICES = {
   "brand-protection": 0.027, // 4 tools, parts $0.03
   "competitor-scan": 0.014, // 4 tools, parts $0.015
   "page-audit": 0.017, // 5 tools, parts $0.018
-  "article-digest": 0.225, // 3 tools, parts $0.25
+  "article-digest": 0.108, // 3 tools, parts $0.12
   "pdf-pipeline": 0.007, // 3 tools, parts $0.007
   "url-inspector": 0.004, // 3 tools, parts $0.004
   "content-grade": 0.012, // 3 tools, parts $0.013
