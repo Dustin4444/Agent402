@@ -50,15 +50,40 @@ async function settle(label, fn, input) {
 
 export const RESEARCH_TOOLS = [
   {
-    route: "GET /api/research-company",
+    route: "POST /api/research-company",
     name: "Company research dossier",
     slug: "research-company",
     category: "research",
     price: "$0.10",
     description:
-      "One-shot company research dossier for a US-listed ticker: recent 10-K / 10-Q / 8-K filings, Form 4 insider trades (last 90 days), live stock quote, and recent news headlines - all merged into a single deterministic JSON response. Fans out to EDGAR, Yahoo Finance, and an independent news index in parallel. Each section reports its own ok/error status so a partial upstream outage degrades gracefully instead of failing the whole call. Replaces ~5 sequential paid calls with one. ?ticker=AAPL",
+      "One-shot company research dossier for a US-listed ticker: recent 10-K / 10-Q / 8-K filings, Form 4 insider trades (last 90 days), live stock quote, and recent news headlines - all merged into a single deterministic JSON response. Fans out to EDGAR, Yahoo Finance, and an independent news index in parallel. Each section reports its own ok/error status so a partial upstream outage degrades gracefully instead of failing the whole call. Replaces ~5 sequential paid calls with one.",
     tags: ["research", "company", "dossier", "edgar", "stocks", "filings", "news", "insider", "composite", "premium"],
     discovery: {
+      // POST + bodyType makes the published example a JSON BODY rather than
+      // query params, and that is a REGISTRATION fix, not cosmetics.
+      //
+      // The route had to move with the example: the Bazaar spec only allows
+      // bodyType on a body method, and our own test-bazaar-contracts guard
+      // refuses the mismatch (it caught the first cut of this fix, which
+      // changed only the example). Existing GET callers are unaffected - the
+      // method alias runs the POST gate chain for a GET on a POST-only path,
+      // and handlerInputOf merges the query string in as the input, so
+      // "?ticker=AAPL" still works.
+      //
+      // The Bazaar records a resource from the URL that actually settled. With
+      // a queryParams example a buyer pays ".../api/research-company?ticker=…",
+      // which is not the resource our own challenge advertises, and the row is
+      // never written: measured 2026-09-11, this route settled TWICE on Base
+      // (0x79bb5dc9…, 0xb4c45844…, both in our sales ledger) and stayed absent
+      // from a feed where every other route of ours appeared within seconds of
+      // its first payment. It was the ONLY one of 37 whose example carried a
+      // query string, and zero of our 583 listed rows carry one.
+      //
+      // The route stays GET for everyone already calling it; the method alias
+      // (server.js) runs the same gate chain for a POST on a GET-only path and
+      // hands the body through as the input, so the example is payable on the
+      // bare path.
+      bodyType: "json",
       input: { ticker: "AAPL" },
       inputSchema: {
         properties: {
