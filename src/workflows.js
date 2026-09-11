@@ -9,7 +9,6 @@ const WORKFLOWS = [
       { slug: "search", label: "Search the web for the company" },
       { slug: "render", label: "Render the company homepage" },
       { slug: "extract", label: "Extract structured data from the page" },
-      { slug: "research-company", label: "Pull a full company profile" },
       { slug: "edgar-filings", label: "Retrieve SEC filings from EDGAR" },
     ],
   },

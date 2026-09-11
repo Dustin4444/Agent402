@@ -60,7 +60,7 @@ const ROUTES = [
   "POST /v1/recall-report", "POST /v1/linkedin-article",
   "POST /v1/pro/chat/completions", "POST /v1/pro/messages", "POST /v1/pro/responses",
   "POST /v1/premium/chat/completions", "POST /v1/premium/messages", "POST /v1/premium/responses",
-  "POST /api/llm-pro", "POST /api/llm-premium", "POST /api/research-company",
+  "POST /api/llm-pro", "POST /api/llm-premium",
   "POST /v1/videos/generations", "POST /api/image-gen-hd", "POST /api/image-gen-premium",
   "POST /api/tts-hd", "POST /api/tts-lite", "POST /api/transcribe-pro",
   "GET /api/x-search-recent", "GET /api/x-user-tweets", "GET /api/x-users-lookup",

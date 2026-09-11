@@ -34,13 +34,15 @@ const BRAVE_ROUTES = new Set([
   // fails CI if any pack reaching Brave is absent from this set, so the third
   // recurrence cannot happen quietly.
   "/api/skill/earnings-deep-dive", "/api/skill/options-analytics", "/api/skill/defi-protocol-scanner",
-  // Added 2026-08-02 after an outbound counter measured 2 live Brave calls per
-  // run that BOTH previous guards cleared. Neither of these names a Brave slug
-  // anywhere: research-company calls the search-news HANDLER in-process, and
-  // financial-research composes research-company. A check for "does this use a
-  // Brave slug" sees nothing in either, which is why test-brave-leak.js now
-  // resolves reach through kits rather than by slug name.
-  "/api/research-company", "/api/skill/financial-research",
+  // (research-company and the financial-research pack lived here from
+  // 2026-08-02, after an outbound counter measured 2 live Brave calls per run
+  // that both previous guards cleared: research-company called the search-news
+  // HANDLER in-process and the pack composed it, so a check for "does this use
+  // a Brave slug" saw nothing in either. That is why test-brave-leak.js
+  // resolves reach through KITS rather than by slug name - keep that. Both
+  // entries went when research-company was retired 2026-09-11, and the leak
+  // guard flagged the pack as a stale skip on the same run, which is the guard
+  // doing exactly its job. The pack is fully exercised in CI again.)
   // Added 2026-08-22 with the llm-context kit. It is not a search TOOL and it
   // does not call one - it spends the SAME Brave subscription directly, on
   // Brave's /llm/context endpoint. Unskipped, every CI run would buy one live

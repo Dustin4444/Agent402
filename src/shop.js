@@ -26,8 +26,8 @@ const TASKS = [
   {
     goal: "Research a public company",
     answer: "One call returns the latest 10-K/10-Q/8-K filings, recent insider trades, live stock quote, and current news headlines.",
-    slugs: ["research-company", "edgar-filings", "edgar-company-facts", "stock-quote"],
-    example: "/api/research-company?ticker=AAPL",
+    slugs: ["edgar-filings", "edgar-company-facts", "stock-quote", "edgar-insider-trades"],
+    example: "/api/edgar-filings?ticker=AAPL",
   },
   {
     goal: "Get a snapshot of the US economy",

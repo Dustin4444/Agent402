@@ -155,7 +155,7 @@
       "slug": "embed",
       "name": "unicode text",
       "input": {
-        "text": "naïve café ☕"
+        "text": "na\u00efve caf\u00e9 \u2615"
       },
       "requires": "OPENAI_API_KEY",
       "expect": {
@@ -478,28 +478,6 @@
           "yr30": 0,
           "mo1": 0
         }
-      }
-    },
-    {
-      "slug": "research-company",
-      "name": "a second ticker with filings",
-      "input": {
-        "ticker": "NVDA",
-        "filingsLimit": 2,
-        "newsCount": 2
-      },
-      "requires": "BRAVE_API_KEY",
-      "expect": {
-        "equals": {
-          "ticker": "NVDA"
-        },
-        "minCount": {
-          "filings10K": 1,
-          "sources": 1
-        },
-        "populated": [
-          "quote"
-        ]
       }
     },
     {

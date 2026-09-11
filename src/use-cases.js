@@ -4,7 +4,7 @@ const USE_CASES = [
   {
     title: "Research 50 public companies overnight",
     story: "An investment analyst\u2019s agent iterated through 50 S&P 500 tickers, pulling 10-K filings, earnings history, and live quotes for each. By morning, 50 structured summaries were ready for review.",
-    tools: ["research-company", "edgar-filings", "stock-quote", "stock-history"],
+    tools: ["edgar-filings", "edgar-company-facts", "stock-quote", "stock-history"],
     cost: "~$0.50 (50 \u00d7 ~$0.01/call)",
   },
   {

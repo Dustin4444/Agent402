@@ -5,7 +5,7 @@
 //
 // Fetches + extracts text via pdf.js's pdfToText, then summarizes it by
 // calling the LLM gateway's OWN v1-chat ($0.02) tier handler IN-PROCESS —
-// same composition pattern as research-kit.js (import the kit array, look up
+// same composition pattern research-kit.js used before it was retired (import the kit array, look up
 // by slug, call the handler directly). This reuses that tier's existing
 // margin clamp, model fallback chain, and pricing safety instead of
 // re-implementing upstream LLM calling from scratch: the inner handler's own
