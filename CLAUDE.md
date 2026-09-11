@@ -110,6 +110,16 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
   merge to `main` (deploys on its own now, whether or not the dev branch was ever synced). The
   `create_pull_request` tool auto-appends a session-link footer; **strip it** via
   `update_pull_request` before/after creating (no session links in PR bodies/commits).
+- **BATCH THE MERGES: one PR per BATCH of changes, not one per change (the operator, 2026-09-11).**
+  Every merge to `main` deploys, the service is volume-backed so each deploy is a 60-90 s
+  no-container window, and nothing collapses them: measured 18 merges on 09-10 and 13 on 09-09,
+  several under ten minutes apart, i.e. ~20 minutes of self-inflicted production gaps a day.
+  So accumulate related commits on the dev branch and open ONE draft PR carrying all of them;
+  merge when the batch is done, not when each commit is. Deliberately a PROCESS rule and not a
+  workflow gate - the operator considered and DECLINED both a `[deploy]` marker on main (plus a
+  scheduled backstop) and a debounce inside the deploy job, because an unconditional deploy on
+  merge is what keeps "merged but never shipped" impossible, and that bug class cost five PRs
+  once. Break the batch for anything urgent: a production fix ships alone, immediately.
 - **Heartbeat** (`heartbeat.yml`) probes prod every 15 min and opens a "production DOWN" issue on
   failure; a daily paid canary buys a $0.001 tool. No open issues = prod healthy. Also
   watches the **PayAI settlement quota** (PayAI is PRIMARY for Solana/Polygon/Arbitrum/

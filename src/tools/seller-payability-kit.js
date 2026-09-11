@@ -36,6 +36,7 @@
 import { markUntrusted } from "./provenance.js";
 import { maySpend as realMaySpend, noteSpend as realNoteSpend, adjustSpend as realAdjustSpend } from "../external-spend-guard.js";
 import { usdcDomainVerdict, usdcDomainMismatchDetail } from "../evm-usdc-domain.js";
+import { payerFromRequest } from "../payer.js";
 import { acceptsFromLive402, quoteFromAccepts } from "../x402-live-quote.js";
 
 function bad(message, statusCode = 400) {
@@ -50,6 +51,26 @@ const DEFAULT_MAX_USD = 0.01;
 const BODY_SLICE = 2000;
 const PROBE_TIMEOUT_MS = 15_000;
 const PAY_TIMEOUT_MS = 45_000;
+// The whole handler's budget, threaded into the payer as both its per-fetch
+// timeout and its refusal wait (2026-09-11 review).
+//
+// Where the worst case actually comes from, measured rather than assumed: NOT
+// the refusal wait. On Base that wait is already capped near 35 s, because
+// capEvmValidity caps the signed validBefore at SOR_REFUSAL_WINDOW_S and the
+// check polls to that absolute deadline; the 90 s SOR_REFUSAL_MAX_WAIT_MS
+// default is only live on Solana, and this route is Base-pinned. The ~150 s
+// comes from payX402 running THREE sequential 45 s fetches (the bare 402, the
+// paid retry, the X-PAYMENT-by-name resend) after our own 15 s probe. Passing
+// the remaining budget bounds all of them.
+//
+// Why it matters: settlement runs AFTER the handler, so a handler that outlives
+// the buyer's authorization means we paid the seller and nobody paid us. The
+// realistic case is not an attacker, it is a SLOW HONEST SELLER answering 200
+// at 30 to 60 s - the same shape as the 69 s scrape that cost us a Tempo leg
+// and forced SOR_TEMPO_BUDGET_MS. The structural half of the fix is the
+// LONG_RUNNING_SLUGS entry, which stops the paywall advertising rails that
+// cannot settle a run this long.
+const DEADLINE_MS = 55_000;
 
 /** Accept the shapes a buyer actually types. Returns a validated https URL. */
 export function normalizeTarget(raw) {
@@ -146,13 +167,38 @@ export function buildSellerPayabilityTool({
     // The wallet's daily ceiling, the same guard route-execute books against.
     // Keyed on the chain, so this tool cannot walk past the day's bound even
     // if every caller asks at once.
-    const allowed = maySpend(null, maxUsd, { chain: spendChain });
+    // Key the buyer in, exactly as route-execute does. A null payer takes the
+    // guard's "not attributable" branch (external-spend-guard.js), so the
+    // per-payer unsettled ceiling is skipped entirely and the spend carries no
+    // operator attribution.
+    //
+    // HONEST SCOPE, from the 2026-09-11 review: this is consistency and
+    // attribution, NOT a money hole, and the first draft of this comment
+    // overstated it. The real bounds on an uncharged spend here were already
+    // in place and still are - the settle-failure breaker runs BEFORE this
+    // handler for every wallet-only slug and refuses at 3 failures per 15 min
+    // (so at most ~$0.06), and the Base wallet's $25/day chain ceiling is what
+    // actually bounds a caller rotating wallets or IPs. The per-payer ceiling
+    // is $6 against a $0.02 cap, so it would not have refused until call 301.
+    // Keep it anyway: it costs three lines, it puts this route in
+    // exposureSnapshot() beside route-execute, and it is the bound that starts
+    // mattering the moment the cap is raised or the breaker is retuned.
+    //
+    // Tempo buyers have no x402 header (the gate strips it), hence the
+    // fallback chain; the IP last so nobody is unkeyed.
+    const spendPayer = payerFromRequest(req)
+      || (req?.mppTempoPayer ? `tempo:${req.mppTempoPayer}` : null)
+      || (req?.ip ? `ip:${req.ip}` : null);
+    const allowed = maySpend(spendPayer, maxUsd, { chain: spendChain });
     if (!allowed?.ok) {
       throw bad(allowed?.code === "wallet_daily_ceiling"
         ? "The Base spending wallet has reached its daily ceiling; payability checks resume tomorrow (nobody was charged)"
         : "Upstream spend is paused right now; try again shortly (nobody was charged)", 429);
     }
-    const spendHandle = noteSpend(null, maxUsd, { chain: spendChain });
+    const spendHandle = noteSpend(spendPayer, maxUsd, { chain: spendChain });
+    // server.js resolves this on the post-settlement finish hook; without it
+    // the worst-case booking stands for the whole window whatever happened.
+    if (spendHandle && req && typeof req === "object") req.__externalSpend = spendHandle;
 
     const t0 = now();
     // LEG 1: the bare call. What a buyer's client sees before it pays.
@@ -192,14 +238,27 @@ export function buildSellerPayabilityTool({
           method,
           ...(method === "POST" ? { body: body ?? {} } : {}),
           chain: spendChain,
-          timeoutMs: PAY_TIMEOUT_MS,
+          // Both bounds carry the request's REMAINING budget, so no leg of the
+          // payer can push the handler past DEADLINE_MS.
+          timeoutMs: Math.max(1_000, Math.min(PAY_TIMEOUT_MS, DEADLINE_MS - (now() - t0))),
+          refusalMaxWaitMs: Math.max(0, DEADLINE_MS - (now() - t0)),
         });
         paid = { status: 200 };
         receipt = out?.receipt ?? null;
         settled = !!(receipt && (receipt.success === true || receipt.transaction || receipt.tx));
         result = typeof out?.result === "string" ? out.result.slice(0, BODY_SLICE) : JSON.stringify(out?.result ?? null).slice(0, BODY_SLICE);
-        // Correct the day's booking down to what the seller actually quoted.
-        if (quoted != null) adjustSpend(spendHandle, quoted);
+        // Correct the day's booking down to what we ACTUALLY SIGNED, which is
+        // `out.quote.usd` - never `quoted`, which came from LEG 1's 402.
+        // payX402 issues its own bare request and signs whatever THAT 402
+        // names, and the seller writes both responses: a cheap probe quote
+        // beside an expensive paying quote would have booked ~nothing against
+        // the wallet's daily ceiling while the real money left. That is the
+        // ratchet adjustSpend's own docstring warns about - one
+        // seller-controlled document setting our debt ceiling - and it is
+        // worse here than the route-execute case it was written for, because
+        // the number came from a DIFFERENT response than the one paid.
+        const signedUsd = Number(out?.quote?.usd);
+        if (Number.isFinite(signedUsd)) adjustSpend(spendHandle, signedUsd);
       } catch (e) {
         // payX402's own refusals carry a statusCode; a 402 means the seller
         // rejected the credential a stock client produces, which is the
@@ -207,8 +266,18 @@ export function buildSellerPayabilityTool({
         payError = String(e?.message || e).slice(0, 300);
         paid = { status: e?.statusCode === 402 || /refused the payment/i.test(payError) ? 402 : (e?.statusCode ?? null) };
         settled = false;
+        // Nothing was signed unless the payer says it committed, so give the
+        // day's budget back rather than holding the worst case for the window.
+        if (e?.committed !== true) adjustSpend(spendHandle, 0);
       }
       payMs = now() - t1;
+    } else {
+      // No payment was attempted at all - a 200, a non-402, an unreadable
+      // challenge or an over-cap quote. This is the COMMON outcome for a tool
+      // whose job is diagnosing sellers, and the worst-case booking would
+      // otherwise hold $0.02 of the chain's day for the full window on every
+      // such check, quietly starving route-execute and the supply-chain buys.
+      adjustSpend(spendHandle, 0);
     }
 
     const flags = payabilityFlags({ bare, challenge, domains, paid, receipt, settled });

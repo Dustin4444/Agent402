@@ -40,6 +40,12 @@ export const SLOW_TOOL_SECONDS = {
   // hand-built AVM payment must still be refused up front rather than burn the run.
   "v1-images-fast": 240, "v1-images-pro": 240, "v1-videos": 300,
   "site-crawl": 40, "site-map": 20,
+  // Pays an outside seller from our Base wallet and runs to its own 55 s
+  // deadline (see DEADLINE_MS in seller-payability-kit.js). EVM-exact only via
+  // LONG_RUNNING_SLUGS, so no AVM accept is advertised - this entry is the belt
+  // that refuses a hand-built AVM payment before the upstream spend, the same
+  // reasoning as the composites above.
+  "seller-payability": 60,
 };
 
 export const requiredSecondsFor = (slug) => SLOW_TOOL_SECONDS[slug] ?? DEFAULT_REQUIRED_SECONDS;
