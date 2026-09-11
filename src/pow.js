@@ -332,7 +332,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   // PoW would let one client farm our E2B quota for free.
   "code-run", "code-run-pro",
   // TTS kit: every call burns OpenAI TTS credit.
-  "tts", "tts-hd",
+  "tts", "tts-hd", "tts-lite",
   // STT kit: fetches external audio + burns OpenAI transcription credit.
   "transcribe", "transcribe-pro",
   // Embeddings kit: every call burns OpenAI embedding credit.

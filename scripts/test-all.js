@@ -323,7 +323,7 @@ const NETWORK = new Set([
   // Named chain-read primitives (chain-kit 2026-07-29): live public-RPC reads.
   "/api/block-number", "/api/chain-info", "/api/block-info", "/api/erc721-owner", "/api/contract-code", "/api/event-logs",
   // TTS kit: every call hits OpenAI TTS API upstream.
-  "/api/tts", "/api/tts-hd",
+  "/api/tts", "/api/tts-hd", "/api/tts-lite",
   // STT kit: fetches external audio + hits OpenAI transcription API.
   "/api/transcribe", "/api/transcribe-pro",
   // Embeddings kit: every call hits OpenAI embeddings API upstream.
