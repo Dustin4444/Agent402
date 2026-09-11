@@ -52,7 +52,7 @@ const SELLER = {
   bazaar: { l30DaysTotalCalls: 4000, l30DaysUniquePayers: 12 },
   secretInternalScore: 0.97,
   tools: [{
-    route: "/api/thing", method: "POST", priceUsd: 0.005,
+    route: "/api/thing", method: "POST", price: "$0.005",
     quoteSource: "live-402", priceResolvedFrom: "origin",
     originDeclaredPrice: 0.005, quoteObservedAt: "2026-09-11T03:00:00.000Z",
     quoteCarriedForward: false, networks: ["eip155:8453"],
@@ -85,6 +85,10 @@ const MPP_ROW = { recipient: "0xrecip", sellers: ["https://seller.example"], int
   ok(!("internalProbeNote" in r), "an un-allowlisted route field must not be emitted");
   eq(r.origin, "https://seller.example", "route rows carry their seller origin as the join key");
   eq(r.price_source, "live-402", "price provenance is carried");
+  eq(r.price_usd, 0.005, "price_usd is DERIVED from the crawl row's display string - the raw object has no priceUsd, and the first real day shipped this column all-null because of it");
+  eq(r.price_published, "$0.005", "what the origin literally published rides along beside the parsed number");
+  eq(buildTables({ sellers: [{ origin: "o", tools: [{ route: "/x", price: "ask us" }] }] }).routes.rows[0].price_usd, null,
+     "an unparseable price is NULL, never 0 - publishing 'free' for 'unreadable' would be a fabricated fact");
   eq(r.quote_observed_at, "2026-09-11T03:00:00.000Z", "observation time is carried");
   eq(s.router_dispatch_reason, "settlement_required", "the router's own verdict rides along - the column that separates transactable from merely listed");
   eq(s.pay_to_by_network["eip155:8453"], "0xseller", "the per-chain payout address is the join key to the settlement tables");
@@ -227,6 +231,7 @@ const exists = async (key) => bucket.has(key);
 {
   const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
   const block = /const datasetSources = \(\) => \(\{[\s\S]*?\n\}\);/.exec(server)?.[0] || "";
+  ok(/withDispatchFields\(s\)/.test(block), "the sellers source applies the dispatch decoration /api/index applies; without it the router_dispatch_* columns publish all-null");
   ok(block.includes("crawlToolsByOrigin()"), "the sellers source joins the raw crawl tools - without it the routes table is empty and the price provenance, the point of the dataset, is lost");
   ok(/filter\(\(s\) => !s\.local\)/.test(block), "our own host row is excluded: this dataset describes the ecosystem, and an index that publishes itself as a seller is the thing we refuse to do elsewhere");
   ok(block.includes("getLeaderboardSnapshot") && block.includes("getSolanaLeaderboardSnapshot") && block.includes("mppLeaderboardSnapshot"), "all three settlement boards are wired");

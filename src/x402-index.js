@@ -605,8 +605,11 @@ function parsePrice(p) {
   return isFinite(n) ? n : 0;
 }
 
-/** USD → integer micro-dollars for exact compares (avoids float !== hazards). */
-function priceToMicroUsd(p) {
+/** USD → integer micro-dollars for exact compares (avoids float !== hazards).
+ *  Exported for the dataset snapshot, which needs a price column that is NULL
+ *  when the origin published something unparseable - never parsePrice's 0,
+ *  which would publish "free" for "we could not read it". */
+export function priceToMicroUsd(p) {
   if (p == null || p === "") return null;
   const n = typeof p === "number" ? p : parseFloat(String(p).replace(/[^0-9.]/g, ""));
   if (!Number.isFinite(n) || n < 0) return null;
