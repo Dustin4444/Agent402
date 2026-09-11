@@ -17,7 +17,7 @@ import { gunzipSync } from "node:zlib";
 import { readFileSync } from "node:fs";
 import {
   buildTables, serializeTable, manifestFor, columnFill,
-  runDatasetSnapshot, EXCLUDED_THIRD_PARTY, DATASET_PREFIX,
+  runDatasetSnapshot, EXCLUDED_THIRD_PARTY, UNFILLABLE_HERE, DATASET_PREFIX,
 } from "../src/dataset-snapshot.js";
 
 let n = 0;
@@ -107,6 +107,16 @@ const MPP_ROW = { recipient: "0xrecip", sellers: ["https://seller.example"], int
   const m = manifestFor({ day: "2026-09-11", tables: buildTables({ sellers: [SELLER] }) });
   ok(/not redistributed/i.test(m.excludedThirdParty["sellers.bazaar"]), "the manifest says WHY it was excluded");
   ok(/first-party/i.test(m.provenance), "the manifest states provenance");
+  // A column this source cannot fill is DROPPED and named, never published as
+  // a permanent field of nulls - the failure the first real day shipped.
+  const cols = buildTables({ sellers: [SELLER] }).routes.columns.map(([o]) => o);
+  ok(!cols.includes("url_template") && !cols.includes("networks_inferred"), "columns the crawl row cannot fill are not emitted");
+  ok(Object.keys(UNFILLABLE_HERE).length >= 2, "and they are named, so the omission is reviewable rather than forgotten");
+
+  const idx = readFileSync(new URL("../src/x402-index.js", import.meta.url), "utf8");
+  const persist = /function persistedEntries[\s\S]*?\n\}/.exec(idx)?.[0] || "";
+  ok(/discoveryPath/.test(persist), "discoveryPath survives persistence: it is published by /api/index and every warm start dropped it, so prod served null for every seller");
+  ok(/"payment"/.test(idx.match(/const MANIFEST_PERSIST_KEYS = \[[^\]]*\]/)?.[0] || ""), "manifest.payment survives persistence - primaryNetwork lives in it and /api/index publishes it as `network`");
 }
 
 // --- rule 4: counts, never rosters ------------------------------------------

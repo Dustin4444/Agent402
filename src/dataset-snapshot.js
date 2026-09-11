@@ -59,6 +59,15 @@ const MAX_TABLE_BYTES = 64 * 1024 * 1024;
 
 /** The Bazaar fold, by name, so the exclusion is greppable and testable rather
  *  than an absence. See rule 3. */
+/** Columns deliberately NOT emitted because this source cannot fill them. Both
+ *  are added by the /api/route DISPLAY projection, never by the crawl, so they
+ *  would publish as a permanent field of nulls - which is precisely what this
+ *  dataset promises not to ship. Named rather than silently absent. */
+export const UNFILLABLE_HERE = Object.freeze({
+  "routes.url_template": "set by urlTemplateProjection in the route display path, not on the crawl row",
+  "routes.networks_inferred": "set by decoratedRemoteTools when building the route pool, not on the crawl row",
+});
+
 export const EXCLUDED_THIRD_PARTY = Object.freeze({
   "sellers.bazaar": "Coinbase Bazaar 30-day calls/payers - their measurement, displayed with attribution on our pages, not redistributed here",
 });
@@ -118,11 +127,9 @@ const ROUTE_COLUMNS = [
   ["quote_observed_at", "quoteObservedAt"],
   ["quote_carried_forward", "quoteCarriedForward"],
   ["networks", "networks"],
-  ["networks_inferred", "networksInferred"],
   ["networks_verified_at", "networksVerifiedAt"],
   ["method_inferred", "methodInferred"],
   ["method_corrected_from", "methodCorrectedFrom"],
-  ["url_template", "urlTemplate"],
 ];
 
 const BASE_SETTLEMENT_COLUMNS = [

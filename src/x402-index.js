@@ -3134,7 +3134,12 @@ export function indexWarmStartInProgress() { return warmStartInProgress; }
 // (memory-only) says not-modified - after a reboot that cache is empty, so the
 // first crawl re-fetches every manifest in full regardless. Tools keep their
 // scalar fields with the description bounded; anything schema-shaped is dropped.
-const MANIFEST_PERSIST_KEYS = ["name", "description", "homepage", "version", "synthesized", "payTo", "network", "networks", "x402Version"];
+// `payment` carries payment.x402.primaryNetwork, which indexSnapshot publishes
+// as the seller's `network`. It was NOT persisted, so every warm start dropped
+// it and the next crawl re-persisted the slim copy - and /api/index has been
+// publishing network:null for every seller since the slim-persist change.
+// Found 2026-09-11 by the dataset snapshot's columnFill reading exactly 0.
+const MANIFEST_PERSIST_KEYS = ["name", "description", "homepage", "version", "synthesized", "payTo", "network", "networks", "x402Version", "payment"];
 const TOOL_BULKY_KEYS = ["inputSchema", "input", "example", "parameters", "requestBody", "responses", "schema", "outputSchema", "discovery"];
 function slimManifestForPersist(m) {
   if (!m || typeof m !== "object") return null;
@@ -3170,6 +3175,9 @@ function persistedEntries() {
       fetchedAt: v.fetchedAt ?? null,
       error: null,
       source: v.source ?? null,
+      // Same class as `payment` above: published by /api/index, never
+      // persisted, so it read null for every warm-started origin.
+      discoveryPath: v.discoveryPath ?? null,
       history: Array.isArray(v.history) ? v.history.slice(-10) : [],
       paywall: v.paywall ?? null,
       ...(v.redirectedTo ? { redirectedTo: v.redirectedTo } : {}),
