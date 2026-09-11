@@ -50,7 +50,7 @@ async function settle(label, fn, input) {
 
 export const RESEARCH_TOOLS = [
   {
-    route: "GET /api/research-company",
+    route: "POST /api/research-company",
     name: "Company research dossier",
     slug: "research-company",
     category: "research",
@@ -59,8 +59,16 @@ export const RESEARCH_TOOLS = [
       "One-shot company research dossier for a US-listed ticker: recent 10-K / 10-Q / 8-K filings, Form 4 insider trades (last 90 days), live stock quote, and recent news headlines - all merged into a single deterministic JSON response. Fans out to EDGAR, Yahoo Finance, and an independent news index in parallel. Each section reports its own ok/error status so a partial upstream outage degrades gracefully instead of failing the whole call. Replaces ~5 sequential paid calls with one.",
     tags: ["research", "company", "dossier", "edgar", "stocks", "filings", "news", "insider", "composite", "premium"],
     discovery: {
-      // bodyType makes the published example a JSON BODY rather than query
-      // params, and that is a REGISTRATION fix, not cosmetics.
+      // POST + bodyType makes the published example a JSON BODY rather than
+      // query params, and that is a REGISTRATION fix, not cosmetics.
+      //
+      // The route had to move with the example: the Bazaar spec only allows
+      // bodyType on a body method, and our own test-bazaar-contracts guard
+      // refuses the mismatch (it caught the first cut of this fix, which
+      // changed only the example). Existing GET callers are unaffected - the
+      // method alias runs the POST gate chain for a GET on a POST-only path,
+      // and handlerInputOf merges the query string in as the input, so
+      // "?ticker=AAPL" still works.
       //
       // The Bazaar records a resource from the URL that actually settled. With
       // a queryParams example a buyer pays ".../api/research-company?ticker=…",
