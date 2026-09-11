@@ -362,6 +362,7 @@ import { buildSkillTools } from "./tools/skill-runner.js";
 import { buildRouteExecuteTool, EXEC_TIERS } from "./tools/route-execute.js";
 import { buildSellerTrustTool } from "./tools/seller-trust.js";
 import { buildSellerDossierTool } from "./tools/seller-dossier.js";
+import { buildSellerPayabilityTool } from "./tools/seller-payability-kit.js";
 import { deliveryObservation } from "./response-observation.js";
 import { payX402, avmBuyerConfigured, avmBuyerStatus, sellerRefusedRecently } from "./x402-buyer.js";
 import { svmBuyerConfigured, svmBuyerStatus, SOLANA_NETWORK_LABELS } from "./solana-buyer.js";
@@ -1502,6 +1503,25 @@ for (const tier of EXEC_TIERS) {
     sorPayers: SOR_MIN_DISTINCT_PAYERS,
     sorCap: EXEC_TIERS[0].underlyingMaxUsd,
     selfHost: (() => { try { return new URL(BASE_URL).host.toLowerCase(); } catch { return ""; } })(),
+  });
+  if (CATALOG[tool.route]) throw new Error(`Duplicate route: ${tool.route}`);
+  CATALOG[tool.route] = tool;
+  ALL_KIT.push(tool);
+}
+
+// Seller payability check - the LIVE counterpart to the dossier above. The
+// dossier reports what we already know; this one spends real USDC from the
+// Base wallet to find out now. Same injection discipline: the payer and the
+// SSRF-guarded fetch are handed in, and the kit books every spend against the
+// same per-chain daily ceiling route-execute uses.
+{
+  const tool = buildSellerPayabilityTool({
+    pay: async (url, opts) => (await import("./x402-buyer.js")).payX402(url, opts),
+    fetchImpl: async (url, init) => {
+      const { ssrfDispatcher } = await import("./tools/fetch-guard.js");
+      return fetch(url, { ...init, dispatcher: ssrfDispatcher });
+    },
+    assertPublicUrl: async (url) => (await import("./tools/fetch-guard.js")).assertPublicUrl(url),
   });
   if (CATALOG[tool.route]) throw new Error(`Duplicate route: ${tool.route}`);
   CATALOG[tool.route] = tool;

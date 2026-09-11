@@ -160,7 +160,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   // (crawl provenance, chain joins, Bazaar, MPP, our own paid calls). Same
   // argument as bestsellers: the inputs cost us to collect, so the read is
   // metered rather than proof-of-work farmable.
-  "seller-dossier",
+  "seller-dossier", "seller-payability",
   // B20 kit — RPC egress against Base (b20-feature-id is pure CPU and stays PoW-eligible).
   "b20-activation-check", "b20-token-info", "b20-verify", "b20-new-tokens", "b20-memos",
   // Chain-kit: tools talk to Alchemy (compute-unit quota) or, for evm-rpc,
