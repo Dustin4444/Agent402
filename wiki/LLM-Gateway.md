@@ -45,6 +45,19 @@ Two ways to pay it:
 
 The catalog lists the tier at its $0.001 floor ("from"), and every chat model on `GET /v1/models` carries `meteredFromUsd`. Use the flat tiers when you want a known price per call regardless of length; use the metered tier when calls vary a lot in size and you want to pay for the size you send.
 
+**A flat-tier answer tells you when metered was cheaper.** An OpenAI SDK puts `base_url + /chat/completions` on the flat route by convention, so a buyer who never reads the docs can spend a long time on a $0.02 call that the metered route would have quoted at $0.001. A non-streaming flat-tier response therefore carries an additive `agent402_metered` object whenever the same body would have been at least 25% cheaper metered:
+
+```json
+"agent402_metered": {
+  "endpoint": "/v1/metered/chat/completions",
+  "wouldHaveCostUsd": 0.001,
+  "youPaidUsd": 0.02,
+  "note": "The same request on the metered route is quoted from its own body and settles actual usage. Point your SDK's base URL at /v1/metered to use it."
+}
+```
+
+The field is absent when metered would not be materially cheaper, on the metered tier itself, and on streamed responses (a stream has no envelope to carry it). It is not part of the documented response shape, so nothing should depend on its presence.
+
 ## OpenClaw provider plugin (`agent402-openclaw`)
 
 [OpenClaw](https://openclaw.ai) talks to any OpenAI-compatible provider through one block in `openclaw.json`, and the [`agent402-openclaw`](https://www.npmjs.com/package/agent402-openclaw) npm plugin writes that block for this gateway: `AGENT402_CREDITS_KEY=a402_... npx agent402-openclaw setup --write` stores a prepaid credits key (bought by card at [`/credits`](https://agent402.tools/credits)) and starts a loopback proxy that carries it, so OpenClaw itself never holds a payment credential. `auto` (routed per prompt, flat $0.01 per call) is offered beside every id on `GET /v1/models`; explicit models ride the metered route by default (`--flat` keeps them on their flat tiers), and `setup` picks the cheapest preferred metered model whose input cap holds OpenClaw's own system prompt as the primary. A wallet can pay instead of a credits key (`AGENT402_WALLET_KEY`, an EVM key holding USDC on Base): exact by default, or `upto` after a one-time `agent402-openclaw permit2-approve`, so the wallet settles actual usage; `agent402-openclaw doctor` reports which mode it is in. Full guide: [agent402.tools/guides/openclaw-model-provider](https://agent402.tools/guides/openclaw-model-provider).
