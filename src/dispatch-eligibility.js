@@ -49,10 +49,11 @@ export const DISPATCH_REASONS = Object.freeze({
   price_unknown: "no seller price is known for this route, and the router never spends against an unknown price",
   url_template: "the route is an unsubstituted path template; the router never spends against it",
   usdc_domain_mismatch: "the seller's USDC accept on this chain advertises an EIP-712 domain name that is not the token's own (Base USDC signs under \"USD Coin\"; Monad, Celo and Sei USDC under \"USDC\"), so a stock x402 buyer - this router included - signs an authorization the facilitator refuses and nothing settles; the seller has to fix the accept before anyone can pay it",
+  delivery_failing: "the last time this router paid this seller on this chain the call did not deliver (a 5xx answer carrying no settle receipt, or no answer at all before the timeout), so it is skipped until that memo expires or a call to it succeeds. Settlement history is evidence about the past; this is what happened the last time someone actually paid",
   eligible: "the router will pay this seller on a buyer's behalf",
   local_catalog: "this host's own tool; no external payment is involved",
 });
-const REASON_PRECEDENCE = ["crawl_failed", "network_unknown", "no_supported_route", "url_template", "price_unknown", "usdc_domain_mismatch", "settlement_required"];
+const REASON_PRECEDENCE = ["crawl_failed", "network_unknown", "no_supported_route", "url_template", "price_unknown", "usdc_domain_mismatch", "delivery_failing", "settlement_required"];
 // `detail` values a settlement_required verdict can carry beyond the gate's
 // own sentence. Documented in the legend under routerDispatchDetail.
 export const DISPATCH_DETAILS = Object.freeze({
@@ -131,8 +132,13 @@ export function spendChainsOf(networks = []) {
  * @param {string|null} [o.livePayTo] the Base address the origin's 402 asks to be paid at, when known
  * @param {object|null} [o.usdcDomain] what the origin's Base USDC accept advertises ({asset, name}, the index's
  *                                     evmDomainByNetwork["eip155:8453"] or the live accept); null/omit = unobserved
+ * @param {object|null} [o.deliveryFailing] per spending chain, what happened the last time THIS router paid this
+ *                                     seller there and the call did not deliver ({ base: {at, status, ms} }).
+ *                                     A chain named here is not eligible whatever its settlement history says,
+ *                                     because history is about the past and this is about the last real payment.
+ *                                     Omit/null = nothing recorded (the ordinary case).
  */
-export function dispatchEligibility({ routable, networks = [], settled = 0, payers, priceUsd, urlTemplate = false, spendChains = ["base"], minSettled = 50, minPayers = 3, local = false, evidence, livePayTo = null, usdcDomain = null } = {}) {
+export function dispatchEligibility({ routable, networks = [], settled = 0, payers, priceUsd, urlTemplate = false, spendChains = ["base"], minSettled = 50, minPayers = 3, local = false, evidence, livePayTo = null, usdcDomain = null, deliveryFailing = null } = {}) {
   if (local) return { eligible: true, reason: "local_catalog", chains: {} };
   const byChain = {};
   const advertised = spendChainsOf(networks);
@@ -151,6 +157,14 @@ export function dispatchEligibility({ routable, networks = [], settled = 0, paye
   const rowBlock = urlTemplate ? "url_template" : (priceUsd !== undefined && !(Number(priceUsd) > 0) ? "price_unknown" : null);
   for (const c of have) {
     if (rowBlock) { byChain[c] = { eligible: false, reason: rowBlock }; continue; }
+    // What happened the last time we actually paid this seller on this chain
+    // outranks every static signal: a seller whose paid calls 5xx keeps its
+    // settlement history, its health score and its Bazaar counts, and all
+    // three are true and all three are about a service that no longer
+    // delivers. Checked before the settlement gate on Base and before the
+    // pay-time verdict on every other chain, so no path can label it callable.
+    const failing = deliveryFailing && typeof deliveryFailing === "object" ? deliveryFailing[c] : null;
+    if (failing) { byChain[c] = { eligible: false, reason: "delivery_failing", lastFailure: failing }; continue; }
     if (c === "base") {
       // A Base accept advertising the wrong EIP-712 domain name is unpayable by
       // every stock buyer, whatever its history says (the history predates the
@@ -197,5 +211,6 @@ export function dispatchLegend() {
     executeVia: "present only on a row the router will pay right now: the route-execute tier (and price) that runs it. Its absence on a priced row is deliberate.",
     executeViaWhenEligible: "the route-execute tier this row WOULD run under once its seller is dispatch-eligible; not callable through the router today.",
     executeViaCallableNow: "true on rows carrying executeVia, false on rows carrying executeViaWhenEligible. A buyer agent should key on this, never on the presence of a tier name.",
+    routerDispatchLastFailure: "present in routerDispatchByChain.<chain> when the reason is delivery_failing: when the last paid call to this seller on that chain failed, the status it answered (null = no answer before the timeout) and how long it took. It is our own observation of paying them, not a claim about their service in general.",
   };
 }
