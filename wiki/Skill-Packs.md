@@ -159,8 +159,8 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 
 | Pack | Price | What it solves |
 |---|---|---|
-| [**search-and-cite**](https://agent402.tools/skills/search-and-cite) | $0.119 | Research a question, return an answer with citations - synthesized take + SERP + news, verified by fetch. |
-| [**article-digest**](https://agent402.tools/skills/article-digest) | $0.108 | Quick research brief on any topic - web search results plus an AI-generated answer. |
+| [**search-and-cite**](https://agent402.tools/skills/search-and-cite) | $0.236 | Research a question, return an answer with citations - synthesized take + SERP + news, verified by fetch. |
+| [**article-digest**](https://agent402.tools/skills/article-digest) | $0.225 | Quick research brief on any topic - web search results plus an AI-generated answer. |
 | [**feed-watch**](https://agent402.tools/skills/feed-watch) | $0.016 | Monitor an RSS/Atom feed: parse it, read the top story in full, extract the keywords driving the cycle, and diff the item list against your last run to isolate what is new. |
 
 ---
