@@ -1376,6 +1376,7 @@ jobs:
           # Offsite backup (stub S3 — consistent sqlite snapshots, cache excluded, budget holds visibly, bill guard refuses over-cap, retention prunes date prefixes — offline)
           t node scripts/test-backup.js
           t node scripts/test-dataset-snapshot.js
+          t node scripts/test-dataset-health.js
 
       - name: x402 Bazaar discovery shape (POST→bodyType, GET→queryParams, example types match schema)
         run: node scripts/check-bazaar.mjs
