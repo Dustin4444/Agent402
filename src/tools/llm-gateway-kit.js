@@ -2861,6 +2861,13 @@ function makeHandler(tierSlug) {
           data.agent402_router = { category: routedCategory, quality: routedQuality, served: data.model || model };
         }
         if (body.__defaultedModel) data.agent402_default_model = body.__defaultedModel; // the caller sent no model; say what served
+        // What this call would have cost metered, when that is materially
+        // cheaper (see meteredHintFor). Additive, non-streaming only - a
+        // stream has no envelope to carry it.
+        if (data && typeof data === "object" && !data.agent402_metered) {
+          const hint = meteredHintFor(body, tierSlug, imageCount);
+          if (hint) data.agent402_metered = hint;
+        }
         if (input.cache === true && !TIERS[tierSlug].noCache) {
           // FR4-01 class: defer the cache write to AFTER settlement. @x402/express
           // settles after this handler, so writing now would cache an
@@ -2911,6 +2918,51 @@ export function meteredQuoteForProbe(probe, imageCount = 0) {
   if (usd > tier.maxQuoteUsd) return { usd: tier.maxQuoteUsd, rawUsd: usd, overCap: true, model: probe?.model };
   return { usd, rawUsd: usd, model: probe?.model };
 }
+/** WHAT THIS CALL WOULD HAVE COST ON THE METERED TIER (2026-09-11).
+ *
+ *  Measured over 30 days: the flat /v1/chat tier took 402 outside settlements
+ *  ($8.04) against ONE on the metered tier, even though metered is cheaper at
+ *  every size we sampled on a budget model ($0.001 to $0.0024 against the flat
+ *  $0.02). We already point at metered from /v1/models, the guides, /docs,
+ *  /pricing and the wrong-tier 400, so this is not a copy problem: an OpenAI
+ *  SDK pointed at our base URL lands on /v1/chat/completions by CONVENTION,
+ *  and buyers take defaults. Copy does not move a default; a number in the
+ *  response an agent already parses might.
+ *
+ *  So a flat-tier answer carries `agent402_metered` when the same body would
+ *  have been materially cheaper metered: the endpoint, what it would have
+ *  quoted, and what this call actually cost. Disclosure, not marketing - it is
+ *  omitted when metered would NOT have been cheaper, which on a large call to
+ *  an expensive model is the honest answer.
+ *
+ *  Cost of computing it: worstCaseUpstreamCost runs the tokenizer, and the
+ *  margin clamp has already run it once for this body, so the hint is skipped
+ *  above HINT_MAX_BODY_BYTES rather than doubling that work on a large body -
+ *  and an absent field claims nothing.
+ */
+const HINT_MAX_BODY_BYTES = 16_000;
+const HINT_MIN_SAVING = 0.25; // metered must be at least 25% cheaper to say so
+export function meteredHintFor(normalizedBody, tierSlug, imageCount = 0) {
+  const tier = TIERS[tierSlug];
+  const metered = TIERS["v1-chat-metered"];
+  if (!tier || tier.metered || !metered) return null;
+  let size = 0;
+  try { size = JSON.stringify(normalizedBody).length; } catch { return null; }
+  if (size > HINT_MAX_BODY_BYTES) return null;
+  let quote;
+  try { quote = meteredQuoteFromNormalized(normalizedBody, imageCount); } catch { return null; }
+  if (!Number.isFinite(quote) || quote <= 0) return null;
+  const flat = Number(tier.price);
+  if (!Number.isFinite(flat) || flat <= 0) return null;
+  if (quote > flat * (1 - HINT_MIN_SAVING)) return null; // not materially cheaper: say nothing
+  return {
+    endpoint: metered.route.split(" ")[1],
+    wouldHaveCostUsd: quote,
+    youPaidUsd: flat,
+    note: "The same request on the metered route is quoted from its own body and settles actual usage. Point your SDK's base URL at /v1/metered to use it.",
+  };
+}
+
 /** The per-request price of the metered tier, from the RAW request body.
  *  Never throws: an invalid body quotes the floor (the handler's own 400
  *  refuses it, uncharged), and a body over the cap quotes the cap (same). */

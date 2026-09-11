@@ -706,7 +706,28 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
     throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [{ type: "namespace", name: "bad name!", tools: [{ type: "function", name: "f" }] }] }, "v1-chat-metered"), "namespace name", "a namespace name outside [A-Za-z0-9_.-] is refused");
     ok(validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [ns] }, "v1-chat").tools.length === 2, "namespaces work on the flat tiers too (they are ordinary function tools once flattened)");
   }
-  // Per-tier message cap (2026-09-10): the flat tiers keep 100 as a size
+  // A flat-tier answer discloses what the same call would have cost metered
+// (2026-09-11). Measured over 30 days: the flat tier took 402 outside
+// settlements against ONE metered, though metered is cheaper at every sampled
+// size - and we already point at metered from /v1/models, the guides, /docs,
+// /pricing and the wrong-tier 400. An OpenAI SDK lands on /v1/chat/completions
+// by convention; a number in the response is the only pointer a default reads.
+{
+  const { meteredHintFor } = await import("../src/tools/llm-gateway-kit.js");
+  const norm = (chars, mt, tier = "v1-chat", model = "gpt-4o-mini") => validateRequest({ model, messages: [{ role: "user", content: "x".repeat(chars) }], max_tokens: mt }, tier);
+  const h = meteredHintFor(norm(200, 256), "v1-chat");
+  ok(h && h.endpoint === "/v1/metered/chat/completions" && h.wouldHaveCostUsd < h.youPaidUsd, `a small flat call discloses the metered quote ($${h?.wouldHaveCostUsd} vs $${h?.youPaidUsd})`);
+  ok(h.youPaidUsd === 0.02 && h.wouldHaveCostUsd >= 0.001, "it names what the buyer actually paid and never quotes below the settlement floor");
+  ok(/base URL/.test(h.note), "and says how to switch");
+  ok(meteredHintFor(norm(200, 256), "v1-chat-metered") === null, "the metered tier never hints at itself");
+  const big = validateRequest({ model: "gpt-4o-mini", messages: [{ role: "user", content: "x".repeat(20000) }], max_tokens: 1024 }, "v1-chat");
+  ok(meteredHintFor(big, "v1-chat") === null, "a body over the size bound is skipped rather than doubling the tokenizer run - an absent field claims nothing");
+  // Honesty: on the cheapest flat tier the hint is either absent or a real saving.
+  const nano = norm(200, 256, "v1-chat-nano", "openai/gpt-5.6-luna");
+  const nh = meteredHintFor(nano, "v1-chat-nano");
+  ok(nh === null || nh.wouldHaveCostUsd <= 0.003 * 0.75, "on the cheapest flat tier it either stays silent or the saving is real");
+}
+// Per-tier message cap (2026-09-10): the flat tiers keep 100 as a size
   // guard; the metered tier is quoted from the body, so an agent session of
   // hundreds of turns is served there, and the flat-tier refusal names it.
   {

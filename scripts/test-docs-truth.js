@@ -94,6 +94,10 @@ const KNOWN_NON_CATALOG = new Set([
   // "point the Anthropic SDK at https://agent402.tools/v1 (or /v1/pro,
   // /v1/premium)".
   "/v1/", "/v1/pro", "/v1/premium", "/v1/nano", "/v1/auto", "/v1/grounded",
+  // Same class: the base URL an SDK is pointed at to reach the metered wires
+  // ("point your SDK's base URL at /v1/metered"). It also answers a free
+  // gateway index JSON of its own; the priced routes under it are checked.
+  "/v1/metered",
   // Real and PRICED, but env-gated on OPENROUTER_TTS_ENABLED, so a FREE_MODE
   // catalog does not carry it and this gate would call it dead. Its price is
   // therefore NOT checked here; it is checked on prod, where the route exists.
