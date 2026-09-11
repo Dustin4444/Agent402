@@ -24,7 +24,7 @@ const HEADER = Buffer.from(JSON.stringify({ x402Version: 2, accepts: [REAL_ACCEP
 
 // NB this real accept names "USDC" on Base, where the token signs under "USD
 // Coin": that seller's whole catalog was unpayable by any stock buyer (the class
-// HumanMirror reproduced 2026-09-10). The reader records the advertised domain
+// a seller reproduced 2026-09-10). The reader records the advertised domain
 // so the router label can say so (src/evm-usdc-domain.js).
 {
   const q = quoteFromAccepts([REAL_ACCEPT]);

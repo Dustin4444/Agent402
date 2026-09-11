@@ -72,7 +72,7 @@ ok(dispatchEligibility({ local: true }).reason === "local_catalog" && dispatchEl
   ok(at(null).eligible === false && at(null).chains.base.detail === "evidence_payto_unverified", "and an unreadable own address reads settlement_required (evidence_payto_unverified), never eligible");
   ok(dispatchEligibility({ routable: true, networks: ["eip155:8453"], settled: 5000, payers: 40, spendChains: all, evidence: { payTos: new Set([W]), ownSettled: 600, ownPayers: 9 }, livePayTo: X }).eligible === true, "an origin whose OWN evidence clears the floor is not bound");
 }
-// A Base accept under the wrong EIP-712 domain name (HumanMirror 2026-09-10):
+// A Base accept under the wrong EIP-712 domain name (a seller, 2026-09-10):
 // unpayable by every stock buyer, whatever its settlement history says.
 {
   const BASE_USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";

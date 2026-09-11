@@ -12,7 +12,7 @@
 // - and the seller reads as "healthy, zero external settlements".
 //
 // Measured: a live seller's 39-endpoint catalog (2026-08-07, the fixture in
-// test-x402-live-quote) and HumanMirror (2026-09-10, proven with the external
+// test-x402-live-quote) and a seller (2026-09-10, proven with the external
 // seller probe: $0.01 cap, refused, zero inbound USDC on their payTo). The
 // buyer-side twin (an AgentCore signer hardcoding "USDC" against our own Base
 // accept) lives in src/mpp-evm-domain.js; this module is the SELLER side, read

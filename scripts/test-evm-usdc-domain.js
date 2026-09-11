@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // USDC EIP-712 domain truth (src/evm-usdc-domain.js): a seller whose Base
 // accept advertises extra.name "USDC" publishes a challenge no stock x402
-// buyer can pay - Base USDC signs under "USD Coin" (HumanMirror 2026-09-10,
+// buyer can pay - Base USDC signs under "USD Coin" (a seller, 2026-09-10,
 // proven with the external seller probe; an earlier seller's 39-route catalog
 // in test-x402-live-quote carries the same accept). Offline.
 import { strict as assert } from "node:assert";
@@ -39,7 +39,7 @@ const accept = (over = {}) => ({ scheme: "exact", network: "eip155:8453", asset:
 {
   ok(usdcDomainVerdict(accept()).verdict === "matches", "Base accept naming \"USD Coin\" matches");
   const w = usdcDomainVerdict(accept({ extra: { name: "USDC", version: "2" } }));
-  ok(w.verdict === "wrong_domain" && w.expectedName === "USD Coin" && w.advertisedName === "USDC" && w.chain === "Base", "Base accept naming \"USDC\" is wrong_domain, naming both names (HumanMirror's 402)");
+  ok(w.verdict === "wrong_domain" && w.expectedName === "USD Coin" && w.advertisedName === "USDC" && w.chain === "Base", "Base accept naming \"USDC\" is wrong_domain, naming both names (a live seller's 402)");
   ok(usdcDomainVerdict(accept({ extra: { name: " usd coin ", version: "2" } })).verdict === "matches", "name comparison trims and ignores case");
   ok(usdcDomainVerdict(accept({ asset: BASE_USDC.toLowerCase(), extra: { name: "USDC" } })).verdict === "wrong_domain", "asset comparison ignores case");
   ok(usdcDomainVerdict(accept({ network: "eip155:42220", asset: "0xcebA9300f2b948710d2653dD7B07f33A8B32118C", extra: { name: "USDC" } })).verdict === "matches", "Celo USDC really is \"USDC\" - the name sellers copy to Base");
