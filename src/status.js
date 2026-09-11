@@ -380,7 +380,20 @@ h2{font-family:var(--font-body);font-weight:800;letter-spacing:-.02em;margin:34p
 .st-links{margin-top:26px;color:var(--faint);font-family:var(--font-mono);font-size:13px}
 .st-links a{color:var(--accent);text-decoration:none}
 .st-links a:hover{text-decoration:underline}
-@media(max-width:640px){.st-h1{font-size:34px}.st-wrap{padding:36px 18px}.bars{height:26px}.comp-s{margin-left:0;width:100%}
+/* The 90-day strip is 90 bars in a flex row, and on a phone it pushed the
+   page sideways - reported from a real handset 2026-09-11.
+
+   Measured, not estimated: the strip sits inside TWO 18px paddings (the
+   page wrapper and the component card), so a 390px phone leaves it 316px
+   and a 320px phone leaves 246px. At the desktop 2px gap the strip cannot
+   go below 90*2 + 89*2 = 358px, so it overflowed every handset.
+
+   1px gaps leave 246-89 = 157px for 90 bars at the narrowest, i.e. 1.74px
+   each, so the min-width comes down to 1.5px or the floor still wins. The
+   bars deliberately stay ABOVE a hairline: the strip exists so that a bad
+   day is visible, and one that fits by collapsing to invisible lines
+   passes an overflow check while failing the reader. */
+@media(max-width:640px){.st-h1{font-size:34px}.st-wrap{padding:36px 18px}.bars{height:26px;gap:1px}.bars .b{min-width:1.5px}.comp-s{margin-left:0;width:100%}
 /* Incidents reflow to stacked cards on phones: no 520px min-width, no
    left-right scrolling - each row becomes a bordered card with per-cell
    labels (data-l), the timestamp wraps instead of forcing width. */

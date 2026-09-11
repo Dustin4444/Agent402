@@ -3536,6 +3536,9 @@ jobs:
       - name: /compare tables scroll independently on narrow viewports (real browser check - scrollWidth>clientWidth alone can't prove overflow-x is enabled)
         run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-compare-scroll.js
 
+      - name: /status 90-day strip fits a phone (local server, builds its own strip)
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-status-bars-mobile.js
+
       - name: Reveal-on-scroll data-reveal-eager opt-in (a second above-fold section can be exempted explicitly, never leaks to unmarked pages)
         run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-reveal-eager.js
 
