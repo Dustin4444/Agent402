@@ -1,13 +1,33 @@
-// Text-to-speech kit — two tiers of x402-paywalled TTS via OpenAI.
-// Returns base64-encoded audio. Env-gated: missing OPENAI_API_KEY → 503.
+// Text-to-speech kit — three tiers of x402-paywalled TTS, one interface.
+// Returns base64-encoded audio.
 //
 // Tiers:
-//   tts      $0.05  — tts-1       (2000 chars, fast)
-//   tts-hd   $0.10  — tts-1-hd    (2000 chars, higher fidelity)
+//   tts-lite $0.005 — Kokoro-82M via OpenRouter (2000 chars)  [OPENROUTER_API_KEY]
+//   tts      $0.05  — OpenAI tts-1              (2000 chars)  [OPENAI_API_KEY]
+//   tts-hd   $0.10  — OpenAI tts-1-hd           (2000 chars)  [OPENAI_API_KEY]
+//
+// WHY A LITE TIER (2026-09-11, from the 30-day ledger): `tts` is the single
+// best-selling paid tool we have (317 outside settlements, $15.85 - a third of
+// all external revenue), and the route sweep put peers at $0.001 against our
+// $0.05. The spread is in the UPSTREAM, not in our margin: OpenAI tts-1 bills
+// ~$0.000015/char while Kokoro-82M bills $0.00000062 - 24x cheaper, and already
+// a proven link in the /v1/audio/speech failover chain (SPEECH_MODELS,
+// live-verified by the TTS probe workflow). So the answer to a $0.001 peer is a
+// cheaper MODEL at an honest margin, not a cut on the premium voice: at the
+// 2,000-char cap the lite tier's worst case is $0.00124 against $0.005, a 75%
+// margin, the same bound every other tool is priced under. The premium tiers
+// are untouched - a buyer who wants the OpenAI voice still pays for it.
 
 import { redactSecrets } from "./redact.js";
+import { SPEECH_MODELS, OPENROUTER_ATTRIBUTION } from "./llm-gateway-kit.js";
 
 const OPENAI_KEY = () => (process.env.OPENAI_API_KEY || "").trim();
+const OPENROUTER_KEY = () => (process.env.OPENROUTER_API_KEY || "").trim();
+const OPENROUTER_SPEECH_URL = "https://openrouter.ai/api/v1/audio/speech";
+// The same Kokoro entry the /v1 speech chain uses, so the voice map and the
+// native voice set cannot drift between the two surfaces (the TTS probe
+// workflow re-verifies that table against OpenRouter's live model list).
+const KOKORO = SPEECH_MODELS.find((m) => m.id === "hexgrad/kokoro-82m");
 
 function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
@@ -17,9 +37,15 @@ const VOICES = new Set(["alloy", "ash", "ballad", "coral", "echo", "fable", "nov
 const FORMATS = new Set(["mp3", "opus", "aac", "flac", "wav", "pcm"]);
 
 const TIERS = {
-  tts:      { model: "tts-1",    maxChars: 2000 },
-  "tts-hd": { model: "tts-1-hd", maxChars: 2000 },
+  // provider "openrouter" reaches Kokoro; "openai" is the original pair.
+  "tts-lite": { model: "hexgrad/kokoro-82m", provider: "openrouter", maxChars: 2000 },
+  tts:        { model: "tts-1",              provider: "openai",     maxChars: 2000 },
+  "tts-hd":   { model: "tts-1-hd",           provider: "openai",     maxChars: 2000 },
 };
+// OpenRouter's speech wire serves mp3 and pcm only; the OpenAI tiers keep the
+// full set. A format this tier cannot serve is a self-explaining 400, never a
+// silent downgrade to mp3 (a documented default is a contract - 2026-09-06).
+const LITE_FORMATS = new Set(["mp3", "pcm"]);
 
 function validateInput(input, tierSlug) {
   const text = typeof input.text === "string" ? input.text.trim() : "";
@@ -37,6 +63,12 @@ function validateInput(input, tierSlug) {
   const format = typeof input.format === "string" ? input.format.trim().toLowerCase() : "mp3";
   if (!FORMATS.has(format)) {
     throw bad(`Unknown format "${format}". Supported: ${[...FORMATS].join(", ")}`);
+  }
+  // A format this tier's upstream cannot serve is a self-explaining 400 naming
+  // the tier that can, never a silent downgrade to mp3 (a documented default is
+  // a contract, 2026-09-06).
+  if (TIERS[tierSlug].provider === "openrouter" && !LITE_FORMATS.has(format)) {
+    throw bad(`The ${tierSlug} tier serves ${[...LITE_FORMATS].join(" and ")} only - "${format}" is available on /api/tts and /api/tts-hd`);
   }
 
   return { text, voice, format };
@@ -98,10 +130,51 @@ async function callOpenAI(text, voice, format, tierSlug) {
   };
 }
 
+/** Kokoro over OpenRouter's OpenAI-shaped speech wire. Same request/response
+ *  contract as callOpenAI, so the three tiers are one interface to a buyer.
+ *  No failover: the chain belongs to /v1/audio/speech, which is what a buyer
+ *  pays $0.06 for; this tier is one model at one price and says so, and an
+ *  upstream failure is a 502 that cancels settlement rather than a silent
+ *  walk onto a model costing 24x more than this price covers. */
+async function callKokoro(text, voice, format, tierSlug) {
+  const key = OPENROUTER_KEY();
+  if (!key) throw bad("Speech gateway not configured (OPENROUTER_API_KEY unset)", 503);
+  const tier = TIERS[tierSlug];
+  // OpenAI voice name -> Kokoro's own id, from the shared table.
+  const nativeVoice = KOKORO?.map?.[voice] || KOKORO?.map?.alloy || "af_alloy";
+  let res;
+  try {
+    res = await fetch(OPENROUTER_SPEECH_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", ...OPENROUTER_ATTRIBUTION },
+      body: JSON.stringify({ model: tier.model, input: text, voice: nativeVoice, response_format: format }),
+      signal: AbortSignal.timeout(60_000),
+    });
+  } catch (e) {
+    throw bad(`Upstream request failed: ${String(e?.message || e).slice(0, 120)}`, 504);
+  }
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    const safe = redactSecrets(errText);
+    let msg = safe.slice(0, 200);
+    try { msg = JSON.parse(safe).error?.message || msg; } catch {}
+    // 5xx and 429 are the provider's; anything else is this request being
+    // wrong, and a 400 teaches the agent to fix it (same rule as the OpenAI
+    // tiers). Either way a >= 400 cancels settlement: nobody is charged.
+    if (res.status >= 500 || res.status === 429) throw bad(`Speech upstream error (HTTP ${res.status}): ${msg}`, 502);
+    throw bad(`Upstream rejected the request: ${msg}`, 400);
+  }
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.length === 0) throw bad("Upstream returned no audio - retry, or rephrase the input", 502);
+  return { model: tier.model, provider: "openrouter", voice: nativeVoice, format, audio: buf.toString("base64"), chars: text.length };
+}
+
 function makeHandler(tierSlug) {
   return async (input) => {
     const { text, voice, format } = validateInput(input, tierSlug);
-    return callOpenAI(text, voice, format, tierSlug);
+    return TIERS[tierSlug].provider === "openrouter"
+      ? callKokoro(text, voice, format, tierSlug)
+      : callOpenAI(text, voice, format, tierSlug);
   };
 }
 
@@ -109,13 +182,47 @@ const SHARED_TAGS = ["tts", "text-to-speech", "audio", "voice", "speech", "opena
 
 export const TTS_TOOLS = [
   {
+    route: "POST /api/tts-lite",
+    name: "Text-to-speech (lite)",
+    slug: "tts-lite",
+    aliases: ["cheap-tts", "tts-cheap", "speech-lite"],
+    category: "ai",
+    price: "$0.005",
+    description:
+      "Convert text to speech with Kokoro-82M, ten times cheaper than /api/tts. Returns base64-encoded mp3 or pcm. The same request shape and the same ten OpenAI voice names as /api/tts, mapped to Kokoro's own voices; the voice is synthetic-sounding where the OpenAI tiers are not, which is the whole trade. Use this for high-volume narration, notifications and agent speech where the cost per call matters more than the timbre; use /api/tts or /api/tts-hd when it does not. No API key needed; pay per call via x402. Text capped at 2000 chars.",
+    tags: [...SHARED_TAGS, "kokoro", "cheap", "lite"],
+    discovery: {
+      bodyType: "json",
+      input: { text: "Hello from Agent402!", voice: "alloy", format: "mp3" },
+      inputSchema: {
+        properties: {
+          text: { type: "string", description: "Text to convert to speech (max 2000 chars)" },
+          voice: { type: "string", description: "Voice: alloy, ash, ballad, coral, echo, fable, nova, onyx, sage, shimmer (default: alloy) - mapped to the nearest Kokoro voice, which is named back in the response" },
+          format: { type: "string", description: "Audio format: mp3 or pcm (default: mp3). The other formats are on /api/tts" },
+        },
+        required: ["text"],
+      },
+      output: {
+        example: {
+          model: "hexgrad/kokoro-82m",
+          provider: "openrouter",
+          voice: "af_alloy",
+          format: "mp3",
+          audio: "<base64-encoded audio>",
+          chars: 20,
+        },
+      },
+    },
+    handler: makeHandler("tts-lite"),
+  },
+  {
     route: "POST /api/tts",
     name: "Text-to-speech",
     slug: "tts",
     category: "ai",
     price: "$0.050",
     description:
-      "Convert text to speech using OpenAI TTS-1. Returns base64-encoded audio (mp3/opus/aac/flac/wav/pcm). 10 voices available. No API key needed; pay per call via x402. Text capped at 2000 chars.",
+      "Convert text to speech using OpenAI TTS-1. Returns base64-encoded audio (mp3/opus/aac/flac/wav/pcm). 10 voices available. No API key needed; pay per call via x402. Text capped at 2000 chars. For high-volume speech where timbre matters less, /api/tts-lite is the same interface on Kokoro-82M at $0.005.",
     tags: [...SHARED_TAGS, "tts-1"],
     discovery: {
       bodyType: "json",
