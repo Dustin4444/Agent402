@@ -501,10 +501,19 @@ export const SEARCH_TOOLS = [
     name: "Web answer",
     slug: "answer",
     category: "web",
-    // $0.08 against Brave's MEASURED cost of ~$0.061/answer (see braveAnswerPost
-    // above). The prior $0.03 sold at a loss — the cost comment had misread
-    // Brave's token pricing by 1000x. $0.08 clears ~24% margin.
-    price: "$0.08",
+    // $0.21 against Brave's MEASURED cost of ~$0.062/answer, which is the 70%
+    // margin bound every other tool is priced under. History: $0.03 sold at a
+    // LOSS (the cost comment had misread Brave's token pricing by 1000x), and
+    // the $0.08 that replaced it cleared only ~24%, i.e. upstream was 78% of
+    // price - over the bound, and the only tool in the catalog that was.
+    // RECONCILED against the live invoice 2026-09-11: 23 answers billed $1.43
+    // = $0.0622 each, and the token breakdown explains it exactly (~11.4k
+    // input tokens at $5/1M, plus the $0.004 base). Web search on the same
+    // account bills $0.005/request, which is why `search` at $0.02 is fine and
+    // only this tool moved. Brave's $10/mo per-plan free credits currently
+    // cover the whole bill; they are a fixed allowance, not a discount on the
+    // next call, so the margin is priced on marginal cost regardless.
+    price: "$0.21",
     description:
       "AI-generated answer to a natural-language question, grounded in live web search results with source citations. Returns clean prose plus a structured citations array (URL, snippet, favicon) - backed by an independent search index, not the model's training data. Useful when an agent needs a synthesized answer plus the receipts to verify or follow up.",
     tags: ["search", "answer", "ai", "rag", "citations", "research", "fresh-data"],
