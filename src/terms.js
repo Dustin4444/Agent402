@@ -81,6 +81,25 @@ information and preserve records in response to valid legal process, and report 
 requires it. To report abuse, infringement, or illegal content involving this service, email
 <a href="mailto:mike@agent402.tools">mike@agent402.tools</a> - reports are reviewed promptly.</p>
 
+<h2>The published index</h2>
+<p>We publish an index of services that advertise machine payments over x402 or MPP. It is built by
+reading the discovery documents those services publish for that purpose - <code>/.well-known/x402</code>,
+<code>/openapi.json</code>, <code>/llms.txt</code> - and the HTTP 402 challenge a paid route returns to an
+unpaid request. We do not authenticate, submit forms, or read anything behind a paywall. Our crawler
+identifies itself by name and honours <code>robots.txt</code>. See <a href="/crawler">/crawler</a> for the
+User-Agent, the cadence, and how to have a service removed - by email or by disallowing the User-Agent,
+with no reason required either way.</p>
+<p>What the index reports about a service is what that service advertises about itself, plus our own
+observations of it: whether our probe reached it, and what its own 402 challenges named. Settlement
+figures are counts read from public blockchains. <b>We publish counts of payments received per payee and
+never the identities of payers</b> - no roster of who paid whom leaves our systems, and that rule is
+enforced in the server, not by convention.</p>
+<p>We claim no rights in the underlying facts a service publishes about itself; those are its own. We do
+claim our compilation - the selection, arrangement, verification and history of the index - and our own
+measurements and probe results, and we license them on the terms we publish for whichever surface you
+obtained them from. Measurements made by third parties are attributed where displayed and are not
+redistributed by us.</p>
+
 <h2>Copyright complaints</h2>
 <p>If you believe content generated, fetched, or stored through the service infringes your copyright,
 send a notice to <a href="mailto:mike@agent402.tools">mike@agent402.tools</a> identifying the work, the

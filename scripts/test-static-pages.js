@@ -52,6 +52,7 @@ const PAGES = [
   { path: "/digest",      titleSubstr: "Weekly spend digest" },
   { path: "/markets",     titleSubstr: "market data" },
   { path: "/security",    titleSubstr: "Security" },
+  { path: "/crawler",     titleSubstr: "crawler" },
   { path: "/company",     titleSubstr: "Havok Holdings" },
   { path: "/reports/sample/dossier", titleSubstr: "sample" },
   { path: "/proof",       titleSubstr: "Receipts" },

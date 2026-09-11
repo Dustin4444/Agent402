@@ -5,8 +5,12 @@ import { Agent } from "undici";
 
 const MAX_BYTES = 5 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 15000;
+// Points at the page that explains the crawl and offers removal, not at the
+// code repo: an operator who finds this string in their logs wants to know
+// what we read and how to stop us, and a link to a source tree answers
+// neither. src/crawler-page.js is the page, and it states the same string.
 const USER_AGENT =
-  "Mozilla/5.0 (compatible; Agent402/1.0; +https://github.com/MikeyPetrillo/Agent402)";
+  "Mozilla/5.0 (compatible; Agent402/1.0; +https://agent402.tools/crawler)";
 
 const SSRF_BLOCK_CODE = "ESSRFBLOCKED";
 
