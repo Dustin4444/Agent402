@@ -141,6 +141,7 @@ import { whatIsMppPage } from "./what-is-mpp.js";
 import { agenticFinancePage } from "./agentic-finance.js";
 import { whyPage } from "./why.js";
 import { securityPage } from "./security-page.js";
+import { crawlerPage } from "./crawler-page.js";
 import { companyPage } from "./company.js";
 import { sampleJson, sampleMeta, SAMPLE_PRODUCTS } from "./sample-reports.js";
 import { createFreeAlerts, alertFormHtml, ALERT_KIND_FOR_REPORT_KIND } from "./free-alerts.js";
@@ -2361,6 +2362,10 @@ app.get("/why", (_req, res) => htmlCache(res, 300, 900).send(whyPage(BASE_URL)))
 mountShortlinks(app, BASE_URL);
 app.get("/security", (_req, res) => htmlCache(res, 300, 900).send(securityPage(BASE_URL)));
 app.get("/company", (_req, res) => htmlCache(res, 300, 900).send(companyPage(BASE_URL)));
+// Who our crawler is, what it reads, and how to be removed. The crawler's own
+// User-Agent points here (src/tools/fetch-guard.js), so an operator who finds
+// it in their logs lands on the answer rather than on a source tree.
+app.get("/crawler", (_req, res) => htmlCache(res, 300, 900).send(crawlerPage(BASE_URL)));
 // Real sample reports (assets/samples, src/sample-reports.js): the finished
 // artifact a buyer gets, readable before paying, indexable, with a buy box.
 // Served with or without Stripe: the fixtures are static and the buy box
