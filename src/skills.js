@@ -29,7 +29,7 @@ export const PACK_PRICES = {
   "email-deliverability": 0.009, // 6 tools, parts $0.009
   "market-brief": 0.009, // 3 tools, parts $0.01
   "financial-analysis": 0.02, // 3 tools, parts $0.022
-  "financial-research": 0.114, // 7 tools, parts $0.126
+  "financial-research": 0.024, // 6 tools, parts $0.026
   "macro-economics": 0.036, // 7 tools, parts $0.04
   "macro-dashboard": 0.071, // 14 tools, parts $0.078
   "dns-network-ops": 0.011, // 6 tools, parts $0.012
@@ -329,7 +329,6 @@ export const SKILL_PACKS = [
       "edgar-company-facts",
       "edgar-insider-trades",
       "fred-series",
-      "research-company",
     ],
     workflow: [
       "Get the live quote from stock-quote - current price, market cap, day range, volume.",
@@ -338,7 +337,6 @@ export const SKILL_PACKS = [
       "Pull the structured XBRL company facts (revenue, net income, total assets, share count) from edgar-company-facts for the canonical numbers.",
       "Check edgar-insider-trades for Form 4 filings in the last 90 days - directional insider activity is a real signal.",
       "Drop in macro context (CPI, fed funds, unemployment) from fred-series so the brief contextualizes the company-level view.",
-      "If you need a 1-call composite, research-company fans out to several of the above in a single paid call.",
     ],
     claudePrompt:
       "Build a one-page research brief on AAPL. Use Agent402 to pull: (1) current quote, (2) 1-year price history with return/vol/max-drawdown, (3) the last 4 SEC filings, (4) XBRL revenue and net income trend, (5) Form 4 insider trades in the last 90 days, (6) CPI and fed funds rate as macro context. Output a clean markdown brief.",

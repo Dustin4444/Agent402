@@ -32,8 +32,8 @@ const DIRECT_BRAVE_SLUGS = new Set(SEARCH_TOOLS.map((t) => t.slug));
 // rather than being one. This is the third distinct shape of this leak and the
 // one that defeated the previous two guards:
 //
-//   research-company (research-kit) calls the search-news handler directly, and
-//   the skill pack financial-research composes research-company. Neither names
+//   research-company (research-kit, RETIRED 2026-09-11) called the search-news
+//   handler directly, and the pack financial-research composed it. Neither named
 //   a Brave slug anywhere, so a check for "does this pack use a Brave slug"
 //   sees nothing, and both were silently buying a live news search on every CI
 //   run. Measured with an outbound counter: exactly 2 calls per run.

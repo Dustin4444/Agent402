@@ -64,7 +64,7 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 
 | Pack | Price | What it solves |
 |---|---|---|
-| [**financial-research**](https://agent402.tools/skills/financial-research) | $0.114 | SEC filings + real-time quotes + history + macro context for a single ticker. |
+| [**financial-research**](https://agent402.tools/skills/financial-research) | $0.024 | SEC filings + real-time quotes + history + macro context for a single ticker. |
 | [**financial-analysis**](https://agent402.tools/skills/financial-analysis) | $0.020 | Quick company snapshot: live quote, 9 key financial metrics, and upcoming earnings. |
 | [**company-dossier**](https://agent402.tools/skills/company-dossier) | $0.046 | Comprehensive company research in one call: quote, financials, filings, insider trades, news. |
 | [**earnings-watch**](https://agent402.tools/skills/earnings-watch) | $0.020 | Is this company reporting soon and what's the consensus? Earnings calendar, quote, recent results. |

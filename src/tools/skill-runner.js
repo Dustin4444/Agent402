@@ -279,7 +279,6 @@ export const PACK_STEPS = {
       // signal. The key is `seriesId`; this sent `series`, so the step 400'd
       // on every call (2 of 2 in 60 days of telemetry).
       { slug: "fred-series",         mapInput: () => ({ seriesId: "FEDFUNDS" }) },
-      { slug: "research-company",    mapInput: (a) => ({ ticker: a.ticker }) },
     ],
   },
 
