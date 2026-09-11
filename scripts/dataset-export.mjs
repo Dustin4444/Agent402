@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Pull one recorded day of the ecosystem dataset out of the bucket and write it
-// locally, decompressed, ready to stage into Snowflake or Unity Catalog.
+// locally, decompressed, one NDJSON file per table.
 //
 // The snapshot writer records days; this reads one back. Deliberately separate:
 // the writer runs in production on a schedule and must never depend on anyone
@@ -74,4 +74,3 @@ console.log(`\n${total} rows -> ${outDir}`);
 console.log(`\nProvenance: ${manifest.provenance}`);
 console.log(`Privacy:    ${manifest.privacy}`);
 console.log(`Excluded:   ${Object.keys(manifest.excludedThirdParty || {}).join(", ") || "(none)"}`);
-console.log(`\nLoad it: docs/dataset-marketplace/{snowflake,databricks}.sql`);

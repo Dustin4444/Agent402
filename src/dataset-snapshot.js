@@ -41,10 +41,9 @@
 // accessor stopped populating, reads 0 there instead of quietly becoming a
 // field of nulls that a buyer discovers a year later.
 //
-// Layout: datasets/v1/dt=YYYY-MM-DD/<table>.ndjson.gz + manifest.json, which is
-// a Hive-partitioned prefix - the shape Delta Sharing, Databricks, Athena and
-// DuckDB all read directly, so the storage decision does not bind the
-// distribution decision.
+// Layout: datasets/v1/dt=YYYY-MM-DD/<table>.ndjson.gz + manifest.json. The
+// date-partitioned prefix is the conventional shape for an append-only record
+// and is readable by standard tooling without an index.
 import { gzipSync } from "node:zlib";
 import { putObject, objectExists, backupConfigured } from "./backup.js";
 import { priceToMicroUsd } from "./x402-index.js";
