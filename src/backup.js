@@ -215,12 +215,23 @@ export async function putObject(key, body) {
 }
 
 /** Does this key already exist? The dataset snapshot asks before writing: a
- *  day that has been recorded is never rewritten. */
+ *  day that has been recorded is never rewritten.
+ *
+ *  Asks by LISTING the key as a prefix rather than HEAD-ing it. A HEAD on a
+ *  MISSING key answers 403, not 404, on a credential without ListBucket at
+ *  that path - S3's documented behaviour, so that an outsider cannot probe for
+ *  the existence of objects they cannot read. Our bucket does that, and the
+ *  first live run failed on it (the stub answered a tidy 404, which is the
+ *  "stub-proven is not proven" lesson yet again).
+ *
+ *  Treating 403 as "absent" would have been the easy fix and the wrong one: it
+ *  makes a permissions failure look identical to an unrecorded day, which is
+ *  the flattering-failure shape. The list call is already proven against this
+ *  bucket (the nightly backup's bill guard uses it), an empty result is a real
+ *  absence, and a broken credential still throws. */
 export async function objectExists(key) {
-  const res = await s3("HEAD", key);
-  if (res.status === 200) return true;
-  if (res.status === 404) return false;
-  throw new Error(`HEAD ${key}: HTTP ${res.status}`);
+  const found = await listAll(key);
+  return found.some((o) => o.key === key);
 }
 
 async function listAll(prefix) {

@@ -226,6 +226,10 @@ const exists = async (key) => bucket.has(key);
   ok(block.includes("getLeaderboardSnapshot") && block.includes("getSolanaLeaderboardSnapshot") && block.includes("mppLeaderboardSnapshot"), "all three settlement boards are wired");
 
   const backup = readFileSync(new URL("../src/backup.js", import.meta.url), "utf8");
+  const ex = /export async function objectExists[\s\S]*?\n\}/.exec(backup)?.[0] || "";
+  ok(ex.includes("listAll("), "objectExists LISTS the key: a HEAD on a missing key answers 403 (not 404) on a credential without ListBucket, which is what our bucket does and what broke the first live run");
+  ok(!/s3\("HEAD"/.test(ex), "objectExists must not HEAD - that path cannot tell a missing day from a permissions failure");
+
   const put = /export async function putObject[\s\S]*?\n\}/.exec(backup)?.[0] || "";
   ok(put.includes('s3("PUT", key, { body })'), "putObject sends NO explicit content-length: undici derives it from a Buffer and rejects a caller-supplied one (UND_ERR_INVALID_ARG). The streaming backup upload still passes it, correctly, because a stream cannot be measured.");
   ok(!/contentLength/.test(put), "no contentLength in the Buffer upload path");
