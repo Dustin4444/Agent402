@@ -3,13 +3,13 @@
 // Pure module tests — no server boot, no network. Each logical section gets
 // its own throwaway JSONL file via __testSetFilePath so rate-limit buckets
 // and cluster state never leak between sections.
-import { readFileSync, unlinkSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, unlinkSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   recordWish, getWishesAggregate, WISH_THRESHOLD,
   clusterQualifies, QUALIFY_MIN_SPAN_MS, QUALIFY_MIN_CALLERS, WISH_SERVED_MIN_SCORE, callerHash, annotateServed,
-  __testSetFilePath, __testSetLineCap, __testState, __testReset,
+  __testSetFilePath, __testSetLineCap, __testState, __testReset, WISH_STALE_DAYS,
 } from "../src/wish.js";
 
 process.env.WISH_CALLER_SALT = "test-salt-never-prod";
@@ -320,6 +320,36 @@ for (const f of tmpFiles) {
   ok(hot.cluster === undefined, "the write response exposes no cluster object");
   ok(getWishesAggregate({ detailed: true }).clusters.some((c) => c.count >= 4),
     "…while the token-gated board still knows the real count (so the assertion above had something to hide)");
+}
+
+
+// --- the board is an instrument, not an archive ------------------------------
+// 199 of 200 rows on the live board were pre-fingerprint and could never
+// qualify, 98 of them one scripted sweep seventeen days old. They sat at the
+// TOP on accumulated hits, which is where the eye goes.
+//
+// The old rows are written to the journal with old timestamps and the module
+// is rebuilt from it, so this drives the real load path rather than reaching
+// into memory.
+{
+  const f = join(tmpdir(), `wish-stale-${process.pid}-${Date.now()}.jsonl`);
+  tmpFiles.push(f);
+  const old = Date.now() - (WISH_STALE_DAYS + 5) * 86_400_000;
+  const lines = [];
+  for (let i = 0; i < 8; i++) lines.push(JSON.stringify({ need: "ancient heavy demand", source: "api", ts: old, caller: `c${i}` }));
+  lines.push(JSON.stringify({ need: "asked for today", source: "find-miss", ts: Date.now(), caller: "fresh1" }));
+  writeFileSync(f, lines.join("\n") + "\n");
+  __testSetFilePath(f);
+
+  const board = getWishesAggregate({ detailed: true });
+  const texts = board.clusters.map((r) => r.text);
+  ok(texts.includes("asked for today"), "a cluster asked for today is on the board");
+  ok(!texts.includes("ancient heavy demand"), "a cluster nobody has asked for inside the window is HIDDEN, however many hits it accumulated");
+  ok(board.staleHidden === 1, "the number of hidden rows is STATED, so the omission is visible rather than a silent trim");
+  ok(board.staleDays === WISH_STALE_DAYS, "the window is published with the board");
+  ok(board.distinctClusters === 2 && board.liveClusters === 1, "the total still counts everything - hiding is a view, never a deletion");
+  ok(board.totalWishes === 9, "and every signal is still counted, including the hidden cluster's");
+  ok(getWishesAggregate({ detailed: false }).distinctClusters === 2, "the public beacon's totals are unchanged by the view filter");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

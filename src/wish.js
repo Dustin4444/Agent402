@@ -85,6 +85,19 @@ export const QUALIFY_MIN_SPAN_MS = 24 * 3_600_000; // 24h
 // bar; a single bot can no longer manufacture a qualified cluster, and a
 // patient bot now needs three machines or three days.
 export const QUALIFY_MIN_CALLERS = 3;
+
+// A board is an instrument, not an archive. A cluster nobody has asked for in
+// this long is history: it cannot qualify (qualification needs 3 distinct
+// day-scoped callers and legacy lines carry none), and it sits at the top of
+// the board on accumulated hits, which is where the eye goes. Measured
+// 2026-09-11: 199 of 200 rows were pre-fingerprint, 98 of them one scripted
+// sweep seventeen days earlier with hit counts clustered at 57-61 - the board
+// looked busy and carried no signal.
+//
+// This HIDES, never deletes. The JSONL is the record and keeps every line; the
+// aggregate is the view, and `staleHidden` says how many rows the view is
+// holding back so the omission is visible rather than a silent trim.
+export const WISH_STALE_DAYS = Number(process.env.WISH_STALE_DAYS) > 0 ? Number(process.env.WISH_STALE_DAYS) : 30;
 const CALLERS_PER_CLUSTER_CAP = 1000;
 
 // The served-overlay floor. FIND_WEAK_SCORE (3) is the threshold below which
@@ -435,8 +448,14 @@ export function getWishesAggregate({ limit = 200, detailed = false } = {}) {
     // to matter, never WHICH — no text, no per-cluster counts, no timestamps.
     return { ...base, qualifiedClusters: [...clusters.values()].filter(clusterQualifies).length };
   }
-  const rows = [...clusters.entries()]
-    .sort((a, b) => b[1].count - a[1].count || b[1].lastSeen - a[1].lastSeen)
+  const staleBefore = Date.now() - WISH_STALE_DAYS * 86_400_000;
+  const live = [...clusters.entries()].filter(([, c]) => (c.lastSeen || 0) >= staleBefore);
+  const rows = live
+    // Recency first, then weight. A cluster asked for today outranks one that
+    // accumulated more hits a month ago: the board answers "what is being
+    // asked for now", and sorting by count alone is what let a stale sweep
+    // own the top of it.
+    .sort((a, b) => b[1].lastSeen - a[1].lastSeen || b[1].count - a[1].count)
     .slice(0, cap)
     .map(([key, c]) => ({
       text: esc(key),
@@ -452,7 +471,14 @@ export function getWishesAggregate({ limit = 200, detailed = false } = {}) {
       // necessary but not sufficient — see clusterQualifies / QUALIFY_MIN_SPAN_MS.
       qualified: clusterQualifies(c),
     }));
-  return { ...base, clusters: rows };
+  return {
+    ...base,
+    // Stated, so a quiet board reads as quiet rather than as a rendering bug.
+    staleDays: WISH_STALE_DAYS,
+    staleHidden: clusters.size - live.length,
+    liveClusters: live.length,
+    clusters: rows,
+  };
 }
 
 // --- test-only hooks (mirror the __testResetSubmitted style in x402-index.js) ---
