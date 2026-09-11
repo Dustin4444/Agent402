@@ -13,13 +13,21 @@
 // the whole point of the strip is that a bad day is visible.
 import { chromium } from "playwright-core";
 
-// Targets PROD by default, on purpose. The strip renders only from recorded
-// probe observations and a local FREE_MODE boot has none, so a local run finds
-// zero strips - and this file treats that as a FAILURE rather than a pass,
-// because "nothing to check" must never read as "checked and fine". Same
-// one-run lag as test-challenge-size: the test job runs before the deploy, so
-// a CSS fix goes green on the run AFTER the one that ships it.
-const TARGET = process.env.STATUS_TARGET_URL || "https://agent402.tools";
+// Drives the LOCAL server and builds the strip itself.
+//
+// The first cut of this file targeted prod, and that was a deadlock: it asserts
+// prod is FIXED, prod cannot be fixed until the change merges, and the test
+// blocks the merge. It failed test-sweeps2 on the very PR that fixes the bug.
+// A gate that cannot go green until after it has been bypassed is not a gate.
+//
+// So it renders /status locally for the page's own stylesheet, then injects a
+// 90-bar strip into it. That is deterministic, needs no recorded probe
+// observations (a FREE_MODE boot has none, which is why prod looked necessary),
+// and tests exactly the rule that broke: 90 flex children under the phone
+// breakpoint must fit the container the page actually gives them.
+const TARGET = process.env.TARGET_URL || "http://localhost:3000";
+const BARS = 90; // the window the page renders; see bars() in src/status.js
+
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log("ok -", m); } else { fail++; console.log("FAIL -", m); } };
 
@@ -36,20 +44,25 @@ try {
     ok(doc.scrollWidth <= doc.clientWidth + 1,
       `${width}px: the page does not scroll sideways (scrollWidth ${doc.scrollWidth} <= clientWidth ${doc.clientWidth})`);
 
-    const strips = await page.$$eval(".bars", (els) => els.map((e) => ({
-      scrollWidth: e.scrollWidth, clientWidth: e.clientWidth, bars: e.children.length,
-      gap: getComputedStyle(e).columnGap,
-    })));
-    ok(strips.length > 0, `${width}px: the page actually rendered a 90-day strip (found ${strips.length})`);
-    for (const [i, s] of strips.entries()) {
-      ok(s.scrollWidth <= s.clientWidth + 1,
-        `${width}px: strip ${i} (${s.bars} bars, gap ${s.gap}) fits its container - ${s.scrollWidth} <= ${s.clientWidth}`);
-    }
+    // Build the strip in the page's own component card, so it inherits the
+    // real nested padding (page wrapper + card) that made this overflow.
+    const strip = await page.evaluate((n) => {
+      const host = document.querySelector(".comp") || document.querySelector(".st-wrap") || document.body;
+      const d = document.createElement("div");
+      d.className = "bars";
+      d.innerHTML = '<i class="b up"></i>'.repeat(n);
+      host.appendChild(d);
+      const cs = getComputedStyle(d);
+      const b0 = d.firstElementChild.getBoundingClientRect();
+      return { scrollWidth: d.scrollWidth, clientWidth: d.clientWidth, gap: cs.columnGap, bars: d.children.length, barWidth: b0.width };
+    }, BARS);
+    ok(strip.bars === BARS, `${width}px: built a ${BARS}-bar strip (got ${strip.bars})`);
+    ok(strip.scrollWidth <= strip.clientWidth + 1,
+      `${width}px: ${BARS} bars at gap ${strip.gap} fit their container - ${strip.scrollWidth} <= ${strip.clientWidth}`);
+    ok(strip.barWidth >= 1.4, `${width}px: bars stay legible, not hairlines (${strip.barWidth.toFixed(2)}px)`);
     // The bars must still be WIDE enough to read: a strip that fits by
     // collapsing to hairlines would pass the overflow check and fail the
     // reader, which is the whole reason this page exists.
-    const barW = await page.$$eval(".bars .b", (els) => els.slice(0, 3).map((e) => e.getBoundingClientRect().width));
-    ok(barW.length > 0 && barW.every((w) => w >= 1.4), `${width}px: bars stay legible, not hairlines (first three: ${barW.map((w) => w.toFixed(2)).join(", ")}px)`);
     await page.close();
   }
 } finally {
