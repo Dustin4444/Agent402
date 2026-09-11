@@ -169,7 +169,7 @@ export const METERED_SLUGS = new Set([
   // Blockscout x402 buyer wallet
   "contract-inspect", "address-profile", "token-info", "token-holders", "tx-inspect",
   // Route-and-execute can buy external sellers
-  "route-execute", "route-execute-max", "route-execute-plus",
+  "route-execute", "seller-payability", "route-execute-max", "route-execute-plus",
   // Identity-bound (payment = identity)
   "memory-write", "memory-read", "memory-incr", "memory-cas", "memory-grant", "memory-revoke",
   "memory-grants", "memory-log", "memory-remember", "memory-recall", "memory-forget",

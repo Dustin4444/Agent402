@@ -26,7 +26,8 @@ export const SHAPE_HAPPY_PATH_ONLY = new Set([
   "/api/x402-verify",  // example shows verified settlement; 0x0…0 hash returns {status:"not_found"}
   "/api/mev-block-payment", // example shows found=true; placeholder block 22000000 returns {found:false}
   "/api/x402-market-pulse", // example shows populated providers/categories; a cold test boot (crawler + leaderboard not warm) returns empty arrays
-  "/api/seller-dossier", // example shows an INDEXED origin; a never-crawled one (every CI boot, crawler off) is the honest listed:false shape
+  "/api/seller-dossier",
+  "/api/seller-payability", // the live legs differ by seller: a 200-answering endpoint, an unparseable 402 and a settled buy are all valid shapes // example shows an INDEXED origin; a never-crawled one (every CI boot, crawler off) is the honest listed:false shape
 ]);
 
 const MAX_DEPTH = 4;      // deep enough for our shapes, shallow enough to bound the doc

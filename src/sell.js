@@ -251,7 +251,7 @@ x402-pay-to: 0xYourWallet&hellip;</pre>
       ${formHtml}
       <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin:18px 0 12px;">What we read from you</div>
       <table style="font-family:var(--font-mono);font-size:12px;border:1px solid var(--hairline);"><tbody>${whatWeReadHtml}</tbody></table>
-      <p style="font-size:13px;line-height:1.6;color:var(--faint);margin:16px 0 0;">Want the audit first? <span style="font-family:var(--font-mono);color:var(--muted);">/api/x402-audit</span> grades any x402 endpoint's payment-security posture from the outside, without paying it. Run it on yourself before you list.</p>
+      <p style="font-size:13px;line-height:1.6;color:var(--faint);margin:16px 0 0;">Already listed and nobody is paying? <span style="font-family:var(--font-mono);color:var(--muted);">POST /api/seller-payability</span> buys one call from your own endpoint with our wallet and reports every leg: the 402 decoded, whether a stock client's signature was accepted, the settlement receipt. $0.10. Want the audit first? <span style="font-family:var(--font-mono);color:var(--muted);">/api/x402-audit</span> grades any x402 endpoint's payment-security posture from the outside, without paying it. Run it on yourself before you list.</p>
     </div>
   </div>
 </section>
