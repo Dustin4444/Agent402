@@ -2619,7 +2619,22 @@ async function crawlSeller(originUrl) {
         // /agents.json. A seller told to fix their discovery path needs to know
         // which path we did read, not merely that it was not the standard one.
         discoveryPath: openapiPath,
-        history: rollHistory(prev, true),
+        // A CRAWL COMPLETING IS NOT A SELLER ANSWERING, and this line is where
+        // that distinction was half-applied. `originResponded` below already
+        // says the truth (openapi-fallback = their document answered;
+        // bazaar-fallback = the manifest fetch AND the OpenAPI fetch both
+        // failed and every field here was synthesised from a third-party
+        // registry row). The health history was recorded as a SUCCESS either
+        // way, so an origin that answers nothing at all carried health 1 and
+        // rendered as healthy - which is the same defect the comment below
+        // describes and stops one field short of fixing.
+        //
+        // Found 2026-09-11 from an outside report: an origin whose root,
+        // /.well-known/x402, /openapi.json and /llms.txt all answer 404 was
+        // published as routable with health 1 and a four-tool catalogue, every
+        // tool of it synthesised from a registry. One condition, read once, so
+        // the two fields cannot disagree again.
+        history: rollHistory(prev, openapiTools.length > 0),
         // Did the ORIGIN serve us anything, or is this record purely a registry
         // listing about it?
         //

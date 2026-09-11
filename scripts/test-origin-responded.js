@@ -14,7 +14,7 @@
 // at health 1 with dead paid routes — at scale, in our own data, on a public
 // page. A crawl completing is not a seller answering.
 import { loadPersistedIndexCache, indexSnapshot, sellerDetail, routableSellerSummaries } from "../src/x402-index.js";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -67,6 +67,37 @@ ok(Boolean(answered) && answered.originResponded === true,
 // --- the published count must exclude registry-only records ----------------
 ok(snap.totals.respondedOrigins === snap.totals.sellers - 1,
   `respondedOrigins excludes the registry-only record (${snap.totals.respondedOrigins} of ${snap.totals.sellers})`);
+
+// --- the HEALTH history must tell the same story as the flag ---------------
+// The fix above set originResponded honestly and left the health history being
+// rolled as a SUCCESS on the same branch, so a registry-only origin published
+// health 1 while answering nothing. Reported from outside 2026-09-11: an origin
+// whose root, /.well-known/x402, /openapi.json and /llms.txt all answer 404 was
+// still routable at health 1 with a four-tool catalogue synthesised entirely
+// from a registry row. Two fields, one condition, read once - so pin that the
+// crawl branch derives BOTH from the same expression. A behavioural test cannot
+// reach this line (it needs a live crawl of a dead origin), and the failure it
+// guards is silent: the entry looks healthy, which is the whole problem.
+{
+  const src = readFileSync(new URL("../src/x402-index.js", import.meta.url), "utf8");
+  const branch = src.slice(src.indexOf('source: openapiTools.length ? "openapi-fallback" : "bazaar-fallback"'));
+  const head = branch.slice(0, 2400);
+  ok(/history: rollHistory\(prev, openapiTools\.length > 0\)/.test(head),
+    "the fallback branch records crawl health from whether the ORIGIN answered, never from the crawl merely completing");
+  ok(/originResponded: openapiTools\.length > 0/.test(head),
+    "...the same condition originResponded is derived from, so the two cannot drift apart again");
+  ok(!/history: rollHistory\(prev, true\)/.test(head),
+    "and an unconditional success is gone from that branch");
+}
+
+// A stale record that still claims a healthy history is judged on the flag, not
+// on the history - otherwise one ancient success launders an origin forever.
+writeFileSync(file, JSON.stringify({ entries: [
+  entry("https://staleheal.test", { originResponded: false, source: "bazaar-fallback", history: [1, 1, 1] }),
+]}));
+loadPersistedIndexCache(file);
+ok(!routableSellerSummaries().some((s) => s.origin === "https://staleheal.test"),
+  "a registry-only origin carrying a perfect health history is still kept out of the router's pool");
 
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
