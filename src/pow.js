@@ -318,6 +318,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   // Usage report: payment IS the identity (payerFromRequest) — a PoW call has
   // no wallet, so there is nothing it could ever report on.
   "my-usage",
+  "receipts",
   // Image generation kit: every call burns real upstream inference credit
   // (OpenAI GPT Image API). Same rationale as LLM proxy.
   "image-gen", "image-gen-hd", "image-gen-premium",

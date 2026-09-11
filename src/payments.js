@@ -303,8 +303,12 @@ export function enabledNetworks(network) {
 // `attest` joined 2026-09-03: an attestation is written for the BUYER of a sale,
 // so the handler must know who is paying, and only a signed EVM authorization
 // tells it before settlement.
+// `receipts` joined 2026-09-11: it returns the CALLER'S OWN settled payments,
+// derived from the signed authorization and never from a parameter, so it can
+// only be answered for a payer the server can verify. Without this a Solana or
+// Stellar buyer would settle and then be refused - charged for nothing.
 export const isIdentityBoundRoute = (def) =>
-  def?.category === "memory" || def?.slug === "my-usage" || def?.slug === "attest";
+  def?.category === "memory" || def?.slug === "my-usage" || def?.slug === "attest" || def?.slug === "receipts";
 
 // Build the `accepts` list for one catalog item. EVM rails always apply. For an
 // identity-bound route that is ALL it advertises, so a buyer can never settle on

@@ -173,6 +173,7 @@ export const METERED_SLUGS = new Set([
   "memory-write", "memory-read", "memory-incr", "memory-cas", "memory-grant", "memory-revoke",
   "memory-grants", "memory-log", "memory-remember", "memory-recall", "memory-forget",
   "my-usage",
+  "receipts",
   // FRED keyed (503 without FRED_API_KEY / FRED_API_KEY_V2)
   "fred-series", "fred-search", "fred-series-info", "fred-release-calendar",
   "sahm-rule", "cpi-yoy", "unemployment-rate", "fed-funds",
