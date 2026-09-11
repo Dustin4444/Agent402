@@ -1299,7 +1299,7 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
           liveAccepts = acceptsFromLive402({ header: probe.headers.get("payment-required"), body });
           return livePayTo;
         };
-        // THE ACCEPT'S EIP-712 DOMAIN NAME (2026-09-10, HumanMirror). A Base
+        // THE ACCEPT'S EIP-712 DOMAIN NAME (2026-09-10, a seller wrote in). A Base
         // accept advertising extra.name "USDC" cannot be paid by any stock
         // buyer: the token signs under "USD Coin", the signature recovers to
         // nobody, the facilitator refuses. The crawl's observation already
