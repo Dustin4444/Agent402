@@ -22,16 +22,29 @@
 // MONEY. The upstream is the seller's own price, capped by `maxUsd` (default
 // $0.01, hard ceiling MAX_SPEND_USD) and re-checked by payX402 against the
 // accept it actually signs, so a seller cannot quote one price and charge
-// another. Every spend books against the Base wallet's daily ceiling through
-// the same guard route-execute uses, so the aggregate is bounded even if this
-// tool is hammered. At $0.10 a check against at most $0.02 of upstream plus
-// Base gas, the margin holds at the 70% bound.
+// another. WE PAY NO GAS: the EIP-3009 transfer is broadcast by the SELLER's
+// facilitator, not by us (an earlier draft of this comment said "plus Base
+// gas" and was wrong). So $0.10 a check against at most $0.02 of upstream,
+// and the margin holds at the 70% bound.
 //
-// WHY A CALLER CANNOT FARM US. The obvious abuse is pointing the tool at your
-// own endpoint to collect our payment: it loses money for the attacker (they
-// pay $0.10 to receive at most $0.02), the per-call cap is enforced against
-// the signed accept, and the wallet's daily ceiling bounds the total. The
-// target must also pass the SSRF guard and answer a real 402. The seller's
+// WHY A CALLER CANNOT FARM US - stated with its precondition, because the
+// first version of this paragraph quietly assumed the part that can fail.
+// Pointing the tool at your own endpoint to collect our payment loses money
+// for the attacker ONLY IF our own $0.10 settles: they pay $0.10 to receive at
+// most $0.02. The state worth naming is the one where it does NOT settle -
+// @x402/express runs this handler and settles afterwards, so a buyer whose
+// payment verifies and then fails to settle gets each check free. Four things
+// bound that, and the 2026-09-11 review exists because three of them were
+// named here before they were actually bound:
+//   - the settle-failure breaker runs BEFORE this handler for every
+//     wallet-only slug and refuses at 3 failures per 15 min, so ~$0.06;
+//   - the Base wallet's rolling daily ceiling bounds a caller who rotates
+//     wallets or IPs, which is what defeats every per-payer guard;
+//   - the per-call cap is enforced against the accept actually SIGNED, not
+//     against the probe's 402 (they can differ - the seller writes both);
+//   - the handler is EVM-exact only and deadline-bounded, so it cannot outlive
+//     the buyer's own authorization and turn a slow seller into a free check.
+// The target must also pass the SSRF guard and answer a real 402. The seller's
 // response body is third-party text, so it is truncated and marked untrusted.
 import { markUntrusted } from "./provenance.js";
 import { maySpend as realMaySpend, noteSpend as realNoteSpend, adjustSpend as realAdjustSpend } from "../external-spend-guard.js";
