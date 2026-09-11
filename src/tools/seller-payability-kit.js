@@ -335,10 +335,19 @@ export function buildSellerPayabilityTool({
         },
         required: ["url"],
       },
-      input: { url: "https://api.example.com/tools/summarize", method: "POST", body: { text: "hello" } },
+      // The documented example points at a route on THIS host, and that is
+      // deliberate twice over. A placeholder host answers no 402, so the tool
+      // refused its own example 400 before any payment - the one tool in the
+      // catalog that could not demonstrate itself (found 2026-09-11 when a
+      // registration sweep tried to buy it). And the standing rule keeps
+      // third-party hostnames out of committed text, so the only live seller
+      // this file may name is us. /api/hash is $0.001, pure CPU and always up,
+      // so the example is a HEALTHY seller end to end: a real 402 decoded, a
+      // real signature, a real settlement, and flags that say nothing to fix.
+      input: { url: "https://agent402.tools/api/hash", method: "POST", body: { text: "hello" } },
       output: {
         example: {
-          url: "https://api.example.com/tools/summarize",
+          url: "https://agent402.tools/api/hash",
           method: "POST",
           checkedAt: "2026-09-11T02:00:00.000Z",
           payable: true,

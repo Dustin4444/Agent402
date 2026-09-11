@@ -64,11 +64,10 @@ const ROUTES = [
   "POST /v1/videos/generations", "POST /api/image-gen-hd", "POST /api/image-gen-premium",
   "POST /api/tts-hd", "POST /api/tts-lite", "POST /api/transcribe-pro",
   "GET /api/x-search-recent", "GET /api/x-user-tweets", "GET /api/x-users-lookup",
-  // NOT on the list: /api/seller-payability. Its documented example targets a
-  // placeholder host (api.example.com) that answers no 402, so the tool refuses
-  // its own example 400 before any payment - buying it needs a real seller URL,
-  // which is a judgment call, not a sweep input. It lists the first time
-  // anybody points it at a live seller.
+  // Back on the list once its example stopped pointing at a placeholder host
+  // that answers no 402 (2026-09-11). It now checks a $0.001 route on this
+  // host, so the example is a healthy seller end to end.
+  "POST /api/seller-payability",
 ];
 
 const args = process.argv.slice(2);
