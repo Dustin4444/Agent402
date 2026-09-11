@@ -180,7 +180,13 @@ function sig({ method, host, path, query = "", headers, secret, keyId, region, n
 async function s3(method, key, { body, contentLength, query = "" } = {}) {
   const c = cfg();
   const url = new URL(c.endpoint);
-  const path = `/${c.bucket}${key ? `/${key}` : ""}`;
+  // SigV4 signs the canonical URI, and the request must send exactly that, so
+  // the path is percent-encoded PER SEGMENT here and the same string is used
+  // for both. Every backup key is unreserved characters only, so this is a
+  // no-op for them; the dataset's Hive partition (dt=YYYY-MM-DD) carries an
+  // "=", which fetch normalizes and the raw-path signature did not - the
+  // first live snapshot failed SignatureDoesNotMatch on exactly that.
+  const path = `/${[c.bucket, ...(key ? String(key).split("/") : [])].map(encodeURIComponent).join("/")}`;
   const headers = sig({
     method, host: url.host, path,
     query,
@@ -212,6 +218,17 @@ export async function putObject(key, body) {
   const res = await s3("PUT", key, { body });
   if (!res.ok) throw new Error(`PUT ${key}: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
   return { key, bytes: body.length };
+}
+
+/** Read one object back. For the dataset exporter, which pulls a recorded day
+ *  out of the bucket to load into a warehouse. Returns null for a missing key
+ *  so a caller can distinguish "no such day" from a transport failure, which
+ *  still throws. */
+export async function getObject(key) {
+  const res = await s3("GET", key);
+  if (res.status === 404 || res.status === 403) return null; // 403 = missing, on a credential without ListBucket at that path
+  if (!res.ok) throw new Error(`GET ${key}: HTTP ${res.status}`);
+  return Buffer.from(await res.arrayBuffer());
 }
 
 /** Does this key already exist? The dataset snapshot asks before writing: a

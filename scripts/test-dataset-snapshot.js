@@ -42,6 +42,10 @@ const SELLER = {
   mpp: null,
   stellarWallet: null,
   algorandWallet: null,
+  payToByNetwork: { "eip155:8453": "0xseller" },
+  paymentNetworksKnown: true,
+  routerDispatchEligible: false,
+  routerDispatchReason: "settlement_required",
   fetchedAt: "2026-09-11T04:00:00.000Z",
   error: null,
   // (1) a third-party measurement, (2) a field nobody allowlisted
@@ -82,6 +86,8 @@ const MPP_ROW = { recipient: "0xrecip", sellers: ["https://seller.example"], int
   eq(r.origin, "https://seller.example", "route rows carry their seller origin as the join key");
   eq(r.price_source, "live-402", "price provenance is carried");
   eq(r.quote_observed_at, "2026-09-11T03:00:00.000Z", "observation time is carried");
+  eq(s.router_dispatch_reason, "settlement_required", "the router's own verdict rides along - the column that separates transactable from merely listed");
+  eq(s.pay_to_by_network["eip155:8453"], "0xseller", "the per-chain payout address is the join key to the settlement tables");
 
   // Every row of a table has an identical key set - a reader should never have
   // to guess the schema from row 1.
@@ -231,6 +237,15 @@ const exists = async (key) => bucket.has(key);
   ok(!/s3\("HEAD"/.test(ex), "objectExists must not HEAD - that path cannot tell a missing day from a permissions failure");
 
   const put = /export async function putObject[\s\S]*?\n\}/.exec(backup)?.[0] || "";
+  // The Hive partition puts an "=" in every object key. SigV4 signs the
+  // canonical URI and the request must send exactly that string, so the path
+  // is encoded once, per segment, and shared - the first live snapshot failed
+  // SignatureDoesNotMatch because the signature used a raw "=" and fetch sent
+  // a normalized one. Backup keys are unreserved-only, so encoding is inert
+  // for them and the proven path is untouched.
+  ok(/map\(encodeURIComponent\)/.test(backup), "the S3 path is percent-encoded per segment for both the signature and the request");
+  ok(DATASET_PREFIX.startsWith("datasets/"), "the dataset prefix is stable");
+
   ok(put.includes('s3("PUT", key, { body })'), "putObject sends NO explicit content-length: undici derives it from a Buffer and rejects a caller-supplied one (UND_ERR_INVALID_ARG). The streaming backup upload still passes it, correctly, because a stream cannot be measured.");
   ok(!/contentLength/.test(put), "no contentLength in the Buffer upload path");
 }
