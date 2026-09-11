@@ -8,6 +8,8 @@
 // every surface it owned read healthy (2026-09-10). The domain leg below is
 // that case.
 import { buildSellerPayabilityTool, normalizeTarget, readChallenge, domainFindings, payabilityFlags, MAX_SPEND_USD } from "../src/tools/seller-payability-kit.js";
+import { LONG_RUNNING_SLUGS } from "../src/composite-spend-guard.js";
+import { requiredSecondsFor } from "../src/avm-validity.js";
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
 const BASE_USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
@@ -21,13 +23,13 @@ const wrap = (r) => ({ ...r, headers: hdr(r.headers) });
 
 /** A tool wired to stubs; `spent` records what the guard was asked for. */
 function toolWith({ bare, pay, spendOk = true } = {}) {
-  const spent = { may: [], note: [], adjust: [] };
+  const spent = { may: [], note: [], adjust: [], payOpts: [] };
   const tool = buildSellerPayabilityTool({
-    pay: pay || (async () => ({ result: { ok: true }, quote: null, receipt: { network: "eip155:8453", payer: "0xpayer", transaction: "0xtx", success: true } })),
+    pay: pay || (async (u, o) => { spent.payOpts.push(o); return { result: { ok: true }, quote: { usd: 0.01, atomic: "10000" }, receipt: { network: "eip155:8453", payer: "0xpayer", transaction: "0xtx", success: true } }; }),
     fetchImpl: async () => wrap(bare || res402([accept()])),
     assertPublicUrl: async () => {},
-    maySpend: (p, usd, o) => { spent.may.push({ usd, chain: o?.chain }); return spendOk ? { ok: true } : { ok: false, code: "wallet_daily_ceiling" }; },
-    noteSpend: (p, usd, o) => { spent.note.push({ usd, chain: o?.chain }); return { handle: 1 }; },
+    maySpend: (p, usd, o) => { spent.may.push({ usd, chain: o?.chain, payer: p }); return spendOk ? { ok: true } : { ok: false, code: "wallet_daily_ceiling" }; },
+    noteSpend: (p, usd, o) => { spent.note.push({ usd, chain: o?.chain, payer: p }); return { handle: 1 }; },
     adjustSpend: (h, usd) => spent.adjust.push(usd),
     now: () => 1_757_000_000_000,
   });
@@ -58,7 +60,7 @@ function toolWith({ bare, pay, spendOk = true } = {}) {
   await tool.handler({ url: "https://s.example" }, {});
   ok(spent.may[0]?.chain === "base" && spent.may[0].usd === 0.01, "every check asks the Base wallet's daily ceiling BEFORE any call, for the cap");
   ok(spent.note[0]?.usd === 0.01, "and books the cap against that ceiling up front");
-  ok(spent.adjust[0] === 0.01, "then corrects the booking down to the seller's actual quote");
+  ok(spent.adjust[0] === 0.01, "then corrects the booking down to what payX402 actually SIGNED (out.quote.usd)");
   const blocked = toolWith({ spendOk: false });
   let e = null; try { await blocked.tool.handler({ url: "https://s.example" }, {}); } catch (x) { e = x; }
   ok(e?.statusCode === 429 && /daily ceiling/.test(e.message), "a wallet at its daily ceiling refuses 429 before spending, and says so");
@@ -96,7 +98,7 @@ function toolWith({ bare, pay, spendOk = true } = {}) {
   const r200 = await notPaywalled.tool.handler({ url: "https://s.example" }, {});
   ok(r200.payable === false && r200.payment.attempted === false, "a 200 to an unpaid call is not payable and no payment is attempted");
   ok(r200.flags.some((f) => /not paywalled/.test(f)), "and the flag says the endpoint is not paywalled");
-  ok(notPaywalled.spent.adjust.length === 0, "nothing is spent, so nothing is corrected");
+  ok(notPaywalled.spent.adjust[0] === 0, "nothing is spent, so the day's booking is RELEASED, not left holding the cap for the window");
 
   const wrongStatus = toolWith({ bare: plain(404) });
   const r404 = await wrongStatus.tool.handler({ url: "https://s.example" }, {});
@@ -114,7 +116,7 @@ function toolWith({ bare, pay, spendOk = true } = {}) {
   const overCap = toolWith({ bare: res402([accept({ amount: "500000" })]) });
   const ro = await overCap.tool.handler({ url: "https://s.example" }, {});
   ok(ro.payment.attempted === false && ro.flags[0].includes("above the $0.01 cap"), "a quote above the cap is reported, not paid");
-  ok(overCap.spent.adjust.length === 0, "and books no correction");
+  ok(overCap.spent.adjust[0] === 0, "and releases the booking, because an over-cap quote spends nothing");
 
   const unreachable = buildSellerPayabilityTool({
     pay: async () => { throw new Error("unused"); },
@@ -141,5 +143,57 @@ function toolWith({ bare, pay, spendOk = true } = {}) {
   const f2 = payabilityFlags({ bare: { status: 200 }, challenge: {}, domains: [], paid: null, settled: null });
   ok(f2.some((x) => /not paywalled/.test(x)) && !f2.some((x) => /nothing to fix/.test(x)), "flags: a 200 never reads as clean");
 }
+// --- the three money-safety guards, from the 2026-09-11 review --------------
+//
+// Each mutation these kill is INVISIBLE to every other assertion in this file:
+// the tool still answers correctly, the seller is still diagnosed, the buyer
+// still gets the same JSON. Only the accounting and the advertised rails move.
+{
+  // 1. THE DAY'S BOOKING FOLLOWS WHAT WE SIGNED, NEVER WHAT THE PROBE SAW.
+  //    payX402 makes its OWN bare request and signs whatever THAT 402 names,
+  //    and the seller writes both responses. Booking the probe's number let a
+  //    seller quote $0.000001 to the probe and the full cap to the paying leg,
+  //    so the wallet's daily ceiling never grew while the money left.
+  const attack = toolWith({
+    bare: res402([accept({ amount: "1" })]),                       // probe: $0.000001
+    pay: async () => ({ result: { ok: true }, quote: { usd: 0.01, atomic: "10000" }, receipt: { success: true, transaction: "0xtx" } }),
+  });
+  await attack.tool.handler({ url: "https://s.example" }, {});
+  ok(attack.spent.adjust[0] === 0.01,
+    `a seller quoting cheap to the probe and dear to the paying leg is booked at the SIGNED $0.01, not the probed $0.000001 (got ${attack.spent.adjust[0]})`);
+
+  // 2. THE BUYER IS KEYED IN. A null payer takes the guard's "not
+  //    attributable" branch, so the per-payer ceiling is skipped and the spend
+  //    carries no operator attribution. Scope, stated honestly: the settle
+  //    breaker (3 per 15 min, pre-handler) and the $25/day chain ceiling were
+  //    already the real bounds; the per-payer ceiling is $6 against a $0.02
+  //    cap and would not refuse until call 301. This is consistency with
+  //    route-execute and defence in depth, not a closed exploit.
+  const keyed = toolWith();
+  await keyed.tool.handler({ url: "https://s.example" }, { ip: "203.0.113.9" });
+  ok(keyed.spent.may[0]?.payer === "ip:203.0.113.9" && keyed.spent.note[0]?.payer === "ip:203.0.113.9",
+    `the spend is keyed to the buyer so the per-payer ceiling applies (got ${keyed.spent.may[0]?.payer})`);
+  const tempo = toolWith();
+  await tempo.tool.handler({ url: "https://s.example" }, { mppTempoPayer: "0xabc", ip: "203.0.113.9" });
+  ok(tempo.spent.note[0]?.payer === "tempo:0xabc", "a Tempo buyer is keyed by its credential payer, not by the IP (the gate strips the x402 header)");
+  const req = {};
+  const handled = toolWith();
+  await handled.tool.handler({ url: "https://s.example" }, req);
+  ok(req.__externalSpend, "the handle rides on the request so server.js resolves it after settlement");
+
+  // 3. THE REFUSAL WAIT CANNOT OUTLIVE THE REQUEST. Unbounded it defaults to
+  //    90 s, which with the probe and paid legs put the worst case past any
+  //    short-lived rail's validity window - and settlement runs AFTER us.
+  const bounded = toolWith();
+  await bounded.tool.handler({ url: "https://s.example" }, {});
+  const rw = bounded.spent.payOpts[0]?.refusalMaxWaitMs;
+  ok(Number.isFinite(rw) && rw > 0 && rw <= 55_000, `the payer is handed the request's remaining deadline, never the 90 s default (got ${rw})`);
+
+  ok(LONG_RUNNING_SLUGS.has("seller-payability"),
+    "and the slug is long-running, so the paywall offers EVM exact only - the short-lived rails cannot settle a 55 s handler that already paid a seller");
+  ok(requiredSecondsFor("seller-payability") >= 55,
+    `the AVM guard demands a window that outlives the handler, so a HAND-BUILT Algorand payment is refused before the spend, not after (got ${requiredSecondsFor("seller-payability")}s)`);
+}
+
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

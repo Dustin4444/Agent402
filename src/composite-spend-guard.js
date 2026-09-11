@@ -56,8 +56,16 @@ export const EXPENSIVE_COMPOSITE_SLUGS = new Set([
 ]);
 
 /** Slugs that are long-running for a reason OTHER than composite spend.
- *  Kept beside the set above because they feed the same rule. */
-export const LONG_RUNNING_SLUGS = new Set(["v1-videos"]);
+ *  Kept beside the set above because they feed the same rule.
+ *
+ *  `seller-payability` (2026-09-11) is here because it PAYS an outside seller
+ *  from our Base wallet and then runs to a 55 s deadline in the worst case:
+ *  a 15 s probe, a 45 s paid leg, and a refusal wait that must outlive the
+ *  credential it signed. Settlement happens after the handler, so on the
+ *  short-lived rails (SVM recent-blockhash, the default AVM window, a Tempo
+ *  credential) the buyer's authorization can be dead by the time we answer -
+ *  we would have paid the seller and earned nothing. EVM exact only. */
+export const LONG_RUNNING_SLUGS = new Set(["v1-videos", "seller-payability"]);
 
 /** True when a route runs long enough that only EVM `exact` can settle it.
  *
