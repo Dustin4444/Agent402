@@ -89,6 +89,25 @@ It never fetches the seller at call time. This is accumulated crawl and
 settlement evidence, not a liveness probe, so it cannot be used to make us
 generate traffic against a third party.
 
+### The assembled record (`POST /api/seller-dossier`, $0.05)
+
+`seller-trust` answers the gate's own question. The dossier answers the one
+people actually ask, which is "what do you know about this seller": the catalog
+with the provenance of every price, advertised wallets against the wallets that
+were really paid (own evidence, inherited evidence, and who else claims a shared
+payTo), settlement evidence kept per source instead of summed into one
+misleading total, the dispatch verdict per chain with its reason and any recent
+refusal or delivery failure, and what happened the times our own router paid it.
+Plain-English flags, no score. Also offline - nothing is fetched from the seller.
+
+### Can it be paid right now (`POST /api/seller-payability`, $0.10)
+
+Both reads above describe what we already know, and neither can tell you whether
+a seller's payment path works today. This one buys a real call to find out:
+every leg reported, the 402 decoded, the EIP-712 domain checked against the
+token it names, the settlement receipt and transaction, and the timing. It
+spends USDC from our own wallet, which is why it costs what it does.
+
 ## Calling the router
 
 ```bash
