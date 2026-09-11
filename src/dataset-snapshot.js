@@ -47,6 +47,7 @@
 // distribution decision.
 import { gzipSync } from "node:zlib";
 import { putObject, objectExists, backupConfigured } from "./backup.js";
+import { priceToMicroUsd } from "./x402-index.js";
 
 export const DATASET_VERSION = "v1";
 export const DATASET_PREFIX = `datasets/${DATASET_VERSION}`;
@@ -102,7 +103,15 @@ const ROUTE_COLUMNS = [
   ["origin", "__origin"],
   ["route", "route"],
   ["method", "method"],
-  ["price_usd", "priceUsd"],
+  // DERIVED, not read: the raw crawl row stores the origin's published price as
+  // a display STRING ("$0.005") under `price`; `priceUsd` is a later display
+  // derivation that does not exist on the crawl object. The first real day
+  // shipped this column entirely null while the provenance column beside it
+  // carried the number - caught by columnFill, which is what it is for.
+  // Unparseable reads null, never 0: "free" and "we could not read it" are
+  // different facts and only one of them is ours to publish.
+  ["price_usd", "__priceUsd"],
+  ["price_published", "price"],
   ["price_source", "quoteSource"],
   ["price_resolved_from", "priceResolvedFrom"],
   ["origin_declared_price", "originDeclaredPrice"],
@@ -186,7 +195,8 @@ export function buildTables({ sellers = [], baseRows = [], solanaRows = [], mppR
     sellerRows.push(project(s, SELLER_COLUMNS));
     for (const t of Array.isArray(s.tools) ? s.tools : []) {
       if (routeRows.length >= MAX_ROWS) break;
-      routeRows.push(project({ ...t, __origin: s.origin }, ROUTE_COLUMNS));
+      const micro = priceToMicroUsd(t?.price ?? t?.priceUsd);
+      routeRows.push(project({ ...t, __origin: s.origin, __priceUsd: micro == null ? null : micro / 1e6 }, ROUTE_COLUMNS));
     }
   }
   return {

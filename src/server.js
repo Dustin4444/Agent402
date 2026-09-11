@@ -7408,7 +7408,10 @@ const datasetSources = () => ({
     const tools = crawlToolsByOrigin();
     return (getIndexSnapshot()?.sellers || [])
       .filter((s) => !s.local)
-      .map((s) => ({ ...s, tools: tools.get(s.origin) || [] }));
+      // withDispatchFields is what /api/index applies at the route; the raw
+      // indexSnapshot does not carry the verdict, so without this the
+      // router_dispatch_* columns publish as all-null.
+      .map((s) => ({ ...withDispatchFields(s), tools: tools.get(s.origin) || [] }));
   },
   baseRows: () => getLeaderboardSnapshot()?.leaderboard || [],
   solanaRows: () => getSolanaLeaderboardSnapshot()?.rows || [],
