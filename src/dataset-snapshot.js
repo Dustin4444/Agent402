@@ -82,6 +82,15 @@ const SELLER_COLUMNS = [
   ["mpp", "mpp"],
   ["stellar_pay_to", "stellarWallet"],
   ["algorand_pay_to", "algorandWallet"],
+  // The EVM payout address per chain: the join key between this table and the
+  // settlement tables, and already public on /api/index.
+  ["pay_to_by_network", "payToByNetwork"],
+  ["payment_networks_known", "paymentNetworksKnown"],
+  // Our router's own verdict on whether it would pay this seller right now,
+  // and why not. First-party, and the single most useful column for anyone
+  // deciding who is actually transactable rather than merely listed.
+  ["router_dispatch_eligible", "routerDispatchEligible"],
+  ["router_dispatch_reason", "routerDispatchReason"],
   ["fetched_at", "fetchedAt"],
   ["crawl_error", "error"],
 ];
