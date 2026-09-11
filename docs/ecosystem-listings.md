@@ -443,7 +443,7 @@ same shape as the self-hosted data sellers already listed).
     ],
     endpoints: [
       { route: "GET /api/search", desc: "Live web search (title, URL, snippet)", amount: "20000", unitType: "request" },
-      { route: "GET /api/answer", desc: "Cited answer grounded in live web search", amount: "210000", unitType: "request" },
+      { route: "GET /api/answer", desc: "Cited answer grounded in live web search", amount: "80000", unitType: "request" },
       { route: "POST /api/render", desc: "Headless browser render of a URL (title, text, links)", amount: "20000", unitType: "request" },
       { route: "POST /api/route/execute", desc: "Smart Order Router: resolve a task to the best seller across the ecosystem, pay them, relay the result", amount: "10000", unitType: "request" },
       { route: "POST /v1/chat/completions", desc: "OpenAI-compatible chat completions (base tier)", amount: "20000", unitType: "request" },

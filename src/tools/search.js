@@ -501,19 +501,32 @@ export const SEARCH_TOOLS = [
     name: "Web answer",
     slug: "answer",
     category: "web",
-    // $0.21 against Brave's MEASURED cost of ~$0.062/answer, which is the 70%
-    // margin bound every other tool is priced under. History: $0.03 sold at a
-    // LOSS (the cost comment had misread Brave's token pricing by 1000x), and
-    // the $0.08 that replaced it cleared only ~24%, i.e. upstream was 78% of
-    // price - over the bound, and the only tool in the catalog that was.
-    // RECONCILED against the live invoice 2026-09-11: 23 answers billed $1.43
-    // = $0.0622 each, and the token breakdown explains it exactly (~11.4k
-    // input tokens at $5/1M, plus the $0.004 base). Web search on the same
-    // account bills $0.005/request, which is why `search` at $0.02 is fine and
-    // only this tool moved. Brave's $10/mo per-plan free credits currently
-    // cover the whole bill; they are a fixed allowance, not a discount on the
-    // next call, so the margin is priced on marginal cost regardless.
-    price: "$0.21",
+    // $0.08 against Brave's MEASURED cost of ~$0.062/answer. This is the ONE
+    // tool priced OVER the 70% margin bound (upstream is 78% of price), and it
+    // is over it deliberately - the operator's call, 2026-09-11, on the numbers
+    // below. Do not "fix" it to $0.21 without asking: that was tried the same
+    // day and reverted.
+    //
+    // What the decision rested on. RECONCILED against the live invoice: 23
+    // answers billed $1.43 = $0.0622 each, and the token breakdown explains it
+    // exactly (~11.4k input tokens at $5/1M, plus the $0.004 base) - so the
+    // ~$0.061 measured in July 2026 still holds a year on. Web search on the
+    // same account bills $0.005/request, which is why `search` at $0.02 sits at
+    // a comfortable 25% and only this tool was ever in question. History: the
+    // original $0.03 sold at a LOSS (the cost comment had misread Brave's token
+    // pricing by 1000x).
+    //
+    // Why thin margin is the right trade HERE. `answer` is not in the top 20
+    // tools by outside sales over 30 days, so the margin is nearly theoretical,
+    // and raising it would have doubled the price of the two skill packs that
+    // run it (search-and-cite, article-digest) - products that DO have buyers -
+    // to protect a tool that has ~none. Being cheap at the front door is worth
+    // more than two cents a call. Brave's $10/mo per-plan free credits cover
+    // the whole bill at current volume besides.
+    //
+    // WHEN TO REVISIT: if `answer` (or either pack) starts selling in volume,
+    // the thin margin stops being theoretical - reprice then, on that evidence.
+    price: "$0.08",
     description:
       "AI-generated answer to a natural-language question, grounded in live web search results with source citations. Returns clean prose plus a structured citations array (URL, snippet, favicon) - backed by an independent search index, not the model's training data. Useful when an agent needs a synthesized answer plus the receipts to verify or follow up.",
     tags: ["search", "answer", "ai", "rag", "citations", "research", "fresh-data"],
