@@ -232,12 +232,19 @@ export function manifestFor({ day, tables, sources = {}, partial = null, force =
     provenance: "First-party: our own crawl of publicly advertised x402/MPP endpoints, our own live 402 probes, and public chain reads. Third-party measurements are excluded by name below.",
     excludedThirdParty: EXCLUDED_THIRD_PARTY,
     privacy: "Seller payTo addresses are published (public infrastructure, and the join key across tables). Buyer identities are never published - buyer figures are counts only.",
+    // A column's non-null COUNT is the disclosure. A buyer should be able to
+    // read the completeness of every column out of the manifest rather than
+    // discover it ten minutes into a trial - and rows are never dropped for
+    // being incomplete, because "which endpoints publish no price" is a fact
+    // about the ecosystem and filtering it away is the one thing a buyer
+    // cannot undo.
     tables: Object.fromEntries(Object.entries(tables).map(([name, t]) => [name, {
       file: `${name}.ndjson.gz`,
       rows: t.rows.length,
       columns: t.columns.map(([out]) => out),
       columnFill: columnFill(t.rows, t.columns),
     }])),
+    completeness: "Rows are never dropped for missing values. columnFill gives the non-null count per column, so the completeness of every field is stated rather than implied.",
     sources,
     ...(partial ? { partial } : {}),
     ...(force ? { forcedOverwrite: true } : {}),

@@ -1,0 +1,79 @@
+{
+  "version": "v1",
+  "frozenAt": "2026-09-11",
+  "rule": "Columns listed here are the v1 contract and MUST keep their name and meaning. Removing or renaming one is a BREAKING change and belongs in v2 with a new prefix - a buyer backtesting across days cannot have a column mean two things. New columns are additive and allowed, but must be recorded under additions[] with the date and the reason, so a schema that grows stays a decision rather than a drift.",
+  "tables": {
+    "sellers": [
+      "origin",
+      "display_name",
+      "homepage",
+      "primary_network",
+      "networks",
+      "tool_count",
+      "paid_tool_count",
+      "origin_responded",
+      "discovery_path",
+      "source",
+      "health",
+      "routable",
+      "mpp",
+      "stellar_pay_to",
+      "algorand_pay_to",
+      "pay_to_by_network",
+      "payment_networks_known",
+      "router_dispatch_eligible",
+      "router_dispatch_reason",
+      "fetched_at",
+      "crawl_error"
+    ],
+    "routes": [
+      "origin",
+      "route",
+      "method",
+      "price_usd",
+      "price_published",
+      "price_source",
+      "price_resolved_from",
+      "origin_declared_price",
+      "quote_observed_at",
+      "quote_carried_forward",
+      "networks",
+      "networks_verified_at",
+      "method_inferred",
+      "method_corrected_from"
+    ],
+    "settlement_base": [
+      "name",
+      "origins",
+      "homepage",
+      "pay_to",
+      "pay_to_count",
+      "network",
+      "calls_settled",
+      "total_usd",
+      "unique_buyers",
+      "endpoints"
+    ],
+    "settlement_solana": [
+      "pay_to",
+      "origins",
+      "credits",
+      "payers",
+      "truncated",
+      "stale",
+      "is_host"
+    ],
+    "settlement_mpp": [
+      "recipient",
+      "sellers",
+      "intents",
+      "transfers",
+      "volume_usdc",
+      "payers",
+      "proven",
+      "routable",
+      "is_host"
+    ]
+  },
+  "additions": []
+}

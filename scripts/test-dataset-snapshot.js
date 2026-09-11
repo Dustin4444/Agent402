@@ -17,7 +17,7 @@ import { gunzipSync } from "node:zlib";
 import { readFileSync } from "node:fs";
 import {
   buildTables, serializeTable, manifestFor, columnFill,
-  runDatasetSnapshot, EXCLUDED_THIRD_PARTY, UNFILLABLE_HERE, DATASET_PREFIX,
+  runDatasetSnapshot, EXCLUDED_THIRD_PARTY, UNFILLABLE_HERE, DATASET_PREFIX, DATASET_VERSION,
 } from "../src/dataset-snapshot.js";
 
 let n = 0;
@@ -263,6 +263,32 @@ const exists = async (key) => bucket.has(key);
 
   ok(put.includes('s3("PUT", key, { body })'), "putObject sends NO explicit content-length: undici derives it from a Buffer and rejects a caller-supplied one (UND_ERR_INVALID_ARG). The streaming backup upload still passes it, correctly, because a stream cannot be measured.");
   ok(!/contentLength/.test(put), "no contentLength in the Buffer upload path");
+}
+
+// --- the v1 schema is FROZEN ------------------------------------------------
+// Buyers filter on whether "historical data is comparable to current data", so
+// a column that changes meaning between days is worse than a column that never
+// existed: every backtest spanning the change is silently wrong. Removing or
+// renaming is a v2 change with a new prefix. Additions are allowed and must be
+// DECLARED, so growth stays a decision rather than a drift.
+{
+  const frozen = JSON.parse(readFileSync(new URL("./dataset-schema-v1.json", import.meta.url), "utf8"));
+  eq(frozen.version, DATASET_VERSION, "the freeze file describes the version actually being written");
+  const live = buildTables({ sellers: [SELLER], baseRows: [BASE_ROW], solanaRows: [SOLANA_ROW], mppRows: [MPP_ROW] });
+  const declaredAdds = new Set((frozen.additions || []).map((a) => `${a.table}.${a.column}`));
+
+  for (const [table, cols] of Object.entries(frozen.tables)) {
+    const emitted = live[table]?.columns.map(([o]) => o);
+    ok(emitted, `table ${table} still exists in v1`);
+    for (const c of cols) {
+      ok(emitted.includes(c),
+        `v1 froze ${table}.${c} and it is no longer emitted. Removing or renaming a column is a BREAKING change: bump DATASET_VERSION and write to a new prefix rather than changing what v1 means.`);
+    }
+    for (const c of emitted.filter((x) => !cols.includes(x))) {
+      ok(declaredAdds.has(`${table}.${c}`),
+        `${table}.${c} is new and undeclared. Additions are fine, but record it in scripts/dataset-schema-v1.json under additions[] with the date and reason - a schema nobody declared is a schema nobody can explain to a buyer.`);
+    }
+  }
 }
 
 console.log(`test-dataset-snapshot: ${n} assertions OK`);
