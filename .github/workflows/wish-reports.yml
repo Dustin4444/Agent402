@@ -1,0 +1,82 @@
+name: Buyer fault reports (daily)
+
+# Is a buyer telling us something is broken, through the wish board?
+#
+# 2026-09-01 01:26 UTC one did: "route-execute with include=external returns
+# 502 bad gateway after payment (3 consecutive tests, paid each time) ...
+# please fix the external execution path." Nothing surfaced it. It was found
+# eleven days later, by hand, while auditing the board for something else.
+#
+# The board is the only channel some buyers have - they are agents, they have no
+# support desk, and POST /api/wish is the text field in front of them. It got
+# 4,062 signals and exactly one was a person reporting a fault.
+#
+# Not "alert on every explicit wish": 50 of 500 clusters carry one and nearly
+# every recent one is a seller advertising through the board. That alarm would
+# fire daily and be muted in a week. The classifier requires failure vocabulary
+# AND a reference to our own surface or to having paid - measured at one hit in
+# 500, and it is the report above.
+on:
+  schedule:
+    - cron: "23 8 * * *"   # daily, off the hour
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Look-back window in days (default 7)"
+        required: false
+        default: "7"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      # No install: dependency-free on purpose, so a broken lockfile can never
+      # be the reason a buyer's bug report goes unread a second time.
+      - name: Read the board
+        id: scan
+        continue-on-error: true
+        env:
+          AGENT402_OPERATOR_TOKEN: ${{ secrets.AGENT402_OPERATOR_TOKEN }}
+          TARGET_URL: https://agent402.tools
+          WISH_REPORT_DAYS: ${{ inputs.days || '7' }}
+        run: node scripts/wish-reports.mjs 2>&1 | tee /tmp/reports.log
+
+      - name: Open an issue when a buyer reported a fault
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OUTCOME: ${{ steps.scan.outcome }}
+        run: |
+          # exit 2 = at least one fault report. exit 1 = the check itself could
+          # not run, which is its own failure and must not read as "all clear".
+          if ! grep -q "^fault reports:" /tmp/reports.log 2>/dev/null; then
+            echo "::error::the scan did not complete - treating as a failure, not as a clean board"
+            cat /tmp/reports.log 2>/dev/null || true
+            exit 1
+          fi
+          COUNT=$(sed -n 's/^fault reports: //p' /tmp/reports.log | head -1)
+          echo "fault reports: ${COUNT:-?}"
+          [ "${COUNT:-0}" = "0" ] && exit 0
+
+          # One issue PER REPORT, titled with the date, so a second report does
+          # not hide inside the first one's thread. Deliberately never
+          # auto-closed: a buyer's bug report is closed by a person who has
+          # decided what to do about it.
+          BODY=$(printf 'A buyer reported a fault through the wish board (POST /api/wish). They have no other channel.\n\n```\n%s\n```\n\nRun: %s/%s/actions/runs/%s' "$(cat /tmp/reports.log)" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
+          TITLE="Buyer reported a fault via the wish board ($(date -u +%F))"
+          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$TITLE in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body "$BODY"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY"
+          fi
