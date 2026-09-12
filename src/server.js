@@ -338,7 +338,7 @@ import { stellarPage, stellarSellers } from "./stellar-page.js";
 import { algorandPage, algorandSellers } from "./algorand-page.js";
 import { CHAIN_PAGES, marketSellers, marketOperatorCount, marketPage, marketPanelHtml } from "./market-page.js";
 import { sellPage } from "./sell.js";
-import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledgerBuyerConcentration, ledgerSyncState } from "./revenue-ledger.js";
+import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledgerBuyerConcentration, ledgerBuyerRetention, ledgerSyncState } from "./revenue-ledger.js";
 import { x402EconomySnapshot, economySnapshotCached, warmEconomySnapshot } from "./x402-economy.js";
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate, sharedPayToClaims } from "./settlement-proof.js";
 import { buildEvidenceBinding, baseLiveGate } from "./evidence-binding.js";
@@ -2564,6 +2564,9 @@ app.get("/api/revenue/daily", (_req, res) => {
       buyers: ledgerBuyersDaily(revenueWallets()),
       // "200 buyers" means nothing if one wallet is most of the volume.
       concentration: ledgerBuyerConcentration(revenueWallets()),
+      // All-time: of everyone who ever paid us, how many came back (see
+      // ledgerBuyerRetention - counted in DAYS, not payments).
+      retention: ledgerBuyerRetention(revenueWallets()),
     });
   } catch (e) {
     res.status(500).json({ error: "daily series failed", detail: String(e?.message || e).slice(0, 120) });

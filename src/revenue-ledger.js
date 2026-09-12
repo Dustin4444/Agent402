@@ -904,6 +904,76 @@ export function ledgerBuyerConcentration(wallets) {
   };
 }
 
+/**
+ * Did our buyers ever come back?
+ *
+ * The daily series answers "how many buyers today" and splits them into new and
+ * returning FOR THAT DAY. Concentration answers "does it matter". Neither
+ * answers the question that decides whether this is a business: of everyone who
+ * has ever paid us, how many tried it once and never returned.
+ *
+ * Measured 2026-09-11 by hand from the sales ledger: 92 of 250 buyers over 60
+ * days paid exactly once. That is the single most important number about this
+ * catalog and it lived nowhere any surface could show it.
+ *
+ * RETENTION IS COUNTED IN DAYS, NOT PAYMENTS. A buyer who made forty calls in
+ * one afternoon and never came back is a one-time buyer, however impressive the
+ * call count: they evaluated us once. Counting payments would score that
+ * session as loyalty. So the classes are:
+ *
+ *   oneDay      seen on exactly one calendar day, ever
+ *   returned    seen on two or more distinct days
+ *
+ * ...and `oneDayOneCall` splits the first group again, because "called once and
+ * left" and "spent an afternoon on us and left" are different failures: the
+ * first is a test call, the second is an evaluation that decided no.
+ *
+ * All-time, never windowed: retention over a 30-day slice would relabel every
+ * long-standing buyer as new the moment the window moved. Counts and
+ * percentages only - a roster of who pays us is a customer list.
+ */
+export function ledgerBuyerRetention(wallets) {
+  const rows = db.prepare("SELECT chain, wallet, block, when_ts, external, payer FROM transfers WHERE wallet = ?");
+  const chains = walletPairs(wallets);
+  const days = new Map();  // payer -> Set(day)
+  const calls = new Map(); // payer -> payment count
+  for (const [chain, wallet] of chains) {
+    if (!wallet) continue;
+    const cur = getCursor.get(chain, wallet);
+    const anchorBlock = cur?.next_block ?? null;
+    const anchorMs = cur?.updated_ts ? cur.updated_ts * 1000 : Date.now();
+    const cadence = BLOCK_MS[chain] || 2000;
+    for (const t of rows.all(wallet)) {
+      if (t.chain !== chain || !t.external || !t.payer) continue;
+      let ms = t.when_ts ? t.when_ts * 1000 : null;
+      if (ms == null && t.block != null && anchorBlock != null) ms = anchorMs - (anchorBlock - t.block) * cadence;
+      if (ms == null) continue; // undateable row - skipped, never guessed
+      // EVM is case-insensitive; base58/Stellar are NOT (src/payer.js).
+      const payer = /^0x[0-9a-fA-F]{40}$/.test(t.payer) ? t.payer.toLowerCase() : t.payer;
+      if (!days.has(payer)) days.set(payer, new Set());
+      days.get(payer).add(new Date(ms).toISOString().slice(0, 10));
+      calls.set(payer, (calls.get(payer) || 0) + 1);
+    }
+  }
+  const buyers = days.size;
+  if (!buyers) return { buyers: 0, oneDay: 0, oneDayOneCall: 0, returned: 0, oneDayPct: null, returnedPct: null };
+  let oneDay = 0, oneDayOneCall = 0;
+  for (const [payer, set] of days) {
+    if (set.size > 1) continue;
+    oneDay++;
+    if ((calls.get(payer) || 0) === 1) oneDayOneCall++;
+  }
+  const pct = (n) => Math.round((n / buyers) * 1000) / 10;
+  return {
+    buyers,
+    oneDay,
+    oneDayOneCall,
+    returned: buyers - oneDay,
+    oneDayPct: pct(oneDay),
+    returnedPct: pct(buyers - oneDay),
+  };
+}
+
 export function startRevenueLedger({ walletAddress, solanaWallet, stellarWallet, algorandWallet, baseExtraWallets = [], algorandExtraWallets = [] }) {
   const enabled = HAS_DATA_DIR || process.env.REVENUE_LEDGER === "true";
   if (loopStarted || !enabled || (!walletAddress && !solanaWallet && !stellarWallet && !algorandWallet)) return false;

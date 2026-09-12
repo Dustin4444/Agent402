@@ -13,7 +13,7 @@
       if(state.metric!=="buyers")return CHAIN_ORDER;
       return state.mode==="cum"?["cumbuyers"]:["newbuyers","retbuyers"];
     }
-    var state={mode:"cum",metric:"usd",scope:"ext",wire:"all",traffic:"paid",settle:"all",rows:[],free:[],freeSince:null,tempo:[],tempoSince:null,buyers:[],conc:null};
+    var state={mode:"cum",metric:"usd",scope:"ext",wire:"all",traffic:"paid",settle:"all",rows:[],free:[],freeSince:null,tempo:[],tempoSince:null,buyers:[],conc:null,ret:null};
     var css=function(n){return getComputedStyle(document.getElementById("rvz")).getPropertyValue("--s"+n).trim()};
     function slotOf(chain){return SLOTS[chain]||8}
     function chainName(c){return c==="robinhood"?"Robinhood":c.charAt(0).toUpperCase()+c.slice(1)}
@@ -197,9 +197,19 @@
           (dir==="flat"?"about the same as":dir+" "+Math.abs(t.pct).toFixed(0)+"% from")+
           " the 14 days before that ("+t.prior.toFixed(1)+"/day).";
       }
+      // Retention is ALL-TIME and counted in DAYS, not payments: a buyer who
+      // made forty calls in one afternoon and never came back evaluated us
+      // once, and counting payments would score that session as loyalty. It is
+      // the number that says whether any of the rest is a business.
+      var r=state.ret,retTxt="";
+      if(r&&r.buyers){
+        retTxt=" Of "+r.buyers+" buyers all time, "+r.returned+" ("+r.returnedPct+"%) came back on another day and "+
+          r.oneDay+" ("+r.oneDayPct+"%) never did"+
+          (r.oneDayOneCall?", "+r.oneDayOneCall+" of those after a single call":"")+".";
+      }
       el.textContent="Distinct external wallets that settled a payment. Someone paying on two chains in one day is one buyer, and the cumulative line is a running union rather than a sum."+
         (c&&c.buyers?" Over this window: "+c.buyers+" buyers, "+c.payments+" payments, biggest single wallet "+c.topSharePct+"% of them and the top five "+c.top5SharePct+"%.":"")+
-        trendTxt;
+        retTxt+trendTxt;
     }
     function settleNote(){
       var el=document.getElementById("rvzSettleNote");
@@ -260,6 +270,7 @@
       state.tempoSince=res[2].recordingSince||null;
       state.buyers=res[0].buyers||[];
       state.conc=res[0].concentration||null;
+      state.ret=res[0].retention||null;
       render();
     }).catch(function(){document.querySelector(".rvz-wrap").innerHTML='<div class="rvz-empty">series unavailable</div>'});
   })();
