@@ -52,7 +52,7 @@ export const WHY_POINTS = [
     id: "proof",
     kicker: "07 / PROOF",
     h: "Everything is checkable.",
-    p: "Uptime is observed by two probes outside production, a real-money canary buys through every rail daily, transactions are published by rail and by wire, and the whole server is open source and self-hostable. Tools are deterministic: no model in the serving path.",
+    p: "Uptime is observed by two probes outside production, a real-money canary buys through every rail daily, transactions are published by rail and by wire, and the whole server is open source and self-hostable. Tools are deterministic: no model in the serving path. Every 402 also carries the SHAPE of the answer before you pay: the accept declares an outputSchema, so an agent can check what came back against what was promised instead of taking a status code on trust.",
     links: [["/proof", "receipts"], ["/status", "status"], ["/revenue", "transactions"], ["https://github.com/MikeyPetrillo/Agent402", "source"]],
   },
 ];
