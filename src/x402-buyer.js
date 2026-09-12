@@ -300,26 +300,107 @@ export function __resetSellerRefusalsForTest() { sellerRefusals.clear(); }
 // failures have different lifetimes: a refusal is a verifier disagreement that
 // a seller fixes with one deploy, while a backend that 500s after payment is
 // measured in days - this one had been doing it for eleven.
-const DELIVERY_FAIL_TTL_MS = Number(process.env.SOR_SELLER_DELIVERY_FAIL_TTL_MS || 24 * 3600 * 1000);
+// TTL read at CALL TIME, and a malformed value falls back to the DEFAULT.
+// Two lessons, both already paid for elsewhere in this tree. A module-level
+// const meant the kill switch needed a container restart to take effect, which
+// is the wrong property for the one lever that disarms this thing in a hurry.
+// And `Number("1d")` is NaN, which makes `now - at > NaN` false forever - so a
+// typo selected PERMANENT BLACKLIST, the most dangerous mode. The rule here is
+// the one the Stellar fee bid and the wallet ceiling already follow: malformed
+// reads as the default, never as the dangerous setting. `0` or `off` disables.
+const DELIVERY_FAIL_TTL_DEFAULT_MS = 24 * 3600 * 1000;
+function deliveryFailTtlMs() {
+  const raw = process.env.SOR_SELLER_DELIVERY_FAIL_TTL_MS;
+  if (raw === undefined || raw === "") return DELIVERY_FAIL_TTL_DEFAULT_MS;
+  if (/^(off|false|disabled)$/i.test(String(raw).trim())) return 0;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return DELIVERY_FAIL_TTL_DEFAULT_MS;
+  return n; // 0 = disabled, deliberately reachable
+}
+
+// TWO STRIKES, NOT ONE. A single 5xx is not evidence about a seller: this repo's
+// own probe-classify doctrine says 502/503/504 are reported and never fatal,
+// because a CDN blip or a container swap produces exactly that and our own
+// deploys produce it several times a day. One strike also made the memo a
+// one-shot weapon for anyone who could induce a single failure. Two failures
+// inside the TTL is a pattern; one is weather.
+const DELIVERY_FAIL_MIN_STRIKES = 2;
 const DELIVERY_FAIL_MAX = 500;
-const deliveryFailures = new Map(); // "chain|origin" -> { at, status, ms }
+const deliveryFailures = new Map(); // "chain|origin" -> { at, firstAt, status, ms, strikes }
+
+/**
+ * Record one failure to deliver after payment.
+ *
+ * ONLY the router calls this, and only through payX402's `memoizeDelivery`
+ * option, which defaults to FALSE. That default is the security control: this
+ * map decides where our money goes, and payX402 is not router-private - it is
+ * also reached by `seller-payability`, a $0.10 tool whose CALLER supplies the
+ * url, method and body. Without the opt-in, one paid call was a 24-hour
+ * routing ban against any origin on the internet, chosen by the buyer.
+ */
 export function noteSellerDeliveryFailure(origin, chain, { status = null, ms = null } = {}) {
   if (!origin || !chain) return;
+  const key = refusalKey(origin, chain);
+  const prev = deliveryFailures.get(key);
+  const ttl = deliveryFailTtlMs();
+  // A strike older than the TTL is not part of this pattern; start again.
+  const live = prev && ttl > 0 && Date.now() - prev.at <= ttl ? prev : null;
+  // Re-insert at the TAIL. Map.set on an EXISTING key keeps its original
+  // insertion slot, so the plain `set` this started as meant the seller that
+  // had failed fifty times was evicted FIRST and 499 one-off failures sat
+  // safely behind it - the eviction order was anti-correlated with how broken
+  // the seller was. Deleting first makes eviction genuinely least-recently-
+  // failed. (The first test could not see it: 520 DISTINCT keys never exercise
+  // the update path.)
+  deliveryFailures.delete(key);
   if (deliveryFailures.size >= DELIVERY_FAIL_MAX) deliveryFailures.delete(deliveryFailures.keys().next().value);
-  deliveryFailures.set(refusalKey(origin, chain), { at: Date.now(), status: Number.isFinite(status) ? status : null, ms: Number.isFinite(ms) ? Math.round(ms) : null });
+  deliveryFailures.set(key, {
+    at: Date.now(),
+    firstAt: live ? live.firstAt : Date.now(),
+    status: Number.isFinite(status) ? status : null,
+    ms: Number.isFinite(ms) ? Math.round(ms) : null,
+    strikes: (live?.strikes || 0) + 1,
+  });
 }
-/** A delivered 200 is proof the seller works right now; forget the memo. */
+
+/** A DELIVERED, SETTLED call is proof the seller works; forget the memo. */
 export function clearSellerDeliveryFailure(origin, chain) {
   if (!origin || !chain) return;
   deliveryFailures.delete(refusalKey(origin, chain));
 }
+
+/**
+ * Is this seller memoized as failing to deliver, right now?
+ *
+ * Returns null below the strike threshold: the first failure is recorded (so
+ * the second can see it) but changes no routing decision.
+ */
 export function sellerDeliveryFailingRecently(origin, chain, now = Date.now()) {
+  const ttl = deliveryFailTtlMs();
+  if (ttl <= 0) return null; // disarmed
   const k = refusalKey(origin, chain);
   const hit = deliveryFailures.get(k);
   if (!hit) return null;
-  if (now - hit.at > DELIVERY_FAIL_TTL_MS) { deliveryFailures.delete(k); return null; }
+  if (now - hit.at > ttl) { deliveryFailures.delete(k); return null; }
+  if ((hit.strikes || 0) < DELIVERY_FAIL_MIN_STRIKES) return null;
   return hit;
 }
+
+/** Counts only, for the operator surface. Never a routing input. */
+export function sellerDeliveryMemoEntries(now = Date.now()) {
+  const ttl = deliveryFailTtlMs();
+  const out = [];
+  for (const [k, v] of deliveryFailures) {
+    if (ttl > 0 && now - v.at > ttl) continue;
+    const i = k.indexOf("|");
+    out.push({ chain: k.slice(0, i), origin: k.slice(i + 1), ...v, actionable: (v.strikes || 0) >= DELIVERY_FAIL_MIN_STRIKES });
+  }
+  return out;
+}
+
+export const DELIVERY_FAIL_STRIKES_REQUIRED = DELIVERY_FAIL_MIN_STRIKES;
+/** The live TTL, for the operator surface. 0 = disarmed. */
+export const deliveryFailTtlMsNow = () => deliveryFailTtlMs();
 export function __resetSellerDeliveryFailuresForTest() { deliveryFailures.clear(); }
 
 // Resolve-time "does this seller serve the requested model" check. An LLM
@@ -432,7 +513,7 @@ export function _spentThisWindow() { return spentThisWindow; } // test hook
  * A 200 on the bare request means the endpoint is free — returned with no
  * spend. Only a 402 triggers a payment; anything else is a 502.
  */
-export async function payX402(url, { maxAtomic, method = "GET", body, headers = {}, timeoutMs = 20000, maxBytes = DEFAULT_MAX_BYTES, trusted = false, chain = "base", provenPayTo = null, sellerProof = null, notDebited = null, allowUnproven = false, refusalMaxWaitMs = refusalMaxWaitMsDefault() } = {}) {
+export async function payX402(url, { maxAtomic, method = "GET", body, headers = {}, timeoutMs = 20000, maxBytes = DEFAULT_MAX_BYTES, trusted = false, chain = "base", provenPayTo = null, sellerProof = null, notDebited = null, allowUnproven = false, refusalMaxWaitMs = refusalMaxWaitMsDefault(), memoizeDelivery = false } = {}) {
   if (maxAtomic == null) throw bad("payX402 requires maxAtomic (the margin-guard ceiling)", 500);
   const chainCfg = BUYER_CHAINS[chain];
   if (!chainCfg) throw bad(`payX402: unknown chain "${chain}" (known: ${Object.keys(BUYER_CHAINS).join(", ")})`, 500);
@@ -642,18 +723,15 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
       const cause = String(fetchErr?.cause || "");
       if (!/invalid content-length/i.test(cause)) {
         paidDispatcher.close().catch(() => {});
-        // A paid leg that TIMED OUT settled nothing (the finally releases the
-        // hold), but the buyer still waited the whole budget for an answer
-        // that never came, and the next buyer would too. Only a timeout is
-        // recorded, never an arbitrary network error: a timeout after the
-        // payment header went out is precisely "we waited and got nothing",
-        // whereas a transport error could as easily be our own egress, and
-        // memoizing a seller for our own outage would be the wrong error.
-        const timedOut = fetchErr?.name === "TimeoutError" || fetchErr?.cause?.name === "TimeoutError" || /timeouterror|the operation was aborted/i.test(`${fetchErr?.message || ""} ${cause}`);
-        if (timedOut) {
-          noteSellerDeliveryFailure(sellerOrigin, chain, { status: null, ms: Date.now() - sentAtMs });
-          console.warn(`[x402-buyer] ${(() => { try { return new URL(url).host; } catch { return "seller"; } })()}: the paid leg timed out after ${Date.now() - sentAtMs}ms - memoized as failing to deliver on ${chain}`);
-        }
+        // A TIMEOUT IS NOT EVIDENCE ABOUT THE SELLER, so nothing is memoized
+        // here. It reads like the cleanest signal there is - we paid, we
+        // waited, nothing came back - and it is the one an attacker controls
+        // most cheaply: route-execute forwards the CALLER'S `params` as the
+        // seller's request body, so a caller can hand a scrape or render
+        // seller a URL of their own that accepts the connection and never
+        // answers, and our 20 s bound then blames the seller. Our own egress
+        // being slow produces the identical error. Neither is the seller's
+        // fault, and there is no way to tell those apart from here.
         throw fetchErr;
       }
       console.warn(`[x402-buyer] paid leg fell back to undici.request for ${(() => { try { return new URL(url).host; } catch { return "seller"; } })()} (fetch rejected: ${cause.slice(0, 80)})`);
@@ -745,7 +823,7 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
       // seller that 500s after payment would otherwise be recorded nowhere.
       // A 402/401 is the refusal shape and is handled by its own memo further
       // down; the two are kept separate because they need different answers.
-      if (paid.status >= 500 && !(paid.headers.get("payment-response") || paid.headers.get("x-payment-response"))) {
+      if (memoizeDelivery && paid.status >= 500 && !(paid.headers.get("payment-response") || paid.headers.get("x-payment-response"))) {
         noteSellerDeliveryFailure(sellerOrigin, chain, { status: paid.status, ms: Date.now() - sentAtMs });
         console.warn(`[x402-buyer] ${where} failed to deliver after payment (HTTP ${paid.status}, no receipt, ${Date.now() - sentAtMs}ms) - memoized as failing on ${chain}, the resolver will skip it`);
       }
@@ -793,6 +871,12 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
         }
         if (verdict && verdict.debited === false && verdict.expired === true) {
           committed = false; // provably unpaid: the finally releases the hold
+          // The chain just PROVED nobody was charged, so this is a refusal and
+          // not a delivery failure - and the two carry different penalties on
+          // purpose. A seller whose middleware answers 500 instead of 402 to a
+          // signature it dislikes would otherwise collect BOTH memos, with the
+          // harsher label, for a textbook refusal that cost nobody anything.
+          clearSellerDeliveryFailure(sellerOrigin, chain);
           noteSellerRefusal(sellerOrigin, chain, paid.status);
           console.warn(`[x402-buyer] ${where} refused the payment and the chain shows no debit after the credential expired (${verdict.observed} tx read) - not charged, seller memoized as refusing on ${chain}`);
           const e = bad(`Seller refused the payment (HTTP ${paid.status}); the credential expired unused, nothing charged`, 502);
@@ -824,9 +908,15 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
     if (receiptHdr) {
       try { const r = JSON.parse(Buffer.from(receiptHdr, "base64").toString("utf8")); tx = r?.transaction || null; net = r?.network || null; } catch { /* best-effort */ }
     }
-    // Delivered. Whatever this seller did last time, it works now: forget the
-    // delivery memo immediately rather than making the buyer wait out a TTL.
-    clearSellerDeliveryFailure(sellerOrigin, chain);
+    // Forget the memo only on a 200 that also SETTLED. A bare 200 proves the
+    // route answers; a 200 with a receipt proves the seller took payment and
+    // delivered, which is the thing the memo is about. The weaker rule made
+    // the memo purchasable: anyone, the seller included, could pay $0.10 for a
+    // seller-payability check against a route they know works and erase it -
+    // and because the key is origin-wide they could clear it using a different
+    // route from the one that fails. Gated on the same opt-in as the record,
+    // so a diagnostic can never clear what the router learned.
+    if (memoizeDelivery && tx) clearSellerDeliveryFailure(sellerOrigin, chain);
     recordUpstreamSpend("x402-buyer", Number(quotedAtomic) / 1e6);
     return {
       // F3: post-spend read never throws — the buyer must be charged (we paid).
