@@ -50,7 +50,20 @@ const EXPECTED_MISSES = {
 // excuse list that grows to cover everything is how a guard stops meaning
 // anything. "terminated" is anchored because it is undici's whole message for
 // a socket the peer closed mid-body.
-const NOT_OURS = /not configured|rate.?limited|HTTP 5\d\d|upstream|timed? out|ECONN|ENOTFOUND|socket hang up|temporarily|HTTP 429|did not respond within|^terminated$/i;
+// TLS is a transport failure like any other, and this list had every other one.
+// 2026-09-12: blog.cloudflare.com refused the runner's TLS handshake
+// (ERR_SSL_SSL/TLS_ALERT_HANDSHAKE_FAILURE) and content-grade's extract step
+// was graded as OUR defect, failing a build over a diff that touched none of
+// it - while the identical failure one layer down (ECONN, ENOTFOUND, socket
+// hang up) was correctly reported as upstream. The same URL answered 200 from
+// a laptop at the same minute.
+//
+// Added narrowly: the TLS/SSL transport tokens only, NOT a blanket
+// "fetch failed". probe-classify's own history is the reason - it was
+// corrected once for matching "upstream"/"timeout"/"aborted" inside a 4xx,
+// because our own messages carry those words, and a classifier that excuses
+// too much stops being able to fail.
+const NOT_OURS = /not configured|rate.?limited|HTTP 5\d\d|upstream|timed? out|ECONN|ENOTFOUND|socket hang up|temporarily|HTTP 429|did not respond within|ERR_SSL|ERR_TLS|TLS_ALERT|EPROTO|handshake failure|^terminated$/i;
 
 let failed = 0, reported = 0, checked = 0;
 for (const pack of SKILL_PACKS) {
