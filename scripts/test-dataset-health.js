@@ -10,6 +10,7 @@ import { strict as assert } from "node:assert";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { readFileSync } from "node:fs";
 import { getFreePort } from "./lib/free-port.js";
 
 let n = 0;
@@ -114,6 +115,27 @@ async function run({ sellers = HEALTHY_SELLERS, recorded = HEALTHY_RECORDED } = 
   });
   ok(code === 0, "a partial day still passes - one dead source is not a dead record");
   ok(/PARTIAL/.test(out), "but it is called out");
+}
+
+// --- the watch list replaces a one-shot human reminder ----------------------
+// The 0%-empty list catches a column that is wholly absent. The shape that
+// actually hid from us was PARTIAL: routes.price_source at 16% while we
+// described the table as carrying "provenance on every price". Nothing
+// automated could see that - it needed someone to download the NDJSON and
+// count. So the daily check now reports fill for the columns we expect to
+// grow, and names one that is ready to assert.
+{
+  const src = readFileSync(new URL("./dataset-health.mjs", import.meta.url), "utf8");
+  ok(/const WATCHED = \[/.test(src), "the daily check carries a watch list, so a partially-filled column is reported every day rather than remembered");
+  for (const c of ["primary_network", "discovery_path", "price_source", "networks", "price_outlier"])
+    ok(new RegExp(`column: "${c}"`).test(src), `${c} is watched (it was measurably short on the first recorded day)`);
+  ok(/READY TO ASSERT/.test(src), "and it says plainly when one has earned a place in MUST_BE_POPULATED");
+  ok(!/MUST_BE_POPULATED\[w\.table\]\.push|MUST_BE_POPULATED\[.*\] =/.test(src),
+     "promotion is a HUMAN edit: the check names the candidate and never widens its own contract, because a guard that grants itself new assertions can also grant itself none");
+  // The fill fractions have to reach the script at all, or the watch is inert.
+  const snap = readFileSync(new URL("../src/dataset-snapshot.js", import.meta.url), "utf8");
+  ok(/columnFill: Object\.fromEntries/.test(snap) && /Math\.round\(\(v \/ t\.rows\) \* 1000\)/.test(snap),
+     "datasetRecorded publishes fill as a FRACTION per column, which is the input the watch list reads");
 }
 
 console.log(`test-dataset-health: ${n} assertions OK`);

@@ -337,6 +337,16 @@ export async function datasetRecorded({ days = 3, now = Date.now() } = {}) {
             .map(([n, t]) => [n, Object.entries(t.columnFill || {}).filter(([, v]) => v === 0).map(([k]) => k)])
             .filter(([, c]) => c.length)),
           partial: m.partial || null,
+          // Fill as a FRACTION per column, not just the all-zero ones. A
+          // column at 0% is a defect the empty list already catches; a column
+          // at 16% or 37% is the more common shape and was invisible to every
+          // automated surface - it needed someone to download the NDJSON and
+          // count, which is how "provenance on every price" survived as a
+          // claim while price_source sat at 16%. The health check watches
+          // these so a column becoming ready to assert is a daily line rather
+          // than a thing someone remembers to look at.
+          columnFill: Object.fromEntries(Object.entries(m.tables || {}).map(([n, t]) => [n,
+            Object.fromEntries(Object.entries(t.columnFill || {}).map(([c, v]) => [c, t.rows ? Math.round((v / t.rows) * 1000) / 1000 : null]))])),
         };
       }
     }
