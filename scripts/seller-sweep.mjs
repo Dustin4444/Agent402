@@ -23,7 +23,7 @@
 // bare 402 and reports what it WOULD spend, paying nothing.
 import { readFileSync, writeFileSync } from "node:fs";
 import { privateKeyToAccount } from "viem/accounts";
-import { readOutputContract, verdictFor, VERDICTS } from "./seller-verify-core.mjs";
+import { readOutputContract, verdictFor, acceptFilterFor, VERDICTS } from "./seller-verify-core.mjs";
 
 const TARGET = (process.env.TARGET_URL || "https://agent402.tools").replace(/\/+$/, "");
 const LIVE = String(process.env.SWEEP_LIVE || "").toLowerCase() === "true";
@@ -104,7 +104,12 @@ const candidates = [...cheapest.values()].sort((a, b) => a.price - b.price).slic
 console.log(`${LIVE ? "LIVE" : "DRY RUN"}: ${candidates.length} candidates, per-seller cap $${MAX_USD}, run cap $${TOTAL_USD}`);
 if (!candidates.length) { console.error("no candidates - is the index reachable?"); process.exit(1); }
 
-let client = null, wrapFetchWithPayment = null, account = null;
+// A FRESH CLIENT PER SELLER. registerPolicy accumulates on the client, so a
+// policy registered per seller on one shared client leaves every previous
+// seller's payee in force too - and no accept is paid to two addresses. The
+// first live run failed 44 of 45 sellers exactly that way. Building the client
+// inside the loop gives the policy nowhere to pile up.
+let newClient = null, wrapFetchWithPayment = null, account = null;
 if (LIVE) {
   const pk = (process.env.BURNER_KEY || "").trim();
   if (!/^(0x)?[0-9a-fA-F]{64}$/.test(pk)) { console.error("SWEEP_LIVE=true needs a BURNER_KEY"); process.exit(2); }
@@ -112,8 +117,7 @@ if (LIVE) {
   const fetchMod = await import("@x402/fetch");
   const { registerExactEvmScheme } = await import("@x402/evm/exact/client");
   wrapFetchWithPayment = fetchMod.wrapFetchWithPayment;
-  client = new fetchMod.x402Client();
-  registerExactEvmScheme(client, { signer: account, networks: ["eip155:8453"] }); // Base only, ever
+  newClient = () => { const c = new fetchMod.x402Client(); registerExactEvmScheme(c, { signer: account, networks: ["eip155:8453"] }); return c; };
   console.log(`paying from ${account.address}`);
 }
 
@@ -155,11 +159,9 @@ for (const c of candidates) {
     // signed - not after, and not once at the start.
     if (spent + quoteUsd > TOTAL_USD) { row.verdict = "run_cap_reached"; rows.push(row); console.log(`run cap $${TOTAL_USD} reached after $${spent.toFixed(4)}; stopping`); break; }
 
-    const barePayTo = String(baseAccept.payTo).toLowerCase();
-    client.registerPolicy((_v, reqs) => reqs.filter((r) => {
-      let amt; try { amt = BigInt(String(r.amount)); } catch { return false; }
-      return r.scheme === "exact" && r.network === "eip155:8453" && String(r.payTo || "").toLowerCase() === barePayTo && amt <= maxAtomic;
-    }));
+    const client = newClient(); // fresh: policies accumulate, see acceptFilterFor
+    const keep = acceptFilterFor({ payTo: baseAccept.payTo, maxAtomic });
+    client.registerPolicy((_v, reqs) => reqs.filter(keep));
     let receipt = null;
     const payFetch = wrapFetchWithPayment(async (i, init) => {
       const res = await fetch(i, init);

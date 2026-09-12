@@ -8,7 +8,7 @@
 // caught by.
 import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
-import { readOutputContract, missingGuaranteedPaths, missingPromisedKeys, emptyPromisedArrays, missingSchemaProperties, verdictFor, VERDICTS } from "./seller-verify-core.mjs";
+import { acceptFilterFor, readOutputContract, missingGuaranteedPaths, missingPromisedKeys, emptyPromisedArrays, missingSchemaProperties, verdictFor, VERDICTS } from "./seller-verify-core.mjs";
 
 let n = 0;
 const ok = (c, m) => { assert.ok(c, m); n++; };
@@ -108,6 +108,41 @@ const eq = (a, b, m) => { assert.deepEqual(a, b, m); n++; };
   eq(verdictFor({ challengeReadable: true, baseAccept: {}, quoteUsd: 0.01, capUsd: 0.02, settled: true, status: 200,
     body: { confidence: 1, query: "q" }, contract: { kind: "paths", value: paths } }).verdict, "paid_hollow",
     "a paid answer missing a guaranteed path is hollow, graded against the seller's OWN OpenAPI");
+}
+
+// --- the accept filter, and the state bug that made it useless --------------
+// The sweep's FIRST live run failed 44 of 45 sellers with "All payment
+// requirements were filtered out by policies", spent $0.00, and reported those
+// 44 as refusing payment. The refusal was ours: x402Client.registerPolicy
+// ACCUMULATES, and a policy registered per seller on one shared client left
+// every earlier seller's payee in force - no accept is payable to two
+// addresses. The rule was right; the state it lived in was wrong.
+{
+  const cap = 20_000n; // $0.02
+  const keep = acceptFilterFor({ payTo: "0xAbCd", maxAtomic: cap });
+  const accept = (o = {}) => ({ scheme: "exact", network: "eip155:8453", payTo: "0xabcd", amount: "10000", ...o });
+  ok(keep(accept()), "a Base exact accept to the named payee, under the cap, is payable");
+  ok(!keep(accept({ payTo: "0xother" })), "...another payee is refused: the payee comes from that seller's OWN bare 402");
+  ok(!keep(accept({ amount: String(cap + 1n) })), "one atomic unit over the cap is refused");
+  ok(keep(accept({ amount: String(cap) })), "exactly at the cap is payable");
+  ok(!keep(accept({ network: "eip155:137" })), "another chain is refused - the burner signs for Base only");
+  ok(!keep(accept({ scheme: "upto" })), "a non-exact scheme is refused");
+  ok(!keep(accept({ amount: "not-a-number" })), "an unparseable amount is refused rather than coerced");
+  ok(!acceptFilterFor({ payTo: "", maxAtomic: cap })(accept()), "an unknown payee refuses everything: with nothing to bind to, nothing is payable");
+
+  // The filter is a FUNCTION OF ITS INPUTS with nowhere to accumulate. Two
+  // sellers in a row must not interfere, which is the whole bug.
+  const first = acceptFilterFor({ payTo: "0xaaa", maxAtomic: cap });
+  const second = acceptFilterFor({ payTo: "0xbbb", maxAtomic: cap });
+  ok(first(accept({ payTo: "0xaaa" })) && !first(accept({ payTo: "0xbbb" })), "the first seller's filter binds only the first seller");
+  ok(second(accept({ payTo: "0xbbb" })) && !second(accept({ payTo: "0xaaa" })), "and the second's only the second - building one does not narrow the other");
+
+  // ...and the driver must build a FRESH client per seller, or the accumulation
+  // comes back however pure this function is.
+  const drv = readFileSync(new URL("./seller-sweep.mjs", import.meta.url), "utf8");
+  ok(/const client = newClient\(\);/.test(drv), "the driver builds a fresh x402 client per seller");
+  ok(!/^\s*client\.registerPolicy/m.test(drv.slice(0, drv.indexOf("for (const c of candidates)"))), "and registers no policy on a shared client before the loop");
+  eq((drv.match(/\bclient\.registerPolicy\(/g) || []).length, 1, "exactly one registerPolicy CALL exists, inside the loop, on a client that is thrown away after");
 }
 
 console.log(`test-seller-verify: ${n} assertions OK`);
