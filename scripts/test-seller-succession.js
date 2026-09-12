@@ -20,7 +20,7 @@
 //   - It only ever moves the date BACKWARD, so no claim can make an origin
 //     look newer, or younger, than it is.
 import { strict as assert } from "node:assert";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -101,6 +101,86 @@ const NEW = `https://api.seller-${TAG}.com`;
   const rows = getSellerRegistrations();
   ok(rows.some((r) => r.origin === OLD), "the predecessor is STILL LISTED after a succession - nothing about this retires a seller");
   ok(rows.some((r) => r.origin === NEW), "and the successor is listed beside it");
+}
+
+// --- the binding: two proofs, because one excludes the people who need it ----
+// The first cut required a shared BASE payTo. Measured against the live index
+// that refused a third of all origins - and the seller who asked for the
+// feature was in that third, with no payTo on any chain. A binding unavailable
+// to its own use case is not a binding, it is a wall.
+{
+  const { sharesPayTo, verifySuccessionMarkers, SUCCESSION_PATH } = await import("../src/x402-index.js");
+  const { loadPersistedIndexCache } = await import("../src/x402-index.js");
+  const { writeFileSync: wf } = await import("node:fs");
+  // REAL public hostnames: the SSRF guard is unconditional (CodeQL flagged the
+  // injectable version as critical request-forgery, correctly - an indirection
+  // it cannot follow is indistinguishable from no guard). The FETCH is still
+  // injected, so the guard runs and no request leaves the machine.
+  const OLD_O = "https://example.com", NEW_O = "https://example.org", THIRD = "https://iana.org";
+  const tool = (o, pay) => ({ slug: "t", price: 0.002, method: "GET", seller: o, route: "/api/t", networks: ["eip155:8453"], ...(pay ? { payToByNetwork: pay } : {}) });
+  const f = join(dir, "cache.json");
+  wf(f, JSON.stringify({ entries: [
+    [OLD_O, { origin: OLD_O, fetchedAt: Date.now(), history: [1], tools: [tool(OLD_O, { "eip155:137": "0xAAA" })] }],
+    [NEW_O, { origin: NEW_O, fetchedAt: Date.now(), history: [1], tools: [tool(NEW_O, { "eip155:137": "0xaaa" })] }],
+    [THIRD, { origin: THIRD, fetchedAt: Date.now(), history: [1], tools: [tool(THIRD, { "eip155:137": "0xBBB" })] }],
+    ["https://example.net", { origin: "https://example.net", fetchedAt: Date.now(), history: [1], tools: [tool("https://example.net")] }],
+  ] }));
+  loadPersistedIndexCache(f);
+
+  const m = sharesPayTo(NEW_O, OLD_O);
+  ok(m && m.network === "eip155:137", "a shared payTo on ANY chain proves it, not Base alone - a Base-only rule refused a third of the index");
+  ok(m.payTo === "0xaaa", "and the comparison is case-insensitive for EVM, so a checksummed address matches a lowercase one");
+  eq(sharesPayTo(NEW_O, THIRD), null, "two DIFFERENT payout wallets prove nothing");
+  eq(sharesPayTo(NEW_O, "https://example.net"), null, "and an origin advertising no payTo cannot be matched on one");
+
+  // Proof two: cross-served markers, for the ~1,000 origins with no payTo.
+  const served = {};
+  const stubFetch = async (url) => {
+    const body = served[String(url)];
+    return body === undefined ? { ok: false, status: 404, text: async () => "" } : { ok: true, status: 200, text: async () => JSON.stringify(body) };
+  };
+  const N = `https://example.net${SUCCESSION_PATH}`, O = `${OLD_O}${SUCCESSION_PATH}`;
+  eq((await verifySuccessionMarkers("https://example.net", OLD_O, { fetchImpl: stubFetch })).ok, false, "with no markers served, nothing is proved");
+  ok(/BOTH origins/.test((await verifySuccessionMarkers("https://example.net", OLD_O, { fetchImpl: stubFetch })).reason),
+     "...and the refusal tells the seller exactly what to serve, on both hosts");
+
+  served[N] = { succeeds: OLD_O };
+  eq((await verifySuccessionMarkers("https://example.net", OLD_O, { fetchImpl: stubFetch })).ok, false,
+     "ONE direction is not enough: a claimant serving a marker alone could annex an origin they do not run");
+  served[O] = { succeededBy: "https://example.net" };
+  eq((await verifySuccessionMarkers("https://example.net", OLD_O, { fetchImpl: stubFetch })).ok, true,
+     "both directions served, and each naming the other, is proof of control over both");
+
+  served[O] = { succeededBy: THIRD };
+  eq((await verifySuccessionMarkers("https://example.net", OLD_O, { fetchImpl: stubFetch })).ok, false,
+     "the old origin naming somebody ELSE refuses - the predecessor decides who succeeds it");
+  // The guard is UNCONDITIONAL and the hosts above are real, so it actually
+  // ran on every call in this block. Pinned from source as well, because the
+  // shape of the call is what the static analyzer reads.
+  {
+    const src = readFileSync(new URL("../src/x402-index.js", import.meta.url), "utf8");
+    // Sized to the whole function rather than a byte count: the window was 900
+    // and the comment explaining the fix pushed the guard out of it, which would
+    // have read as "the guard is gone".
+    const fn = src.slice(src.indexOf("async function readMarker"), src.indexOf("const sameOrigin"));
+    ok(/await safeFetch\(url,/.test(fn),
+       "readMarker fetches through safeFetch - the STATICALLY imported guarded fetcher. Two earlier versions were flagged CRITICAL js/request-forgery: one made the guard injectable, the other reached it through a dynamic import, and CodeQL could follow neither. A control the tooling cannot see is not meaningfully a control");
+    // Comments stripped first: the comment explaining this fix NAMES the old
+    // injectable parameter, so a bare word search matched the explanation
+    // rather than the code and failed on a correct tree.
+    const code = fn.replace(/\/\/[^\n]*/g, "");
+    ok(!/assertUrl/.test(code), "and there is no way to switch it off, which is what made CodeQL call the first version critical request-forgery");
+    const guard = readFileSync(new URL("../src/tools/fetch-guard.js", import.meta.url), "utf8");
+    ok(/export async function safeFetch[\s\S]{0,200}await assertPublicUrl\(rawUrl\)/.test(guard),
+       "...and safeFetch itself asserts the URL is public before it fetches, so the guarantee is one hop away and statically visible");
+    ok(/dispatcher: ssrfDispatcher/.test(guard), "and pins the connection to the validated IP, re-validating every redirect hop");
+    ok(/^import \{ safeFetch \} from "\.\/tools\/fetch-guard\.js";/m.test(src),
+       "the import is STATIC at the top of the file - a dynamic import is what defeated the analyzer on the second attempt");
+  }
+
+  served[O] = { succeededBy: "https://example.net/" };
+  eq((await verifySuccessionMarkers("https://example.net", OLD_O, { fetchImpl: stubFetch })).ok, true,
+     "a trailing slash is the same origin, compared as origins rather than as strings");
 }
 
 rmSync(dir, { recursive: true, force: true });

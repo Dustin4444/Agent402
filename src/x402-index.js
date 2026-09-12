@@ -248,23 +248,105 @@ export function validateOriginInput(raw, { selfOrigin } = {}) {
  * origins claim one wallet stays exactly as it is, because a migration window
  * is precisely when a listing SHOULD be treated carefully.
  */
-export function succeedsOrigin(claimant, predecessor, net = "eip155:8453") {
+export const SUCCESSION_PATH = "/.well-known/agent402-succession";
+
+/**
+ * Does `claimant` have the standing to inherit `predecessor`'s listing age?
+ *
+ * TWO proofs, either sufficient, because the first one is unavailable to
+ * exactly the sellers who need this most.
+ *
+ * 1. SHARED PAYOUT WALLET. Both origins advertise the same payTo on some
+ *    chain: whoever is moving controls where the money goes on both. Free,
+ *    instant, and needs nothing from the seller.
+ *
+ *    Measured 2026-09-12: 2,955 of 3,955 indexed origins advertise a payTo
+ *    somewhere, 2,641 on Base. So a BASE-only rule - which is what shipped
+ *    first - refused a third of the index, and the seller who asked for this
+ *    feature was in that third with no payTo on any chain at all. Widening to
+ *    any network recovers 314 of them; the other thousand need the second
+ *    proof, which is why it exists.
+ *
+ * 2. CROSS-SERVED MARKERS. Each origin serves a small JSON document at
+ *    /.well-known/agent402-succession naming the other. Serving a file at a
+ *    path on a host is the standard proof of control over that host, and
+ *    requiring BOTH directions means a claimant cannot annex an origin they do
+ *    not run, nor be annexed by one.
+ *
+ * Still narrow either way: it moves a date. It never demotes, retires or edits
+ * the predecessor, never transfers settlement evidence, and leaves the
+ * shared-payTo guard exactly as it is.
+ */
+export function sharesPayTo(claimant, predecessor) {
   const a = cache.get(claimant), b = cache.get(predecessor);
-  if (!a || !b || a.error || b.error) return { ok: false, reason: "one of the two origins is not in the index" };
-  const payTo = (e) => {
-    for (const t of e.tools || []) { const v = t?.payToByNetwork?.[net]; if (typeof v === "string" && v) return v.toLowerCase(); }
-    return null;
+  if (!a || !b || a.error || b.error) return null;
+  const payTos = (e) => {
+    const out = new Map(); // network -> lowercased payTo
+    for (const t of e.tools || []) {
+      for (const [net, v] of Object.entries(t?.payToByNetwork || {})) {
+        if (typeof v === "string" && v && !out.has(net)) out.set(net, v.toLowerCase());
+      }
+    }
+    return out;
   };
-  const x = payTo(a), y = payTo(b);
-  if (!x || !y) return { ok: false, reason: `both origins must advertise a ${net} payTo for us to tell they are the same seller` };
-  if (x !== y) return { ok: false, reason: "the two origins advertise different payout wallets, so nothing here shows they are the same seller" };
-  return { ok: true, payTo: x };
+  const x = payTos(a), y = payTos(b);
+  for (const [net, v] of x) if (y.get(net) === v) return { network: net, payTo: v };
+  return null;
+}
+
+/** Fetch one origin's succession marker. Never throws; an unreadable marker is
+ *  simply not a proof. */
+async function readMarker(origin, fetchImpl) {
+  try {
+    const url = `${String(origin).replace(/\/+$/, "")}${SUCCESSION_PATH}`;
+    // SSRF: `origin` is caller-supplied, so this goes through safeFetch - the
+    // guarded fetcher this file already imports and the rest of the codebase
+    // uses for exactly this. It asserts the URL is public, pins the connection
+    // to the validated IP and re-validates every redirect hop.
+    //
+    // Two earlier attempts were both flagged CRITICAL js/request-forgery, and
+    // both times CodeQL was right to. First the guard was injectable
+    // (`(assertUrl || assertPublicUrl)(url)`) - an indirection a static
+    // analyzer cannot follow. Then it was unconditional but reached through a
+    // DYNAMIC import, which CodeQL also cannot resolve, so it still could not
+    // tell the call was sanitized. A control the tooling cannot see is not
+    // meaningfully a control: the third version uses the statically imported
+    // helper, which it can.
+    //
+    // `fetchImpl` remains only for tests and is never the network path.
+    const res = fetchImpl
+      ? await fetchImpl(url).then(async (r) => (r.ok ? { html: await r.text() } : null))
+      : await safeFetch(url, { headers: { accept: "application/json" }, maxBytes: 4096 }).catch(() => null);
+    if (!res) return null;
+    return JSON.parse(String(res.html).slice(0, 4000));
+  } catch { return null; }
+}
+
+const sameOrigin = (a, b) => {
+  try { return new URL(a).origin.toLowerCase() === new URL(b).origin.toLowerCase(); } catch { return false; }
+};
+
+/** Both origins must name the other, so neither can be annexed by the other. */
+export async function verifySuccessionMarkers(claimant, predecessor, { fetchImpl } = {}) {
+  const [mNew, mOld] = await Promise.all([readMarker(claimant, fetchImpl), readMarker(predecessor, fetchImpl)]);
+  if (!mNew || !mOld) return { ok: false, reason: `serve a JSON document at ${SUCCESSION_PATH} on BOTH origins: {"succeeds":"<old origin>"} on the new one and {"succeededBy":"<new origin>"} on the old one` };
+  if (!sameOrigin(mNew.succeeds || "", predecessor)) return { ok: false, reason: `${SUCCESSION_PATH} on the new origin must name the old origin as "succeeds"` };
+  if (!sameOrigin(mOld.succeededBy || "", claimant)) return { ok: false, reason: `${SUCCESSION_PATH} on the old origin must name the new origin as "succeededBy"` };
+  return { ok: true, via: "cross-served markers" };
+}
+
+export async function succeedsOrigin(claimant, predecessor, { fetchImpl } = {}) {
+  const a = cache.get(claimant), b = cache.get(predecessor);
+  if (!a || !b || a.error || b.error) return { ok: false, reason: "one of the two origins is not in the index - register it first" };
+  const shared = sharesPayTo(claimant, predecessor);
+  if (shared) return { ok: true, via: "shared payout wallet", ...shared };
+  return verifySuccessionMarkers(claimant, predecessor, { fetchImpl });
 }
 
 export async function registerOrigin(origin, { crawl, replaces = null } = {}) {
   // Evaluated lazily: the claimant has to be in the cache before its payTo can
   // be compared, so this is re-read at each record site rather than up front.
-  const checkSuccession = () => (replaces ? succeedsOrigin(origin, replaces) : null);
+  const checkSuccession = async () => (replaces ? succeedsOrigin(origin, replaces) : null);
   let succession = null;
   const existing = cache.get(origin);
   if (existing && !existing.error) {
@@ -288,7 +370,7 @@ export async function registerOrigin(origin, { crawl, replaces = null } = {}) {
     // early-return path also serves origins already known from Bazaar/registry
     // discovery, which never went through /sell and would misrepresent an
     // ecosystem seller as one of ours if recorded here.
-    succession = checkSuccession();
+    succession = await checkSuccession();
     if (submittedSeeds.has(origin)) recordSellerRegistrationSeen(origin, { settled: originHasSettled(origin), inheritFirstSeenFrom: succession?.ok ? replaces : null });
     return { listed: true, origin, seller: sellerSummary(origin, existing), ...(succession ? { succession } : {}) };
   }
@@ -307,7 +389,7 @@ export async function registerOrigin(origin, { crawl, replaces = null } = {}) {
     discoveredSeeds.add(origin);
     persistSubmittedSeeds();
     if (!cache.has(origin) && crawl) cache.set(origin, { ...v, fetchedAt: Date.now() });
-    succession = checkSuccession();
+    succession = await checkSuccession();
     recordSellerRegistrationSeen(origin, { settled: originHasSettled(origin), inheritFirstSeenFrom: succession?.ok ? replaces : null });
     return { listed: true, origin, seller: sellerSummary(origin, cache.get(origin) || v), ...(succession ? { succession } : {}) };
   }

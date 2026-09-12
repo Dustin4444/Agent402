@@ -629,6 +629,43 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
       );
     }
   }
+  // SANCTIONS: never sign a payment to a listed address.
+  //
+  // Checked HERE, against `payable.payTo` - the single accept we are about to
+  // sign - for the same reason the payTo-binding above is: what we verify has
+  // to be what we sign, and the 402 is the only authoritative statement of
+  // where the money actually goes. An origin's advertised address is a claim;
+  // this one is the instruction.
+  //
+  // FAILS OPEN ON UNKNOWN, and that is a deliberate and uncomfortable choice.
+  // The list is a cached copy of a government export; if it has not loaded, or
+  // the address is not on it, we learn nothing and route as before. Failing
+  // CLOSED would mean a failed download silently stops every external payment
+  // this host makes - an outage disguised as compliance - and a screening tool
+  // that takes the whole router down when Treasury changes a URL is worse than
+  // one that is honest about what it does not know. A MATCH is a fact and
+  // refuses; everything else is not a clearance and is not treated as one.
+  // (src/tools/sanctions-core.js carries the same rule for buyers of the tool.)
+  try {
+    const { screenAddressForPayment } = await import("./tools/sanctions-kit.js");
+    const hit = await screenAddressForPayment(payable.payTo);
+    if (hit) {
+      const e = bad(
+        `Refusing to pay ${String(payable.payTo).slice(0, 64)}: that address is on the OFAC SDN list ` +
+        `(${String(hit.entity || "listed entity").slice(0, 80)}, SDN ${String(hit.sdnId || "?").slice(0, 16)}). Nothing was signed.`,
+        403,
+      );
+      e.sanctioned = true;
+      throw e;
+    }
+  } catch (e) {
+    if (e?.sanctioned) throw e;         // the refusal itself, never swallowed
+    // Anything else - list not loaded, import failed - is UNKNOWN. Logged
+    // loudly so a screening gate that has quietly stopped screening is
+    // visible, and never converted into a refusal or a clearance.
+    console.warn(`[x402-buyer] sanctions screen unavailable for ${String(payable.payTo).slice(0, 24)} (${String(e?.message || e).slice(0, 80)}) - proceeding unscreened`);
+  }
+
   // SOLANA PROVEN-SELLER GATE (pay time, fail closed - the Tempo lesson):
   // the address that gets paid is only authoritative on THIS 402's accept, so
   // the chain evidence is checked against `payable.payTo` right before
