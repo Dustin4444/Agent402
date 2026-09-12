@@ -339,6 +339,7 @@ import { stellarPage, stellarSellers } from "./stellar-page.js";
 import { algorandPage, algorandSellers } from "./algorand-page.js";
 import { CHAIN_PAGES, marketSellers, marketOperatorCount, marketPage, marketPanelHtml } from "./market-page.js";
 import { sellPage } from "./sell.js";
+import { recordSellerVerification, sellerVerificationStatus } from "./seller-verification.js";
 import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledgerBuyerConcentration, ledgerBuyerRetention, ledgerSyncState } from "./revenue-ledger.js";
 import { x402EconomySnapshot, economySnapshotCached, warmEconomySnapshot } from "./x402-economy.js";
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate, sharedPayToClaims } from "./settlement-proof.js";
@@ -3141,6 +3142,27 @@ app.get("/__operator/sales.json", (req, res) => {
 // and everything else we publish is a count, a gate verdict, or something the
 // seller advertises about itself. Operator-only, so the claim exists where it
 // is useful to us and nowhere it is a public accusation.
+// The seller sweep posts what it observed; we keep it. Operator-authed, and
+// the WORKFLOW never touches the bucket - its own credentials are a funded
+// spending key, and widening that job's reach to our dataset storage would buy
+// nothing. Same split as POST /api/status/probe.
+app.post("/__operator/seller-verification", express.json({ limit: "8mb" }), async (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  try {
+    const out = await recordSellerVerification(req.body);
+    res.set("Cache-Control", "no-store").json(out);
+  } catch (e) {
+    res.status(e?.statusCode || 500).json({ error: String(e?.message || e).slice(0, 200) });
+  }
+});
+app.get("/__operator/seller-verification.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  res.set("Cache-Control", "no-store").json({
+    note: "the newest sweep this process recorded. The durable record is one dated object per sweep in the dataset bucket; this is only what THIS process last wrote, and a restart clears it.",
+    ...sellerVerificationStatus(),
+  });
+});
+
 app.get("/__operator/router-delivery.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   res.set("Cache-Control", "no-store");

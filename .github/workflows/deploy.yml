@@ -1288,6 +1288,8 @@ jobs:
           t node scripts/test-pack-classifier.js
           # Sanctions screening: a MISS must never read as a clearance, and a list that failed to load must refuse rather than answer 'no match'
           t node scripts/test-sanctions.js
+          # Paid seller verification: an allowlisted projection, a manifest that states the limit of the claim, and a workflow that never holds bucket credentials
+          t node scripts/test-seller-verification.js
           # Delivery-failure memory: a seller whose PAID call 5xx'd with no receipt (or never answered) stops being ranked and stops being labelled callable, until a call to it succeeds
           t node scripts/test-seller-delivery-memory.js
           # "External spend guard (per-payer debt ceiling: an UNSETTLED upstream spend keeps counting, so verify-then-fail-to-settle cannot drain the wallet — offline)"

@@ -210,3 +210,22 @@ console.log(`\nspent $${spent.toFixed(4)} of $${TOTAL_USD} across ${rows.length}
 for (const [k, v] of Object.entries(tally).sort((a, b) => b[1] - a[1])) console.log(`  ${String(v).padStart(4)}  ${k}${VERDICTS[k] ? "" : ""}`);
 persist();
 console.log(`\nwrote ${OUT}`);
+
+// Hand the result to the server, which keeps it as a dated object beside the
+// daily dataset. Without this the artifact expires with the Actions run and
+// the money spent produces nothing durable - which is what happened to the
+// first three sweeps. Best-effort on purpose: a failed handoff must never fail
+// a run that already paid, and the artifact is still attached either way.
+if (LIVE && process.env.AGENT402_OPERATOR_TOKEN) {
+  try {
+    const body = JSON.stringify({ spentUsd: spent, capUsd: MAX_USD, rows });
+    const r = await fetch(`${TARGET}/__operator/seller-verification`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${process.env.AGENT402_OPERATOR_TOKEN}` },
+      body, signal: AbortSignal.timeout(60_000),
+    });
+    console.log(r.ok ? `recorded to the dataset: ${JSON.stringify(await r.json())}` : `dataset handoff refused: HTTP ${r.status}`);
+  } catch (e) {
+    console.log(`dataset handoff failed (the artifact still has everything): ${String(e?.message || e).slice(0, 120)}`);
+  }
+}
