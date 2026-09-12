@@ -149,6 +149,30 @@ export const SANCTIONS_TOOLS = [
   },
 ];
 
+/**
+ * Screen ONE payout address before we sign a payment to it. Returns the SDN
+ * entry on a match, null when it is not on the list, and THROWS when the list
+ * is not loaded.
+ *
+ * The throw is the important part and it is the opposite of the tool's own
+ * behaviour. A buyer of sanctions-wallet gets a 503 that says "we could not
+ * check" - honest, and their decision what to do. The ROUTER cannot be handed
+ * a null that means both "not listed" and "we have no list", because those
+ * lead to opposite actions and the caller would have no way to tell them
+ * apart. So: a fact, or an exception. The router's own handler decides what an
+ * exception means (it proceeds, loudly - see the call site in x402-buyer.js
+ * for why failing closed there would be an outage wearing compliance clothes).
+ *
+ * Never fetches: a payment path must not wait on a 5.7MB download. It reads
+ * the copy the boot warmer and the refresh timer maintain.
+ */
+export async function screenAddressForPayment(address) {
+  if (!state.fetchedAt) throw new Error("sanctions list not loaded");
+  const key = normalizeAddress(address);
+  if (!key) throw new Error("unreadable address");
+  return state.addresses.get(key) || null;
+}
+
 /** Warm the list at boot so the first buyer does not pay for a 5.7MB download. */
 export function startSanctionsRefresh({ log = console.log } = {}) {
   const tick = () => loadSanctions({ force: true })
