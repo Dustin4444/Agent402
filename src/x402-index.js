@@ -47,7 +47,7 @@ import { queryTerms, termMatcher, splitTokens } from "./query-terms.js";
 import { summarize, fmtUsd, fmtPct } from "./economy.js";
 import { rankBy, canonicalHost, getLeaderboardSnapshot } from "./leaderboard.js";
 import { routeExecuteHint } from "./tools/route-execute.js";
-import { recordSellerRegistrationSeen, getSellerRegistrations } from "./stats.js";
+import { sellerRegistrationFirstSeen, recordSellerRegistrationSeen, getSellerRegistrations } from "./stats.js";
 
 // RAILS caip2 -> CHAIN_PAGES key, same join the homepage's by-chain strip uses
 // (see ledger-home.js) so /index's own row derives the same way: page
@@ -233,7 +233,39 @@ export function validateOriginInput(raw, { selfOrigin } = {}) {
  * to the real crawlSeller. Known origins return their current state without
  * a fetch. Successful probes persist the origin as a seed.
  */
-export async function registerOrigin(origin, { crawl } = {}) {
+/**
+ * Does `claimant` have the standing to inherit `predecessor`'s listing age?
+ *
+ * The only non-forgeable binding available here is the PAYOUT WALLET: both
+ * origins must advertise the same Base payTo, which means whoever is moving
+ * controls where the money goes on both. Anything weaker (a header, a
+ * well-known file, an assertion in the request) is a claim, not proof.
+ *
+ * This is a narrow grant - it moves a date - and it deliberately buys nothing
+ * else. It does not demote the predecessor, transfer settlement evidence, or
+ * merge crawl history. Evidence is keyed by payTo and follows the wallet
+ * already; the shared-payTo guard that withholds chain proof while two live
+ * origins claim one wallet stays exactly as it is, because a migration window
+ * is precisely when a listing SHOULD be treated carefully.
+ */
+export function succeedsOrigin(claimant, predecessor, net = "eip155:8453") {
+  const a = cache.get(claimant), b = cache.get(predecessor);
+  if (!a || !b || a.error || b.error) return { ok: false, reason: "one of the two origins is not in the index" };
+  const payTo = (e) => {
+    for (const t of e.tools || []) { const v = t?.payToByNetwork?.[net]; if (typeof v === "string" && v) return v.toLowerCase(); }
+    return null;
+  };
+  const x = payTo(a), y = payTo(b);
+  if (!x || !y) return { ok: false, reason: `both origins must advertise a ${net} payTo for us to tell they are the same seller` };
+  if (x !== y) return { ok: false, reason: "the two origins advertise different payout wallets, so nothing here shows they are the same seller" };
+  return { ok: true, payTo: x };
+}
+
+export async function registerOrigin(origin, { crawl, replaces = null } = {}) {
+  // Evaluated lazily: the claimant has to be in the cache before its payTo can
+  // be compared, so this is re-read at each record site rather than up front.
+  const checkSuccession = () => (replaces ? succeedsOrigin(origin, replaces) : null);
+  let succession = null;
   const existing = cache.get(origin);
   if (existing && !existing.error) {
     // A re-registration of a KNOWN origin used to be a pure no-op, which made
@@ -256,8 +288,9 @@ export async function registerOrigin(origin, { crawl } = {}) {
     // early-return path also serves origins already known from Bazaar/registry
     // discovery, which never went through /sell and would misrepresent an
     // ecosystem seller as one of ours if recorded here.
-    if (submittedSeeds.has(origin)) recordSellerRegistrationSeen(origin, { settled: originHasSettled(origin) });
-    return { listed: true, origin, seller: sellerSummary(origin, existing) };
+    succession = checkSuccession();
+    if (submittedSeeds.has(origin)) recordSellerRegistrationSeen(origin, { settled: originHasSettled(origin), inheritFirstSeenFrom: succession?.ok ? replaces : null });
+    return { listed: true, origin, seller: sellerSummary(origin, existing), ...(succession ? { succession } : {}) };
   }
   // Cap applies only to origins that would grow the submitted set. An origin
   // already on the list (retrying after a prior failure) is not new growth,
@@ -274,8 +307,9 @@ export async function registerOrigin(origin, { crawl } = {}) {
     discoveredSeeds.add(origin);
     persistSubmittedSeeds();
     if (!cache.has(origin) && crawl) cache.set(origin, { ...v, fetchedAt: Date.now() });
-    recordSellerRegistrationSeen(origin, { settled: originHasSettled(origin) });
-    return { listed: true, origin, seller: sellerSummary(origin, cache.get(origin) || v) };
+    succession = checkSuccession();
+    recordSellerRegistrationSeen(origin, { settled: originHasSettled(origin), inheritFirstSeenFrom: succession?.ok ? replaces : null });
+    return { listed: true, origin, seller: sellerSummary(origin, cache.get(origin) || v), ...(succession ? { succession } : {}) };
   }
   return { listed: false, origin, error: String(v?.error || "no x402 surface found (manifest, OpenAPI, or Bazaar entry)") };
 }
