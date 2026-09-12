@@ -28,6 +28,7 @@ import { readOutputContract, verdictFor, acceptFilterFor, VERDICTS } from "./sel
 const TARGET = (process.env.TARGET_URL || "https://agent402.tools").replace(/\/+$/, "");
 const LIVE = String(process.env.SWEEP_LIVE || "").toLowerCase() === "true";
 const LIMIT = Math.max(1, Math.min(3000, Number(process.env.SWEEP_LIMIT) || 50));
+const OFFSET = Math.max(0, Number(process.env.SWEEP_OFFSET) || 0); // shard a long sweep without re-paying earlier sellers
 const MAX_USD = Number(process.env.SWEEP_MAX_USD || 0.02);
 const TOTAL_USD = Number(process.env.SWEEP_TOTAL_USD || 1.5);
 const PACE_MS = Math.max(0, Number(process.env.SWEEP_PACE_MS) || 400);
@@ -70,11 +71,11 @@ for (const s of sellers) {
   if (!(s.networks || []).some((n) => String(n).includes("8453"))) continue;
   origins.push(s.origin);
 }
-console.log(`${origins.length} routable Base origins; reading detail until ${LIMIT} callable routes`);
+console.log(`${origins.length} routable Base origins; reading detail until ${OFFSET + LIMIT} callable routes (offset ${OFFSET})`);
 const cheapest = new Map();
 let looked = 0, noInput = 0;
 for (const origin of origins) {
-  if (cheapest.size >= LIMIT) break;
+  if (cheapest.size >= OFFSET + LIMIT) break;
   looked++;
   let d = null;
   try {
@@ -100,7 +101,7 @@ for (const origin of origins) {
   }
 }
 console.log(`  read ${looked} seller records, ${cheapest.size} callable, ${noInput} skipped for publishing required inputs with no example`);
-const candidates = [...cheapest.values()].sort((a, b) => a.price - b.price).slice(0, LIMIT);
+const candidates = [...cheapest.values()].sort((a, b) => a.price - b.price).slice(OFFSET, OFFSET + LIMIT);
 console.log(`${LIVE ? "LIVE" : "DRY RUN"}: ${candidates.length} candidates, per-seller cap $${MAX_USD}, run cap $${TOTAL_USD}`);
 if (!candidates.length) { console.error("no candidates - is the index reachable?"); process.exit(1); }
 
@@ -123,6 +124,17 @@ if (LIVE) {
 
 const rows = [];
 let spent = 0;
+// WRITE AFTER EVERY SELLER. The full sweep is ~2,244 sellers and ~3 hours; a
+// single write at the end means a timeout, a runner eviction or an unhandled
+// throw discards every verdict the run already PAID FOR. Money spent and
+// nothing learned is the worst outcome available here, and it was one line away.
+const persist = () => {
+  const tally = {};
+  for (const r of rows) tally[r.verdict] = (tally[r.verdict] || 0) + 1;
+  writeFileSync(OUT, JSON.stringify({ at: new Date().toISOString(), live: LIVE, offset: OFFSET,
+    capUsd: MAX_USD, totalCapUsd: TOTAL_USD, spentUsd: Number(spent.toFixed(6)),
+    swept: rows.length, complete: rows.length >= candidates.length, verdicts: VERDICTS, tally, rows }, null, 2));
+};
 for (const c of candidates) {
   const url = c.origin.replace(/\/+$/, "") + c.route;
   const row = { origin: c.origin, route: c.route, method: c.method, listedUsd: c.price };
@@ -152,12 +164,12 @@ for (const c of candidates) {
 
     if (!challenge || !baseAccept || !(quoteUsd <= MAX_USD)) {
       Object.assign(row, verdictFor({ challengeReadable: !!challenge, baseAccept, quoteUsd, capUsd: MAX_USD, settled: false }));
-      rows.push(row); continue;
+      rows.push(row); persist(); continue;
     }
-    if (!LIVE) { row.verdict = "would_pay"; rows.push(row); continue; }
+    if (!LIVE) { row.verdict = "would_pay"; rows.push(row); persist(); continue; }
     // THE RUN CAP IS CHECKED BEFORE EVERY BUY, against the amount about to be
     // signed - not after, and not once at the start.
-    if (spent + quoteUsd > TOTAL_USD) { row.verdict = "run_cap_reached"; rows.push(row); console.log(`run cap $${TOTAL_USD} reached after $${spent.toFixed(4)}; stopping`); break; }
+    if (spent + quoteUsd > TOTAL_USD) { row.verdict = "run_cap_reached"; rows.push(row); persist(); console.log(`run cap $${TOTAL_USD} reached after $${spent.toFixed(4)}; stopping`); break; }
 
     const client = newClient(); // fresh: policies accumulate, see acceptFilterFor
     const keep = acceptFilterFor({ payTo: baseAccept.payTo, maxAtomic });
@@ -187,6 +199,7 @@ for (const c of candidates) {
     row.verdict = "unreachable"; row.error = String(e?.message || e).slice(0, 120);
   }
   rows.push(row);
+  persist();
   console.log(`  ${String(row.verdict).padEnd(16)} $${String(row.quotedUsd ?? "-").padEnd(7)} ${row.origin.slice(0, 44)}`);
   if (PACE_MS) await new Promise((r) => setTimeout(r, PACE_MS));
 }
@@ -195,5 +208,5 @@ const tally = {};
 for (const r of rows) tally[r.verdict] = (tally[r.verdict] || 0) + 1;
 console.log(`\nspent $${spent.toFixed(4)} of $${TOTAL_USD} across ${rows.length} sellers`);
 for (const [k, v] of Object.entries(tally).sort((a, b) => b[1] - a[1])) console.log(`  ${String(v).padStart(4)}  ${k}${VERDICTS[k] ? "" : ""}`);
-writeFileSync(OUT, JSON.stringify({ at: new Date().toISOString(), live: LIVE, capUsd: MAX_USD, totalCapUsd: TOTAL_USD, spentUsd: Number(spent.toFixed(6)), verdicts: VERDICTS, tally, rows }, null, 2));
+persist();
 console.log(`\nwrote ${OUT}`);

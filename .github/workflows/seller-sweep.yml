@@ -30,6 +30,10 @@ on:
         description: "Hard cap on what the whole run may spend"
         default: "1.50"
         required: false
+      offset:
+        description: "Skip this many candidates (shard a long sweep without re-paying earlier sellers)"
+        default: "0"
+        required: false
       live:
         description: "true to actually pay; anything else is a dry run that pays nothing"
         default: "false"
@@ -42,7 +46,7 @@ jobs:
   sweep:
     runs-on: ubuntu-latest
     environment: spending
-    timeout-minutes: 45
+    timeout-minutes: 300  # the full sweep is ~2,244 sellers at ~4.7s each
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -59,6 +63,7 @@ jobs:
         env:
           BURNER_KEY: ${{ secrets.BURNER_KEY }}
           SWEEP_LIMIT: ${{ inputs.limit }}
+          SWEEP_OFFSET: ${{ inputs.offset }}
           SWEEP_MAX_USD: ${{ inputs.max_usd }}
           SWEEP_TOTAL_USD: ${{ inputs.total_usd }}
           SWEEP_LIVE: ${{ inputs.live }}
@@ -68,7 +73,7 @@ jobs:
             echo "::add-mask::$BURNER_KEY"
           fi
           cd /tmp/sweep && env -i PATH="$PATH" HOME="$HOME" \
-            BURNER_KEY="$BURNER_KEY" SWEEP_LIMIT="$SWEEP_LIMIT" SWEEP_MAX_USD="$SWEEP_MAX_USD" \
+            BURNER_KEY="$BURNER_KEY" SWEEP_LIMIT="$SWEEP_LIMIT" SWEEP_OFFSET="$SWEEP_OFFSET" SWEEP_MAX_USD="$SWEEP_MAX_USD" \
             SWEEP_TOTAL_USD="$SWEEP_TOTAL_USD" SWEEP_LIVE="$SWEEP_LIVE" SWEEP_OUT=/tmp/sweep/sweep.json \
             node seller-sweep.mjs
       - name: Keep the verdicts
