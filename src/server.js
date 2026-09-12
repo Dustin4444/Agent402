@@ -365,7 +365,7 @@ import { buildSellerTrustTool } from "./tools/seller-trust.js";
 import { buildSellerDossierTool } from "./tools/seller-dossier.js";
 import { buildSellerPayabilityTool } from "./tools/seller-payability-kit.js";
 import { deliveryObservation } from "./response-observation.js";
-import { payX402, avmBuyerConfigured, avmBuyerStatus, sellerRefusedRecently, sellerDeliveryFailingRecently } from "./x402-buyer.js";
+import { payX402, avmBuyerConfigured, avmBuyerStatus, sellerRefusedRecently, sellerDeliveryFailingRecently, sellerDeliveryMemoEntries, DELIVERY_FAIL_STRIKES_REQUIRED, deliveryFailTtlMsNow } from "./x402-buyer.js";
 import { svmBuyerConfigured, svmBuyerStatus, SOLANA_NETWORK_LABELS } from "./solana-buyer.js";
 import { payTempo, tempoBuyerConfigured, tempoBuyerStatus } from "./tempo-buyer.js";
 import { issueChallenge, verifySolution, isComputePayable, powInfo, POW_DIFFICULTY, WALLET_ONLY_SLUGS, verifyHeartbeatToken } from "./pow.js";
@@ -1447,7 +1447,15 @@ for (const tier of EXEC_TIERS) {
   const tool = buildRouteExecuteTool({
     getCatalog: () => CATALOG, baseUrl: BASE_URL, tier,
     resolveExternal: resolveExternalSeller,
-    payExternal: (url, opts) => (opts?.chain === "tempo" ? payTempo(url, opts) : payX402(url, opts)),
+    // memoizeDelivery is the ONE opt-in that lets a paid call write the
+    // delivery memo, and this is the only place that passes it. The memo
+    // decides where our money goes, and payX402 is not router-private: the
+    // $0.10 seller-payability tool reaches the same function with a url,
+    // method and body the CALLER chose, so an unguarded write was a paid
+    // routing ban against any origin, on demand. Default false, opted into
+    // here, where the seller was resolved by US from a task and not named by
+    // the buyer.
+    payExternal: (url, opts) => (opts?.chain === "tempo" ? payTempo(url, opts) : payX402(url, { ...opts, memoizeDelivery: true })),
     externalEnabled: () => SOR_EXTERNAL_ENABLED,
     // Chains external routing can SETTLE on: Base always (the proven path);
     // Algorand only once the dedicated AVM spending wallet is configured;
@@ -3113,17 +3121,20 @@ app.get("/__operator/sales.json", (req, res) => {
 app.get("/__operator/router-delivery.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   res.set("Cache-Control", "no-store");
-  const rows = [];
-  for (const origin of routableSellerSummaries().map((x) => x.origin)) {
-    for (const chain of spendChainsConfigured()) {
-      const f = sellerDeliveryFailingRecently(origin, chain);
-      if (f) rows.push({ origin, chain, at: new Date(f.at).toISOString(), status: f.status ?? null, ms: f.ms ?? null });
-    }
-  }
-  rows.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  // Read the MAP, never the index. An origin that is not in our crawl can
+  // still hold a memo, and those are exactly the ones worth seeing - the first
+  // version iterated routableSellerSummaries() and so was blind to anything
+  // outside the index while reporting a confident count.
+  const rows = sellerDeliveryMemoEntries().map((e) => ({
+    origin: e.origin, chain: e.chain,
+    at: new Date(e.at).toISOString(), firstAt: new Date(e.firstAt).toISOString(),
+    strikes: e.strikes, actionable: e.actionable, status: e.status, ms: e.ms,
+  })).sort((a, b) => String(b.at).localeCompare(String(a.at)));
   res.json({
-    note: "sellers our router paid and that did not deliver (5xx with no settle receipt, or no answer before the timeout). In memory only: a restart clears it. The public rows carry the verdict, never these fields.",
-    ttlHours: Math.round(Number(process.env.SOR_SELLER_DELIVERY_FAIL_TTL_MS || 24 * 3600 * 1000) / 3600000),
+    note: `sellers OUR ROUTER paid (never a caller-named target) and that answered 5xx with no settle receipt. A row becomes actionable at ${DELIVERY_FAIL_STRIKES_REQUIRED} strikes; below that it is recorded and changes nothing. Timeouts are never recorded - the caller supplies the seller's request body, so a stall proves nothing about the seller. In memory only: a restart clears it, and this host deploys often. The public rows carry the verdict, never these fields.`,
+    strikesRequired: DELIVERY_FAIL_STRIKES_REQUIRED,
+    ttlHours: Math.round((deliveryFailTtlMsNow() / 3600000) * 10) / 10,
+    enabled: deliveryFailTtlMsNow() > 0,
     count: rows.length,
     rows,
   });

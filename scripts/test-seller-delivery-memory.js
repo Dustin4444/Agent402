@@ -26,34 +26,72 @@ const {
   payX402, noteSellerDeliveryFailure, clearSellerDeliveryFailure,
   sellerDeliveryFailingRecently, __resetSellerDeliveryFailuresForTest,
   sellerRefusedRecently, __resetSellerRefusalsForTest, _spentThisWindow,
+  sellerDeliveryMemoEntries, DELIVERY_FAIL_STRIKES_REQUIRED,
 } = await import("../src/x402-buyer.js");
 const { dispatchEligibility, DISPATCH_REASONS, dispatchLegend } = await import("../src/dispatch-eligibility.js");
 
 // --- 1. the memo primitive ---------------------------------------------------
 {
   __resetSellerDeliveryFailuresForTest();
-  eq(sellerDeliveryFailingRecently("https://seller.example", "base"), null, "an unknown seller is not failing - absence is never a verdict");
-  noteSellerDeliveryFailure("https://seller.example", "base", { status: 500, ms: 120_256 });
-  const hit = sellerDeliveryFailingRecently("https://seller.example", "base");
-  ok(hit && hit.status === 500 && hit.ms === 120256, "the status and how long it took are both kept: a 500 in 120 s and a 500 in 40 ms are different failures");
-  eq(sellerDeliveryFailingRecently("https://seller.example", "solana"), null, "the memo is per CHAIN - the same origin on another rail is untouched");
-  eq(sellerDeliveryFailingRecently("HTTPS://Seller.Example/", "base")?.status, 500, "the key is normalised (case, trailing slash), so one seller is one memo");
+  const fail = (o, c, x) => noteSellerDeliveryFailure(o, c, x);
+  const seen = (o, c, now) => sellerDeliveryFailingRecently(o, c, now);
 
-  // A delivered call is proof the seller works NOW: it beats the memo at once,
-  // rather than making every buyer wait out a TTL on stale evidence.
-  clearSellerDeliveryFailure("https://seller.example", "base");
-  eq(sellerDeliveryFailingRecently("https://seller.example", "base"), null, "a success clears the memo immediately");
+  eq(seen("https://s.example", "base"), null, "an unknown seller is not failing - absence is never a verdict");
 
-  noteSellerDeliveryFailure("https://seller.example", "base", { status: null, ms: null });
-  ok(sellerDeliveryFailingRecently("https://seller.example", "base"), "a timeout with no status is still a failure (status null, not a missing memo)");
-  eq(sellerDeliveryFailingRecently("https://seller.example", "base", Date.now() + 25 * 3600 * 1000), null, "and it is forgotten after the TTL (a day by default) with no redeploy");
+  // TWO STRIKES. One 5xx is weather: this repo's own probe-classify doctrine
+  // calls 502/503/504 upstream and never fatal, and our own deploys produce
+  // exactly that shape several times a day.
+  fail("https://s.example", "base", { status: 500, ms: 120256 });
+  eq(seen("https://s.example", "base"), null, "ONE failure changes no routing decision - it is recorded so the second can see it, and nothing more");
+  fail("https://s.example", "base", { status: 500, ms: 40 });
+  const hit = seen("https://s.example", "base");
+  ok(hit && hit.strikes === 2, "the SECOND failure inside the window makes it actionable");
+  ok(hit.status === 500 && hit.ms === 40, "the newest observation is kept");
+  ok(hit.firstAt <= hit.at, "and when the pattern started, so an operator can see how long it has been going");
 
-  noteSellerDeliveryFailure("", "base", { status: 500 });
-  noteSellerDeliveryFailure("https://x.example", "", { status: 500 });
-  eq(sellerDeliveryFailingRecently("", "base"), null, "an unknown origin records nothing rather than a memo that matches everything");
+  eq(seen("https://s.example", "solana"), null, "the memo is per CHAIN - the same origin on another rail is untouched");
+  eq(seen("HTTPS://S.Example/", "base")?.strikes, 2, "the key is normalised (case, trailing slash), so one seller is one memo");
+
+  clearSellerDeliveryFailure("https://s.example", "base");
+  eq(seen("https://s.example", "base"), null, "a clear forgets it, strikes and all");
+
+  // TTL, read at CALL TIME so the kill switch does not need a restart, and
+  // malformed falls back to the DEFAULT rather than to permanent.
+  fail("https://ttl.example", "base", { status: 500 }); fail("https://ttl.example", "base", { status: 500 });
+  ok(seen("https://ttl.example", "base"), "actionable now");
+  eq(seen("https://ttl.example", "base", Date.now() + 25 * 3600 * 1000), null, "and forgotten after the default TTL of a day");
+
+  // A fresh origin: the expiry read above DELETED the ttl.example entry, which
+  // is correct behaviour and would otherwise make the env cases below prove
+  // nothing.
+  fail("https://env.example", "base", { status: 500 }); fail("https://env.example", "base", { status: 500 });
+  const prevEnv = process.env.SOR_SELLER_DELIVERY_FAIL_TTL_MS;
+  process.env.SOR_SELLER_DELIVERY_FAIL_TTL_MS = "0";
+  eq(seen("https://env.example", "base"), null, "TTL 0 DISARMS the memo entirely - the kill switch works without a redeploy, because the value is read at call time");
+  process.env.SOR_SELLER_DELIVERY_FAIL_TTL_MS = "1d";
+  ok(seen("https://env.example", "base"), "a MALFORMED value falls back to the default TTL, never to NaN - `now - at > NaN` is false forever, which would have made every memo permanent, and a typo must not select the most dangerous mode");
+  process.env.SOR_SELLER_DELIVERY_FAIL_TTL_MS = "-5";
+  ok(seen("https://env.example", "base"), "...and so does a negative");
+  process.env.SOR_SELLER_DELIVERY_FAIL_TTL_MS = "off";
+  eq(seen("https://env.example", "base"), null, "`off` disarms too, for an operator who reaches for a word instead of a zero");
+  if (prevEnv === undefined) delete process.env.SOR_SELLER_DELIVERY_FAIL_TTL_MS; else process.env.SOR_SELLER_DELIVERY_FAIL_TTL_MS = prevEnv;
+
+  fail("", "base", { status: 500 });
+  eq(seen("", "base"), null, "an unknown origin records nothing rather than a memo that matches everything");
+
+  // EVICTION IS LEAST-RECENTLY-FAILED. Map.set on an existing key keeps its
+  // original slot, so the plain set this started as evicted the MOST broken
+  // seller first while 499 one-off failures sat safely behind it. A test with
+  // only distinct keys cannot see that, which is why this one refreshes.
   __resetSellerDeliveryFailuresForTest();
-  for (let i = 0; i < 520; i++) noteSellerDeliveryFailure(`https://s${i}.example`, "base", { status: 500 });
-  ok(!sellerDeliveryFailingRecently("https://s0.example", "base") && sellerDeliveryFailingRecently("https://s519.example", "base"), "the map is size-bounded: the oldest entries are dropped, never unbounded growth from a hostile origin list");
+  noteSellerDeliveryFailure("https://worst.example", "base", { status: 500 });
+  for (let i = 0; i < 400; i++) noteSellerDeliveryFailure(`https://s${i}.example`, "base", { status: 500 });
+  noteSellerDeliveryFailure("https://worst.example", "base", { status: 500 }); // keeps failing -> moves to the tail
+  for (let i = 400; i < 520; i++) noteSellerDeliveryFailure(`https://s${i}.example`, "base", { status: 500 });
+  ok(sellerDeliveryFailingRecently("https://worst.example", "base")?.strikes === 2,
+     "the seller that KEEPS failing survives eviction: a repeat strike re-inserts at the tail, so eviction is least-recently-failed and not anti-correlated with how broken a seller is");
+  eq(sellerDeliveryFailingRecently("https://s0.example", "base"), null, "and the oldest untouched entries are the ones dropped");
+  __resetSellerDeliveryFailuresForTest();
 }
 
 // --- 2. the label: a failing chain is not eligible, whatever its history ------
@@ -98,63 +136,103 @@ const { dispatchEligibility, DISPATCH_REASONS, dispatchLegend } = await import("
   eq(dispatchEligibility({ ...proven, deliveryFailing: null }).eligible, true, "and null is the ordinary case");
 }
 
-// --- 3. the paid leg records it, and a delivered call clears it ---------------
-// The whole memo is worthless if nothing writes to it, so this drives payX402
-// against a stub seller that settles the payment and then fails.
+// --- 3. the paid leg records it, and ONLY for the router ---------------------
+// The memo decides where our money goes, and payX402 is not router-private: a
+// $0.10 public tool reaches the same function with a url, method and body the
+// CALLER chose. The opt-in is the security control, so it is tested from both
+// sides.
 {
   process.env.X402_UPSTREAM_BUYER_KEY = "0x" + randomBytes(32).toString("hex");
   const USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
   const accept = { scheme: "exact", network: "eip155:8453", asset: USDC, amount: "1000", payTo: "0x" + "ee".repeat(20), maxTimeoutSeconds: 300, extra: { name: "USD Coin", version: "2" } };
   const hdr = Buffer.from(JSON.stringify({ x402Version: 2, accepts: [accept] })).toString("base64");
   const origFetch = globalThis.fetch;
-  /** @param paidResponse what the seller answers once the credential is presented */
   const sellerThat = (paidResponse) => async (url, init) => {
-    const credential = init?.headers?.["PAYMENT-SIGNATURE"] || init?.headers?.["payment-signature"] || init?.headers?.["X-PAYMENT"];
-    if (!credential) return { status: 402, headers: { get: (h) => (h.toLowerCase() === "payment-required" ? hdr : null) }, json: async () => ({}), text: async () => "{}" };
+    const cred = init?.headers?.["PAYMENT-SIGNATURE"] || init?.headers?.["payment-signature"] || init?.headers?.["X-PAYMENT"];
+    if (!cred) return { status: 402, headers: { get: (h) => (h.toLowerCase() === "payment-required" ? hdr : null) }, json: async () => ({}), text: async () => "{}" };
     return paidResponse();
   };
   const hdrs = (map = {}) => ({ get: (h) => map[String(h).toLowerCase()] ?? null });
-  const buy = (origin) => payX402(`${origin}/x`, { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, chain: "base", notDebited: async () => ({ debited: true, observed: 1 }) }).then((r) => r, (e) => e);
+  const receipt = Buffer.from(JSON.stringify({ success: true, transaction: "0xabc", network: "base" })).toString("base64");
+  // memoizeDelivery mirrors what server.js passes: true only for the router.
+  const buy = (origin, { asRouter = true } = {}) => payX402(`${origin}/x`, {
+    maxAtomic: 500000n, trusted: true, method: "POST", body: {}, chain: "base",
+    notDebited: async () => ({ debited: true, observed: 1 }), memoizeDelivery: asRouter,
+  }).then((r) => r, (e) => e);
 
-  __resetSellerDeliveryFailuresForTest();
-  __resetSellerRefusalsForTest();
+  __resetSellerDeliveryFailuresForTest(); __resetSellerRefusalsForTest();
 
-  // (a) 500 after payment, no receipt - the exact shape the paid probe measured.
-  globalThis.fetch = sellerThat(() => ({ status: 500, headers: hdrs({ "content-type": "text/plain; charset=UTF-8" }), text: async () => "Internal Server Error", json: async () => ({}) }));
+  // (a) the router's own paid call, 500 with no receipt: recorded, and
+  //     actionable only on the SECOND one.
+  globalThis.fetch = sellerThat(() => ({ status: 500, headers: hdrs({ "content-type": "text/plain" }), text: async () => "Internal Server Error", json: async () => ({}) }));
   const failed = await buy("https://broken.example");
-  ok(failed instanceof Error && failed.statusCode === 502, "control: a 500 after payment is still a 502 to the buyer, uncommitted-flagged as before");
+  ok(failed instanceof Error && failed.statusCode === 502, "control: a 500 after payment is still a 502 to the buyer");
+  eq(sellerDeliveryFailingRecently("https://broken.example", "base"), null, "one strike is not yet a verdict");
+  await buy("https://broken.example");
   const memo = sellerDeliveryFailingRecently("https://broken.example", "base");
-  ok(memo && memo.status === 500, "the paid leg RECORDED the delivery failure - without this line the memo is decorative");
-  ok(typeof memo.ms === "number" && memo.ms >= 0, "with how long the buyer waited for it");
+  ok(memo && memo.strikes === 2 && memo.status === 500, "the paid leg RECORDED both strikes - without those lines the memo is decorative");
   eq(sellerRefusedRecently("https://broken.example", "base"), null, "and it is NOT filed as a refusal: a refusal means nobody was charged, and this seller took the payment");
 
-  // (b) a 5xx that DID settle (receipt present) is the seller's transient blip
-  //     on an otherwise working path - still no delivery, still memoized. The
-  //     distinction that matters is the receipt, not the status.
+  // (b) THE SAME FAILURE through a caller-parameterised tool writes NOTHING.
+  //     This is the whole security control: seller-payability ($0.10) hands
+  //     payX402 a url and body the buyer chose, so an unguarded write was a
+  //     paid 24-hour routing ban against any origin on the internet.
   __resetSellerDeliveryFailuresForTest();
-  const receipt = Buffer.from(JSON.stringify({ success: true, transaction: "0xabc", network: "base" })).toString("base64");
+  await buy("https://victim.example", { asRouter: false });
+  await buy("https://victim.example", { asRouter: false });
+  eq(sellerDeliveryFailingRecently("https://victim.example", "base"), null,
+     "a diagnostic call CANNOT memoize a seller, however many times it fails - memoizeDelivery defaults to false and only the router opts in");
+  eq(sellerDeliveryMemoEntries().length, 0, "...and writes no row at all, so it cannot flush the map either");
+
+  // (b2) THE DEFAULT ITSELF. Every case above passes the flag explicitly, so
+  //      none of them can see the default flip from false to true - and the
+  //      default IS the control: blockscout-kit and any future caller reach
+  //      payX402 with no such option and must write nothing. Called with the
+  //      bare option set the other callers use.
+  __resetSellerDeliveryFailuresForTest();
+  globalThis.fetch = sellerThat(() => ({ status: 500, headers: hdrs({ "content-type": "text/plain" }), text: async () => "nope", json: async () => ({}) }));
+  const bare = { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, chain: "base", notDebited: async () => ({ debited: true, observed: 1 }) };
+  await payX402("https://default.example/x", bare).catch(() => {});
+  await payX402("https://default.example/x", bare).catch(() => {});
+  eq(sellerDeliveryMemoEntries().length, 0,
+     "a caller that passes NO memoizeDelivery option writes nothing at all - the default is false, and that default is the security control rather than a convenience");
+
+  // (c) a 5xx carrying a settle receipt is not a delivery failure.
+  __resetSellerDeliveryFailuresForTest();
   globalThis.fetch = sellerThat(() => ({ status: 502, headers: hdrs({ "payment-response": receipt }), text: async () => "bad gateway", json: async () => ({}) }));
-  await buy("https://receipted.example");
+  await buy("https://receipted.example"); await buy("https://receipted.example");
   eq(sellerDeliveryFailingRecently("https://receipted.example", "base"), null, "a 5xx carrying a settle receipt is NOT memoized: the seller's payment path worked and the evidence says so");
 
-  // (c) a refusal (402) is not a delivery failure.
+  // (d) a 402 refusal the chain proves was uncharged RETRACTS any strike.
   __resetSellerDeliveryFailuresForTest();
+  noteSellerDeliveryFailure("https://refuser.example", "base", { status: 500 });
+  noteSellerDeliveryFailure("https://refuser.example", "base", { status: 500 });
+  ok(sellerDeliveryFailingRecently("https://refuser.example", "base"), "seeded as failing");
   globalThis.fetch = sellerThat(() => ({ status: 402, headers: hdrs({ "content-type": "application/json" }), clone: () => ({ text: async () => "{}" }), text: async () => JSON.stringify({ error: "payment_verification_failed" }), json: async () => ({}) }));
-  await buy("https://refuser.example");
-  eq(sellerDeliveryFailingRecently("https://refuser.example", "base"), null, "a 402 on the paid retry is a refusal, and refusals keep their own memo with their own (shorter) life");
+  await payX402("https://refuser.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, chain: "base", memoizeDelivery: true, notDebited: async () => ({ debited: false, observed: 1, expired: true }) }).catch(() => {});
+  eq(sellerDeliveryFailingRecently("https://refuser.example", "base"), null,
+     "a refusal the CHAIN proves was uncharged retracts the delivery memo: nobody paid, so it is a refusal and carries the refusal's shorter penalty, not both");
+  ok(sellerRefusedRecently("https://refuser.example", "base"), "...and is filed as the refusal it is");
 
-  // (d) a delivered 200 clears a standing memo.
+  // (e) only a SETTLED 200 clears. A bare 200 proves the route answers; it does
+  //     not prove the seller takes payment and delivers, and the weaker rule
+  //     made the memo purchasable through a route the seller knows works.
   __resetSellerDeliveryFailuresForTest();
-  noteSellerDeliveryFailure("https://recovered.example", "base", { status: 500, ms: 120000 });
+  noteSellerDeliveryFailure("https://half.example", "base", { status: 500 });
+  noteSellerDeliveryFailure("https://half.example", "base", { status: 500 });
   globalThis.fetch = sellerThat(() => ({ status: 200, headers: hdrs({ "content-type": "application/json" }), text: async () => JSON.stringify({ ok: true }), json: async () => ({ ok: true }) }));
-  const served = await buy("https://recovered.example");
+  await buy("https://half.example");
+  ok(sellerDeliveryFailingRecently("https://half.example", "base"), "a 200 with NO settle receipt does not clear the memo");
+  __resetSellerDeliveryFailuresForTest();
+  noteSellerDeliveryFailure("https://good.example", "base", { status: 500 });
+  noteSellerDeliveryFailure("https://good.example", "base", { status: 500 });
+  globalThis.fetch = sellerThat(() => ({ status: 200, headers: hdrs({ "content-type": "application/json", "payment-response": receipt }), text: async () => JSON.stringify({ ok: true }), json: async () => ({ ok: true }) }));
+  const served = await buy("https://good.example");
   ok(served && served.result && served.result.ok === true, "control: the delivered answer reaches the buyer");
-  eq(sellerDeliveryFailingRecently("https://recovered.example", "base"), null, "a seller that delivers is forgiven on the spot - no TTL wait, no redeploy");
+  eq(sellerDeliveryFailingRecently("https://good.example", "base"), null, "a 200 that SETTLED clears it on the spot - no TTL wait, no redeploy");
 
   globalThis.fetch = origFetch;
-  __resetSellerDeliveryFailuresForTest();
-  __resetSellerRefusalsForTest();
-  ok(typeof _spentThisWindow() === "bigint", "the spend window is intact after the stub buys");
+  __resetSellerDeliveryFailuresForTest(); __resetSellerRefusalsForTest();
 }
 
 // --- 4. the consult sites, pinned FROM SOURCE --------------------------------
@@ -178,8 +256,23 @@ const { dispatchEligibility, DISPATCH_REASONS, dispatchLegend } = await import("
      "the failure detail reads back through an OPERATOR-AUTHED route, so it exists where it is useful and nowhere it is a public accusation");
   ok(!/lastFailure/.test(readFileSync(new URL("../src/dispatch-eligibility.js", import.meta.url), "utf8")),
      "and the shared verdict function no longer emits it at all, so no surface can reintroduce it by accident");
+  // The ONE writer, pinned from source: any second call site that forgets the
+  // flag is inert, but one that ADDS it is a new write primitive.
+  ok(/payExternal: \(url, opts\) =>[\s\S]{0,160}memoizeDelivery: true/.test(server),
+     "route-execute's payExternal is the only caller that opts into writing the memo");
+  eq((server.match(/memoizeDelivery: true/g) || []).length, 1,
+     "...and it is the ONLY place in the server that passes it - a second one would be a second way to ban a seller");
+  ok(/pay: async \(url, opts\) =>[\s\S]{0,120}payX402\(url, opts\)/.test(server),
+     "seller-payability still passes its options through UNCHANGED, so it inherits the false default and cannot write");
   const buyer = readFileSync(new URL("../src/x402-buyer.js", import.meta.url), "utf8");
-  ok(/paid\.status >= 500 && !\(paid\.headers\.get\("payment-response"\)/.test(buyer), "the recording rule is 5xx AND no receipt, read from the response itself");
+  ok(/memoizeDelivery && paid\.status >= 500 && !\(paid\.headers\.get\("payment-response"\)/.test(buyer),
+     "the recording rule is opt-in AND 5xx AND no receipt, read from the response itself");
+  ok(!/noteSellerDeliveryFailure\(sellerOrigin, chain, \{ status: null/.test(buyer),
+     "a TIMEOUT is never recorded: route-execute forwards the caller's params as the seller's request body, so a caller can hand a seller a URL that never answers, and our own slow egress produces the identical error");
+  ok(/memoizeDelivery && tx\) clearSellerDeliveryFailure/.test(buyer),
+     "and the CLEAR needs a settle receipt, so the memo cannot be bought off through a route the seller knows works");
+  ok(/deliveryFailures\.delete\(key\);\n  if \(deliveryFailures\.size >= DELIVERY_FAIL_MAX\)/.test(buyer),
+     "eviction deletes before it sets, so a repeat strike moves to the tail and the most-broken seller is not the first one evicted");
   ok(buyer.indexOf("noteSellerDeliveryFailure(sellerOrigin, chain, { status: paid.status") < buyer.indexOf("const evmAuth = chain === \"base\""),
      "recorded BEFORE the Base/Solana chain-truth checks, so a Tempo or Algorand seller that fails after payment is recorded too");
 }
