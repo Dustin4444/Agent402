@@ -1,0 +1,80 @@
+name: Seller sweep (paid, graded)
+
+# Buy ONE call from many x402 sellers and grade each answer against what that
+# seller's own OpenAPI or 402 promised. Dispatch-only, in the `spending`
+# environment (operator approval per run), DRY unless `live` is true.
+#
+# Why: every index here - ours included - publishes what sellers CLAIM. On
+# 2026-09-11/12 that layer was measurably unreliable in ways no crawler can
+# see: a seller ranked #1 for its task had answered HTTP 500 after payment for
+# eleven days, 18 origins advertise a USDC accept no stock client can sign, and
+# a leaderboard's top row was a gateway wallet with sixteen vendors behind it.
+# Paying is the only way to know, and grading the ANSWER is the only way to
+# tell a working seller from one that takes the money and returns `{}`.
+#
+# Our crawler already extracts `responseContract.guaranteedPaths` per route,
+# beside a `runtimeVerified` flag that has read false on every row since it
+# shipped. This is the job that flag is named for.
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "How many sellers to sweep"
+        default: "50"
+        required: false
+      max_usd:
+        description: "Per-seller cap (refused before signing above this)"
+        default: "0.02"
+        required: false
+      total_usd:
+        description: "Hard cap on what the whole run may spend"
+        default: "1.50"
+        required: false
+      live:
+        description: "true to actually pay; anything else is a dry run that pays nothing"
+        default: "false"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    environment: spending
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      # The same PINNED client tree the single-seller probe pays from, so the
+      # signing path here is the one already proven on this rail.
+      - name: Install the pinned x402 client
+        run: |
+          mkdir -p /tmp/sweep && cp "$GITHUB_WORKSPACE"/scripts/agentkit-live/package.json "$GITHUB_WORKSPACE"/scripts/agentkit-live/package-lock.json /tmp/sweep/
+          cp "$GITHUB_WORKSPACE"/scripts/seller-sweep.mjs "$GITHUB_WORKSPACE"/scripts/seller-verify-core.mjs /tmp/sweep/
+          cd /tmp/sweep && npm ci --ignore-scripts --no-audit --no-fund
+      - name: Sweep
+        env:
+          BURNER_KEY: ${{ secrets.BURNER_KEY }}
+          SWEEP_LIMIT: ${{ inputs.limit }}
+          SWEEP_MAX_USD: ${{ inputs.max_usd }}
+          SWEEP_TOTAL_USD: ${{ inputs.total_usd }}
+          SWEEP_LIVE: ${{ inputs.live }}
+        run: |
+          if [ "$SWEEP_LIVE" = "true" ]; then
+            [ -n "$BURNER_KEY" ] || { echo "::error::live run needs the BURNER_KEY secret"; exit 1; }
+            echo "::add-mask::$BURNER_KEY"
+          fi
+          cd /tmp/sweep && env -i PATH="$PATH" HOME="$HOME" \
+            BURNER_KEY="$BURNER_KEY" SWEEP_LIMIT="$SWEEP_LIMIT" SWEEP_MAX_USD="$SWEEP_MAX_USD" \
+            SWEEP_TOTAL_USD="$SWEEP_TOTAL_USD" SWEEP_LIVE="$SWEEP_LIVE" SWEEP_OUT=/tmp/sweep/sweep.json \
+            node seller-sweep.mjs
+      - name: Keep the verdicts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: seller-sweep
+          path: /tmp/sweep/sweep.json
+          if-no-files-found: warn
