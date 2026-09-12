@@ -64,12 +64,17 @@ export const sanctionsStatus = () => ({
 });
 
 const LISTS = [{ list: "OFAC SDN", authority: "US Treasury OFAC", url: "https://sanctionslist.ofac.treas.gov/" }];
-const envelope = () => ({
+// The caveat travels IN the answer - documentation nobody reads is not a
+// control. It is VERDICT-AWARE: emitting the miss caveat on a match produced
+// "this value does not appear on the lists" directly under `verdict: match`,
+// which is nonsense and would teach a reader to skip the field entirely. Found
+// 2026-09-12 by reading an actual response rather than the shape of one.
+const envelope = (matched) => ({
   listsChecked: LISTS,
   listsFetchedAt: state.fetchedAt ? new Date(state.fetchedAt).toISOString() : null,
-  // The caveat travels IN the answer. Documentation nobody reads is not a
-  // control, and this is the field that stops a miss being read as a pass.
-  notAClearance: SANCTIONS_VERDICTS.no_match_on_lists_checked,
+  ...(matched
+    ? { confirmBeforeActing: SANCTIONS_VERDICTS.match_caveat }
+    : { notAClearance: SANCTIONS_VERDICTS.no_match_on_lists_checked }),
 });
 
 export const SANCTIONS_TOOLS = [
@@ -99,7 +104,7 @@ export const SANCTIONS_TOOLS = [
         verdict: hit ? "match" : "no_match_on_lists_checked",
         ...(hit ? { entity: hit.entity, sdnId: hit.sdnId, asset: hit.asset, listedAddress: hit.address } : {}),
         addressesOnList: state.addresses.size,
-        ...envelope(),
+        ...envelope(!!hit),
       };
     },
   },
@@ -132,7 +137,7 @@ export const SANCTIONS_TOOLS = [
         matches: r.matches,
         ...(r.reason ? { note: r.reason } : {}),
         entriesOnList: state.names.length,
-        ...envelope(),
+        ...envelope(r.matches.length > 0),
       };
     },
   },

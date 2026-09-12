@@ -72,7 +72,7 @@ const CSV = [
   for (const w of ["clean", "cleared", "clear of", "safe", "approved", "permitted", "ok to"])
     ok(!v.includes(w), `no verdict says "${w}" - a word that reads as permission is the one thing this tool must never say`);
   ok(!("clean" in SANCTIONS_VERDICTS) && !("clear" in SANCTIONS_VERDICTS), "and there is no such verdict to return");
-  eq(Object.keys(SANCTIONS_VERDICTS).sort(), ["lists_unavailable", "match", "no_match_on_lists_checked"], "the vocabulary is closed and each name states its own limit");
+  eq(Object.keys(SANCTIONS_VERDICTS).sort(), ["lists_unavailable", "match", "match_caveat", "no_match_on_lists_checked"], "the vocabulary is closed and each name states its own limit");
   ok(/NOT a clearance/i.test(SANCTIONS_VERDICTS.no_match_on_lists_checked), "the miss verdict says in so many words that it is not a clearance");
   ok(/lists change|spellings|ownership/i.test(SANCTIONS_VERDICTS.no_match_on_lists_checked), "...and names the specific reasons it cannot be one, rather than hedging vaguely");
   ok(/refused rather than reported as no match/i.test(SANCTIONS_VERDICTS.lists_unavailable),
@@ -87,6 +87,18 @@ const CSV = [
   ok(/if \(!state\.fetchedAt\) throw bad\(SANCTIONS_VERDICTS\.lists_unavailable, 503\)/.test(src),
      "and with nothing cached the handler refuses 503 rather than answering from an empty map");
   ok(/notAClearance/.test(src), "the caveat rides in every response envelope, not in documentation nobody reads");
+  // ...and it is VERDICT-AWARE. The first cut emitted the miss caveat
+  // unconditionally, so a match answered "this value does not appear on the
+  // lists" directly under `verdict: match`. Nonsense, and worse than nonsense:
+  // a field that is obviously wrong once teaches a reader to skip it, and this
+  // is the field that stops a miss being read as a pass. Found by reading a
+  // real response rather than the shape of one.
+  ok(/envelope = \(matched\)/.test(src) && /matched\s*\?/.test(src),
+     "the envelope takes the verdict and picks its caveat from it");
+  ok(/envelope\(!!hit\)/.test(src) && /envelope\(r\.matches\.length > 0\)/.test(src),
+     "and both handlers pass their own result, so neither can emit the other verdict's caveat");
+  ok(/not a confirmed identification/i.test(SANCTIONS_VERDICTS.match_caveat),
+     "a MATCH carries its own caveat: names repeat and addresses are reused, so a string match is not an identification");
 }
 
 console.log(`test-sanctions: ${n} assertions OK`);

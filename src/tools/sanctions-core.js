@@ -117,5 +117,6 @@ export function screenName(query, entries, { limit = 25 } = {}) {
 export const SANCTIONS_VERDICTS = Object.freeze({
   match: "this exact value appears on at least one of the lists named in `listsChecked`",
   no_match_on_lists_checked: "this value does not appear on the lists named in `listsChecked`, as of the dates in `listsFetchedAt`. That is NOT a clearance: lists change without notice, entities appear under many spellings, and ownership rules put parties in scope who are named on no list. Use this as one input to your own screening, never as the decision",
+  match_caveat: "a match is a string match against a published list, not a confirmed identification. Names repeat and addresses are reused; confirm the entry against the list itself (the SDN id is given) before acting on it",
   lists_unavailable: "we could not load one or more lists, so this answer would be incomplete and is refused rather than reported as no match",
 });
