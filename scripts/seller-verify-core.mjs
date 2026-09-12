@@ -69,6 +69,7 @@ export function readOutputContract(challenge) {
 export function missingGuaranteedPaths(paths, body) {
   if (!Array.isArray(paths) || !paths.length) return [];
   if (!body || typeof body !== "object") return [];
+  body = unwrapForContract(paths.filter((p) => !String(p).includes(".")), body); // same envelope rule, on the top-level names only
   const has = (p) => {
     let cur = body;
     for (const seg of String(p).split(".")) {
@@ -84,10 +85,34 @@ export function missingGuaranteedPaths(paths, body) {
 }
 
 /** Keys the example promises that the body does not carry. */
+/**
+ * An answer may be WRAPPED. The first live run flagged a seller as hollow for
+ * returning `{ok, data, settlement}` against a promised
+ * `{eth_usd, change_24h, seller, network}` - and the promised fields were
+ * almost certainly inside `data`. Comparing top-level keys alone turns a
+ * perfectly good envelope into an accusation.
+ *
+ * So: if the promised keys are not at the top level, look one level down
+ * through the body's own object-valued properties and accept the first place
+ * they ALL resolve. Only a shape that satisfies the contract nowhere is a
+ * breach. Deliberately one level and "all or nothing": a deeper hunt, or
+ * accepting a partial match, would find the promised names somewhere in almost
+ * any document and grade everything a pass.
+ */
+export function unwrapForContract(keys, body) {
+  if (!Array.isArray(keys) || !keys.length) return body;
+  if (!body || typeof body !== "object" || Array.isArray(body)) return body;
+  const satisfies = (o) => o && typeof o === "object" && !Array.isArray(o) && keys.every((k) => k in o);
+  if (satisfies(body)) return body;
+  for (const v of Object.values(body)) if (satisfies(v)) return v;
+  return body;
+}
+
 export function missingPromisedKeys(example, body) {
   if (!example || typeof example !== "object" || Array.isArray(example)) return [];
   if (!body || typeof body !== "object" || Array.isArray(body)) return [];
-  const actual = Object.keys(body);
+  const inner = unwrapForContract(Object.keys(example), body);
+  const actual = Object.keys(inner);
   return Object.keys(example).filter((k) => !actual.includes(k));
 }
 
@@ -96,6 +121,7 @@ export function missingPromisedKeys(example, body) {
 export function emptyPromisedArrays(example, body) {
   if (!example || typeof example !== "object" || Array.isArray(example)) return [];
   if (!body || typeof body !== "object" || Array.isArray(body)) return [];
+  body = unwrapForContract(Object.keys(example), body); // same envelope rule as above
   return Object.entries(example)
     .filter(([, v]) => Array.isArray(v) && v.length > 0)
     .filter(([k]) => Array.isArray(body[k]) && body[k].length === 0)
@@ -110,7 +136,7 @@ export function missingSchemaProperties(schema, body) {
   const props = schema.properties && typeof schema.properties === "object" ? Object.keys(schema.properties) : [];
   if (!props.length) return [];
   const required = Array.isArray(schema.required) && schema.required.length ? schema.required : props;
-  const actual = Object.keys(body);
+  const actual = Object.keys(unwrapForContract(required, body)); // same envelope rule
   return required.filter((k) => props.includes(k) && !actual.includes(k));
 }
 
@@ -128,7 +154,10 @@ export const VERDICTS = Object.freeze({
   no_challenge: "the endpoint did not answer a readable 402, so there was nothing to pay",
   no_base_accept: "the 402 named no exact/Base accept a stock client could sign",
   over_cap: "the seller's quote was above this run's per-seller cap, so it was not paid",
-  payment_refused: "a stock client's payment was not accepted, so nothing settled",
+  input_rejected: "the seller rejected the REQUEST (a 4xx other than 402/401), so the call never reached the question of payment. Per x402 settlement ordering a >= 400 cancels settlement, so nobody was charged - and this says nothing about whether the seller can be paid. Usually it means the body we sent was not the body they wanted",
+  payment_refused: "a stock client's payment was presented and not accepted (402 or 401 on the paid retry), so nothing settled",
+  served_no_receipt: "the seller answered 200 but sent no settle receipt, so we cannot show a payment moved. It served us; whether it charged us is not visible from here",
+  seller_error: "the seller's own backend failed (5xx). Per settlement ordering nobody was charged",
   paid_no_answer: "the payment settled and the seller returned no usable body",
   paid_hollow: "the payment settled and the answer is missing keys the seller's own 402 promised, or promised arrays came back empty",
   paid_ungraded: "the payment settled and the seller publishes nothing about its output, so the answer cannot be checked against anything",
@@ -139,7 +168,19 @@ export function verdictFor({ challengeReadable, baseAccept, quoteUsd, capUsd, se
   if (!challengeReadable) return { verdict: "no_challenge" };
   if (!baseAccept) return { verdict: "no_base_accept" };
   if (Number.isFinite(quoteUsd) && Number.isFinite(capUsd) && quoteUsd > capUsd) return { verdict: "over_cap", quoteUsd };
-  if (!settled) return { verdict: "payment_refused", status: status ?? null };
+  // WHY IT DID NOT SETTLE MATTERS, and the first live run proved it: 14 of 21
+  // "refusals" were HTTP 400 - the seller rejecting the BODY we sent, which
+  // never reaches the question of payment - and one was a plain 200. Reporting
+  // those as refused payments would have published a claim about 15 sellers
+  // that was really a fact about our request.
+  if (!settled) {
+    const st = Number(status);
+    if (st === 200) return { verdict: "served_no_receipt", status: st };
+    if (st >= 500) return { verdict: "seller_error", status: st };
+    if (st === 402 || st === 401) return { verdict: "payment_refused", status: st };
+    if (st >= 400) return { verdict: "input_rejected", status: st };
+    return { verdict: "payment_refused", status: Number.isFinite(st) ? st : null };
+  }
   const hasBody = body && typeof body === "object" && !Array.isArray(body) && Object.keys(body).length > 0;
   if (!hasBody) return { verdict: "paid_no_answer", status: status ?? null };
   if (!contract) return { verdict: "paid_ungraded", status: status ?? null };
