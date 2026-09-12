@@ -2,7 +2,7 @@
 // Dev shortlinks (/claude, /cursor, ... -> the page that answers "how do I use
 // this from X") and the /install script. Boots a free server. In CI.
 import { spawn } from "node:child_process";
-import { writeFileSync, mkdtempSync } from "node:fs";
+import { writeFileSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -57,6 +57,23 @@ try {
   ok(wwwPost.status === 308 && wwwPost.location === "http://agent402.test/api/search?x=1", `a POST to the www host gets 308, which preserves method and body (got ${wwwPost.status} ${wwwPost.location})`);
   const wwwHead = await new Promise((resolve, reject) => { const r = httpRequest({ host: "127.0.0.1", port, path: "/", method: "HEAD", headers: { Host: "www.agent402.test" } }, (res) => { res.resume(); resolve({ status: res.statusCode }); }); r.on("error", reject); r.end(); });
   ok(wwwHead.status === 301, "HEAD keeps 301: there is no body to lose and the permanent-canonical signal is what it is for");
+  // The SECOND redirect we own, and it was missed on the first pass: the
+  // platform hostname -> canonical domain. Same app.use mount, same methods,
+  // same defect. Only found because someone asked whether the half we had
+  // called "not ours" really was not ours.
+  //
+  // Pinned FROM SOURCE, not driven: that middleware mounts only when BASE_URL
+  // contains the production domain, and this suite boots on agent402.test, so
+  // a request here never reaches it. Asserting behaviour that cannot run is
+  // worse than asserting none - it reads green while proving nothing.
+  {
+    const src = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+    const i = src.indexOf('host.endsWith(".up.railway.app")');
+    ok(i > 0, "the platform-hostname redirect still exists");
+    const block = src.slice(i, i + 900);
+    ok(/\["GET", "HEAD"\]\.includes\(req\.method\) \? 301 : 308/.test(block),
+       "and it answers 308 to anything with a body, so a paid POST arriving on the platform hostname keeps its body");
+  }
   // The host's own /api/index entry (2026-08-28): self:true, built from the
   // ledger + catalog, for the canonical host and the instance's own base URL.
   for (const q of ["agent402.tools", "https://agent402.tools", "agent402.test"]) {

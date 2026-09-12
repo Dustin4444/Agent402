@@ -2150,7 +2150,15 @@ if (BASE_URL.includes("agent402.tools")) {
   app.use((req, res, next) => {
     const host = req.hostname || req.headers.host?.split(":")[0] || "";
     if (host.endsWith(".up.railway.app")) {
-      return res.redirect(301, `${BASE_URL}${req.originalUrl}`);
+      // 308 for anything with a body, same rule and same reason as the www
+      // redirect below: RFC 7231 lets a client turn a 301 into a GET and drop
+      // the body, and the first call of every x402 flow is a bare POST with no
+      // credential on it. A buyer who reaches us on the platform hostname would
+      // otherwise arrive as a bodiless GET and be told a field they sent was
+      // missing. Found 2026-09-12 while checking an outside report about the
+      // www redirect - this second one had the same defect and was missed on
+      // the first pass.
+      return res.redirect(["GET", "HEAD"].includes(req.method) ? 301 : 308, `${BASE_URL}${req.originalUrl}`);
     }
     next();
   });
