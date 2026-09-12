@@ -20,7 +20,7 @@
 //   - It only ever moves the date BACKWARD, so no claim can make an origin
 //     look newer, or younger, than it is.
 import { strict as assert } from "node:assert";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -101,6 +101,69 @@ const NEW = `https://api.seller-${TAG}.com`;
   const rows = getSellerRegistrations();
   ok(rows.some((r) => r.origin === OLD), "the predecessor is STILL LISTED after a succession - nothing about this retires a seller");
   ok(rows.some((r) => r.origin === NEW), "and the successor is listed beside it");
+}
+
+// --- the binding: two proofs, because one excludes the people who need it ----
+// The first cut required a shared BASE payTo. Measured against the live index
+// that refused a third of all origins - and the seller who asked for the
+// feature was in that third, with no payTo on any chain. A binding unavailable
+// to its own use case is not a binding, it is a wall.
+{
+  const { sharesPayTo, verifySuccessionMarkers, SUCCESSION_PATH } = await import("../src/x402-index.js");
+  const { loadPersistedIndexCache } = await import("../src/x402-index.js");
+  const { writeFileSync: wf } = await import("node:fs");
+  const OLD_O = "https://old.test", NEW_O = "https://new.test", THIRD = "https://third.test";
+  const tool = (o, pay) => ({ slug: "t", price: 0.002, method: "GET", seller: o, route: "/api/t", networks: ["eip155:8453"], ...(pay ? { payToByNetwork: pay } : {}) });
+  const f = join(dir, "cache.json");
+  wf(f, JSON.stringify({ entries: [
+    [OLD_O, { origin: OLD_O, fetchedAt: Date.now(), history: [1], tools: [tool(OLD_O, { "eip155:137": "0xAAA" })] }],
+    [NEW_O, { origin: NEW_O, fetchedAt: Date.now(), history: [1], tools: [tool(NEW_O, { "eip155:137": "0xaaa" })] }],
+    [THIRD, { origin: THIRD, fetchedAt: Date.now(), history: [1], tools: [tool(THIRD, { "eip155:137": "0xBBB" })] }],
+    ["https://nopay.test", { origin: "https://nopay.test", fetchedAt: Date.now(), history: [1], tools: [tool("https://nopay.test")] }],
+  ] }));
+  loadPersistedIndexCache(f);
+
+  const m = sharesPayTo(NEW_O, OLD_O);
+  ok(m && m.network === "eip155:137", "a shared payTo on ANY chain proves it, not Base alone - a Base-only rule refused a third of the index");
+  ok(m.payTo === "0xaaa", "and the comparison is case-insensitive for EVM, so a checksummed address matches a lowercase one");
+  eq(sharesPayTo(NEW_O, THIRD), null, "two DIFFERENT payout wallets prove nothing");
+  eq(sharesPayTo(NEW_O, "https://nopay.test"), null, "and an origin advertising no payTo cannot be matched on one");
+
+  // Proof two: cross-served markers, for the ~1,000 origins with no payTo.
+  const served = {};
+  const stubFetch = async (url) => {
+    const body = served[String(url)];
+    return body === undefined ? { ok: false, status: 404, text: async () => "" } : { ok: true, status: 200, text: async () => JSON.stringify(body) };
+  };
+  const N = `https://nopay.test${SUCCESSION_PATH}`, O = `https://old.test${SUCCESSION_PATH}`;
+  eq((await verifySuccessionMarkers("https://nopay.test", OLD_O, { fetchImpl: stubFetch, assertUrl: async () => {} })).ok, false, "with no markers served, nothing is proved");
+  ok(/BOTH origins/.test((await verifySuccessionMarkers("https://nopay.test", OLD_O, { fetchImpl: stubFetch, assertUrl: async () => {} })).reason),
+     "...and the refusal tells the seller exactly what to serve, on both hosts");
+
+  served[N] = { succeeds: OLD_O };
+  eq((await verifySuccessionMarkers("https://nopay.test", OLD_O, { fetchImpl: stubFetch, assertUrl: async () => {} })).ok, false,
+     "ONE direction is not enough: a claimant serving a marker alone could annex an origin they do not run");
+  served[O] = { succeededBy: "https://nopay.test" };
+  eq((await verifySuccessionMarkers("https://nopay.test", OLD_O, { fetchImpl: stubFetch, assertUrl: async () => {} })).ok, true,
+     "both directions served, and each naming the other, is proof of control over both");
+
+  served[O] = { succeededBy: THIRD };
+  eq((await verifySuccessionMarkers("https://nopay.test", OLD_O, { fetchImpl: stubFetch, assertUrl: async () => {} })).ok, false,
+     "the old origin naming somebody ELSE refuses - the predecessor decides who succeeds it");
+  // The SSRF guard is injected above only because these hosts are reserved
+  // names. It must still be the real one in production, so it is pinned here
+  // from source - a guard a test can switch off is a guard that stops running.
+  {
+    const src = readFileSync(new URL("../src/x402-index.js", import.meta.url), "utf8");
+    const fn = src.slice(src.indexOf("async function readMarker"), src.indexOf("async function readMarker") + 900);
+    ok(/await \(assertUrl \|\| assertPublicUrl\)\(url\)/.test(fn), "readMarker asserts the URL is public before fetching it, defaulting to the real guard");
+    ok(/dispatcher: ssrfDispatcher/.test(fn), "and pins the connection to the validated IP");
+    ok(/redirect: "manual"/.test(fn), "and never follows a redirect off the host being proved");
+  }
+
+  served[O] = { succeededBy: "https://nopay.test/" };
+  eq((await verifySuccessionMarkers("https://nopay.test", OLD_O, { fetchImpl: stubFetch, assertUrl: async () => {} })).ok, true,
+     "a trailing slash is the same origin, compared as origins rather than as strings");
 }
 
 rmSync(dir, { recursive: true, force: true });
