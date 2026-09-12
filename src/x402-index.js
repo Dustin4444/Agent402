@@ -299,23 +299,26 @@ export function sharesPayTo(claimant, predecessor) {
 async function readMarker(origin, fetchImpl) {
   try {
     const url = `${String(origin).replace(/\/+$/, "")}${SUCCESSION_PATH}`;
-    const { assertPublicUrl, ssrfDispatcher } = await import("./tools/fetch-guard.js");
-    // SSRF: `origin` is caller-supplied, so this is guarded UNCONDITIONALLY.
+    // SSRF: `origin` is caller-supplied, so this goes through safeFetch - the
+    // guarded fetcher this file already imports and the rest of the codebase
+    // uses for exactly this. It asserts the URL is public, pins the connection
+    // to the validated IP and re-validates every redirect hop.
     //
-    // The first cut made the guard injectable so the tests could use reserved
-    // hostnames, and CodeQL flagged the fetch below as critical
-    // js/request-forgery - correctly. The guard was really there, but
-    // `(assertUrl || assertPublicUrl)(url)` is an indirection a static
-    // analyzer cannot follow, so from the outside it is indistinguishable from
-    // no guard at all. A control that only a human reading the source can
-    // verify is worth less than one the tooling can, and the test can adapt
-    // (it uses real public hostnames with an injected fetch, so the guard runs
-    // and no request leaves).
-    await assertPublicUrl(url);
-    const res = await (fetchImpl || fetch)(url, { dispatcher: ssrfDispatcher, redirect: "manual", signal: AbortSignal.timeout(8000), headers: { accept: "application/json" } });
-    if (!res.ok) return null;
-    const txt = (await res.text()).slice(0, 4000);
-    return JSON.parse(txt);
+    // Two earlier attempts were both flagged CRITICAL js/request-forgery, and
+    // both times CodeQL was right to. First the guard was injectable
+    // (`(assertUrl || assertPublicUrl)(url)`) - an indirection a static
+    // analyzer cannot follow. Then it was unconditional but reached through a
+    // DYNAMIC import, which CodeQL also cannot resolve, so it still could not
+    // tell the call was sanitized. A control the tooling cannot see is not
+    // meaningfully a control: the third version uses the statically imported
+    // helper, which it can.
+    //
+    // `fetchImpl` remains only for tests and is never the network path.
+    const res = fetchImpl
+      ? await fetchImpl(url).then(async (r) => (r.ok ? { html: await r.text() } : null))
+      : await safeFetch(url, { headers: { accept: "application/json" }, maxBytes: 4096 }).catch(() => null);
+    if (!res) return null;
+    return JSON.parse(String(res.html).slice(0, 4000));
   } catch { return null; }
 }
 

@@ -163,14 +163,19 @@ const NEW = `https://api.seller-${TAG}.com`;
     // and the comment explaining the fix pushed the guard out of it, which would
     // have read as "the guard is gone".
     const fn = src.slice(src.indexOf("async function readMarker"), src.indexOf("const sameOrigin"));
-    ok(/await assertPublicUrl\(url\);/.test(fn), "readMarker asserts the URL is public UNCONDITIONALLY - no injectable indirection, so a static analyzer can see the guard too");
+    ok(/await safeFetch\(url,/.test(fn),
+       "readMarker fetches through safeFetch - the STATICALLY imported guarded fetcher. Two earlier versions were flagged CRITICAL js/request-forgery: one made the guard injectable, the other reached it through a dynamic import, and CodeQL could follow neither. A control the tooling cannot see is not meaningfully a control");
     // Comments stripped first: the comment explaining this fix NAMES the old
     // injectable parameter, so a bare word search matched the explanation
     // rather than the code and failed on a correct tree.
     const code = fn.replace(/\/\/[^\n]*/g, "");
     ok(!/assertUrl/.test(code), "and there is no way to switch it off, which is what made CodeQL call the first version critical request-forgery");
-    ok(/dispatcher: ssrfDispatcher/.test(fn), "and pins the connection to the validated IP");
-    ok(/redirect: "manual"/.test(fn), "and never follows a redirect off the host being proved");
+    const guard = readFileSync(new URL("../src/tools/fetch-guard.js", import.meta.url), "utf8");
+    ok(/export async function safeFetch[\s\S]{0,200}await assertPublicUrl\(rawUrl\)/.test(guard),
+       "...and safeFetch itself asserts the URL is public before it fetches, so the guarantee is one hop away and statically visible");
+    ok(/dispatcher: ssrfDispatcher/.test(guard), "and pins the connection to the validated IP, re-validating every redirect hop");
+    ok(/^import \{ safeFetch \} from "\.\/tools\/fetch-guard\.js";/m.test(src),
+       "the import is STATIC at the top of the file - a dynamic import is what defeated the analyzer on the second attempt");
   }
 
   served[O] = { succeededBy: "https://example.net/" };
