@@ -62,6 +62,7 @@ jobs:
       - name: Sweep
         env:
           BURNER_KEY: ${{ secrets.BURNER_KEY }}
+          AGENT402_OPERATOR_TOKEN: ${{ secrets.AGENT402_OPERATOR_TOKEN }}
           SWEEP_LIMIT: ${{ inputs.limit }}
           SWEEP_OFFSET: ${{ inputs.offset }}
           SWEEP_MAX_USD: ${{ inputs.max_usd }}
@@ -73,7 +74,7 @@ jobs:
             echo "::add-mask::$BURNER_KEY"
           fi
           cd /tmp/sweep && env -i PATH="$PATH" HOME="$HOME" \
-            BURNER_KEY="$BURNER_KEY" SWEEP_LIMIT="$SWEEP_LIMIT" SWEEP_OFFSET="$SWEEP_OFFSET" SWEEP_MAX_USD="$SWEEP_MAX_USD" \
+            BURNER_KEY="$BURNER_KEY" AGENT402_OPERATOR_TOKEN="$AGENT402_OPERATOR_TOKEN" SWEEP_LIMIT="$SWEEP_LIMIT" SWEEP_OFFSET="$SWEEP_OFFSET" SWEEP_MAX_USD="$SWEEP_MAX_USD" \
             SWEEP_TOTAL_USD="$SWEEP_TOTAL_USD" SWEEP_LIVE="$SWEEP_LIVE" SWEEP_OUT=/tmp/sweep/sweep.json \
             node seller-sweep.mjs
       - name: Keep the verdicts

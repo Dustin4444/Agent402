@@ -82,5 +82,13 @@
       "date": "2026-09-11",
       "reason": "Sellers advertise joke prices ($1.5M for one call, two of them read from a live 402) and nothing flagged them, so any median, distribution or market-size computed off price_usd was poisoned. true at or above PRICE_OUTLIER_USD ($1,000), null when no price is known. A fixed threshold, not a percentile, so day N stays comparable to day N+1; the rule rides in every manifest."
     }
+  ],
+  "relatedSeries": [
+    {
+      "prefix": "datasets/v1/verification",
+      "date": "2026-09-12",
+      "reason": "One dated object per SELLER SWEEP: a real paid call to each external seller, graded against the contract that seller publishes. Its own prefix rather than a sixth table, because the frozen tables are DAILY and a sweep is dispatched - a day with no sweep must be a day with no verification, never a hole in a daily table. The v1 tables are untouched by it.",
+      "claim": "Shape only. A seller returning every promised key with wrong values reads as delivering; nothing here checks whether an answer is correct or useful."
+    }
   ]
 }
