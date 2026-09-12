@@ -45,6 +45,18 @@ try {
   const rawGet = (path, headers) => new Promise((resolve, reject) => { const r = httpRequest({ host: "127.0.0.1", port, path, method: "GET", headers }, (res) => { res.resume(); resolve({ status: res.statusCode, location: res.headers.location || null }); }); r.on("error", reject); r.end(); });
   const www = await rawGet("/guides/agent-hosts?x=1", { Host: "www.agent402.test" });
   ok(www.status === 301 && www.location === "http://agent402.test/guides/agent-hosts?x=1", `www host 301s to the apex with the path kept (got ${www.status} ${www.location})`);
+  // ...but a request WITH A BODY gets 308, because RFC 7231 lets a client turn
+  // a 301 into a GET and drop the body. The payment-header guard beside this
+  // redirect does not cover it: the FIRST call of an x402 flow carries no
+  // credential - it is the bare POST that earns the 402 - so a buyer starting
+  // on www would arrive as a bodiless GET and be told a field they sent was
+  // missing. Found from outside 2026-09-12 against the platform's own
+  // http->https 301; this is the same defect in the redirect we own.
+  const rawPost = (path, headers) => new Promise((resolve, reject) => { const r = httpRequest({ host: "127.0.0.1", port, path, method: "POST", headers: { "content-type": "application/json", ...headers } }, (res) => { res.resume(); resolve({ status: res.statusCode, location: res.headers.location || null }); }); r.on("error", reject); r.write("{}"); r.end(); });
+  const wwwPost = await rawPost("/api/search?x=1", { Host: "www.agent402.test" });
+  ok(wwwPost.status === 308 && wwwPost.location === "http://agent402.test/api/search?x=1", `a POST to the www host gets 308, which preserves method and body (got ${wwwPost.status} ${wwwPost.location})`);
+  const wwwHead = await new Promise((resolve, reject) => { const r = httpRequest({ host: "127.0.0.1", port, path: "/", method: "HEAD", headers: { Host: "www.agent402.test" } }, (res) => { res.resume(); resolve({ status: res.statusCode }); }); r.on("error", reject); r.end(); });
+  ok(wwwHead.status === 301, "HEAD keeps 301: there is no body to lose and the permanent-canonical signal is what it is for");
   // The host's own /api/index entry (2026-08-28): self:true, built from the
   // ledger + catalog, for the canonical host and the instance's own base URL.
   for (const q of ["agent402.tools", "https://agent402.tools", "agent402.test"]) {

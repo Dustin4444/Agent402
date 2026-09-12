@@ -1653,7 +1653,18 @@ const CANONICAL_HOST = (() => { try { return new URL(BASE_URL).host.toLowerCase(
 app.use((req, res, next) => {
   const host = String(req.hostname || "").toLowerCase();
   if (CANONICAL_HOST && host === `www.${CANONICAL_HOST}` && !req.headers["payment-signature"] && !req.headers["x-payment"] && !req.headers.authorization) {
-    return res.redirect(301, `${BASE_URL.replace(/\/$/, "")}${req.originalUrl}`);
+    // 308 FOR ANYTHING WITH A BODY. RFC 7231 permits a client to turn a 301
+    // into a GET and drop the body; 308 requires method and body to survive.
+    // The payment-header guard above is not enough on its own, because the
+    // FIRST call of every x402 flow carries no credential - it is the bare
+    // POST that earns the 402 - so a buyer who starts on www would arrive
+    // here as a bodiless GET and get a 400 about a missing field they sent.
+    // Reported from outside 2026-09-12 against the platform's own http->https
+    // redirect (Railway's edge, not ours, and not fixable here); this is the
+    // same defect in the one redirect we do own. GET/HEAD keep 301: there is
+    // no body to lose and the permanent-canonical signal is what it is for.
+    const keepMethod = !["GET", "HEAD"].includes(req.method);
+    return res.redirect(keepMethod ? 308 : 301, `${BASE_URL.replace(/\/$/, "")}${req.originalUrl}`);
   }
   next();
 });
@@ -5027,7 +5038,19 @@ app.post("/api/index/register", async (req, res) => {
     return res.status(429).json({ error: `rate limit: registration is busy (global cap ${REG_GLOBAL_MAX}/hour), try again later`, retryAfterSeconds: 600 });
   }
   mine.push(now); regByIp.set(ip, mine); regGlobal.push(now);
-  const result = await registerOrigin(v.origin);
+  // Optional succession: a seller moving off a throwaway host to a permanent
+  // domain keeps how long we have known them, when BOTH origins advertise the
+  // same Base payTo. Validated like any other origin input - it is a caller-
+  // supplied URL - and a claim that does not hold is reported, never silently
+  // dropped, so a seller learns why it did not take.
+  let replaces = null;
+  if (req.body?.replaces !== undefined) {
+    const rv = validateOriginInput(req.body.replaces, { selfOrigin: BASE_URL });
+    if (rv.error) return res.status(400).json({ error: `replaces: ${rv.error}` });
+    if (rv.origin === v.origin) return res.status(400).json({ error: "replaces must be a different origin" });
+    replaces = rv.origin;
+  }
+  const result = await registerOrigin(v.origin, { replaces });
   res.json(result);
 });
 // MPP self-serve listing: same shape/limits as /api/index/register above -

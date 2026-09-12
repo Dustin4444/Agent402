@@ -1282,6 +1282,8 @@ jobs:
           t node scripts/test-sor-resolver-scope.js
           # Seller sweep: the judgement half (grades a paid answer against the seller's OWN declared contract). The paying half is dispatch-only and never runs here.
           t node scripts/test-seller-verify.js
+          # Seller succession: a seller moving to a permanent domain keeps their listing age, and the claim can never retire or edit the predecessor
+          t node scripts/test-seller-succession.js
           # Delivery-failure memory: a seller whose PAID call 5xx'd with no receipt (or never answered) stops being ranked and stops being labelled callable, until a call to it succeeds
           t node scripts/test-seller-delivery-memory.js
           # "External spend guard (per-payer debt ceiling: an UNSETTLED upstream spend keeps counting, so verify-then-fail-to-settle cannot drain the wallet — offline)"

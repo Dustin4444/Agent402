@@ -240,9 +240,10 @@
     {
       "slug": "defi-yields",
       "name": "impossible filter is an honest zero",
+      "_why": "The filter must be impossible for a STRUCTURAL reason, not a numerically extreme one. This case used minApy 5000 and broke on 2026-09-12 when a real Uniswap v3 WSTETH-USDC pool on Ethereum hit 5,656% APY on $84k of TVL: APY is an unbounded RATIO, so a tiny pool with a volatile fee week can exceed any threshold, and the tool was right to return it. TVL is bounded by money that actually exists - total DeFi TVL is ~$100B - so a quadrillion-dollar floor is impossible in a way no APY number is.",
       "input": {
         "chain": "Ethereum",
-        "minApy": 5000,
+        "minTvlUsd": 1000000000000000,
         "limit": 3
       },
       "expect": {

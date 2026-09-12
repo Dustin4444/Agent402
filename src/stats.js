@@ -110,6 +110,15 @@ const upsertSellerRegistration = db.prepare(`
     last_routable_seen = excluded.last_routable_seen,
     last_settled_seen = COALESCE(excluded.last_settled_seen, last_settled_seen)
 `);
+const firstSeenFor = db.prepare("SELECT first_seen FROM seller_registrations WHERE origin = ?");
+// first_seen is INSERT-only above (ON CONFLICT updates the other two columns),
+// so a succession onto an EXISTING row needs its own statement. MIN() so a
+// re-registration can only ever pull the date earlier, never later.
+const backdateSellerRegistration = db.prepare("UPDATE seller_registrations SET first_seen = MIN(first_seen, ?) WHERE origin = ?");
+/** When we first saw this origin register, or null. */
+export function sellerRegistrationFirstSeen(origin) {
+  try { return firstSeenFor.get(origin)?.first_seen ?? null; } catch { return null; }
+}
 const allSellerRegistrations = db.prepare("SELECT origin, first_seen, last_routable_seen, last_settled_seen FROM seller_registrations ORDER BY first_seen DESC");
 
 /**
@@ -120,10 +129,31 @@ const allSellerRegistrations = db.prepare("SELECT origin, first_seen, last_routa
  * now; last_settled_seen advances only when `settled` is true this call and is
  * never erased by a later call that didn't observe a settlement.
  */
-export function recordSellerRegistrationSeen(origin, { settled = false } = {}) {
+export function recordSellerRegistrationSeen(origin, { settled = false, inheritFirstSeenFrom = null } = {}) {
   const now = Date.now();
   try {
+    // SUCCESSION. A seller moving off a throwaway host (a *.workers.dev or a
+    // preview URL) to a permanent domain had no way to keep the one thing the
+    // move costs them: how long we have known them. Their settlement evidence
+    // needs no migrating - it is keyed by payTo and follows the wallet, not the
+    // origin - and the old origin drops out of the routable set on its own once
+    // it stops answering. But first_seen is origin-keyed, so re-registering
+    // reset a seller who has been listed for months to "new today".
+    //
+    // Only ever moves the date BACKWARD (MIN), so a succession claim can never
+    // make an origin look newer or younger than it is, and it is recorded on
+    // the new row alone: the predecessor is untouched, never demoted, never
+    // deleted. Demotion stays the honest way - the old origin stops responding
+    // and ages out - because a register call that could retire another seller's
+    // listing is a weapon, whatever proof is attached to it.
+    // ONE mechanism, not two: insert at `now` as always, then pull the date
+    // back. Setting the inherited value on the INSERT as well was redundant
+    // (the row may already exist, so the UPDATE has to handle it anyway) and
+    // redundancy here is worse than useless - it made a mutation of either
+    // path survive, so the test could not tell whether the rule worked.
     upsertSellerRegistration.run(origin, now, now, settled ? now : null);
+    const prior = inheritFirstSeenFrom ? sellerRegistrationFirstSeen(inheritFirstSeenFrom) : null;
+    if (prior) backdateSellerRegistration.run(prior, origin);
   } catch {
     /* best-effort — never break the crawl/registration path over telemetry */
   }
