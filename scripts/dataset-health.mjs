@@ -40,8 +40,27 @@ const MUST_BE_POPULATED = {
   settlement_base: ["pay_to", "calls_settled"],
 };
 
+// Columns we EXPECT to fill but do not assert on yet, with the fill at which
+// each becomes worth promoting into MUST_BE_POPULATED above.
+//
+// This list is why the daily check exists rather than a reminder to look. A
+// column at 0% is caught by the empty list; a column at 16% or 37% was
+// invisible to every automated surface and needed someone to download the
+// NDJSON and count - which is how "provenance on every price" survived as a
+// claim while routes.price_source sat at 16% of rows. Measured 2026-09-11 on
+// the first recorded day; the `at` figure is the point past which an empty
+// value is more likely our defect than an honest absence about the ecosystem.
+const WATCHED = [
+  { table: "sellers", column: "primary_network", at: 0.9, saw: 0.37 },
+  { table: "sellers", column: "discovery_path", at: 0.9, saw: 0.51 },
+  { table: "routes", column: "price_outlier", at: 0.7, saw: null },
+  { table: "routes", column: "price_source", at: 0.6, saw: 0.16 },
+  { table: "routes", column: "networks", at: 0.8, saw: 0.48 },
+];
+
 const fails = [];
 const notes = [];
+const promote = [];
 
 async function getJson(path, { auth = false } = {}) {
   const res = await fetch(`${TARGET}${path}`, {
@@ -113,12 +132,30 @@ if (newest) {
       }
     }
   }
+  // The watch list: report every day, and say plainly when one is ready to be
+  // asserted. Promotion stays a human edit - the check names the candidate and
+  // the number behind it, it does not quietly widen its own contract.
+  const fill = newest.columnFill || {};
+  for (const w of WATCHED) {
+    const v = fill[w.table]?.[w.column];
+    if (v === undefined || v === null) { notes.push(`watch ${w.table}.${w.column}: not in the manifest (new column, or the table did not record)`); continue; }
+    const pct = Math.round(v * 100);
+    const was = w.saw === null ? "new" : `was ${Math.round(w.saw * 100)}%`;
+    notes.push(`watch ${w.table}.${w.column}: ${pct}% filled (${was}, promote at ${Math.round(w.at * 100)}%)`);
+    if (v >= w.at) promote.push(`${w.table}.${w.column} is ${pct}% filled, at or past its ${Math.round(w.at * 100)}% bar - add it to MUST_BE_POPULATED in this script so an emptying is a failure rather than a note`);
+  }
+
   const otherEmpty = Object.entries(newest.emptyColumns || {})
     .flatMap(([t, cs]) => cs.filter((c) => !(MUST_BE_POPULATED[t] || []).includes(c)).map((c) => `${t}.${c}`));
   if (otherEmpty.length) notes.push(`empty but not asserted (may be honest absences): ${otherEmpty.join(", ")}`);
 }
 
 console.log(notes.map((n) => `  ${n}`).join("\n"));
+if (promote.length) {
+  // Not a failure: nothing is broken, a column got good enough to guard.
+  console.log(`\nREADY TO ASSERT (${promote.length}):`);
+  for (const p of promote) console.log(`  - ${p}`);
+}
 if (fails.length) {
   console.log(`\nFAILED (${fails.length}):`);
   for (const f of fails) console.log(`  - ${f}`);
