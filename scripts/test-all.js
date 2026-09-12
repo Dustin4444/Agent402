@@ -71,6 +71,13 @@ const NETWORK = new Set([
   "/api/coin-price-by-contract", "/api/coin-profile", "/api/coin-history", "/api/coin-ohlc", "/api/coin-market-chart-range", "/api/coin-categories", "/api/global-defi", "/api/exchanges", "/api/exchange-tickers", "/api/exchange-rates", "/api/coin-search", "/api/coins-list",
   "/api/rwa-list", "/api/rwa-markets", "/api/rwa-asset", "/api/rwa-issuers", "/api/rwa-issuer",  // crypto-markets-kit.js
   "/api/attest",  // attest-kit.js (needs the spending wallet + Base gas; keyless CI answers 503)
+  // sanctions-kit.js: both routes read a cached copy of the OFAC SDN export,
+  // which the boot warmer downloads. In CI that download may not have landed
+  // when the sweep runs, and the honest answer then is 503 (lists_unavailable)
+  // rather than a fabricated "no match" - so these live in NETWORK, where a
+  // 503 is tolerated, exactly like the keyed tools.
+  "/api/sanctions/wallet",
+  "/api/sanctions/name",
   "/api/defi-yields", "/api/defi-yield-history", "/api/defi-protocols", "/api/defi-protocol", "/api/defi-chains", "/api/defi-chain-tvl-history", "/api/stablecoins", "/api/stablecoin-supply-history", "/api/defi-fees", "/api/defi-dex-volume",  // defi-kit.js
   "/api/crypto-news", "/api/crypto-indicators", "/api/crypto-market-pulse",  // crypto-signals-kit.js
   "/api/site-map", "/api/site-crawl",  // crawl-kit.js
