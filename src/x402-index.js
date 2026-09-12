@@ -296,15 +296,22 @@ export function sharesPayTo(claimant, predecessor) {
 
 /** Fetch one origin's succession marker. Never throws; an unreadable marker is
  *  simply not a proof. */
-async function readMarker(origin, fetchImpl, assertUrl) {
+async function readMarker(origin, fetchImpl) {
   try {
     const url = `${String(origin).replace(/\/+$/, "")}${SUCCESSION_PATH}`;
     const { assertPublicUrl, ssrfDispatcher } = await import("./tools/fetch-guard.js");
-    // SSRF: `origin` is caller-supplied. The guard is injectable ONLY so tests
-    // can use reserved hostnames; the default is the real one and the call
-    // site is pinned from source, because a guard a test can switch off is a
-    // guard that quietly stops running.
-    await (assertUrl || assertPublicUrl)(url);
+    // SSRF: `origin` is caller-supplied, so this is guarded UNCONDITIONALLY.
+    //
+    // The first cut made the guard injectable so the tests could use reserved
+    // hostnames, and CodeQL flagged the fetch below as critical
+    // js/request-forgery - correctly. The guard was really there, but
+    // `(assertUrl || assertPublicUrl)(url)` is an indirection a static
+    // analyzer cannot follow, so from the outside it is indistinguishable from
+    // no guard at all. A control that only a human reading the source can
+    // verify is worth less than one the tooling can, and the test can adapt
+    // (it uses real public hostnames with an injected fetch, so the guard runs
+    // and no request leaves).
+    await assertPublicUrl(url);
     const res = await (fetchImpl || fetch)(url, { dispatcher: ssrfDispatcher, redirect: "manual", signal: AbortSignal.timeout(8000), headers: { accept: "application/json" } });
     if (!res.ok) return null;
     const txt = (await res.text()).slice(0, 4000);
@@ -317,8 +324,8 @@ const sameOrigin = (a, b) => {
 };
 
 /** Both origins must name the other, so neither can be annexed by the other. */
-export async function verifySuccessionMarkers(claimant, predecessor, { fetchImpl, assertUrl } = {}) {
-  const [mNew, mOld] = await Promise.all([readMarker(claimant, fetchImpl, assertUrl), readMarker(predecessor, fetchImpl, assertUrl)]);
+export async function verifySuccessionMarkers(claimant, predecessor, { fetchImpl } = {}) {
+  const [mNew, mOld] = await Promise.all([readMarker(claimant, fetchImpl), readMarker(predecessor, fetchImpl)]);
   if (!mNew || !mOld) return { ok: false, reason: `serve a JSON document at ${SUCCESSION_PATH} on BOTH origins: {"succeeds":"<old origin>"} on the new one and {"succeededBy":"<new origin>"} on the old one` };
   if (!sameOrigin(mNew.succeeds || "", predecessor)) return { ok: false, reason: `${SUCCESSION_PATH} on the new origin must name the old origin as "succeeds"` };
   if (!sameOrigin(mOld.succeededBy || "", claimant)) return { ok: false, reason: `${SUCCESSION_PATH} on the old origin must name the new origin as "succeededBy"` };
