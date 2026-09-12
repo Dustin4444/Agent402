@@ -89,7 +89,13 @@ export const SANCTIONS_TOOLS = [
     discovery: {
       inputSchema: { type: "object", properties: { address: { type: "string", description: "The blockchain address to screen" }, asset: { type: "string", description: "Optional asset hint (BTC, ETH, TRX...). Only affects case handling for chains whose addresses are case-sensitive" } }, required: ["address"] },
       input: { address: "0x098B716B8Aaf21512996dC57EB0615e2383E2f96" },
-      output: { type: "json", example: { address: "0x098b716b8aaf21512996dc57eb0615e2383e2f96", verdict: "match", entity: "LAZARUS GROUP", sdnId: "12345", asset: "ETH", listsChecked: [{ list: "OFAC SDN", authority: "US Treasury OFAC" }], listsFetchedAt: "2026-09-12T00:00:00.000Z", notAClearance: "..." } },
+      // The documented input is a REAL listed address (Lazarus Group), so the
+      // documented output is a MATCH - and a match carries confirmBeforeActing,
+      // not the miss caveat. CI caught the mismatch the moment the caveat
+      // became verdict-aware, which is the documented-keys guard doing exactly
+      // its job: a published example that promises a key the answer does not
+      // carry teaches an agent to expect a field that never arrives.
+      output: { type: "json", example: { address: "0x098b716b8aaf21512996dc57eb0615e2383e2f96", verdict: "match", entity: "LAZARUS GROUP", sdnId: "12345", asset: "ETH", listedAddress: "0x098b716b8aaf21512996dc57eb0615e2383e2f96", addressesOnList: 492, listsChecked: [{ list: "OFAC SDN", authority: "US Treasury OFAC" }], listsFetchedAt: "2026-09-12T00:00:00.000Z", confirmBeforeActing: "a match is a string match against a published list, not a confirmed identification..." } },
     },
     handler: async (input) => {
       const raw = String(input?.address || "").trim();
@@ -119,7 +125,7 @@ export const SANCTIONS_TOOLS = [
     discovery: {
       inputSchema: { type: "object", properties: { name: { type: "string", description: "Person or company name to screen" }, limit: { type: "number", description: "Max matches to return (default 25)" } }, required: ["name"] },
       input: { name: "Gazprom" },
-      output: { type: "json", example: { query: "Gazprom", verdict: "match", exactCount: 0, containsCount: 2, matches: [{ id: "12345", name: "GAZPROMBANK JOINT STOCK COMPANY", type: "-0-", matchType: "contains" }], entriesOnList: 19388, listsChecked: [{ list: "OFAC SDN", authority: "US Treasury OFAC" }], listsFetchedAt: "2026-09-12T00:00:00.000Z", notAClearance: "..." } },
+      output: { type: "json", example: { query: "Gazprom", verdict: "match", exactCount: 0, containsCount: 2, matches: [{ id: "12345", name: "GAZPROMBANK JOINT STOCK COMPANY", type: "-0-", matchType: "contains" }], entriesOnList: 19388, listsChecked: [{ list: "OFAC SDN", authority: "US Treasury OFAC" }], listsFetchedAt: "2026-09-12T00:00:00.000Z", confirmBeforeActing: "a match is a string match against a published list, not a confirmed identification..." } },
     },
     handler: async (input) => {
       const q = String(input?.name || "").trim();
