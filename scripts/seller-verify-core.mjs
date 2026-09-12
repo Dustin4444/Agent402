@@ -150,3 +150,30 @@ export function verdictFor({ challengeReadable, baseAccept, quoteUsd, capUsd, se
   if (missing.length || empty.length) return { verdict: "paid_hollow", missingKeys: missing, emptyArrays: empty, status: status ?? null };
   return { verdict: "paid_delivers", status: status ?? null };
 }
+
+/**
+ * The accept filter for ONE seller: Base exact only, at or under the cap, paid
+ * to the payee that seller's own bare 402 named.
+ *
+ * Exported and pure because the sweep's first live run failed 44 of 45 sellers
+ * on it. `x402Client.registerPolicy` ACCUMULATES - registering a fresh policy
+ * per seller inside the loop left the client holding every previous seller's
+ * payee as well, and no accept can be paid to two different addresses, so
+ * every seller after the first was structurally unpayable ("All payment
+ * requirements were filtered out by policies"). The bug failed CLOSED, so
+ * nothing was spent, but the run reported 44 sellers as refusing payment when
+ * the refusal was ours.
+ *
+ * The rule itself was never wrong; the state it lived in was. So it lives here
+ * now, as a function of its inputs with nowhere to accumulate, and the driver
+ * builds a fresh client per seller.
+ */
+export function acceptFilterFor({ payTo, maxAtomic }) {
+  const want = String(payTo || "").toLowerCase();
+  return (r) => {
+    if (!want) return false;
+    let amt; try { amt = BigInt(String(r?.amount)); } catch { return false; }
+    return r?.scheme === "exact" && r?.network === "eip155:8453"
+      && String(r?.payTo || "").toLowerCase() === want && amt <= maxAtomic;
+  };
+}
