@@ -319,7 +319,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   "domain-audit", "domain-audit-pro",
   // token-risk composites (src/tools/token-risk-kit.js) — buy Blockscout token/
   // holder data over x402 (upstream spend) + Opus synthesis; never PoW-eligible.
-  "token-risk", "token-risk-pro",
+  "token-risk", "token-safety", "token-risk-pro",
   // dossier-kit: company due-diligence dossier, fans out to EDGAR + grounded
   // web search + Opus synthesis - metered upstream, never free-tier/PoW.
   "dossier", "dossier-max",
