@@ -244,9 +244,19 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
         ? `${network === "base-sepolia" ? "https://sepolia.basescan.org" : "https://basescan.org"}/address/${wallet}#tokentxns`
         : null,
       namedMaintainer: MAINTAINER.url,
-      testedBeforeEveryDeploy: true,
+      // Both of these were unqualified booleans that were not true of the whole
+      // catalog, which is the worst shape for a machine-readable trust claim:
+      // a consumer reads `true` and cannot see the exception.
+      //
+      // testedBeforeEveryDeploy: the two catalog sweeps exclude the metered
+      // slugs by design (CI holds no third-party keys and must not spend
+      // upstream), so the honest answer names the exemption and its size.
+      testedBeforeEveryDeploy: "every non-metered route answers its own documented example before each deploy; the metered routes (third-party keys, real upstream spend) are exempt and covered by the daily paid canary instead",
       productionHeartbeatMinutes: 15,
-      deterministic: true,
+      // deterministic: true was false for the /v1 gateway tiers, every report
+      // product, and the image, speech, transcription, embedding and
+      // AI-answer tools. The string says which is which.
+      deterministic: "most tools are pure deterministic code with no model in their path; the /v1 gateway tiers, the report products and the image, speech, transcription, embedding and AI-answer tools are model-backed and marked modelBacked in the catalog",
       // Not a refund program: settlement runs after the handler and only
       // completes for an under-400 response, so an error cancels payment in
       // the middleware itself - there is nothing to claim back.

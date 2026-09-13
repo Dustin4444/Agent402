@@ -516,7 +516,8 @@ working tools, so you don't have to build the catalog yourself.
 - **Want the protocol or an SDK?** → [coinbase/x402](https://github.com/coinbase/x402).
 - **Want a server you can run *today* that actually does things over x402 + MCP?** → you're here.
 - Self-hostable, deterministic, free via proof-of-work without a wallet, and
-  non-custodial on the payment tools (your agent signs with its own key - Agent402 never holds funds).
+  non-custodial on the payment tools (your agent signs with its own key and we hold no crypto
+  balance for it; prepaid card credits are a held balance and are named as one).
 
 Listed in the [official MCP Registry](https://registry.modelcontextprotocol.io/v0/servers?search=io.github.MikeyPetrillo/agent402)
 and discoverable in the Coinbase [x402 Bazaar](https://docs.cdp.coinbase.com/x402/docs/bazaar).

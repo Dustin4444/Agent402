@@ -364,6 +364,33 @@ const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZ
 // House style on every report tier's output (agents, card buyers, monitors
 // all reach the same handler object): no em or en dashes in what a person
 // reads. Wrapped in place so _premiumHandlers below sees the wrapped one.
+// MODEL-BACKED, marked once so no sentence has to count them by hand.
+//
+// Four public surfaces claimed "tools are deterministic: no model in the
+// serving path" as an unqualified absolute, and the x402 manifest published it
+// as `deterministic: true`. It was never true of the whole catalog: the /v1
+// gateway tiers, every report product, and the image, speech, transcription,
+// embedding, moderation and AI-answer tools all run a model. The claim that IS
+// true is narrower and more useful - the deterministic tools really are pure
+// code, and the model-backed ones are named rather than hidden - so the copy
+// now says that and derives its counts from here.
+const MODEL_BACKED_KITS = [
+  ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...IMAGE_GEN_TOOLS, ...IMAGES_FAST_TOOLS, ...TTS_TOOLS, ...STT_TOOLS,
+  ...EMBED_TOOLS, ...MODERATE_TOOLS, ...PDF_SUMMARIZE_TOOLS, ...LLM_CONTEXT_TOOLS,
+  ...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...RECALL_TOOLS,
+  ...INSIDER_TOOLS, ...TOKEN_RISK_TOOLS, ...TOKEN_BRIEF_TOOLS, ...TICKER_PACK_TOOLS, ...FILING_WATCH_TOOLS,
+  ...LINKEDIN_TOOLS,
+];
+const MODEL_BACKED_SLUGS = new Set(MODEL_BACKED_KITS.map((t) => t.slug).filter(Boolean));
+// `answer` says so in its own description ("AI-generated answer"), and lives in
+// the search kit beside deterministic tools, so it is named individually.
+MODEL_BACKED_SLUGS.add("answer");
+export function isModelBacked(slugOrDef) {
+  const slug = typeof slugOrDef === "string" ? slugOrDef : slugOrDef?.slug;
+  return MODEL_BACKED_SLUGS.has(String(slug || ""));
+}
+for (const def of ALL_KIT) if (MODEL_BACKED_SLUGS.has(def.slug)) def.modelBacked = true;
+
 for (const def of ALL_KIT) if (Object.hasOwn(REPORT_TIERS, def.slug) && typeof def.handler === "function" && !def.handler.__houseStyled) { def.handler = withHouseStyle(def.handler); def.handler.__houseStyled = true; }
 // Fold the chain namespace's verbs into the aliases of the tools that serve
 // them, so OUR OWN resolvers find what the namespace already answers. Without
@@ -5965,7 +5992,7 @@ app.get("/api/pricing", (_req, res) => {
   const endpointCount = Object.keys(CATALOG).length;
   return res.json({
     name: "Agent402.Tools",
-    description: `Agent402.Tools - pay-per-call tools for AI agents over x402 or MPP (Machine Payments Protocol), both on the same 402; the applied layer of Agentic Finance - ${endpointCount} deterministic tools (browser, search, PDFs, OCR, finance, EDGAR, crypto, macro, memory), an OpenAI-compatible LLM gateway at /v1 (flat-priced chat from $0.003, embeddings $0.002, images - no API key, the wallet is the account), plus ${SKILL_PACKS.length} curated multi-tool skill packs callable as MCP prompts. Free via in-process proof-of-work or pay per call in ${RAILS_OR}. Open-source and self-hostable. MCP connector: ${BASE_URL}/mcp.`,
+    description: `Agent402.Tools - pay-per-call tools for AI agents over x402 or MPP (Machine Payments Protocol), both on the same 402; the applied layer of Agentic Finance - ${endpointCount} priced endpoints, most of them deterministic code (browser, search, PDFs, OCR, finance, EDGAR, crypto, macro, memory) and the model-backed ones marked modelBacked, an OpenAI-compatible LLM gateway at /v1 (flat-priced chat from $0.003, embeddings $0.002, images - no API key, the wallet is the account), plus ${SKILL_PACKS.length} curated multi-tool skill packs callable as MCP prompts. Free via in-process proof-of-work or pay per call in ${RAILS_OR}. Open-source and self-hostable. MCP connector: ${BASE_URL}/mcp.`,
     // The LLM gateway is the highest-frequency product agents buy — surface its
     // tiers at the top level instead of burying them among ${endpointCount}
     // endpoint rows. Flat per-call pricing (not token-metered): a buyer knows
@@ -6026,6 +6053,10 @@ app.get("/api/pricing", (_req, res) => {
         description,
         docs: `${BASE_URL}/tools/${slug}`,
         computePayable: POW_SLUGS.has(slug),
+        // Published per row because the doc's own description says these are
+        // marked: a consumer that wants only deterministic code should be able
+        // to FILTER for it rather than take a sentence's word for it.
+        modelBacked: MODEL_BACKED_SLUGS.has(slug),
       };
     }),
   });

@@ -111,7 +111,7 @@ export function ledgerPricingPage(baseUrl, catalog) {
         <div style="display:flex;flex-direction:column;gap:10px;font-size:14px;color:var(--on-dark);border-top:1px solid var(--dark-border2);padding-top:18px;">
           ${check(`All ${fmtNum(totalCount)} tools, including browser & memory`)}
           ${check("Flat per-call price - pay exactly what you use")}
-          ${check("Non-custodial - Agent402 never holds funds")}
+          ${check("Non-custodial on this rail - you sign, we hold no balance")}
           ${check("Spend caps refuse a runaway model before paying")}
         </div>
       </div>

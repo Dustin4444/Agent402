@@ -708,6 +708,31 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   connector FROM SOURCE (it must call `reportLadder()`, and the four literal figures that shipped wrong must not appear
   anywhere in the file). Mutation-checked by restoring each stale string. Lesson: a guard scoped to where the last drift
   happened will miss the next one - scope it to every surface that QUOTES the number, machine surfaces first.
+- **Four false absolutes, and the guard that closes the class (2026-09-13, `src/routing-proof.js`,
+  `scripts/test-copy-absolutes.js` 14 in the pricing lane):** every one was true the day it shipped and had stopped being
+  true since, and three had a correctly SCOPED twin already being served on another page of the same site - which is the
+  tell that the defect is copies, not judgment. (1) `/api/pricing`'s description said "N deterministic tools" where N was
+  the WHOLE catalog count; it now says "N priced endpoints, most of them deterministic code ... and the model-backed ones
+  marked modelBacked", and each row actually carries `modelBacked` (60 of 581) so a consumer can FILTER rather than take
+  the sentence's word - derived from `MODEL_BACKED_SLUGS` (server.js), the union of the model-backed kits plus `answer`,
+  stamped onto the catalog defs at build so a new model-backed kit cannot be counted as deterministic by omission.
+  (2) "Every tool is deterministic / no model in the serving path" on `/why` 07, the `/faq` token answer and `/compare`,
+  plus `deterministic: true` and `testedBeforeEveryDeploy: true` as BOOLEANS on `/.well-known/x402` - the worst shape for
+  a machine-readable trust claim, because a consumer reads `true` and cannot see the exception. Both manifest fields are
+  now SENTENCES naming what is excluded (the /v1 tiers, the report products, the media/embedding/answer tools; the metered
+  routes CI cannot sweep), and the guard fails if either goes back to a boolean. (3) "Only sellers with proven on-chain
+  settlement are routable" on `/why`, `/glossary`, `/agentic-finance`, a blog post and the wiki - false since the unproven
+  Solana tier (2026-09-02), which is LIVE on its default because `SOR_SVM_UNPROVEN_MAX_USD` is unset on Railway. The
+  sentence is now DERIVED by `routingProofSentence()` from `svmUnprovenAllowanceAtomic()` - the same function the router
+  reads - so it names the exception and its ceiling while the tier is on AND collapses back to the absolute the day it is
+  switched off, rather than being stale in the other direction; nothing may type it (the guard pins the call site on all
+  four pages, so a hand-reworded absolute fails too). (4) "Agent402 never holds, receives, signs, or sends funds"
+  (wiki Payments-and-x402, the x402-toolkit guide) and "Non-custodial - Agent402 never holds funds" (`/pricing`) - false
+  since prepaid credits, while `/security`, `/company`, `/terms` and `/api/reliability` had been saying the scoped version
+  for two weeks. The SUBJECT is now the tools ("these tools never hold, receive, sign, or send funds") with the two card
+  paths named, and `/pricing`'s wallet card says "non-custodial on this rail". The guard sweeps 235 copy surfaces
+  (`src/`, `wiki/`, `docs/`, every README) for the six phrasings that were wrong; 7 mutations killed, including restoring
+  each absolute verbatim and hand-rewording instead of deriving.
 - **A migrated seller was listed TWICE, and the fix is asymmetric on purpose (2026-09-13, `recordSuccession` /
   `supersededOrigins` in x402-index.js, `scripts/test-seller-succession.js` 40):** verifying a succession did exactly one
   thing - `inheritFirstSeenFrom`, carrying the old origin's first-seen date onto the new one - and the predecessor stayed a

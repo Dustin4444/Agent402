@@ -4,6 +4,7 @@
 // seven points live in ONE place and read the same everywhere. First-party
 // claims only: no comparisons, no third-party names, evergreen "500+" counts.
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
+import { routingProofSentence } from "./routing-proof.js";
 
 export const WHY_POINTS = [
   {
@@ -45,14 +46,14 @@ export const WHY_POINTS = [
     id: "route",
     kicker: "06 / ROUTING",
     h: "We buy on your behalf.",
-    p: "Route-and-execute resolves a task to the best seller across the whole ecosystem, ours or anyone else's, pays them from our own wallet on the agent's behalf and relays the result under one receipt. Only sellers with proven on-chain settlement are routable.",
+    p: `Route-and-execute resolves a task to the best seller across the whole ecosystem, ours or anyone else's, pays them from our own wallet on the agent's behalf and relays the result under one receipt. ${routingProofSentence()}`,
     links: [["/tools/route-execute", "route-and-execute"], ["/marketplace", "the seller index"]],
   },
   {
     id: "proof",
     kicker: "07 / PROOF",
     h: "Everything is checkable.",
-    p: "Uptime is observed by two probes outside production, a real-money canary buys through every rail daily, transactions are published by rail and by wire, and the whole server is open source and self-hostable. Tools are deterministic: no model in the serving path. Every 402 also carries the SHAPE of the answer before you pay: the accept declares an outputSchema, so an agent can check what came back against what was promised instead of taking a status code on trust.",
+    p: "Uptime is observed by two probes outside production, a real-money canary buys through every rail daily, transactions are published by rail and by wire, and the whole server is open source and self-hostable. The deterministic tools are pure code with no model in their path - parsers, hashes, math, a real browser - and the ones that DO run a model are named rather than blended in: the /v1 gateway tiers, the report products, and the image, speech, transcription, embedding and AI-answer tools. Every 402 also carries the SHAPE of the answer before you pay: the accept declares an outputSchema, so an agent can check what came back against what was promised instead of taking a status code on trust.",
     links: [["/proof", "receipts"], ["/status", "status"], ["/revenue", "transactions"], ["https://github.com/MikeyPetrillo/Agent402", "source"]],
   },
 ];

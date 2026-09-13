@@ -42,7 +42,7 @@ Company dossiers, insider flow, 13F holdings, filing reports, IPO digests, domai
 
 ## 06 / Routing - We buy on your behalf.
 
-Route-and-execute resolves a task to the best seller across the whole ecosystem, ours or anyone else's, pays them from our own wallet on the agent's behalf and relays the result under one receipt. Only sellers with proven on-chain settlement are routable.
+Route-and-execute resolves a task to the best seller across the whole ecosystem, ours or anyone else's, pays them from our own wallet on the agent's behalf and relays the result under one receipt. Sellers are routable on proven on-chain settlement, with one exception: a Solana seller with no settlement history yet is tried only after every proven candidate, capped at $0.01 a call, and flagged unproven on the receipt.
 
 - Route-and-execute: https://agent402.tools/tools/route-execute
 - The seller index: https://agent402.tools/marketplace

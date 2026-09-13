@@ -1518,6 +1518,8 @@ jobs:
           t node scripts/test-router-alias.js
           # Reliability claims (a published guarantee must survive being checked)
           t node scripts/test-reliability-claims.js
+          # Four false absolutes (a claim must stay true as the service widens)
+          t node scripts/test-copy-absolutes.js
           # Index seller count is not instance-inflated (origins vs operators)
           t node scripts/test-index-inflation.js
           # Tollbooth dashboard runtime smoke (boots CLI, hits /__tollbooth + /__tollbooth/stats over HTTP)

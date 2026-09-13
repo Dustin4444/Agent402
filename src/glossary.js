@@ -9,6 +9,7 @@
 // evergreen ("500+"), no live numbers baked in, no third-party names beyond
 // the protocols' own homes.
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
+import { routingProofSentence } from "./routing-proof.js";
 
 // { id, name, alt?: [names], def, see: [[href, label]] } - keep `def` a single
 // plain-text paragraph: it is rendered verbatim AND emitted as the DefinedTerm
@@ -60,7 +61,7 @@ export const GLOSSARY = [
     def: "Agent402's no-wallet path: a pure-CPU tool can be paid for with a short proof-of-work solve instead of money. The solve is signed, single-use and scoped to the tool, so it costs the caller a few hundred milliseconds of compute and the operator nothing. Tools that spend money upstream (search, LLM gateway, browser) are wallet-only.",
     see: [["/blog/proof-of-work-free-tier", "why a free tier"], ["/pricing", "which tools are free"]] },
   { id: "smart-order-router", name: "Smart Order Router (SOR)", alt: ["route-and-execute", "cross-seller routing"],
-    def: "One call that resolves a task to the best seller across the whole ecosystem - Agent402's own catalog or any indexed external seller - pays that seller on the agent's behalf on the same chain the agent paid on, and relays the result with a receipt. Only sellers with proven on-chain settlement are routable, so a routed call cannot land on a seller that has never been paid.",
+    def: `One call that resolves a task to the best seller across the whole ecosystem - Agent402's own catalog or any indexed external seller - pays that seller on the agent's behalf on the same chain the agent paid on, and relays the result with a receipt. ${routingProofSentence()}`,
     see: [["/guides/smart-order-router", "the SOR guide"], ["/marketplace", "the seller index"]] },
   { id: "seller-index", name: "Seller index and leaderboard", alt: ["x402 index", "MPP index", "leaderboard"],
     def: "Agent402's live map of who sells what over x402 and MPP: origins crawled from public manifests and facilitator registries, live-verified, and ranked by settlements actually observed on chain rather than by self-reported claims. The leaderboard is what makes routing safe; the index is what makes discovery possible.",
