@@ -128,5 +128,28 @@ for (const [name, j] of Object.entries(jobs)) {
     `job "${name}": the strict sweep is continue-on-error, so the routes handed to it could fail without failing the lane`);
 }
 
+// --- the marker has to live where `markers` actually looks ----------------
+// PR #1336 shipped with [test][publish] in its TITLE, every check green, and
+// the publish job SKIPPED: `markers` parses SUBJECT LINES ONLY over the push
+// range, and merge-on-green.sh merges with `--merge`, which puts the PR title
+// in the merge commit's BODY. The fix that reached prod never reached npm.
+// Pinned from source in both directions so the two cannot drift apart again.
+{
+  const wfText = readFileSync(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8");
+  const mog = readFileSync(new URL("./merge-on-green.sh", import.meta.url), "utf8");
+  const subjectsOnly = /git log[^\n]*--format='%s'/.test(wfText);
+  ok(subjectsOnly, "markers parses commit SUBJECT lines (the constraint the docs have to match)");
+  const mergeStyle = /gh pr merge[^\n]*--squash/.test(mog) ? "squash" : "merge";
+  ok(mergeStyle === "merge", "merge-on-green.sh merges with --merge (PR title lands in the BODY)");
+  // If either side ever changes, the guidance below is what has to change with it.
+  const claude = readFileSync(new URL("../CLAUDE.md", import.meta.url), "utf8");
+  ok(/marker in a COMMIT SUBJECT/.test(claude),
+     "CLAUDE.md tells the next author to put the marker in a commit SUBJECT, not the PR title");
+  ok(!/put the marker in the PR TITLE so the merge commit carries it/.test(claude),
+     "...and no longer carries the advice that silently skipped a publish");
+}
+
 console.log(`${pass} passed, ${fail} failed`);
+
+
 process.exit(fail ? 1 : 0);

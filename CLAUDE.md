@@ -87,7 +87,16 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
     **Since 2026-08-25 every push to the dev branch runs all test lanes with or without `[test]`** (a
     skipped lane satisfies a GitHub required check, so marker-less pushes were a loophole); `[deploy]` /
     `[publish]` still gate their jobs, and since 2026-09-07 both run ONLY from `main` (the production environment's
-    branch policy names `main` alone) - put the marker in the PR TITLE so the merge commit carries it. A PR from our own dev branch does NOT run lanes on the
+    branch policy names `main` alone) - **put the marker in a COMMIT SUBJECT on the branch, NOT in the PR title.**
+    `markers` parses SUBJECT LINES ONLY (`git log --format='%s'` over the push range) and `merge-on-green.sh` merges
+    with `gh pr merge --merge`, which puts the PR title in the merge commit's BODY - so a `[publish]` that lives only
+    in the title is never seen. Measured 2026-09-13: PR #1336 carried `[test][publish]` in its title, every check was
+    green, the merge commit's body held the marker, `markers` scanned the two subjects (`Merge pull request #1336 ...`
+    and the branch's `[test] ...`), matched `test` alone, and the publish job SKIPPED - the tollbooth CLI fix shipped
+    to prod and not to npm. This file said "put the marker in the PR TITLE" until then, which is only true of a SQUASH
+    merge. A dev-branch commit carrying `[publish]` is safe: the environment's branch policy refuses that job on the
+    dev run (a refused publish job on a dev push is expected, not a package failure) and the marker is re-read from
+    the same subject line when the merge lands on `main`. A PR from our own dev branch does NOT run lanes on the
     `pull_request` event (the push run of the same commit provides the check runs); forks and other
     branches keep full PR lanes. The "protect main" ruleset requires every lane + markers + gitleaks +
     CodeQL + Socket (add new lane names there when splitting). Merge with `scripts/merge-on-green.sh <pr>` (push-event run, every lane green,
