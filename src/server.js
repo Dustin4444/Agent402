@@ -2431,7 +2431,7 @@ app.get("/api/gateway-status", async (_req, res) => {
   const [gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, upstreamBuyerSvm, subscriptionFeePayer, stellarFacilitator, databases] = await Promise.all([gatewayCreditsStatus(), upstreamBuyerStatus(), avmBuyerStatus(), tempoBuyerStatus(), svmBuyerStatus().catch(() => ({ status: "unknown", asset: "USDC", chain: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp" })), subscriptionFeePayerStatus(), stellarFacilitatorStatus().catch(() => ({ status: "unknown", asset: "XLM", chain: "stellar:pubnet" })), databasesStatus().catch(() => null)]);
   // `databases`: leads/analytics Postgres reachability, status words only
   // (src/db-status.js) - the heartbeat pages on "unreachable".
-  res.set("Cache-Control", "public, max-age=60").json({ ...gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, upstreamBuyerSvm, subscriptionFeePayer, xDataSpend: xDataSpendStatus(), stellarFacilitator, databases, operatorAuth: operatorAuthStatus(), mppEvmDomainFallback: mppFallbackStatus(), loopLag: loopLagStatus() });
+  res.set("Cache-Control", "public, max-age=60").json({ ...gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, upstreamBuyerSvm, subscriptionFeePayer, xDataSpend: xDataSpendStatus(), exaSpend: exaSpendStatus(), stellarFacilitator, databases, operatorAuth: operatorAuthStatus(), mppEvmDomainFallback: mppFallbackStatus(), loopLag: loopLagStatus() });
 });
 // Static SAMPLE A2A Agent Card — the self-answering example target for the
 // a2a-card-fetch tool. Explicitly a sample (fictional weather agent), NOT an
