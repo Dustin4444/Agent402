@@ -23,7 +23,7 @@
 // 2026-08-28). Only the exact retried header sees its own hint; telemetry
 // gets a BUCKET, never an address.
 import { createHash } from "node:crypto";
-import { classifyPaymentRejection, unclassifiedPaymentShape } from "./payment-reject.js";
+import { classifyPaymentRejection, unclassifiedPaymentShape, unclassifiedPaymentHint } from "./payment-reject.js";
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const BASE_RPC = () => process.env.AGENT402_BASE_RPC || "https://mainnet.base.org";
 const BALANCE_TTL_MS = 60_000;
@@ -184,10 +184,19 @@ export function verifyHintMiddleware() {
         }
         // Refused, and we could not say why. Record the payload's SHAPE (key
         // names only, never a value) so the next one of these answers itself
-        // instead of costing another guess-and-deploy cycle. The buyer's body
-        // is untouched here - this is our telemetry, not their explanation.
+        // instead of costing another guess-and-deploy cycle.
         req.__paymentRejectReason = "unclassified";
         req.__paymentRejectShape = advertised ? unclassifiedPaymentShape(header) : null;
+        // ...and tell the BUYER the same thing. This used to be telemetry only,
+        // so a developer whose client failed in a way we had no name for got an
+        // unadorned 402 - silence from the one system that could see exactly
+        // what they had sent. An unclassified refusal is as likely to be our
+        // defect as theirs, which is the other reason it should not be silent.
+        const shapeHint = advertised ? unclassifiedPaymentHint({ paymentHeader: header, paymentRequiredHeader: advertised }) : null;
+        if (shapeHint) {
+          if (!res.headersSent) res.setHeader("Retry-After", "5");
+          return origJson({ ...body, error: body.error || "Payment rejected", reason: shapeHint.reason, hint: shapeHint.detail, retry: shapeHint.retry });
+        }
       }
       return origJson(body);
     };

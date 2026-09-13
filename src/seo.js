@@ -178,6 +178,7 @@ export function sitemapXml(baseUrl, catalog) {
     { loc: `${baseUrl}/what-is-mpp`, priority: "0.9" },
     { loc: `${baseUrl}/agentic-finance`, priority: "0.9" },
     { loc: `${baseUrl}/why`, priority: "0.8" },
+    { loc: `${baseUrl}/x402-test`, priority: "0.7" },
     { loc: `${baseUrl}/markets`, priority: "0.8" },
     { loc: `${baseUrl}/digest`, priority: "0.6" },
     { loc: `${baseUrl}/security`, priority: "0.7" },
@@ -249,6 +250,7 @@ export function sitemapPages(baseUrl, catalog) {
     { loc: `${baseUrl}/what-is-mpp`, priority: "0.9" },
     { loc: `${baseUrl}/agentic-finance`, priority: "0.9" },
     { loc: `${baseUrl}/why`, priority: "0.8" },
+    { loc: `${baseUrl}/x402-test`, priority: "0.7" },
     { loc: `${baseUrl}/markets`, priority: "0.8" },
     { loc: `${baseUrl}/digest`, priority: "0.6" },
     { loc: `${baseUrl}/security`, priority: "0.7" },
@@ -489,6 +491,7 @@ ${toolSections}
 - [Markets](${baseUrl}/markets): the keyless crypto market-data calls (market pulse, perps, options, DeFi, stablecoins, news, indicators) with one curl to copy
 - [Prepaid card credits](${baseUrl}/credits): no wallet? buy $20-$100 of credits by card, then call any paid tool with the header "Authorization: Bearer a402_..." (debited per call on success; balance at GET /api/credits/balance)
 - [Agentic Finance](${baseUrl}/agentic-finance): what the category is and where Agent402 sits in it
+- [Test your x402 client](${baseUrl}/x402-test): point any client at a real paid route and read why it was refused - which field differs from what was advertised, which schemes and networks are offered, whether the amount or the validity window is wrong. Refusals are free (an error status cancels settlement); every reason this server emits is listed there
 - [x402 & MPP 101](${baseUrl}/101): the ten-minute walkthrough for people new to the space - plain language, speaker notes, and a live demo (402 quote decoded, pay with a puzzle, real receipts)
 - [Glossary](${baseUrl}/glossary): x402, MPP, HTTP 402, facilitator, EIP-3009, receipts, settlement, rails, dual-stack, PoW tier, SOR, tollbooth - every term defined once, with anchors
 - [What is x402?](${baseUrl}/what-is-x402) / [What is MPP?](${baseUrl}/what-is-mpp): the two payment wires explained

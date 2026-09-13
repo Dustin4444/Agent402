@@ -5,6 +5,8 @@
 // a POSIX script for `curl -fsSL agent402.sh/install | sh` that wires the MCP
 // connector into whichever hosts are on the machine and prints the rest.
 export const SHORTLINKS = Object.freeze({
+  "/conformance": "/x402-test",
+  "/debug": "/x402-test",
   "/claude": "/guides/agent-hosts#claude-code",
   "/claude-code": "/guides/agent-hosts#claude-code",
   "/cursor": "/guides/agent-hosts#cursor",

@@ -639,6 +639,27 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   LLM proxy in most of our other descriptions - it is in `VERBS_NOT_FOLDED` with that reason, so the URL still answers and
   only the search claim is withdrawn. The top-five promise is pinned per verb against the booted server rather than asserted,
   and both mutations (dropping aliases from the haystack, folding the withdrawn verb anyway) are killed.
+- **`/x402-test`: the refusal diagnostic we already shipped, finally advertised (2026-09-12, `src/x402-test-page.js`):**
+  measured against the second seller the operator asked about (api.botpay.network, 1,924 buyers, 29,324 settlements,
+  $1,985.87 across FOUR payTos): it is not an API business. Three of its six endpoints are test resources ("Purchase the
+  BotPay paid resource", "Verify payment before connecting an MCP trading service"), `/token` sells their own token at
+  1 USDC = 10 BOTPAY (a swap, not a sale) and `/safe` takes $1 and returns a redeemable $1 voucher (a liability, not
+  income) - so both headline figures are something other than they look, and its buyers are largely DEVELOPERS TESTING
+  x402 CLIENTS. Probed live the same day: `/pay`, `/test` and `/go` are GET-only and answer 405/404 to a POST, the exact
+  defect that cost us paying buyers until the 08-28 method alias. The one real idea in it is that being the endpoint
+  people test against collects the address of every developer entering the ecosystem, already integrated. **We had the
+  better version and no front door:** `payment-reject.js` + `verify-hint.js` have classified refusals into the buyer's
+  own 402 body since August (reason + a hint in words + a retry class), and nothing said so. `/x402-test` is that page -
+  the curl, a real refusal body, and the full reason table DERIVED from the classifier's own `REJECTION_REASONS`, with a
+  test that scans the module for `reason:` literals in BOTH directions so the page cannot teach a vocabulary the server
+  does not speak or omit one it does. Shortlinks `/conformance` and `/debug` (never `/x402-test` itself - a shortlink to
+  its own path is a redirect loop, which the guard caught). Same change closed the silent case: an UNCLASSIFIED refusal
+  used to reach the buyer as a bare 402 while we recorded its key-name shape for our own telemetry -
+  `unclassifiedPaymentHint` now tells them the field NAMES received (never a value: a payment header is a credential),
+  what one accepts entry carries, and that an unclassified refusal is as likely to be our defect as theirs. Mutation-
+  checked: the no-values rule, the accepts guard, and both directions of the drift check. NOT built and deliberately
+  scoped out for now: a paid `POST /api/x402/echo` that returns the decoded credential and every check that passed once
+  payment settles (it would charge only on success, since a >= 400 cancels settlement).
 - **Receipt-bound feedback (2026-09-12, `src/tools/feedback-kit.js`, `sale_feedback` in sales-ledger.js, `scripts/test-feedback-kit.js`
   54 in CI):** `POST /api/feedback {tx, verdict, reason}` $0.001 - a verdict on a call, writable ONLY by the wallet the ledger
   records as having paid for that exact call (`saleByTx` + `payerFromRequest`, identity-bound like attest/receipts so a rail
