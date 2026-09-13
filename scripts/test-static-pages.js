@@ -143,6 +143,23 @@ try {
     ok(!/at .*\/src\/server\.js|ReferenceError|node_modules/.test(body), "error page leaks no stack frames or paths");
   }
 
+// --- no page may ship a raw template placeholder --------------------------
+// The homepage served `${usd0(CARD_LO)}` inside its AggregateOffer JSON-LD for
+// an unknown period: a DOUBLE-QUOTED string containing ${...}, three lines
+// above an FAQ answer that used the same helpers correctly inside a template
+// literal. That is our structured data on the most important page on the site,
+// and no guard could see it because every other check reads rendered values
+// rather than looking for the syntax of an unrendered one.
+{
+  const bad = [];
+  for (const p of PAGES) {
+    const html = await (await fetch(`${BASE}${p.path}`)).text().catch(() => "");
+    const hits = [...String(html).matchAll(/\$\{[A-Za-z0-9_.()\[\] ]{1,60}\}/g)].map((m) => m[0]);
+    if (hits.length) bad.push(`${p.path}: ${[...new Set(hits)].slice(0, 3).join(" ")}`);
+  }
+  ok(bad.length === 0, `no page ships an uninterpolated template placeholder${bad.length ? ` - ${bad.join(" | ")}` : ""}`);
+}
+
   console.log(`\n${pass} passed (${PAGES.length} pages + error template)`);
   proc.kill("SIGKILL");
   process.exit(0);

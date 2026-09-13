@@ -660,6 +660,26 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   checked: the no-values rule, the accepts guard, and both directions of the drift check. NOT built and deliberately
   scoped out for now: a paid `POST /api/x402/echo` that returns the decoded credential and every check that passed once
   payment settles (it would charge only on success, since a >= 400 cancels settlement).
+- **The homepage shipped raw `${...}` into Google's structured data, and three pages headlined a number nobody framed
+  (2026-09-13, `src/standing.js`, `scripts/test-standing-band.js` 22 + `test-static-pages` placeholder guard):** the
+  `AggregateOffer.description` was a DOUBLE-QUOTED string containing `${usd0(CARD_LO)}` etc, three lines above an FAQ
+  answer using the same helpers correctly inside a template literal - that is how they drifted, and it was live on the
+  most important page on the site. `highPrice` was a literal `"1.50"` against a real ceiling of `$3.30`
+  (route-execute-pro), so our own structured data understated the range by more than half; it derives from the catalog
+  now. `test-static-pages` gained the guard no other check could do: every other one reads RENDERED values, so none of
+  them can see the syntax of an UNRENDERED one - it now fails on any `${...}` in any page's HTML. **The framing band:**
+  a diligence review found /revenue, /proof and /leaderboard each headline a true, deliberately published number
+  ($109 lifetime; 6 external settlements; a rival settling $1,419 in a week on our own board) with no frame, so the
+  reader supplies one and reaches for "small business" instead of "market operator that publishes its own P&L". One
+  derived paragraph (`standingFigures()` in server.js -> `standingBand()`) now says what the page is measuring: sellers
+  indexed, tool listings, settlements through these gates, rails - with our own small number IN THE SAME BREATH (the
+  argument is that we publish it, so burying it forfeits the argument) and the leaderboard's neutrality cited as the
+  reason to trust the index. **A COLD CACHE SAYS NOTHING:** the crawl cache warm-starts incrementally and holds only our
+  own entry for the first seconds of a boot, so the honest figure is "1 seller origin indexed" - publishing that inside
+  the one sentence asking to be trusted is worse than publishing no frame, and `MIN_SELLERS_TO_FRAME` (50, far below the
+  real thousands and far above a cold one) suppresses the band entirely. A figure that cannot be read is omitted, never
+  guessed. Same commit linked the orphans: `/x402-test` into the Docs dropdown and the machine footer, `/crawler` into
+  the footer (an operator seeing our User-Agent in their logs has to be able to find it).
 - **The hosted connector quoted a three-week-stale price ladder to AGENTS (2026-09-13, found by a positioning audit):**
   `/mcp`'s `payment.info` still carried the pre-2026-08-23 ladder - "research $0.35/$0.65/$1.10, ticker pack $0.75, fund
   13F $0.25/$0.50 ... monitors $3 a month", every figure understated 1.7x to 3.4x against the real $0.60/$0.85/$1.10,

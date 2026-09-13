@@ -2514,7 +2514,7 @@ app.get("/markets", (_req, res) => htmlCache(res, 300, 900).send(marketsPage(BAS
 // Receipts: the metered tier's settled-under-quote proof, aggregates + one
 // latest external and one latest internal row with settle tx (no payer).
 app.get("/api/proof", (_req, res) => { res.set("Cache-Control", "public, max-age=60"); res.json(proofFeed()); });
-app.get("/proof", (_req, res) => htmlCache(res, 60, 300).send(proofPage(BASE_URL, proofFeed())));
+app.get("/proof", (_req, res) => htmlCache(res, 60, 300).send(proofPage(BASE_URL, proofFeed(), standingFigures())));
 app.get("/glossary", (_req, res) => htmlCache(res, 300, 900).send(glossaryPage(BASE_URL)));
 // x402 & MPP 101 - the presenter-mode walkthrough with the live demo (src/x402-101.js).
 app.get("/101", (_req, res) => htmlCache(res, 300, 900).send(x402101Page(BASE_URL)));
@@ -2657,7 +2657,11 @@ app.get("/api/revenue/mpp", (req, res) => {
 app.get("/revenue", async (_req, res) => {
   try {
     const snap = await revenueSnapshot(revenueWallets());
-    res.set("Cache-Control", "public, max-age=30").type("html").send(revenuePage(BASE_URL, { ...snap, allTime: ledgerSummary(revenueWallets()), mpp: mppSales({ detailed: false }), card: cardSales({ days: 30 }), agents: ledgerBuyerConcentration(revenueWallets()) }));
+    // `standing` is what the page is MEASURING, read from the index totals rather
+    // than typed into the copy: a framing paragraph that goes stale is worse
+    // than none, because it is the sentence asking to be trusted.
+    const idx = getIndexSnapshot()?.totals || {};
+    res.set("Cache-Control", "public, max-age=30").type("html").send(revenuePage(BASE_URL, { ...snap, allTime: ledgerSummary(revenueWallets()), mpp: mppSales({ detailed: false }), card: cardSales({ days: 30 }), agents: ledgerBuyerConcentration(revenueWallets()), standing: { sellers: idx.sellers, listings: idx.tools, rails: RAILS.length } }));
   } catch (e) {
     if (e?.snapshotWarming) {
       res.status(200).type("html").send('<!doctype html><meta http-equiv="refresh" content="6"><title>Transactions</title><body style="font-family:system-ui,sans-serif;max-width:560px;margin:12vh auto;padding:0 24px;color:#14201b"><h2 style="font-weight:500">Warming up…</h2><p style="color:#5d675f">The live on-chain transaction view is loading for the first time since a deploy. It refreshes here automatically in a few seconds.</p><p><a href="/" style="color:#15654a">Home</a></p></body>');
@@ -4456,6 +4460,18 @@ function refreshIndexSnapshotInBackground() {
     }
   });
 }
+// What the framing band on /revenue, /proof and /leaderboard is measuring.
+// Read from the index totals and the ledger, never typed: a framing paragraph
+// that goes stale is worse than none, because it is the sentence asking to be
+// trusted. standingBand() suppresses itself when the crawl cache is cold.
+function standingFigures() {
+  try {
+    const t = getIndexSnapshot()?.totals || {};
+    const h = hostEntryFigures() || {};
+    return { sellers: t.sellers, listings: t.tools, rails: RAILS.length, ourUsd: Number(h.external?.allTime?.revenueUsd ?? h.allTime?.revenueUsd ?? 0) || undefined };
+  } catch { return {}; }
+}
+
 function getIndexSnapshot() {
   if (!indexSnapshotCache.value) {
     // Cold start — block once so the first response isn't empty.
@@ -5252,7 +5268,7 @@ app.get("/api/leaderboard", (req, res) => {
 });
 // Human-readable companion to /api/leaderboard. Same cached snapshot, rendered
 // as a dashboard so visitors (and the site nav) have something to land on.
-app.get("/leaderboard", (_req, res) => htmlCache(res, 60, 300).send(ledgerLeaderboardPage(BASE_URL, getLeaderboardSnapshot(), { stats: getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }), walletAddress: WALLET_ADDRESS, host: hostEntryFigures() })));
+app.get("/leaderboard", (_req, res) => htmlCache(res, 60, 300).send(ledgerLeaderboardPage(BASE_URL, getLeaderboardSnapshot(), { stats: getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }), walletAddress: WALLET_ADDRESS, host: hostEntryFigures(), standing: standingFigures() })));
 app.get("/robots.txt", (_req, res) => res.type("text/plain").set("Cache-Control", "public, max-age=3600").send(robotsTxt(BASE_URL)));
 // IndexNow ownership key file (env-gated no-op like the other integrations).
 // The protocol verifies a submitted key by fetching /{key}.txt from the host;

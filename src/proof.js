@@ -7,6 +7,7 @@
 // external row and ONE latest internal (daily canary) row. No payer, no
 // per-call feed. The internal row is labelled as ours in the copy.
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
+import { standingBand } from "./standing.js";
 
 const EXPLORER = {
   base: (h) => `https://basescan.org/tx/${h}`,
@@ -51,7 +52,7 @@ function rowHtml(label, side, note) {
 </div>`;
 }
 
-export function proofPage(baseUrl, feed) {
+export function proofPage(baseUrl, feed, standing = null) {
   const canonical = `${baseUrl}/proof`;
   const title = "Receipts: settled under the quoted ceiling";
   const description = "The metered model route quotes a ceiling before payment and settles what the call actually used. This page shows the latest settlement next to its quote, with the on-chain transaction, plus the aggregate.";
@@ -67,6 +68,7 @@ export function proofPage(baseUrl, feed) {
     <p style="font-size:17px;line-height:1.6;color:var(--muted);max-width:820px;margin:0;">Every call to the metered route (<code>POST /v1/metered/chat/completions</code>) is quoted from its own body before payment. A buyer whose client speaks the <code>upto</code> scheme, or who pays by card or credits, settles what the call actually used, times 1.15, never more than the quote. The ledger records both numbers per settlement; the settle transaction is on-chain. Machine-readable: <a href="/api/proof" style="color:var(--ink);">/api/proof</a>.</p>
   </div>
 </header>
+${standingBand(standing || {})}
 <section style="max-width:1180px;margin:0 auto;padding:40px 30px 56px;display:grid;gap:18px;">
   ${rowHtml("LATEST EXTERNAL SETTLEMENT (a buyer that is not us)", ext, ext.latest ? "" : "The metered route is new; this row fills in with the first outside buyer's settlement.")}
   ${rowHtml("LATEST INTERNAL SETTLEMENT (our own daily canary, paying with our own wallet)", int, "Internal by construction: the CI canary buys this route every day from our burner wallet to prove the settle-actual path, and the ledger files it as ours, never as revenue.")}
