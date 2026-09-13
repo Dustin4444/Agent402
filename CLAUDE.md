@@ -732,6 +732,20 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   the same day catches that). The new sweep walks 354 surfaces for RETIRED LITERALS with a reason per figure and a control
   that proves the reporting path first. **The rule this keeps re-teaching: a guard scoped to the page that drifted last
   finds nothing, because the next drift is in a different page quoting the same number.** Scope it to the number.
+- **An outside index reported 701 payers against our 158, and the index is the one that is wrong (2026-09-13, issue
+  #1334):** a third-party x402 ranking mailed us "5,831 calls, 701 unique payers, 30 days". Our own ledger says **158
+  distinct external buyers** over the same window, and our ALL-TIME union is 410, so their 30-day figure exceeded every
+  buyer we have ever had. Measured rather than argued: paging all 15,315 rows of the Coinbase Bazaar discovery feed
+  gives 587 agent402.tools resources whose per-resource `quality.l30DaysUniquePayers` **SUM to 758** and whose **MAX is
+  24** - so 701 is a SUM of a NON-ADDITIVE metric across ~547 resources, and a buyer who used ten tools is counted ten
+  times. Their call figure is fine, because calls ARE additive (their 5,831 against the feed's 6,126). This is the exact
+  trap `foldBazaarQuality` already avoids for other sellers by folding payers with MAX, with the reason written beside
+  it: "a seller-level unique count is unknowable from per-resource counts." **Our own number was then checked for the
+  opposite error and holds:** `qExtDistinctPayers` is an uncapped `COUNT(DISTINCT payer)` (pinned by
+  `test-capped-counts.js`, which exists because a LIMIT-20 query once WAS published as a tool count), `unattributed` is
+  0 over the window, and our count spans every rail while theirs can only see what CDP settles. For the next reader:
+  30-day external is 4,754 calls, of which 2,976 are paid USDC, 1,767 proof-of-work (free, no wallet, so never a
+  "payer"), 9 trial and 2 card.
 - **Four false absolutes, and the guard that closes the class (2026-09-13, `src/routing-proof.js`,
   `scripts/test-copy-absolutes.js` 16 in the unit-a4 lane):** every one was true the day it shipped and had stopped being
   true since, and three had a correctly SCOPED twin already being served on another page of the same site - which is the
@@ -916,8 +930,10 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   before the buy, corrected to the quote after; a ceiling refusal there is a 503, nobody charged). Env
   `SOR_WALLET_DAILY_MAX_USD` for every chain, `SOR_WALLET_DAILY_MAX_USD_<CHAIN>` per chain, `0`/`off` disables, a malformed
   value reads as unset never as off (defaults: see CLAUDE.local.md); in memory only, a restart resets the day exactly like
-  the per-payer guard, the wallet balance alarms remain the outer backstop. `walletDailyStatus()` is counts only, built for
-  the x402-buyer status reporters and not yet wired to any surface.
+  the per-payer guard, the wallet balance alarms remain the outer backstop. `walletDailyStatus()` is counts only and has NO consumer
+  (re-verified 2026-09-13: zero call sites outside its own module). Deliberate, not an oversight - the ceiling it reports
+  already refuses with its own `code` at the call site, so a surface would add a number nobody acts on. Wire it the day
+  something needs to READ the day's spend rather than be refused by it.
   **Resolve-time model check (2026-09-02, `sellerServesModel` in x402-buyer.js):** an LLM task names a model and the
   model namespace is the SELLER'S own - "chat completions" + `gpt-4o-mini` on Solana resolved to api.xfuel.app, which
   settled the $0.01 and answered 400 model_not_found, and xfuel KEEPS the money on a 400 (our chain check saw the
@@ -3172,9 +3188,10 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   rollback on their side cannot break us twice; `liquidityUsd` is new. Pinned in test-prediction-market-kit (94) including
   the distinction the failure turned on: an untraded market reads 0, an ABSENT field reads null. Lesson for any shaper over a
   third-party feed: a field rename is indistinguishable from an outage unless something asserts the values are populated.
-  Also from that sweep, NOT yet acted on: Polymarket's gamma `/markets` and `/events` carry `deprecation: true` and
-  `sunset: Fri, 01 May 2026` in the HTTP HEADERS ONLY (nothing in their docs), pointing at `/markets/keyset` (`next_cursor`
-  becomes `after_cursor`, `offset` is refused) - still 200 today, past its own sunset; the `OPENFDA_API_KEY` state in prod is noted in CLAUDE.local.md; **openFEC is RESOLVED, and the earlier note here was wrong**: the restriction
+  Also from that sweep, and ACTED ON the same day (see the sweep-follow-through entry): Polymarket's gamma
+  `/markets` and `/events` carried `deprecation: true` + `sunset: Fri, 01 May 2026` in the HTTP HEADERS ONLY, and both
+  call sites moved to `/markets/keyset` (`after_cursor`, `offset` refused 422); `polyList()` still accepts the legacy
+  bare array so a rollback on their side cannot empty the tools; the `OPENFDA_API_KEY` state in prod is noted in CLAUDE.local.md; **openFEC is RESOLVED, and the earlier note here was wrong**: the restriction
   (52 U.S.C. 30111(a)(4), as stated on fec.gov) is that the names and addresses of INDIVIDUAL CONTRIBUTORS may not be sold
   or used for commercial purposes or to solicit contributions - contributor-level PII only, not a blanket commercial bar
   and nothing about model training, which we do not do anyway. Our one FEC tool is `fec-candidates`, which returns
@@ -3194,9 +3211,10 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   breaking line, do NOT take it while `@x402/stellar` pins `^16.0.1`). VERIFIED CLEAN and needing nothing: all eleven
   stablecoin addresses and their EIP-712 domain pairs, each proven by recomputing `DOMAIN_SEPARATOR()` rather than trusting
   `name()` (USDG's `version()` reverts and was resolved by brute force, so payments.js's "best-effort" domain comment is
-  actually verified), every chain id, and every registry we list on. Still to do: `mppx` >= 0.8.18 carries the UPSTREAM fix for
-  the yParity/canonical-hash bug `src/tempo-confirm.js` works around (our `^0.8.17` pin can never reach 0.9.x) - bump behind
-  the live Tempo canary, never a stub; Alchemy `getNFTSales` is removed 2026-09-30.
+  actually verified), every chain id, and every registry we list on. DONE, and the pin has moved twice since: `mppx` is `^0.9.2` (the 0.9.x
+  read that note asked for happened 2026-09-02 - see the mppx 0.9.2 entry, which also found the timed-out-send class the
+  bump surfaced). `src/tempo-confirm.js` stays regardless: a library fix upstream does not retire a guard that reads the
+  chain. Alchemy `getNFTSales` is removed 2026-09-30.
 - **AI-provider sweep (2026-08-28, live models JSON + provider deprecation pages):** four fixes. (1) The Messages wire relayed
   `top_k`/`temperature`/`top_p` verbatim, and models released after Claude Opus 4.6 (opus-4.7/4.8/5, sonnet-5) REFUSE top_k at
   any value, temperature != 1 and top_p < 0.99 - a bare upstream 400 to the buyer; we now refuse those ourselves with the
