@@ -2482,6 +2482,8 @@ jobs:
           t node scripts/test-util-kit.js
           # x-data kit (offline)
           t node scripts/test-x-data-kit.js
+          # Exa kit (env-gated on EXA_API_KEY; offline, stubbed fetch, nothing spent)
+          t node scripts/test-exa-kit.js
           # b2b-enrich kit (offline)
           t node scripts/test-b2b-enrich-kit.js
           # Ox Alpha free-trial safety (fails closed on a repriced upstream, offline)
