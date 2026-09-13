@@ -66,7 +66,7 @@ function cardSvg(d) {
   ${okRow(282, "settle", `${d.settles} payments · USDC ASA ${d.asaId}`, "GoPlausible facilitator")}
   <rect x="96" y="312" width="1008" height="212" rx="12" fill="${B.inset}" stroke="${B.insetLine}" stroke-width="1"/>
   <text x="126" y="348" font-size="19" font-family=${mono}><tspan fill="${B.muted}">$ curl agent402.tools/api/hash  </tspan><tspan font-weight="700" fill="${B.text}">402</tspan><tspan fill="${B.muted}"> · accepts algorand · extra.tag </tspan><tspan font-weight="700" fill="${B.green}">x402-global-challenge</tspan></text>
-  <text x="126" y="380" font-size="19" font-family=${mono}><tspan fill="${B.muted}">pay ──USDC──▶ settle · </tspan><tspan font-weight="700" fill="${B.text}">${esc(d.toolCountLabel)} deterministic tools</tspan><tspan fill="${B.muted}"> · LLM gateway · 100+ skill packs</tspan></text>
+  <text x="126" y="380" font-size="19" font-family=${mono}><tspan fill="${B.muted}">pay ──USDC──▶ settle · </tspan><tspan font-weight="700" fill="${B.text}">${esc(d.toolCountLabel)} priced tools</tspan><tspan fill="${B.muted}"> · LLM gateway · 80+ skill packs</tspan></text>
   <text x="126" y="412" font-size="19" font-family=${mono}><tspan fill="${B.muted}">marketplace: </tspan><tspan font-weight="700" fill="${B.text}">10 chains, one catalog</tspan><tspan fill="${B.muted}"> · Algorand + Base + Solana + 7 more</tspan></text>
   <text x="126" y="444" font-size="19" font-family=${mono}><tspan fill="${B.muted}">no signup, no API key · the wallet is the identity · free tier via proof-of-work</tspan></text>
   ${insetNote}

@@ -61,6 +61,11 @@ for (const d of ["mcp", "client", "tollbooth"]) {
   for (const f of walk(d, [])) if (f.endsWith(".md")) files.push(f);
 }
 files.push("README.md");
+// Card generators render PUBLIC artifacts (submission cards, announcement
+// images), so their copy is a surface even though the rest of scripts/ is not.
+// A challenge-submission card carried both the count-as-deterministic claim and
+// the retired pack ceiling, invisible to a sweep scoped to pages and docs.
+for (const f of walk("scripts", [])) if (/card.*\.js$/.test(f) && !/^scripts\/test-/.test(f)) files.push(f);
 
 const read = (rel) => { try { return readFileSync(join(root, rel), "utf8"); } catch { return null; } };
 
@@ -156,6 +161,11 @@ for (const hit of sweep(files.map((rel) => [rel, read(rel)]))) { fail++; console
 ok(files.length >= 300, `swept ${files.length} copy surfaces (a collapsed file list must fail, not pass quietly)`);
 ok((read("src/why.js") || "").length > 500 && (read("adapters/agentkit/README.md") || "").length > 500,
    "...and the sweep really reached both a served page and a published package README");
+// Coverage is asserted, not inferred: with the tree clean, dropping a whole
+// CLASS of file from the walk changes no result, so the only way that regresses
+// loudly is to name the class here.
+ok(files.some((f) => /^scripts\/.*card.*\.js$/.test(f)),
+   "...and the card generators, which render public submission and announcement artifacts");
 
 // --- the routing sentence is derived, and honest in BOTH directions --------
 {
