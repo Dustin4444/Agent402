@@ -199,6 +199,33 @@ const page = (results, extra = {}) =>
   check(`a stale learned quote cannot override a manifest-declared price (got ${after?.price})`, String(after?.price).includes("0.05"));
   const bare = normaliseManifestTools({ tools: [{ route: "/x", name: "X" }] }, "https://seller.example").find((r) => String(r.route).includes("/x"));
   check(`an unpriced manifest entry claims no declaration`, !(Number(bare?.originDeclaredPrice) > 0));
+
+  // A `price` that is an OBJECT is a legitimate, richer manifest shape: the
+  // seller carries scheme/network/asset/payTo per resource with the figure
+  // inside. Reading scalars only, we normalised such a manifest to price null,
+  // which costs a live-402 probe to learn what the origin already stated and,
+  // worse, leaves `originDeclaredPrice` unstamped - the anchor this whole block
+  // exists to protect. Found reviewing a seed PR (2026-09-13) whose manifest
+  // used `price: { amountUsd: "0.01", ... }`.
+  const objShape = normaliseManifestTools(
+    { resources: [{ url: "https://seller.example/api/score", method: "POST",
+      price: { scheme: "exact", network: "eip155:8453", amountUsd: "0.01", amountLabel: "$0.01 USDC",
+               payTo: "0x0000000000000000000000000000000000000001" } }] },
+    "https://seller.example").find((r) => String(r.route).includes("/api/score"));
+  check(`an object-shaped manifest price is read (got ${objShape?.price})`, String(objShape?.price).includes("0.01"));
+  check(`...and is marked origin-declared, so the drift guard keeps its anchor (got ${objShape?.originDeclaredPrice})`,
+    objShape?.originDeclaredPrice === 0.01);
+  const objNoFigure = normaliseManifestTools(
+    { resources: [{ url: "https://seller.example/api/nofig", method: "POST", price: { scheme: "exact", network: "eip155:8453" } }] },
+    "https://seller.example").find((r) => String(r.route).includes("/api/nofig"));
+  check(`a price object carrying no figure still declares nothing`, !(Number(objNoFigure?.originDeclaredPrice) > 0));
+  // An ARRAY is not the object shape: descending into it reads index keys that
+  // mean nothing, so it must declare nothing rather than invent a figure.
+  const objArray = normaliseManifestTools(
+    { resources: [{ url: "https://seller.example/api/arr", method: "POST", price: [{ amountUsd: "0.01" }] }] },
+    "https://seller.example").find((r) => String(r.route).includes("/api/arr"));
+  check(`an array-shaped price declares nothing (got ${objArray?.price})`,
+    !(Number(objArray?.originDeclaredPrice) > 0) && !String(objArray?.price || "").includes("0.01"));
 }
 
 // ---- new-catalog quote burst (2026-09-01) ----------------------------------

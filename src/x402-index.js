@@ -1297,7 +1297,23 @@ function mergeManifestToolRows(a, b) {
 }
 
 function parseManifestPrice(raw) {
-  const p = raw?.price_usd ?? raw?.priceUsd ?? raw?.price ?? raw?.amount ?? null;
+  let p = raw?.price_usd ?? raw?.priceUsd ?? raw?.price ?? raw?.amount ?? null;
+  // A `price` that is an OBJECT is a richer, entirely legitimate manifest shape:
+  // the seller carries scheme/network/asset/payTo per resource and puts the
+  // figure inside it. We only read scalars, so such a manifest normalised to
+  // price: null - which costs a live-402 probe to learn what the origin already
+  // said, and, worse, never stamps `originDeclaredPrice`. That stamp is the
+  // anchor the 2026-08-29 anti-ratchet fix hangs on: without it a learned quote
+  // for that seller can only age out on the 7-day clock instead of being
+  // corrected against the origin's own current declaration. Found reviewing a
+  // seed PR whose manifest used `price: { amountUsd: "0.01", ... }`.
+  // The Array check is a BELT, not load-bearing: an array carries none of the
+  // keys below, so descending into one already yields null. Kept so the intent
+  // survives a future edit to that key list, and noted because no mutation can
+  // kill it - the test asserts the OUTCOME (an array declares nothing) instead.
+  if (p && typeof p === "object" && !Array.isArray(p)) {
+    p = p.amountUsd ?? p.priceUsd ?? p.price_usd ?? p.amountLabel ?? p.amount ?? p.value ?? null;
+  }
   if (typeof p === "number" && Number.isFinite(p)) return `$${p}`;
   if (typeof p === "string" && p.trim()) return p.trim().startsWith("$") ? p.trim() : `$${p.trim()}`;
   return null;

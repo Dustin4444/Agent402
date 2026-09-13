@@ -30,11 +30,32 @@ is_sha() { [[ "$1" =~ ^[0-9a-f]{40}$ ]]; }
 SHA=$(gh pr view "$PR" --json headRefOid -q .headRefOid || true)
 is_sha "$SHA" || { echo "could not read a head SHA for PR #$PR (got '${SHA}')"; exit 1; }
 
+# FORK PRs (2026-09-13). A contributor's head lives in their own repo, so two
+# assumptions below break: the local-HEAD catch-up can never converge (measured
+# on #1338 - "PR head never caught up with local HEAD", refusing a PR whose 21
+# required checks were all green), and there IS no push-event run in this repo
+# to gate on. Per the CI note in CLAUDE.md the events are exactly inverted: our
+# own dev branch runs its lanes on the PUSH run and skips them on pull_request,
+# while forks keep full pull_request lanes. So detect once and honour it in both
+# places rather than hand-verifying every outside contribution, which is the
+# thing this script exists to stop anyone doing by eye.
+# An unreadable answer here is "" and therefore NOT "true", which takes the
+# push path: for a fork that finds no push run and exits 1. Fail-closed by
+# construction - the failure mode is refusing to merge, never merging unchecked.
+IS_FORK=$(gh pr view "$PR" --json isCrossRepository -q '.isCrossRepository' 2>/dev/null || echo "")
+HEAD_REF=$(gh pr view "$PR" --json headRefName -q '.headRefName' 2>/dev/null || echo "")
+if [ "$IS_FORK" = "true" ]; then
+  GATE_EVENT="pull_request"; GATE_BRANCH="$HEAD_REF"
+  echo "PR #$PR is from a FORK ($HEAD_REF) - gating on its pull_request run"
+else
+  GATE_EVENT="push"; GATE_BRANCH="$BRANCH"
+fi
+
 # The PR's head lags the push by a few seconds. Run right after `git push`
 # (2026-08-25) this read the PREVIOUS head, judged its run, and refused - the
 # fix was pushed and never merged. When the local checkout is on the PR branch
 # and already pushed, insist the PR head has caught up with it first.
-if [ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)" = "$BRANCH" ]; then
+if [ "$IS_FORK" != "true" ] && [ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)" = "$BRANCH" ]; then
   LOCAL=$(git rev-parse HEAD)
   if is_sha "$LOCAL" && [ "$LOCAL" != "$SHA" ]; then
     if [ "$(git rev-parse "origin/$BRANCH" 2>/dev/null || true)" = "$LOCAL" ]; then
@@ -50,26 +71,26 @@ if [ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)" = "$BRANCH" ]; the
     fi
   fi
 fi
-echo "PR #$PR head $SHA on $BRANCH"
+echo "PR #$PR head $SHA on $GATE_BRANCH"
 
 # The push run can take a few seconds to appear after a push.
 RUN=""
 for _ in $(seq 1 30); do
-  RUN=$(gh run list --workflow "$WORKFLOW" --branch "$BRANCH" --event push --commit "$SHA" --limit 5 \
+  RUN=$(gh run list --workflow "$WORKFLOW" --branch "$GATE_BRANCH" --event "$GATE_EVENT" --commit "$SHA" --limit 5 \
         --json databaseId -q '.[0].databaseId // empty' 2>/dev/null || true)
   [ -n "$RUN" ] && break
   sleep 10
 done
-[[ "$RUN" =~ ^[0-9]+$ ]] || { echo "no push-event run found for $SHA"; exit 1; }
-echo "push run: $RUN (waiting)"
+[[ "$RUN" =~ ^[0-9]+$ ]] || { echo "no $GATE_EVENT-event run found for $SHA"; exit 1; }
+echo "$GATE_EVENT run: $RUN (waiting)"
 
 gh run watch "$RUN" --interval 30 >/dev/null 2>&1 || true
 # Every test lane must have run AND passed. A skipped lane is not a passed lane.
 LANES=$(gh run view "$RUN" --json jobs -q '.jobs[] | select(.name | test("^test(-|$)")) | "\(.name)=\(.conclusion)"' || true)
-[ -n "$LANES" ] || { echo "push run $RUN has no test lanes - not merging"; exit 1; }
+[ -n "$LANES" ] || { echo "$GATE_EVENT run $RUN has no test lanes - not merging"; exit 1; }
 echo "$LANES" | sed 's/^/  /'
 if echo "$LANES" | grep -vq '=success$'; then
-  echo "push run $RUN is NOT green on every test lane - not merging"
+  echo "$GATE_EVENT run $RUN is NOT green on every test lane - not merging"
   exit 1
 fi
 
