@@ -5313,6 +5313,16 @@ app.get("/api/leaderboard", (req, res) => {
     // can be large and be one wallet, and until 2026-09-13 nothing on this
     // surface let a consumer tell the difference.
     concentrationLegend: {
+      // Whether THESE rows carry the fields, not just whether the server knows
+      // about them. The board is a cached snapshot rebuilt on its own clock, so
+      // for up to one refresh interval after a deploy the rows are the previous
+      // build's and carry nothing - and a legend describing fields a consumer
+      // then cannot find is the machine-surface version of quoting a stale
+      // price. Derived from the rows actually being served: a row built by the
+      // current code always has the key (null when there is no data), a row
+      // built before it has no key at all, so `in` separates them exactly.
+      availableInThisSnapshot: board.length ? ("concentration" in board[0]) : null,
+      snapshotBuiltAt: snap.asOf || null,
       topPayerCallsShare: "share of this row's settlements from its single busiest payer, 0-1",
       topPayerUsdShare: "that same payer's share of this row's settled USD",
       topPayerIsAlsoTopUsd: "false means a different payer carries more dollars, so topPayerUsdShare understates the dollar concentration",

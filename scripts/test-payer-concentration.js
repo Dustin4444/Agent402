@@ -122,6 +122,26 @@ const pm = (o) => new Map(Object.entries(o));
   eq(row.concentration, null, "and no flag is invented from an unattributed call");
 }
 
+// --- the legend says whether THESE rows actually carry the fields ----------
+// The board is a cached snapshot on its own refresh clock, so after a deploy
+// the served rows are the previous build's for up to one interval. A legend
+// that describes fields a consumer cannot find in the same response is the
+// machine-surface version of quoting a stale price - measured live on
+// 2026-09-13, when the legend went out instantly and the rows were 20 minutes
+// older than the deploy.
+{
+  const src = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+  ok(/availableInThisSnapshot: board\.length \? \("concentration" in board\[0\]\) : null/.test(src),
+     "the legend reports whether the SERVED rows carry the fields, derived from the rows themselves");
+  ok(/snapshotBuiltAt: snap\.asOf/.test(src), "and when the snapshot was built, so the gap is readable");
+
+  // The discriminator has to separate a current-code row with no data from an
+  // old-code row, which is exactly the `in` vs truthiness distinction.
+  const fresh = payerConcentration(new Map(), 0, 0);   // current code, no data
+  ok("concentration" in fresh, "a current-code row has the key even with no data (null), so `in` is the right test");
+  ok(fresh.concentration === null, "...and that key is null, which a truthiness check would confuse with an old row");
+}
+
 // --- the legend is published, so the flag is reproducible from the two shares
 {
   const src = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
