@@ -122,5 +122,24 @@ const SELF_WALLET = "0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0";
   ok(!/lb-rank/.test(row) && /NOT RANKED/.test(row), "host row carries no rank and says so");
   ok(!html.slice(0, html.indexOf("Agent402, for comparison")).includes(">Agent402.Tools<"), "ranked table still excludes the host");
 }
+// --- the JSON honours the commitment the HTML already honoured --------------
+// /sell states: "We publish how the ranking works, and exclude ourselves from
+// our own leaderboard." Until 2026-09-13 the HTML page did and the JSON did
+// not: the default (include=all) ranked the host at #11, unflagged, under a
+// tool name - on the very URL the homepage's Dataset JSON-LD names as its
+// distribution. That row is also inflated by our own canary and volume runs,
+// which is the exact criticism /transparency levels at other people's counts.
+// Pinned from source, because the whole behaviour is one ternary.
+{
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+  ok(/const include = req\.query\.include === "all" \? "all" : "external";/.test(src),
+     "the leaderboard JSON DEFAULTS to external, matching the commitment on /sell");
+  ok(!/const include = req\.query\.include === "external" \? "external" : "all";/.test(src),
+     "...and the old host-including default cannot come back");
+  ok(/include === "all" && self\) board = board\.map\(/.test(src),
+     "on the full board the host's own row is flagged self:true, so no consumer can mistake it for a third party");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

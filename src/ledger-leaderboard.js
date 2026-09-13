@@ -16,6 +16,7 @@
 // curated top N instead, with real "raw JSON" and "browse every seller"
 // escape hatches for the rest - matches the design's own top=12 live poll.
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
+import { standingBand } from "./standing.js";
 import { rankBy } from "./leaderboard.js";
 import { RAILS } from "./rails.js";
 import { CAIP2_NAMES } from "./stats.js";
@@ -80,7 +81,7 @@ function railsWithTraffic(stats) {
   return `${n} of ${RAILS.length}`;
 }
 
-export function ledgerLeaderboardPage(baseUrl, snapshot, { stats, walletAddress, host = null } = {}) {
+export function ledgerLeaderboardPage(baseUrl, snapshot, { stats, walletAddress, host = null, standing = null } = {}) {
   const board = Array.isArray(snapshot?.leaderboard) ? snapshot.leaderboard : [];
   const hasData = board.length > 0;
   const windowLabel = snapshot?.windowLabel || "24h";
@@ -186,6 +187,7 @@ export function ledgerLeaderboardPage(baseUrl, snapshot, { stats, walletAddress,
       </div>
     </div>
   </header>
+${standingBand(standing || {})}
 
   <section style="max-width:1180px;margin:0 auto;padding:56px 30px 0;">
     <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:16px;">

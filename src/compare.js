@@ -96,7 +96,7 @@ export function comparePage(baseUrl) {
 <tr><td>Self-hostable</td><td class="cmp-win"><span class="check">&#10003;</span> Run your own instance</td><td class="cmp-lose"><span class="cross">&#10007;</span> Vendor-hosted only</td></tr>
 <tr><td>Pricing</td><td class="cmp-win"><span class="check">&#10003;</span> Per-call, transparent</td><td class="cmp-lose">Monthly subscription</td></tr>
 <tr><td>Lock-in</td><td class="cmp-win"><span class="check">&#10003;</span> None - standard protocols</td><td class="cmp-lose">Vendor lock-in</td></tr>
-<tr><td>Deterministic</td><td class="cmp-win"><span class="check">&#10003;</span> Every tool is deterministic</td><td class="cmp-lose">LLM-dependent, non-reproducible</td></tr>
+<tr><td>Deterministic</td><td class="cmp-win"><span class="check">&#10003;</span> Deterministic by default, model-backed tools labelled</td><td class="cmp-lose">LLM-dependent, non-reproducible</td></tr>
 </tbody>
 </table></div>
 </div>

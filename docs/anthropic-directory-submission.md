@@ -42,7 +42,7 @@ privacy policy, public docs, and a no-auth streamable-HTTP endpoint.
 > involved in serving the utility tools: same input, same output, with full
 > input schemas. Report products (deep research, company dossier, 13F fund
 > report, SEC filing report, domain audit, token risk, FDA recall, insider flow,
-> $0.20 to $1.10 each) are catalog slugs too. Open source. Also reachable over the x402 and MPP payment protocols for
+> $0.60 to $2.00 each) are catalog slugs too. Open source. Also reachable over the x402 and MPP payment protocols for
 > autonomous agents with their own wallets.
 
 ## Tools exposed (15, each with title + safety annotations)

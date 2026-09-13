@@ -265,8 +265,11 @@ on-chain customer detector - is in
 An autonomous agent that can *pay* is far more useful than one that can't - but
 you don't want a middleman holding your money. Agent402's payments tools are
 **non-custodial**: they help an agent move its *own* USDC with its *own* key.
-Agent402 never holds, signs, or sends funds - it decodes quotes, reads public
-chain state, and builds the authorization *you* sign. Everything below works on
+These tools never hold, sign, or send funds - they decode quotes, read public
+chain state, and build the authorization *you* sign. (Two paths elsewhere on
+the service are not non-custodial and we say so: a prepaid credits balance is
+money held until it is spent, and a card report purchase is held by the payment
+processor until the report is delivered.) Everything below works on
 **Base, Polygon, Arbitrum, Optimism, Ethereum, and Robinhood Chain** (\`network\` param, default
 base), and needs no API key.
 

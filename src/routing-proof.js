@@ -1,0 +1,31 @@
+// What "routable" actually requires, written once and derived.
+//
+// Four surfaces used to say "Only sellers with proven on-chain settlement are
+// routable" as an absolute. It stopped being one on 2026-09-02, when the
+// unproven Solana tier shipped: a seller whose payTo is under the settlement
+// floor but whose chain is readable IS routable, after every proven candidate,
+// up to a small per-call ceiling, flagged `sellerProof: "unproven"` on the
+// receipt. The tier is env-controlled (SOR_SVM_UNPROVEN_MAX_USD), and it is
+// LIVE on the default, so a page that types the absolute is wrong today and a
+// page that types the exception would be wrong the day the tier is switched
+// off. Derive both from the same function the router reads.
+import { svmUnprovenAllowanceAtomic } from "./solana-buyer.js";
+
+/** The unproven-tier ceiling in dollars, or 0 when the tier is disabled. */
+export function unprovenAllowanceUsd() {
+  return Number(svmUnprovenAllowanceAtomic()) / 1e6;
+}
+
+function usd(n) {
+  return n < 0.01 ? `$${n.toFixed(4).replace(/0+$/, "").replace(/\.$/, "")}` : `$${n.toFixed(2)}`;
+}
+
+/**
+ * One sentence about what a seller must prove to be paid by our router.
+ * Reads as an absolute only when the exception is actually switched off.
+ */
+export function routingProofSentence() {
+  const cap = unprovenAllowanceUsd();
+  if (!(cap > 0)) return "Sellers are routable on proven on-chain settlement.";
+  return `Sellers are routable on proven on-chain settlement, with one exception: a Solana seller with no settlement history yet is tried only after every proven candidate, capped at ${usd(cap)} a call, and flagged unproven on the receipt.`;
+}

@@ -1,3 +1,5 @@
+
+
 // Any PRICE QUOTED IN PROSE on a served page must match a real price.
 //
 // scripts/test-docs-truth.js checks the price stated beside a ROUTE. It cannot
@@ -107,6 +109,129 @@ for (const [name, html] of [["/reports", humanReportsPage("https://agent402.tool
   ok(figures.length >= 20 && bad.length === 0, `llms.txt reports paragraph: ${figures.length} dollar figures, every one a real price${bad.length ? ` (stale: ${bad.join(", ")})` : ""}`);
   ok(para.includes(`POST /v1/research (${REPORT_TIERS["research"].price})`) && para.includes(`for $${(Math.min(...Object.values(HUMAN_PRODUCTS).map((p) => p.price)) / 100).toFixed(2)} to $`) && para.includes(`Monitors ($${(Math.min(...Object.values(MONITOR_PRODUCTS).map((m) => m.price)) / 100).toFixed(2)}/month`), "paragraph carries the agent route prices, the card range and the monitor price from the tables");
   ok(!para.includes("$0.35)") && !para.includes("$3/month"), "the two stale figures that shipped 2026-08-23..27 cannot come back");
+}
+
+// --- the BODY of a page, and the MCP payload, not only its meta description --
+// The 2026-08-23 guard checked meta descriptions, which is where the drift had
+// been that week. The next drift was in a page BODY (/pricing said monitors
+// were "$3 a month" for three weeks while /monitors, the homepage FAQ and
+// /company all said $5) and in the hosted connector's payment.info, which
+// quoted the whole pre-repricing ladder - every figure understated 1.7x to
+// 3.4x. A machine surface is the worst place to under-quote: an agent budgets
+// from it, pays, and is refused.
+{
+  const { reportLadderProse } = await import("../src/report-tiers.js");
+  const { ledgerPricingPage } = await import("../src/ledger-pricing.js");
+  const { readFileSync } = await import("node:fs");
+  const ladder = reportLadderProse({ humanProducts: HUMAN_PRODUCTS, monitorProducts: MONITOR_PRODUCTS });
+  const monthly = ladder.monthly;
+  ok(/^\$\d/.test(monthly), `the monitor price derives from MONITOR_PRODUCTS (${monthly})`);
+
+  // Page BODIES, rendered the way a visitor gets them.
+  const pages = [["/pricing", ledgerPricingPage("https://agent402.tools", {})], ["/monitors", monitorsPage("https://agent402.tools")]];
+  for (const [label, html] of pages) {
+    const permonth = [...String(html).matchAll(/\$(\d+(?:\.\d+)?)\s*(?:a|per|\/)\s*month/gi)].map((m) => `$${m[1]}`);
+    const wrong = [...new Set(permonth.filter((x) => x !== monthly))];
+    ok(wrong.length === 0, `${label} body quotes only the real monthly price${wrong.length ? ` - found ${wrong.join(", ")} against ${monthly}` : ""}`);
+  }
+
+  // The hosted connector's payment.info is a MACHINE surface and drifted worst.
+  // Pinned from source: it must derive the ladder, and must not carry a typed
+  // one. A literal price in that block is the bug this is here to prevent.
+  const mcp = readFileSync(new URL("../src/mcp-http.js", import.meta.url), "utf8");
+  const block = mcp.slice(mcp.indexOf("reports: {"), mcp.indexOf("reports: {") + 1400);
+  ok(/reportLadder\(\)\.agentLadder/.test(block), "the MCP connector derives the agent ladder rather than typing it");
+  ok(/reportLadder\(\)\.monthlySentence/.test(block), "...and the monitor price");
+  for (const stale of ["$0.35/$0.65/$1.10", "ticker pack $0.75", "$3 a month per target", "fund 13F $0.25"]) {
+    ok(!mcp.includes(stale), `the ladder that shipped wrong cannot come back: "${stale}"`);
+  }
+}
+
+// --- the AggregateOffer range is DERIVED from the catalog -------------------
+// highPrice sat at a literal "1.50" while the real ceiling was $3.30
+// (route-execute-pro), so the structured data Google reads understated our own
+// range by more than half. Same class as every other stale price on this page:
+// a number typed once beside a table that moves.
+{
+  const { ledgerHomePage } = await import("../src/ledger-home.js");
+  const { CATALOG_FOR_TEST } = await import("./lib/home-catalog.js").catch(() => ({ CATALOG_FOR_TEST: null }));
+  const catalog = CATALOG_FOR_TEST || { a: { slug: "a", price: "$0.001" }, b: { slug: "b", price: "$3.30" } };
+  const html = ledgerHomePage("https://agent402.tools", catalog, {}, null, [], {});
+  const hi = /"highPrice":"([0-9.]+)"/.exec(String(html));
+  ok(hi && Number(hi[1]) === 3.30, `highPrice derives from the catalog ceiling (got ${hi ? hi[1] : "none"} for a $3.30 catalog)`);
+  ok(!String(html).includes('"highPrice":"1.50"') || Number(hi?.[1]) === 1.5,
+     "the old literal cannot come back while a dearer tool exists");
+}
+
+// --- payment.info's OTHER price field ---------------------------------------
+// The 2026-09-13 fix derived this tool's `reports` line and left the `prices`
+// line beside it hand-typed, where it had kept "skill packs up to $1.50"
+// (really $0.003-$0.119) and "report products $0.20-$1.10" (the ladder tops out
+// at the $2.00 ticker pack) through two repricings. Same lesson as the guard
+// that missed it: scope the check to every field that QUOTES the number, not to
+// the one that drifted last.
+{
+  const { readFileSync: rf } = await import("node:fs");
+  const src = rf(new URL("../src/mcp-http.js", import.meta.url), "utf8");
+  ok(/PACK_PRICE_RANGE\.text/.test(src), "the connector renders the pack range from skills.js, never typed");
+  ok(/agentReportPriceRange\(\)/.test(src), "the connector renders the report range from REPORT_TIERS, never typed");
+  for (const stale of ["up to $1.50", "$0.20–$1.10", "$0.20-$1.10"]) {
+    ok(!src.includes(stale), `the connector no longer carries the stale figure "${stale}"`);
+  }
+  const { agentReportPriceRange } = await import("../src/report-tiers.js");
+  const r = agentReportPriceRange();
+  ok(r && r.max >= 2, `the report range reaches the priciest product (${r?.text}) rather than stopping at a mid tier`);
+}
+
+
+// --- retired price figures, swept across EVERY surface that quotes one -------
+// The pack ceiling moved twice (a hand-written table, then a derived one) and
+// the card floor moved once, and the prose that quoted them was never swept:
+// the retired pack ceiling was still live on /faq, the wiki FAQ, a PUBLISHED
+// npm README and two docs pages, and /faq quoted the card range below its own
+// floor. Each earlier guard was scoped to the page that drifted last, so each
+// found nothing. This one is scoped to the FIGURE.
+{
+  const { readFileSync: rf, readdirSync: rd } = await import("node:fs");
+  const { join, dirname } = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const SKIP = new Set(["node_modules", ".git", "dist", "coverage", "assets"]);
+  const walk = (rel, out = [], d = 0) => {
+    let names = [];
+    try { names = rd(join(root, rel), { withFileTypes: true }); } catch { return out; }
+    for (const e of names) {
+      if (SKIP.has(e.name)) continue;
+      const next = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) { if (d < 4) walk(next, out, d + 1); }
+      else if (/\.(js|md)$/.test(e.name)) out.push(next);
+    }
+    return out;
+  };
+  const files = [...walk("src"), ...walk("wiki"), ...walk("docs"), ...walk("mcp"), ...walk("client"), "README.md"];
+  ok(files.length >= 200, `sweeping ${files.length} surfaces for retired price figures`);
+
+  const { PACK_PRICE_RANGE } = await import("../src/skills.js");
+  const RETIRED = [
+    ["up to $1.50", `the pack ceiling is ${PACK_PRICE_RANGE.text}; derive it from PACK_PRICE_RANGE`],
+    ["$0.20 to $1.10", "the agent report ladder is $0.60-$2.00; derive it from REPORT_TIERS"],
+    ["$0.20–$1.10", "the agent report ladder is $0.60-$2.00; derive it from REPORT_TIERS"],
+    ["$1 to $2 by card", "the card ladder is $2 to $5; derive it from HUMAN_PRODUCTS"],
+    ["$0.55 (`route-execute-max`)", "route-execute-pro is $3.30, so the routing tiers do not top out there"],
+  ];
+  // Control first: the sweep must report a planted figure through this path.
+  const scan = (entries) => {
+    const hits = [];
+    for (const [rel, text] of entries) {
+      if (rel === "scripts/test-price-prose.js") continue;
+      for (const [lit, why] of RETIRED) if (text?.includes(lit)) hits.push(`${rel} quotes "${lit}" (${why})`);
+    }
+    return hits;
+  };
+  ok(scan([["<control>", "multi-tool skill packs run up to $1.50 per call"]]).length === 1,
+     "control: a retired figure is reported through this exact code path");
+  const stale = scan(files.map((f) => [f, (() => { try { return rf(join(root, f), "utf8"); } catch { return null; } })()]));
+  ok(stale.length === 0, `no surface quotes a retired price${stale.length ? ` - ${stale.join(" | ")}` : ""}`);
 }
 
 console.log(`\n${pass} passed, 0 failed`);

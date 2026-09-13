@@ -1395,6 +1395,7 @@ jobs:
           t node scripts/test-receipts.js
           t node scripts/test-feedback-kit.js
           t node scripts/test-chain-namespace.js
+          t node scripts/test-standing-band.js
           t node scripts/test-wish-reports.js
 
       - name: x402 Bazaar discovery shape (POST→bodyType, GET→queryParams, example types match schema)
@@ -1517,6 +1518,8 @@ jobs:
           t node scripts/test-router-alias.js
           # Reliability claims (a published guarantee must survive being checked)
           t node scripts/test-reliability-claims.js
+          # Four false absolutes (a claim must stay true as the service widens)
+          t node scripts/test-copy-absolutes.js
           # Index seller count is not instance-inflated (origins vs operators)
           t node scripts/test-index-inflation.js
           # Tollbooth dashboard runtime smoke (boots CLI, hits /__tollbooth + /__tollbooth/stats over HTTP)

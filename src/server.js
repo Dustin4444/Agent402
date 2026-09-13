@@ -171,7 +171,7 @@ import { installEgressMeter, egressReport } from "./egress-meter.js";
 import { acpFeed, acpManifest } from "./acp.js";
 import { findTools, findRelatedSellers } from "./find.js";
 import { recordWish, getWishesAggregate, annotateServed, WISH_SERVED_MIN_SCORE } from "./wish.js";
-import { allPayToOrigins, indexSnapshot, sellerDetail, sellerEntry, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories, bazaarQualityEntries, bazaarQualityFor, indexWarmStartInProgress, quoteIsStale, priceDisagreesWithOrigin, networksNeedLiveVerify, looksLikeListingInjection, crawlToolsByOrigin } from "./x402-index.js";
+import { allPayToOrigins, indexSnapshot, sellerDetail, sellerEntry, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories, bazaarQualityEntries, bazaarQualityFor, indexWarmStartInProgress, quoteIsStale, priceDisagreesWithOrigin, networksNeedLiveVerify, looksLikeListingInjection, crawlToolsByOrigin, listSuccessions, revokeSuccession } from "./x402-index.js";
 import { startMppCrawler, registerMppOrigin, validateOriginInput as validateMppOriginInput, mppIndexSnapshot } from "./mpp-index.js";
 import { startMppLeaderboard, mppLeaderboardSnapshot } from "./mpp-leaderboard.js";
 import { tempoSelfRecipient } from "./mpp-tempo.js";
@@ -364,6 +364,33 @@ const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZ
 // House style on every report tier's output (agents, card buyers, monitors
 // all reach the same handler object): no em or en dashes in what a person
 // reads. Wrapped in place so _premiumHandlers below sees the wrapped one.
+// MODEL-BACKED, marked once so no sentence has to count them by hand.
+//
+// Four public surfaces claimed "tools are deterministic: no model in the
+// serving path" as an unqualified absolute, and the x402 manifest published it
+// as `deterministic: true`. It was never true of the whole catalog: the /v1
+// gateway tiers, every report product, and the image, speech, transcription,
+// embedding, moderation and AI-answer tools all run a model. The claim that IS
+// true is narrower and more useful - the deterministic tools really are pure
+// code, and the model-backed ones are named rather than hidden - so the copy
+// now says that and derives its counts from here.
+const MODEL_BACKED_KITS = [
+  ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...IMAGE_GEN_TOOLS, ...IMAGES_FAST_TOOLS, ...TTS_TOOLS, ...STT_TOOLS,
+  ...EMBED_TOOLS, ...MODERATE_TOOLS, ...PDF_SUMMARIZE_TOOLS,
+  ...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...RECALL_TOOLS,
+  ...INSIDER_TOOLS, ...TOKEN_RISK_TOOLS, ...TOKEN_BRIEF_TOOLS, ...TICKER_PACK_TOOLS, ...FILING_WATCH_TOOLS,
+  ...LINKEDIN_TOOLS,
+];
+const MODEL_BACKED_SLUGS = new Set(MODEL_BACKED_KITS.map((t) => t.slug).filter(Boolean));
+// `answer` says so in its own description ("AI-generated answer"), and lives in
+// the search kit beside deterministic tools, so it is named individually.
+MODEL_BACKED_SLUGS.add("answer");
+export function isModelBacked(slugOrDef) {
+  const slug = typeof slugOrDef === "string" ? slugOrDef : slugOrDef?.slug;
+  return MODEL_BACKED_SLUGS.has(String(slug || ""));
+}
+for (const def of ALL_KIT) if (MODEL_BACKED_SLUGS.has(def.slug)) def.modelBacked = true;
+
 for (const def of ALL_KIT) if (Object.hasOwn(REPORT_TIERS, def.slug) && typeof def.handler === "function" && !def.handler.__houseStyled) { def.handler = withHouseStyle(def.handler); def.handler.__houseStyled = true; }
 // Fold the chain namespace's verbs into the aliases of the tools that serve
 // them, so OUR OWN resolvers find what the namespace already answers. Without
@@ -889,10 +916,13 @@ const SOR_EXTERNAL_ENABLED = /^(1|true|yes|on)$/i.test((process.env.SOR_EXTERNAL
 // (and their money) to it. Two layers, learned the hard way 2026-07-21:
 //   1. RELIABILITY — the open x402 ecosystem is full of sellers that 402 but
 //      don't deliver a paid result (klymax 404s outright; coinstats 402s the
-//      probe then 404s the paid call). So we route ONLY to sellers with proven
-//      settled volume: the leaderboard's callsSettled is real completed paid
-//      deliveries (buyers kept paying because they got results). MIN_SETTLED
-//      gates out the unproven long tail. This is the safety gate — "route to any
+//      probe then 404s the paid call). So on Base we route ONLY to sellers with
+//      proven settled volume: the leaderboard's callsSettled is real completed
+//      paid deliveries (buyers kept paying because they got results). MIN_SETTLED
+//      gates out the unproven long tail. NOT an absolute across every chain since
+//      2026-09-02: Solana has a bounded unproven tier (SOR_SVM_UNPROVEN_MAX_USD,
+//      tried only after every proven candidate), which is why public copy renders
+//      the claim through routingProofSentence() instead of typing it. This is the safety gate — "route to any
 //      seller THAT ACTUALLY WORKS", not just any seller.
 //   2. LIVENESS — even a proven seller's crawled (method, route) can drift, so
 //      probe the live endpoint for a 402 before committing. Bare status read,
@@ -2514,7 +2544,7 @@ app.get("/markets", (_req, res) => htmlCache(res, 300, 900).send(marketsPage(BAS
 // Receipts: the metered tier's settled-under-quote proof, aggregates + one
 // latest external and one latest internal row with settle tx (no payer).
 app.get("/api/proof", (_req, res) => { res.set("Cache-Control", "public, max-age=60"); res.json(proofFeed()); });
-app.get("/proof", (_req, res) => htmlCache(res, 60, 300).send(proofPage(BASE_URL, proofFeed())));
+app.get("/proof", (_req, res) => htmlCache(res, 60, 300).send(proofPage(BASE_URL, proofFeed(), standingFigures())));
 app.get("/glossary", (_req, res) => htmlCache(res, 300, 900).send(glossaryPage(BASE_URL)));
 // x402 & MPP 101 - the presenter-mode walkthrough with the live demo (src/x402-101.js).
 app.get("/101", (_req, res) => htmlCache(res, 300, 900).send(x402101Page(BASE_URL)));
@@ -2657,7 +2687,11 @@ app.get("/api/revenue/mpp", (req, res) => {
 app.get("/revenue", async (_req, res) => {
   try {
     const snap = await revenueSnapshot(revenueWallets());
-    res.set("Cache-Control", "public, max-age=30").type("html").send(revenuePage(BASE_URL, { ...snap, allTime: ledgerSummary(revenueWallets()), mpp: mppSales({ detailed: false }), card: cardSales({ days: 30 }), agents: ledgerBuyerConcentration(revenueWallets()) }));
+    // `standing` is what the page is MEASURING, read from the index totals rather
+    // than typed into the copy: a framing paragraph that goes stale is worse
+    // than none, because it is the sentence asking to be trusted.
+    const idx = getIndexSnapshot()?.totals || {};
+    res.set("Cache-Control", "public, max-age=30").type("html").send(revenuePage(BASE_URL, { ...snap, allTime: ledgerSummary(revenueWallets()), mpp: mppSales({ detailed: false }), card: cardSales({ days: 30 }), agents: ledgerBuyerConcentration(revenueWallets()), standing: { sellers: idx.sellers, listings: idx.tools, rails: RAILS.length } }));
   } catch (e) {
     if (e?.snapshotWarming) {
       res.status(200).type("html").send('<!doctype html><meta http-equiv="refresh" content="6"><title>Transactions</title><body style="font-family:system-ui,sans-serif;max-width:560px;margin:12vh auto;padding:0 24px;color:#14201b"><h2 style="font-weight:500">Warming up…</h2><p style="color:#5d675f">The live on-chain transaction view is loading for the first time since a deploy. It refreshes here automatically in a few seconds.</p><p><a href="/" style="color:#15654a">Home</a></p></body>');
@@ -3908,6 +3942,24 @@ app.get("/__operator/shadow-ledger.json", (req, res) => {
   if (operatorHeavyLimited(req, res)) return;
   res.set("Cache-Control", "no-store").json(shadowLedgerReport({ limit: Math.min(500, parseInt(req.query.limit, 10) || 50) }));
 });
+// Successions, and the lever to undo one. Retirement hides a seller from every
+// ranked listing and from the paid routing pool, so "wrong once, wrong forever"
+// is not an acceptable failure mode: the seller's own undo is removing their
+// marker (the crawler re-verifies and drops it), and this is the operator's for
+// the case where that is not available - a domain that changed hands, or a
+// claim that should never have been recorded.
+app.get("/__operator/successions.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  const rows = listSuccessions();
+  res.set("Cache-Control", "no-store").json({ total: rows.length, successions: rows });
+});
+app.post("/__operator/successions/revoke", express.json(), (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  const from = String(req.body?.from || "").trim();
+  if (!from) return res.status(400).json({ error: 'pass {"from":"<the retired origin>"}' });
+  const revoked = revokeSuccession(from);
+  res.set("Cache-Control", "no-store").json({ revoked, from, note: revoked ? "the origin is listed again from the next read" : "no succession was recorded for that origin" });
+});
 app.get("/__operator/seller-registrations.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   const now = Date.now();
@@ -4438,6 +4490,18 @@ function refreshIndexSnapshotInBackground() {
     }
   });
 }
+// What the framing band on /revenue, /proof and /leaderboard is measuring.
+// Read from the index totals and the ledger, never typed: a framing paragraph
+// that goes stale is worse than none, because it is the sentence asking to be
+// trusted. standingBand() suppresses itself when the crawl cache is cold.
+function standingFigures() {
+  try {
+    const t = getIndexSnapshot()?.totals || {};
+    const h = hostEntryFigures() || {};
+    return { sellers: t.sellers, listings: t.tools, rails: RAILS.length, ourUsd: Number(h.external?.allTime?.revenueUsd ?? h.allTime?.revenueUsd ?? 0) || undefined };
+  } catch { return {}; }
+}
+
 function getIndexSnapshot() {
   if (!indexSnapshotCache.value) {
     // Cold start — block once so the first response isn't empty.
@@ -5208,7 +5272,16 @@ app.get("/api/leaderboard", (req, res) => {
   const requestedTop = parseInt(req.query.top, 10) || 25;
   const top = Math.min(Math.max(requestedTop, 1), topCeiling);
   const topTruncated = requestedTop > topCeiling; // say it, never clamp silently
-  const include = req.query.include === "external" ? "external" : "all";
+  // DEFAULT EXTERNAL, because /sell commits in writing that "we publish how the
+  // ranking works, and exclude ourselves from our own leaderboard" - and until
+  // 2026-09-13 this JSON default ("all") ranked us at #11, unflagged, under a
+  // tool name. The HTML page honoured the commitment; the machine surface the
+  // homepage's own Dataset JSON-LD points at did not, and that row is inflated
+  // by our own canary and volume runs, which is exactly the criticism
+  // /transparency levels at other people's counts. `?include=all` still returns
+  // the full board for anyone who wants it - the self row is FLAGGED there now,
+  // so no consumer can mistake it for a third party.
+  const include = req.query.include === "all" ? "all" : "external";
   const self = (req.query.self || WALLET_ADDRESS || "").toLowerCase();
   const requested = String(req.query.window || "").toLowerCase();
   const windowRequested = SUPPORTED_WINDOWS.has(requested) ? requested : "24h";
@@ -5220,6 +5293,9 @@ app.get("/api/leaderboard", (req, res) => {
   let board = snap.leaderboard || [];
   if (include === "external" && self) board = board.filter((r) => r.wallet !== self);
   board = rankBy(board, sortServed);
+  // On the full board our own row says so. An unflagged self row is how a
+  // consumer builds a ranking that quietly includes the host.
+  if (include === "all" && self) board = board.map((r) => (r.wallet === self ? { ...r, self: true } : r));
   res.json({
     ...snap,
     include,
@@ -5234,7 +5310,7 @@ app.get("/api/leaderboard", (req, res) => {
 });
 // Human-readable companion to /api/leaderboard. Same cached snapshot, rendered
 // as a dashboard so visitors (and the site nav) have something to land on.
-app.get("/leaderboard", (_req, res) => htmlCache(res, 60, 300).send(ledgerLeaderboardPage(BASE_URL, getLeaderboardSnapshot(), { stats: getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }), walletAddress: WALLET_ADDRESS, host: hostEntryFigures() })));
+app.get("/leaderboard", (_req, res) => htmlCache(res, 60, 300).send(ledgerLeaderboardPage(BASE_URL, getLeaderboardSnapshot(), { stats: getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }), walletAddress: WALLET_ADDRESS, host: hostEntryFigures(), standing: standingFigures() })));
 app.get("/robots.txt", (_req, res) => res.type("text/plain").set("Cache-Control", "public, max-age=3600").send(robotsTxt(BASE_URL)));
 // IndexNow ownership key file (env-gated no-op like the other integrations).
 // The protocol verifies a submitted key by fetching /{key}.txt from the host;
@@ -5919,7 +5995,7 @@ app.get("/api/pricing", (_req, res) => {
   const endpointCount = Object.keys(CATALOG).length;
   return res.json({
     name: "Agent402.Tools",
-    description: `Agent402.Tools - pay-per-call tools for AI agents over x402 or MPP (Machine Payments Protocol), both on the same 402; the applied layer of Agentic Finance - ${endpointCount} deterministic tools (browser, search, PDFs, OCR, finance, EDGAR, crypto, macro, memory), an OpenAI-compatible LLM gateway at /v1 (flat-priced chat from $0.003, embeddings $0.002, images - no API key, the wallet is the account), plus ${SKILL_PACKS.length} curated multi-tool skill packs callable as MCP prompts. Free via in-process proof-of-work or pay per call in ${RAILS_OR}. Open-source and self-hostable. MCP connector: ${BASE_URL}/mcp.`,
+    description: `Agent402.Tools - pay-per-call tools for AI agents over x402 or MPP (Machine Payments Protocol), both on the same 402; the applied layer of Agentic Finance - ${endpointCount} priced endpoints, most of them deterministic code (browser, search, PDFs, OCR, finance, EDGAR, crypto, macro, memory) and the model-backed ones marked modelBacked, an OpenAI-compatible LLM gateway at /v1 (flat-priced chat from $0.003, embeddings $0.002, images - no API key, the wallet is the account), plus ${SKILL_PACKS.length} curated multi-tool skill packs callable as MCP prompts. Free via in-process proof-of-work or pay per call in ${RAILS_OR}. Open-source and self-hostable. MCP connector: ${BASE_URL}/mcp.`,
     // The LLM gateway is the highest-frequency product agents buy — surface its
     // tiers at the top level instead of burying them among ${endpointCount}
     // endpoint rows. Flat per-call pricing (not token-metered): a buyer knows
@@ -5980,6 +6056,10 @@ app.get("/api/pricing", (_req, res) => {
         description,
         docs: `${BASE_URL}/tools/${slug}`,
         computePayable: POW_SLUGS.has(slug),
+        // Published per row because the doc's own description says these are
+        // marked: a consumer that wants only deterministic code should be able
+        // to FILTER for it rather than take a sentence's word for it.
+        modelBacked: MODEL_BACKED_SLUGS.has(slug),
       };
     }),
   });

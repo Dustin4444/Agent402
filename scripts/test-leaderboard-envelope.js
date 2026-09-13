@@ -72,7 +72,27 @@ try {
 
   // Defaults. These are baked into MCP top_x402_sellers' defaults too — a
   // flip here silently rotates what every uninformed agent sees.
-  ok(body.include === "all", `default include is 'all' (got ${body.include})`);
+  //
+  // CHANGED 2026-09-13, and this assertion pinned the OLD value for a day: the
+  // default was `all`, which ranked the HOST on its own board while /sell
+  // commits in writing that we "exclude ourselves from our own leaderboard".
+  // The HTML page honoured that and this JSON surface did not, and our row is
+  // inflated by our own canary and volume runs - the exact criticism
+  // /transparency levels at other people's counts. `external` is the default
+  // now; `?include=all` still returns the full board, with the host row
+  // carrying `self: true` so no consumer can build a ranking that quietly
+  // includes us. Pinned here as the DISCLOSURE, not just the string.
+  ok(body.include === "external", `default include is 'external' - the host is not ranked on its own board (got ${body.include})`);
+  {
+    const all = await (await fetch(`${BASE}/api/leaderboard?include=all`)).json();
+    ok(all.include === "all", `?include=all is still served (got ${all.include})`);
+    const rows = Array.isArray(all.leaderboard) ? all.leaderboard : [];
+    const selfRows = rows.filter((r) => r && r.self === true);
+    const hostOnDefault = (Array.isArray(body.leaderboard) ? body.leaderboard : []).filter((r) => r && r.self === true);
+    ok(hostOnDefault.length === 0, "the default board carries no self row at all");
+    ok(selfRows.length === rows.filter((r) => r && r.self).length,
+       `every self row on ?include=all is flagged (${selfRows.length} flagged)`);
+  }
   ok(body.sortServed === "usd", `default sortServed is 'usd' (got ${body.sortServed})`);
   ok(typeof body.windowServed === "string" && body.windowServed.length > 0, `windowServed is a non-empty string (got ${body.windowServed})`);
   ok(body.windowRequested === body.windowServed, `default windowRequested === windowServed (got requested=${body.windowRequested}, served=${body.windowServed})`);

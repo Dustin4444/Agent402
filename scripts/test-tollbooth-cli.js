@@ -209,5 +209,37 @@ const st = await (await fetch(`${B}/__tollbooth/stats`, { headers: { Authorizati
 ok(st.mppPaid === 1 && st.x402Paid === 1 && st.powSolved === 1, `CLI stats attribute the wires: mppPaid=${st.mppPaid} x402Paid=${st.x402Paid} powSolved=${st.powSolved}`);
 
 child.kill("SIGTERM"); facilitator.close();
+// --- the bin symlink, which is the ONLY way to see this class of bug --------
+// npm links the bin as .bin/agent402-tollbooth, so argv[1] is the symlink path
+// while import.meta.url is the realpath. The published 0.10.0 compared those
+// two directly, so `npx agent402-tollbooth` - the command five docs pages tell
+// you to run - started nothing at all and exited 0. Every test here invoked
+// index.js BY PATH, which is the one way to call it that cannot see the bug.
+// Same defect as agent402-openclaw 0.1.0/0.1.1, and the same reason it hid.
+{
+  const { mkdtempSync, symlinkSync, rmSync, mkdirSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { spawn } = await import("node:child_process");
+
+  const dir = mkdtempSync(join(tmpdir(), "tb-symlink-"));
+  mkdirSync(join(dir, "bin"));
+  const link = join(dir, "bin", "agent402-tollbooth");
+  symlinkSync(new URL("../tollbooth/index.js", import.meta.url).pathname, link);
+
+  const child = spawn(process.execPath, [link], { env: { ...process.env, PORT: "0", TOLLBOOTH_SECRET: "t" }, stdio: ["ignore", "pipe", "pipe"] });
+  let out = "";
+  child.stdout.on("data", (d) => { out += d; });
+  child.stderr.on("data", (d) => { out += d; });
+  const started = await new Promise((resolve) => {
+    const t = setTimeout(() => resolve(false), 15_000);
+    const tick = setInterval(() => { if (/listening/i.test(out)) { clearTimeout(t); clearInterval(tick); resolve(true); } }, 200);
+    child.on("exit", () => { clearTimeout(t); clearInterval(tick); resolve(/listening/i.test(out)); });
+  });
+  child.kill();
+  ok(started, "invoked through a bin symlink the CLI actually starts (the published 0.10.0 exited 0 and served nothing)");
+  rmSync(dir, { recursive: true, force: true });
+}
+
 console.log(`\n${pass} passed`);
 process.exit(0);

@@ -1,4 +1,12 @@
 import { RAILS_PAREN, RAILS_OR } from "./rails.js";
+// The report/monitor ladder, DERIVED from the same tables that sell them.
+// No cycle: report-tiers is a leaf over the kit tier tables, and neither
+// checkout module imports this one.
+import { reportLadderProse, agentReportPriceRange } from "./report-tiers.js";
+import { HUMAN_PRODUCTS } from "./human-checkout.js";
+import { MONITOR_PRODUCTS } from "./stripe-subscriptions.js";
+let _ladder = null;
+const reportLadder = () => (_ladder ||= reportLadderProse({ humanProducts: HUMAN_PRODUCTS, monitorProducts: MONITOR_PRODUCTS }));
 // Remote MCP endpoint (Streamable HTTP) — makes Agent402 an installable
 // connector: paste https://agent402.tools/mcp into Claude (Settings >
 // Connectors), ChatGPT, or any MCP client that speaks streamable HTTP.
@@ -33,7 +41,7 @@ import { logSafe } from "./log-safe.js";
 import { recordWish } from "./wish.js";
 import { capturePostHogDiscovery } from "./posthog.js";
 import { rankBy as rankLeaderboard } from "./leaderboard.js";
-import { SKILL_PACKS, buildPromptMessages, rankSkillPacks } from "./skills.js";
+import { SKILL_PACKS, PACK_PRICE_RANGE, buildPromptMessages, rankSkillPacks } from "./skills.js";
 import {
   FLAGSHIP_SLUGS,
   FLAGSHIP_MCP_NAMES,
@@ -787,7 +795,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
               })),
             },
             clientsSeenSinceBoot: Object.fromEntries([...mcpClients].sort((a, b) => b[1] - a[1]).slice(0, 20)),
-            paidAccess: `Every tool, no rate limit: pay per call in ${RAILS_PAREN} via the x402 protocol - npx agent402-mcp with AGENT_KEY (EVM) and/or SOLANA_AGENT_KEY (Solana), or prepaid card credits (AGENT402_CREDITS_KEY, buy at ${baseUrl}/credits), or any x402 HTTP client - or over MPP (Machine Payments Protocol) with an mppx client, settling USDC on Base/Celo or USDC.e (and PathUSD) natively on Tempo. No signup, no API key; most tools $0.001–$0.02/call, LLM gateway tiers $0.002–$0.50, multi-tool skill packs up to $1.50.`,
+            paidAccess: `Every tool, no rate limit: pay per call in ${RAILS_PAREN} via the x402 protocol - npx agent402-mcp with AGENT_KEY (EVM) and/or SOLANA_AGENT_KEY (Solana), or prepaid card credits (AGENT402_CREDITS_KEY, buy at ${baseUrl}/credits), or any x402 HTTP client - or over MPP (Machine Payments Protocol) with an mppx client, settling USDC on Base/Celo or USDC.e (and PathUSD) natively on Tempo. No signup, no API key; most tools $0.001–$0.02/call, LLM gateway tiers $0.002–$0.50, multi-tool skill packs ${PACK_PRICE_RANGE.text}.`,
             ...(getLeaderboard ? { ecosystem: "Call sellers.list to see which x402 sellers (any wallet, not just this host) are settling the most USDC (primarily on Base) in the last 24h, or sellers.list with wire=mpp for MPP sellers ranked by on-chain USDC.e transfers on Tempo - discovers the live economy beyond this catalog." } : {}),
             missingATool: "Call demand.request (or POST /api/wish) with what you needed. We cluster and track demand - repeated requests get built.",
             docs: `${baseUrl}/llms.txt`,
@@ -887,7 +895,12 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           return mcpJsonResult({
             connector: "hosted free tier - no wallet is held on this connector (authless)",
             credits: { how: "prepaid card credits: buy a pack at /credits, then Authorization: Bearer a402_<key> on any paid HTTP route, or AGENT402_CREDITS_KEY on the agent402-mcp npm server; the list price is held before the call and debited only on success", buy: `${baseUrl}/credits`, balance: `${baseUrl}/api/credits/balance` },
-            reports: { what: "finished, cited report products with a data appendix - research $0.35/$0.65/$1.10, dossier $0.55/$0.95, ticker pack $0.75, fund 13F $0.25/$0.50, SEC filing $0.25, domain audit $0.20/$0.30, FDA recall $0.20, insider flow $0.25, market brief $0.35, token brief $0.35, token risk $0.30/$0.60 - the same endpoints over x402/MPP or by card", human: `${baseUrl}/reports`, humanPricing: "people pay $1 by card, or $2 for research max, dossier max and the ticker pack; the card price includes payment processing (2.9% + $0.30 a charge), so an agent paying per call pays the lower tool price above for the same report", monitors: `${baseUrl}/monitors`, monitorPricing: "$3 a month per target" },
+            // DERIVED, never typed. This block quoted the pre-2026-08-23 ladder
+            // for three weeks - every figure understated 1.7x to 3.4x - and an
+            // agent budgeting from a machine surface under-budgets, pays, and
+            // is refused. llms.txt was right the whole time because it derives
+            // its numbers; this does the same now.
+            reports: { what: `finished, cited report products with a data appendix - ${reportLadder().agentLadder} - the same endpoints over x402/MPP or by card`, human: `${baseUrl}/reports`, humanPricing: `people pay ${reportLadder().cardLadder} by card; the card price includes payment processing (2.9% + $0.30 a charge), so an agent paying per call pays the lower tool price above for the same report`, monitors: `${baseUrl}/monitors`, monitorPricing: reportLadder().monthlySentence },
             freeTier: {
               pureCpuToolsFree: freeCount,
               how: "pure-CPU tools run free here (rate-limited); wallet-only tools are payable on this connector over MPP (JSON-RPC -32042 carries the challenges; send the credential in _meta[\"org.paymentauth/credential\"], receipt returns in _meta[\"org.paymentauth/receipt\"] - mppx's McpClient.wrap() handles it) or via the npm server with a wallet",
@@ -898,7 +911,14 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
               mpp: `every paid endpoint also accepts MPP (Machine Payments Protocol, the Payment HTTP auth scheme): the same 402 carries a WWW-Authenticate: Payment challenge, an mppx client pays out of the box, settling USDC on Base/Celo or USDC.e (and PathUSD) natively on Tempo - see ${baseUrl}/what-is-mpp`,
               rails: RAILS_PAREN,
               setup: "run the agent402-mcp npm server: `npx agent402-mcp` with AGENT_KEY=0x<private key> for EVM (USDC on Base/Polygon/Arbitrum, USDG on Robinhood via AGENT402_NETWORKS) and/or SOLANA_AGENT_KEY=<base58 secret> for Solana. No signup, no API key.",
-              prices: "most tools $0.001–$0.02 per call, LLM gateway tiers $0.002–$0.50, multi-tool skill packs up to $1.50, report products $0.20–$1.10 - see each tool's exact price in catalog.search results",
+              // DERIVED. Both ranges here were hand-typed and kept through two
+              // repricings: the pack ceiling was over ten times the real one and
+              // the report range stopped a tier short of the priciest product.
+              // An agent budgets from this surface, so an under-quote is a 402 it
+              // was told not to expect - the same defect this tool's `reports`
+              // line was fixed for, one field away. test-price-prose pins the
+              // retired figures by name, so do not quote them back in here.
+              prices: `most tools $0.001–$0.02 per call, LLM gateway tiers $0.002–$0.50 (the metered tier is quoted per request), multi-tool skill packs ${PACK_PRICE_RANGE.text}, report products ${agentReportPriceRange()?.text || "priced per product"} - see each tool's exact price in catalog.search results`,
               llmGateway: `the /v1 OpenAI-compatible endpoints (chat nano $0.003, auto $0.01, embeddings $0.002) settle the same way - point any OpenAI SDK at ${baseUrl}/v1 through an x402-paying fetch; no API key, the wallet is the account`,
             },
             spendControls: { perCall: "AGENT402_MAX_PER_CALL caps any single call", totalBudget: "AGENT402_BUDGET caps cumulative spend for the session" },

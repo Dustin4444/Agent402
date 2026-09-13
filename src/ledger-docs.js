@@ -22,7 +22,7 @@ export function ledgerDocsPage(baseUrl, catalog) {
   const freeCount = tools.filter(isComputePayable).length;
   const canonical = baseUrl + "/docs";
   const title = "Docs - Agent402 x402 + MCP server";
-  const description = `Add ${fmtNum(totalCount)} deterministic x402 tools plus an OpenAI-compatible /v1 gateway to your agent in about a minute. No signup, no API key - start free with proof-of-work, settle ${RAILS_PAREN} when you scale.`;
+  const description = `Add ${fmtNum(totalCount)} x402 tools, most of them deterministic code, plus an OpenAI-compatible /v1 gateway to your agent in about a minute. No signup, no API key - start free with proof-of-work, settle ${RAILS_PAREN} when you scale.`;
 
   const jsonLd = {
     "@context": "https://schema.org",

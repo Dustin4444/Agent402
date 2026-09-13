@@ -8,6 +8,7 @@
 // Same design system as what-is-mpp.js. No live counts baked into copy:
 // evergreen "500+" only, per the project rule.
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
+import { routingProofSentence } from "./routing-proof.js";
 
 const FAQS = [
   { q: "What is Agentic Finance (AIFI)?", a: "Agentic Finance, AIFI for short, is the practice of software agents transacting on their own: discovering a service, reading a machine-readable price, paying per request from a non-custodial wallet, receiving a verifiable receipt, and, on the other side, earning per request for what they serve. No accounts, no API keys, no invoices. The payment is the identity, and every settlement is on a public ledger." },
@@ -28,7 +29,7 @@ const STACK = [
 
 const ROLES = [
   ["BUY", "500+ pay-per-call tools", "Search, browser, PDFs, OCR, live financial and crypto data, SEC filings, forecasting, an OpenAI-compatible LLM gateway. Every one deterministic, priced, and settled on chain, over x402 or MPP.", "/tools", "browse the catalog"],
-  ["ROUTE", "Index + Smart Order Router", "One call resolves a task to the best seller across the whole ecosystem, ours or anyone's, pays them on the agent's behalf and relays the result. Only sellers with proven on-chain settlement are routable.", "/marketplace", "open index"],
+  ["ROUTE", "Index + Smart Order Router", `One call resolves a task to the best seller across the whole ecosystem, ours or anyone's, pays them on the agent's behalf and relays the result. ${routingProofSentence()}`, "/marketplace", "open index"],
   ["SELL", "Tollbooth", "Charge AI agents per request on your own site or API over both wires, humans free, non-custodial. Open source, one middleware.", "/sell", "sell into it"],
   ["PROVE", "On-chain transparency", "Live transaction counts by rail and wire (external revenue underneath, ours never counted as earnings), the seller leaderboard, uptime measured from outside, refunds ledgered. Numbers you can check, not claims.", "/revenue", "see the numbers"],
 ];

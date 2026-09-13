@@ -243,8 +243,10 @@ call over x402 or MPP pays the lower tool price for the same report.
 Two companion tools close the loop: `POST /api/route/execute` ($0.01, with
 `execute-plus` $0.05 and `execute-max` $0.55 tiers for pricier tools) resolves a task description to the
 best tool and runs it in one paid call, including, with `include:"external"`,
-tools sold by **other x402 sellers** (it routes only to sellers with proven
-on-chain settled volume, pays them on your behalf **on the chain you paid on** -
+tools sold by **other x402 sellers** (it routes on proven on-chain settled
+volume, with one exception - a Solana seller with no history yet is tried only
+after every proven candidate, under a small per-call ceiling, and flagged
+unproven on the receipt - pays them on your behalf **on the chain you paid on** -
 Base or Algorand - and relays the result; see the
 [Smart Order Router guide](https://agent402.tools/guides/smart-order-router)), and
 `POST /api/my-usage` ($0.005) returns the **paying wallet's own** purchase
@@ -480,8 +482,8 @@ Every claim links to the surface that proves it (the one-page version: [agent402
 3. **One key buys everything.** The same wallet or credits key pays for five LLM tiers on three wires (OpenAI chat, OpenAI Responses, Anthropic Messages), embeddings, rerank, images, video, speech, transcription, grounded answers with citations, 500+ tools, wallet-keyed memory and finished reports.
 4. **No wallet required.** [Prepaid credits by card](https://agent402.tools/credits), cards over MPP and card checkout for reports sit beside USDC or USDG on twelve chains and native MPP on Tempo.
 5. **Finished work, ready to use.** Dossiers, insider flow, 13F holdings, filing reports, IPO digests, domain audits, token risk, deep research, market briefs, recall watch and a LinkedIn article package, grounded in primary sources with a data appendix; [monitors](https://agent402.tools/monitors) probe daily for free and re-run the paid report when the facts change.
-6. **We buy on your behalf.** `POST /api/route/execute` resolves a task to the best proven seller across the ecosystem, pays them from our wallet and relays the result under one receipt.
-7. **Everything is checkable.** Uptime observed by two probes outside production ([`/status`](https://agent402.tools/status)), a real-money canary through every rail daily, transactions published by rail and wire ([`/revenue`](https://agent402.tools/revenue)), open source and self-hostable, no model in the tool serving path.
+6. **We buy on your behalf.** `POST /api/route/execute` resolves a task to the best seller across the ecosystem, pays them from our wallet and relays the result under one receipt. Sellers are routable on proven on-chain settlement, with one bounded exception for a zero-history Solana seller under a small per-call ceiling.
+7. **Everything is checkable.** Uptime observed by two probes outside production ([`/status`](https://agent402.tools/status)), a real-money canary through every rail daily, transactions published by rail and wire ([`/revenue`](https://agent402.tools/revenue)), open source and self-hostable. The deterministic tools run no model; the ones that do are named (the /v1 tiers, the report products, and the image, speech, transcription, embedding and AI-answer tools).
 
 ## Why it's solid
 
@@ -516,7 +518,8 @@ working tools, so you don't have to build the catalog yourself.
 - **Want the protocol or an SDK?** → [coinbase/x402](https://github.com/coinbase/x402).
 - **Want a server you can run *today* that actually does things over x402 + MCP?** → you're here.
 - Self-hostable, deterministic, free via proof-of-work without a wallet, and
-  non-custodial on the payment tools (your agent signs with its own key - Agent402 never holds funds).
+  non-custodial on the payment tools (your agent signs with its own key and we hold no crypto
+  balance for it; prepaid card credits are a held balance and are named as one).
 
 Listed in the [official MCP Registry](https://registry.modelcontextprotocol.io/v0/servers?search=io.github.MikeyPetrillo/agent402)
 and discoverable in the Coinbase [x402 Bazaar](https://docs.cdp.coinbase.com/x402/docs/bazaar).

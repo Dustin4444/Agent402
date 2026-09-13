@@ -79,7 +79,8 @@ against production.
 Web search, news and cited answers, browser render and screenshots, PDFs and
 OCR, live market and crypto data, SEC filings, DNS and TLS checks, a code
 sandbox, wallet-keyed memory, finished reports, and an OpenAI-compatible model
-gateway. Every tool is deterministic and priced per call, from $0.001. Catalog:
+gateway. Most tools are deterministic code; the gateway and the reports are
+model-backed. Every tool is priced per call, from $0.001. Catalog:
 https://agent402.tools/tools · agent-readable docs: https://agent402.tools/llms.txt
 
 MIT. Maintained by Havok Holdings LLC.

@@ -9,6 +9,7 @@
 // "unavailable" for that rail instead of breaking the page. Balances and
 // transfers are public on-chain data — this page just saves the tab-cycling.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { standingBand } from "./standing.js";
 import { join } from "node:path";
 import { ledgerShell, ledgerFooterCompact } from "./ledger-chrome.js";
 import { RAILS, RAILS_AMP } from "./rails.js";
@@ -1454,6 +1455,10 @@ export function revenuePage(baseUrl, snap) {
   // (the operator, 2026-09-01) was to lead with the counts and never to REMOVE
   // the revenue split. See railThroughput() for why MPP is Tempo-only here.
   const throughput = railThroughput(snap).total;
+  // What this page is measuring, said once at the top. Derived from the same
+  // snapshot the rest of the page renders, plus the index totals server.js
+  // hands in - never typed, or the framing sentence goes stale first.
+  const standing = standingBand({ ...(snap.standing || {}), settled: railThroughput(snap).total, ourUsd: Number(snap.allTime?.allTimeExternalUsd || 0) });
   const extCount = Number(at.allTimeExternalCount || 0);
   const extUsd = Number(at.allTimeExternalUsd || 0);
   const agents = Number(snap.agents?.buyers || 0);
@@ -1478,6 +1483,7 @@ export function revenuePage(baseUrl, snap) {
     <p style="font-size:16px;line-height:1.6;color:var(--muted);max-width:60ch;margin:0;">
       Every payment through our rails, on both wires (<strong>x402</strong> and <strong>MPP</strong>) plus card purchases, read from the chain. Revenue counts only money from others; throughput counts our own canary and volume runs too. <a href="/transparency#revenue-figures">How the two are told apart</a>.
     </p>
+    ${standing}
     ${hero}
     <p style="font-family:var(--font-mono);font-size:12px;color:var(--muted);margin:0 0 28px;">as of ${esc(snap.asOf)} · 60s cache · <a href="/api/revenue">/api/revenue</a> · <a href="/api/revenue/mpp">/api/revenue/mpp</a> · <a href="/api/revenue/daily">/api/revenue/daily</a></p>
     </section>

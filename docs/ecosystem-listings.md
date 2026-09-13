@@ -34,7 +34,7 @@ claim below is served live; verify prices against `/api/pricing` before pasting.
   free proof-of-work on the pure-CPU tools, or **prepaid card credits** -
   $20 / $50 / $100 packs at https://agent402.tools/credits, spent on any priced
   route with `Authorization: Bearer a402_…`, debited only on a successful call, never expire.
-- **Report products** ($0.20 to $1.10 over x402/MPP, or $1 to $2 by card at
+- **Report products** ($0.60 to $2.00 over x402/MPP, or $2 to $5 by card at
   https://agent402.tools/reports - the card price includes payment processing,
   an agent paying per call pays the lower tool price for the same report):
   deep research `POST /v1/research` (+ `/pro`, `/max`), market brief

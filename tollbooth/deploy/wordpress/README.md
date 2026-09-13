@@ -48,7 +48,7 @@ free.
 |---|---|
 | Enabled | Master kill switch. Off = the gate is a no-op. |
 | Mode | `observe` / `bots` / `all` / `strict`. See the bullet table in the [main Tollbooth docs](https://github.com/MikeyPetrillo/Agent402/tree/main/tollbooth#how-it-decides-who-pays). |
-| USDC wallet | Your own Base wallet — Agent402 never holds funds. Optional in `observe` mode. |
+| USDC wallet | Your own Base wallet. USDC settles to it directly and we never hold it. Optional in `observe` mode. |
 | Price | Price per request (e.g. `$0.002`) advertised in the 402. |
 | Network | `base` (mainnet, default) / `base-sepolia` / `polygon` / `arbitrum`. |
 | Verifier URL | Optional external verifier (a Worker) for PoW + x402 rails. |

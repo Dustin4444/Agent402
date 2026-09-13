@@ -9,9 +9,27 @@
 // to "new today".
 //
 // What it does NOT do, deliberately:
-//   - It never demotes, retires or edits the predecessor. A register call that
-//     could retire another seller's listing is a weapon whatever proof rides
-//     with it; the old origin ages out the honest way, by not answering.
+//   - It never transfers settlement evidence (below).
+//
+// REVISED 2026-09-13. This file used to say it never retires the predecessor
+// at all, because "a register call that could retire another seller's listing
+// is a weapon whatever proof rides with it". The first seller to use the
+// feature then reported the cost of that: they migrated correctly and ended up
+// listed TWICE, same slugs, both routable - us carrying the duplicate-seller
+// shape we collapse in other people's listings.
+//
+// So the predecessor IS retired now, but ONLY on the cross-served-marker
+// proof, which requires serving a document on the OLD origin and is therefore
+// control of it. The shared-payout-wallet proof retires nothing and never
+// will: a manifest can advertise any address, so that path would let an origin
+// that merely NAMES a wallet retire the listing of whoever actually earns on
+// it - the inherited-evidence class the 2026-09-03 payTo binding exists for.
+// The original warning was right about the weapon; it was wrong that the only
+// safe answer was to do nothing.
+//
+// Retirement is also reversible and self-backing-out: the predecessor is
+// hidden only while its successor is present and healthy in the cache, so a
+// migration to an origin that dies restores the old listing on its own.
 //   - It never transfers settlement evidence. Evidence is keyed by payTo and
 //     follows the wallet already, and the shared-payTo guard that withholds
 //     chain proof while two live origins claim one wallet stays exactly as it
@@ -181,6 +199,154 @@ const NEW = `https://api.seller-${TAG}.com`;
   served[O] = { succeededBy: "https://example.net/" };
   eq((await verifySuccessionMarkers("https://example.net", OLD_O, { fetchImpl: stubFetch })).ok, true,
      "a trailing slash is the same origin, compared as origins rather than as strings");
+}
+
+// --- retiring the predecessor, and the two proofs that are not equal --------
+{
+  const { recordSuccession, succeededBy, supersededOrigins, computeAliasOrigins, __testResetSubmitted } =
+    await import("../src/x402-index.js");
+  __testResetSubmitted();
+
+  const A = "https://old-origin.example";
+  const B = "https://new-origin.example";
+  const live = (o) => new Map(o);
+
+  ok(recordSuccession(A, B) === true, "a verified succession is recorded");
+  eq(succeededBy(A), B, "the predecessor names its successor, so an old link can still say where the seller went");
+  eq(succeededBy(B), null, "the successor is not itself superseded");
+
+  // The two shapes that would hide a seller rather than deduplicate one.
+  ok(recordSuccession(A, A) === false, "an origin cannot succeed itself");
+  ok(recordSuccession(B, A) === false, "a cycle is refused: recording the reverse would hide BOTH origins and the seller would vanish");
+
+  // Retirement is conditional on the successor actually being there.
+  const both = live([[A, { tools: [] }], [B, { tools: [] }]]);
+  eq([...supersededOrigins(both)], [A], "with a healthy successor the predecessor is retired");
+  eq([...supersededOrigins(live([[A, { tools: [] }], [B, { error: "unreachable" }]]))], [],
+     "a successor that is ERRORING retires nothing: hiding the old origin would remove the seller entirely, which is worse than the duplicate this fixes");
+  eq([...supersededOrigins(live([[A, { tools: [] }]]))], [],
+     "a successor that is GONE retires nothing either, so a migration that fails backs itself out");
+
+  // The one line that makes it take effect everywhere: superseded origins join
+  // the set that already hides redirect and deployment-hostname duplicates, so
+  // the index listing, the remote pool and route queries all honour it.
+  ok(computeAliasOrigins(both).has(A), "a superseded origin joins the alias set every listing consumer already honours");
+  ok(!computeAliasOrigins(both).has(B), "and the successor does not");
+}
+
+// --- the marker must be served BY the origin, not merely reachable from it --
+// Security review 2026-09-13, HIGH. safeFetch follows redirects and its SSRF
+// guard re-validates each hop only for being public, not for being the host we
+// asked. Without a finalUrl check, "serve a document on the old origin" - the
+// sentence the whole retirement rests on - degrades to "be the target of
+// something the old origin points at", and any victim with a catch-all or
+// wildcard redirect at that path could be retired by whoever it redirects to.
+{
+  const { verifySuccessionMarkers } = await import("../src/x402-index.js");
+  const OLDO = "https://victim.example";
+  const NEWO = "https://attacker.example";
+  const body = (o) => ({ ok: true, url: `${o}/.well-known/agent402-succession`, text: async () => JSON.stringify(
+    o === NEWO ? { succeeds: OLDO } : { succeededBy: NEWO }) });
+
+  const honest = await verifySuccessionMarkers(NEWO, OLDO, {
+    fetchImpl: async (u) => body(new URL(u).origin),
+  });
+  ok(honest.ok === true, "both origins serving their own marker verifies (the control case, so a clean run is believed)");
+
+  // The victim serves nothing itself; its path redirects to the attacker, who
+  // serves the half that names them. fetch's `url` is the FINAL url.
+  const viaRedirect = await verifySuccessionMarkers(NEWO, OLDO, {
+    fetchImpl: async (u) => {
+      const asked = new URL(u).origin;
+      if (asked === OLDO) return { ok: true, url: `${NEWO}/anything.json`, text: async () => JSON.stringify({ succeededBy: NEWO }) };
+      return body(asked);
+    },
+  });
+  ok(viaRedirect.ok === false,
+     "a marker that arrived via a redirect to ANOTHER host is not proof of control and must not verify");
+}
+
+// --- the proof that may NOT retire ------------------------------------------
+// Pinned from source, because the difference is one string and getting it
+// wrong turns a register call into a way to delist a seller you do not own.
+{
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/x402-index.js", import.meta.url), "utf8");
+  const call = /if \(r\?\.ok && r\.via === "cross-served markers"\) r\.predecessorRetired = recordSuccession\(/.test(src);
+  ok(call, "retirement is gated on the cross-served-marker proof, which requires control of the OLD origin");
+  ok(/via: "shared payout wallet"/.test(src), "the shared-wallet proof still exists (it carries the first-seen date)");
+  ok(!/via === "shared payout wallet"[^\n]*recordSuccession/.test(src),
+     "...and it never retires: a manifest can advertise any address, so that path would let an origin that merely NAMES a wallet delist whoever actually earns on it");
+}
+
+// --- a retirement is a claim about NOW, and it can be undone ----------------
+// Security review 2026-09-13, HIGH: retirement was write-once with no delete
+// anywhere, so a wrong one was permanent - and the obvious self-serve remedy
+// (register the old origin naming the new one as `replaces`) is refused by the
+// cycle guard, leaving no lever short of editing the volume.
+{
+  const { recordSuccession, revokeSuccession, reverifySuccessions, succeededBy, listSuccessions, __testResetSubmitted } =
+    await import("../src/x402-index.js");
+  __testResetSubmitted();
+  const A = "https://retired.example", B = "https://live.example";
+
+  recordSuccession(A, B);
+  ok(succeededBy(A) === B, "recorded");
+  ok(listSuccessions().some((r) => r.from === A && r.to === B), "an operator can see what is recorded");
+
+  // The seller's own undo: take the marker down, the next pass drops it.
+  const dropped = await reverifySuccessions({
+    maxAgeMs: -1, limit: 10,
+    verify: async () => ({ ok: false, reason: "the old origin no longer names this successor" }),
+  });
+  eq(dropped.dropped, 1, "a marker that no longer holds drops the succession, so removing it is the predecessor's own undo");
+  ok(succeededBy(A) === null, "and the predecessor is listed again");
+
+  // An origin that is merely DOWN must not un-retire itself by its own outage.
+  recordSuccession(A, B);
+  const unreadable = await reverifySuccessions({ maxAgeMs: -1, limit: 10, verify: async () => { throw new Error("unreachable"); } });
+  eq(unreadable.dropped, 0, "an unreadable origin changes nothing: an outage is not evidence either way");
+  ok(succeededBy(A) === B, "so the retirement stands until something is actually read");
+
+  // A still-good claim is refreshed rather than dropped.
+  const before = listSuccessions().find((r) => r.from === A).recordedAt;
+  const LATER = Date.now() + 9_000_000;
+  const good = await reverifySuccessions({ now: LATER, maxAgeMs: -1, limit: 10, verify: async () => ({ ok: true, via: "cross-served markers" }) });
+  eq(good.dropped, 0, "a claim that still holds is kept");
+  // ...and its clock is REFRESHED. Without this every pass re-reads every
+  // marker forever and the per-cycle bound on this work means nothing.
+  const after = listSuccessions().find((r) => r.from === A).recordedAt;
+  ok(after === LATER && after > before, "a re-verified succession has its clock advanced, so it is not due again next pass");
+
+  // The operator lever, for a claim that should never have been recorded.
+  ok(revokeSuccession(A) === true, "an operator can revoke a succession outright");
+  ok(succeededBy(A) === null, "and the predecessor is listed again");
+  ok(revokeSuccession(A) === false, "revoking what is not recorded is a no-op, not an error");
+}
+
+// --- the map is bounded, like the store it sits beside ----------------------
+{
+  const { recordSuccession, __testResetSubmitted } = await import("../src/x402-index.js");
+  __testResetSubmitted();
+  let accepted = 0;
+  for (let i = 0; i < 2100; i++) if (recordSuccession(`https://old-${i}.example`, `https://new-${i}.example`)) accepted++;
+  ok(accepted === 2000, `the map is capped like submittedSeeds (accepted ${accepted}), so an unauthenticated endpoint cannot grow a /data file without end`);
+  __testResetSubmitted();
+
+  // A chain longer than the walk budget is UNVERIFIED, and an unverified cycle
+  // check must refuse: every origin in a closed loop passes "successor present
+  // and healthy", so accepting the closing edge hides all of them.
+  // A chain of 20 with NO cycle: the walk runs out of budget before it can
+  // prove there is no loop, and an unverifiable check refuses. A longer budget
+  // would accept it, which is the behaviour being pinned - not the cyclic case,
+  // where both a bounded and an unbounded walk refuse and the mutation hides.
+  const N = 20;
+  for (let i = 0; i < N; i++) recordSuccession(`https://c${i}.example`, `https://c${i + 1}.example`);
+  ok(recordSuccession("https://tail.example", "https://c0.example") === false,
+     "a chain too long to walk is UNVERIFIED, and an unverified cycle check refuses rather than falling through");
+  ok(recordSuccession("https://short-a.example", "https://short-b.example") === true,
+     "...while a chain inside the budget still records normally");
+  __testResetSubmitted();
 }
 
 rmSync(dir, { recursive: true, force: true });

@@ -660,6 +660,172 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   checked: the no-values rule, the accepts guard, and both directions of the drift check. NOT built and deliberately
   scoped out for now: a paid `POST /api/x402/echo` that returns the decoded credential and every check that passed once
   payment settles (it would charge only on success, since a >= 400 cancels settlement).
+- **`npx agent402-tollbooth` started NOTHING, and the JSON leaderboard ranked us against our own written commitment
+  (2026-09-13, claims audit):** two findings that cost a real user something. (1) **The published tollbooth CLI was a
+  silent no-op through the npm bin symlink** - `index.js:913` compared `fileURLToPath(import.meta.url)` to
+  `process.argv[1]`, which is the SYMLINK path, so the command five docs pages and the README tell you to run exited 0
+  and served nothing, while `node index.js` worked fine. **The identical defect was found and fixed in
+  agent402-openclaw 0.1.2 on 2026-08-26**, and it regressed here for the same reason it hid there: every test invokes
+  `index.js` BY PATH, the one way to call it that cannot see the bug. Fixed with openclaw's guard
+  (`pathToFileURL(realpathSync(argv[1]))`); `test-tollbooth-cli` now spawns through a real symlink, and the mutation
+  restoring the old comparison fails it. Needs a republish to reach users. (2) **`GET /api/leaderboard` defaulted to
+  `include=all`, which ranked the host at #11, unflagged, under a tool name ("DNS lookup", $36.25)** - while `/sell`
+  commits in writing that "we publish how the ranking works, and exclude ourselves from our own leaderboard". The HTML
+  page honoured it; the machine surface the homepage's own Dataset JSON-LD names as its distribution did not, and that
+  row is inflated by our own canary and volume runs, which is the exact criticism `/transparency` levels at other
+  people's counts. The default is `external` now, `?include=all` still returns the full board, and on it our row carries
+  `self: true` so no consumer can build a ranking that quietly includes the host. Pinned from source both ways.
+- **The homepage shipped raw `${...}` into Google's structured data, and three pages headlined a number nobody framed
+  (2026-09-13, `src/standing.js`, `scripts/test-standing-band.js` 22 + `test-static-pages` placeholder guard):** the
+  `AggregateOffer.description` was a DOUBLE-QUOTED string containing `${usd0(CARD_LO)}` etc, three lines above an FAQ
+  answer using the same helpers correctly inside a template literal - that is how they drifted, and it was live on the
+  most important page on the site. `highPrice` was a literal `"1.50"` against a real ceiling of `$3.30`
+  (route-execute-pro), so our own structured data understated the range by more than half; it derives from the catalog
+  now. `test-static-pages` gained the guard no other check could do: every other one reads RENDERED values, so none of
+  them can see the syntax of an UNRENDERED one - it now fails on any `${...}` in any page's HTML. **The framing band:**
+  a diligence review found /revenue, /proof and /leaderboard each headline a true, deliberately published number
+  ($109 lifetime; 6 external settlements; a rival settling $1,419 in a week on our own board) with no frame, so the
+  reader supplies one and reaches for "small business" instead of "market operator that publishes its own P&L". One
+  derived paragraph (`standingFigures()` in server.js -> `standingBand()`) now says what the page is measuring: sellers
+  indexed, tool listings, settlements through these gates, rails - with our own small number IN THE SAME BREATH (the
+  argument is that we publish it, so burying it forfeits the argument) and the leaderboard's neutrality cited as the
+  reason to trust the index. **A COLD CACHE SAYS NOTHING:** the crawl cache warm-starts incrementally and holds only our
+  own entry for the first seconds of a boot, so the honest figure is "1 seller origin indexed" - publishing that inside
+  the one sentence asking to be trusted is worse than publishing no frame, and `MIN_SELLERS_TO_FRAME` (50, far below the
+  real thousands and far above a cold one) suppresses the band entirely. A figure that cannot be read is omitted, never
+  guessed. Same commit linked the orphans: `/x402-test` into the Docs dropdown and the machine footer, `/crawler` into
+  the footer (an operator seeing our User-Agent in their logs has to be able to find it).
+- **The hosted connector quoted a three-week-stale price ladder to AGENTS (2026-09-13, found by a positioning audit):**
+  `/mcp`'s `payment.info` still carried the pre-2026-08-23 ladder - "research $0.35/$0.65/$1.10, ticker pack $0.75, fund
+  13F $0.25/$0.50 ... monitors $3 a month", every figure understated 1.7x to 3.4x against the real $0.60/$0.85/$1.10,
+  $2.00, $0.60/$0.85 and $5 - and `/pricing`'s BODY said monitors were "$3 a month" while /monitors, the homepage FAQ and
+  /company all said $5. **A machine surface is the worst place to under-quote: an agent budgets from it, pays, and is
+  refused.** `llms.txt` was right the whole time because it DERIVES its numbers, so both now do the same through
+  `reportLadderProse()` (report-tiers.js, fed HUMAN_PRODUCTS + MONITOR_PRODUCTS; no cycle - report-tiers is a leaf over
+  the kit tier tables and neither checkout module imports the connector). Why it survived the guard written for exactly
+  this class: `test-price-prose` (2026-08-23) inspected only the META DESCRIPTIONS of /reports and /monitors, and both
+  drifts were elsewhere - one in a page body, one in a JSON payload. The guard now renders page BODIES and pins the
+  connector FROM SOURCE (it must call `reportLadder()`, and the four literal figures that shipped wrong must not appear
+  anywhere in the file). Mutation-checked by restoring each stale string. Lesson: a guard scoped to where the last drift
+  happened will miss the next one - scope it to every surface that QUOTES the number, machine surfaces first.
+- **Retired price figures outlived every guard scoped to a page (2026-09-13, `agentReportPriceRange` +
+  `cardReportPriceRange` in report-tiers.js, the cross-surface sweep in `scripts/test-price-prose.js` 46):** reviewing
+  the connector-ladder fix from earlier the same day found the SAME defect one field away in the same tool. `payment.info`
+  had its `reports` line derived and left `prices` and `paidAccess` hand-typed, both quoting a skill-pack ceiling from a
+  table retired TWICE (hand-written $0.05-$1.50 -> derived $0.003-$0.168 -> $0.003-$0.119) and a report range that stopped
+  a tier short of the $2.00 ticker pack. Scoping the check to the FIGURE instead of the page found ten more on seven
+  surfaces: `/faq` (live) quoted the retired pack ceiling AND a card range below its own floor ("$1 to $2" against a $2-$5
+  ladder - an under-quote a reader meets at checkout), `/llms.txt` carried the pack ceiling to agents, and it stood in
+  `mcp/README.md` (published npm), `wiki/FAQ.md` and four `docs/` listing files, one of which also said the routing tiers
+  "top out at $0.55 (route-execute-max)" when `route-execute-pro` is $3.30. Every served instance is DERIVED now
+  (`PACK_PRICE_RANGE`, `agentReportPriceRange()`, `cardReportPriceRange(HUMAN_PRODUCTS)`; the /faq answer had to become a
+  template literal, and a single-quoted string would have shipped a raw `${...}` to Google - the placeholder guard from
+  the same day catches that). The new sweep walks 354 surfaces for RETIRED LITERALS with a reason per figure and a control
+  that proves the reporting path first. **The rule this keeps re-teaching: a guard scoped to the page that drifted last
+  finds nothing, because the next drift is in a different page quoting the same number.** Scope it to the number.
+- **Four false absolutes, and the guard that closes the class (2026-09-13, `src/routing-proof.js`,
+  `scripts/test-copy-absolutes.js` 16 in the unit-a4 lane):** every one was true the day it shipped and had stopped being
+  true since, and three had a correctly SCOPED twin already being served on another page of the same site - which is the
+  tell that the defect is copies, not judgment. (1) `/api/pricing`'s description said "N deterministic tools" where N was
+  the WHOLE catalog count; it now says "N priced endpoints, most of them deterministic code ... and the model-backed ones
+  marked modelBacked", and each row actually carries `modelBacked` so a consumer can FILTER rather than take
+  the sentence's word - derived from `MODEL_BACKED_SLUGS` (server.js), the union of the model-backed kits plus `answer`
+  (whose own description says "AI-generated answer"), stamped onto the catalog defs at build. **That field is a
+  MACHINE-READABLE claim on 580+ rows, so it is the worst place on the service to be wrong, and the first cut shipped it
+  with nothing checking the SET** - a comment claimed a new model-backed kit "cannot be counted as deterministic by
+  omission" and dropping a whole kit from `MODEL_BACKED_KITS` published `modelBacked:false` for all of its tools with
+  every guard green (measured). The guard derives membership from the kits' own SOURCE now: a file matching the
+  model-upstream signature must have its exported tool array in the list, directly or through ONE alias hop
+  (`GATEWAY_TOOLS_ENABLED` is really the gateway plus the Messages and Responses kits, and without the hop those three
+  read as uncovered). Five kit-drop mutations killed. The same pass removed `llm-context` from the set: it returns
+  passages an independent index EXTRACTED from the pages it ranked, so despite the kit's name no model writes any part
+  of that answer and marking it model-backed was a false claim in the flattering direction.
+  (2) "Every tool is deterministic / no model in the serving path" on `/why` 07, the `/faq` token answer and `/compare`,
+  plus `deterministic: true` and `testedBeforeEveryDeploy: true` as BOOLEANS on `/.well-known/x402` - the worst shape for
+  a machine-readable trust claim, because a consumer reads `true` and cannot see the exception. Both manifest fields are
+  now SENTENCES naming what is excluded (the /v1 tiers, the report products, the media/embedding/answer tools; the metered
+  routes CI cannot sweep), and the guard fails if either goes back to a boolean. (3) "Only sellers with proven on-chain
+  settlement are routable" on `/why`, `/glossary`, `/agentic-finance`, a blog post and the wiki - false since the unproven
+  Solana tier (2026-09-02), which is LIVE on its default because `SOR_SVM_UNPROVEN_MAX_USD` is unset on Railway. The
+  sentence is now DERIVED by `routingProofSentence()` from `svmUnprovenAllowanceAtomic()` - the same function the router
+  reads - so it names the exception and its ceiling while the tier is on AND collapses back to the absolute the day it is
+  switched off, rather than being stale in the other direction; nothing may type it (the guard pins the call site on all
+  four pages, so a hand-reworded absolute fails too). (4) "Agent402 never holds, receives, signs, or sends funds"
+  (wiki Payments-and-x402, the x402-toolkit guide) and "Non-custodial - Agent402 never holds funds" (`/pricing`) - false
+  since prepaid credits, while `/security`, `/company`, `/terms` and `/api/reliability` had been saying the scoped version
+  for two weeks. The SUBJECT is now the tools ("these tools never hold, receive, sign, or send funds") with the two card
+  paths named, and `/pricing`'s wallet card says "non-custodial on this rail". The guard sweeps 392 copy surfaces
+  RECURSIVELY (`src/` incl. `src/tools/`, `wiki/`, `docs/`, `adapters/`, `openclaw/`, every package's markdown, README) for
+  the six phrasings; 12 mutations killed, including restoring each absolute verbatim, hand-rewording instead of deriving,
+  disabling the reporting path and collapsing the file list.
+  **The rule matched a STRING; the claim had four phrasings (third review).** After the sweep was widened, the routing
+  rule still passed green over `/101`'s "Only sellers with proven settlement are routable" (no "on-chain"), the README's
+  "it routes only to sellers with proven on-chain settled volume", the README's hand-written `/why` copies of points 06
+  ("the best PROVEN seller") and 07 ("no model in the tool serving path" - CLAUDE.md's own warning that those copies are
+  prose and must be re-read when why.js moves, not honoured), and the resolver's own comment at server.js:919. The rules
+  are SHAPE matchers now (exclusivity word near "seller" near "proven", plus a routing/eligibility verb on the line;
+  "no model|LLM in the serving path" unless scoped), each with a named-reason `exempt` map (changelog.js is dated
+  history; routing-proof.js quotes the old sentence to explain it) and a `scopedBy` escape, and BOTH DIRECTIONS are
+  pinned by a MUST_FAIL/MUST_PASS table - a shape rule that flags honest copy gets suppressed by the next author and
+  becomes decoration. Three tuning lessons, each from a surviving mutation or a near-miss: prose WRAPS, so a claim split
+  across two lines was invisible to line-by-line matching (match each line joined with the next); the scoping window is
+  PER RULE and reads BACKWARD (chain names are ordinary words in nearby prose - a 3-line window let three real
+  violations pass as "scoped", while the no-model rule genuinely needs a window because its honest uses open a
+  paragraph with the scope); and the rule nearly made me "fix" two honest headers (`seo.js` already says "of these
+  tools", `agent-kit.js` opens "the deterministic tools") - when a guard flags long-standing copy, read the copy before
+  editing it. **A broken grep reported a clean sweep three times in one session**: `ugrep` answered "exceeds complexity
+  limits" on a bounded-repetition pattern and the error was piped into `cut`, so a zero result read as "no matches".
+  Prove a sweep against a known-present string before believing its zero.
+  **The first cut of the guard certified its own gap, which is the finding worth keeping.** It read `src/*.js` at the TOP
+  LEVEL only plus four README paths, and its count rule matched `\d+ deterministic tools` - so it passed green while four
+  more sites of the same class stood: `/docs`'s meta description called the WHOLE catalog "N deterministic x402 tools" and
+  then named the gateway in the same sentence (LIVE, user-visible, `ledger-docs.js`); `adapters/agentkit/README.md`, a
+  PUBLISHED npm package, said "Every tool is deterministic"; a tollbooth deploy doc and the x402-kit header carried the
+  custody absolute; and `src/pricing-page.js` carried three copies (dead module - imported at server.js:323 and never
+  invoked, like `landing.js`; fixed anyway so a revival is honest, but it was never served). Two regex lessons: the count
+  claim ships as a TEMPLATE EXPRESSION (`${totalTools} deterministic web tools`) far more often than as a literal number,
+  so the rule matches the COUNT POSITION (a digit, a `}` closing `${...}`, or all/every) and tolerates one word between
+  "deterministic" and "tools"; and a control that only asserts `re.test(string)` leaves the REPORTING loop untested - a
+  mutation disabling it survived until the sweep became a function the control drives end to end. Scope a guard to the
+  claim's whole surface, or it is a certificate for the part it cannot see.
+- **A migrated seller was listed TWICE, and the fix is asymmetric on purpose (2026-09-13, `recordSuccession` /
+  `supersededOrigins` in x402-index.js, `scripts/test-seller-succession.js` 40):** verifying a succession did exactly one
+  thing - `inheritFirstSeenFrom`, carrying the old origin's first-seen date onto the new one - and the predecessor stayed a
+  full routable seller. So a seller who migrated CORRECTLY ended up in the index twice with identical slugs, which is the
+  duplicate-seller shape we collapse in other people's listings. Reported by the first seller to use the feature (CN
+  Evidence, 09-13), who noticed their own duplicate before we did; verified live (the workers.dev origin still routable,
+  health 1, 3 tools, same slugs, no marker of any kind). **The predecessor now joins the SAME alias set that already hides
+  redirect and deployment-hostname duplicates**, so the index listing, the remote pool and route queries all honour it in
+  one move rather than four exclusions to keep in step; `sellerDetail` still answers for it and carries `succeededBy`, so
+  an old link says where the seller went instead of 404ing. **RETIREMENT IS GATED ON THE MARKER PROOF ONLY.**
+  `succeedsOrigin` has two, and they are not equally strong: cross-served markers require serving a document on the OLD
+  origin, which is control of it; a SHARED PAYOUT WALLET is a manifest field anyone can copy, so retiring on that path
+  would let an origin that merely NAMES a wallet delist whoever actually earns on it - the inherited-evidence class the
+  2026-09-03 payTo binding exists for. `test-seller-succession`'s header had warned since 09-12 that "a register call that
+  could retire another seller's listing is a weapon whatever proof rides with it" and concluded the only safe answer was to
+  retire nothing; that was right about the weapon and wrong about the answer, and the header now says so. Retirement backs
+  itself out: the predecessor is hidden only while its successor is present and non-errored in the cache, so a migration to
+  an origin that dies restores the old listing with no intervention. Cycles refused (recording the reverse would hide BOTH
+  and the seller would vanish); the cycle walk starts at the claimant so hop zero IS the self-succession case, and a
+  separate `a === b` guard was removed as dead code a mutation could not kill. Persisted at
+  `/data/origin-successions.json` (tmp+rename) and loaded in `startCrawler`, or the duplicate returns on the next boot.
+  **Four security findings on the first cut, all fixed before it merged (review 2026-09-13).** HIGH, and the one that
+  mattered: `safeFetch` follows redirects and its SSRF guard re-validates each hop only for being PUBLIC, not for being
+  the host we asked - and `readMarker` discarded `finalUrl`. So "serve a document on the old origin", the sentence the
+  whole retirement rests on, degraded to "be the target of something the old origin points at", and a victim with a
+  catch-all or wildcard redirect at that path could be retired by whoever it redirects to. `readMarker` now refuses a
+  body that arrived off-host (`sameOrigin(res.finalUrl, origin)`) - the rule every domain-control check uses (ACME
+  http-01, site-verification files). HIGH: retirement was write-once with no delete anywhere, so a wrong one was
+  permanent, and the obvious self-serve remedy (register the old origin naming the new one) is refused by the cycle
+  guard - i.e. the only lever was editing the volume. Now `reverifySuccessions()` re-reads the markers on the crawl
+  cycle (bounded, oldest first) and DROPS a claim that no longer holds, so taking the marker down is the predecessor's
+  own undo and a momentary takeover of a dangling PaaS hostname can no longer retire a listing permanently; an
+  UNREADABLE origin changes nothing (an outage is not evidence either way); `revokeSuccession` +
+  `GET/POST /__operator/successions*` is the operator lever. MED: the map is capped at 2,000 like the submittedSeeds
+  store it sits beside, enforced on write AND on load. LOW: a chain longer than the walk budget is now a REFUSAL rather
+  than a silent fall-through (an unverified cycle check must not accept). 56 assertions, every fix mutation-killed -
+  including two that first survived because the test could not observe them (a cyclic chain is refused at any budget, so
+  the budget is pinned on a NON-cyclic chain; and the refresh is pinned on `recordedAt` advancing, not on a count).
 - **Receipt-bound feedback (2026-09-12, `src/tools/feedback-kit.js`, `sale_feedback` in sales-ledger.js, `scripts/test-feedback-kit.js`
   54 in CI):** `POST /api/feedback {tx, verdict, reason}` $0.001 - a verdict on a call, writable ONLY by the wallet the ledger
   records as having paid for that exact call (`saleByTx` + `payerFromRequest`, identity-bound like attest/receipts so a rail
