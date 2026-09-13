@@ -16,10 +16,14 @@
 //
 // Pricing verified against exa.ai/pricing on 2026-09-13: search $7/1k
 // requests (base, up to 10 results; +$1/1k per result beyond 10), answer
-// $5/1k, contents $1/1k pages PER CONTENT TYPE. New accounts get $20 of
-// credits and the free tier adds $10/month, which is why this can ship and be
-// measured before anyone spends anything. Result counts are capped at 10 so a
-// call cannot silently cross into the per-result surcharge band.
+// $5/1k, contents $1/1k pages PER CONTENT TYPE. The free tier carries $10 of
+// credits (observed on a real account 2026-09-13 - exa.ai/pricing also
+// advertises a $20 signup bonus, which did NOT appear, so budget on the $10),
+// which is why this can ship and be measured before anyone spends anything.
+// At $10 the daily cap matters: the default $1/day would exhaust the balance
+// in ten days, so set EXA_DAILY_MAX_USD lower on a free account.
+// Result counts are capped at 10 so a call cannot silently cross into the
+// per-result surcharge band.
 //
 // Wire verified against exa.ai/docs/reference/{search,answer,get-contents} on
 // 2026-09-13: POST https://api.exa.ai/<endpoint>, `x-api-key` header, bodies
@@ -46,7 +50,11 @@ function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
 }
 
-const apiKey = () => (process.env.EXA_API_KEY || "").trim();
+// EXA_API_KEY is the documented name; EXA_KEY is accepted because it is the
+// obvious shorter spelling and an operator who picks it should get a working
+// deployment, not a silently unlisted kit. Same forgiving-alias rule as the
+// Farcaster kit's NEYNAR/WARPCAST pair.
+const apiKey = () => (process.env.EXA_API_KEY || process.env.EXA_KEY || "").trim();
 
 export function exaEnabled() {
   return apiKey().length > 0;
