@@ -916,10 +916,13 @@ const SOR_EXTERNAL_ENABLED = /^(1|true|yes|on)$/i.test((process.env.SOR_EXTERNAL
 // (and their money) to it. Two layers, learned the hard way 2026-07-21:
 //   1. RELIABILITY — the open x402 ecosystem is full of sellers that 402 but
 //      don't deliver a paid result (klymax 404s outright; coinstats 402s the
-//      probe then 404s the paid call). So we route ONLY to sellers with proven
-//      settled volume: the leaderboard's callsSettled is real completed paid
-//      deliveries (buyers kept paying because they got results). MIN_SETTLED
-//      gates out the unproven long tail. This is the safety gate — "route to any
+//      probe then 404s the paid call). So on Base we route ONLY to sellers with
+//      proven settled volume: the leaderboard's callsSettled is real completed
+//      paid deliveries (buyers kept paying because they got results). MIN_SETTLED
+//      gates out the unproven long tail. NOT an absolute across every chain since
+//      2026-09-02: Solana has a bounded unproven tier (SOR_SVM_UNPROVEN_MAX_USD,
+//      tried only after every proven candidate), which is why public copy renders
+//      the claim through routingProofSentence() instead of typing it. This is the safety gate — "route to any
 //      seller THAT ACTUALLY WORKS", not just any seller.
 //   2. LIVENESS — even a proven seller's crawled (method, route) can drift, so
 //      probe the live endpoint for a 402 before committing. Bare status read,

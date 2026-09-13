@@ -743,6 +743,24 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   RECURSIVELY (`src/` incl. `src/tools/`, `wiki/`, `docs/`, `adapters/`, `openclaw/`, every package's markdown, README) for
   the six phrasings; 12 mutations killed, including restoring each absolute verbatim, hand-rewording instead of deriving,
   disabling the reporting path and collapsing the file list.
+  **The rule matched a STRING; the claim had four phrasings (third review).** After the sweep was widened, the routing
+  rule still passed green over `/101`'s "Only sellers with proven settlement are routable" (no "on-chain"), the README's
+  "it routes only to sellers with proven on-chain settled volume", the README's hand-written `/why` copies of points 06
+  ("the best PROVEN seller") and 07 ("no model in the tool serving path" - CLAUDE.md's own warning that those copies are
+  prose and must be re-read when why.js moves, not honoured), and the resolver's own comment at server.js:919. The rules
+  are SHAPE matchers now (exclusivity word near "seller" near "proven", plus a routing/eligibility verb on the line;
+  "no model|LLM in the serving path" unless scoped), each with a named-reason `exempt` map (changelog.js is dated
+  history; routing-proof.js quotes the old sentence to explain it) and a `scopedBy` escape, and BOTH DIRECTIONS are
+  pinned by a MUST_FAIL/MUST_PASS table - a shape rule that flags honest copy gets suppressed by the next author and
+  becomes decoration. Three tuning lessons, each from a surviving mutation or a near-miss: prose WRAPS, so a claim split
+  across two lines was invisible to line-by-line matching (match each line joined with the next); the scoping window is
+  PER RULE and reads BACKWARD (chain names are ordinary words in nearby prose - a 3-line window let three real
+  violations pass as "scoped", while the no-model rule genuinely needs a window because its honest uses open a
+  paragraph with the scope); and the rule nearly made me "fix" two honest headers (`seo.js` already says "of these
+  tools", `agent-kit.js` opens "the deterministic tools") - when a guard flags long-standing copy, read the copy before
+  editing it. **A broken grep reported a clean sweep three times in one session**: `ugrep` answered "exceeds complexity
+  limits" on a bounded-repetition pattern and the error was piped into `cut`, so a zero result read as "no matches".
+  Prove a sweep against a known-present string before believing its zero.
   **The first cut of the guard certified its own gap, which is the finding worth keeping.** It read `src/*.js` at the TOP
   LEVEL only plus four README paths, and its count rule matched `\d+ deterministic tools` - so it passed green while four
   more sites of the same class stood: `/docs`'s meta description called the WHOLE catalog "N deterministic x402 tools" and

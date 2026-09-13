@@ -66,11 +66,37 @@ const read = (rel) => { try { return readFileSync(join(root, rel), "utf8"); } ca
 
 const FORBIDDEN = [
   {
-    // Must be derived from routingProofSentence(), never typed. The wiki is
-    // hand-maintained prose and carries the rendered sentence, so it is
-    // matched on the ABSOLUTE form only.
-    re: /Only sellers with proven on-chain settlement are routable/,
-    why: "the unproven Solana tier makes this false on its default; use routingProofSentence()",
+    // THE CLASS, not one string. The first cut matched the exact sentence
+    // "Only sellers with proven on-chain settlement are routable" and passed
+    // green over three more live phrasings of the same claim: /x402-101 said
+    // "proven settlement" (no "on-chain"), the README said "routes only to
+    // sellers with proven on-chain settled volume", and the resolver's own
+    // comment said "we route ONLY to sellers with proven settled volume". A
+    // claim has as many phrasings as people who write it down, so this matches
+    // the SHAPE: an exclusivity word near "seller" near "proven".
+    re: /\b(?:only|exclusively)\b[^.]{0,60}sellers?[^.]{0,80}proven|\bproven\b[^.]{0,60}sellers?[^.]{0,40}\bonly\b/i,
+    why: "the unproven Solana tier makes the exclusive form false; render routingProofSentence() or name the chain it is true of",
+    // The claim is always about ROUTING or ELIGIBILITY. Without this the rule
+    // also read a payTo-mismatch comment ("we only refuse on a positive
+    // MISMATCH, so sellers proven by a source...") as the same claim.
+    requires: /\brout|eligib|dispatch/i,
+    // True as written when it names the rail it is scoped to, IN THE SAME
+    // SENTENCE: a chain named three lines away is prose, not a scope.
+    scopedBy: /\bBase\b|\bSolana\b|\bTempo\b|\bAlgorand\b/,
+    scopeWindow: 0,
+    exempt: new Map([
+      ["src/changelog.js", "dated release notes are a historical record: each entry describes what shipped on its date"],
+      ["src/routing-proof.js", "the module that renders the honest sentence quotes the old one to explain it"],
+    ]),
+  },
+  {
+    // Same shape for the no-model claim. Every honest use on the site scopes it
+    // ("of the utility tools", "the deterministic tools"); the README's
+    // hand-written /why copy did not, and said the service runs no model at all.
+    re: /\bno (?:model|LLM)\b[^.]{0,30}serving path/i,
+    why: "the /v1 tiers, the reports and the media tools run models; scope the claim to the utility or deterministic tools",
+    scopedBy: /utility|deterministic|these tools|those tools|this kit|pure[- ]CPU/i,
+    scopeWindow: 3,
   },
   {
     re: /Agent402 never holds(?:,| ) ?(?:receives|signs|sends|funds)/,
@@ -98,9 +124,21 @@ function sweep(entries) {
   const found = [];
   for (const [rel, text] of entries) {
     if (text == null) continue;
-    for (const { re, why } of FORBIDDEN) {
-      const m = text.match(re);
-      if (m) found.push(`${rel} carries "${m[0]}" (${why})`);
+    const lines = text.split("\n");
+    for (const { re, why, scopedBy, exempt, requires, scopeWindow = 0 } of FORBIDDEN) {
+      if (exempt?.has(rel)) continue;
+      for (let i = 0; i < lines.length; i++) {
+        const sentence = `${lines[i]} ${lines[i + 1] || ""}`;
+        const m = sentence.match(re);
+        if (!m) continue;
+        if (requires && !requires.test(sentence)) continue;      // a different subject entirely
+        const near = scopeWindow
+          ? lines.slice(Math.max(0, i - scopeWindow), i + 2).join(" ")
+          : sentence;
+        if (scopedBy?.test(near)) continue;                      // scoped in its own sentence
+        found.push(`${rel} carries "${m[0].trim()}" (${why})`);
+        break;
+      }
     }
   }
   return found;
@@ -229,6 +267,43 @@ ok((read("src/why.js") || "").length > 500 && (read("adapters/agentkit/README.md
   const missing = uncovered(kitFiles, reachable);
   ok(missing.length === 0,
      `every kit that reaches a model upstream is in MODEL_BACKED_KITS${missing.length ? ` - MISSING: ${missing.join(" | ")}` : ""}`);
+}
+
+// --- the class rules are pinned in BOTH directions -------------------------
+// A shape-matching rule earns its keep only if the honest phrasings are proven
+// to pass; otherwise the next author suppresses it and the guard is decoration.
+{
+  const MUST_FAIL = [
+    "Only sellers with proven on-chain settlement are routable.",
+    "Only sellers with proven settlement are routable.",
+    "it routes only to sellers with proven on-chain settled volume",
+    "So we route ONLY to sellers with proven settled volume",
+    "open source and self-hostable, no model in the tool serving path.",
+    "no LLM in the serving path - the same input always yields the same output",
+    // Wrapped across lines, the way a comment or a paragraph really wraps.
+    // Without joining the pair the claim is invisible to a line-by-line match.
+    "// So we route ONLY to sellers with\n// proven settled volume: the leaderboard is real deliveries",
+    // A chain named three lines EARLIER is prose, not a scope: still a failure.
+    // (The window reads backward, so this is the side that pins scopeWindow 0.)
+    "We settle on Base.\nOne payment in, result out.\nPrices are flat.\nOnly sellers with proven settlement are routable."
+  ];
+  const MUST_PASS = [
+    "On Base we route ONLY to sellers with proven settled volume",
+    "Sellers are routable on proven on-chain settlement, with one exception: a Solana seller with no settlement history yet is tried only after every proven candidate.",
+    "no LLM in the serving path of the utility tools - the same input always yields the same output",
+    "The deterministic tools run no model in their serving path",
+    "the leaderboard ranks sellers by settlements actually observed on chain",
+    "UNKNOWN does not block - we only refuse on a positive MISMATCH, so sellers proven by a source that cannot name an address are unaffected",
+    "instead of USDC - no money and no AI tokens (no model in the serving path of these tools)",
+    // The no-model rule DOES read a small window: its honest uses open a
+    // paragraph with the scope and qualify a clause a line or three below.
+    "Agent-kit - the deterministic tools an agent needs most:\nexact token counting and chunking. All pure-CPU,\nno network,\nno LLM in the serving path.",
+  ];
+  const hits = (t) => sweep([["<case>", t]]).length;
+  const missed = MUST_FAIL.filter((t) => hits(t) === 0);
+  const wrong = MUST_PASS.filter((t) => hits(t) > 0);
+  ok(missed.length === 0, `every known phrasing of the class is caught${missed.length ? ` - MISSED: ${missed.join(" | ")}` : ""}`);
+  ok(wrong.length === 0, `honest, scoped phrasings are NOT caught${wrong.length ? ` - FALSE POSITIVE: ${wrong.join(" | ")}` : ""}`);
 }
 
 console.log(`test-copy-absolutes: ${pass} passed, ${fail} failed`);
