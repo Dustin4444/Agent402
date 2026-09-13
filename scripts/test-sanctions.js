@@ -101,4 +101,49 @@ const CSV = [
      "a MATCH carries its own caveat: names repeat and addresses are reused, so a string match is not an identification");
 }
 
+
+// --- all-token matching: the false negative that prompted it ----------------
+// A live buy on 2026-09-13 screened "Vladimir Putin" against a correctly loaded
+// 19,388-entry SDN list and came back no_match, because OFAC stores
+// "PUTIN, Vladimir Vladimirovich" and neither string contains the other. On a
+// sanctions screen that is the dangerous direction to fail: the buyer reads
+// no_match as clean and acts on it. The existing suite passed throughout,
+// which is why these cases exist.
+{
+  const entries = [
+    { id: "1", name: "PUTIN, Vladimir Vladimirovich" },
+    { id: "2", name: "PUTINA, Olga Ivanovna" },
+    { id: "3", name: "SMITH, John" },
+    { id: "4", name: "GAZPROMBANK JOINT STOCK COMPANY" },
+  ];
+  const hit = (q) => screenName(q, entries).matches;
+
+  eq(hit("Vladimir Putin").length, 1, "the natural name order now matches the list's comma form");
+  eq(hit("Vladimir Putin")[0].matchType, "all-tokens", "and says WHICH matcher fired, so a consumer can weigh it");
+  eq(hit("Vladimir Vladimirovich Putin").length, 1, "a fuller name still matches");
+  eq(hit("Olga Putina").length, 1, "and it is not special-cased to one entry");
+
+  // The promise the description makes is that this is not fuzzy. Hold it.
+  eq(hit("Vladimir Smith").length, 0, "tokens from two different entries do not combine into a match");
+  eq(hit("Vlad Putin").length, 0, "a partial token is not a token - no edit distance, no partial credit");
+  eq(screenName("Putin", entries).matches.every((m) => m.matchType === "contains"), true,
+     "a single token stays substring-only: treating one token as an all-token match would make every common surname a hit");
+
+  // Counts stay separable so the three matchers can be audited apart.
+  const r = screenName("Vladimir Putin", entries);
+  eq(r.exactCount, 0, "exactCount unaffected");
+  eq(r.containsCount, 0, "containsCount unaffected");
+  eq(r.allTokensCount, 1, "allTokensCount reports the new matcher on its own");
+}
+
+// The published description must not still claim substring-only matching - a
+// machine-readable promise that stopped being true is the false-absolutes class.
+{
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/tools/sanctions-kit.js", import.meta.url), "utf8");
+  ok(!/Matching is exact and substring only/.test(src), "the old exact-and-substring-only claim is gone");
+  ok(/all-tokens/.test(src), "and the description names the third matcher");
+  ok(/allTokensCount/.test(src), "the response and its published example carry the new counter");
+}
+
 console.log(`test-sanctions: ${n} assertions OK`);

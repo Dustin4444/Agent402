@@ -120,12 +120,12 @@ export const SANCTIONS_TOOLS = [
     slug: "sanctions-name",
     category: "research",
     price: "$0.005",
-    description: "Screen a person or company name against the OFAC SDN list. Returns exact and substring matches with the SDN entry id and type, so every hit can be checked against the published list itself. Matching is exact and substring only - never a fuzzy similarity score, because a confident near-miss on a common surname is a liability rather than an answer. A miss is 'not on the lists checked, as of this date', never a clearance.",
+    description: "Screen a person or company name against the OFAC SDN list. Returns exact and substring matches with the SDN entry id and type, so every hit can be checked against the published list itself. Matching is exact, substring, or all-tokens (every word of your query appears as a whole word in the entry, in any order - so 'Vladimir Putin' finds 'PUTIN, Vladimir Vladimirovich'). Never a fuzzy similarity score, because a confident near-miss on a common surname is a liability rather than an answer; each hit says which of the three it was. A miss is 'not on the lists checked, as of this date', never a clearance.",
     tags: ["sanctions", "ofac", "compliance", "screening", "kyc", "aml"],
     discovery: {
       inputSchema: { type: "object", properties: { name: { type: "string", description: "Person or company name to screen" }, limit: { type: "number", description: "Max matches to return (default 25)" } }, required: ["name"] },
       input: { name: "Gazprom" },
-      output: { type: "json", example: { query: "Gazprom", verdict: "match", exactCount: 0, containsCount: 2, matches: [{ id: "12345", name: "GAZPROMBANK JOINT STOCK COMPANY", type: "-0-", matchType: "contains" }], entriesOnList: 19388, listsChecked: [{ list: "OFAC SDN", authority: "US Treasury OFAC" }], listsFetchedAt: "2026-09-12T00:00:00.000Z", confirmBeforeActing: "a match is a string match against a published list, not a confirmed identification..." } },
+      output: { type: "json", example: { query: "Gazprom", verdict: "match", exactCount: 0, containsCount: 2, allTokensCount: 0, matches: [{ id: "12345", name: "GAZPROMBANK JOINT STOCK COMPANY", type: "-0-", matchType: "contains" }], entriesOnList: 19388, listsChecked: [{ list: "OFAC SDN", authority: "US Treasury OFAC" }], listsFetchedAt: "2026-09-12T00:00:00.000Z", confirmBeforeActing: "a match is a string match against a published list, not a confirmed identification..." } },
     },
     handler: async (input) => {
       const q = String(input?.name || "").trim();
@@ -140,6 +140,7 @@ export const SANCTIONS_TOOLS = [
         verdict: r.matches.length ? "match" : "no_match_on_lists_checked",
         exactCount: r.exactCount ?? 0,
         containsCount: r.containsCount ?? 0,
+        allTokensCount: r.allTokensCount ?? 0,
         matches: r.matches,
         ...(r.reason ? { note: r.reason } : {}),
         entriesOnList: state.names.length,
