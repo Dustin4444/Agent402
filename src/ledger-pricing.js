@@ -6,6 +6,13 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 import { toolList, CATEGORIES } from "./pages.js";
 import { isComputePayable } from "./pow.js";
 import { RAILS_OR, RAILS_SHORT } from "./rails.js";
+// Monitors cost what MONITOR_PRODUCTS says they cost. This page said "$3 a
+// month" for three weeks after the 2026-08-23 repricing made it $5, while
+// /monitors, the homepage FAQ and /company all said $5 - the guard written for
+// exactly this class only inspected meta descriptions, not page bodies.
+import { reportLadderProse } from "./report-tiers.js";
+import { MONITOR_PRODUCTS } from "./stripe-subscriptions.js";
+const MONITOR_MONTHLY = reportLadderProse({ monitorProducts: MONITOR_PRODUCTS }).monthly || "see /monitors";
 
 const fmtNum = (n) => Number(n || 0).toLocaleString("en-US");
 
@@ -71,7 +78,7 @@ export function ledgerPricingPage(baseUrl, catalog) {
   <section style="max-width:1180px;margin:0 auto;padding:56px 30px 30px;">
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:14px;">$ GET /pricing</div>
     <h1 style="font-family:var(--font-body);font-weight:800;font-size:58px;line-height:.96;letter-spacing:-.03em;margin:0 0 14px;">Pay per call.<br>Pay per report.</h1>
-    <p style="font-size:17px;line-height:1.55;color:var(--muted);max-width:600px;margin:0;">Pay in compute with a proof-of-work puzzle, or settle micro-amounts per call - ${RAILS_OR}. No signup, no minimum; card welcome at /reports and /credits, and monitors are the one subscription ($3 a month, cancel anytime). The wallet is the identity.</p>
+    <p style="font-size:17px;line-height:1.55;color:var(--muted);max-width:600px;margin:0;">Pay in compute with a proof-of-work puzzle, or settle micro-amounts per call - ${RAILS_OR}. No signup, no minimum; card welcome at /reports and /credits, and monitors are the one subscription (${MONITOR_MONTHLY}, cancel anytime). The wallet is the identity.</p>
   </section>
 
   <!-- TWO PLANS -->

@@ -109,4 +109,40 @@ for (const [name, html] of [["/reports", humanReportsPage("https://agent402.tool
   ok(!para.includes("$0.35)") && !para.includes("$3/month"), "the two stale figures that shipped 2026-08-23..27 cannot come back");
 }
 
+// --- the BODY of a page, and the MCP payload, not only its meta description --
+// The 2026-08-23 guard checked meta descriptions, which is where the drift had
+// been that week. The next drift was in a page BODY (/pricing said monitors
+// were "$3 a month" for three weeks while /monitors, the homepage FAQ and
+// /company all said $5) and in the hosted connector's payment.info, which
+// quoted the whole pre-repricing ladder - every figure understated 1.7x to
+// 3.4x. A machine surface is the worst place to under-quote: an agent budgets
+// from it, pays, and is refused.
+{
+  const { reportLadderProse } = await import("../src/report-tiers.js");
+  const { ledgerPricingPage } = await import("../src/ledger-pricing.js");
+  const { readFileSync } = await import("node:fs");
+  const ladder = reportLadderProse({ humanProducts: HUMAN_PRODUCTS, monitorProducts: MONITOR_PRODUCTS });
+  const monthly = ladder.monthly;
+  ok(/^\$\d/.test(monthly), `the monitor price derives from MONITOR_PRODUCTS (${monthly})`);
+
+  // Page BODIES, rendered the way a visitor gets them.
+  const pages = [["/pricing", ledgerPricingPage("https://agent402.tools", {})], ["/monitors", monitorsPage("https://agent402.tools")]];
+  for (const [label, html] of pages) {
+    const permonth = [...String(html).matchAll(/\$(\d+(?:\.\d+)?)\s*(?:a|per|\/)\s*month/gi)].map((m) => `$${m[1]}`);
+    const wrong = [...new Set(permonth.filter((x) => x !== monthly))];
+    ok(wrong.length === 0, `${label} body quotes only the real monthly price${wrong.length ? ` - found ${wrong.join(", ")} against ${monthly}` : ""}`);
+  }
+
+  // The hosted connector's payment.info is a MACHINE surface and drifted worst.
+  // Pinned from source: it must derive the ladder, and must not carry a typed
+  // one. A literal price in that block is the bug this is here to prevent.
+  const mcp = readFileSync(new URL("../src/mcp-http.js", import.meta.url), "utf8");
+  const block = mcp.slice(mcp.indexOf("reports: {"), mcp.indexOf("reports: {") + 1400);
+  ok(/reportLadder\(\)\.agentLadder/.test(block), "the MCP connector derives the agent ladder rather than typing it");
+  ok(/reportLadder\(\)\.monthlySentence/.test(block), "...and the monitor price");
+  for (const stale of ["$0.35/$0.65/$1.10", "ticker pack $0.75", "$3 a month per target", "fund 13F $0.25"]) {
+    ok(!mcp.includes(stale), `the ladder that shipped wrong cannot come back: "${stale}"`);
+  }
+}
+
 console.log(`\n${pass} passed, 0 failed`);

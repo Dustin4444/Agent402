@@ -660,6 +660,19 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   checked: the no-values rule, the accepts guard, and both directions of the drift check. NOT built and deliberately
   scoped out for now: a paid `POST /api/x402/echo` that returns the decoded credential and every check that passed once
   payment settles (it would charge only on success, since a >= 400 cancels settlement).
+- **The hosted connector quoted a three-week-stale price ladder to AGENTS (2026-09-13, found by a positioning audit):**
+  `/mcp`'s `payment.info` still carried the pre-2026-08-23 ladder - "research $0.35/$0.65/$1.10, ticker pack $0.75, fund
+  13F $0.25/$0.50 ... monitors $3 a month", every figure understated 1.7x to 3.4x against the real $0.60/$0.85/$1.10,
+  $2.00, $0.60/$0.85 and $5 - and `/pricing`'s BODY said monitors were "$3 a month" while /monitors, the homepage FAQ and
+  /company all said $5. **A machine surface is the worst place to under-quote: an agent budgets from it, pays, and is
+  refused.** `llms.txt` was right the whole time because it DERIVES its numbers, so both now do the same through
+  `reportLadderProse()` (report-tiers.js, fed HUMAN_PRODUCTS + MONITOR_PRODUCTS; no cycle - report-tiers is a leaf over
+  the kit tier tables and neither checkout module imports the connector). Why it survived the guard written for exactly
+  this class: `test-price-prose` (2026-08-23) inspected only the META DESCRIPTIONS of /reports and /monitors, and both
+  drifts were elsewhere - one in a page body, one in a JSON payload. The guard now renders page BODIES and pins the
+  connector FROM SOURCE (it must call `reportLadder()`, and the four literal figures that shipped wrong must not appear
+  anywhere in the file). Mutation-checked by restoring each stale string. Lesson: a guard scoped to where the last drift
+  happened will miss the next one - scope it to every surface that QUOTES the number, machine surfaces first.
 - **A migrated seller was listed TWICE, and the fix is asymmetric on purpose (2026-09-13, `recordSuccession` /
   `supersededOrigins` in x402-index.js, `scripts/test-seller-succession.js` 40):** verifying a succession did exactly one
   thing - `inheritFirstSeenFrom`, carrying the old origin's first-seen date onto the new one - and the predecessor stayed a

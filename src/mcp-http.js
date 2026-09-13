@@ -1,4 +1,12 @@
 import { RAILS_PAREN, RAILS_OR } from "./rails.js";
+// The report/monitor ladder, DERIVED from the same tables that sell them.
+// No cycle: report-tiers is a leaf over the kit tier tables, and neither
+// checkout module imports this one.
+import { reportLadderProse } from "./report-tiers.js";
+import { HUMAN_PRODUCTS } from "./human-checkout.js";
+import { MONITOR_PRODUCTS } from "./stripe-subscriptions.js";
+let _ladder = null;
+const reportLadder = () => (_ladder ||= reportLadderProse({ humanProducts: HUMAN_PRODUCTS, monitorProducts: MONITOR_PRODUCTS }));
 // Remote MCP endpoint (Streamable HTTP) — makes Agent402 an installable
 // connector: paste https://agent402.tools/mcp into Claude (Settings >
 // Connectors), ChatGPT, or any MCP client that speaks streamable HTTP.
@@ -887,7 +895,12 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           return mcpJsonResult({
             connector: "hosted free tier - no wallet is held on this connector (authless)",
             credits: { how: "prepaid card credits: buy a pack at /credits, then Authorization: Bearer a402_<key> on any paid HTTP route, or AGENT402_CREDITS_KEY on the agent402-mcp npm server; the list price is held before the call and debited only on success", buy: `${baseUrl}/credits`, balance: `${baseUrl}/api/credits/balance` },
-            reports: { what: "finished, cited report products with a data appendix - research $0.35/$0.65/$1.10, dossier $0.55/$0.95, ticker pack $0.75, fund 13F $0.25/$0.50, SEC filing $0.25, domain audit $0.20/$0.30, FDA recall $0.20, insider flow $0.25, market brief $0.35, token brief $0.35, token risk $0.30/$0.60 - the same endpoints over x402/MPP or by card", human: `${baseUrl}/reports`, humanPricing: "people pay $1 by card, or $2 for research max, dossier max and the ticker pack; the card price includes payment processing (2.9% + $0.30 a charge), so an agent paying per call pays the lower tool price above for the same report", monitors: `${baseUrl}/monitors`, monitorPricing: "$3 a month per target" },
+            // DERIVED, never typed. This block quoted the pre-2026-08-23 ladder
+            // for three weeks - every figure understated 1.7x to 3.4x - and an
+            // agent budgeting from a machine surface under-budgets, pays, and
+            // is refused. llms.txt was right the whole time because it derives
+            // its numbers; this does the same now.
+            reports: { what: `finished, cited report products with a data appendix - ${reportLadder().agentLadder} - the same endpoints over x402/MPP or by card`, human: `${baseUrl}/reports`, humanPricing: `people pay ${reportLadder().cardLadder} by card; the card price includes payment processing (2.9% + $0.30 a charge), so an agent paying per call pays the lower tool price above for the same report`, monitors: `${baseUrl}/monitors`, monitorPricing: reportLadder().monthlySentence },
             freeTier: {
               pureCpuToolsFree: freeCount,
               how: "pure-CPU tools run free here (rate-limited); wallet-only tools are payable on this connector over MPP (JSON-RPC -32042 carries the challenges; send the credential in _meta[\"org.paymentauth/credential\"], receipt returns in _meta[\"org.paymentauth/receipt\"] - mppx's McpClient.wrap() handles it) or via the npm server with a wallet",
