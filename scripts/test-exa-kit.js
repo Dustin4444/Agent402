@@ -54,7 +54,12 @@ const reset = () => { calls = []; _exaSpendReset(); process.env.EXA_API_KEY = "t
   const c = calls[0];
   eq(c.url, "https://api.exa.ai/search", "search posts to the documented URL");
   eq(c.opts.method, "POST", "with POST");
-  eq(c.opts.headers["x-api-key"], "test-key", "and the x-api-key header the docs name");
+  // Asserted as a BOOLEAN, never compared through eq(): that helper prints both
+  // sides into console.log on mismatch, so passing a credential through it logs
+  // the credential. Harmless with this stub, a real leak the day someone points
+  // this file at a live key - which is exactly what CodeQL js/clear-text-logging
+  // flagged here, correctly.
+  ok(c.opts.headers["x-api-key"] === "test-key", "and the x-api-key header the docs name (value never logged)");
   const body = JSON.parse(c.opts.body);
   eq(body.query, "agent payments", "body is keyed `query`, not `q`");
   eq(body.numResults, 5, "and `numResults`");
