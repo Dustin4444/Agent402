@@ -234,6 +234,38 @@ const NEW = `https://api.seller-${TAG}.com`;
   ok(!computeAliasOrigins(both).has(B), "and the successor does not");
 }
 
+// --- the marker must be served BY the origin, not merely reachable from it --
+// Security review 2026-09-13, HIGH. safeFetch follows redirects and its SSRF
+// guard re-validates each hop only for being public, not for being the host we
+// asked. Without a finalUrl check, "serve a document on the old origin" - the
+// sentence the whole retirement rests on - degrades to "be the target of
+// something the old origin points at", and any victim with a catch-all or
+// wildcard redirect at that path could be retired by whoever it redirects to.
+{
+  const { verifySuccessionMarkers } = await import("../src/x402-index.js");
+  const OLDO = "https://victim.example";
+  const NEWO = "https://attacker.example";
+  const body = (o) => ({ ok: true, url: `${o}/.well-known/agent402-succession`, text: async () => JSON.stringify(
+    o === NEWO ? { succeeds: OLDO } : { succeededBy: NEWO }) });
+
+  const honest = await verifySuccessionMarkers(NEWO, OLDO, {
+    fetchImpl: async (u) => body(new URL(u).origin),
+  });
+  ok(honest.ok === true, "both origins serving their own marker verifies (the control case, so a clean run is believed)");
+
+  // The victim serves nothing itself; its path redirects to the attacker, who
+  // serves the half that names them. fetch's `url` is the FINAL url.
+  const viaRedirect = await verifySuccessionMarkers(NEWO, OLDO, {
+    fetchImpl: async (u) => {
+      const asked = new URL(u).origin;
+      if (asked === OLDO) return { ok: true, url: `${NEWO}/anything.json`, text: async () => JSON.stringify({ succeededBy: NEWO }) };
+      return body(asked);
+    },
+  });
+  ok(viaRedirect.ok === false,
+     "a marker that arrived via a redirect to ANOTHER host is not proof of control and must not verify");
+}
+
 // --- the proof that may NOT retire ------------------------------------------
 // Pinned from source, because the difference is one string and getting it
 // wrong turns a register call into a way to delist a seller you do not own.
@@ -245,6 +277,76 @@ const NEW = `https://api.seller-${TAG}.com`;
   ok(/via: "shared payout wallet"/.test(src), "the shared-wallet proof still exists (it carries the first-seen date)");
   ok(!/via === "shared payout wallet"[^\n]*recordSuccession/.test(src),
      "...and it never retires: a manifest can advertise any address, so that path would let an origin that merely NAMES a wallet delist whoever actually earns on it");
+}
+
+// --- a retirement is a claim about NOW, and it can be undone ----------------
+// Security review 2026-09-13, HIGH: retirement was write-once with no delete
+// anywhere, so a wrong one was permanent - and the obvious self-serve remedy
+// (register the old origin naming the new one as `replaces`) is refused by the
+// cycle guard, leaving no lever short of editing the volume.
+{
+  const { recordSuccession, revokeSuccession, reverifySuccessions, succeededBy, listSuccessions, __testResetSubmitted } =
+    await import("../src/x402-index.js");
+  __testResetSubmitted();
+  const A = "https://retired.example", B = "https://live.example";
+
+  recordSuccession(A, B);
+  ok(succeededBy(A) === B, "recorded");
+  ok(listSuccessions().some((r) => r.from === A && r.to === B), "an operator can see what is recorded");
+
+  // The seller's own undo: take the marker down, the next pass drops it.
+  const dropped = await reverifySuccessions({
+    maxAgeMs: -1, limit: 10,
+    verify: async () => ({ ok: false, reason: "the old origin no longer names this successor" }),
+  });
+  eq(dropped.dropped, 1, "a marker that no longer holds drops the succession, so removing it is the predecessor's own undo");
+  ok(succeededBy(A) === null, "and the predecessor is listed again");
+
+  // An origin that is merely DOWN must not un-retire itself by its own outage.
+  recordSuccession(A, B);
+  const unreadable = await reverifySuccessions({ maxAgeMs: -1, limit: 10, verify: async () => { throw new Error("unreachable"); } });
+  eq(unreadable.dropped, 0, "an unreadable origin changes nothing: an outage is not evidence either way");
+  ok(succeededBy(A) === B, "so the retirement stands until something is actually read");
+
+  // A still-good claim is refreshed rather than dropped.
+  const before = listSuccessions().find((r) => r.from === A).recordedAt;
+  const LATER = Date.now() + 9_000_000;
+  const good = await reverifySuccessions({ now: LATER, maxAgeMs: -1, limit: 10, verify: async () => ({ ok: true, via: "cross-served markers" }) });
+  eq(good.dropped, 0, "a claim that still holds is kept");
+  // ...and its clock is REFRESHED. Without this every pass re-reads every
+  // marker forever and the per-cycle bound on this work means nothing.
+  const after = listSuccessions().find((r) => r.from === A).recordedAt;
+  ok(after === LATER && after > before, "a re-verified succession has its clock advanced, so it is not due again next pass");
+
+  // The operator lever, for a claim that should never have been recorded.
+  ok(revokeSuccession(A) === true, "an operator can revoke a succession outright");
+  ok(succeededBy(A) === null, "and the predecessor is listed again");
+  ok(revokeSuccession(A) === false, "revoking what is not recorded is a no-op, not an error");
+}
+
+// --- the map is bounded, like the store it sits beside ----------------------
+{
+  const { recordSuccession, __testResetSubmitted } = await import("../src/x402-index.js");
+  __testResetSubmitted();
+  let accepted = 0;
+  for (let i = 0; i < 2100; i++) if (recordSuccession(`https://old-${i}.example`, `https://new-${i}.example`)) accepted++;
+  ok(accepted === 2000, `the map is capped like submittedSeeds (accepted ${accepted}), so an unauthenticated endpoint cannot grow a /data file without end`);
+  __testResetSubmitted();
+
+  // A chain longer than the walk budget is UNVERIFIED, and an unverified cycle
+  // check must refuse: every origin in a closed loop passes "successor present
+  // and healthy", so accepting the closing edge hides all of them.
+  // A chain of 20 with NO cycle: the walk runs out of budget before it can
+  // prove there is no loop, and an unverifiable check refuses. A longer budget
+  // would accept it, which is the behaviour being pinned - not the cyclic case,
+  // where both a bounded and an unbounded walk refuse and the mutation hides.
+  const N = 20;
+  for (let i = 0; i < N; i++) recordSuccession(`https://c${i}.example`, `https://c${i + 1}.example`);
+  ok(recordSuccession("https://tail.example", "https://c0.example") === false,
+     "a chain too long to walk is UNVERIFIED, and an unverified cycle check refuses rather than falling through");
+  ok(recordSuccession("https://short-a.example", "https://short-b.example") === true,
+     "...while a chain inside the budget still records normally");
+  __testResetSubmitted();
 }
 
 rmSync(dir, { recursive: true, force: true });

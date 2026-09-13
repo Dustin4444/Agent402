@@ -23,7 +23,7 @@
 //   • Failed crawls log a stale marker; they never crash the process.
 //   • The router uses the same lexical scoring shape as /api/find so rankings
 //     are consistent whether a buyer searches local-only or cross-seller.
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, renameSync } from "node:fs";
 import { timedSync } from "./boot-timing.js";
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 // F23: seller-manifest homepages are external, attacker-controlled URLs. esc()
@@ -229,20 +229,36 @@ function persistSubmittedSeeds() {
 // than four. It stays resolvable by direct lookup and says where it went: an
 // old link should answer, not 404.
 export const SUCCESSIONS_FILE = "/data/origin-successions.json";
-const successions = new Map(); // old origin -> new origin
+const SUCCESSIONS_MAX = 2_000;
+const SUCCESSION_MAX_CHAIN = 16;
+const successions = new Map(); // old origin -> { to: new origin, at: recordedAt }
 
 export function loadSuccessions() {
   try {
     const obj = JSON.parse(readFileSync(SUCCESSIONS_FILE, "utf8"));
     for (const [oldO, newO] of Object.entries(obj || {})) {
-      if (typeof oldO === "string" && typeof newO === "string") successions.set(oldO, newO);
+      if (successions.size >= SUCCESSIONS_MAX) break; // the ceiling holds on load, not only on write
+      // Two shapes: the bare string this file wrote before re-verification
+      // existed, and the record it writes now. An old file loads with at=0,
+      // which makes every legacy entry due for re-verification immediately -
+      // the safe direction, since an entry that no longer holds should stop
+      // hiding a seller as soon as we can tell.
+      if (typeof oldO !== "string") continue;
+      if (typeof newO === "string") successions.set(oldO, { to: newO, at: 0 });
+      else if (newO && typeof newO.to === "string") successions.set(oldO, { to: newO.to, at: Number(newO.at) || 0 });
     }
   } catch { /* absent file / no volume - in-memory only */ }
 }
 
 function persistSuccessions() {
-  try { writeFileSync(SUCCESSIONS_FILE, JSON.stringify(Object.fromEntries(successions), null, 2)); }
-  catch { /* best-effort */ }
+  // tmp+rename like the other durable stores: a deploy is a SIGTERM, and a
+  // truncated file here reads as "no successions", silently restoring every
+  // duplicate this exists to hide.
+  try {
+    const tmp = `${SUCCESSIONS_FILE}.tmp`;
+    writeFileSync(tmp, JSON.stringify(Object.fromEntries(successions), null, 2));
+    renameSync(tmp, SUCCESSIONS_FILE);
+  } catch { /* best-effort - no volume in local/dev */ }
 }
 
 /**
@@ -260,18 +276,86 @@ export function recordSuccession(oldOrigin, newOrigin) {
   // (A succeeds A) - one check, not two, and a separate `a === b` guard above
   // would be dead code that no mutation can kill.
   let cur = b, hops = 0;
-  while (cur && hops++ < 16) {
+  while (cur) {
     if (sameOrigin(cur, a)) return false;
-    cur = successions.get(cur);
+    // A chain we ran out of budget to walk is a chain we did not verify, and
+    // an unverified cycle check must refuse rather than fall through: every
+    // origin in a closed loop passes "successor present and healthy" and they
+    // would all be hidden, which is the exact outcome this guard prevents.
+    if (++hops >= SUCCESSION_MAX_CHAIN) return false;
+    cur = successions.get(cur)?.to;
   }
-  successions.set(a, b);
+  // Bounded like the submitted-seed store it sits beside: this map is fed by
+  // the same unauthenticated endpoint, persists to the same shared volume, and
+  // has no eviction of its own.
+  if (!successions.has(a) && successions.size >= SUCCESSIONS_MAX) return false;
+  successions.set(a, { to: b, at: Date.now() });
   persistSuccessions();
   return true;
 }
 
 /** The origin that replaced this one, or null. */
 export function succeededBy(origin) {
-  return successions.get(String(origin || "")) || null;
+  return successions.get(String(origin || ""))?.to || null;
+}
+
+/**
+ * Forget a succession, so the predecessor is listed again.
+ *
+ * Retirement used to be write-once with no delete anywhere in this file, which
+ * made a wrong one permanent: the obvious self-serve remedy (register the old
+ * origin naming the new one as `replaces`) is refused by the cycle guard, so
+ * the only lever was hand-editing the volume. Two levers exist now - this, for
+ * an operator, and reverifySuccessions below, which is the seller's own.
+ */
+export function revokeSuccession(oldOrigin) {
+  const key = String(oldOrigin || "");
+  if (!successions.delete(key)) return false;
+  persistSuccessions();
+  return true;
+}
+
+/** Every recorded succession, for an operator surface. Counts and origins only. */
+export function listSuccessions() {
+  return [...successions.entries()].map(([from, r]) => ({ from, to: r.to, recordedAt: r.at || null }));
+}
+
+/**
+ * Re-read the markers behind recorded successions and drop the ones that no
+ * longer hold.
+ *
+ * THE PROOF IS A FACT ABOUT NOW, NOT A FACT ABOUT ONCE. Checked only at record
+ * time, a retirement outlives the thing that justified it: a seller who takes
+ * the marker down, or a domain that changes hands, stays retired forever. This
+ * makes removing the marker the predecessor's own undo, and it means a
+ * momentary takeover of a dangling PaaS hostname - exactly the `*.workers.dev`
+ * shape this feature was built for - can no longer retire a listing
+ * permanently, because the legitimate owner's recovery removes the marker and
+ * the next pass restores them.
+ *
+ * Bounded per call and only for entries past `maxAgeMs`, so it costs at most a
+ * handful of requests a cycle. A marker we could not READ changes nothing: an
+ * origin that is merely down must not be un-retired by its own outage.
+ */
+export async function reverifySuccessions({ now = Date.now(), maxAgeMs = 24 * 3600_000, limit = 5, verify = verifySuccessionMarkers } = {}) {
+  const due = [...successions.entries()].filter(([, r]) => now - (r.at || 0) >= maxAgeMs).slice(0, limit);
+  let dropped = 0;
+  for (const [from, r] of due) {
+    let res = null;
+    try { res = await verify(r.to, from); } catch { res = null; }
+    if (res && res.ok === false && res.reason) {
+      // A definite NO from a readable pair of origins: the claim no longer
+      // holds, so stop hiding the predecessor.
+      successions.delete(from);
+      dropped++;
+    } else if (res?.ok) {
+      successions.set(from, { to: r.to, at: now });
+    }
+    // res === null means unreadable. Leave it exactly as it was and try again
+    // next pass: an outage is not evidence either way.
+  }
+  if (dropped) persistSuccessions();
+  return { checked: due.length, dropped };
 }
 
 /**
@@ -284,7 +368,8 @@ export function succeededBy(origin) {
  */
 export function supersededOrigins(cacheMap = cache) {
   const out = new Set();
-  for (const [oldO, newO] of successions) {
+  for (const [oldO, rec] of successions) {
+    const newO = rec.to;
     const successor = cacheMap.get(newO);
     if (!successor || successor.error) continue;
     if (!cacheMap.has(oldO)) continue;
@@ -397,9 +482,22 @@ async function readMarker(origin, fetchImpl) {
     //
     // `fetchImpl` remains only for tests and is never the network path.
     const res = fetchImpl
-      ? await fetchImpl(url).then(async (r) => (r.ok ? { html: await r.text() } : null))
+      ? await fetchImpl(url).then(async (r) => (r.ok ? { html: await r.text(), finalUrl: r.url || url } : null))
       : await safeFetch(url, { headers: { accept: "application/json" }, maxBytes: 4096 }).catch(() => null);
     if (!res) return null;
+    // THE MARKER MUST BE SERVED BY THE ORIGIN ITSELF.
+    //
+    // safeFetch follows redirects (redirect: "follow"), and its SSRF guard
+    // re-validates each hop only for being PUBLIC - it does not pin the hop to
+    // the host we asked for. So without this check the document we parse as
+    // "the marker on the old origin" may have been served by any other public
+    // host the old origin redirects to, and the whole proof degrades from
+    // "control of this host" to "being the target of something it points at".
+    // A victim with a wildcard or catch-all redirect at this path could then be
+    // retired by whoever it redirects to. Same rule every domain-control check
+    // uses (ACME http-01, site-verification files): the proof fetch may not be
+    // satisfied off-host.
+    if (res.finalUrl && !sameOrigin(res.finalUrl, origin)) return null;
     return JSON.parse(String(res.html).slice(0, 4000));
   } catch { return null; }
 }
@@ -3613,7 +3711,15 @@ export function startCrawler(opts = {}) {
     runDiscovery(selfOrigin).then(() => runCrawl()).then(() => persistIndexCacheAsync()).catch(() => {});
   }, Math.max(0, firstDelayMs));
   if (typeof firstCrawlTimer.unref === "function") firstCrawlTimer.unref();
-  crawlerTimer = setInterval(() => { runCrawl().then(() => persistIndexCacheAsync()).catch(() => {}); }, CRAWL_INTERVAL_MS);
+  crawlerTimer = setInterval(() => {
+    // Re-check a few recorded successions each cycle. A retirement is a claim
+    // about NOW, and the marker that justified it can be taken down; without
+    // this the hiding outlives the proof and the seller has no undo.
+    runCrawl()
+      .then(() => reverifySuccessions().catch(() => {}))
+      .then(() => persistIndexCacheAsync())
+      .catch(() => {});
+  }, CRAWL_INTERVAL_MS);
   discoveryTimer = setInterval(() => runDiscovery(selfOrigin), DISCOVERY_INTERVAL_MS);
   // Don't keep the event loop alive on shutdown.
   if (typeof crawlerTimer.unref === "function") crawlerTimer.unref();

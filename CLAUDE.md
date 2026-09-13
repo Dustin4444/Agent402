@@ -680,7 +680,24 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   an origin that dies restores the old listing with no intervention. Cycles refused (recording the reverse would hide BOTH
   and the seller would vanish); the cycle walk starts at the claimant so hop zero IS the self-succession case, and a
   separate `a === b` guard was removed as dead code a mutation could not kill. Persisted at
-  `/data/origin-successions.json` and loaded in `startCrawler`, or the duplicate returns on the next boot.
+  `/data/origin-successions.json` (tmp+rename) and loaded in `startCrawler`, or the duplicate returns on the next boot.
+  **Four security findings on the first cut, all fixed before it merged (review 2026-09-13).** HIGH, and the one that
+  mattered: `safeFetch` follows redirects and its SSRF guard re-validates each hop only for being PUBLIC, not for being
+  the host we asked - and `readMarker` discarded `finalUrl`. So "serve a document on the old origin", the sentence the
+  whole retirement rests on, degraded to "be the target of something the old origin points at", and a victim with a
+  catch-all or wildcard redirect at that path could be retired by whoever it redirects to. `readMarker` now refuses a
+  body that arrived off-host (`sameOrigin(res.finalUrl, origin)`) - the rule every domain-control check uses (ACME
+  http-01, site-verification files). HIGH: retirement was write-once with no delete anywhere, so a wrong one was
+  permanent, and the obvious self-serve remedy (register the old origin naming the new one) is refused by the cycle
+  guard - i.e. the only lever was editing the volume. Now `reverifySuccessions()` re-reads the markers on the crawl
+  cycle (bounded, oldest first) and DROPS a claim that no longer holds, so taking the marker down is the predecessor's
+  own undo and a momentary takeover of a dangling PaaS hostname can no longer retire a listing permanently; an
+  UNREADABLE origin changes nothing (an outage is not evidence either way); `revokeSuccession` +
+  `GET/POST /__operator/successions*` is the operator lever. MED: the map is capped at 2,000 like the submittedSeeds
+  store it sits beside, enforced on write AND on load. LOW: a chain longer than the walk budget is now a REFUSAL rather
+  than a silent fall-through (an unverified cycle check must not accept). 56 assertions, every fix mutation-killed -
+  including two that first survived because the test could not observe them (a cyclic chain is refused at any budget, so
+  the budget is pinned on a NON-cyclic chain; and the refresh is pinned on `recordedAt` advancing, not on a count).
 - **Receipt-bound feedback (2026-09-12, `src/tools/feedback-kit.js`, `sale_feedback` in sales-ledger.js, `scripts/test-feedback-kit.js`
   54 in CI):** `POST /api/feedback {tx, verdict, reason}` $0.001 - a verdict on a call, writable ONLY by the wallet the ledger
   records as having paid for that exact call (`saleByTx` + `payerFromRequest`, identity-bound like attest/receipts so a rail

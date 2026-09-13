@@ -171,7 +171,7 @@ import { installEgressMeter, egressReport } from "./egress-meter.js";
 import { acpFeed, acpManifest } from "./acp.js";
 import { findTools, findRelatedSellers } from "./find.js";
 import { recordWish, getWishesAggregate, annotateServed, WISH_SERVED_MIN_SCORE } from "./wish.js";
-import { allPayToOrigins, indexSnapshot, sellerDetail, sellerEntry, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories, bazaarQualityEntries, bazaarQualityFor, indexWarmStartInProgress, quoteIsStale, priceDisagreesWithOrigin, networksNeedLiveVerify, looksLikeListingInjection, crawlToolsByOrigin } from "./x402-index.js";
+import { allPayToOrigins, indexSnapshot, sellerDetail, sellerEntry, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories, bazaarQualityEntries, bazaarQualityFor, indexWarmStartInProgress, quoteIsStale, priceDisagreesWithOrigin, networksNeedLiveVerify, looksLikeListingInjection, crawlToolsByOrigin, listSuccessions, revokeSuccession } from "./x402-index.js";
 import { startMppCrawler, registerMppOrigin, validateOriginInput as validateMppOriginInput, mppIndexSnapshot } from "./mpp-index.js";
 import { startMppLeaderboard, mppLeaderboardSnapshot } from "./mpp-leaderboard.js";
 import { tempoSelfRecipient } from "./mpp-tempo.js";
@@ -3907,6 +3907,24 @@ app.get("/__operator/shadow-ledger.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   if (operatorHeavyLimited(req, res)) return;
   res.set("Cache-Control", "no-store").json(shadowLedgerReport({ limit: Math.min(500, parseInt(req.query.limit, 10) || 50) }));
+});
+// Successions, and the lever to undo one. Retirement hides a seller from every
+// ranked listing and from the paid routing pool, so "wrong once, wrong forever"
+// is not an acceptable failure mode: the seller's own undo is removing their
+// marker (the crawler re-verifies and drops it), and this is the operator's for
+// the case where that is not available - a domain that changed hands, or a
+// claim that should never have been recorded.
+app.get("/__operator/successions.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  const rows = listSuccessions();
+  res.set("Cache-Control", "no-store").json({ total: rows.length, successions: rows });
+});
+app.post("/__operator/successions/revoke", express.json(), (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  const from = String(req.body?.from || "").trim();
+  if (!from) return res.status(400).json({ error: 'pass {"from":"<the retired origin>"}' });
+  const revoked = revokeSuccession(from);
+  res.set("Cache-Control", "no-store").json({ revoked, from, note: revoked ? "the origin is listed again from the next read" : "no succession was recorded for that origin" });
 });
 app.get("/__operator/seller-registrations.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
