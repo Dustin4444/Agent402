@@ -1,3 +1,5 @@
+
+
 // Any PRICE QUOTED IN PROSE on a served page must match a real price.
 //
 // scripts/test-docs-truth.js checks the price stated beside a ROUTE. It cannot
@@ -159,6 +161,77 @@ for (const [name, html] of [["/reports", humanReportsPage("https://agent402.tool
   ok(hi && Number(hi[1]) === 3.30, `highPrice derives from the catalog ceiling (got ${hi ? hi[1] : "none"} for a $3.30 catalog)`);
   ok(!String(html).includes('"highPrice":"1.50"') || Number(hi?.[1]) === 1.5,
      "the old literal cannot come back while a dearer tool exists");
+}
+
+// --- payment.info's OTHER price field ---------------------------------------
+// The 2026-09-13 fix derived this tool's `reports` line and left the `prices`
+// line beside it hand-typed, where it had kept "skill packs up to $1.50"
+// (really $0.003-$0.119) and "report products $0.20-$1.10" (the ladder tops out
+// at the $2.00 ticker pack) through two repricings. Same lesson as the guard
+// that missed it: scope the check to every field that QUOTES the number, not to
+// the one that drifted last.
+{
+  const { readFileSync: rf } = await import("node:fs");
+  const src = rf(new URL("../src/mcp-http.js", import.meta.url), "utf8");
+  ok(/PACK_PRICE_RANGE\.text/.test(src), "the connector renders the pack range from skills.js, never typed");
+  ok(/agentReportPriceRange\(\)/.test(src), "the connector renders the report range from REPORT_TIERS, never typed");
+  for (const stale of ["up to $1.50", "$0.20–$1.10", "$0.20-$1.10"]) {
+    ok(!src.includes(stale), `the connector no longer carries the stale figure "${stale}"`);
+  }
+  const { agentReportPriceRange } = await import("../src/report-tiers.js");
+  const r = agentReportPriceRange();
+  ok(r && r.max >= 2, `the report range reaches the priciest product (${r?.text}) rather than stopping at a mid tier`);
+}
+
+
+// --- retired price figures, swept across EVERY surface that quotes one -------
+// The pack ceiling moved twice (a hand-written table, then a derived one) and
+// the card floor moved once, and the prose that quoted them was never swept:
+// the retired pack ceiling was still live on /faq, the wiki FAQ, a PUBLISHED
+// npm README and two docs pages, and /faq quoted the card range below its own
+// floor. Each earlier guard was scoped to the page that drifted last, so each
+// found nothing. This one is scoped to the FIGURE.
+{
+  const { readFileSync: rf, readdirSync: rd } = await import("node:fs");
+  const { join, dirname } = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const SKIP = new Set(["node_modules", ".git", "dist", "coverage", "assets"]);
+  const walk = (rel, out = [], d = 0) => {
+    let names = [];
+    try { names = rd(join(root, rel), { withFileTypes: true }); } catch { return out; }
+    for (const e of names) {
+      if (SKIP.has(e.name)) continue;
+      const next = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) { if (d < 4) walk(next, out, d + 1); }
+      else if (/\.(js|md)$/.test(e.name)) out.push(next);
+    }
+    return out;
+  };
+  const files = [...walk("src"), ...walk("wiki"), ...walk("docs"), ...walk("mcp"), ...walk("client"), "README.md"];
+  ok(files.length >= 200, `sweeping ${files.length} surfaces for retired price figures`);
+
+  const { PACK_PRICE_RANGE } = await import("../src/skills.js");
+  const RETIRED = [
+    ["up to $1.50", `the pack ceiling is ${PACK_PRICE_RANGE.text}; derive it from PACK_PRICE_RANGE`],
+    ["$0.20 to $1.10", "the agent report ladder is $0.60-$2.00; derive it from REPORT_TIERS"],
+    ["$0.20–$1.10", "the agent report ladder is $0.60-$2.00; derive it from REPORT_TIERS"],
+    ["$1 to $2 by card", "the card ladder is $2 to $5; derive it from HUMAN_PRODUCTS"],
+    ["$0.55 (`route-execute-max`)", "route-execute-pro is $3.30, so the routing tiers do not top out there"],
+  ];
+  // Control first: the sweep must report a planted figure through this path.
+  const scan = (entries) => {
+    const hits = [];
+    for (const [rel, text] of entries) {
+      if (rel === "scripts/test-price-prose.js") continue;
+      for (const [lit, why] of RETIRED) if (text?.includes(lit)) hits.push(`${rel} quotes "${lit}" (${why})`);
+    }
+    return hits;
+  };
+  ok(scan([["<control>", "multi-tool skill packs run up to $1.50 per call"]]).length === 1,
+     "control: a retired figure is reported through this exact code path");
+  const stale = scan(files.map((f) => [f, (() => { try { return rf(join(root, f), "utf8"); } catch { return null; } })()]));
+  ok(stale.length === 0, `no surface quotes a retired price${stale.length ? ` - ${stale.join(" | ")}` : ""}`);
 }
 
 console.log(`\n${pass} passed, 0 failed`);

@@ -2,7 +2,7 @@ import { whyPointsPlain } from "./why.js";
 import { toolList, CATEGORIES } from "./pages.js";
 import { isComputePayable, POW_DIFFICULTY } from "./pow.js";
 import { guideSlugs } from "./guides.js";
-import { skillSlugs, SKILL_PACKS, PACK_PRICES } from "./skills.js";
+import { skillSlugs, SKILL_PACKS, PACK_PRICES, PACK_PRICE_RANGE } from "./skills.js";
 import { BLOG_POSTS } from "./blog.js";
 import { ADAPTERS } from "./adapter-docs.js";
 import { RAILS, RAILS_OR } from "./rails.js";
@@ -393,7 +393,7 @@ export function llmsTxt(baseUrl, catalog) {
 
   return `# Agent402.Tools
 
-> Pay-per-call web tools for AI agents, payable over **x402 or MPP** - the applied layer of Agentic Finance: agents that pay and get paid on their own (explainer: /agentic-finance). **First job: search the web and answer questions** (\`/api/search\`, \`/api/answer\`, \`/api/search-news\`) - then the long catalog of 500+ tools via \`/api/find\`: deterministic utilities, a metered model gateway on the OpenAI and Anthropic wires (\`POST /v1/metered/chat/completions\`, \`POST /v1/metered/messages\`) and finished report products. Call an endpoint, receive an HTTP 402 carrying both offers (x402 PAYMENT-REQUIRED and MPP WWW-Authenticate: Payment), and settle from your own wallet - USDC via x402, or MPP on Base/Celo (USDC) or Tempo (USDC.e or PathUSD, native)${stripeEnabled() ? ", or by **card** on premium tools >= $0.50 (Stripe Shared Payment Token over MPP stripe/charge - no wallet, no stablecoin)" : ""} - or, on ${powCount} of the ${tools.length} tools, pay with proof-of-work (CPU) and skip the wallet entirely. No human, no signup, no API key: the payment is the identity (optional: a prepaid card-credits key, see below). Flat per-call prices from $0.001 - most tools $0.001–$0.02, with premium AI, media and multi-tool packs higher (up to $1.50); every price is in /api/pricing and quoted in the 402.
+> Pay-per-call web tools for AI agents, payable over **x402 or MPP** - the applied layer of Agentic Finance: agents that pay and get paid on their own (explainer: /agentic-finance). **First job: search the web and answer questions** (\`/api/search\`, \`/api/answer\`, \`/api/search-news\`) - then the long catalog of 500+ tools via \`/api/find\`: deterministic utilities, a metered model gateway on the OpenAI and Anthropic wires (\`POST /v1/metered/chat/completions\`, \`POST /v1/metered/messages\`) and finished report products. Call an endpoint, receive an HTTP 402 carrying both offers (x402 PAYMENT-REQUIRED and MPP WWW-Authenticate: Payment), and settle from your own wallet - USDC via x402, or MPP on Base/Celo (USDC) or Tempo (USDC.e or PathUSD, native)${stripeEnabled() ? ", or by **card** on premium tools >= $0.50 (Stripe Shared Payment Token over MPP stripe/charge - no wallet, no stablecoin)" : ""} - or, on ${powCount} of the ${tools.length} tools, pay with proof-of-work (CPU) and skip the wallet entirely. No human, no signup, no API key: the payment is the identity (optional: a prepaid card-credits key, see below). Flat per-call prices from $0.001 - most tools $0.001–$0.02, with premium AI and media tiers higher and multi-tool packs ${PACK_PRICE_RANGE.text}; every price is in /api/pricing and quoted in the 402.
 
 Base URL: ${baseUrl}
 

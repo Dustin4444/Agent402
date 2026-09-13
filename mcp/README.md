@@ -76,8 +76,8 @@ caps, what's been spent, and what remains. With no wallet key and no credits key
 the server runs in proof-of-work mode (pure-CPU tools stay free). Use dedicated
 low-value wallets for `AGENT_KEY` / `SOLANA_AGENT_KEY`, funded only with what
 you intend to spend. Most tools cost $0.001–$0.02. The routing tiers top out
-at $0.55 (`route-execute-max`); multi-tool skill packs run up to $1.50; and the
-report products run $0.20 to $1.10 per report (domain-audit $0.20 up to research-max $1.10),
+at $3.30 (`route-execute-pro`); multi-tool skill packs run $0.003 to $0.119; and the
+report products run $0.60 to $2.00 per report (domain-audit $0.60 up to the ticker pack at $2.00),
 so set `AGENT402_MAX_PER_CALL` if you want a hard per-call ceiling.
 
 ## How it works

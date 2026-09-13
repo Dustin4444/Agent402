@@ -89,3 +89,37 @@ export function reportLadderProse({ humanProducts = null, monitorProducts = null
     monthlySentence: monthly ? `${monthly} a month per target` : null,
   };
 }
+
+/**
+ * The agent-facing report price ladder as a range, derived from REPORT_TIERS.
+ *
+ * Exists because `/mcp`'s `payment.info` hand-typed "report products $0.20-$1.10"
+ * and kept it through two repricings: the low end was three times under the real
+ * floor and the high end omitted the $2.00 ticker pack, on the surface an agent
+ * budgets from. A machine surface that under-quotes gets the buyer refused at
+ * the 402 it was told to expect.
+ */
+export function agentReportPriceRange() {
+  const usd = [...new Set(Object.values(REPORT_TIERS).map((t) => Number(String(t.price).replace(/[^0-9.]/g, ""))))]
+    .filter((n) => Number.isFinite(n) && n > 0)
+    .sort((a, b) => a - b);
+  if (!usd.length) return null;
+  const fmt = (n) => `$${n.toFixed(2)}`;
+  return { min: usd[0], max: usd[usd.length - 1], text: `${fmt(usd[0])}-${fmt(usd[usd.length - 1])}` };
+}
+
+/**
+ * The CARD report price range, derived from the product table passed in.
+ *
+ * /faq quoted a card range below its own floor long after the floor moved,
+ * which is an under-quote a reader meets at checkout. Takes the products as
+ * an argument so a copy page never has to import the Stripe-backed module.
+ */
+export function cardReportPriceRange(humanProducts) {
+  const cents = [...new Set(Object.values(humanProducts || {}).map((p) => Number(p?.price)))]
+    .filter((n) => Number.isFinite(n) && n > 0)
+    .sort((a, b) => a - b);
+  if (!cents.length) return null;
+  const fmt = (c) => `$${(c / 100).toFixed(c % 100 === 0 ? 0 : 2)}`;
+  return { min: cents[0], max: cents[cents.length - 1], text: `${fmt(cents[0])} to ${fmt(cents[cents.length - 1])}` };
+}

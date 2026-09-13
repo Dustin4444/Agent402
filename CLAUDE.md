@@ -708,6 +708,21 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   connector FROM SOURCE (it must call `reportLadder()`, and the four literal figures that shipped wrong must not appear
   anywhere in the file). Mutation-checked by restoring each stale string. Lesson: a guard scoped to where the last drift
   happened will miss the next one - scope it to every surface that QUOTES the number, machine surfaces first.
+- **Retired price figures outlived every guard scoped to a page (2026-09-13, `agentReportPriceRange` +
+  `cardReportPriceRange` in report-tiers.js, the cross-surface sweep in `scripts/test-price-prose.js` 46):** reviewing
+  the connector-ladder fix from earlier the same day found the SAME defect one field away in the same tool. `payment.info`
+  had its `reports` line derived and left `prices` and `paidAccess` hand-typed, both quoting a skill-pack ceiling from a
+  table retired TWICE (hand-written $0.05-$1.50 -> derived $0.003-$0.168 -> $0.003-$0.119) and a report range that stopped
+  a tier short of the $2.00 ticker pack. Scoping the check to the FIGURE instead of the page found ten more on seven
+  surfaces: `/faq` (live) quoted the retired pack ceiling AND a card range below its own floor ("$1 to $2" against a $2-$5
+  ladder - an under-quote a reader meets at checkout), `/llms.txt` carried the pack ceiling to agents, and it stood in
+  `mcp/README.md` (published npm), `wiki/FAQ.md` and four `docs/` listing files, one of which also said the routing tiers
+  "top out at $0.55 (route-execute-max)" when `route-execute-pro` is $3.30. Every served instance is DERIVED now
+  (`PACK_PRICE_RANGE`, `agentReportPriceRange()`, `cardReportPriceRange(HUMAN_PRODUCTS)`; the /faq answer had to become a
+  template literal, and a single-quoted string would have shipped a raw `${...}` to Google - the placeholder guard from
+  the same day catches that). The new sweep walks 354 surfaces for RETIRED LITERALS with a reason per figure and a control
+  that proves the reporting path first. **The rule this keeps re-teaching: a guard scoped to the page that drifted last
+  finds nothing, because the next drift is in a different page quoting the same number.** Scope it to the number.
 - **Four false absolutes, and the guard that closes the class (2026-09-13, `src/routing-proof.js`,
   `scripts/test-copy-absolutes.js` 16 in the unit-a4 lane):** every one was true the day it shipped and had stopped being
   true since, and three had a correctly SCOPED twin already being served on another page of the same site - which is the
