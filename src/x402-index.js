@@ -724,6 +724,7 @@ const DEFAULT_SEEDS = [
   "https://x402.lagaceta.net", // Colombia TRM — official USD/COP Superfinanciera series, prepaid x402 GET on Base USDC
   "https://api.surplusintelligence.ai", // Surplus Intelligence — OpenAI-compatible inference market, x402 (Base USDC, exact + upto) and MPP (Tempo) on one 402; /.well-known/x402 manifest (verified 2026-08-26)
   "https://billing.ideatrace.cn", // Idie - self-evolving autonomy RPC, exact-scheme pay-per-use USDC on Solana (PR #903)
+  "https://compounder-market-api.vercel.app", // Compounder Market API — deterministic bounty-fit scoring with structured JSON verdicts, $0.01 USDC exact on Base
 ];
 
 export const seedList = () => {
