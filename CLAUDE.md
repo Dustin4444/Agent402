@@ -732,6 +732,18 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   the same day catches that). The new sweep walks 354 surfaces for RETIRED LITERALS with a reason per figure and a control
   that proves the reporting path first. **The rule this keeps re-teaching: a guard scoped to the page that drifted last
   finds nothing, because the next drift is in a different page quoting the same number.** Scope it to the number.
+- **A manifest price that is an OBJECT read as no price at all (2026-09-13, `parseManifestPrice`, found reviewing seed
+  PR #1338):** the parser read `price_usd | priceUsd | price | amount` as SCALARS, so a seller publishing the richer
+  and entirely legitimate shape - `price: { scheme, network, asset, amountUsd: "0.01", amountLabel, payTo, facilitator }`,
+  carrying the rail details per resource with the figure inside - normalised to `price: null`. Two costs, and the second
+  is the one that matters: a live-402 probe is spent learning what the origin had already stated, and
+  `originDeclaredPrice` is never stamped - which is the ANCHOR the 2026-08-29 anti-ratchet fix hangs on, so a learned
+  quote for that seller could only age out on the 7-day clock instead of being corrected against the origin's own
+  current declaration. Now one level is descended (`amountUsd` > `priceUsd` > `price_usd` > `amountLabel` > `amount` >
+  `value`), which restores both. Pinned in test-index-tools-catalog (60) beside the existing declaration cases, with the
+  object shape, a price object carrying NO figure (declares nothing) and an ARRAY (declares nothing). The `!Array.isArray`
+  check is a documented BELT, not load-bearing: an array carries none of those keys so descending already yields null,
+  no mutation can kill it, and the test asserts the OUTCOME rather than pretending otherwise.
 - **An outside index reported 701 payers against our 158, and the index is the one that is wrong (2026-09-13, issue
   #1334):** a third-party x402 ranking mailed us "5,831 calls, 701 unique payers, 30 days". Our own ledger says **158
   distinct external buyers** over the same window, and our ALL-TIME union is 410, so their 30-day figure exceeded every
