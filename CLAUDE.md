@@ -660,6 +660,21 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   checked: the no-values rule, the accepts guard, and both directions of the drift check. NOT built and deliberately
   scoped out for now: a paid `POST /api/x402/echo` that returns the decoded credential and every check that passed once
   payment settles (it would charge only on success, since a >= 400 cancels settlement).
+- **`npx agent402-tollbooth` started NOTHING, and the JSON leaderboard ranked us against our own written commitment
+  (2026-09-13, claims audit):** two findings that cost a real user something. (1) **The published tollbooth CLI was a
+  silent no-op through the npm bin symlink** - `index.js:913` compared `fileURLToPath(import.meta.url)` to
+  `process.argv[1]`, which is the SYMLINK path, so the command five docs pages and the README tell you to run exited 0
+  and served nothing, while `node index.js` worked fine. **The identical defect was found and fixed in
+  agent402-openclaw 0.1.2 on 2026-08-26**, and it regressed here for the same reason it hid there: every test invokes
+  `index.js` BY PATH, the one way to call it that cannot see the bug. Fixed with openclaw's guard
+  (`pathToFileURL(realpathSync(argv[1]))`); `test-tollbooth-cli` now spawns through a real symlink, and the mutation
+  restoring the old comparison fails it. Needs a republish to reach users. (2) **`GET /api/leaderboard` defaulted to
+  `include=all`, which ranked the host at #11, unflagged, under a tool name ("DNS lookup", $36.25)** - while `/sell`
+  commits in writing that "we publish how the ranking works, and exclude ourselves from our own leaderboard". The HTML
+  page honoured it; the machine surface the homepage's own Dataset JSON-LD names as its distribution did not, and that
+  row is inflated by our own canary and volume runs, which is the exact criticism `/transparency` levels at other
+  people's counts. The default is `external` now, `?include=all` still returns the full board, and on it our row carries
+  `self: true` so no consumer can build a ranking that quietly includes the host. Pinned from source both ways.
 - **The homepage shipped raw `${...}` into Google's structured data, and three pages headlined a number nobody framed
   (2026-09-13, `src/standing.js`, `scripts/test-standing-band.js` 22 + `test-static-pages` placeholder guard):** the
   `AggregateOffer.description` was a DOUBLE-QUOTED string containing `${usd0(CARD_LO)}` etc, three lines above an FAQ

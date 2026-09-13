@@ -5242,7 +5242,16 @@ app.get("/api/leaderboard", (req, res) => {
   const requestedTop = parseInt(req.query.top, 10) || 25;
   const top = Math.min(Math.max(requestedTop, 1), topCeiling);
   const topTruncated = requestedTop > topCeiling; // say it, never clamp silently
-  const include = req.query.include === "external" ? "external" : "all";
+  // DEFAULT EXTERNAL, because /sell commits in writing that "we publish how the
+  // ranking works, and exclude ourselves from our own leaderboard" - and until
+  // 2026-09-13 this JSON default ("all") ranked us at #11, unflagged, under a
+  // tool name. The HTML page honoured the commitment; the machine surface the
+  // homepage's own Dataset JSON-LD points at did not, and that row is inflated
+  // by our own canary and volume runs, which is exactly the criticism
+  // /transparency levels at other people's counts. `?include=all` still returns
+  // the full board for anyone who wants it - the self row is FLAGGED there now,
+  // so no consumer can mistake it for a third party.
+  const include = req.query.include === "all" ? "all" : "external";
   const self = (req.query.self || WALLET_ADDRESS || "").toLowerCase();
   const requested = String(req.query.window || "").toLowerCase();
   const windowRequested = SUPPORTED_WINDOWS.has(requested) ? requested : "24h";
@@ -5254,6 +5263,9 @@ app.get("/api/leaderboard", (req, res) => {
   let board = snap.leaderboard || [];
   if (include === "external" && self) board = board.filter((r) => r.wallet !== self);
   board = rankBy(board, sortServed);
+  // On the full board our own row says so. An unflagged self row is how a
+  // consumer builds a ranking that quietly includes the host.
+  if (include === "all" && self) board = board.map((r) => (r.wallet === self ? { ...r, self: true } : r));
   res.json({
     ...snap,
     include,

@@ -12,7 +12,8 @@
 // The proof-of-work rail works out of the box with zero configuration. To also
 // accept USDC, set `payTo` and supply `verifyX402` (wire it to the standard
 // x402 server middleware / your facilitator — see README).
-import { fileURLToPath } from "node:url";
+import { realpathSync } from "node:fs";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { Readable } from "node:stream";
 import { randomBytes } from "node:crypto";
 import { createPow } from "./pow.js";
@@ -910,4 +911,14 @@ async function startCli() {
   });
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) startCli();
+// THE BIN SYMLINK. npm links the bin as `.bin/agent402-tollbooth`, so argv[1]
+// is the SYMLINK path while import.meta.url is the realpath - they never match,
+// and the documented install path (`npx agent402-tollbooth`) started nothing at
+// all while `node index.js` worked fine. Exactly the defect found and fixed in
+// agent402-openclaw 0.1.2; it survived here because every test invokes
+// index.js by path, which is the one way to call it that cannot see the bug.
+// Compare the REALPATH, the way openclaw/cli.js does.
+function invokedDirectly() {
+  try { return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href; } catch { return false; }
+}
+if (process.argv[1] && invokedDirectly()) startCli();
