@@ -48,6 +48,11 @@ const DEFAULT_BASE_RPCS = [
   "https://base-rpc.publicnode.com",
   "https://base.drpc.org",
 ];
+// Published thresholds for the payer-concentration flag. Named here (and
+// echoed in the API envelope) so the flag is reproducible from the two shares
+// rather than being a verdict only we can compute.
+export const CONCENTRATION = { majority: 0.5, supermajority: 0.9 };
+
 const DEFAULTS = {
   bazaarUrl: process.env.BAZAAR_URL || "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources",
   spanBlocks: parseInt(process.env.SPAN_BLOCKS || "43200", 10), // ~24h of Base blocks
@@ -278,7 +283,11 @@ export function initWalletAccumulator(sellers) {
       ...s,
       callsSettled: 0,
       totalUsd: 0,
-      buyers: new Set(),
+      // Per-payer tallies, not a bare Set of addresses. Same cardinality as the
+      // Set it replaces (one entry per distinct payer), plus two numbers each -
+      // which is what makes the concentration read below possible at all.
+      // uniqueBuyers is perPayer.size, so no count changes by adding this.
+      perPayer: new Map(),
     });
   }
   return byWallet;
@@ -300,7 +309,12 @@ export function foldTransfers(byWallet, transfers, maxCallUsd = DEFAULTS.maxCall
     if (!(t.usd > 0) || t.usd > maxCallUsd) continue;
     row.callsSettled += 1;
     row.totalUsd += t.usd;
-    if (t.payer) row.buyers.add(t.payer);
+    if (t.payer) {
+      const p = row.perPayer.get(t.payer) || { calls: 0, usd: 0 };
+      p.calls += 1;
+      p.usd += t.usd;
+      row.perPayer.set(t.payer, p);
+    }
   }
   return byWallet;
 }
@@ -314,6 +328,80 @@ export function foldTransfers(byWallet, transfers, maxCallUsd = DEFAULTS.maxCall
  * listings without a homepage stay as standalone rows rather than collapsing
  * into a single "no-website" mega-group).
  */
+/**
+ * Payer concentration for one seller row.
+ *
+ * Why this exists: on 2026-09-13 a trace of the #1 seller by settled volume
+ * found ONE wallet accounting for 99.5% of its settlements and 99.0% of its
+ * dollars over 30 days - the rest of the board was 386 payers doing $727 a
+ * month. Re-running the read across the top 22 Base sellers, NINE of them draw
+ * over 85% of their settlements from a single wallet. A row showing
+ * `callsSettled 14525, uniqueBuyers 7` reads as a business; the same row
+ * showing `topPayerCallsShare 0.90` reads as one integration, which is what it
+ * is. Publishing counts without this is the registry inflation /transparency
+ * criticises other people for.
+ *
+ * WHAT IS PUBLISHED: shares and residuals only, NEVER the payer address. A
+ * per-seller roster of who pays them is their customer list, the same rule
+ * /revenue applies to our own buyers. Shares are fractions of THIS window.
+ *
+ * THE REFERENCE WALLET IS ONE WALLET - the busiest by settlement count (ties
+ * on dollars, then address, so it is deterministic). Both of its shares and
+ * the residual after removing it describe that same wallet, so a consumer
+ * never has to wonder whether two figures are about two different payers.
+ * `topPayerIsAlsoTopUsd` says whether some OTHER payer carries more dollars;
+ * when it is false, dollars are concentrated somewhere the call share cannot
+ * see and the usd share here understates it.
+ *
+ * A row with no settled calls gets nulls and no flag: an empty window is not a
+ * concentrated one, and a flag invented from no data is worse than no flag.
+ */
+export function payerConcentration(perPayer, callsSettled, totalUsd) {
+  const empty = {
+    topPayerCallsShare: null,
+    topPayerUsdShare: null,
+    topPayerIsAlsoTopUsd: null,
+    withoutTopPayer: null,
+    concentration: null,
+  };
+  if (!perPayer || perPayer.size === 0 || !(callsSettled > 0)) return empty;
+
+  let top = null, topAddr = null, topUsdAddr = null, maxUsd = -1;
+  for (const [addr, v] of perPayer) {
+    if (
+      !top ||
+      v.calls > top.calls ||
+      (v.calls === top.calls && v.usd > top.usd) ||
+      (v.calls === top.calls && v.usd === top.usd && addr < topAddr)
+    ) { top = v; topAddr = addr; }
+    if (v.usd > maxUsd) { maxUsd = v.usd; topUsdAddr = addr; }
+  }
+
+  const callsShare = top.calls / callsSettled;
+  const usdShare = totalUsd > 0 ? top.usd / totalUsd : 0;
+  // Thresholds are published in the envelope legend so the flag can be
+  // recomputed by anyone reading the two shares. Either axis can trip it:
+  // the seller that started this is 41% of calls and 95% of dollars, so a
+  // call-count-only rule would have called it unremarkable.
+  const worst = Math.max(callsShare, usdShare);
+  const concentration =
+    worst >= CONCENTRATION.supermajority ? "single-payer-supermajority"
+    : worst >= CONCENTRATION.majority ? "single-payer-majority"
+    : null;
+
+  return {
+    topPayerCallsShare: Number(callsShare.toFixed(4)),
+    topPayerUsdShare: Number(usdShare.toFixed(4)),
+    topPayerIsAlsoTopUsd: topUsdAddr === topAddr,
+    withoutTopPayer: {
+      callsSettled: callsSettled - top.calls,
+      totalUsd: Number(Math.max(0, totalUsd - top.usd).toFixed(6)),
+      uniqueBuyers: perPayer.size - 1,
+    },
+    concentration,
+  };
+}
+
 export function finalizeLeaderboard(byWallet, { maxCallUsd = DEFAULTS.maxCallUsd } = {}) {
   const groups = new Map();
   for (const w of byWallet.values()) {
@@ -328,14 +416,19 @@ export function finalizeLeaderboard(byWallet, { maxCallUsd = DEFAULTS.maxCallUsd
         network: w.network,
         callsSettled: 0,
         totalUsd: 0,
-        buyers: new Set(),
+        perPayer: new Map(),
         members: [], // [{ wallet, name, callsSettled, totalUsd, endpoints }]
       });
     }
     const g = groups.get(key);
     g.callsSettled += w.callsSettled;
     g.totalUsd += w.totalUsd;
-    for (const b of w.buyers) g.buyers.add(b);
+    for (const [payer, v] of w.perPayer) {
+      const p = g.perPayer.get(payer) || { calls: 0, usd: 0 };
+      p.calls += v.calls;
+      p.usd += v.usd;
+      g.perPayer.set(payer, p);
+    }
     g.endpointsSum += (w.endpoints || 0);
     (w.origins || []).forEach((o) => g.origins.add(o));
     g.members.push({
@@ -372,7 +465,8 @@ export function finalizeLeaderboard(byWallet, { maxCallUsd = DEFAULTS.maxCallUsd
         network: g.network,
         callsSettled: g.callsSettled,
         totalUsd: Number(g.totalUsd.toFixed(6)),
-        uniqueBuyers: g.buyers.size,
+        uniqueBuyers: g.perPayer.size,
+        ...payerConcentration(g.perPayer, g.callsSettled, g.totalUsd),
       };
     })
     .sort((a, b) => {

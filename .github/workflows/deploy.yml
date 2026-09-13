@@ -1182,6 +1182,8 @@ jobs:
           t node scripts/test-mpp-subscription-canary-gate.js
           # /api/leaderboard envelope (spec, defaults, per-row shape — MCP top_x402_sellers piggybacks on this)
           t node scripts/test-leaderboard-envelope.js
+          # Payer concentration on leaderboard rows (no payer address leaks; both axes trip the flag)
+          t node scripts/test-payer-concentration.js
           # MCP call_tool contract (canonical + flattened + stringified + wallet-refusal + self-correction envelope)
           t node scripts/test-mcp-call-tool-contract.js
           # Exposure hardening (A402-11/12/13 no X-Powered-By; security.txt; health gates flags; credential-free MCP CORS — spawns child)

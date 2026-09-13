@@ -177,7 +177,7 @@ import { startMppLeaderboard, mppLeaderboardSnapshot } from "./mpp-leaderboard.j
 import { tempoSelfRecipient } from "./mpp-tempo.js";
 import { mppMarketPage } from "./mpp-market-page.js";
 import { indexToolsPage, INDEX_TOOLS_PAGE_SIZE } from "./index-tools-page.js";
-import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankBy } from "./leaderboard.js";
+import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankBy, CONCENTRATION } from "./leaderboard.js";
 import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus, facilitatorSupportReport, setComputePayablePaths } from "./payments.js";
 import { createMppShim } from "./mpp-shim.js";
 import { createTempoChallengeAppender, createTempoGate, tempoTxFromReceiptHeader } from "./mpp-tempo.js";
@@ -5305,6 +5305,19 @@ app.get("/api/leaderboard", (req, res) => {
     leaderboard: board.slice(0, top),
     totalSellers: (snap.leaderboard || []).length,
     top,
+    // Concentration is published with the counts, not instead of them: a row
+    // can be large and be one wallet, and until 2026-09-13 nothing on this
+    // surface let a consumer tell the difference.
+    concentrationLegend: {
+      topPayerCallsShare: "share of this row's settlements from its single busiest payer, 0-1",
+      topPayerUsdShare: "that same payer's share of this row's settled USD",
+      topPayerIsAlsoTopUsd: "false means a different payer carries more dollars, so topPayerUsdShare understates the dollar concentration",
+      withoutTopPayer: "this row recomputed with that payer removed",
+      concentration: `null, or "single-payer-majority" at >= ${CONCENTRATION.majority} on either share, or "single-payer-supermajority" at >= ${CONCENTRATION.supermajority}`,
+      thresholds: CONCENTRATION,
+      payerAddresses: "never published - a seller's payer roster is their customer list, the rule /revenue applies to our own buyers",
+      selfRow: "our own row is measured and flagged on these same terms; see ?include=all",
+    },
     ...(topTruncated ? { topRequested: requestedTop, truncated: true, truncatedReason: `?top is capped at ${topCeiling} on this endpoint` } : {}),
   });
 });
