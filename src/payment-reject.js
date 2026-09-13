@@ -39,6 +39,29 @@ const asBig = (v) => { try { return BigInt(String(v)); } catch { return null; } 
 const sameInteger = (a, b) => { const x = asBig(a), y = asBig(b); return x != null && y != null && x === y; };
 
 /** The advertised accepts, from our own PAYMENT-REQUIRED header. */
+/**
+ * Every refusal class this module can emit, with what it means to the person
+ * whose client produced it.
+ *
+ * Published on /x402-test and pinned by a test that scans THIS FILE for
+ * `reason: "..."` literals: a class added to the classifier and not documented
+ * here fails CI. The page that teaches developers how to debug against us
+ * cannot be allowed to drift from the classifier that answers them.
+ */
+export const REJECTION_REASONS = Object.freeze([
+  { reason: "malformed-header", means: "The PAYMENT-SIGNATURE header is not decodable base64 JSON. Usually a hand-built header, or a base64 variant the decoder did not expect." },
+  { reason: "version-mismatch", means: "The payload declares one x402Version and the route serves another. An x402 v1 client against a v2 resource is the common case." },
+  { reason: "malformed-payload", means: "It decoded, but names no scheme or network. Copy both verbatim from one accepts entry." },
+  { reason: "unsupported-scheme", means: "The scheme is not one this route offers. The refusal names the schemes that are." },
+  { reason: "unsupported-network", means: "The network is not one this route offers. The refusal names the networks that are." },
+  { reason: "missing-accepted", means: "No echoed `accepted` object. Verification deep-equals what you echo against what was advertised, so it has to be there." },
+  { reason: "requirements-mismatch", means: "The echoed accepts entry differs from the advertised one. The refusal names WHICH fields differ, which is usually a client that rebuilt the object instead of echoing it." },
+  { reason: "amount-below-price", means: "The authorized amount is under the price this route quoted." },
+  { reason: "wrong-recipient", means: "The authorization pays an address this route did not advertise." },
+  { reason: "authorization-expired", means: "validBefore has already passed. Signing well ahead of sending, or a clock adrift, will do it." },
+  { reason: "unclassified", means: "It decoded and still matched nothing, in a way this server has no name for. The refusal lists the field NAMES received so you can compare them yourself, and we would like to hear about it: an unclassified refusal is as likely to be our defect as yours." },
+]);
+
 export function advertisedAccepts(paymentRequiredHeader) {
   const env = decodeB64Json(paymentRequiredHeader);
   const accepts = env && Array.isArray(env.accepts) ? env.accepts : [];
@@ -167,6 +190,46 @@ export function classifyPaymentRejection({ paymentHeader, paymentRequiredHeader,
  *
  * @returns {string|null} e.g. "p:network,payload,scheme|a:amount,asset|z:from,to"
  */
+/**
+ * The same shape, written for the PERSON whose client is failing.
+ *
+ * `unclassifiedPaymentShape` exists for our telemetry and is deliberately
+ * terse. This is its twin for the 402 body: when a payment decodes but matches
+ * nothing and none of the named classes fit, the buyer used to get an
+ * unadorned 402 - silence from the one system that can see exactly what they
+ * sent. A developer cannot debug against silence, and an unclassified refusal
+ * is as likely to be OUR defect as theirs, so the message says that and asks
+ * them to tell us.
+ *
+ * KEY NAMES ONLY, the same rule as the shape: no signature, no nonce, no
+ * addresses, no amounts. A payment header is a credential.
+ */
+export function unclassifiedPaymentHint({ paymentHeader, paymentRequiredHeader, reportUrl = "https://agent402.tools/x402-test" } = {}) {
+  const payload = decodeB64Json(paymentHeader);
+  if (!payload) return null;
+  const { accepts } = advertisedAccepts(paymentRequiredHeader);
+  if (!accepts.length) return null;
+  const keys = (o) => (o && typeof o === "object" && !Array.isArray(o) ? Object.keys(o).sort() : []);
+  const parts = [];
+  const top = keys(payload);
+  if (top.length) parts.push(`top level: ${top.join(", ")}`);
+  const acc = keys(payload.accepted);
+  if (acc.length) parts.push(`accepted: ${acc.join(", ")}`);
+  const auth = keys(payload.payload?.authorization);
+  if (auth.length) parts.push(`authorization: ${auth.join(", ")}`);
+  if (!parts.length) return null;
+  const wanted = keys(accepts[0]).filter((k) => k !== "extra" && k !== "outputSchema");
+  return {
+    reason: "unclassified",
+    retry: "compare-with-requirements",
+    detail:
+      `This payment decoded but matched no requirement on this route, and the mismatch is not one this server recognises. ` +
+      `Field NAMES received (values are never echoed) - ${parts.join("; ")}. ` +
+      `One accepts entry in PAYMENT-REQUIRED carries ${wanted.join(", ")}; every field but extra must match it exactly. ` +
+      `If it looks correct to you then the fault may be ours, and we would rather hear about it: ${reportUrl}`,
+  };
+}
+
 export function unclassifiedPaymentShape(paymentHeader, { maxChars = 110 } = {}) {
   try {
     const payload = decodeB64Json(paymentHeader);
