@@ -179,10 +179,56 @@ ok((read("src/why.js") || "").length > 500 && (read("adapters/agentkit/README.md
 }
 
 // --- the catalog knows which of its own entries are model-backed -----------
+// /api/pricing publishes `modelBacked` per row, which is a MACHINE-READABLE
+// claim on 580+ endpoints and so a worse place to be wrong than the prose this
+// guard started with. The first cut asserted only that the symbols EXIST, with
+// a comment claiming a new model-backed kit "cannot be counted as deterministic
+// by omission" - and that was false: dropping a whole kit from
+// MODEL_BACKED_KITS published modelBacked:false for every one of its tools and
+// left all guards green (measured). Membership is derived from the kits' own
+// SOURCE here instead: a file that reaches a model upstream must have its tool
+// array in the list, directly or through one alias hop.
 {
-  const src = read("src/server.js") || "";
-  ok(/MODEL_BACKED_SLUGS/.test(src) && /export function isModelBacked/.test(src),
-     "model-backed entries are derived from the kits themselves, so a new model-backed kit cannot be counted as deterministic by omission");
+  const server = read("src/server.js") || "";
+  ok(/MODEL_BACKED_SLUGS/.test(server) && /export function isModelBacked/.test(server),
+     "the catalog derives modelBacked from the kits rather than a hand-kept slug list");
+
+  const MODEL_UPSTREAM = /openrouter\.ai|api\.openai\.com|callOpenRouter|OPENROUTER_API_KEY|anthropic\.com\/v1\/messages/;
+  const kitFiles = files.filter((f) => f.startsWith("src/tools/") && MODEL_UPSTREAM.test(read(f) || ""));
+  ok(kitFiles.length >= 15, `found ${kitFiles.length} kits that reach a model upstream (a collapsed list must not pass)`);
+
+  // `const NAME = [ ...A, ...B ];` in server.js, so one alias hop resolves -
+  // GATEWAY_TOOLS_ENABLED is really the gateway plus the Messages and Responses
+  // kits, and without the hop those three would read as uncovered.
+  const spreadsIn = (name) => {
+    const m = server.match(new RegExp(`const ${name}\\s*=\\s*\\[([\\s\\S]*?)\\n\\];`));
+    return m ? new Set(m[1].match(/\.\.\.([A-Z0-9_]+)/g)?.map((x) => x.slice(3)) || []) : new Set();
+  };
+  const listed = spreadsIn("MODEL_BACKED_KITS");
+  ok(listed.size > 0, "MODEL_BACKED_KITS is readable from source");
+  const reachable = new Set(listed);
+  for (const n of listed) for (const inner of spreadsIn(n)) reachable.add(inner);
+
+  // A function, so the control drives the SAME code path: an "assert no
+  // findings" check with no control passes just as happily when it is broken.
+  const exportsOf = (f) => ((read(f) || "").match(/^export const ([A-Z0-9_]+_TOOLS[A-Z0-9_]*)/gm) || [])
+    .map((x) => x.replace("export const ", ""));
+  function uncovered(kits, inList, exports = exportsOf) {
+    const out = [];
+    for (const f of kits) {
+      const ex = exports(f);
+      if (!ex.length) continue;                     // helper-only module
+      if (ex.some((n) => inList.has(n))) continue;  // covered, directly or via an alias
+      out.push(`${f} exports ${ex.join(", ")}`);
+    }
+    return out;
+  }
+  ok(uncovered(["<control>"], reachable, () => ["NOT_IN_THE_LIST_TOOLS"]).length === 1,
+     "control: a model-reaching kit absent from MODEL_BACKED_KITS is reported by this exact code path");
+
+  const missing = uncovered(kitFiles, reachable);
+  ok(missing.length === 0,
+     `every kit that reaches a model upstream is in MODEL_BACKED_KITS${missing.length ? ` - MISSING: ${missing.join(" | ")}` : ""}`);
 }
 
 console.log(`test-copy-absolutes: ${pass} passed, ${fail} failed`);

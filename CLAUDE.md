@@ -713,9 +713,18 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   true since, and three had a correctly SCOPED twin already being served on another page of the same site - which is the
   tell that the defect is copies, not judgment. (1) `/api/pricing`'s description said "N deterministic tools" where N was
   the WHOLE catalog count; it now says "N priced endpoints, most of them deterministic code ... and the model-backed ones
-  marked modelBacked", and each row actually carries `modelBacked` (60 of 581) so a consumer can FILTER rather than take
-  the sentence's word - derived from `MODEL_BACKED_SLUGS` (server.js), the union of the model-backed kits plus `answer`,
-  stamped onto the catalog defs at build so a new model-backed kit cannot be counted as deterministic by omission.
+  marked modelBacked", and each row actually carries `modelBacked` so a consumer can FILTER rather than take
+  the sentence's word - derived from `MODEL_BACKED_SLUGS` (server.js), the union of the model-backed kits plus `answer`
+  (whose own description says "AI-generated answer"), stamped onto the catalog defs at build. **That field is a
+  MACHINE-READABLE claim on 580+ rows, so it is the worst place on the service to be wrong, and the first cut shipped it
+  with nothing checking the SET** - a comment claimed a new model-backed kit "cannot be counted as deterministic by
+  omission" and dropping a whole kit from `MODEL_BACKED_KITS` published `modelBacked:false` for all of its tools with
+  every guard green (measured). The guard derives membership from the kits' own SOURCE now: a file matching the
+  model-upstream signature must have its exported tool array in the list, directly or through ONE alias hop
+  (`GATEWAY_TOOLS_ENABLED` is really the gateway plus the Messages and Responses kits, and without the hop those three
+  read as uncovered). Five kit-drop mutations killed. The same pass removed `llm-context` from the set: it returns
+  passages an independent index EXTRACTED from the pages it ranked, so despite the kit's name no model writes any part
+  of that answer and marking it model-backed was a false claim in the flattering direction.
   (2) "Every tool is deterministic / no model in the serving path" on `/why` 07, the `/faq` token answer and `/compare`,
   plus `deterministic: true` and `testedBeforeEveryDeploy: true` as BOOLEANS on `/.well-known/x402` - the worst shape for
   a machine-readable trust claim, because a consumer reads `true` and cannot see the exception. Both manifest fields are
