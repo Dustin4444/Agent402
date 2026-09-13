@@ -22,7 +22,7 @@ via x402 + USDC nanopayments. Agent402 is a natural fit - we already speak x402.
      Chain (12 chains); MPP (Base/Celo, native Tempo); card credits
    - MCP endpoint: `https://agent402.tools/mcp`
    - Discovery: `https://agent402.tools/.well-known/x402`
-   - Tool count: 500+ (400+ tools + 100+ skill packs)
+   - Tool count: 500+ (400+ tools + 80+ skill packs)
 4. Reference our Bazaar registration (already indexed by Coinbase CDP)
 
 ---

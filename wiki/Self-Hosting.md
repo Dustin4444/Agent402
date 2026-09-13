@@ -13,7 +13,7 @@ Run Agent402 on your own infrastructure for full control over pricing, data, rat
 
 ## Prerequisites
 
-- **Node.js >= 20** (22 recommended; the hosted instance runs Node 22)
+- **Node.js >= 22.22.2** (the `engines` field in `package.json`; the hosted instance runs Node 22)
 - **git**
 - **Optional:** Redis (response caching), Postgres (analytics/call tracking)
 - **Optional:** Chromium + ffmpeg if you want browser/media tools (installed automatically by Playwright on first run)
