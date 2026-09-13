@@ -677,7 +677,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   agent402-openclaw 0.1.2 on 2026-08-26**, and it regressed here for the same reason it hid there: every test invokes
   `index.js` BY PATH, the one way to call it that cannot see the bug. Fixed with openclaw's guard
   (`pathToFileURL(realpathSync(argv[1]))`); `test-tollbooth-cli` now spawns through a real symlink, and the mutation
-  restoring the old comparison fails it. Needs a republish to reach users. (2) **`GET /api/leaderboard` defaulted to
+  restoring the old comparison fails it. **PUBLISHED as 0.10.1 on 2026-09-13** and verified from the REGISTRY, not the working tree: installed fresh, the bin is a real symlink, and both the symlink and the `npx` path emit 489 bytes and listen, where 0.10.0 emitted zero. SLSA provenance signed. Getting it out took three PRs, and the reason is in the CI/deploy section: the marker has to be in a COMMIT SUBJECT, not the PR title - #1336 carried `[test][publish]` in its title, went green, and the publish job SKIPPED, so the fix sat on main looking done while npm still served the broken build. A merge to main is NOT a release: check `npm view <pkg> version` against the local package.json before believing a package fix reached anyone. (2) **`GET /api/leaderboard` defaulted to
   `include=all`, which ranked the host at #11, unflagged, under a tool name ("DNS lookup", $36.25)** - while `/sell`
   commits in writing that "we publish how the ranking works, and exclude ourselves from our own leaderboard". The HTML
   page honoured it; the machine surface the homepage's own Dataset JSON-LD names as its distribution did not, and that
