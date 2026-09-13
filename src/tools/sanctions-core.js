@@ -98,15 +98,42 @@ export function foldName(s) {
 export function screenName(query, entries, { limit = 25 } = {}) {
   const q = foldName(query);
   if (!q || q.length < 3) return { query: String(query || ""), matches: [], reason: "a name needs at least three characters to screen" };
-  const exact = [], contains = [];
+  // ALL-TOKEN matching exists because substring matching misses the ordinary
+  // way a person's name is written. OFAC stores "PUTIN, Vladimir Vladimirovich";
+  // a buyer screens "Vladimir Putin"; neither string contains the other, so the
+  // tool answered no_match against a correctly loaded 19,388-entry list. That is
+  // a FALSE NEGATIVE on a sanctions screen - the one direction this product must
+  // not fail in, because the buyer reads it as "clean" and acts.
+  //
+  // It is NOT a fuzzy score, and the tool's promise of "no similarity scoring"
+  // still holds: every query token must appear as a WHOLE WORD in the entry.
+  // No edit distance, no partial credit, no ranking - "Vladimir Putin" matches
+  // "PUTIN, Vladimir Vladimirovich" and does not match "PUTINA, Olga".
+  // Reported under its own matchType so a consumer can tell the three apart.
+  //
+  // Requires two or more query tokens: a single token is already covered by the
+  // substring pass, and treating one token as an all-token match would make
+  // every common surname a hit.
+  const qTokens = q.split(" ").filter((t) => t.length > 1);
+  const exact = [], contains = [], allTokens = [];
   for (const e of entries || []) {
     const n = foldName(e.name);
     if (!n) continue;
     if (n === q) exact.push({ ...e, matchType: "exact" });
     else if (n.includes(q) || q.includes(n)) contains.push({ ...e, matchType: "contains" });
-    if (exact.length + contains.length > 5000) break; // pathological query guard
+    else if (qTokens.length >= 2) {
+      const nTokens = new Set(n.split(" "));
+      if (qTokens.every((t) => nTokens.has(t))) allTokens.push({ ...e, matchType: "all-tokens" });
+    }
+    if (exact.length + contains.length + allTokens.length > 5000) break; // pathological query guard
   }
-  return { query: String(query || ""), matches: [...exact, ...contains].slice(0, limit), exactCount: exact.length, containsCount: contains.length };
+  return {
+    query: String(query || ""),
+    matches: [...exact, ...contains, ...allTokens].slice(0, limit),
+    exactCount: exact.length,
+    containsCount: contains.length,
+    allTokensCount: allTokens.length,
+  };
 }
 
 /**

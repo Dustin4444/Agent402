@@ -229,7 +229,20 @@ async function main() {
       while (i < selected.length) {
         const c = selected[i++];
         const ep = eps.get(c.slug);
-        if (!ep) { results.push({ ...c, kind: "unknown", note: "slug not in catalog" }); counts.unknown++; console.log(`?? ${c.slug} [${c.name}]: not in catalog`); continue; }
+        if (!ep) {
+          // An ENV-GATED tool is legitimately absent from an unkeyed boot: the
+          // kit lists nothing without its key, so "not in catalog" here is the
+          // configuration, not a defect. Skip it the same way a configured-but-
+          // unkeyed case is skipped. A case with NO `requires` that is missing
+          // from the catalog stays UNKNOWN and still fails the run - that is a
+          // retired or renamed tool, which is exactly what this check is for.
+          if (c.requires && c.requires !== "payer" && !process.env[c.requires]) {
+            results.push({ ...c, kind: "skipped", note: `needs ${c.requires} (kit not listed on this boot)` });
+            counts.skipped++;
+            continue;
+          }
+          results.push({ ...c, kind: "unknown", note: "slug not in catalog" }); counts.unknown++; console.log(`?? ${c.slug} [${c.name}]: not in catalog`); continue;
+        }
         const tier = tierOf(c.slug);
         if (!wantTiers.has(tier)) { counts.filtered++; continue; }
         if (c.requires === "payer" && !process.env.CORPUS_PAYER) { results.push({ ...c, tier, kind: "skipped", note: "identity-bound (no payer on a free boot)" }); counts.skipped++; continue; }

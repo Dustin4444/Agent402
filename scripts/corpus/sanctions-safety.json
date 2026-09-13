@@ -1,0 +1,145 @@
+{
+  "about": "Tier 1: sanctions screening and token safety, on free public upstreams (OFAC SDN, GoPlus). These three sat OUTSIDE the corpus until 2026-09-13, which is why a live buy - not a test - found sanctions-name returning zero matches for \"Vladimir Putin\" against a correctly loaded 19,388-entry list. A false negative on a sanctions screen is the dangerous direction: the buyer reads no_match as clean and acts on it. Every case here asserts a VALUE, because the failure looked exactly like a clean answer.",
+  "cases": [
+    {
+      "slug": "sanctions-name",
+      "name": "a listed person written the ordinary way round",
+      "input": {
+        "name": "Vladimir Putin"
+      },
+      "expect": {
+        "equals": {
+          "verdict": "match"
+        },
+        "gt": {
+          "entriesOnList": 1000
+        },
+        "isArray": [
+          "matches"
+        ],
+        "gte": {
+          "allTokensCount": 1
+        },
+        "populated": [
+          "confirmBeforeActing"
+        ],
+        "matches": {
+          "confirmBeforeActing": "not a confirmed identification"
+        }
+      }
+    },
+    {
+      "slug": "sanctions-name",
+      "name": "a listed entity by substring",
+      "input": {
+        "name": "Gazprom"
+      },
+      "expect": {
+        "equals": {
+          "verdict": "match"
+        },
+        "gte": {
+          "containsCount": 1
+        },
+        "gt": {
+          "entriesOnList": 1000
+        }
+      }
+    },
+    {
+      "slug": "sanctions-name",
+      "name": "an unlisted name is an explicit non-match over a LOADED list, never an empty answer",
+      "input": {
+        "name": "Jonathan Pemberton-Willoughby"
+      },
+      "expect": {
+        "equals": {
+          "verdict": "no_match_on_lists_checked",
+          "exactCount": 0,
+          "containsCount": 0,
+          "allTokensCount": 0
+        },
+        "gt": {
+          "entriesOnList": 1000
+        },
+        "populated": [
+          "listsChecked",
+          "notAClearance"
+        ],
+        "matches": {
+          "notAClearance": "NOT a clearance"
+        }
+      }
+    },
+    {
+      "slug": "sanctions-name",
+      "name": "tokens from two different entries must not combine into a match",
+      "input": {
+        "name": "Vladimir Gazprom"
+      },
+      "expect": {
+        "equals": {
+          "verdict": "no_match_on_lists_checked",
+          "allTokensCount": 0
+        },
+        "gt": {
+          "entriesOnList": 1000
+        }
+      }
+    },
+    {
+      "slug": "sanctions-wallet",
+      "name": "a wallet not on any list, over a loaded list",
+      "input": {
+        "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
+      },
+      "expect": {
+        "equals": {
+          "verdict": "no_match_on_lists_checked"
+        },
+        "gt": {
+          "addressesOnList": 100
+        },
+        "populated": [
+          "listsChecked"
+        ]
+      }
+    },
+    {
+      "slug": "token-safety",
+      "name": "USDC on Base: a verdict, a reason, and unknowns named rather than assumed safe",
+      "input": {
+        "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "chain": "base"
+      },
+      "expect": {
+        "populated": [
+          "verdict",
+          "because"
+        ],
+        "isArray": [
+          "blocking",
+          "warnings",
+          "unknown"
+        ],
+        "matches": {
+          "verdict": "^(safe|caution|unsafe|unknown)$"
+        }
+      }
+    },
+    {
+      "slug": "token-safety",
+      "name": "an address that is not a token is refused, not answered",
+      "input": {
+        "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "chain": "base"
+      },
+      "expect": {
+        "status": 422,
+        "matches": {
+          "error": "no record|not a token|token"
+        }
+      }
+    }
+  ]
+}

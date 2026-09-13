@@ -51,7 +51,11 @@ const LEGS = [
   // ---- the five chain reads --------------------------------------------
   { slug: "chain-nonce", priceUsd: 0.001, method: "GET",
     path: `/api/chain/nonce?address=${VITALIK}&network=base`,
-    check: (r) => Number.isInteger(r.nonce) && r.nonce >= 0 || `expected an integer nonce, got ${JSON.stringify(r).slice(0, 140)}` },
+    // The tool returns the nonce as a STRING alongside nonceHex, which is the
+    // right call for a chain integer (no float precision cliff) - the first
+    // draft of this check demanded a JS integer and failed a correct answer.
+    // Assert the two agree, which is the property that would actually break.
+    check: (r) => { const d = Number(r.nonce), h = Number(r.nonceHex); return (Number.isFinite(d) && d >= 0 && d === h) || `expected nonce and nonceHex to agree, got ${JSON.stringify(r).slice(0, 140)}`; } },
 
   { slug: "chain-total-supply", priceUsd: 0.001, method: "GET",
     path: `/api/chain/total-supply?address=${USDC_BASE}&network=base`,
@@ -64,8 +68,11 @@ const LEGS = [
     check: (r) => (typeof (r.value ?? r.data) === "string" && /^0x[0-9a-f]{64}$/i.test(r.value ?? r.data)) || `expected a 32-byte hex word, got ${JSON.stringify(r).slice(0, 140)}` },
 
   { slug: "chain-pending", priceUsd: 0.001, method: "GET",
-    path: `/api/chain/pending?address=${VITALIK}&network=base`,
-    check: (r) => (Number.isInteger(r.pending ?? r.pendingNonce ?? r.nonce)) || `expected an integer pending count, got ${JSON.stringify(r).slice(0, 140)}` },
+    // This reads the PENDING BLOCK - transaction count, base fee, gas - not a
+    // per-address pending nonce, which is what the first draft of this check
+    // wrongly assumed from the slug alone. Read the tool, not its name.
+    path: `/api/chain/pending?network=base`,
+    check: (r) => (Number.isFinite(Number(r.transactionCount)) && Number(r.number) > 0) || `expected a pending block with a tx count, got ${JSON.stringify(r).slice(0, 160)}` },
 
   { slug: "chain-erc1155-balance", priceUsd: 0.002, method: "GET",
     // An address that holds none reads 0 - that is a correct ANSWER, not a
@@ -77,20 +84,36 @@ const LEGS = [
   { slug: "sanctions-wallet", priceUsd: 0.002, method: "GET",
     path: `/api/sanctions/wallet?address=${VITALIK}`,
     // A clean wallet must come back explicitly clean, never an empty object.
-    check: (r) => (typeof (r.sanctioned ?? r.listed ?? r.match) === "boolean" || typeof r.status === "string") || `expected an explicit sanctioned/status verdict, got ${JSON.stringify(r).slice(0, 140)}` },
+    // The verdict vocabulary is deliberate: never "clear" or "safe", always
+    // "no_match_on_lists_checked", because a clearance is not ours to give.
+    // Assert the word AND that lists were actually loaded - a verdict over an
+    // empty list is the failure that reads exactly like a clean answer.
+    check: (r) => (typeof r.verdict === "string" && r.verdict.length > 0 && Number(r.addressesOnList) > 0) || `expected a verdict over a loaded list, got ${JSON.stringify(r).slice(0, 160)}` },
 
   { slug: "sanctions-name", priceUsd: 0.005, method: "GET",
     path: `/api/sanctions/name?name=Vladimir%20Putin`,
     // A name that IS on the list must produce hits; zero here would mean the
     // list never loaded, which reads identically to "clean" without this.
-    check: (r) => { const n = r.count ?? (Array.isArray(r.matches) ? r.matches.length : (Array.isArray(r.results) ? r.results.length : null)); return (Number(n) > 0) || `expected at least one match for a listed name, got ${JSON.stringify(r).slice(0, 200)}`; } },
+    // A listed person written the ordinary way round MUST match. This exact
+    // query returned zero on 2026-09-13 against a correctly loaded 19,388-entry
+    // list, because OFAC stores "PUTIN, Vladimir Vladimirovich" and matching was
+    // substring-only - a false negative on a sanctions screen, which is the one
+    // direction it must not fail in. Fixed by all-token matching; this is the
+    // regression check against the live list rather than a fixture.
+    check: (r) => { const n = Array.isArray(r.matches) ? r.matches.length : 0; return (n > 0 && Number(r.entriesOnList) > 0) || `expected a listed name to match, got ${JSON.stringify(r).slice(0, 220)}`; } },
 
   // ---- token safety ----------------------------------------------------
   { slug: "token-safety", priceUsd: 0.005, method: "POST",
     path: "/api/token-safety", body: { address: USDC_BASE, chain: "base" },
     // USDC must not come back "unsafe", and the verdict must be a real word
     // from the table rather than an empty string.
-    check: (r) => (typeof r.verdict === "string" && r.verdict.length > 0 && Array.isArray(r.because ?? r.blocking ?? [])) || `expected a verdict + reasons, got ${JSON.stringify(r).slice(0, 200)}` },
+    // `because` is a SENTENCE, not an array - the first draft demanded an array
+    // and failed a good answer. What matters is that the verdict is real and
+    // that "unknown" is a first-class list: USDC on Base answers "caution -
+    // upgradeable proxy" with mintable/hidden-owner listed as UNKNOWN, which is
+    // the honest shape. A tool that silently treated unknown as safe would pass
+    // a laxer check than this one.
+    check: (r) => (typeof r.verdict === "string" && r.verdict.length > 0 && typeof r.because === "string" && Array.isArray(r.unknown)) || `expected a verdict, a reason and an explicit unknown list, got ${JSON.stringify(r).slice(0, 220)}` },
 
   // ---- Exa (only present once EXA_KEY is live in prod) ------------------
   { slug: "exa-search", priceUsd: 0.012, method: "POST",
@@ -107,10 +130,14 @@ const LEGS = [
 
   // ---- identity-bound: must run AFTER the buys above -------------------
   { slug: "receipts", priceUsd: 0.005, method: "POST", path: "/api/receipts", body: {}, after: true,
-    // Payment IS the identity here: by this point the burner has settled
-    // several buys, so its own receipt list must be non-empty. An empty list
-    // would mean payerFromRequest and the ledger disagree.
-    check: (r) => { const n = r.count ?? (Array.isArray(r.receipts) ? r.receipts.length : (Array.isArray(r.sales) ? r.sales.length : null)); return (Number(n) > 0) || `expected the burner's own settled calls, got ${JSON.stringify(r).slice(0, 200)}`; } },
+    // ZERO ROWS IS THE CORRECT ANSWER HERE AND THE CHECK SAYS SO. qPayerReceipts
+    // filters `internal = 0`, and this burner is in OUR_EVM_WALLETS, so its own
+    // buys are classified internal and are invisible to its own receipts - by
+    // design, since receipts is a customer-facing payables export and our canary
+    // traffic is not a payable. The consequence worth recording: NO internal buy
+    // can ever validate this tool's happy path, so it has no self-test route and
+    // the first real proof is an outside buyer. Assert the envelope instead.
+    check: (r) => (typeof r.wallet === "string" && Array.isArray(r.rows) && Number.isFinite(Number(r.total)) && typeof r.note === "string") || `expected a well-formed receipts envelope, got ${JSON.stringify(r).slice(0, 200)}` },
 
   { slug: "feedback", priceUsd: 0.001, method: "POST", path: "/api/feedback", after: true,
     // Writable only by the wallet that paid for THAT exact call, so it is fed
