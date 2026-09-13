@@ -660,6 +660,27 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   checked: the no-values rule, the accepts guard, and both directions of the drift check. NOT built and deliberately
   scoped out for now: a paid `POST /api/x402/echo` that returns the decoded credential and every check that passed once
   payment settles (it would charge only on success, since a >= 400 cancels settlement).
+- **A migrated seller was listed TWICE, and the fix is asymmetric on purpose (2026-09-13, `recordSuccession` /
+  `supersededOrigins` in x402-index.js, `scripts/test-seller-succession.js` 40):** verifying a succession did exactly one
+  thing - `inheritFirstSeenFrom`, carrying the old origin's first-seen date onto the new one - and the predecessor stayed a
+  full routable seller. So a seller who migrated CORRECTLY ended up in the index twice with identical slugs, which is the
+  duplicate-seller shape we collapse in other people's listings. Reported by the first seller to use the feature (CN
+  Evidence, 09-13), who noticed their own duplicate before we did; verified live (the workers.dev origin still routable,
+  health 1, 3 tools, same slugs, no marker of any kind). **The predecessor now joins the SAME alias set that already hides
+  redirect and deployment-hostname duplicates**, so the index listing, the remote pool and route queries all honour it in
+  one move rather than four exclusions to keep in step; `sellerDetail` still answers for it and carries `succeededBy`, so
+  an old link says where the seller went instead of 404ing. **RETIREMENT IS GATED ON THE MARKER PROOF ONLY.**
+  `succeedsOrigin` has two, and they are not equally strong: cross-served markers require serving a document on the OLD
+  origin, which is control of it; a SHARED PAYOUT WALLET is a manifest field anyone can copy, so retiring on that path
+  would let an origin that merely NAMES a wallet delist whoever actually earns on it - the inherited-evidence class the
+  2026-09-03 payTo binding exists for. `test-seller-succession`'s header had warned since 09-12 that "a register call that
+  could retire another seller's listing is a weapon whatever proof rides with it" and concluded the only safe answer was to
+  retire nothing; that was right about the weapon and wrong about the answer, and the header now says so. Retirement backs
+  itself out: the predecessor is hidden only while its successor is present and non-errored in the cache, so a migration to
+  an origin that dies restores the old listing with no intervention. Cycles refused (recording the reverse would hide BOTH
+  and the seller would vanish); the cycle walk starts at the claimant so hop zero IS the self-succession case, and a
+  separate `a === b` guard was removed as dead code a mutation could not kill. Persisted at
+  `/data/origin-successions.json` and loaded in `startCrawler`, or the duplicate returns on the next boot.
 - **Receipt-bound feedback (2026-09-12, `src/tools/feedback-kit.js`, `sale_feedback` in sales-ledger.js, `scripts/test-feedback-kit.js`
   54 in CI):** `POST /api/feedback {tx, verdict, reason}` $0.001 - a verdict on a call, writable ONLY by the wallet the ledger
   records as having paid for that exact call (`saleByTx` + `payerFromRequest`, identity-bound like attest/receipts so a rail

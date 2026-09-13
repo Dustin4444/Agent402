@@ -9,9 +9,27 @@
 // to "new today".
 //
 // What it does NOT do, deliberately:
-//   - It never demotes, retires or edits the predecessor. A register call that
-//     could retire another seller's listing is a weapon whatever proof rides
-//     with it; the old origin ages out the honest way, by not answering.
+//   - It never transfers settlement evidence (below).
+//
+// REVISED 2026-09-13. This file used to say it never retires the predecessor
+// at all, because "a register call that could retire another seller's listing
+// is a weapon whatever proof rides with it". The first seller to use the
+// feature then reported the cost of that: they migrated correctly and ended up
+// listed TWICE, same slugs, both routable - us carrying the duplicate-seller
+// shape we collapse in other people's listings.
+//
+// So the predecessor IS retired now, but ONLY on the cross-served-marker
+// proof, which requires serving a document on the OLD origin and is therefore
+// control of it. The shared-payout-wallet proof retires nothing and never
+// will: a manifest can advertise any address, so that path would let an origin
+// that merely NAMES a wallet retire the listing of whoever actually earns on
+// it - the inherited-evidence class the 2026-09-03 payTo binding exists for.
+// The original warning was right about the weapon; it was wrong that the only
+// safe answer was to do nothing.
+//
+// Retirement is also reversible and self-backing-out: the predecessor is
+// hidden only while its successor is present and healthy in the cache, so a
+// migration to an origin that dies restores the old listing on its own.
 //   - It never transfers settlement evidence. Evidence is keyed by payTo and
 //     follows the wallet already, and the shared-payTo guard that withholds
 //     chain proof while two live origins claim one wallet stays exactly as it
@@ -181,6 +199,52 @@ const NEW = `https://api.seller-${TAG}.com`;
   served[O] = { succeededBy: "https://example.net/" };
   eq((await verifySuccessionMarkers("https://example.net", OLD_O, { fetchImpl: stubFetch })).ok, true,
      "a trailing slash is the same origin, compared as origins rather than as strings");
+}
+
+// --- retiring the predecessor, and the two proofs that are not equal --------
+{
+  const { recordSuccession, succeededBy, supersededOrigins, computeAliasOrigins, __testResetSubmitted } =
+    await import("../src/x402-index.js");
+  __testResetSubmitted();
+
+  const A = "https://old-origin.example";
+  const B = "https://new-origin.example";
+  const live = (o) => new Map(o);
+
+  ok(recordSuccession(A, B) === true, "a verified succession is recorded");
+  eq(succeededBy(A), B, "the predecessor names its successor, so an old link can still say where the seller went");
+  eq(succeededBy(B), null, "the successor is not itself superseded");
+
+  // The two shapes that would hide a seller rather than deduplicate one.
+  ok(recordSuccession(A, A) === false, "an origin cannot succeed itself");
+  ok(recordSuccession(B, A) === false, "a cycle is refused: recording the reverse would hide BOTH origins and the seller would vanish");
+
+  // Retirement is conditional on the successor actually being there.
+  const both = live([[A, { tools: [] }], [B, { tools: [] }]]);
+  eq([...supersededOrigins(both)], [A], "with a healthy successor the predecessor is retired");
+  eq([...supersededOrigins(live([[A, { tools: [] }], [B, { error: "unreachable" }]]))], [],
+     "a successor that is ERRORING retires nothing: hiding the old origin would remove the seller entirely, which is worse than the duplicate this fixes");
+  eq([...supersededOrigins(live([[A, { tools: [] }]]))], [],
+     "a successor that is GONE retires nothing either, so a migration that fails backs itself out");
+
+  // The one line that makes it take effect everywhere: superseded origins join
+  // the set that already hides redirect and deployment-hostname duplicates, so
+  // the index listing, the remote pool and route queries all honour it.
+  ok(computeAliasOrigins(both).has(A), "a superseded origin joins the alias set every listing consumer already honours");
+  ok(!computeAliasOrigins(both).has(B), "and the successor does not");
+}
+
+// --- the proof that may NOT retire ------------------------------------------
+// Pinned from source, because the difference is one string and getting it
+// wrong turns a register call into a way to delist a seller you do not own.
+{
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/x402-index.js", import.meta.url), "utf8");
+  const call = /if \(r\?\.ok && r\.via === "cross-served markers"\) r\.predecessorRetired = recordSuccession\(/.test(src);
+  ok(call, "retirement is gated on the cross-served-marker proof, which requires control of the OLD origin");
+  ok(/via: "shared payout wallet"/.test(src), "the shared-wallet proof still exists (it carries the first-seen date)");
+  ok(!/via === "shared payout wallet"[^\n]*recordSuccession/.test(src),
+     "...and it never retires: a manifest can advertise any address, so that path would let an origin that merely NAMES a wallet delist whoever actually earns on it");
 }
 
 rmSync(dir, { recursive: true, force: true });

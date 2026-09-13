@@ -211,8 +211,90 @@ function persistSubmittedSeeds() {
   } catch { /* best-effort — no volume in local/dev */ }
 }
 
+// ---------------------------------------------------------------------------
+// SUCCESSION: an origin that has been replaced by another.
+//
+// Verifying a succession used to do exactly one thing - carry the old origin's
+// first-seen date onto the new one so a migrating seller kept its registration
+// tenure - and nothing else. The predecessor stayed in the index as a full
+// routable seller, so a seller who migrated correctly ended up listed TWICE
+// with identical slugs. Reported 2026-09-13 by the first seller to use the
+// feature, who noticed their own duplicate before we did. Carrying a duplicate
+// seller is the registry inflation we decline to do and collapse when other
+// people's listings do it, so it is not something to leave in ours.
+//
+// A superseded origin joins the same alias set that already hides redirect and
+// deployment-hostname duplicates, which is what excludes it from the index
+// listing, the router's external pool and route queries in one move rather
+// than four. It stays resolvable by direct lookup and says where it went: an
+// old link should answer, not 404.
+export const SUCCESSIONS_FILE = "/data/origin-successions.json";
+const successions = new Map(); // old origin -> new origin
+
+export function loadSuccessions() {
+  try {
+    const obj = JSON.parse(readFileSync(SUCCESSIONS_FILE, "utf8"));
+    for (const [oldO, newO] of Object.entries(obj || {})) {
+      if (typeof oldO === "string" && typeof newO === "string") successions.set(oldO, newO);
+    }
+  } catch { /* absent file / no volume - in-memory only */ }
+}
+
+function persistSuccessions() {
+  try { writeFileSync(SUCCESSIONS_FILE, JSON.stringify(Object.fromEntries(successions), null, 2)); }
+  catch { /* best-effort */ }
+}
+
+/**
+ * Record a VERIFIED succession. Refuses the two shapes that would hide a
+ * seller entirely rather than deduplicate one:
+ *  - self-succession, and
+ *  - a cycle (B already succeeded by A, so recording A->B would hide both).
+ */
+export function recordSuccession(oldOrigin, newOrigin) {
+  const a = String(oldOrigin || ""), b = String(newOrigin || "");
+  if (!a || !b) return false;
+  // Walk the chain from the claimant: if it leads back to the predecessor,
+  // this would close a loop and both origins would drop out of every listing.
+  // The walk starts AT the claimant, so hop zero is the self-succession case
+  // (A succeeds A) - one check, not two, and a separate `a === b` guard above
+  // would be dead code that no mutation can kill.
+  let cur = b, hops = 0;
+  while (cur && hops++ < 16) {
+    if (sameOrigin(cur, a)) return false;
+    cur = successions.get(cur);
+  }
+  successions.set(a, b);
+  persistSuccessions();
+  return true;
+}
+
+/** The origin that replaced this one, or null. */
+export function succeededBy(origin) {
+  return successions.get(String(origin || "")) || null;
+}
+
+/**
+ * Superseded origins to hide, resolved AT READ TIME against the live cache.
+ *
+ * The successor must actually be present and healthy: if the new origin is
+ * gone or erroring, hiding the old one would remove the seller from the index
+ * altogether, which is worse than the duplicate this exists to fix. A
+ * migration that fails backs out on its own.
+ */
+export function supersededOrigins(cacheMap = cache) {
+  const out = new Set();
+  for (const [oldO, newO] of successions) {
+    const successor = cacheMap.get(newO);
+    if (!successor || successor.error) continue;
+    if (!cacheMap.has(oldO)) continue;
+    out.add(oldO);
+  }
+  return out;
+}
+
 /** Test hook: clear submitted-seed state between test cases. */
-export function __testResetSubmitted() { submittedSeeds.clear(); }
+export function __testResetSubmitted() { submittedSeeds.clear(); successions.clear(); }
 
 /** Validate a raw submitted origin. Returns { origin } (normalized) or { error }. */
 export function validateOriginInput(raw, { selfOrigin } = {}) {
@@ -346,7 +428,27 @@ export async function succeedsOrigin(claimant, predecessor, { fetchImpl } = {}) 
 export async function registerOrigin(origin, { crawl, replaces = null } = {}) {
   // Evaluated lazily: the claimant has to be in the cache before its payTo can
   // be compared, so this is re-read at each record site rather than up front.
-  const checkSuccession = async () => (replaces ? succeedsOrigin(origin, replaces) : null);
+  const checkSuccession = async () => {
+    if (!replaces) return null;
+    const r = await succeedsOrigin(origin, replaces);
+    // Recording is what retires the predecessor from every listing. Only ever
+    // on a VERIFIED succession: the markers (or a shared payout wallet) are
+    // what make this the seller's own decision rather than a claim anyone can
+    // make about anyone.
+    // RETIRE ONLY ON THE MARKER PATH. succeedsOrigin has two proofs and they
+    // are not equally strong. Cross-served markers require serving a document
+    // on the OLD origin, which is control of it - that is the seller's own
+    // decision about their own listing. A SHARED PAYOUT WALLET is not: a
+    // manifest can advertise any address, so an origin claiming a wallet it
+    // merely names could retire the listing of whoever actually earns on it.
+    // That is the same inherited-evidence class as the 2026-09-03 payTo
+    // binding, and it is exactly what test-seller-succession warned about when
+    // it said a register call that can retire another seller's listing is a
+    // weapon whatever proof rides with it. The shared-wallet path keeps doing
+    // what it always did (carry the first-seen date) and retires nothing.
+    if (r?.ok && r.via === "cross-served markers") r.predecessorRetired = recordSuccession(replaces, origin);
+    return r;
+  };
   let succession = null;
   const existing = cache.get(origin);
   if (existing && !existing.error) {
@@ -2943,6 +3045,11 @@ export function computeAliasOrigins(cacheMap) {
       if (origin !== durable[0] && railwayDeploymentOrigin(origin)) aliases.add(origin);
     }
   }
+  // A superseded origin hides for the same reason a redirect alias does: it is
+  // the same seller counted twice. Folded in here so the four consumers of this
+  // set (index listing, remote pool, route query, seller roster) all honour it
+  // without a second exclusion to keep in step.
+  for (const o of supersededOrigins(cacheMap)) aliases.add(o);
   return aliases;
 }
 
@@ -3475,6 +3582,9 @@ function _loadPersistedIndexCache(file = INDEX_CACHE_FILE) {
 export function startCrawler(opts = {}) {
   if (crawlerTimer) return;
   loadSubmittedSeeds();
+  // Successions survive a restart or they stop hiding the duplicate they were
+  // recorded to hide, and the seller is listed twice again on the next boot.
+  loadSuccessions();
   // Warm start: the NDJSON twin incrementally when it exists (its own log
   // line says how long and the longest turn), else the legacy JSON in one
   // synchronous parse. The first crawl is deferred below, so the fill has
@@ -3852,6 +3962,11 @@ export function sellerDetail(originOrHost) {
       fetchedAt: v.fetchedAt ?? null,
       error: v.error || null,
       health: healthScore(v),
+      // A superseded origin still answers here and says where it went. An old
+      // link that 404s teaches nothing; one that names its successor is how
+      // anyone holding a stale reference finds the live seller. Ranked
+      // listings hide it (it is the same seller twice); direct lookup does not.
+      ...(succeededBy(origin) ? { succeededBy: succeededBy(origin), listed: false, listedNote: "this origin was replaced by the one named in succeededBy, so it is not ranked or listed; it still answers here" } : {}),
       // The same two fields the snapshot carries, so the ?seller= detail can be
       // dispatch-labelled from its own evidence (2026-09-02).
       routable: isRoutable(v),
