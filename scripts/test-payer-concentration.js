@@ -14,7 +14,7 @@
 //     MINORITY of calls and a supermajority of dollars
 //   - the reference wallet is ONE wallet, and the row says when dollars are
 //     concentrated somewhere its call share cannot see
-import { payerConcentration, finalizeLeaderboard, initWalletAccumulator, foldTransfers, CONCENTRATION } from "../src/leaderboard.js";
+import { payerConcentration, payerBreadth, finalizeLeaderboard, initWalletAccumulator, foldTransfers, CONCENTRATION, PAYER_BREADTH } from "../src/leaderboard.js";
 import { readFileSync } from "node:fs";
 
 let pass = 0, fail = 0;
@@ -129,6 +129,90 @@ const pm = (o) => new Map(Object.entries(o));
   ok(/payerAddresses: "never published/.test(src), "the legend states that payer addresses are never published");
   ok(/thresholds: CONCENTRATION/.test(src), "and carries the live thresholds, not a typed copy that can drift");
   ok(/selfRow:/.test(src), "and says our own row is measured on the same terms");
+}
+
+// --- CROSS-SELLER PAYER BREADTH ------------------------------------------
+// The opposite failure mode: a buyer count inflated by wallets that pay
+// everyone. Measured 2026-09-13: 110 of 2,632 payers across the top 22 Base
+// sellers paid more than one; the widest paid 14, and one wallet was the TOP
+// payer of two different sellers at once.
+{
+  const span = new Map([["walker", 9], ["loyal", 1], ["other", 2]]);
+  const m = pm({ walker: { calls: 80, usd: 8 }, loyal: { calls: 15, usd: 1.5 }, other: { calls: 5, usd: 0.5 } });
+  const r = payerBreadth(m, 100, span);
+  eq(r.multiSellerPayers, 1, "counts payers at or over the published breadth threshold");
+  eq(r.multiSellerCallsShare, 0.8, "and what share of settlements they are");
+  eq(r.maxPayerSellerSpan, 9, "reports the widest payer's span");
+  // A payer at exactly the threshold counts; below it does not.
+  eq(payerBreadth(pm({ a: { calls: 10, usd: 1 } }), 10, new Map([["a", PAYER_BREADTH.multiSellerMin]])).multiSellerPayers, 1,
+     "exactly at the breadth threshold counts");
+  eq(payerBreadth(pm({ a: { calls: 10, usd: 1 } }), 10, new Map([["a", PAYER_BREADTH.multiSellerMin - 1]])).multiSellerPayers, 0,
+     "one below does not");
+  eq(payerBreadth(new Map(), 0, span).multiSellerCallsShare, null, "empty window invents no breadth share");
+  eq(payerBreadth(m, 100, null).multiSellerPayers, null, "no span map: null, never a fabricated zero");
+}
+
+// --- breadth is computed ACROSS sellers, through the real fold -------------
+{
+  const mk = (w, n) => ({ wallet: w, name: n, origins: [], homepage: `https://${n}.example`, endpoints: 1, network: "base" });
+  const by = initWalletAccumulator([mk("0xa", "A"), mk("0xb", "B"), mk("0xc", "C")]);
+  // `walker` pays all three sellers; `mine` pays only A.
+  const t = [];
+  for (const w of ["0xa", "0xb", "0xc"]) for (let i = 0; i < 3; i++) t.push({ wallet: w, payer: "0xwalker", usd: 0.1 });
+  for (let i = 0; i < 7; i++) t.push({ wallet: "0xa", payer: "0xmine", usd: 0.1 });
+  foldTransfers(by, t);
+  const rows = finalizeLeaderboard(by);
+  const A = rows.find((r) => r.name === "A");
+  eq(A.maxPayerSellerSpan, 3, "a payer's span is counted across the whole scan, not within one row");
+  eq(A.multiSellerPayers, 1, "only the walker qualifies");
+  eq(A.multiSellerCallsShare, 0.3, "3 of A's 10 settlements are cross-seller traffic");
+  const B = rows.find((r) => r.name === "B");
+  eq(B.multiSellerCallsShare, 1, "B is entirely cross-seller traffic, which uniqueBuyers alone could never say");
+  eq(B.uniqueBuyers, 1, "and its buyer count is 1, unchanged");
+  ok(!JSON.stringify(rows).includes("0xwalker"), "no payer address reaches a row through the breadth path either");
+}
+
+// --- the HTML board shows both, and publishes what they mean --------------
+{
+  const src = readFileSync(new URL("../src/leaderboard.js", import.meta.url), "utf8");
+  ok(/concentrationBadge\(r\)/.test(src), "rows render the concentration badge");
+  ok(/cross-seller \$\{esc\(pct/.test(src), "and the cross-seller badge");
+  ok(/Payer addresses are never published on any of these surfaces/.test(src),
+     "the published method states the no-address rule");
+  ok(/Our own row is measured and flagged on identical terms/.test(src),
+     "and that our own row is held to it");
+  ok(/CONCENTRATION\.majority \* 100/.test(src),
+     "the method renders the live thresholds rather than a typed copy");
+}
+
+// --- the dossier carries it as a sentence, not a score --------------------
+// DRIVEN, not grepped: a source scan passes a disabled branch, which is
+// exactly what survived the first mutation pass here.
+{
+  const { composeSellerDossier } = await import("../src/tools/seller-dossier.js");
+  const row = {
+    callsSettled: 100, uniqueBuyers: 12, totalUsd: 50, wallet: "0xseller", wallets: ["0xseller"],
+    topPayerCallsShare: 0.41, topPayerUsdShare: 0.95, topPayerIsAlsoTopUsd: false,
+    withoutTopPayer: { callsSettled: 59, totalUsd: 2.5, uniqueBuyers: 11 },
+    concentration: "single-payer-supermajority",
+    multiSellerPayers: 4, multiSellerCallsShare: 0.62, maxPayerSellerSpan: 9,
+  };
+  const d = composeSellerDossier({ host: "s.example", detail: { origin: "https://s.example" }, leaderboardRow: row });
+  const flat = JSON.stringify(d);
+  const flags = (d.flags || []).join(" | ");
+  ok(/a single payer is 41% of their settlements and 95% of their settled USDC/.test(flags),
+     "the dossier FLAGS concentration in words when it is present");
+  ok(/without it the row is 59 calls, \$2\.50, 11 buyers/.test(flags), "and states the row without that payer");
+  ok(/understates the concentration/.test(flags), "and warns when a different payer carries the dollars");
+  ok(/62% of their settlements come from wallets that also pay other sellers/.test(flags),
+     "and reports cross-seller traffic - a disabled branch fails here, where a source grep would not");
+  ok(flat.includes("payer addresses are never published"), "the no-address rule rides on the paid surface");
+
+  // A seller with no concentration reading invents no flags.
+  const quiet = composeSellerDossier({ host: "q.example", detail: { origin: "https://q.example" },
+    leaderboardRow: { callsSettled: 10, uniqueBuyers: 9, totalUsd: 1, wallet: "0xq", wallets: ["0xq"] } });
+  ok(!(quiet.flags || []).some((f) => /single payer|cross-seller|wallets that also pay/.test(f)),
+     "a row with no concentration data produces no concentration flag");
 }
 
 console.log(`\ntest-payer-concentration: ${pass} passed, ${fail} failed`);

@@ -53,6 +53,13 @@ const DEFAULT_BASE_RPCS = [
 // rather than being a verdict only we can compute.
 export const CONCENTRATION = { majority: 0.5, supermajority: 0.9 };
 
+// A payer is "broad" once it settles with this many DISTINCT sellers in the
+// window. Measured 2026-09-13 across the top 22 Base sellers: 110 of 2,632
+// payers paid more than one, the widest touching 14. A wallet walking the
+// ecosystem is not the same customer signal as a wallet that chose you, and
+// uniqueBuyers cannot tell them apart.
+export const PAYER_BREADTH = { multiSellerMin: 3 };
+
 const DEFAULTS = {
   bazaarUrl: process.env.BAZAAR_URL || "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources",
   spanBlocks: parseInt(process.env.SPAN_BLOCKS || "43200", 10), // ~24h of Base blocks
@@ -402,6 +409,42 @@ export function payerConcentration(perPayer, callsSettled, totalUsd) {
   };
 }
 
+/**
+ * Cross-seller payer breadth for one row.
+ *
+ * The companion to payerConcentration, and it answers the opposite failure
+ * mode. Concentration catches a seller whose volume is one wallet. THIS
+ * catches a seller whose buyer COUNT is inflated by wallets that pay everyone
+ * - evaluators, indexers and scanners walking the ecosystem. Both read as
+ * healthy in `uniqueBuyers`, which is the only buyer signal we published
+ * before today.
+ *
+ * Measured on the top 22 Base sellers (7d, 2026-09-13): 110 of 2,632 distinct
+ * payers settled with more than one of them; the widest paid 14. One wallet
+ * appeared as the TOP payer of two different sellers while also ranking second
+ * at a third.
+ *
+ * `sellersPerPayer` is the global payer -> distinct-seller-count map for the
+ * whole scan, so this is only meaningful for sellers inside the same scan: a
+ * payer's breadth is measured against the sellers WE index, never the whole
+ * chain, and the legend says so. Addresses are never published here either.
+ */
+export function payerBreadth(perPayer, callsSettled, sellersPerPayer) {
+  const empty = { multiSellerPayers: null, multiSellerCallsShare: null, maxPayerSellerSpan: null };
+  if (!perPayer || perPayer.size === 0 || !(callsSettled > 0) || !sellersPerPayer) return empty;
+  let broadPayers = 0, broadCalls = 0, maxSpan = 0;
+  for (const [addr, v] of perPayer) {
+    const span = sellersPerPayer.get(addr) || 1;
+    if (span > maxSpan) maxSpan = span;
+    if (span >= PAYER_BREADTH.multiSellerMin) { broadPayers += 1; broadCalls += v.calls; }
+  }
+  return {
+    multiSellerPayers: broadPayers,
+    multiSellerCallsShare: Number((broadCalls / callsSettled).toFixed(4)),
+    maxPayerSellerSpan: maxSpan,
+  };
+}
+
 export function finalizeLeaderboard(byWallet, { maxCallUsd = DEFAULTS.maxCallUsd } = {}) {
   const groups = new Map();
   for (const w of byWallet.values()) {
@@ -440,6 +483,17 @@ export function finalizeLeaderboard(byWallet, { maxCallUsd = DEFAULTS.maxCallUsd
     });
   }
 
+  // How many DISTINCT sellers each payer settled with in this scan. Built from
+  // the finished groups (so a seller running several wallets counts once) and
+  // handed to every row, which is why it can only be computed here rather than
+  // inside a per-row helper.
+  const sellersPerPayer = new Map();
+  for (const g of groups.values()) {
+    for (const payer of g.perPayer.keys()) {
+      sellersPerPayer.set(payer, (sellersPerPayer.get(payer) || 0) + 1);
+    }
+  }
+
   const ranked = [...groups.values()]
     .map((g) => {
       // Sort wallets within a group: highest-volume first, then most-active,
@@ -467,6 +521,7 @@ export function finalizeLeaderboard(byWallet, { maxCallUsd = DEFAULTS.maxCallUsd
         totalUsd: Number(g.totalUsd.toFixed(6)),
         uniqueBuyers: g.perPayer.size,
         ...payerConcentration(g.perPayer, g.callsSettled, g.totalUsd),
+        ...payerBreadth(g.perPayer, g.callsSettled, sellersPerPayer),
       };
     })
     .sort((a, b) => {
@@ -976,6 +1031,23 @@ export function leaderboardPage(snapshot, { baseUrl, sort }) {
   // turning the value into a clickable link. originOf() validates this at
   // crawl time, but cache entries can drift; cheap defense-in-depth.
   const safeHref = (u) => (typeof u === "string" && /^https?:\/\//i.test(u) ? u : null);
+  // A buyer count alone cannot distinguish a seller with many customers from
+  // one wallet running a meter, or from a crowd of evaluators that pay
+  // everyone. Both readings were available only in the JSON until 2026-09-13,
+  // so the number a visitor actually looks at carries them now. Percent, never
+  // an address.
+  const pct = (x) => `${Math.round(x * 100)}%`;
+  const concentrationBadge = (r) => {
+    const bits = [];
+    if (r.concentration) {
+      const worst = Math.max(r.topPayerCallsShare || 0, r.topPayerUsdShare || 0);
+      bits.push(`<span class="badge" title="One wallet is ${esc(pct(r.topPayerCallsShare || 0))} of settlements and ${esc(pct(r.topPayerUsdShare || 0))} of USDC here. Without it: ${esc(r.withoutTopPayer?.callsSettled ?? 0)} calls, ${esc(fmtUsd(r.withoutTopPayer?.totalUsd ?? 0))}, ${esc(r.withoutTopPayer?.uniqueBuyers ?? 0)} buyers.">1 payer ${esc(pct(worst))}</span>`);
+    }
+    if ((r.multiSellerCallsShare || 0) >= 0.5) {
+      bits.push(`<span class="badge" title="${esc(r.multiSellerPayers ?? 0)} of this seller's payers also settle with ${esc(PAYER_BREADTH.multiSellerMin)}+ other sellers we index; they are ${esc(pct(r.multiSellerCallsShare))} of its settlements. Wallets that pay everyone are a weaker demand signal than wallets that chose one seller.">cross-seller ${esc(pct(r.multiSellerCallsShare))}</span>`);
+    }
+    return bits.length ? ` ${bits.join(" ")}` : "";
+  };
   const rows = board
     .map((r) => {
       const href = safeHref(r.homepage);
@@ -998,7 +1070,7 @@ export function leaderboardPage(snapshot, { baseUrl, sort }) {
         <td>${esc(r.network || "base")}</td>
         <td class="num">${esc(r.callsSettled ?? 0)}</td>
         <td class="num">${esc(fmtUsd(r.totalUsd))}</td>
-        <td class="num">${esc(r.uniqueBuyers ?? 0)}</td>
+        <td class="num">${esc(r.uniqueBuyers ?? 0)}${concentrationBadge(r)}</td>
       </tr>`;
     })
     .join("");
@@ -1089,6 +1161,9 @@ ${sortToggle}
       <li>Query <code>eth_getLogs</code> on Base USDC for Transfer events to those wallets over the <b>${esc(windowHuman)}</b> (${esc(snapshot?.scannedBlocks ?? "?")} blocks).</li>
       <li>Filter to per-call settlements (≤ ${esc(fmtUsd(snapshot?.maxCallUsd ?? 0))}); larger inbound transfers are funding/swaps, not tool buys.</li>
       <li>Aggregate by recipient wallet, then fold by canonical website host → callsSettled, totalUsd, uniqueBuyers per operator. An operator listing multiple wallets under one site becomes one row with summed volume and unioned buyers (and a <code>+N more</code> badge listing the extra wallets).</li>
+      <li>Measure, per row, what share of its settlements and its USDC come from its single busiest payer. A row flagged <code>1 payer N%</code> draws that much of its volume from one wallet: hover it for the row recomputed without that payer. Thresholds are ${esc(Math.round(CONCENTRATION.majority * 100))}% (majority) and ${esc(Math.round(CONCENTRATION.supermajority * 100))}% (supermajority) on either share, published on <code>/api/leaderboard</code> so the flag is reproducible from the two numbers.</li>
+      <li>Measure how many DISTINCT sellers on this board each payer settles with. A row flagged <code>cross-seller N%</code> draws that share of its settlements from wallets that also pay ${esc(PAYER_BREADTH.multiSellerMin)}+ other sellers here - evaluators and scanners walking the ecosystem rather than customers who chose one seller. Breadth is measured against the sellers we index, never the whole chain.</li>
+      <li>Payer addresses are never published on any of these surfaces. A seller's payer roster is their customer list, the same rule we apply to our own buyers on <a href="/revenue">/revenue</a>. Our own row is measured and flagged on identical terms.</li>
       <li>Rank by totalUsd; tiebreak on activity, then alphabetical.</li>
     </ol>
     <pre>curl -s ${esc(baseUrl)}/api/leaderboard?top=10

@@ -221,6 +221,28 @@ export function composeSellerDossier(a) {
   if (dispatch?.routerDispatchDetail === "evidence_payto_mismatch") flags.push("the settlement evidence behind this origin belongs to a wallet its live 402 does not pay; the router will not spend on it");
   if (dispatch?.routerDispatchDetail === "evidence_payto_unverified") flags.push("the router could not read a live 402 payTo to bind the inherited evidence to");
 
+  // Concentration reads as a sentence here, like every other dossier flag: a
+  // buyer deciding whether to route to this seller wants "most of their volume
+  // is one wallet", not a number they have to interpret.
+  if (leaderboardRow?.concentration) {
+    const c = Math.round((leaderboardRow.topPayerCallsShare || 0) * 100);
+    const u = Math.round((leaderboardRow.topPayerUsdShare || 0) * 100);
+    const w = leaderboardRow.withoutTopPayer;
+    flags.push(
+      `a single payer is ${c}% of their settlements and ${u}% of their settled USDC in this window` +
+      (w ? `; without it the row is ${w.callsSettled} calls, $${(w.totalUsd ?? 0).toFixed(2)}, ${w.uniqueBuyers} buyers` : "")
+    );
+    if (leaderboardRow.topPayerIsAlsoTopUsd === false) {
+      flags.push("a different payer again carries most of their settled USDC, so the dollar share above understates the concentration");
+    }
+  }
+  if ((leaderboardRow?.multiSellerCallsShare || 0) >= 0.5) {
+    flags.push(
+      `${Math.round(leaderboardRow.multiSellerCallsShare * 100)}% of their settlements come from wallets that also pay other sellers we index` +
+      `, which is evaluator traffic rather than buyers who chose them`
+    );
+  }
+
   // ------------------------------------------------------- settlement evidence
   const base = leaderboardRow
     ? {
@@ -230,6 +252,24 @@ export function composeSellerDossier(a) {
         totalUsd: typeof leaderboardRow.totalUsd === "number" ? leaderboardRow.totalUsd : null,
         wallets: Array.isArray(leaderboardRow.wallets) ? leaderboardRow.wallets : (leaderboardRow.wallet ? [leaderboardRow.wallet] : []),
         window: leaderboardRow.window || null,
+        // Who those settlements actually came FROM. callsSettled and
+        // uniqueBuyers read identically for a seller with many customers, a
+        // seller with one wallet running a meter, and a seller whose buyers
+        // are evaluators paying everyone - and this product exists to answer
+        // exactly that question. Shares only; the payer roster is theirs.
+        concentration: leaderboardRow.concentration !== undefined
+          ? {
+              topPayerCallsShare: leaderboardRow.topPayerCallsShare ?? null,
+              topPayerUsdShare: leaderboardRow.topPayerUsdShare ?? null,
+              topPayerIsAlsoTopUsd: leaderboardRow.topPayerIsAlsoTopUsd ?? null,
+              withoutTopPayer: leaderboardRow.withoutTopPayer ?? null,
+              flag: leaderboardRow.concentration ?? null,
+              multiSellerPayers: leaderboardRow.multiSellerPayers ?? null,
+              multiSellerCallsShare: leaderboardRow.multiSellerCallsShare ?? null,
+              maxPayerSellerSpan: leaderboardRow.maxPayerSellerSpan ?? null,
+              note: "shares of this window's Base USDC settlements; payer addresses are never published",
+            }
+          : null,
       }
     : { source: "on-chain leaderboard (Base USDC, ours)", observed: false };
   const bazaarBlock = bazaar
