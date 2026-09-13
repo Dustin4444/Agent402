@@ -34,20 +34,35 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
 
-// Everything a reader or an agent can actually be shown.
-const files = [];
-for (const d of ["src", "wiki", "docs"]) {
+// Everything a reader or an agent can actually be shown. This walks
+// RECURSIVELY and includes the published package READMEs, because the first
+// version of this guard read `src/*.js` at the top level only and `README.md`
+// for four packages - and the very sweep that shipped it left a forbidden
+// string live in `adapters/agentkit/README.md` (a published npm package) and
+// three copies of the count claim on /pricing. A guard that names its scope
+// narrower than the claim's scope is a guard that certifies the gap.
+const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "coverage", "assets"]);
+function walk(rel, out, depth = 0) {
   let names = [];
-  try { names = readdirSync(join(root, d)); } catch { continue; }
-  for (const f of names) if (/\.(js|md)$/.test(f)) files.push(join(d, f));
+  try { names = readdirSync(join(root, rel), { withFileTypes: true }); } catch { return out; }
+  for (const d of names) {
+    if (SKIP_DIRS.has(d.name)) continue;
+    const next = rel ? `${rel}/${d.name}` : d.name;
+    if (d.isDirectory()) { if (depth < 4) walk(next, out, depth + 1); }
+    else if (/\.(js|md)$/.test(d.name)) out.push(next);
+  }
+  return out;
 }
-for (const f of ["README.md", "mcp/README.md", "client/README.md", "tollbooth/README.md", "openclaw/README.md"]) files.push(f);
+const files = [];
+for (const d of ["src", "wiki", "docs", "adapters", "openclaw"]) walk(d, files);
+// The package roots carry served/published prose; their source is tested by
+// their own suites, so only the docs are swept here.
+for (const d of ["mcp", "client", "tollbooth"]) {
+  for (const f of walk(d, [])) if (f.endsWith(".md")) files.push(f);
+}
+files.push("README.md");
 
 const read = (rel) => { try { return readFileSync(join(root, rel), "utf8"); } catch { return null; } };
-
-// A file that is ALLOWED to contain a phrasing, and why. This guard is the
-// only place the strings live now, so it has to name itself.
-const SELF = new Set(["scripts/test-copy-absolutes.js"]);
 
 const FORBIDDEN = [
   {
@@ -70,7 +85,7 @@ const FORBIDDEN = [
     why: "scope it: say what does not happen on THIS rail",
   },
   {
-    re: /\d+ deterministic tools\b/,
+    re: /(?:\d|\}|\b[Aa]ll|\b[Ee]very) deterministic (?:\w+ )?tools\b/,
     why: "the catalog count includes model-backed entries; say priced endpoints",
   },
   {
@@ -79,16 +94,30 @@ const FORBIDDEN = [
   },
 ];
 
-for (const rel of files) {
-  if (SELF.has(rel)) continue;
-  const s = read(rel);
-  if (s == null) continue;
-  for (const { re, why } of FORBIDDEN) {
-    const m = s.match(re);
-    if (m) { fail++; console.error(`FAIL - ${rel} carries "${m[0]}" (${why})`); }
+function sweep(entries) {
+  const found = [];
+  for (const [rel, text] of entries) {
+    if (text == null) continue;
+    for (const { re, why } of FORBIDDEN) {
+      const m = text.match(re);
+      if (m) found.push(`${rel} carries "${m[0]}" (${why})`);
+    }
   }
+  return found;
 }
-ok(true, `swept ${files.length} copy surfaces for four absolutes that had already stopped being true`);
+
+// Control FIRST: a planted file must be reported by the same code path the
+// real sweep uses, or a clean run proves nothing.
+const control = sweep([["<control>", "Only sellers with proven on-chain settlement are routable."],
+                       ["<control>", "Agent402 never holds funds."],
+                       ["<control>", "Flat pricing for ${n} deterministic web tools."],
+                       ["<control>", "Every tool is deterministic."]]);
+ok(control.length === 4, `control: the sweep reports all 4 planted violations through its real code path (got ${control.length})`);
+
+for (const hit of sweep(files.map((rel) => [rel, read(rel)]))) { fail++; console.error(`FAIL - ${hit}`); }
+ok(files.length >= 300, `swept ${files.length} copy surfaces (a collapsed file list must fail, not pass quietly)`);
+ok((read("src/why.js") || "").length > 500 && (read("adapters/agentkit/README.md") || "").length > 500,
+   "...and the sweep really reached both a served page and a published package README");
 
 // --- the routing sentence is derived, and honest in BOTH directions --------
 {

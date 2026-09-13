@@ -709,7 +709,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   anywhere in the file). Mutation-checked by restoring each stale string. Lesson: a guard scoped to where the last drift
   happened will miss the next one - scope it to every surface that QUOTES the number, machine surfaces first.
 - **Four false absolutes, and the guard that closes the class (2026-09-13, `src/routing-proof.js`,
-  `scripts/test-copy-absolutes.js` 14 in the pricing lane):** every one was true the day it shipped and had stopped being
+  `scripts/test-copy-absolutes.js` 16 in the unit-a4 lane):** every one was true the day it shipped and had stopped being
   true since, and three had a correctly SCOPED twin already being served on another page of the same site - which is the
   tell that the defect is copies, not judgment. (1) `/api/pricing`'s description said "N deterministic tools" where N was
   the WHOLE catalog count; it now says "N priced endpoints, most of them deterministic code ... and the model-backed ones
@@ -730,9 +730,22 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   (wiki Payments-and-x402, the x402-toolkit guide) and "Non-custodial - Agent402 never holds funds" (`/pricing`) - false
   since prepaid credits, while `/security`, `/company`, `/terms` and `/api/reliability` had been saying the scoped version
   for two weeks. The SUBJECT is now the tools ("these tools never hold, receive, sign, or send funds") with the two card
-  paths named, and `/pricing`'s wallet card says "non-custodial on this rail". The guard sweeps 235 copy surfaces
-  (`src/`, `wiki/`, `docs/`, every README) for the six phrasings that were wrong; 7 mutations killed, including restoring
-  each absolute verbatim and hand-rewording instead of deriving.
+  paths named, and `/pricing`'s wallet card says "non-custodial on this rail". The guard sweeps 392 copy surfaces
+  RECURSIVELY (`src/` incl. `src/tools/`, `wiki/`, `docs/`, `adapters/`, `openclaw/`, every package's markdown, README) for
+  the six phrasings; 12 mutations killed, including restoring each absolute verbatim, hand-rewording instead of deriving,
+  disabling the reporting path and collapsing the file list.
+  **The first cut of the guard certified its own gap, which is the finding worth keeping.** It read `src/*.js` at the TOP
+  LEVEL only plus four README paths, and its count rule matched `\d+ deterministic tools` - so it passed green while four
+  more sites of the same class stood: `/docs`'s meta description called the WHOLE catalog "N deterministic x402 tools" and
+  then named the gateway in the same sentence (LIVE, user-visible, `ledger-docs.js`); `adapters/agentkit/README.md`, a
+  PUBLISHED npm package, said "Every tool is deterministic"; a tollbooth deploy doc and the x402-kit header carried the
+  custody absolute; and `src/pricing-page.js` carried three copies (dead module - imported at server.js:323 and never
+  invoked, like `landing.js`; fixed anyway so a revival is honest, but it was never served). Two regex lessons: the count
+  claim ships as a TEMPLATE EXPRESSION (`${totalTools} deterministic web tools`) far more often than as a literal number,
+  so the rule matches the COUNT POSITION (a digit, a `}` closing `${...}`, or all/every) and tolerates one word between
+  "deterministic" and "tools"; and a control that only asserts `re.test(string)` leaves the REPORTING loop untested - a
+  mutation disabling it survived until the sweep became a function the control drives end to end. Scope a guard to the
+  claim's whole surface, or it is a certificate for the part it cannot see.
 - **A migrated seller was listed TWICE, and the fix is asymmetric on purpose (2026-09-13, `recordSuccession` /
   `supersededOrigins` in x402-index.js, `scripts/test-seller-succession.js` 40):** verifying a succession did exactly one
   thing - `inheritFirstSeenFrom`, carrying the old origin's first-seen date onto the new one - and the predecessor stayed a

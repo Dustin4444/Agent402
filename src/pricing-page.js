@@ -55,13 +55,13 @@ export function pricingPage(baseUrl, catalog) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Pricing - Agent402</title>
-<meta name="description" content="Flat per-call pricing for ${totalTools} deterministic web tools. Pay in USDC on Base, Solana, Polygon & Arbitrum - or USDG on Robinhood Chain - via x402, or use proof-of-work for free.">
+<meta name="description" content="Flat per-call pricing for ${totalTools} pay-per-call web tools, most of them deterministic code. Pay in USDC on Base, Solana, Polygon & Arbitrum - or USDG on Robinhood Chain - via x402, or use proof-of-work for free.">
 <link rel="canonical" href="${baseUrl}/pricing">
 <meta property="og:type" content="website">
 <meta property="og:url" content="${baseUrl}/pricing">
 <meta property="og:site_name" content="Agent402.Tools">
 <meta property="og:title" content="Pricing - Agent402">
-<meta property="og:description" content="Flat per-call pricing for ${totalTools} deterministic web tools. No tiers, no subscriptions.">
+<meta property="og:description" content="Flat per-call pricing for ${totalTools} pay-per-call web tools. No tiers, no subscriptions.">
 <meta name="twitter:card" content="summary">
 ${CHROME_HEAD_LINKS}
 <style>
@@ -124,7 +124,7 @@ ${JSON.stringify({
   "@type": "WebPage",
   "name": "Agent402 Pricing",
   "url": `${baseUrl}/pricing`,
-  "description": `Flat per-call pricing for ${totalTools} deterministic web tools.`,
+  "description": `Flat per-call pricing for ${totalTools} pay-per-call web tools, most of them deterministic code and the model-backed ones marked.`,
   "offers": {
     "@type": "AggregateOffer",
     "priceCurrency": "USD",

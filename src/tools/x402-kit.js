@@ -1,6 +1,6 @@
 // x402 payments kit — NON-CUSTODIAL, multi-chain tooling for agents that move
-// their own money with their own key. Agent402 never holds, receives, or
-// transfers funds: these tools decode 402 quotes, read public on-chain state,
+// their own money with their own key. These tools never hold, receive, or
+// transfer funds: they decode 402 quotes, read public on-chain state,
 // and BUILD (never sign) an EIP-3009 transfer authorization. Keyless public RPC.
 //
 //   x402-quote             fetch a URL's HTTP 402 and decode its payment terms
