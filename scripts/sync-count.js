@@ -31,6 +31,11 @@ import { pathToFileURL } from "node:url";
 
 export const CATALOG_FLOOR = 400;
 export const BRAND_FLOOR = 500; // the number in the public "500+" claim
+// The number in the public "80+ skill packs" claim. Five surfaces - two of them
+// PUBLISHED npm READMEs - said "100+ skill packs" against a real 85, and the
+// pack count was already being read here for the summary line without anything
+// asserting on it. A count printed but never checked is how the claim drifted.
+export const PACK_BRAND_FLOOR = 80;
 
 // Returns null when the total is at or above the floor, else the CI failure
 // message. Exported (and main() gated below) so the assertion is unit-testable
@@ -45,6 +50,13 @@ export function floorViolation(total) {
 export function brandViolation(total) {
   if (total >= BRAND_FLOOR) return null;
   return `Catalog (${total}) is below the public "${BRAND_FLOOR.toLocaleString("en-US")}+" claim — either restore the missing tools or rebrand the marketing surfaces.`;
+}
+
+// Returns null while the public "80+ skill packs" claim is honest, else the CI
+// failure message. packBrandViolation(79) must return the message.
+export function packBrandViolation(packs) {
+  if (packs >= PACK_BRAND_FLOOR) return null;
+  return `Skill packs (${packs}) are below the public "${PACK_BRAND_FLOOR}+ skill packs" claim - either restore the missing packs or rebrand the surfaces that say it.`;
 }
 
 async function main() {
@@ -74,6 +86,10 @@ async function main() {
     // 2. HONESTY of the evergreen claim
     const brand = brandViolation(total);
     if (brand) { console.error(brand); process.exit(1); }
+
+    // 2b. HONESTY of the pack claim, on the same terms as the tool claim.
+    const packBrand = packBrandViolation(packs);
+    if (packBrand) { console.error(packBrand); process.exit(1); }
 
     // 3. ANCHOR — the README H1 must claim "500+ tools" (evergreen), never an
     // exact count that would rot as the catalog grows.

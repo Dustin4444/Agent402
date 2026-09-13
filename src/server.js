@@ -320,7 +320,6 @@ import { skillsIndex, skillPackPage, skillPacksJson, SKILL_PACKS, buildPromptMes
 import { docsIndex, docsPage, docsApi } from "./docs.js";
 import { shopPage } from "./shop.js";
 import { integrationsPage } from "./integrations.js";
-import { pricingPage } from "./pricing-page.js";
 import { changelogPage, changelogRss } from "./changelog.js";
 import { useCasesPage } from "./use-cases.js";
 import { playgroundPage } from "./playground.js";

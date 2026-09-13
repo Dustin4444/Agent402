@@ -95,5 +95,8 @@
         "description": "Ceiling on rolling 24-hour paid spend in USD."
       }
     }
+  },
+  "engines": {
+    "node": ">=18"
   }
 }
