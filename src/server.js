@@ -162,6 +162,7 @@ import { proofPage } from "./proof.js";
 import { glossaryPage } from "./glossary.js";
 import { x402101Page } from "./x402-101.js";
 import { aifiCardSvg } from "./aifi-card.js";
+import { sectionCardSvg, ogSectionIds } from "./og-cards.js";
 import { robotsTxt, sitemapXml, llmsTxt, sitemapIndex, sitemapPages, sitemapTools, sitemapGuides, sitemapSkills, sitemapReports } from "./seo.js";
 import { skillMd } from "./skill-md.js";
 import { createMcpMppLoopback } from "./mcp-mpp.js";
@@ -5696,6 +5697,33 @@ app.get("/x-header.png", async (_req, res) => {
     res.type("image/png").set("Cache-Control", "public, max-age=86400").send(xHeaderPngCache);
   } catch {
     res.redirect(302, "/x-header.svg");
+  }
+});
+// Section cards (src/og-cards.js): /og/<section>.png is the og:image the shell
+// derives for every section page, rendered once per process like /card.png.
+// Prices in the card copy are read from the booted catalog, never typed.
+const OG_SECTION_IDS = new Set(ogSectionIds());
+const ogSectionCache = new Map();
+const ogSectionCtx = () => ({
+  BRAND, BRAND_DEFS, BRAND_FONT_STYLE,
+  toolCount: Object.keys(CATALOG).length,
+  railCount: RAILS.length,
+  price: (slug) => { const d = Object.values(CATALOG).find((t) => t && t.slug === slug); return d && typeof d.price === "string" ? d.price : null; },
+  monitorPrice: (() => { const c = Number(Object.values(MONITOR_PRODUCTS)[0]?.price); return Number.isFinite(c) && c > 0 ? `$${(c / 100).toFixed(0)}` : "$5"; })(),
+});
+app.get("/og/:id.svg", (req, res) => {
+  const id = String(req.params.id || "");
+  if (!OG_SECTION_IDS.has(id)) return res.status(404).type("text/plain").send("Not found");
+  res.type("image/svg+xml").set("Cache-Control", "public, max-age=86400").send(sectionCardSvg(id, ogSectionCtx()));
+});
+app.get("/og/:id.png", async (req, res) => {
+  const id = String(req.params.id || "");
+  if (!OG_SECTION_IDS.has(id)) return res.status(404).type("text/plain").send("Not found");
+  try {
+    if (!ogSectionCache.has(id)) ogSectionCache.set(id, await rasterizeSvg(sectionCardSvg(id, ogSectionCtx()), { width: 1200, height: 630 }));
+    res.type("image/png").set("Cache-Control", "public, max-age=86400").send(ogSectionCache.get(id));
+  } catch {
+    res.redirect(302, `/og/${id}.svg`);
   }
 });
 app.get("/card.svg", (_req, res) => res.type("image/svg+xml").set("Cache-Control", "public, max-age=86400").send(cardSvg()));

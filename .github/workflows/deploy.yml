@@ -1837,6 +1837,8 @@ jobs:
           t() { local s=$SECONDS; echo "::group::$*"; "$@" || { echo "::endgroup::"; echo "::error::failed: $*"; exit 1; }; echo "::endgroup::"; echo "ok  $* ($((SECONDS - s))s)"; }
           # Static page renders smoke (every HTML surface returns 200 with the right page-specific title)
           t node scripts/test-static-pages.js
+          # Section Open Graph cards: every section page derives its own og:image, tool pages keep theirs, every card SVG well-formed (2026-09-14)
+          t node scripts/test-og-cards.js
           # SEO meta ratchet: title <= 70, description <= 165, exactly one H1, canonical on every hand-written page (reader pass 2026-09-08)
           t node scripts/test-seo-meta.js
           # Operator auth (A402-07 no ?token= query; session cookie + header; hardened cookie flags — spawns child)

@@ -1,5 +1,6 @@
 import { RAILS, RAILS_AMP, RAILS_OS } from "./rails.js";
 import { metaTitle, metaDescription } from "./seo-meta.js";
+import { ogSectionFor } from "./og-cards.js";
 // Machine Ledger design system — shared chrome for the Agent402 marketing site.
 // Exports the status line, nav, footers (full + compact), design-token CSS,
 // and a ledgerShell() wrapper that composes a full HTML page.
@@ -854,7 +855,12 @@ export function ledgerShell({ title: rawTitle, description: rawDescription, cano
   // and a link preview can actually show.
   const title = metaTitle(rawTitle);
   const description = metaDescription(rawDescription);
-  const og = ogImage || (baseUrl + "/card.png" + (ogImageVersion ? `?v=${ogImageVersion}` : ""));
+  // A page that names its own card keeps it; otherwise the SECTION card for the
+  // page's path (src/og-cards.js), and the homepage card only when no section
+  // claims the path. The version stamp rides on every variant for the same
+  // reason it rides on /card.png: social crawlers cache by exact image URL.
+  const section = ogImage ? null : ogSectionFor(canonical);
+  const og = ogImage || (baseUrl + (section ? `/og/${section}.png` : "/card.png") + (ogImageVersion ? `?v=${ogImageVersion}` : ""));
   // Base ecosystem JSON-LD - every page rendered through the ledger shell
   // carries this so crawlers and discovery agents see Base chain support
   // regardless of which page they land on.
