@@ -436,9 +436,23 @@ export function recordWish({ need, context, source, ip } = {}) {
  */
 export function getWishesAggregate({ limit = 200, detailed = false } = {}) {
   const cap = Math.min(Math.max(parseInt(limit, 10) || 200, 1), 500);
+  // THE QUALIFICATION CONSTANTS ARE NOT PUBLISHED. They were, and they are the
+  // recipe for gaming this exact board: signals per cluster, distinct callers,
+  // and the span they must cover. The board HAS been gamed - one scripted
+  // sweep re-running a query list qualified about thirty clusters in August,
+  // which is why QUALIFY_MIN_CALLERS exists at all - so handing the next one
+  // the three numbers it needs to clear is not transparency, it is a spec.
+  //
+  // The MECHANISM stays published (the /sell commitment is that people can see
+  // how ranking works, and they still can: signals, distinct callers, a time
+  // span, all named). Only the constants move behind the operator token, where
+  // the detailed board already lives.
   const base = {
     distinctClusters: clusters.size,
     totalWishes: [...clusters.values()].reduce((s, c) => s + c.count, 0),
+    qualifiesOn: "repeat signals from several distinct callers over a span of time; the exact figures are not published, because publishing them is how a board like this gets farmed",
+  };
+  const constants = {
     threshold: WISH_THRESHOLD,
     qualifyMinSpanHours: QUALIFY_MIN_SPAN_MS / 3_600_000,
     qualifyMinCallers: QUALIFY_MIN_CALLERS,
@@ -472,6 +486,10 @@ export function getWishesAggregate({ limit = 200, detailed = false } = {}) {
       qualified: clusterQualifies(c),
     }));
   return {
+    // Operator view: the constants ARE included here, because acting on the
+    // board means knowing what the bar is. This path is behind the operator
+    // token already.
+    ...constants,
     ...base,
     // Stated, so a quiet board reads as quiet rather than as a rendering bug.
     staleDays: WISH_STALE_DAYS,

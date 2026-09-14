@@ -62,6 +62,34 @@ ok(Object.values(ups).every((v) => Object.keys(v).join(",") === "status"),
 ok(/no-store/.test(opRes.headers.get("cache-control") || ""), "an operator-authed read is private, no-store");
 ok(/max-age/.test(pub.headers.get("cache-control") || ""), "the public read is still cacheable");
 
+
+// --- the operator-auth brute-force oracle ----------------------------------
+// {failures1h, threshold} on a public surface is a live tuning aid against the
+// operator token: the threshold says how many wrong tokens per hour stay under
+// the alarm, and the counter confirms in real time that a grind is being
+// counted - so an attacker can pace themselves and WATCH the alarm stay quiet.
+{
+  ok(typeof pubBody?.operatorAuth?.status === "string", "operatorAuth still publishes its verdict publicly");
+  ok(!("failures1h" in (pubBody.operatorAuth || {})), "the PUBLIC view carries no live failure counter");
+  ok(!("threshold" in (pubBody.operatorAuth || {})), "and never the alarm threshold");
+  ok(typeof opBody?.operatorAuth?.failures1h === "number" && typeof opBody?.operatorAuth?.threshold === "number",
+     "the OPERATOR view keeps both - you cannot act on a verdict alone");
+}
+
+// --- the wish board's qualification constants ------------------------------
+// The board has been farmed once already (a scripted sweep qualified ~30
+// clusters in August, which is why a distinct-caller minimum exists). The
+// three constants are the spec for doing it again.
+{
+  const w = await (await fetch(`${base}/api/wishes`)).json();
+  for (const k of ["threshold", "qualifyMinCallers", "qualifyMinSpanHours"]) {
+    ok(!(k in w), `/api/wishes does not publish ${k}`);
+  }
+  ok(typeof w.qualifiesOn === "string" && /distinct callers/i.test(w.qualifiesOn),
+     "but the MECHANISM is still described, so the ranking stays explainable");
+  ok(typeof w.qualifiedClusters === "number", "and the qualified count is still published");
+}
+
 child.kill();
 console.log(`\ntest-gateway-status-privacy: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

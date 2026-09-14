@@ -2467,7 +2467,7 @@ app.get("/api/gateway-status", async (req, res) => {
     exaSpend: full ? spend.exaSpend : publicBucket(spend.exaSpend),
     exaAllowance: full ? spend.exaAllowance : publicBucket(spend.exaAllowance),
     upstreamBudgets: full ? budgets : publicBudgets(budgets),
-    stellarFacilitator, databases, operatorAuth: operatorAuthStatus(),
+    stellarFacilitator, databases, operatorAuth: operatorAuthStatus(full),
     mppEvmDomainFallback: mppFallbackStatus(), loopLag: loopLagStatus(),
   };
   // An operator-authed read must not land in a shared cache.
@@ -3670,11 +3670,20 @@ function noteOperatorAuthFailure() {
     console.warn(`[operator-auth] ${_opAuthFails.length} wrong operator credentials in the last hour (threshold ${OPERATOR_AUTH_FAIL_ALERT}) - token guessing in progress; rotate AGENT402_OPERATOR_TOKEN if this persists`);
   }
 }
-export function operatorAuthStatus() {
+export function operatorAuthStatus(full = false) {
   const now = Date.now();
   while (_opAuthFails.length && now - _opAuthFails[0] > 3_600_000) _opAuthFails.shift();
   const n = _opAuthFails.length;
-  return { status: n >= OPERATOR_AUTH_FAIL_ALERT ? "elevated" : "ok", failures1h: n, threshold: OPERATOR_AUTH_FAIL_ALERT };
+  // `full` is operator-only. On the PUBLIC surface this is the verdict alone,
+  // because the pair {failures1h, threshold} is a live brute-force oracle
+  // against our most powerful credential: the threshold says how many wrong
+  // tokens per hour stay under the alarm, and the counter is real-time
+  // feedback confirming an attacker's probing is being counted - so they can
+  // tune a slow grind and WATCH it stay quiet. The verdict alone tells a
+  // monitor everything it needs and an attacker nothing they can aim with.
+  return full
+    ? { status: n >= OPERATOR_AUTH_FAIL_ALERT ? "elevated" : "ok", failures1h: n, threshold: OPERATOR_AUTH_FAIL_ALERT }
+    : { status: n >= OPERATOR_AUTH_FAIL_ALERT ? "elevated" : "ok" };
 }
 function operatorAuthed(req) {
   const presented = Boolean(getOperatorToken(req)) || Boolean(readCookie(req, OPERATOR_COOKIE));
