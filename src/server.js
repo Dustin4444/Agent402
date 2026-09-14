@@ -2439,6 +2439,25 @@ function publicBucket(o) {
   for (const [k, v] of Object.entries(o)) if (KEEP.has(k)) out[k] = v;
   return out;
 }
+function publicFallback(f) {
+  // The wrong-EIP-712-domain steering holds a proven bad signer for a TTL and
+  // a response count. Published, those two are the lapse schedule: a client
+  // that knows the hold ends after N responses knows exactly when its next
+  // request sees challenges again. `enabled` stays - a probe learns it anyway
+  // by presenting one wrong-domain credential, and withholding a fact anyone
+  // can measure is the theatre the wish-board revert already taught us not to
+  // repeat. `suppressedClients` is a live count of our own traffic and goes.
+  if (!f || typeof f !== "object") return f;
+  return { enabled: f.enabled };
+}
+function publicLoopLag(l) {
+  // Boot-stall telemetry: worst hold, stall count, last stall. Nobody outside
+  // acts on it, and a live "how blocked is the event loop right now" readout
+  // is a timing signal for anyone probing for a window. The FACT that we watch
+  // stays, because that is the claim, not the measurement.
+  if (!l || typeof l !== "object") return l;
+  return { watching: l.watching };
+}
 function publicBudgets(b) {
   // Per-vendor: the WORD only. Never callsToday, never the budget - publishing
   // seven exact daily ceilings is a map of where to push.
@@ -2468,7 +2487,8 @@ app.get("/api/gateway-status", async (req, res) => {
     exaAllowance: full ? spend.exaAllowance : publicBucket(spend.exaAllowance),
     upstreamBudgets: full ? budgets : publicBudgets(budgets),
     stellarFacilitator, databases, operatorAuth: operatorAuthStatus(full),
-    mppEvmDomainFallback: mppFallbackStatus(), loopLag: loopLagStatus(),
+    mppEvmDomainFallback: full ? mppFallbackStatus() : publicFallback(mppFallbackStatus()),
+    loopLag: full ? loopLagStatus() : publicLoopLag(loopLagStatus()),
   };
   // An operator-authed read must not land in a shared cache.
   res.set("Cache-Control", full ? "private, no-store" : "public, max-age=60").json(body);
