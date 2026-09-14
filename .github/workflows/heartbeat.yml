@@ -378,6 +378,31 @@ jobs:
       # one-way drain until self-funding flips on post-October). optedIn:false
       # also buckets as "low" — an un-opted-in wallet can't pay at all.
       # "unknown"/"unconfigured" never page.
+      - name: Upstream call budget elevated
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Counts OUR outbound calls per paid vendor against a daily budget.
+          # Not a balance - most of these publish none. Catches a step change
+          # (a loop, a leak, a sweep that started buying) before the bill or
+          # the quota does. Brave backs our best-selling tool and Alchemy is
+          # pay-as-you-go, so both directions are covered: revenue at risk and
+          # cost with no revenue.
+          BODY=$(curl -s --max-time 15 "$PROD/api/gateway-status" || echo '{}')
+          STATUS=$(echo "$BODY" | jq -r '.upstreamBudgets.status // "unknown"' 2>/dev/null || echo unknown)
+          OVER=$(echo "$BODY" | jq -r '[.upstreamBudgets.upstreams // {} | to_entries[] | select(.value.status=="elevated") | "\(.key) \(.value.callsToday)/\(.value.budget)"] | join(", ")' 2>/dev/null || echo "")
+          TITLE="Upstream call budget ELEVATED"
+          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$TITLE in:title" --json number --jq '.[0].number' 2>/dev/null || echo "")
+          if [ "$STATUS" = "elevated" ]; then
+            if [ -z "$EXISTING" ]; then
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" \
+                --body "\`/api/gateway-status.upstreamBudgets\` reports **elevated**: ${OVER:-see the endpoint}. These are OUR outbound call counts against a daily budget, not a vendor balance. Check whether a loop, a new sweep or real demand is behind it, then either fix the cause or raise the budget env var for that vendor. The counter is daily and resets on deploy, so the real figure is at or above what is shown."
+            fi
+          elif [ -n "$EXISTING" ] && [ "$STATUS" = "ok" ]; then
+            gh issue close "$EXISTING" --repo "$GITHUB_REPOSITORY" --comment "upstreamBudgets is ok; closing." || true
+          fi
+
       - name: Exa prepaid allowance low
         if: always()
         env:
