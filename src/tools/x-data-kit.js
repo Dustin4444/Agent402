@@ -130,6 +130,22 @@ export function xDataSpendStatus(now = Date.now()) {
 export function _xSpendReset() { xSpend.day = ""; xSpend.micro = 0; xSpend.refused = 0; }
 export function _xSpendBook(usd) { xSpendToday(); xSpend.micro += Math.round(usd * 1e6); }
 
+// "Not found on X" comes in two shapes - an HTTP 404, or a 200 whose body
+// carries `errors` and no `data` - and until 2026-09-14 both were answered to
+// the buyer as a bare 404 with X's own words discarded. The Algorand rail
+// canary then paid for tweet id 20 (the first tweet on the platform) twice
+// in six seconds at 14:02Z and got 404 both times, while the identical
+// request an hour later returned it; nothing recorded what X had said. One
+// log line per not-found now carries X's title/detail/type (never the
+// bearer, never the query string) so the next one is diagnosable.
+function notFoundOnX(path, upstreamStatus, body) {
+  const errs = Array.isArray(body?.errors) ? body.errors : [];
+  const first = errs[0] || {};
+  const label = path.replace(/\/\d{5,}(?=\/|$)/, "/:id");
+  console.warn(`[x-data] not-found path=${label} upstreamStatus=${upstreamStatus} xTitle=${JSON.stringify(String(first.title || body?.title || "")).slice(0, 80)} xDetail=${JSON.stringify(String(first.detail || body?.detail || "")).slice(0, 160)} xType=${String(first.type || body?.type || "")} errors=${errs.length}`);
+  return bad("Not found on X", 404);
+}
+
 async function xGet(path, params = {}) {
   const token = requireBearer();
   const cap = X_DATA_DAILY_MAX_USD();
@@ -164,7 +180,7 @@ async function xGet(path, params = {}) {
     const hint = inSec ? ` - the window resets in about ${inSec}s` : " - retry shortly";
     throw bad(`X API rate cap reached upstream${hint}`, 503);
   }
-  if (res.status === 404) throw bad("Not found on X", 404);
+  if (res.status === 404) throw notFoundOnX(path, res.status, await res.json().catch(() => null));
   if (res.status >= 500) throw bad(`X API upstream error (HTTP ${res.status})`, 502);
   if (!res.ok) throw bad(`X API rejected the request (HTTP ${res.status}) - check the query syntax and parameters`, 400);
 
@@ -242,7 +258,7 @@ const nowIso = () => new Date().toISOString();
 
 async function resolveUserId(username) {
   const data = await xGet(`/users/by/username/${encodeURIComponent(username)}`, { "user.fields": USER_FIELDS });
-  if (!data.data?.id) throw bad("Not found on X", 404);
+  if (!data.data?.id) throw notFoundOnX("/users/by/username", 200, data);
   return data.data;
 }
 
@@ -481,7 +497,7 @@ export const X_DATA_TOOLS = [
         expansions: "author_id",
         "user.fields": "username,name,verified",
       });
-      if (!data.data?.id) throw bad("Not found on X", 404);
+      if (!data.data?.id) throw notFoundOnX("/tweets/:id", 200, data);
       const tweet = shapeTweet(data.data, authorIndex(data.includes));
       return { source: "x-api-v2", fetchedAt: nowIso(), tweet };
     },
