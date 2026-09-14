@@ -76,6 +76,62 @@ ok(/max-age/.test(pub.headers.get("cache-control") || ""), "the public read is s
      "the OPERATOR view keeps both - you cannot act on a verdict alone");
 }
 
+// --- the CLASS, not the two instances --------------------------------------
+// The money regex above matches BALANCE-shaped names and could never have seen
+// ttlMs, maxResponses or worstMs: those are schedules and durations. Scoping a
+// guard to the shape that leaked last is how the next one gets through, so the
+// rule is now positional rather than nominal - ANY number on the public
+// response is a finding until it is named here with a reason. Adding a number
+// to this endpoint is then a deliberate act with an argument attached.
+{
+  const ALLOWED_PUBLIC_NUMBERS = new Set([
+    // none today. A verdict endpoint has no honest use for a figure; if one
+    // earns its place, name the path here and say why a stranger may read it.
+  ]);
+  const nums = [];
+  (function walk(o, path) {
+    if (o && typeof o === "object") {
+      for (const [k, v] of Object.entries(o)) walk(v, path ? `${path}.${k}` : k);
+    } else if (typeof o === "number") nums.push(path);
+  })(pubBody, "");
+  const unexplained = nums.filter((p) => !ALLOWED_PUBLIC_NUMBERS.has(p));
+  ok(unexplained.length === 0,
+     `the PUBLIC response publishes no unexplained number${unexplained.length ? `: ${unexplained.join(", ")}` : ""}`);
+  // ...and the sweep must be able to SEE one, or it certifies an empty object.
+  const opNums = [];
+  (function walk(o, path) {
+    if (o && typeof o === "object") { for (const [k, v] of Object.entries(o)) walk(v, path ? `${path}.${k}` : k); }
+    else if (typeof o === "number") opNums.push(path);
+  })(opBody, "");
+  ok(opNums.length >= 5, `the same sweep finds ${opNums.length} numbers on the OPERATOR response (sanity: it is not blind)`);
+}
+
+// --- the two remaining knobs, bucketed 2026-09-14 --------------------------
+// Found by re-reading the live public response after the spend fields were
+// bucketed: these were the only numbers left, and both describe a schedule
+// rather than a balance, which is why the money regex above could never see
+// them. `ttlMs` + `maxResponses` are the wrong-domain hold's LAPSE SCHEDULE -
+// a client told the hold ends after N responses knows when challenges return.
+// loopLag is a live "how blocked is the event loop" readout, a timing signal
+// for anyone probing for a window, that nobody outside ever acted on.
+{
+  const f = pubBody?.mppEvmDomainFallback || {};
+  ok(typeof f.enabled === "boolean",
+     "the fallback still says whether it is armed - a probe learns that from one wrong-domain credential anyway, and hiding a measurable fact is theatre");
+  ok(!("ttlMs" in f) && !("maxResponses" in f), "...but never the hold's lapse schedule");
+  ok(!("suppressedClients" in f), "and never a live count of our own traffic");
+  ok(typeof opBody?.mppEvmDomainFallback?.ttlMs === "number" && typeof opBody?.mppEvmDomainFallback?.maxResponses === "number"
+     && typeof opBody?.mppEvmDomainFallback?.suppressedClients === "number",
+     "the OPERATOR view keeps all three");
+
+  const l = pubBody?.loopLag || {};
+  ok(l.watching === true || l.watching === false, "loopLag still publishes THAT we watch, which is the claim");
+  ok(!("worstMs" in l) && !("stalls" in l) && !("lastStallMs" in l) && !("worstAt" in l) && !("lastStallAt" in l),
+     "...and none of the measurements");
+  ok(typeof opBody?.loopLag?.worstMs === "number" && typeof opBody?.loopLag?.stalls === "number",
+     "the OPERATOR view keeps the figures - they are what you read after a bad deploy");
+}
+
 // --- NOT hidden, and the reason is worth keeping -------------------------
 // The wish board's qualification constants stay public. An attempt to hide
 // them was reverted within the hour: the PAID demand-radar ($0.005) states the
