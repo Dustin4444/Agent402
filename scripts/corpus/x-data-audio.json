@@ -1,0 +1,57 @@
+{
+  "about": "Tier 2 (env-gated): the five X tools, tts-lite, and seller-payability. X BILLS PER ITEM RETURNED - $0.005 a post, $0.010 a user - so a full pass here costs about $0.135 upstream and every case takes the smallest page the tool allows. That cost is why there is ONE case per tool and no paging cases. Every shape was read from a live call on 2026-09-13 before being asserted; tts-lite returns JSON with base64 audio, not raw bytes, which a guess would have got wrong.",
+  "cases": [
+    {
+      "slug": "x-tweet", "name": "the first tweet ever posted, by id", "requires": "X_BEARER_TOKEN",
+      "input": { "id": "20" },
+      "expect": {
+        "equals": { "tweet.id": "20", "tweet.text": "just setting up my twttr", "tweet.author.username": "jack" },
+        "populated": ["tweet.createdAt", "tweet.metrics"]
+      }
+    },
+    {
+      "slug": "x-user", "name": "a user profile carries a real follower count", "requires": "X_BEARER_TOKEN",
+      "input": { "username": "jack" },
+      "expect": { "equals": { "user.id": "12", "user.username": "jack" }, "populated": ["user.createdAt"] }
+    },
+    {
+      "slug": "x-users-lookup", "name": "a one-name bulk lookup, the cheapest page the tool allows", "requires": "X_BEARER_TOKEN",
+      "input": { "usernames": "jack" },
+      "expect": { "equals": { "count": 1, "users.0.username": "jack" }, "isArray": ["users"] }
+    },
+    {
+      "slug": "x-search-recent", "name": "a recent search returns a full page with text", "requires": "X_BEARER_TOKEN",
+      "input": { "query": "x402 -is:retweet", "max_results": 10 },
+      "expect": { "gte": { "count": 1 }, "isArray": ["tweets"], "populated": ["tweets.0.id", "tweets.0.text"] }
+    },
+    {
+      "slug": "x-user-tweets", "name": "a user timeline is attributed to that user", "requires": "X_BEARER_TOKEN",
+      "input": { "username": "jack", "max_results": 10 },
+      "expect": { "equals": { "user.username": "jack" }, "gte": { "count": 1 }, "populated": ["tweets.0.id"] }
+    },
+    {
+      "slug": "tts-lite", "name": "speech comes back as base64 audio with the model named",
+      "input": { "text": "x402 settles per request." },
+      "requires": "OPENROUTER_API_KEY",
+      "expect": {
+        "populated": ["audio", "model", "voice", "format"],
+        "gt": { "chars": 0 },
+        "matches": { "model": "kokoro|tts|speech" }
+      }
+    },
+    {
+      "slug": "seller-payability", "name": "an x402 endpoint's unpaid 402 is read and its rails reported",
+      "input": { "url": "https://agent402.tools/api/hash", "method": "POST" },
+      "expect": {
+        "equals": { "challenge.readable": true },
+        "isArray": ["challenge.networks", "flags"],
+        "populated": ["unpaidCall.status", "checkedAt"]
+      }
+    },
+    {
+      "slug": "seller-payability", "name": "a non-https target is refused before any outbound call",
+      "input": { "url": "ftp://example.com/x" },
+      "expect": { "status": 400, "matches": { "error": "url|https" } }
+    }
+  ]
+}

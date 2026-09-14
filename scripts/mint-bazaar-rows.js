@@ -46,6 +46,12 @@ const ONLY = (() => {
 // about OUR code, never about whether some third party still exists.
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const VITALIK = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
+// The EXACT digest of the body the route-execute legs send. The first version
+// of those checks asserted "a 64-char hex string", which any garbage would
+// satisfy - the shape-not-outcome failure this whole script exists to catch,
+// committed inside the script itself. A router that dispatched to the wrong
+// tool, or returned a stale cached answer, would have passed.
+const SHA256_BAZAAR = "131a0b6c32e4f927894683e6a932b0e11bd26a4e23e20cb59d744734418f95d2";
 
 const LEGS = [
   // ---- the five chain reads --------------------------------------------
@@ -149,11 +155,11 @@ const LEGS = [
   // ---- expensive: opt in with --expensive ------------------------------
   { slug: "route-execute-max", priceUsd: 0.55, method: "POST", expensive: true,
     path: "/api/route/execute-max", body: { slug: "hash", params: { text: "bazaar", algo: "sha256" } },
-    check: (r) => (typeof r.result?.hex === "string" && r.result.hex.length === 64) || `expected a 64-char digest, got ${JSON.stringify(r).slice(0, 200)}` },
+    check: (r) => (r.result?.hex === SHA256_BAZAAR) || `expected sha256("bazaar") = ${SHA256_BAZAAR}, got ${JSON.stringify(r).slice(0, 200)}` },
 
   { slug: "route-execute-pro", priceUsd: 3.30, method: "POST", expensive: true,
     path: "/api/route/execute-pro", body: { slug: "hash", params: { text: "bazaar", algo: "sha256" } },
-    check: (r) => (typeof r.result?.hex === "string" && r.result.hex.length === 64) || `expected a 64-char digest, got ${JSON.stringify(r).slice(0, 200)}` },
+    check: (r) => (r.result?.hex === SHA256_BAZAAR) || `expected sha256("bazaar") = ${SHA256_BAZAAR}, got ${JSON.stringify(r).slice(0, 200)}` },
 ];
 
 function selected() {
