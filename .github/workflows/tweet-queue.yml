@@ -24,6 +24,15 @@ name: Tweet queue
 on:
   schedule:
     - cron: "6 * * * *"
+  # A NEW schedule is picked up late: every scheduled workflow this repo added
+  # fired its first run the next day (corpus-nightly, verify-published-packages,
+  # tempo-subscription-canary, measured 2026-09-14), and on the day this file
+  # landed no cron fired for hours. So the queue also runs when a workflow that
+  # is already firing completes. The catch-up rule makes bunched runs harmless:
+  # each posts the oldest due item not yet recorded, or nothing.
+  workflow_run:
+    workflows: ["Heartbeat", "Tempo MPP volume", "Paid-path canary"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       hour:
