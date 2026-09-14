@@ -436,23 +436,20 @@ export function recordWish({ need, context, source, ip } = {}) {
  */
 export function getWishesAggregate({ limit = 200, detailed = false } = {}) {
   const cap = Math.min(Math.max(parseInt(limit, 10) || 200, 1), 500);
-  // THE QUALIFICATION CONSTANTS ARE NOT PUBLISHED. They were, and they are the
-  // recipe for gaming this exact board: signals per cluster, distinct callers,
-  // and the span they must cover. The board HAS been gamed - one scripted
-  // sweep re-running a query list qualified about thirty clusters in August,
-  // which is why QUALIFY_MIN_CALLERS exists at all - so handing the next one
-  // the three numbers it needs to clear is not transparency, it is a spec.
+  // The qualification constants ARE published, deliberately, and an attempt to
+  // hide them on 2026-09-14 was reverted the same hour: the PAID demand-radar
+  // ($0.005) states the same three figures, so hiding them here protected
+  // nothing an attacker would not buy for half a cent - while breaking the
+  // cross-surface check that the beacon and the radar state one bar, which is
+  // a real guarantee worth more than the obscurity was.
   //
-  // The MECHANISM stays published (the /sell commitment is that people can see
-  // how ranking works, and they still can: signals, distinct callers, a time
-  // span, all named). Only the constants move behind the operator token, where
-  // the detailed board already lives.
+  // The defences that actually hold are structural, not secret: the per-caller
+  // per-day dedupe on find-misses, and QUALIFY_MIN_CALLERS requiring distinct
+  // callers. Those are what stopped the August farming, and they work with the
+  // numbers in plain sight.
   const base = {
     distinctClusters: clusters.size,
     totalWishes: [...clusters.values()].reduce((s, c) => s + c.count, 0),
-    qualifiesOn: "repeat signals from several distinct callers over a span of time; the exact figures are not published, because publishing them is how a board like this gets farmed",
-  };
-  const constants = {
     threshold: WISH_THRESHOLD,
     qualifyMinSpanHours: QUALIFY_MIN_SPAN_MS / 3_600_000,
     qualifyMinCallers: QUALIFY_MIN_CALLERS,
@@ -486,10 +483,6 @@ export function getWishesAggregate({ limit = 200, detailed = false } = {}) {
       qualified: clusterQualifies(c),
     }));
   return {
-    // Operator view: the constants ARE included here, because acting on the
-    // board means knowing what the bar is. This path is behind the operator
-    // token already.
-    ...constants,
     ...base,
     // Stated, so a quiet board reads as quiet rather than as a rendering bug.
     staleDays: WISH_STALE_DAYS,

@@ -159,9 +159,17 @@ const done = (code) => { try { child.kill("SIGKILL"); } catch { /* */ } process.
   // globally and exposed as a status word on the public gateway-status.
   {
     for (let i = 0; i < 3; i++) await status("/__operator/stats", { headers: { Authorization: "Bearer not-the-token-" + i } });
-    const gs = await (await fetch(`${base}/api/gateway-status`)).json();
+    // The COUNT is operator-only since 2026-09-14: {failures1h, threshold} on a
+    // public surface is a live tuning aid for a slow brute force against this
+    // very token - the threshold says what stays under the alarm and the
+    // counter confirms the grind is being seen. The public view keeps the
+    // verdict, which is all a monitor needs.
+    const pub = await (await fetch(`${base}/api/gateway-status`)).json();
+    ok(pub.operatorAuth && typeof pub.operatorAuth.status === "string" && !("failures1h" in pub.operatorAuth) && !("threshold" in pub.operatorAuth),
+      `the PUBLIC status carries the verdict and neither the counter nor the threshold (${JSON.stringify(pub.operatorAuth)})`);
+    const gs = await (await fetch(`${base}/api/gateway-status`, { headers: { Authorization: `Bearer ${TOKEN}` } })).json();
     ok(gs.operatorAuth && typeof gs.operatorAuth.failures1h === "number" && gs.operatorAuth.failures1h >= 3 && gs.operatorAuth.status === "ok" && gs.operatorAuth.threshold >= 10,
-      `wrong operator credentials are counted on /api/gateway-status (${gs.operatorAuth?.failures1h} in the hour, status ${gs.operatorAuth?.status})`);
+      `wrong operator credentials are counted, visible to the OPERATOR (${gs.operatorAuth?.failures1h} in the hour, status ${gs.operatorAuth?.status})`);
     ok(!JSON.stringify(gs.operatorAuth).includes(TOKEN) && !/not-the-token/.test(JSON.stringify(gs.operatorAuth)), "the status carries counts only, never a credential");
   }
 

@@ -76,18 +76,18 @@ ok(/max-age/.test(pub.headers.get("cache-control") || ""), "the public read is s
      "the OPERATOR view keeps both - you cannot act on a verdict alone");
 }
 
-// --- the wish board's qualification constants ------------------------------
-// The board has been farmed once already (a scripted sweep qualified ~30
-// clusters in August, which is why a distinct-caller minimum exists). The
-// three constants are the spec for doing it again.
+// --- NOT hidden, and the reason is worth keeping -------------------------
+// The wish board's qualification constants stay public. An attempt to hide
+// them was reverted within the hour: the PAID demand-radar ($0.005) states the
+// same three figures, so hiding them on the free beacon protected nothing an
+// attacker would not buy for half a cent, while breaking the cross-surface
+// check that both surfaces state one bar. Obscurity you can purchase is not a
+// control; the per-caller dedupe and the distinct-caller minimum are, and they
+// work in plain sight.
 {
   const w = await (await fetch(`${base}/api/wishes`)).json();
-  for (const k of ["threshold", "qualifyMinCallers", "qualifyMinSpanHours"]) {
-    ok(!(k in w), `/api/wishes does not publish ${k}`);
-  }
-  ok(typeof w.qualifiesOn === "string" && /distinct callers/i.test(w.qualifiesOn),
-     "but the MECHANISM is still described, so the ranking stays explainable");
-  ok(typeof w.qualifiedClusters === "number", "and the qualified count is still published");
+  ok(typeof w.threshold === "number",
+     "the wish qualification bar stays published - the paid radar states it too, so hiding it here would be theatre");
 }
 
 child.kill();
