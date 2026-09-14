@@ -643,7 +643,14 @@ export const ENRICH_TOOLS = [
     tags: ["web", "favicon", "icon", "logo", "enrichment", "domain", "brand"],
     discovery: {
       bodyType: "json",
-      input: { url: "https://github.com" },
+      // The example target is NOT github.com on purpose (2026-09-14): the
+      // strict sweep runs on a GitHub Actions runner, and github.com answers a
+      // runner's page fetch differently from a browser - the HTML read failed,
+      // `declared` came back empty, and the /favicon.ico fallback still
+      // succeeded, so the tool reported found:true with nothing declared and
+      // the sweep rightly failed the example. Wikipedia serves the same page
+      // to everyone and declares two icons.
+      input: { url: "https://www.wikipedia.org" },
       inputSchema: {
         properties: {
           url: { type: "string", description: "Site URL or bare domain (https:// is assumed when omitted)." },
@@ -653,13 +660,16 @@ export const ENRICH_TOOLS = [
       output: {
         example: {
           found: true,
-          url: "https://github.com/",
-          iconUrl: "https://github.githubassets.com/favicons/favicon.png",
-          finalIconUrl: "https://github.githubassets.com/favicons/favicon.png",
+          url: "https://www.wikipedia.org/",
+          iconUrl: "https://www.wikipedia.org/static/apple-touch/wikipedia.png",
+          finalIconUrl: "https://www.wikipedia.org/static/apple-touch/wikipedia.png",
           contentType: "image/png",
-          bytes: 958,
+          bytes: 1313,
           dataUri: "data:image/png;base64,iVBORw0KGgo…",
-          declared: [{ href: "https://github.githubassets.com/favicons/favicon.png", rel: "alternate icon", sizes: null, type: "image/png", mask: false }],
+          declared: [
+            { href: "https://www.wikipedia.org/static/apple-touch/wikipedia.png", rel: "apple-touch-icon", sizes: null, type: null, mask: false },
+            { href: "https://www.wikipedia.org/static/favicon/wikipedia.ico", rel: "shortcut icon", sizes: null, type: null, mask: false },
+          ],
         },
       },
     },

@@ -26,7 +26,7 @@ import { createServer } from "node:http";
 import { Challenge, Credential, PaymentRequest, x402 } from "mppx";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { diagnoseEvmAuthorizationDomain, domainMismatchDetail } from "../src/mpp-evm-domain.js";
-import { mppChallengesSuppressed, noteWrongDomainSigner, mppFallbackStatus, _resetMppFallback } from "../src/mpp-fallback.js";
+import { mppChallengesSuppressed, noteWrongDomainSigner, mppFallbackStatus, _resetMppFallback, _setMppFallbackLogger } from "../src/mpp-fallback.js";
 
 const PORT = 3105;
 const FAC_PORT = 3106;
@@ -211,6 +211,31 @@ if (!booted) {
   ok(noUa.mppSuppressChallenges === true, "a client with no User-Agent still gets THIS response suppressed");
   ok(!mppChallengesSuppressed({ ip: "9.9.9.9", headers: {} }),
     "...but is never REMEMBERED - address alone is too broad to withhold a payment method from");
+
+  // ---- Log lines (2026-09-14): a hold that did not engage on prod could not be
+  // traced because nothing here logged. Every decision about a FLAGGED client
+  // now writes one line - counts and reasons only, never the fingerprint.
+  _resetMppFallback();
+  const lines = [];
+  _setMppFallbackLogger((l) => lines.push(l));
+  noteWrongDomainSigner(reqOf("Logged-UA/1"));
+  ok(lines.length === 1 && /^\[mpp-fallback\] flagged client=[0-9a-f]{8} remembered=true /.test(lines[0]),
+    `flagging writes one line with a short client digest (got: ${lines[0]})`);
+  mppChallengesSuppressed(reqOf("Logged-UA/1"));
+  ok(/^\[mpp-fallback\] withheld client=[0-9a-f]{8} remaining=\d+ /.test(lines[1] || ""),
+    `withholding the challenge writes a line (got: ${lines[1]})`);
+  mppChallengesSuppressed(reqOf("Logged-UA/1", { authorization: "Payment abc" }));
+  ok(/challenged client=[0-9a-f]{8} reason=carries-credential/.test(lines[2] || ""),
+    "a flagged client presenting a credential logs WHY it was challenged anyway");
+  for (let i = 0; i < 10; i++) mppChallengesSuppressed(reqOf("Logged-UA/1"));
+  ok(lines.some((l) => /withheld .*remaining=0 live=0/.test(l)), "the last withheld line reads remaining=0: that IS the spent notice");
+  const before = lines.length;
+  mppChallengesSuppressed(reqOf("Never-flagged/1"));
+  ok(lines.length === before, "a bare request from a client that was never flagged logs NOTHING (no per-request firehose)");
+  noteWrongDomainSigner({ ip: "9.9.9.9", headers: {} });
+  ok(/flagged client=- remembered=false reason=no-user-agent/.test(lines[lines.length - 1]), "a no-User-Agent flag logs that it was not remembered");
+  ok(!lines.some((l) => /9\.9\.9\.9|Logged-UA/.test(l)), "no line carries the address or the User-Agent");
+  _setMppFallbackLogger(null);
 
   _resetMppFallback();
   noteWrongDomainSigner(reqOf("A"));

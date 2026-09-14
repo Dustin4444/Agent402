@@ -185,6 +185,22 @@ globalThis.fetch = async (url) => { fetchCalls++; lastUrl = new URL(String(url))
 // x-tweet: 200 with no data (deleted / protected) -> 404
 globalThis.fetch = async () => jsonRes(200, { errors: [{ title: "Not Found Error", resource_type: "tweet" }] });
 await throws(h("x-tweet")({ id: "1" }), 404, "x-tweet: 200 envelope with no data -> 404");
+// Every not-found writes ONE log line carrying X's own words (2026-09-14: the
+// rail canary paid twice for a 404 on tweet 20 that an hour later was a 200,
+// and nothing had recorded what X said). Never the bearer, never the query.
+{
+  const warned = [];
+  const realWarn = console.warn; console.warn = (...a) => warned.push(a.join(" "));
+  try {
+    globalThis.fetch = async () => jsonRes(200, { errors: [{ title: "Not Found Error", detail: "Could not find tweet with id: [1].", type: "https://api.twitter.com/2/problems/resource-not-found" }] });
+    await throws(h("x-tweet")({ id: "1" }), 404, "x-tweet: not-found on a 200 envelope still 404s");
+    globalThis.fetch = async () => jsonRes(404, { title: "Not Found", detail: "gone" });
+    await throws(h("x-tweet")({ id: "123456789" }), 404, "x-tweet: an HTTP 404 still 404s");
+  } finally { console.warn = realWarn; }
+  ok(warned.length === 2 && warned.every((l) => /^\[x-data\] not-found path=\/tweets\/:id upstreamStatus=(200|404) xTitle=/.test(l)), `one line per not-found, with X's title (got ${warned.length}: ${warned[0]})`);
+  ok(/xDetail="Could not find tweet with id: \[1\]\." xType=https:\/\/api\.twitter\.com\/2\/problems\/resource-not-found errors=1/.test(warned[0]), "the line carries X's detail and type");
+  ok(!warned.some((l) => /Bearer|123456789|tweet\.fields/.test(l)), "the line carries no bearer, no raw id, no query string");
+}
 
 // x-users-lookup
 const BULK_FIXTURE = { data: [USER_FIXTURE.data, { id: "2", username: "base", name: "Base", verified: true, public_metrics: { followers_count: 10 } }], errors: [{ value: "nosuchuser_xyz", detail: "Could not find user", title: "Not Found Error" }] };

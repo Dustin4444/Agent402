@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 // "Stop offering this client an MPP challenge so it falls through to x402."
 //
 // Companion to src/mpp-evm-domain.js. Once a client has PROVEN (by a signature
@@ -45,6 +46,28 @@ const MAX_ENTRIES = 500;
 /** key -> { expiresAt, remaining } */
 const flagged = new Map();
 
+// Observability, added 2026-09-14 after a hold that did not engage could not be
+// traced: a proven wrong-domain signer was flagged, its very next bare request
+// still carried the MPP challenge, and every later repeat was withheld as
+// designed. Nothing here logged, so the miss stayed unexplained. Every line
+// below is COUNTS AND REASONS ONLY: the fingerprint is never written, only a
+// short digest of it (`clientTag`) so a flag line and the decision lines that
+// follow it can be correlated in the log without revealing the address or the
+// User-Agent. Bare requests from clients that were never flagged log nothing,
+// so this cannot become a per-request firehose.
+let logger = (line) => console.log(line);
+/** Test seam only. */
+export function _setMppFallbackLogger(fn) { logger = typeof fn === "function" ? fn : (line) => console.log(line); }
+function clientTag(key) {
+  return key ? createHash("sha256").update(key).digest("hex").slice(0, 8) : "-";
+}
+function logLine(event, fields) {
+  try {
+    const kv = Object.entries(fields).map(([k, v]) => `${k}=${v}`).join(" ");
+    logger(`[mpp-fallback] ${event} ${kv}`);
+  } catch { /* logging never affects the decision */ }
+}
+
 /** Call-time read, like every other rollout knob here. */
 export function evmDomainFallbackEnabled() {
   return String(process.env.MPP_EVM_DOMAIN_FALLBACK || "").trim().toLowerCase() !== "off";
@@ -80,10 +103,11 @@ export function noteWrongDomainSigner(req) {
   if (req) req.mppSuppressChallenges = true;
   if (!evmDomainFallbackEnabled()) return;
   const key = clientFingerprint(req);
-  if (!key) return; // no User-Agent: this response only, nothing remembered
+  if (!key) { logLine("flagged", { client: "-", remembered: false, reason: "no-user-agent" }); return; } // this response only, nothing remembered
   const now = Date.now();
   flagged.set(key, { expiresAt: now + TTL_MS, remaining: MAX_SUPPRESSED });
   prune(now);
+  logLine("flagged", { client: clientTag(key), remembered: true, ttlMs: TTL_MS, budget: MAX_SUPPRESSED, live: flagged.size });
 }
 
 /** Should this request's 402 carry MPP challenges? Decided ONCE per request:
@@ -96,16 +120,26 @@ export function mppChallengesSuppressed(req) {
   if (typeof req.__mppSuppressDecision === "boolean") return req.__mppSuppressDecision;
 
   const decide = () => {
+    const key = clientFingerprint(req);
+    const entry = key ? flagged.get(key) : undefined;
     // Mid-flow on some payment method: it needs a fresh challenge to retry,
     // and we have no evidence about the method it is actually using.
-    if (carriesCredential(req)) return false;
-    const key = clientFingerprint(req);
+    if (carriesCredential(req)) {
+      if (entry) logLine("challenged", { client: clientTag(key), reason: "carries-credential", remaining: entry.remaining });
+      return false;
+    }
     if (!key) return false;
-    const entry = flagged.get(key);
     if (!entry) return false;
-    if (entry.expiresAt <= Date.now() || entry.remaining <= 0) { flagged.delete(key); return false; }
+    if (entry.expiresAt <= Date.now()) {
+      logLine("challenged", { client: clientTag(key), reason: "expired" });
+      flagged.delete(key);
+      return false;
+    }
     entry.remaining -= 1;
+    // A spent budget removes the entry here, so a later bare request finds
+    // nothing and logs nothing: "remaining=0" on this line IS the spent notice.
     if (entry.remaining <= 0) flagged.delete(key);
+    logLine("withheld", { client: clientTag(key), remaining: entry.remaining, live: flagged.size });
     return true;
   };
   const verdict = decide();
