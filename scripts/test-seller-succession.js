@@ -266,6 +266,23 @@ const NEW = `https://api.seller-${TAG}.com`;
      "a marker that arrived via a redirect to ANOTHER host is not proof of control and must not verify");
 }
 
+// --- the pass has to finish while it still matters --------------------------
+// A bound low enough to be safe can be low enough to be useless. At the 30-min
+// crawl cycle and ~586 self-registered origins, limit 3 is a four-day pass;
+// the seller who reported the duplicate would not be reached inside a week.
+// This pins the ARITHMETIC rather than the number, so a future tightening has
+// to argue with the consequence instead of just lowering a constant.
+{
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/x402-index.js", import.meta.url), "utf8");
+  const limit = Number((src.match(/discoverSuccessions\(\{[^}]*limit = (\d+)/) || [])[1] || 0);
+  const cycleMin = Number((src.match(/CRAWL_INTERVAL_MS = (\d+) \* 60 \* 1000/) || [])[1] || 0);
+  ok(limit > 0 && cycleMin > 0, "the discovery bound and the crawl cycle are both readable from source");
+  const hoursForFullPass = (586 / limit) * (cycleMin / 60);
+  ok(hoursForFullPass <= 24,
+     `a full pass over the seed population takes ${hoursForFullPass.toFixed(1)}h, which is inside a day (limit ${limit}, cycle ${cycleMin}m)`);
+}
+
 // --- the proof that may NOT retire ------------------------------------------
 // Pinned from source, because the difference is one string and getting it
 // wrong turns a register call into a way to delist a seller you do not own.
