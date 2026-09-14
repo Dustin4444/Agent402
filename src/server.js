@@ -304,6 +304,7 @@ import { CRYPTO_SIGNALS_TOOLS } from "./tools/crypto-signals-kit.js";
 import { CRAWL_TOOLS } from "./tools/crawl-kit.js";
 import { X_DATA_TOOLS, xDataEnabled, xDataSpendStatus } from "./tools/x-data-kit.js";
 import { EXA_TOOLS, exaEnabled, exaSpendStatus, exaAllowanceStatus } from "./tools/exa-kit.js";
+import { upstreamBudgetStatus } from "./upstream-budgets.js";
 import { b2bEnrichEnabled } from "./tools/b2b-enrich-kit.js";
 const X_DATA_TOOLS_ENABLED = xDataEnabled() ? X_DATA_TOOLS : [];
 // Env-gated on EXA_API_KEY: unkeyed deployments list nothing rather than
@@ -2424,14 +2425,53 @@ app.get("/v1/models", (_req, res) => {
 // heartbeat alarms on "low" BEFORE an empty OpenRouter balance turns paid /v1
 // calls into charged-but-failed 503s. Numbers never leave the server; the
 // 5-minute in-module cache makes this safe to expose unpaywalled.
-app.get("/api/gateway-status", async (_req, res) => {
+// PUBLIC. Every spend/limit figure here is BUCKETED to a status word unless
+// the caller is the operator, because this endpoint is unauthenticated and a
+// published ceiling is an attack plan: a reader who can see `capUsd: 1` and
+// `spentUsd: 0.80` knows exactly how few calls are left to exhaust a paid
+// product for the day, and can do it for pennies. The rule was already written
+// for the OpenRouter leg ("bucketed status, numbers never exposed") and the
+// spend counters added later did not honour it.
+function publicBucket(o) {
+  if (!o || typeof o !== "object") return o;
+  const KEEP = new Set(["status", "configured", "day", "asset", "chain", "attests", "trend", "sinceRestart", "note", "reason", "unknownForMinutes"]);
+  const out = {};
+  for (const [k, v] of Object.entries(o)) if (KEEP.has(k)) out[k] = v;
+  return out;
+}
+function publicBudgets(b) {
+  // Per-vendor: the WORD only. Never callsToday, never the budget - publishing
+  // seven exact daily ceilings is a map of where to push.
+  if (!b || typeof b !== "object") return b;
+  const upstreams = {};
+  for (const [k, v] of Object.entries(b.upstreams || {})) upstreams[k] = { status: v?.status ?? "unknown" };
+  return { day: b.day, status: b.status, sinceRestart: b.sinceRestart, note: b.note, upstreams };
+}
+
+app.get("/api/gateway-status", async (req, res) => {
+  const _req = req;
   // Top-level fields stay the OpenRouter gateway status (heartbeat reads
   // .status); upstreamBuyer adds the x402 spending wallet's bucketed status
   // (blockscout-kit) — same alarm pattern, same numbers-never-leave rule.
   const [gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, upstreamBuyerSvm, subscriptionFeePayer, stellarFacilitator, databases] = await Promise.all([gatewayCreditsStatus(), upstreamBuyerStatus(), avmBuyerStatus(), tempoBuyerStatus(), svmBuyerStatus().catch(() => ({ status: "unknown", asset: "USDC", chain: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp" })), subscriptionFeePayerStatus(), stellarFacilitatorStatus().catch(() => ({ status: "unknown", asset: "XLM", chain: "stellar:pubnet" })), databasesStatus().catch(() => null)]);
   // `databases`: leads/analytics Postgres reachability, status words only
   // (src/db-status.js) - the heartbeat pages on "unreachable".
-  res.set("Cache-Control", "public, max-age=60").json({ ...gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, upstreamBuyerSvm, subscriptionFeePayer, xDataSpend: xDataSpendStatus(), exaSpend: exaSpendStatus(), exaAllowance: exaAllowanceStatus(), stellarFacilitator, databases, operatorAuth: operatorAuthStatus(), mppEvmDomainFallback: mppFallbackStatus(), loopLag: loopLagStatus() });
+  // The operator sees the real figures; everyone else sees the verdict. The
+  // heartbeat reads only `.status` fields, so bucketing costs it nothing.
+  const full = operatorAuthed(req);
+  const spend = { xDataSpend: xDataSpendStatus(), exaSpend: exaSpendStatus(), exaAllowance: exaAllowanceStatus() };
+  const budgets = upstreamBudgetStatus();
+  const body = {
+    ...gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, upstreamBuyerSvm, subscriptionFeePayer,
+    xDataSpend: full ? spend.xDataSpend : publicBucket(spend.xDataSpend),
+    exaSpend: full ? spend.exaSpend : publicBucket(spend.exaSpend),
+    exaAllowance: full ? spend.exaAllowance : publicBucket(spend.exaAllowance),
+    upstreamBudgets: full ? budgets : publicBudgets(budgets),
+    stellarFacilitator, databases, operatorAuth: operatorAuthStatus(full),
+    mppEvmDomainFallback: mppFallbackStatus(), loopLag: loopLagStatus(),
+  };
+  // An operator-authed read must not land in a shared cache.
+  res.set("Cache-Control", full ? "private, no-store" : "public, max-age=60").json(body);
 });
 // Static SAMPLE A2A Agent Card — the self-answering example target for the
 // a2a-card-fetch tool. Explicitly a sample (fictional weather agent), NOT an
@@ -3630,11 +3670,20 @@ function noteOperatorAuthFailure() {
     console.warn(`[operator-auth] ${_opAuthFails.length} wrong operator credentials in the last hour (threshold ${OPERATOR_AUTH_FAIL_ALERT}) - token guessing in progress; rotate AGENT402_OPERATOR_TOKEN if this persists`);
   }
 }
-export function operatorAuthStatus() {
+export function operatorAuthStatus(full = false) {
   const now = Date.now();
   while (_opAuthFails.length && now - _opAuthFails[0] > 3_600_000) _opAuthFails.shift();
   const n = _opAuthFails.length;
-  return { status: n >= OPERATOR_AUTH_FAIL_ALERT ? "elevated" : "ok", failures1h: n, threshold: OPERATOR_AUTH_FAIL_ALERT };
+  // `full` is operator-only. On the PUBLIC surface this is the verdict alone,
+  // because the pair {failures1h, threshold} is a live brute-force oracle
+  // against our most powerful credential: the threshold says how many wrong
+  // tokens per hour stay under the alarm, and the counter is real-time
+  // feedback confirming an attacker's probing is being counted - so they can
+  // tune a slow grind and WATCH it stay quiet. The verdict alone tells a
+  // monitor everything it needs and an attacker nothing they can aim with.
+  return full
+    ? { status: n >= OPERATOR_AUTH_FAIL_ALERT ? "elevated" : "ok", failures1h: n, threshold: OPERATOR_AUTH_FAIL_ALERT }
+    : { status: n >= OPERATOR_AUTH_FAIL_ALERT ? "elevated" : "ok" };
 }
 function operatorAuthed(req) {
   const presented = Boolean(getOperatorToken(req)) || Boolean(readCookie(req, OPERATOR_COOKIE));

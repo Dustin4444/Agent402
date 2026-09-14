@@ -436,6 +436,17 @@ export function recordWish({ need, context, source, ip } = {}) {
  */
 export function getWishesAggregate({ limit = 200, detailed = false } = {}) {
   const cap = Math.min(Math.max(parseInt(limit, 10) || 200, 1), 500);
+  // The qualification constants ARE published, deliberately, and an attempt to
+  // hide them on 2026-09-14 was reverted the same hour: the PAID demand-radar
+  // ($0.005) states the same three figures, so hiding them here protected
+  // nothing an attacker would not buy for half a cent - while breaking the
+  // cross-surface check that the beacon and the radar state one bar, which is
+  // a real guarantee worth more than the obscurity was.
+  //
+  // The defences that actually hold are structural, not secret: the per-caller
+  // per-day dedupe on find-misses, and QUALIFY_MIN_CALLERS requiring distinct
+  // callers. Those are what stopped the August farming, and they work with the
+  // numbers in plain sight.
   const base = {
     distinctClusters: clusters.size,
     totalWishes: [...clusters.values()].reduce((s, c) => s + c.count, 0),
