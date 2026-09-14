@@ -1,0 +1,95 @@
+# Tweet queue: posts APPROVED copy on a schedule with no local session involved.
+#
+# The queue is the repo SECRET `TWEET_QUEUE`: a JSON array of
+# {id, when: "YYYY-MM-DDTHH:00:00Z", text, card?}. A secret is not a commit,
+# so tweet copy never enters the tree (the standing rule); it cannot be read
+# back through the API or the UI by anyone, it never reaches a fork or a
+# pull_request run, and only a repo admin can replace it. The run log prints
+# the item id and hour, never the text. Each run posts the ONE item whose
+# `when` hour is the
+# current UTC hour (or the `hour` dispatch input, for a missed slot). There is
+# no state to keep: the hour is the key. If a run ever repeats an hour, X
+# refuses duplicate text with a 403 and nothing double-posts.
+#
+# Every text in the variable was approved verbatim by the operator before it
+# was loaded; this workflow never edits copy and never invents a post.
+# Load or replace the queue with:  gh secret set TWEET_QUEUE < queue.json  (48 KB max)
+name: Tweet queue
+
+on:
+  schedule:
+    - cron: "6 * * * *"
+  workflow_dispatch:
+    inputs:
+      hour:
+        description: "UTC hour bucket to post, e.g. 2026-09-15T13 (default: the current hour)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tweet-queue
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Pick the item due this hour
+        id: pick
+        env:
+          TWEET_QUEUE: ${{ secrets.TWEET_QUEUE }}
+          IN_HOUR: ${{ github.event.inputs.hour }}
+        run: |
+          node - <<'JS'
+          const fs = require("node:fs");
+          const raw = process.env.TWEET_QUEUE || "[]";
+          let q; try { q = JSON.parse(raw); } catch { console.error("TWEET_QUEUE is not JSON"); process.exit(1); }
+          if (!Array.isArray(q)) { console.error("TWEET_QUEUE is not an array"); process.exit(1); }
+          const bucket = (process.env.IN_HOUR || new Date().toISOString().slice(0, 13)).slice(0, 13);
+          const due = q.filter((x) => typeof x?.when === "string" && x.when.slice(0, 13) === bucket && typeof x.text === "string" && x.text.trim());
+          const out = fs.createWriteStream(process.env.GITHUB_OUTPUT, { flags: "a" });
+          if (!due.length) { console.log(`nothing due for ${bucket} (queue has ${q.length} items)`); out.write("due=false\n"); out.end(); process.exit(0); }
+          const item = due[0];
+          if (due.length > 1) console.log(`${due.length} items share ${bucket}; posting ${item.id} only`);
+          fs.writeFileSync("/tmp/tweet-text.txt", item.text);
+          const card = ["proof", "bestsellers", "robinhood"].includes(item.card) ? item.card : "";
+          console.log(`due: ${item.id} (${item.when})${card ? ` card=${card}` : ""}`);
+          out.write(`due=true\nid=${item.id}\ncard=${card}\n`); out.end();
+          JS
+      - name: Set up node deps for the card render
+        if: steps.pick.outputs.due == 'true' && steps.pick.outputs.card != ''
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+      - name: Install deps + Chromium (card render)
+        if: steps.pick.outputs.due == 'true' && steps.pick.outputs.card != ''
+        run: |
+          npm ci --ignore-scripts
+          npx playwright install --with-deps chromium
+      - name: Render the proof receipt card from live /api/proof
+        if: steps.pick.outputs.due == 'true' && steps.pick.outputs.card == 'proof'
+        run: |
+          curl -fsSL --max-time 30 https://agent402.tools/api/proof -o /tmp/proof.json
+          node scripts/proof-card.js --from /tmp/proof.json --out /tmp/tweet-card.png
+      - name: Render the Robinhood card from live /api/revenue
+        if: steps.pick.outputs.due == 'true' && steps.pick.outputs.card == 'robinhood'
+        run: |
+          curl -fsSL --max-time 30 https://agent402.tools/api/revenue -o /tmp/revenue.json
+          node scripts/robinhood-card.js --from /tmp/revenue.json --out /tmp/tweet-card.png
+      - name: Post
+        if: steps.pick.outputs.due == 'true'
+        env:
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
+        run: |
+          ARGS=(--file /tmp/tweet-text.txt --force)
+          [ -f /tmp/tweet-card.png ] && ARGS+=(--media /tmp/tweet-card.png)
+          echo "Posting ${{ steps.pick.outputs.id }}"
+          node scripts/tweet.js "${ARGS[@]}"
