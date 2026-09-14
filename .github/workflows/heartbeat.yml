@@ -378,6 +378,28 @@ jobs:
       # one-way drain until self-funding flips on post-October). optedIn:false
       # also buckets as "low" — an un-opted-in wallet can't pay at all.
       # "unknown"/"unconfigured" never page.
+      - name: Exa prepaid allowance low
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Exa publishes NO balance endpoint (42 endpoints in their public
+          # OpenAPI, none for credits), so this alarms on OUR OWN cumulative
+          # spend against EXA_CREDITS_USD. The count is in memory and resets on
+          # deploy, so it under-reports - which is why the threshold is a
+          # fraction remaining and not "near zero".
+          STATUS=$(curl -s --max-time 15 "$PROD/api/gateway-status" | jq -r '.exaAllowance.status // "unknown"' 2>/dev/null || echo unknown)
+          TITLE="Exa prepaid allowance LOW"
+          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$TITLE in:title" --json number --jq '.[0].number' 2>/dev/null || echo "")
+          if [ "$STATUS" = "low" ]; then
+            if [ -z "$EXISTING" ]; then
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" \
+                --body "\`/api/gateway-status.exaAllowance\` reports **low**: cumulative Exa spend has passed the configured share of \`EXA_CREDITS_USD\`. Top up at https://exa.ai and raise \`EXA_CREDITS_USD\` on Railway to the new funded total. Note the counter is in memory and resets on deploy, so real remaining credit is at or below what is reported."
+            fi
+          elif [ -n "$EXISTING" ]; then
+            gh issue close "$EXISTING" --repo "$GITHUB_REPOSITORY" --comment "exaAllowance is ${STATUS}; closing." || true
+          fi
+
       - name: Algorand upstream buyer wallet check (alarm on low AVM spending balance)
         if: always()
         continue-on-error: true
