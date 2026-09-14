@@ -183,6 +183,44 @@ const reset = () => { calls = []; _exaSpendReset(); process.env.EXA_API_KEY = "t
   }
 }
 
+
+// --- prepaid allowance alarm ------------------------------------------------
+// Exa publishes NO balance endpoint (42 endpoints in their public OpenAPI, none
+// for credits; /v0/teams/me returns id/name/concurrency/limits). So this alarms
+// on our own cumulative spend against what the operator says they funded, and
+// every honesty property below exists because a balance we cannot read must
+// never be reported as if we could.
+{
+  const { exaAllowanceStatus, _exaLifetimeReset, _exaSpendBook } = await import("../src/tools/exa-kit.js");
+  reset(); _exaLifetimeReset();
+
+  delete process.env.EXA_CREDITS_USD;
+  eq(exaAllowanceStatus().status, "unconfigured", "no funded total set: unconfigured, never a fabricated ok");
+  ok(/EXA_CREDITS_USD/.test(exaAllowanceStatus().reason), "and it names the variable to set");
+
+  process.env.EXA_CREDITS_USD = "10";
+  const fresh = exaAllowanceStatus();
+  eq(fresh.status, "ok", "funded and unspent reads ok");
+  eq(fresh.remainingUsd, 10, "with the full allowance remaining");
+  ok(fresh.sinceRestart === true, "and flags that the count resets on deploy - a reader must not treat it as authoritative");
+
+  _exaSpendBook(8);
+  const low = exaAllowanceStatus();
+  eq(low.status, "low", "past the low-water fraction it reads low");
+  eq(low.remainingUsd, 2, "with the remaining allowance reported");
+
+  // The alarm must not be silenced by an unkeyed deployment reading "ok".
+  const key = process.env.EXA_API_KEY; const k2 = process.env.EXA_KEY;
+  delete process.env.EXA_API_KEY; delete process.env.EXA_KEY;
+  eq(exaAllowanceStatus().status, "unconfigured", "no key at all is unconfigured, not ok");
+  if (key) process.env.EXA_API_KEY = key; if (k2) process.env.EXA_KEY = k2;
+
+  // Counts only - a status surface is public.
+  const blob = JSON.stringify(exaAllowanceStatus());
+  ok(!/test-key|sk-|EXA_KEY=/.test(blob), "the status carries no key material");
+  _exaLifetimeReset(); delete process.env.EXA_CREDITS_USD;
+}
+
 globalThis.fetch = realFetch;
 console.log(`\ntest-exa-kit: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

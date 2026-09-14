@@ -2496,6 +2496,8 @@ jobs:
           t node scripts/test-llm-context-kit.js
           # Paid-upstream leak guard (Brave + E2B — every metered route/pack must be skipped — offline)
           t node scripts/test-brave-leak.js
+          # Derived CI-spend exposure: every paid key a TEST lane can reach must have its slugs bounded
+          t node scripts/test-ci-key-exposure.js
           # SQL execution-certificate firewall (risk catalogue, false-positive guards, cert binding — offline)
           t node scripts/test-sql-guard.js
           # Whois RDAP bootstrap parser (IANA dns.json → TLD map — offline)

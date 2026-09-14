@@ -31,6 +31,18 @@
 // has shipped two live wire drifts (Tempo decimals, Tempo `decimals` on the
 // wire) that stub tests could not see.
 //
+// TOPPING UP, because Exa gives us no balance to read and the alarm is over a
+// number we keep ourselves:
+//   1. Add credits at https://exa.ai (pay as you go, no plan needed).
+//   2. Set EXA_CREDITS_USD on Railway to the NEW funded total. That is what
+//      `exaAllowance` measures remaining against; leaving it stale is how the
+//      alarm goes quiet while the account empties.
+//   3. Optionally raise EXA_DAILY_MAX_USD - the default $1/day is a brake, and
+//      since every call nets about half a cent, a cap that fires under real
+//      demand is costing revenue rather than saving money.
+// The spend counter lives in memory and resets on deploy, so `remainingUsd` is
+// an UPPER bound. Top up on "low"; never wait for it to reach zero.
+//
 // Covered by scripts/test-exa-kit.js (offline, stubbed fetch).
 
 import { markUntrusted } from "./provenance.js";
@@ -81,6 +93,23 @@ const EXA_SEARCH_USD = 0.007;   // per request, <= 10 results
 const EXA_ANSWER_USD = 0.005;   // per request
 const EXA_CONTENT_USD = 0.001;  // per page, per content type
 const EXA_DAILY_MAX_USD = () => { const n = Number(process.env.EXA_DAILY_MAX_USD); return Number.isFinite(n) && n >= 0 ? n : 1; };
+
+// ---- prepaid allowance + low-water -----------------------------------------
+// EXA PUBLISHES NO BALANCE. Their public OpenAPI carries 42 endpoints and not
+// one for credits, usage or billing (/v0/teams/me returns id, name,
+// concurrency, limits - no balance), so unlike OpenRouter there is nothing to
+// read and `gatewayCreditsStatus`'s shape cannot be copied. The only honest
+// alarm is over the number WE own: cumulative spend against the allowance the
+// operator says they put in.
+//
+// EXA_CREDITS_USD is what was funded. Spend is counted here from Exa's own
+// costDollars, persisted nowhere - a restart resets it - so this ALWAYS
+// UNDER-REPORTS after a deploy and the status says so rather than pretending
+// the count is authoritative. It is a top-up prompt, not an accounting record.
+// Unset allowance = "unconfigured", never a fabricated "ok".
+const EXA_CREDITS_USD = () => { const n = Number(process.env.EXA_CREDITS_USD); return Number.isFinite(n) && n > 0 ? n : null; };
+const EXA_LOW_FRACTION = () => { const n = Number(process.env.EXA_LOW_FRACTION); return Number.isFinite(n) && n > 0 && n < 1 ? n : 0.25; };
+const lifetime = { micro: 0, since: Date.now() };
 const spend = { day: "", micro: 0, refused: 0 };
 const utcDay = (now = Date.now()) => new Date(now).toISOString().slice(0, 10);
 const spentToday = (now = Date.now()) => {
@@ -130,7 +159,35 @@ export function exaSpendStatus(now = Date.now()) {
   };
 }
 export function _exaSpendReset() { spend.day = ""; spend.micro = 0; spend.refused = 0; }
-export function _exaSpendBook(usd) { spentToday(); spend.micro += Math.round(usd * 1e6); }
+export function _exaSpendBook(usd) { spentToday(); spend.micro += Math.round(usd * 1e6); lifetime.micro += Math.round(usd * 1e6); }
+
+/**
+ * Allowance status for the heartbeat. Counts only - never the key.
+ *   unconfigured : no EXA_CREDITS_USD set, so there is nothing to measure
+ *   ok / low     : remaining allowance against EXA_LOW_FRACTION
+ * `sinceRestart: true` is load-bearing: the counter is in memory, so a deploy
+ * zeroes it and the figure is a FLOOR. A reader who forgets that would read a
+ * fresh "ok" off a nearly empty account.
+ */
+export function exaAllowanceStatus(now = Date.now()) {
+  const funded = EXA_CREDITS_USD();
+  const spent = lifetime.micro / 1e6;
+  if (!exaEnabled()) return { status: "unconfigured", reason: "no EXA key on this deployment" };
+  if (funded === null) {
+    return { status: "unconfigured", reason: "set EXA_CREDITS_USD to what you funded and this reports remaining allowance", spentSinceRestartUsd: Number(spent.toFixed(4)), sinceRestart: true };
+  }
+  const remaining = Math.max(0, funded - spent);
+  return {
+    status: remaining / funded < EXA_LOW_FRACTION() ? "low" : "ok",
+    fundedUsd: funded,
+    spentSinceRestartUsd: Number(spent.toFixed(4)),
+    remainingUsd: Number(remaining.toFixed(4)),
+    lowBelowFraction: EXA_LOW_FRACTION(),
+    sinceRestart: true,
+    note: "spend is counted in memory from Exa's own costDollars and resets on deploy, so remaining is an UPPER bound - top up on 'low', do not wait for zero",
+  };
+}
+export function _exaLifetimeReset() { lifetime.micro = 0; lifetime.since = Date.now(); }
 
 async function exaPost(path, body) {
   const key = requireKey();
