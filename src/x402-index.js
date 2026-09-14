@@ -358,6 +358,70 @@ export async function reverifySuccessions({ now = Date.now(), maxAgeMs = 24 * 36
   return { checked: due.length, dropped };
 }
 
+// When was each origin last probed for a succession marker it never told us
+// about? Discovery is bounded per cycle and rotates oldest-first.
+const successionScanAt = new Map();
+
+/**
+ * Find successions nobody registered, from the markers themselves.
+ *
+ * Retirement was wired to the REGISTER call: `replaces` had to ride on a
+ * /api/index/register request for the pair to be recorded. That is correct for
+ * anyone migrating after the feature existed and leaves everyone who migrated
+ * BEFORE it permanently un-recorded - their old origin never names its
+ * successor, so an old link answers as a live seller pointing nowhere. The
+ * first seller to use the feature is exactly such a case: their register
+ * returned `succession: {ok:true, via:"cross-served markers"}` on the day the
+ * proof existed and the recording did not, and nothing in the store remembers
+ * the pair (the predecessor is used transiently to backdate first_seen and is
+ * never persisted), so there is nothing to backfill FROM.
+ *
+ * The markers themselves are the record. The new origin's own marker names its
+ * predecessor, so a succession is discoverable by reading one document from an
+ * origin we already crawl - no seller action, no re-registration, no operator
+ * lever that could retire a listing without proof.
+ *
+ * THE PROOF IS UNCHANGED. This only finds CANDIDATES; `verify` is the same
+ * cross-served check the register path runs, so retirement still requires
+ * serving a document on the OLD origin, which is control of it. A marker that
+ * names a predecessor we have never heard of is skipped rather than trusted.
+ *
+ * Scoped to self-registered origins: they are the population this feature is
+ * for, and it keeps the scan off thousands of discovered origins that never
+ * asked for anything.
+ */
+export async function discoverSuccessions({ now = Date.now(), limit = 3, minAgeMs = 6 * 3600_000,
+  origins = null, read = readMarker, verify = verifySuccessionMarkers } = {}) {
+  const candidates = (origins || [...submittedSeeds])
+    .filter((o) => {
+      if (successions.has(o)) return false;               // already the predecessor of something
+      const e = cache.get(o);
+      if (!e || e.error) return false;                    // nothing to claim with
+      return now - (successionScanAt.get(o) || 0) >= minAgeMs;
+    })
+    .sort((a, b) => (successionScanAt.get(a) || 0) - (successionScanAt.get(b) || 0))
+    .slice(0, limit);
+
+  let found = 0;
+  for (const origin of candidates) {
+    successionScanAt.set(origin, now);                    // belt: stamp before the await, so a read the caller abandons does not requeue
+    let marker = null;
+    try { marker = await read(origin); } catch { marker = null; }
+    const predecessor = marker && typeof marker.succeeds === "string" ? marker.succeeds : null;
+    // No self-succession check here: recordSuccession's cycle walk starts AT
+    // the claimant, so hop zero IS the self case and it already refuses. A
+    // guard here would be dead code no mutation can kill - the same call made
+    // when the register path's `a === b` check was removed.
+    if (!predecessor) continue;
+    if (!cache.has(predecessor)) continue;                // not an origin we list; nothing to retire
+    if (successions.has(predecessor)) continue;           // already recorded
+    let res = null;
+    try { res = await verify(origin, predecessor); } catch { res = null; }
+    if (res?.ok && res.via === "cross-served markers" && recordSuccession(predecessor, origin)) found++;
+  }
+  return { checked: candidates.length, found };
+}
+
 /**
  * Superseded origins to hide, resolved AT READ TIME against the live cache.
  *
@@ -379,7 +443,10 @@ export function supersededOrigins(cacheMap = cache) {
 }
 
 /** Test hook: clear submitted-seed state between test cases. */
-export function __testResetSubmitted() { submittedSeeds.clear(); successions.clear(); }
+export function __testResetSubmitted() { submittedSeeds.clear(); successions.clear(); successionScanAt.clear(); cache.clear(); }
+
+/** Test hook: put entries in the crawl cache so cache-dependent paths can be driven. */
+export function __testSeedCache(entries = []) { for (const [o, e] of entries) cache.set(o, e); }
 
 /** Validate a raw submitted origin. Returns { origin } (normalized) or { error }. */
 export function validateOriginInput(raw, { selfOrigin } = {}) {
@@ -3734,6 +3801,10 @@ export function startCrawler(opts = {}) {
     // this the hiding outlives the proof and the seller has no undo.
     runCrawl()
       .then(() => reverifySuccessions().catch(() => {}))
+      // ...and look for a few nobody registered. A seller who migrated before
+      // `replaces` recorded anything is invisible to reverify, which only ever
+      // re-checks what is already in the map.
+      .then(() => discoverSuccessions().catch(() => {}))
       .then(() => persistIndexCacheAsync())
       .catch(() => {});
   }, CRAWL_INTERVAL_MS);

@@ -349,5 +349,76 @@ const NEW = `https://api.seller-${TAG}.com`;
   __testResetSubmitted();
 }
 
+// --- successions nobody registered ------------------------------------------
+// Retirement was wired to the register call, so it only ever covered sellers
+// who migrated AFTER the feature shipped. The first seller to use it is not
+// one of those: their register returned ok on the day the proof existed and
+// the recording did not, and the pair is stored nowhere (the predecessor is
+// used transiently to backdate first_seen and never persisted), so there is
+// nothing to backfill from. The markers are the record - the new origin's own
+// marker names its predecessor - so discovery reads one document from an
+// origin we already crawl.
+{
+  const { discoverSuccessions, recordSuccession, succeededBy, __testResetSubmitted, __testSeedCache } =
+    await import("../src/x402-index.js");
+  __testResetSubmitted();
+
+  const OLD = "https://old.example";
+  const NEW = "https://new.example";
+  __testSeedCache([[OLD, { tools: [] }], [NEW, { tools: [] }]]);
+
+  const markers = { [NEW]: { succeeds: OLD }, [OLD]: { succeededBy: NEW } };
+  const read = async (o) => markers[o] || null;
+  const verify = async (claimant, predecessor) =>
+    (markers[claimant]?.succeeds === predecessor && markers[predecessor]?.succeededBy === claimant)
+      ? { ok: true, via: "cross-served markers" } : { ok: false, reason: "no" };
+
+  let r = await discoverSuccessions({ origins: [NEW], read, verify });
+  eq(r.found, 1, "a succession nobody registered is discovered from the new origin's own marker");
+  eq(succeededBy(OLD), NEW, "...and the old origin now names where the seller went");
+
+  // The proof is the SAME cross-served check. A one-sided marker is a claim,
+  // not control of the old origin, and must retire nothing.
+  __testResetSubmitted();
+  __testSeedCache([[OLD, { tools: [] }], [NEW, { tools: [] }]]);
+  const oneSided = { [NEW]: { succeeds: OLD } };            // old origin serves nothing
+  r = await discoverSuccessions({ origins: [NEW], read: async (o) => oneSided[o] || null,
+    verify: async () => ({ ok: false, reason: "the old origin serves no marker" }) });
+  eq(r.found, 0, "a marker served only on the NEW origin retires nothing - anyone can name any predecessor");
+  eq(succeededBy(OLD), null, "...and the old origin keeps its listing");
+
+  // A predecessor we have never heard of is skipped rather than trusted, so a
+  // marker cannot make us record a pair we cannot see either side of.
+  __testResetSubmitted();
+  __testSeedCache([[NEW, { tools: [] }]]);
+  r = await discoverSuccessions({ origins: [NEW], read, verify });
+  eq(r.found, 0, "a marker naming an origin that is not in the index is skipped");
+
+  // Self-succession through the marker path would hide the only origin there
+  // is. The verify stub here says YES to everything, so the sameOrigin guard is
+  // the ONLY thing that can refuse it - with a stub that happened to say no,
+  // this case passes for the wrong reason and the guard is untested.
+  __testResetSubmitted();
+  __testSeedCache([[NEW, { tools: [] }]]);
+  r = await discoverSuccessions({ origins: [NEW], read: async () => ({ succeeds: NEW }),
+    verify: async () => ({ ok: true, via: "cross-served markers" }) });
+  eq(r.found, 0, "an origin whose marker names ITSELF is refused, even when the proof says yes");
+  eq(succeededBy(NEW), null, "...and it does not hide the only origin there is");
+
+  // Bounded and rotating: a scanned origin is not re-read on the next pass.
+  // (The stamp is written before the await rather than after - a belt for a
+  // read the caller abandons. No mutation can kill that ordering here, because
+  // a read that resolves stamps either way, so it is documented as a belt
+  // rather than asserted as if this proved it.)
+  __testResetSubmitted();
+  __testSeedCache([[OLD, { tools: [] }], [NEW, { tools: [] }]]);
+  let reads = 0;
+  const counting = async (o) => { reads++; return markers[o] || null; };
+  await discoverSuccessions({ origins: [NEW], read: counting, verify: async () => ({ ok: false, reason: "no" }) });
+  const after = reads;
+  await discoverSuccessions({ origins: [NEW], read: counting, verify: async () => ({ ok: false, reason: "no" }) });
+  eq(reads, after, "an origin already scanned is not re-read on the next cycle");
+}
+
 rmSync(dir, { recursive: true, force: true });
 console.log(`test-seller-succession: ${n} assertions OK`);
