@@ -4359,6 +4359,21 @@ const wishServedScore = (text) => {
   } catch { /* best-effort */ }
   return null;
 };
+// Does an INDEXED SELLER serve this task? Consulted only on the find-miss
+// branch, so the ordinary answer-from-catalog path pays nothing for it, and
+// only for queries we were about to call a miss and record as demand.
+//
+// /api/find stays catalog-only in its `results` by design - external rows are
+// /api/route's job - so this decides a HINT, never a result row. Best-effort:
+// if the router throws, a miss stays a miss.
+const externalServes = (q) => {
+  const qStr = String(q ?? "").trim();
+  if (!qStr) return false;
+  try {
+    const { results } = routeQuery({ query: qStr, top: 3, include: "external", ...indexCtx() });
+    return (results || []).some((r) => r && r.seller);
+  } catch { return false; }
+};
 const computeFind = (q, k) => {
   const result = findTools(CATALOG, q, { k, baseUrl: BASE_URL, powSlugs: POW_SLUGS });
   // The seller bridge: a query that looks like an indexed seller's NAME gets
@@ -4386,6 +4401,21 @@ const computeFind = (q, k) => {
       // A seller-name match IS an answer - point at it instead of recording
       // a wish for demand the ecosystem already serves.
       result.hint = "this looks like an indexed seller - see relatedSellers";
+    } else if (externalServes(q)) {
+      // ...and so is a CAPABILITY match. The seller bridge above only ever
+      // matched a query against seller HOST LABELS (findRelatedSellers), so
+      // "the ecosystem already serves this" was answerable for a query that
+      // spells a seller's name and unanswerable for one that describes a task -
+      // which is every real task query. Reported by an indexed seller whose
+      // route /api/route?include=external ranks fifth for "delegated payment
+      // authority" while /api/find called the same query a miss and told them
+      // to file a wish. Two costs, and the second is the worse one: the caller
+      // is told nothing exists when a live seller sells it, and the demand
+      // board takes a find-miss for a capability the ecosystem already has,
+      // which is a false signal in the one dataset we use to decide what to
+      // build next.
+      result.hint = "no catalog tool matched, but an indexed seller serves this - see routeAcross";
+      result.routeAcross = `${BASE_URL}/api/route?q=${encodeURIComponent(String(q ?? ""))}&include=external`;
     } else {
       result.hint = "POST /api/wish with what you needed";
       const qStr = String(q ?? "").trim();
@@ -5182,14 +5212,31 @@ app.get("/api/index", (req, res) => {
   const perPage = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 250);
   const page = Math.max(parseInt(req.query.page, 10) || 0, 0);
   const slice = sellers.slice(page * perPage, page * perPage + perPage).map(({ history, ...rest }) => (rest.local ? rest : withDispatchFields(rest)));
+  // PAGE IS ZERO-BASED, and the envelope has to SAY so. It shipped saying
+  // `pages: 17` next to "Use ?page=N" with no base named, and the obvious
+  // reading of those two - iterate 1..pages - silently drops the FIRST 250
+  // sellers (the highest-ranked ones, the rows a consumer most wants) and ends
+  // on an empty page. Measured against our own surface while chasing a seller
+  // report: three origins read as "not indexed" that were on page 0 all along.
+  // Keeping the base and naming it beats renumbering, which would break every
+  // consumer already passing page=0 correctly; what was missing was never the
+  // behaviour, it was the contract. An out-of-range page now says what the
+  // range is instead of answering an empty list that looks like the end.
+  const pages = Math.ceil(sellers.length / perPage);
+  const lastPage = Math.max(pages - 1, 0);
+  const range = `pages are ZERO-BASED: ?page=0 .. ?page=${lastPage}`;
   res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300").json({
     ...snap,
     sellers: slice,
     page,
     perPage,
     sellerCount: sellers.length,
-    pages: Math.ceil(sellers.length / perPage),
-    note: `Paginated: ${slice.length} of ${sellers.length} sellers. Use ?page=N&limit=<=250, or ?seller=<host> for one origin with its full detail.`,
+    pages,
+    firstPage: 0,
+    lastPage,
+    note: page > lastPage
+      ? `No sellers at page ${page}: ${range}. ${sellers.length} sellers total. Page 0 is the first page, not page 1.`
+      : `Paginated: ${slice.length} of ${sellers.length} sellers (${range}). Use ?page=N&limit=<=250, or ?seller=<host> for one origin with its full detail.`,
     legend: dispatchLegend(),
   });
 });
