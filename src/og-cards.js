@@ -35,9 +35,15 @@ const PREFIX = [
 
 /** The section id for a page path, or null when the page keeps the homepage card. */
 export function ogSectionFor(pathname) {
-  let p = String(pathname || "");
+  // Bounded and linear on purpose: the canonical can carry a route parameter,
+  // and a trailing-slash regex on caller-shaped input is the polynomial
+  // backtracking CodeQL flagged in host-entry.js (2026-08-28) and here (#192).
+  let p = String(pathname || "").slice(0, 512);
   try { if (/^https?:\/\//i.test(p)) p = new URL(p).pathname; } catch { return null; }
-  p = p.split("?")[0].split("#")[0].replace(/\/+$/, "") || "/";
+  p = p.split("?")[0].split("#")[0];
+  let end = p.length;
+  while (end > 1 && p.charCodeAt(end - 1) === 47) end--;
+  p = p.slice(0, end) || "/";
   if (Object.hasOwn(EXACT, p)) return EXACT[p];
   for (const [prefix, id] of PREFIX) if (p.startsWith(prefix)) return id; // null for /tools/<slug>: those pass their own card
   const chain = CHAIN_KEYS.find((c) => p === `/${c.key}`);

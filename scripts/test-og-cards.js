@@ -20,6 +20,10 @@ const cases = [["/why", "why"], ["/docs", "docs"], ["/tools", "tools"], ["/tools
   ["/reports/sample/dossier", "reports"], ["/reports/insider/NVDA", "reports"], ["/base", "chain-base"], ["/robinhood", "chain-robinhood"],
   ["/skills/crypto-dossier", "skills"], ["/company", null], ["/", null], ["https://agent402.tools/markets?x=1", "markets"], ["/monitors/thanks", "monitors"]];
 for (const [p, want] of cases) ok(ogSectionFor(p) === want, `ogSectionFor(${p}) = ${want}`);
+{ // CodeQL #192: a trailing-slash regex on caller-shaped input backtracks polynomially; the strip is linear and bounded now.
+  const t0 = Date.now(); const r = ogSectionFor("/why" + "/".repeat(200000)); const ms = Date.now() - t0;
+  ok(r === "why" && ms < 200, `200k trailing slashes resolve in ${ms} ms (linear, bounded)`);
+}
 const ids = ogSectionIds();
 ok(ids.length >= 30 && new Set(ids).size === ids.length, `${ids.length} distinct section ids`);
 
