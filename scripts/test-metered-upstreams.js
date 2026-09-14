@@ -51,7 +51,17 @@ const ALLOWED = {
   "leaderboard.js": { why: "leaderboard scan", bound: /CACHE|TTL|cached/i },
   "x402-index.js": { why: "registry discovery poll", bound: /DISCOVERY_INTERVAL_MS/ },
   "server.js": { why: "wallet activity scan", bound: /SQL_SCAN_DAILY_BUDGET/ },
+  // A file may NAME a metered host without ever calling it - upstream-budgets
+  // declares the per-vendor daily call budgets and matches egress-meter rows by
+  // hostname, so the host strings are the subject of the bound, not a request.
+  // That claim is not taken on trust: `noRequest` files are re-checked below
+  // against the request verbs, so one added later that actually fetches fails.
+  "upstream-budgets.js": { why: "declares the daily call budgets; hostnames are match strings", noRequest: true },
 };
+
+// What "issues a request" looks like in this tree. Kept narrow on purpose: a
+// false negative here would let a real caller in under the noRequest flag.
+const REQUEST_VERBS = /\b(fetch|safeFetch|fetchJson|getJson|axios|request|https?\.(get|request))\s*\(/;
 
 const dir = new URL("../src/", import.meta.url);
 const files = readdirSync(dir).filter((f) => f.endsWith(".js"));
@@ -62,6 +72,10 @@ for (const f of files) {
   if (!hit) continue;
   const rule = ALLOWED[f];
   if (!rule) { offenders.push(`${f} reaches ${hit} with no declared bound`); continue; }
+  if (rule.noRequest) {
+    if (REQUEST_VERBS.test(src)) offenders.push(`${f} is allowed as "names the host, makes no request" but the source issues one`);
+    continue;
+  }
   if (!rule.bound.test(src)) offenders.push(`${f} is allowed for "${rule.why}" but its bound is missing from the source`);
 }
 ok(offenders.length === 0,
@@ -97,6 +111,18 @@ ok(mins >= 30,
 const econ = readFileSync(new URL("x402-economy.js", dir), "utf8");
 ok(/ECONOMY_FRESH_MS[^;]*60 \* 60 \* 1000/.test(econ),
   "the economy snapshot is cached in hours - its data is a 7/30-day aggregate");
+
+// The noRequest check has to be able to SEE a request, or it is a rubber stamp
+// on every file added under that flag. Prove it against a file that does call
+// out before believing it about one that does not. The control is revenue-live
+// (a real fetcher that also names the hosts) and NOT x402-economy, which
+// reaches CDP through a paid tool HANDLER and matches no request verb - the
+// same in-process shape as the Brave leak, and the honest limit of this check:
+// it can say "this file issues no request of its own", never "this file cannot
+// reach the host".
+const caller = readFileSync(new URL("revenue-live.js", dir), "utf8");
+ok(REQUEST_VERBS.test(caller) && !REQUEST_VERBS.test(readFileSync(new URL("upstream-budgets.js", dir), "utf8")),
+  "the noRequest check recognises a real caller, and upstream-budgets is not one");
 
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
