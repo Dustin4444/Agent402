@@ -2425,14 +2425,53 @@ app.get("/v1/models", (_req, res) => {
 // heartbeat alarms on "low" BEFORE an empty OpenRouter balance turns paid /v1
 // calls into charged-but-failed 503s. Numbers never leave the server; the
 // 5-minute in-module cache makes this safe to expose unpaywalled.
-app.get("/api/gateway-status", async (_req, res) => {
+// PUBLIC. Every spend/limit figure here is BUCKETED to a status word unless
+// the caller is the operator, because this endpoint is unauthenticated and a
+// published ceiling is an attack plan: a reader who can see `capUsd: 1` and
+// `spentUsd: 0.80` knows exactly how few calls are left to exhaust a paid
+// product for the day, and can do it for pennies. The rule was already written
+// for the OpenRouter leg ("bucketed status, numbers never exposed") and the
+// spend counters added later did not honour it.
+function publicBucket(o) {
+  if (!o || typeof o !== "object") return o;
+  const KEEP = new Set(["status", "configured", "day", "asset", "chain", "attests", "trend", "sinceRestart", "note", "reason", "unknownForMinutes"]);
+  const out = {};
+  for (const [k, v] of Object.entries(o)) if (KEEP.has(k)) out[k] = v;
+  return out;
+}
+function publicBudgets(b) {
+  // Per-vendor: the WORD only. Never callsToday, never the budget - publishing
+  // seven exact daily ceilings is a map of where to push.
+  if (!b || typeof b !== "object") return b;
+  const upstreams = {};
+  for (const [k, v] of Object.entries(b.upstreams || {})) upstreams[k] = { status: v?.status ?? "unknown" };
+  return { day: b.day, status: b.status, sinceRestart: b.sinceRestart, note: b.note, upstreams };
+}
+
+app.get("/api/gateway-status", async (req, res) => {
+  const _req = req;
   // Top-level fields stay the OpenRouter gateway status (heartbeat reads
   // .status); upstreamBuyer adds the x402 spending wallet's bucketed status
   // (blockscout-kit) — same alarm pattern, same numbers-never-leave rule.
   const [gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, upstreamBuyerSvm, subscriptionFeePayer, stellarFacilitator, databases] = await Promise.all([gatewayCreditsStatus(), upstreamBuyerStatus(), avmBuyerStatus(), tempoBuyerStatus(), svmBuyerStatus().catch(() => ({ status: "unknown", asset: "USDC", chain: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp" })), subscriptionFeePayerStatus(), stellarFacilitatorStatus().catch(() => ({ status: "unknown", asset: "XLM", chain: "stellar:pubnet" })), databasesStatus().catch(() => null)]);
   // `databases`: leads/analytics Postgres reachability, status words only
   // (src/db-status.js) - the heartbeat pages on "unreachable".
-  res.set("Cache-Control", "public, max-age=60").json({ ...gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, upstreamBuyerSvm, subscriptionFeePayer, xDataSpend: xDataSpendStatus(), exaSpend: exaSpendStatus(), exaAllowance: exaAllowanceStatus(), upstreamBudgets: upstreamBudgetStatus(), stellarFacilitator, databases, operatorAuth: operatorAuthStatus(), mppEvmDomainFallback: mppFallbackStatus(), loopLag: loopLagStatus() });
+  // The operator sees the real figures; everyone else sees the verdict. The
+  // heartbeat reads only `.status` fields, so bucketing costs it nothing.
+  const full = operatorAuthed(req);
+  const spend = { xDataSpend: xDataSpendStatus(), exaSpend: exaSpendStatus(), exaAllowance: exaAllowanceStatus() };
+  const budgets = upstreamBudgetStatus();
+  const body = {
+    ...gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, upstreamBuyerSvm, subscriptionFeePayer,
+    xDataSpend: full ? spend.xDataSpend : publicBucket(spend.xDataSpend),
+    exaSpend: full ? spend.exaSpend : publicBucket(spend.exaSpend),
+    exaAllowance: full ? spend.exaAllowance : publicBucket(spend.exaAllowance),
+    upstreamBudgets: full ? budgets : publicBudgets(budgets),
+    stellarFacilitator, databases, operatorAuth: operatorAuthStatus(),
+    mppEvmDomainFallback: mppFallbackStatus(), loopLag: loopLagStatus(),
+  };
+  // An operator-authed read must not land in a shared cache.
+  res.set("Cache-Control", full ? "private, no-store" : "public, max-age=60").json(body);
 });
 // Static SAMPLE A2A Agent Card — the self-answering example target for the
 // a2a-card-fetch tool. Explicitly a sample (fictional weather agent), NOT an
