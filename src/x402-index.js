@@ -390,7 +390,16 @@ const successionScanAt = new Map();
  * for, and it keeps the scan off thousands of discovered origins that never
  * asked for anything.
  */
-export async function discoverSuccessions({ now = Date.now(), limit = 3, minAgeMs = 6 * 3600_000,
+// One marker read per candidate, against an origin we already crawl. The first
+// cut used limit 3 out of caution and that is too slow to be a fix: the crawl
+// cycle is 30 minutes and the self-registered population is in the hundreds
+// (586 of the 2,000 seed slots at the last count), so a full pass took about
+// FOUR DAYS and the seller who reported the duplicate would not have been
+// reached this week. At 25 a pass is ~12 hours, and the cost is ~1,200 small
+// GETs a day spread across origins whose manifests we are fetching anyway -
+// noise against a cycle that already reads thousands. A shipped fix that
+// cannot reach the reporter before they ask again has not shipped.
+export async function discoverSuccessions({ now = Date.now(), limit = 25, minAgeMs = 6 * 3600_000,
   origins = null, read = readMarker, verify = verifySuccessionMarkers } = {}) {
   const candidates = (origins || [...submittedSeeds])
     .filter((o) => {
