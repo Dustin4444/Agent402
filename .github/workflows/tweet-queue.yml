@@ -5,11 +5,16 @@
 # so tweet copy never enters the tree (the standing rule); it cannot be read
 # back through the API or the UI by anyone, it never reaches a fork or a
 # pull_request run, and only a repo admin can replace it. The run log prints
-# the item id and hour, never the text. Each run posts the ONE item whose
-# `when` hour is the
-# current UTC hour (or the `hour` dispatch input, for a missed slot). There is
-# no state to keep: the hour is the key. If a run ever repeats an hour, X
-# refuses duplicate text with a 403 and nothing double-posts.
+# the item id and hour, never the text.
+#
+# Each run posts the OLDEST item that is due (its `when` is in the past, within
+# the catch-up window) and not yet recorded as posted. GitHub delivers cron
+# late and sometimes skips an hour (measured on the heartbeat: 2-12 h gaps),
+# and the first version keyed on the current hour alone, so a skipped hour
+# silently dropped its item (the 19:00Z slot on 2026-09-14). The posted-id
+# record rides the Actions cache (restore by prefix, save under the run id),
+# which needs no token beyond GITHUB_TOKEN; X's 403 on duplicate text is the
+# belt if the record is ever lost. `hour` on dispatch pins one slot instead.
 #
 # Every text in the variable was approved verbatim by the operator before it
 # was loaded; this workflow never edits copy and never invents a post.
@@ -39,23 +44,41 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - name: Pick the item due this hour
+      - name: Restore the posted-id record
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/tweet-queue-posted.json
+          key: tweet-queue-posted-${{ github.run_id }}
+          restore-keys: |
+            tweet-queue-posted-
+      - name: Pick the oldest due item not yet posted
         id: pick
         env:
           TWEET_QUEUE: ${{ secrets.TWEET_QUEUE }}
           IN_HOUR: ${{ github.event.inputs.hour }}
+          CATCHUP_HOURS: "12"
         run: |
           node - <<'JS'
           const fs = require("node:fs");
           const raw = process.env.TWEET_QUEUE || "[]";
           let q; try { q = JSON.parse(raw); } catch { console.error("TWEET_QUEUE is not JSON"); process.exit(1); }
           if (!Array.isArray(q)) { console.error("TWEET_QUEUE is not an array"); process.exit(1); }
-          const bucket = (process.env.IN_HOUR || new Date().toISOString().slice(0, 13)).slice(0, 13);
-          const due = q.filter((x) => typeof x?.when === "string" && x.when.slice(0, 13) === bucket && typeof x.text === "string" && x.text.trim());
+          let posted = []; try { posted = JSON.parse(fs.readFileSync("/tmp/tweet-queue-posted.json", "utf8")); } catch {}
+          if (!Array.isArray(posted)) posted = [];
           const out = fs.createWriteStream(process.env.GITHUB_OUTPUT, { flags: "a" });
-          if (!due.length) { console.log(`nothing due for ${bucket} (queue has ${q.length} items)`); out.write("due=false\n"); out.end(); process.exit(0); }
+          const valid = (x) => x && typeof x.when === "string" && typeof x.text === "string" && x.text.trim() && typeof x.id === "string";
+          let due;
+          if (process.env.IN_HOUR) {
+            const bucket = process.env.IN_HOUR.slice(0, 13);
+            due = q.filter((x) => valid(x) && x.when.slice(0, 13) === bucket);
+          } else {
+            const now = Date.now(); const window = Number(process.env.CATCHUP_HOURS) * 3600e3;
+            due = q.filter((x) => valid(x) && !posted.includes(x.id)).map((x) => ({ x, t: Date.parse(x.when) }))
+              .filter(({ t }) => Number.isFinite(t) && t <= now && now - t <= window).sort((a, b) => a.t - b.t).map(({ x }) => x);
+          }
+          if (!due.length) { console.log(`nothing due (queue ${q.length} items, ${posted.length} recorded posted)`); out.write("due=false\n"); out.end(); process.exit(0); }
           const item = due[0];
-          if (due.length > 1) console.log(`${due.length} items share ${bucket}; posting ${item.id} only`);
+          if (due.length > 1) console.log(`${due.length} due; posting the oldest, ${item.id}`);
           fs.writeFileSync("/tmp/tweet-text.txt", item.text);
           const card = ["proof", "bestsellers", "robinhood"].includes(item.card) ? item.card : "";
           console.log(`due: ${item.id} (${item.when})${card ? ` card=${card}` : ""}`);
@@ -92,4 +115,30 @@ jobs:
           ARGS=(--file /tmp/tweet-text.txt --force)
           [ -f /tmp/tweet-card.png ] && ARGS+=(--media /tmp/tweet-card.png)
           echo "Posting ${{ steps.pick.outputs.id }}"
-          node scripts/tweet.js "${ARGS[@]}"
+          # A 403 "duplicate content" means this exact text is already on X
+          # (a slot posted by dispatch before the record existed, or a record
+          # lost to cache eviction): count it as posted and move on, so one
+          # item can never wedge the queue.
+          set +e
+          node scripts/tweet.js "${ARGS[@]}" 2> /tmp/post.err
+          CODE=$?
+          set -e
+          cat /tmp/post.err >&2
+          if [ "$CODE" -ne 0 ]; then
+            if grep -qi "duplicate content" /tmp/post.err; then echo "already on X (duplicate refused) - recording as posted"; else exit "$CODE"; fi
+          fi
+      - name: Record the posted id
+        if: steps.pick.outputs.due == 'true'
+        env:
+          POSTED_ID: ${{ steps.pick.outputs.id }}
+        run: |
+          node -e '
+          const fs = require("node:fs"); let p = []; try { p = JSON.parse(fs.readFileSync("/tmp/tweet-queue-posted.json", "utf8")); } catch {}
+          if (!Array.isArray(p)) p = []; if (!p.includes(process.env.POSTED_ID)) p.push(process.env.POSTED_ID);
+          fs.writeFileSync("/tmp/tweet-queue-posted.json", JSON.stringify(p.slice(-500)));'
+      - name: Save the posted-id record
+        if: steps.pick.outputs.due == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/tweet-queue-posted.json
+          key: tweet-queue-posted-${{ github.run_id }}
