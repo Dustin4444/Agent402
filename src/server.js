@@ -4601,8 +4601,7 @@ function refreshIndexSnapshotInBackground() {
 function standingFigures() {
   try {
     const t = getIndexSnapshot()?.totals || {};
-    const h = hostEntryFigures() || {};
-    return { sellers: t.sellers, listings: t.tools, rails: RAILS.length, ourUsd: Number(h.external?.allTime?.revenueUsd ?? h.allTime?.revenueUsd ?? 0) || undefined };
+    return { sellers: t.sellers, listings: t.tools, rails: RAILS.length };
   } catch { return {}; }
 }
 

@@ -27,6 +27,52 @@ const TIERS = {
   "llm-premium": { prefixes: ["o3", "o3-mini"],     maxInputChars: 32_000, maxTokens: 2048 },
 };
 
+// OpenAI list prices, USD per 1M tokens (developers.openai.com/api/docs/pricing,
+// read 2026-09-15). Longest prefix wins, like the gateway's MODEL_COST. OpenAI
+// returns token counts and never a cost, so the spend meter and the PostHog
+// margin telemetry are fed from this table - before 2026-09-15 this kit
+// recorded nothing, and /__operator/margin.json showed a day of llm-pro sales
+// against zero upstream. Prices here are OBSERVATIONS: re-read the page when
+// a model is added, never tune them to make a margin look acceptable.
+const OPENAI_COST = {
+  "gpt-4o-mini":  { prompt: 0.15, cached: 0.075, completion: 0.60 },
+  "gpt-4o":       { prompt: 2.50, cached: 1.25,  completion: 10.00 },
+  "gpt-4.1-nano": { prompt: 0.10, cached: 0.025, completion: 0.40 },
+  "gpt-4.1-mini": { prompt: 0.40, cached: 0.10,  completion: 1.60 },
+  "gpt-4.1":      { prompt: 2.00, cached: 0.50,  completion: 8.00 },
+  "o3-mini":      { prompt: 1.10, cached: 0.55,  completion: 4.40 },
+  "o3":           { prompt: 2.00, cached: 0.50,  completion: 8.00 },
+};
+// A model the table does not know is priced at the DEAREST row so the meter
+// errs high, never silently low.
+const OPENAI_COST_UNKNOWN = OPENAI_COST["gpt-4o"];
+
+export function openaiCostRow(model) {
+  const m = String(model || "");
+  let best = null;
+  for (const k of Object.keys(OPENAI_COST)) {
+    if ((m === k || m.startsWith(k + "-")) && (!best || k.length > best.length)) best = k;
+  }
+  return best ? OPENAI_COST[best] : OPENAI_COST_UNKNOWN;
+}
+
+/** USD cost of one completion from OpenAI's usage block (cached prompt tokens at the cached rate). */
+export function openaiCostUsd(model, usage) {
+  const row = openaiCostRow(model);
+  const prompt = Number(usage?.prompt_tokens) || 0;
+  const cached = Math.min(prompt, Number(usage?.prompt_tokens_details?.cached_tokens) || 0);
+  const completion = Number(usage?.completion_tokens) || 0;
+  const usd = ((prompt - cached) * row.prompt + cached * row.cached + completion * row.completion) / 1e6;
+  return Math.round(usd * 1e6) / 1e6;
+}
+
+// The list price the sale settles at, read from the tool's own def so the
+// telemetry can never quote a price the catalog stopped charging.
+const tierPriceUsd = (slug) => {
+  const p = Number(String(LLM_TOOLS.find((t) => t.slug === slug)?.price || "").replace(/[$,]/g, ""));
+  return Number.isFinite(p) && p > 0 ? p : null;
+};
+
 function isAllowed(model, tierSlug) {
   const tier = TIERS[tierSlug];
   if (!tier) return false;
@@ -151,7 +197,7 @@ function validateInput(input, tierSlug) {
   return { model, messages: normMessages, maxTokens, responseFormat, opts };
 }
 
-async function callOpenAI(model, messages, maxTokens, responseFormat, opts) {
+async function callOpenAI(model, messages, maxTokens, responseFormat, opts, tierSlug) {
   const key = OPENAI_KEY();
   if (!key) throw bad("OpenAI not configured", 503);
 
@@ -202,6 +248,15 @@ async function callOpenAI(model, messages, maxTokens, responseFormat, opts) {
   try { data = JSON.parse(text); } catch { throw bad("OpenAI returned non-JSON", 502); }
 
   const choice = data.choices?.[0];
+  // Same meter and same PostHog event as the /v1 gateway, so margin.json and
+  // the gateway_usage insights see this kit's spend beside OpenRouter's.
+  const upstreamUsd = openaiCostUsd(data.model || model, data.usage);
+  import("../posthog.js")
+    .then(({ capturePostHogGatewayUsage }) => capturePostHogGatewayUsage({
+      tier: tierSlug || "llm", model: data.model || model, priceUsd: tierPriceUsd(tierSlug), upstreamUsd,
+      promptTokens: data.usage?.prompt_tokens, completionTokens: data.usage?.completion_tokens,
+    }))
+    .catch(() => {});
   return {
     model: data.model || model,
     provider: "openai",
@@ -220,7 +275,7 @@ async function callOpenAI(model, messages, maxTokens, responseFormat, opts) {
 function makeHandler(tierSlug) {
   return async (input) => {
     const { model, messages, maxTokens, responseFormat, opts } = validateInput(input, tierSlug);
-    return callOpenAI(model, messages, maxTokens, responseFormat, opts);
+    return callOpenAI(model, messages, maxTokens, responseFormat, opts, tierSlug);
   };
 }
 

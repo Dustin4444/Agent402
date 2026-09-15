@@ -26,16 +26,16 @@ for (const cold of [{}, { sellers: 0 }, { sellers: 1, listings: 581, rails: 12 }
 }
 ok(standingBand({ sellers: 50 }) !== "", "at the floor it speaks");
 
-// --- warm: every figure present, and the small number said out loud ---------
+// --- warm: every figure present ---------------------------------------------
 {
   const t = text(standingBand({ sellers: 4153, listings: 101583, settled: 42934, ourUsd: 109.42, rails: 12 }));
   ok(/4,153 seller origins indexed/.test(t), "sellers, with thousands separators");
   ok(/101,583 tool listings/.test(t), "listings");
   ok(/42,934 settlements through these gates/.test(t), "settlements, described as throughput rather than revenue");
   ok(/12 payment rails/.test(t), "rails");
-  ok(/\$109\.42 is ours/.test(t),
-     "OUR OWN NUMBER IS IN THE SAME BREATH - the argument is that we publish it, so burying it would forfeit the argument");
-  ok(/we index this market, we are not trying to be it/.test(t), "and the frame is stated, not implied");
+  ok(!/is ours/.test(t) && !/109\.42/.test(t),
+     "the host's revenue is NOT restated in the band: it followed a list of counts as 'Of that, $N is ours', a dollar figure with no dollar total to be of (2026-09-14)");
+  ok(/we index this market, we are not trying to be it/i.test(t), "and the frame is stated, not implied");
   ok(/ranks other sellers above this one/.test(t),
      "the leaderboard ranking a rival above us is cited AS the evidence of neutrality, which is the reason to trust the index at all");
 }

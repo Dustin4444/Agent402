@@ -1458,7 +1458,7 @@ export function revenuePage(baseUrl, snap) {
   // What this page is measuring, said once at the top. Derived from the same
   // snapshot the rest of the page renders, plus the index totals server.js
   // hands in - never typed, or the framing sentence goes stale first.
-  const standing = standingBand({ ...(snap.standing || {}), settled: railThroughput(snap).total, ourUsd: Number(snap.allTime?.allTimeExternalUsd || 0) });
+  const standing = standingBand({ ...(snap.standing || {}), settled: railThroughput(snap).total });
   const extCount = Number(at.allTimeExternalCount || 0);
   const extUsd = Number(at.allTimeExternalUsd || 0);
   const agents = Number(snap.agents?.buyers || 0);

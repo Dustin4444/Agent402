@@ -29,10 +29,14 @@ const MIN_SELLERS_TO_FRAME = 50;
  *  sellers   distinct seller origins in the index
  *  listings  tool listings across them
  *  settled   settlements observed through these gates, ours included
- *  ourUsd    what outside buyers have paid US (the small, honest number)
  *  rails     how many payment rails settle here
+ *
+ * The host's own revenue is NOT restated here. It is the headline of /revenue
+ * and the subject of /proof already, and an earlier draft appended "Of that,
+ * $N is ours" to a list of COUNTS (sellers, listings, settlements, rails) - a
+ * dollar figure with no dollar total to be "of", which read as a non sequitur.
  */
-export function standingBand({ sellers, listings, settled, ourUsd, rails } = {}) {
+export function standingBand({ sellers, listings, settled, rails } = {}) {
   // A COLD OR HALF-LOADED INDEX MUST SAY NOTHING.
   //
   // The crawl cache warm-starts incrementally and is empty on a fresh boot, so
@@ -47,17 +51,12 @@ export function standingBand({ sellers, listings, settled, ourUsd, rails } = {})
   if (listings > 0) bits.push(`${int(listings)} tool listings`);
   if (settled > 0) bits.push(`${int(settled)} settlement${settled === 1 ? "" : "s"} through these gates`);
   if (rails > 0) bits.push(`${int(rails)} payment rail${rails === 1 ? "" : "s"}`);
-  // The small number is stated in the same breath, never buried: the argument
-  // is that we publish it, so hiding it would forfeit the argument.
-  const ours = Number.isFinite(ourUsd) && ourUsd > 0
-    ? ` Of that, <strong style="color:var(--ink);">$${ourUsd.toFixed(2)} is ours</strong>: we index this market, we are not trying to be it.`
-    : "";
   return `
 <section style="max-width:1180px;margin:0 auto;padding:22px 30px 0;">
   <div style="border:1px solid var(--hairline);border-left:3px solid var(--accent);background:var(--card);padding:18px 22px;">
     <p style="font-size:15px;line-height:1.6;color:var(--muted);margin:0;max-width:900px;">
       <span style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--accent);display:block;margin-bottom:6px;">WHAT THIS PAGE IS MEASURING</span>
-      ${esc(bits.join(" · "))}.${ours}
+      ${esc(bits.join(" · "))}. We index this market, we are not trying to be it.
       The leaderboard on this site ranks other sellers above this one and excludes the host from every count, because an index that ranks itself first proves nothing.
     </p>
   </div>
