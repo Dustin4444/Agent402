@@ -3293,6 +3293,15 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   2.0.3-beta.7. Trap: several runtimes in one process share `process.env`, which backs `runtime.getSetting()` - state every
   setting per runtime in such a test, and the plugin reads ONLY `runtime.getSetting` (the old process.env fallback could read
   another agent's ceiling). Registry generator note: `supports.v2:true` is hardcoded for every third-party entry.
+  **Round two (0.2.1, same night, maintainer's second review):** a 12k text cap "with a notice" and a 2k error slice were
+  still truncation - results and errors are WHOLE now, `AGENT402_MAX_RESULT_CHARS` is unset by default and, when set, an
+  over-bound result is an explicit `result_too_large` FAILURE carrying the whole result in data.result (never a partial
+  text); malformed params were coerced to `{}` and a failed catalog read to `[]` - typed `data.errorCode` states now
+  (`invalid_parameters`, `catalog_unavailable`, `no_match`, `model_unavailable`, `extraction_failed`, `unoffered_pick`,
+  `spend_limit`, `payment_required`, `upstream_error`, `result_too_large`), each before any dispatch; the runtime test
+  dropped its Agent402 server boot for a stub seller speaking our wire (controlled transport: no network past npm, nothing
+  paid) and adds CONCURRENT (four at once, one settles) and RUNTIME-SCOPED (two runtimes, two ceilings) spend cases plus a
+  60 KB result rendered whole through ACTION_STATE. 25 on 1.7.2, 13 on 2.0.3-beta.7.
   **The same classes swept across the other adapters the same night:** `agent402-agentkit` built its client per invoke
   too (0.1.2: one client per wallet provider, `creditsKey` option, pinned with a stub seller); `agent402-ai-sdk` passed
   `parameters` to `tool()`, which AI SDK 5+ ignores in favour of `inputSchema` - on ai 5/6/7 the model got a tool with NO

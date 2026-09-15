@@ -66,10 +66,17 @@ In order:
 
 elizaOS renders an action result's `text` (and `values`, and `error`) into the
 next prompt; `data` is kept but not rendered. So the tool's COMPLETE result
-JSON rides in `text`, up to `AGENT402_MAX_RESULT_CHARS` (default 12,000);
-past that the text says how much was cut and that `data.result` holds it
-whole. Error detail is never truncated on the way to the model (the seller's
-own `error` text, up to 2,000 characters).
+JSON rides in `text`, whatever its size, and error detail is never cut (the
+seller's own `error` text, whole). A host that must bound its context can set
+`AGENT402_MAX_RESULT_CHARS`; a result over that bound is then an explicit
+failure (`data.errorCode: "result_too_large"`) that carries the whole result in
+`data.result` and puts nothing partial in the text.
+
+Failures are typed on `data.errorCode` and happen before any paid dispatch:
+`invalid_parameters` (a params string that is not a JSON object, or a non-
+object), `catalog_unavailable` (the catalog could not be read), `no_match`,
+`model_unavailable`, `extraction_failed`, `unoffered_pick`, then `spend_limit`,
+`payment_required`, `upstream_error`, `result_too_large` for the call itself.
 
 ### Spend ceilings hold across calls
 
@@ -85,14 +92,17 @@ sends no request. `spendingSummaryFor(runtime)` reports the ledger.
 `ELIZA_CORE_VERSION=beta` for the 2.x line), boots a real `AgentRuntime`, and
 drives the runtime's own dispatcher (`processActions` on 1.x; on 2.x the
 executor is not exported, so its path is mirrored with core's exported
-`validateActionParams`) with a plain user message and no slug. The model is a
-stub that always answers the same way (CI has no LLM); everything else is the real runtime. It
-asserts: the `ACTIONS` provider lists the call action; the tool is chosen and
-paid; the complete result is in the `ACTION_STATE` text the model reads next;
-a $0.003 tool under a $0.005 daily ceiling settles once and is refused the
-second time with no request sent; a per-call ceiling refuses with none; an
-upstream error arrives whole. No wallet is funded: the paid cases run against
-a stub seller with a credits key.
+`validateActionParams`) with a plain user message and no slug. Two things are
+stubbed: the model (CI has no LLM; a fixed function answers the extraction
+prompt) and the seller (a local HTTP stub speaking the Agent402 wire). No
+network past the npm install, no wallet, nothing paid. It asserts: the
+`ACTIONS` provider lists the call action; the tool is chosen and called; the
+complete result is in the `ACTION_STATE` text the model reads next, including
+a 60 KB one; a $0.003 tool under a $0.005 daily ceiling settles once and every
+later call is refused with no request sent, sequentially and when four fire at
+once; a second runtime in the same process enforces its own ceiling; a
+per-call ceiling refuses with none; an upstream error arrives whole; malformed
+params, an unreachable catalog and no match are typed failures sent nowhere.
 
 ## Settings
 

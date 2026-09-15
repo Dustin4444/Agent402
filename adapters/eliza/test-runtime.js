@@ -8,10 +8,15 @@
 //   migrations run -> runtime.processActions() is the dispatcher, exactly as
 //   the message pipeline calls it after the planner picks an action.
 //
-// What is stubbed, and why: the MODEL. CI has no LLM, so the runtime's
-// OBJECT_SMALL/TEXT_SMALL handlers are a deterministic function that reads the
-// extraction prompt and answers in the shape the real model would. Everything
-// between the planner's decision and the tool's answer is the real runtime.
+// What is stubbed, and why: the MODEL (CI has no LLM, so the runtime's
+// OBJECT_SMALL/TEXT_SMALL handlers are a fixed function that reads the
+// extraction prompt and answers in the shape the real model would) and the
+// SELLER (a local HTTP stub answering the Agent402 wire: /api/pricing,
+// /api/find, a free tool, a $0.003 wallet-only tool paid by credits key, a tool
+// that fails with a long error, a tool with a 60 KB answer). Controlled
+// transport, no network past the npm install, no wallet, nothing paid.
+// Everything between the planner's decision and the tool's answer is the real
+// runtime.
 //
 // Evidence produced (each is an assertion below):
 //   1. the ACTIONS provider LISTS AGENT402_CALL for a plain user message - the
@@ -23,13 +28,19 @@
 //   3. the COMPLETE result reaches the model-facing text (the ACTION_STATE
 //      provider renders result.text, never result.data) - proven by rendering
 //      that provider on the runtime's own action results;
-//   4. spend ceilings hold ACROSS calls in one runtime: a $0.003 tool under a
-//      $0.005 daily limit settles once and is refused the second time before
-//      any request leaves the process (the stub gateway counts one paid call);
-//      the per-call ceiling refuses with zero requests; nothing here funds a
-//      wallet - the stub gateway is the "seller";
-//   5. an upstream error's detail is not truncated on the way to the model;
-//   6. the v2 parameter path (options.parameters from the runtime's extractor)
+//   4. spend ceilings hold ACROSS calls in one runtime, sequential AND
+//      concurrent: a $0.003 tool under a $0.005 daily limit settles once and
+//      every later call is refused before any request leaves the process (the
+//      stub counts one paid call); four fired at once also settle exactly one;
+//      the per-call ceiling refuses with zero requests; ceilings are RUNTIME-
+//      SCOPED (two runtimes in one process each enforce their own);
+//   5. an upstream error's detail reaches the model whole, and a 60 KB result
+//      reaches it whole - no truncation anywhere; with the opt-in bound set, a
+//      result over it is an explicit failure carrying the whole result in
+//      data.result, never a partial text;
+//   6. failures are TYPED and happen before dispatch: malformed params, an
+//      unreadable catalog, no match (data.errorCode), with no request sent;
+//   7. the v2 parameter path (options.parameters from the runtime's extractor)
 //      is honoured ahead of message content.
 import { spawn, execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -70,47 +81,40 @@ const plugin = pluginMod.default;
 const coreVersion = JSON.parse(readFileSync(join(work, "node_modules", "@elizaos", "core", "package.json"), "utf8")).version;
 console.log(`@elizaos/core ${coreVersion}; plugin ${pkg.name}@${pkg.version} from ${tgz.split("/").pop()}`);
 
-// ---- 2. the seller: a local paid-mode Agent402 (free tier via proof-of-work) ----
-const { getFreePort } = await import(pathToFileURL(join(ROOT, "scripts", "lib", "free-port.js")).href);
-const PORT = await getFreePort();
-const BASE = process.env.AGENT402_BASE_URL || `http://127.0.0.1:${PORT}`;
-let proc = null;
-if (!process.env.AGENT402_BASE_URL) {
-  const serverLog = join(work, "agent402-server.log");
-  const { openSync } = await import("node:fs");
-  const logFd = openSync(serverLog, "w");
-  proc = spawn("node", ["src/server.js"], { cwd: ROOT, stdio: ["ignore", logFd, logFd], env: { ...process.env, WALLET_ADDRESS: "0x000000000000000000000000000000000000dEaD", NETWORK: "base", FACILITATOR_URL: "https://facilitator.payai.network", X402_SYNC_ON_START: "false", X402_INDEX_CRAWL: "off", POW_DIFFICULTY: "12", PORT: String(PORT), FREE_MODE: "" } });
-  // A cold CI runner boots the catalog server in well over a minute; a wait
-  // that gives up silently lets the run proceed against nothing and fail on
-  // an unrelated assertion (measured 2026-09-15: 60 s was not enough). The
-  // wait is generous and a server that never answers is its own failure.
-  let up = false;
-  for (let i = 0; i < 480 && !up; i++) { try { up = (await fetch(`${BASE}/api/pow`)).ok; } catch {} if (!up) await new Promise((r) => setTimeout(r, 500)); }
-  if (!up) { proc.kill("SIGKILL"); throw new Error(`the local Agent402 server did not answer on ${BASE} within 240 s; its log:\n${readFileSync(serverLog, "utf8").slice(-4000)}`); }
-}
-// ...and a stub gateway for the money cases (a wallet-only $0.003 tool paid by a
-// credits key; a tool that fails with a long error). Nothing here funds a wallet.
+// ---- 2. the seller: a stub speaking the Agent402 wire (controlled transport) ----
 const seen = [];
 const LONG_ERROR = `The input "q" must name a listed market; none of ${Array.from({ length: 60 }, (_, i) => `market-${i}`).join(", ")} matched.`;
+const BIG = { rows: Array.from({ length: 1500 }, (_, i) => ({ i, name: `row-${i}`, note: "x".repeat(24) })) }; // ~60 KB of JSON
 const stub = createServer((req, res) => {
   let raw = ""; req.on("data", (c) => { raw += c; });
   req.on("end", () => {
     seen.push({ url: req.url, auth: req.headers.authorization || null });
     const j = (code, body, h = {}) => { res.writeHead(code, { "content-type": "application/json", ...h }); res.end(JSON.stringify(body)); };
     if (req.url.startsWith("/api/pricing")) return j(200, { endpoints: [
+      { slug: "hash", method: "POST", path: "/api/hash", price: "$0.001", computePayable: true },
       { slug: "search", method: "POST", path: "/api/search", price: "$0.003", computePayable: false },
       { slug: "broken", method: "POST", path: "/api/broken", price: "$0.002", computePayable: false },
-      { slug: "hash", method: "POST", path: "/api/hash", price: "$0.001", computePayable: true },
+      { slug: "big", method: "POST", path: "/api/big", price: "$0.002", computePayable: false },
     ] });
-    if (req.url.startsWith("/api/find")) return j(200, { results: [{ slug: "search", name: "search", price: "$0.003", route: "POST /api/search", walletOnly: true, description: "web search" }] });
+    if (req.url.startsWith("/api/find")) {
+      const q = decodeURIComponent((/[?&]q=([^&]*)/.exec(req.url) || [])[1] || "");
+      if (/hash|sha256/i.test(q)) return j(200, { results: [{ slug: "hash", name: "hash", price: "$0.001", route: "POST /api/hash", walletOnly: false, description: "sha256/md5 of a string", example: { text: "hello", algo: "sha256" } }] });
+      return j(200, { results: [] });
+    }
+    // A free (compute-payable) tool answers plainly, as a FREE_MODE Agent402 does.
+    if (req.url.startsWith("/api/hash")) { let b = {}; try { b = JSON.parse(raw); } catch {} return j(200, { algo: b.algo || "sha256", hex: createHash(b.algo || "sha256").update(String(b.text ?? "")).digest("hex") }); }
     if (!req.headers.authorization) return j(402, { error: "Payment required", reason: "missing" });
     if (req.url.startsWith("/api/search")) return j(200, { results: [{ title: "x402", url: "https://x402.org" }] }, { "x-credits-balance": "19.997" });
     if (req.url.startsWith("/api/broken")) return j(400, { error: LONG_ERROR });
+    if (req.url.startsWith("/api/big")) return j(200, BIG, { "x-credits-balance": "19.998" });
     j(404, { error: "no such tool" });
   });
 });
 await new Promise((r) => stub.listen(0, "127.0.0.1", r));
 const STUB = `http://127.0.0.1:${stub.address().port}`;
+const BASE = STUB;
+const DEAD = "http://127.0.0.1:1"; // nothing listens: the catalog is unreachable
+let proc = null;
 
 // ---- 3. a real runtime ------------------------------------------------------------
 let pass = 0;
@@ -188,16 +192,30 @@ try {
     const want = createHash("sha256").update("hello world").digest("hex");
     const r0 = await callAction.handler(runtime, plain, listed, opts, async () => []);
     ok(r0.success === true && r0.data.resolvedVia === "parameters" && r0.text.includes(want) && /complete JSON/.test(r0.text), "the handler ran on the validated parameters, paid the free tier with proof-of-work, and the complete digest is in the model-facing text (2)(3)");
-    const { runtime: rt2 } = await bootRuntime({ AGENT402_BASE_URL: STUB, AGENT402_CREDITS_KEY: KEY, AGENT402_DAILY_LIMIT_USD: "0.005", AGENT402_MAX_PER_CALL_USD: "0.004" });
     const paidCalls = () => seen.filter((s) => s.url.startsWith("/api/search") && s.auth).length;
-    const call = (params) => callAction.handler(rt2, plain, listed, { parameters: core.validateActionParams(callAction, params).params }, async () => []);
-    let r = await call({ slug: "search", params: { q: "x402" } });
+    const bootPaid = (extra) => bootRuntime({ AGENT402_BASE_URL: STUB, AGENT402_CREDITS_KEY: KEY, AGENT402_MAX_PER_CALL_USD: "0.004", AGENT402_DAILY_LIMIT_USD: "0.005", ...extra });
+    const callOn = (rt, params) => callAction.handler(rt, plain, listed, { parameters: core.validateActionParams(callAction, params).params }, async () => []);
+    const { runtime: rt2 } = await bootPaid();
+    let r = await callOn(rt2, { slug: "search", params: { q: "x402" } });
     ok(r.success === true && paidCalls() === 1, "call 1: a $0.003 wallet-only tool settles by credits key (the stub saw one paid request)");
-    r = await call({ slug: "search", params: { q: "mpp" } });
-    ok(r.success === false && /dailyLimitUsd|24h spend/.test(r.text) && paidCalls() === 1, "call 2: refused by the DAILY ceiling before any request left the process - the ledger survived across calls (4)");
-    const { runtime: rt4 } = await bootRuntime({ AGENT402_BASE_URL: STUB, AGENT402_CREDITS_KEY: KEY, AGENT402_MAX_PER_CALL_USD: "1", AGENT402_DAILY_LIMIT_USD: "100" });
+    r = await callOn(rt2, { slug: "search", params: { q: "mpp" } });
+    ok(r.success === false && r.data?.errorCode === "spend_limit" && paidCalls() === 1, "call 2: refused by the DAILY ceiling (errorCode spend_limit) before any request left the process - the ledger survived across calls (4)");
+    const { runtime: rt2c } = await bootPaid();
+    const b1 = paidCalls();
+    const burst = await Promise.all([1, 2, 3, 4].map((i) => callOn(rt2c, { slug: "search", params: { q: `q${i}` } })));
+    ok(burst.filter((x) => x.success).length === 1 && paidCalls() - b1 === 1, "four CONCURRENT calls under the ceiling: exactly one settled, one request seen");
+    const { runtime: rt2w } = await bootPaid({ AGENT402_DAILY_LIMIT_USD: "0.010" });
+    const b2 = paidCalls(); const three = [];
+    for (let i = 0; i < 4; i++) three.push(await callOn(rt2w, { slug: "search", params: { q: `w${i}` } }));
+    ok(three.filter((x) => x.success).length === 3 && paidCalls() - b2 === 3, "a second runtime with a $0.010 ceiling settles three and refuses the fourth: ceilings are runtime-scoped");
+    const { runtime: rt4 } = await bootPaid({ AGENT402_MAX_PER_CALL_USD: "1", AGENT402_DAILY_LIMIT_USD: "100" });
     r = await callAction.handler(rt4, plain, listed, { parameters: { slug: "broken", params: { q: "nothing" } } }, async () => []);
-    ok(r.success === false && r.error && r.text.includes("market-59"), "an upstream failure's detail reaches the result whole (5)");
+    ok(r.success === false && r.data?.errorCode === "upstream_error" && r.text.includes(LONG_ERROR), "an upstream failure's detail reaches the result whole (5)");
+    r = await callAction.handler(rt4, plain, listed, { parameters: { slug: "big", params: {} } }, async () => []);
+    ok(r.success === true && r.text.endsWith(JSON.stringify(BIG)), "a 60 KB result reaches the text complete");
+    const b6 = seen.length;
+    r = await callAction.handler(rt4, plain, listed, { parameters: { slug: "search", params: "{not json" } }, async () => []);
+    ok(r.success === false && r.data?.errorCode === "invalid_parameters" && seen.length === b6, "malformed params: errorCode invalid_parameters, nothing sent (6)");
     console.log(`\n${pass} passed against @elizaos/core ${coreVersion} (2.x executor path mirrored with core's own validator)`);
     process.exitCode = 0;
     throw Object.assign(new Error("done"), { done: true });
@@ -208,52 +226,81 @@ try {
   const want = createHash("sha256").update("hello world").digest("hex");
   ok(results.length === 1 && results[0].success === true, `runtime.processActions ran AGENT402_CALL to completion (got ${JSON.stringify(results[0]?.text || results).slice(0, 160)})`);
   ok(results[0].data?.slug === "hash" && results[0].data?.resolvedVia === "model" && prompts.length === 1, "with no slug anywhere, the handler searched the catalog and the runtime's model chose the tool and shaped its input (2)");
-  ok(results[0].text.includes(want) && /complete JSON/.test(results[0].text), "the free-tier call paid with proof-of-work and the sha256 digest is in the result text");
+  ok(results[0].text.includes(want) && /complete JSON/.test(results[0].text), "the free-tier call answered and the sha256 digest is in the result text");
   const rendered = await actionStateText(runtime, plain, results);
   ok(rendered.includes(want) && /AGENT402_CALL/.test(rendered), "the ACTION_STATE provider - what the model reads next turn - carries the complete digest, not a preview (3)");
   ok(callbacks.length === 1 && callbacks[0].text.includes(want), "the callback delivered the same complete text");
 
-  // ---- (4): spend ceilings across calls in ONE runtime -------------------------------
-  const { runtime: rt2 } = await bootRuntime({ AGENT402_BASE_URL: STUB, AGENT402_CREDITS_KEY: KEY, AGENT402_DAILY_LIMIT_USD: "0.005", AGENT402_MAX_PER_CALL_USD: "0.004" });
-  const ctx2 = await seed(rt2, "b");
+  // ---- (4): spend ceilings across calls in ONE runtime: sequential, concurrent, scoped
+  const bootPaid = (extra) => bootRuntime({ AGENT402_BASE_URL: STUB, AGENT402_CREDITS_KEY: KEY, AGENT402_MAX_PER_CALL_USD: "0.004", AGENT402_DAILY_LIMIT_USD: "0.005", ...extra });
   const paidCalls = () => seen.filter((s) => s.url.startsWith("/api/search") && s.auth).length;
-  const run = async (tag, content) => {
-    const m = userMessage(rt2, ctx2, content, tag);
-    await rt2.createMemory(m, "messages");
-    await rt2.processActions(m, plannerPicks(rt2, ctx2, ["AGENT402_CALL"]), await rt2.composeState(m, ["ACTIONS"]), async () => []);
-    return rt2.getActionResults(m.id)[0];
+  const runOn = async (rt, ctxN, tag, content) => {
+    const m = userMessage(rt, ctxN, content, tag);
+    await rt.createMemory(m, "messages");
+    await rt.processActions(m, plannerPicks(rt, ctxN, ["AGENT402_CALL"]), await rt.composeState(m, ["ACTIONS"]), async () => []);
+    return rt.getActionResults(m.id)[0];
   };
-  let r = await run("s1", { text: "search the web for x402", slug: "search", params: { q: "x402" } });
+  const { runtime: rt2 } = await bootPaid();
+  const ctx2 = await seed(rt2, "b");
+  let r = await runOn(rt2, ctx2, "s1", { text: "search the web for x402", slug: "search", params: { q: "x402" } });
   ok(r.success === true && paidCalls() === 1 && r.data?.result?.results?.[0]?.url === "https://x402.org", "call 1: a $0.003 wallet-only tool settles by credits key (the stub saw one paid request)");
   ok(pluginMod.spendingSummaryFor(rt2)?.dailyUsd === 0.003 && pluginMod.spendingSummaryFor(rt2)?.calls === 1, "the runtime's client booked $0.003 against the rolling 24h ledger");
-  r = await run("s2", { text: "search the web for mpp", slug: "search", params: { q: "mpp" } });
-  ok(r.success === false && /dailyLimitUsd|24h spend/.test(r.text) && paidCalls() === 1, "call 2: refused by the DAILY ceiling before any request left the process - the ledger survived across calls (4)");
+  r = await runOn(rt2, ctx2, "s2", { text: "search the web for mpp", slug: "search", params: { q: "mpp" } });
+  ok(r.success === false && r.data?.errorCode === "spend_limit" && /dailyLimitUsd|24h spend/.test(r.text) && paidCalls() === 1, "call 2: refused by the DAILY ceiling (errorCode spend_limit) before any request left the process - the ledger survived across calls (4)");
   ok(!JSON.stringify(r).includes(KEY), "the credits key never appears in an action result");
-  const { runtime: rt3 } = await bootRuntime({ AGENT402_BASE_URL: STUB, AGENT402_CREDITS_KEY: KEY, AGENT402_MAX_PER_CALL_USD: "0.001", AGENT402_DAILY_LIMIT_USD: "100" });
-  const ctx3 = await seed(rt3, "c");
+  // CONCURRENT: four calls fired at once on a fresh runtime under the same ceiling.
+  const { runtime: rt2c } = await bootPaid();
+  const ctx2c = await seed(rt2c, "bc");
   const before = paidCalls();
-  const m3 = userMessage(rt3, ctx3, { text: "search", slug: "search", params: { q: "x" } }, "s3");
-  await rt3.createMemory(m3, "messages");
-  await rt3.processActions(m3, plannerPicks(rt3, ctx3, ["AGENT402_CALL"]), await rt3.composeState(m3, ["ACTIONS"]), async () => []);
-  r = rt3.getActionResults(m3.id)[0];
-  ok(r.success === false && /maxPerCallUsd/.test(r.text) && paidCalls() === before, "a per-call ceiling under the tool's price refuses with zero requests sent");
+  const burst = await Promise.all([1, 2, 3, 4].map((i) => runOn(rt2c, ctx2c, `c${i}`, { text: "search", slug: "search", params: { q: `q${i}` } })));
+  ok(burst.filter((x) => x.success).length === 1 && burst.filter((x) => x.data?.errorCode === "spend_limit").length === 3 && paidCalls() - before === 1, "four CONCURRENT calls under a $0.005 daily ceiling: exactly one settled, three refused, the stub saw one request (the client reserves before it awaits)");
+  // RUNTIME-SCOPED: a second runtime in the same process with a wider ceiling
+  // enforces its own, and the first runtime's ledger does not bleed into it.
+  const { runtime: rt2w } = await bootPaid({ AGENT402_DAILY_LIMIT_USD: "0.010" });
+  const ctx2w = await seed(rt2w, "bw");
+  const b2 = paidCalls();
+  const three = [];
+  for (let i = 0; i < 4; i++) three.push(await runOn(rt2w, ctx2w, `w${i}`, { text: "search", slug: "search", params: { q: `w${i}` } }));
+  ok(three.filter((x) => x.success).length === 3 && three[3].data?.errorCode === "spend_limit" && paidCalls() - b2 === 3, "a runtime with a $0.010 ceiling settles three $0.003 calls and refuses the fourth: ceilings are runtime-scoped, not process-wide");
+  const { runtime: rt3 } = await bootPaid({ AGENT402_MAX_PER_CALL_USD: "0.001", AGENT402_DAILY_LIMIT_USD: "100" });
+  const ctx3 = await seed(rt3, "c");
+  const b3 = paidCalls();
+  r = await runOn(rt3, ctx3, "s3", { text: "search", slug: "search", params: { q: "x" } });
+  ok(r.success === false && r.data?.errorCode === "spend_limit" && /maxPerCallUsd/.test(r.text) && paidCalls() === b3, "a per-call ceiling under the tool's price refuses with zero requests sent");
 
-  // ---- (5): error detail is not truncated -------------------------------------------
-  // Settings are stated in full: elizaOS backs runtime.getSetting() with the
-  // process environment, and several runtimes share one process here.
-  const { runtime: rt4 } = await bootRuntime({ AGENT402_BASE_URL: STUB, AGENT402_CREDITS_KEY: KEY, AGENT402_MAX_PER_CALL_USD: "1", AGENT402_DAILY_LIMIT_USD: "100" });
+  // ---- (5): nothing is truncated; the opt-in bound rejects, never trims -------
+  const { runtime: rt4 } = await bootPaid({ AGENT402_MAX_PER_CALL_USD: "1", AGENT402_DAILY_LIMIT_USD: "100" });
   const ctx4 = await seed(rt4, "d");
-  const m4 = userMessage(rt4, ctx4, { text: "run broken", slug: "broken", params: { q: "nothing" } }, "e1");
-  await rt4.createMemory(m4, "messages");
-  await rt4.processActions(m4, plannerPicks(rt4, ctx4, ["AGENT402_CALL"]), await rt4.composeState(m4, ["ACTIONS"]), async () => []);
-  r = rt4.getActionResults(m4.id)[0];
-  ok(r.success === false && r.error && r.text.includes("market-59"), `an upstream failure's detail reaches the result whole (got: ${r.text}) (5)`);
+  r = await runOn(rt4, ctx4, "e1", { text: "run broken", slug: "broken", params: { q: "nothing" } });
+  ok(r.success === false && r.data?.errorCode === "upstream_error" && r.text.includes("market-59") && r.error.includes("market-0") && r.text.includes(LONG_ERROR), "an upstream failure's detail reaches the result WHOLE (text and error carry the seller's full message) (5)");
+  r = await runOn(rt4, ctx4, "big1", { text: "big", slug: "big", params: {} });
+  const bigJson = JSON.stringify(BIG);
+  ok(r.success === true && r.text.endsWith(bigJson) && r.text.length > 60_000, `a ${bigJson.length}-character result reaches the model-facing text complete and byte-identical (rendered via ACTION_STATE below)`);
+  ok((await actionStateText(rt4, userMessage(rt4, ctx4, { text: "x" }, "big1s"), [r])).includes("row-1499"), "ACTION_STATE renders the last row of that result - the model sees all of it");
+  process.env.AGENT402_MAX_RESULT_CHARS = "10000";
+  try {
+    r = await runOn(rt4, ctx4, "big2", { text: "big", slug: "big", params: {} });
+    ok(r.success === false && r.data?.errorCode === "result_too_large" && r.data?.result?.rows?.length === 1500 && !r.text.includes("row-1"), "with AGENT402_MAX_RESULT_CHARS set, an over-bound result is an explicit FAILURE that carries the whole result in data.result and puts NO partial payload in the text");
+  } finally { delete process.env.AGENT402_MAX_RESULT_CHARS; }
 
-  // ---- (6): the v2 parameter path ---------------------------------------------------
+  // ---- (6): typed failures before any dispatch -----------------------------------
+  const b6 = seen.length;
+  r = await runOn(rt4, ctx4, "bad1", { text: "search", slug: "search", params: "{not json" });
+  ok(r.success === false && r.data?.errorCode === "invalid_parameters" && seen.length === b6, "malformed JSON params: errorCode invalid_parameters, nothing sent (never {})");
+  r = await runOn(rt4, ctx4, "bad2", { text: "search", slug: "search", params: ["a"] });
+  ok(r.success === false && r.data?.errorCode === "invalid_parameters" && seen.length === b6, "array params: errorCode invalid_parameters, nothing sent");
+  const { runtime: rtDead } = await bootRuntime({ AGENT402_BASE_URL: DEAD });
+  const ctxDead = await seed(rtDead, "dead");
+  r = await runOn(rtDead, ctxDead, "dead1", { text: "give me the sha256 hash of 'hello world'" });
+  ok(r.success === false && r.data?.errorCode === "catalog_unavailable", `an unreachable catalog on the planner path is errorCode catalog_unavailable, not "no match" (got ${r.data?.errorCode})`);
+  r = await runOn(runtime, ctx, "nomatch", { text: "fold my laundry" });
+  ok(r.success === false && r.data?.errorCode === "no_match" && prompts.length === 1, "a task the catalog has nothing for is errorCode no_match, and the model is not consulted");
+
+  // ---- (7): the v2 parameter path -----------------------------------------------------
   const { callAction } = pluginMod;
   ok(Array.isArray(callAction.parameters) && callAction.parameters.every((p) => p.name && p.schema && "required" in p), "AGENT402_CALL declares parameters in the v2 shape ({name, description, required, schema})");
   const v2 = await callAction.handler(runtime, userMessage(runtime, ctx, { text: "hash it" }, "v2"), undefined, { parameters: { slug: "hash", params: { text: "abc", algo: "sha256" } } });
-  ok(v2.success === true && v2.data.resolvedVia === "parameters" && v2.text.includes(createHash("sha256").update("abc").digest("hex")), "options.parameters from the runtime's extractor is honoured ahead of the message text (6)");
+  ok(v2.success === true && v2.data.resolvedVia === "parameters" && v2.text.includes(createHash("sha256").update("abc").digest("hex")), "options.parameters from the runtime's extractor is honoured ahead of the message text (7)");
   const v2bad = await callAction.handler(runtime, userMessage(runtime, ctx, { text: "hash it", slug: "uuid" }, "v2b"), undefined, { parameters: { slug: "hash", params: { text: "abc", algo: "sha256" } } });
   ok(v2bad.data.slug === "hash", "and wins over a conflicting content.slug");
 
