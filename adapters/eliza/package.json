@@ -1,6 +1,6 @@
 {
   "name": "elizaos-plugin-agent402",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "elizaOS plugin for Agent402: find and call pay-per-call web tools (search, page render, PDFs, market and SEC data) over x402 or MPP, paid in USDC or by prepaid card credits with per-call and daily spend ceilings; Agentic Finance for elizaOS agents.",
   "type": "module",
   "main": "index.js",
@@ -93,8 +93,7 @@
       "AGENT402_MAX_RESULT_CHARS": {
         "type": "string",
         "required": false,
-        "default": "12000",
-        "description": "Longest tool result (JSON characters) placed in the action's text for the model; longer results are truncated with a note and kept whole in data.result."
+        "description": "Optional bound on a tool result's JSON length in the model context. Unset (default): the complete result is always placed in the action text. Set: a larger result is an explicit failure (errorCode result_too_large) carrying the whole result in data.result, never a truncated text."
       }
     }
   },
