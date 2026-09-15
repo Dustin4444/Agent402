@@ -224,7 +224,7 @@ try {
     return rt2.getActionResults(m.id)[0];
   };
   let r = await run("s1", { text: "search the web for x402", slug: "search", params: { q: "x402" } });
-  ok(r.success === true && paidCalls() === 1 && r.text.includes("x402.org"), "call 1: a $0.003 wallet-only tool settles by credits key (the stub saw one paid request)");
+  ok(r.success === true && paidCalls() === 1 && r.data?.result?.results?.[0]?.url === "https://x402.org", "call 1: a $0.003 wallet-only tool settles by credits key (the stub saw one paid request)");
   ok(pluginMod.spendingSummaryFor(rt2)?.dailyUsd === 0.003 && pluginMod.spendingSummaryFor(rt2)?.calls === 1, "the runtime's client booked $0.003 against the rolling 24h ledger");
   r = await run("s2", { text: "search the web for mpp", slug: "search", params: { q: "mpp" } });
   ok(r.success === false && /dailyLimitUsd|24h spend/.test(r.text) && paidCalls() === 1, "call 2: refused by the DAILY ceiling before any request left the process - the ledger survived across calls (4)");
