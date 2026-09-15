@@ -3082,6 +3082,17 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `enrichLiveQuotes` when the stated verb did not answer and the other did). Pinned in test-index-tools-catalog (49),
   test-x402-live-quote (36), test-single-resource-manifest (26). Rows persisted before the marker existed lose a prior
   correction until the 7-day quote refresh re-probes them - accepted, because the old rule mislabelled far more.
+- **A learned price could fall but never reach ZERO (2026-09-15, issue #1365 from the seller, `scripts/test-quote-retired-on-free.js`
+  11 in CI):** SIDERA Memory made `GET /v1/sidera/discovery` free on 09-13, re-registered on 09-15, and the index still said
+  `price 0.001, paid:true`. Two gaps: a PRICED row was never a probe candidate until its 7-day clock ran out (so the
+  re-registration re-verified nothing), and even when probed a GET 200 was "answered, nothing learned" and the old quote
+  stood. Now: an explicit re-registration (`ignoreBudget`) re-asks every priced row whose price is not the origin's own
+  declaration; a GET 200 with no paywall on a GET row RETIRES a learned or Bazaar-snapshot price (`quoteSource: "live-200"`,
+  `quoteRetiredAt`, `paid:false`), never an origin-declared one and never a POST row's; and `carryForwardLearnedQuotes`
+  carries the retirement (exact verb, inside `QUOTE_MAX_AGE_MS`) so the next crawl's Bazaar merge cannot resurrect the old
+  settlement snapshot - after the window the row is an unpriced candidate anyway and the live route decides again. Test
+  trap: the probe runs `assertPublicUrl` BEFORE the (stubbed) fetch, so a fixture origin must RESOLVE (`example.com`, not
+  `seller.example`) or the stub is never reached and the assertion reads as "not re-asked".
 - **A learned price could rise but never fall (2026-08-29, reported from OUTSIDE with two unauthenticated curls, issue #1043):**
   a seller cut `/audit` from $0.50 to $0.05 on 2026-08-20 and our index was still quoting the old number NINE DAYS and dozens
   of crawls later - a 10x overquote on their listing, and enough to push the route into the wrong route-execute tier. Three
