@@ -1132,14 +1132,24 @@ function normalizeNetwork(n) {
   return NETWORK_SHORTHAND.get(n.toLowerCase()) || n;
 }
 
-export function bazaarItemToTool(item, originUrl) {
-  // `resource` = CDP Bazaar; `resourceUrl` = GoPlausible's AVM registry.
-  const resource = item.resource || item.resourceUrl || item.url;
-  if (typeof resource !== "string" || !resource.startsWith(originUrl)) return null;
+/**
+ * Everything an `accepts` array says about money, in the shape an index row
+ * carries it: price, chains, payTo per chain, the EIP-712 domain per chain.
+ *
+ * Lifted out of `bazaarItemToTool` so the MANIFEST reader can derive the same
+ * fields from the same code. A seller who publishes their payment terms inside
+ * a catalogue entry (`resources[].accepts`, or `resources[].network` flat) was
+ * read for its URL, name and price string and for nothing else, so the row
+ * came out chainless and the seller landed on `network_unknown` — listed and
+ * unroutable, the same defect class as the single-resource manifest above and
+ * the same cost. Sharing the derivation is what keeps a manifest row and a
+ * Bazaar row describing one endpoint from disagreeing about what it costs.
+ */
+export function paymentFieldsFromAccepts(rawAccepts) {
   // Normalized ONCE here so every downstream read (the `preferred` accept
   // below, `networks:`, `stellarPayTo`, `algorandPayTo`, `payToByNetwork`)
   // sees a real CAIP-2 id without each site needing its own fix.
-  const accepts = (Array.isArray(item.accepts) ? item.accepts : []).map((a) =>
+  const accepts = (Array.isArray(rawAccepts) ? rawAccepts : []).map((a) =>
     a && typeof a.network === "string" ? { ...a, network: normalizeNetwork(a.network) } : a
   );
   // Prefer the first Base USDC accept; fall back to any USDC; fall back to first.
@@ -1149,31 +1159,17 @@ export function bazaarItemToTool(item, originUrl) {
     accepts[0] ||
     null;
   let price = null;
-  if (preferred?.amount != null) {
+  // `amount` is the x402 v2 field; `maxAmountRequired` is the v1 spelling and
+  // the one most flat-`resources` manifests still publish. Reading only the
+  // first left those rows priceless AND cost the live-402 probe that would
+  // have learned the figure the origin already declared.
+  const amount = preferred?.amount ?? preferred?.maxAmountRequired;
+  if (amount != null) {
     // amount is an atomic-units string; USDC has 6 decimals.
-    const n = Number(preferred.amount);
+    const n = Number(amount);
     if (Number.isFinite(n)) price = n / 1e6;
   }
-  let pathStr = "/";
-  try {
-    pathStr = new URL(resource).pathname || "/";
-  } catch {
-    /* keep "/" */
-  }
-  const tags = Array.isArray(item.tags) ? item.tags : [];
-  const methodInferred = !(typeof item.method === "string" && item.method);
-  // Bazaar entries don't always carry a method (GoPlausible's do); assume POST
-  // if we can't tell. The router treats this as a hint and respects a 405 retry.
   return {
-    seller: originUrl,
-    method: methodInferred ? "POST" : item.method.toUpperCase(),
-    methodInferred,
-    route: pathStr,
-    slug: pathStr.replace(/^\//, "").replace(/\//g, "-") || originUrl.replace(/^https?:\/\//, ""),
-    name: item.serviceName || pathStr,
-    description: item.description || "",
-    category: tags[0] || "other",
-    tags,
     price,
     // Every chain this resource's 402 advertises — the signal behind the
     // router's ?network= filter ("who else settles on Robinhood Chain?").
@@ -1203,6 +1199,35 @@ export function bazaarItemToTool(item, originUrl) {
     // challenge no stock buyer can pay; the router label reads this to say so
     // (src/evm-usdc-domain.js). Omitted when no EVM accept carries a name.
     ...(Object.keys(evmDomainsOfAccepts(accepts)).length ? { evmDomainByNetwork: evmDomainsOfAccepts(accepts) } : {}),
+  };
+}
+
+export function bazaarItemToTool(item, originUrl) {
+  // `resource` = CDP Bazaar; `resourceUrl` = GoPlausible's AVM registry.
+  const resource = item.resource || item.resourceUrl || item.url;
+  if (typeof resource !== "string" || !resource.startsWith(originUrl)) return null;
+  const pay = paymentFieldsFromAccepts(item.accepts);
+  let pathStr = "/";
+  try {
+    pathStr = new URL(resource).pathname || "/";
+  } catch {
+    /* keep "/" */
+  }
+  const tags = Array.isArray(item.tags) ? item.tags : [];
+  const methodInferred = !(typeof item.method === "string" && item.method);
+  // Bazaar entries don't always carry a method (GoPlausible's do); assume POST
+  // if we can't tell. The router treats this as a hint and respects a 405 retry.
+  return {
+    seller: originUrl,
+    method: methodInferred ? "POST" : item.method.toUpperCase(),
+    methodInferred,
+    route: pathStr,
+    slug: pathStr.replace(/^\//, "").replace(/\//g, "-") || originUrl.replace(/^https?:\/\//, ""),
+    name: item.serviceName || pathStr,
+    description: item.description || "",
+    category: tags[0] || "other",
+    tags,
+    ...pay,
     provenance: "bazaar",
     // Coinbase-measured 30-day usage of THIS resource (null when absent).
     quality: item.quality && typeof item.quality === "object"
@@ -1369,11 +1394,40 @@ function mergeManifestToolRows(a, b) {
     price: prefer.price || other.price || null,
     slug: (prefer.slug && prefer.slug !== prefer.route) ? prefer.slug : (other.slug || prefer.slug),
     method: prefer.method || other.method,
+    // Richness is measured on price/description/name, so the row that wins can
+    // easily be the chainless one: two entries for the same method+route where
+    // only the thin one carries `accepts`. Blank-fill the payment fields the
+    // same way, or the merge itself re-creates the network_unknown it just fixed.
+    ...(prefer.networks?.length ? {} : (other.networks?.length ? { networks: other.networks } : {})),
+    ...(Object.keys(prefer.payToByNetwork || {}).length ? {}
+      : (Object.keys(other.payToByNetwork || {}).length ? { payToByNetwork: other.payToByNetwork } : {})),
+    ...(prefer.stellarPayTo ? {} : (other.stellarPayTo ? { stellarPayTo: other.stellarPayTo } : {})),
+    ...(prefer.algorandPayTo ? {} : (other.algorandPayTo ? { algorandPayTo: other.algorandPayTo } : {})),
+    ...(prefer.evmDomainByNetwork ? {} : (other.evmDomainByNetwork ? { evmDomainByNetwork: other.evmDomainByNetwork } : {})),
   };
 }
 
+/**
+ * `amount` / `maxAmountRequired` on an ACCEPT-SHAPED entry are ATOMIC UNITS of
+ * the asset, never dollars. Reading them as a scalar price published the
+ * seller's own listing at a million times its real figure - measured live
+ * 2026-09-15 on graded.sh, whose `/v1/topup` costs $0.10 and read **$100000**
+ * in the index (`resources: [{scheme, network, asset, amount: "100000", ...}]`,
+ * six-decimal USDC). An entry that names a network, an asset or a scheme is
+ * quoting the x402 accept shape and its amount goes through the accepts
+ * reader, which divides by the decimals; a manifest that carries a bare
+ * `amount` with no payment context still means dollars and is read as before.
+ * Same failure direction as the 2026-08-29 price ratchet (#1043): an overquote
+ * a seller cannot see, on their own listing.
+ */
+function acceptShaped(raw) {
+  return !!raw && typeof raw === "object"
+    && (typeof raw.network === "string" || typeof raw.asset === "string" || typeof raw.scheme === "string"
+      || typeof raw.payTo === "string" || typeof raw.maxAmountRequired === "string" || Array.isArray(raw.accepts));
+}
+
 function parseManifestPrice(raw) {
-  let p = raw?.price_usd ?? raw?.priceUsd ?? raw?.price ?? raw?.amount ?? null;
+  let p = raw?.price_usd ?? raw?.priceUsd ?? raw?.price ?? (acceptShaped(raw) ? null : raw?.amount) ?? null;
   // A `price` that is an OBJECT is a richer, entirely legitimate manifest shape:
   // the seller carries scheme/network/asset/payTo per resource and puts the
   // figure inside it. We only read scalars, so such a manifest normalised to
@@ -1433,6 +1487,66 @@ export function singleResourceManifestTool(manifest, originUrl) {
   return { ...tool, provenance: "manifest" };
 }
 
+/**
+ * The payment terms a CATALOGUE ENTRY declares, as an `accepts` array.
+ *
+ * Three shapes are published in the wild besides the single-resource one, and
+ * the catalogue loop below read none of them — it took the entry's URL, name,
+ * description and price string and dropped everything about money:
+ *
+ *   resources: [{ resource, accepts: [{network, asset, payTo, …}] }]   nested
+ *   resources: [{ resource, scheme, network, asset, payTo, amount }]   flat
+ *   payment:   { network, asset_address, pay_to, … }                   service-wide
+ *
+ * The service-wide block is a manifest-level default: it applies to every
+ * catalogue row that declares no payment of its own, which is exactly how the
+ * sellers publishing it mean it (one service, one chain, many routes).
+ *
+ * Measured against the live index 2026-09-15: of the 304 sellers the router
+ * labelled `network_unknown`, 83 still served a manifest, and 59 of those 83
+ * declared a chain in one of these three shapes — 49 of them `eip155:8453`.
+ * Each was listed and unroutable: on the marketplace, invisible to the router
+ * and to its own chain page.
+ */
+function catalogueEntryAccepts(raw, fallback) {
+  if (!raw || typeof raw !== "object") return fallback;
+  if (Array.isArray(raw.accepts) && raw.accepts.length) return raw.accepts;
+  const network = raw.network || raw.chain;
+  if (typeof network === "string" && network) {
+    return [{
+      scheme: raw.scheme || "exact",
+      network,
+      asset: raw.asset || raw.asset_address || raw.assetAddress,
+      payTo: raw.payTo || raw.pay_to,
+      amount: raw.amount ?? raw.maxAmountRequired,
+      maxAmountRequired: raw.maxAmountRequired ?? raw.amount,
+      maxTimeoutSeconds: raw.maxTimeoutSeconds,
+      extra: raw.extra,
+    }];
+  }
+  return fallback;
+}
+
+/** The service-wide `payment` block, read as one accept. Empty when absent. */
+function manifestPaymentAccepts(manifest) {
+  const p = manifest?.payment;
+  if (!p || typeof p !== "object") return [];
+  const network = p.network || p.chain;
+  if (typeof network !== "string" || !network) return [];
+  return [{
+    scheme: p.scheme || "exact",
+    network,
+    asset: p.asset_address || p.assetAddress || p.asset,
+    payTo: p.pay_to || p.payTo,
+    amount: p.amount ?? p.maxAmountRequired,
+    maxTimeoutSeconds: p.maxTimeoutSeconds,
+    // `asset` in these manifests is the ticker ("USDC") while `asset_address`
+    // is the contract; the EIP-712 domain reader wants the ticker-ish name, so
+    // pass whichever of the two is NOT an address.
+    extra: p.extra || (typeof p.asset === "string" && !/^0x[0-9a-f]{40}$/i.test(p.asset) ? { name: p.asset } : undefined),
+  }];
+}
+
 export function normaliseManifestTools(manifest, originUrl) {
   if (!manifest || typeof manifest !== "object") return [];
   let origin;
@@ -1447,7 +1561,9 @@ export function normaliseManifestTools(manifest, originUrl) {
 
   const byKey = new Map();
   const metaByPath = new Map();
-  const notePathMeta = (path, { name, description, price, slug }) => {
+  // Manifest-level default, applied only to rows that declare nothing.
+  const manifestAccepts = manifestPaymentAccepts(manifest);
+  const notePathMeta = (path, { name, description, price, slug, pay }) => {
     if (!path) return;
     const cur = metaByPath.get(path) || {};
     const named = name && name !== path && !String(name).startsWith("/");
@@ -1457,6 +1573,10 @@ export function normaliseManifestTools(manifest, originUrl) {
       description: description || cur.description || "",
       price: price || cur.price || null,
       slug: (slug && slug !== path) ? slug : (cur.slug || slug || ""),
+      // One path, one set of payment terms: a rich entry that carries accepts
+      // lends its chain to the sibling methods on that path published as thin
+      // strings, exactly as it already lends them its price and description.
+      pay: (pay && pay.networks?.length) ? pay : (cur.pay || null),
     });
   };
 
@@ -1464,6 +1584,13 @@ export function normaliseManifestTools(manifest, originUrl) {
     for (const raw of list.slice(0, 1000)) {
       let ref = "", name = "", description = "", price = null;
       const methodList = [];
+      // What this entry says about money, from its own accepts / flat payment
+      // fields, falling back to the service-wide block. A thin string entry
+      // inherits the service-wide block and nothing else.
+      const entryAccepts = typeof raw === "string"
+        ? manifestAccepts
+        : catalogueEntryAccepts(raw, manifestAccepts);
+      const pay = entryAccepts.length ? paymentFieldsFromAccepts(entryAccepts) : null;
       if (typeof raw === "string") {
         ref = raw.trim();
       } else if (raw && typeof raw === "object") {
@@ -1493,7 +1620,7 @@ export function normaliseManifestTools(manifest, originUrl) {
       if (!u.pathname || u.pathname === "/" || MANIFEST_NON_TOOL_PATH.test(u.pathname)) continue;
       const pathOnly = u.pathname;
       const slug = name || u.pathname.replace(/^\//, "").replace(/\//g, "-");
-      notePathMeta(pathOnly, { name, description, price, slug });
+      notePathMeta(pathOnly, { name, description, price, slug, pay });
       const methodsToEmit = methodList.length ? [...new Set(methodList)] : [""];
       for (const method of methodsToEmit) {
         // Keyed on method+route INCLUDING the query string: two entries that differ
@@ -1518,7 +1645,13 @@ export function normaliseManifestTools(manifest, originUrl) {
           description: description.slice(0, 400),
           category: "other",
           tags: [],
-          price,
+          // A price the entry states as a display string ("$0.05") wins over
+          // one derived from atomic units: it is the seller's own wording and
+          // it is what `originDeclaredPrice` is stamped from below.
+          price: price ?? (pay && pay.price != null ? `$${pay.price}` : null),
+          ...(pay ? { networks: pay.networks, stellarPayTo: pay.stellarPayTo,
+            algorandPayTo: pay.algorandPayTo, payToByNetwork: pay.payToByNetwork,
+            ...(pay.evmDomainByNetwork ? { evmDomainByNetwork: pay.evmDomainByNetwork } : {}) } : {}),
         };
         byKey.set(key, mergeManifestToolRows(byKey.get(key), row));
       }
@@ -1535,6 +1668,15 @@ export function normaliseManifestTools(manifest, originUrl) {
     if ((!t.name || t.name === t.route || String(t.name).startsWith("/")) && meta.name) t.name = meta.name;
     if (!t.description && meta.description) t.description = String(meta.description).slice(0, 400);
     if ((!t.slug || t.slug === t.route) && meta.slug) t.slug = meta.slug;
+    if (!(t.networks || []).length && meta.pay?.networks?.length) {
+      t.networks = meta.pay.networks;
+      if (!Object.keys(t.payToByNetwork || {}).length && Object.keys(meta.pay.payToByNetwork || {}).length) {
+        t.payToByNetwork = meta.pay.payToByNetwork;
+      }
+      if (!t.stellarPayTo && meta.pay.stellarPayTo) t.stellarPayTo = meta.pay.stellarPayTo;
+      if (!t.algorandPayTo && meta.pay.algorandPayTo) t.algorandPayTo = meta.pay.algorandPayTo;
+      if (!t.evmDomainByNetwork && meta.pay.evmDomainByNetwork) t.evmDomainByNetwork = meta.pay.evmDomainByNetwork;
+    }
   }
   // A price in the seller's OWN manifest is an origin declaration, exactly like
   // one in their openapi.json, and must be marked as such: `originDeclaredPrice`
