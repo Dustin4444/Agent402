@@ -32,9 +32,25 @@ const DEFAULT_BASE = "https://agent402.tools";
  * @param {number} [opts.dailyLimitUsd]    ceiling on rolling-24h paid spend (USD)
  * @param {number} [opts.maxPerHostUsd]    ceiling on rolling-24h paid spend to one seller host (USD)
  * @param {string[]} [opts.payees]         only pay these payTo addresses (lowercased EVM); anything else is refused before signing
+ * @param {string} [opts.creditsKey]       prepaid card-credits key (a402_...); pays wallet-only tools without a wallet
  */
-export async function agent402Actions({ baseUrl = DEFAULT_BASE, fetchImpl = globalThis.fetch, zod, maxPerCallUsd = 1, dailyLimitUsd = null, maxPerHostUsd = null, payees = null } = {}) {
+export async function agent402Actions({ baseUrl = DEFAULT_BASE, fetchImpl = globalThis.fetch, zod, maxPerCallUsd = 1, dailyLimitUsd = null, maxPerHostUsd = null, payees = null, creditsKey = null } = {}) {
   const z = zod || (await loadZod());
+  // ONE client per wallet provider for the life of these actions. The rolling
+  // daily and per-host ceilings live in the client's ledger, so a client built
+  // per invoke (as 0.1.1 did) measured every call against an empty ledger and
+  // the daily ceiling bounded each call alone (found in the elizaOS plugin's
+  // registry review, 2026-09-14; the same shape was here).
+  const clients = new WeakMap();
+  const NO_WALLET = {};
+  const clientFor = async (walletProvider) => {
+    const key = walletProvider && typeof walletProvider === "object" ? walletProvider : NO_WALLET;
+    if (clients.has(key)) return clients.get(key);
+    const payFetch = creditsKey ? undefined : await payFetchFor(walletProvider, fetchImpl, { payees });
+    const client = new Agent402({ baseUrl: base, fetch: payFetch, fetchImpl, creditsKey, maxPerCallUsd, dailyLimitUsd, maxPerHostUsd });
+    clients.set(key, client);
+    return client;
+  };
   // Linear trailing-slash strip (a /\/+$/ regex on caller input is the
   // polynomial-ReDoS shape CodeQL flags; same fix as openclaw/models.js).
   let base = String(baseUrl);
@@ -43,10 +59,9 @@ export async function agent402Actions({ baseUrl = DEFAULT_BASE, fetchImpl = glob
   const find = {
     name: "agent402_find",
     description:
-      "Find an Agent402 tool for a task. Agent402 is a catalog of 500+ deterministic pay-per-call web tools (web search, " +
-      "browser render, PDFs, OCR, market and crypto data, SEC filings, DNS/TLS, memory) payable over x402 in USDC or free " +
-      "via proof-of-work. Returns the best-matching tools with slug, price, whether a wallet is needed, and a ready example. " +
-      "Free: no payment is made.",
+      "Find an Agent402 tool for a task (web search, page render, PDFs, OCR, market and crypto data, SEC filings, DNS/TLS " +
+      "checks), payable over x402 in USDC or free via proof-of-work. Returns the best-matching tools with slug, price, " +
+      "whether a wallet is needed, and a ready example. Free: no payment is made.",
     schema: z.object({
       task: z.string().min(1).describe("What you need done, in plain language, e.g. 'extract the article at a URL'"),
       k: z.number().int().min(1).max(10).optional().describe("How many matches to return (default 5)"),
@@ -74,12 +89,11 @@ export async function agent402Actions({ baseUrl = DEFAULT_BASE, fetchImpl = glob
       params: z.record(z.any()).optional().describe("Input matching the tool's example from agent402_find"),
     }),
     invoke: async (walletProvider, { slug, params = {} }) => {
-      const payFetch = await payFetchFor(walletProvider, fetchImpl, { payees });
       // Spend bounds ride with every paid call: a per-call ceiling (default $1,
       // the same default AgentKit's own x402 provider uses), optional rolling
       // daily and per-host ceilings, and an optional payee allowlist - a
       // mis-set baseUrl can never drain the wallet.
-      const client = new Agent402({ baseUrl: base, fetch: payFetch, fetchImpl, maxPerCallUsd, dailyLimitUsd, maxPerHostUsd });
+      const client = await clientFor(walletProvider);
       const out = await client.call(slug, params);
       return typeof out === "string" ? out : JSON.stringify(out);
     },

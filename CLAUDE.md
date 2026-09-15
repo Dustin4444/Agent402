@@ -3293,6 +3293,14 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   2.0.3-beta.7. Trap: several runtimes in one process share `process.env`, which backs `runtime.getSetting()` - state every
   setting per runtime in such a test, and the plugin reads ONLY `runtime.getSetting` (the old process.env fallback could read
   another agent's ceiling). Registry generator note: `supports.v2:true` is hardcoded for every third-party entry.
+  **The same classes swept across the other adapters the same night:** `agent402-agentkit` built its client per invoke
+  too (0.1.2: one client per wallet provider, `creditsKey` option, pinned with a stub seller); `agent402-ai-sdk` passed
+  `parameters` to `tool()`, which AI SDK 5+ ignores in favour of `inputSchema` - on ai 5/6/7 the model got a tool with NO
+  schema, and the peer `<7` excluded the current stable 7.0.100 (0.2.7: both keys set, peer `>=3`, pinned against the
+  installed `ai`); `agent402-google-adk` peer `<2` excluded the current stable 2.0.0 though the FunctionTool constructs and
+  declares parameters on it (0.1.7: `>=1 <3`, pinned against the installed adk). The other six adapters build one client per
+  `agent402Tools()` call and expose no spend ceilings at all - not a ledger bug, a missing feature. Rule: a peer range on a
+  host we do not import is a claim about the host's future; check `npm view <host> version` against it when touching an adapter.
 - **`adapters/eliza` = `elizaos-plugin-agent402` (2026-08-27):** elizaOS plugin (no runtime import of @elizaos/core; types
   only) with actions `AGENT402_FIND` / `AGENT402_CALL` / `AGENT402_ABOUT` (content.task / content.slug+params, ActionResult
   {success,text,data}, callback mirrored) and an `AGENT402` provider naming the payment mode, over `agent402-client`

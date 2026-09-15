@@ -77,7 +77,13 @@ const BASE = process.env.AGENT402_BASE_URL || `http://127.0.0.1:${PORT}`;
 let proc = null;
 if (!process.env.AGENT402_BASE_URL) {
   proc = spawn("node", ["src/server.js"], { cwd: ROOT, stdio: "ignore", env: { ...process.env, WALLET_ADDRESS: "0x000000000000000000000000000000000000dEaD", NETWORK: "base", FACILITATOR_URL: "https://facilitator.payai.network", X402_SYNC_ON_START: "false", X402_INDEX_CRAWL: "off", POW_DIFFICULTY: "12", PORT: String(PORT), FREE_MODE: "" } });
-  for (let i = 0; i < 120; i++) { try { if ((await fetch(`${BASE}/api/pow`)).ok) break; } catch {} await new Promise((r) => setTimeout(r, 500)); }
+  // A cold CI runner boots the catalog server in well over a minute; a wait
+  // that gives up silently lets the run proceed against nothing and fail on
+  // an unrelated assertion (measured 2026-09-15: 60 s was not enough). The
+  // wait is generous and a server that never answers is its own failure.
+  let up = false;
+  for (let i = 0; i < 480 && !up; i++) { try { up = (await fetch(`${BASE}/api/pow`)).ok; } catch {} if (!up) await new Promise((r) => setTimeout(r, 500)); }
+  if (!up) { proc.kill("SIGKILL"); throw new Error(`the local Agent402 server did not answer on ${BASE} within 240 s`); }
 }
 // ...and a stub gateway for the money cases (a wallet-only $0.003 tool paid by a
 // credits key; a tool that fails with a long error). Nothing here funds a wallet.
