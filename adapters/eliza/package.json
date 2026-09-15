@@ -1,7 +1,7 @@
 {
   "name": "elizaos-plugin-agent402",
-  "version": "0.1.0",
-  "description": "elizaOS plugin for Agent402: find and call 500+ pay-per-call web tools (search, render, PDFs, market and SEC data) over x402 or MPP, paid in USDC or by prepaid card credits; Agentic Finance for elizaOS agents. Actions: AGENT402_FIND, AGENT402_CALL, AGENT402_ABOUT.",
+  "version": "0.2.0",
+  "description": "elizaOS plugin for Agent402: find and call pay-per-call web tools (search, page render, PDFs, market and SEC data) over x402, paid in USDC or by prepaid card credits, with per-call and daily spend ceilings. Actions: AGENT402_FIND, AGENT402_CALL, AGENT402_ABOUT.",
   "type": "module",
   "main": "index.js",
   "types": "index.d.ts",
@@ -17,7 +17,7 @@
     "README.md"
   ],
   "scripts": {
-    "test": "node test.js"
+    "test": "node test.js && node test-runtime.js"
   },
   "keywords": [
     "elizaos",
@@ -40,18 +40,14 @@
   },
   "homepage": "https://agent402.tools/guides/agent-hosts",
   "dependencies": {
-    "agent402-client": "^0.8.2"
+    "agent402-client": "^0.8.4"
   },
   "peerDependencies": {
-    "@elizaos/core": ">=1.0.0",
     "@x402/evm": ">=2.0.0",
     "@x402/fetch": ">=2.0.0",
     "viem": ">=2.0.0"
   },
   "peerDependenciesMeta": {
-    "@elizaos/core": {
-      "optional": true
-    },
     "@x402/evm": {
       "optional": true
     },
@@ -92,11 +88,20 @@
       "AGENT402_DAILY_LIMIT_USD": {
         "type": "string",
         "required": false,
-        "description": "Ceiling on rolling 24-hour paid spend in USD."
+        "description": "Ceiling on rolling 24-hour paid spend in USD, kept across calls for the runtime's lifetime."
+      },
+      "AGENT402_MAX_RESULT_CHARS": {
+        "type": "string",
+        "required": false,
+        "default": "12000",
+        "description": "Longest tool result (JSON characters) placed in the action's text for the model; longer results are truncated with a note and kept whole in data.result."
       }
     }
   },
   "engines": {
     "node": ">=18"
+  },
+  "devDependencies": {
+    "@elizaos/core": ">=1.0.0"
   }
 }

@@ -59,12 +59,12 @@ async function main() {
   ok(r.success === false && /what you need/.test(r.text), "AGENT402_FIND with nothing to search answers a prompt, not an error");
 
   // call: validate needs a slug; the free tier pays with proof-of-work
-  ok((await callAction.validate(rt, msg({ text: "hi" }))) === false && (await callAction.validate(rt, msg({ text: "", slug: "hash" }))) === true, "AGENT402_CALL validates only when a slug is present");
+  ok((await callAction.validate(rt, msg({ text: "hi" }))) === true && (await callAction.validate(rt, msg({ text: "", slug: "hash" }))) === true, "AGENT402_CALL validates on any message - the planner can only pick an action the ACTIONS provider listed, and that list is what validate() admits (0.2.0)");
   ({ calls, cb } = capture());
   r = await callAction.handler(rt, msg({ text: "", slug: "hash", params: { text: "hello world", algo: "sha256" } }), undefined, undefined, cb);
   const want = createHash("sha256").update("hello world").digest("hex");
   ok(r.success === true && (r.data.result.hex || r.data.result.digest || r.data.result.hash) === want, "AGENT402_CALL paid the free tier with proof-of-work and returned sha256('hello world')");
-  ok(calls.length === 1 && /returned/.test(calls[0].text), "AGENT402_CALL reports the result through the callback");
+  ok(calls.length === 1 && calls[0].text.includes(want) && /complete JSON/.test(calls[0].text), "AGENT402_CALL reports the COMPLETE result JSON through the callback text (the 600-char preview is gone)");
   r = await callAction.handler(rt, msg({ text: "", slug: "no-such-tool-xyz", params: {} }));
   ok(r.success === false && /failed/.test(r.text), "an unknown slug is a clean failure, never a throw");
 
@@ -84,7 +84,7 @@ async function main() {
   ok(r.success === false && seen.some((s) => s.auth === `Bearer ${KEY}`) && /credits|402|failed/i.test(r.text), "with AGENT402_CREDITS_KEY the paid call carries Authorization: Bearer <key>; an insufficient-credits 402 is a clean failure");
   ok(!JSON.stringify(r).includes(KEY), "the credits key never appears in the ActionResult");
   r = await aboutAction.handler(rtKey, msg({ text: "what is agent402" }));
-  ok(r.success === true && r.data.tools === 2 && r.data.freeTier === 1 && /2 deterministic/.test(r.text), "AGENT402_ABOUT reads /api/pricing and reports tool + free-tier counts");
+  ok(r.success === true && r.data.tools === 2 && r.data.freeTier === 1 && /2 pay-per-call/.test(r.text), "AGENT402_ABOUT reads /api/pricing and reports tool + free-tier counts");
   stub.close();
 
   // wallet key without the x402 peers installed: no paying fetch, free tier still works, nothing throws

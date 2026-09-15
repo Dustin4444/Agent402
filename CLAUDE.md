@@ -3271,6 +3271,28 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   from the unsettled-spend bound the day the Tempo leg first resolved; `tempo-sor-live.js` refuses a `route` input
   off the two documented paths (a write-access dispatcher could otherwise point the burner's credential at another
   host). `test-posthog-funnel` (60), `test-tempo-router` (48), `test-pricing-margin` (186).
+- **elizaos-plugin-agent402 0.2.0 + agent402-client 0.8.4 (2026-09-15, from the registry maintainer's backlog review on
+  elizaOS/eliza#29636):** four approvals had looked at the JSON entry; the maintainer asked for evidence the plugin RUNS, and
+  each point was a real defect. (1) `AGENT402_CALL.validate` demanded `content.slug`, and in elizaOS 1.x the planner can only
+  pick an action the bootstrap ACTIONS provider lists, which is what validate() admits - so the action was invisible in every
+  real conversation; validate admits all, the handler resolves the input (`resolveCallInput`: v2 `options.parameters` >
+  content slug/params > the run's previous FIND result > the 1.x path: free catalog search + the runtime's own model
+  (`OBJECT_SMALL`/`TEXT_SMALL`) picks ONE offered candidate and shapes its input; an unoffered pick is refused). (2) A new
+  client per call meant `AGENT402_DAILY_LIMIT_USD` bounded each call alone - one client per runtime now (WeakMap), the spend
+  log carried across a settings rebuild. (3) elizaOS renders an action result's `text`/`values`/`error` into the next prompt
+  and NOT `data`, so the 600-char preview WAS what the model got - the complete JSON rides in `text` up to
+  `AGENT402_MAX_RESULT_CHARS` (12k, truncation labelled). (4) Errors were sliced to 200 chars, and the CLIENT dropped the
+  seller's 4xx body entirely (`call "x" failed: HTTP 400`) - client 0.8.4 `_failureDetail` carries `error`/`expected` (2,000
+  chars). (5) `@elizaos/core` as an optional PEER made npm refuse the plugin on ANY prerelease host (ERESOLVE against
+  2.0.3-beta.7: no semver range admits a prerelease it does not name) - it is types-only, moved to devDependencies. Actions
+  declare `parameters` in the v2 array shape. Copy dropped "500+ deterministic". **`adapters/eliza/test-runtime.js`** (CI,
+  openclaw lane, latest + beta): packs the artifact, installs it with core + plugin-sql (PGlite; run its migrations BEFORE
+  `initialize()`, which calls ensureAgentExists first - the CLI does the same) + plugin-bootstrap, boots a real AgentRuntime,
+  drives `processActions` on 1.x (on 2.x the executor `executePlannedToolCall` is not exported; its path is mirrored with
+  the exported `validateActionParams`) with a plain message and no slug; model stubbed. 16 assertions on 1.7.2, 9 on
+  2.0.3-beta.7. Trap: several runtimes in one process share `process.env`, which backs `runtime.getSetting()` - state every
+  setting per runtime in such a test, and the plugin reads ONLY `runtime.getSetting` (the old process.env fallback could read
+  another agent's ceiling). Registry generator note: `supports.v2:true` is hardcoded for every third-party entry.
 - **`adapters/eliza` = `elizaos-plugin-agent402` (2026-08-27):** elizaOS plugin (no runtime import of @elizaos/core; types
   only) with actions `AGENT402_FIND` / `AGENT402_CALL` / `AGENT402_ABOUT` (content.task / content.slug+params, ActionResult
   {success,text,data}, callback mirrored) and an `AGENT402` provider naming the payment mode, over `agent402-client`

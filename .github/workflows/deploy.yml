@@ -885,6 +885,22 @@ jobs:
           E2B_API_KEY: ""
           COINGECKO_API_KEY: ""
         run: node openclaw/test-real-install.js
+      # elizaos-plugin-agent402 against a REAL elizaOS runtime (2026-09-15): the
+      # packed artifact + @elizaos/core, plugin-sql (PGlite) and plugin-bootstrap
+      # from the registry, a real AgentRuntime, the runtime's own dispatcher on a
+      # plain user message. Once on `latest` (1.x) and once on `beta` (2.x). The
+      # registry review asked for exactly this; a stub runtime proved nothing.
+      # Same key shadowing as above: third-party install with network access.
+      - name: elizaOS plugin against a REAL elizaOS runtime (latest + beta)
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
+          COINGECKO_API_KEY: ""
+        run: |
+          node adapters/eliza/test-runtime.js
+          ELIZA_CORE_VERSION=beta node adapters/eliza/test-runtime.js
       # The pinned host (2026.9.x) requires Node >= 24.16; the lane itself
       # stays on 22 (prod's floor), so Node 24 is scoped to this one step and
       # the lane's version is restored right after.
