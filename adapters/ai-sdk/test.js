@@ -53,7 +53,7 @@ ok(call?.hex?.startsWith("b94d27b9"), `agent402_call returns the hash result (go
   const { dirname, join } = await import("node:path");
   const { fileURLToPath } = await import("node:url");
   const HERE = dirname(fileURLToPath(import.meta.url));
-  if (!existsSync(join(HERE, "node_modules", "ai"))) execSync("npm install ai zod --no-save --silent --ignore-scripts --no-audit --no-fund", { cwd: HERE, stdio: "inherit" });
+  if (!existsSync(join(HERE, "node_modules", "ai"))) execSync("npm install ai@7.0.100 zod@4.6.5 --no-save --silent --ignore-scripts --no-audit --no-fund", { cwd: HERE, stdio: "inherit" });
   const { agent402Tools } = await import("./index.js");
   const tools = await agent402Tools({ baseUrl: BASE });
   const t = tools.agent402_call;

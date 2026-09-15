@@ -885,12 +885,21 @@ jobs:
           E2B_API_KEY: ""
           COINGECKO_API_KEY: ""
         run: node openclaw/test-real-install.js
+      # The pinned host (2026.9.x) requires Node >= 24.16; the lane itself
+      # stays on 22 (prod's floor), so Node 24 is scoped to this one step and
+      # the lane's version is restored right after.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
       # elizaos-plugin-agent402 against a REAL elizaOS runtime (2026-09-15): the
       # packed artifact + @elizaos/core, plugin-sql (PGlite) and plugin-bootstrap
       # from the registry, a real AgentRuntime, the runtime's own dispatcher on a
       # plain user message. Once on `latest` (1.x) and once on `beta` (2.x). The
       # registry review asked for exactly this; a stub runtime proved nothing.
       # Same key shadowing as above: third-party install with network access.
+      # AFTER the Node 22 restore: the step boots src/server.js, whose native
+      # modules were built for the lane's Node (a first cut ran under the
+      # openclaw step's Node 24 and the server never answered).
       - name: elizaOS plugin against a REAL elizaOS runtime (latest + beta)
         env:
           BRAVE_API_KEY: ""
@@ -901,12 +910,6 @@ jobs:
         run: |
           node adapters/eliza/test-runtime.js
           ELIZA_CORE_VERSION=beta node adapters/eliza/test-runtime.js
-      # The pinned host (2026.9.x) requires Node >= 24.16; the lane itself
-      # stays on 22 (prod's floor), so Node 24 is scoped to this one step and
-      # the lane's version is restored right after.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22
 
       # ONE STEP, MANY SCRIPTS (2026-08-25): GitHub spends ~0.7 s of runner setup
       # per step and this lane had over a hundred one-line steps. Each script still
