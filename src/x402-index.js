@@ -2245,7 +2245,7 @@ export function carryForwardLearnedQuotes(tools, prev) {
   const learnedExact = new Map();
   const learnedByRoute = new Map();
   for (const t of prev?.tools || []) {
-    if (t?.quoteSource !== "live-402" || typeof t.route !== "string") continue;
+    if ((t?.quoteSource !== "live-402" && t?.quoteSource !== "live-200") || typeof t.route !== "string") continue;
     learnedExact.set(`${String(t.method || "GET").toUpperCase()} ${t.route}`, t);
     if (!learnedByRoute.has(t.route)) learnedByRoute.set(t.route, t);
   }
@@ -2254,6 +2254,19 @@ export function carryForwardLearnedQuotes(tools, prev) {
     const exact = learnedExact.get(`${String(t.method || "GET").toUpperCase()} ${t.route}`);
     const hit = exact || learnedByRoute.get(t.route);
     if (!hit) continue;
+    if (hit.quoteSource === "live-200") {
+      // A RETIREMENT is carried the way a quote is: the rebuilt row (which the
+      // Bazaar merge may have priced again from its settlement snapshot) reads
+      // free until the origin declares a price or the retirement ages past the
+      // quote window - after which the row is a probe candidate anyway and the
+      // live route decides again. Exact verb only: a retired GET says nothing
+      // about a POST on the same path.
+      if (exact && !(Number(t.originDeclaredPrice) > 0) && Number(hit.quoteRetiredAt) > 0 && Date.now() - Number(hit.quoteRetiredAt) < QUOTE_MAX_AGE_MS) {
+        t.price = null; t.paid = false;
+        t.quoteSource = "live-200"; t.quoteRetiredAt = hit.quoteRetiredAt; t.quoteObservedAt = hit.quoteObservedAt;
+      }
+      continue;
+    }
     // A carried-forward quote FILLS A GAP; it never overrides what this crawl
     // just read from the origin. `originDeclaredPrice` is set by the OpenAPI
     // merge above, so a route the origin priced today keeps that number even
@@ -2382,7 +2395,14 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
       // but could not price (the Solana isUsdc gap) LOCKED the row unpriced
       // for the 7-day staleness window: networks known, price null, never
       // probed again (measured 2026-09-01, sol.blockrun).
-      && ((!(Number(t.price) > 0) || !(Array.isArray(t.networks) && t.networks.length)) || priceDisagreesWithOrigin(t) || quoteIsStale(t) || networksNeedLiveVerify(t))
+      && ((!(Number(t.price) > 0) || !(Array.isArray(t.networks) && t.networks.length)) || priceDisagreesWithOrigin(t) || quoteIsStale(t) || networksNeedLiveVerify(t)
+        // An explicit re-registration ("price my catalog NOW") also re-asks
+        // every route whose price is NOT the origin's own declaration - a
+        // learned quote, or a Bazaar settlement snapshot. Issue #1365
+        // (2026-09-15): a seller made a route free, re-registered, and the
+        // 0.001 learned two weeks earlier stood because a priced row was never
+        // a candidate until its 7-day clock ran out.
+        || (ignoreBudget && Number(t.price) > 0 && !(Number(t.originDeclaredPrice) > 0)))
       && probeMethodsFor(t).length                       // never PUT/PATCH/DELETE
       && probeDue(originUrl, `quote:${t.route}`),
   );
@@ -2434,7 +2454,25 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
         // Every other status still falls through to POST, because that is what
         // discovers a POST-only seller: a 404 or 405 on GET is expected there
         // and is the whole reason the second method is tried.
-        if (method === "GET" && res.status === 200) break;
+        if (method === "GET" && res.status === 200) {
+          // The route answered WITHOUT a paywall. If the price we hold was
+          // learned (a past 402, or a Bazaar settlement snapshot) rather than
+          // declared by the origin this crawl, and the row's own verb is GET,
+          // that price is retired: a paid-to-free transition is the seller's
+          // decision and the index must follow it (issue #1365, 2026-09-15 -
+          // before this the 200 was noted, nothing was learned, and the old
+          // quote stood). The retirement is stamped so the next crawl's
+          // carry-forward keeps it over the Bazaar snapshot, and the row stays
+          // a probe candidate (unpriced), so a later 402 re-prices it.
+          if (String(tool.method || "GET").toUpperCase() === "GET" && Number(tool.price) > 0 && !(Number(tool.originDeclaredPrice) > 0)) {
+            const was = tool.price;
+            tool.price = null; tool.paid = false;
+            tool.quoteSource = "live-200"; tool.quoteRetiredAt = Date.now(); tool.quoteObservedAt = Date.now();
+            delete tool.quoteCarriedForward;
+            console.log(`[x402-index] live-200: ${originUrl}${tool.route} answered GET 200 with no paywall; retired the learned price ${was}`);
+          }
+          break;
+        }
         if (!isQuoteResponse(res.status)) continue;   // 404 on GET is expected for a POST-only seller
         // The quote lives in the header for x402 v2 and in the body for several
         // real sellers; read a bounded slice of both and let the parser decide.

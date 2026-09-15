@@ -23,7 +23,7 @@ import { createHash, randomBytes } from "node:crypto";
 // `User-Agent: agent402-client/<version>` - a standard header, no extra
 // network calls - so a seller can attribute traffic (and settled payments)
 // to this SDK. Product token only; nothing about the caller rides along.
-const VERSION = "0.8.4";
+const VERSION = "0.8.5";
 const USER_AGENT = `agent402-client/${VERSION}`;
 // 32MB: about a hundred times any realistic response from this catalog (the
 // largest is a base64 image at a few MB), so it cannot break a legitimate
@@ -489,7 +489,11 @@ export class Agent402 {
       if (msg != null) detail = ` - ${typeof msg === "string" ? msg : JSON.stringify(msg)}`;
       if (body?.expected != null) detail += ` (expected: ${JSON.stringify(body.expected)})`;
     } catch { /* not JSON: the status is the whole story */ }
-    return `call "${slug}" failed${when}: HTTP ${r.status}${detail.slice(0, FAILURE_DETAIL_MAX_CHARS)}`;
+    // A seller-authored body is untrusted, so the detail is bounded - and a
+    // bound that cuts says so, with the length it cut, rather than ending
+    // mid-sentence as if that were the whole message.
+    const cut = detail.length > FAILURE_DETAIL_MAX_CHARS ? `${detail.slice(0, FAILURE_DETAIL_MAX_CHARS)} [${detail.length - FAILURE_DETAIL_MAX_CHARS} more characters not shown]` : detail;
+    return `call "${slug}" failed${when}: HTTP ${r.status}${cut}`;
   }
 
   /** True if any spending ceiling is configured (worth preflighting the 402). */
