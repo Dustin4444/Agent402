@@ -5,6 +5,7 @@
 // invoke(walletProvider, args). @coinbase/agentkit is stubbed to the one
 // export the adapter uses, so the test never pulls its dependency tree.
 import { spawn, execSync } from "node:child_process";
+import { createServer } from "node:http";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
@@ -77,6 +78,32 @@ async function main() {
   ok((out2.hex || out2.digest || out2.hash) === want, "with a wallet provider the free-tier call still pays by proof-of-work and returns the same result");
 
   // about: free
+  // Spend ceilings hold ACROSS invokes: one client per wallet for the life of
+  // the actions (0.1.2). A stub seller answers a $0.003 wallet-only tool by
+  // credits key; under a $0.005 daily ceiling the second invoke is refused
+  // before any request leaves the process. No wallet is funded.
+  {
+    const seen = [];
+    const stub = createServer((req, res) => {
+      seen.push({ url: req.url, auth: req.headers.authorization || null });
+      const j = (code, body) => { res.writeHead(code, { "content-type": "application/json" }); res.end(JSON.stringify(body)); };
+      if (req.url.startsWith("/api/pricing")) return j(200, { endpoints: [{ slug: "search", method: "POST", path: "/api/search", price: "$0.003", computePayable: false }] });
+      if (!req.headers.authorization) return j(402, { error: "Payment required" });
+      j(200, { results: [{ url: "https://x402.org" }] });
+    });
+    await new Promise((r) => stub.listen(0, "127.0.0.1", r));
+    const STUB = `http://127.0.0.1:${stub.address().port}`;
+    const KEY = "a402_" + "k".repeat(40);
+    const [, callK] = await agent402Actions({ baseUrl: STUB, creditsKey: KEY, dailyLimitUsd: 0.005, maxPerCallUsd: 0.004 });
+    const paid = () => seen.filter((x) => x.url.startsWith("/api/search") && x.auth === `Bearer ${KEY}`).length;
+    const first = JSON.parse(await callK.invoke(null, { slug: "search", params: { q: "x402" } }));
+    ok(first.results?.[0]?.url === "https://x402.org" && paid() === 1, "call 1 under the daily ceiling settles by credits key (stub saw one paid request)");
+    let refused = null;
+    try { await callK.invoke(null, { slug: "search", params: { q: "mpp" } }); } catch (e) { refused = String(e?.message || e); }
+    ok(refused && /dailyLimitUsd|24h spend/.test(refused) && paid() === 1, "call 2 is refused by the DAILY ceiling with no request sent: the ledger survived across invokes");
+    stub.close();
+  }
+
   const ab = JSON.parse(await about.invoke({}));
   ok(ab.tools > 100 && ab.freeTier > 10 && ab.discover.includes("/api/find"), `agent402_about reports ${ab.tools} tools, ${ab.freeTier} free-tier`);
 

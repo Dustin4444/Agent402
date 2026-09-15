@@ -23,12 +23,13 @@ import { createHash, randomBytes } from "node:crypto";
 // `User-Agent: agent402-client/<version>` - a standard header, no extra
 // network calls - so a seller can attribute traffic (and settled payments)
 // to this SDK. Product token only; nothing about the caller rides along.
-const VERSION = "0.8.3";
+const VERSION = "0.8.4";
 const USER_AGENT = `agent402-client/${VERSION}`;
 // 32MB: about a hundred times any realistic response from this catalog (the
 // largest is a base64 image at a few MB), so it cannot break a legitimate
 // caller, while still stopping the class it exists for. A ceiling that is off
 // by default protects nobody, so this one is on; pass null to disable it.
+const FAILURE_DETAIL_MAX_CHARS = 2_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
 
 const leadingZeroBits = (buf) => { let n = 0; for (const b of buf) { if (b === 0) { n += 8; continue; } n += Math.clz32(b) - 24; break; } return n; };
@@ -365,7 +366,7 @@ export class Agent402 {
         let settled = false;
         try {
           const r = await send({}, this.payFetch);
-          if (!r.ok) throw new Error(`call "${slug}" failed: HTTP ${r.status}`);
+          if (!r.ok) throw new Error(await this._failureDetail(slug, r));
           this._spendSettle(reservation); // confirm the reservation as settled spend
           settled = true;
           return this._deliverResponse(slug, r, cacheKey, cache, validator, { maxResponseBytes, paid: true });
@@ -390,7 +391,7 @@ export class Agent402 {
             const body = await r.json().catch(() => ({}));
             throw new Error(`call "${slug}" refused by credits: ${body.error || "payment required"}${body.balanceUsd != null ? ` (balance $${body.balanceUsd})` : ""} - top up at ${body.topup || `${this.baseUrl}/credits`}`);
           }
-          if (!r.ok) throw new Error(`call "${slug}" failed: HTTP ${r.status}`);
+          if (!r.ok) throw new Error(await this._failureDetail(slug, r));
           this._spendSettle(reservation);
           settled = true;
           return this._deliverResponse(slug, r, cacheKey, cache, validator, { maxResponseBytes, paid: true });
@@ -409,7 +410,7 @@ export class Agent402 {
       const chal = await this._powChallenge(slug);
       r = await send({ "X-Pow-Solution": Agent402.solvePow(chal) });
     }
-    if (!r.ok) throw new Error(`call "${slug}" failed after proof-of-work: HTTP ${r.status}`);
+    if (!r.ok) throw new Error(await this._failureDetail(slug, r, " after proof-of-work"));
     return this._deliverResponse(slug, r, cacheKey, cache, validator, { maxResponseBytes, paid: false });
   }
 
@@ -473,6 +474,22 @@ export class Agent402 {
           { limit: "maxPerHostUsd", slug, host, priceUsd: usd, spent: spentHost, cap: s.perHost });
       }
     }
+  }
+
+  /** The message for a failed call CARRIES THE SELLER'S OWN DETAIL. Agent402's
+   *  4xx bodies are self-explaining ({error, tool, expected}); a message that
+   *  said only "HTTP 400" threw that away, and an agent reading it could not
+   *  correct its input (elizaOS registry review, 2026-09-14). Bounded, and a
+   *  body that is not JSON contributes nothing but its status. */
+  async _failureDetail(slug, r, when = "") {
+    let detail = "";
+    try {
+      const body = await r.json();
+      const msg = body?.error ?? body?.message ?? body?.detail;
+      if (msg != null) detail = ` - ${typeof msg === "string" ? msg : JSON.stringify(msg)}`;
+      if (body?.expected != null) detail += ` (expected: ${JSON.stringify(body.expected)})`;
+    } catch { /* not JSON: the status is the whole story */ }
+    return `call "${slug}" failed${when}: HTTP ${r.status}${detail.slice(0, FAILURE_DETAIL_MAX_CHARS)}`;
   }
 
   /** True if any spending ceiling is configured (worth preflighting the 402). */

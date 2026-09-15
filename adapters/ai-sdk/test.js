@@ -44,4 +44,22 @@ ok(routeDefault?.include === "all", `agent402_route default include is "all"`);
 const call = await byName.agent402_call.execute({ slug: "hash", params: { text: "hello world", algo: "sha256" } });
 ok(call?.hex?.startsWith("b94d27b9"), `agent402_call returns the hash result (got ${call?.hex?.slice(0, 8)})`);
 
+// 7. The framework-native wrapper on the INSTALLED `ai`: AI SDK 5+ reads
+// `inputSchema` and nothing else, so a `parameters`-only tool reaches the model
+// with no schema (found against ai@7.0.100, 2026-09-15). Both keys are set.
+{
+  const { execSync } = await import("node:child_process");
+  const { existsSync } = await import("node:fs");
+  const { dirname, join } = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const HERE = dirname(fileURLToPath(import.meta.url));
+  if (!existsSync(join(HERE, "node_modules", "ai"))) execSync("npm install ai@7.0.100 zod@4.6.5 --no-save --silent --ignore-scripts --no-audit --no-fund", { cwd: HERE, stdio: "inherit" });
+  const { agent402Tools } = await import("./index.js");
+  const tools = await agent402Tools({ baseUrl: BASE });
+  const t = tools.agent402_call;
+  const aiVersion = JSON.parse((await import("node:fs")).readFileSync(join(HERE, "node_modules", "ai", "package.json"), "utf8")).version;
+  ok(t && t.inputSchema && t.parameters && typeof t.execute === "function", `native tool carries inputSchema AND parameters (ai@${aiVersion})`);
+  ok(typeof t.inputSchema.safeParse === "function" && t.inputSchema.safeParse({ slug: "hash" }).success === true, "inputSchema is the zod schema and accepts a call");
+}
+
 console.log(`PASS — agent402-ai-sdk: ${pass} assertions passed against ${BASE}`);

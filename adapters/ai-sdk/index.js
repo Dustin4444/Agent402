@@ -188,9 +188,15 @@ export async function agent402Tools(opts) {
   const specs = agent402ToolSpecs(opts);
   const out = {};
   for (const s of specs) {
+    // AI SDK 5 renamed `parameters` to `inputSchema` and reads nothing else;
+    // 3 and 4 read `parameters`. Both are passed, so the model gets the schema
+    // on every major (on ai 5-7 a `parameters`-only tool has NO schema: found
+    // 2026-09-15 by constructing against ai@7.0.100).
+    const schema = jsonSchemaToZod(s.parametersJsonSchema, z);
     out[s.name] = tool({
       description: s.description,
-      parameters: jsonSchemaToZod(s.parametersJsonSchema, z),
+      inputSchema: schema,
+      parameters: schema,
       execute: s.execute,
     });
   }

@@ -44,4 +44,22 @@ ok(routeDefault?.include === "all", `agent402_route default include is "all"`);
 const call = await byName.agent402_call.execute({ slug: "hash", params: { text: "hello world", algo: "sha256" } });
 ok(call?.hex?.startsWith("b94d27b9"), `agent402_call returns the hash result (got ${call?.hex?.slice(0, 8)})`);
 
+// 7. The framework-native wrapper on the INSTALLED @google/adk (the peer range
+// admits 2.x since 0.1.7; verified against 2.0.0 on 2026-09-15): the
+// FunctionTool's declaration carries the parameters the model needs.
+{
+  const { execSync } = await import("node:child_process");
+  const { existsSync, readFileSync } = await import("node:fs");
+  const { dirname, join } = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const HERE = dirname(fileURLToPath(import.meta.url));
+  if (!existsSync(join(HERE, "node_modules", "@google", "adk"))) execSync("npm install @google/adk@2.0.0 zod@4.6.5 --no-save --silent --ignore-scripts --no-audit --no-fund", { cwd: HERE, stdio: "inherit" });
+  const { agent402Tools } = await import("./index.js");
+  const tools = await agent402Tools({ baseUrl: BASE });
+  const t = tools.find((x) => x.name === "agent402_call");
+  const decl = t.getDeclaration ? t.getDeclaration() : t._getDeclaration();
+  const adkVersion = JSON.parse(readFileSync(join(HERE, "node_modules", "@google", "adk", "package.json"), "utf8")).version;
+  ok(decl?.name === "agent402_call" && decl?.parameters?.properties?.slug && (decl.parameters.required || []).includes("slug"), `native FunctionTool declares slug/params to the model (@google/adk@${adkVersion})`);
+}
+
 console.log(`PASS — agent402-google-adk: ${pass} assertions passed against ${BASE}`);

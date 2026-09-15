@@ -9,9 +9,15 @@
 import { Agent402 } from "agent402-client";
 
 const DEFAULT_BASE = "https://agent402.tools";
+// The runtime owns configuration: runtime.getSetting() reads the character's
+// settings/secrets and, in elizaOS, the process environment behind them. The
+// plugin reads nothing else, so a host that scopes settings per agent is
+// honoured (0.2.0: an earlier process.env fallback here could read another
+// agent's ceiling in a multi-agent process).
 const setting = (runtime, key) => {
   const v = runtime?.getSetting?.(key);
-  return typeof v === "string" && v.trim() ? v.trim() : (process.env[key] || "").trim() || null;
+  if (typeof v === "number" && Number.isFinite(v)) return String(v);
+  return typeof v === "string" && v.trim() ? v.trim() : null;
 };
 const num = (v, d) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : d; };
 
@@ -33,18 +39,37 @@ async function payFetchFromKey(pk, fetchImpl) {
   return value;
 }
 
-/** One client per runtime call: settings are read at call time so a key
- *  rotated in the character config takes effect without a restart. */
+/** ONE client per runtime, kept for the runtime's lifetime. Settings are still
+ *  read on every call so a key rotated in the character config takes effect
+ *  without a restart - but the client's rolling-24h spend ledger is CARRIED
+ *  across that rebuild. Before 0.2.0 a fresh client was built per call, which
+ *  meant AGENT402_DAILY_LIMIT_USD bounded each call alone: the ledger it counts
+ *  against was empty every time (registry review, 2026-09-14). */
+const clients = new WeakMap(); // runtime -> { sig, client }
 async function clientFor(runtime, fetchImpl = globalThis.fetch) {
   const baseUrl = (setting(runtime, "AGENT402_BASE_URL") || DEFAULT_BASE).replace(/\/+$/, "");
   const creditsKey = setting(runtime, "AGENT402_CREDITS_KEY");
   const walletKey = setting(runtime, "AGENT402_WALLET_KEY");
+  const maxPerCallUsd = num(setting(runtime, "AGENT402_MAX_PER_CALL_USD"), 1);
+  const dailyLimitUsd = num(setting(runtime, "AGENT402_DAILY_LIMIT_USD"), null);
+  const sig = JSON.stringify([baseUrl, creditsKey, walletKey, maxPerCallUsd, dailyLimitUsd]);
+  const key = runtime && typeof runtime === "object" ? runtime : clientFor;
+  const prev = clients.get(key);
+  if (prev?.sig === sig) return prev.client;
   const payFetch = creditsKey ? undefined : await payFetchFromKey(walletKey, fetchImpl) || undefined;
-  return new Agent402({
-    baseUrl, fetchImpl, fetch: payFetch, creditsKey: creditsKey || null,
-    maxPerCallUsd: num(setting(runtime, "AGENT402_MAX_PER_CALL_USD"), 1),
-    dailyLimitUsd: num(setting(runtime, "AGENT402_DAILY_LIMIT_USD"), null),
-  });
+  const client = new Agent402({ baseUrl, fetchImpl, fetch: payFetch, creditsKey: creditsKey || null, maxPerCallUsd, dailyLimitUsd });
+  // The ledger outlives the client: what was spent under the old settings was
+  // still spent. (The client keeps it as a plain array; sharing the array is
+  // the whole mechanism.)
+  if (prev?.client?._spend?.log && client._spend) client._spend.log = prev.client._spend.log;
+  clients.set(key, { sig, client });
+  return client;
+}
+
+/** Rolling-24h spend as the client sees it (for tests and operators). */
+export function spendingSummaryFor(runtime) {
+  const c = clients.get(runtime && typeof runtime === "object" ? runtime : clientFor)?.client;
+  return c && typeof c.spendingSummary === "function" ? c.spendingSummary() : null;
 }
 
 const textOf = (message) => String(message?.content?.text ?? "").trim();
@@ -52,26 +77,53 @@ const textOf = (message) => String(message?.content?.text ?? "").trim();
 // content); the message text is the fallback for a human typing.
 const fieldOf = (message, key) => message?.content?.[key] ?? message?.content?.input?.[key];
 
+// WHAT THE MODEL SEES. In elizaOS 1.x the ACTION_STATE provider renders an
+// action result's `text` (and `values`, and `error`) into the next prompt;
+// `data` is kept in working memory and the action-result memory but is NOT
+// rendered unless `text` is empty. So the tool's result has to ride in `text`
+// or the planner never sees it. Before 0.2.0 `text` held a 600-character
+// preview and the rest lived only in `data` (registry review, 2026-09-14).
+// The cap below is generous and every truncation says so, with the full
+// length, so a model reading it knows what it is missing.
+const MAX_RESULT_CHARS = () => num(process.env.AGENT402_MAX_RESULT_CHARS, 12_000);
+function resultText(slug, data) {
+  const json = JSON.stringify(data);
+  const cap = MAX_RESULT_CHARS();
+  if (json.length <= cap) return `Agent402 \`${slug}\` result (complete JSON): ${json}`;
+  return `Agent402 \`${slug}\` result (JSON truncated after ${cap} of ${json.length} characters; the complete result is in this action's data.result): ${json.slice(0, cap)}`;
+}
+const errorText = (e) => String(e?.message || e).slice(0, 2_000);
+
+/** The v2 runtime hands extracted parameters in `options.parameters`; a 1.x
+ *  runtime hands nothing structured, so a test or another plugin may put them
+ *  in the message content. Both are read; content wins only where options has
+ *  no value. */
+const param = (message, options, key) =>
+  options?.parameters?.[key] ?? options?.[key] ?? fieldOf(message, key);
+
 const reply = async (callback, result) => { if (typeof callback === "function") { try { await callback({ text: result.text, ...(result.data ? { data: result.data } : {}) }); } catch { /* the runtime owns delivery */ } } return result; };
 
 export const findAction = {
   name: "AGENT402_FIND",
   similes: ["FIND_TOOL", "SEARCH_AGENT402", "FIND_AGENT402_TOOL", "WHICH_TOOL"],
   description:
-    "Find an Agent402 tool for a task. Agent402 is a catalog of 500+ deterministic pay-per-call web tools (web search, " +
-    "browser render, PDFs, OCR, market and crypto data, SEC filings, DNS/TLS checks, memory). Returns the best matches " +
-    "with slug, price, whether a wallet or credits key is needed, and a ready example input. Free: nothing is paid.",
+    "Find an Agent402 tool for a task (web search, page render, PDFs, OCR, market and crypto data, SEC filings, DNS/TLS " +
+    "checks). Returns the best matches with slug, price, whether payment is needed, and an example input. Free: nothing is paid.",
+  parameters: [
+    { name: "task", description: "What you need done, in plain language", required: true, schema: { type: "string" } },
+    { name: "k", description: "How many matches to return (default 5)", required: false, schema: { type: "integer", minimum: 1, maximum: 20 } },
+  ],
   examples: [[
     { name: "user", content: { text: "Find a tool that extracts the article text from a URL" } },
     { name: "agent", content: { text: "Agent402 has `extract` ($0.005 per call) for that. I can call it with { url }.", actions: ["AGENT402_FIND"] } },
   ]],
   validate: async () => true,
   handler: async (runtime, message, _state, options, callback) => {
-    const task = String(fieldOf(message, "task") ?? options?.task ?? textOf(message)).trim();
+    const task = String(param(message, options, "task") ?? textOf(message)).trim();
     if (!task) return reply(callback, { success: false, text: "Tell me what you need done and I will find the Agent402 tool for it." });
     try {
       const client = await clientFor(runtime);
-      const rows = await client.find(task, { k: num(fieldOf(message, "k") ?? options?.k, 5) });
+      const rows = await client.find(task, { k: num(param(message, options, "k"), 5) });
       const results = (rows || []).map((t) => ({
         slug: t.slug, name: t.name, price: t.price, route: t.route,
         needsPayment: t.computePayable === false || t.walletOnly === true,
@@ -81,39 +133,100 @@ export const findAction = {
       const text = top
         ? `Best Agent402 match: \`${top.slug}\` (${top.price}) - ${top.description}${results.length > 1 ? ` Also: ${results.slice(1, 4).map((r) => `\`${r.slug}\` (${r.price})`).join(", ")}.` : ""}`
         : `No Agent402 tool matched "${task}".`;
-      return reply(callback, { success: true, text, data: { task, results } });
+      return reply(callback, { success: true, text, data: { actionName: "AGENT402_FIND", task, results } });
     } catch (e) {
-      return reply(callback, { success: false, text: `Agent402 find failed: ${String(e?.message || e).slice(0, 200)}` });
+      return reply(callback, { success: false, text: `Agent402 find failed: ${errorText(e)}`, error: errorText(e) });
     }
   },
 };
+
+/** Resolve {slug, params} for AGENT402_CALL from, in order: the runtime's
+ *  extracted parameters (v2 `options.parameters`), structured content, the
+ *  previous AGENT402_FIND result in this run, and finally - the 1.x path - the
+ *  message text itself: the catalog is searched (free) and the runtime's own
+ *  model is asked to pick the tool and shape its input from the candidates'
+ *  declared schemas. Returns { slug, params, via } or { error }. */
+export async function resolveCallInput(runtime, message, options, client) {
+  const direct = param(message, options, "slug");
+  if (direct) {
+    const raw = param(message, options, "params") ?? param(message, options, "input");
+    const params = typeof raw === "string" ? (() => { try { return JSON.parse(raw); } catch { return {}; } })() : raw;
+    return { slug: String(direct).trim(), params: params && typeof params === "object" ? params : {}, via: options?.parameters?.slug ? "parameters" : "content" };
+  }
+  const prevFind = options?.actionContext?.getPreviousResult?.("AGENT402_FIND")
+    ?? options?.actionContext?.previousResults?.find((r) => r?.data?.actionName === "AGENT402_FIND");
+  const text = textOf(message);
+  if (!text) return { error: "AGENT402_CALL needs a tool slug and its input, or a message describing the task (AGENT402_FIND lists the slugs)." };
+  const candidates = prevFind?.data?.results?.length ? prevFind.data.results : await client.find(text, { k: 5 }).catch(() => []);
+  if (!candidates?.length) return { error: `No Agent402 tool matched "${text}".` };
+  if (typeof runtime?.useModel !== "function") {
+    return { error: `AGENT402_CALL could not shape an input for "${text}": this runtime exposes no model to extract parameters with. Provide slug and params directly (candidates: ${candidates.map((c) => c.slug).join(", ")}).` };
+  }
+  const menu = candidates.slice(0, 5).map((c) => ({ slug: c.slug, description: c.description, price: c.price, example: c.example ?? c.input ?? null, inputSchema: c.inputSchema ?? null }));
+  const prompt = [
+    "You are choosing ONE tool to run for the user's request and writing its input.",
+    `User request: ${JSON.stringify(text)}`,
+    "Candidate tools (slug, description, price, an example input, and the input schema where known):",
+    JSON.stringify(menu, null, 1),
+    'Respond with ONLY a JSON object of the form {"slug": "<one of the candidate slugs>", "params": {<the tool input for THIS request, in the shape of the example>}}.',
+    "If no candidate fits, respond with {\"slug\": null, \"reason\": \"<why>\"}.",
+  ].join("\n");
+  let picked = null;
+  try {
+    picked = await runtime.useModel("OBJECT_SMALL", { prompt, temperature: 0 });
+    if (typeof picked === "string") { const m = picked.match(/\{[\s\S]*\}/); picked = m ? JSON.parse(m[0]) : null; }
+  } catch (e) {
+    try {
+      const raw = await runtime.useModel("TEXT_SMALL", { prompt, temperature: 0 });
+      const m = String(raw || "").match(/\{[\s\S]*\}/); picked = m ? JSON.parse(m[0]) : null;
+    } catch (e2) { return { error: `AGENT402_CALL could not extract parameters: ${errorText(e2)}` }; }
+  }
+  if (!picked || typeof picked !== "object" || !picked.slug) return { error: `No Agent402 tool fits "${text}"${picked?.reason ? `: ${picked.reason}` : ""}.` };
+  const slug = String(picked.slug).trim();
+  if (!menu.some((c) => c.slug === slug)) return { error: `The model picked "${slug}", which is not among the candidates (${menu.map((c) => c.slug).join(", ")}); refusing to call a tool that was not offered.` };
+  return { slug, params: picked.params && typeof picked.params === "object" ? picked.params : {}, via: "model" };
+}
 
 export const callAction = {
   name: "AGENT402_CALL",
   similes: ["CALL_TOOL", "RUN_AGENT402_TOOL", "USE_AGENT402", "CALL_AGENT402"],
   description:
-    "Call an Agent402 tool by slug (from AGENT402_FIND) with its input and return the tool's JSON result. Pays for the " +
-    "call: proof-of-work for free-tier tools; the configured credits key (card) or x402 wallet (USDC) for wallet-only " +
-    "tools, typically $0.001 to $0.05, never above AGENT402_MAX_PER_CALL_USD. Provide `slug` and `params` in the content.",
+    "Call an Agent402 tool by slug with its input and return the tool's JSON result. Free-tier tools cost nothing " +
+    "(proof-of-work); wallet-only tools are paid with the configured credits key or x402 wallet, typically $0.001 to " +
+    "$0.05 per call and never above AGENT402_MAX_PER_CALL_USD or the rolling AGENT402_DAILY_LIMIT_USD. If no slug is " +
+    "given the tool is chosen from the message and the last AGENT402_FIND result.",
+  parameters: [
+    { name: "slug", description: "Tool slug from AGENT402_FIND (for example: hash, search, extract, stock-quote)", required: false, schema: { type: "string" } },
+    { name: "params", description: "The tool's input object, in the shape of the example AGENT402_FIND returned", required: false, schema: { type: "object", additionalProperties: true } },
+  ],
   examples: [[
-    { name: "user", content: { text: "Hash 'hello world' with sha256", slug: "hash", params: { text: "hello world", algo: "sha256" } } },
-    { name: "agent", content: { text: "sha256(\"hello world\") = b94d27b9…", actions: ["AGENT402_CALL"] } },
+    { name: "user", content: { text: "Hash 'hello world' with sha256" } },
+    { name: "agent", content: { text: "Calling Agent402's hash tool.", actions: ["AGENT402_CALL"] } },
   ]],
-  validate: async (_runtime, message) => Boolean(fieldOf(message, "slug")),
+  // The planner can only pick an action the ACTIONS provider listed, and that
+  // provider lists what validate() admits - so a validate that demands a slug
+  // field on the user's message hides this action from every real
+  // conversation (registry review, 2026-09-14). Admit it; the handler decides.
+  validate: async () => true,
   handler: async (runtime, message, _state, options, callback) => {
-    const slug = String(fieldOf(message, "slug") ?? options?.slug ?? "").trim();
-    if (!slug) return reply(callback, { success: false, text: "AGENT402_CALL needs a tool slug (use AGENT402_FIND first)." });
-    const params = fieldOf(message, "params") ?? options?.params ?? {};
+    let client;
+    try { client = await clientFor(runtime); } catch (e) { return reply(callback, { success: false, text: `Agent402 client failed: ${errorText(e)}`, error: errorText(e) }); }
+    const resolved = await resolveCallInput(runtime, message, options, client);
+    if (resolved.error) return reply(callback, { success: false, text: resolved.error, error: resolved.error });
+    const { slug, params, via } = resolved;
     try {
-      const client = await clientFor(runtime);
-      const out = await client.call(slug, params && typeof params === "object" ? params : {});
+      const out = await client.call(slug, params);
       const data = out && typeof out === "object" ? out : { result: out };
-      const preview = JSON.stringify(data);
-      return reply(callback, { success: true, text: `Agent402 \`${slug}\` returned: ${preview.length > 600 ? `${preview.slice(0, 600)}…` : preview}`, data: { slug, params, result: data } });
+      return reply(callback, {
+        success: true,
+        text: resultText(slug, data),
+        values: { agent402LastSlug: slug },
+        data: { actionName: "AGENT402_CALL", slug, params, resolvedVia: via, result: data },
+      });
     } catch (e) {
-      const msg = String(e?.message || e);
-      const hint = /wallet-only|402/.test(msg) ? " Set AGENT402_CREDITS_KEY (buy a pack at https://agent402.tools/credits) or AGENT402_WALLET_KEY to pay for this tool." : "";
-      return reply(callback, { success: false, text: `Agent402 \`${slug}\` failed: ${msg.slice(0, 200)}${hint}` });
+      const msg = errorText(e);
+      const hint = /wallet-only|402/.test(msg) ? " Set AGENT402_CREDITS_KEY (https://agent402.tools/credits) or AGENT402_WALLET_KEY to pay for this tool." : "";
+      return reply(callback, { success: false, text: `Agent402 \`${slug}\` failed: ${msg}${hint}`, error: msg, data: { actionName: "AGENT402_CALL", slug, params, resolvedVia: via } });
     }
   },
 };
@@ -124,7 +237,7 @@ export const aboutAction = {
   description: "What Agent402 is, how it is paid, and how many tools it serves right now. Free.",
   examples: [[
     { name: "user", content: { text: "What is Agent402?" } },
-    { name: "agent", content: { text: "Agent402 is a catalog of 500+ pay-per-call web tools, paid by card credits or USDC over x402.", actions: ["AGENT402_ABOUT"] } },
+    { name: "agent", content: { text: "Agent402 is a catalog of pay-per-call web tools, paid by card credits or USDC over x402.", actions: ["AGENT402_ABOUT"] } },
   ]],
   validate: async () => true,
   handler: async (runtime, _message, _state, _options, callback) => {
@@ -139,9 +252,9 @@ export const aboutAction = {
         pay: "prepaid card credits (AGENT402_CREDITS_KEY) or USDC over x402 from a wallet (AGENT402_WALLET_KEY); free-tier tools pay with proof-of-work",
         discover: `${baseUrl}/api/find?q=<task>`, docs: `${baseUrl}/llms.txt`, why: `${baseUrl}/why`,
       };
-      return reply(callback, { success: true, text: `Agent402 serves ${data.tools} deterministic pay-per-call tools (${data.freeTier} on the free tier), paid by card credits or USDC over x402. Docs: ${data.docs}`, data });
+      return reply(callback, { success: true, text: `Agent402 serves ${data.tools} pay-per-call tools right now (${data.freeTier} on the free tier), paid by card credits or USDC over x402. Docs: ${data.docs}`, data });
     } catch (e) {
-      return reply(callback, { success: false, text: `Agent402 is unreachable at ${baseUrl}: ${String(e?.message || e).slice(0, 120)}` });
+      return reply(callback, { success: false, text: `Agent402 is unreachable at ${baseUrl}: ${errorText(e)}`, error: errorText(e) });
     }
   },
 };
@@ -153,14 +266,14 @@ export const agent402Provider = {
   get: async (runtime) => {
     const baseUrl = (setting(runtime, "AGENT402_BASE_URL") || DEFAULT_BASE).replace(/\/+$/, "");
     const paid = setting(runtime, "AGENT402_CREDITS_KEY") ? "card credits" : /^0x[0-9a-fA-F]{64}$/.test(setting(runtime, "AGENT402_WALLET_KEY") || "") ? "x402 wallet" : "free tier only (no credits key or wallet configured)";
-    const text = `Agent402 (${baseUrl}) offers 500+ deterministic pay-per-call web tools. Use AGENT402_FIND with a plain-language task to get a slug and example input, then AGENT402_CALL with that slug and params. Payment mode: ${paid}.`;
+    const text = `Agent402 (${baseUrl}) is a catalog of pay-per-call web tools. Use AGENT402_FIND with a plain-language task to get a slug and example input, then AGENT402_CALL with that slug and params. Payment mode: ${paid}.`;
     return { text, values: { agent402BaseUrl: baseUrl, agent402PaymentMode: paid }, data: {} };
   },
 };
 
 export const agent402Plugin = {
   name: "agent402",
-  description: "Find and call 500+ pay-per-call web tools from Agent402, paid by prepaid card credits or USDC over x402.",
+  description: "Find and call Agent402's pay-per-call web tools (search, render, PDFs, market and SEC data), paid by prepaid card credits or USDC over x402; free tier via proof-of-work.",
   actions: [findAction, callAction, aboutAction],
   providers: [agent402Provider],
   init: async (config, runtime) => {

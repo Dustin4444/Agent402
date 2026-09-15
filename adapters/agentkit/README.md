@@ -84,3 +84,5 @@ model-backed. Every tool is priced per call, from $0.001. Catalog:
 https://agent402.tools/tools · agent-readable docs: https://agent402.tools/llms.txt
 
 MIT. Maintained by Havok Holdings LLC.
+
+Spend ceilings (`maxPerCallUsd`, `dailyLimitUsd`, `maxPerHostUsd`) are measured against one client per wallet provider for the life of the actions, so the daily ceiling holds across calls. `creditsKey` (a prepaid `a402_...` key) pays wallet-only tools without a wallet.
