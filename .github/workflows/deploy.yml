@@ -907,6 +907,7 @@ jobs:
           t node scripts/test-trial.js
           # LLM gateway validation (OpenAI-compat tiers, caps, env-gated 503)
           t node scripts/test-llm-gateway.js
+          t node scripts/test-llm-kit-spend.js
           # Gateway settle-failure breaker (per-payer + global refusal before any upstream call, finish-listener outcomes, source pins - offline)
           t node scripts/test-gateway-settle-breaker.js
 
