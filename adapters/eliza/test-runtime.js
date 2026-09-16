@@ -83,7 +83,12 @@ console.log(`@elizaos/core ${coreVersion}; plugin ${pkg.name}@${pkg.version} fro
 
 // ---- 2. the seller: a stub speaking the Agent402 wire (controlled transport) ----
 const seen = [];
-const LONG_ERROR = `The input "q" must name a listed market; none of ${Array.from({ length: 60 }, (_, i) => `market-${i}`).join(", ")} matched.`;
+// Over 2,000 characters ON PURPOSE: agent402-client 0.8.4/0.8.5 cut a seller's
+// error detail at 2,000, and this fixture was 706, so "arrives whole" passed
+// against a client that cut (elizaOS registry review, 2026-09-16). The tail
+// marker is asserted through ACTION_STATE below - what the model reads.
+const LONG_ERROR = `The input "q" must name a listed market; none of ${Array.from({ length: 240 }, (_, i) => `market-${i}`).join(", ")} matched. END-OF-SELLER-ERROR`;
+if (LONG_ERROR.length <= 2_000) throw new Error(`LONG_ERROR fixture must exceed the former 2,000-char client cap (is ${LONG_ERROR.length})`);
 const BIG = { rows: Array.from({ length: 1500 }, (_, i) => ({ i, name: `row-${i}`, note: "x".repeat(24) })) }; // ~60 KB of JSON
 const stub = createServer((req, res) => {
   let raw = ""; req.on("data", (c) => { raw += c; });
@@ -210,7 +215,7 @@ try {
     ok(three.filter((x) => x.success).length === 3 && paidCalls() - b2 === 3, "a second runtime with a $0.010 ceiling settles three and refuses the fourth: ceilings are runtime-scoped");
     const { runtime: rt4 } = await bootPaid({ AGENT402_MAX_PER_CALL_USD: "1", AGENT402_DAILY_LIMIT_USD: "100" });
     r = await callAction.handler(rt4, plain, listed, { parameters: { slug: "broken", params: { q: "nothing" } } }, async () => []);
-    ok(r.success === false && r.data?.errorCode === "upstream_error" && r.text.includes(LONG_ERROR), "an upstream failure's detail reaches the result whole (5)");
+    ok(r.success === false && r.data?.errorCode === "upstream_error" && r.text.includes(LONG_ERROR) && r.text.includes("END-OF-SELLER-ERROR"), `an upstream failure's ${LONG_ERROR.length}-character detail reaches the result whole, past the former 2,000-char client cap (5)`);
     r = await callAction.handler(rt4, plain, listed, { parameters: { slug: "big", params: {} } }, async () => []);
     ok(r.success === true && r.text.endsWith(JSON.stringify(BIG)), "a 60 KB result reaches the text complete");
     const b6 = seen.length;
@@ -272,7 +277,8 @@ try {
   const { runtime: rt4 } = await bootPaid({ AGENT402_MAX_PER_CALL_USD: "1", AGENT402_DAILY_LIMIT_USD: "100" });
   const ctx4 = await seed(rt4, "d");
   r = await runOn(rt4, ctx4, "e1", { text: "run broken", slug: "broken", params: { q: "nothing" } });
-  ok(r.success === false && r.data?.errorCode === "upstream_error" && r.text.includes("market-59") && r.error.includes("market-0") && r.text.includes(LONG_ERROR), "an upstream failure's detail reaches the result WHOLE (text and error carry the seller's full message) (5)");
+  ok(r.success === false && r.data?.errorCode === "upstream_error" && r.text.includes("END-OF-SELLER-ERROR") && r.error.includes("market-0") && r.text.includes(LONG_ERROR) && !/more characters not shown/.test(r.text), `an upstream failure's ${LONG_ERROR.length}-character detail reaches the result WHOLE, past the former 2,000-char client cap (text and error carry the seller's full message) (5)`);
+  ok((await actionStateText(rt4, userMessage(rt4, ctx4, { text: "x" }, "e1s"), [r])).includes("END-OF-SELLER-ERROR"), "ACTION_STATE renders the END of that error - the model sees the seller's whole message, not its beginning");
   r = await runOn(rt4, ctx4, "big1", { text: "big", slug: "big", params: {} });
   const bigJson = JSON.stringify(BIG);
   ok(r.success === true && r.text.endsWith(bigJson) && r.text.length > 60_000, `a ${bigJson.length}-character result reaches the model-facing text complete and byte-identical (rendered via ACTION_STATE below)`);

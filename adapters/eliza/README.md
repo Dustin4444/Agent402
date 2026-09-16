@@ -113,7 +113,7 @@ params, an unreachable catalog and no match are typed failures sent nowhere.
 | `AGENT402_BASE_URL` | `https://agent402.tools` | self-hosters point this at their instance |
 | `AGENT402_MAX_PER_CALL_USD` | `1` | refuse any single paid call above this |
 | `AGENT402_DAILY_LIMIT_USD` | | refuse once the runtime's rolling 24h paid spend would exceed this |
-| `AGENT402_MAX_RESULT_CHARS` | `12000` | longest result JSON placed in the action text for the model |
+| `AGENT402_MAX_RESULT_CHARS` | unset (no bound) | when set, a result JSON longer than this is an explicit `result_too_large` failure carrying the whole result in `data.result`; nothing partial reaches the text |
 
 Every paid call carries an `Idempotency-Key`, so a retried call replays the
 paid answer instead of paying twice. What the same key buys beyond tools:

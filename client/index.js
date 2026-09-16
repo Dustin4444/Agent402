@@ -23,13 +23,12 @@ import { createHash, randomBytes } from "node:crypto";
 // `User-Agent: agent402-client/<version>` - a standard header, no extra
 // network calls - so a seller can attribute traffic (and settled payments)
 // to this SDK. Product token only; nothing about the caller rides along.
-const VERSION = "0.8.5";
+const VERSION = "0.8.6";
 const USER_AGENT = `agent402-client/${VERSION}`;
 // 32MB: about a hundred times any realistic response from this catalog (the
 // largest is a base64 image at a few MB), so it cannot break a legitimate
 // caller, while still stopping the class it exists for. A ceiling that is off
 // by default protects nobody, so this one is on; pass null to disable it.
-const FAILURE_DETAIL_MAX_CHARS = 2_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
 
 const leadingZeroBits = (buf) => { let n = 0; for (const b of buf) { if (b === 0) { n += 8; continue; } n += Math.clz32(b) - 24; break; } return n; };
@@ -479,8 +478,13 @@ export class Agent402 {
   /** The message for a failed call CARRIES THE SELLER'S OWN DETAIL. Agent402's
    *  4xx bodies are self-explaining ({error, tool, expected}); a message that
    *  said only "HTTP 400" threw that away, and an agent reading it could not
-   *  correct its input (elizaOS registry review, 2026-09-14). Bounded, and a
-   *  body that is not JSON contributes nothing but its status. */
+   *  correct its input (elizaOS registry review, 2026-09-14). WHOLE: 0.8.4
+   *  cut the detail at 2,000 characters and 0.8.5 said so when it cut, and
+   *  the same review measured a 2,517-character seller error reaching the
+   *  model without its end (2026-09-16). The body is already bounded before
+   *  it is parsed (maxResponseBytes, 32 MB default), so a second cut here
+   *  protected nothing and lost the part of the message an agent needs to
+   *  act on. A body that is not JSON contributes nothing but its status. */
   async _failureDetail(slug, r, when = "") {
     let detail = "";
     try {
@@ -489,11 +493,7 @@ export class Agent402 {
       if (msg != null) detail = ` - ${typeof msg === "string" ? msg : JSON.stringify(msg)}`;
       if (body?.expected != null) detail += ` (expected: ${JSON.stringify(body.expected)})`;
     } catch { /* not JSON: the status is the whole story */ }
-    // A seller-authored body is untrusted, so the detail is bounded - and a
-    // bound that cuts says so, with the length it cut, rather than ending
-    // mid-sentence as if that were the whole message.
-    const cut = detail.length > FAILURE_DETAIL_MAX_CHARS ? `${detail.slice(0, FAILURE_DETAIL_MAX_CHARS)} [${detail.length - FAILURE_DETAIL_MAX_CHARS} more characters not shown]` : detail;
-    return `call "${slug}" failed${when}: HTTP ${r.status}${cut}`;
+    return `call "${slug}" failed${when}: HTTP ${r.status}${detail}`;
   }
 
   /** True if any spending ceiling is configured (worth preflighting the 402). */
