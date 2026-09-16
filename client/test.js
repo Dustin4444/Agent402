@@ -364,6 +364,20 @@ let pass = 0; const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); 
   }
 
   {
+    // A seller's error detail reaches the caller WHOLE. 0.8.4 cut it at 2,000
+    // characters and 0.8.5 appended "[N more characters not shown]"; an agent
+    // reading the message could not act on the part that was cut. The response
+    // body is bounded before parse (maxResponseBytes), which is the real guard.
+    const long = `bad input: ${"x".repeat(2_600)} END`;
+    const bad = { ok: false, status: 400, json: async () => ({ error: long, expected: { text: "string" } }) };
+    const c = new Agent402({ baseUrl: "https://seller.example", cache: false, fetch: async () => bad, fetchImpl: async () => bad });
+    c._catalog = new Map([["t", { method: "POST", path: "/api/t", computePayable: false, price: "$0.01" }]]);
+    let err = null;
+    try { await c.call("t", { text: "a" }); } catch (e) { err = e; }
+    ok(err && err.message.includes(long) && err.message.endsWith(`(expected: {"text":"string"})`) && !/more characters not shown/.test(err.message), "a 2,600-character seller error reaches the caller whole, nothing sliced, expected block intact");
+  }
+
+  {
     let paid = 0;
     const c = new Agent402({
       baseUrl: "https://router.example",
