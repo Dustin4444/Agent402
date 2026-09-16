@@ -1,7 +1,12 @@
 name: Bug report
-description: Something returned the wrong result, charged incorrectly, or failed
+description: A call returned the wrong result, charged incorrectly, or failed
 labels: [bug]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        The fastest report is a request we can replay. If you have the curl, the status code and the body, we can usually reproduce it in one step.
+        Reporting that our index lists YOUR seller wrong (price, chain, route)? Use the "Index listing is wrong" template instead.
   - type: input
     id: endpoint
     attributes:
@@ -10,10 +15,32 @@ body:
     validations:
       required: true
   - type: textarea
-    id: repro
+    id: request
     attributes:
-      label: What happened
-      description: The exact request you made (curl or code), what you got, and what you expected. If a paid call charged and then failed, include the approximate time (UTC) so it can be matched on-chain.
+      label: The exact request
+      description: The curl or code you ran, with the body. Strip any payment header or key; the request shape is what matters.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: status
+    attributes:
+      label: HTTP status you got
+      placeholder: e.g. 200, 400, 502
+    validations:
+      required: true
+  - type: textarea
+    id: body
+    attributes:
+      label: Response body you got
+      description: Paste it as returned. Our 4xx bodies carry `error`, `tool` and `expected`; those three lines are usually the whole diagnosis.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
     validations:
       required: true
   - type: dropdown
@@ -22,9 +49,17 @@ body:
       label: How was the call paid?
       options:
         - USDC via x402
+        - MPP (Tempo or evm challenge)
+        - Prepaid card credits
         - Proof-of-work
         - Hosted MCP connector (free tier)
         - agent402-mcp npm server
         - Not paid (free surface)
     validations:
       required: true
+  - type: input
+    id: when
+    attributes:
+      label: When (UTC)
+      description: For a paid call that charged and then failed, the approximate time lets us match the settlement on-chain. A failed call is never charged, so a receipt on a non-200 is itself a bug.
+      placeholder: e.g. 2026-09-16 14:02Z
