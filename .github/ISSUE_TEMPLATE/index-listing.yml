@@ -1,0 +1,50 @@
+name: Index listing is wrong
+description: Our index lists your x402 or MPP seller with the wrong price, chain, route or status
+labels: [index]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The index reads your `/.well-known/x402`, your OpenAPI document and your live 402, so most listing errors come from one of those disagreeing with another. Two URLs side by side is the whole report: what we say, and what you serve.
+        This is not the place to pitch a service or ask for a paid test call. To be listed, publish a manifest and open a seed PR (see CONTRIBUTING); routing follows settlement history, never a request.
+  - type: input
+    id: origin
+    attributes:
+      label: Your origin
+      placeholder: https://api.example.com
+    validations:
+      required: true
+  - type: textarea
+    id: ours
+    attributes:
+      label: What our index says
+      description: Paste the row from `https://agent402.tools/api/index?seller=<your origin>` (or the `/api/route` row) that is wrong.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: yours
+    attributes:
+      label: What your origin serves
+      description: The relevant part of your manifest, OpenAPI operation, or the decoded `PAYMENT-REQUIRED` header from your live 402 for that route.
+      render: json
+    validations:
+      required: true
+  - type: dropdown
+    id: field
+    attributes:
+      label: Which field is wrong?
+      options:
+        - Price
+        - Payment network(s)
+        - Route or method
+        - Status (crawl_failed, stale, not listed)
+        - Duplicate listing (migrated origin)
+        - Something else
+    validations:
+      required: true
+  - type: input
+    id: since
+    attributes:
+      label: Since when (UTC)
+      description: If you changed your manifest or 402 recently, the date helps us tell a stale crawl from a parser defect.

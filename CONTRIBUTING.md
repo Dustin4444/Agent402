@@ -137,9 +137,34 @@ Each kit also has a focused test under [`scripts/`](scripts) (e.g.
 
 ## Open a PR
 
-1. Fork, branch, commit with a clear message.
+1. Fork, branch, commit with a clear message, signed off (`git commit -s`).
 2. Make sure the checks above pass.
-3. Open a PR describing what the tool does and why it's useful to agents.
+3. Fill in the PR template: what changed, and how you verified it. A test
+   that fails without the change and passes with it is the best evidence; a
+   live check against production is the next best.
 
-Small, focused PRs merge fastest. The wiki is edited in [`wiki/`](wiki) in this
+Small, focused PRs merge fastest. Three things worth knowing before you open one:
+
+- **AI-authored contributions are welcome.** Say so in the description, and
+  hold them to the same bar as any other: a reproduction, a test, and a
+  claim that has been checked rather than remembered. A PR that corrects its
+  own earlier claim in public is a good PR.
+- **Merit, not payment.** PRs are reviewed and accepted on what they fix.
+  Opening one creates no payment obligation on either side, and a PR must
+  not be conditional on one. Proposals for paid work go to
+  **mike@agent402.tools**, not into a PR or an issue.
+- **Money-path changes are reviewed as a set.** Anything touching payments,
+  the router's buyer, or settlement is landed alongside our own next round
+  of changes there rather than merged alone, however green the checks are.
+  A closed PR of that kind is not a rejection; the branch stays referenced.
+
+## Report a defect
+
+The best issue is one we can replay: the exact request, the status code and
+the body you got, and what you expected. The issue templates ask for exactly
+that. If our index lists your seller wrong, the "Index listing is wrong"
+template wants the row we publish next to what your origin serves. A pitch
+for your own service, or a request that we run a paid test call, is not an
+issue and is closed without comment; listing and routing follow the process
+above and settlement history, never a request. The wiki is edited in [`wiki/`](wiki) in this
 repo (CI syncs it) - don't edit the GitHub wiki directly.
