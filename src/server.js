@@ -355,7 +355,7 @@ import { x402EconomySnapshot, economySnapshotCached, warmEconomySnapshot } from 
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate, sharedPayToClaims } from "./settlement-proof.js";
 import { buildEvidenceBinding, baseLiveGate } from "./evidence-binding.js";
 import { dispatchEligibility, dispatchLegend } from "./dispatch-eligibility.js";
-import { usdcDomainVerdict, usdcDomainMismatchDetail } from "./evm-usdc-domain.js";
+import { usdcDomainVerdict, usdcDomainMismatchDetail, unsignableByStockBuyer } from "./evm-usdc-domain.js";
 import { acceptsFromLive402 } from "./x402-live-quote.js";
 import { spend as sharedSpend, refund as sharedRefund, sharedLimitEnabled } from "./shared-limit.js";
 import { recordSale, salesSummary, externalByNetwork, mppSales, cardSales, mppTxHashes, txFromPaymentResponse, tempoDailyRevenue, tempoDailyRecordingSince, proofFeed, externalDailyRevenue, payerUsage, feedbackByTool, badFeedback } from "./sales-ledger.js";
@@ -1398,7 +1398,10 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
           await readLivePayTo();
           const liveBase = (liveAccepts || []).find((a) => a?.network === "eip155:8453" && String(a?.scheme || "exact") === "exact");
           const domain = liveBase ? usdcDomainVerdict(liveBase) : { verdict: "unknown" };
-          if (domain.verdict === "wrong_domain") {
+          // Both unsignable verdicts skip the seller HERE, before anything is
+          // signed - a Gateway-rail accept used to pass this gate as "unknown"
+          // and be refused one hop later in payX402, a wasted resolution.
+          if (unsignableByStockBuyer(domain)) {
             console.warn(`[sor] refusing ${r.seller}: ${usdcDomainMismatchDetail(domain)}`);
             live = false;
           }

@@ -114,7 +114,10 @@ ok(dispatchEligibility({ local: true }).reason === "local_catalog" && dispatchEl
   // LIVE accept after the probe (a seller who fixed it since the crawl is
   // admitted; one who broke it since is not).
   ok(/usdcDomain: r\.evmDomainByNetwork\?\.\["eip155:8453"\] \|\| null \}\)\.chains\.base\?\.eligible === true\)/.test(fn), "the resolver's pre-probe Base gate passes the crawl's domain observation");
-  ok(/usdcDomainVerdict\(liveBase\)/.test(fn) && /wrong_domain/.test(fn) && /live = false/.test(fn.slice(fn.indexOf("usdcDomainVerdict(liveBase)"))), "the resolver re-reads the LIVE Base accept's domain after the probe and refuses a wrong one");
+  // The gate must go through the shared predicate, not a string compare: a
+  // Gateway-rail accept used to pass here as "unknown" and be refused one hop
+  // later in payX402, and the next unsignable rail would do the same.
+  ok(/usdcDomainVerdict\(liveBase\)/.test(fn) && /unsignableByStockBuyer\(domain\)/.test(fn) && !/domain\.verdict === "wrong_domain"/.test(fn) && /live = false/.test(fn.slice(fn.indexOf("usdcDomainVerdict(liveBase)"))), "the resolver re-reads the LIVE Base accept's domain after the probe and refuses every unsignable verdict through unsignableByStockBuyer, never a bare wrong_domain compare");
   ok(/usdcDomain: row\.evmDomainByNetwork\?\.\["eip155:8453"\] \|\| null,/.test(server), "withDispatchFields hands the row's observation to the label");
   const buyer = readFileSync(new URL("../src/x402-buyer.js", import.meta.url), "utf8");
   const pay = buyer.slice(buyer.indexOf("export async function payX402("));
