@@ -45,6 +45,12 @@ const BUYER_DAYS = [
   { day: "2026-06-20", buyers: 3, newBuyers: 3, returningBuyers: 0, cumulative: 3, unattributed: 0 },
   { day: "2026-06-21", buyers: 4, newBuyers: 1, returningBuyers: 3, cumulative: 4, unattributed: 0 },
 ];
+// Both days sit in ISO week 2026-06-15 (Mon). The union of the two days'
+// buyer sets is 4, which is what the server's weekly row carries; summing the
+// daily rows would say 7.
+const BUYER_WEEKS = [
+  { week: "2026-06-15", weekEnd: "2026-06-21", buyers: 4, newBuyers: 4, returningBuyers: 0, cumulative: 4, unattributed: 0, daysCovered: 2, partial: false },
+];
 const CONC = { buyers: 4, payments: 40, topSharePct: 55.0, top5SharePct: 100 };
 const FREE_DAYS = [
   { day: "2026-06-20", usdc: 4, pow: 40, heartbeat: 2 },
@@ -71,7 +77,7 @@ async function boot({ freeFails = false, tempoDays = [], tempoFails = false } = 
     pretendToBeVisual: true,
     beforeParse(w) {
       w.fetch = (url) => {
-        if (String(url).includes("/api/revenue/daily")) return Promise.resolve({ json: () => Promise.resolve({ days: REV_DAYS, buyers: BUYER_DAYS, concentration: CONC }) });
+        if (String(url).includes("/api/revenue/daily")) return Promise.resolve({ json: () => Promise.resolve({ days: REV_DAYS, buyers: BUYER_DAYS, buyersWeekly: BUYER_WEEKS, concentration: CONC }) });
         if (String(url).includes("/api/revenue/tempo-daily")) {
           return tempoFails ? Promise.reject(new Error("down"))
             : Promise.resolve({ json: () => Promise.resolve({ days: tempoDays, recordingSince: tempoDays.length ? tempoDays[0].day : null }) });
@@ -188,6 +194,20 @@ console.log("revenue chart — free-tier lane");
 
 {
   const w = await boot();
+  check("weekly transactions fold two days of one ISO week into one bar, per chain and per folded Other chain", () => {
+    click(w, "rvzMetric", "tx");
+    click(w, "rvzScope", "both");
+    click(w, "rvzMode", "weekly");
+    const rows = [...w.document.querySelectorAll("#rvzTable tr")].slice(1);
+    assert.equal(rows.length, 1, `two June days in one ISO week must render one weekly row, got ${rows.length}`);
+    assert.ok(rows[0].textContent.includes("2026-06-15"), `weekly row keyed on the Monday: ${rows[0].textContent}`);
+    // Sei 3 + Optimism 2 internal tx on 06-21 stay itemized under Other.
+    const html = w.document.getElementById("rvzTable").innerHTML;
+    assert.ok(/Sei/.test(html) && /Optimism/.test(html), "folded chains stay itemized in the weekly table");
+    click(w, "rvzScope", "ext");
+    click(w, "rvzMode", "daily");
+  });
+
   check("Buyers shows new and returning lanes, not chains", () => {
     click(w, "rvzMode", "daily");
     click(w, "rvzMetric", "buyers");
@@ -204,6 +224,17 @@ console.log("revenue chart — free-tier lane");
     // total is 4, which is what the server's cumulative field carries.
     assert.ok(txt.includes("4"), "expected the union value 4");
     assert.ok(!/\b7\b/.test(txt), `summed daily counts leaked into the cumulative view: ${txt.slice(0, 160)}`);
+  });
+
+  check("weekly buyers is the server's weekly union, never a sum of daily rows", () => {
+    click(w, "rvzMode", "weekly");
+    click(w, "rvzMetric", "buyers");
+    const cells = [...w.document.querySelectorAll("#rvzTable tr")].slice(1).map((tr) => [...tr.querySelectorAll("td")].map((td) => td.textContent));
+    assert.equal(cells.length, 1, `one weekly row, got ${cells.length}`);
+    assert.equal(cells[0][0], "2026-06-15", `weekly rows key on the Monday: ${cells[0].join("|")}`);
+    assert.ok(cells[0].includes("4") && !cells[0].includes("7"), `expected the weekly union 4 and never the daily sum 7: ${cells[0].join("|")}`);
+    assert.ok(w.document.querySelector("#rvzTable th").textContent.includes("week of"), "table header says week of");
+    click(w, "rvzMode", "cum");
   });
 
   check("the note answers the concentration question with real numbers", () => {

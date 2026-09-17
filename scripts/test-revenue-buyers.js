@@ -20,7 +20,7 @@ const dir = mkdtempSync(join(tmpdir(), "a402-buyers-"));
 process.env.REVENUE_LEDGER_DB = join(dir, "ledger.db");
 process.env.REVENUE_DAILY_START = "2026-06-15";
 
-const { recordTransfer, ledgerBuyersDaily, ledgerBuyerRetention, ledgerDaily, ledgerSyncState, nextChunkSpan, LEDGER_BLOCK_MS } = await import("../src/revenue-ledger.js");
+const { recordTransfer, ledgerBuyersDaily, ledgerBuyersWeekly, weekStartOf, ledgerBuyerRetention, ledgerDaily, ledgerSyncState, nextChunkSpan, LEDGER_BLOCK_MS } = await import("../src/revenue-ledger.js");
 
 const WALLET = "0xwallet";
 const day = (d) => Math.floor(Date.parse(`${d}T12:00:00Z`) / 1000);
@@ -76,6 +76,38 @@ check("cumulative is a running union, never a sum of daily counts", () => {
   // Monotonic, and never above the true distinct total.
   let prev = 0;
   for (const r of rows) { assert.ok(r.cumulative >= prev, "cumulative went backwards"); prev = r.cumulative; }
+});
+
+// Weekly, on the same seed: 06-20 (Sat) and 06-21 (Sun) are ISO week
+// 2026-06-15; 06-22 (Mon) opens week 2026-06-22.
+const weekly = ledgerBuyersWeekly(wallets);
+const wk = (d) => weekly.find((r) => r.week === d);
+check("weekStartOf lands on the Monday (UTC) of the ISO week", () => {
+  assert.equal(weekStartOf("2026-06-20"), "2026-06-15");
+  assert.equal(weekStartOf("2026-06-21"), "2026-06-15");
+  assert.equal(weekStartOf("2026-06-22"), "2026-06-22");
+  assert.equal(weekStartOf("2026-06-15"), "2026-06-15");
+});
+check("a week's distinct count is the UNION of its days, never the sum of daily counts", () => {
+  // alice on Sat and Sun, bob on Sun: daily counts 1 + 2 = 3, distinct = 2.
+  assert.equal(wk("2026-06-15").buyers, 2);
+  assert.equal(wk("2026-06-15").daysCovered, 2);
+});
+check("new-in-week counts a buyer once, in the week of their first-ever payment", () => {
+  assert.equal(wk("2026-06-15").newBuyers, 2);
+  assert.equal(wk("2026-06-15").returningBuyers, 0);
+  assert.equal(wk("2026-06-22").newBuyers, 0);
+  assert.equal(wk("2026-06-22").returningBuyers, 1);
+  assert.equal(wk("2026-06-22").buyers, 1);
+});
+check("weekly cumulative is the same running union the daily series carries", () => {
+  assert.equal(wk("2026-06-15").cumulative, 2);
+  assert.equal(wk("2026-06-22").cumulative, on(rows, "2026-06-22").cumulative);
+});
+check("weekly rows carry the Sunday and a partial flag for the week still running", () => {
+  assert.equal(wk("2026-06-15").weekEnd, "2026-06-21");
+  assert.equal(wk("2026-06-15").partial, false);
+  assert.ok(weekly.every((r) => r.partial === (r.weekEnd >= new Date().toISOString().slice(0, 10))), "partial iff the week end is today or later");
 });
 
 check("base58 and Stellar addresses are never case-folded together", () => {

@@ -802,7 +802,18 @@ export function ledgerDaily(wallets, mppTx = null) {
  * Returns counts only. Buyer addresses are public on-chain, but publishing a
  * per-day roster of who pays us is a customer list, so it stays out.
  */
-export function ledgerBuyersDaily(wallets) {
+/** Monday (UTC) of the ISO week holding a YYYY-MM-DD day, as YYYY-MM-DD. */
+export function weekStartOf(day) {
+  const d = new Date(`${day}T00:00:00Z`);
+  const dow = (d.getUTCDay() + 6) % 7; // Monday = 0
+  d.setUTCDate(d.getUTCDate() - dow);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Per-day payer sets + first-seen map + unattributed counts, across ALL
+ *  history. Shared by the daily and weekly buyer series so the two can never
+ *  disagree about who a buyer is or when they were first seen. */
+function buyerDaySets(wallets) {
   const rows = db.prepare("SELECT chain, wallet, block, when_ts, usd, external, payer FROM transfers WHERE wallet = ?");
   const chains = walletPairs(wallets);
   const byDay = new Map(); // day -> Set(payer)
@@ -835,6 +846,11 @@ export function ledgerBuyersDaily(wallets) {
 
   const start = process.env.REVENUE_DAILY_START || "2026-06-15";
   const allDays = [...new Set([...byDay.keys(), ...unattributed.keys()])].sort();
+  return { byDay, unattributed, firstSeen, allDays, start };
+}
+
+export function ledgerBuyersDaily(wallets) {
+  const { byDay, unattributed, firstSeen, allDays, start } = buyerDaySets(wallets);
   const seen = new Set();
   const out = [];
   for (const day of allDays) {
@@ -852,6 +868,56 @@ export function ledgerBuyersDaily(wallets) {
       returningBuyers: set.size - fresh,
       cumulative: seen.size,
       unattributed: unattributed.get(day) || 0,
+    });
+  }
+  return out;
+}
+
+/**
+ * Distinct external buyers per ISO week (Monday-start, UTC). The same four
+ * invariants as the daily series, and one more that only exists at this
+ * grain: a WEEK'S distinct count is the union of its days, never the sum of
+ * the daily counts - a buyer paying on Monday and Wednesday is one weekly
+ * buyer, and summing the daily rows would report two. That is why the client
+ * cannot fold the daily series itself and this is served instead.
+ *
+ * `week` is the Monday; `weekEnd` the Sunday; the newest week is usually
+ * partial and says so (`partial: true`, `daysCovered`) so a reader does not
+ * compare a two-day week against seven-day ones. A buyer is `new` in the week
+ * of their first-ever payment across all history, whatever the chart epoch.
+ */
+export function ledgerBuyersWeekly(wallets) {
+  const { byDay, unattributed, firstSeen, allDays, start } = buyerDaySets(wallets);
+  const seen = new Set();
+  const weeks = new Map(); // monday -> { set, fresh, unattributed, days }
+  for (const day of allDays) {
+    const set = byDay.get(day) || new Set();
+    for (const p of set) seen.add(p);
+    if (day < start) continue;
+    const wk = weekStartOf(day);
+    let w = weeks.get(wk);
+    if (!w) { w = { set: new Set(), fresh: new Set(), unattributed: 0, days: new Set(), cumulative: 0 }; weeks.set(wk, w); }
+    for (const p of set) { w.set.add(p); if (weekStartOf(firstSeen.get(p)) === wk) w.fresh.add(p); }
+    w.unattributed += unattributed.get(day) || 0;
+    w.days.add(day);
+    w.cumulative = seen.size; // union as of the last day of the week seen so far
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const out = [];
+  for (const wk of [...weeks.keys()].sort()) {
+    const w = weeks.get(wk);
+    const end = new Date(`${wk}T00:00:00Z`); end.setUTCDate(end.getUTCDate() + 6);
+    const weekEnd = end.toISOString().slice(0, 10);
+    out.push({
+      week: wk,
+      weekEnd,
+      buyers: w.set.size,
+      newBuyers: w.fresh.size,
+      returningBuyers: w.set.size - w.fresh.size,
+      cumulative: w.cumulative,
+      unattributed: w.unattributed,
+      daysCovered: w.days.size,
+      partial: weekEnd >= today,
     });
   }
   return out;

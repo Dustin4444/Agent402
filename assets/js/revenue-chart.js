@@ -13,7 +13,10 @@
       if(state.metric!=="buyers")return CHAIN_ORDER;
       return state.mode==="cum"?["cumbuyers"]:["newbuyers","retbuyers"];
     }
-    var state={mode:"cum",metric:"usd",scope:"ext",wire:"all",traffic:"paid",settle:"all",rows:[],free:[],freeSince:null,tempo:[],tempoSince:null,buyers:[],conc:null,ret:null};
+    var state={mode:"cum",metric:"usd",scope:"ext",wire:"all",traffic:"paid",settle:"all",rows:[],free:[],freeSince:null,tempo:[],tempoSince:null,buyers:[],buyersWeekly:[],conc:null,ret:null};
+    // Monday (UTC) of the ISO week holding a YYYY-MM-DD day. Weekly bars are
+    // keyed on it; the label reads "week of <Monday>".
+    function weekOf(day){var d=new Date(day+"T00:00:00Z");d.setUTCDate(d.getUTCDate()-((d.getUTCDay()+6)%7));return d.toISOString().slice(0,10)}
     var css=function(n){return getComputedStyle(document.getElementById("rvz")).getPropertyValue("--s"+n).trim()};
     function slotOf(chain){return SLOTS[chain]||8}
     function chainName(c){return c==="robinhood"?"Robinhood":c.charAt(0).toUpperCase()+c.slice(1)}
@@ -41,6 +44,12 @@
       var days={};
       function dayOf(k){return days[k]||(days[k]={day:k,slots:{}})}
       if(state.metric==="buyers"){
+        // Weekly buyers come from the SERVER'S weekly series, never a fold of
+        // the daily rows: a week's distinct count is the union of its days,
+        // and a buyer paying Monday and Wednesday is one buyer, not two.
+        if(state.mode==="weekly"){
+          return (state.buyersWeekly||[]).map(function(r){
+            return {day:r.week,week:true,partial:!!r.partial,slots:{newbuyers:r.newBuyers,retbuyers:r.returningBuyers}}})}
         // Cumulative uses the server's running UNION, never an accumulation of
         // the daily counts: summing distinct counts double counts every
         // returning buyer and would draw a rising line over a flat reality.
@@ -76,6 +85,13 @@
       if(state.traffic!=="paid"&&state.metric==="tx"){
         state.free.forEach(function(r){var d=dayOf(r.day);d.slots.free=(d.slots.free||0)+(r.pow||0)})}
       var list=Object.keys(days).sort().map(function(k){return days[k]});
+      // Weekly: dollars and transaction counts are additive, so a week is the
+      // plain sum of its days, per lane and per folded "Other" chain. (Buyers
+      // are not additive and never reach this branch - see above.)
+      if(state.mode==="weekly"){var wk={};list.forEach(function(d){var k=weekOf(d.day);var w=wk[k]||(wk[k]={day:k,week:true,slots:{},oth:{}});
+        for(var s in d.slots)w.slots[s]=(w.slots[s]||0)+d.slots[s];
+        if(d.oth)for(var c in d.oth)w.oth[c]=(w.oth[c]||0)+d.oth[c]});
+        list=Object.keys(wk).sort().map(function(k){return wk[k]})}
       if(state.mode==="cum"){var acc={},accO={};list.forEach(function(d){var O=ORDERS();for(var k=0;k<O.length;k++){var s=O[k];
         acc[s]=(acc[s]||0)+(d.slots[s]||0);d.slots[s]=acc[s]}
         if(d.oth){for(var c in d.oth)accO[c]=(accO[c]||0)+d.oth[c]}
@@ -111,7 +127,7 @@
           rows+='<div><i style="display:inline-block;width:8px;height:8px;background:'+css(s)+';margin-right:5px"></i>'+NAMES[s]+" "+fmt(v)+"</div>";
           if(s===8&&d.oth){Object.keys(d.oth).sort().forEach(function(c){if(d.oth[c]>0)
             rows+='<div style="padding-left:13px;color:var(--muted)">'+chainName(c)+" "+fmt(d.oth[c])+"</div>"})}}
-        tip.innerHTML="<b>"+d.day+"</b>"+rows+"<div style='border-top:1px dashed var(--dark-border2);margin-top:3px'>total "+fmt(tot)+"</div>";
+        tip.innerHTML="<b>"+(d.week?"week of "+d.day+(d.partial?" (in progress)":""):d.day)+"</b>"+rows+"<div style='border-top:1px dashed var(--dark-border2);margin-top:3px'>total "+fmt(tot)+"</div>";
         var wr=document.querySelector(".rvz-wrap").getBoundingClientRect();
         tip.style.display="block";tip.style.left=Math.min(ev.clientX-wr.left+14,wr.width-270)+"px";tip.style.top=(ev.clientY-wr.top+10)+"px"};
       svg.onmouseleave=function(){tip.style.display="none"};
@@ -158,7 +174,7 @@
       // "Other" gets one muted sub-column per folded chain (a subset of the
       // Other column, so they never add to the row total).
       var othList=Object.keys(othChains).sort();
-      var tb='<table><tr><th>day</th>';Object.keys(present).forEach(function(s){tb+="<th>"+NAMES[s]+"</th>";
+      var tb='<table><tr><th>'+(state.mode==="weekly"?"week of":"day")+'</th>';Object.keys(present).forEach(function(s){tb+="<th>"+NAMES[s]+"</th>";
         if(String(s)==="8")othList.forEach(function(c){tb+='<th style="color:var(--muted)">· '+chainName(c)+"</th>"})});tb+="<th>total</th></tr>";
       data.forEach(function(d){var tot=0;tb+="<tr><td>"+d.day+"</td>";Object.keys(present).forEach(function(s){var v=d.slots[s]||0;tot+=v;tb+="<td>"+fmt(v)+"</td>";
         if(String(s)==="8")othList.forEach(function(c){tb+='<td style="color:var(--muted)">'+fmt((d.oth||{})[c]||0)+"</td>"})});tb+="<td>"+fmt(tot)+"</td></tr>"});
@@ -269,6 +285,7 @@
       state.tempo=res[2].days||[];
       state.tempoSince=res[2].recordingSince||null;
       state.buyers=res[0].buyers||[];
+      state.buyersWeekly=res[0].buyersWeekly||[];
       state.conc=res[0].concentration||null;
       state.ret=res[0].retention||null;
       render();
