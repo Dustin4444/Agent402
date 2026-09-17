@@ -42,6 +42,20 @@ jobs:
 
       # No install: dependency-free on purpose, so a broken lockfile can never
       # be the reason a buyer's bug report goes unread a second time.
+      # What a person already judged: the bodies of every earlier fault issue,
+      # open or closed. A report sitting inside the window re-scans every day;
+      # without this the same line opened #1370 and then #1373 a day apart.
+      # An unreadable listing writes an empty file = nothing judged = the scan
+      # pages on everything, which is the right way for this step to fail.
+      - name: Gather the reports already judged
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue list --repo "$GITHUB_REPOSITORY" --state all --limit 100 \
+            --search '"Buyer reported a fault via the wish board" in:title' \
+            --json body --jq '.[].body' > /tmp/judged.txt 2>/dev/null || : > /tmp/judged.txt
+          echo "judged issue bodies: $(wc -c < /tmp/judged.txt) bytes"
+
       - name: Read the board
         id: scan
         continue-on-error: true
@@ -49,6 +63,7 @@ jobs:
           AGENT402_OPERATOR_TOKEN: ${{ secrets.AGENT402_OPERATOR_TOKEN }}
           TARGET_URL: https://agent402.tools
           WISH_REPORT_DAYS: ${{ inputs.days || '7' }}
+          WISH_REPORT_JUDGED_FILE: /tmp/judged.txt
         run: node scripts/wish-reports.mjs 2>&1 | tee /tmp/reports.log
 
       - name: Open an issue when a buyer reported a fault
