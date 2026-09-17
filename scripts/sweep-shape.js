@@ -46,6 +46,7 @@ export const EMPTY_ARRAY_OK = new Map([
   // Legitimately empty for the example's own subject, not a defect:
   ["/api/stock-dividends", "splits"],         // a stock that has never split
   ["/api/dividend-calendar", "entries"],      // no US ex-dividend dates on a weekend
+  ["/api/weather-alerts", "alerts"],          // a state with no active NWS alert at that minute (CA read 0 on 2026-09-17 13:48Z); count 0 is the honest answer
   ["/api/nft-metadata", "attributes"],        // a token whose collection publishes no traits
   ["/api/coin-profile", "platforms"],         // a native coin has no contract addresses
   ["/api/memory/grants", "grants"],           // a fresh store holds no grants
