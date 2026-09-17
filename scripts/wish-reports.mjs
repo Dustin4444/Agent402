@@ -48,6 +48,25 @@ export function isFaultReport(text) {
   return FAILURE.test(t) && OURS.test(t);
 }
 
+/** A report a person has already judged is not re-filed. The workflow hands
+ *  in the bodies of every earlier "Buyer reported a fault" issue, open or
+ *  closed; a report whose exact text (or exact lastSeen) appears there was
+ *  read and decided on, and the same pitch sitting inside the 7-day window
+ *  must not open a fresh issue every morning (#1370 then #1373, the same
+ *  2026-09-14 line, one day apart). Matching is on the WHOLE text line, so a
+ *  new report that merely shares words with an old one still files. */
+export function unjudgedReports(reports, judgedText) {
+  const judged = String(judgedText || "");
+  if (!judged) return { fresh: reports, judged: [] };
+  const fresh = [], seen = [];
+  for (const r of reports) {
+    const text = String(r.text || "").trim();
+    const hit = (text && judged.includes(text)) || (r.lastSeen && judged.includes(String(r.lastSeen)));
+    (hit ? seen : fresh).push(r);
+  }
+  return { fresh, judged: seen };
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   if (!TOKEN) {
     console.error("::error::AGENT402_OPERATOR_TOKEN is not set - refusing to report a clean board it cannot read");
@@ -67,10 +86,18 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
   // Explicit wishes only. A find-miss is a search that missed - it carries no
   // sentence a person wrote, so it cannot be a fault report.
-  const reports = clusters.filter((c) => (c.sources?.api || 0) + (c.sources?.mcp || 0) > 0 && isFaultReport(c.text));
+  const all = clusters.filter((c) => (c.sources?.api || 0) + (c.sources?.mcp || 0) > 0 && isFaultReport(c.text));
+  // WISH_REPORT_JUDGED_FILE: bodies of the earlier issues (open or closed),
+  // gathered by the workflow. Unset or unreadable = nothing judged = every
+  // report is fresh, which errs toward paging, never toward silence.
+  let judgedText = "";
+  if (process.env.WISH_REPORT_JUDGED_FILE) {
+    try { judgedText = (await import("node:fs")).readFileSync(process.env.WISH_REPORT_JUDGED_FILE, "utf8"); } catch { judgedText = ""; }
+  }
+  const { fresh: reports, judged } = unjudgedReports(all, judgedText);
 
   console.log(`board: ${board.liveClusters ?? board.distinctClusters} live clusters, ${clusters.length} touched in ${DAYS}d`);
-  console.log(`fault reports: ${reports.length}`);
+  console.log(`fault reports: ${reports.length}${judged.length ? ` (${judged.length} already judged in an earlier issue, not re-filed)` : ""}`);
   for (const r of reports) {
     console.log(`\n  ${r.lastSeen}${ADVERT.test(r.text) ? "  (also reads like a pitch - judge it yourself)" : ""}`);
     console.log(`  ${r.text}`);

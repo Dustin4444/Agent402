@@ -8,7 +8,7 @@
 //
 // Both halves are pinned with real strings taken from the live board.
 import { strict as assert } from "node:assert";
-import { isFaultReport } from "./wish-reports.mjs";
+import { isFaultReport, unjudgedReports } from "./wish-reports.mjs";
 
 let n = 0;
 const ok = (c, m) => { assert.ok(c, m); n++; };
@@ -75,4 +75,18 @@ for (const [token, probe] of [
 for (const w of ["returns 502", "returns 404", "is broken", "fails", "times out", "timed out", "cannot connect", "please fix", "refund me", "charged twice", "returned nothing", "no response"])
   ok(isFaultReport(`your api ${w}`), `failure vocabulary is live: "${w}"`);
 
+// --- a report a person already judged is not re-filed ----------------------
+{
+  const pitch = { lastSeen: "2026-09-14T14:38:23.411Z", text: "direct x402 buy: get https://example.trycloudflare.com/api/brief returns 402 for a brief - $7 usdc base. settle with payment-signature to that url (not via router)." };
+  const fresh = { lastSeen: "2026-09-17T09:00:00.000Z", text: "route-execute returns 502 after payment on every external seller since this morning" };
+  const issueBody = `A buyer reported a fault through the wish board.\n\n\`\`\`\nfault reports: 1\n\n  ${pitch.lastSeen}  (also reads like a pitch - judge it yourself)\n  ${pitch.text}\n\`\`\``;
+  let r = unjudgedReports([pitch, fresh], issueBody);
+  ok(r.fresh.length === 1 && r.fresh[0] === fresh && r.judged.length === 1 && r.judged[0] === pitch, "a report whose exact line sits in an earlier issue body is judged; a new report beside it stays fresh");
+  r = unjudgedReports([pitch, fresh], "");
+  ok(r.fresh.length === 2 && r.judged.length === 0, "no judged bodies (unset or unreadable file) = every report is fresh - the failure direction is paging, never silence");
+  r = unjudgedReports([{ lastSeen: "2026-09-18T00:00:00.000Z", text: "your api/render fails with a timeout, charged each time" }], issueBody);
+  ok(r.fresh.length === 1, "sharing words with a judged report is not enough - the whole line must match");
+  r = unjudgedReports([{ lastSeen: pitch.lastSeen, text: "reworded copy of the same pitch" }], issueBody);
+  ok(r.judged.length === 1, "the exact lastSeen of a judged report also counts (a cluster whose text was edited but whose timestamp was already filed)");
+}
 console.log(`test-wish-reports: ${n} assertions OK`);
