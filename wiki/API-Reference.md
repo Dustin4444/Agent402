@@ -61,6 +61,8 @@ curl https://agent402.tools/api/pricing
 | `GET /openapi.json` | OpenAPI **3.1.0** spec for all tool endpoints |
 | `GET /llms.txt` | Agent-oriented plain-text catalog description |
 | `GET /.well-known/x402` | x402 service manifest (payment capabilities, networks, wallet) |
+| `GET /.well-known/agent-card.json` | Our A2A AgentCard (also served at `/.well-known/agent.json`). Declares `HTTP+JSON`, not the spec's default `JSONRPC`, because that default implies a JSON-RPC endpoint we do not run |
+| `GET /.well-known/agent-registration.json` | Our ERC-8004 registration file: agent **94639** in the identity registry at `eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`, owned by the wallet our 402s name as payTo. Lists every way to reach us and declares `x402Support` |
 | `GET /api/reliability` | Uptime and health report |
 | `GET /api/stats` | Aggregate call counts, revenue, cache statistics |
 | `GET /api/leaderboard?top={n}&include={all\|external}&sort={usd\|calls}` | On-chain ranking of x402 sellers by Base USDC volume |

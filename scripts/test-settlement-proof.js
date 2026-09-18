@@ -228,10 +228,42 @@ const merchant = (m, payments, payers = 3, volumeUsd = 1) => ({ merchant: m, pay
   ok(/provenPayTo:\s*provenPayToByOrigin\?\.get\(norm\(r\.seller\)\)/.test(server),
     "resolveExternalSeller returns provenPayTo, so the spend has an address to bind against");
   const buyer = readFileSync(new URL("../src/x402-buyer.js", import.meta.url), "utf8");
-  ok(/provenPayToMatches\(\{\s*provenPayTo,\s*livePayTo:\s*payable\.payTo\s*\}\)/.test(buyer),
+  // `payable.payTo` is the whole point (the accept being signed, never
+  // accepts[0]); anything after it is allowed, because the call gained an
+  // address FAMILY when the Algorand rail started using this binding too
+  // (2026-09-18) and a pin that forbids a second argument would have to be
+  // rewritten for every rail rather than guarding the one thing it is for.
+  ok(/provenPayToMatches\(\{\s*provenPayTo,\s*livePayTo:\s*payable\.payTo\s*[,}]/.test(buyer),
     "payX402 binds against `payable` - the accept it signs - and not accepts[0]");
   ok(buyer.indexOf("provenPayToMatches") < buyer.indexOf("const spendToken = reserveSpend"),
     "the binding runs BEFORE any spend is held or signed, so a mismatch costs nothing");
+}
+
+// The ALGORAND family of the same helper (2026-09-18). EVM addresses are hex
+// and fold; an Algorand address is uppercase base32 with a checksum, so a
+// lowercased one is not that address and must never be folded into a match -
+// the base58/strkey rule from src/payer.js, one chain over.
+//
+// These live here because this file owns the helper. They are a SECOND home
+// for the rule, not its only one: test-algorand-router.js pins the same
+// mutation through the resolver. The commit that added this block claimed the
+// mutation "passed the whole suite", which was wrong - it passed THIS file,
+// which was the only one its author re-ran. Two suites kill it, and the
+// correction is recorded here because a false claim about coverage is worse
+// than the duplication it was offered to justify.
+{
+  const ALGO_A = "A".repeat(58);
+  const ALGO_B = "B".repeat(58);
+  ok(provenPayToMatches({ provenPayTo: ALGO_A, livePayTo: ALGO_A, family: "algorand" }).verdict === "match",
+    "algorand: the same advertised and live address is a match");
+  ok(provenPayToMatches({ provenPayTo: ALGO_A, livePayTo: ALGO_B, family: "algorand" }).verdict === "mismatch",
+    "algorand: a different live address is a mismatch, which is what refuses the seller");
+  ok(provenPayToMatches({ provenPayTo: ALGO_A, livePayTo: ALGO_A.toLowerCase(), family: "algorand" }).verdict !== "match",
+    "algorand: a lowercased address is NOT folded into a match");
+  ok(provenPayToMatches({ provenPayTo: ALGO_A, livePayTo: null, family: "algorand" }).verdict === "unknown",
+    "algorand: an unreadable live payTo is unknown, and unknown never blocks");
+  ok(provenPayToMatches({ provenPayTo: "0x" + "a".repeat(40), livePayTo: "0x" + "a".repeat(40), family: "algorand" }).verdict === "unknown",
+    "algorand: an EVM address in the algorand family is not an address at all");
 }
 
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);

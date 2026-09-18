@@ -165,7 +165,7 @@ export async function proveCrawledResources(resources, countInbound) {
   return proved;
 }
 
-/** The cached facilitator catalog./** The cached facilitator catalog. Stale cache is served while a deduped
+/** The cached facilitator catalog. Stale cache is served while a deduped
  *  background refresh runs; only a cold cache awaits the build. Failure ->
  *  last known list (possibly empty), never throws. */
 let sources = { crawledResources: null, countInbound: null };

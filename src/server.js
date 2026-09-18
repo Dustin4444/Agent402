@@ -1223,9 +1223,15 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
         networks: r.networks, wire: "mpp", settled: r.settled,
       }));
   } else if (chain === "algorand") {
-    // Algorand sellers live in the GoPlausible facilitator catalog, not our
-    // Base-centric index — discovery AND proven-ness both come from there
-    // (src/algorand-sellers.js). Same shape out: url/method/price/networks.
+    // Algorand sellers come from the GoPlausible facilitator catalog AND from
+    // our own crawl (src/algorand-sellers.js, 2026-09-18). The two halves carry
+    // DIFFERENT evidence, which is why the candidate says which it is:
+    // GoPlausible's `verifs` is a facilitator's own witness of settlements to
+    // its merchant, while a crawl-only row's count is inbound USDC-ASA
+    // transfers read on the payTo THE SELLER ADVERTISES - an assertion, not a
+    // proof of control. So a crawl-proven row carries that address through as
+    // `chainProvenPayTo` and the probe loop below refuses it unless the live
+    // 402 asks us to pay the same one. Same shape out: url/method/price/networks.
     const { algorandCatalog, rankAlgorandResources } = await import("./algorand-sellers.js");
     const ourOrigin = (() => { try { return new URL(BASE_URL).origin.toLowerCase(); } catch { return ""; } })();
     candidates = rankAlgorandResources(await algorandCatalog(), task, { capUsd: cap, minVerifs: SOR_MIN_SETTLED_TX, excludeOrigin: ourOrigin })
@@ -1234,6 +1240,12 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
         seller: r.origin, slug: r.path.replace(/^\//, ""), url: r.url, method: r.method,
         price: `$${r.priceUsd}`, priceUsd: r.priceUsd,
         networks: ["algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8="], settled: r.verifs,
+        // Only a row whose count we read from the chain ourselves. A
+        // facilitator-witnessed row ("both"/undefined) keeps GoPlausible's
+        // count, so comparing its advertised address against the live one
+        // would be comparing two assertions and could refuse a seller that is
+        // genuinely proven.
+        chainProvenPayTo: r.source === "crawl" && typeof r.payTo === "string" ? r.payTo : null,
       }));
   } else if (chain === "solana") {
     // Solana sellers come from the SAME crawled index as Base ones - their
@@ -1408,6 +1420,29 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
             live = false;
           }
         }
+        // ALGORAND, the same rule the Base binding closed on 2026-09-03 and the
+        // crawl half reopened on this chain (2026-09-18). The count that let
+        // this candidate past the settlement floor was measured on an address
+        // the seller merely ADVERTISED, so without this an origin naming any
+        // busy Algorand USDC address - an exchange deposit address will do,
+        // no victim relationship needed - inherits its whole history for free
+        // and then serves a 402 naming its own address, which is the one we
+        // sign for (pickPayableAccept binds network + scheme + asset, never
+        // payTo). UNKNOWN does not block; only a positive mismatch does.
+        if (live && chain === "algorand" && r.chainProvenPayTo) {
+          await readLivePayTo();
+          const hit = (liveAccepts || []).find((a) =>
+            String(a?.network || "").toLowerCase().startsWith("algorand:wghe2pwd") && a?.payTo);
+          const verdict = provenPayToMatches({
+            provenPayTo: r.chainProvenPayTo,
+            livePayTo: hit ? String(hit.payTo) : null,
+            family: "algorand",
+          });
+          if (verdict.verdict === "mismatch") {
+            console.warn(`[sor] refusing ${r.seller}: ${verdict.reason} (proven ${verdict.provenPayTo}, live ${verdict.livePayTo})`);
+            live = false;
+          }
+        }
         if (provenPayTo) {
           const verdict = provenPayToMatches({ provenPayTo, livePayTo: await readLivePayTo() });
           if (verdict.verdict === "mismatch") {
@@ -1445,7 +1480,7 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
     // `wire` rides through: a Tempo candidate settles over MPP and its receipt
     // must say so (the first live Tempo SOR buy labelled it x402, 2026-08-27).
     if (live) {
-      resolved.push({ seller: r.seller, slug: r.slug, url: r.url, method: r.method, price: r.price, priceUsd: r.priceUsd, networks: r.networks, settled: r.settled, wire: r.wire || "x402", provenPayTo: provenPayToByOrigin?.get(norm(r.seller)) || null, route: r.route || null, guaranteedPaths: r.responseContract?.guaranteedPaths || [], ...(r.unproven ? { unproven: true } : {}) });
+      resolved.push({ seller: r.seller, slug: r.slug, url: r.url, method: r.method, price: r.price, priceUsd: r.priceUsd, networks: r.networks, settled: r.settled, wire: r.wire || "x402", provenPayTo: provenPayToByOrigin?.get(norm(r.seller)) || r.chainProvenPayTo || null, route: r.route || null, guaranteedPaths: r.responseContract?.guaranteedPaths || [], ...(r.unproven ? { unproven: true } : {}) });
       // Only PROVEN candidates count toward the limit: an unproven one must
       // never crowd out a proven seller ranked below it.
       if (resolved.filter((x) => !x.unproven).length >= Math.max(1, limit)) break;
