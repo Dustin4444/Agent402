@@ -868,6 +868,14 @@ export function createMppSubscriptions({
     try {
       verified = Tempo.Subscription.verifySubscriptionKeyAuthorization({
         accessKey: { accessKeyAddress: stored.accessKeyAddress, keyType: stored.keyType },
+        // mppx 0.9.3 binds the key authorization to the server-issued challenge:
+        // the buyer signs the 32-byte challenge id as a witness and verify
+        // recomputes it from `challengeId`. Omitting it throws on 0.9.3 ("challenge
+        // id must encode 32 bytes") for EVERY credential; 0.9.2 ignores the field.
+        // A buyer on mppx <= 0.9.2 signs no witness and is refused by a 0.9.3
+        // server - the spec's intent (an authorization cannot be replayed against
+        // another challenge), and the reason the bump needs the live canary.
+        challengeId: b.challenge.id,
         chainId: TEMPO_MAINNET_CHAIN_ID,
         payload: b.credential.payload,
         request: b.challenge.request,

@@ -2,7 +2,7 @@
 // Returns base64-encoded audio.
 //
 // Tiers:
-//   tts-lite $0.005 — Kokoro-82M via OpenRouter (2000 chars)  [OPENROUTER_API_KEY]
+//   tts-lite $0.005 — Kokoro-82M via OpenRouter (800 chars)   [OPENROUTER_API_KEY]
 //   tts      $0.05  — OpenAI tts-1              (2000 chars)  [OPENAI_API_KEY]
 //   tts-hd   $0.10  — OpenAI tts-1-hd           (2000 chars)  [OPENAI_API_KEY]
 //
@@ -10,13 +10,27 @@
 // best-selling paid tool we have (317 outside settlements, $15.85 - a third of
 // all external revenue), and the route sweep put peers at $0.001 against our
 // $0.05. The spread is in the UPSTREAM, not in our margin: OpenAI tts-1 bills
-// ~$0.000015/char while Kokoro-82M bills $0.00000062 - 24x cheaper, and already
-// a proven link in the /v1/audio/speech failover chain (SPEECH_MODELS,
-// live-verified by the TTS probe workflow). So the answer to a $0.001 peer is a
-// cheaper MODEL at an honest margin, not a cut on the premium voice: at the
-// 2,000-char cap the lite tier's worst case is $0.00124 against $0.005, a 75%
-// margin, the same bound every other tool is priced under. The premium tiers
-// are untouched - a buyer who wants the OpenAI voice still pays for it.
+// ~$0.000015/char while Kokoro-82M billed $0.00000062 when this shipped - 24x
+// cheaper, and already a proven link in the /v1/audio/speech failover chain
+// (SPEECH_MODELS, live-verified by the TTS probe workflow). So the answer to a
+// $0.001 peer is a cheaper MODEL at an honest margin, not a cut on the premium
+// voice. The premium tiers are untouched - a buyer who wants the OpenAI voice
+// still pays for it.
+//
+// CAP CUT 2,000 -> 800 CHARS (2026-09-18): Kokoro gained a second OpenRouter
+// endpoint (Together, $0.000004/char, 6.5x DeepInfra's $0.00000062), and the
+// worst case has to be the DEAREST endpoint because nothing we send can keep a
+// call off it - measured: `provider.order`/`max_price` are ignored on
+// /audio/speech, a Together pin still served DeepInfra. At 2,000 chars that
+// worst case is $0.008 against a $0.005 price, a loss on any full-length call
+// that lands there; found by an upstream audit, not by any guard (the live
+// model guard checked ids, never speech cost rows; it pins them against the
+// dearest endpoint now). The price stays: "$0.005, ten times cheaper than
+// /api/tts" is the front door and the reason the tier exists. At 800 chars the
+// worst case is $0.0032, 64% of price, under the 70% bound. Billing unit is
+// the JS string length (measured: ASCII, CJK, emoji and accented text of equal
+// .length each billed the same 100 "tokens" = 400 chars), so `text.length`
+// counts exactly what OpenRouter bills.
 
 import { redactSecrets } from "./redact.js";
 import { SPEECH_MODELS, OPENROUTER_ATTRIBUTION } from "./llm-gateway-kit.js";
@@ -38,7 +52,7 @@ const FORMATS = new Set(["mp3", "opus", "aac", "flac", "wav", "pcm"]);
 
 const TIERS = {
   // provider "openrouter" reaches Kokoro; "openai" is the original pair.
-  "tts-lite": { model: "hexgrad/kokoro-82m", provider: "openrouter", maxChars: 2000 },
+  "tts-lite": { model: "hexgrad/kokoro-82m", provider: "openrouter", maxChars: 800 },
   tts:        { model: "tts-1",              provider: "openai",     maxChars: 2000 },
   "tts-hd":   { model: "tts-1-hd",           provider: "openai",     maxChars: 2000 },
 };
@@ -189,14 +203,14 @@ export const TTS_TOOLS = [
     category: "ai",
     price: "$0.005",
     description:
-      "Convert text to speech with Kokoro-82M, ten times cheaper than /api/tts. Returns base64-encoded mp3 or pcm. The same request shape and the same ten OpenAI voice names as /api/tts, mapped to Kokoro's own voices; the voice is synthetic-sounding where the OpenAI tiers are not, which is the whole trade. Use this for high-volume narration, notifications and agent speech where the cost per call matters more than the timbre; use /api/tts or /api/tts-hd when it does not. No API key needed; pay per call via x402. Text capped at 2000 chars.",
+      "Convert text to speech with Kokoro-82M, ten times cheaper than /api/tts. Returns base64-encoded mp3 or pcm. The same request shape and the same ten OpenAI voice names as /api/tts, mapped to Kokoro's own voices; the voice is synthetic-sounding where the OpenAI tiers are not, which is the whole trade. Use this for high-volume narration, notifications and agent speech where the cost per call matters more than the timbre; use /api/tts or /api/tts-hd when it does not. No API key needed; pay per call via x402. Text capped at 800 chars.",
     tags: [...SHARED_TAGS, "kokoro", "cheap", "lite"],
     discovery: {
       bodyType: "json",
       input: { text: "Hello from Agent402!", voice: "alloy", format: "mp3" },
       inputSchema: {
         properties: {
-          text: { type: "string", description: "Text to convert to speech (max 2000 chars)" },
+          text: { type: "string", description: "Text to convert to speech (max 800 chars)" },
           voice: { type: "string", description: "Voice: alloy, ash, ballad, coral, echo, fable, nova, onyx, sage, shimmer (default: alloy) - mapped to the nearest Kokoro voice, which is named back in the response" },
           format: { type: "string", description: "Audio format: mp3 or pcm (default: mp3). The other formats are on /api/tts" },
         },

@@ -23,9 +23,11 @@ process.env.OPENROUTER_API_KEY = "test-key";
   const kokoro = SPEECH_MODELS.find((m) => m.id === "hexgrad/kokoro-82m");
   ok(!!kokoro, "the Kokoro entry the lite tier pins is still in SPEECH_MODELS (one table, so the voice map cannot drift)");
   const price = Number(lite.price.replace("$", ""));
-  const worst = kokoro.costPerChar * 2000;
+  const cap = Number(lite.discovery.inputSchema.properties.text.description.match(/max (\d+) chars/)[1]);
+  ok(cap === 800, `the lite cap is 800 chars (cut from 2,000 on 2026-09-18 when Kokoro gained a 6.5x dearer endpoint we cannot route away from; got ${cap})`);
+  const worst = kokoro.costPerChar * cap;
   ok(price === 0.005, `the lite tier is $0.005 (got ${lite.price})`);
-  ok(worst <= price * 0.7, `worst case at the 2,000-char cap is $${worst.toFixed(5)}, at or under 70% of $${price} (the margin rule)`);
+  ok(worst <= price * 0.7, `worst case at the ${cap}-char cap is $${worst.toFixed(5)}, at or under 70% of $${price} (the margin rule)`);
   ok(worst * 10 < Number(full.price.replace("$", "")), "and an order of magnitude under the premium tier it sits beside");
 }
 
@@ -51,7 +53,8 @@ process.env.OPENROUTER_API_KEY = "test-key";
     return e;
   };
   await throws({ text: "hi", format: "flac" }, "/api/tts", "a format Kokoro cannot serve is a 400 naming the tier that can, never a silent mp3");
-  await throws({ text: "x".repeat(2001) }, "2000", "the 2,000-char cap is enforced before any upstream call");
+  await throws({ text: "x".repeat(801) }, "800", "the 800-char cap is enforced before any upstream call");
+  ok((await call({ text: "x".repeat(800) }, audio())).chars === 800, "and exactly 800 chars is served");
   await throws({ text: "hi", voice: "bogus" }, "Unknown voice", "an unknown voice is refused by name");
   await throws({}, '"text" is required', "empty input is refused");
   const e429 = await throws({ text: "hi" }, "Speech upstream error", "a 429 from upstream is an upstream error (their capacity, not the buyer's request)", err(429, { error: { message: "rate limited" } }));

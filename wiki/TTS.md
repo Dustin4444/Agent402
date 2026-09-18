@@ -11,7 +11,7 @@ Three tiers of text-to-speech, paywalled via x402. Send text, get back base64-en
 
 | Endpoint | Price | Model | Quality | Formats | Text cap |
 |---|---|---|---|---|---|
-| `POST /api/tts-lite` | $0.005 | `hexgrad/kokoro-82m` | Synthetic-sounding, ten times cheaper | mp3, pcm | 2,000 chars |
+| `POST /api/tts-lite` | $0.005 | `hexgrad/kokoro-82m` | Synthetic-sounding, ten times cheaper | mp3, pcm | 800 chars |
 | `POST /api/tts` | $0.05 | `tts-1` | Standard (fast) | all six | 2,000 chars |
 | `POST /api/tts-hd` | $0.10 | `tts-1-hd` | HD (higher fidelity) | all six | 2,000 chars |
 

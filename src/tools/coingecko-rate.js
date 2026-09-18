@@ -1,15 +1,18 @@
 // One token bucket for EVERY CoinGecko call this server makes.
 //
-// The Demo plan meters the key at 30 requests a minute, account-wide. Two kits
+// The Demo plan meters the key at 100 requests a minute, account-wide (docs
+// "Demo plan: 100 calls/min", read 2026-09-18; it was 30/min when this shipped
+// and the bucket sat at 25 for a month after the plan changed). Two kits
 // read it: crypto-markets-kit (the 17 market/RWA tools) kept a private bucket
 // at 25/min, and crypto-kit (crypto-price, crypto-market, crypto-history and
 // friends) sent the same key with no bucket at all, so under load the two
 // together overran the key and every caller of either kit saw 429s. The
 // bucket lives here now and both kits draw from it; a caller that finds it
 // empty is refused 503 BEFORE any upstream call (a >= 400 cancels settlement,
-// nobody pays for the refusal). COINGECKO_MAX_PER_MIN tunes it (default 25,
-// under the plan's 30 so the retry-after-429 path keeps a little room).
-const cgRatePerMin = () => Math.max(1, parseInt(process.env.COINGECKO_MAX_PER_MIN || "25", 10) || 25);
+// nobody pays for the refusal). COINGECKO_MAX_PER_MIN tunes it (default 80,
+// under the plan's 100 so the retry-after-429 path keeps a little room; the
+// 10k credits/month quota is the real ceiling, and CI no longer draws on it).
+const cgRatePerMin = () => Math.max(1, parseInt(process.env.COINGECKO_MAX_PER_MIN || "80", 10) || 80);
 let cgTokens = null, cgRefilledAt = 0;
 
 /** Take one request's worth of budget; false when the minute is spent. */

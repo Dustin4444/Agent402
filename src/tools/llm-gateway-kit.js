@@ -2457,9 +2457,9 @@ async function imagesHandler(input, req) {
 // equivalent (or the link's alloy) if the chain walks past its model.
 // TTS bills per INPUT character upstream, so the char cap bounds the
 // worst-case bill deterministically per link — see costPerChar below:
-// $0.032 (53% of the $0.06 price) on Voxtral down to $0.0012 (2%) on
-// Kokoro; even the deepest fallback (MAI-Voice-2, $0.044 = 73%) clears the
-// price. Binary responses carry no usage accounting and are never cached
+// $0.0352 (59% of the $0.06 price) on Voxtral down to $0.008 (13%) on
+// Kokoro, each at the model's DEAREST endpoint; even the deepest fallback
+// (MAI-Voice-2, $0.044 = 73%) clears the price. Binary responses carry no usage accounting and are never cached
 // (sampled output).
 export const SPEECH_PATH = "/v1/audio/speech";
 const OPENROUTER_SPEECH_URL = "https://openrouter.ai/api/v1/audio/speech";
@@ -2478,7 +2478,7 @@ export const SPEECH_MODELS = [
   {
     id: "mistralai/voxtral-mini-tts-2603",
     aliases: ["mistralai/voxtral-mini-tts", "voxtral-mini-tts", "voxtral-mini-tts-2603"],
-    costPerChar: 0.000016,
+    costPerChar: 0.0000176, // dearest Mistral endpoint (two at 0.000016, one at 0.0000176; 2026-09-18)
     map: { alloy: "en_paul_neutral", ash: "en_paul_confident", ballad: "gb_oliver_neutral", coral: "gb_jane_neutral", echo: "en_paul_happy", fable: "gb_oliver_cheerful", onyx: "gb_oliver_confident", nova: "gb_jane_confident", sage: "gb_jane_neutral", shimmer: "gb_jane_curious", verse: "en_paul_cheerful" },
     voices: new Set([
       "en_paul_sad", "en_paul_neutral", "en_paul_happy", "en_paul_frustrated", "en_paul_excited", "en_paul_confident", "en_paul_cheerful", "en_paul_angry",
@@ -2497,7 +2497,14 @@ export const SPEECH_MODELS = [
   {
     id: "hexgrad/kokoro-82m",
     aliases: ["kokoro-82m", "kokoro"],
-    costPerChar: 0.00000062,
+    // The DEAREST endpoint, not the one that usually serves (2026-09-18): Kokoro has
+    // DeepInfra at 0.00000062/char (default routing lands there, measured on four
+    // generation records) and Together at 0.000004/char; the catalog headline shows
+    // the dearer one and `provider.order`/`max_price` are NOT honoured on
+    // /audio/speech (measured: a Together pin still served DeepInfra), so nothing
+    // we send can keep a call off the dearer endpoint. test-gateway-model-ids pins
+    // every speech row against the MAX across that model's endpoints.
+    costPerChar: 0.000004,
     map: { alloy: "af_alloy", ash: "am_adam", ballad: "bm_george", coral: "af_bella", echo: "am_echo", fable: "bm_fable", onyx: "am_onyx", nova: "af_nova", sage: "af_sarah", shimmer: "af_sky", verse: "am_liam" },
     voices: new Set([
       "af_alloy", "af_aoede", "af_bella", "af_heart", "af_jessica", "af_kore", "af_nicole", "af_nova", "af_river", "af_sarah", "af_sky",
