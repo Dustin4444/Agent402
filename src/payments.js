@@ -1466,13 +1466,18 @@ function registerWalletBlocklistHook(server) {
  * log, turning that class of outage into a seconds-long diagnosis.
  *
  * PAYMENT_SETTLE_FALLBACK=true (default OFF) additionally re-settles through a
- * fallback CHAIN — PayAI, then Solvador (when SOLVADOR_KEY is set) — when the
- * primary facilitator rejects settlement BEFORE broadcasting (an HTTP 402
- * billing gate). Never on a timeout/5xx, where the settler may already have
- * broadcast; that rule applies between fallbacks too, so a PayAI timeout stops
- * the chain rather than risking a double-charge via Solvador. PayAI is skipped
- * on networks it cannot settle (Celo/Monad/Robinhood go straight to Solvador —
- * the only second facilitator those single-facilitator rails have). Left off by
+ * fallback CHAIN - Solvador first on the networks its live /supported
+ * advertises (when SOLVADOR_KEY is set), then PayAI on the networks IT can
+ * settle, then Solvador as the ungated last resort elsewhere - when the primary
+ * facilitator rejects settlement BEFORE broadcasting (an HTTP 402 billing
+ * gate). Never on a timeout/5xx, where the settler may already have broadcast;
+ * that rule applies between fallbacks too, so a Solvador timeout stops the
+ * chain rather than risking a double-charge via PayAI. Order decided
+ * 2026-09-18: PayAI bills gas x 1.3 in prepaid credits per settlement
+ * (Base 2.12 credits = $0.002, Polygon 3.98, Arbitrum 6.08) while Solvador's
+ * tier is 1,000 settlements a month free, then $0.001 - so the fallback that
+ * runs first is the cheaper one. A facilitator is still skipped on a network it
+ * cannot settle (Celo/Monad/Robinhood reach Solvador only). Left off by
  * default so Base stays purely on CDP (Bazaar discovery + fee-free settlement)
  * unless the operator opts into never-miss-a-sale behavior.
  */
@@ -1489,10 +1494,26 @@ const PAYAI_SETTLE_NETWORKS = new Set([
   "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
 ]);
 
+/** Networks Solvador advertises `exact` on (its live /supported, read 2026-09-18:
+ *  Base, Arbitrum, Optimism, Polygon, Avalanche, Celo, Linea, Unichain, World,
+ *  Monad, Robinhood, Solana mainnet; near/xrpl/starknet omitted - we offer none).
+ *  Solvador is tried FIRST on these, so it needs the same allowlist discipline
+ *  PayAI has: a wasted attempt on a network it cannot settle would STOP the
+ *  chain (a network-level failure is indistinguishable from "may have
+ *  broadcast") and mask the PayAI attempt behind it. Off this list Solvador
+ *  keeps its old ungated last-resort slot, where a wasted attempt masks nothing. */
+const SOLVADOR_SETTLE_NETWORKS = new Set([
+  "eip155:8453", "eip155:42161", "eip155:10", "eip155:137", "eip155:43114",
+  "eip155:42220", "eip155:59144", "eip155:130", "eip155:480", "eip155:143", "eip155:4663",
+  "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+]);
+
 export function fallbackCandidatesFor(network, payAiClient, solvadorClient) {
   const out = [];
+  const solvadorAdvertises = !!solvadorClient && SOLVADOR_SETTLE_NETWORKS.has(network);
+  if (solvadorAdvertises) out.push({ name: "Solvador", client: solvadorClient });
   if (payAiClient && PAYAI_SETTLE_NETWORKS.has(network)) out.push({ name: "PayAI", client: payAiClient });
-  if (solvadorClient) out.push({ name: "Solvador", client: solvadorClient });
+  if (solvadorClient && !solvadorAdvertises) out.push({ name: "Solvador", client: solvadorClient });
   return out;
 }
 
@@ -1700,7 +1721,7 @@ export function registerFacilitatorFailureHooks(server, payAiClient, solvadorCli
   const fallbackEnabled = /^(1|true|yes|on)$/i.test((process.env.PAYMENT_SETTLE_FALLBACK || "").trim());
   if (fallbackEnabled) {
     console.log(
-      `Settle fallback: ON — chain ${payAiClient ? "PayAI → " : ""}${solvadorClient ? "Solvador" : payAiClient ? "(PayAI only)" : "(no candidates!)"}` +
+      `Settle fallback: ON - chain ${solvadorClient ? "Solvador (first on its advertised networks; free tier) -> " : ""}${payAiClient ? "PayAI (gas x 1.3 in credits)" : solvadorClient ? "(Solvador only)" : "(no candidates!)"}` +
         "; fires ONLY on facilitator-thrown pre-broadcast rejections (HTTP 402 class), never on buyer-side or ambiguous failures"
     );
   }
