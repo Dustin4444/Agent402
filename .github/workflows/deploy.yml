@@ -213,7 +213,7 @@ jobs:
         with:
           node-version: 22
       - name: Install dependencies
-        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/fetch@2.22.0 viem@2.52.2
+        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/fetch@2.26.0 viem@2.52.2
 
       # Run FIRST (before the slow faucet-funding E2E) for fast iteration. Live
       # proof of the agent402-client 402-inspection preflight (v0.6.0): a real Base
@@ -485,7 +485,7 @@ jobs:
         with:
           node-version: 22
       - name: Install dependencies
-        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/fetch@2.22.0 @x402/core@2.22.0 @x402/evm@2.22.0 @x402/svm@2.22.0 @solana/kit@5.5.1 viem@2.52.2
+        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/fetch@2.26.0 @x402/core@2.26.0 @x402/evm@2.26.0 @x402/svm@2.26.0 @solana/kit@8.3.0 viem@2.52.2
       - name: Sweep the catalog via Solana settlement
         env:
           SOLANA_BURNER_KEY: ${{ secrets.SOLANA_BURNER_KEY }}
@@ -510,7 +510,7 @@ jobs:
         with:
           node-version: 22
       - name: Install dependencies
-        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/fetch@2.22.0 @x402/core@2.22.0 @x402/evm@2.22.0 viem@2.52.2
+        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/fetch@2.26.0 @x402/core@2.26.0 @x402/evm@2.26.0 viem@2.52.2
       - name: Refresh stale Bazaar listings
         env:
           BURNER_KEY: ${{ secrets.BURNER_KEY }}
@@ -549,7 +549,7 @@ jobs:
         with:
           node-version: 22
       - name: Install dependencies
-        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/fetch@2.22.0 @x402/core@2.22.0 @x402/evm@2.22.0 viem@2.52.2
+        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/fetch@2.26.0 @x402/core@2.26.0 @x402/evm@2.26.0 viem@2.52.2
       - name: Register missing Bazaar routes
         env:
           BURNER_KEY: ${{ secrets.BURNER_KEY }}
@@ -584,7 +584,7 @@ jobs:
         with:
           node-version: 22
       - name: Install dependencies
-        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/fetch@2.22.0 @x402/core@2.22.0 @x402/evm@2.22.0 viem@2.52.2
+        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/fetch@2.26.0 @x402/core@2.26.0 @x402/evm@2.26.0 viem@2.52.2
       - name: Sweep the catalog via Base settlement (4 batches)
         env:
           BURNER_KEY: ${{ secrets.BURNER_KEY }}
@@ -609,7 +609,7 @@ jobs:
         with:
           node-version: 22
       - name: Install dependencies
-        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/fetch@2.22.0 @x402/core@2.22.0 @x402/evm@2.22.0 viem@2.52.2
+        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/fetch@2.26.0 @x402/core@2.26.0 @x402/evm@2.26.0 viem@2.52.2
       - name: Drain the burner into the revenue wallet via paid tool calls
         env:
           BURNER_KEY: ${{ secrets.BURNER_KEY }}
@@ -714,7 +714,7 @@ jobs:
         with:
           node-version: 22
       - name: Install dependencies
-        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/fetch@2.22.0 viem@2.52.2
+        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/fetch@2.26.0 viem@2.52.2
       - name: Run the demo (real paid buys from the burner)
         env:
           AGENT_KEY: ${{ secrets.BURNER_KEY }}
@@ -1463,7 +1463,7 @@ jobs:
           t node scripts/test-query-terms.js
           # Revenue ledger unit tests (all-time external accounting, idempotent rescans, CI self-gate)
           t node scripts/test-revenue-ledger.js
-          # Settle-fallback chain (PayAI -> Solvador; double-settle gate between fallbacks — offline)
+          # Settle-fallback chain (Solvador first on its advertised networks -> PayAI -> Solvador last resort; double-settle gate between fallbacks - offline)
           t node scripts/test-settle-fallback.js
           # Render actual-byte budget (F03 — chunked/streamed/headerless/WebSocket bytes counted via CDP, cap not bypassable — offline)
           t node scripts/test-render-bytebudget.js
