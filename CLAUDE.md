@@ -333,7 +333,18 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   OpenRouter scopes provider policy blocks to it; without it one abusive buyer could get the whole
   account blocked. Call-time injection, never in cache keys. **Variants:** `:online` (per-request
   web-search billing outside max_price) and `:batch` (async) are refused with self-explaining 400s;
-  routing-only `:nitro`/`:floor` still pass. **Live-catalog guard:** `scripts/test-gateway-model-ids.js`
+  `:floor` still passes; `:nitro` passes but is NOT routing-only (2026-09-18: a live `luna:nitro` call with no `service_tier`
+  was served at the 2x priority endpoint), so a `:nitro` attempt now carries an explicit `service_tier:"default"` unless
+  the buyer bought priority. **Priority service tier (2026-09-18, `PRIORITY_PRICE_FACTOR` 2, `validateServiceTier` on all
+  three wires):** pro/premium accept `service_tier:"priority"` (`fast` is OpenRouter's alias; Anthropic `speed:"fast"`
+  maps to it), the margin clamp scales the model row by the factor before the max_price min so the 70% bound holds, no
+  flex attempt rides a priority request, `/v1/models` advertises `serviceTiers` per row; nano/base/auto/grounded/metered
+  refuse it naming the routes, buyer `flex` is refused. Measured live: openai/fast and anthropic/fast endpoints bill
+  exactly 2.0x (luna/terra/sol/astra, opus-5), google priority 1.8x; the live guard fails if any priority endpoint ever
+  bills over 2x its row. Same day, measured and DECLINED: the grounded tier stays on Exa ($0.007) because Parallel turbo
+  ($0.001) cited version-archive pages instead of release notes and answered a German prompt stale (documented as
+  English/Japanese only), and `cohere/rerank-4-fast` bills $0.002 per search unit = 100% of the /v1/rerank price, so it
+  is refused by name. **Live-catalog guard:** `scripts/test-gateway-model-ids.js`
   (CI, network) fails on any advertised/ranked/fallback/TTS id missing upstream, any MODEL_COST
   entry under a live admitted price inside the tier's max_price, or a ranked model expiring within
   14 days - it found 5 dead advertised ids, the dead Zonos TTS link, and 9 underpriced MODEL_COST
