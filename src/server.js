@@ -352,7 +352,7 @@ import { algorandPage, algorandSellers } from "./algorand-page.js";
 import { CHAIN_PAGES, marketSellers, marketOperatorCount, marketPage, marketPanelHtml } from "./market-page.js";
 import { sellPage } from "./sell.js";
 import { recordSellerVerification, sellerVerificationStatus } from "./seller-verification.js";
-import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledgerBuyersWeekly, ledgerBuyerConcentration, ledgerBuyerRetention, ledgerSyncState } from "./revenue-ledger.js";
+import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledgerBuyersWeekly, ledgerBuyersMonthly, ledgerBuyerConcentration, ledgerBuyerRetention, ledgerSyncState } from "./revenue-ledger.js";
 import { x402EconomySnapshot, economySnapshotCached, warmEconomySnapshot } from "./x402-economy.js";
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate, sharedPayToClaims } from "./settlement-proof.js";
 import { buildEvidenceBinding, baseLiveGate } from "./evidence-binding.js";
@@ -2698,6 +2698,9 @@ app.get("/api/revenue/daily", (_req, res) => {
       // client: a week's distinct count is a union of its days, and only the
       // ledger can take that union.
       buyersWeekly: ledgerBuyersWeekly(revenueWallets()),
+      // Monthly is its own server-side union for the same reason weekly is: a
+      // distinct count cannot be folded from finer buckets.
+      buyersMonthly: ledgerBuyersMonthly(revenueWallets()),
       // "200 buyers" means nothing if one wallet is most of the volume.
       concentration: ledgerBuyerConcentration(revenueWallets()),
       // All-time: of everyone who ever paid us, how many came back (see

@@ -803,6 +803,11 @@ export function ledgerDaily(wallets, mppTx = null) {
  * per-day roster of who pays us is a customer list, so it stays out.
  */
 /** Monday (UTC) of the ISO week holding a YYYY-MM-DD day, as YYYY-MM-DD. */
+/** First day of `day`'s UTC month, the month twin of weekStartOf. */
+export function monthStartOf(day) {
+  return `${String(day).slice(0, 7)}-01`;
+}
+
 export function weekStartOf(day) {
   const d = new Date(`${day}T00:00:00Z`);
   const dow = (d.getUTCDay() + 6) % 7; // Monday = 0
@@ -918,6 +923,60 @@ export function ledgerBuyersWeekly(wallets) {
       unattributed: w.unattributed,
       daysCovered: w.days.size,
       partial: weekEnd >= today,
+    });
+  }
+  return out;
+}
+
+/**
+ * Monthly buyers: the same union the weekly series computes, over UTC months.
+ *
+ * Exists for the same reason the weekly one does, and the reason is worth
+ * repeating because it is the whole hazard of adding a coarser bucket: a
+ * distinct count CANNOT be folded from finer buckets. A buyer who pays on the
+ * 3rd and the 20th is one monthly buyer, and summing daily or weekly rows
+ * would report two. The client therefore never folds buyers itself; it asks
+ * for this series, exactly as it does for weeks.
+ *
+ * `month` is the first of the month; `monthEnd` the last day; the newest month
+ * is usually partial and says so, so nobody compares a three-day month against
+ * full ones. A buyer is `new` in the month of their first-ever payment across
+ * all history, whatever the chart epoch.
+ */
+export function ledgerBuyersMonthly(wallets) {
+  const { byDay, unattributed, firstSeen, allDays, start } = buyerDaySets(wallets);
+  const seen = new Set();
+  const months = new Map();
+  for (const day of allDays) {
+    const set = byDay.get(day) || new Set();
+    for (const p of set) seen.add(p);
+    if (day < start) continue;
+    const mk = monthStartOf(day);
+    let m = months.get(mk);
+    if (!m) { m = { set: new Set(), fresh: new Set(), unattributed: 0, days: new Set(), cumulative: 0 }; months.set(mk, m); }
+    for (const p of set) { m.set.add(p); if (monthStartOf(firstSeen.get(p)) === mk) m.fresh.add(p); }
+    m.unattributed += unattributed.get(day) || 0;
+    m.days.add(day);
+    m.cumulative = seen.size;
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const out = [];
+  for (const mk of [...months.keys()].sort()) {
+    const m = months.get(mk);
+    const end = new Date(`${mk}T00:00:00Z`);
+    end.setUTCMonth(end.getUTCMonth() + 1);
+    end.setUTCDate(0); // last day of mk's month
+    const monthEnd = end.toISOString().slice(0, 10);
+    out.push({
+      month: mk,
+      monthEnd,
+      buyers: m.set.size,
+      newBuyers: m.fresh.size,
+      returningBuyers: m.set.size - m.fresh.size,
+      cumulative: m.cumulative,
+      unattributed: m.unattributed,
+      daysCovered: m.days.size,
+      partial: monthEnd >= today,
     });
   }
   return out;

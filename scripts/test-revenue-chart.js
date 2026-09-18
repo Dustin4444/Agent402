@@ -51,6 +51,12 @@ const BUYER_DAYS = [
 const BUYER_WEEKS = [
   { week: "2026-06-15", weekEnd: "2026-06-21", buyers: 4, newBuyers: 4, returningBuyers: 0, cumulative: 4, unattributed: 0, daysCovered: 2, partial: false },
 ];
+// Both days also sit in June. A monthly distinct count is the union of its
+// days for exactly the reason the weekly one is: the buyer who paid on both
+// days is ONE monthly buyer, and folding the daily rows here would say 7.
+const BUYER_MONTHS = [
+  { month: "2026-06-01", monthEnd: "2026-06-30", buyers: 4, newBuyers: 4, returningBuyers: 0, cumulative: 4, unattributed: 0, daysCovered: 2, partial: false },
+];
 const CONC = { buyers: 4, payments: 40, topSharePct: 55.0, top5SharePct: 100 };
 const FREE_DAYS = [
   { day: "2026-06-20", usdc: 4, pow: 40, heartbeat: 2 },
@@ -77,7 +83,7 @@ async function boot({ freeFails = false, tempoDays = [], tempoFails = false } = 
     pretendToBeVisual: true,
     beforeParse(w) {
       w.fetch = (url) => {
-        if (String(url).includes("/api/revenue/daily")) return Promise.resolve({ json: () => Promise.resolve({ days: REV_DAYS, buyers: BUYER_DAYS, buyersWeekly: BUYER_WEEKS, concentration: CONC }) });
+        if (String(url).includes("/api/revenue/daily")) return Promise.resolve({ json: () => Promise.resolve({ days: REV_DAYS, buyers: BUYER_DAYS, buyersWeekly: BUYER_WEEKS, buyersMonthly: BUYER_MONTHS, concentration: CONC }) });
         if (String(url).includes("/api/revenue/tempo-daily")) {
           return tempoFails ? Promise.reject(new Error("down"))
             : Promise.resolve({ json: () => Promise.resolve({ days: tempoDays, recordingSince: tempoDays.length ? tempoDays[0].day : null }) });
@@ -205,6 +211,36 @@ console.log("revenue chart — free-tier lane");
     const html = w.document.getElementById("rvzTable").innerHTML;
     assert.ok(/Sei/.test(html) && /Optimism/.test(html), "folded chains stay itemized in the weekly table");
     click(w, "rvzScope", "ext");
+    click(w, "rvzMode", "daily");
+  });
+
+  check("monthly transactions fold a month into one bar, chains itemized", () => {
+    click(w, "rvzMetric", "tx");
+    click(w, "rvzScope", "both");
+    click(w, "rvzMode", "monthly");
+    const rows = [...w.document.querySelectorAll("#rvzTable tr")].slice(1);
+    assert.equal(rows.length, 1, `two June days must render one monthly row, got ${rows.length}`);
+    assert.ok(rows[0].textContent.includes("2026-06-01"), `monthly row keyed on the first: ${rows[0].textContent}`);
+    const html = w.document.getElementById("rvzTable").innerHTML;
+    assert.ok(/month/.test(html), "the table names the bucket it is showing");
+    assert.ok(/Sei/.test(html) && /Optimism/.test(html), "folded chains stay itemized in the monthly table");
+    click(w, "rvzScope", "ext");
+    click(w, "rvzMode", "daily");
+  });
+
+  // The whole hazard of a coarser bucket: a distinct count cannot be folded.
+  // Monthly buyers must come from the SERVER's monthly union (4), never from
+  // summing the daily rows (3 + 4 = 7) or the weekly ones.
+  check("monthly buyers use the server union, never a fold of finer buckets", () => {
+    click(w, "rvzMetric", "buyers");
+    click(w, "rvzMode", "monthly");
+    const rows = [...w.document.querySelectorAll("#rvzTable tr")].slice(1);
+    assert.equal(rows.length, 1, `one monthly buyer row expected, got ${rows.length}`);
+    const cells = [...rows[0].querySelectorAll("td, th")].map((c) => c.textContent.trim());
+    assert.ok(cells[0].includes("2026-06-01"), `keyed on the month: ${cells.join("|")}`);
+    const nums = cells.slice(1).map(Number).filter((n) => Number.isFinite(n));
+    assert.ok(!nums.includes(7), `a folded daily sum (7) must never appear: ${cells.join("|")}`);
+    assert.ok(nums.includes(4), `the server's monthly union (4) is what shows: ${cells.join("|")}`);
     click(w, "rvzMode", "daily");
   });
 
