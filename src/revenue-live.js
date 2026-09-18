@@ -1486,7 +1486,7 @@ export function revenuePage(baseUrl, snap) {
       ${big(throughput, "settled transactions, all-time", `x402 + MPP, ours included${at.syncing ? " · ledger still backfilling" : ""}`)}
       ${agents ? big(agents, `distinct agent${agents === 1 ? "" : "s"} have paid us`, `unique outside wallets${snap.agents?.top5SharePct != null ? ` · top 5 = ${snap.agents.top5SharePct}% of their payments` : ""}`) : ""}
     </div>
-    <p style="font-family:var(--font-mono);font-size:13px;color:var(--ink);margin:0 0 4px;"><strong>${extCount.toLocaleString()}</strong> external payment${extCount === 1 ? "" : "s"} · <strong>$${extUsd.toFixed(2)}</strong> revenue from others, settled on-chain${snap.card?.allTimeCount ? ` · <strong>${Number(snap.card.allTimeCount).toLocaleString()}</strong> card purchase${snap.card.allTimeCount === 1 ? "" : "s"} ($${Number(snap.card.allTimeUsd).toFixed(2)})` : ""}</p>` : "";
+    <p style="font-family:var(--font-mono);font-size:13px;color:var(--ink);margin:0 0 4px;"><strong>${extCount.toLocaleString()}</strong> external payment${extCount === 1 ? "" : "s"} · <strong>$${extUsd.toFixed(2)}</strong> revenue, settled on-chain${snap.card?.allTimeCount ? ` · <strong>${Number(snap.card.allTimeCount).toLocaleString()}</strong> card purchase${snap.card.allTimeCount === 1 ? "" : "s"} ($${Number(snap.card.allTimeUsd).toFixed(2)})` : ""}</p>` : "";
 
   const body = `
   <div style="max-width:1100px;margin:0 auto;padding:56px 30px;">

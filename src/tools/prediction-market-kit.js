@@ -13,7 +13,7 @@
 // this kit reports what the market thinks will happen, with timestamped
 // odds movements.
 //
-// All 6 tools are wallet-only — every handler hits an external API and
+// All 8 tools are wallet-only — every handler hits an external API and
 // shares a per-IP rate limit with the public endpoint pool.
 //
 // Covered by scripts/test-prediction-market-kit.js (offline + opt-in live).
@@ -550,6 +550,227 @@ async function kalshiEvent({ eventTicker } = {}) {
 }
 
 // ----------------------------------------------------------------------------
+// 7. kalshi-live-data - the live feed BEHIND an event (the settlement input)
+// ----------------------------------------------------------------------------
+// Kalshi's `live_data` tier (free, keyless; docs.kalshi.com/api-reference/
+// live-data, read 2026-09-18) serves the underlying series a market settles
+// on: a crypto event carries CF Benchmarks candlesticks + a minute series and
+// its maturity time, an economic-data event carries the provider's series
+// (BLS CPI, monthly) with the target period. The `type` names the schema of
+// `details`, and the shaper keeps that rule: every numeric field is read with
+// asNumber (absent = null, never 0), the two array shapes Kalshi actually
+// serves (probed live: `timeseries` [{t, v}] and `candlesticks` {interval:
+// [{open_ts_ms, open, high, low, close}]}) are normalised, and whatever else
+// the type carries rides through under `details` untouched.
+//
+// An event ticker expires with its event (an hourly BTC event is gone by the
+// next day), so the tool also takes a SERIES ticker and resolves the soonest
+// open event itself - that is the form the documented example uses, so the
+// example keeps answering.
+const LIVE_RANGES = new Set(["15min", "1h", "3h", "1d", "1w", "1m", "1y", "5y", "all"]);
+const LIVE_SERIES_MAX = 1000;
+const TICKER_RE = /^[A-Z0-9][A-Z0-9-]{1,60}$/;
+
+function liveSeries(points, limit) {
+  if (!Array.isArray(points)) return null;
+  const rows = points
+    .filter((p) => p && typeof p === "object")
+    .map((p) => ({
+      time: p.t == null ? null : (typeof p.t === "number" ? new Date(p.t).toISOString() : String(p.t)),
+      value: asNumber(p.v),
+      ...(p.label != null ? { label: String(p.label) } : {}),
+    }));
+  return rows.slice(-limit);
+}
+
+function liveCandlesticks(obj, limit) {
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return null;
+  const out = [];
+  for (const [interval, arr] of Object.entries(obj)) {
+    if (!Array.isArray(arr)) continue;
+    const candles = arr
+      .filter((c) => c && typeof c === "object")
+      .map((c) => ({
+        time: c.open_ts_ms == null ? null : new Date(Number(c.open_ts_ms)).toISOString(),
+        open: asNumber(c.open), high: asNumber(c.high), low: asNumber(c.low), close: asNumber(c.close),
+      }))
+      .slice(-limit);
+    out.push({ interval, count: candles.length, candles });
+  }
+  return out;
+}
+
+function shapeKalshiLiveData(raw, { eventTicker, limit }) {
+  const ld = raw?.live_data ?? raw ?? {};
+  const details = ld.details && typeof ld.details === "object" ? ld.details : {};
+  const { timeseries, candlesticks, ...rest } = details;
+  const series = liveSeries(timeseries, limit);
+  const candles = liveCandlesticks(candlesticks, limit);
+  const latest = series?.length ? series[series.length - 1] : null;
+  return {
+    eventTicker: details.event_ticker ?? eventTicker ?? null,
+    type: ld.type ?? null,
+    // Present on crypto live data only (a frozen snapshot once the event has
+    // matured); an absent flag reads null, never false.
+    isHistorical: typeof ld.is_historical === "boolean" ? ld.is_historical : (typeof details.is_historical === "boolean" ? details.is_historical : null),
+    defaultRange: ld.default_range ?? null,
+    rangeOptions: Array.isArray(ld.range_options) ? ld.range_options : [],
+    coin: details.coin ?? null,
+    maturityTime: details.maturity_ts_ms == null ? null : new Date(Number(details.maturity_ts_ms)).toISOString(),
+    latest,
+    seriesCount: series ? series.length : 0,
+    series: series ?? [],
+    candlesticks: candles ?? [],
+    details: rest,
+  };
+}
+
+async function kalshiLiveData({ eventTicker, seriesTicker, range, limit } = {}) {
+  const lim = Math.max(1, Math.min(LIVE_SERIES_MAX, Number.parseInt(limit, 10) || 200));
+  let ticker = typeof eventTicker === "string" ? eventTicker.trim().toUpperCase() : "";
+  const series = typeof seriesTicker === "string" ? seriesTicker.trim().toUpperCase() : "";
+  if (!ticker && !series) throw bad('"eventTicker" (e.g. "KXBTC-26SEP1817") or "seriesTicker" (e.g. "KXBTC", resolves the soonest open event) is required');
+  if (ticker && !TICKER_RE.test(ticker)) throw bad('"eventTicker" must be a Kalshi event ticker (letters, digits, hyphens)');
+  if (series && !TICKER_RE.test(series)) throw bad('"seriesTicker" must be a Kalshi series ticker (letters, digits, hyphens)');
+  let rng = null;
+  if (range != null && range !== "") {
+    rng = String(range).trim().toLowerCase();
+    if (!LIVE_RANGES.has(rng)) throw bad(`"range" must be one of ${[...LIVE_RANGES].join(", ")}`);
+  }
+  const meta = {};
+  let resolvedFrom = null;
+  if (!ticker) {
+    const ev = await fetchJson(`${KALSHI}/events?${new URLSearchParams({ series_ticker: series, status: "open", limit: "1" })}`, "Kalshi", meta);
+    const first = Array.isArray(ev?.events) ? ev.events[0] : null;
+    if (!first?.event_ticker) throw bad(`Kalshi has no open event in series "${series}" right now - pass an eventTicker instead`, 404);
+    ticker = String(first.event_ticker).toUpperCase();
+    resolvedFrom = { seriesTicker: series, title: first.title ?? null, strikeDate: first.strike_date ?? null };
+  }
+  const qs = rng ? `?${new URLSearchParams({ range: rng })}` : "";
+  const raw = await fetchJson(`${KALSHI}/live_data/events/${encodeURIComponent(ticker)}${qs}`, "Kalshi", meta);
+  return {
+    ...shapeKalshiLiveData(raw, { eventTicker: ticker, limit: lim }),
+    ...(resolvedFrom ? { resolvedFrom } : {}),
+    range: rng,
+    source: "kalshi",
+    ...staleFields(meta),
+  };
+}
+
+// ----------------------------------------------------------------------------
+// 8. kalshi-weather-index - the city temperature index hourly markets settle on
+// ----------------------------------------------------------------------------
+// `GET /live_data/weather/{city}`: Kalshi's own minute-resolution Fahrenheit
+// index, city-keyed and independent of any event, computed from weighted
+// member stations under a published, append-only calibration timeline
+// (`/calibrations`). Minutes where the quorum failed are never returned, so
+// a gap in the series is a real gap and the shaper does not fill one.
+// Probed live 2026-09-18: the API names the supported cities in its own 400
+// for an unknown one; that list is copied here for the 422 so a buyer learns
+// it without a second call, and it is a hint, never a gate - a city the API
+// adds tomorrow still answers.
+const WEATHER_CITIES = ["miami", "dfw", "houston", "phl-delaware-valley", "puget-sound", "sf-bay", "greater-boston", "southeast-michigan", "kansas-city", "minneapolis-st-paul", "nyc", "chicago", "la-coastal"];
+const WEATHER_MAX_WINDOW_SEC = 7 * 24 * 3600;
+const CITY_RE = /^[a-z0-9][a-z0-9-]{1,40}$/;
+
+function shapeWeatherPoint(p, detailed) {
+  const row = {
+    time: p?.t == null ? null : new Date(Number(p.t)).toISOString(),
+    valueF: asNumber(p?.v),
+    contributors: asNumber(p?.contributors),
+    status: p?.status ?? null,
+  };
+  // Per-station audit rows (probed live 2026-09-18 with detailed=true):
+  // {station_id, temp_f, code, source, received_at_ms}. `code` is the
+  // quality-control disposition ("ok" when the reading was incorporated).
+  if (detailed && Array.isArray(p?.stations)) {
+    row.stations = p.stations.map((s) => ({
+      stationId: s?.station_id ?? null,
+      tempF: asNumber(s?.temp_f),
+      code: s?.code ?? null,
+      source: s?.source ?? null,
+      receivedAt: s?.received_at_ms == null ? null : new Date(Number(s.received_at_ms)).toISOString(),
+    }));
+  }
+  return row;
+}
+
+function shapeWeatherCalibration(c) {
+  return {
+    configVersion: c?.config_version ?? null,
+    effectiveAt: c?.effective_at_ms == null ? null : new Date(Number(c.effective_at_ms)).toISOString(),
+    publishedAt: c?.published_at_ms == null ? null : new Date(Number(c.published_at_ms)).toISOString(),
+    changeReason: c?.change_reason ?? null,
+    cityReferenceC: asNumber(c?.city_reference_c),
+    calibrationWindow: c?.calibration_window_start_ms == null ? null : {
+      start: new Date(Number(c.calibration_window_start_ms)).toISOString(),
+      end: c?.calibration_window_end_ms == null ? null : new Date(Number(c.calibration_window_end_ms)).toISOString(),
+    },
+    stations: Array.isArray(c?.stations) ? c.stations.map((s) => ({
+      stationId: s?.station_id ?? null, weight: asNumber(s?.weight), offsetC: asNumber(s?.offset_c), updateNote: s?.update_note ?? null,
+    })) : [],
+  };
+}
+
+async function kalshiWeatherIndex({ city, lastSec, from, to, detailed, includeCalibrations, limit } = {}) {
+  const c = typeof city === "string" ? city.trim().toLowerCase() : "";
+  if (!c) throw bad(`"city" is required - a Kalshi weather index city id, one of ${WEATHER_CITIES.join(", ")}`);
+  if (!CITY_RE.test(c)) throw bad('"city" must be a Kalshi city id such as "miami" or "sf-bay"');
+  const lim = Math.max(1, Math.min(LIVE_SERIES_MAX * 10, Number.parseInt(limit, 10) || 1440));
+  const params = new URLSearchParams();
+  const hasFrom = from != null && from !== "", hasTo = to != null && to !== "";
+  if (hasFrom !== hasTo) throw bad('"from" and "to" (unix milliseconds) must be given together, or use "lastSec"');
+  if (hasFrom) {
+    const f = Number(from), t = Number(to);
+    if (!Number.isFinite(f) || !Number.isFinite(t) || f <= 0 || t <= f) throw bad('"from"/"to" must be unix milliseconds with from < to');
+    if (t - f > WEATHER_MAX_WINDOW_SEC * 1000) throw bad(`"from"/"to" window must be at most ${WEATHER_MAX_WINDOW_SEC / 86400} days`);
+    params.set("from", String(Math.floor(f)));
+    params.set("to", String(Math.floor(t)));
+  } else {
+    const secs = lastSec == null || lastSec === "" ? 3600 : Number(lastSec);
+    if (!Number.isFinite(secs) || secs <= 0 || secs > WEATHER_MAX_WINDOW_SEC) throw bad(`"lastSec" must be between 1 and ${WEATHER_MAX_WINDOW_SEC} seconds (7 days)`);
+    params.set("last_sec", String(Math.floor(secs)));
+  }
+  const det = detailed === true || detailed === "true";
+  if (det) params.set("detailed", "true");
+  const meta = {};
+  let raw;
+  try {
+    raw = await fetchJson(`${KALSHI}/live_data/weather/${encodeURIComponent(c)}?${params}`, "Kalshi", meta);
+  } catch (e) {
+    // Kalshi answers 400 for a city it does not index; that is the caller's
+    // input, so it is a 422 naming the cities it does index.
+    if (e?.statusCode === 400 && /unknown_weather_index_city|unknown weather index city/i.test(e.message)) {
+      throw bad(`Kalshi has no weather index for city "${c}" - supported cities: ${WEATHER_CITIES.join(", ")}`, 422);
+    }
+    throw e;
+  }
+  const all = Array.isArray(raw?.timeseries) ? raw.timeseries.map((p) => shapeWeatherPoint(p, det)) : [];
+  const points = all.slice(-lim);
+  const values = points.map((p) => p.valueF).filter((v) => v !== null);
+  const out = {
+    city: raw?.city ?? c,
+    units: raw?.units ?? "fahrenheit",
+    configVersion: raw?.config_version || null,
+    count: points.length,
+    totalInWindow: all.length,
+    latest: points.length ? points[points.length - 1] : null,
+    minF: values.length ? Math.min(...values) : null,
+    maxF: values.length ? Math.max(...values) : null,
+    points,
+    ...(points.length ? {} : { note: "No index points in this window. Minutes where the station quorum failed carry no value and are never returned, so an empty window is a real gap, not an outage." }),
+    source: "kalshi",
+    ...staleFields(meta),
+  };
+  if (includeCalibrations === true || includeCalibrations === "true") {
+    const cal = await fetchJson(`${KALSHI}/live_data/weather/${encodeURIComponent(c)}/calibrations`, "Kalshi", meta);
+    out.calibrations = Array.isArray(cal?.calibrations) ? cal.calibrations.map(shapeWeatherCalibration) : [];
+    out.calibrationUnits = cal?.units ?? "celsius";
+  }
+  return out;
+}
+
+// ----------------------------------------------------------------------------
 // Catalog
 // ----------------------------------------------------------------------------
 export const PREDICTION_MARKET_TOOLS = [
@@ -820,6 +1041,91 @@ export const PREDICTION_MARKET_TOOLS = [
     },
     handler: kalshiEvent,
   },
+  {
+    route: "POST /api/kalshi-live-data",
+    name: "Kalshi live data behind an event",
+    slug: "kalshi-live-data",
+    category: "crypto",
+    price: "$0.002",
+    description:
+      "The live feed a Kalshi event settles on, from Kalshi's free live_data tier: a crypto event returns the CF Benchmarks price series, candlesticks (15M, 1M) and the maturity time; an economic-data event (CPI, jobs) returns the provider's series with the target period. Pass an eventTicker, or a seriesTicker (e.g. KXBTC) and the soonest open event is resolved for you. The type field names the schema of details.",
+    tags: ["kalshi", "live-data", "prediction-market", "settlement", "price-feed"],
+    discovery: {
+      bodyType: "json",
+      input: { seriesTicker: "KXBTC", limit: 5 },
+      inputSchema: {
+        type: "object",
+        properties: {
+          eventTicker: { type: "string", description: "Kalshi event ticker, e.g. KXBTC-26SEP1817. Either this or seriesTicker." },
+          seriesTicker: { type: "string", description: "Kalshi series ticker, e.g. KXBTC or KXCPI - the soonest open event of the series is resolved." },
+          range: { type: "string", description: "Chart range hint for types that support it: 15min, 1h, 3h, 1d, 1w, 1m, 1y, 5y, all." },
+          limit: { type: "number", description: "Newest points to keep per series and per candlestick interval (default 200, max 1000)." },
+        },
+      },
+      output: {
+        example: {
+          eventTicker: "KXBTC-26SEP1817",
+          type: "crypto",
+          isHistorical: false,
+          defaultRange: "1h",
+          rangeOptions: ["15min", "1h", "3h"],
+          coin: "BTC",
+          maturityTime: "2026-09-18T21:00:00.000Z",
+          latest: { time: "2026-09-18T16:22:00.000Z", value: 80867.31 },
+          seriesCount: 5,
+          series: [{ time: "2026-09-18T16:22:00.000Z", value: 80867.31 }],
+          candlesticks: [{ interval: "15M", count: 5, candles: [{ time: "2026-09-18T16:15:00.000Z", open: 80703.13, high: 80868.42, low: 80664.65, close: 80867.31 }] }],
+          details: { event_ticker: "KXBTC-26SEP1817", coin: "BTC", maturity_ts_ms: 1789765200000 },
+          resolvedFrom: { seriesTicker: "KXBTC", title: "BTC price range on Sep 18, 2026 at 5pm EDT?", strikeDate: "2026-09-18T21:00:00Z" },
+          range: null,
+          source: "kalshi",
+        },
+      },
+    },
+    handler: kalshiLiveData,
+  },
+  {
+    route: "POST /api/kalshi-weather-index",
+    name: "Kalshi city temperature index",
+    slug: "kalshi-weather-index",
+    category: "crypto",
+    price: "$0.002",
+    description:
+      "Kalshi's own minute-resolution city temperature index (Fahrenheit), the series its hourly temperature markets settle on, computed from weighted member stations. Ask for a trailing window (lastSec, default one hour, max 7 days) or a from/to window; detailed adds every station's reading per minute; includeCalibrations adds the published station-weight and offset timeline. Cities: miami, dfw, houston, phl-delaware-valley, puget-sound, sf-bay, greater-boston, southeast-michigan, kansas-city, minneapolis-st-paul, nyc, chicago, la-coastal. Free keyless Kalshi live_data.",
+    tags: ["kalshi", "weather", "temperature", "live-data", "prediction-market"],
+    discovery: {
+      bodyType: "json",
+      input: { city: "miami", lastSec: 3600, limit: 5 },
+      inputSchema: {
+        type: "object",
+        required: ["city"],
+        properties: {
+          city: { type: "string", description: "Kalshi index city id, e.g. miami, nyc, chicago, sf-bay." },
+          lastSec: { type: "number", description: "Trailing window in seconds (default 3600, max 604800). Ignored when from/to are given." },
+          from: { type: "number", description: "Window start, unix milliseconds (pair with to)." },
+          to: { type: "number", description: "Window end, unix milliseconds (pair with from)." },
+          detailed: { type: "boolean", description: "Include every member station's reading and QC code on each point." },
+          includeCalibrations: { type: "boolean", description: "Also return the city's published calibration timeline (station weights and offsets)." },
+          limit: { type: "number", description: "Newest points to return (default 1440, max 10000)." },
+        },
+      },
+      output: {
+        example: {
+          city: "miami",
+          units: "fahrenheit",
+          configVersion: "miami-temperature-v1.0-cal-20260914",
+          count: 5,
+          totalInWindow: 60,
+          latest: { time: "2026-09-18T16:22:00.000Z", valueF: 84.2, contributors: 5, status: "normal" },
+          minF: 84.2,
+          maxF: 85.28,
+          points: [{ time: "2026-09-18T16:18:00.000Z", valueF: 85.28, contributors: 5, status: "normal" }],
+          source: "kalshi",
+        },
+      },
+    },
+    handler: kalshiWeatherIndex,
+  },
 ];
 
 // Test-only exports
@@ -830,6 +1136,10 @@ export const __test = {
   parseJsonArray,
   shapeMarket,
   shapeKalshiMarket,
+  shapeKalshiLiveData,
+  shapeWeatherPoint,
+  shapeWeatherCalibration,
+  WEATHER_CITIES,
   POLY_GAMMA,
   POLY_CLOB,
   KALSHI,

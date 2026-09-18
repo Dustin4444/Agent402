@@ -201,7 +201,25 @@ globalThis.fetch = realFetch;
   ok(/not supported by anthropic\/claude-haiku-4.5/.test(t({ model: "anthropic/claude-haiku-4.5", effort: "low" }, base).err || "") && /budget_tokens/.test(t({ model: "anthropic/claude-haiku-4.5", effort: "low" }, base).err || ""), "haiku-4.5 (no effort table) refuses effort and names the thinking form it does honour");
   ok(t({ thinking: { type: "enabled", budget_tokens: 1024 } }).body?.thinking?.budget_tokens === 1024 && t({ model: "anthropic/claude-haiku-4.5", thinking: { type: "enabled", budget_tokens: 1024 } }, base).body?.thinking?.type === "enabled", "thinking enabled + budget stays accepted on sonnet-5 (translated upstream) and haiku-4.5 (honoured)");
   ok(/cannot be combined/.test(t({ thinking: { type: "disabled" }, effort: "max" }).err || "") && t({ thinking: { type: "disabled" }, effort: "low" }).body?.effort === "low", "thinking disabled + effort xhigh/max is refused (Anthropic's own 400); disabled + low passes");
-  ok(/fast \(priority\)/.test(t({ speed: "fast" }).err || "") && t({ speed: "standard" }).body !== undefined, 'speed:"fast" (2x priority endpoint) is refused with the reason; "standard" passes');
+  // Priority tier on the Messages wire (2026-09-18): Anthropic's `speed: "fast"`
+  // and `service_tier: "priority"` / "fast" are accepted on pro/premium (the
+  // clamp prices the probe at 2x) and refused with the routes named elsewhere.
+  ok(t({ speed: "fast" }).body?.service_tier === "priority" && t({ service_tier: "priority" }).body?.service_tier === "priority" && t({ service_tier: "fast" }).body?.service_tier === "priority", 'pro: speed:"fast" and service_tier priority/fast normalize to service_tier "priority"');
+  ok(t({ speed: "standard" }).body?.service_tier === undefined && t({ service_tier: "default" }).body?.service_tier === undefined, 'speed:"standard" and service_tier "default" are no-ops');
+  ok(/priority service tier is not offered on/.test(t({ model: "anthropic/claude-haiku-4.5", speed: "fast" }, base).err || "") && /\/v1\/pro\/chat\/completions/.test(t({ model: "anthropic/claude-haiku-4.5", speed: "fast" }, base).err || "") && /not offered/.test(t({ model: "anthropic/claude-haiku-4.5", service_tier: "priority" }, base).err || ""), 'base: speed:"fast" / service_tier priority refused naming the pro and premium routes');
+  ok(/must be "standard" or "fast"/.test(t({ speed: "turbo" }).err || ""), "an unknown speed is refused, never dropped");
+  ok(messagesFingerprint(pro, { ...S, service_tier: "priority" }) !== messagesFingerprint(pro, S), "a priority answer never shares a cache entry with a default one");
+  {
+    const probeSeen = validateMessagesRequest({ ...S, service_tier: "priority" }, pro).probe;
+    ok(probeSeen.service_tier === "priority", "the clamp probe carries service_tier so the margin math prices the 2x rate");
+    // Outbound: one call carrying service_tier "priority", no flex attempt even
+    // on a flex-eligible model (gemini-2.5-pro is in FLEX_MODELS).
+    seen = [];
+    globalThis.fetch = async (url, init) => { const b = JSON.parse(init.body); seen.push(b); return { ok: true, status: 200, text: async () => JSON.stringify(reply(b.model, { usage: { input_tokens: 22, output_tokens: 7, cost: 0.000114, service_tier: "priority" } })) }; };
+    process.env.OPENROUTER_API_KEY = "test-key";
+    const outP = await bySlug("v1-chat-pro-messages").handler({ model: "google/gemini-2.5-pro", max_tokens: 64, messages: msg(), speed: "fast" }, fakeReq);
+    ok(seen.length === 1 && seen[0].service_tier === "priority" && seen[0].speed === undefined && outP.usage?.service_tier === "priority", 'pro messages: speed:"fast" rides upstream as ONE service_tier "priority" (no flex attempt, no speed field); the served tier is reported back');
+  }
   const f1 = messagesFingerprint(pro, { ...S, effort: "low" }), f2 = messagesFingerprint(pro, { ...S, effort: "high" }), f0 = messagesFingerprint(pro, S);
   ok(f1 !== f2 && f1 !== f0, "effort is part of the normalized body, so two efforts never share a cache entry");
   // Fable 5.1 on premium: forced tool_choice refused, auto/none pass; post-4.6 sampling rule applies.

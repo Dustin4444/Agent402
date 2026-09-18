@@ -90,6 +90,10 @@ for (const [slug, tier] of Object.entries(TIERS)) {
     { model, messages: [{ role: "user", content: [{ type: "text", text: denseText(tier.maxInputChars) }, TINY_IMG, TINY_IMG, TINY_IMG, TINY_IMG] }], max_tokens: 999999, n: 4, tools: BIG_TOOLS, images: 4 },
     // plain full-size English body at the caps
     { model, messages: [{ role: "user", content: "the quick brown fox. ".repeat(Math.floor(tier.maxInputChars / 21)) }], max_tokens: 999999, images: 0 },
+    // the priority service tier (pro/premium, 2026-09-18): the same full-size
+    // body priced at PRIORITY_PRICE_FACTOR - the clamp must still land under
+    // the price, or refuse pre-spend. Other tiers refuse the knob (a 400).
+    ...(tier.priority === true ? [{ model, messages: [{ role: "user", content: "the quick brown fox. ".repeat(Math.floor(tier.maxInputChars / 21)) }], max_tokens: 999999, images: 0, service_tier: "priority" }] : []),
   ];
   const models = [...repModels(tier)];
   if (tier.router === true) models.push(undefined); // routed request (server picks the model)

@@ -219,7 +219,7 @@ for (const p of SKILL_PACKS) {
 // request answered 200 from a laptop and from production. A strict sweep
 // cannot tell that block from a dead tool, and the lenient test-all NETWORK
 // set still calls them every run; production is watched by the tool alert.
-const RUNNER_BLOCKED_SLUGS = new Set(["kalshi-markets", "kalshi-event"]);
+const RUNNER_BLOCKED_SLUGS = new Set(["kalshi-markets", "kalshi-event", "kalshi-live-data", "kalshi-weather-index"]);
 
 function excludeReason(slug, path) {
   if (METERED_SLUGS.has(slug)) return "metered_upstream_key_or_buyer";

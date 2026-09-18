@@ -414,6 +414,104 @@
           "error": "unknown symbol"
         }
       }
+    },
+    {
+      "slug": "kalshi-live-data",
+      "name": "ETH series resolves to its soonest open event and carries a price series",
+      "input": {
+        "seriesTicker": "KXETH",
+        "limit": 3
+      },
+      "expect": {
+        "equals": {
+          "type": "crypto",
+          "coin": "ETH",
+          "seriesCount": 3,
+          "source": "kalshi"
+        },
+        "populated": [
+          "eventTicker",
+          "maturityTime",
+          "latest.value",
+          "series[0].value",
+          "candlesticks[0].candles[0].close",
+          "resolvedFrom.seriesTicker"
+        ]
+      }
+    },
+    {
+      "slug": "kalshi-live-data",
+      "name": "an economic-data event carries the provider series with no candlesticks",
+      "input": {
+        "seriesTicker": "KXCPI",
+        "limit": 2
+      },
+      "expect": {
+        "equals": {
+          "type": "timeseries",
+          "seriesCount": 2,
+          "coin": null
+        },
+        "populated": [
+          "details.provider",
+          "details.series_id",
+          "series[0].label",
+          "series[1].value"
+        ]
+      }
+    },
+    {
+      "slug": "kalshi-live-data",
+      "name": "unknown range is a 400 naming the field",
+      "input": {
+        "seriesTicker": "KXBTC",
+        "range": "2h"
+      },
+      "expect": {
+        "status": 400,
+        "matches": {
+          "error": "range"
+        }
+      }
+    },
+    {
+      "slug": "kalshi-weather-index",
+      "name": "NYC index over the last 30 minutes",
+      "input": {
+        "city": "nyc",
+        "lastSec": 1800,
+        "limit": 10
+      },
+      "expect": {
+        "equals": {
+          "city": "nyc",
+          "units": "fahrenheit"
+        },
+        "gte": {
+          "count": 1,
+          "totalInWindow": 1
+        },
+        "populated": [
+          "configVersion",
+          "latest.valueF",
+          "points[0].time",
+          "minF",
+          "maxF"
+        ]
+      }
+    },
+    {
+      "slug": "kalshi-weather-index",
+      "name": "unknown city is a 422 naming the supported cities",
+      "input": {
+        "city": "atlantis"
+      },
+      "expect": {
+        "status": 422,
+        "matches": {
+          "error": "supported cities"
+        }
+      }
     }
   ]
 }

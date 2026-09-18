@@ -18,6 +18,7 @@
 //   • safeFetch hardcodes our own User-Agent (right behavior for HTML scrapers),
 //     so we use assertPublicUrl + native fetch for the EDGAR-specific UA.
 import { assertPublicUrl } from "./fetch-guard.js";
+import { dataSetsIndex, dataSetHead } from "./edgar-13f-datasets.js";
 
 // Hard per-request socket bound for every EDGAR read (undici defaults to 300 s).
 const EDGAR_FETCH_TIMEOUT_MS = Math.max(2_000, parseInt(process.env.EDGAR_FETCH_TIMEOUT_MS || "12000", 10) || 12_000);
@@ -1114,6 +1115,86 @@ export async function resolveManager({ cik, ticker, name }) {
   }
   return { cik: best.cik, name: best.name || nm };
 }
+
+// ---------------------------------------------------------------------------
+// Form 13F Data Sets - the SEC's bulk quarterly extracts (src/tools/edgar-13f-datasets.js).
+// The archive is the product (100 MB, INFOTABLE 400 MB inflated), so the index
+// tool reads the SEC's listing and the head tool reads two bounded byte ranges
+// of one archive: the zip's central directory and the first 256 KB of ONE
+// table. Never the whole zip, never a caller-supplied URL.
+// ---------------------------------------------------------------------------
+EDGAR_TOOLS.push(
+  {
+    route: "GET /api/edgar-13f-datasets",
+    name: "EDGAR Form 13F data sets (index)",
+    slug: "edgar-13f-datasets",
+    category: "data",
+    price: "$0.003",
+    description:
+      "The SEC's bulk Form 13F Data Sets: every quarterly (2013Q2-2023Q4) and rolling three-month (2024-) archive the SEC publishes, newest first, with its window, size and download URL, plus the seven tables each archive carries (SUBMISSION, COVERPAGE, OTHERMANAGER, OTHERMANAGER2, SIGNATURE, SUMMARYPAGE, INFOTABLE) and the readme. Read from sec.gov's own listing, cached 6 hours. Pair with edgar-13f-dataset-head to read a bounded head of one table without downloading the archive.",
+    tags: ["edgar", "sec", "13F", "data-sets", "bulk", "institutional", "holdings"],
+    discovery: {
+      input: { limit: 3 },
+      inputSchema: {
+        properties: {
+          limit: { type: "number", description: "Data sets to return, newest first (1-200, default 60)." },
+        },
+      },
+      output: {
+        example: {
+          total: 54,
+          count: 1,
+          latest: "01jun2026-31aug2026",
+          dataSets: [{ id: "01jun2026-31aug2026", from: "2026-06-01", to: "2026-08-31", quarter: null, label: "2026 June July August 13F", file: "01jun2026-31aug2026_form13f.zip", url: "https://www.sec.gov/files/datastandardsinnovation/data/form-13f-data-sets/01jun2026-31aug2026_form13f.zip", sizeMb: 96.05 }],
+          tables: ["SUBMISSION", "COVERPAGE", "OTHERMANAGER", "OTHERMANAGER2", "SIGNATURE", "SUMMARYPAGE", "INFOTABLE"],
+          readmeUrl: "https://www.sec.gov/files/form_13f_readme.pdf",
+          source: "https://www.sec.gov/data-research/sec-markets-data/form-13f-data-sets",
+          note: "Each data set is one zip of seven TSV tables flattened from every 13F filed in the window.",
+        },
+      },
+    },
+    handler: (i) => dataSetsIndex(i || {}),
+  },
+  {
+    route: "GET /api/edgar-13f-dataset-head",
+    name: "EDGAR Form 13F data set head (one table, bounded)",
+    slug: "edgar-13f-dataset-head",
+    category: "data",
+    price: "$0.005",
+    description:
+      "A bounded head of ONE table in a Form 13F data set, read with two byte-range requests against sec.gov (the archive's central directory plus the first 256 KB of the chosen table) so the multi-hundred-MB zip is never downloaded. Returns the archive's members with sizes, the table's columns and its first rows (1-200, default 25) as objects: SUMMARYPAGE (per filing: holdings count, total value, confidential-omission flag), SUBMISSION (accession, filer CIK, period, form), COVERPAGE (manager name and address, amendment flags), INFOTABLE (the holdings rows), OTHERMANAGER, OTHERMANAGER2, SIGNATURE. dataSet is an id from edgar-13f-datasets or latest. partial says whether the table was read in full.",
+    tags: ["edgar", "sec", "13F", "data-sets", "bulk", "holdings", "tsv"],
+    discovery: {
+      input: { dataSet: "latest", table: "SUMMARYPAGE", rows: 5 },
+      inputSchema: {
+        properties: {
+          dataSet: { type: "string", description: 'Data set id from edgar-13f-datasets (e.g. "01jun2026-31aug2026" or "2013q2"), or "latest" (default).' },
+          table: { type: "string", description: "SUBMISSION, COVERPAGE, OTHERMANAGER, OTHERMANAGER2, SIGNATURE, SUMMARYPAGE (default) or INFOTABLE." },
+          rows: { type: "number", description: "Rows to return from the head of the table (1-200, default 25)." },
+        },
+      },
+      output: {
+        example: {
+          dataSet: { id: "01jun2026-31aug2026", label: "2026 June July August 13F", from: "2026-06-01", to: "2026-08-31", quarter: null, url: "https://www.sec.gov/files/datastandardsinnovation/data/form-13f-data-sets/01jun2026-31aug2026_form13f.zip", sizeMb: 96.05 },
+          archiveBytes: 100719015,
+          zip64: false,
+          members: [{ name: "SUMMARYPAGE.tsv", bytes: 382912, compressedBytes: 126238, method: "deflate" }],
+          table: "SUMMARYPAGE",
+          file: "SUMMARYPAGE.tsv",
+          columns: ["ACCESSION_NUMBER", "OTHERINCLUDEDMANAGERSCOUNT", "TABLEENTRYTOTAL", "TABLEVALUETOTAL", "ISCONFIDENTIALOMITTED"],
+          rowsReturned: 1,
+          rows: [{ ACCESSION_NUMBER: "0002134841-26-000139", OTHERINCLUDEDMANAGERSCOUNT: "0", TABLEENTRYTOTAL: "91", TABLEVALUETOTAL: "147088596", ISCONFIDENTIALOMITTED: "N" }],
+          partial: false,
+          bytesRead: 192774,
+          note: "The whole SUMMARYPAGE.tsv member was read; rows is the first 5 of it.",
+          readmeUrl: "https://www.sec.gov/files/form_13f_readme.pdf",
+          source: "https://www.sec.gov/files/datastandardsinnovation/data/form-13f-data-sets/01jun2026-31aug2026_form13f.zip",
+        },
+      },
+    },
+    handler: (i) => dataSetHead(i || {}),
+  },
+);
 
 // Shared EDGAR primitives for the composite report kits (insider-flow, ipo):
 // same User-Agent policy, same politeness, one implementation.

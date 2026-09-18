@@ -75,5 +75,22 @@ ok(/app\.get\("\/reports\/public\/:publicId", \(req, res, next\) => \{\s*if \(wa
   ok(!threw, "a malformed CAA value never throws");
 }
 
+// An UNMEASURED leg is not an absent record. The corpus caught the live shape
+// on 2026-09-18: a resolver timeout on github.com made email-deliverability
+// publish spf.hasRecord false, check "fail: No SPF record" and a 75/100 grade,
+// i.e. a finding about a domain that nothing had observed (the standalone
+// spf-check tool got this right and answered 502). Pinned from SOURCE because
+// reproducing a DNS timeout in a unit test would test the resolver, not us.
+{
+  const net = readFileSync(new URL("../src/tools/network-kit.js", import.meta.url), "utf8");
+  for (const leg of ["spf", "dmarc", "mx"]) {
+    ok(new RegExp(`check: "${leg}", status: "unknown"`).test(net), `${leg}: a failed lookup is reported unknown, never a missing record`);
+  }
+  ok(/hasRecord: spfRaw \? true : \(spfTxt\.error \? null : false\)/.test(net), "spf.hasRecord is null when the lookup failed, false only when it answered");
+  ok(/hasRecord: dmarcRaw \? true : \(dmarcTxt\.error \? null : false\)/.test(net), "dmarc.hasRecord is null when the lookup failed");
+  ok(/const summary = unmeasured\.length \? "partial"/.test(net), "the summary word refuses to grade a partial reading");
+  ok((kit.match(/NOT MEASURED \(DNS lookup failed/g) || []).length === 3, "the report prompt says NOT MEASURED for each unmeasured leg rather than MISSING");
+}
+
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

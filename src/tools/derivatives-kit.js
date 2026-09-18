@@ -165,10 +165,38 @@ async function llamaOptionsOverview() {
 }
 
 // --- Hyperliquid helpers ----------------------------------------------------
+// HIP-3 builder-deployed perp dexs (hyperliquid.gitbook.io "Info endpoint >
+// Perpetuals", read 2026-09-18): every dex-scoped read takes `dex` beside
+// `type`; the native dex is the empty name and index 0 of `perpDexs` is null.
+// Probed live the same day: an unknown dex answers HTTP 500 "null" on `meta`
+// (the same shape hlInfo already maps to 422 for an unknown coin), so the
+// dex tools re-word that refusal rather than spend a listing call to
+// pre-validate. Names seen live are 2-4 lowercase letters (xyz, flx, vntl,
+// hyna, km, abcd, cash, para, mkts, io); the shape check is deliberately
+// looser than that so a new dex still answers.
+const DEX_RE = /^[a-z0-9]{1,12}$/;
+function takeDex(raw) {
+  if (typeof raw !== "string" || !raw.trim()) throw bad('"dex" is required (a HIP-3 perp dex name such as "xyz"; list them with perp-dexs)');
+  const s = raw.trim().toLowerCase();
+  if (!DEX_RE.test(s)) throw bad('"dex" must be a short alphanumeric dex name such as "xyz"');
+  return s;
+}
+async function dexInfo(dex, payload) {
+  try {
+    return await hlInfo({ ...payload, dex });
+  } catch (e) {
+    if (e?.statusCode === 422) throw bad(`Unknown perp dex "${dex}" - list the builder-deployed dexs with perp-dexs`, 422);
+    throw e;
+  }
+}
+
 // metaAndAssetCtxs -> [{universe:[{name, szDecimals, maxLeverage, isDelisted?}], ...}, [ctx...]]
 // ctx: {funding, openInterest, prevDayPx, dayNtlVlm, premium, oraclePx, markPx, midPx, impactPxs}
-async function perpMarkets() {
-  const json = await hlInfo({ type: "metaAndAssetCtxs" });
+// With `dex` the same document describes one HIP-3 dex: coin names carry the
+// dex prefix (`xyz:TSLA`), and universe rows may add growthMode, onlyIsolated,
+// marginMode and deployerFeeScale (probed live 2026-09-18).
+async function perpMarketsDoc(dex = null) {
+  const json = dex ? await dexInfo(dex, { type: "metaAndAssetCtxs" }) : await hlInfo({ type: "metaAndAssetCtxs" });
   const universe = json?.[0]?.universe;
   const ctxs = json?.[1];
   if (!Array.isArray(universe) || !Array.isArray(ctxs)) throw bad("Hyperliquid returned an unexpected response shape", 502);
@@ -198,9 +226,88 @@ async function perpMarkets() {
       premiumPct: c.premium != null ? round(num(c.premium) * 100, 6) : null,
       maxLeverage: num(u.maxLeverage),
       szDecimals: num(u.szDecimals),
+      ...(dex ? {
+        dex,
+        growthMode: u.growthMode ?? null,
+        onlyIsolated: u.onlyIsolated === true,
+        marginMode: u.marginMode ?? null,
+        deployerFeeScale: num(u.deployerFeeScale),
+      } : {}),
     });
   }
-  return rows;
+  // Probed live 2026-09-18: six of the ten builder dexs carry ONLY delisted
+  // rows (flx 16/16, vntl 15/15, hyna 25/25, km 23/23, cash 17/17, abcd 1/1),
+  // so a dex answering zero markets is usually a dex that wound down, not an
+  // outage - the count rides back so the answer can say which.
+  const delisted = universe.filter((u) => u && u.isDelisted).length;
+  return { rows, delisted, collateralToken: numOrNull(json[0].collateralToken) };
+}
+async function perpMarkets(dex = null) { return (await perpMarketsDoc(dex)).rows; }
+
+// allPerpMetas -> [nativeMeta, dexMeta, ...] in perpDexs order; each carries
+// a universe whose coin names are prefixed `<dex>:`. Counted by PREFIX rather
+// than by position so a reordering upstream cannot mislabel a dex.
+function marketCountsByDex(allMetas) {
+  const out = new Map();
+  if (!Array.isArray(allMetas)) return out;
+  for (const meta of allMetas) {
+    for (const u of meta?.universe || []) {
+      const name = String(u?.name || "");
+      const i = name.indexOf(":");
+      if (i <= 0) continue;
+      const dex = name.slice(0, i);
+      const row = out.get(dex) || { markets: 0, activeMarkets: 0, delistedMarkets: 0 };
+      row.markets++;
+      if (u.isDelisted) row.delistedMarkets++; else row.activeMarkets++;
+      out.set(dex, row);
+    }
+  }
+  return out;
+}
+
+// --- HIP-3 shapers (pure; pinned in scripts/test-derivatives-kit.js) --------
+// `perpDexs` -> [null, {name, fullName, deployer, oracleUpdater, feeRecipient,
+// assetToStreamingOiCap:[[coin, cap]], subDeployers?, assetToFundingMultiplier,
+// assetToFundingInterestRate, assetToFundingClamp}, ...]. The null at index 0
+// is the native dex, which is not builder-deployed and is not a row here.
+// `num(null)` is 0 (Number(null)); these shapers keep the absent-reads-null
+// rule, so null and undefined are read before num() sees them.
+const numOrNull = (v) => (v == null ? null : num(v));
+function pairsToRows(pairs, valueKey) {
+  if (!Array.isArray(pairs)) return [];
+  return pairs
+    .filter((p) => Array.isArray(p) && p.length >= 2 && p[0] != null)
+    .map((p) => ({ coin: String(p[0]), [valueKey]: numOrNull(p[1]) }));
+}
+function shapePerpDex(d) {
+  const caps = pairsToRows(d?.assetToStreamingOiCap, "oiCapUsd");
+  const capTotal = caps.reduce((a, r) => a + (r.oiCapUsd ?? 0), 0);
+  return {
+    dex: d?.name ?? null,
+    fullName: d?.fullName ?? null,
+    deployer: d?.deployer ?? null,
+    oracleUpdater: d?.oracleUpdater ?? null,
+    feeRecipient: d?.feeRecipient ?? null,
+    subDeployers: Array.isArray(d?.subDeployers) ? d.subDeployers.length : null,
+    assetsWithOiCap: caps.length,
+    totalStreamingOiCapUsd: caps.length ? round(capTotal, 2) : null,
+    fundingMultipliers: pairsToRows(d?.assetToFundingMultiplier, "multiplier").length,
+  };
+}
+function shapeDeployAuction(a) {
+  if (!a || typeof a !== "object") return null;
+  const start = numOrNull(a.startTimeSeconds);
+  const dur = numOrNull(a.durationSeconds);
+  return {
+    startTime: start == null ? null : new Date(start * 1000).toISOString(),
+    endTime: start == null || dur == null ? null : new Date((start + dur) * 1000).toISOString(),
+    durationSeconds: dur,
+    startGas: numOrNull(a.startGas),
+    currentGas: numOrNull(a.currentGas),
+    endGas: numOrNull(a.endGas),
+    // currentGas is null between auctions (probed live 2026-09-18).
+    active: a.currentGas != null,
+  };
 }
 
 // Case-insensitive coin resolution against the live universe. Cached 5 min so
@@ -805,6 +912,181 @@ export const DERIVATIVES_TOOLS = [
   },
 
   // ===========================================================================
+  // perp-dexs - every HIP-3 builder-deployed perp dex + the deploy auction.
+  // ===========================================================================
+  {
+    route: "POST /api/perp-dexs",
+    name: "Perp dexs (HIP-3 builder-deployed)",
+    slug: "perp-dexs",
+    category: "crypto",
+    price: "$0.002",
+    description:
+      "Every builder-deployed perpetuals dex on Hyperliquid (HIP-3): dex name, full name, deployer, oracle updater and fee recipient, how many markets it lists (active vs delisted, so a wound-down dex reads as one), how many assets carry a streaming open-interest cap and the cap total, plus the current perp-deploy auction (start, end, start/current/end gas). The native dex is not a row; use perp-markets for it. Keyless public data.",
+    tags: ["crypto", "derivatives", "perpetuals", "hip-3", "hyperliquid"],
+    discovery: {
+      bodyType: "json",
+      input: {},
+      inputSchema: { properties: {}, required: [] },
+      output: {
+        example: {
+          source: "hyperliquid",
+          count: 1,
+          dexs: [{ dex: "xyz", fullName: "XYZ", deployer: "0x88806a71d74ad0a510b350545c9ae490912f0888", oracleUpdater: null, feeRecipient: "0x83ffcfb1f2ad843c474b2e28df86c721cb869d3a", subDeployers: 11, assetsWithOiCap: 122, totalStreamingOiCapUsd: 15820000000, fundingMultipliers: 122, markets: 123, activeMarkets: 108, delistedMarkets: 15 }],
+          deployAuction: { startTime: "2026-09-18T01:00:00.000Z", endTime: "2026-09-19T08:00:00.000Z", durationSeconds: 111600, startGas: 500, currentGas: null, endGas: 500, active: false },
+          fetchedAt: "2026-09-18T12:00:00.000Z",
+        },
+      },
+    },
+    handler: async () => {
+      const [list, auction, allMetas] = await Promise.all([
+        hlInfo({ type: "perpDexs" }),
+        hlInfo({ type: "perpDeployAuctionStatus" }).catch(() => null),
+        hlInfo({ type: "allPerpMetas" }).catch(() => null),
+      ]);
+      if (!Array.isArray(list)) throw bad("Hyperliquid returned an unexpected response shape", 502);
+      const counts = marketCountsByDex(allMetas);
+      const dexs = list.filter((d) => d && typeof d === "object" && d.name).map((d) => {
+        const c = counts.get(String(d.name));
+        // An unreadable allPerpMetas reads null, never 0: the dex may well
+        // have markets we simply could not count this call.
+        return { ...shapePerpDex(d), markets: c ? c.markets : null, activeMarkets: c ? c.activeMarkets : null, delistedMarkets: c ? c.delistedMarkets : null };
+      });
+      return { source: "hyperliquid", count: dexs.length, dexs, deployAuction: shapeDeployAuction(auction), fetchedAt: nowIso() };
+    },
+  },
+
+  // ===========================================================================
+  // perp-dex-markets - one HIP-3 dex's markets: the perp-markets snapshot.
+  // ===========================================================================
+  {
+    route: "POST /api/perp-dex-markets",
+    name: "Perp dex markets snapshot (HIP-3)",
+    slug: "perp-dex-markets",
+    category: "crypto",
+    price: "$0.003",
+    description:
+      "Snapshot of every market on ONE builder-deployed perp dex (HIP-3): mark and oracle price, 24h change, hourly funding (plus 8h and annualized), open interest in units and USD, 24h notional volume, impact premium, max leverage, growth mode, isolated-only and margin mode, deployer fee scale, and the dex's collateral token. Coins carry the dex prefix (xyz:TSLA). Sort by volume, openInterest, funding, change or coin; limit caps the list (max 500). Keyless public data.",
+    tags: ["crypto", "derivatives", "perpetuals", "hip-3", "hyperliquid"],
+    discovery: {
+      bodyType: "json",
+      input: { dex: "xyz", limit: 5 },
+      inputSchema: {
+        properties: {
+          dex: { type: "string", description: "HIP-3 dex name, e.g. xyz (list them with perp-dexs)." },
+          limit: { type: "number", description: "Rows to return (default 50, max 500)." },
+          sort: { type: "string", description: "volume (default), openInterest, funding, change, or coin." },
+        },
+        required: ["dex"],
+      },
+      output: {
+        example: {
+          source: "hyperliquid",
+          dex: "xyz",
+          collateralToken: 0,
+          count: 1,
+          totalMarkets: 108,
+          delistedMarkets: 15,
+          sort: "volume",
+          markets: [{ coin: "xyz:TSLA", markPx: 431.2, oraclePx: 431.1, change24hPct: 1.2, fundingHourly: 0.00000625, funding8h: 0.00005, fundingAprPct: 5.475, openInterest: 8837.2, openInterestUsd: 3810601, volume24hUsd: 158407743.45, premiumPct: -0.0051, maxLeverage: 20, szDecimals: 3, dex: "xyz", growthMode: "enabled", onlyIsolated: false, marginMode: null, deployerFeeScale: 1 }],
+          fetchedAt: "2026-09-18T12:00:00.000Z",
+        },
+      },
+    },
+    handler: async (i = {}) => {
+      const dex = takeDex(i.dex);
+      const limit = takeLimit(i.limit, 50);
+      const sort = i.sort == null || i.sort === "" ? "volume" : String(i.sort);
+      const sorters = {
+        volume: (a, b) => (b.volume24hUsd ?? 0) - (a.volume24hUsd ?? 0),
+        openInterest: (a, b) => (b.openInterestUsd ?? 0) - (a.openInterestUsd ?? 0),
+        funding: (a, b) => (b.fundingHourly ?? 0) - (a.fundingHourly ?? 0),
+        change: (a, b) => (b.change24hPct ?? 0) - (a.change24hPct ?? 0),
+        coin: (a, b) => a.coin.localeCompare(b.coin),
+      };
+      if (!sorters[sort]) throw bad(`"sort" must be one of ${Object.keys(sorters).join(", ")}`);
+      const { rows, delisted, collateralToken } = await perpMarketsDoc(dex);
+      rows.sort(sorters[sort]);
+      return {
+        source: "hyperliquid",
+        dex,
+        collateralToken,
+        count: Math.min(rows.length, limit),
+        totalMarkets: rows.length,
+        delistedMarkets: delisted,
+        sort,
+        markets: rows.slice(0, limit),
+        ...(rows.length ? {} : { note: delisted ? `Every one of this dex's ${delisted} markets is delisted: the dex has wound down, so there is nothing live to quote.` : "This dex lists no markets yet." }),
+        fetchedAt: nowIso(),
+      };
+    },
+  },
+
+  // ===========================================================================
+  // perp-dex-limits - one HIP-3 dex's OI caps, transfer cap, net deposit.
+  // ===========================================================================
+  {
+    route: "POST /api/perp-dex-limits",
+    name: "Perp dex limits and status (HIP-3)",
+    slug: "perp-dex-limits",
+    category: "crypto",
+    price: "$0.002",
+    description:
+      "Risk limits and status of ONE builder-deployed perp dex (HIP-3): total open-interest cap, per-perp OI size cap, max transfer notional, the per-coin OI caps, the coins currently AT their OI cap, and the dex's total net deposit. Three keyless reads (perpDexLimits, perpDexStatus, perpsAtOpenInterestCap) in one call.",
+    tags: ["crypto", "derivatives", "perpetuals", "hip-3", "hyperliquid"],
+    discovery: {
+      bodyType: "json",
+      input: { dex: "xyz", limit: 5 },
+      inputSchema: {
+        properties: {
+          dex: { type: "string", description: "HIP-3 dex name, e.g. xyz (list them with perp-dexs)." },
+          limit: { type: "number", description: "Per-coin cap rows to return, largest first (default 50, max 500)." },
+        },
+        required: ["dex"],
+      },
+      output: {
+        example: {
+          source: "hyperliquid",
+          dex: "xyz",
+          totalOiCapUsd: 10000000000,
+          oiSzCapPerPerpUsd: 20000000000,
+          maxTransferNtlUsd: 3000000000,
+          totalNetDepositUsd: 1089269477.99,
+          count: 1,
+          totalCoins: 122,
+          coinOiCaps: [{ coin: "xyz:SP500", oiCapUsd: 1250000000 }],
+          atOiCap: { count: 0, coins: [] },
+          fetchedAt: "2026-09-18T12:00:00.000Z",
+        },
+      },
+    },
+    handler: async (i = {}) => {
+      const dex = takeDex(i.dex);
+      const limit = takeLimit(i.limit, 50);
+      const [limits, status, atCap] = await Promise.all([
+        dexInfo(dex, { type: "perpDexLimits" }),
+        dexInfo(dex, { type: "perpDexStatus" }).catch(() => null),
+        dexInfo(dex, { type: "perpsAtOpenInterestCap" }).catch(() => null),
+      ]);
+      if (!limits || typeof limits !== "object") throw bad("Hyperliquid returned an unexpected response shape", 502);
+      const caps = pairsToRows(limits.coinToOiCap, "oiCapUsd").sort((a, b) => (b.oiCapUsd ?? 0) - (a.oiCapUsd ?? 0));
+      const capped = Array.isArray(atCap) ? atCap.filter((c) => typeof c === "string") : [];
+      return {
+        source: "hyperliquid",
+        dex,
+        totalOiCapUsd: num(limits.totalOiCap),
+        oiSzCapPerPerpUsd: num(limits.oiSzCapPerPerp),
+        maxTransferNtlUsd: num(limits.maxTransferNtl),
+        totalNetDepositUsd: round(num(status?.totalNetDeposit), 2),
+        count: Math.min(caps.length, limit),
+        totalCoins: caps.length,
+        coinOiCaps: caps.slice(0, limit),
+        atOiCap: { count: capped.length, coins: capped },
+        fetchedAt: nowIso(),
+      };
+    },
+  },
+
+  // ===========================================================================
   // options-summary - Deribit: index, DVOL, options OI/volume, perpetual.
   // ===========================================================================
   {
@@ -1103,6 +1385,10 @@ export const DERIVATIVES_TOOLS = [
 
 export const __test = {
   resetMetaCache: () => { metaCache = { at: 0, names: null }; },
+  shapePerpDex,
+  shapeDeployAuction,
+  pairsToRows,
+  takeDex,
   parseOptionName,
   expiryToTs,
   summarizeOptions,

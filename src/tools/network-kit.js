@@ -768,9 +768,11 @@ export const NETWORK_TOOLS = [
       const checks = [];
       if (spfValid) { score += 25; checks.push({ check: "spf", status: "pass", detail: `SPF record present, ${spfParsed.lookupCount} DNS lookup${spfParsed.lookupCount === 1 ? "" : "s"}, ${spfParsed.all ? `${({ fail: "-", softfail: "~", neutral: "?", pass: "+" })[spfParsed.all]}all` : "no all"} qualifier` }); }
       else if (spfRaw) { score += 10; checks.push({ check: "spf", status: "warn", detail: spfParsed?.lookupCount > 10 ? `SPF record exceeds 10-lookup limit (${spfParsed.lookupCount})` : "SPF record present but invalid" }); }
+      else if (spfTxt.error) checks.push({ check: "spf", status: "unknown", detail: `SPF not measured: DNS lookup failed (${spfTxt.error})` });
       else checks.push({ check: "spf", status: "fail", detail: "No SPF record" });
       if (dmarcValid) { score += 25; checks.push({ check: "dmarc", status: "pass", detail: `p=${dmarcParsed.policy} at ${dmarcParsed.percent}%${dmarcParsed.percent === 100 ? " - strict enforcement" : ""}` }); }
       else if (dmarcRaw) { score += 10; checks.push({ check: "dmarc", status: "warn", detail: `p=${dmarcParsed?.policy || "?"} - monitor-only, no enforcement` }); }
+      else if (dmarcTxt.error) checks.push({ check: "dmarc", status: "unknown", detail: `DMARC not measured: DNS lookup failed (${dmarcTxt.error})` });
       else checks.push({ check: "dmarc", status: "fail", detail: "No DMARC record" });
       if (foundDkim.some((d) => d.valid)) {
         score += 25;
@@ -779,22 +781,33 @@ export const NETWORK_TOOLS = [
       } else if (foundDkim.length) { score += 10; checks.push({ check: "dkim", status: "warn", detail: `DKIM found but ${foundDkim[0].revoked ? "revoked" : "weak key"}` }); }
       else checks.push({ check: "dkim", status: "fail", detail: `No DKIM at probed selectors (${selectors.length} tried${mxProvider ? `, including ${mxProvider.provider}'s own ${mxProvider.selectors.join("/")}` : ""})` });
       if (mxHosts.length) { score += 25; checks.push({ check: "mx", status: "pass", detail: `${mxHosts.length} MX record${mxHosts.length === 1 ? "" : "s"} configured` }); }
+      else if (mxRecs.error) checks.push({ check: "mx", status: "unknown", detail: `MX not measured: DNS lookup failed (${mxRecs.error})` });
       else checks.push({ check: "mx", status: "fail", detail: "No MX records - domain cannot receive mail" });
-      const summary = score >= 90 ? "good" : score >= 60 ? "warn" : "fail";
+      // A leg whose DNS lookup FAILED was not measured, and an unmeasured leg
+      // must never read as an absent record: a resolver timeout used to publish
+      // "No SPF record" and dock 25 points, which in the paid domain report is a
+      // finding about the domain that nothing observed (2026-09-18, found by the
+      // corpus when the local resolver timed out on github.com). The score is
+      // unchanged - an unmeasurable leg earns nothing either way - but the check
+      // says unknown, the leg carries its lookupError, and the summary refuses to
+      // grade a partial reading.
+      const unmeasured = checks.filter((c) => c.status === "unknown").map((c) => c.check);
+      const summary = unmeasured.length ? "partial" : score >= 90 ? "good" : score >= 60 ? "warn" : "fail";
       return {
         domain,
         score,
         summary,
-        spf: { hasRecord: !!spfRaw, all: spfParsed?.all || null, valid: spfValid, lookupCount: spfParsed?.lookupCountTopLevel ?? spfParsed?.lookupCount ?? 0, lookupCountRecursive: spfParsed?.lookupCount ?? 0, lookupTree: spfParsed?.lookupTree || [] },
+        ...(unmeasured.length ? { unmeasured } : {}),
+        spf: { hasRecord: spfRaw ? true : (spfTxt.error ? null : false), lookupError: spfTxt.error || null, all: spfParsed?.all || null, valid: spfValid, lookupCount: spfParsed?.lookupCountTopLevel ?? spfParsed?.lookupCount ?? 0, lookupCountRecursive: spfParsed?.lookupCount ?? 0, lookupTree: spfParsed?.lookupTree || [] },
         dmarc: {
-          hasRecord: !!dmarcRaw, policy: dmarcParsed?.policy || null, percent: dmarcParsed?.percent ?? 0, valid: dmarcValid,
+          hasRecord: dmarcRaw ? true : (dmarcTxt.error ? null : false), lookupError: dmarcTxt.error || null, policy: dmarcParsed?.policy || null, percent: dmarcParsed?.percent ?? 0, valid: dmarcValid,
           // The tags the parser already had and the tool used to drop: a report
           // that recommends "the DMARC record to publish" must know whether
           // reporting (rua/ruf), subdomain policy and alignment are set.
           ...(dmarcParsed ? { subdomainPolicy: dmarcParsed.subdomainPolicy, alignment: dmarcParsed.alignment, reportingUris: dmarcParsed.reportingUris, failureOptions: dmarcParsed.failureOptions } : {}),
         },
         dkim: { found: foundDkim, probed: selectors, providerSelectors: mxProvider?.selectors || [] },
-        mx: { count: mxHosts.length, records: mxHosts.slice(0, 10), provider: mxProvider?.provider || null },
+        mx: { count: mxHosts.length, records: mxHosts.slice(0, 10), provider: mxProvider?.provider || null, lookupError: mxRecs.error || null },
         checks,
         queriedAt: new Date().toISOString(),
       };
