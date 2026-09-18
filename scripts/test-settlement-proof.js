@@ -239,5 +239,26 @@ const merchant = (m, payments, payers = 3, volumeUsd = 1) => ({ merchant: m, pay
     "the binding runs BEFORE any spend is held or signed, so a mismatch costs nothing");
 }
 
+// The ALGORAND family of the same helper (2026-09-18). EVM addresses are hex
+// and fold; an Algorand address is uppercase base32 with a checksum, so a
+// lowercased one is not that address and must never be folded into a match -
+// the base58/strkey rule from src/payer.js, one chain over. Pinned because the
+// family branch shipped with nothing exercising it: a mutation that accepted
+// mixed case and upper-cased it passed the whole suite.
+{
+  const ALGO_A = "A".repeat(58);
+  const ALGO_B = "B".repeat(58);
+  ok(provenPayToMatches({ provenPayTo: ALGO_A, livePayTo: ALGO_A, family: "algorand" }).verdict === "match",
+    "algorand: the same advertised and live address is a match");
+  ok(provenPayToMatches({ provenPayTo: ALGO_A, livePayTo: ALGO_B, family: "algorand" }).verdict === "mismatch",
+    "algorand: a different live address is a mismatch, which is what refuses the seller");
+  ok(provenPayToMatches({ provenPayTo: ALGO_A, livePayTo: ALGO_A.toLowerCase(), family: "algorand" }).verdict !== "match",
+    "algorand: a lowercased address is NOT folded into a match");
+  ok(provenPayToMatches({ provenPayTo: ALGO_A, livePayTo: null, family: "algorand" }).verdict === "unknown",
+    "algorand: an unreadable live payTo is unknown, and unknown never blocks");
+  ok(provenPayToMatches({ provenPayTo: "0x" + "a".repeat(40), livePayTo: "0x" + "a".repeat(40), family: "algorand" }).verdict === "unknown",
+    "algorand: an EVM address in the algorand family is not an address at all");
+}
+
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
