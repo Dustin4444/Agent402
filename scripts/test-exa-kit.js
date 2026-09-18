@@ -221,6 +221,39 @@ const reset = () => { calls = []; _exaSpendReset(); process.env.EXA_API_KEY = "t
   _exaLifetimeReset(); delete process.env.EXA_CREDITS_USD;
 }
 
+// --- category is validated against Exa's current list (2026-09-18) --------
+// Exa retired pdf/github/tweet and replaced "research paper" with "publication"
+// (changelog 2026-07-23). The buyer's string used to pass straight through, so a
+// retired category reached Exa as a free-text "hint" and quietly changed the
+// search. Mutation check: restore the passthrough and the retired-value case
+// below reaches the stub instead of 400ing.
+{
+  const { EXA_CATEGORIES, takeCategory } = await import("../src/tools/exa-kit.js");
+  eq(EXA_CATEGORIES, ["company", "publication", "news", "personal site", "financial report", "people"], "the accepted list is Exa's current enum");
+  reset(); stub(200, { results: [] });
+  await tool("exa-search").handler({ query: "x", category: "News" });
+  eq(JSON.parse(calls[0].opts.body).category, "news", "an accepted category is sent, case-folded");
+  reset(); stub(200, { results: [] });
+  await tool("exa-search").handler({ query: "x", category: "research paper" });
+  eq(JSON.parse(calls[0].opts.body).category, "publication", "the renamed category maps to its successor");
+  reset(); stub(200, { results: [] });
+  await tool("exa-search").handler({ query: "x", category: "financial_report" });
+  eq(JSON.parse(calls[0].opts.body).category, "financial report", "underscores and hyphens read as the documented space");
+  for (const retired of ["pdf", "github", "tweet"]) {
+    reset(); stub(200, { results: [] });
+    await throws(() => tool("exa-search").handler({ query: "x", category: retired }), /retired by Exa on 2026-07-23.*accepted values: company, publication, news, personal site, financial report, people/, `retired category "${retired}" is refused with the accepted list`);
+    ok(calls.length === 0, `...before any upstream call (${retired})`);
+  }
+  reset(); stub(200, { results: [] });
+  await throws(() => tool("exa-search").handler({ query: "x", category: "podcast" }), /unknown "category".*accepted values: company, publication/, "an unknown category is refused naming the accepted values");
+  ok(calls.length === 0, "...before any upstream call");
+  reset(); stub(200, { results: [] });
+  await tool("exa-search").handler({ query: "x", category: "" });
+  ok(JSON.parse(calls[0].opts.body).category === undefined, "an empty category is simply omitted");
+  ok(takeCategory(undefined) === null && takeCategory(null) === null, "takeCategory treats absent as absent");
+  await throws(async () => takeCategory(7), /must be a string/, "a non-string category is refused");
+}
+
 globalThis.fetch = realFetch;
 console.log(`\ntest-exa-kit: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

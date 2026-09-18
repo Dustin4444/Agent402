@@ -1037,6 +1037,19 @@ export function parseRobinhoodTransfer(t, wallet) {
 // `result` being an array vs. `null` — NOT the `status` field: "no transfers
 // found" is ALSO status "0" but carries a valid empty `result: []`, so
 // keying on `status` would misreport an empty wallet as a scan failure.
+//
+// HOST DECISION (2026-09-18 data-provider audit): Blockscout deprecated the
+// per-instance APIs on 2026-07-01 in favour of `api.blockscout.com/{chain_id}/
+// api/v2` with one key. Probed live that day for chain 4663: BOTH v2 paths
+// (`/4663/api/v2/addresses/<w>/token-transfers` and the Etherscan-compatible
+// `/4663/api?module=account&action=tokentx`) answer `402 {"error":"Proceed
+// with API key or make a X402 payment to continue"}` keyless, and the legacy
+// instance answered a Cloudflare challenge (403, HTML) from a residential IP -
+// which is why a non-JSON answer below is reported as `Blockscout HTTP <status>`
+// rather than thrown. The v2 move needs a Blockscout key (or paying their x402
+// gate from the spending wallet, which this free revenue read must not do), so
+// the legacy path STAYS and this note is the documentation; revisit when a
+// key is on Railway (`BLOCKSCOUT_API_KEY` would be the switch).
 export async function robinhoodActivity(wallet, { days = 30 } = {}) {
   const c = EVM.robinhood;
   const out = { rail: c.label, wallet: wallet || null, days, buckets: [], totals: { tx: 0, usd: 0, buyers: 0, internalTx: 0, internalUsd: 0 }, truncated: false, error: null };
