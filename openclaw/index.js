@@ -71,6 +71,7 @@ export async function resolvePayFetch(pluginConfig = {}, log = () => {}) {
       const allowance = await pub.readContract(getPermit2AllowanceReadParams({ tokenAddress: USDC_BASE, ownerAddress: account.address }));
       upto = uptoReady(allowance);
       const client = new x402Client((v, accepts) => selectAccept(accepts, { preferUpto: upto }));
+      client.setSpendControls?.(false); // @x402/core 2.23+ defaults to a $1 pegged-assets-only cap; this package bounds spend itself
       registerExactEvmScheme(client, { signer });
       if (upto) client.register(BASE_CAIP2, new UptoEvmScheme(signer));
       log(upto
@@ -81,6 +82,7 @@ export async function resolvePayFetch(pluginConfig = {}, log = () => {}) {
       // The allowance read or the upto scheme failed: exact still works.
       log(`[agent402-openclaw] upto unavailable (${String(e?.message || e).slice(0, 120)}) - paying exact`);
       const client = new x402Client((v, accepts) => selectAccept(accepts, { preferUpto: false }));
+      client.setSpendControls?.(false); // @x402/core 2.23+ defaults to a $1 pegged-assets-only cap; this package bounds spend itself
       registerExactEvmScheme(client, { signer });
       return wrapFetchWithPayment(fetch, client);
     }

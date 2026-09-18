@@ -50,6 +50,7 @@
 // failure) · 1 = real work remaining: a buy failed, or a route was never paid
 // for (spend/price cap, batch stride) · 2 = misconfigured.
 
+import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
 import { readFileSync, existsSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 // viem + @x402/* are loaded lazily so DRY_RUN works without them installed.
@@ -448,7 +449,7 @@ export function missingModeVerdict({ failCount, okCount, stillMissingPaths, boug
 async function buildPayFetch() {
   const { x402Client } = await import("@x402/core/client");
   const { wrapFetchWithPayment } = await import("@x402/fetch");
-  const client = new x402Client();
+  const client = disableVendorSpendControls(new x402Client());
   if (PAY_NETWORK === "solana") {
     const raw = (process.env.SOLANA_BURNER_KEY || "").trim();
     if (!raw) {
@@ -510,7 +511,7 @@ async function main() {
   const { wrapFetchWithPayment } = await import("@x402/fetch");
 
   const account = privateKeyToAccount(loadKey());
-  const client = new x402Client();
+  const client = disableVendorSpendControls(new x402Client());
   registerExactEvmScheme(client, { signer: account });
   const payFetch = wrapFetchWithPayment(fetch, client);
 

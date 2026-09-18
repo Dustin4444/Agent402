@@ -35,6 +35,7 @@
 // Usage:
 //   EXT_DRY=1 node scripts/algorand-external-buy.js                    # plan only
 //   ALGORAND_BURNER_MNEMONIC=… node scripts/algorand-external-buy.js --out ext.json
+import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
 import { writeFileSync } from "node:fs";
 import { algorandCatalog } from "../src/algorand-sellers.js";
 import { getJsonAcross, ALGORAND_INDEXER_BASES } from "../src/revenue-live.js";
@@ -62,7 +63,7 @@ if (!(MAX_USD > 0) || MAX_USD > 5) die(`refusing an implausible total cap of $${
 let client, http, payerAddress = "(dry)";
 {
   const { x402Client, x402HTTPClient } = await import("@x402/core/client");
-  client = new x402Client();
+  client = disableVendorSpendControls(new x402Client());
   if (!DRY) {
     const mnemonic = (process.env.ALGORAND_BURNER_MNEMONIC || "").trim();
     if (!mnemonic) die("ALGORAND_BURNER_MNEMONIC not set (or use EXT_DRY=1 to preview the plan)");

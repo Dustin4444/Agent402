@@ -155,6 +155,7 @@ export async function payFetchFor(walletProvider, fetchImpl = globalThis.fetch, 
     import("@x402/fetch"), import("@x402/evm/exact/client"),
   ]);
   const client = new x402Client();
+  client.setSpendControls?.(false); // @x402/core 2.23+ defaults to a $1 pegged-assets-only cap; this package bounds spend itself
   registerExactEvmScheme(client, { signer });
   if (Array.isArray(payees) && payees.length) {
     const { withPayeeAllowlist } = await import("agent402-client");

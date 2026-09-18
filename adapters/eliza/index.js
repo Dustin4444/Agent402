@@ -31,6 +31,7 @@ async function payFetchFromKey(pk, fetchImpl) {
         import("@x402/fetch"), import("viem/accounts"), import("@x402/evm"), import("@x402/evm/exact/client"),
       ]);
       const client = new x402Client();
+      client.setSpendControls?.(false); // @x402/core 2.23+ defaults to a $1 pegged-assets-only cap; this package bounds spend itself
       registerExactEvmScheme(client, { signer: toClientEvmSigner(privateKeyToAccount(pk)) });
       return wrapFetchWithPayment(fetchImpl, client);
     } catch { return null; } // peers absent: free tier + credits still work

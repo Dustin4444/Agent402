@@ -12,6 +12,7 @@ import { assertPublicUrl, ssrfDispatcher } from "./tools/fetch-guard.js";
 import { recordUpstreamSpend } from "./stats.js";
 import { provenPayToMatches } from "./settlement-proof.js";
 import { usdcDomainVerdict, unsignableByStockBuyer } from "./evm-usdc-domain.js";
+import { disableVendorSpendControls } from "./x402-spend-controls.js";
 
 function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
@@ -85,7 +86,9 @@ export async function getUpstreamBuyer() {
       import("viem/accounts"), import("@x402/core/client"), import("@x402/evm/exact/client"),
     ]);
     const account = privateKeyToAccount(pk.startsWith("0x") ? pk : `0x${pk}`);
-    const client = new x402Client();
+    // Our bound is payX402's maxAtomic re-check + the spend guard, not the
+    // vendor's default $1 / pegged-assets-only filter (x402-spend-controls.js).
+    const client = disableVendorSpendControls(new x402Client());
     registerExactEvmScheme(client, { signer: account });
     return { client, http: new x402HTTPClient(client), address: account.address };
   })();
@@ -121,7 +124,7 @@ export async function getUpstreamBuyerAvm() {
       ? { server: `${relayUrl}/algod`, token: { Authorization: `Bearer ${relayToken}` } }
       : { server: (process.env.ALGORAND_ALGOD_URL || "https://mainnet-api.algonode.cloud").trim(), token: "" };
     const algorandClient = AlgorandClient.fromConfig({ algodConfig }).setDefaultValidityWindow(1000);
-    const client = new x402Client();
+    const client = disableVendorSpendControls(new x402Client());
     client.register("algorand:*", new ExactAvmScheme(toClientAvmSigner(Buffer.from(account.sk).toString("base64")), { algorandClient }));
     return { client, http: new x402HTTPClient(client), address: account.addr.toString() };
   })();

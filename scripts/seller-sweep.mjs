@@ -21,6 +21,7 @@
 //
 // DRY BY DEFAULT. Without SWEEP_LIVE=true it resolves candidates, reads every
 // bare 402 and reports what it WOULD spend, paying nothing.
+import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
 import { readFileSync, writeFileSync } from "node:fs";
 import { privateKeyToAccount } from "viem/accounts";
 import { readOutputContract, verdictFor, acceptFilterFor, VERDICTS } from "./seller-verify-core.mjs";
@@ -118,7 +119,7 @@ if (LIVE) {
   const fetchMod = await import("@x402/fetch");
   const { registerExactEvmScheme } = await import("@x402/evm/exact/client");
   wrapFetchWithPayment = fetchMod.wrapFetchWithPayment;
-  newClient = () => { const c = new fetchMod.x402Client(); registerExactEvmScheme(c, { signer: account, networks: ["eip155:8453"] }); return c; };
+  newClient = () => { const c = disableVendorSpendControls(new fetchMod.x402Client()); registerExactEvmScheme(c, { signer: account, networks: ["eip155:8453"] }); return c; };
   console.log(`paying from ${account.address}`);
 }
 

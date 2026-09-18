@@ -7,6 +7,7 @@
 //
 //   TARGET_URL=http://127.0.0.1:3777 KEY_FILE=/tmp/burner-key \
 //   CDP_API_KEY_ID=.. CDP_API_KEY_SECRET=.. node scripts/cdp-verify-direct.js
+import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
 import { readFileSync } from "node:fs";
 import { privateKeyToAccount } from "viem/accounts";
 import { x402Client } from "@x402/core/client";
@@ -17,7 +18,7 @@ import { createFacilitatorConfig } from "@coinbase/x402";
 
 const TARGET = process.env.TARGET_URL || "http://127.0.0.1:3777";
 const account = privateKeyToAccount(readFileSync(process.env.KEY_FILE, "utf8").trim());
-const client = new x402Client();
+const client = disableVendorSpendControls(new x402Client());
 registerExactEvmScheme(client, { signer: account });
 
 // 1. Get a 402 challenge from the (CDP-configured) server.

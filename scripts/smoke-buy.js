@@ -17,6 +17,7 @@
 //                 targets - it is OUR ledger convention, not theirs.
 //
 //   BURNER_KEY=0x… POW_SECRET=… SMOKE_ROUTE=/api/unemployment-rate node scripts/smoke-buy.js
+import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
 import { readFileSync, existsSync } from "node:fs";
 import { createHmac, createHash } from "node:crypto";
 import {
@@ -56,7 +57,7 @@ const [{ privateKeyToAccount }, { x402Client }, { registerExactEvmScheme }, { wr
 ]);
 const account = privateKeyToAccount(pk);
 console.log(`buyer: ${account.address}`);
-const client = new x402Client();
+const client = disableVendorSpendControls(new x402Client());
 registerExactEvmScheme(client, { signer: account });
 
 const secret = EXTERNAL_TARGET ? "" : (process.env.POW_SECRET || "").trim();

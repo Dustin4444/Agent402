@@ -139,6 +139,7 @@ function getPayFetch() {
     const { x402Client } = await import("@x402/core/client");
     const { wrapFetchWithPayment } = await import("@x402/fetch");
     const client = new x402Client();
+    client.setSpendControls?.(false); // @x402/core 2.23+ defaults to a $1 pegged-assets-only cap; this package bounds spend itself
     if (AGENT_KEY) {
       const { registerExactEvmScheme } = await import("@x402/evm/exact/client");
       const { privateKeyToAccount } = await import("viem/accounts");

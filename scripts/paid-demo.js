@@ -13,6 +13,7 @@
 //
 // --out writes {tool, method, chain, quote, receipt, result} for a card
 // renderer to consume. Exit 1 on usage, 2 on a failed buy.
+import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
 import { writeFileSync } from "node:fs";
 
 const TARGET = (process.env.TARGET_URL || "https://agent402.tools").replace(/\/$/, "");
@@ -43,7 +44,7 @@ if (!PATH || !PATH.startsWith("/")) {
 // Each rail registers ONLY its own scheme, so the payment can never silently
 // settle on a different accept than the pinned one.
 const { x402Client, x402HTTPClient } = await import("@x402/core/client");
-const client = new x402Client();
+const client = disableVendorSpendControls(new x402Client());
 let payerAddress;
 if (CHAIN.startsWith("eip155:")) {
   const pk = (process.env.BURNER_KEY || "").trim();
