@@ -15,7 +15,7 @@
 // silent green that let every one of those ship.
 import { readFileSync } from "node:fs";
 import {
-  TIERS, AUTO_RANKINGS, SPEECH_MODELS, MODEL_COST, FLEX_MODELS, REASONING_MODELS, reasoningRowMatches, costFor, tierFor, tierAllows, STEALTH_MODEL_IDS, modelsList,
+  TIERS, AUTO_RANKINGS, SPEECH_MODELS, MODEL_COST, FLEX_MODELS, REASONING_MODELS, reasoningRowMatches, costFor, tierFor, tierAllows, STEALTH_MODEL_IDS, modelsList, PRIORITY_PRICE_FACTOR,
 } from "../src/tools/llm-gateway-kit.js";
 import { PRIMARY_PREFERENCE } from "../openclaw/models.js";
 
@@ -132,16 +132,29 @@ for (const link of SPEECH_MODELS) ok(speechIds.has(link.id), `speech chain link 
 //    clamp was letting through ~2.75x the tokens the bound allowed on a sol
 //    fallback. Same shape as the speech rule above (1b).
 //
-//    Endpoints tagged "*/fast" are the PRIORITY service tier (openai/fast,
-//    anthropic/fast: 2x list). OpenRouter routes to them only for
-//    service_tier "priority", which no wire here ever sends - pinned from
-//    source below, with the flex literal as the control that proves the scan
-//    sees the field at all - so they bound nothing we serve and are excluded.
-//    Underestimating = the margin clamp lets too many tokens through.
+//    Endpoints tagged "*/fast" or "*/priority" are the PRIORITY service tier
+//    (openai/fast, anthropic/fast: 2x list; google */priority: 1.8x). Since
+//    2026-09-18 a wire sends service_tier "priority" ONLY through the shared
+//    serviceTierFor() helper, and only when validateServiceTier() accepted it
+//    on a tier flagged `priority: true` (pro, premium), where the clamp prices
+//    the row at PRIORITY_PRICE_FACTOR. So on those tiers a priority endpoint
+//    inside the tier's max_price bound must bill at most factor x the row
+//    (checked below); on every other tier the priority endpoints bound
+//    nothing we serve and are excluded - a `:nitro` model's default attempt
+//    carries an explicit service_tier "default", which is what keeps the
+//    variant from admitting them (a live luna:nitro call with no field was
+//    served at priority that day). Both facts pinned from source here, with
+//    the images route's flex literal as the control that the scan sees the
+//    field at all. Underestimating = the clamp lets too many tokens through.
 {
-  const wires = ["llm-gateway-kit.js", "llm-messages-kit.js", "llm-responses-kit.js", "llm-images-fast-kit.js"]
-    .map((f) => readFileSync(new URL(`../src/tools/${f}`, import.meta.url), "utf8")).join("\n");
-  ok(!/service_tier\s*[:=]\s*["'`]priority["'`]/.test(wires) && /service_tier\s*:\s*["']flex["']/.test(wires), 'no wire sends service_tier "priority" (so */fast endpoints never serve a call and rule 4 may exclude them); the flex literal is the control');
+  const wires = ["llm-gateway-kit.js", "llm-messages-kit.js", "llm-responses-kit.js"]
+    .map((f) => readFileSync(new URL(`../src/tools/${f}`, import.meta.url), "utf8"));
+  const all = wires.concat(readFileSync(new URL("../src/tools/llm-images-fast-kit.js", import.meta.url), "utf8")).join("\n");
+  ok(wires.every((src) => /service_tier:\s*serviceTierFor\(/.test(src) && /validateServiceTier\(input, tier\)/.test(src)), "every chat/messages/responses wire sets its outbound service_tier through serviceTierFor() and validates the buyer's through validateServiceTier()");
+  ok(!/service_tier:\s*["'`]priority["'`]/.test(all.replace(/^\s*\/\/.*$/gm, "")) && /service_tier:\s*["']flex["']/.test(all), 'no wire spells service_tier "priority" outside the helper (the images route\'s flex literal is the control)');
+  const kit = wires[0];
+  ok(/if \(\/:nitro\$\/i\.test\(String\(model \|\| ""\)\)\) return "default";/.test(kit) && /body\?\.service_tier === "priority"\) return "priority"/.test(kit), 'serviceTierFor: an explicit "default" on :nitro, "priority" only from a validated body');
+  ok(JSON.stringify(Object.entries(TIERS).filter(([, t]) => t.priority === true).map(([s]) => s)) === '["v1-chat-pro","v1-chat-premium"]', "priority is offered on pro and premium only (the tiers rule 4 checks priority endpoints for)");
 }
 // Priority-tier tags read two ways on the live catalog: "openai/fast" /
 // "anthropic/fast" and "google-vertex/global/priority" / "xai/zdr/priority".
@@ -163,7 +176,7 @@ const admitted = models.filter((m) => {
   return !!tierFor(m.id);
 });
 const under = [];
-let endpointReads = 0, headlineOnly = 0, priorityExcluded = 0;
+let endpointReads = 0, headlineOnly = 0, priorityExcluded = 0, priorityChecked = 0;
 {
   const queue = [...admitted];
   const worker = async () => {
@@ -172,9 +185,13 @@ let endpointReads = 0, headlineOnly = 0, priorityExcluded = 0;
       const tier = TIERS[slug];
       const eps = await endpointPrices(m.id);
       let prices = [];
+      let priorityPrices = [];
       if (eps) {
         endpointReads++;
-        priorityExcluded += eps.filter((e) => PRIORITY_TAG.test(e.tag)).length;
+        // Priority endpoints: bounded by factor x row on the tiers that sell
+        // the priority knob, excluded (never routed to) everywhere else.
+        if (tier.priority === true) priorityPrices = eps.filter((e) => PRIORITY_TAG.test(e.tag));
+        else priorityExcluded += eps.filter((e) => PRIORITY_TAG.test(e.tag)).length;
         prices = eps.filter((e) => !PRIORITY_TAG.test(e.tag));
       } else {
         headlineOnly++;
@@ -182,20 +199,32 @@ let endpointReads = 0, headlineOnly = 0, priorityExcluded = 0;
       const hp = Number(m.pricing?.prompt) * 1e6, hc = Number(m.pricing?.completion) * 1e6;
       if (Number.isFinite(hp) && Number.isFinite(hc)) prices.push({ tag: "headline", p: hp, c: hc });
       // An endpoint above the tier bound on EITHER unit is refused by provider.max_price.
-      if (tier.maxPrice) prices = prices.filter((e) => e.p <= tier.maxPrice.prompt && e.c <= tier.maxPrice.completion);
-      if (!prices.length) continue;
-      const p = Math.max(...prices.map((e) => e.p)), c = Math.max(...prices.map((e) => e.c));
+      if (tier.maxPrice) {
+        prices = prices.filter((e) => e.p <= tier.maxPrice.prompt && e.c <= tier.maxPrice.completion);
+        priorityPrices = priorityPrices.filter((e) => e.p <= tier.maxPrice.prompt && e.c <= tier.maxPrice.completion);
+      }
+      if (!prices.length && !priorityPrices.length) continue;
       const table = costFor(m.id);
-      if (!table) { under.push(`${m.id} (no MODEL_COST entry; dearest routable endpoint $${p}/$${c})`); continue; }
-      if (p > table.prompt + 1e-9 || c > table.completion + 1e-9) {
-        const dearP = prices.find((e) => e.p === p)?.tag, dearC = prices.find((e) => e.c === c)?.tag;
-        under.push(`${m.id} dearest routable endpoint $${p} (${dearP}) / $${c} (${dearC}) vs table $${table.prompt}/$${table.completion} (${slug}; ${prices.length} endpoint price(s) read)`);
+      if (!table) { under.push(`${m.id} (no MODEL_COST entry; dearest routable endpoint $${Math.max(...prices.map((e) => e.p))}/$${Math.max(...prices.map((e) => e.c))})`); continue; }
+      if (prices.length) {
+        const p = Math.max(...prices.map((e) => e.p)), c = Math.max(...prices.map((e) => e.c));
+        if (p > table.prompt + 1e-9 || c > table.completion + 1e-9) {
+          const dearP = prices.find((e) => e.p === p)?.tag, dearC = prices.find((e) => e.c === c)?.tag;
+          under.push(`${m.id} dearest routable endpoint $${p} (${dearP}) / $${c} (${dearC}) vs table $${table.prompt}/$${table.completion} (${slug}; ${prices.length} endpoint price(s) read)`);
+        }
+      }
+      for (const e of priorityPrices) {
+        priorityChecked++;
+        if (e.p > table.prompt * PRIORITY_PRICE_FACTOR + 1e-9 || e.c > table.completion * PRIORITY_PRICE_FACTOR + 1e-9) {
+          under.push(`${m.id} PRIORITY endpoint ${e.tag} $${e.p}/$${e.c} over ${PRIORITY_PRICE_FACTOR}x the table row $${table.prompt}/$${table.completion} (${slug} sells service_tier priority at that factor)`);
+        }
       }
     }
   };
   await Promise.all(Array.from({ length: 6 }, worker));
 }
-console.log(`rule 4: ${admitted.length} admitted live models, ${endpointReads} endpoint lists read, ${headlineOnly} graded on the headline alone, ${priorityExcluded} priority-tier endpoint(s) excluded`);
+console.log(`rule 4: ${admitted.length} admitted live models, ${endpointReads} endpoint lists read, ${headlineOnly} graded on the headline alone, ${priorityChecked} priority-tier endpoint(s) checked at ${PRIORITY_PRICE_FACTOR}x on the priority tiers, ${priorityExcluded} excluded elsewhere`);
+ok(priorityChecked >= 3, `rule 4 checked priority endpoints on the priority tiers (${priorityChecked}; the 2026-09-18 read found openai/fast on sol, terra, astra and anthropic/fast on opus-5, google */priority on gemini-2.5-pro) - zero would mean the read is blind`);
 ok(endpointReads >= admitted.length / 2, `rule 4 read endpoint lists for most admitted models (${endpointReads} of ${admitted.length}); a headline-only run would be the old, weaker check`);
 ok(under.length === 0, `MODEL_COST never underestimates a live admitted model's dearest routable endpoint${under.length ? `:\n    ${under.join("\n    ")}` : ""}`);
 // 5. Expiring models: OpenRouter stamps expiration_date; anything we rank or

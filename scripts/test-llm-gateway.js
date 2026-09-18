@@ -1056,6 +1056,81 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   delete process.env.OPENROUTER_API_KEY;
 }
 
+// ---------------------------------------------------------------------------
+// Priority service tier (2026-09-18): a buyer knob on pro/premium at the same
+// flat price, priced by the margin clamp at PRIORITY_PRICE_FACTOR (the
+// priority endpoints bill 2x the default row - openai/fast and anthropic/fast
+// measured live, google */priority 1.8x). Refused with the routes named on
+// every other tier; "flex" is never a buyer knob; a `:nitro` model's default
+// attempt carries an explicit service_tier "default" because a live
+// luna:nitro call with none was SERVED AT PRIORITY (2x).
+{
+  const { worstCaseUpstreamCost, PRIORITY_PRICE_FACTOR, PRIORITY_SERVICE_TIER_VALUES, serviceTierFor, attemptsFor, flexAttempts, MARGIN } = await import("../src/tools/llm-gateway-kit.js");
+  const pro = TIERS["v1-chat-pro"], premium = TIERS["v1-chat-premium"];
+  ok(PRIORITY_PRICE_FACTOR === 2 && JSON.stringify(PRIORITY_SERVICE_TIER_VALUES) === '["priority","fast"]', "factor 2 (the dearest priority endpoint measured live 2026-09-18) and the two documented spellings");
+  ok(JSON.stringify(Object.entries(TIERS).filter(([, t]) => t.priority === true).map(([s]) => s)) === '["v1-chat-pro","v1-chat-premium"]', "the priority tier is offered on pro and premium only");
+  // Accepted and normalized (part of the body, so the clamp and the cache key see it).
+  const vp = validateRequest({ model: "openai/gpt-4o", messages: msg1(), service_tier: "priority" }, "v1-chat-pro");
+  const vf = validateRequest({ model: "openai/gpt-4o", messages: msg1(), service_tier: "fast" }, "v1-chat-pro");
+  ok(vp.service_tier === "priority" && vf.service_tier === "priority", 'pro: service_tier "priority" and its alias "fast" both normalize to "priority"');
+  ok(validateRequest({ model: "openai/gpt-4o", messages: msg1(), service_tier: "default" }, "v1-chat-pro").service_tier === undefined && validateRequest({ model: "openai/gpt-4o", messages: msg1(), service_tier: "auto" }, "v1-chat-pro").service_tier === undefined, '"default" and "auto" (the OpenAI SDK defaults) are no-ops');
+  ok(promptCacheKey("v1-chat-pro", { model: "openai/gpt-4o", messages: msg1(), cache: true, service_tier: "priority" }) !== promptCacheKey("v1-chat-pro", { model: "openai/gpt-4o", messages: msg1(), cache: true }), "a priority answer never shares a cache entry with a default one");
+  // Priced: the token side is exactly factor x the default row (gpt-4o 2.5/10
+  // -> 5/20, under pro's 6/20 bound). Removing the multiplier makes the two
+  // worst cases equal, which fails here.
+  const body = { model: "openai/gpt-4o", messages: msg1("x ".repeat(2000)), max_tokens: 1024 };
+  const d = worstCaseUpstreamCost(body, pro), p = worstCaseUpstreamCost({ ...body, service_tier: "priority" }, pro);
+  // (the field itself is counted as a few input tokens by the body estimate, so the per-token RATE is compared on the input side)
+  ok(p.cost.prompt === 5 && p.cost.completion === 20 && p.inTokens >= d.inTokens && Math.abs(p.inUsd / p.inTokens - (d.inUsd / d.inTokens) * PRIORITY_PRICE_FACTOR) < 1e-12 && Math.abs(p.outUsd - d.outUsd * PRIORITY_PRICE_FACTOR) < 1e-12 && p.totalUsd > d.totalUsd, `priority worst case is ${PRIORITY_PRICE_FACTOR}x the default row on both units (${d.totalUsd.toFixed(5)} -> ${p.totalUsd.toFixed(5)})`);
+  const astra = worstCaseUpstreamCost({ model: "openai/gpt-6-astra", messages: msg1(), max_tokens: 64, service_tier: "priority" }, premium);
+  ok(astra.cost.prompt === premium.maxPrice.prompt && astra.cost.completion === premium.maxPrice.completion, "the tier's max_price still bounds a priority row (astra 11/55 x 2 -> capped at premium's 20/100, which rides upstream as provider.max_price)");
+  const opus = worstCaseUpstreamCost({ model: "anthropic/claude-opus-5", messages: msg1(), max_tokens: 64, service_tier: "priority" }, premium);
+  ok(opus.cost.prompt === 11 && opus.cost.completion === 55, "opus-5 at priority prices 11/55 (2x the 5.5/27.5 regional row), which covers anthropic/fast's live 10/50");
+  // Refused where it would breach: a 20k-char CJK prompt on gpt-4o clears the
+  // $0.07 budget at the default rate ($0.05 in, output clamped) and busts it
+  // at priority ($0.10 in) - a 400 before any spend, never a loss-making call.
+  const cjk = { model: "openai/gpt-4o", messages: msg1("漢".repeat(20000)), max_tokens: 4096 };
+  const okDefault = validateRequest(cjk, "v1-chat-pro");
+  ok(okDefault.max_tokens < 4096 && worstCaseUpstreamCost(okDefault, pro).totalUsd <= pro.price * MARGIN, "control: the same body at the default tier is accepted with max_tokens clamped under the 70% bound");
+  throws(() => validateRequest({ ...cjk, service_tier: "priority" }, "v1-chat-pro"), "Input is too large", "the same body at priority is refused 400 (input alone over the 70% budget at 2x)");
+  // Refused on the tiers that do not price it, naming the ones that do.
+  for (const slug of ["v1-chat-nano", "v1-chat", "v1-chat-auto", "v1-chat-grounded", "v1-chat-metered"]) {
+    const model = slug === "v1-chat-auto" || slug === "v1-chat-grounded" ? undefined : slug === "v1-chat-nano" ? "openai/gpt-5.6-luna" : slug === "v1-chat-metered" ? "openai/gpt-4o" : "openai/gpt-4o-mini";
+    let e = null; try { validateRequest({ ...(model ? { model } : {}), messages: msg1(), service_tier: "priority" }, slug); } catch (x) { e = x; }
+    ok(e?.statusCode === 400 && /not offered on/.test(e.message) && /\/v1\/pro\/chat\/completions \(\$0\.1\)/.test(e.message) && /\/v1\/premium\/chat\/completions/.test(e.message), `${slug}: priority refused 400 naming the pro and premium routes`);
+  }
+  throws(() => validateRequest({ model: "openai/gpt-4o", messages: msg1(), service_tier: "flex" }, "v1-chat-pro"), "not a buyer knob", '"flex" is refused: the gateway applies flex itself (with a fallback a buyer flex cannot have)');
+  throws(() => validateRequest({ model: "openai/gpt-4o", messages: msg1(), service_tier: "turbo" }, "v1-chat-pro"), "not recognised", "an unknown service_tier is refused, never dropped");
+  throws(() => validateRequest({ model: "openai/gpt-4o", messages: msg1(), service_tier: 1 }, "v1-chat-pro"), "must be a string", "a non-string service_tier is refused");
+  // Attempts and the outbound field: priority never tries flex; a :nitro
+  // default attempt carries "default"; a plain request is byte-identical.
+  ok(JSON.stringify(attemptsFor(["google/gemini-2.5-pro"], { service_tier: "priority" })) === '[{"model":"google/gemini-2.5-pro","flex":false}]' && JSON.stringify(attemptsFor(["google/gemini-2.5-pro"], {})) === JSON.stringify(flexAttempts(["google/gemini-2.5-pro"])), "attemptsFor: a priority request skips the flex attempt on a flex-eligible model; otherwise flexAttempts");
+  ok(serviceTierFor("openai/gpt-4o", { service_tier: "priority" }, false) === "priority" && serviceTierFor("google/gemini-2.5-pro", { service_tier: "priority" }, true) === "priority" && serviceTierFor("google/gemini-2.5-pro", {}, true) === "flex" && serviceTierFor("openai/gpt-5.6-luna:nitro", {}, false) === "default" && serviceTierFor("openai/gpt-4o", {}, false) === undefined, "serviceTierFor: priority wins, then flex, then an explicit default on :nitro, else nothing");
+  process.env.OPENROUTER_API_KEY = "test-key";
+  const realFetch = globalThis.fetch;
+  const bodies = [];
+  const reply = (b) => JSON.stringify({ id: "g", model: b.model, service_tier: b.service_tier || "default", choices: [{ index: 0, message: { role: "assistant", content: "hi" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2, cost: 0.0000001 } });
+  globalThis.fetch = async (url, init) => { const b = JSON.parse(init.body); bodies.push(b); if (b.service_tier === "flex") return { ok: false, status: 503, text: async () => "flex capacity" }; return { ok: true, status: 200, text: async () => reply(b) }; };
+  const proTool = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-chat-pro");
+  const out = await proTool.handler({ model: "google/gemini-2.5-pro", messages: msg1(), max_tokens: 32, service_tier: "priority" }, { header: () => undefined });
+  ok(bodies.length === 1 && bodies[0].service_tier === "priority" && bodies[0].provider?.max_price && out.service_tier === "priority", "pro handler: one upstream call carrying service_tier priority (no flex attempt) with the server-owned max_price beside it");
+  bodies.length = 0;
+  await proTool.handler({ model: "google/gemini-2.5-pro", messages: msg1(), max_tokens: 32 }, { header: () => undefined });
+  ok(bodies.length === 2 && bodies[0].service_tier === "flex" && !("service_tier" in bodies[1]), "control: without the knob the same model is tried flex-first, and the default attempt carries no service_tier field");
+  bodies.length = 0;
+  const nanoTool = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-chat-nano");
+  await nanoTool.handler({ model: "openai/gpt-5.6-luna:nitro", messages: msg1(), max_tokens: 32 }, { header: () => undefined });
+  // (a ":nitro" id is not in the flex table by construction - exact match or "-suffix" - so there is one attempt, the default one)
+  ok(bodies.length === 1 && bodies[0].service_tier === "default" && bodies[0].model === "openai/gpt-5.6-luna:nitro", ':nitro: the default attempt carries an explicit service_tier "default" so the variant cannot route to the 2x endpoint (live: luna:nitro with none was served at priority)');
+  globalThis.fetch = realFetch;
+  delete process.env.OPENROUTER_API_KEY;
+  // Advertised on /v1/models the way the loop limits are.
+  const list = modelsList().data;
+  const proRow = list.find((m) => m.x402.tier === "v1-chat-pro"), nanoRow = list.find((m) => m.id === "openai/gpt-5.6-luna" && m.x402.tier === "v1-chat-nano"), baseRow = list.find((m) => m.id === "openai/gpt-4o-mini" && m.x402.tier === "v1-chat");
+  ok(proRow?.x402.serviceTiers?.priority?.upstreamPriceFactor === PRIORITY_PRICE_FACTOR && JSON.stringify(proRow.x402.serviceTiers.priority.values) === '["priority","fast"]' && proRow.x402.serviceTiers.priority.param === "service_tier", "/v1/models: pro rows advertise the priority knob with its spellings and the upstream factor");
+  ok(nanoRow?.x402.serviceTiers?.priority === false && nanoRow.x402.serviceTiers.flexFirst === true && baseRow?.x402.serviceTiers?.flexFirst === false, "/v1/models: nano says priority false and flexFirst true on luna; base says flexFirst false on gpt-4o-mini");
+}
+
 // /v1/rerank (2026-08-19) - Cohere wire over OpenRouter's /rerank, one locked
 // model, caps that keep every call at exactly one Cohere search unit ($0.001
 // upstream vs $0.002 price), default-on cache (deterministic ranker), billing

@@ -172,5 +172,24 @@ delete process.env.OPENROUTER_API_KEY;
   ok(e.defaultedModel === null, "an explicit model is not marked as defaulted");
 }
 
+// ---- priority service tier on the Responses wire (2026-09-18) ----
+// service_tier "priority" / "fast" on pro/premium: normalized, carried on the
+// clamp probe (priced at 2x), sent upstream as ONE service_tier with no flex
+// attempt; refused with the routes named on the other tiers; "flex" refused.
+{
+  const vp = validateResponsesRequest({ model: "openai/gpt-4o", input: "hi", max_output_tokens: 64, service_tier: "fast" }, "v1-chat-pro");
+  ok(vp.body.service_tier === "priority" && vp.probe.service_tier === "priority", 'pro: service_tier "fast" normalizes to "priority" on the body and on the clamp probe');
+  let e = null; try { validateResponsesRequest({ model: "openai/gpt-5.6-luna", input: "hi", service_tier: "priority" }, nanoT); } catch (x) { e = x; }
+  ok(e?.statusCode === 400 && /priority service tier is not offered on/.test(e.message) && /\/v1\/premium\/chat\/completions/.test(e.message), "nano: priority refused 400 naming the routes that price it");
+  let f = null; try { validateResponsesRequest({ model: "openai/gpt-4o", input: "hi", service_tier: "flex" }, "v1-chat-pro"); } catch (x) { f = x; }
+  ok(f?.statusCode === 400 && /not a buyer knob/.test(f.message), '"flex" is refused: the gateway applies it itself');
+  const sent = [];
+  globalThis.fetch = async (url, init) => { const b = JSON.parse(init.body); sent.push(b); return { ok: true, status: 200, text: async () => JSON.stringify(reply(b.model, { service_tier: "priority" })) }; };
+  process.env.OPENROUTER_API_KEY = "test-key";
+  const outP = await bySlug("v1-chat-pro-responses").handler({ model: "google/gemini-2.5-pro", input: "hi", max_output_tokens: 64, service_tier: "priority" }, fakeReq);
+  ok(sent.length === 1 && sent[0].service_tier === "priority" && outP.service_tier === "priority", "pro responses: one upstream call carrying service_tier priority (no flex attempt on a flex-eligible model); the served tier reported back");
+  delete process.env.OPENROUTER_API_KEY;
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
