@@ -99,6 +99,9 @@ try {
     ok(typeof rt.dispatchLegend.executeViaCallableNow === "string" && /key on this/.test(rt.dispatchLegend.executeViaCallableNow), "the legend explains executeViaCallableNow");
     const ix = await (await fetch(`${base}/api/index?limit=5`)).json();
     ok(ix.legend && /crawl readiness/.test(ix.legend.routable), "/api/index carries the legend");
+    // issue #1376: the legend names the chains routerDispatchByChain is keyed by.
+    ok(Array.isArray(ix.legend.routerSpendChains) && ix.legend.routerSpendChains[0] === "base" && typeof ix.legend.routerDispatchByChain === "string" && /missing from this map/.test(ix.legend.routerDispatchByChain), "/api/index legend lists routerSpendChains and explains routerDispatchByChain");
+    ok(Array.isArray(rt.dispatchLegend.routerSpendChains) && rt.dispatchLegend.routerSpendChains.join() === ix.legend.routerSpendChains.join(), "/api/route and /api/index publish the same routerSpendChains");
     ok(ix.sellers.filter((x) => !x.local).every((x) => typeof x.routerDispatchEligible === "boolean" && typeof x.routerDispatchReason === "string"), "every external index seller is labelled");
   }
   const notMe = await fetch(`${base}/api/index?seller=nobody.example`);
