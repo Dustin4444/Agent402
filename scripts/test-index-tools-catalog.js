@@ -256,31 +256,31 @@ const page = (results, extra = {}) =>
   const doc = {
     openapi: "3.1.0",
     paths: {
-      // veriton-shaped: x-price-usd + x-payment with amountUsd AND amountAtomic
+      // dialect A: x-price-usd + x-payment with amountUsd AND amountAtomic
       "/usd": { post: { operationId: "usd", "x-x402-price-usd": 0.001, "x-price-usd": 0.001, "x-payment": { protocol: "x402", network: "eip155:8453", asset: USDC_BASE, payTo: PAYTO, amountUsd: 0.001, amountAtomic: "1000" } } },
-      // orchard-shaped: "$0.003" string + x-payment with no amount at all
+      // dialect B: "$0.003" string + x-payment with no amount at all
       "/usd-str": { post: { operationId: "usd-str", "x-price-usd": "$0.003", "x-payment": { protocol: "x402", network: "eip155:8453", asset: "USDC", payTo: PAYTO } } },
-      // x402-apis-shaped: x-x402 accepts-shaped with amountAtomic only
+      // dialect C: x-x402 accepts-shaped with amountAtomic only
       "/x402-atomic": { post: { operationId: "x402-atomic", "x-x402": { scheme: "exact", network: "eip155:8453", asset: USDC_BASE, payTo: PAYTO, amountAtomic: "1000" } } },
-      // relay-shaped: x-x402 with a display price and network_default
+      // dialect D: x-x402 with a display price and network_default
       "/x402-price": { post: { operationId: "x402-price", "x-x402": { price: "$0.01", scheme: "exact", network_default: "eip155:8453" } } },
-      // decision-integrity-shaped: x-payment v2 accepts with the ATOMIC `amount` (1,000,000 = $1)
+      // dialect E: x-payment v2 accepts with the ATOMIC `amount` (1,000,000 = $1)
       "/pay-amount": { post: { operationId: "pay-amount", "x-payment": { x402Version: 2, scheme: "exact", network: "eip155:8453", amount: "1000000", asset: USDC_BASE, payTo: PAYTO, maxTimeoutSeconds: 300 } } },
-      // agentenvy-shaped: x-402 with price + priceMicros
+      // dialect F: x-402 with price + priceMicros
       "/x402-micros": { post: { operationId: "x402-micros", "x-402": { price: "$0.05", priceMicros: 50000, network: "eip155:8453", payTo: PAYTO, asset: "USDC" } } },
-      // tickersfeed-shaped: x-402 with price_usdc and a shorthand network
+      // dialect G: x-402 with price_usdc and a shorthand network
       "/x402-usdc": { post: { operationId: "x402-usdc", "x-402": { price_usdc: 0.003, network: "base", asset: "USDC" } } },
-      // fabler-shaped: x-402 priceUsd
+      // dialect H: x-402 priceUsd
       "/x402-priceusd": { post: { operationId: "x402-priceusd", "x-402": { priceUsd: 0.005, network: "eip155:8453", asset: "USDC" } } },
-      // kepler-shaped: x-price-usdc scalar
+      // dialect I: x-price-usdc scalar
       "/price-usdc": { post: { operationId: "price-usdc", "x-price-usdc": 0.001 } },
-      // zfinia-shaped: x-x402-price-atomic + x-x402-network beside x-payment-info
+      // dialect J: x-x402-price-atomic + x-x402-network beside x-payment-info
       "/atomic": { post: { operationId: "atomic", "x-payment-info": { price: { mode: "fixed", currency: "USD", amount: "0.003" } }, "x-x402-price-atomic": "3000", "x-x402-network": "eip155:8453" } },
-      // paysponge-shaped: x-payment-required true + x-payment-info with a STRING price
+      // dialect K: x-payment-required true + x-payment-info with a STRING price
       "/required": { get: { operationId: "required", "x-payment-required": true, "x-payment-info": { protocols: ["x402"], pricingMode: "fixed", price: "$0.01" } } },
       // x-payment-required true alone: paid, price unknown (the live 402 learns it)
       "/required-bare": { get: { operationId: "required-bare", "x-payment-required": true } },
-      // zfinia router: x-payment-required false + a non-numeric atomic marker: FREE
+      // dialect J, router form: x-payment-required false + a non-numeric atomic marker: FREE
       "/free": { post: { operationId: "free", "x-payment-required": false, "x-x402-price-atomic": "quoted_from_live_rail" } },
       // no annotation at all in an annotated document: free sibling
       "/plain": { get: { operationId: "plain" } },
@@ -302,6 +302,18 @@ const page = (results, extra = {}) =>
   check(`required-bare: x-payment-required true alone is PAID with the price unknown (got paid ${rows["required-bare"]?.paid}, price ${rows["required-bare"]?.price})`, rows["required-bare"]?.paid === true && rows["required-bare"]?.price == null);
   check(`free: x-payment-required false with no price is FREE (got paid ${rows.free?.paid}, price ${rows.free?.price})`, rows.free?.paid === false && rows.free?.price == null);
   check(`plain: an unannotated sibling in an annotated document is free (got paid ${rows.plain?.paid})`, rows.plain?.paid === false);
+  // A declared ZERO is "free", never a paid "$0" row that wins the cheapest-price
+  // tiebreak on every equal-score /api/route query; negative and exponent
+  // figures are not prices at all (a "$-0.001" display price the money path
+  // cannot read). x-payment-required true beside a zero wins as paid/unknown.
+  const zero = (op, why, exp) => { const r = openapiOperationPayment(op); check(`${why} (got paid ${r.paid}, price ${r.price})`, r.paid === exp.paid && r.price === exp.price); };
+  zero({ "x-price-usd": 0 }, "x-price-usd 0 is FREE, not a $0 paid row", { paid: false, price: null });
+  zero({ "x-402": { priceMicros: 0, network: "eip155:8453" } }, "x-402 priceMicros 0 is FREE", { paid: false, price: null });
+  zero({ "x-payment": { x402Version: 2, scheme: "exact", network: "eip155:8453", amount: "0", asset: USDC_BASE, payTo: PAYTO } }, "accepts-shaped amount 0 is FREE", { paid: false, price: null });
+  zero({ "x-price-usd": 0, "x-payment-required": true }, "zero beside x-payment-required true is PAID with the price unknown", { paid: true, price: null });
+  zero({ "x-x402": { scheme: "exact", network: "eip155:8453", asset: USDC_BASE, payTo: PAYTO, amountAtomic: "-1000" } }, "a negative atomic amount is not a price (terms declared, so still paid)", { paid: true, price: null });
+  zero({ "x-x402": { scheme: "exact", network: "eip155:8453", asset: "USDC", amountAtomic: "1e6" } }, "an exponent atomic amount is not a price", { paid: true, price: null });
+  zero({ "x-price-usd": -0.5 }, "a negative dollar figure is not a price (terms declared, so still paid)", { paid: true, price: null });
   // Chains and payTo ride out of the object dialects, so these rows chain-match.
   check(`usd: network + payTo from x-payment (got ${JSON.stringify(rows.usd?.networks)} ${JSON.stringify(rows.usd?.payToByNetwork)})`, rows.usd?.networks?.[0] === "eip155:8453" && rows.usd?.payToByNetwork?.["eip155:8453"] === PAYTO);
   check(`x402-usdc: shorthand network "base" normalises to eip155:8453 (got ${JSON.stringify(rows["x402-usdc"]?.networks)})`, rows["x402-usdc"]?.networks?.[0] === "eip155:8453");

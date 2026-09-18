@@ -47,10 +47,44 @@ export const PERMIT2_READY_MIN = 10n ** 12n; // 1,000,000 USDC (6 decimals): a r
 
 /** Which 402 accept to pay: upto on Base when the client can (settle-actual),
  *  else exact on Base, else the first the client supports. Pure. */
-export function selectAccept(accepts, { preferUpto = true } = {}) {
+/** Per-call ceiling in USD, enforced in the accept selector so an over-cap quote
+ *  is refused BEFORE anything is signed. @x402/core 2.23+ ships a $1
+ *  pegged-assets default on every client; this package turns that off (it would
+ *  refuse USDG and gave an opaque vendor error on any metered turn over $1) and
+ *  carries its own ceiling under its own name. The default is $2, the gateway's
+ *  own metered quote cap (GATEWAY_METERED_MAX_QUOTE_USD), so no call the gateway
+ *  would serve is refused here while a runaway quote still stops at the wallet.
+ *  `maxPerCallUsd` in the plugin config or AGENT402_MAX_PER_CALL_USD; `0`/`off`
+ *  disables; a malformed value reads as the default, never as off. */
+export const DEFAULT_MAX_PER_CALL_USD = 2;
+export function maxPerCallUsd(pluginConfig = {}) {
+  const raw = String(pluginConfig.maxPerCallUsd ?? process.env.AGENT402_MAX_PER_CALL_USD ?? "").trim().toLowerCase();
+  if (raw === "0" || raw === "off") return Infinity;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_MAX_PER_CALL_USD;
+}
+/** Dollar value of an accept's quote: `amount` (v2) or `maxAmountRequired` (v1)
+ *  in base units over the asset's `extra.decimals` (USDC on Base: 6). Unknown
+ *  shape reads as null, and null is REFUSED under a finite ceiling: a quote we
+ *  cannot read is not one we sign. */
+export function acceptUsd(accept) {
+  const raw = accept?.amount ?? accept?.maxAmountRequired;
+  if (raw == null || !/^\d+$/.test(String(raw))) return null;
+  const dec = Number(accept?.extra?.decimals ?? 6);
+  if (!Number.isInteger(dec) || dec < 0 || dec > 36) return null;
+  return Number(raw) / 10 ** dec;
+}
+export function selectAccept(accepts, { preferUpto = true, maxUsd = Infinity } = {}) {
   const list = Array.isArray(accepts) ? accepts : [];
-  if (preferUpto) { const u = list.find((a) => a?.scheme === "upto" && a?.network === BASE_CAIP2); if (u) return u; }
-  return list.find((a) => a?.scheme === "exact" && a?.network === BASE_CAIP2) || list[0];
+  const pick = (preferUpto && list.find((a) => a?.scheme === "upto" && a?.network === BASE_CAIP2))
+    || list.find((a) => a?.scheme === "exact" && a?.network === BASE_CAIP2) || list[0];
+  if (pick && Number.isFinite(maxUsd)) {
+    const usd = acceptUsd(pick);
+    if (usd == null || usd > maxUsd) {
+      throw new Error(`agent402-openclaw: quote ${usd == null ? "unreadable" : `$${usd}`} exceeds the per-call ceiling $${maxUsd} (maxPerCallUsd / AGENT402_MAX_PER_CALL_USD; 0 disables)`);
+    }
+  }
+  return pick;
 }
 export const uptoReady = (allowance) => { try { return BigInt(allowance ?? 0) >= PERMIT2_READY_MIN; } catch { return false; } };
 
@@ -70,8 +104,9 @@ export async function resolvePayFetch(pluginConfig = {}, log = () => {}) {
       const pub = createPublicClient({ chain: base, transport: http((pluginConfig.baseRpc || process.env.AGENT402_BASE_RPC || DEFAULT_BASE_RPC).trim()) });
       const allowance = await pub.readContract(getPermit2AllowanceReadParams({ tokenAddress: USDC_BASE, ownerAddress: account.address }));
       upto = uptoReady(allowance);
-      const client = new x402Client((v, accepts) => selectAccept(accepts, { preferUpto: upto }));
-      client.setSpendControls?.(false); // @x402/core 2.23+ defaults to a $1 pegged-assets-only cap; this package bounds spend itself
+      const maxUsd = maxPerCallUsd(pluginConfig);
+      const client = new x402Client((v, accepts) => selectAccept(accepts, { preferUpto: upto, maxUsd }));
+      client.setSpendControls?.(false); // the vendor default ($1, pegged assets only) would refuse USDG and any quote over $1; selectAccept enforces our own maxPerCallUsd (same $1 default) instead
       registerExactEvmScheme(client, { signer });
       if (upto) client.register(BASE_CAIP2, new UptoEvmScheme(signer));
       log(upto
@@ -81,8 +116,8 @@ export async function resolvePayFetch(pluginConfig = {}, log = () => {}) {
     } catch (e) {
       // The allowance read or the upto scheme failed: exact still works.
       log(`[agent402-openclaw] upto unavailable (${String(e?.message || e).slice(0, 120)}) - paying exact`);
-      const client = new x402Client((v, accepts) => selectAccept(accepts, { preferUpto: false }));
-      client.setSpendControls?.(false); // @x402/core 2.23+ defaults to a $1 pegged-assets-only cap; this package bounds spend itself
+      const client = new x402Client((v, accepts) => selectAccept(accepts, { preferUpto: false, maxUsd: maxPerCallUsd(pluginConfig) }));
+      client.setSpendControls?.(false); // the vendor default ($1, pegged assets only) would refuse USDG and any quote over $1; selectAccept enforces our own maxPerCallUsd (same $1 default) instead
       registerExactEvmScheme(client, { signer });
       return wrapFetchWithPayment(fetch, client);
     }

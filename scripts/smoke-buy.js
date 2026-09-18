@@ -59,6 +59,20 @@ const account = privateKeyToAccount(pk);
 console.log(`buyer: ${account.address}`);
 const client = disableVendorSpendControls(new x402Client());
 registerExactEvmScheme(client, { signer: account });
+// Cap on the accept actually SIGNED (the same policy external-seller-probe
+// uses): with the vendor spend controls off, this was the one paying script
+// with no ceiling of ours, and SMOKE_TARGET points it at an outside seller
+// whose second 402 can quote anything. SMOKE_MAX_USD (default 0.05); an accept
+// over it, or one whose amount cannot be read, is filtered out before signing.
+const SMOKE_MAX_USD = Number(process.env.SMOKE_MAX_USD || 0.05);
+if (!(Number.isFinite(SMOKE_MAX_USD) && SMOKE_MAX_USD > 0)) { console.error(`SMOKE_MAX_USD must be a positive number, got ${JSON.stringify(process.env.SMOKE_MAX_USD)}; not paying`); process.exit(2); }
+client.registerPolicy((_version, reqs) => reqs.filter((r) => {
+  const dec = Number(r?.extra?.decimals ?? 6);
+  if (!/^\d+$/.test(String(r?.amount ?? r?.maxAmountRequired ?? "")) || !Number.isInteger(dec)) { console.error(`refusing accept ${r?.scheme}/${r?.network}: unreadable amount`); return false; }
+  const usd = Number(r.amount ?? r.maxAmountRequired) / 10 ** dec;
+  if (usd > SMOKE_MAX_USD) { console.error(`refusing accept ${r.scheme}/${r.network} $${usd}: over SMOKE_MAX_USD ${SMOKE_MAX_USD}`); return false; }
+  return true;
+}));
 
 const secret = EXTERNAL_TARGET ? "" : (process.env.POW_SECRET || "").trim();
 if (!secret && !EXTERNAL_TARGET) console.warn("WARN  POW_SECRET not set — this buy records as EXTERNAL demand in the ledger");

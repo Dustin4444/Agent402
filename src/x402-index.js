@@ -1317,7 +1317,10 @@ export function normaliseOpenapiTools(openapi, originUrl) {
         route: pathStr,
         slug: op.operationId || pathStr.replace(/^\//, "").replace(/\//g, "-"),
         name: op.summary || op.operationId || pathStr,
-        description: op.description || "",
+        // Capped like the Bazaar and llms.txt paths (400): the description feeds
+        // the route haystack and the postings vocabulary, and an OpenAPI document
+        // is the one ingest path where a seller controls a field of any length.
+        description: String(op.description || "").slice(0, 400),
         category: tags[0] || "other",
         tags,
         price: pay.price,
@@ -2054,11 +2057,30 @@ export function openapiOperationPayment(op) {
     if (n && !out.networks.includes(n)) out.networks.push(n);
     return n;
   };
-  const takePrice = (p) => { if (p && !out.price) out.price = p; };
+  // A figure is a price only when it is a POSITIVE dollar amount. Zero is a
+  // declaration of "free" and is remembered as such (below); a negative,
+  // NaN or unparseable figure is ignored. Before this rule a seller stamping
+  // `x-price-usd: 0` on every operation indexed as PAID "$0" rows, which win
+  // the cheapest-price tiebreak on every equal-score /api/route query (the
+  // thing decoratedRemoteTools' comment forbids), and "-1000" atomic produced
+  // a "$-0.001" display price the money path could not read.
+  let declaredZero = false;
+  const takePrice = (p) => {
+    if (out.price || p == null) return;
+    const micro = priceToMicroUsd(p);
+    if (micro == null) return;
+    if (micro <= 0) { if (micro === 0) declaredZero = true; return; }
+    out.price = p;
+  };
+  const positiveNumber = (x) => typeof x === "number" ? x > 0 : (typeof x === "string" && /^\s*\d+(\.\d+)?\s*$/.test(x) && Number(x) > 0);
+  const zeroNumber = (x) => (typeof x === "number" && x === 0) || (typeof x === "string" && /^\s*0+(\.0+)?\s*$/.test(x));
   // Atomic amounts: through the accepts reader (divides by the asset's decimals).
+  // Digits only: "1e6" and "0x10" are not base units anyone publishes.
   const takeAtomic = (obj, amount) => {
-    if (amount == null || amount === "" || !Number.isFinite(Number(amount))) return;
-    const f = paymentFieldsFromAccepts([{ ...obj, amount: String(amount) }]);
+    if (amount == null || amount === "") return;
+    if (zeroNumber(amount)) { declaredZero = true; return; }
+    if (!(typeof amount === "number" ? Number.isInteger(amount) && amount > 0 : /^\s*\d+\s*$/.test(String(amount)))) return;
+    const f = paymentFieldsFromAccepts([{ ...obj, amount: String(amount).trim() }]);
     if (f.price != null) takePrice(`$${f.price}`);
   };
   for (const k of SCALAR_PRICE_KEYS) {
@@ -2079,9 +2101,15 @@ export function openapiOperationPayment(op) {
     // Dollar figures first: price_usd / priceUsd / price (scalar or object) and
     // the dialect-specific spellings.
     takePrice(parseManifestPrice(v));
-    if (!out.price && v.amountUsd != null && Number.isFinite(Number(v.amountUsd))) takePrice(`$${Number(v.amountUsd)}`);
-    if (!out.price && v.price_usdc != null && Number.isFinite(Number(v.price_usdc))) takePrice(`$${Number(v.price_usdc)}`);
-    if (!out.price && v.priceMicros != null && Number.isFinite(Number(v.priceMicros))) takePrice(`$${Number(v.priceMicros) / 1e6}`);
+    for (const key of ["amountUsd", "price_usdc"]) {
+      if (out.price || v[key] == null) continue;
+      if (zeroNumber(v[key])) declaredZero = true;
+      else if (positiveNumber(v[key])) takePrice(`$${Number(v[key])}`);
+    }
+    if (!out.price && v.priceMicros != null) {
+      if (zeroNumber(v.priceMicros)) declaredZero = true;
+      else if (positiveNumber(v.priceMicros)) takePrice(`$${Number(v.priceMicros) / 1e6}`);
+    }
     // Then atomic: an explicit amountAtomic, or the x402 accepts field `amount`
     // when the object is accepts-shaped (parseManifestPrice refuses to read
     // that one as dollars for exactly this reason).
@@ -2102,10 +2130,12 @@ export function openapiOperationPayment(op) {
   const requiredBool = typeof required === "boolean" ? required : (typeof required === "string" && /^(true|false)$/i.test(required.trim()) ? required.trim().toLowerCase() === "true" : null);
   if (!annotated) return out;
   // Paid when priced, when payment is declared required, or when payment terms
-  // (an object dialect) are declared at all; free only on an explicit `false`
-  // with no price beside it.
+  // (an object dialect) are declared at all; free on an explicit `false` with
+  // no price beside it, and free when the only figure declared was ZERO
+  // (unless x-payment-required says true, which wins as "paid, price unknown").
   if (out.price) out.paid = true;
   else if (requiredBool === false) out.paid = false;
+  else if (declaredZero && requiredBool !== true) out.paid = false;
   else out.paid = true;
   return out;
 }

@@ -36,6 +36,13 @@
           "flat"
         ],
         "description": "metered (default): explicit models pay a per-request quote; flat: every model on its flat tier."
+      },
+      "maxPerCallUsd": {
+        "type": [
+          "number",
+          "string"
+        ],
+        "description": "Per-call ceiling in USD for wallet (x402) payments, checked before signing (default 2, the gateway's metered quote cap; 0 or \"off\" disables). Also AGENT402_MAX_PER_CALL_USD."
       }
     }
   },
