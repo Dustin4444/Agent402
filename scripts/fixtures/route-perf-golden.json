@@ -1,0 +1,127 @@
+{
+ "note": "top-10 (seller|slug|score) per query on scripts/lib/route-perf-fixture.js, captured from the full-scan routeQuery before the 2026-09-18 candidate index; regenerate only with a deliberate ranking change",
+ "sellers": 3000,
+ "remoteTools": 112860,
+ "golden": {
+  "ip geolocation": [
+   "https://seller804.example|geolocation-ip|26",
+   "https://seller1204.example|geolocation-ip|26",
+   "https://seller1120.example|ip-geolocation|26",
+   "https://seller1250.example|ip-geolocation|26",
+   "https://seller1497.example|ip-geolocation-wt6x|14",
+   "https://seller2034.example|ip-geolocation-w23mx|14",
+   "https://seller2394.example|ip-geolocation-wkox|14",
+   "https://seller1938.example|geolocation-ip-w16bx|14",
+   "https://seller1668.example|ip-geolocation-wrtx|14",
+   "https://seller66.example|ip-geolocation-w180x|14"
+  ],
+  "json to csv": [
+   "https://seller828.example|json-csv|27",
+   "https://seller1611.example|csv-json-wbnx|15",
+   "https://seller1236.example|csv-json-wc9x|15",
+   "https://seller1579.example|json-csv-wmpx|15",
+   "https://seller104.example|csv-json-w2kx|15",
+   "https://seller551.example|csv-json-w25x|15",
+   "https://seller681.example|json-csv-w1v6x|14",
+   "https://seller813.example|csv-json-w1cax|14",
+   "https://seller1328.example|json-csv-w150x|14",
+   "https://seller1402.example|json-csv-w22ax|14"
+  ],
+  "chat completions": [
+   "https://seller273.example|completions-chat|26",
+   "https://seller2066.example|chat-completions|26",
+   "https://seller1009.example|chat-completions|26",
+   "https://seller184.example|completions-chat|26",
+   "https://seller49.example|completions-chat|26",
+   "https://seller777.example|completions-chat-wqyx|14",
+   "https://seller1371.example|chat-completions-w1bfx|14",
+   "https://seller453.example|chat-completions-w1nkx|14",
+   "https://seller2700.example|chat-completions-w1lgx|14",
+   "https://seller1549.example|completions-chat-wpnx|14"
+  ],
+  "weather forecast": [
+   "https://seller2271.example|forecast-weather|26",
+   "https://seller885.example|forecast-weather|26",
+   "https://seller2850.example|forecast-weather|26",
+   "https://seller171.example|weather-forecast-wsgx|14",
+   "https://seller2019.example|weather-forecast-w52x|14",
+   "https://seller1655.example|forecast-weather-wt7x|14",
+   "https://seller2281.example|weather-forecast-wlnx|14",
+   "https://seller1025.example|forecast-weather-w14ux|14",
+   "https://seller1381.example|weather-forecast-w1uwx|14",
+   "https://seller544.example|weather-forecast-w1ocx|14"
+  ],
+  "qr code": [
+   "https://seller807.example|qr-barcode-wh4x|14",
+   "https://seller147.example|qr-barcode-w1mux|14",
+   "https://seller2994.example|qr-barcode-wbox|14",
+   "https://seller288.example|barcode-qr-w1o8x|14",
+   "https://seller876.example|qr-barcode-wowx|14",
+   "https://seller2136.example|barcode-qr-w10mx|14",
+   "https://seller1203.example|qr-barcode-w1j7x|14",
+   "https://seller1050.example|barcode-qr-w1spx|14",
+   "https://seller2750.example|barcode-qr-w8ix|14",
+   "https://seller2644.example|qr-barcode-wltx|14"
+  ],
+  "fx rate": [
+   "https://seller967.example|rate-fx|26",
+   "https://seller2964.example|rate-fx-w1yjx|14",
+   "https://seller771.example|rate-fx-w1bhx|14",
+   "https://seller2538.example|rate-fx-w117x|14",
+   "https://seller2568.example|rate-fx-w1qlx|14",
+   "https://seller1278.example|rate-fx-w1yfx|14",
+   "https://seller2052.example|openai-rate-w26rx|14",
+   "https://seller1842.example|fx-rate-wfzx|14",
+   "https://seller876.example|fx-rate-w9yx|14",
+   "https://seller2553.example|fx-rate-w12kx|14"
+  ],
+  "pdf extract text": [
+   "https://seller2784.example|text-extract|26",
+   "https://seller1694.example|text-extract-w1i5x|26",
+   "https://seller43.example|pdf-text|26",
+   "https://seller1900.example|pdf-text|26",
+   "https://seller110.example|text-pdf|26",
+   "https://seller2579.example|extract-text|26",
+   "https://seller473.example|extract-text|26",
+   "https://seller2254.example|text-extract|26",
+   "https://seller2111.example|pdf-extract|26",
+   "https://seller19.example|text-pdf|26"
+  ],
+  "wallet balance": [
+   "https://seller1630.example|wallet-balance|26",
+   "https://seller1331.example|balance-wallet|26",
+   "https://seller1911.example|balance-wallet-w1bbx|14",
+   "https://seller438.example|balance-wallet-w1xkx|14",
+   "https://seller2988.example|balance-wallet-w1rxx|14",
+   "https://seller1089.example|geo-balance-w1fmx|14",
+   "https://seller1063.example|balance-wallet-news|14",
+   "https://seller2467.example|balance-render-womx|14",
+   "https://seller659.example|wallet-balance-wudx|14",
+   "https://seller2149.example|balance-wallet-w202x|14"
+  ],
+  "cron next": [
+   "https://seller214.example|cron-cron|13",
+   "https://seller2607.example|transaction-cron-w258x|7",
+   "https://seller2787.example|cron-metadata-we4x|7",
+   "self|dns-cron-399|7",
+   "self|hash-cron-371|7",
+   "https://seller1497.example|rate-cron-w1fsx|7",
+   "self|cron-summarize-3|7",
+   "self|summarize-fx-544|7",
+   "https://seller1947.example|nft-cron|7",
+   "https://seller2427.example|uuid-cron|7"
+  ],
+  "web search": [
+   "https://seller578.example|search-web|26",
+   "https://seller177.example|web-search-w1m9x|14",
+   "https://seller321.example|search-web-w1rrx|14",
+   "https://seller678.example|search-web-w11tx|14",
+   "https://seller1548.example|web-search-whax|14",
+   "https://seller972.example|web-search-w1vhx|14",
+   "https://seller1029.example|web-search-w12rx|14",
+   "https://seller2229.example|web-search-w257x|14",
+   "https://seller150.example|search-web-wnxx|14",
+   "https://seller2250.example|web-search-score|14"
+  ]
+ }
+}
