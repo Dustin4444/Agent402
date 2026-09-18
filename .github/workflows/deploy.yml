@@ -84,7 +84,7 @@ jobs:
   # This job scans only commit subject lines (%s) across the push range, and
   # matches each marker as a standalone whitespace-delimited token.
   markers:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 2
     outputs:
       test: ${{ steps.parse.outputs.test }}
@@ -156,7 +156,7 @@ jobs:
   tree-gate:
     needs: markers
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -203,7 +203,7 @@ jobs:
   paytest:
     needs: markers
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'paytest' || needs.markers.outputs.paytest == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 50
     env:
       TARGET_URL: https://agent402.tools
@@ -471,7 +471,7 @@ jobs:
     # upstream credit per call). Payments recycle burner -> revenue wallet.
     needs: markers
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'bazaar-solana' || needs.markers.outputs.bazaar_solana == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 150
     env:
       TARGET_URL: https://agent402.tools
@@ -500,7 +500,7 @@ jobs:
     # the current 402 challenge metadata (description, serviceName, tags).
     needs: markers
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'bazaar-refresh' || needs.markers.outputs.bazaar_refresh == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
       TARGET_URL: https://agent402.tools
@@ -536,7 +536,7 @@ jobs:
     # (no [deploy] marker) still runs the sweep immediately.
     needs: [markers, deploy]
     if: always() && (github.event_name == 'workflow_dispatch' && inputs.mode == 'bazaar-register' || needs.markers.outputs.bazaar_register == 'true') && (needs.deploy.result == 'success' || needs.deploy.result == 'skipped')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       TARGET_URL: https://agent402.tools
@@ -570,7 +570,7 @@ jobs:
     # Full pass ≈ 1,293 routes ≤ $0.01 ≈ $1.75 total; 4 batches ≈ $0.44 each.
     needs: [markers, deploy]
     if: always() && github.event_name == 'workflow_dispatch' && inputs.mode == 'bazaar-sweep' && (needs.deploy.result == 'success' || needs.deploy.result == 'skipped')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
       TARGET_URL: https://agent402.tools
@@ -601,7 +601,7 @@ jobs:
   drain:
     needs: markers
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'drain' || needs.markers.outputs.drain == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
@@ -632,7 +632,7 @@ jobs:
   purl:
     needs: markers
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'purl' || needs.markers.outputs.purl == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       TARGET_URL: https://agent402.tools
@@ -704,7 +704,7 @@ jobs:
   demo:
     needs: markers
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'demo'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       TARGET_URL: https://agent402.tools
@@ -764,7 +764,7 @@ jobs:
         (github.event_name == 'pull_request' && !(github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'claude/sweet-brown-i99jl3')) || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/sweet-brown-i99jl3')) || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
       )
       && needs.tree-gate.outputs.skip != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # A healthy run takes 22-25 min. Without this the GitHub default is 360
     # min, and on 2026-08-18 two consecutive runs sat for 28+ min inside the
     # Playwright system-deps apt step (see below) — the deploy job hard-gates
@@ -973,7 +973,7 @@ jobs:
         (github.event_name == 'pull_request' && !(github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'claude/sweet-brown-i99jl3')) || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/sweet-brown-i99jl3')) || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
       )
       && needs.tree-gate.outputs.skip != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # A healthy run takes 22-25 min. Without this the GitHub default is 360
     # min, and on 2026-08-18 two consecutive runs sat for 28+ min inside the
     # Playwright system-deps apt step (see below) — the deploy job hard-gates
@@ -1122,7 +1122,7 @@ jobs:
         (github.event_name == 'pull_request' && !(github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'claude/sweet-brown-i99jl3')) || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/sweet-brown-i99jl3')) || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
       )
       && needs.tree-gate.outputs.skip != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     services:
       redis:
@@ -1337,7 +1337,7 @@ jobs:
         (github.event_name == 'pull_request' && !(github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'claude/sweet-brown-i99jl3')) || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/sweet-brown-i99jl3')) || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
       )
       && needs.tree-gate.outputs.skip != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     services:
       redis:
@@ -1576,7 +1576,7 @@ jobs:
         (github.event_name == 'pull_request' && !(github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'claude/sweet-brown-i99jl3')) || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/sweet-brown-i99jl3')) || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
       )
       && needs.tree-gate.outputs.skip != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # A healthy run takes 22-25 min. Without this the GitHub default is 360
     # min, and on 2026-08-18 two consecutive runs sat for 28+ min inside the
     # Playwright system-deps apt step (see below) — the deploy job hard-gates
@@ -1737,7 +1737,7 @@ jobs:
         (github.event_name == 'pull_request' && !(github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'claude/sweet-brown-i99jl3')) || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/sweet-brown-i99jl3')) || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
       )
       && needs.tree-gate.outputs.skip != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # A healthy run takes 22-25 min. Without this the GitHub default is 360
     # min, and on 2026-08-18 two consecutive runs sat for 28+ min inside the
     # Playwright system-deps apt step (see below) — the deploy job hard-gates
@@ -1891,7 +1891,7 @@ jobs:
         (github.event_name == 'pull_request' && !(github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'claude/sweet-brown-i99jl3')) || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/sweet-brown-i99jl3')) || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
       )
       && needs.tree-gate.outputs.skip != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     services:
       redis:
@@ -2014,7 +2014,7 @@ jobs:
         (github.event_name == 'pull_request' && !(github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'claude/sweet-brown-i99jl3')) || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/sweet-brown-i99jl3')) || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
       )
       && needs.tree-gate.outputs.skip != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     services:
       redis:
@@ -2223,7 +2223,7 @@ jobs:
         (github.event_name == 'pull_request' && !(github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'claude/sweet-brown-i99jl3')) || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/sweet-brown-i99jl3')) || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
       )
       && needs.tree-gate.outputs.skip != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
@@ -2653,7 +2653,7 @@ jobs:
         (github.event_name == 'pull_request' && !(github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'claude/sweet-brown-i99jl3')) || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/sweet-brown-i99jl3')) || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
       )
       && needs.tree-gate.outputs.skip != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # A healthy run takes 22-25 min. Without this the GitHub default is 360
     # min, and on 2026-08-18 two consecutive runs sat for 28+ min inside the
     # Playwright system-deps apt step (see below) — the deploy job hard-gates
@@ -2873,7 +2873,7 @@ jobs:
         (github.event_name == 'pull_request' && !(github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'claude/sweet-brown-i99jl3')) || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/sweet-brown-i99jl3')) || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
       )
       && needs.tree-gate.outputs.skip != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
@@ -3126,7 +3126,7 @@ jobs:
         (github.event_name == 'pull_request' && !(github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'claude/sweet-brown-i99jl3')) || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/sweet-brown-i99jl3')) || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
       )
       && needs.tree-gate.outputs.skip != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
@@ -3208,7 +3208,7 @@ jobs:
         (github.event_name == 'pull_request' && !(github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'claude/sweet-brown-i99jl3')) || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/sweet-brown-i99jl3')) || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
       )
       && needs.tree-gate.outputs.skip != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
@@ -3391,7 +3391,7 @@ jobs:
         (github.event_name == 'pull_request' && !(github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'claude/sweet-brown-i99jl3')) || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/sweet-brown-i99jl3')) || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
       )
       && needs.tree-gate.outputs.skip != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
@@ -3640,7 +3640,7 @@ jobs:
         (github.event_name == 'pull_request' && !(github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'claude/sweet-brown-i99jl3')) || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/sweet-brown-i99jl3')) || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
       )
       && needs.tree-gate.outputs.skip != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # A healthy run takes 22-25 min. Without this the GitHub default is 360
     # min, and on 2026-08-18 two consecutive runs sat for 28+ min inside the
     # Playwright system-deps apt step (see below) — the deploy job hard-gates
@@ -3796,7 +3796,7 @@ jobs:
         (github.event_name == 'pull_request' && !(github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'claude/sweet-brown-i99jl3')) || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/sweet-brown-i99jl3')) || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
       )
       && needs.tree-gate.outputs.skip != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # A healthy run takes 22-25 min. Without this the GitHub default is 360
     # min, and on 2026-08-18 two consecutive runs sat for 28+ min inside the
     # Playwright system-deps apt step (see below) — the deploy job hard-gates
@@ -3938,7 +3938,7 @@ jobs:
         (github.event_name == 'pull_request' && !(github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'claude/sweet-brown-i99jl3')) || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/sweet-brown-i99jl3')) || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
       )
       && needs.tree-gate.outputs.skip != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
@@ -4032,7 +4032,7 @@ jobs:
       && (
         github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' || needs.markers.outputs.publish == 'true'
       )
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -4191,7 +4191,7 @@ jobs:
         github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' || needs.markers.outputs.publish == 'true'
       )
       && needs.publish-gate.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # F01: publishing packages mutates a production artifact — gate it behind the
     # same protected environment as deploy (see the deploy job comment).
     # publish-gate is deliberately OUTSIDE this environment: it holds no
@@ -4678,7 +4678,7 @@ jobs:
   probe:
     needs: markers
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'probe' || needs.markers.outputs.probe == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
       # The project id is KNOWN (repo var). Railway's `projects` listing query
@@ -4940,7 +4940,7 @@ jobs:
       && (
         (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' && inputs.mode == 'deploy' || needs.markers.outputs.deploy == 'true'
       )
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # F01: bind the production-mutating job to the protected GitHub environment.
     # Today this just associates the job; once the owner configures the
     # environment with a required reviewer + deploy-branch policy, every deploy

@@ -26,7 +26,7 @@ permissions:
 
 jobs:
   probe:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
       # Gates the paid + E2E steps: without the key they'd all no-op anyway,

@@ -51,7 +51,7 @@ env:
 
 jobs:
   health:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Raised for the freshness loop in the final step (4 x 12 min of extra
     # observations). Everything that can page has already run by then.
     timeout-minutes: 75

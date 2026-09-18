@@ -37,7 +37,7 @@ permissions:
 
 jobs:
   buy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
       TARGET_URL: ${{ inputs.target || 'https://agent402.tools' }}

@@ -33,7 +33,7 @@ jobs:
   # forgotten, and it fails toward RUNNING (see below), which is the safe
   # direction for a monitor.
   gate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       skip: ${{ steps.fresh.outputs.skip }}
@@ -107,7 +107,7 @@ jobs:
     # A status function overrides that implicit check. Not always(): a
     # cancelled run should stay cancelled, not go spend money.
     if: ${{ !cancelled() && needs.gate.outputs.skip != 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Wallet/pow secrets are NOT at job scope (audit R-07): job-scope env is in
     # the environment of EVERY step, including the dependency install, where a

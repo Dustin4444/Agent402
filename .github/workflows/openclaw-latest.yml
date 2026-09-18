@@ -33,7 +33,7 @@ concurrency:
 
 jobs:
   latest:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
       contents: read
@@ -67,7 +67,7 @@ jobs:
   report:
     needs: latest
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       issues: write

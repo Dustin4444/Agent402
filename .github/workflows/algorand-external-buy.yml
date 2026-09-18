@@ -34,7 +34,7 @@ jobs:
     # environment requires the operator's approval click before this job runs
     # (write access alone used to be enough). Scheduled canaries stay ungated.
     environment: spending
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       TARGET_URL: https://agent402.tools

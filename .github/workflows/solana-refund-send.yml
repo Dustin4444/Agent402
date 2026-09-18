@@ -54,7 +54,7 @@ concurrency: solana-refund-send
 
 jobs:
   send:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Same refund-approval gate as refund.yml: a required-reviewer click per
     # run. The in-script gates bound the AS-SHIPPED code, but a workflow can be
