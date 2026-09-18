@@ -3161,8 +3161,10 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   omit it and verify throws "challenge id must encode 32 bytes" for EVERY credential (0.9.2 ignores the field). The engine
   now passes `b.challenge.id` (mpp-subscriptions.js) and the test buyer signs with it; every other MPP/Tempo suite passed
   on 0.9.3 unchanged (shim, tempo-shim, mcp-mpp, stripe, tempo-router, evm-domain, relay-errors, tempo-confirm, canary gate,
-  tollbooth tempo). A buyer on mppx <= 0.9.2 signs no witness and is refused by this server - the spec's intent. Live proof
-  owed after the deploy: tempo-subscription-canary (activation + renewal) and tempo-canary-verify.
+  tollbooth tempo). A buyer on mppx <= 0.9.2 signs no witness and is refused by this server - the spec's intent. LIVE-PROVEN
+  the same day on build d64f499: tempo-subscription-canary run 35344090050 activated (tx 0x2541ec72...7169) and pulled a
+  renewal with no buyer present (tx 0xb62cfee8...fd1db); tempo-canary-verify run 35344091782 settled the charge rail;
+  paid-canary run 35344093496 42/42 incl. every rail leg and llm-speech.
 - **mppx 0.9.2 (2026-09-02):** taken after a read of the 0.9.0-0.9.2 changelog: 0.9.0 removes machineUSD (never configured
   here) and adds dual MPP/x402 framework wrappers (unused - our shim is our own); 0.9.1 "fixed MCP payment errors to use the
   specification-defined JSON-RPC codes": `-32042` stays payment-required and `-32043` is a PRESENTED credential refused
