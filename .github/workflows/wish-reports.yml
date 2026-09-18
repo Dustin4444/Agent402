@@ -79,9 +79,18 @@ jobs:
             cat /tmp/reports.log 2>/dev/null || true
             exit 1
           fi
-          COUNT=$(sed -n 's/^fault reports: //p' /tmp/reports.log | head -1)
+          # Leading INTEGER only: since the 2026-09-17 dedupe the line reads
+          # "fault reports: 0 (1 already judged in an earlier issue, not re-filed)",
+          # and comparing the whole string to "0" filed an issue for zero reports
+          # (#1385, 2026-09-18). A non-numeric count is the scan failing, not a report.
+          COUNT=$(sed -n 's/^fault reports: \([0-9][0-9]*\).*/\1/p' /tmp/reports.log | head -1)
           echo "fault reports: ${COUNT:-?}"
-          [ "${COUNT:-0}" = "0" ] && exit 0
+          if ! [ "${COUNT:-x}" -ge 0 ] 2>/dev/null; then
+            echo "::error::could not read the fault count from the scan output - treating as a failure, not as a clean board"
+            cat /tmp/reports.log 2>/dev/null || true
+            exit 1
+          fi
+          [ "$COUNT" = "0" ] && exit 0
 
           # One issue PER REPORT, titled with the date, so a second report does
           # not hide inside the first one's thread. Deliberately never
