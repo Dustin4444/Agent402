@@ -620,7 +620,11 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
   // by a source that cannot name one) and an unreadable payTo are both UNKNOWN,
   // and unknown must not block an honest seller - see provenPayToMatches.
   if (provenPayTo) {
-    const verdict = provenPayToMatches({ provenPayTo, livePayTo: payable.payTo });
+    // The address FAMILY follows the chain we are paying on. Both families
+    // normalize to a bounded charset (hex, or uppercase base32), which is the
+    // invariant the message below rests on - a future rail whose addresses do
+    // not must widen that check, not just this one.
+    const verdict = provenPayToMatches({ provenPayTo, livePayTo: payable.payTo, family: chain === "algorand" ? "algorand" : "evm" });
     if (verdict.verdict === "mismatch") {
       // Report the NORMALIZED addresses off the verdict, never the raw
       // `payable.payTo`. That string is written by the seller and this message

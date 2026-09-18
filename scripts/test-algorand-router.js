@@ -169,5 +169,57 @@ const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
   ok(/receiver === payTo && t\?\.sender !== payTo/.test(srv), "the inbound count excludes a seller paying itself");
 }
 
+// THE ADDRESS THAT EARNED PROVEN-NESS MUST BE THE ADDRESS BEING PAID
+// (2026-09-18, security review of the change above). A crawl-only row's count
+// is measured on the payTo the SELLER ADVERTISES, which is an assertion and
+// not a proof of control - so without a binding an origin could name any busy
+// Algorand USDC address, inherit its whole history, and then serve a 402
+// naming its own address, which is the one we sign for (pickPayableAccept
+// binds network + scheme + asset, never payTo). This is the Base binding of
+// 2026-09-03, one chain over.
+{
+  const { provenPayToMatches } = await import("../src/settlement-proof.js");
+  const A = "W4GZHN36X35LGSJTTLNZNFPGSSBLMJKFLCMZK4NBLQGUS6PYPPCDB67UOE";
+  const B = "AAAAHN36X35LGSJTTLNZNFPGSSBLMJKFLCMZK4NBLQGUS6PYPPCDB67UOE";
+  const f = (livePayTo) => provenPayToMatches({ provenPayTo: A, livePayTo, family: "algorand" }).verdict;
+  ok(f(A) === "match", "an Algorand seller paid at the address it earned on is a match");
+  ok(f(B) === "mismatch", "a different live address is a positive mismatch");
+  ok(f(null) === "unknown", "an unreadable live payTo is unknown, which never blocks an honest seller");
+  // Algorand addresses are uppercase base32 with a checksum. Folding case
+  // would compare two strings that are not addresses (the base58/strkey rule,
+  // one chain over), so a folded address is NOT the family's shape and reads
+  // unknown. Nothing is lost: an address in that form cannot receive money,
+  // so the payment fails at signing rather than reaching a wrong wallet.
+  ok(f(A.toLowerCase()) === "unknown", "an Algorand address is never case-folded into a match");
+  // The EVM default is untouched by the family split.
+  ok(provenPayToMatches({ provenPayTo: "0xAbC0000000000000000000000000000000000001", livePayTo: "0xabc0000000000000000000000000000000000001" }).verdict === "match",
+     "the EVM default still folds hex case");
+  ok(provenPayToMatches({ provenPayTo: A, livePayTo: A }).verdict === "unknown",
+     "and an Algorand address handed to the EVM default is unknown, never a silent match");
+}
+
+// Both ends of the binding, pinned from source: a probe-only check is defeated
+// by a seller that serves a clean address to the probe and any address to the
+// payer, so the resolver refuses on the probe AND the address travels to
+// payX402, which re-checks the one accept it is about to sign.
+{
+  const { readFileSync } = await import("node:fs");
+  const srv = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+  ok(/chainProvenPayTo: r\.source === "crawl"/.test(srv),
+     "only a row whose count WE read from the chain carries its address (a facilitator-witnessed row keeps GoPlausible's count)");
+  // The whole guard, not just its shape: `if (false && ...)` keeps every token
+  // a looser pattern matches while disabling the refusal entirely, and that
+  // mutation survived the first cut of this test.
+  ok(/if \(live && chain === "algorand" && r\.chainProvenPayTo\) \{/.test(srv),
+     "the resolver binds the Algorand candidate to its live 402, and the guard is live");
+  ok(/family: "algorand",\n\s*\}\);\n\s*if \(verdict\.verdict === "mismatch"\) \{\n\s*console\.warn[^\n]*\n\s*live = false;/.test(srv),
+     "a mismatch takes the candidate out of the running, as an Algorand address");
+  ok(/provenPayToByOrigin\?\.get\(norm\(r\.seller\)\) \|\| r\.chainProvenPayTo/.test(srv),
+     "the address travels with the resolved candidate to the spend");
+  const buyer = readFileSync(new URL("../src/x402-buyer.js", import.meta.url), "utf8");
+  ok(/family: chain === "algorand" \? "algorand" : "evm"/.test(buyer),
+     "payX402's own re-check reads the family from the chain it is paying on");
+}
+
 console.log(`\ntest-algorand-router: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

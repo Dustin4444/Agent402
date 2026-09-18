@@ -272,8 +272,17 @@ export function payToFromLive402({ header, body, network = "eip155:8453" } = {})
  * Unknown (no proven address on record, or an unreadable quote) is not a pass
  * and not a failure — the caller decides, and the reason travels with it.
  */
-export function provenPayToMatches({ provenPayTo, livePayTo } = {}) {
-  const norm = (a) => (typeof a === "string" && /^0x[0-9a-f]{40}$/i.test(a) ? a.toLowerCase() : null);
+export function provenPayToMatches({ provenPayTo, livePayTo, family = "evm" } = {}) {
+  // `family` picks the address shape, because the two chains that use this
+  // carry different ones and one of them must never be case-folded. An EVM
+  // address is hex and folds; an Algorand address is uppercase base32 with a
+  // checksum, so folding it would compare two strings that are not addresses
+  // (the base58/strkey rule from src/payer.js, one chain over). Anything that
+  // is not the family's shape norms to null and reads UNKNOWN, which blocks
+  // nothing - only a positive MISMATCH does.
+  const norm = family === "algorand"
+    ? (a) => (typeof a === "string" && /^[A-Z2-7]{58}$/.test(a) ? a : null)
+    : (a) => (typeof a === "string" && /^0x[0-9a-f]{40}$/i.test(a) ? a.toLowerCase() : null);
   const proven = norm(provenPayTo);
   const live = norm(livePayTo);
   if (!proven) return { verdict: "unknown", reason: "no chain-derived address on record for this origin" };

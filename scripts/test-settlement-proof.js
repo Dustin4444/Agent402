@@ -228,7 +228,12 @@ const merchant = (m, payments, payers = 3, volumeUsd = 1) => ({ merchant: m, pay
   ok(/provenPayTo:\s*provenPayToByOrigin\?\.get\(norm\(r\.seller\)\)/.test(server),
     "resolveExternalSeller returns provenPayTo, so the spend has an address to bind against");
   const buyer = readFileSync(new URL("../src/x402-buyer.js", import.meta.url), "utf8");
-  ok(/provenPayToMatches\(\{\s*provenPayTo,\s*livePayTo:\s*payable\.payTo\s*\}\)/.test(buyer),
+  // `payable.payTo` is the whole point (the accept being signed, never
+  // accepts[0]); anything after it is allowed, because the call gained an
+  // address FAMILY when the Algorand rail started using this binding too
+  // (2026-09-18) and a pin that forbids a second argument would have to be
+  // rewritten for every rail rather than guarding the one thing it is for.
+  ok(/provenPayToMatches\(\{\s*provenPayTo,\s*livePayTo:\s*payable\.payTo\s*[,}]/.test(buyer),
     "payX402 binds against `payable` - the accept it signs - and not accepts[0]");
   ok(buyer.indexOf("provenPayToMatches") < buyer.indexOf("const spendToken = reserveSpend"),
     "the binding runs BEFORE any spend is held or signed, so a mismatch costs nothing");
