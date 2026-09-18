@@ -30,7 +30,7 @@
 import { createHash } from "node:crypto";
 import {
   TIERS, AUTO_RANKINGS, classifyPrompt, canonicalModel, tierAllows, tierFor,
-  clampToMargin, flexAttempts, cacheControlPref, upstreamUserId, PROVIDER_SORT_ENABLED,
+  clampToMargin, attemptsFor, serviceTierFor, validateServiceTier, cacheControlPref, upstreamUserId, PROVIDER_SORT_ENABLED,
   fetchOpenRouter, throwUpstreamError, streamOpenRouterTo, bad, MAX_IMAGES,
   refuseCostVariants, checkBlockCacheControl, meteredQuoteForProbe, costFor,
   assertUpstreamBody, reasoningProfile, REASONING_EFFORTS,
@@ -288,15 +288,19 @@ export function validateMessagesRequest(input, tierSlug) {
     if (body.thinking?.type === "disabled" && (effort === "xhigh" || effort === "max")) throw bad(`"effort" ${JSON.stringify(effort)} cannot be combined with thinking:{type:"disabled"} - a disabled-thinking call takes low or medium effort at most. Drop one of the two.`);
     body.effort = effort;
   }
-  // `speed`: OpenRouter's Messages wire accepts Anthropic's `speed` field and
-  // "fast" routes to the priority endpoint (anthropic/fast), which bills 2x the
-  // headline ($10/$50 on opus-5, live endpoints 2026-09-18) - outside every
-  // tier's price and never sent by any wire here. Refuse it rather than drop it.
-  if (input.speed !== undefined && input.speed !== "standard") throw bad('"speed" other than "standard" is not offered - the fast (priority) endpoint bills twice the model\'s list price and is outside this tier\'s price. Omit the field.');
+  // `speed: "fast"` (Anthropic's spelling) and `service_tier: "priority"` /
+  // "fast" both request the priority endpoint (anthropic/fast bills 2x the
+  // headline: $10/$50 on opus-5, live endpoints 2026-09-18). Offered on the
+  // tiers flagged `priority` at the same flat price - the clamp prices the
+  // probe at PRIORITY_PRICE_FACTOR - and refused with the reason elsewhere,
+  // never dropped. Sent upstream as service_tier (one spelling); OpenRouter
+  // reports the served tier as usage.service_tier on this wire.
+  const serviceTier = validateServiceTier(input, tier);
+  if (serviceTier) body.service_tier = serviceTier;
   if (input.stream === true) body.stream = true;
   if (input.zdr === true || input.provider?.zdr === true) body.zdr = true;
   cacheControlPref(input); // shape-validate (400 on bad value); applied call-time
-  const probe = { model: body.model, max_tokens: maxTokens, messages: probeMessages, ...(system !== undefined ? { system } : {}), ...(body.tools ? { tools: body.tools } : {}), ...(body.thinking ? { thinking: body.thinking } : {}) };
+  const probe = { model: body.model, max_tokens: maxTokens, messages: probeMessages, ...(system !== undefined ? { system } : {}), ...(body.tools ? { tools: body.tools } : {}), ...(body.thinking ? { thinking: body.thinking } : {}), ...(serviceTier ? { service_tier: serviceTier } : {}) };
   const routedCategory = isRouted ? classifyPrompt([...(typeof system === "string" ? [{ role: "user", content: system }] : []), ...probeMessages]) : null;
   const routedQuality = isRouted ? (input.quality === undefined ? "balanced" : String(input.quality)) : null;
   if (isRouted && !AUTO_RANKINGS[routedQuality]) throw bad('"quality" must be "fast", "balanced", or "best"');
@@ -370,7 +374,7 @@ export function makeMessagesHandler(tierSlug) {
         ...body, model, max_tokens: Math.min(body.max_tokens, p.max_tokens), zdr: undefined, effort: effortForLink,
         ...(provider ? { provider } : {}), ...(user ? { user, session_id: user } : {}),
         ...(cacheControl ? { cache_control: cacheControl } : {}),
-        ...(flex ? { service_tier: "flex" } : {}),
+        service_tier: serviceTierFor(model, body, flex), // flex / priority / explicit default on :nitro
       };
     };
     const recordUsage = (usage, upstreamUsd, served, serviceTier) => import("../posthog.js")
@@ -378,7 +382,7 @@ export function makeMessagesHandler(tierSlug) {
         tier: `${tierSlug}:messages`, model: served, priceUsd: quotedUsd ?? tier.price, upstreamUsd,
         promptTokens: usage?.input_tokens, completionTokens: usage?.output_tokens, serviceTier, defaulted: !!defaultedModel,
       })).catch(() => {});
-    const attempts = flexAttempts(chain);
+    const attempts = attemptsFor(chain, body);
     const routerNote = isRouted ? { category: routedCategory, quality: routedQuality } : null;
 
     if (body.stream === true) {

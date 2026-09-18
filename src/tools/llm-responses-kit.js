@@ -25,7 +25,7 @@
 // neither max_output_tokens nor provider.max_price. Function tools only.
 import {
   TIERS, AUTO_RANKINGS, classifyPrompt, canonicalModel, tierAllows, tierFor, meteredQuoteForProbe, costFor,
-  clampToMargin, flexAttempts, cacheControlPref, upstreamUserId, PROVIDER_SORT_ENABLED,
+  clampToMargin, attemptsFor, serviceTierFor, validateServiceTier, cacheControlPref, upstreamUserId, PROVIDER_SORT_ENABLED,
   fetchOpenRouter, throwUpstreamError, streamOpenRouterTo, bad, MAX_IMAGES,
   defaultReasoningFor, validateReasoning,
   refuseCostVariants,
@@ -209,8 +209,13 @@ export function validateResponsesRequest(input, tierSlug) {
   if (reasoning !== undefined) body.reasoning = reasoning;
   if (input.stream === true) body.stream = true;
   if (input.zdr === true || input.provider?.zdr === true) body.zdr = true;
+  // service_tier "priority" (alias "fast") on the tiers that price it; the
+  // probe carries it so clampToMargin sizes max_output_tokens at the
+  // priority rate (PRIORITY_PRICE_FACTOR). Refused with the reason elsewhere.
+  const serviceTier = validateServiceTier(input, tier);
+  if (serviceTier) body.service_tier = serviceTier;
   cacheControlPref(input);
-  const probe = { model: body.model, max_tokens: maxOut, input: probeInput, ...(instructions !== undefined ? { instructions } : {}), ...(body.tools ? { tools: body.tools } : {}), ...(body.text ? { text: body.text } : {}) };
+  const probe = { model: body.model, max_tokens: maxOut, input: probeInput, ...(instructions !== undefined ? { instructions } : {}), ...(body.tools ? { tools: body.tools } : {}), ...(body.text ? { text: body.text } : {}), ...(serviceTier ? { service_tier: serviceTier } : {}) };
   const probeMessages = [];
   if (instructions) probeMessages.push({ role: "user", content: instructions });
   if (typeof probeInput === "string") probeMessages.push({ role: "user", content: probeInput });
@@ -281,7 +286,7 @@ export function makeResponsesHandler(tierSlug) {
         ...(reasoning ? { reasoning } : {}),
         ...(provider ? { provider } : {}), ...(user ? { user, session_id: user } : {}),
         ...(cacheControl ? { cache_control: cacheControl } : {}),
-        ...(flex ? { service_tier: "flex" } : {}),
+        service_tier: serviceTierFor(model, body, flex), // flex / priority / explicit default on :nitro
       };
     };
     const recordUsage = (usage, upstreamUsd, served, serviceTier) => import("../posthog.js")
@@ -289,7 +294,7 @@ export function makeResponsesHandler(tierSlug) {
         tier: `${tierSlug}:responses`, model: served, priceUsd: quotedUsd ?? tier.price, upstreamUsd,
         promptTokens: usage?.input_tokens, completionTokens: usage?.output_tokens, serviceTier, defaulted: !!defaultedModel,
       })).catch(() => {});
-    const attempts = flexAttempts(chain);
+    const attempts = attemptsFor(chain, body);
     const routerNote = isRouted ? { category: routedCategory, quality: routedQuality } : null;
 
     if (body.stream === true) {

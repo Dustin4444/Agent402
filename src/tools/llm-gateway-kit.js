@@ -356,6 +356,10 @@ export const TIERS = {
     maxInputChars: 48_000,
     maxTokens: 4096,
     maxPrice: { prompt: 6, completion: 20 }, // priciest allowlisted: grok ~$3/$15 (claude sonnet 5 is $2/$10, permanent as of 2026-08-10)
+    // Buyer knob `service_tier: "priority"` (see PRIORITY_PRICE_FACTOR): the
+    // margin clamp prices the call at the priority rate, so the flat price
+    // holds and a long prompt gets a smaller max_tokens or a 400, never a loss.
+    priority: true,
     // Server tools (see SERVER_TOOL_POLICY): pro is the CHEAPEST tier that can
     // absorb a bounded agent loop. One Exa search is $0.007 - on the $0.02
     // base tier two of them are the entire 70% margin budget with nothing left
@@ -417,6 +421,7 @@ export const TIERS = {
     // answered 502 (2026-09-02 audit). Same lever the ox tier already had.
     defaultMaxTokens: 4_096,
     maxPrice: { prompt: 20, completion: 100 }, // priciest allowlisted: claude opus ~$15/$75
+    priority: true, // service_tier "priority" accepted and priced at PRIORITY_PRICE_FACTOR
     // Server tools (see SERVER_TOOL_POLICY): the $0.50 price buys two search
     // steps and richer results. The clamp still decides per request - premium
     // models are the priciest per token, so a long prompt PLUS a tool loop is
@@ -473,6 +478,33 @@ export const TIERS = {
   // fixedUpstreamUsd + extraInputTokens. Results come back as OpenAI-wire
   // `annotations` (url_citation). Never cached: the web moves. Listed after
   // auto so tierFor() keeps resolving explicit models to their home tiers.
+  //
+  // ENGINE DECISION, re-measured 2026-09-18 against OpenRouter's live plugin
+  // docs and one call per engine (gpt-4o-mini, max_results 5, the same
+  // "current Node.js release + Active LTS" prompt, truth read from
+  // nodejs.org/dist/index.json: v26.9.0 / v24.21.0 that day):
+  //   engine "exa" (mode auto, $0.007/request):        usage.cost $0.00734,
+  //     1,745 prompt tokens, 5 citations (GitHub releases, CHANGELOG,
+  //     nodejs.org, the release schedule); answer one release stale.
+  //   engine "parallel" mode "turbo" ($0.001/request): usage.cost $0.00156,
+  //     3,094 prompt tokens (Parallel injects ~2x the excerpt text), 5
+  //     citations, ALL of them version-archive pages (v26.0.0 ... v26.7.0)
+  //     rather than a release or schedule page; answer identical to Exa's.
+  //   engine "parallel" mode "basic" ($0.005/request): usage.cost $0.00543,
+  //     2,118 prompt tokens, 5 citations, answer one release fresher than
+  //     both; the price gap to Exa is $0.002, not worth a sample of one.
+  //   The same prompt in German: Exa answered v26.9.0 / v24.21.0 with the
+  //     right dates (correct); Parallel turbo answered v26.8.1 / v24.20.0
+  //     with wrong dates, citing five localized archive pages - Parallel
+  //     documents turbo/fast as "English and Japanese", and that is what a
+  //     buyer would notice.
+  // So the engine stays Exa: a grounded answer is sold on its citations, and
+  // Parallel's cheaper modes returned weaker ones on both prompts and a wrong
+  // answer on the non-English one. Parallel's own doc prices: turbo/fast
+  // $0.001, basic/advanced $0.005 per request, all "up to 10 results, then
+  // $0.001 per additional result" (same additional-result rule as Exa).
+  // Re-run the pair before switching; the recipe is in the memory note for
+  // the 2026-09-18 audit.
   "v1-chat-grounded": {
     reasoningDefault: "lowest",
     route: "POST /v1/grounded/chat/completions",
@@ -949,6 +981,14 @@ const TOKEN_SAFETY = 1.15;   // headroom for BPE drift across vendors
 //       web_fetch, engine "openrouter" (direct HTTP fetch): "Free". Exa and
 //         Parallel are $1 per 1,000 fetches; Firecrawl is BYOK.
 //       datetime: "no additional cost beyond standard token usage".
+//     Re-read 2026-09-18: the server-tool price table now also lists
+//       Parallel (turbo/fast $0.001, basic/advanced $0.005 per request) and
+//       Perplexity ($0.005). Exa stays pinned here for the same reason the
+//       grounded tier keeps it (see v1-chat-grounded): measured side by side
+//       that day, Parallel's $0.001 modes returned archive pages where Exa
+//       returned release and schedule pages, and answered wrong on a
+//       non-English prompt. The price table would allow the switch; the
+//       results do not.
 //   * `max_characters` / `max_content_tokens` - a hard per-result content cap,
 //     which is what bounds the TOKEN side.
 //
@@ -1142,7 +1182,14 @@ function estimateInputTokens(body, imageCount) {
  *  CI test (scripts/test-pricing-margin.js) imports it so the test and the
  *  runtime can never disagree on the math. */
 export function worstCaseUpstreamCost(body, tier, imageCount = 0) {
-  const listed = costFor(body.model) || tier.maxPrice;
+  const row = costFor(body.model) || tier.maxPrice;
+  // A priority-tier request (service_tier "priority", pro/premium only) can be
+  // served by the model's "*/fast" or "*/priority" endpoint, which bills a
+  // multiple of the default row (PRIORITY_PRICE_FACTOR, measured live); the
+  // row is scaled BEFORE the max_price min because provider.max_price bounds
+  // that endpoint exactly like every other one.
+  const factor = body.service_tier === "priority" ? PRIORITY_PRICE_FACTOR : 1;
+  const listed = { prompt: row.prompt * factor, completion: row.completion * factor };
   // Flat tiers bound the provider price with `max_price` (tier.maxPrice), so
   // the worst case is the min of the two. The METERED tier quotes the model's
   // own row and sends THAT row as its bound (`costFor` in the handlers), so
@@ -1557,6 +1604,11 @@ export function validateRequest(input, tierSlug, { clamp = true } = {}) {
     }
     body.zdr = true;
   }
+  // Priority service tier (pro/premium): part of the normalized body so the
+  // clamp below prices it and a priority answer never shares a cache entry
+  // with a default one. Every other value is refused or a documented no-op.
+  const serviceTier = validateServiceTier(input, tier);
+  if (serviceTier) body.service_tier = serviceTier;
   cacheControlPref(input); // shape-validate only (400 on a bad value); the preference is call-time, not in the normalized body
   if (clamp) clampToMargin(body, tier, totalImages);
   if (clamp && tier.metered) {
@@ -1608,6 +1660,103 @@ export function flexAttempts(chain) {
     out.push({ model, flex: false });
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Priority service tier - OpenRouter's `service_tier: "priority"` ("fast" is
+// its documented alias; Anthropic's native spelling is `speed: "fast"`) routes
+// to the model's priority endpoint first ("openai/fast", "anthropic/fast",
+// "google-vertex/global/priority" ...) and falls back to the default
+// endpoints when none can serve, billing whichever endpoint answered. The
+// docs (read 2026-09-18) name no multiplier; the ENDPOINT LISTS do, and this
+// is the dearest one measured that day across the pro/premium allowlists:
+//   openai/fast: 2.0x the headline on gpt-5.6-luna ($0.40/$2.40 vs $0.20/
+//     $1.20), gpt-5.6-terra (4/24 vs 2/12), gpt-5.6-sol (4/20 vs 2/10),
+//     gpt-6-astra (20/100 vs 10/50); a live priority call on luna billed
+//     exactly 2x per token and reported service_tier "priority".
+//   anthropic/fast: 2.0x on claude-opus-5 (10/50 vs 5/25); sonnet-5 and
+//     fable-5.1 have no priority endpoint (Anthropic has retired the tier for
+//     new commitments), so a priority request there falls back to default and
+//     bills default - the factor over-estimates, which is the safe direction.
+//   google */priority: 1.8x on gemini-2.5-pro (2.25/18 vs 1.25/10) and
+//     gemini-3.5-flash (2.7/16.2 vs 1.5/9).
+//   gpt-4o, gpt-4.1, o3, gpt-4o-mini: no priority endpoint at all.
+// So one factor, 2, applied to the MODEL_COST row in worstCaseUpstreamCost
+// (the row is already the dearest DEFAULT endpoint, so 2x the row covers
+// every priority endpoint read above with room), then min'd with the tier's
+// max_price, which rides upstream and bounds priority endpoints like any
+// other. scripts/test-gateway-model-ids.js reads every admitted model's
+// priority endpoints live and fails if one bills over factor x row.
+//
+// Offered on the tiers flagged `priority: true` (pro, premium) at the SAME
+// flat price: the margin clamp prices the request at the priority rate, so a
+// long prompt gets a smaller max_tokens, or a 400 before any spend - never a
+// call whose worst case exceeds MARGIN x price. The budget tiers refuse it
+// naming those routes, because at 2x a nano/base call has no room left.
+//
+// `:nitro` is the trap this closes on EVERY tier: the model-variant "admits
+// priority tier endpoints" into its throughput sort, and a live
+// gpt-5.6-luna:nitro call with no service_tier was SERVED at priority
+// (2x, measured 2026-09-18) while this file's comments still called the
+// variant "routing-only". An explicit `service_tier: "default"` disables the
+// variant's tier admission (the docs say so; verified live on
+// gpt-4o-mini:nitro), so a default attempt on a :nitro model now carries it,
+// and priority is served only when a buyer asked for it on a tier that
+// prices it.
+export const PRIORITY_PRICE_FACTOR = 2;
+/** The buyer spellings that request the priority tier, per the live docs. */
+export const PRIORITY_SERVICE_TIER_VALUES = ["priority", "fast"];
+/** Which routes offer the priority tier - for self-explaining 400s. */
+function tiersOfferingPriority() {
+  return Object.values(TIERS).filter((t) => t.priority === true).map((t) => `${t.route.split(" ")[1]} ($${t.price})`);
+}
+/** Validate a buyer's service-tier request on any wire. Returns "priority"
+ *  when the tier offers it and the buyer asked (service_tier "priority" /
+ *  "fast", or Anthropic's `speed: "fast"` on the Messages wire), undefined
+ *  for the documented no-ops ("default", "auto", `speed: "standard"`), and
+ *  throws a self-explaining 400 for everything else - including "flex",
+ *  which the gateway applies itself on eligible models and never on request
+ *  (a buyer flex has no fallback and would surface capacity errors). */
+export function validateServiceTier(input, tier) {
+  const raw = input.service_tier;
+  const speed = input.speed;
+  if (speed !== undefined && speed !== "standard" && speed !== "fast") throw bad('"speed" must be "standard" or "fast" (Anthropic\'s spelling of the priority service tier)');
+  let want = null;
+  if (raw !== undefined) {
+    if (typeof raw !== "string") throw bad('"service_tier" must be a string: "priority" (alias "fast"), or "default"');
+    const v = raw.toLowerCase();
+    if (v === "flex") throw bad('"service_tier": "flex" is not a buyer knob here - the gateway already tries the flex (discounted) endpoint first on every model that has one and falls back to the default tier itself, which an explicit flex request cannot do. Omit the field.');
+    if (PRIORITY_SERVICE_TIER_VALUES.includes(v)) want = "priority";
+    else if (v !== "default" && v !== "auto") throw bad(`"service_tier" ${JSON.stringify(raw).slice(0, 40)} is not recognised - send "priority" (alias "fast") for the priority endpoint, or omit the field`);
+  }
+  if (speed === "fast") want = "priority";
+  if (!want) return undefined;
+  if (tier.priority !== true) {
+    const homes = tiersOfferingPriority();
+    throw bad(
+      `The priority service tier is not offered on ${tier.route.split(" ")[1]} - the priority endpoint bills ${PRIORITY_PRICE_FACTOR}x the model's list price, which this tier's price does not cover. ` +
+      (homes.length ? `It is available at the same flat price on ${homes.join(" and ")} (the margin clamp sizes max_tokens for it).` : "It is not currently available on any tier.") +
+      ' Omit "service_tier"' + (speed === "fast" ? ' / send speed:"standard"' : "") + " to use the default tier here."
+    );
+  }
+  return "priority";
+}
+/** The `service_tier` an outbound attempt carries, or undefined for none:
+ *  "flex" on a flex attempt, "priority" when the validated body asked for it,
+ *  and "default" on a `:nitro` model whose buyer did not - the explicit value
+ *  that keeps the variant a throughput sort and never a 2x endpoint. The one
+ *  place any wire spells a service tier (pinned in test-gateway-model-ids). */
+export function serviceTierFor(model, body, flex = false) {
+  if (body?.service_tier === "priority") return "priority"; // the buyer asked for fast; never downgraded to flex
+  if (flex) return "flex";
+  if (/:nitro$/i.test(String(model || ""))) return "default";
+  return undefined;
+}
+/** Attempts for a chain: a priority request never tries flex (the buyer asked
+ *  for the fast endpoint; flex is the slow one), otherwise flexAttempts. */
+export function attemptsFor(chain, body) {
+  if (body?.service_tier === "priority") return chain.map((model) => ({ model, flex: false }));
+  return flexAttempts(chain);
 }
 
 // ---------------------------------------------------------------------------
@@ -2297,7 +2446,11 @@ const RERANK_CHUNK_TOKENS = 500;   // Cohere: a document is split into 500-token
 const RERANK_MAX_CHUNKS = 100;     // one search unit
 export function validateRerankRequest(input) {
   if (!input || typeof input !== "object") throw bad("Body must be a JSON object: {query, documents[], top_n?}");
-  if (input.model !== undefined && canonicalModel(input.model) !== RERANK_MODEL && String(input.model) !== "rerank-v3.5") throw bad(`"model" must be ${RERANK_MODEL} (the only rerank model served)`);
+  // cohere/rerank-4-fast and rerank-4-pro exist upstream (live 2026-09-18) but
+  // bill $0.002 and $0.0025 per search unit - a live 4-fast call returned
+  // usage.cost 0.002, i.e. 100% of this route's price against the 70% bound -
+  // so neither is offered until the route is repriced. Refused by name.
+  if (input.model !== undefined && canonicalModel(input.model) !== RERANK_MODEL && String(input.model) !== "rerank-v3.5") throw bad(`"model" must be ${RERANK_MODEL} (the only rerank model served at $${RERANK_PRICE}; cohere/rerank-4-fast bills $0.002 per search unit upstream, the whole price, so it is not offered on this route)`);
   const query = input.query;
   if (typeof query !== "string" || !query.trim()) throw bad('"query" (string) is required');
   if (query.length > RERANK_MAX_QUERY_CHARS) throw bad(`"query" too long (${query.length} chars; max ${RERANK_MAX_QUERY_CHARS})`);
@@ -2831,7 +2984,8 @@ function makeHandler(tierSlug) {
         ...(providerForLink ? { provider: providerForLink } : {}), ...(user ? { user, session_id: user } : {}),
         ...(cacheControl ? { cache_control: cacheControl } : {}),
         ...(plugins.length ? { plugins } : {}),
-        ...(flex ? { service_tier: "flex" } : {}),
+        // flex / priority / an explicit default on :nitro - see serviceTierFor.
+        service_tier: serviceTierFor(model, body, flex),
       };
     };
     // Server-tool execution is upstream spend, so it has to be visible to a
@@ -2852,7 +3006,7 @@ function makeHandler(tierSlug) {
     // Flex-eligible links are tried on the flex tier first, then default (see
     // FLEX_MODELS): any upstream failure on the flex attempt falls to the same
     // model's default attempt before the chain moves on.
-    const attempts = flexAttempts(chain).slice(0, TIERS[tierSlug].maxAttempts || Infinity);
+    const attempts = attemptsFor(chain, body).slice(0, TIERS[tierSlug].maxAttempts || Infinity);
     if (body.stream === true) {
       // The route binder invokes __sse(res) after the paywall settled.
       // streamOpenRouterTo throws only BEFORE headers are written, so the
@@ -3077,6 +3231,7 @@ const AUTO_INPUT_SCHEMA = {
     messages: INPUT_SCHEMA.properties.messages,
     model: { type: "string", description: 'Optional - omit (or send "auto") for eval-ranked server-side routing. An explicit model from the auto ranking is honored at the auto caps.' },
     quality: { type: "string", description: 'Optional routing band when the gateway picks the model: "fast" (cheapest/snappiest), "balanced" (default), "best" (strongest under the flat price). Never changes the price.' },
+    service_tier: { type: "string", description: 'Optional. "priority" (alias "fast") asks for the model\'s priority endpoint on /v1/pro and /v1/premium at the same flat price; the margin clamp prices the call at the priority rate, so max_tokens may be sized down. Refused with the reason on the other tiers; "flex" is applied by the gateway automatically and not accepted as a request.' },
     max_tokens: INPUT_SCHEMA.properties.max_tokens,
   },
   required: ["messages"],
@@ -3377,6 +3532,18 @@ export function modelsList() {
           // prompts and cannot be routed zero-data-retention.
           ...(tier.logsPrompts ? { dataRetention: "provider-retains-prompts", zdr: false } : {}),
           ...(tier.stealth ? { stealth: true } : {}),
+          // Service tiers, machine-readable: whether the gateway tries this
+          // model's flex (discounted) endpoint first on its own, and whether
+          // the route takes the buyer's `service_tier: "priority"` (alias
+          // "fast"; Anthropic wire `speed: "fast"`) at the same flat price.
+          ...(slug.startsWith("v1-chat") ? {
+            serviceTiers: {
+              flexFirst: !p.endsWith("/") && flexEligible(PREFIX_CANONICAL[p.toLowerCase()] || p),
+              priority: tier.priority === true
+                ? { param: "service_tier", values: [...PRIORITY_SERVICE_TIER_VALUES], upstreamPriceFactor: PRIORITY_PRICE_FACTOR, note: `Same $${tier.price} per call. The margin clamp prices the request at ${PRIORITY_PRICE_FACTOR}x the model's rate, so a long prompt gets a smaller max_tokens or a 400 before any spend. Models with no priority endpoint are served on the default tier.` }
+                : false,
+            },
+          } : {}),
           // Server tools and the exact server-owned limits that ride on them.
           // An agent picking a route must be able to SEE the loop budget it
           // gets, and that the per-tool caps are not negotiable.
