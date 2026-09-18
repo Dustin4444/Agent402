@@ -27,6 +27,7 @@
 //
 //   node scripts/test-x402-manifest.js
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -101,6 +102,21 @@ try {
   // mcp section — buyer-facing "plug this into Claude" answer.
   ok(typeof m.mcp?.remoteConnector === "string" && m.mcp.remoteConnector.endsWith("/mcp"), `mcp.remoteConnector ends with /mcp (got ${m.mcp?.remoteConnector})`);
   ok(m.mcp?.package === "agent402-mcp", `mcp.package is agent402-mcp (got ${m.mcp?.package})`);
+
+  // One handler for every manifest path. On 2026-09-18 the settlementFacilitators
+  // block was added to serveManifest and wired to the two alias paths only; the
+  // canonical /.well-known/x402 kept an older inline handler and prod served the
+  // manifest WITHOUT the block for a deploy. Pinned from source (the canonical
+  // route names serveManifest) and on the wire (the three bodies agree, minus
+  // the per-request perf block).
+  const src = readFileSync(join(ROOT, "src", "server.js"), "utf8");
+  ok(/app\.get\("\/\.well-known\/x402",\s*serveManifest\)/.test(src), "canonical /.well-known/x402 is served by serveManifest (source pin)");
+  ok(/settlementFacilitators/.test(src.slice(src.indexOf("const serveManifest"), src.indexOf("const serveManifest") + 1200)), "serveManifest carries the settlementFacilitators block (source pin)");
+  const strip = (o) => { const c = { ...o }; delete c.performance24h; return JSON.stringify(c); };
+  for (const alias of ["/.well-known/x402.json", "/.well-known/x402-services.json"]) {
+    const a = await (await fetch(`${BASE}${alias}`)).json();
+    ok(strip(a) === strip(m), `${alias} serves the same manifest as the canonical path`);
+  }
 
   console.log(`\n${pass} passed`);
   proc.kill("SIGKILL");
