@@ -248,7 +248,7 @@ export const TOOLS = [
     // quote that silently collapses to the floor - an @x402 adapter change that
     // hides the body, say - changes what this leg pays and the pin fails.
     body: { model: "openai/gpt-5-nano", messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 2000 },
-    priceUsd: 0.001122,
+    priceUsd: 0.001215,
     check: (r) => isExactOkReply(r.choices?.[0]?.message?.content) || `expected an exact "OK" reply, got ${JSON.stringify(r).slice(0, 100)}`,
   },
   {
@@ -261,7 +261,7 @@ export const TOOLS = [
     path: "/v1/metered/messages",
     method: "POST",
     body: { model: "anthropic/claude-haiku-4.5", max_tokens: 300, messages: [{ role: "user", content: "Reply with exactly: OK" }] },
-    priceUsd: 0.001977,
+    priceUsd: 0.002155,
     check: (r) =>
       (r.type === "message" && r.role === "assistant" && Array.isArray(r.content) && r.content.some((b) => b.type === "text" && typeof b.text === "string") &&
         r.usage && typeof r.usage.output_tokens === "number" && !("cost" in r.usage)) ||
@@ -275,7 +275,7 @@ export const TOOLS = [
     path: "/v1/metered/responses",
     method: "POST",
     body: { model: "anthropic/claude-haiku-4.5", max_output_tokens: 300, input: "Reply with exactly: OK" },
-    priceUsd: 0.001964,
+    priceUsd: 0.002141,
     check: (r) =>
       (r.object === "response" && r.status === "completed" && Array.isArray(r.output) && r.output.some((o) => o.type === "message" && Array.isArray(o.content) && o.content.some((c) => c.type === "output_text" && typeof c.text === "string")) &&
         r.usage && typeof r.usage.output_tokens === "number" && !("cost" in r.usage) && r.store !== true) ||
@@ -418,6 +418,20 @@ export const TOOLS = [
     body: { input: "Agent402 canary: text to speech is live.", voice: "alloy" },
     priceUsd: 0.06,
     check: (t) => (typeof t === "string" && t.length > 5_000) || `expected raw audio bytes, got ${String(t).length} chars`,
+  },
+  {
+    // transcribe moved to gpt-transcribe with a 4-minute cap on 2026-09-18; the
+    // fixture is our own 32 KB wav, so the leg proves the model swap and the
+    // cap path live for $0.03 a day (the only STT proof there was before this
+    // was the local duration test).
+    kit: "transcribe",
+    path: "/api/transcribe",
+    method: "POST",
+    body: { url: "https://agent402.tools/fixtures/sample-audio.wav" },
+    priceUsd: 0.03,
+    check: (r) =>
+      (typeof r.text === "string" && r.text.trim().length > 0 && r.model === "gpt-transcribe") ||
+      `expected a non-empty transcript from gpt-transcribe, got ${JSON.stringify(r).slice(0, 120)}`,
   },
   {
     // Supply-chain leg — the catalog's first PAID x402 UPSTREAM (blockscout-kit).

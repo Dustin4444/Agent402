@@ -1428,6 +1428,7 @@ jobs:
           t node scripts/test-x402-spend-controls.js
           t node scripts/test-x402-boot-init.js
           t node scripts/test-solana-kit-deps.js
+          t node scripts/test-workflow-client-pins.js
 
       - name: x402 Bazaar discovery shape (POST→bodyType, GET→queryParams, example types match schema)
         run: node scripts/check-bazaar.mjs
