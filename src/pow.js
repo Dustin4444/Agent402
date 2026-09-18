@@ -211,7 +211,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   // all hit external HTTP; PoW would let one client farm the per-IP rate
   // limits we share with everyone else.
   "polymarket-search", "polymarket-market", "polymarket-orderbook", "polymarket-price-history",
-  "kalshi-markets", "kalshi-event",
+  "kalshi-markets", "kalshi-event", "kalshi-live-data", "kalshi-weather-index",
   // MEV + L2 kit: Flashbots relay (keyless, per-IP rate-limited), DeFiLlama
   // (per-IP shared with defi-tvl), and Alchemy (compute-unit quota shared with
   // chain-kit/dex-kit). All wallet-only for the same reasons.

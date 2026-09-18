@@ -11,7 +11,7 @@
 import { PREDICTION_MARKET_TOOLS, __test } from "../src/tools/prediction-market-kit.js";
 
 import { readFileSync } from "node:fs";
-const { asNumber, parseJsonArray, shapeMarket, shapeKalshiMarket, polyList } = __test;
+const { asNumber, parseJsonArray, shapeMarket, shapeKalshiMarket, shapeKalshiLiveData, shapeWeatherPoint, shapeWeatherCalibration, WEATHER_CITIES, polyList } = __test;
 
 const h = (slug) => PREDICTION_MARKET_TOOLS.find((t) => t.slug === slug).handler;
 let fail = 0, pass = 0;
@@ -20,9 +20,9 @@ const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail+
 // ----------------------------------------------------------------------------
 // Catalog envelope
 // ----------------------------------------------------------------------------
-ok(PREDICTION_MARKET_TOOLS.length === 6, `6 tools exported (got ${PREDICTION_MARKET_TOOLS.length})`);
+ok(PREDICTION_MARKET_TOOLS.length === 8, `8 tools exported (got ${PREDICTION_MARKET_TOOLS.length})`);
 
-const expectedSlugs = ["polymarket-search", "polymarket-market", "polymarket-orderbook", "polymarket-price-history", "kalshi-markets", "kalshi-event"];
+const expectedSlugs = ["polymarket-search", "polymarket-market", "polymarket-orderbook", "polymarket-price-history", "kalshi-markets", "kalshi-event", "kalshi-live-data", "kalshi-weather-index"];
 for (const slug of expectedSlugs) {
   ok(!!PREDICTION_MARKET_TOOLS.find((t) => t.slug === slug), `slug present: ${slug}`);
 }
@@ -336,6 +336,106 @@ if (process.env.PREDICTION_LIVE_TEST === "1") {
   globalThis.fetch = async () => json({ data: [] });
   r = await h("polymarket-price-history")({ tokenId: "1000000000000000000004" });
   ok(r.count === 0 && typeof r.note === "string" && r.source === "polymarket-data-api", "an empty v2 series is an answer with the no-history note");
+  globalThis.fetch = realFetch;
+}
+
+// ----------------------------------------------------------------------------
+// Kalshi live_data (2026-09-18): the feed BEHIND an event and the city
+// temperature index. Fixtures are trimmed copies of the live responses read
+// that day (docs.kalshi.com/api-reference/live-data). The shaper rule under
+// test is the shapeKalshiMarket rule: an absent field reads null, never 0,
+// and the two array shapes Kalshi actually serves are normalised while
+// whatever else the type carries rides through under `details`.
+// ----------------------------------------------------------------------------
+{
+  // GET /live_data/events/KXBTC-26SEP1813?range=15min (crypto type)
+  const btcLive = { live_data: { default_range: "1h", details: {
+    candlesticks: {
+      "15M": [{ open_ts_ms: 1789747466000, open: 80695.74, high: 81009.59, low: 80695.74, close: 81009.59 }, { open_ts_ms: 1789748366000, open: 81009.82, high: 81210.11, low: 80877.87, close: 81210.11 }],
+      "1M": [{ open_ts_ms: 1789749180000, open: 81108.81, high: 81198.23, low: 81108.81, close: 81198.23 }],
+    },
+    coin: "BTC", event_ticker: "KXBTC-26SEP1813", maturity_ts_ms: 1789750800000,
+    timeseries: [{ t: 1789749264000, v: 81209.399 }, { t: 1789749265000, v: 81210.119 }, { t: 1789749266000, v: 81210.682 }],
+  }, is_historical: false, range_options: ["15min", "1h", "3h"], type: "crypto" } };
+  const s = shapeKalshiLiveData(btcLive, { eventTicker: "KXBTC-26SEP1813", limit: 200 });
+  ok(s.type === "crypto" && s.coin === "BTC" && s.isHistorical === false && s.defaultRange === "1h", "live-data crypto: type, coin, is_historical and default_range ride through");
+  ok(s.maturityTime === "2026-09-18T17:00:00.000Z", "live-data crypto: maturity_ts_ms becomes an ISO time");
+  ok(s.seriesCount === 3 && s.series[2].value === 81210.682 && s.series[0].time === "2026-09-18T16:34:24.000Z", "live-data crypto: the {t, v} series is normalised to {time, value}");
+  ok(s.latest && s.latest.value === 81210.682, "live-data crypto: latest is the newest series point");
+  ok(s.candlesticks.length === 2 && s.candlesticks[0].interval === "15M" && s.candlesticks[0].count === 2 && s.candlesticks[0].candles[1].close === 81210.11 && s.candlesticks[0].candles[0].time === "2026-09-18T16:04:26.000Z", "live-data crypto: candlesticks become [{interval, count, candles:[{time, open, high, low, close}]}]");
+  ok(!("timeseries" in s.details) && !("candlesticks" in s.details) && s.details.coin === "BTC" && s.details.maturity_ts_ms === 1789750800000, "live-data crypto: details carries the rest of the type's fields and not the two shaped arrays");
+  const s2 = shapeKalshiLiveData(btcLive, { eventTicker: "KXBTC-26SEP1813", limit: 1 });
+  ok(s2.seriesCount === 1 && s2.series[0].value === 81210.682 && s2.candlesticks[0].count === 1 && s2.candlesticks[0].candles[0].close === 81210.11, "live-data: limit keeps the NEWEST points per series and per interval");
+
+  // GET /live_data/events/KXCPI-26SEP (timeseries type: BLS CPI, monthly, labelled points, no range fields)
+  const cpiLive = { live_data: { details: {
+    default_period: "1y", event_ticker: "KXCPI-26SEP", frequency: "monthly", graph_type: "bar", is_historical: false,
+    last_refreshed: "2026-09-18T16:33:45Z", latest_period: "2026-08-01", latest_value: 0.4, measure: "pct_change_1",
+    period_end: "2026-09-30", period_pending: true, provider: "bls", selectable_periods: ["1y", "5y", "all"],
+    series_id: "CUSR0000SA0", target_label: "September 2026", target_period: "2026-09-01",
+    timeseries: [{ label: "June 2026", t: "2026-06-01", v: -0.4 }, { label: "July 2026", t: "2026-07-01", v: 0.1 }, { label: "August 2026", t: "2026-08-01", v: 0.4 }],
+    unit: "%", y_axis_max: 1.03, y_axis_min: -0.53,
+  }, type: "timeseries" } };
+  const c = shapeKalshiLiveData(cpiLive, { eventTicker: "KXCPI-26SEP", limit: 200 });
+  ok(c.type === "timeseries" && c.coin === null && c.maturityTime === null && c.defaultRange === null && c.rangeOptions.length === 0, "live-data timeseries: fields the type does not carry read null (or an empty list), never a fabricated value");
+  ok(c.isHistorical === false, "live-data timeseries: is_historical is read from details when the top level lacks it");
+  ok(c.seriesCount === 3 && c.series[0].time === "2026-06-01" && c.series[0].label === "June 2026" && c.series[2].value === 0.4, "live-data timeseries: string dates and labels ride through the series unchanged");
+  ok(c.candlesticks.length === 0 && c.details.provider === "bls" && c.details.series_id === "CUSR0000SA0" && c.details.target_period === "2026-09-01", "live-data timeseries: no candlesticks, and the provider/series/target fields stay in details");
+  const empty = shapeKalshiLiveData({ live_data: { type: "weather", details: {} } }, { eventTicker: "X", limit: 10 });
+  ok(empty.seriesCount === 0 && empty.latest === null && empty.series.length === 0 && empty.candlesticks.length === 0 && empty.isHistorical === null, "live-data: a type with no arrays is an empty series with a null latest and a null is_historical");
+
+  // GET /live_data/weather/miami?last_sec=...&detailed=true (one point) + /calibrations (one record)
+  const wp = shapeWeatherPoint({ contributors: 5, status: "normal", t: 1789742040000, v: 86.36, stations: [{ code: "ok", received_at_ms: 1789742183062, source: "hf_asos", station_id: "KFLL1M", temp_f: 86 }] }, true);
+  ok(wp.time === "2026-09-18T14:34:00.000Z" && wp.valueF === 86.36 && wp.contributors === 5 && wp.status === "normal", "weather point: t/v/contributors/status are shaped");
+  ok(wp.stations.length === 1 && wp.stations[0].stationId === "KFLL1M" && wp.stations[0].tempF === 86 && wp.stations[0].code === "ok" && wp.stations[0].receivedAt === "2026-09-18T14:36:23.062Z", "weather point: detailed station rows carry station id, reading, QC code and receipt time");
+  ok(!("stations" in shapeWeatherPoint({ t: 1, v: 2, stations: [{ station_id: "X" }] }, false)), "weather point: stations are dropped unless detailed was asked for");
+  ok(shapeWeatherPoint({ t: 1789742040000 }, false).valueF === null && shapeWeatherPoint({ t: 1789742040000 }, false).contributors === null, "weather point: an absent value reads null, never 0");
+  const cal = shapeWeatherCalibration({ calibration_window_end_ms: 1786924800000, calibration_window_start_ms: 1786320000000, change_reason: "weekly offset calibration", city_reference_c: -0.1, config_version: "miami-temperature-v1.0-cal-20260817", effective_at_ms: 1786925160000, published_at_ms: 1786925119661, stations: [{ offset_c: -0.5, station_id: "KOPF1M", update_note: "insufficient residuals", weight: 0.2 }] });
+  ok(cal.configVersion === "miami-temperature-v1.0-cal-20260817" && cal.cityReferenceC === -0.1 && cal.effectiveAt === "2026-08-17T00:06:00.000Z" && cal.calibrationWindow.start === "2026-08-10T00:00:00.000Z", "weather calibration: version, reference, effective time and window are shaped");
+  ok(cal.stations[0].stationId === "KOPF1M" && cal.stations[0].offsetC === -0.5 && cal.stations[0].weight === 0.2 && cal.stations[0].updateNote === "insufficient residuals", "weather calibration: station weights and offsets ride through");
+  ok(Array.isArray(WEATHER_CITIES) && WEATHER_CITIES.includes("miami") && WEATHER_CITIES.includes("nyc") && WEATHER_CITIES.length === 13, "the supported-cities hint matches the 13 cities Kalshi named on 2026-09-18");
+
+  // Validation: every refusal happens before any egress.
+  const realFetch = globalThis.fetch;
+  let egress = 0;
+  globalThis.fetch = async () => { egress++; throw new Error("no egress expected"); };
+  await throws(h("kalshi-live-data")({}), 400, "kalshi-live-data: neither eventTicker nor seriesTicker");
+  await throws(h("kalshi-live-data")({ eventTicker: "bad ticker!" }), 400, "kalshi-live-data: malformed eventTicker");
+  await throws(h("kalshi-live-data")({ seriesTicker: "KXBTC", range: "2h" }), 400, "kalshi-live-data: unknown range");
+  await throws(h("kalshi-weather-index")({}), 400, "kalshi-weather-index: missing city");
+  await throws(h("kalshi-weather-index")({ city: "Mia mi" }), 400, "kalshi-weather-index: malformed city");
+  await throws(h("kalshi-weather-index")({ city: "miami", from: 1 }), 400, "kalshi-weather-index: from without to");
+  await throws(h("kalshi-weather-index")({ city: "miami", lastSec: 99999999 }), 400, "kalshi-weather-index: window over 7 days");
+  ok(egress === 0, "every live_data refusal above happened before any egress");
+
+  // Handler wiring against a stubbed Kalshi: series resolution, the query
+  // string, the unknown-city 422 and the calibrations option.
+  const json = (body, status = 200) => ({ ok: status < 400, status, headers: { get: (k) => (k.toLowerCase() === "content-type" ? "application/json" : null) }, json: async () => body, text: async () => JSON.stringify(body) });
+  let urls = [];
+  globalThis.fetch = async (url) => {
+    const u = String(url); urls.push(u);
+    if (u.includes("/events?")) return json({ events: [{ event_ticker: "KXBTC-26SEP1817", title: "BTC price range on Sep 18, 2026 at 5pm EDT?", strike_date: "2026-09-18T21:00:00Z" }] });
+    if (u.includes("/live_data/events/KXBTC-26SEP1817")) return json(btcLive);
+    if (u.includes("/live_data/weather/nowhere")) return json({ error: { code: "invalid_parameter:_unknown_weather_index_city_\"nowhere\"", message: "invalid parameter: unknown weather index city \"nowhere\"; supported cities: [miami]" } }, 400);
+    if (u.includes("/live_data/weather/miami/calibrations")) return json({ city: "miami", units: "celsius", calibrations: [{ config_version: "miami-temperature-v1.0", effective_at_ms: 1786665600000, city_reference_c: -0.1, stations: [] }] });
+    if (u.includes("/live_data/weather/miami")) return json({ city: "miami", config_version: "miami-temperature-v1.0-cal-20260914", units: "fahrenheit", timeseries: [{ contributors: 5, status: "normal", t: 1789748280000, v: 85.28 }, { contributors: 5, status: "normal", t: 1789748340000, v: 84.92 }] });
+    return json({ error: "unexpected" }, 404);
+  };
+  let r = await h("kalshi-live-data")({ seriesTicker: "kxbtc", range: "15min", limit: 2 });
+  ok(urls[0].includes("/events?series_ticker=KXBTC&status=open&limit=1"), "kalshi-live-data: a series ticker resolves the soonest open event with one events call");
+  ok(urls[1].endsWith("/live_data/events/KXBTC-26SEP1817?range=15min"), `kalshi-live-data: the live_data call carries the resolved ticker and the range (${urls[1]})`);
+  ok(r.eventTicker === "KXBTC-26SEP1813" && r.resolvedFrom.seriesTicker === "KXBTC" && r.resolvedFrom.title.includes("BTC price") && r.range === "15min" && r.source === "kalshi", "kalshi-live-data: the answer names what it resolved from");
+  ok(r.seriesCount === 2 && r.candlesticks[0].count === 2, "kalshi-live-data: limit applies through the handler");
+  urls = [];
+  r = await h("kalshi-weather-index")({ city: "MIAMI", lastSec: 120, includeCalibrations: true });
+  ok(urls[0].endsWith("/live_data/weather/miami?last_sec=120") && urls[1].endsWith("/live_data/weather/miami/calibrations"), `kalshi-weather-index: city is lowercased, last_sec is sent, calibrations are a second call only when asked (${urls.join(" ")})`);
+  ok(r.city === "miami" && r.units === "fahrenheit" && r.count === 2 && r.totalInWindow === 2 && r.latest.valueF === 84.92 && r.minF === 84.92 && r.maxF === 85.28 && r.configVersion === "miami-temperature-v1.0-cal-20260914", "kalshi-weather-index: count, latest, min and max come from the window");
+  ok(r.calibrations.length === 1 && r.calibrations[0].configVersion === "miami-temperature-v1.0" && r.calibrationUnits === "celsius", "kalshi-weather-index: includeCalibrations appends the shaped timeline");
+  urls = [];
+  r = await h("kalshi-weather-index")({ city: "miami", from: 1789748280000, to: 1789748340000, detailed: true });
+  ok(urls[0].includes("from=1789748280000&to=1789748340000&detailed=true") && urls.length === 1 && !("calibrations" in r), "kalshi-weather-index: from/to/detailed ride the query and no calibrations call is made unless asked");
+  try { await h("kalshi-weather-index")({ city: "nowhere" }); ok(false, "kalshi-weather-index: unknown city did not throw"); }
+  catch (e) { ok(e.statusCode === 422 && /supported cities: miami/.test(e.message), `kalshi-weather-index: a city Kalshi does not index is a 422 naming the supported cities (${e.statusCode}: ${e.message.slice(0, 60)})`); }
   globalThis.fetch = realFetch;
 }
 
