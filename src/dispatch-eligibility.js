@@ -211,9 +211,20 @@ export function dispatchEligibility({ routable, networks = [], settled = 0, paye
   return { eligible: false, reason, chains: byChain, basis };
 }
 
-/** The public legend, served beside the fields so a reader never has to guess what `routable` means. */
-export function dispatchLegend() {
+/**
+ * The public legend, served beside the fields so a reader never has to guess what `routable` means.
+ *
+ * `spendChains` = the chains THIS host holds a spending wallet for. The legend names them because
+ * `routerDispatchByChain` is keyed by exactly that set: a chain a seller advertises and this host cannot
+ * pay on (Polygon, Arbitrum, X Layer, Nano, ...) is absent from the map, not judged by it. An outside
+ * reader measured the index (2026-09-17) and read that absence as the router ignoring four of a
+ * seller's five declared chains; the map was right and the legend had never said what its keys were.
+ */
+export function dispatchLegend({ spendChains = ["base"] } = {}) {
+  const chains = Array.isArray(spendChains) && spendChains.length ? spendChains.map(String) : ["base"];
   return {
+    routerSpendChains: chains,
+    routerDispatchByChain: `one entry per chain this host holds a spending wallet for (${chains.join(", ")}) that the seller also advertises, each with the router's verdict there. A chain missing from this map is one this host cannot pay on at all, whatever the seller's networks list says; it is never an eligibility verdict about that chain. A seller advertising only chains outside that set reads routerDispatchReason no_supported_route.`,
     routable: "the last crawl of this origin succeeded (manifest, OpenAPI or a live 402 was read). It is crawl readiness, never a promise that the router will pay the seller.",
     health: "a score from the last crawl outcomes of this origin; 1 = every recent crawl succeeded.",
     networks: "chains the seller's own 402 challenges advertise; empty means the crawl could not learn any.",

@@ -103,6 +103,34 @@ ok(dispatchEligibility({ local: true }).reason === "local_catalog" && dispatchEl
   const legend = dispatchLegend();
   ok(legend.routerDispatchReason === DISPATCH_REASONS && /crawl readiness/.test(legend.routable), "the legend ships the reason vocabulary and says what routable means");
 }
+// routerDispatchByChain is keyed by the chains THIS host can pay on, and the
+// legend must say so (issue #1376, 2026-09-17: an outside reader measured two
+// sellers declaring nano:mainnet, saw the map name only base, and read that as
+// the router ignoring the seller's other chains. The map was right; the legend
+// had never said what its keys were).
+{
+  const all = ["base", "solana", "algorand", "tempo"];
+  // The report's own fixtures: a Nano-first seller and a five-chain seller.
+  const nanoFirst = dispatchEligibility({ routable: true, networks: ["nano:mainnet", "eip155:8453", "eip155:1"], settled: 0, spendChains: all });
+  ok(Object.keys(nanoFirst.chains).join() === "base" && nanoFirst.reason === "settlement_required", "a Nano-first seller that also advertises Base is judged on base alone; nano is absent from the map, not refused in it");
+  const fiveChain = dispatchEligibility({ routable: true, networks: ["eip155:8453", "eip155:137", "eip155:42161", "nano:mainnet", "eip155:196"], settled: 100, payers: 5, spendChains: all });
+  ok(Object.keys(fiveChain.chains).join() === "base" && fiveChain.eligible === true, "a five-chain seller's map names only the chain we can pay on");
+  const nanoOnly = dispatchEligibility({ routable: true, networks: ["nano:mainnet"], settled: 100, payers: 5, spendChains: all });
+  ok(nanoOnly.reason === "no_supported_route" && Object.keys(nanoOnly.chains).length === 0, "a Nano-only seller reads no_supported_route with an empty map");
+  const legend = dispatchLegend({ spendChains: all });
+  ok(Array.isArray(legend.routerSpendChains) && legend.routerSpendChains.join() === all.join(), "the legend lists the chains this host holds a spending wallet for");
+  ok(/base, solana, algorand, tempo/.test(legend.routerDispatchByChain) && /missing from this map/.test(legend.routerDispatchByChain) && /cannot pay on/.test(legend.routerDispatchByChain), "the legend says the map is keyed by those chains and that a missing chain is unpayable here, never a verdict");
+  ok(/no_supported_route/.test(legend.routerDispatchByChain), "the legend names the reason a seller outside that set reads");
+  const dflt = dispatchLegend();
+  ok(dflt.routerSpendChains.join() === "base" && /\(base\)/.test(dflt.routerDispatchByChain), "with no chains given the legend names base alone (the one wallet every host has)");
+  ok(dispatchLegend({ spendChains: [] }).routerSpendChains.join() === "base", "an empty chain list falls back to base rather than publishing an empty set");
+  // server.js hands the legend its live chain set at every call site, so the
+  // published list cannot drift from the set the verdicts are computed on.
+  const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+  const calls = (server.match(/\bdispatchLegend\(/g) || []).length;
+  const wired = (server.match(/\bdispatchLegend\(\{ spendChains: spendChainsConfigured\(\) \}\)/g) || []).length;
+  ok(calls >= 3 && wired === calls, `every dispatchLegend call in server.js passes spendChainsConfigured() (${wired} of ${calls} sites)`);
+}
 // The resolver's Base gate goes through this function (pinned from source).
 {
   const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");

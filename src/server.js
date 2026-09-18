@@ -5198,7 +5198,7 @@ app.get("/api/index", (req, res) => {
     }
     const detail = sellerDetail(String(req.query.seller));
     if (!detail) return res.status(404).json({ error: "seller not found in the index", seller: String(req.query.seller).slice(0, 253) });
-    return res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300").json({ ...withDispatchFields(detail), legend: dispatchLegend() });
+    return res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300").json({ ...withDispatchFields(detail), legend: dispatchLegend({ spendChains: spendChainsConfigured() }) });
   }
   // The full snapshot is ~1.4MB: every crawled origin with its health score,
   // its re-crawl history and its whole tool list. The per-origin HEALTH and
@@ -5244,7 +5244,7 @@ app.get("/api/index", (req, res) => {
     note: page > lastPage
       ? `No sellers at page ${page}: ${range}. ${sellers.length} sellers total. Page 0 is the first page, not page 1.`
       : `Paginated: ${slice.length} of ${sellers.length} sellers (${range}). Use ?page=N&limit=<=250, or ?seller=<host> for one origin with its full detail.`,
-    legend: dispatchLegend(),
+    legend: dispatchLegend({ spendChains: spendChainsConfigured() }),
   });
 });
 // Self-serve listing: validate + rate-limit here; ALL probing happens inside
@@ -5341,7 +5341,7 @@ const computeRoute = (q, k, include, net) => {
   // Every row says whether the router would pay it and why (the readout's
   // finding: executeVia with no networks in the row read as "dispatchable").
   out.results = (out.results || []).map((r) => withDispatchFields(r, { local: r.seller === "self", rowLevel: true }));
-  out.dispatchLegend = dispatchLegend();
+  out.dispatchLegend = dispatchLegend({ spendChains: spendChainsConfigured() });
   return out;
 };
 const routeCachePath = "/api/route";
