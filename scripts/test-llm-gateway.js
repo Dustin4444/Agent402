@@ -1150,6 +1150,10 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
     ["501-char query", { query: "q".repeat(501), documents: ["a"] }],
     ["structured doc", { query: "q", documents: [{ text: "a" }] }],
     ["other model", { query: "q", documents: ["a"], model: "cohere/rerank-english-v3.0" }],
+    // cohere/rerank-4-fast exists upstream (2026-09-18) at $0.002 per search
+    // unit (a live call: usage.cost 0.002) = 100% of this route's price, so it
+    // is refused by name until the route is repriced; 4-pro is $0.0025.
+    ["rerank-4-fast (bills the whole price)", { query: "q", documents: ["a"], model: "cohere/rerank-4-fast" }],
     ["bad top_n", { query: "q", documents: ["a"], top_n: 0 }],
     ["too many chars total", { query: "q", documents: Array.from({ length: 30 }, () => "y".repeat(1500)) }],
     // Under every char cap (26 x 1,500 = 39,000) but CJK tokenizes ~1/char:
@@ -1159,6 +1163,8 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
     let e = null; try { validateRerankRequest(body); } catch (x) { e = x; }
     ok(e?.statusCode === 400, `rerank ${label} -> 400 (${e?.message?.slice(0, 60)})`);
   }
+  { let r4 = null; try { validateRerankRequest({ query: "q", documents: ["a"], model: "cohere/rerank-4-fast" }); } catch (x) { r4 = x; }
+    ok(r4?.statusCode === 400 && /rerank-4-fast bills \$0\.002 per search unit/.test(r4.message) && /the only rerank model served at \$0\.002/.test(r4.message), "rerank-4-fast refusal says why: it bills the whole $0.002 price per search unit (measured live 2026-09-18)"); }
   ok(rerankCacheKey({ query: "q", documents: ["b", "a"] }) === rerankCacheKey({ documents: ["b", "a"], query: "q" }) && rerankCacheKey({ query: "q", documents: ["a", "b"] }) !== rerankCacheKey({ query: "q", documents: ["b", "a"] }) && rerankCacheKey({ query: "q", documents: ["a"], cache: false }) === null, "cache key: field order collapses, document order matters, cache:false opts out");
   process.env.OPENROUTER_API_KEY = "test-key";
   const realFetch = globalThis.fetch;

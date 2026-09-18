@@ -2446,7 +2446,11 @@ const RERANK_CHUNK_TOKENS = 500;   // Cohere: a document is split into 500-token
 const RERANK_MAX_CHUNKS = 100;     // one search unit
 export function validateRerankRequest(input) {
   if (!input || typeof input !== "object") throw bad("Body must be a JSON object: {query, documents[], top_n?}");
-  if (input.model !== undefined && canonicalModel(input.model) !== RERANK_MODEL && String(input.model) !== "rerank-v3.5") throw bad(`"model" must be ${RERANK_MODEL} (the only rerank model served)`);
+  // cohere/rerank-4-fast and rerank-4-pro exist upstream (live 2026-09-18) but
+  // bill $0.002 and $0.0025 per search unit - a live 4-fast call returned
+  // usage.cost 0.002, i.e. 100% of this route's price against the 70% bound -
+  // so neither is offered until the route is repriced. Refused by name.
+  if (input.model !== undefined && canonicalModel(input.model) !== RERANK_MODEL && String(input.model) !== "rerank-v3.5") throw bad(`"model" must be ${RERANK_MODEL} (the only rerank model served at $${RERANK_PRICE}; cohere/rerank-4-fast bills $0.002 per search unit upstream, the whole price, so it is not offered on this route)`);
   const query = input.query;
   if (typeof query !== "string" || !query.trim()) throw bad('"query" (string) is required');
   if (query.length > RERANK_MAX_QUERY_CHARS) throw bad(`"query" too long (${query.length} chars; max ${RERANK_MAX_QUERY_CHARS})`);
