@@ -39,7 +39,7 @@ const {
 } = await import("../src/tools/llm-gateway-kit.js");
 const { METER_MARKUP } = await import("../src/gateway-meter.js");
 const { countTokens } = await import("gpt-tokenizer/model/gpt-4o");
-const { assertWithinDurationCap, probeDurationSeconds } = await import("../src/tools/stt-kit.js");
+const { assertWithinDurationCap, probeDurationSeconds, STT_TIERS, UPSTREAM_USD_PER_MINUTE } = await import("../src/tools/stt-kit.js");
 const { capturePostHogToolGone, _testEventsForTest, _flushPaywallRollupForTest } = await import("../src/posthog.js");
 
 let passed = 0, failed = 0;
@@ -260,27 +260,33 @@ console.log("\n# STT — cap-before-spend (local duration probe)");
   const realFetch = globalThis.fetch;
   let fetches = 0;
   globalThis.fetch = async () => { fetches++; throw new Error("unexpected upstream fetch"); };
-  await rejects(() => assertWithinDurationCap(wav(320), "audio.wav", "transcribe"), "up to 5 minutes", "transcribe rejects 5.3 min audio (cap 5 min)");
-  await rejects(() => assertWithinDurationCap(wav(620), "audio.wav", "transcribe-pro"), "up to 10 minutes", "transcribe-pro rejects 10.3 min audio (cap 10 min)");
-  // Deterministic non-audio payload — random bytes occasionally form a
+  // Caps and rates are READ from the kit (STT_TIERS / UPSTREAM_USD_PER_MINUTE),
+  // never retyped here: this block carried "5 min, $0.003/min" for the standard
+  // tier after the kit had moved to gpt-transcribe at 4 min (2026-09-18), and a
+  // hand copy of the truth is how a margin guard goes stale in the safe-looking
+  // direction. The over-cap probe is the cap plus 20 s; the in-cap probe is 40 s under it.
+  const capS = (slug) => STT_TIERS[slug].maxMinutes * 60;
+  await rejects(() => assertWithinDurationCap(wav(capS("transcribe") + 20), "audio.wav", "transcribe"), `up to ${STT_TIERS.transcribe.maxMinutes} minutes`, `transcribe rejects audio 20 s past its ${STT_TIERS.transcribe.maxMinutes}-min cap`);
+  await rejects(() => assertWithinDurationCap(wav(capS("transcribe-pro") + 20), "audio.wav", "transcribe-pro"), `up to ${STT_TIERS["transcribe-pro"].maxMinutes} minutes`, `transcribe-pro rejects audio 20 s past its ${STT_TIERS["transcribe-pro"].maxMinutes}-min cap`);
+  // Deterministic non-audio payload: random bytes occasionally form a
   // valid-looking frame header that music-metadata parses (flaky "did not
   // throw" in CI); a fixed ASCII blob is never a readable container.
   await rejects(() => assertWithinDurationCap(Buffer.from("not-a-media-container ".repeat(200)), "audio.mp3", "transcribe"), "Could not read", "unreadable container rejected (would be an unbounded bill)");
-  const dur = await assertWithinDurationCap(wav(280), "audio.wav", "transcribe");
-  ok(Math.abs(dur - 280) < 2, `in-cap audio passes the probe (duration ${dur.toFixed(1)}s)`);
+  const inCap = capS("transcribe") - 40;
+  const dur = await assertWithinDurationCap(wav(inCap), "audio.wav", "transcribe");
+  ok(Math.abs(dur - inCap) < 2, `in-cap audio passes the probe (duration ${dur.toFixed(1)}s)`);
   ok((await probeDurationSeconds(wav(60), "audio.wav")) > 58, "probeDurationSeconds reads the header locally");
   ok(fetches === 0, "duration cap enforced with ZERO upstream fetches");
   globalThis.fetch = realFetch;
 
-  // Margin rows from the enforced caps × OpenAI's published per-minute rates
-  // (~$0.003/min mini, ~$0.0045/min gpt-transcribe — see the stt-kit header).
-  const stt = [
-    { tier: "transcribe", price: 0.03, worst: 5 * 0.003 },
-    { tier: "transcribe-pro", price: 0.10, worst: 10 * 0.0045 },
-  ];
-  for (const r of stt) {
-    ok(r.worst < r.price, `${r.tier} worst-case ${usd(r.worst)} < price $${r.price} (margin +${marginPct(r.worst, r.price)})`);
-    table.push({ ...r, model: "openai transcribe (per-minute)" });
+  // Margin rows from the enforced caps x OpenAI's published per-minute rate for
+  // the model each tier actually sends (both gpt-transcribe since 2026-09-18).
+  for (const [tier, t] of Object.entries(STT_TIERS)) {
+    const rate = UPSTREAM_USD_PER_MINUTE[t.model];
+    ok(Number.isFinite(rate), `${tier}: per-minute rate known for ${t.model}`);
+    const r = { tier, price: t.priceUsd, worst: t.maxMinutes * rate };
+    ok(r.worst <= MARGIN * r.price + 1e-12, `${r.tier} worst-case ${usd(r.worst)} <= ${MARGIN * 100}% of $${r.price} (margin +${marginPct(r.worst, r.price)})`);
+    table.push({ ...r, model: `openai ${t.model} (per-minute)` });
   }
 }
 
