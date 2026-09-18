@@ -252,7 +252,6 @@ app.post("/settle", requireAuth, async (req, res) => {
     res.status(200).json(normalizeSettle(result, paymentRequirements.network));
   } catch (err) {
     const ctx = settleCtxOf(err);
-    console.error(`[/settle] dispatch error${ctx?.txHash ? ` (submitted ${ctx.txHash.slice(0, 12)}... before the bound)` : " (nothing submitted)"}:`, err);
     const reason = err?.code === "FACILITATOR_TIMEOUT" ? "settle_timed_out" : "facilitator_dispatch_error";
     // The underlying settle may already have submitted, or may yet submit in
     // the background (see the comment above) - either way this response is
@@ -261,9 +260,15 @@ app.post("/settle", requireAuth, async (req, res) => {
     // if this also fails, the response is no worse than it was before this
     // fix, just still missing payer.
     const payer = await bestEffortPayer(paymentPayload, paymentRequirements);
-    // The hash of whatever was submitted before the bound rides along, so the
-    // caller's on-chain confirmation can check that exact transaction.
-    res.status(200).json({ ...invalidSettle(reason, paymentRequirements.network, safeMessage(err)), payer, ...(ctx?.txHash ? { transaction: ctx.txHash } : {}) });
+    // The hash of whatever was submitted before the RESPONSE rides along, so the
+    // caller's on-chain confirmation can check that exact transaction. Read
+    // after the payer await, and logged there too: the underlying settle keeps
+    // running past the bound, and on @x402 2.26 it submits inside that await
+    // often enough that a log line written before it said "nothing submitted"
+    // for a body that carried the hash.
+    const txHash = ctx?.txHash || "";
+    console.error(`[/settle] dispatch error${txHash ? ` (submitted ${txHash.slice(0, 12)}... before the response)` : " (nothing submitted before the response)"}:`, err);
+    res.status(200).json({ ...invalidSettle(reason, paymentRequirements.network, safeMessage(err)), payer, ...(txHash ? { transaction: txHash } : {}) });
   }
 });
 
