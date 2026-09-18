@@ -1,6 +1,6 @@
 // A2A Agent Card validator — offline unit tests. No network.
 //   node scripts/test-a2a-card.js
-import { validateAgentCard, SAMPLE_AGENT_CARD, A2A_WELL_KNOWN_PATHS } from "../src/tools/a2a-card.js";
+import { validateAgentCard, SAMPLE_AGENT_CARD, A2A_WELL_KNOWN_PATHS, buildOurAgentCard } from "../src/tools/a2a-card.js";
 
 let passed = 0, failed = 0;
 const ok = (cond, msg) => {
@@ -48,6 +48,29 @@ ok(badIf.errors.some((e) => e.includes("additionalInterfaces[0]")), "malformed a
 
 // resolution order constant (a2a-card-fetch depends on canonical-first)
 ok(A2A_WELL_KNOWN_PATHS[0] === "/.well-known/agent-card.json" && A2A_WELL_KNOWN_PATHS[1] === "/.well-known/agent.json", "well-known resolution order is canonical-first");
+
+// OUR OWN CARD (2026-09-18). We sold card validation and card fetching and
+// served no card of our own. It is judged by the validator we sell, and the
+// assertions below are the ones that keep it HONEST rather than merely valid:
+// a card that claims a transport we do not run, or capabilities we do not
+// have, is the manifest-overstatement defect wearing a different hat.
+{
+  const card = buildOurAgentCard({ baseUrl: "https://agent402.tools", version: "2.1.0", toolCount: 607 });
+  const v = validateAgentCard(card);
+  ok(v.valid, `our own card passes our own validator (${JSON.stringify(v.errors)})`);
+  ok(v.warnings.length === 0, `and raises no interop warnings (${JSON.stringify(v.warnings)})`);
+  ok(card.preferredTransport === "HTTP+JSON", "it declares HTTP+JSON, because we run no A2A JSON-RPC endpoint");
+  ok(card.capabilities.streaming === false, "it does not claim A2A task streaming (our SSE is on the LLM routes)");
+  ok(card.capabilities.pushNotifications === false && card.capabilities.stateTransitionHistory === false, "nor push notifications or state history");
+  ok(card.provider.organization === "Havok Holdings LLC", "the provider is the operating entity, never a person");
+  ok(card.url.startsWith("https://agent402.tools"), "the url points at our own origin");
+  ok(new Set(card.skills.map((s) => s.id)).size === card.skills.length && card.skills.length >= 3, "skills are unique and there are enough to be useful");
+  ok(card.skills.every((s) => s.tags.length > 0), "every skill carries tags an A2A client can match on");
+  const stale = buildOurAgentCard({ baseUrl: "https://agent402.tools/", version: "2.1.0" });
+  ok(stale.url === "https://agent402.tools/api", "a trailing slash on the base url never doubles");
+  ok(/500\+ priced endpoints/.test(stale.description), "an unreadable catalog count falls back to the evergreen claim, never to a wrong number");
+  ok(/607 priced endpoints/.test(card.description), "and a live count is used when there is one");
+}
 
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

@@ -21,6 +21,79 @@ const isObj = (v) => typeof v === "object" && v !== null && !isArr(v);
 export const A2A_WELL_KNOWN_PATHS = ["/.well-known/agent-card.json", "/.well-known/agent.json"];
 
 /**
+ * OUR OWN AgentCard (2026-09-18). We sold card validation and card fetching as
+ * tools and served no card of our own, only a fictional sample - an odd
+ * asymmetry on the one discovery path A2A clients actually read.
+ *
+ * Every field describes what we ACTUALLY serve, which is why this card does not
+ * claim JSONRPC: A2A's default transport implies a JSON-RPC endpoint at `url`,
+ * and we do not run one. Ours is plain HTTP+JSON, so that is what it says, and
+ * the capability flags are false rather than aspirational (our SSE streaming
+ * lives on the LLM routes, not on an A2A task stream). A card that overstates
+ * is the same defect class as a manifest that overstates, and we would fail our
+ * own validator's spirit while passing its letter.
+ *
+ * `skills` are real, purchasable capabilities named by their own slugs, not a
+ * restatement of the catalog: an A2A client reads these to decide whether to
+ * talk to us at all.
+ */
+export function buildOurAgentCard({ baseUrl, version, toolCount } = {}) {
+  const base = String(baseUrl || "https://agent402.tools").replace(/\/+$/, "");
+  const n = Number(toolCount);
+  const catalog = Number.isFinite(n) && n > 0 ? `${n} priced endpoints` : "500+ priced endpoints";
+  return {
+    protocolVersion: "0.3.0",
+    name: "Agent402",
+    description:
+      `Pay-per-call web tools for autonomous agents: ${catalog} settled in USDC over x402 or MPP, ` +
+      "free via proof of work, or prepaid by card. No account and no API key. The same catalog is " +
+      `callable over MCP at ${base}/mcp and documented at ${base}/openapi.json.`,
+    url: `${base}/api`,
+    preferredTransport: "HTTP+JSON",
+    version: String(version || "1.0.0"),
+    documentationUrl: `${base}/docs`,
+    provider: { organization: "Havok Holdings LLC", url: base },
+    // Stated as they are. A2A streaming means task streaming on this endpoint,
+    // which we do not offer; the SSE on the LLM routes is a different thing.
+    capabilities: { streaming: false, pushNotifications: false, stateTransitionHistory: false },
+    defaultInputModes: ["application/json"],
+    defaultOutputModes: ["application/json"],
+    skills: [
+      {
+        id: "catalog-find",
+        name: "Find a tool for a task",
+        description: "Resolve a plain-language task to a callable endpoint with its price and input schema. Free.",
+        tags: ["discovery", "search", "catalog", "routing"],
+      },
+      {
+        id: "route-execute",
+        name: "Route and execute a paid call",
+        description: "Resolve a task, pay the seller on the caller's behalf over x402, and return the result with a receipt.",
+        tags: ["routing", "x402", "payments", "execution"],
+      },
+      {
+        id: "llm-gateway",
+        name: "Model calls priced per request",
+        description: "OpenAI, Anthropic Messages and Responses wires over one endpoint, quoted per request and settled at actual usage.",
+        tags: ["llm", "inference", "gateway", "metered"],
+      },
+      {
+        id: "research-reports",
+        name: "Finished research and diligence reports",
+        description: "Company, filing, fund, token and domain reports returned as finished documents with cited sources.",
+        tags: ["research", "reports", "filings", "diligence"],
+      },
+      {
+        id: "x402-index",
+        name: "The x402 seller index",
+        description: "Who sells what across the x402 ecosystem, with settlement evidence and router eligibility per seller.",
+        tags: ["x402", "index", "sellers", "marketplace"],
+      },
+    ],
+  };
+}
+
+/**
  * Structurally validate an A2A AgentCard object.
  * Returns { valid, errors, warnings, summary } — errors are spec violations,
  * warnings are interop smells that don't make the card invalid.

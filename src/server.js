@@ -207,7 +207,7 @@ import { GOV_TOOLS } from "./tools/gov-kit.js";
 import { GEO_TOOLS } from "./tools/geo-kit.js";
 import { OCR_TOOLS } from "./tools/ocr-kit.js";
 import { AGENT_TOOLS } from "./tools/agent-kit.js";
-import { SAMPLE_AGENT_CARD } from "./tools/a2a-card.js";
+import { SAMPLE_AGENT_CARD, A2A_WELL_KNOWN_PATHS, buildOurAgentCard } from "./tools/a2a-card.js";
 import { BLOCKSCOUT_TOOLS, upstreamBuyerStatus } from "./tools/blockscout-kit.js";
 import { CAPTCHA_TOOLS } from "./tools/captcha-kit.js";
 import { SQL_GUARD_TOOLS } from "./tools/sql-guard-kit.js";
@@ -2506,6 +2506,23 @@ app.get("/api/gateway-status", async (req, res) => {
 app.get("/samples/a2a-agent-card.json", (_req, res) => {
   res.set("Cache-Control", "public, max-age=3600").json(SAMPLE_AGENT_CARD);
 });
+// OUR OWN AgentCard, at both paths the spec's clients read. We sold card
+// validation and card fetching and served no card of our own, which is the
+// one discovery surface an A2A client checks first. Registered BEFORE the
+// operator well-known store's catch-all so it can never be shadowed, the same
+// rule x402/security.txt/glama.json already follow. The catalog count is read
+// live so the description cannot go stale.
+for (const p of A2A_WELL_KNOWN_PATHS) {
+  app.get(p, (_req, res) => {
+    res.set("Cache-Control", "public, max-age=900").json(buildOurAgentCard({
+      baseUrl: BASE_URL,
+      // The card's own version, kept in step with the OpenAPI document's so
+      // the two machine surfaces never disagree about which Agent402 this is.
+      version: "2.1.0",
+      toolCount: Object.keys(CATALOG || {}).length,
+    }));
+  });
+}
 app.get("/.well-known/glama.json", (_req, res) => {
   const email = process.env.GLAMA_MAINTAINER_EMAIL || "mike@agent402.tools";
   res.set("Cache-Control", "public, max-age=86400").json({
