@@ -69,7 +69,7 @@ try {
   ok(Array.isArray(x.networks) && x.networks.length > 0, `payment.x402.networks is non-empty array (got ${JSON.stringify(x?.networks)})`);
   ok(typeof x.primaryNetwork === "string" && x.networks.includes(x.primaryNetwork), `primaryNetwork is in networks[] (primary=${x?.primaryNetwork}, networks=${JSON.stringify(x?.networks)})`);
   ok(typeof x.payToName === "string" && x.payToName.length > 0, `payToName is non-empty (got ${x?.payToName})`);
-  ok(x.nonCustodial === true, `nonCustodial=true (got ${x?.nonCustodial})`);
+  ok(typeof x.nonCustodial === "string" && /wallet to wallet/.test(x.nonCustodial) && /credits/.test(x.nonCustodial), `nonCustodial is a sentence that names the two custodial paths, not a boolean (got ${String(x?.nonCustodial).slice(0, 60)})`);
 
   // payment.proofOfWork — the free-tier path.
   const pow = m.payment?.proofOfWork;

@@ -421,13 +421,15 @@ export const TOOLS = [
   },
   {
     // transcribe moved to gpt-transcribe with a 4-minute cap on 2026-09-18; the
-    // fixture is our own 32 KB wav, so the leg proves the model swap and the
-    // cap path live for $0.03 a day (the only STT proof there was before this
-    // was the local duration test).
+    // leg proves the model swap and the cap path live for $0.03 a day (the only
+    // STT proof before this was the local duration test). The input is the
+    // tool's OWN documented example (a short spoken clip): our fixtures/
+    // sample-audio.wav is a synthetic 2 s tone with no speech, and the first
+    // run of this leg transcribed it, correctly, as "" (2026-09-18 15:20Z).
     kit: "transcribe",
     path: "/api/transcribe",
     method: "POST",
-    body: { url: "https://agent402.tools/fixtures/sample-audio.wav" },
+    body: { url: "https://upload.wikimedia.org/wikipedia/commons/c/c8/Example.ogg" },
     priceUsd: 0.03,
     check: (r) =>
       (typeof r.text === "string" && r.text.trim().length > 0 && r.model === "gpt-transcribe") ||

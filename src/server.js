@@ -179,7 +179,7 @@ import { tempoSelfRecipient } from "./mpp-tempo.js";
 import { mppMarketPage } from "./mpp-market-page.js";
 import { indexToolsPage, INDEX_TOOLS_PAGE_SIZE } from "./index-tools-page.js";
 import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankBy, CONCENTRATION } from "./leaderboard.js";
-import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus, facilitatorSupportReport, setComputePayablePaths } from "./payments.js";
+import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus, facilitatorSupportReport, facilitatorsByNetworkPublic, setComputePayablePaths } from "./payments.js";
 import { createMppShim } from "./mpp-shim.js";
 import { createTempoChallengeAppender, createTempoGate, tempoTxFromReceiptHeader } from "./mpp-tempo.js";
 import { createStripeChallengeAppender, createStripeGate, stripeTxFromReceiptHeader } from "./mpp-stripe.js";
@@ -4247,8 +4247,12 @@ function getPerformance24h() {
 // query stalls, we serve the static manifest instead of blocking the call.
 const serveManifest = (_req, res) => {
   const perf = getPerformance24h();
-  if (perf) res.json({ ...MANIFEST, performance24h: perf });
-  else res.json(MANIFEST);
+  // Who settles each rail (first-tried facilitator per network, labels only),
+  // from the boot /supported probe; absent until the probe has run.
+  const facilitators = facilitatorsByNetworkPublic();
+  const settlement = Object.keys(facilitators).length ? { settlementFacilitators: { note: "the facilitator tried first per network, read from its live /supported at boot; a chain's other candidates are fallbacks", byNetwork: facilitators } } : {};
+  if (perf) res.json({ ...MANIFEST, ...settlement, performance24h: perf });
+  else res.json({ ...MANIFEST, ...settlement });
 };
 // Indexers guess these names for the manifest (sentinel402, mpp32-indexer,
 // bare "node" crawlers - 2026-08-28 HTTP log); a 404 there reads as "no
@@ -6196,14 +6200,19 @@ app.get("/api/pricing", (_req, res) => {
     llmGateway: {
       wire: "OpenAI-compatible",
       base: `${BASE_URL}/v1`,
-      pricing: "flat per call - never token-metered",
+      // Two pricing shapes, and a machine surface must say which is which: the
+      // named tiers are flat per call; the /v1/metered/* routes (quoted: true
+      // below) are quoted per request from the body and settle actual usage
+      // under the quote, from $0.001. This string said "never token-metered"
+      // for three weeks after the metered tier shipped (outside review, 2026-09-18).
+      pricing: "flat per call on the named tiers; the /v1/metered/* routes are quoted per request from the body (quoted: true below, from $0.001) and settle actual usage under the quote",
       // DERIVED from the catalog, never hand-listed: as a literal array this
       // drifted and omitted /v1/audio/speech, a live sellable tier. Deriving
       // also means an env-gated tier that is switched off is absent here rather
       // than advertised, and the price is always the price actually charged.
       // Notes stay editorial, keyed by path; a path with no note still lists.
       tiers: Object.entries(CATALOG)
-        .map(([route, def]) => ({ path: route.split(" ")[1], price: def.price }))
+        .map(([route, def]) => ({ path: route.split(" ")[1], price: def.price, ...(typeof def.quote === "function" ? { quoted: true, fromUsd: Number(def.price.replace("$", "")) } : {}) }))
         .filter((t) => t.path.startsWith("/v1/"))
         .sort((a, b) => Number(a.price.replace("$", "")) - Number(b.price.replace("$", "")))
         .map((t) => ({ ...t, note: V1_TIER_NOTES[t.path] || undefined })),

@@ -109,7 +109,8 @@ const sq = legFor("/api/stock-quote");
 ok(!!sq, "canary has a stock-quote leg");
 if (sq) ok(sq.priceUsd === advertised(FINANCE_TOOLS, "stock-quote"), `stock-quote leg priceUsd (${sq?.priceUsd}) matches the kit's advertised price ($${advertised(FINANCE_TOOLS, "stock-quote")}) — no stale display price`);
 const tr = CANARY_LEGS.find((l) => l.kit === "transcribe");
-ok(!!tr && tr.priceUsd === 0.03 && tr.body?.url?.startsWith("https://agent402.tools/fixtures/"), `transcribe leg exists at $0.03 and buys our own fixture (got ${tr ? `$${tr.priceUsd} ${tr.body?.url}` : "no leg"})`);
+const trExample = STT_EXAMPLE_URL;
+ok(!!tr && tr.priceUsd === 0.03 && tr.body?.url === trExample, `transcribe leg exists at $0.03 and buys the tool's own documented example, a spoken clip (got ${tr ? `$${tr.priceUsd} ${tr.body?.url}` : "no leg"})`);
 const oc = legFor("/api/options-chain");
 ok(!!oc, "canary has an options-chain leg (relay path continuously proven)");
 if (oc) {
