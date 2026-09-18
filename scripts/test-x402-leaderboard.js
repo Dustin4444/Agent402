@@ -384,7 +384,12 @@ eq(original.map((r) => r.name), snap, "rankBy does not mutate input array");
   ok(fresh.endpoints >= 1, "endpoints is non-zero so a maxWalletsScan cap does not drop crawled wallets first");
   const kept = merged.find((r) => r.wallet === "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   ok(kept.name === "Known" && kept.endpoints === 7, "a wallet the Bazaar names keeps the Bazaar's name and count");
-  ok(kept.origins.includes("https://also-known.example"), "origins only our crawl knows are unioned in");
+  // Compared as PARSED origins, not by substring: CodeQL reads a bare
+  // includes() against a URL as incomplete sanitization, and the repo's rule
+  // after the 2026-09-18 batch is to compare the parsed host rather than
+  // suppress the alert - in a test as much as in served code.
+  const keptOrigins = new Set(kept.origins.map((u) => new URL(u).origin));
+  ok(keptOrigins.has("https://also-known.example"), "origins only our crawl knows are unioned in");
   ok(kept.source === "both", "and its provenance says both");
   const none = mergeCrawledWallets(bazaar, null, { key: "base" });
   ok(none.added === 0 && none.merged === bazaar, "no map is a no-op, never a thrown scan");

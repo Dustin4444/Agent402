@@ -63,7 +63,10 @@ ok(A2A_WELL_KNOWN_PATHS[0] === "/.well-known/agent-card.json" && A2A_WELL_KNOWN_
   ok(card.capabilities.streaming === false, "it does not claim A2A task streaming (our SSE is on the LLM routes)");
   ok(card.capabilities.pushNotifications === false && card.capabilities.stateTransitionHistory === false, "nor push notifications or state history");
   ok(card.provider.organization === "Havok Holdings LLC", "the provider is the operating entity, never a person");
-  ok(card.url.startsWith("https://agent402.tools"), "the url points at our own origin");
+  // Parsed origin, never a prefix: "https://agent402.tools" as a startsWith
+  // also accepts https://agent402.tools.example.com, which is the whole point
+  // of the rule CodeQL raises here.
+  ok(new URL(card.url).origin === "https://agent402.tools" && new URL(card.url).pathname === "/api", "the url is our own origin, matched exactly");
   ok(new Set(card.skills.map((s) => s.id)).size === card.skills.length && card.skills.length >= 3, "skills are unique and there are enough to be useful");
   ok(card.skills.every((s) => s.tags.length > 0), "every skill carries tags an A2A client can match on");
   const stale = buildOurAgentCard({ baseUrl: "https://agent402.tools/", version: "2.1.0" });
