@@ -172,6 +172,8 @@ import { installEgressMeter, egressReport } from "./egress-meter.js";
 import { acpFeed, acpManifest } from "./acp.js";
 import { findTools, findRelatedSellers } from "./find.js";
 import { recordWish, getWishesAggregate, annotateServed, WISH_SERVED_MIN_SCORE } from "./wish.js";
+import { setAlgorandCrawlSources } from "./algorand-sellers.js";
+import { priceToMicroUsd } from "./x402-index.js";
 import { allPayToOrigins, indexSnapshot, sellerDetail, sellerEntry, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories, bazaarQualityEntries, bazaarQualityFor, indexWarmStartInProgress, quoteIsStale, priceDisagreesWithOrigin, networksNeedLiveVerify, looksLikeListingInjection, crawlToolsByOrigin, listSuccessions, revokeSuccession } from "./x402-index.js";
 import { startMppCrawler, registerMppOrigin, validateOriginInput as validateMppOriginInput, mppIndexSnapshot } from "./mpp-index.js";
 import { startMppLeaderboard, mppLeaderboardSnapshot } from "./mpp-leaderboard.js";
@@ -344,7 +346,7 @@ import { setOgImageVersion, setNavIndexProvider, ledgerShell, ledgerFooterCompac
 import { ledgerHomePage } from "./ledger-home.js";
 import { ledgerCatalogPage } from "./ledger-catalog.js";
 import { ledgerPricingPage } from "./ledger-pricing.js";
-import { revenueSnapshot, revenuePage, stellarRail, stellarActivity, algorandRail, algorandActivity, evmActivity, solanaActivity, robinhoodActivity, baseActivityViaSql, EVM as EVM_CHAINS, rpcCall } from "./revenue-live.js";
+import { revenueSnapshot, revenuePage, stellarRail, stellarActivity, algorandRail, algorandActivity, evmActivity, solanaActivity, robinhoodActivity, baseActivityViaSql, EVM as EVM_CHAINS, rpcCall, getJsonAcross, ALGORAND_INDEXER_BASES } from "./revenue-live.js";
 import { stellarPage, stellarSellers } from "./stellar-page.js";
 import { algorandPage, algorandSellers } from "./algorand-page.js";
 import { CHAIN_PAGES, marketSellers, marketOperatorCount, marketPage, marketPanelHtml } from "./market-page.js";
@@ -7903,6 +7905,47 @@ bootStep("revenueSnapshot", () => revenueSnapshot(revenueWallets()).catch(() => 
 // forever, which the router treats as settlement_required (2026-09-18). Same
 // source the Solana board already uses, injected rather than imported so the
 // leaderboard keeps no dependency on the index.
+// The Algorand catalog's two halves from our own index (2026-09-18). Before
+// this, GoPlausible's catalog was the only source of BOTH candidates and
+// proof, so an Algorand seller we crawled ourselves could never be routed to
+// however much it settled - the Base registry-dependence, one step worse.
+// Candidates: every priced Algorand route we know, with the payTo the seller
+// advertises. Proof: inbound USDC-ASA transfers to that payTo, read from the
+// indexer, capped and never fatal (an unreadable chain leaves verifs at 0,
+// which keeps the seller gated rather than trusting it).
+bootStep("setAlgorandCrawlSources", () => {
+  setAlgorandCrawlSources({
+    crawledResources: () => {
+      const out = [];
+      for (const [origin, tools] of crawlToolsByOrigin().entries()) {
+        for (const t of tools || []) {
+          const payTo = typeof t?.algorandPayTo === "string" ? t.algorandPayTo : null;
+          if (!payTo || !/^[A-Z2-7]{58}$/.test(payTo)) continue;
+          const micro = priceToMicroUsd(t?.price);
+          if (!(micro > 0)) continue;
+          const route = String(t?.route || "");
+          if (!route.startsWith("/")) continue;
+          out.push({
+            url: `${origin}${route}`,
+            method: String(t?.method || "GET").toUpperCase(),
+            description: String(t?.description || t?.name || ""),
+            amountAtomic: String(micro),
+            payTo,
+          });
+        }
+      }
+      return out;
+    },
+    countInbound: async (payTo) => {
+      const r = await getJsonAcross(ALGORAND_INDEXER_BASES, `/v2/accounts/${payTo}/transactions?asset-id=31566704&tx-type=axfer&limit=200`, { timeoutMs: 8000 });
+      if (!r.ok) return 0;
+      const txs = r.json?.transactions || [];
+      // Inbound only, and never the seller paying itself: the same rule the
+      // Base credit read applies (balance rose AND a non-self account paid).
+      return txs.filter((t) => t?.["asset-transfer-transaction"]?.receiver === payTo && t?.sender !== payTo).length;
+    },
+  });
+});
 bootStep("startLeaderboardRefresh", () => startLeaderboardRefresh({
   crawledWallets: (chain) => allPayToOrigins(chain?.caip2 || "eip155:8453"),
 }));
