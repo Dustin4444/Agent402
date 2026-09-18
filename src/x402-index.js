@@ -4591,6 +4591,17 @@ export function sellerDetail(originOrHost) {
         route: t.route || null,
         slug: t.slug || null,
         name: t.name || null,
+        // The seller's OWN published text, echoed back. Omitted until
+        // 2026-09-18, which made this view useless for the one thing a seller
+        // uses it for: checking whether the description and tags they just
+        // deployed reached our index. Measured that day - a seller deployed
+        // both on our advice, this view showed neither, and the row had
+        // carried them the whole time (a distinctive phrase from the new
+        // description ranked their route first on /api/route). We told them to
+        // improve metadata and then showed them a surface that could not
+        // confirm it landed. Nothing here is secret: it is their document.
+        description: t.description || null,
+        tags: Array.isArray(t.tags) && t.tags.length ? t.tags : undefined,
         price: t.price ?? null,
         ...priceConflictProjection(t),
         ...urlTemplateProjection(t),
