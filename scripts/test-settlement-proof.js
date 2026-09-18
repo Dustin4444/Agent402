@@ -242,9 +242,15 @@ const merchant = (m, payments, payers = 3, volumeUsd = 1) => ({ merchant: m, pay
 // The ALGORAND family of the same helper (2026-09-18). EVM addresses are hex
 // and fold; an Algorand address is uppercase base32 with a checksum, so a
 // lowercased one is not that address and must never be folded into a match -
-// the base58/strkey rule from src/payer.js, one chain over. Pinned because the
-// family branch shipped with nothing exercising it: a mutation that accepted
-// mixed case and upper-cased it passed the whole suite.
+// the base58/strkey rule from src/payer.js, one chain over.
+//
+// These live here because this file owns the helper. They are a SECOND home
+// for the rule, not its only one: test-algorand-router.js pins the same
+// mutation through the resolver. The commit that added this block claimed the
+// mutation "passed the whole suite", which was wrong - it passed THIS file,
+// which was the only one its author re-ran. Two suites kill it, and the
+// correction is recorded here because a false claim about coverage is worse
+// than the duplication it was offered to justify.
 {
   const ALGO_A = "A".repeat(58);
   const ALGO_B = "B".repeat(58);
