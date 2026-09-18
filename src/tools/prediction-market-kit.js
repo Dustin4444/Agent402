@@ -38,6 +38,15 @@ const POLY_SEARCH_MAX_PAGES = Number(process.env.POLYMARKET_SEARCH_MAX_PAGES) ||
 // roughly ten times its own value for one request.
 const POLY_SEARCH_INDEX_EVENTS = Number(process.env.POLYMARKET_SEARCH_INDEX_EVENTS) || 20;
 const POLY_CLOB = "https://clob.polymarket.com";
+// Price history moved to the Data API on 2026-09-04 (docs.polymarket.com/changelog):
+// `GET /v2/prices-history?tokenId=&interval=&bucketSeconds=&limit=&cursor=`
+// answering `{data:[{timestamp, price, resolution_seconds}], pagination?}`.
+// Probed live 2026-09-18: v2 refuses the legacy `market=` param outright
+// ("'market' is not a query param on this API"), the legacy CLOB route still
+// answers `{history:[{t, p}]}`. The tool asks v2 first and falls back to the
+// CLOB (the polyList rule: a host that changes shape degrades the tool to
+// yesterday, never empties it).
+const POLY_DATA_API = "https://data-api.polymarket.com";
 const KALSHI = "https://api.elections.kalshi.com/trade-api/v2";
 
 function bad(message, statusCode = 400) {
@@ -435,17 +444,27 @@ async function polymarketPriceHistory({ tokenId, interval, fidelity } = {}) {
   const intervalAllowed = new Set(["1h", "6h", "1d", "1w", "1m", "max"]);
   const iv = typeof interval === "string" && intervalAllowed.has(interval) ? interval : "1d";
   const fi = Math.max(1, Math.min(720, Number.parseInt(fidelity, 10) || 60)); // minutes per sample
-  const url = `${POLY_CLOB}/prices-history?market=${encodeURIComponent(tokenId.trim())}&interval=${iv}&fidelity=${fi}`;
-  const meta = {};
-  const raw = await fetchJson(url, "Polymarket CLOB", meta);
-  const history = Array.isArray(raw.history) ? raw.history : [];
-  const points = history.map((p) => ({
-    timestamp: p.t ?? null,
-    price: asNumber(p.p),
-  }));
+  const id = tokenId.trim();
+  // v2 first (bucketSeconds is the fidelity in seconds), the legacy CLOB route
+  // as the fallback when v2 is unreachable, refuses, or answers a shape the
+  // reader does not recognise. Both shapes go through polyHistoryPoints.
+  const v2Url = `${POLY_DATA_API}/v2/prices-history?tokenId=${encodeURIComponent(id)}&interval=${iv}&bucketSeconds=${fi * 60}`;
+  const legacyUrl = `${POLY_CLOB}/prices-history?market=${encodeURIComponent(id)}&interval=${iv}&fidelity=${fi}`;
+  let meta = {};
+  let raw = null, source = "polymarket-data-api";
+  try {
+    raw = await fetchJson(v2Url, "Polymarket data API", meta);
+    if (!polyHistoryPoints(raw)) throw bad("Polymarket data API answered an unrecognised shape", 502);
+  } catch (e) {
+    console.warn(`[prediction] price history v2 failed (${e?.message || e}); falling back to the CLOB route`);
+    meta = {};
+    raw = await fetchJson(legacyUrl, "Polymarket CLOB", meta);
+    source = "polymarket-clob";
+  }
+  const points = polyHistoryPoints(raw) || [];
   const prices = points.map((p) => p.price).filter((p) => p != null);
   return {
-    tokenId: tokenId.trim(),
+    tokenId: id,
     interval: iv,
     fidelityMinutes: fi,
     count: points.length,
@@ -454,10 +473,23 @@ async function polymarketPriceHistory({ tokenId, interval, fidelity } = {}) {
     first: points[0]?.price ?? null,
     last: points[points.length - 1]?.price ?? null,
     points,
+    // v2 pages; the first page is what a fidelity-bounded window needs, and a
+    // window it could not finish says so instead of reading as complete.
+    truncated: raw?.pagination?.has_more === true,
     ...(points.length ? {} : { note: NO_HISTORY_NOTE }),
-    source: "polymarket-clob",
+    source,
     ...staleFields(meta),
   };
+}
+
+/** Points from either price-history shape: the Data API v2 document
+ *  (`{data:[{timestamp, price, resolution_seconds}]}`) or the legacy CLOB one
+ *  (`{history:[{t, p}]}`). Null when the document is neither, so the caller
+ *  can fall back rather than publish an empty series as an answer. */
+function polyHistoryPoints(raw) {
+  if (Array.isArray(raw?.data)) return raw.data.map((p) => ({ timestamp: p?.timestamp ?? p?.t ?? null, price: asNumber(p?.price ?? p?.p) }));
+  if (Array.isArray(raw?.history)) return raw.history.map((p) => ({ timestamp: p?.t ?? p?.timestamp ?? null, price: asNumber(p?.p ?? p?.price) }));
+  return null;
 }
 
 // ----------------------------------------------------------------------------
@@ -684,7 +716,8 @@ export const PREDICTION_MARKET_TOOLS = [
             { timestamp: 1751200000, price: 0.58 },
             { timestamp: 1751203600, price: 0.59 },
           ],
-          source: "polymarket-clob",
+          truncated: false,
+          source: "polymarket-data-api",
         },
       },
     },
@@ -791,6 +824,7 @@ export const PREDICTION_MARKET_TOOLS = [
 
 // Test-only exports
 export const __test = {
+  polyHistoryPoints,
   asNumber,
   polyList,
   parseJsonArray,

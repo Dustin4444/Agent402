@@ -43,7 +43,7 @@ import { CHAIN_PAGES, marketSellers } from "./market-page.js";
 import { WELL_KNOWN_PATH, discoveryNote } from "./discovery-note.js";
 import { acceptsFromLive402, quoteFromAccepts, probeMethodsFor, isQuoteResponse } from "./x402-live-quote.js";
 import { evmDomainsOfAccepts } from "./evm-usdc-domain.js";
-import { queryTerms, termMatcher, splitTokens } from "./query-terms.js";
+import { queryTerms, isCjkTerm, splitTokens } from "./query-terms.js";
 import { summarize, fmtUsd, fmtPct } from "./economy.js";
 import { rankBy, canonicalHost, getLeaderboardSnapshot } from "./leaderboard.js";
 import { routeExecuteHint } from "./tools/route-execute.js";
@@ -141,7 +141,17 @@ const CRAWL_CONCURRENCY = 25; // max parallel seller crawls per cycle — caps o
 const HEALTH_WINDOW = 5; // last N crawl outcomes per seller — drives health-aware routing
 
 // Map<originUrl, { manifest, openapi, tools, fetchedAt, error? }>
-const cache = new Map();
+// Every mutation is observed by the route candidate index (see routeIdx,
+// beside routeQuery): a set enqueues the new entry and marks the replaced
+// one stale, a delete marks stale, a clear resets. Entries are replaced,
+// never mutated, so identity is the whole invalidation rule here as it is
+// for the per-entry memos.
+class IndexCache extends Map {
+  set(origin, v) { routeIndexNoteSet(origin, super.get(origin), v); return super.set(origin, v); }
+  delete(origin) { if (super.has(origin)) routeIndexNoteSet(origin, super.get(origin), null); return super.delete(origin); }
+  clear() { super.clear(); routeIndexReset(); }
+}
+const cache = new IndexCache();
 // Set of origins auto-discovered from public x402 registries (distinct from
 // the env-configured seed list so we can show provenance separately on /index).
 const discoveredSeeds = new Set();
@@ -1297,7 +1307,9 @@ export function normaliseOpenapiTools(openapi, originUrl) {
       // many settlement-proven sellers do not use payment extensions yet.
       if (nonToolPath.test(rawPath) || nonToolPath.test(pathStr)) continue;
       if (op.deprecated === true) continue;
-      const annotated = openapiOperationHasPaymentSignal(op);
+      // One reader for every annotation dialect (see openapiOperationPayment):
+      // price, paid/free, the chains and the payTo the operation declares.
+      const pay = openapiOperationPayment(op);
       const tags = Array.isArray(op.tags) ? op.tags : [];
       out.push({
         seller: originUrl,
@@ -1308,8 +1320,14 @@ export function normaliseOpenapiTools(openapi, originUrl) {
         description: op.description || "",
         category: tags[0] || "other",
         tags,
-        price: op["x-price"] || op["x-x402-price"] || op["x-payment-info"]?.price?.amount || op["x-x402-price-usdc"] || null,
-        ...(documentDistinguishesPaidOperations ? { paid: annotated } : {}),
+        price: pay.price,
+        ...(pay.networks.length ? { networks: pay.networks } : {}),
+        ...(Object.keys(pay.payToByNetwork).length ? { payToByNetwork: pay.payToByNetwork } : {}),
+        // In a document that distinguishes paid operations, an unannotated
+        // sibling is free (paid:false) - the seller's own free routes list
+        // rather than vanish. An explicit `x-payment-required: false` reads
+        // free the same way; a priced or payment-declared op reads paid.
+        ...(documentDistinguishesPaidOperations ? { paid: pay.paid ?? false } : {}),
         // What this operation's own document GUARANTEES on success. Stored as
         // a compact tuple (the public object repeats a constant source string
         // and a constant false on every one of tens of thousands of rows), and
@@ -1987,13 +2005,113 @@ export function normaliseLlmsTxtTools(text, originUrl) {
   return out;
 }
 
+// ONE reader for every payment annotation dialect an OpenAPI operation can
+// carry (2026-09-18). There is no standard for these extensions and sellers
+// invent keys; one crawl cycle on prod logged unrecognized payment-ish keys
+// from ~250 origins, every one of whose operations was being indexed as FREE:
+// `x-price-usd` (101 origins; 0.001 or "$0.003"), `x-x402` (100; an accepts-
+// shaped object, with or without an amount, or `{price:"$0.01", scheme,
+// network_default}`), `x-payment` (37; `{protocol:"x402", network, asset,
+// payTo, amountUsd, amountAtomic}` or `{x402Version:2, scheme, network,
+// amount:"1000000", asset, payTo}`), `x-payment-required` (18; a boolean, no
+// price), `x-price-usdc` (16), `x-402` (13; `{price:"$0.05", priceMicros:
+// 50000, ...}` or `{priceUsd}` or `{price_usdc}`), plus a tail of
+// `x-payment-protocol`, `x-pricing`, `x-x402-network`, `x-x402-price-usd`,
+// `x-x402-payment`, `x-x402-price-atomic`. Each shape below was read off a
+// live document that day (fixtures in scripts/test-index-tools-catalog.js).
+//
+// Rules: a DOLLAR figure is read through `parseManifestPrice` (which already
+// descends one object level and normalises "$"); an ATOMIC amount
+// (`amountAtomic`, `x-x402-price-atomic`, or the accepts-shaped `amount`) is
+// read through `paymentFieldsFromAccepts`, i.e. divided by the asset's
+// decimals - the 2026-09-15 graded.sh lesson: an atomic "1000000" read as
+// dollars is a thousand-fold overquote on the seller's own listing;
+// `priceMicros` is micro-dollars. `x-payment-required: true` marks the op
+// PAID with the price unknown so the live-402 probe learns the figure;
+// `false` marks it FREE unless a price key beside it says otherwise (the more
+// specific declaration wins). Networks and payTo ride out so a row from one of
+// these documents is chain-matched like a manifest row instead of
+// `network_unknown`. Returns `paid` as true | false | null (null = the
+// operation carries no payment annotation at all).
+const PAYMENT_ANNOTATION_KEYS = [
+  "x-price", "x-x402-price", "x-payment-info", "x-x402-price-usdc",
+  "x-price-usd", "x-price-usdc", "x-x402-price-usd", "x-x402-price-atomic",
+  "x-x402", "x-402", "x-payment", "x-x402-payment", "x-pricing", "x-payment-protocol",
+  "x-x402-network", "x-payment-required",
+];
+const SCALAR_PRICE_KEYS = ["x-price", "x-x402-price", "x-x402-price-usdc", "x-price-usd", "x-price-usdc", "x-x402-price-usd"];
+const OBJECT_PAYMENT_KEYS = ["x-payment-info", "x-x402", "x-402", "x-payment", "x-x402-payment", "x-pricing", "x-payment-protocol"];
+const isScalar = (v) => typeof v === "number" || typeof v === "string";
+export function openapiOperationPayment(op) {
+  const out = { paid: null, price: null, networks: [], payToByNetwork: {} };
+  if (!op || typeof op !== "object") return out;
+  const lower = new Map(Object.keys(op).map((k) => [k.toLowerCase(), op[k]]));
+  const get = (k) => lower.get(k);
+  let annotated = false;
+  const addNetwork = (raw) => {
+    if (typeof raw !== "string" || !raw.trim()) return null;
+    const n = normalizeNetwork(raw.trim());
+    if (n && !out.networks.includes(n)) out.networks.push(n);
+    return n;
+  };
+  const takePrice = (p) => { if (p && !out.price) out.price = p; };
+  // Atomic amounts: through the accepts reader (divides by the asset's decimals).
+  const takeAtomic = (obj, amount) => {
+    if (amount == null || amount === "" || !Number.isFinite(Number(amount))) return;
+    const f = paymentFieldsFromAccepts([{ ...obj, amount: String(amount) }]);
+    if (f.price != null) takePrice(`$${f.price}`);
+  };
+  for (const k of SCALAR_PRICE_KEYS) {
+    const v = get(k);
+    if (v == null) continue;
+    annotated = true;
+    if (isScalar(v) || (v && typeof v === "object")) takePrice(parseManifestPrice({ price: v }));
+  }
+  const atomic = get("x-x402-price-atomic");
+  if (atomic != null) { annotated = true; takeAtomic({ network: get("x-x402-network") }, atomic); }
+  if (get("x-x402-network") != null) { annotated = true; addNetwork(get("x-x402-network")); }
+  for (const k of OBJECT_PAYMENT_KEYS) {
+    const v = get(k);
+    if (v == null) continue;
+    annotated = true;
+    if (isScalar(v)) { takePrice(parseManifestPrice({ price: v })); continue; }
+    if (typeof v !== "object" || Array.isArray(v)) continue;
+    // Dollar figures first: price_usd / priceUsd / price (scalar or object) and
+    // the dialect-specific spellings.
+    takePrice(parseManifestPrice(v));
+    if (!out.price && v.amountUsd != null && Number.isFinite(Number(v.amountUsd))) takePrice(`$${Number(v.amountUsd)}`);
+    if (!out.price && v.price_usdc != null && Number.isFinite(Number(v.price_usdc))) takePrice(`$${Number(v.price_usdc)}`);
+    if (!out.price && v.priceMicros != null && Number.isFinite(Number(v.priceMicros))) takePrice(`$${Number(v.priceMicros) / 1e6}`);
+    // Then atomic: an explicit amountAtomic, or the x402 accepts field `amount`
+    // when the object is accepts-shaped (parseManifestPrice refuses to read
+    // that one as dollars for exactly this reason).
+    if (!out.price && v.amountAtomic != null) takeAtomic(v, v.amountAtomic);
+    if (!out.price && acceptShaped(v) && v.amount != null) takeAtomic(v, v.amount);
+    const net = addNetwork(v.network ?? v.network_default ?? v.chain ?? null);
+    if (net && typeof v.payTo === "string" && v.payTo) out.payToByNetwork[net] = v.payTo;
+    if (Array.isArray(v.accepts)) {
+      const f = paymentFieldsFromAccepts(v.accepts);
+      if (!out.price && f.price != null) takePrice(`$${f.price}`);
+      for (const n of f.networks) addNetwork(n);
+      Object.assign(out.payToByNetwork, f.payToByNetwork);
+    }
+  }
+  const required = get("x-payment-required");
+  if (typeof required === "boolean") annotated = true;
+  else if (typeof required === "string" && /^(true|false)$/i.test(required.trim())) annotated = true;
+  const requiredBool = typeof required === "boolean" ? required : (typeof required === "string" && /^(true|false)$/i.test(required.trim()) ? required.trim().toLowerCase() === "true" : null);
+  if (!annotated) return out;
+  // Paid when priced, when payment is declared required, or when payment terms
+  // (an object dialect) are declared at all; free only on an explicit `false`
+  // with no price beside it.
+  if (out.price) out.paid = true;
+  else if (requiredBool === false) out.paid = false;
+  else out.paid = true;
+  return out;
+}
+
 function openapiOperationHasPaymentSignal(op) {
-  return Boolean(op && typeof op === "object" &&
-    (op["x-price"] || op["x-x402-price"] || op["x-payment-info"] ||
-      // Seen in the wild 2026-07-27 (cloudworldmodel.ai): a price-in-USDC
-      // variant key on operations that carry no other payment extension —
-      // 3 of their 17 paid operations were silently dropped without it.
-      op["x-x402-price-usdc"]));
+  return openapiOperationPayment(op).paid === true;
 }
 
 // Annotation-dialect watch. There is no standard for payment extensions, so
@@ -2002,7 +2120,7 @@ function openapiOperationHasPaymentSignal(op) {
 // and drops from the paid set (x-x402-price-usdc hid 3 of a seller's 17 paid
 // ops until they emailed, 2026-07-27). Surface every payment-ish x- key we
 // don't recognize so the next dialect announces itself in the logs instead.
-const RECOGNIZED_PAYMENT_KEYS = new Set(["x-price", "x-x402-price", "x-payment-info", "x-x402-price-usdc"]);
+const RECOGNIZED_PAYMENT_KEYS = new Set(PAYMENT_ANNOTATION_KEYS);
 // Payment-ish by name but known to carry no price — never worth a log line.
 const BENIGN_PAYMENT_LOOKALIKES = new Set(["x-x402-call-type"]);
 const PAYMENTISH = /pric|pay|cost|fee|402|usdc|usd\b/i;
@@ -4720,8 +4838,161 @@ function toolStatics(t) {
     // 585 after the first pass). Now both sides score the name the same way.
     nameSlug: (() => { const toks = splitTokens(t.name); const ns = toks.join("-"); return toks.length > 1 && ns !== String(t.slug || "").toLowerCase() ? ns : null; })(),
   };
+  // Every name the slug rule scores: slug, curated aliases, the name in slug
+  // form. Built once here rather than per row per query.
+  st.names = [st.slug, ...st.aliases, ...(st.nameSlug ? [st.nameSlug] : [])];
+  st.nameToks = st.names.map((n) => splitTokens(n));
   toolStaticsMemo.set(t, st);
   return st;
+}
+// Whole-token test for a SHORT term (the "ip" rule) without tokenizing the
+// row: `splitTokens(str).includes(term)` is true exactly when `str` carries the
+// term bounded by non-token characters or the string's ends, because a term
+// is itself one run of token characters. Compiled once per term per query.
+function wholeTokenMatcher(term) {
+  const esc = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`(?:^|[^\\p{L}\\p{N}])${esc}(?:$|[^\\p{L}\\p{N}])`, "u");
+  return (str) => re.test(str);
+}
+
+// ---------------------------------------------------------------------------
+// Route candidate index (2026-09-18).
+//
+// routeQuery used to score EVERY row of the pool on every query: 108k rows on
+// prod (4,224 sellers), each read with a substring test per term on the slug,
+// the name and the whole haystack, re-tokenized per row for the coverage rule
+// and again for every short term, and then sorted with a comparator that read
+// bazaarQualityFor() per COMPARISON. The 2026-08-25 memo measured 53 ms on a
+// synthetic 2,900-seller cache with a few tools each; prod's pool is thirty
+// times that many rows, and /api/route measured 0.5-1.8 s per query with
+// 1-3 s event-loop stalls while a scanner ran one query a second.
+//
+// The index below makes candidate selection proportional to the rows that can
+// score at all. It is EXACT with respect to the scoring rules, because a query
+// term is one alphanumeric run (queryTerms -> splitTokens): a term is a
+// substring of a haystack iff it is a substring of ONE of the haystack's
+// tokens (a match cannot straddle a separator - the term has none), and a
+// short term matches a whole token by definition. So a row can score iff some
+// token of its slug, aliases, name or haystack contains (long term) or equals
+// (short term) a query term, and postings by token are a complete candidate
+// set. Rows outside it scored zero before and were dropped; rows inside are
+// scored by the SAME per-row rules as before, in the SAME pool order, so the
+// ranking is byte-identical (pinned by scripts/test-route-perf.js against
+// a golden ranking taken from the full-scan code).
+//
+// Maintenance is incremental and lazy: cache mutations (the crawler's
+// cache.set per seller, delete, clear) only enqueue; the next query drains the
+// queue, decorating and indexing the new entries. A replaced entry's postings
+// go stale rather than being removed (removing a tool from the posting of a
+// common token is O(posting)), are filtered at query time by "is this tool's
+// entry still the live one", and the whole index is rebuilt once the stale
+// share passes ROUTE_INDEX_REBUILD_STALE_SHARE - a few hundred milliseconds
+// a few times per crawl cycle, instead of on every query.
+// ---------------------------------------------------------------------------
+const ROUTE_INDEX_REBUILD_STALE_SHARE = 0.3;
+const ROUTE_INDEX_TERM_CACHE_MAX = 4096;
+const routeIdx = {
+  postings: new Map(), // token -> tool[] (decorated remote pool objects)
+  toolHome: new WeakMap(), // tool -> { origin, v, pos }
+  indexed: new WeakSet(), // entries whose pool is in `postings`
+  indexedTools: 0,
+  staleTools: 0,
+  pending: new Map(), // origin -> entry awaiting indexing
+  termCache: new Map(), // long term -> matching vocabulary tokens
+  builds: 0,
+  queryStamp: 0, // per-query dedupe stamp written onto toolHome records
+};
+function routeIndexNoteSet(origin, prev, next) {
+  if (prev === next) return;
+  if (prev && routeIdx.indexed.has(prev)) { routeIdx.staleTools += (remotePoolMemo.get(prev) || []).length; routeIdx.indexed.delete(prev); }
+  if (next && typeof next === "object") routeIdx.pending.set(origin, next);
+  else routeIdx.pending.delete(origin);
+}
+function routeIndexReset() {
+  routeIdx.postings = new Map();
+  routeIdx.toolHome = new WeakMap();
+  routeIdx.indexed = new WeakSet();
+  routeIdx.indexedTools = 0;
+  routeIdx.staleTools = 0;
+  routeIdx.pending.clear();
+  routeIdx.termCache.clear();
+}
+function routeIndexAddEntry(origin, v) {
+  const pool = decoratedRemoteTools(v);
+  const { postings, toolHome } = routeIdx;
+  for (let pos = 0; pos < pool.length; pos++) {
+    const t = pool[pos];
+    const st = toolStatics(t);
+    toolHome.set(t, { origin, v, pos });
+    // Tokens of the haystack (name, description, category, tags) plus those
+    // of every scored name (slug, aliases, name-as-slug), deduplicated per
+    // tool so one tool sits once in each posting.
+    const seen = new Set(splitTokens(st.hay));
+    for (const toks of st.nameToks) for (const tok of toks) seen.add(tok);
+    for (const tok of seen) {
+      const list = postings.get(tok);
+      if (list) list.push(t); else postings.set(tok, [t]);
+    }
+  }
+  routeIdx.indexed.add(v);
+  routeIdx.indexedTools += pool.length;
+}
+function routeIndexSync() {
+  const total = routeIdx.indexedTools + routeIdx.staleTools;
+  if (routeIdx.staleTools > 0 && routeIdx.staleTools >= total * ROUTE_INDEX_REBUILD_STALE_SHARE) {
+    routeIndexReset();
+    routeIdx.builds++;
+    for (const [origin, v] of cache) if (v && typeof v === "object") routeIndexAddEntry(origin, v);
+    return;
+  }
+  if (!routeIdx.pending.size) return;
+  for (const [origin, v] of routeIdx.pending) {
+    if (cache.get(origin) !== v) continue; // replaced again before we got to it
+    routeIndexAddEntry(origin, v);
+  }
+  routeIdx.pending.clear();
+  routeIdx.termCache.clear(); // new vocabulary may match a cached term
+}
+// Vocabulary tokens a term selects: itself for a short term (whole-token rule),
+// every token containing it for a long one (substring rule). Candidate
+// selection only has to be COMPLETE: scoreRow re-applies the exact rules to
+// every candidate, so widening this (a short term as a substring) would cost
+// time, never correctness - which is why no test can kill that mutation.
+function routeIndexTokensFor(term, short) {
+  if (short) return routeIdx.postings.has(term) ? [term] : [];
+  const cached = routeIdx.termCache.get(term);
+  if (cached) return cached;
+  const out = [];
+  for (const tok of routeIdx.postings.keys()) if (tok.includes(term)) out.push(tok);
+  if (routeIdx.termCache.size >= ROUTE_INDEX_TERM_CACHE_MAX) routeIdx.termCache.clear();
+  routeIdx.termCache.set(term, out);
+  return out;
+}
+export function _routeIndexStatsForTest() {
+  return { vocabulary: routeIdx.postings.size, indexedTools: routeIdx.indexedTools, staleTools: routeIdx.staleTools, pending: routeIdx.pending.size, builds: routeIdx.builds };
+}
+
+// The local pool is rebuilt from the catalog on every query (buildLocalEntry
+// maps every catalog tool into a fresh row object), which made every local
+// row a toolStatics MISS per query - 600 haystack builds and injection-regex
+// passes per call. The catalog and price table are built once at boot and
+// handed in by identity, so the pool is memoized on them like the remote
+// pool is on its cache entry; any other input changing rebuilds it.
+const localPoolMemo = new WeakMap(); // catalog -> { prices, baseUrl, walletName, network, toolCount, local, pool }
+function localPoolFor(args) {
+  const { catalog, prices, baseUrl, walletName, network, toolCount } = args;
+  const memoable = catalog && typeof catalog === "object";
+  // The key count is a belt for a catalog MUTATED in place (tests build one
+  // and add to it; the server's is built once at boot): a new route changes
+  // the count, and the pool is rebuilt rather than served stale.
+  const keys = memoable ? Object.keys(catalog).length : 0;
+  const m = memoable ? localPoolMemo.get(catalog) : null;
+  if (m && m.keys === keys && m.prices === prices && m.baseUrl === baseUrl && m.walletName === walletName && m.network === network && m.toolCount === toolCount) return m;
+  const local = buildLocalEntry(args);
+  const pool = local.tools.map((t) => ({ ...t, sellerHome: baseUrl, sellerName: local.displayName, health: 1 }));
+  const built = { keys, prices, baseUrl, walletName, network, toolCount, local, pool };
+  if (memoable) localPoolMemo.set(catalog, built);
+  return built;
 }
 
 export function routeQuery({ query, top, include, networkFilter, strictNetwork = false, baseUrl, catalog, prices, network, toolCount, walletName }) {
@@ -4743,10 +5014,9 @@ export function routeQuery({ query, top, include, networkFilter, strictNetwork =
   // seller's tools — but only from sellers whose last crawl succeeded. A buyer
   // routed to a currently-broken seller would just lose the call, so we'd
   // rather rank fewer trustworthy options than more flaky ones.
-  const local = buildLocalEntry({ baseUrl, catalog, prices, network, toolCount, walletName });
   const localPool = inc === "external"
     ? []
-    : local.tools.map((t) => ({ ...t, sellerHome: baseUrl, sellerName: local.displayName, health: 1 }));
+    : localPoolFor({ baseUrl, catalog, prices, network, toolCount, walletName }).pool;
   const aliasOrigins = inc === "local" ? null : computeAliasOrigins(cache);
   // Same self-exclusion as indexSnapshot/routableSellerSummaries: the crawler
   // can discover and cache the real agent402.tools origin regardless of this
@@ -4760,13 +5030,6 @@ export function routeQuery({ query, top, include, networkFilter, strictNetwork =
     const o = String(origin).replace(/\/+$/, "").toLowerCase();
     return (selfBase && o === selfBase) || o === "https://agent402.tools";
   };
-  const remotePool = inc === "local"
-    ? []
-    : [...cache.entries()]
-        .filter(([origin, v]) => isRoutable(v) && !aliasOrigins.has(origin) && !isSelfOrigin(origin))
-        .flatMap(([, v]) => decoratedRemoteTools(v));
-  const all = [...localPool, ...remotePool];
-
   // The network filter is applied HERE, before scoring, so the k slots are
   // filled by rows that can actually settle on the wanted chain. Until
   // 2026-09-02 `wantNet` was computed, echoed in the response and never
@@ -4784,19 +5047,33 @@ export function routeQuery({ query, top, include, networkFilter, strictNetwork =
     if (nets.length) return nets.includes(wantNet.toLowerCase());
     return !strictNetwork;
   };
+  // A term under three characters matches whole tokens only: "ip" used to
+  // substring-match gzip, gunzip and html-strip, which outranked every IP
+  // tool for "ip geolocation" (2026-08-28). The predicate is decided ONCE per
+  // term here (termMatcher's rule) and applied per candidate row below.
+  const shortTerm = terms.map((term) => !(term.length >= 3 || isCjkTerm(term)));
+  const nTerms = terms.length;
+  const hitTerm = terms.map((term, k) => (shortTerm[k] ? wholeTokenMatcher(term) : (str) => str.includes(term)));
+  // Coinbase-measured 30-day unique payers per seller, read once per seller per
+  // query instead of once per sort COMPARISON: on a pool where a common term
+  // matches tens of thousands of rows, the comparator ran bazaarQualityFor()
+  // (a regex + map read) hundreds of thousands of times per query.
+  const selfQuality = (bazaarQualityFor(baseUrl) || bazaarQualityFor(SELF_BAZAAR_ORIGIN))?.payers30d ?? null;
+  const payersBySeller = new Map();
+  const payersOf = (seller) => {
+    let p = payersBySeller.get(seller);
+    if (p === undefined) { p = bazaarQualityFor(seller)?.payers30d ?? null; payersBySeller.set(seller, p); }
+    return p;
+  };
   const scored = [];
-  for (const t of all) {
-    if (!netOk(t)) continue;
+  // The four text-match rules, per row. Same rules and weights as before the
+  // candidate index; the index only decides which rows are worth asking.
+  const scoreRow = (t) => {
+    if (!netOk(t)) return;
     const st = toolStatics(t);
-    if (st.injected) continue;
-    const { slug, name, hay, aliases, nameSlug } = st;
-    const names = [slug, ...aliases, ...(nameSlug ? [nameSlug] : [])];
-    let score = 0;
-    // Record WHERE the score came from, not just how much. A seller who loses a
-    // routing decision learns nothing from silence; "matched on description
-    // only" tells them to fix their slug, and it makes the neutrality claim
-    // checkable by anyone instead of merely stated (asked for in #645).
-    const matched = { slug: 0, name: 0, text: 0 };
+    if (st.injected) return;
+    const { name, hay, names, nameToks } = st;
+    let score = 0, mSlug = 0, mName = 0, mText = 0;
     // A slug (or alias) EVERY token of which appears in the query is an exact
     // match for each of those tokens, not a substring one. Before 2026-09-10 a
     // query "json diff" scored json-diff 4+4 on the slug while a one-token slug
@@ -4804,26 +5081,86 @@ export function routeQuery({ query, top, include, networkFilter, strictNetwork =
     // single-word slug sharing one of its words - measured on 79 of our own
     // 585 tool names, and it bites every multi-word slug in the index the same
     // way. Neutral: any row's csv-to-json is fully covered by "csv to json" too.
-    const covered = new Set(names.filter((n) => { const toks = splitTokens(n); return toks.length > 1 && toks.every((tok) => termSet.has(tok)); }));
-    for (const term of terms) {
-      // A term under three characters matches whole tokens only: "ip" used to
-      // substring-match gzip, gunzip and html-strip, which outranked every IP
-      // tool for "ip geolocation" (2026-08-28).
-      const hit = termMatcher(term);
-      const slugScore = Math.max(...names.map((n) => (n === term ? 10 : (covered.has(n) && splitTokens(n).includes(term)) ? 10 : hit(n) ? 4 : 0)));
-      if (slugScore) { score += slugScore; matched.slug += slugScore; }
-      if (hit(name)) { score += 2; matched.name += 2; }
-      if (hit(hay)) { score += 1; matched.text += 1; }
+    const covered = nameToks.map((toks) => toks.length > 1 && toks.every((tok) => termSet.has(tok)));
+    for (let k = 0; k < nTerms; k++) {
+      const term = terms[k], short = shortTerm[k], hit = hitTerm[k];
+      let slugScore = 0;
+      for (let i = 0; i < names.length && slugScore < 10; i++) {
+        const n = names[i];
+        let s = 0;
+        if (n === term || (covered[i] && nameToks[i].includes(term))) s = 10;
+        else if (short ? nameToks[i].includes(term) : n.includes(term)) s = 4;
+        if (s > slugScore) slugScore = s;
+      }
+      if (slugScore) { score += slugScore; mSlug += slugScore; }
+      if (hit(name)) { score += 2; mName += 2; }
+      if (hit(hay)) { score += 1; mText += 1; }
     }
-    if (score > 0) scored.push([score, t, matched, st.priceRank]);
+    // Record WHERE the score came from, not just how much. A seller who loses a
+    // routing decision learns nothing from silence; "matched on description
+    // only" tells them to fix their slug, and it makes the neutrality claim
+    // checkable by anyone instead of merely stated (asked for in #645).
+    if (score > 0) {
+      const isLocal = t.seller === LOCAL_SELLER;
+      scored.push([score, t, { slug: mSlug, name: mName, text: mText }, st.priceRank, isLocal, isLocal ? selfQuality : payersOf(t.seller)]);
+    }
+  };
+  // Local rows first (a few hundred; scanned outright), then the remote pool's
+  // CANDIDATES in pool order - cache order, tool order within a seller - which
+  // is the order the full scan used to push them in, so ties still resolve the
+  // same way. A candidate is a tool whose entry is the LIVE one for its origin
+  // (a stale posting from a replaced entry is skipped here) and whose seller
+  // passes the same routable / alias / self filters as before.
+  for (const t of localPool) scoreRow(t);
+  if (inc !== "local") {
+    routeIndexSync();
+    // Which entries are in the pool this query: the routable / alias / self
+    // filters, decided once per ENTRY (a seller's 500 candidate rows used to
+    // re-run them 500 times), and a per-query stamp on each tool's index
+    // record dedupes a tool reached through several tokens.
+    const stamp = ++routeIdx.queryStamp;
+    const entryOk = new Map();
+    const byEntry = new Map(); // live entry -> candidate tools (unordered)
+    for (let k = 0; k < nTerms; k++) {
+      for (const tok of routeIndexTokensFor(terms[k], shortTerm[k])) {
+        const list = routeIdx.postings.get(tok);
+        if (!list) continue;
+        for (let i = 0; i < list.length; i++) {
+          const t = list[i];
+          const home = routeIdx.toolHome.get(t);
+          if (!home || home.stamp === stamp) continue;
+          home.stamp = stamp;
+          let ok = entryOk.get(home.v);
+          if (ok === undefined) {
+            // The liveness test is a BELT, not the load-bearing rule: rows are
+            // emitted below by walking the cache's live entries, so a stale
+            // posting (its entry replaced) can never be served whatever this
+            // says - it is skipped here only to save the grouping work. The
+            // rest is the same seller filter the full scan applied.
+            ok = cache.get(home.origin) === home.v && isRoutable(home.v) && !aliasOrigins.has(home.origin) && !isSelfOrigin(home.origin);
+            entryOk.set(home.v, ok);
+          }
+          if (!ok) continue;
+          let arr = byEntry.get(home.v);
+          if (!arr) byEntry.set(home.v, (arr = []));
+          arr.push(t);
+        }
+      }
+    }
+    if (byEntry.size) {
+      for (const v of cache.values()) {
+        const arr = byEntry.get(v);
+        if (!arr) continue;
+        if (arr.length > 1) arr.sort((a, b) => routeIdx.toolHome.get(a).pos - routeIdx.toolHome.get(b).pos);
+        for (let i = 0; i < arr.length; i++) scoreRow(arr[i]);
+      }
+    }
   }
   // Highest score first; healthier seller wins on ties; then cheapest KNOWN
   // price (unknown ranks last among equals — see priceRank); then shorter
-  // slug. Health is the strongest tiebreak after match score because a
+  // slug. Health is the strongest tiebreak after score because a
   // cheap-but-flaky seller is worse than a slightly pricier reliable one.
-  const selfQuality = (bazaarQualityFor(baseUrl) || bazaarQualityFor(SELF_BAZAAR_ORIGIN))?.payers30d ?? null;
-  scored.sort((a, b) => {
-    if (b[0] !== a[0]) return b[0] - a[0];
+  const tiebreak = (a, b) => {
     if (b[1].health !== a[1].health) return b[1].health - a[1].health;
     // Coinbase-measured 30-day unique payers (Bazaar quality): a seller more
     // wallets actually paid this month ranks ahead of an equally-matched,
@@ -4834,18 +5171,25 @@ export function routeQuery({ query, top, include, networkFilter, strictNetwork =
     // one Bazaar payer outranked our identical tool: json-to-csv sat 23rd on
     // our own router for "json to csv" behind twenty-two equally scored,
     // equally priced copies of it.
-    const aLocal = a[1].seller === LOCAL_SELLER, bLocal = b[1].seller === LOCAL_SELLER;
-    if (aLocal || bLocal) {
-      const qa = aLocal ? selfQuality : (bazaarQualityFor(a[1].seller)?.payers30d ?? null);
-      const qb = bLocal ? selfQuality : (bazaarQualityFor(b[1].seller)?.payers30d ?? null);
+    if (a[4] || b[4]) {
+      const qa = a[5], qb = b[5];
       if (qa != null && qb != null && qb !== qa) return qb - qa;
     } else {
-      const qa = bazaarQualityFor(a[1].seller)?.payers30d || 0, qb = bazaarQualityFor(b[1].seller)?.payers30d || 0;
+      const qa = a[5] || 0, qb = b[5] || 0;
       if (qb !== qa) return qb - qa;
     }
     if (a[3] !== b[3]) return a[3] - b[3];
     return (a[1].slug || "").length - (b[1].slug || "").length;
-  });
+  };
+  // ONE global sort over the whole scored array, deliberately. A bucket-per-
+  // score sort with the tiebreak inside each bucket was tried (2026-09-18) and
+  // moved rows: the local-vs-external payers branch above is not transitive
+  // (a local row with no measurement compares equal to two external rows that
+  // compare unequal to each other), so the order among such ties depends on
+  // the comparison sequence, and a different array shape gives a different
+  // sequence. Keeping the exact call the ranking was pinned on keeps the
+  // published order byte-identical; the sort is a few ms of the query.
+  scored.sort((a, b) => (b[0] !== a[0] ? b[0] - a[0] : tiebreak(a, b)));
 
   // Per-seller diversity cap (M6, "Five Attacks on x402" Attack IV — Sybil /
   // metadata capture). Ranking is already sorted best-first; naively taking the

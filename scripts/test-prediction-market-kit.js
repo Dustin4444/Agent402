@@ -288,5 +288,56 @@ if (process.env.PREDICTION_LIVE_TEST === "1") {
   }
 }
 
+// ----------------------------------------------------------------------------
+// polymarket-price-history moved to the Data API v2 (2026-09-04 upstream;
+// 2026-09-18 here). Probed live: v2 answers `{data:[{timestamp, price,
+// resolution_seconds}]}` and REFUSES the legacy `market=` param; the CLOB
+// route still answers `{history:[{t, p}]}`. The tool asks v2 with `tokenId`
+// + `bucketSeconds`, and falls back to the CLOB when v2 fails or answers a
+// shape the reader does not know (the polyList rule). Distinct token ids per
+// case: fetchJson serves a stale cached body when a call fails, so reusing a
+// URL an earlier case primed would test the cache, not the fallback.
+// Mutation check: remove the `data` branch of polyHistoryPoints and case 1
+// falls back to the CLOB (source flips) instead of reading v2; remove the
+// fallback and cases 2 and 3 throw.
+{
+  const { polyHistoryPoints } = __test;
+  const realFetch = globalThis.fetch;
+  const json = (body, status = 200) => ({ ok: status < 400, status, headers: { get: (k) => (k.toLowerCase() === "content-type" ? "application/json" : null) }, json: async () => body, text: async () => JSON.stringify(body) });
+  const v2Doc = { data: [{ timestamp: 1789653600, price: 0.745, resolution_seconds: 3600 }, { timestamp: 1789657200, price: 0.755, resolution_seconds: 3600 }], pagination: { limit: 2, offset: 0, has_more: true } };
+  const legacyDoc = { history: [{ t: 1789653613, p: 0.745 }, { t: 1789657213, p: 0.765 }] };
+  // Pure reader: both shapes, one output.
+  ok(JSON.stringify(polyHistoryPoints(v2Doc)) === JSON.stringify([{ timestamp: 1789653600, price: 0.745 }, { timestamp: 1789657200, price: 0.755 }]), "polyHistoryPoints reads the v2 {data:[{timestamp, price}]} shape");
+  ok(JSON.stringify(polyHistoryPoints(legacyDoc)) === JSON.stringify([{ timestamp: 1789653613, price: 0.745 }, { timestamp: 1789657213, price: 0.765 }]), "polyHistoryPoints reads the legacy {history:[{t, p}]} shape");
+  ok(polyHistoryPoints({ result: [] }) === null && polyHistoryPoints(null) === null, "an unrecognised document reads as null, never as an empty series");
+
+  // 1. v2 answers: served from v2, the wire carries tokenId + bucketSeconds and never `market=`.
+  let urls = [];
+  globalThis.fetch = async (url) => { urls.push(String(url)); return json(v2Doc); };
+  let r = await h("polymarket-price-history")({ tokenId: "1000000000000000000001", interval: "1d", fidelity: 60 });
+  ok(urls.length === 1 && urls[0].startsWith("https://data-api.polymarket.com/v2/prices-history?") && urls[0].includes("tokenId=1000000000000000000001") && urls[0].includes("bucketSeconds=3600") && !urls[0].includes("market="), `v2 is asked first with tokenId + bucketSeconds (${urls[0]})`);
+  ok(r.source === "polymarket-data-api" && r.count === 2 && r.first === 0.745 && r.last === 0.755 && r.max === 0.755, "the v2 document is shaped into the same points/min/max/first/last contract");
+  ok(r.truncated === true, "a v2 page with has_more says truncated");
+
+  // 2. v2 down (5xx twice - fetchJson retries once) -> the CLOB route serves.
+  urls = [];
+  globalThis.fetch = async (url) => { urls.push(String(url)); return String(url).includes("data-api.polymarket.com") ? json({ error: "down" }, 500) : json(legacyDoc); };
+  r = await h("polymarket-price-history")({ tokenId: "1000000000000000000002", interval: "1d" });
+  ok(r.source === "polymarket-clob" && r.count === 2 && r.last === 0.765, "a failing v2 falls back to the legacy CLOB route (source says so)");
+  ok(urls.some((u) => u.startsWith("https://clob.polymarket.com/prices-history?market=1000000000000000000002")), "the legacy route is asked in its own dialect (market=)");
+  ok(r.truncated === false, "the legacy document never claims a next page");
+
+  // 3. v2 answers 200 with a shape the reader does not know -> fallback, not an empty answer.
+  globalThis.fetch = async (url) => (String(url).includes("data-api.polymarket.com") ? json({ prices: [[1, 0.5]] }) : json(legacyDoc));
+  r = await h("polymarket-price-history")({ tokenId: "1000000000000000000003", interval: "1h" });
+  ok(r.source === "polymarket-clob" && r.count === 2, "a v2 document of an unknown shape degrades to the CLOB route instead of emptying the tool");
+
+  // 4. both empty: the honest note, no throw.
+  globalThis.fetch = async () => json({ data: [] });
+  r = await h("polymarket-price-history")({ tokenId: "1000000000000000000004" });
+  ok(r.count === 0 && typeof r.note === "string" && r.source === "polymarket-data-api", "an empty v2 series is an answer with the no-history note");
+  globalThis.fetch = realFetch;
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
