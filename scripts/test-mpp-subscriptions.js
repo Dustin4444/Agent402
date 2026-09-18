@@ -146,7 +146,8 @@ async function signCredential(challenge, { account, accessKey } = {}) {
   const acct = account || privateKeyToAccount(generatePrivateKey());
   const ak = accessKey || challenge.request.methodDetails.accessKey;
   const signed = await Tempo.Subscription.signSubscriptionKeyAuthorization({
-    accessKey: ak, account: acct, chainId: TEMPO_MAINNET_CHAIN_ID, request: challenge.request,
+    // challengeId: the witness a 0.9.3 signer binds the authorization to (ignored by 0.9.2).
+    accessKey: ak, account: acct, challengeId: challenge.id, chainId: TEMPO_MAINNET_CHAIN_ID, request: challenge.request,
   });
   const credential = Credential.from({
     challenge,

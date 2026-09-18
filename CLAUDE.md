@@ -3155,6 +3155,14 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   Note how it failed: four entries were re-verified live and the fifth was carried over unchecked because it was
   labelled operator-owned, in the very commit that closed the other four. An item nobody re-reads is not evidence,
   whoever owns it - check the surface.
+- **mppx 0.9.3 (2026-09-18, taken with PR #1379 after Dependabot #1380 failed CI on it):** "Bound subscription key
+  authorizations to their server-issued payment challenge" - `signSubscriptionKeyAuthorization` /
+  `verifySubscriptionKeyAuthorization` take a REQUIRED `challengeId` and the buyer signs its 32-byte decode as a witness;
+  omit it and verify throws "challenge id must encode 32 bytes" for EVERY credential (0.9.2 ignores the field). The engine
+  now passes `b.challenge.id` (mpp-subscriptions.js) and the test buyer signs with it; every other MPP/Tempo suite passed
+  on 0.9.3 unchanged (shim, tempo-shim, mcp-mpp, stripe, tempo-router, evm-domain, relay-errors, tempo-confirm, canary gate,
+  tollbooth tempo). A buyer on mppx <= 0.9.2 signs no witness and is refused by this server - the spec's intent. Live proof
+  owed after the deploy: tempo-subscription-canary (activation + renewal) and tempo-canary-verify.
 - **mppx 0.9.2 (2026-09-02):** taken after a read of the 0.9.0-0.9.2 changelog: 0.9.0 removes machineUSD (never configured
   here) and adds dual MPP/x402 framework wrappers (unused - our shim is our own); 0.9.1 "fixed MCP payment errors to use the
   specification-defined JSON-RPC codes": `-32042` stays payment-required and `-32043` is a PRESENTED credential refused
