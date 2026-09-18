@@ -4259,11 +4259,7 @@ const serveManifest = (_req, res) => {
 // manifest". Same document, same cache.
 app.get("/.well-known/x402.json", serveManifest);
 app.get("/.well-known/x402-services.json", serveManifest);
-app.get("/.well-known/x402", (_req, res) => {
-  const perf = getPerformance24h();
-  if (perf) res.json({ ...MANIFEST, performance24h: perf });
-  else res.json(MANIFEST);
-});
+app.get("/.well-known/x402", serveManifest);
 // Structured reliability / trust report — the "safe to depend on" surface, each
 // claim paired with a URL to verify it independently.
 // Which settlement rails are CONFIGURED vs actually OFFERED.
