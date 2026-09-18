@@ -1,6 +1,6 @@
 // A2A Agent Card validator — offline unit tests. No network.
 //   node scripts/test-a2a-card.js
-import { validateAgentCard, SAMPLE_AGENT_CARD, A2A_WELL_KNOWN_PATHS, buildOurAgentCard } from "../src/tools/a2a-card.js";
+import { validateAgentCard, SAMPLE_AGENT_CARD, A2A_WELL_KNOWN_PATHS, buildOurAgentCard, buildAgentRegistration, ERC8004_IDENTITY_REGISTRY } from "../src/tools/a2a-card.js";
 
 let passed = 0, failed = 0;
 const ok = (cond, msg) => {
@@ -70,6 +70,26 @@ ok(A2A_WELL_KNOWN_PATHS[0] === "/.well-known/agent-card.json" && A2A_WELL_KNOWN_
   ok(stale.url === "https://agent402.tools/api", "a trailing slash on the base url never doubles");
   ok(/500\+ priced endpoints/.test(stale.description), "an unreadable catalog count falls back to the evergreen claim, never to a wrong number");
   ok(/607 priced endpoints/.test(card.description), "and a live count is used when there is one");
+}
+
+// ERC-8004 registration file. The id is the hazard: it does not exist until
+// the mint lands, and a machine surface that claims one we do not hold is the
+// worst place for a false claim.
+{
+  const reg = buildAgentRegistration({ baseUrl: "https://agent402.tools", toolCount: 607 });
+  for (const f of ["type", "name", "description", "image", "services"]) {
+    ok(reg[f] !== undefined, `registration carries the EIP's required field "${f}"`);
+  }
+  ok(Array.isArray(reg.services) && reg.services.length >= 3, "it lists several ways to reach us, not just one");
+  ok(reg.services.some((s) => s.type === "MCP") && reg.services.some((s) => s.type === "A2A"), "including MCP and the A2A card");
+  ok(!("registrations" in reg), "an UNREGISTERED deployment publishes no registrations array at all");
+  ok(!("supportedTrust" in reg), "and claims no trust model, so the standard is used for discovery only");
+  for (const bad of [undefined, "", "0", "abc", "12x"]) {
+    ok(!("registrations" in buildAgentRegistration({ baseUrl: "https://agent402.tools", agentId: bad })), `agentId ${JSON.stringify(bad)} is refused rather than published`);
+  }
+  const live = buildAgentRegistration({ baseUrl: "https://agent402.tools", agentId: "47" });
+  ok(live.registrations[0].agentId === 47, "a real id is published as a number");
+  ok(live.registrations[0].agentRegistry === `${ERC8004_IDENTITY_REGISTRY.chain}:${ERC8004_IDENTITY_REGISTRY.address}`, "with the CAIP-scoped registry it was minted in");
 }
 
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);

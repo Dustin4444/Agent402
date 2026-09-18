@@ -21,6 +21,53 @@ const isObj = (v) => typeof v === "object" && v !== null && !isArr(v);
 export const A2A_WELL_KNOWN_PATHS = ["/.well-known/agent-card.json", "/.well-known/agent.json"];
 
 /**
+ * ERC-8004 agent registration file (2026-09-18).
+ *
+ * The identity registry is an ERC-721 whose `register(agentURI)` mints an agent
+ * id, and the EIP says the agentURI MUST resolve to a registration file with
+ * `type`, `name`, `description`, `image` and `services`. That is a different
+ * document from the A2A AgentCard: the card describes ONE protocol endpoint,
+ * this lists every way to reach the agent.
+ *
+ * The `registrations` array carries the agentId, which does not exist until the
+ * mint lands, so it is written only once `ERC8004_AGENT_ID` is set. An
+ * unregistered deployment publishes the file WITHOUT that array rather than
+ * with a zero or a guess - claiming an id we do not hold would be a false
+ * on-chain claim on a machine surface, the worst place for one.
+ *
+ * `supportedTrust` is deliberately absent: the EIP makes it optional and says
+ * that without it the standard is used for discovery only. Discovery is exactly
+ * what we are claiming; a trust model we have not implemented is not.
+ */
+export const ERC8004_IDENTITY_REGISTRY = { chain: "eip155:8453", address: "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432" };
+
+export function buildAgentRegistration({ baseUrl, agentId, toolCount } = {}) {
+  const base = String(baseUrl || "https://agent402.tools").replace(/\/+$/, "");
+  const n = Number(toolCount);
+  const catalog = Number.isFinite(n) && n > 0 ? `${n} priced endpoints` : "500+ priced endpoints";
+  const id = String(agentId ?? "").trim();
+  const registered = /^[0-9]+$/.test(id) && id !== "0";
+  return {
+    type: "https://schema.org/SoftwareApplication",
+    name: "Agent402",
+    description:
+      `Pay-per-call web tools for autonomous agents: ${catalog} settled in USDC over x402 or MPP, ` +
+      "free via proof of work, or prepaid by card. No account and no API key.",
+    image: `${base}/logo.png`,
+    services: [
+      { type: "MCP", url: `${base}/mcp` },
+      { type: "A2A", url: `${base}/.well-known/agent-card.json` },
+      { type: "OpenAPI", url: `${base}/openapi.json` },
+      { type: "x402", url: `${base}/.well-known/x402` },
+      { type: "Website", url: base },
+    ],
+    ...(registered
+      ? { registrations: [{ agentId: Number(id), agentRegistry: `${ERC8004_IDENTITY_REGISTRY.chain}:${ERC8004_IDENTITY_REGISTRY.address}` }] }
+      : {}),
+  };
+}
+
+/**
  * OUR OWN AgentCard (2026-09-18). We sold card validation and card fetching as
  * tools and served no card of our own, only a fictional sample - an odd
  * asymmetry on the one discovery path A2A clients actually read.

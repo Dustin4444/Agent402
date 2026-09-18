@@ -207,7 +207,7 @@ import { GOV_TOOLS } from "./tools/gov-kit.js";
 import { GEO_TOOLS } from "./tools/geo-kit.js";
 import { OCR_TOOLS } from "./tools/ocr-kit.js";
 import { AGENT_TOOLS } from "./tools/agent-kit.js";
-import { SAMPLE_AGENT_CARD, A2A_WELL_KNOWN_PATHS, buildOurAgentCard } from "./tools/a2a-card.js";
+import { SAMPLE_AGENT_CARD, A2A_WELL_KNOWN_PATHS, buildOurAgentCard, buildAgentRegistration } from "./tools/a2a-card.js";
 import { BLOCKSCOUT_TOOLS, upstreamBuyerStatus } from "./tools/blockscout-kit.js";
 import { CAPTCHA_TOOLS } from "./tools/captcha-kit.js";
 import { SQL_GUARD_TOOLS } from "./tools/sql-guard-kit.js";
@@ -2512,6 +2512,17 @@ app.get("/samples/a2a-agent-card.json", (_req, res) => {
 // operator well-known store's catch-all so it can never be shadowed, the same
 // rule x402/security.txt/glama.json already follow. The catalog count is read
 // live so the description cannot go stale.
+// ERC-8004 registration file. The identity registry's agentURI must resolve
+// here; the agentId appears only once ERC8004_AGENT_ID is set, because the id
+// does not exist until the mint lands and publishing a guess would be a false
+// claim on a machine surface.
+app.get("/.well-known/agent-registration.json", (_req, res) => {
+  res.set("Cache-Control", "public, max-age=900").json(buildAgentRegistration({
+    baseUrl: BASE_URL,
+    agentId: process.env.ERC8004_AGENT_ID,
+    toolCount: Object.keys(CATALOG || {}).length,
+  }));
+});
 for (const p of A2A_WELL_KNOWN_PATHS) {
   app.get(p, (_req, res) => {
     res.set("Cache-Control", "public, max-age=900").json(buildOurAgentCard({
