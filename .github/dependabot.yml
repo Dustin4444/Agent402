@@ -39,12 +39,16 @@ updates:
       # deliberately, with a paid-canary run; a weekly red PR proves nothing.
       - dependency-name: "@solana/kit"
         update-types: ["version-update:semver-major"]
-      # better-sqlite3 major: native module. The 13.0.1 attempt (2026-07-24) broke
-      # the Railway build because 13.0.0/13.0.1 shipped a binding.gyp with no
-      # install script, so npm auto-ran node-gyp inside node:22-slim, which has no
-      # compiler; 13.0.2 added `"gypfile": false` and the prebuilt is loaded from
-      # the tarball. Taken at 13.0.3 (2026-09-18). A major here still needs the
-      # dispatch-only docker-build-check.yml run green on the branch first.
+      # better-sqlite3 major: native module, and REFUSED TWICE by the real image.
+      # 13.0.1 (2026-07-24) and 13.0.3 (2026-09-18) each broke the Railway build
+      # the same way: inside node:22-slim `npm ci --omit=dev` runs `node-gyp
+      # rebuild` in node_modules/better-sqlite3 and the image has no Python, so
+      # the build dies in about 30 seconds. 13.0.3 declares `"gypfile": false`
+      # and ships linux-x64 among its prebuilds, and a local `npm ci` on the same
+      # npm (10.9.8) builds nothing at all - so whatever makes the image decide to
+      # compile is NOT visible from a local install, which is exactly why
+      # docker-build-check.yml exists. Do not take a 13.x again until that
+      # dispatch is green on a branch.
       - dependency-name: "better-sqlite3"
         update-types: ["version-update:semver-major"]
       # tesseract.js major: v6+ REMOVED top-level `data.lines` and moved lines
