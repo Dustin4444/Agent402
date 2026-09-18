@@ -52,7 +52,7 @@ export function ledgerPricingPage(baseUrl, catalog) {
     ["/v1/images/generations - one image per call", "$0.08"],
     ["/v1/audio/speech - OpenAI TTS wire, mp3/pcm bytes out", "$0.06"],
     ["/v1/pro/chat/completions - gpt-4o, claude sonnet, gemini pro", "$0.10"],
-    ["/v1/premium/chat/completions - gpt-5, o3/o4, claude opus", "$0.50"],
+    ["/v1/premium/chat/completions - gpt-5, gpt-6 astra, o3, claude opus, claude fable 5.1", "$0.50"],
   ];
 
   const extraCss = `

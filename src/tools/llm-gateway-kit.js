@@ -3212,7 +3212,7 @@ export const LLM_GATEWAY_TOOLS = [
     category: "llm",
     price: "$0.50",
     description:
-      "OpenAI-compatible chat completions, premium tier: gpt-5, o3/o4, claude opus - paid per call in USDC over x402. Same wire format as /v1/chat/completions with the largest caps (64k chars in, 8192 tokens out).",
+      "OpenAI-compatible chat completions, premium tier: gpt-5, gpt-6 astra, o3 and o4-mini, claude opus, claude fable 5.1 - paid per call in USDC over x402. Same wire format as /v1/chat/completions with the largest caps (85k chars in, 8192 tokens out).",
     tags: SHARED_TAGS,
     discovery: { bodyType: "json", input: { ...EXAMPLE, model: "anthropic/claude-opus-4" }, inputSchema: INPUT_SCHEMA, output: { example: { ...EXAMPLE_OUT, model: "anthropic/claude-opus-4" } } },
     handler: makeHandler("v1-chat-premium"),

@@ -194,9 +194,9 @@ prepaid credits key, see [For humans](#for-humans-reports-monitors-and-prepaid-c
 | `POST /v1/auto/chat/completions` | $0.01 | **no model needed** - deterministic eval-ranked routing (code / reasoning / long / general), optional `quality: fast \| balanced \| best` at the same price, decision disclosed via `agent402_router` |
 | `POST /v1/chat/completions` | $0.02 | budget/mid models (gpt-4o-mini, claude haiku, gemini flash, deepseek, llama…) |
 | `POST /v1/pro/chat/completions` | $0.10 | mid-frontier (gpt-4o, gpt-4.1, claude sonnet, gemini pro, grok) |
-| `POST /v1/premium/chat/completions` | $0.50 | frontier (gpt-5, o3/o4, claude opus) |
+| `POST /v1/premium/chat/completions` | $0.50 | frontier (gpt-5 and gpt-6 astra, o3 and o4-mini, claude opus and claude fable 5.1) |
 | `POST /v1/grounded/chat/completions` | $0.03 | the auto router plus a live web search on every call - answers carry OpenAI-wire `url_citation` annotations; never cached |
-| `POST /v1/{nano,auto,pro,premium}/messages`, `POST /v1/messages` | tier price | the **Anthropic Messages wire** on every tier (same allowlist, caps and failover as the chat route) |
+| `POST /v1/{nano,auto,pro,premium}/messages`, `POST /v1/messages` | tier price | the **Anthropic Messages wire** on every tier (same allowlist, caps and failover as the chat route); `effort` (low to max) is the depth control on Claude 4.7+, older Claude takes `thinking.budget_tokens` |
 | `POST /v1/{nano,auto,pro,premium}/responses`, `POST /v1/responses` | tier price | the **OpenAI Responses wire** on every tier (function tools only, no server state) |
 | `POST /v1/embeddings` | $0.002 | OpenAI embeddings, batch up to 64 inputs - identical repeats are **free** (deterministic output, cache default-on) |
 | `POST /v1/rerank` | $0.002 | Cohere-compatible rerank (`{query, documents[], top_n}`), up to 50 documents, cache default-on |
