@@ -3,6 +3,18 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 const ENTRIES = [
   {
     date: "2026-09-18",
+    title: "Settlement evidence read from the chain on every rail we pay on, an identity of our own, and a monthly view",
+    items: [
+      "Settlement evidence no longer depends on a third party's registry. The Base scan seeds its wallet list from our OWN crawl as well as Coinbase's Bazaar: an origin we indexed ourselves, payTo read from its own live 402, could settle any volume on chain and stay settled:null, which the router reads as settlement_required forever. Reported by a seller whose payTo appears in none of the 15,636 Bazaar rows. It stays a seed and never evidence - the chain decides what settled, and the payTo binding that stops a seller inheriting another wallet's volume is untouched",
+      "Algorand was the same shape and worse: its candidates AND its proof both came from one facilitator catalog, so a seller we crawled ourselves was not even a candidate. Candidates now come from our index and proof from the chain (inbound USDC-ASA transfers to the payTo the seller advertises, self-transfers excluded), and a crawl-only route enters unproven so the router's floor still refuses it. Solana and Tempo already read their own chains, so all four chains we can spend on now prove settlement from the chain",
+      "Two seller-facing fixes, both found by sellers: the index detail view echoes a seller's own description and tags, so the surface you check after editing your OpenAPI can actually confirm the edit landed; and re-registering an origin re-reads its documents instead of only re-pricing, clearing that origin's crawl backoff and our cached validators first",
+      "An A2A AgentCard of our own at /.well-known/agent-card.json and /.well-known/agent.json, judged by the same validator we sell as a tool. It declares HTTP+JSON rather than the spec's default JSONRPC, because that default implies a JSON-RPC endpoint we do not run, and its capability flags are false rather than aspirational",
+      "An ERC-8004 identity: agent 94639 on Base, owned by the wallet our 402s name as payTo, pointing at /.well-known/agent-registration.json. The file carries every way to reach us with x402Support declared, and no supportedTrust, because without it the standard is discovery only and discovery is all we are claiming",
+      "/revenue takes a Monthly bucket beside Daily and Weekly. Dollars and transaction counts fold client-side; buyers do not, because a distinct count is not additive - a buyer paying on the 3rd and the 20th is one monthly buyer - so the month's union is computed server-side like the weekly one",
+    ],
+  },
+  {
+    date: "2026-09-18",
     title: "@x402 2.26 with our own boot handshake, Astra and Fable on premium, effort on the Messages wire, and a router that indexes",
     items: [
       "@x402/* 2.22.0 -> 2.26.0 on the server, the Stellar facilitator and agent402-mcp: the vendor client's spend controls (a $1 pegged-assets cap, default on since 2.23) are switched off on every client we build because our own bounds already hold the line (the buyer's maxAtomic re-check, the spend guard, the canary legs), and the facilitator handshake is driven by src/x402-boot-init.js so a facilitator that is dead at boot leaves paid routes answering 500 until a retry succeeds instead of exiting the process; every buyer workflow's client pin moved with it",
