@@ -2497,7 +2497,9 @@ export const SPEECH_MODELS = [
   {
     id: "hexgrad/kokoro-82m",
     aliases: ["kokoro-82m", "kokoro"],
-    costPerChar: 0.00000062,
+    // $4/M chars since the 2026-09 repricing (live: pricing.prompt 0.000004; was 0.00000062
+    // when the row was written). test-gateway-model-ids pins every speech row against the live catalog.
+    costPerChar: 0.000004,
     map: { alloy: "af_alloy", ash: "am_adam", ballad: "bm_george", coral: "af_bella", echo: "am_echo", fable: "bm_fable", onyx: "am_onyx", nova: "af_nova", sage: "af_sarah", shimmer: "af_sky", verse: "am_liam" },
     voices: new Set([
       "af_alloy", "af_aoede", "af_bella", "af_heart", "af_jessica", "af_kore", "af_nicole", "af_nova", "af_river", "af_sarah", "af_sky",

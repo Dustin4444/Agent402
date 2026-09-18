@@ -93,6 +93,21 @@ for (const [q, byCat] of Object.entries(AUTO_RANKINGS)) {
 }
 // 3. TTS chain: every link is in the live speech list.
 for (const link of SPEECH_MODELS) ok(speechIds.has(link.id), `speech chain link ${link.id} is live`);
+// 1b. Every speech row's costPerChar is at or above the live per-character
+//     price. TTS bills per INPUT char, so this row IS the worst-case bound the
+//     $0.06 chain and the $0.005 lite tier are priced under; Kokoro went
+//     0.00000062 -> 0.000004 (6.5x) in 2026-09 and nothing here noticed until
+//     an audit did (tts-lite was loss-making at its cap).
+{
+  const byId = new Map(speech.map((m) => [m.id, m]));
+  const under = [];
+  for (const link of SPEECH_MODELS) {
+    const live = Number(byId.get(link.id)?.pricing?.prompt);
+    if (!Number.isFinite(live)) continue; // liveness already asserted above; an unpriced row is not an under-count
+    if (live > link.costPerChar) under.push(`${link.id}: row ${link.costPerChar} < live ${live}/char`);
+  }
+  ok(under.length === 0, `no speech costPerChar row is under the live per-char price${under.length ? `:\n    ${under.join("\n    ")}` : ""}`);
+}
 // 4. Price floor: for every live model a tier admits, MODEL_COST must not price
 //    it UNDER its live list price while that price sits inside the tier's
 //    max_price bound (above the bound OpenRouter refuses the provider anyway).
