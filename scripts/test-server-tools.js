@@ -199,7 +199,7 @@ for (const [slug, tier] of SELLING) {
 }
 // A loop request that no longer fits is refused with guidance, never served at
 // a loss: premium's priciest model plus a full loop is over budget by design.
-throws(() => validateRequest({ model: "anthropic/claude-opus-5-fast", messages: msg(400), max_tokens: 4096, tools: [WS, WF, DT] }, "v1-chat-premium"),
+throws(() => validateRequest({ model: "anthropic/claude-fable-5.1", messages: msg(400), max_tokens: 4096, tools: [WS, WF, DT] }, "v1-chat-premium"),
   'drop the "tools" server-tool entries', "an unaffordable loop is refused pre-spend and names the fix");
 
 console.log("\n# 6. the loop budget rides on the OUTBOUND body, and only there");

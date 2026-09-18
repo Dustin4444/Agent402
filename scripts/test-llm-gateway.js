@@ -1258,9 +1258,10 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   const mid = meteredQuoteUsd({ model: "anthropic/claude-opus-5", messages: [{ role: "user", content: "write an essay" }], max_tokens: 2000 });
   const more = meteredQuoteUsd({ model: "anthropic/claude-opus-5", messages: [{ role: "user", content: "write an essay" }], max_tokens: 4000 });
   ok(mid.usd > M.price && more.usd > mid.usd, `the quote grows with max_tokens on a priced model ($${mid.usd} -> $${more.usd})`);
-  const huge = meteredQuoteUsd({ model: "anthropic/claude-opus-4.7-fast", messages: [{ role: "user", content: "x ".repeat(95000) }], max_tokens: 8192, n: 2 });
+  // gpt-5-pro ($15/$120) is the priciest admitted row; the -fast Claude ids left the catalog 2026-07-24.
+  const huge = meteredQuoteUsd({ model: "openai/gpt-5-pro", messages: [{ role: "user", content: "x ".repeat(95000) }], max_tokens: 8192, n: 2 });
   ok(huge.overCap === true && huge.usd === METERED_MAX_QUOTE_USD, `a body over the cap quotes the cap ($${METERED_MAX_QUOTE_USD}) and is flagged`);
-  let refused = null; try { validateRequest({ model: "anthropic/claude-opus-4.7-fast", messages: [{ role: "user", content: "x ".repeat(95000) }], max_tokens: 8192, n: 2 }, "v1-chat-metered"); } catch (e) { refused = e; }
+  let refused = null; try { validateRequest({ model: "openai/gpt-5-pro", messages: [{ role: "user", content: "x ".repeat(95000) }], max_tokens: 8192, n: 2 }, "v1-chat-metered"); } catch (e) { refused = e; }
   ok(refused?.statusCode === 400 && /per-call cap/.test(refused.message), "the handler refuses an over-cap body with a 400 (nothing charged) naming the cap");
   const bad = meteredQuoteUsd({ model: "nope/x", messages: [{ role: "user", content: "hi" }] });
   ok(bad.invalid === true && bad.usd === M.price, "an invalid body quotes the floor and is flagged (the handler's own 400 refuses it)");
@@ -1294,6 +1295,50 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   ok(explicit.model === "openai/gpt-4o-mini" && explicit.__defaultedModel === undefined, "an explicit model is never marked as defaulted");
   const routed = vr({ messages: [{ role: "user", content: "hi" }], max_tokens: 16 }, "v1-chat-auto", { clamp: false });
   ok(routed.__defaultedModel === undefined, "the auto tier routes; it does not default");
+}
+
+// ---- GPT-6 Astra + Claude Fable 5.1 on premium (2026-09-18 audit) ----
+// Live (2026-09-18): openai/gpt-6-astra $10/$50 headline, azure/us $11/$55,
+// 1.05M ctx, reasoning mandatory (low..max, no none), no temperature/top_p in
+// supported_parameters (OpenRouter drops them silently: measured 200 on both).
+// anthropic/claude-fable-5.1 $10/$50 on every endpoint, 1M ctx, reasoning
+// mandatory, new tokenizer (Claude 4.7+ family).
+{
+  const { costFor, noSamplingKnobs, clampToMargin, reasoningProfile, defaultReasoningFor, FLEX_MODELS } = await import("../src/tools/llm-gateway-kit.js");
+  const A = "openai/gpt-6-astra", F = "anthropic/claude-fable-5.1";
+  ok(tierFor(A) === "v1-chat-premium" && tierFor(F) === "v1-chat-premium" && tierFor("openai/gpt-6-astra-pro") === "v1-chat-premium" && tierFor("anthropic/claude-fable-5") === null, "astra, astra-pro and fable-5.1 home on premium; fable-5 (a different model) is not admitted");
+  ok(tierAllows("v1-chat-metered", A) && tierAllows("v1-chat-metered", F), "the metered tier admits both (union of the flat tiers)");
+  const ca = costFor(A), cf = costFor(F);
+  ok(ca.prompt === 11 && ca.completion === 55, `astra has its own cost row at the dearest routable endpoint ($${ca.prompt}/$${ca.completion}); the boundary-aware "openai/gpt-5" row never matched it`);
+  ok(cf.prompt === 10 && cf.completion === 50 && costFor("anthropic/claude-fable-5").prompt === 11, `fable-5.1 has its own row ($${cf.prompt}/$${cf.completion}); the "anthropic/claude" haiku blanket ($1/$5) would have priced it at a tenth`);
+  ok(costFor("anthropic/claude-opus-5").prompt === 5.5 && costFor("openai/gpt-5.6-sol").prompt === 5.5 && costFor("openai/gpt-5.6-sol").completion === 33 && costFor("anthropic/claude-sonnet-5").prompt === 2.2 && costFor("anthropic/claude-haiku-4.5").completion === 5.5, "rows carry the dearest default-tier endpoint price, not the headline (sol 5.5/33, opus-5 5.5/27.5, sonnet-5 2.2/11, haiku-4.5 1.1/5.5)");
+  ok(costFor("anthropic/claude-opus-5-fast") === costFor("anthropic/claude-opus-5") && costFor("anthropic/claude-opus-4.7-fast").prompt === 5.5, "the -fast rows are gone (the ids left the catalog 2026-07-24); a stale -fast id falls to its base model's row");
+  ok(tokenizerFactor(F) === NEW_TOKENIZER_FACTOR && tokenizerFactor(A) === 1, "fable-5.1 is priced on the newer tokenizer (x1.35); astra is o200k");
+  ok(reasoningProfile(A)?.prefix === "openai/gpt-6-astra" && !reasoningProfile(A).efforts.includes("none") && reasoningProfile("openai/gpt-6-astra-pro")?.prefix === "openai/gpt-6-astra" && reasoningProfile(F)?.id === F, "reasoning rows: astra (prefix, covers -pro, no none), fable-5.1 (exact)");
+  ok(defaultReasoningFor(A, "v1-chat-premium") === null && JSON.stringify(defaultReasoningFor(A, "v1-chat-metered")) === '{"effort":"low"}', "premium leaves the model default; metered injects low");
+  // The chat wire refuses what the upstream would drop silently, naming the model.
+  const tryV = (body) => { try { validateRequest(body, "v1-chat-premium"); return null; } catch (e) { return e; } };
+  const e1 = tryV({ model: A, messages: [{ role: "user", content: "hi" }], temperature: 0.2 });
+  ok(e1?.statusCode === 400 && /"temperature" is not supported by openai\/gpt-6-astra/.test(e1.message) && /reasoning.effort/.test(e1.message), `astra: temperature refused 400 naming the model and the lever (${e1?.message?.slice(0, 80)})`);
+  ok(tryV({ model: A, messages: [{ role: "user", content: "hi" }], top_p: 0.5 })?.statusCode === 400, "astra: top_p refused 400");
+  ok(tryV({ model: A, messages: [{ role: "user", content: "hi" }] }) === null && tryV({ model: A, messages: [{ role: "user", content: "hi" }], seed: 7, tools: [{ type: "function", function: { name: "t", parameters: { type: "object" } } }] }) === null, "astra: a plain body, seed and function tools (live: tool_calls returned on the chat wire) still validate");
+  ok(tryV({ model: "anthropic/claude-opus-5", messages: [{ role: "user", content: "hi" }], temperature: 0.2 }) === null && noSamplingKnobs(A) && noSamplingKnobs("gpt-6-astra-pro") && !noSamplingKnobs("openai/gpt-5.6-sol"), "the chat-wire sampling refusal is astra-only (opus-5 keeps temperature on this wire; the Messages wire has its own rule)");
+  const e2 = tryV({ model: A, messages: [{ role: "user", content: "hi" }], reasoning: { effort: "none" } });
+  ok(e2?.statusCode === 400 && /accepts: low, medium, high, xhigh, max/.test(e2.message) && /mandatory/.test(e2.message), `astra: reasoning.effort none refused with the model's list and the reason (${e2?.message?.slice(0, 90)})`);
+  ok(tryV({ model: A, messages: [{ role: "user", content: "hi" }], reasoning: { effort: "low" } }) === null && tryV({ model: "openai/gpt-5.6-sol", messages: [{ role: "user", content: "hi" }], reasoning: { effort: "none" } }) === null, "astra takes low; sol (which lists none) still takes none");
+  ok(tryV({ model: "openai/gpt-4o", messages: [{ role: "user", content: "hi" }], reasoning: { effort: "xhigh" } }) === null || tierFor("openai/gpt-4o") !== "v1-chat-premium", "a model with no reasoning row keeps the generic effort check only");
+  // Usable at premium's price: a 4k-char prompt leaves thousands of output tokens on either model.
+  for (const m of [A, F]) {
+    const b = validateRequest({ model: m, messages: [{ role: "user", content: "x".repeat(4000) }], max_tokens: 8192 }, "v1-chat-premium");
+    ok(b.max_tokens >= 4000, `${m}: at $0.50 with a 4k-char prompt the clamp leaves ${b.max_tokens} output tokens (usable, admitted)`);
+    const probe = { model: m, messages: [{ role: "user", content: "x".repeat(4000) }], max_tokens: 8192 };
+    clampToMargin(probe, TIERS["v1-chat-premium"], 0);
+    ok(probe.max_tokens === b.max_tokens, `${m}: clampToMargin agrees with validateRequest (${probe.max_tokens})`);
+  }
+  const listed = modelsList().data.map((m) => m.id);
+  ok(listed.includes(A) && listed.includes(F) && modelsList().data.find((m) => m.id === A).x402.tier === "v1-chat-premium", "/v1/models lists both under premium");
+  ok(!FLEX_MODELS.includes(A) && !FLEX_MODELS.includes(F), "neither is flex-first yet (astra's flex endpoint exists upstream but has not been live-verified through a flex call)");
+  ok(canonicalModel("claude-fable-5-1-20260724") === F && canonicalModel("gpt-6-astra") === A, "dated Anthropic id and bare OpenAI id resolve to the admitted ids");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

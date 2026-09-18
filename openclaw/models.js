@@ -77,7 +77,13 @@ export function routesFromCatalog(catalog, { pricing = "metered" } = {}) {
 
 /** Preferred primaries, in order: capable tool-callers that are cheap when
  *  metered. Only consulted among routes that can hold OpenClaw's prompt. */
-const PRIMARY_PREFERENCE = ["anthropic/claude-haiku-4.5", "openai/gpt-4.1-mini", "google/gemini-2.5-flash", "openai/gpt-4o-mini"];
+// Exported so the gateway's live-catalog guard (scripts/test-gateway-model-ids.js)
+// fails the day any of these ids carries an expiration date upstream: the first
+// pick is haiku-4.5, whose retirement floor is 2026-10-15 with no notice yet.
+// google/gemini-2.5-flash left this list 2026-09-18: the live catalog stamps it
+// expiration_date 2026-10-20, which is exactly what that guard was written to
+// catch on its first run.
+export const PRIMARY_PREFERENCE = ["anthropic/claude-haiku-4.5", "openai/gpt-4.1-mini", "openai/gpt-4o-mini"];
 
 /** The route OpenClaw should make its primary model: the first preferred id
  *  that fits OPENCLAW_MIN_INPUT_CHARS, else the cheapest fitting one, else

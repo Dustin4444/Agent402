@@ -11,8 +11,10 @@ Two tiers of audio transcription, paywalled via x402. Provide a URL to an audio 
 
 | Endpoint | Price | Model | Max duration |
 |---|---|---|---|
-| `POST /api/transcribe` | $0.03 | `gpt-4o-mini-transcribe` | 5 min |
+| `POST /api/transcribe` | $0.03 | `gpt-transcribe` | 4 min |
 | `POST /api/transcribe-pro` | $0.10 | `gpt-transcribe` | 10 min |
+
+Both tiers run the same model and differ only in the duration cap (the cap is what keeps worst-case upstream spend under 70% of the price). `gpt-4o-mini-transcribe`, which the standard tier used to send, is retired by OpenAI on 2027-02-26.
 
 Both tiers are **wallet-only** - every call burns real upstream transcription credit. See [[Security Model]].
 
@@ -27,7 +29,7 @@ mp3, mp4, mpeg, mpga, m4a, wav, ogg, flac, webm (max 25 MB)
 { "url": "https://example.com/audio.mp3", "language": "en" }
 
 // Response
-{ "model": "gpt-4o-mini-transcribe", "provider": "openai",
+{ "model": "gpt-transcribe", "provider": "openai",
   "text": "Hello, this is a sample transcription.",
   "language": "en", "duration": 3.5 }
 ```
