@@ -83,8 +83,15 @@ ok(A2A_WELL_KNOWN_PATHS[0] === "/.well-known/agent-card.json" && A2A_WELL_KNOWN_
   for (const f of ["type", "name", "description", "image", "services"]) {
     ok(reg[f] !== undefined, `registration carries the EIP's required field "${f}"`);
   }
+  ok(reg.type === "https://eips.ethereum.org/EIPS/eip-8004#registration-v1", "type is the EIP's own registration URI, not a schema.org class");
   ok(Array.isArray(reg.services) && reg.services.length >= 3, "it lists several ways to reach us, not just one");
-  ok(reg.services.some((s) => s.type === "MCP") && reg.services.some((s) => s.type === "A2A"), "including MCP and the A2A card");
+  // The spec names these fields { name, endpoint }. The first cut shipped
+  // { type, url }, which a conforming reader parses as zero usable services -
+  // caught by reading the EIP's own example rather than a summary of it.
+  ok(reg.services.every((x) => typeof x.name === "string" && typeof x.endpoint === "string"), "every service uses the spec's { name, endpoint } fields");
+  ok(!reg.services.some((x) => "url" in x || "type" in x), "and none carries the wrong field names");
+  ok(reg.services.some((x) => x.name === "MCP") && reg.services.some((x) => x.name === "A2A"), "including MCP and the A2A card");
+  ok(reg.x402Support === true, "x402Support is declared, which is the whole point of this seller");
   ok(!("registrations" in reg), "an UNREGISTERED deployment publishes no registrations array at all");
   ok(!("supportedTrust" in reg), "and claims no trust model, so the standard is used for discovery only");
   for (const bad of [undefined, "", "0", "abc", "12x"]) {

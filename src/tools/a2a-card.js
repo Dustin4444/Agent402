@@ -48,22 +48,33 @@ export function buildAgentRegistration({ baseUrl, agentId, toolCount } = {}) {
   const id = String(agentId ?? "").trim();
   const registered = /^[0-9]+$/.test(id) && id !== "0";
   return {
-    type: "https://schema.org/SoftwareApplication",
+    // The EIP's own type URI, not a schema.org class. The first cut used
+    // https://schema.org/SoftwareApplication, which no 8004 consumer looks for.
+    type: "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
     name: "Agent402",
     description:
       `Pay-per-call web tools for autonomous agents: ${catalog} settled in USDC over x402 or MPP, ` +
       "free via proof of work, or prepaid by card. No account and no API key.",
     image: `${base}/logo.png`,
+    // { name, endpoint }, the spec's field names. The first cut used
+    // { type, url }, which parses to zero usable services.
     services: [
-      { type: "MCP", url: `${base}/mcp` },
-      { type: "A2A", url: `${base}/.well-known/agent-card.json` },
-      { type: "OpenAPI", url: `${base}/openapi.json` },
-      { type: "x402", url: `${base}/.well-known/x402` },
-      { type: "Website", url: base },
+      { name: "web", endpoint: `${base}/` },
+      { name: "MCP", endpoint: `${base}/mcp` },
+      { name: "A2A", endpoint: `${base}/.well-known/agent-card.json`, version: "0.3.0" },
+      { name: "OpenAPI", endpoint: `${base}/openapi.json` },
+      { name: "x402", endpoint: `${base}/.well-known/x402` },
     ],
+    // The one optional field that is the whole point of this seller: every
+    // endpoint above is payable over x402.
+    x402Support: true,
+    active: true,
     ...(registered
       ? { registrations: [{ agentId: Number(id), agentRegistry: `${ERC8004_IDENTITY_REGISTRY.chain}:${ERC8004_IDENTITY_REGISTRY.address}` }] }
       : {}),
+    // supportedTrust stays absent: the EIP makes it optional and says that
+    // without it the standard is used for discovery only, which is exactly and
+    // only what we are claiming.
   };
 }
 
