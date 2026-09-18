@@ -82,6 +82,7 @@ const NETWORK = new Set([
   "/api/crypto-news", "/api/crypto-indicators", "/api/crypto-market-pulse",  // crypto-signals-kit.js
   "/api/site-map", "/api/site-crawl",  // crawl-kit.js
   "/api/perp-markets", "/api/perp-funding", "/api/perp-funding-screener", "/api/perp-open-interest", "/api/perp-klines", "/api/perp-orderbook", "/api/perp-basis",
+  "/api/perp-dexs", "/api/perp-dex-markets", "/api/perp-dex-limits",
   "/api/options-summary", "/api/crypto-options-chain", "/api/options-ticker", "/api/options-volume",
   "/api/token-safety", "/api/sol-token-safety", "/api/sol-token-report", "/api/sol-token-holders", "/api/sol-token-pairs", "/api/sol-token-search", "/api/sol-trending", "/api/sol-price", "/api/sol-swap-quote", "/api/sol-token-lookup",
   "/api/x-search-recent", "/api/x-user", "/api/x-user-tweets", "/api/x-tweet", "/api/x-users-lookup",
@@ -161,6 +162,7 @@ const NETWORK = new Set([
   "/api/edgar-company-lookup", "/api/edgar-filings", "/api/edgar-company-concept",
   "/api/edgar-company-facts", "/api/edgar-xbrl-frame",
   "/api/edgar-insider-trades", "/api/edgar-13f-holdings", "/api/edgar-recent-ipos", "/api/edgar-search",
+  "/api/edgar-13f-datasets", "/api/edgar-13f-dataset-head",
   "/api/company-financials",
   // Finance-kit: Yahoo Finance chart (quote + history) and Nasdaq earnings
   // calendar — keyless live upstreams; tolerate transient 502/503/504.
@@ -214,7 +216,7 @@ const NETWORK = new Set([
   // placeholder example inputs may also return 4xx (e.g. "election" keyword
   // search returns 0 results out of cycle, or a fake tokenId yields 404).
   "/api/polymarket-search", "/api/polymarket-market", "/api/polymarket-orderbook",
-  "/api/polymarket-price-history", "/api/kalshi-markets", "/api/kalshi-event",
+  "/api/polymarket-price-history", "/api/kalshi-markets", "/api/kalshi-event", "/api/kalshi-live-data", "/api/kalshi-weather-index",
   // MEV + L2 kit: Flashbots relay (keyless), DeFiLlama (keyless), and Alchemy
   // (503 without key). Tolerate transient upstream errors + 4xx from
   // placeholder example inputs (e.g. specific block-number lookups may miss).

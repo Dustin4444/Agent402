@@ -71,6 +71,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   "site-map", "site-crawl",  // crawl-kit.js (egress)
   // derivatives-kit (Hyperliquid/Deribit/DefiLlama egress), x-data-kit (X API), b2b-enrich-kit (Hunter/Apollo) - 2026-08-22
   "perp-markets", "perp-funding", "perp-funding-screener", "perp-open-interest", "perp-klines", "perp-orderbook", "perp-basis",
+  "perp-dexs", "perp-dex-markets", "perp-dex-limits",  // HIP-3 builder-deployed perp dexs (Hyperliquid info egress) - 2026-09-18
   "options-summary", "crypto-options-chain", "options-ticker", "options-volume",
   "sol-token-safety", "sol-token-report", "sol-token-holders", "sol-token-pairs", "sol-token-search", "sol-trending", "sol-price", "sol-swap-quote", "sol-token-lookup",
   "x-search-recent", "x-user", "x-user-tweets", "x-tweet", "x-users-lookup",
@@ -105,6 +106,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   "fred-release-observations",
   "edgar-company-lookup", "edgar-filings", "edgar-company-concept", "edgar-company-facts", "edgar-xbrl-frame",
   "edgar-insider-trades", "edgar-13f-holdings", "edgar-recent-ipos", "edgar-search",
+  "edgar-13f-datasets", "edgar-13f-dataset-head",  // sec.gov bulk 13F data sets (index page + bounded Range reads) - 2026-09-18
   "company-financials",
   "stock-quote", "stock-history", "earnings-calendar",
   "options-chain", "premarket-quote", "stock-dividends", "dividend-calendar",
@@ -211,7 +213,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   // all hit external HTTP; PoW would let one client farm the per-IP rate
   // limits we share with everyone else.
   "polymarket-search", "polymarket-market", "polymarket-orderbook", "polymarket-price-history",
-  "kalshi-markets", "kalshi-event",
+  "kalshi-markets", "kalshi-event", "kalshi-live-data", "kalshi-weather-index",
   // MEV + L2 kit: Flashbots relay (keyless, per-IP rate-limited), DeFiLlama
   // (per-IP shared with defi-tvl), and Alchemy (compute-unit quota shared with
   // chain-kit/dex-kit). All wallet-only for the same reasons.

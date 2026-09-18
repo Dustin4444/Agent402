@@ -1983,6 +1983,8 @@ jobs:
           t node scripts/test-health-envelope.js
           # EDGAR-kit tests (SEC ticker→CIK, filings, XBRL company-concept/facts/frames — live keyless APIs)
           t node scripts/test-edgar-kit.js
+          # Form 13F data sets: index parser + bounded Range reads of a real in-memory zip (offline)
+          t node scripts/test-edgar-13f-datasets.js
           # Deploy quiet gate (lull detection, fail-open paths — offline)
           t node scripts/test-quiet-gate.js
           # Self-check policy (transient-filtering, timeout, unknown-slug — the prod tool-failure alarm — offline)

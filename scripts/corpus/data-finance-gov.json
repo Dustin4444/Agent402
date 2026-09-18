@@ -1183,6 +1183,54 @@
           "reason_codes": 1
         }
       }
+    },
+    {
+      "slug": "edgar-13f-datasets",
+      "name": "the SEC's own listing page, newest set named",
+      "input": {},
+      "expect": {
+        "gt": {
+          "total": 40
+        },
+        "populated": [
+          "latest",
+          "dataSets[0].id",
+          "dataSets[0].url",
+          "dataSets[0].sizeMb"
+        ]
+      }
+    },
+    {
+      "slug": "edgar-13f-dataset-head",
+      "name": "a table other than the 396 MB INFOTABLE, read by range",
+      "input": {
+        "table": "COVERPAGE"
+      },
+      "expect": {
+        "equals": {
+          "table": "COVERPAGE"
+        },
+        "gt": {
+          "rowsReturned": 1,
+          "archiveBytes": 1000000
+        },
+        "populated": [
+          "dataSet.id",
+          "columns[0]",
+          "rows[0]",
+          "bytesRead"
+        ]
+      }
+    },
+    {
+      "slug": "edgar-13f-dataset-head",
+      "name": "an unknown table names the seven the SEC publishes",
+      "input": {
+        "table": "NOT_A_TABLE"
+      },
+      "expect": {
+        "status": 400
+      }
     }
   ]
 }

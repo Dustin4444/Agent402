@@ -83,6 +83,32 @@ const LLAMA = {
   ],
 };
 
+// HIP-3 builder-deployed dexs (hyperliquid.gitbook.io Info endpoint > Perpetuals,
+// probed live 2026-09-18): `perpDexs` is [null, dex...] with the native dex as
+// the null at index 0; dex-scoped `meta` rows carry growthMode / onlyIsolated /
+// marginMode / deployerFeeScale and the document carries collateralToken.
+const PERP_DEXS = [
+  null,
+  { name: "xyz", fullName: "XYZ", deployer: "0x88806a71d74ad0a510b350545c9ae490912f0888", oracleUpdater: null, feeRecipient: "0x83ffcfb1f2ad843c474b2e28df86c721cb869d3a", assetToStreamingOiCap: [["xyz:AAPL", "200000000.0"], ["xyz:TSLA", "100000000.0"]], subDeployers: ["0xaaa"], assetToFundingMultiplier: [["xyz:AAPL", "1.0"]], assetToFundingInterestRate: [], assetToFundingClamp: [] },
+  { name: "flx", fullName: "Felix Exchange", deployer: "0x2fab552502a6d45920d5741a2f3ebf4c35536352", oracleUpdater: "0x94757f8dcb4bf73b850195660e959d1105cfedd5", feeRecipient: "0xe2872b5ae7dcbba40cc4510d08c8bbea95b42d43", assetToStreamingOiCap: [], assetToFundingMultiplier: [] },
+];
+const DEX_META = {
+  universe: [
+    { szDecimals: 3, name: "xyz:TSLA", maxLeverage: 20, marginTableId: 20, growthMode: "enabled", deployerFeeScale: "1.0" },
+    { szDecimals: 3, name: "xyz:HOOD", maxLeverage: 10, marginTableId: 10, onlyIsolated: true, marginMode: "noCross", growthMode: "enabled", deployerFeeScale: "1.0" },
+    { szDecimals: 4, name: "xyz:GOLD", maxLeverage: 25, marginTableId: 25, deployerFeeScale: "1.0", isDelisted: true },
+  ],
+  marginTables: [[50, { description: "", marginTiers: [{ lowerBound: "0.0", maxLeverage: 50 }] }]],
+  collateralToken: 0,
+};
+const DEX_CTXS = [
+  { funding: "0.00000625", openInterest: "8837.246", prevDayPx: "425.0", dayNtlVlm: "158407743.45", premium: "-0.0000510343", oraclePx: "431.1", markPx: "431.2", midPx: "431.15", impactPxs: ["431.1", "431.2"], dayBaseVlm: "5374.1" },
+  { funding: "0.0000125", openInterest: "1000", prevDayPx: "100.0", dayNtlVlm: "5000000", premium: "0.0001", oraclePx: "101.0", markPx: "101.0", midPx: "101.0", impactPxs: ["101.0", "101.0"], dayBaseVlm: "50000" },
+  { funding: "0", openInterest: "0", prevDayPx: "1", dayNtlVlm: "0", premium: "0", oraclePx: "1", markPx: "1", midPx: "1" },
+];
+const DEAD_META = { universe: [{ szDecimals: 2, name: "flx:TSLA", maxLeverage: 10, isDelisted: true, growthMode: "enabled", deployerFeeScale: "1.0" }], marginTables: [], collateralToken: 360 };
+const DEX_LIMITS = { totalOiCap: "10000000000.0", oiSzCapPerPerp: "20000000000.0", maxTransferNtl: "3000000000.0", coinToOiCap: [["xyz:AAPL", "200000000.0"], ["xyz:SP500", "1250000000.0"], ["xyz:TSLA", "100000000.0"]] };
+
 // ----------------------------------------------------------------------------
 // Fetch router. `mode` switches the failure injections.
 // ----------------------------------------------------------------------------
@@ -103,7 +129,27 @@ globalThis.fetch = async (url, opts = {}) => {
     const body = JSON.parse(opts.body);
     if (mode === "hl-unknown-500") return res(500, "null");
     if (mode === "hl-unknown-200") return res(200, "null");
+    // HIP-3 dex-scoped reads (shapes copied from live responses 2026-09-18).
+    // An unknown dex answers HTTP 500 "null" on Hyperliquid, the same shape
+    // as an unknown coin.
+    if (body.dex !== undefined) {
+      // "dead" is a dex whose every market is delisted (six of ten live dexs
+      // read that way on 2026-09-18).
+      if (body.dex === "dead" && body.type === "metaAndAssetCtxs") return res(200, [DEAD_META, [DEX_CTXS[2]]]);
+      if (body.dex !== "xyz") return res(500, "null");
+      switch (body.type) {
+        case "metaAndAssetCtxs": return res(200, [DEX_META, DEX_CTXS]);
+        case "meta": return res(200, DEX_META);
+        case "perpDexLimits": return res(200, DEX_LIMITS);
+        case "perpDexStatus": return res(200, { totalNetDeposit: "1089269477.9947810173" });
+        case "perpsAtOpenInterestCap": return res(200, ["xyz:HOOD"]);
+        default: return res(422, "Failed to deserialize the JSON body into the target type");
+      }
+    }
     switch (body.type) {
+      case "perpDexs": return res(200, PERP_DEXS);
+      case "allPerpMetas": return mode === "no-all-metas" ? res(500, "boom") : res(200, [META, DEX_META, DEAD_META]);
+      case "perpDeployAuctionStatus": return res(200, { startTimeSeconds: 1789729200, durationSeconds: 111600, startGas: "500.0", currentGas: null, endGas: "500.0" });
       case "metaAndAssetCtxs": return res(200, [META, CTXS]);
       case "meta": return res(200, META);
       case "fundingHistory": return res(200, FUNDING_HISTORY.filter((f) => f.time >= body.startTime));
@@ -143,6 +189,7 @@ globalThis.fetch = async (url, opts = {}) => {
 const EXPECTED = {
   "perp-markets": "$0.003", "perp-funding": "$0.002", "perp-funding-screener": "$0.002", "perp-open-interest": "$0.001",
   "perp-klines": "$0.001", "perp-orderbook": "$0.002", "perp-basis": "$0.002",
+  "perp-dexs": "$0.002", "perp-dex-markets": "$0.003", "perp-dex-limits": "$0.002",
   "options-summary": "$0.005", "crypto-options-chain": "$0.004", "options-ticker": "$0.002", "options-volume": "$0.002",
 };
 ok(DERIVATIVES_TOOLS.length === Object.keys(EXPECTED).length, `${Object.keys(EXPECTED).length} tools exported (got ${DERIVATIVES_TOOLS.length})`);
@@ -316,6 +363,65 @@ const near = (a, b, eps = 1e-6) => Math.abs(a - b) < eps;
   ok(out.count === 1 && out.protocols[0].slug === "derive" && out.protocols[0].volume24hUsd === 3000000, "options-volume: ranked by 24h volume");
   const arb = await h("options-volume")({ chain: "arbitrum" });
   ok(arb.count === 1 && arb.protocols[0].slug === "hegic", "options-volume: chain filter");
+}
+
+// ----------------------------------------------------------------------------
+// HIP-3 builder-deployed perp dexs (2026-09-18)
+// ----------------------------------------------------------------------------
+{
+  // perp-dexs: the null native-dex slot is not a row; auction is shaped.
+  calls.length = 0;
+  const out = await h("perp-dexs")({});
+  ok(out.count === 2 && out.dexs.map((d) => d.dex).join(",") === "xyz,flx", `perp-dexs: the null at index 0 is not a row (${out.count} rows)`);
+  const xyz = out.dexs[0];
+  ok(xyz.fullName === "XYZ" && xyz.deployer === "0x88806a71d74ad0a510b350545c9ae490912f0888" && xyz.oracleUpdater === null && xyz.feeRecipient.startsWith("0x83ff"), "perp-dexs: identity fields ride through, an absent oracleUpdater reads null");
+  ok(xyz.assetsWithOiCap === 2 && xyz.totalStreamingOiCapUsd === 300000000 && xyz.subDeployers === 1 && xyz.fundingMultipliers === 1, "perp-dexs: streaming OI caps are counted and summed, sub-deployers and multipliers counted");
+  ok(out.dexs[1].assetsWithOiCap === 0 && out.dexs[1].totalStreamingOiCapUsd === null && out.dexs[1].subDeployers === null, "perp-dexs: a dex with no caps reads a null total (never a fabricated 0) and an absent subDeployers reads null");
+  ok(out.deployAuction.startTime === "2026-09-18T11:00:00.000Z" && out.deployAuction.endTime === "2026-09-19T18:00:00.000Z" && out.deployAuction.startGas === 500 && out.deployAuction.currentGas === null && out.deployAuction.active === false, "perp-dexs: the deploy auction is shaped and a null currentGas reads inactive");
+  ok(calls.filter((c) => c.url === __test.HL_INFO).length === 3, "perp-dexs: exactly three info reads (perpDexs + perpDeployAuctionStatus + allPerpMetas)");
+  ok(xyz.markets === 3 && xyz.activeMarkets === 2 && xyz.delistedMarkets === 1, "perp-dexs: market counts are read from allPerpMetas by coin prefix (active vs delisted)");
+  ok(out.dexs[1].markets === 1 && out.dexs[1].activeMarkets === 0 && out.dexs[1].delistedMarkets === 1, "perp-dexs: a wound-down dex reads 1 market, 0 active, 1 delisted");
+  mode = "no-all-metas";
+  const noMetas = await h("perp-dexs")({});
+  ok(noMetas.count === 2 && noMetas.dexs[0].markets === null && noMetas.dexs[0].deployer === xyz.deployer, "perp-dexs: an unreadable allPerpMetas leaves the rows with null counts, never fails the call");
+  mode = "ok";
+
+  // perp-dex-markets on a wound-down dex: an honest empty, never a hollow 200.
+  const dead = await h("perp-dex-markets")({ dex: "dead" });
+  ok(dead.count === 0 && dead.totalMarkets === 0 && dead.delistedMarkets === 1 && /delisted/.test(dead.note) && dead.collateralToken === 360, "perp-dex-markets: a dex whose every market is delisted says so (note + delistedMarkets), count 0");
+
+  // perp-dex-markets: dex-scoped metaAndAssetCtxs through the perp-markets shaper + the dex-only fields.
+  calls.length = 0;
+  const m = await h("perp-dex-markets")({ dex: "XYZ", limit: 5 });
+  ok(m.dex === "xyz" && m.collateralToken === 0 && m.totalMarkets === 2 && m.count === 2 && m.delistedMarkets === 1 && m.sort === "volume" && !("note" in m), "perp-dex-markets: dex lowercased, collateral token read, delisted rows dropped and counted, no note on a live dex");
+  ok(JSON.parse(calls[0].body).dex === "xyz" && JSON.parse(calls[0].body).type === "metaAndAssetCtxs", "perp-dex-markets: the info call carries the dex");
+  const tsla = m.markets[0];
+  ok(tsla.coin === "xyz:TSLA" && tsla.markPx === 431.2 && tsla.volume24hUsd === 158407743.45 && tsla.openInterestUsd === 3810620.48 && tsla.funding8h === 0.00005, "perp-dex-markets: the perp-markets row shape (mark, volume, OI usd, 8h funding) on a dex coin");
+  ok(tsla.dex === "xyz" && tsla.growthMode === "enabled" && tsla.onlyIsolated === false && tsla.marginMode === null && tsla.deployerFeeScale === 1, "perp-dex-markets: dex-only fields, absent marginMode reads null");
+  ok(m.markets[1].coin === "xyz:HOOD" && m.markets[1].onlyIsolated === true && m.markets[1].marginMode === "noCross", "perp-dex-markets: isolated-only + margin mode ride through");
+  const byOi = await h("perp-dex-markets")({ dex: "xyz", sort: "openInterest", limit: 1 });
+  ok(byOi.count === 1 && byOi.markets[0].coin === "xyz:TSLA", "perp-dex-markets: sort + limit");
+  await throws(h("perp-dex-markets")({}), 400, "perp-dex-markets: missing dex");
+  await throws(h("perp-dex-markets")({ dex: "not a dex!" }), 400, "perp-dex-markets: malformed dex");
+  await throws(h("perp-dex-markets")({ dex: "xyz", sort: "nope" }), 400, "perp-dex-markets: bad sort");
+  await throws(h("perp-dex-markets")({ dex: "zzz" }), 422, "perp-dex-markets: unknown dex (HL 500 null) -> 422 naming the dex", /Unknown perp dex "zzz"/);
+
+  // perp-dex-limits: three reads, caps ranked largest first, at-cap coins listed.
+  calls.length = 0;
+  const l = await h("perp-dex-limits")({ dex: "xyz", limit: 2 });
+  ok(l.totalOiCapUsd === 10000000000 && l.oiSzCapPerPerpUsd === 20000000000 && l.maxTransferNtlUsd === 3000000000 && l.totalNetDepositUsd === 1089269477.99, "perp-dex-limits: limits + net deposit are numbers");
+  ok(l.totalCoins === 3 && l.count === 2 && l.coinOiCaps[0].coin === "xyz:SP500" && l.coinOiCaps[0].oiCapUsd === 1250000000 && l.coinOiCaps[1].coin === "xyz:AAPL", "perp-dex-limits: per-coin caps ranked largest first and limited");
+  ok(l.atOiCap.count === 1 && l.atOiCap.coins[0] === "xyz:HOOD", "perp-dex-limits: coins at their OI cap are listed");
+  ok(calls.filter((c) => c.url === __test.HL_INFO).length === 3, "perp-dex-limits: exactly three info reads");
+  await throws(h("perp-dex-limits")({ dex: "zzz" }), 422, "perp-dex-limits: unknown dex -> 422");
+
+  // Pure shapers.
+  const { shapePerpDex, shapeDeployAuction, pairsToRows, takeDex } = __test;
+  ok(JSON.stringify(pairsToRows([["xyz:A", "1.5"], ["xyz:B", null], [null, "2"], "junk"], "cap")) === JSON.stringify([{ coin: "xyz:A", cap: 1.5 }, { coin: "xyz:B", cap: null }]), "pairsToRows: reads [coin, value] pairs, drops malformed rows, keeps a null value as null");
+  ok(shapeDeployAuction(null) === null && shapeDeployAuction({}).startTime === null && shapeDeployAuction({ startTimeSeconds: 10, durationSeconds: 5, currentGas: "1.0" }).active === true, "shapeDeployAuction: null in, null out; missing fields read null; a currentGas reads active");
+  ok(shapePerpDex({ name: "q" }).assetsWithOiCap === 0 && shapePerpDex({ name: "q" }).totalStreamingOiCapUsd === null, "shapePerpDex: a dex with no cap list reads 0 assets and a null total");
+  ok(takeDex(" XYZ ") === "xyz", "takeDex: trims and lowercases");
+  for (const bad of [undefined, "", "a b", "x".repeat(13), "x-y"]) { try { takeDex(bad); fail++; console.error(`ASSERT FAIL - takeDex accepted ${JSON.stringify(bad)}`); } catch (e) { ok(e.statusCode === 400, `takeDex refuses ${JSON.stringify(bad)}`); } }
 }
 
 // ----------------------------------------------------------------------------
