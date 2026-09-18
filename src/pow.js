@@ -106,6 +106,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   "fred-release-observations",
   "edgar-company-lookup", "edgar-filings", "edgar-company-concept", "edgar-company-facts", "edgar-xbrl-frame",
   "edgar-insider-trades", "edgar-13f-holdings", "edgar-recent-ipos", "edgar-search",
+  "edgar-13f-datasets", "edgar-13f-dataset-head",  // sec.gov bulk 13F data sets (index page + bounded Range reads) - 2026-09-18
   "company-financials",
   "stock-quote", "stock-history", "earnings-calendar",
   "options-chain", "premarket-quote", "stock-dividends", "dividend-calendar",
