@@ -29,7 +29,8 @@ ok(TRACKED.length >= 2, `tracks @x402/* plus ${TRACKED.length} Solana client pac
 
 // Workflows: literal pins.
 const wfDir = join(root, ".github", "workflows");
-const re = new RegExp(`(@x402/[a-z0-9-]+|${TRACKED.map((p) => p.replace(/[/.]/g, "\\$&")).join("|")})@(\\d+\\.\\d+\\.\\d+)`, "g");
+const escapeRe = (str) => str.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+const re = new RegExp(`(@x402/[a-z0-9-]+|${TRACKED.map(escapeRe).join("|")})@(\\d+\\.\\d+\\.\\d+)`, "g");
 const drift = [];
 let seen = 0;
 for (const f of readdirSync(wfDir).filter((f) => f.endsWith(".yml"))) {

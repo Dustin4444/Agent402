@@ -321,14 +321,14 @@ if (process.env.PREDICTION_LIVE_TEST === "1") {
 
   // 2. v2 down (5xx twice - fetchJson retries once) -> the CLOB route serves.
   urls = [];
-  globalThis.fetch = async (url) => { urls.push(String(url)); return String(url).includes("data-api.polymarket.com") ? json({ error: "down" }, 500) : json(legacyDoc); };
+  globalThis.fetch = async (url) => { urls.push(String(url)); return new URL(String(url)).hostname === "data-api.polymarket.com" ? json({ error: "down" }, 500) : json(legacyDoc); };
   r = await h("polymarket-price-history")({ tokenId: "1000000000000000000002", interval: "1d" });
   ok(r.source === "polymarket-clob" && r.count === 2 && r.last === 0.765, "a failing v2 falls back to the legacy CLOB route (source says so)");
   ok(urls.some((u) => u.startsWith("https://clob.polymarket.com/prices-history?market=1000000000000000000002")), "the legacy route is asked in its own dialect (market=)");
   ok(r.truncated === false, "the legacy document never claims a next page");
 
   // 3. v2 answers 200 with a shape the reader does not know -> fallback, not an empty answer.
-  globalThis.fetch = async (url) => (String(url).includes("data-api.polymarket.com") ? json({ prices: [[1, 0.5]] }) : json(legacyDoc));
+  globalThis.fetch = async (url) => (new URL(String(url)).hostname === "data-api.polymarket.com" ? json({ prices: [[1, 0.5]] }) : json(legacyDoc));
   r = await h("polymarket-price-history")({ tokenId: "1000000000000000000003", interval: "1h" });
   ok(r.source === "polymarket-clob" && r.count === 2, "a v2 document of an unknown shape degrades to the CLOB route instead of emptying the tool");
 

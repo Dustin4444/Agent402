@@ -5081,9 +5081,12 @@ export function routeQuery({ query, top, include, networkFilter, strictNetwork =
   // substring-match gzip, gunzip and html-strip, which outranked every IP
   // tool for "ip geolocation" (2026-08-28). The predicate is decided ONCE per
   // term here (termMatcher's rule) and applied per candidate row below.
-  const shortTerm = terms.map((term) => !(term.length >= 3 || isCjkTerm(term)));
-  const nTerms = terms.length;
-  const hitTerm = terms.map((term, k) => (shortTerm[k] ? wholeTokenMatcher(term) : (str) => str.includes(term)));
+  // queryTerms already caps at 32; the literal bound here is for the static
+  // analyser, which cannot see through it and reads the buyer's query as an
+  // unbounded loop bound (CodeQL js/loop-bound-injection, 2026-09-18).
+  const nTerms = Math.min(terms.length, 32);
+  const shortTerm = Array.from({ length: nTerms }, (_, k) => !(terms[k].length >= 3 || isCjkTerm(terms[k])));
+  const hitTerm = Array.from({ length: nTerms }, (_, k) => (shortTerm[k] ? wholeTokenMatcher(terms[k]) : (str) => str.includes(terms[k])));
   // Coinbase-measured 30-day unique payers per seller, read once per seller per
   // query instead of once per sort COMPARISON: on a pool where a common term
   // matches tens of thousands of rows, the comparator ran bazaarQualityFor()

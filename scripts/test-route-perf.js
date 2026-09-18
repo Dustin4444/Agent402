@@ -99,8 +99,8 @@ const cache = _cacheForTests();
   cache.set("https://dead.example", entry("https://dead.example", [{ slug: "dead-tool", name: "Dead", description: "unreachable marker" }], { history: [1, 0], originResponded: false }));
   cache.set("https://agent402.tools", entry("https://agent402.tools", [{ slug: "self-tool", name: "Self", description: "our own crawled entry marker" }]));
   const filt = slugs("marker");
-  ok(!filt.some((s) => s.startsWith("https://dead.example")), "a seller whose last crawl failed is not a candidate on the index path");
-  ok(!filt.some((s) => s.startsWith("https://agent402.tools")), "the crawled self origin is not a candidate on the index path");
+  ok(!filt.some((s) => String(s).split("|")[0] === "https://dead.example"), "a seller whose last crawl failed is not a candidate on the index path");
+  ok(!filt.some((s) => String(s).split("|")[0] === "https://agent402.tools"), "the crawled self origin is not a candidate on the index path");
 
   // clear() empties the pool and the index; re-seeding works.
   cache.clear();
