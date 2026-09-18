@@ -8,7 +8,9 @@
 //
 //   BURNER_KEY=0x... PROBE_URL=https://seller/route PROBE_METHOD=POST \
 //   PROBE_BODY='{"...":"..."}' PROBE_HEADERS='{"Idempotency-Key":"..."}' PROBE_MAX_USD=0.01 node scripts/external-seller-probe.js
-import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
+// Runs OUT OF TREE (copied to a temp dir by its workflow), so no import from src/:
+// the vendor client default since @x402/core 2.23 is a $1 pegged-assets cap and
+// this script bounds spend itself; the same line src/x402-spend-controls.js wraps.
 import { createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
@@ -36,7 +38,8 @@ const reqHeaders = () => ({ ...(body ? { "content-type": "application/json" } : 
 const account = privateKeyToAccount(pk.startsWith("0x") ? pk : `0x${pk}`);
 const { x402Client, wrapFetchWithPayment } = await import("@x402/fetch");
 const { registerExactEvmScheme } = await import("@x402/evm/exact/client");
-const client = disableVendorSpendControls(new x402Client());
+const client = new x402Client();
+client.setSpendControls?.(false);
 // Base only: the burner must never sign for another EVM chain a seller names.
 registerExactEvmScheme(client, { signer: account, networks: ["eip155:8453"] });
 

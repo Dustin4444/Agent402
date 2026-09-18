@@ -132,7 +132,11 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
         // not conclude a non-EVM rail pays to an EVM address (an outside
         // reader did, 2026-09-03). Only rails with a configured address appear.
         ...(payToByNetwork && Object.keys(payToByNetwork).length ? { payToByNetwork } : {}),
-        nonCustodial: true,
+        // A sentence, not a boolean: a boolean cannot carry the exception, and the
+        // exception is real (prepaid card credits and card-paid reports are held
+        // balances; see /security). Same rule as `deterministic` and
+        // `testedBeforeEveryDeploy`, pinned by test-copy-absolutes.
+        nonCustodial: "on the x402 and MPP rails these tools never hold, receive, sign or send funds: a payment settles wallet to wallet through the facilitator. Prepaid card credits and card-paid reports are the two paths where a balance is held; see /security.",
         ...(process.env.BASE_BUILDER_CODE ? { builderCode: process.env.BASE_BUILDER_CODE } : {}),
       },
       proofOfWork: {

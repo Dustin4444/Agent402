@@ -31,7 +31,9 @@
 // Env: BURNER_KEY (or KEY_FILE), POW_SECRET (marks the buys internal so they do
 // not read as external demand in the ledger), TARGET_URL (default prod).
 
-import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
+// Runs OUT OF TREE (copied to a temp dir by its workflow), so no import from src/:
+// the vendor client default since @x402/core 2.23 is a $1 pegged-assets cap and
+// this script bounds spend itself; the same line src/x402-spend-controls.js wraps.
 import { readFileSync, existsSync } from "node:fs";
 import { createHmac } from "node:crypto";
 
@@ -190,7 +192,8 @@ async function main() {
     import("viem/accounts"), import("@x402/core/client"), import("@x402/evm/exact/client"), import("@x402/fetch"),
   ]);
   const account = privateKeyToAccount(pk);
-  const client = disableVendorSpendControls(new x402Client());
+  const client = new x402Client();
+  client.setSpendControls?.(false);
   registerExactEvmScheme(client, { signer: account });
 
   // Mark the buys internal, or they read as external demand in our own ledger

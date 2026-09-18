@@ -217,13 +217,13 @@ ok(files.some((f) => /^scripts\/.*card.*\.js$/.test(f)),
     };
     return walk(m);
   };
-  for (const k of ["deterministic", "testedBeforeEveryDeploy"]) {
+  for (const k of ["deterministic", "testedBeforeEveryDeploy", "nonCustodial"]) {
     const v = grab(k);
     ok(typeof v === "string" && v.length > 40,
        `${k} is a sentence that states its own exceptions, not a boolean that cannot (${typeof v})`);
   }
-  ok(/model-backed/.test(flat) && /metered/.test(flat),
-     "...and those sentences actually name what is excluded");
+  ok(/model-backed/.test(flat) && /metered/.test(flat) && /credits/.test(flat),
+     "...and those sentences actually name what is excluded (the model-backed tools, the metered routes, the prepaid credits)");
 }
 
 // --- the catalog knows which of its own entries are model-backed -----------

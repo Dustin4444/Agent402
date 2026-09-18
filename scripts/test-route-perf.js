@@ -36,7 +36,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 const here = path.dirname(fileURLToPath(import.meta.url));
-const { routeQuery, _cacheForTests, _setBazaarQualityForTest, _routeIndexStatsForTest } = await import("../src/x402-index.js");
+const { routeQuery, _cacheForTests, _setBazaarQualityForTest, _routeIndexStatsForTest, warmRouteIndex } = await import("../src/x402-index.js");
 const { buildRoutePerfFixture, GOLDEN_QUERIES } = await import("./lib/route-perf-fixture.js");
 
 let pass = 0, fail = 0;
@@ -131,6 +131,12 @@ const cache = _cacheForTests();
   console.log(`# fixture: ${cache.size} sellers, ${totalRemoteTools} remote tools, built in ${(performance.now() - t0).toFixed(0)} ms`);
   ok(totalRemoteTools > 100000, `fixture is prod-sized (${totalRemoteTools} rows; prod 2026-09-18 had 108,095)`);
   const tw = performance.now();
+  // warmRouteIndex() builds the candidate index ahead of the first query (startCrawler
+  // schedules it 30 s after the warm start), so the first buyer after a deploy does
+  // not pay the ~1 s build; idempotent, and the query afterwards is the fast path.
+  const warmed = warmRouteIndex();
+  ok(warmed > 1000, `warmRouteIndex builds the index off the query path (indexed ${warmed} tools)`);
+  ok(warmRouteIndex() === warmed, "a second warm is a no-op (nothing pending, nothing stale)");
   routeQuery({ query: "warm up", top: 3, include: "all", ...ctx });
   console.log(`# first query (index build + decoration of every entry): ${(performance.now() - tw).toFixed(0)} ms`);
   const stats = _routeIndexStatsForTest();

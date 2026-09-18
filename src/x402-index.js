@@ -4098,6 +4098,7 @@ function _loadPersistedIndexCache(file = INDEX_CACHE_FILE) {
   } catch { return 0; }
 }
 
+const ROUTE_INDEX_WARM_DELAY_MS = Number(process.env.ROUTE_INDEX_WARM_DELAY_MS || 30_000);
 export function startCrawler(opts = {}) {
   if (crawlerTimer) return;
   loadSubmittedSeeds();
@@ -4108,15 +4109,23 @@ export function startCrawler(opts = {}) {
   // line says how long and the longest turn), else the legacy JSON in one
   // synchronous parse. The first crawl is deferred below, so the fill has
   // finished long before anything re-crawls.
+  const scheduleRouteIndexWarm = () => {
+    const t = setTimeout(() => {
+      try { const t0 = Date.now(); const n = warmRouteIndex(); console.log(`[x402-index] route index warmed: ${n} tools in ${Date.now() - t0} ms (off the first buyer's query)`); }
+      catch (e) { console.warn(`[x402-index] route index warm failed (the first query builds it instead): ${String(e?.message || e).slice(0, 120)}`); }
+    }, ROUTE_INDEX_WARM_DELAY_MS);
+    t.unref?.();
+  };
   if (opts.syncWarmStart) {
     const warmed = loadPersistedIndexCache();
     if (warmed) console.log(`[x402-index] warm-started ${warmed} sellers from ${INDEX_CACHE_FILE}`);
+    scheduleRouteIndexWarm();
   } else {
     loadPersistedIndexCacheAsync().then((n) => {
       if (n) return;
       const warmed = loadPersistedIndexCache();
       if (warmed) console.log(`[x402-index] warm-started ${warmed} sellers from ${INDEX_CACHE_FILE} (no NDJSON twin yet)`);
-    }).catch(() => {});
+    }).catch(() => {}).finally(scheduleRouteIndexWarm);
   }
   const { selfOrigin = null } = opts;
   // Kick off discovery first so the first crawl has registry-sourced seeds in
@@ -4967,6 +4976,13 @@ function routeIndexAddEntry(origin, v) {
   routeIdx.indexed.add(v);
   routeIdx.indexedTools += pool.length;
 }
+/** Build the /api/route candidate index now instead of on the first query.
+ *  On a prod-sized pool the first build is ~1 s of synchronous work; before
+ *  this the first buyer after every deploy paid it (3.9 s measured by an
+ *  outside review, 2026-09-18). startCrawler schedules it 30 s after the
+ *  warm start, past the post-listen stall. Idempotent: a built index is a
+ *  no-op here, and a later mutation still drains on the next query. */
+export function warmRouteIndex() { routeIndexSync(); return routeIdx.indexedTools; }
 function routeIndexSync() {
   const total = routeIdx.indexedTools + routeIdx.staleTools;
   if (routeIdx.staleTools > 0 && routeIdx.staleTools >= total * ROUTE_INDEX_REBUILD_STALE_SHARE) {

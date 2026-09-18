@@ -1015,6 +1015,20 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
           "reachable; the free tier is unaffected."
       );
     } else {
+      // Public answer to "who settles this rail": the FIRST client in
+      // facilitatorClients order whose probed kinds carry exact on the network
+      // (@x402 tries clients in that order), by its boot label only (no URLs,
+      // no keys). Read by the manifest at request time; empty until the probe
+      // has run. An outside reviewer could not name a facilitator from any
+      // machine surface (2026-09-18).
+      facilitatorFirstTriedByNetwork = new Map();
+      probed.forEach((kinds, i) => {
+        for (const k of kinds || []) {
+          if (String(k?.scheme || "").toLowerCase() === "exact" && k?.network && !facilitatorFirstTriedByNetwork.has(String(k.network))) {
+            facilitatorFirstTriedByNetwork.set(String(k.network), facilitatorLabels[i] || `#${i}`);
+          }
+        }
+      });
       const advertisedExact = new Set();
       for (const kinds of probed) {
         for (const k of kinds || []) {
@@ -1552,6 +1566,10 @@ function isFreeToServe(resource) {
 
 const VERIFY_FAILOVER = String(process.env.VERIFY_FAILOVER || "").toLowerCase();
 let facilitatorRegistry = [];
+let facilitatorFirstTriedByNetwork = new Map();
+/** { "eip155:8453": "CDP (Base)", ... }: the facilitator @x402 tries first per
+ *  network, from the boot /supported probe. Labels only. Empty before the probe. */
+export function facilitatorsByNetworkPublic() { return Object.fromEntries(facilitatorFirstTriedByNetwork); }
 export async function facilitatorSupportReport() {
   return Promise.all(facilitatorRegistry.map(async ({ label, client }) => {
     try {
