@@ -12,23 +12,14 @@
 //   { grounding: { generic: [{ url, title, snippets: [...] }], map: [] },
 //     sources: { "<url>": { title, hostname, age: [...] } } }
 //
-// PRICING ASSUMPTION - STATE IT, DO NOT LOSE IT.
-//   It is UNCONFIRMED whether LLM Context bills as a Search unit on the same
-//   plan our `search` tool consumes, or as its own metered product. Brave's
-//   docs place it under "Search APIs" next to Web search and it authenticates
-//   with the SAME subscription token we already hold, but neither fact is a
-//   billing statement, and no public price sheet for this endpoint was found
-//   at build time.
-//   We price it at $0.02 - identical to `search`, `search-news` and
-//   `search-images`, which are already sold at $0.02 against this same
-//   subscription. That is safe under either reading: if it bills as a Search
-//   unit, the margin is exactly the margin we already accept on `search`; if
-//   it bills on a separate (dearer) plan, $0.02 is still the most we charge
-//   for any single upstream Brave request today and a margin review has a
-//   named assumption to check rather than a silent one.
-//   DO NOT claim this tool is cheaper per unit than our other search tools -
-//   nothing measured supports that. When Brave publishes the rate, or the
-//   dashboard shows LLM Context as its own line, re-price from the invoice.
+// PRICING, CONFIRMED 2026-09-18 (Brave's pricing page, read that day): LLM
+//   Context bills as an ordinary Search request on the same subscription our
+//   `search` tool consumes, $0.005 per call, no separate plan. Priced at $0.02
+//   like `search`, `search-news` and `search-images`, so the margin is the one
+//   we already accept on every Brave-backed tool. Until that read this block
+//   said the billing unit was UNCONFIRMED and the price was chosen to be safe
+//   under either reading; the reasoning still holds, the uncertainty is gone.
+//   Re-price from the invoice if Brave ever lists LLM Context as its own line.
 //
 // Cost hygiene: every outbound call is metered through the SAME Brave meter
 // the search kit uses (`meterBraveCall`), so /__operator/stats and the
