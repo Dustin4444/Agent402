@@ -1326,6 +1326,106 @@
      "returnData": "^0x[0-9a-f]{64}$"
     }
    }
+  },
+  {
+   "slug": "perp-dexs",
+   "name": "every builder-deployed dex is a row with a deployer and a cap count",
+   "input": {},
+   "expect": {
+    "gte": {
+     "count": 3
+    },
+    "populated": [
+     "dexs[0].dex",
+     "dexs[0].deployer",
+     "dexs[0].assetsWithOiCap",
+     "deployAuction.startTime",
+     "deployAuction.durationSeconds"
+    ]
+   }
+  },
+  {
+   "slug": "perp-dex-markets",
+   "name": "a second live dex (para) sorted by open interest",
+   "input": {
+    "dex": "para",
+    "sort": "openInterest",
+    "limit": 3
+   },
+   "expect": {
+    "equals": {
+     "dex": "para",
+     "sort": "openInterest",
+     "count": 3
+    },
+    "gte": {
+     "totalMarkets": 3
+    },
+    "matches": {
+     "markets[0].coin": "^para:"
+    },
+    "populated": [
+     "markets[0].markPx",
+     "markets[0].openInterestUsd",
+     "markets[0].maxLeverage"
+    ]
+   }
+  },
+  {
+   "slug": "perp-dex-markets",
+   "name": "a wound-down dex (flx, every market delisted) is an honest empty",
+   "input": {
+    "dex": "flx"
+   },
+   "expect": {
+    "equals": {
+     "dex": "flx",
+     "count": 0,
+     "totalMarkets": 0
+    },
+    "gte": {
+     "delistedMarkets": 1
+    },
+    "matches": {
+     "note": "delisted"
+    }
+   }
+  },
+  {
+   "slug": "perp-dex-markets",
+   "name": "unknown dex is a 422 naming the dex",
+   "input": {
+    "dex": "zzzz"
+   },
+   "expect": {
+    "status": 422,
+    "matches": {
+     "error": "Unknown perp dex"
+    }
+   }
+  },
+  {
+   "slug": "perp-dex-limits",
+   "name": "flx limits carry a total cap and ranked per-coin caps",
+   "input": {
+    "dex": "flx",
+    "limit": 2
+   },
+   "expect": {
+    "equals": {
+     "dex": "flx",
+     "count": 2
+    },
+    "gt": {
+     "totalOiCapUsd": 0,
+     "totalCoins": 2
+    },
+    "populated": [
+     "coinOiCaps[0].coin",
+     "coinOiCaps[0].oiCapUsd",
+     "atOiCap.count"
+    ]
+   }
   }
  ],
  "pace": 3000

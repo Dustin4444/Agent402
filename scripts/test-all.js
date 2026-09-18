@@ -82,6 +82,7 @@ const NETWORK = new Set([
   "/api/crypto-news", "/api/crypto-indicators", "/api/crypto-market-pulse",  // crypto-signals-kit.js
   "/api/site-map", "/api/site-crawl",  // crawl-kit.js
   "/api/perp-markets", "/api/perp-funding", "/api/perp-funding-screener", "/api/perp-open-interest", "/api/perp-klines", "/api/perp-orderbook", "/api/perp-basis",
+  "/api/perp-dexs", "/api/perp-dex-markets", "/api/perp-dex-limits",
   "/api/options-summary", "/api/crypto-options-chain", "/api/options-ticker", "/api/options-volume",
   "/api/token-safety", "/api/sol-token-safety", "/api/sol-token-report", "/api/sol-token-holders", "/api/sol-token-pairs", "/api/sol-token-search", "/api/sol-trending", "/api/sol-price", "/api/sol-swap-quote", "/api/sol-token-lookup",
   "/api/x-search-recent", "/api/x-user", "/api/x-user-tweets", "/api/x-tweet", "/api/x-users-lookup",
