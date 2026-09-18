@@ -96,5 +96,30 @@ const ADDR = "0x" + "a".repeat(40);
   rmSync(dir, { recursive: true, force: true });
 }
 
+// A SELLER CAN SEE THEIR OWN PUBLISHED TEXT (2026-09-18). sellerDetail's tool
+// projection carried method/route/slug/name/price and dropped description and
+// tags, so the surface a seller checks after editing their OpenAPI could not
+// tell them the edit had landed - measured on a seller who deployed a
+// description and eight tags we had asked for and saw neither here, while the
+// index held both the whole time. Their own document, echoed back.
+{
+  const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = mkdtempSync(join(tmpdir(), "a402-detail-"));
+  const file = join(dir, "cache.json");
+  writeFileSync(file, JSON.stringify({ entries: [["https://meta.example", {
+    manifest: { name: "Meta" },
+    tools: [{ route: "/v1/compare", method: "POST", slug: "compare", name: "Rank a field", description: "Compare and rank candidates against the current task", tags: ["compare", "rank"], price: 0.01 }],
+    fetchedAt: Date.now(), error: null, history: [true],
+  }]] }));
+  loadPersistedIndexCache(file);
+  const d = sellerDetail("https://meta.example");
+  const row = (d?.tools || [])[0] || {};
+  ok((row.description || "").includes("rank candidates"), "sellerDetail echoes the seller's own description");
+  ok(Array.isArray(row.tags) && row.tags.includes("compare"), "sellerDetail echoes the seller's own tags");
+  rmSync(dir, { recursive: true, force: true });
+}
+
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

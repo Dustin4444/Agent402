@@ -645,12 +645,29 @@ export async function registerOrigin(origin, { crawl, replaces = null } = {}) {
     // live-402 quote enrichment for THIS origin, budget-exempt and bounded by
     // the same per-origin cap; probeDue backoffs still apply per route.
     try {
-      await enrichLiveQuotes(existing.tools, origin, { ignoreBudget: true });
+      // RE-READ THE DOCUMENTS FIRST. Until 2026-09-18 this branch ran only the
+      // quote enrichment, so "register again" was a lever over PRICE and
+      // nothing else: a seller who improved an operation's description, tags
+      // or name on our own advice had no way to ask us to look again, and
+      // waited for the shared rotation to reach them. Measured that day on a
+      // seller who deployed a 232-character description and eight tags we had
+      // asked for, whose row still carried neither two hours later while our
+      // parser read both correctly from their live document. The 2026-09-01
+      // fix that created this branch was scoped to the case that arrived
+      // first, which is the shape of bug this file keeps re-teaching.
+      // The backoff and the stored validators are cleared for THIS origin
+      // only, so a path we had backed off is re-asked and a document we would
+      // revalidate is read in full rather than answered 304 from our own ETag.
+      clearOriginProbeState(origin);
+      if (crawl) await crawl(origin); else await crawlSeller(origin);
+      const fresh = cache.get(origin);
+      const tools = Array.isArray(fresh?.tools) && fresh.tools.length ? fresh.tools : existing.tools;
+      await enrichLiveQuotes(tools, origin, { ignoreBudget: true });
       // The route pool memoizes DECORATED tools by entry-object identity
       // (remotePoolMemo), so prices learned into the existing entry are
       // invisible until the object is replaced - a fresh spread busts the
       // memo and the pool re-decorates with what was just learned.
-      cache.set(origin, { ...existing });
+      cache.set(origin, { ...(cache.get(origin) || existing) });
     } catch { /* listing still served */ }
     // Only a self-serve-submitted origin belongs in seller_registrations - this
     // early-return path also serves origins already known from Bazaar/registry
@@ -658,7 +675,7 @@ export async function registerOrigin(origin, { crawl, replaces = null } = {}) {
     // ecosystem seller as one of ours if recorded here.
     succession = await checkSuccession();
     if (submittedSeeds.has(origin)) recordSellerRegistrationSeen(origin, { settled: originHasSettled(origin), inheritFirstSeenFrom: succession?.ok ? replaces : null });
-    return { listed: true, origin, seller: sellerSummary(origin, existing), ...(succession ? { succession } : {}) };
+    return { listed: true, origin, seller: sellerSummary(origin, cache.get(origin) || existing), ...(succession ? { succession } : {}) };
   }
   // Cap applies only to origins that would grow the submitted set. An origin
   // already on the list (retrying after a prior failure) is not new growth,
@@ -2939,6 +2956,20 @@ export function noteProbeOutcome(originUrl, path, ok, now = Date.now()) {
   crawlBackoff.set(k, { fails, nextAt: now + step });
 }
 
+/** Clear every per-path crawl backoff for ONE origin, and the conditional-request
+ *  validators with them. Used only by an explicit re-registration: the seller is
+ *  asking us to look again, so a path we backed off (or a document we would
+ *  revalidate and be told is unchanged) must be re-read rather than skipped.
+ *  Scoped to the caller's own origin and rate-limited upstream (5/hour/IP). */
+export function clearOriginProbeState(originUrl) {
+  let cleared = 0;
+  for (const k of [...crawlBackoff.keys()]) {
+    if (k.startsWith(`${originUrl}|`)) { crawlBackoff.delete(k); cleared++; }
+  }
+  cleared += clearValidatorsFor(originUrl);
+  return cleared;
+}
+
 /** Convenience wrapper for the manifest path (the original call site). */
 export function manifestProbeDue(originUrl, now = Date.now()) {
   return probeDue(originUrl, WELL_KNOWN_PATH, now);
@@ -3096,6 +3127,17 @@ export function rememberValidator(originUrl, path, validators) {
   else crawlValidators.delete(k);
 }
 export function __validatorCountForTest() { return crawlValidators.size; }
+/** Drop every stored validator for one origin, so its next probe is an
+ *  UNCONDITIONAL read. Paired with the backoff clear on an explicit
+ *  re-registration: a seller who edited a document and asks us to look again
+ *  must not be answered 304 from our own remembered ETag. */
+export function clearValidatorsFor(originUrl) {
+  let n = 0;
+  for (const k of [...crawlValidators.keys()]) {
+    if (k.startsWith(originUrl)) { crawlValidators.delete(k); n++; }
+  }
+  return n;
+}
 
 /** Fetch and parse a JSON document, honouring 304.
  *
@@ -4549,6 +4591,17 @@ export function sellerDetail(originOrHost) {
         route: t.route || null,
         slug: t.slug || null,
         name: t.name || null,
+        // The seller's OWN published text, echoed back. Omitted until
+        // 2026-09-18, which made this view useless for the one thing a seller
+        // uses it for: checking whether the description and tags they just
+        // deployed reached our index. Measured that day - a seller deployed
+        // both on our advice, this view showed neither, and the row had
+        // carried them the whole time (a distinctive phrase from the new
+        // description ranked their route first on /api/route). We told them to
+        // improve metadata and then showed them a surface that could not
+        // confirm it landed. Nothing here is secret: it is their document.
+        description: t.description || null,
+        tags: Array.isArray(t.tags) && t.tags.length ? t.tags : undefined,
         price: t.price ?? null,
         ...priceConflictProjection(t),
         ...urlTemplateProjection(t),

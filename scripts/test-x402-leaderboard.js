@@ -9,6 +9,7 @@ import {
   finalizeLeaderboard,
   canonicalHost,
   rankBy,
+  mergeCrawledWallets,
 } from "../src/leaderboard.js";
 
 let pass = 0, fail = 0;
@@ -355,6 +356,59 @@ const original = [
 const snap = original.map((r) => r.name);
 rankBy(original, "calls");
 eq(original.map((r) => r.name), snap, "rankBy does not mutate input array");
+
+// --- mergeCrawledWallets -----------------------------------------------------
+// The Base scan drew its wallets from the Bazaar alone, so an origin we indexed
+// ourselves - payTo read from its own live 402 - could settle any volume and
+// stay settled:null, which dispatchEligibility reads as settlement_required
+// forever. Reported by a seller absent from all 15,636 Bazaar items. The Solana
+// board already scans every payTo the index knows; this is its Base twin.
+{
+  const bazaar = [
+    { wallet: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", network: "base", name: "Known", origins: ["https://known.example"], homepage: "https://known.example", endpoints: 7 },
+  ];
+  const crawled = new Map([
+    // Same wallet the Bazaar knows, seen by us at a SECOND origin.
+    ["0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", new Set(["https://known.example", "https://also-known.example"])],
+    // A wallet only our crawl knows: the reported case.
+    ["0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", new Set(["https://selfregistered.example"])],
+    ["not-an-address", new Set(["https://junk.example"])],
+  ]);
+  const { merged, added } = mergeCrawledWallets(bazaar, crawled, { key: "base" });
+  ok(added === 1, "one wallet added: the crawl-only one");
+  ok(merged.length === 2, "the junk key is refused and the known wallet is not duplicated");
+  const fresh = merged.find((r) => r.wallet === "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+  ok(!!fresh, "the crawl-only wallet is in the scan list");
+  ok(fresh.network === "base", "it carries the chain KEY, like Bazaar rows, not a CAIP-2 id");
+  ok(fresh.source === "crawl", "its provenance says crawl");
+  ok(fresh.endpoints >= 1, "endpoints is non-zero so a maxWalletsScan cap does not drop crawled wallets first");
+  const kept = merged.find((r) => r.wallet === "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+  ok(kept.name === "Known" && kept.endpoints === 7, "a wallet the Bazaar names keeps the Bazaar's name and count");
+  // Compared as PARSED origins, not by substring: CodeQL reads a bare
+  // includes() against a URL as incomplete sanitization, and the repo's rule
+  // after the 2026-09-18 batch is to compare the parsed host rather than
+  // suppress the alert - in a test as much as in served code.
+  const keptOrigins = new Set(kept.origins.map((u) => new URL(u).origin));
+  ok(keptOrigins.has("https://also-known.example"), "origins only our crawl knows are unioned in");
+  ok(kept.source === "both", "and its provenance says both");
+  const none = mergeCrawledWallets(bazaar, null, { key: "base" });
+  ok(none.added === 0 && none.merged === bazaar, "no map is a no-op, never a thrown scan");
+}
+
+// The merge is only worth anything if the SCAN calls it: a unit test on the
+// pure helper passes whether or not runLeaderboard ever reaches it. Pinned from
+// source, and the server must supply the seam (nothing in this module may
+// import the index).
+{
+  const { readFileSync } = await import("node:fs");
+  const lb = readFileSync(new URL("../src/leaderboard.js", import.meta.url), "utf8");
+  ok(/mergeCrawledWallets\(sellers, opts\.crawledWallets\(chain\), chain\)/.test(lb), "runLeaderboard folds the crawled wallets into the scan list");
+  ok(lb.indexOf("mergeCrawledWallets(sellers, opts.crawledWallets") > lb.indexOf("extractWalletsFromBazaar({ items }"), "and does it after the Bazaar extraction, so Bazaar names win");
+  ok(!/from "\.\/x402-index\.js"/.test(lb), "the leaderboard still imports nothing from the index");
+  const srv = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+  ok(/startLeaderboardRefresh\(\{[\s\S]{0,300}crawledWallets:/.test(srv), "the server supplies crawledWallets at boot");
+  ok(/crawledWallets: \(chain\) => allPayToOrigins\(/.test(srv), "from allPayToOrigins, the same source the Solana board uses");
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

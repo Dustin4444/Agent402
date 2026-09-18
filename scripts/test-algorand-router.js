@@ -6,7 +6,7 @@
 // No network, no server boot.
 import assert from "node:assert";
 import { pickPayableAccept, avmBuyerConfigured, getUpstreamBuyerAvm, avmBuyerStatus, BUYER_CHAINS } from "../src/x402-buyer.js";
-import { rankAlgorandResources } from "../src/algorand-sellers.js";
+import { rankAlgorandResources, mergeCrawledResources, proveCrawledResources } from "../src/algorand-sellers.js";
 import { buildRouteExecuteTool, EXTERNAL_CHAIN_BY_NETWORK } from "../src/tools/route-execute.js";
 
 let passed = 0, failed = 0;
@@ -111,6 +111,62 @@ const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
   delete process.env.ALGORAND_UPSTREAM_BUYER_MNEMONIC;
   const s = await avmBuyerStatus();
   ok(s.configured === false && s.status === "unconfigured", "avmBuyerStatus unconfigured without mnemonic (never pages)");
+}
+
+// --- our own index as a second source ---------------------------------------
+// GoPlausible's catalog was the ONLY source of both candidates and proof, so an
+// Algorand seller we crawled ourselves could never be routed to however much it
+// settled - the Base registry-dependence fixed the same day, one step worse,
+// because here such a seller was not even a candidate. Both halves are pure and
+// tested offline; the indexer read is injected.
+{
+  const facilitator = [
+    { url: "https://known.example/api/a", origin: "https://known.example", path: "/api/a", method: "GET", description: "known", amountAtomic: "1000", priceUsd: 0.001, verifs: 120 },
+  ];
+  const crawled = [
+    // Same resource the facilitator lists, plus the payTo only we know.
+    { url: "https://known.example/api/a", method: "GET", description: "ours", amountAtomic: "1000", payTo: "A".repeat(58) },
+    // A seller the facilitator has never seen.
+    { url: "https://selfreg.example/v1/x", method: "POST", description: "self-registered", amountAtomic: "5000", payTo: "B".repeat(58) },
+    { url: "http://insecure.example/v1/x", method: "GET", description: "plain http", amountAtomic: "5000", payTo: "C".repeat(58) },
+    { url: "https://noprice.example/v1/x", method: "GET", description: "no price", amountAtomic: "", payTo: "D".repeat(58) },
+  ];
+  const { merged, added } = mergeCrawledResources(facilitator, crawled);
+  ok(added === 1, `only the unseen https priced route is added (${added})`);
+  const kept = merged.find((r) => r.url === "https://known.example/api/a");
+  ok(kept.verifs === 120 && kept.description === "known", "a resource the facilitator lists keeps its witness count and wording");
+  ok(kept.payTo === "A".repeat(58) && kept.source === "both", "and records the payTo only our crawl knew");
+  const fresh = merged.find((r) => r.url === "https://selfreg.example/v1/x");
+  ok(fresh && fresh.verifs === 0, "a crawl-only route starts UNPROVEN, so the router's gate still refuses it");
+  ok(fresh.priceUsd === 0.005 && fresh.method === "POST", "its price and verb come from our own row");
+
+  // Proof comes from the chain, asked once per payTo, and only a real count counts.
+  let asked = [];
+  await proveCrawledResources(merged, async (p) => { asked.push(p); return p === "B".repeat(58) ? 61 : 0; });
+  ok(asked.length === 1 && asked[0] === "B".repeat(58), "the chain is asked once, only for the unproven crawl-only payTo");
+  ok(merged.find((r) => r.url === "https://selfreg.example/v1/x").verifs === 61, "a real inbound count becomes its settlement evidence");
+  ok(kept.verifs === 120, "the facilitator's own count is never overwritten by ours");
+
+  // An unreadable chain must never read as activity.
+  const two = mergeCrawledResources([], [{ url: "https://x.example/a", method: "GET", amountAtomic: "1000", payTo: "E".repeat(58) }]).merged;
+  await proveCrawledResources(two, async () => { throw new Error("indexer down"); });
+  ok(two[0].verifs === 0, "an indexer failure leaves the seller unproven, never trusted");
+  await proveCrawledResources(two, async () => "not a number");
+  ok(two[0].verifs === 0, "a junk count is refused too");
+  ok(rankAlgorandResources(two, "anything", { capUsd: 1, minVerifs: 50 }).length === 0, "and the router's gate refuses an unproven crawl-only seller end to end");
+}
+
+// The halves only matter if the catalog build reaches them and the server
+// supplies both: a pure-function test passes either way.
+{
+  const { readFileSync } = await import("node:fs");
+  const mod = readFileSync(new URL("../src/algorand-sellers.js", import.meta.url), "utf8");
+  ok(/mergeCrawledResources\(out, await sources\.crawledResources\(\)\)/.test(mod), "the catalog build folds in our crawled resources");
+  ok(/proveCrawledResources\(out, sources\.countInbound\)/.test(mod), "and proves them from the injected chain read");
+  ok(/catch \{ out = resources; \}/.test(mod), "a failure in either half falls back to the facilitator catalog untouched");
+  const srv = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+  ok(/setAlgorandCrawlSources\(\{[\s\S]{0,1600}countInbound:/.test(srv), "the server supplies both halves");
+  ok(/receiver === payTo && t\?\.sender !== payTo/.test(srv), "the inbound count excludes a seller paying itself");
 }
 
 console.log(`\ntest-algorand-router: ${passed} passed, ${failed} failed`);

@@ -44,9 +44,19 @@ is_sha "$SHA" || { echo "could not read a head SHA for PR #$PR (got '${SHA}')"; 
 # construction - the failure mode is refusing to merge, never merging unchecked.
 IS_FORK=$(gh pr view "$PR" --json isCrossRepository -q '.isCrossRepository' 2>/dev/null || echo "")
 HEAD_REF=$(gh pr view "$PR" --json headRefName -q '.headRefName' 2>/dev/null || echo "")
-if [ "$IS_FORK" = "true" ]; then
+# The same inversion applies to ANY head that is not our dev branch, not only a
+# fork: a Dependabot branch lives in this repo, so isCrossRepository is false,
+# but deploy.yml runs its lanes on the pull_request event there and never on a
+# push. Gating such a PR on a push run refuses it however green it is (measured
+# on #1392, 21 of 21 required contexts passing, no push run in existence). So
+# the rule is the BRANCH, not the ownership: our dev branch gates on its push
+# run, everything else on its pull_request run. An unreadable HEAD_REF is "",
+# which is not the dev branch, so it takes the pull_request path and finds no
+# run for a dev-branch SHA - still fail-closed, still refusing rather than
+# merging something unchecked.
+if [ "$IS_FORK" = "true" ] || [ "$HEAD_REF" != "$BRANCH" ]; then
   GATE_EVENT="pull_request"; GATE_BRANCH="$HEAD_REF"
-  echo "PR #$PR is from a FORK ($HEAD_REF) - gating on its pull_request run"
+  echo "PR #$PR head $HEAD_REF is not the dev branch ($BRANCH)${IS_FORK:+, fork=$IS_FORK} - gating on its pull_request run"
 else
   GATE_EVENT="push"; GATE_BRANCH="$BRANCH"
 fi
@@ -55,7 +65,11 @@ fi
 # (2026-08-25) this read the PREVIOUS head, judged its run, and refused - the
 # fix was pushed and never merged. When the local checkout is on the PR branch
 # and already pushed, insist the PR head has caught up with it first.
-if [ "$IS_FORK" != "true" ] && [ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)" = "$BRANCH" ]; then
+# It only applies when the local checkout IS the PR's head branch: merging a
+# Dependabot PR from our own dev checkout compared two unrelated heads and
+# refused forever (#1392). Same shape as the gate-event bug above, so the
+# condition names the PR's head ref rather than assuming it.
+if [ "$IS_FORK" != "true" ] && [ "$HEAD_REF" = "$BRANCH" ] && [ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)" = "$BRANCH" ]; then
   LOCAL=$(git rev-parse HEAD)
   if is_sha "$LOCAL" && [ "$LOCAL" != "$SHA" ]; then
     if [ "$(git rev-parse "origin/$BRANCH" 2>/dev/null || true)" = "$LOCAL" ]; then

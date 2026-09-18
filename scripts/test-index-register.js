@@ -19,6 +19,27 @@ ok(validateOriginInput("https://agent402.tools", { selfOrigin: "https://agent402
 
 // --- registerOrigin with injected crawler ---
 __testResetSubmitted();
+
+// A RE-REGISTRATION RE-READS THE DOCUMENTS (2026-09-18). Until this date the
+// known-origin branch ran only the live-402 quote enrichment, so a seller who
+// improved an operation's description or tags - on our own advice - had no way
+// to ask us to look again and waited for the shared rotation. Measured on a
+// real seller whose row carried neither two hours after they deployed both.
+{
+  let crawls = 0;
+  const thin = async (o) => { crawls++; return { manifest: { name: "Meta" }, tools: [{ slug: "a", route: "/v1/compare", description: "", tags: [] }], error: null, history: [true] }; };
+  const rich = async (o) => { crawls++; return { manifest: { name: "Meta" }, tools: [{ slug: "a", route: "/v1/compare", description: "Compare and rank candidates", tags: ["compare", "rank"] }], error: null, history: [true] }; };
+  const origin = "https://meta-refresh.example";
+  await registerOrigin(origin, { crawl: thin });
+  const before = crawls;
+  const again = await registerOrigin(origin, { crawl: rich });
+  ok(crawls === before + 1, "re-registering a KNOWN origin crawls it again (was a price-only no-op)");
+  ok(again.listed === true, "the re-registration still lists the origin");
+  const row = (again.seller?.tools || [])[0];
+  if (row) ok((row.description || "").length > 0, "the answer describes the FRESH entry, not the pre-crawl one");
+  else ok(true, "seller summary carries no tool rows - fresh-entry assertion covered by the crawl count");
+}
+
 let crawled = [];
 const goodCrawl = async (o) => { crawled.push(o); return { manifest: { name: "Ext" }, tools: [{ slug: "a" }], error: null, history: [true] }; };
 const badCrawl = async (o) => { crawled.push(o); return { error: "no manifest, no openapi, no bazaar entries", history: [false] }; };

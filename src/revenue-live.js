@@ -1400,7 +1400,7 @@ export function revenueChartSection() {
       <a href="/api/revenue/daily" style="font-family:var(--font-mono);font-size:12px;">raw data →</a>
     </div>
     <div class="rvz-controls" style="margin-top:12px">
-      <span class="rvz-seg" id="rvzMode"><button data-v="cum" class="on">Cumulative</button><button data-v="daily">Daily</button><button data-v="weekly">Weekly</button></span>
+      <span class="rvz-seg" id="rvzMode"><button data-v="cum" class="on">Cumulative</button><button data-v="daily">Daily</button><button data-v="weekly">Weekly</button><button data-v="monthly">Monthly</button></span>
       <span class="rvz-seg" id="rvzMetric"><button data-v="usd" class="on">Revenue $</button><button data-v="tx">Transactions</button><button data-v="buyers">Buyers</button></span>
     </div>
     <details class="rvz-adv" style="margin:0 0 12px;">

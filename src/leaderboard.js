@@ -226,6 +226,67 @@ export function extractWalletsFromBazaar(payload, chain = undefined) {
 }
 
 /**
+ * Fold the payTo wallets OUR OWN CRAWL knows into the scan list (2026-09-18).
+ *
+ * Until today the list came from Coinbase Bazaar alone, so settlement evidence
+ * on Base was only ever collected for wallets that registry happened to carry.
+ * An origin we indexed ourselves, whose payTo we read from its own live 402,
+ * could settle any volume and stay `settled: null` forever - and that field is
+ * what dispatchEligibility reads, so the router's verdict for such a seller was
+ * `settlement_required` permanently, whatever the chain said. Reported by a
+ * seller who had traced it through this file before writing to us, and
+ * corroborated here: their payTo is absent from all 15,636 Bazaar items.
+ *
+ * We had already built the right version once - the Solana board scans every
+ * payTo the index knows (allSolanaPayToOrigins) and depends on no registry.
+ * This is the Base twin of that, and it is deliberately a SEED, not evidence:
+ * a wallet enters the scan, the chain still decides what it settled, and
+ * evidencePayToVerdict still refuses a gate cleared on wallets an origin does
+ * not itself pay to. Measured cost when it shipped: about 63 wallets on top of
+ * 1,204 from the Bazaar, inside the existing chunking.
+ *
+ * `payToOrigins` is Map(lowercased wallet -> Set(origin)), the shape
+ * allPayToOrigins() returns. Injected rather than imported so this module
+ * keeps no dependency on the index and stays testable offline.
+ */
+export function mergeCrawledWallets(sellers, payToOrigins, chain = undefined) {
+  if (!payToOrigins || typeof payToOrigins.entries !== "function") return { merged: sellers, added: 0 };
+  // Match the shape extractWalletsFromBazaar emits: rows carry the chain KEY
+  // ("base"), not the CAIP-2 id, and a mixed field would split the board.
+  const network = chain?.key || "base";
+  const known = new Map(sellers.map((s) => [String(s.wallet).toLowerCase(), s]));
+  let added = 0;
+  for (const [wallet, originSet] of payToOrigins.entries()) {
+    if (typeof wallet !== "string" || !/^0x[0-9a-f]{40}$/.test(wallet)) continue;
+    const origins = [...(originSet || [])].filter((o) => typeof o === "string");
+    const existing = known.get(wallet);
+    if (existing) {
+      // Bazaar already names this wallet. Keep its row (its name and endpoint
+      // count are better evidence of how the seller presents itself) and only
+      // union in origins the crawl knows about, so attribution is not lost.
+      for (const o of origins) if (!existing.origins.includes(o)) existing.origins.push(o);
+      existing.source = existing.source === "crawl" ? "crawl" : "both";
+      continue;
+    }
+    // A wallet only our crawl knows. `endpoints` drives the optional
+    // maxWalletsScan cap's ordering, so it carries the number of origins
+    // advertising this wallet rather than 0, which would put every crawled
+    // wallet first in line to be dropped whenever a cap is set.
+    known.set(wallet, {
+      wallet,
+      network,
+      name: origins[0] ? origins[0].replace(/^https?:\/\//, "") : wallet,
+      origins,
+      homepage: origins[0] || null,
+      endpoints: Math.max(1, origins.length),
+      source: "crawl",
+    });
+    added++;
+  }
+  return { merged: [...known.values()], added };
+}
+
+/**
  * Canonical host for grouping sellers. Two listings on the same operator-owned
  * website should be one row even if the operator publishes them under separate
  * wallets — the leaderboard ranks operators, not addresses. We lowercase + strip
@@ -674,6 +735,17 @@ export async function runLeaderboard(overrides = {}) {
   const { items, total } = await fetchAllBazaarItems(opts.bazaarUrl, opts);
   let sellers = extractWalletsFromBazaar({ items }, chain);
   onProgress(`      ${items.length}/${total ?? "?"} listings → ${sellers.length} unique ${chain.label}-mainnet wallets`);
+  // Our own crawl's payTo wallets, folded in so a self-registered seller can
+  // accumulate settlement evidence without joining someone else's registry.
+  if (typeof opts.crawledWallets === "function") {
+    try {
+      const { merged, added } = mergeCrawledWallets(sellers, opts.crawledWallets(chain), chain);
+      sellers = merged;
+      if (added) onProgress(`      +${added} wallet(s) from our own crawl (not in the Bazaar) → ${sellers.length} total`);
+    } catch (e) {
+      onProgress(`      crawled-wallet seed skipped: ${String(e?.message || e).slice(0, 120)}`);
+    }
+  }
   if (!sellers.length) return emptySnapshot(opts, "no Base-mainnet payTo wallets found in Bazaar");
 
   // Optional cap: keep the on-chain scan tight by ranking by listing count first.

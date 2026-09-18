@@ -172,6 +172,8 @@ import { installEgressMeter, egressReport } from "./egress-meter.js";
 import { acpFeed, acpManifest } from "./acp.js";
 import { findTools, findRelatedSellers } from "./find.js";
 import { recordWish, getWishesAggregate, annotateServed, WISH_SERVED_MIN_SCORE } from "./wish.js";
+import { setAlgorandCrawlSources } from "./algorand-sellers.js";
+import { priceToMicroUsd } from "./x402-index.js";
 import { allPayToOrigins, indexSnapshot, sellerDetail, sellerEntry, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories, bazaarQualityEntries, bazaarQualityFor, indexWarmStartInProgress, quoteIsStale, priceDisagreesWithOrigin, networksNeedLiveVerify, looksLikeListingInjection, crawlToolsByOrigin, listSuccessions, revokeSuccession } from "./x402-index.js";
 import { startMppCrawler, registerMppOrigin, validateOriginInput as validateMppOriginInput, mppIndexSnapshot } from "./mpp-index.js";
 import { startMppLeaderboard, mppLeaderboardSnapshot } from "./mpp-leaderboard.js";
@@ -205,7 +207,7 @@ import { GOV_TOOLS } from "./tools/gov-kit.js";
 import { GEO_TOOLS } from "./tools/geo-kit.js";
 import { OCR_TOOLS } from "./tools/ocr-kit.js";
 import { AGENT_TOOLS } from "./tools/agent-kit.js";
-import { SAMPLE_AGENT_CARD } from "./tools/a2a-card.js";
+import { SAMPLE_AGENT_CARD, A2A_WELL_KNOWN_PATHS, buildOurAgentCard, buildAgentRegistration } from "./tools/a2a-card.js";
 import { BLOCKSCOUT_TOOLS, upstreamBuyerStatus } from "./tools/blockscout-kit.js";
 import { CAPTCHA_TOOLS } from "./tools/captcha-kit.js";
 import { SQL_GUARD_TOOLS } from "./tools/sql-guard-kit.js";
@@ -344,13 +346,13 @@ import { setOgImageVersion, setNavIndexProvider, ledgerShell, ledgerFooterCompac
 import { ledgerHomePage } from "./ledger-home.js";
 import { ledgerCatalogPage } from "./ledger-catalog.js";
 import { ledgerPricingPage } from "./ledger-pricing.js";
-import { revenueSnapshot, revenuePage, stellarRail, stellarActivity, algorandRail, algorandActivity, evmActivity, solanaActivity, robinhoodActivity, baseActivityViaSql, EVM as EVM_CHAINS, rpcCall } from "./revenue-live.js";
+import { revenueSnapshot, revenuePage, stellarRail, stellarActivity, algorandRail, algorandActivity, evmActivity, solanaActivity, robinhoodActivity, baseActivityViaSql, EVM as EVM_CHAINS, rpcCall, getJsonAcross, ALGORAND_INDEXER_BASES } from "./revenue-live.js";
 import { stellarPage, stellarSellers } from "./stellar-page.js";
 import { algorandPage, algorandSellers } from "./algorand-page.js";
 import { CHAIN_PAGES, marketSellers, marketOperatorCount, marketPage, marketPanelHtml } from "./market-page.js";
 import { sellPage } from "./sell.js";
 import { recordSellerVerification, sellerVerificationStatus } from "./seller-verification.js";
-import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledgerBuyersWeekly, ledgerBuyerConcentration, ledgerBuyerRetention, ledgerSyncState } from "./revenue-ledger.js";
+import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledgerBuyersWeekly, ledgerBuyersMonthly, ledgerBuyerConcentration, ledgerBuyerRetention, ledgerSyncState } from "./revenue-ledger.js";
 import { x402EconomySnapshot, economySnapshotCached, warmEconomySnapshot } from "./x402-economy.js";
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate, sharedPayToClaims } from "./settlement-proof.js";
 import { buildEvidenceBinding, baseLiveGate } from "./evidence-binding.js";
@@ -2504,6 +2506,34 @@ app.get("/api/gateway-status", async (req, res) => {
 app.get("/samples/a2a-agent-card.json", (_req, res) => {
   res.set("Cache-Control", "public, max-age=3600").json(SAMPLE_AGENT_CARD);
 });
+// OUR OWN AgentCard, at both paths the spec's clients read. We sold card
+// validation and card fetching and served no card of our own, which is the
+// one discovery surface an A2A client checks first. Registered BEFORE the
+// operator well-known store's catch-all so it can never be shadowed, the same
+// rule x402/security.txt/glama.json already follow. The catalog count is read
+// live so the description cannot go stale.
+// ERC-8004 registration file. The identity registry's agentURI must resolve
+// here; the agentId appears only once ERC8004_AGENT_ID is set, because the id
+// does not exist until the mint lands and publishing a guess would be a false
+// claim on a machine surface.
+app.get("/.well-known/agent-registration.json", (_req, res) => {
+  res.set("Cache-Control", "public, max-age=900").json(buildAgentRegistration({
+    baseUrl: BASE_URL,
+    agentId: process.env.ERC8004_AGENT_ID,
+    toolCount: Object.keys(CATALOG || {}).length,
+  }));
+});
+for (const p of A2A_WELL_KNOWN_PATHS) {
+  app.get(p, (_req, res) => {
+    res.set("Cache-Control", "public, max-age=900").json(buildOurAgentCard({
+      baseUrl: BASE_URL,
+      // The card's own version, kept in step with the OpenAPI document's so
+      // the two machine surfaces never disagree about which Agent402 this is.
+      version: "2.1.0",
+      toolCount: Object.keys(CATALOG || {}).length,
+    }));
+  });
+}
 app.get("/.well-known/glama.json", (_req, res) => {
   const email = process.env.GLAMA_MAINTAINER_EMAIL || "mike@agent402.tools";
   res.set("Cache-Control", "public, max-age=86400").json({
@@ -2696,6 +2726,9 @@ app.get("/api/revenue/daily", (_req, res) => {
       // client: a week's distinct count is a union of its days, and only the
       // ledger can take that union.
       buyersWeekly: ledgerBuyersWeekly(revenueWallets()),
+      // Monthly is its own server-side union for the same reason weekly is: a
+      // distinct count cannot be folded from finer buckets.
+      buyersMonthly: ledgerBuyersMonthly(revenueWallets()),
       // "200 buyers" means nothing if one wallet is most of the volume.
       concentration: ledgerBuyerConcentration(revenueWallets()),
       // All-time: of everyone who ever paid us, how many came back (see
@@ -7898,7 +7931,55 @@ bootStep("revenueSnapshot", () => revenueSnapshot(revenueWallets()).catch(() => 
 // the previous good snapshot rather than wiping it — a transient RPC outage
 // shouldn't make /api/leaderboard return nothing. Fire-and-forget so a slow
 // Bazaar walk can't delay boot or /health.
-bootStep("startLeaderboardRefresh", () => startLeaderboardRefresh());
+// crawledWallets: the Base scan's wallet list came from the Bazaar alone, so a
+// seller we indexed ourselves could settle on chain and still read settled:null
+// forever, which the router treats as settlement_required (2026-09-18). Same
+// source the Solana board already uses, injected rather than imported so the
+// leaderboard keeps no dependency on the index.
+// The Algorand catalog's two halves from our own index (2026-09-18). Before
+// this, GoPlausible's catalog was the only source of BOTH candidates and
+// proof, so an Algorand seller we crawled ourselves could never be routed to
+// however much it settled - the Base registry-dependence, one step worse.
+// Candidates: every priced Algorand route we know, with the payTo the seller
+// advertises. Proof: inbound USDC-ASA transfers to that payTo, read from the
+// indexer, capped and never fatal (an unreadable chain leaves verifs at 0,
+// which keeps the seller gated rather than trusting it).
+bootStep("setAlgorandCrawlSources", () => {
+  setAlgorandCrawlSources({
+    crawledResources: () => {
+      const out = [];
+      for (const [origin, tools] of crawlToolsByOrigin().entries()) {
+        for (const t of tools || []) {
+          const payTo = typeof t?.algorandPayTo === "string" ? t.algorandPayTo : null;
+          if (!payTo || !/^[A-Z2-7]{58}$/.test(payTo)) continue;
+          const micro = priceToMicroUsd(t?.price);
+          if (!(micro > 0)) continue;
+          const route = String(t?.route || "");
+          if (!route.startsWith("/")) continue;
+          out.push({
+            url: `${origin}${route}`,
+            method: String(t?.method || "GET").toUpperCase(),
+            description: String(t?.description || t?.name || ""),
+            amountAtomic: String(micro),
+            payTo,
+          });
+        }
+      }
+      return out;
+    },
+    countInbound: async (payTo) => {
+      const r = await getJsonAcross(ALGORAND_INDEXER_BASES, `/v2/accounts/${payTo}/transactions?asset-id=31566704&tx-type=axfer&limit=200`, { timeoutMs: 8000 });
+      if (!r.ok) return 0;
+      const txs = r.json?.transactions || [];
+      // Inbound only, and never the seller paying itself: the same rule the
+      // Base credit read applies (balance rose AND a non-self account paid).
+      return txs.filter((t) => t?.["asset-transfer-transaction"]?.receiver === payTo && t?.sender !== payTo).length;
+    },
+  });
+});
+bootStep("startLeaderboardRefresh", () => startLeaderboardRefresh({
+  crawledWallets: (chain) => allPayToOrigins(chain?.caip2 || "eip155:8453"),
+}));
 // Warm the on-chain economy snapshot once, off the boot path: the cache is
 // cold exactly once per deploy and only a cold cache blocks a visitor.
 bootStep("warmEconomySnapshot", () => warmEconomySnapshot());
