@@ -1307,7 +1307,9 @@ export function normaliseOpenapiTools(openapi, originUrl) {
       // many settlement-proven sellers do not use payment extensions yet.
       if (nonToolPath.test(rawPath) || nonToolPath.test(pathStr)) continue;
       if (op.deprecated === true) continue;
-      const annotated = openapiOperationHasPaymentSignal(op);
+      // One reader for every annotation dialect (see openapiOperationPayment):
+      // price, paid/free, the chains and the payTo the operation declares.
+      const pay = openapiOperationPayment(op);
       const tags = Array.isArray(op.tags) ? op.tags : [];
       out.push({
         seller: originUrl,
@@ -1318,8 +1320,14 @@ export function normaliseOpenapiTools(openapi, originUrl) {
         description: op.description || "",
         category: tags[0] || "other",
         tags,
-        price: op["x-price"] || op["x-x402-price"] || op["x-payment-info"]?.price?.amount || op["x-x402-price-usdc"] || null,
-        ...(documentDistinguishesPaidOperations ? { paid: annotated } : {}),
+        price: pay.price,
+        ...(pay.networks.length ? { networks: pay.networks } : {}),
+        ...(Object.keys(pay.payToByNetwork).length ? { payToByNetwork: pay.payToByNetwork } : {}),
+        // In a document that distinguishes paid operations, an unannotated
+        // sibling is free (paid:false) - the seller's own free routes list
+        // rather than vanish. An explicit `x-payment-required: false` reads
+        // free the same way; a priced or payment-declared op reads paid.
+        ...(documentDistinguishesPaidOperations ? { paid: pay.paid ?? false } : {}),
         // What this operation's own document GUARANTEES on success. Stored as
         // a compact tuple (the public object repeats a constant source string
         // and a constant false on every one of tens of thousands of rows), and
@@ -1997,13 +2005,113 @@ export function normaliseLlmsTxtTools(text, originUrl) {
   return out;
 }
 
+// ONE reader for every payment annotation dialect an OpenAPI operation can
+// carry (2026-09-18). There is no standard for these extensions and sellers
+// invent keys; one crawl cycle on prod logged unrecognized payment-ish keys
+// from ~250 origins, every one of whose operations was being indexed as FREE:
+// `x-price-usd` (101 origins; 0.001 or "$0.003"), `x-x402` (100; an accepts-
+// shaped object, with or without an amount, or `{price:"$0.01", scheme,
+// network_default}`), `x-payment` (37; `{protocol:"x402", network, asset,
+// payTo, amountUsd, amountAtomic}` or `{x402Version:2, scheme, network,
+// amount:"1000000", asset, payTo}`), `x-payment-required` (18; a boolean, no
+// price), `x-price-usdc` (16), `x-402` (13; `{price:"$0.05", priceMicros:
+// 50000, ...}` or `{priceUsd}` or `{price_usdc}`), plus a tail of
+// `x-payment-protocol`, `x-pricing`, `x-x402-network`, `x-x402-price-usd`,
+// `x-x402-payment`, `x-x402-price-atomic`. Each shape below was read off a
+// live document that day (fixtures in scripts/test-index-tools-catalog.js).
+//
+// Rules: a DOLLAR figure is read through `parseManifestPrice` (which already
+// descends one object level and normalises "$"); an ATOMIC amount
+// (`amountAtomic`, `x-x402-price-atomic`, or the accepts-shaped `amount`) is
+// read through `paymentFieldsFromAccepts`, i.e. divided by the asset's
+// decimals - the 2026-09-15 graded.sh lesson: an atomic "1000000" read as
+// dollars is a thousand-fold overquote on the seller's own listing;
+// `priceMicros` is micro-dollars. `x-payment-required: true` marks the op
+// PAID with the price unknown so the live-402 probe learns the figure;
+// `false` marks it FREE unless a price key beside it says otherwise (the more
+// specific declaration wins). Networks and payTo ride out so a row from one of
+// these documents is chain-matched like a manifest row instead of
+// `network_unknown`. Returns `paid` as true | false | null (null = the
+// operation carries no payment annotation at all).
+const PAYMENT_ANNOTATION_KEYS = [
+  "x-price", "x-x402-price", "x-payment-info", "x-x402-price-usdc",
+  "x-price-usd", "x-price-usdc", "x-x402-price-usd", "x-x402-price-atomic",
+  "x-x402", "x-402", "x-payment", "x-x402-payment", "x-pricing", "x-payment-protocol",
+  "x-x402-network", "x-payment-required",
+];
+const SCALAR_PRICE_KEYS = ["x-price", "x-x402-price", "x-x402-price-usdc", "x-price-usd", "x-price-usdc", "x-x402-price-usd"];
+const OBJECT_PAYMENT_KEYS = ["x-payment-info", "x-x402", "x-402", "x-payment", "x-x402-payment", "x-pricing", "x-payment-protocol"];
+const isScalar = (v) => typeof v === "number" || typeof v === "string";
+export function openapiOperationPayment(op) {
+  const out = { paid: null, price: null, networks: [], payToByNetwork: {} };
+  if (!op || typeof op !== "object") return out;
+  const lower = new Map(Object.keys(op).map((k) => [k.toLowerCase(), op[k]]));
+  const get = (k) => lower.get(k);
+  let annotated = false;
+  const addNetwork = (raw) => {
+    if (typeof raw !== "string" || !raw.trim()) return null;
+    const n = normalizeNetwork(raw.trim());
+    if (n && !out.networks.includes(n)) out.networks.push(n);
+    return n;
+  };
+  const takePrice = (p) => { if (p && !out.price) out.price = p; };
+  // Atomic amounts: through the accepts reader (divides by the asset's decimals).
+  const takeAtomic = (obj, amount) => {
+    if (amount == null || amount === "" || !Number.isFinite(Number(amount))) return;
+    const f = paymentFieldsFromAccepts([{ ...obj, amount: String(amount) }]);
+    if (f.price != null) takePrice(`$${f.price}`);
+  };
+  for (const k of SCALAR_PRICE_KEYS) {
+    const v = get(k);
+    if (v == null) continue;
+    annotated = true;
+    if (isScalar(v) || (v && typeof v === "object")) takePrice(parseManifestPrice({ price: v }));
+  }
+  const atomic = get("x-x402-price-atomic");
+  if (atomic != null) { annotated = true; takeAtomic({ network: get("x-x402-network") }, atomic); }
+  if (get("x-x402-network") != null) { annotated = true; addNetwork(get("x-x402-network")); }
+  for (const k of OBJECT_PAYMENT_KEYS) {
+    const v = get(k);
+    if (v == null) continue;
+    annotated = true;
+    if (isScalar(v)) { takePrice(parseManifestPrice({ price: v })); continue; }
+    if (typeof v !== "object" || Array.isArray(v)) continue;
+    // Dollar figures first: price_usd / priceUsd / price (scalar or object) and
+    // the dialect-specific spellings.
+    takePrice(parseManifestPrice(v));
+    if (!out.price && v.amountUsd != null && Number.isFinite(Number(v.amountUsd))) takePrice(`$${Number(v.amountUsd)}`);
+    if (!out.price && v.price_usdc != null && Number.isFinite(Number(v.price_usdc))) takePrice(`$${Number(v.price_usdc)}`);
+    if (!out.price && v.priceMicros != null && Number.isFinite(Number(v.priceMicros))) takePrice(`$${Number(v.priceMicros) / 1e6}`);
+    // Then atomic: an explicit amountAtomic, or the x402 accepts field `amount`
+    // when the object is accepts-shaped (parseManifestPrice refuses to read
+    // that one as dollars for exactly this reason).
+    if (!out.price && v.amountAtomic != null) takeAtomic(v, v.amountAtomic);
+    if (!out.price && acceptShaped(v) && v.amount != null) takeAtomic(v, v.amount);
+    const net = addNetwork(v.network ?? v.network_default ?? v.chain ?? null);
+    if (net && typeof v.payTo === "string" && v.payTo) out.payToByNetwork[net] = v.payTo;
+    if (Array.isArray(v.accepts)) {
+      const f = paymentFieldsFromAccepts(v.accepts);
+      if (!out.price && f.price != null) takePrice(`$${f.price}`);
+      for (const n of f.networks) addNetwork(n);
+      Object.assign(out.payToByNetwork, f.payToByNetwork);
+    }
+  }
+  const required = get("x-payment-required");
+  if (typeof required === "boolean") annotated = true;
+  else if (typeof required === "string" && /^(true|false)$/i.test(required.trim())) annotated = true;
+  const requiredBool = typeof required === "boolean" ? required : (typeof required === "string" && /^(true|false)$/i.test(required.trim()) ? required.trim().toLowerCase() === "true" : null);
+  if (!annotated) return out;
+  // Paid when priced, when payment is declared required, or when payment terms
+  // (an object dialect) are declared at all; free only on an explicit `false`
+  // with no price beside it.
+  if (out.price) out.paid = true;
+  else if (requiredBool === false) out.paid = false;
+  else out.paid = true;
+  return out;
+}
+
 function openapiOperationHasPaymentSignal(op) {
-  return Boolean(op && typeof op === "object" &&
-    (op["x-price"] || op["x-x402-price"] || op["x-payment-info"] ||
-      // Seen in the wild 2026-07-27 (cloudworldmodel.ai): a price-in-USDC
-      // variant key on operations that carry no other payment extension —
-      // 3 of their 17 paid operations were silently dropped without it.
-      op["x-x402-price-usdc"]));
+  return openapiOperationPayment(op).paid === true;
 }
 
 // Annotation-dialect watch. There is no standard for payment extensions, so
@@ -2012,7 +2120,7 @@ function openapiOperationHasPaymentSignal(op) {
 // and drops from the paid set (x-x402-price-usdc hid 3 of a seller's 17 paid
 // ops until they emailed, 2026-07-27). Surface every payment-ish x- key we
 // don't recognize so the next dialect announces itself in the logs instead.
-const RECOGNIZED_PAYMENT_KEYS = new Set(["x-price", "x-x402-price", "x-payment-info", "x-x402-price-usdc"]);
+const RECOGNIZED_PAYMENT_KEYS = new Set(PAYMENT_ANNOTATION_KEYS);
 // Payment-ish by name but known to carry no price — never worth a log line.
 const BENIGN_PAYMENT_LOOKALIKES = new Set(["x-x402-call-type"]);
 const PAYMENTISH = /pric|pay|cost|fee|402|usdc|usd\b/i;
