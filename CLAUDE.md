@@ -102,7 +102,20 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
     CodeQL + Socket (add new lane names there when splitting). Merge with `scripts/merge-on-green.sh <pr>` (push-event run, every lane green,
     pinned to the tested SHA). One-line test steps are collapsed into per-lane blocks (original step
     names ride as comments; the guards read the literal `node scripts/test-*.js` lines); `node_modules`
-    is cache-restored by lockfile hash and `npm ci` skipped on a hit.
+    is cache-restored by lockfile hash and `npm ci` skipped on a hit. **GitHub's `cache-mode` was measured and
+    declined (2026-09-18):** it is a workflow-level or `jobs.<id>` key (`read` / `write` / `write-only` / `none`,
+    changelog 2026-09-10; NOT an actions/cache input, and the runner already prints `Cache mode: write` at job
+    setup on our pushes). It buys this workflow nothing: on a dev push nothing warms the cache ahead of the 17 lanes
+    (`tree-gate` runs only on a push to `main`), so on a lockfile change every lane runs its own `npm ci` (10-20 s)
+    and every lane's post step tars node_modules (~130 MB zstd, 3 s) BEFORE the reserve call; one lane wins the
+    reserve and 16 are refused "another job may be creating this cache" with nothing uploaded (measured on run
+    35342070700). A `read` lane would pay the same 3 s, because the pinned actions/cache v6.1.0 (`55cc83`, which the
+    `v6` tag also resolves to) bundles @actions/cache 6.1.0, which learns the mode only from the server's refusal;
+    the skip-before-tar landed in @actions/cache 6.2.0 and only untagged `main` carries it. Even on that build the
+    whole saving is 16 x 3 s of post-cleanup per miss run (about 23 lockfile changes a month, parallel lanes, a
+    public repository where minutes are unbilled) against a single writer lane whose failure leaves the next run
+    cold (17 x 19 s). A hit run already skips the save outright. Revisit only if a warm-first job ever precedes
+    the lanes on dev pushes.
   - `[probe]` → live prod probe · `[paytest]`/`[drain]`/`[purl]`
   - **A push to `main` tests + deploys unconditionally, no marker required.** A PR merge commit
     (usually just the PR title) never carries our marker convention, so `main` can't be
