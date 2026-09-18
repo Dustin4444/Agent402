@@ -1046,6 +1046,12 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   globalThis.fetch = async () => { tries++; return { ok: false, status: 503, text: async () => JSON.stringify({ error: { message: "capacity" } }) }; };
   let ge = null; try { await grounded.handler({ messages: msg1(), max_tokens: 64 }, { header: () => undefined }); } catch (x) { ge = x; }
   ok(g.maxAttempts === 2 && tries === 2 && ge?.statusCode === 502, `grounded chain makes at most 2 upstream attempts on failure (made ${tries}, surfaced ${ge?.statusCode})`);
+  // Engine decision re-measured 2026-09-18 (live, one call per engine on the
+  // same prompt): Parallel turbo is $0.001 against Exa's $0.007 but returned
+  // archive pages for citations and a wrong answer on a non-English prompt
+  // where Exa was right, so the tier keeps Exa. Pinned so a silent switch to
+  // the cheaper engine needs the measurement redone, not just the price read.
+  ok(g.web.engine === "exa" && g.web.max_results === 5 && g.fixedUpstreamUsd === 0.007 && g.extraInputTokens === 4500, "grounded tier stays on Exa (auto, $0.007, 4,500 injected-token headroom) after the 2026-09-18 Parallel comparison");
   globalThis.fetch = realFetch;
   delete process.env.OPENROUTER_API_KEY;
 }

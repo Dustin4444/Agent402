@@ -473,6 +473,33 @@ export const TIERS = {
   // fixedUpstreamUsd + extraInputTokens. Results come back as OpenAI-wire
   // `annotations` (url_citation). Never cached: the web moves. Listed after
   // auto so tierFor() keeps resolving explicit models to their home tiers.
+  //
+  // ENGINE DECISION, re-measured 2026-09-18 against OpenRouter's live plugin
+  // docs and one call per engine (gpt-4o-mini, max_results 5, the same
+  // "current Node.js release + Active LTS" prompt, truth read from
+  // nodejs.org/dist/index.json: v26.9.0 / v24.21.0 that day):
+  //   engine "exa" (mode auto, $0.007/request):        usage.cost $0.00734,
+  //     1,745 prompt tokens, 5 citations (GitHub releases, CHANGELOG,
+  //     nodejs.org, the release schedule); answer one release stale.
+  //   engine "parallel" mode "turbo" ($0.001/request): usage.cost $0.00156,
+  //     3,094 prompt tokens (Parallel injects ~2x the excerpt text), 5
+  //     citations, ALL of them version-archive pages (v26.0.0 ... v26.7.0)
+  //     rather than a release or schedule page; answer identical to Exa's.
+  //   engine "parallel" mode "basic" ($0.005/request): usage.cost $0.00543,
+  //     2,118 prompt tokens, 5 citations, answer one release fresher than
+  //     both; the price gap to Exa is $0.002, not worth a sample of one.
+  //   The same prompt in German: Exa answered v26.9.0 / v24.21.0 with the
+  //     right dates (correct); Parallel turbo answered v26.8.1 / v24.20.0
+  //     with wrong dates, citing five localized archive pages - Parallel
+  //     documents turbo/fast as "English and Japanese", and that is what a
+  //     buyer would notice.
+  // So the engine stays Exa: a grounded answer is sold on its citations, and
+  // Parallel's cheaper modes returned weaker ones on both prompts and a wrong
+  // answer on the non-English one. Parallel's own doc prices: turbo/fast
+  // $0.001, basic/advanced $0.005 per request, all "up to 10 results, then
+  // $0.001 per additional result" (same additional-result rule as Exa).
+  // Re-run the pair before switching; the recipe is in the memory note for
+  // the 2026-09-18 audit.
   "v1-chat-grounded": {
     reasoningDefault: "lowest",
     route: "POST /v1/grounded/chat/completions",
@@ -949,6 +976,14 @@ const TOKEN_SAFETY = 1.15;   // headroom for BPE drift across vendors
 //       web_fetch, engine "openrouter" (direct HTTP fetch): "Free". Exa and
 //         Parallel are $1 per 1,000 fetches; Firecrawl is BYOK.
 //       datetime: "no additional cost beyond standard token usage".
+//     Re-read 2026-09-18: the server-tool price table now also lists
+//       Parallel (turbo/fast $0.001, basic/advanced $0.005 per request) and
+//       Perplexity ($0.005). Exa stays pinned here for the same reason the
+//       grounded tier keeps it (see v1-chat-grounded): measured side by side
+//       that day, Parallel's $0.001 modes returned archive pages where Exa
+//       returned release and schedule pages, and answered wrong on a
+//       non-English prompt. The price table would allow the switch; the
+//       results do not.
 //   * `max_characters` / `max_content_tokens` - a hard per-result content cap,
 //     which is what bounds the TOKEN side.
 //
