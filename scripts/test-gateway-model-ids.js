@@ -93,20 +93,30 @@ for (const [q, byCat] of Object.entries(AUTO_RANKINGS)) {
 }
 // 3. TTS chain: every link is in the live speech list.
 for (const link of SPEECH_MODELS) ok(speechIds.has(link.id), `speech chain link ${link.id} is live`);
-// 1b. Every speech row's costPerChar is at or above the live per-character
-//     price. TTS bills per INPUT char, so this row IS the worst-case bound the
-//     $0.06 chain and the $0.005 lite tier are priced under; Kokoro went
-//     0.00000062 -> 0.000004 (6.5x) in 2026-09 and nothing here noticed until
-//     an audit did (tts-lite was loss-making at its cap).
+// 1b. Every speech row's costPerChar is at or above the DEAREST live endpoint
+//     for that model, not the catalog headline. TTS bills per INPUT char, so
+//     this row IS the worst-case bound the $0.06 chain and the $0.005 lite tier
+//     are priced under, and the headline can be any one endpoint: Kokoro's
+//     headline read 0.000004 (Together) while DeepInfra served at 0.00000062,
+//     and Voxtral's headline read 0.000016 while one Mistral endpoint bills
+//     0.0000176. Provider pinning is not honoured on /audio/speech (measured
+//     2026-09-18), so the max is the only honest bound. Nothing here noticed
+//     until an audit did (tts-lite was loss-making at its old cap).
 {
-  const byId = new Map(speech.map((m) => [m.id, m]));
   const under = [];
   for (const link of SPEECH_MODELS) {
-    const live = Number(byId.get(link.id)?.pricing?.prompt);
-    if (!Number.isFinite(live)) continue; // liveness already asserted above; an unpriced row is not an under-count
-    if (live > link.costPerChar) under.push(`${link.id}: row ${link.costPerChar} < live ${live}/char`);
+    let prices = [];
+    try {
+      const j = await (await fetch(`https://openrouter.ai/api/v1/models/${link.id}/endpoints`, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(30_000) })).json();
+      prices = (j?.data?.endpoints || []).map((e) => Number(e?.pricing?.prompt)).filter(Number.isFinite);
+    } catch { /* fall through to the headline */ }
+    const headline = Number(speech.find((m) => m.id === link.id)?.pricing?.prompt);
+    if (Number.isFinite(headline)) prices.push(headline);
+    if (!prices.length) continue; // liveness already asserted above; an unpriced row is not an under-count
+    const live = Math.max(...prices);
+    if (live > link.costPerChar) under.push(`${link.id}: row ${link.costPerChar} < dearest live endpoint ${live}/char (${prices.length} price(s) read)`);
   }
-  ok(under.length === 0, `no speech costPerChar row is under the live per-char price${under.length ? `:\n    ${under.join("\n    ")}` : ""}`);
+  ok(under.length === 0, `no speech costPerChar row is under its dearest live endpoint price${under.length ? `:\n    ${under.join("\n    ")}` : ""}`);
 }
 // 4. Price floor: for every live model a tier admits, MODEL_COST must not price
 //    it UNDER its live list price while that price sits inside the tier's

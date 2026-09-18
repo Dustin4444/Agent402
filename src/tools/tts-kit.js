@@ -17,13 +17,20 @@
 // voice. The premium tiers are untouched - a buyer who wants the OpenAI voice
 // still pays for it.
 //
-// CAP CUT 2,000 -> 800 CHARS (2026-09-18): OpenRouter repriced Kokoro to
-// $0.000004/char (6.5x), which made the 2,000-char worst case $0.008 against a
-// $0.005 price - a loss on every full-length call, found by an upstream audit,
-// not by any guard (the live model guard checked ids, never speech cost rows;
-// it pins them now). The price stays: "$0.005, ten times cheaper than /api/tts"
-// is the front door and the reason the tier exists. At 800 chars the worst
-// case is $0.0032, 64% of price, under the 70% bound.
+// CAP CUT 2,000 -> 800 CHARS (2026-09-18): Kokoro gained a second OpenRouter
+// endpoint (Together, $0.000004/char, 6.5x DeepInfra's $0.00000062), and the
+// worst case has to be the DEAREST endpoint because nothing we send can keep a
+// call off it - measured: `provider.order`/`max_price` are ignored on
+// /audio/speech, a Together pin still served DeepInfra. At 2,000 chars that
+// worst case is $0.008 against a $0.005 price, a loss on any full-length call
+// that lands there; found by an upstream audit, not by any guard (the live
+// model guard checked ids, never speech cost rows; it pins them against the
+// dearest endpoint now). The price stays: "$0.005, ten times cheaper than
+// /api/tts" is the front door and the reason the tier exists. At 800 chars the
+// worst case is $0.0032, 64% of price, under the 70% bound. Billing unit is
+// the JS string length (measured: ASCII, CJK, emoji and accented text of equal
+// .length each billed the same 100 "tokens" = 400 chars), so `text.length`
+// counts exactly what OpenRouter bills.
 
 import { redactSecrets } from "./redact.js";
 import { SPEECH_MODELS, OPENROUTER_ATTRIBUTION } from "./llm-gateway-kit.js";
