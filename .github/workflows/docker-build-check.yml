@@ -1,0 +1,90 @@
+name: Docker build check
+
+# Builds the repo Dockerfile exactly as Railway does and boots the image through
+# its real ENTRYPOINT (docker-entrypoint.sh: root chowns /data, then gosu drops
+# to the node user and execs `node start.js`), then requires /health to answer
+# 200. Dispatch-only. It exists because a native-module bump can install fine
+# on a developer machine (a macOS prebuilt) and still fail `npm ci --omit=dev`
+# inside node:22-slim, which has no compiler: the July 2026 better-sqlite3 13.0.1
+# attempt did exactly that and the deploy fail-safed. Nothing on the machines
+# that prepare these bumps runs Docker, so this workflow is the build proof.
+# Dispatch it on the branch that carries the bump BEFORE trusting the bump.
+#
+# The volume is mounted the way Railway mounts it (a root-owned /data that does
+# not exist at build time), so the entrypoint's chown path runs for real. FREE_MODE
+# and X402_SYNC_ON_START=false keep the boot offline: no facilitator handshake,
+# no payment rail, no crawl. The check is that the image builds and the server
+# it contains comes up and serves; nothing here proves a paid path.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-boot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+
+      - name: Build the image
+        run: docker build --progress=plain -t agent402-build-check:${{ github.sha }} .
+
+      - name: Boot the image through its entrypoint and wait for /health
+        env:
+          IMAGE: agent402-build-check:${{ github.sha }}
+        run: |
+          set -eu
+          # A root-owned volume dir, like Railway's /data mount at runtime.
+          VOL="$(mktemp -d)"
+          sudo chown root:root "$VOL"
+          docker run -d --name a402 \
+            -p 3000:3000 \
+            -v "$VOL:/data" \
+            -e PORT=3000 \
+            -e FREE_MODE=true \
+            -e X402_SYNC_ON_START=false \
+            -e X402_INDEX_CRAWL=off \
+            -e MPP_INDEX_CRAWL=off \
+            -e MONITOR_SCHEDULER=off \
+            -e WALLET_DIGEST=off \
+            -e FREE_ALERTS=off \
+            -e FOLLOWUPS=off \
+            -e SOLANA_LEADERBOARD=off \
+            "$IMAGE"
+          echo "waiting for /health (up to 180 s)"
+          for i in $(seq 1 90); do
+            if [ "$(docker inspect -f '{{.State.Running}}' a402 2>/dev/null)" != "true" ]; then
+              echo "::error::container exited before /health answered"
+              docker logs a402 | tail -80
+              exit 1
+            fi
+            code="$(curl -s -o /tmp/health.json -w '%{http_code}' http://127.0.0.1:3000/health || true)"
+            if [ "$code" = "200" ]; then
+              echo "/health answered 200 after ~$((i*2)) s"
+              head -c 600 /tmp/health.json; echo
+              # The entrypoint must have dropped root: PID 1 (the server) runs as
+              # the node user. node:22-slim ships no `ps`, so read /proc directly
+              # and compare uids (docker exec itself runs as root here, which is
+              # why `id -un` inside the container would prove nothing).
+              uid1="$(docker exec a402 sh -c "awk '/^Uid:/{print \$2}' /proc/1/status")"
+              nodeuid="$(docker exec a402 id -u node)"
+              echo "PID 1 uid: $uid1 (node is $nodeuid)"
+              [ -n "$uid1" ] && [ "$uid1" = "$nodeuid" ] || { echo "::error::PID 1 is not running as the node user"; exit 1; }
+              docker logs a402 | grep -m1 '\[entrypoint\]' || true
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::/health did not answer 200 within 180 s (last code: $code)"
+          docker logs a402 | tail -80
+          exit 1
+
+      - name: Container log tail (always)
+        if: always()
+        run: docker logs a402 2>&1 | tail -60 || true
+
+      - name: Stop the container
+        if: always()
+        run: docker rm -f a402 >/dev/null 2>&1 || true
