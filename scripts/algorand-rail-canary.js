@@ -46,6 +46,7 @@
 // Usage:
 //   CANARY_DRY=1 node scripts/algorand-rail-canary.js                 # preview, no keys, no spend
 //   ALGORAND_BURNER_MNEMONIC=… node scripts/algorand-rail-canary.js --out report.json
+import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
 import { writeFileSync } from "node:fs";
 import { createHmac } from "node:crypto";
 // The single source of truth for which routes legitimately advertise EVM rails
@@ -124,13 +125,13 @@ if (!DRY) {
   const { AlgorandClient } = await import("@algorandfoundation/algokit-utils/algorand-client");
   const algorandClient = AlgorandClient.fromConfig({ algodConfig: { server: algodUrl, token: "" } })
     .setDefaultValidityWindow(1000);
-  client = new x402Client();
+  client = disableVendorSpendControls(new x402Client());
   client.register("algorand:*", new ExactAvmScheme(signer, { algorandClient }));
   http = new x402HTTPClient(client);
   payerAddress = account.addr.toString();
 } else {
   const { x402Client, x402HTTPClient } = await import("@x402/core/client");
-  client = new x402Client();
+  client = disableVendorSpendControls(new x402Client());
   http = new x402HTTPClient(client);
 }
 

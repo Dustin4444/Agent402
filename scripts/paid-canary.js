@@ -18,6 +18,7 @@
 // Exit codes: 0 = buying works (warnings allowed) · 1 = buying broken · 2 = misconfig
 //   · 3 = underfunded (settlement proven; burner empty) · 4 = green but burner low
 //   · 5 = partial-rail (tools settled; one or more chain rail legs failed)
+import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
 import { readFileSync, existsSync, appendFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createHmac } from "node:crypto";
@@ -865,7 +866,7 @@ async function main() {
     import("viem/accounts"), import("@x402/core/client"), import("@x402/evm/exact/client"), import("@x402/fetch"),
   ]);
   const account = privateKeyToAccount(pk);
-  const client = new x402Client();
+  const client = disableVendorSpendControls(new x402Client());
   registerExactEvmScheme(client, { signer: account });
 
   // Mark every canary request as internal traffic: X-Heartbeat-Token =
@@ -991,7 +992,7 @@ async function main() {
       ]);
       const bytes = raw.startsWith("[") ? Uint8Array.from(JSON.parse(raw)) : new Uint8Array(kit.getBase58Encoder().encode(raw));
       const signer = await kit.createKeyPairSignerFromBytes(bytes);
-      const svmPay = wrapSvm(synthFetch, registerExactSvmScheme(new SvmClient(), { signer }));
+      const svmPay = wrapSvm(synthFetch, registerExactSvmScheme(disableVendorSpendControls(new SvmClient()), { signer }));
       const res = await svmPay(`${TARGET}/api/skill/decode-blob`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         // The pack's own documented example blob (a JWT) — deterministic steps.
@@ -1283,7 +1284,7 @@ async function main() {
         return;
       }
       const quotedUsd = Number(upto.amount) / 1e6;
-      const uptoClient = new x402Client((_v, list) => list.find((a) => a?.scheme === "upto" && a?.network === "eip155:8453") || list[0]);
+      const uptoClient = disableVendorSpendControls(new x402Client((_v, list) => list.find((a) => a?.scheme === "upto" && a?.network === "eip155:8453") || list[0]));
       registerExactEvmScheme(uptoClient, { signer: account });
       uptoClient.register("eip155:8453", new UptoEvmScheme(account));
       let sentScheme = null;
@@ -1534,7 +1535,7 @@ async function main() {
       // Override with STELLAR_RPC_URL; the fallback is the free public endpoint
       // from the providers list at developers.stellar.org/docs/data/apis/rpc.
       const rpcUrl = (process.env.STELLAR_RPC_URL || "https://mainnet.sorobanrpc.com").trim();
-      const stellarClient = new StellarX402Client();
+      const stellarClient = disableVendorSpendControls(new StellarX402Client());
       stellarClient.register("stellar:*", new ExactStellarScheme(signer, { url: rpcUrl }));
       const stellarPay = wrapStellar(synthFetch, stellarClient);
       // Anchor BEFORE the call, with a small skew allowance, so a late-confirming
@@ -1620,7 +1621,7 @@ async function main() {
       // The client-side scheme builds the transaction group itself, so it
       // needs an algod URL — mainnet AlgoNode is free and keyless.
       const algodUrl = (process.env.ALGORAND_ALGOD_URL || "https://mainnet-api.algonode.cloud").trim();
-      const avmClient = new AvmX402Client();
+      const avmClient = disableVendorSpendControls(new AvmX402Client());
       avmClient.register("algorand:*", new ExactAvmScheme(signer, { algodUrl }));
       const avmPay = wrapAvm(synthFetch, avmClient);
       const res = await avmPay(`${TARGET}/api/hash`, {

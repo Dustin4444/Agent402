@@ -8,6 +8,7 @@
 //       AGENT_KEY=0x... node scripts/demo-payment.js
 //
 // TARGET defaults to the live service; point it anywhere with TARGET=...
+import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
 import { createHash } from "node:crypto";
 
 const TARGET = process.env.TARGET_URL || "https://agent402.tools";
@@ -45,7 +46,7 @@ if (AGENT_KEY) {
   const { registerExactEvmScheme } = await import("@x402/evm/exact/client");
   const { wrapFetchWithPayment } = await import("@x402/fetch");
   const { privateKeyToAccount } = await import("viem/accounts");
-  const client = new x402Client();
+  const client = disableVendorSpendControls(new x402Client());
   registerExactEvmScheme(client, { signer: privateKeyToAccount(AGENT_KEY) });
   const payFetch = wrapFetchWithPayment(fetch, client);
   const res = await payFetch(`${TARGET}${tool}`, {

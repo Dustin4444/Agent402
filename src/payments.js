@@ -1,6 +1,7 @@
 import { handlerInputOf } from "./handler-input.js";
 import { boundedResponseSchemaFor } from "./openapi-schema.js";
-import { paymentMiddleware } from "@x402/express";
+import { paymentMiddlewareFromHTTPServer, x402HTTPResourceServer } from "@x402/express";
+import { createGuardedInit, withGuardedInit } from "./x402-boot-init.js";
 import { HTTPFacilitatorClient, x402ResourceServer } from "@x402/core/server";
 import { installAcceptOutputSchema, withOutputSchemaOnFirstAccept, outputSchemaFromExtensions, acceptOutputSchemaEnabled } from "./accept-output-schema.js";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
@@ -1350,7 +1351,18 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   // Test scripts set it freely because they run FREE_MODE (no paywall to build)
   // or only exercise the PoW path, which never asks for a quote.
   // (`syncOnStart` is computed above, where the boot /supported guard needs it.)
-  return paymentMiddleware(routes, server, undefined, undefined, syncOnStart);
+  //
+  // The vendor is handed `syncFacilitatorOnStart = false` ON PURPOSE and the
+  // handshake is driven by src/x402-boot-init.js instead: since @x402/express
+  // 2.25 the vendor's own eager init `process.exit(1)`s on a
+  // RouteConfigurationError / FacilitatorCapabilityError, which turned the
+  // /supported guard's escape hatch (and its fail-open branch) into a crash
+  // lever. Ours keeps the pre-2.25 contract: paid routes 500 until a retry
+  // succeeds, the free tier serves, the process stays up.
+  const httpServer = new x402HTTPResourceServer(server, routes);
+  const vendorMw = paymentMiddlewareFromHTTPServer(httpServer, undefined, undefined, false);
+  if (!syncOnStart) return vendorMw;
+  return withGuardedInit(vendorMw, createGuardedInit(httpServer), httpServer);
 }
 
 /**

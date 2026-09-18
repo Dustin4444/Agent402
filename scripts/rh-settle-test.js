@@ -8,6 +8,7 @@
 //   ROBINHOOD_FACILITATOR_URL=<facilitator-url> NETWORK=robinhood \
 //   PAYMENT_NETWORKS=robinhood WALLET_ADDRESS=<revenue-evm> PORT=3790 node src/server.js &
 //   TARGET_URL=http://127.0.0.1:3790 KEY_FILE=/tmp/burner-key node scripts/rh-settle-test.js
+import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
 import { readFileSync } from "node:fs";
 import { privateKeyToAccount } from "viem/accounts";
 import { x402Client } from "@x402/core/client";
@@ -44,7 +45,7 @@ if (bal === 0n) {
 
 // 1. Buy one cheap tool. The server offers only Robinhood/USDG, so the buyer must
 //    sign a USDG transferWithAuthorization on chain 4663; the facilitator verifies + settles.
-const client = new x402Client();
+const client = disableVendorSpendControls(new x402Client());
 registerExactEvmScheme(client, { signer: account });
 const payFetch = wrapFetchWithPayment(fetch, client);
 

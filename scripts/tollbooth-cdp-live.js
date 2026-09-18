@@ -7,6 +7,7 @@
 // (`self_send_not_allowed`, measured 2026-08-27), so no self-pay proof exists. Asserts: 402 with a Base USDC accept naming the payTo, then a
 // paid 200 whose PAYMENT-RESPONSE receipt says success with a transaction.
 // Dispatch-only (.github/workflows/tollbooth-cdp-live.yml); never in CI lanes.
+import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
 import express from "express";
 import { createTollbooth, buildCliX402Middleware } from "../tollbooth/index.js";
 import { privateKeyToAccount } from "viem/accounts";
@@ -41,7 +42,7 @@ console.log("bare:", bare.status, "accepts:", JSON.stringify(req?.accepts?.map((
 if (bare.status !== 402 || !accept || accept.payTo.toLowerCase() !== payTo.toLowerCase() || accept.amount !== "1000") { console.error("402 shape wrong"); process.exit(1); }
 
 const [{ x402Client, wrapFetchWithPayment }, { registerExactEvmScheme }] = await Promise.all([import("@x402/fetch"), import("@x402/evm/exact/client")]);
-const client = new x402Client(); registerExactEvmScheme(client, { signer: account });
+const client = disableVendorSpendControls(new x402Client()); registerExactEvmScheme(client, { signer: account });
 const payFetch = wrapFetchWithPayment(fetch, client);
 const paid = await payFetch(url);
 const body = await paid.json().catch(() => ({}));

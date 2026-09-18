@@ -31,6 +31,7 @@
 // Env: BURNER_KEY (or KEY_FILE), POW_SECRET (marks the buys internal so they do
 // not read as external demand in the ledger), TARGET_URL (default prod).
 
+import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
 import { readFileSync, existsSync } from "node:fs";
 import { createHmac } from "node:crypto";
 
@@ -189,7 +190,7 @@ async function main() {
     import("viem/accounts"), import("@x402/core/client"), import("@x402/evm/exact/client"), import("@x402/fetch"),
   ]);
   const account = privateKeyToAccount(pk);
-  const client = new x402Client();
+  const client = disableVendorSpendControls(new x402Client());
   registerExactEvmScheme(client, { signer: account });
 
   // Mark the buys internal, or they read as external demand in our own ledger

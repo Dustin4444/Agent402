@@ -12,6 +12,7 @@
 // while the buyer is still charged the full ceiling, which is the failure this
 // exists to catch. So the assertion is on the SETTLED amount, read from the
 // settle receipt, not on the response status.
+import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
 import { createHmac } from "node:crypto";
 import { privateKeyToAccount } from "viem/accounts";
 import { createPublicClient, http } from "viem";
@@ -72,7 +73,7 @@ try {
 const [{ x402Client }, { wrapFetchWithPayment }, { UptoEvmScheme }, { toClientEvmSigner }] = await Promise.all([
   import("@x402/core/client"), import("@x402/fetch"), import("@x402/evm/upto/client"), import("@x402/evm"),
 ]);
-const client = new x402Client();
+const client = disableVendorSpendControls(new x402Client());
 // UptoEvmScheme takes the signer POSITIONALLY - `new UptoEvmScheme(signer, options?)`.
 // The exact scheme is registered through a HELPER that takes an options object
 // (`registerExactEvmScheme(client, { signer })`), and pattern-matching that shape

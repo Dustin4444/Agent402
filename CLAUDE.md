@@ -163,8 +163,9 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
 - Raise the MCP free-tier limit for sweeps: `AGENT402_MCP_MAX_PER_MIN=999999 AGENT402_MCP_MAX_PER_HOUR=9999999`.
 
 ## x402 settlement ordering (CRITICAL — get this right)
-The installed **`@x402/express` (2.22.0 as of 2026-08-23, NOT the 2.16 this note
-long claimed) runs the handler FIRST, then settles**, and
+The installed **`@x402/express` (2.26.0 as of 2026-09-18; 2.22.0 before that, NOT the 2.16 this note
+long claimed) runs the handler FIRST, then settles** (2.23+ adds an OPT-IN `extra.paymentFlow:"upfront"`
+that settles before the handler; we never declare it, so every route keeps settle-after), and
 ONLY settles a `<400` response — for any handler `statusCode >= 400` it CANCELS
 settlement (`reason: "handler_failed"`) so the buyer is **NOT charged**; if
 settlement of a `<400` response fails, it discards the buffered body and returns a
@@ -177,6 +178,7 @@ key such logic off the FINAL (post-settlement) response, e.g. `res.on("finish")`
 with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.)
 
 ## Notable features (current)
+- **Vendor client spend controls are OFF on every x402Client we build (2026-09-18, `src/x402-spend-controls.js`, `scripts/test-x402-spend-controls.js` 21 over 31 sites):** @x402/core 2.23 made `spendControls` default ON - accepts refused above "$1" and any non-default (non-pegged) asset refused - which would have thrown on route-execute-pro's $3 underlying cap and every USDG leg before signing. Our bounds are payX402's maxAtomic re-check, the spend guard and the canary legs, so `disableVendorSpendControls(client)` (src + scripts) or `client.setSpendControls?.(false)` (published packages, version-tolerant) rides every construction; the pin scans src/scripts/mcp/openclaw/adapters and proves the refusal against the real 2.26 client first. Docs snippets (`new x402Client()` in guides/pages) are exempt and still teach a buyer the stock default.
 - **Idempotency:** opt-in `Idempotency-Key` header; cache key = `sha256(METHOD /path + key + gate-credential)`. **x402 `payment-identifier` (2026-08-19):** declared on every route's 402 (`declarePaymentIdentifierExtension(false)`, payments.js) and honoured as an ALIAS of the header (`paymentIdentifierOf(req)` in payer.js, header wins) under the SAME binding rules - exact credential + route + body - never a cross-authorization dedupe (the id is client-chosen text on a payload unverified at that point in the chain). Pinned in test-mpp-shim (declared on the 402; exact retry replays with one settle; same id on a new credential settles again). **Settlement-aware (FR4-01):** the body is captured at `res.json` but COMMITTED to the cache only on `res.on("finish")` when the FINAL `statusCode === 200` — i.e. after `@x402/express` has settled — so an unsettled 200 (settlement-failure → 402) is never cached/replayed. No-op without the header; streamed responses are never replayable. `scripts/test-idempotency-settlement.js`.
 - **Tollbooth:** charge modes (`bots`/`all`/`strict`), adaptive PoW, analytics (`gate.stats()` + `/__tollbooth/stats` + `/__tollbooth` dashboard), deploy templates (Cloudflare/Next.js/Docker). Defaults preserve original behavior.
   **0.9.0 (2026-08-19, build #13): native MPP on TEMPO + split payments.** `createTollbooth({ tempo: { apiKey,
@@ -1855,6 +1857,14 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   initialize cost ONE fetch per facilitator per boot (also kills a keep-alive reuse race
   the double-fetch had). `X402_SUPPORTED_GUARD=off` is the operator escape hatch; the
   probe is skipped under `X402_SYNC_ON_START=false` (offline tests).
+  **The handshake is driven by `src/x402-boot-init.js`, not the vendor (2026-09-18, the @x402 2.26 bump):** since
+  @x402/express 2.25 `paymentMiddleware()`'s own eager init `process.exit(1)`s on a RouteConfigurationError /
+  FacilitatorCapabilityError, which made the escape hatch (and the fail-open branch, whenever the vendor's init reached a
+  facilitator our probe had not) a CRASH LEVER - one dead facilitator, a container exit loop, free tier included. payments.js
+  hands `paymentMiddlewareFromHTTPServer` `syncFacilitatorOnStart=false` and `createGuardedInit` owns the init: eager, never
+  fatal (logged by class, paid routes 500 as before 2.25), retried on the next paid request past a 1 s cooldown, latched on
+  success, free routes never trigger it. Mutation-checked: the vendor-driven form fails leg 4 of test-supported-guard with the
+  server gone. `scripts/test-x402-boot-init.js` (21).
   **Failure-mode map (no facilitator is load-bearing for the whole paywall):** dead at
   boot → its rail is dropped, 11 serve (the guard); dead MID-RUN after a healthy boot →
   only its own verify/settle fails (buyer never charged, picks another chain off the same
