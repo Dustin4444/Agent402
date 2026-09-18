@@ -55,7 +55,7 @@ permissions:
 
 jobs:
   refund:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     # A dedicated environment (never agent402/production - that one is also
     # deploy.yml's, and this repo deliberately deploys unconditionally on

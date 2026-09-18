@@ -170,7 +170,9 @@ globalThis.fetch = realFetch;
   ok(seen.length === 1, "the refused request never reached upstream");
   // Over the per-call cap: the 402 quoted the CAP (not the cost), so the
   // handler must refuse - with a stashed quote, and with no request at all.
-  const overCap = { model: "anthropic/claude-opus-4.7-fast", max_tokens: 8192, messages: msg("\u4e2d".repeat(190_000)) };
+  // Fable 5.1 ($10/$50, new tokenizer x1.35, cache write x1.25): the -fast Claude
+  // ids left the catalog 2026-07-24 and a cheaper family row would quote under the cap.
+  const overCap = { model: "anthropic/claude-fable-5.1", max_tokens: 8192, messages: msg("\u4e2d".repeat(190_000)) };
   const qo = meteredMessagesQuoteUsd(overCap);
   ok(qo.overCap === true && qo.usd === TIERS["v1-chat-metered"].maxQuoteUsd, `an over-cap body quotes the cap ($${qo.usd}) and is flagged overCap`);
   for (const [label, r] of [["with the gate's stashed quote", { ...fakeReq, __meteredQuoteUsd: qo.usd }], ["with no request (in-process caller)", undefined]]) {
@@ -179,8 +181,56 @@ globalThis.fetch = realFetch;
     ok(err?.statusCode === 400 && /per-call cap/.test(err.message) && seen.length === 1, `over-cap Messages body refused 400 before upstream ${label}`);
   }
   // The metered quote uses the model's OWN row, which is what rides upstream as the bound.
-  const fast = costFor("anthropic/claude-opus-4.7-fast");
-  ok(fast.prompt > TIERS["v1-chat-metered"].maxPrice.prompt && meteredMessagesQuoteUsd({ model: "anthropic/claude-opus-4.7-fast", max_tokens: 1000, messages: msg("hi") }).usd > meteredMessagesQuoteUsd({ model: "anthropic/claude-opus-5", max_tokens: 1000, messages: msg("hi") }).usd * 1.5, "metered quote prices an expensive model at its own row, not min'd with the tier-wide max_price");
+  const pro5 = costFor("openai/gpt-5-pro");
+  ok(pro5.completion > TIERS["v1-chat-metered"].maxPrice.completion && meteredMessagesQuoteUsd({ model: "openai/gpt-5-pro", max_tokens: 1000, messages: msg("hi") }).usd > meteredMessagesQuoteUsd({ model: "anthropic/claude-opus-5", max_tokens: 1000, messages: msg("hi") }).usd * 1.5, "metered quote prices an expensive model at its own row, not min'd with the tier-wide max_price");
+}
+
+// ---- effort / speed / forced tool_choice on the Messages wire (2026-09-18 audit) ----
+// Live measurements behind these (audit key, OpenRouter /api/v1/messages):
+// sonnet-5 effort:low -> 200 (741 thinking tokens), effort:max -> 200 (583),
+// effort:"turbo" -> 200 (NOT validated upstream), thinking enabled/1024 -> 200
+// on sonnet-5 (translated) and on haiku-4.5 (304-char thinking block),
+// fable-5.1 tool_choice any -> 400 'type "tool" and "any" are not supported'.
+{
+  const { isPostOpus46, noForcedToolChoice, messagesFingerprint } = await import("../src/tools/llm-messages-kit.js");
+  const S = { model: "anthropic/claude-sonnet-5", max_tokens: 2048, messages: msg() };
+  const t = (extra, tier = pro) => { try { return { body: validateMessagesRequest({ ...S, ...extra }, tier).body }; } catch (e) { return { err: e.message }; } };
+  ok(t({ effort: "low" }).body?.effort === "low" && t({ effort: "max" }).body?.effort === "max", "sonnet-5: effort low/max validate and ride the outbound body");
+  ok(/must be one of/.test(t({ effort: "turbo" }).err || ""), "a value upstream would silently ignore (turbo) is refused 400 with the list");
+  ok(/must be one of/.test(t({ effort: "none" }).err || "") && /not supported by anthropic\/claude-sonnet-5/.test(t({ effort: "minimal" }).err || "") && /accepts: low, medium/.test(t({ effort: "minimal" }).err || ""), "an effort outside the model's own live-guarded list (none, minimal) is refused naming what it accepts");
+  ok(/not supported by anthropic\/claude-haiku-4.5/.test(t({ model: "anthropic/claude-haiku-4.5", effort: "low" }, base).err || "") && /budget_tokens/.test(t({ model: "anthropic/claude-haiku-4.5", effort: "low" }, base).err || ""), "haiku-4.5 (no effort table) refuses effort and names the thinking form it does honour");
+  ok(t({ thinking: { type: "enabled", budget_tokens: 1024 } }).body?.thinking?.budget_tokens === 1024 && t({ model: "anthropic/claude-haiku-4.5", thinking: { type: "enabled", budget_tokens: 1024 } }, base).body?.thinking?.type === "enabled", "thinking enabled + budget stays accepted on sonnet-5 (translated upstream) and haiku-4.5 (honoured)");
+  ok(/cannot be combined/.test(t({ thinking: { type: "disabled" }, effort: "max" }).err || "") && t({ thinking: { type: "disabled" }, effort: "low" }).body?.effort === "low", "thinking disabled + effort xhigh/max is refused (Anthropic's own 400); disabled + low passes");
+  ok(/fast \(priority\)/.test(t({ speed: "fast" }).err || "") && t({ speed: "standard" }).body !== undefined, 'speed:"fast" (2x priority endpoint) is refused with the reason; "standard" passes');
+  const f1 = messagesFingerprint(pro, { ...S, effort: "low" }), f2 = messagesFingerprint(pro, { ...S, effort: "high" }), f0 = messagesFingerprint(pro, S);
+  ok(f1 !== f2 && f1 !== f0, "effort is part of the normalized body, so two efforts never share a cache entry");
+  // Fable 5.1 on premium: forced tool_choice refused, auto/none pass; post-4.6 sampling rule applies.
+  const F = { model: "anthropic/claude-fable-5.1", max_tokens: 512, messages: msg(), tools: [{ name: "f", input_schema: { type: "object" } }] };
+  const tf = (extra) => { try { return { body: validateMessagesRequest({ ...F, ...extra }, "v1-chat-premium").body }; } catch (e) { return { err: e.message }; } };
+  ok(noForcedToolChoice("anthropic/claude-fable-5.1") && !noForcedToolChoice("anthropic/claude-fable-5") && !noForcedToolChoice("anthropic/claude-sonnet-5"), "noForcedToolChoice names fable-5.1 only");
+  ok(/not supported by anthropic\/claude-fable-5.1/.test(tf({ tool_choice: { type: "any" } }).err || "") && /not supported/.test(tf({ tool_choice: { type: "tool", name: "f" } }).err || ""), "fable-5.1: tool_choice any / tool refused with a self-explaining 400 (measured upstream 400)");
+  ok(tf({ tool_choice: { type: "auto" } }).body?.tool_choice?.type === "auto" && tf({ tool_choice: { type: "none" } }).body?.tool_choice?.type === "none", "fable-5.1: tool_choice auto / none pass");
+  const s5 = validateMessagesRequest({ model: "anthropic/claude-sonnet-5", max_tokens: 64, messages: msg(), tools: [{ name: "f", input_schema: { type: "object" } }], tool_choice: { type: "any" } }, pro);
+  ok(s5.body.tool_choice.type === "any", "sonnet-5 still takes a forced tool_choice");
+  ok(isPostOpus46("anthropic/claude-fable-5.1") && /top_k/.test(tf({ top_k: 5 }).err || "") && /temperature/.test(tf({ temperature: 0.3 }).err || ""), "fable-5.1 is a post-Opus-4.6 model: top_k and temperature != 1 refused");
+  ok(tf({ effort: "high" }).body?.effort === "high" && /accepts: low, medium, high, xhigh, max/.test(tf({ effort: "minimal" }).err || ""), "fable-5.1 takes effort from its own list");
+  // Routed chain: an effort the link does not take is dropped from THAT link only.
+  const { flexAttempts } = await import("../src/tools/llm-gateway-kit.js");
+  const routed = validateMessagesRequest({ max_tokens: 64, messages: msg("hello"), effort: "low" }, "v1-chat-auto");
+  ok(routed.isRouted && routed.body.effort === "low", "auto tier: effort validates against the generic list and stays in the body");
+  seen = [];
+  globalThis.fetch = async (url, init) => { const b = JSON.parse(init.body); seen.push(b); return { ok: true, status: 200, text: async () => JSON.stringify(reply(b.model)) }; };
+  process.env.OPENROUTER_API_KEY = "test-key";
+  await bySlug("v1-chat-auto-messages").handler({ max_tokens: 64, messages: msg("hello"), effort: "low" }, fakeReq);
+  const { reasoningProfile } = await import("../src/tools/llm-gateway-kit.js");
+  const first = seen[0];
+  const supports = reasoningProfile(first.model)?.efforts.includes("low");
+  ok(first.effort === (supports ? "low" : undefined), `routed link ${first.model}: effort ${supports ? "kept (the model takes low)" : "dropped (the model has no effort table)"} - never a silently ignored field`);
+  seen = [];
+  await proTool.handler({ ...S, effort: "high" }, fakeReq);
+  ok(seen[0].effort === "high", "explicit sonnet-5 request: effort rides upstream top-level (the Anthropic-native field OpenRouter accepts)");
+  delete process.env.OPENROUTER_API_KEY;
+  globalThis.fetch = realFetch;
 }
 delete process.env.OPENROUTER_API_KEY;
 

@@ -18,6 +18,7 @@
 //
 //   MATRIX_DRY_RUN=1 node scripts/cross-chain-matrix.js [N]   # no keys, no spend: verifies plumbing + that every chain is offered
 //   BURNER_KEY=… [SOLANA_BURNER_KEY=… …] node scripts/cross-chain-matrix.js [N]   # real buys
+import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
 import { createHmac } from "node:crypto";
 
 const TARGET = (process.env.TARGET_URL || "https://agent402.tools").replace(/\/$/, "");
@@ -78,7 +79,7 @@ async function setupEvm() {
     import("viem/accounts"), import("@x402/core/client"), import("@x402/evm/exact/client"),
   ]);
   const account = privateKeyToAccount(pk);
-  const client = new x402Client();
+  const client = disableVendorSpendControls(new x402Client());
   registerExactEvmScheme(client, { signer: account });
   return { client, http: new x402HTTPClient(client), payer: account.address };
 }
@@ -91,7 +92,7 @@ async function setupWrappers() {
       import("@x402/core/client"), import("@x402/svm/exact/client"), import("@x402/fetch"), import("@solana/kit")]);
     const bytes = raw.startsWith("[") ? Uint8Array.from(JSON.parse(raw)) : new Uint8Array(kit.getBase58Encoder().encode(raw));
     const signer = await kit.createKeyPairSignerFromBytes(bytes);
-    w.solana = { pay: wrap(synthFetch, registerExactSvmScheme(new C(), { signer })), payer: signer.address };
+    w.solana = { pay: wrap(synthFetch, registerExactSvmScheme(disableVendorSpendControls(new C()), { signer })), payer: signer.address };
   })().catch((e) => console.warn(`solana setup skipped: ${e.message}`));
   await (async () => {
     const sec = (process.env.STELLAR_BURNER_SECRET || "").trim(); if (!sec) return;
@@ -99,7 +100,7 @@ async function setupWrappers() {
       import("@x402/core/client"), import("@x402/stellar/exact/client"), import("@x402/fetch"), import("@stellar/stellar-sdk")]);
     const kp = sdk.Keypair.fromSecret(sec);
     const signer = { address: kp.publicKey(), ...sdk.contract.basicNodeSigner(kp, sdk.Networks.PUBLIC) };
-    const c = new C(); c.register("stellar:*", new ExactStellarScheme(signer, { url: (process.env.STELLAR_RPC_URL || "https://mainnet.sorobanrpc.com").trim() }));
+    const c = disableVendorSpendControls(new C()); c.register("stellar:*", new ExactStellarScheme(signer, { url: (process.env.STELLAR_RPC_URL || "https://mainnet.sorobanrpc.com").trim() }));
     w.stellar = { pay: wrap(synthFetch, c), payer: kp.publicKey() };
   })().catch((e) => console.warn(`stellar setup skipped: ${e.message}`));
   await (async () => {
@@ -107,7 +108,7 @@ async function setupWrappers() {
     const [{ x402Client: C }, { ExactAvmScheme }, { wrapFetchWithPayment: wrap }, { toClientAvmSigner }, algosdk] = await Promise.all([
       import("@x402/core/client"), import("@x402/avm/exact/client"), import("@x402/fetch"), import("@x402/avm"), import("algosdk")]);
     const acct = algosdk.mnemonicToSecretKey(mn);
-    const c = new C(); c.register("algorand:*", new ExactAvmScheme(toClientAvmSigner(Buffer.from(acct.sk).toString("base64")), { algodUrl: (process.env.ALGORAND_ALGOD_URL || "https://mainnet-api.algonode.cloud").trim() }));
+    const c = disableVendorSpendControls(new C()); c.register("algorand:*", new ExactAvmScheme(toClientAvmSigner(Buffer.from(acct.sk).toString("base64")), { algodUrl: (process.env.ALGORAND_ALGOD_URL || "https://mainnet-api.algonode.cloud").trim() }));
     w.algorand = { pay: wrap(synthFetch, c), payer: acct.addr.toString() };
   })().catch((e) => console.warn(`algorand setup skipped: ${e.message}`));
   return w;

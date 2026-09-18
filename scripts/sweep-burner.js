@@ -14,6 +14,7 @@
 //     SWEEP_FLOAT_USD=5 node scripts/sweep-burner.js
 //
 // Prints the derived burner ADDRESS and the balance BEFORE moving any money.
+import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
 import { privateKeyToAccount } from "viem/accounts";
 import { readFileSync } from "node:fs";
 import { x402Client, x402HTTPClient } from "@x402/core/client";
@@ -53,7 +54,7 @@ const toMove = Math.floor(excess / DENOM_USD);
 if (toMove < 1) { console.log(`Nothing to sweep (excess $${Math.max(0, excess).toFixed(4)} < one $${DENOM_USD} denomination). Done.`); process.exit(0); }
 console.log(`Sweeping ~$${(toMove * DENOM_USD).toFixed(2)} (${toMove} x $${DENOM_USD}) Base -> treasury, leaving ~$${FLOAT_USD.toFixed(2)} float.\n`);
 
-const client = new x402Client();
+const client = disableVendorSpendControls(new x402Client());
 registerExactEvmScheme(client, { signer: account });
 const httpc = new x402HTTPClient(client);
 const denomInit = (i) => ({

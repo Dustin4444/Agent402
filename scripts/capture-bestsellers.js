@@ -14,6 +14,7 @@
 //   node scripts/capture-bestsellers.js --out response.json [--query "sort=buyers&days=30"]
 //
 // Exit codes: 0 saved · 2 config/payment/shape failure.
+import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
 import { writeFileSync } from "node:fs";
 import { createHmac } from "node:crypto";
 
@@ -36,7 +37,7 @@ const [{ privateKeyToAccount }, { x402Client }, { registerExactEvmScheme }, { wr
   import("viem/accounts"), import("@x402/core/client"), import("@x402/evm/exact/client"), import("@x402/fetch"),
 ]);
 const account = privateKeyToAccount(pk);
-const client = new x402Client();
+const client = disableVendorSpendControls(new x402Client());
 registerExactEvmScheme(client, { signer: account });
 
 // Same internal-traffic marker as paid-canary.js: header set on the Request

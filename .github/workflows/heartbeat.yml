@@ -51,7 +51,7 @@ env:
 
 jobs:
   health:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Raised for the freshness loop in the final step (4 x 12 min of extra
     # observations). Everything that can page has already run by then.
     timeout-minutes: 75
@@ -317,7 +317,7 @@ jobs:
               gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "Still high: $CREDITS / 1000 free credits at $(date -u +%FT%TZ)."
             fi
           elif [ -n "$OPEN" ]; then
-            gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: rolling 30-day count back to $COUNT (below $THRESH) at $(date -u +%FT%TZ)."
+            gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: weighted PayAI credits since $CUT read $CREDITS (below $THRESH) at $(date -u +%FT%TZ)."
           fi
 
       # CDP settlement metering watch. Measured 2026-08-28: 3,677 settlements

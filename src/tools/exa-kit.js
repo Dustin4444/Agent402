@@ -258,6 +258,28 @@ function takeNumResults(raw) {
   return n;
 }
 
+// Exa's search categories, from the search reference (exa.ai/docs/reference/search.md,
+// read 2026-09-18). The 2026-07-23 changelog retired `pdf`, `github` and `tweet` and
+// replaced `research paper` with `publication`. We used to pass the buyer's string
+// through untouched, so a retired category reached Exa as a "hint" and silently
+// changed what the search meant; now the retired names are refused with the
+// accepted list, and the renamed one is mapped to its successor.
+export const EXA_CATEGORIES = ["company", "publication", "news", "personal site", "financial report", "people"];
+const EXA_CATEGORY_RENAMED = { "research paper": "publication" };
+const EXA_CATEGORIES_RETIRED = ["pdf", "github", "tweet"];
+export function takeCategory(raw) {
+  if (raw === undefined || raw === null || raw === "") return null;
+  if (typeof raw !== "string") throw bad(`"category" must be a string; accepted values: ${EXA_CATEGORIES.join(", ")}`);
+  const c = raw.trim().toLowerCase().replace(/[\s_-]+/g, " ");
+  if (!c) return null;
+  if (EXA_CATEGORIES.includes(c)) return c;
+  if (EXA_CATEGORY_RENAMED[c]) return EXA_CATEGORY_RENAMED[c];
+  if (EXA_CATEGORIES_RETIRED.includes(c)) {
+    throw bad(`"category" ${JSON.stringify(raw)} was retired by Exa on 2026-07-23; accepted values: ${EXA_CATEGORIES.join(", ")} ("research paper" is accepted as an alias of "publication")`);
+  }
+  throw bad(`unknown "category" ${JSON.stringify(raw)}; accepted values: ${EXA_CATEGORIES.join(", ")} ("research paper" is accepted as an alias of "publication")`);
+}
+
 function takeUrl(raw, field = "url") {
   const u = typeof raw === "string" ? raw.trim() : "";
   let parsed;
@@ -304,7 +326,7 @@ export const EXA_TOOLS = [
           query: { type: "string", description: "What to search for, in natural language (max 1000 chars)." },
           numResults: { type: "number", description: `Results to return, 1 to ${MAX_RESULTS} (default ${MAX_RESULTS}).` },
           type: { type: "string", description: "auto (default), neural, or keyword." },
-          category: { type: "string", description: "Optional Exa category filter, e.g. 'research paper', 'news', 'company'." },
+          category: { type: "string", description: `Optional Exa category filter: ${EXA_CATEGORIES.join(", ")} ("research paper" is accepted as an alias of "publication"; Exa retired pdf, github and tweet on 2026-07-23 and they are refused with this list).` },
           includeDomains: { type: "array", description: "Only return results from these domains." },
           excludeDomains: { type: "array", description: "Never return results from these domains." },
           startPublishedDate: { type: "string", description: "ISO date; only pages published on or after it." },
@@ -332,7 +354,8 @@ export const EXA_TOOLS = [
         if (!["auto", "neural", "keyword", "fast"].includes(t)) throw bad('"type" must be auto, neural, keyword or fast');
         body.type = t;
       }
-      if (typeof i.category === "string" && i.category.trim()) body.category = i.category.trim();
+      const category = takeCategory(i.category);
+      if (category) body.category = category;
       for (const k of ["includeDomains", "excludeDomains"]) {
         if (i[k] !== undefined && i[k] !== null) {
           if (!Array.isArray(i[k])) throw bad(`"${k}" must be an array of domains`);

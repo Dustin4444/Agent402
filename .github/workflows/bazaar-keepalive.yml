@@ -91,7 +91,7 @@ concurrency:
 
 jobs:
   sweep:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
       # Sequential: the batches share one burner wallet, and concurrent buys
@@ -106,7 +106,7 @@ jobs:
         with:
           node-version: "22"
       - name: Install the x402 client
-        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/fetch@2.22.0 @x402/core@2.22.0 @x402/evm@2.22.0 viem@2.52.2
+        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/fetch@2.26.0 @x402/core@2.26.0 @x402/evm@2.26.0 viem@2.52.2
       - name: Refresh settlements
         env:
           TARGET_URL: https://agent402.tools
@@ -136,7 +136,7 @@ jobs:
   report:
     needs: sweep
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Count our listings, and page if the sweep failed

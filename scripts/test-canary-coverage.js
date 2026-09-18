@@ -108,6 +108,8 @@ if (xt) ok(xt.priceUsd === advertised(X_DATA_TOOLS, "x-tweet"), `x-tweet leg pri
 const sq = legFor("/api/stock-quote");
 ok(!!sq, "canary has a stock-quote leg");
 if (sq) ok(sq.priceUsd === advertised(FINANCE_TOOLS, "stock-quote"), `stock-quote leg priceUsd (${sq?.priceUsd}) matches the kit's advertised price ($${advertised(FINANCE_TOOLS, "stock-quote")}) — no stale display price`);
+const tr = CANARY_LEGS.find((l) => l.kit === "transcribe");
+ok(!!tr && tr.priceUsd === 0.03 && tr.body?.url?.startsWith("https://agent402.tools/fixtures/"), `transcribe leg exists at $0.03 and buys our own fixture (got ${tr ? `$${tr.priceUsd} ${tr.body?.url}` : "no leg"})`);
 const oc = legFor("/api/options-chain");
 ok(!!oc, "canary has an options-chain leg (relay path continuously proven)");
 if (oc) {

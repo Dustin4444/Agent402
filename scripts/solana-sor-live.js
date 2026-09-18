@@ -29,6 +29,7 @@ if (!ROUTE_ALLOWED.has(ROUTE)) { console.error(`refusing ROUTE=${JSON.stringify(
 const TASK = process.env.TASK || "api v1 exa search";
 const PARAMS = process.env.PARAMS ? JSON.parse(process.env.PARAMS) : { query: "bitcoin" };
 const EXPECT_TEXT = process.env.EXPECT_TEXT || "results";
+import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
 import { createHmac } from "node:crypto";
 const raw = (process.env.SOLANA_BURNER_KEY || "").trim();
 if (!raw) { console.error("need SOLANA_BURNER_KEY"); process.exit(2); }
@@ -64,7 +65,7 @@ const synthFetch = (input, init) => {
   if (t) req.headers.set("X-Heartbeat-Token", t);
   return fetch(req);
 };
-const pay = wrapFetchWithPayment(synthFetch, registerExactSvmScheme(new x402Client(), { signer }));
+const pay = wrapFetchWithPayment(synthFetch, registerExactSvmScheme(disableVendorSpendControls(new x402Client()), { signer }));
 const url = `${TARGET}${ROUTE}`;
 if (new URL(url).origin !== new URL(TARGET).origin) { console.error("refusing: target origin changed"); process.exit(2); }
 const body = JSON.stringify({ task: TASK, include: "external", params: PARAMS });

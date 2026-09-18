@@ -22,6 +22,7 @@
 //
 // Prints the derived burner ADDRESS first, so the CI log confirms WHICH wallet
 // is being drained before any money moves.
+import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
 import { privateKeyToAccount } from "viem/accounts";
 import { readFileSync } from "node:fs";
 import { x402Client, x402HTTPClient } from "@x402/core/client";
@@ -62,7 +63,7 @@ const account = privateKeyToAccount(pk.startsWith("0x") ? pk : `0x${pk}`);
 console.log(`Burner: ${account.address}`);
 console.log(`Draining ~$0.50/call per chain until settlement fails (<$0.50/chain stranded, by design).\n`);
 
-const client = new x402Client();
+const client = disableVendorSpendControls(new x402Client());
 registerExactEvmScheme(client, { signer: account });
 const httpc = new x402HTTPClient(client);
 

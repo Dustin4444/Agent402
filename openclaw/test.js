@@ -19,7 +19,7 @@ const run = (cliArgs, env) => new Promise((resolve) => {
 });
 import { startProxy } from "./proxy.js";
 import { routesFromCatalog, openclawModels, AUTO_ID, defaultPrimary, METERED_MAX_INPUT_CHARS, METERED_MAX_TOKENS } from "./models.js";
-import plugin, { resolveCreditsKey, resolveWalletKey, selectAccept, uptoReady, PERMIT2_READY_MIN } from "./index.js";
+import plugin, { resolveCreditsKey, resolveWalletKey, selectAccept, uptoReady, PERMIT2_READY_MIN, maxPerCallUsd, acceptUsd, DEFAULT_MAX_PER_CALL_USD } from "./index.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { c ? pass++ : fail++; console.log(`${c ? "ok" : "FAIL"} - ${m}`); };
@@ -61,6 +61,18 @@ const upstream = `http://127.0.0.1:${stub.address().port}`;
   ok(selectAccept(accepts).scheme === "upto", "with a Permit2 allowance the proxy picks upto on Base (the quote becomes a ceiling, actual usage settles)");
   ok(selectAccept(accepts, { preferUpto: false }).scheme === "exact" && selectAccept(accepts, { preferUpto: false }).network === "eip155:8453", "without the allowance it picks exact on Base");
   ok(selectAccept([{ scheme: "exact", network: "eip155:137" }]).network === "eip155:137" && selectAccept([]) === undefined, "falls back to the first accept; an empty list yields nothing");
+  // Per-call ceiling: the vendor's 2.23+ $1 default is off on this client, so the
+  // package's own ceiling must refuse BEFORE signing, with a message that names
+  // the knob; an unreadable quote is refused under a finite ceiling.
+  const big = { scheme: "exact", network: "eip155:8453", amount: "3000000", extra: { decimals: 6 } };
+  let refused = null; try { selectAccept([big], { maxUsd: 1 }); } catch (e) { refused = String(e.message); }
+  ok(refused && /exceeds the per-call ceiling \$1/.test(refused) && /AGENT402_MAX_PER_CALL_USD/.test(refused), `a $3 quote over a $1 ceiling is refused before signing and names the knob (got ${refused})`);
+  ok(selectAccept([big], { maxUsd: 5 }) === big && selectAccept([big]) === big, "under the ceiling (and with no ceiling) the same accept is selected");
+  let unreadable = null; try { selectAccept([{ scheme: "exact", network: "eip155:8453" }], { maxUsd: 1 }); } catch (e) { unreadable = String(e.message); }
+  ok(/unreadable/.test(unreadable || ""), "an accept with no readable amount is refused under a finite ceiling");
+  ok(acceptUsd({ amount: "3000000", extra: { decimals: 6 } }) === 3 && acceptUsd({ maxAmountRequired: "1000" }) === 0.001 && acceptUsd({ amount: "1e6" }) === null, "acceptUsd reads v2 amount and v1 maxAmountRequired over decimals, and refuses non-digit amounts");
+  ok(maxPerCallUsd({}) === DEFAULT_MAX_PER_CALL_USD && DEFAULT_MAX_PER_CALL_USD === 2, "default ceiling is $2, the gateway's metered quote cap");
+  ok(maxPerCallUsd({ maxPerCallUsd: "0.5" }) === 0.5 && maxPerCallUsd({ maxPerCallUsd: "off" }) === Infinity && maxPerCallUsd({ maxPerCallUsd: "abc" }) === DEFAULT_MAX_PER_CALL_USD && maxPerCallUsd({ maxPerCallUsd: -3 }) === DEFAULT_MAX_PER_CALL_USD, "config value honoured; off disables; malformed or negative reads as the default, never as off");
   ok(uptoReady(PERMIT2_READY_MIN) && uptoReady("115792089237316195423570985008687907853269984665640564039457584007913129639935") && !uptoReady(0n) && !uptoReady(999n) && !uptoReady("garbage"), "uptoReady: a max-uint (or any >= 1M USDC) Permit2 allowance counts; dust, zero and junk do not");
 }
 

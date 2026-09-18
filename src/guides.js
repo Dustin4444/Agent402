@@ -60,6 +60,7 @@ import { registerExactEvmScheme } from "@x402/evm/exact/client";
 import { privateKeyToAccount } from "viem/accounts";
 
 const client = new x402Client();
+client.setSpendControls?.(false); // @x402/core 2.23+ refuses anything over $1 or off the pegged-asset list by default; keep your own ceiling in code instead
 registerExactEvmScheme(client, { signer: privateKeyToAccount(process.env.AGENT_KEY) });
 const payFetch = wrapFetchWithPayment(fetch, client);
 
@@ -390,6 +391,7 @@ import { registerExactEvmScheme } from "@x402/evm/exact/client";
 import { privateKeyToAccount } from "viem/accounts";
 
 const client = new x402Client();
+client.setSpendControls?.(false); // @x402/core 2.23+ refuses anything over $1 or off the pegged-asset list by default; keep your own ceiling in code instead
 registerExactEvmScheme(client, { signer: privateKeyToAccount(process.env.AGENT_KEY) });
 const http = new x402HTTPClient(client);
 
@@ -502,6 +504,7 @@ import { registerExactEvmScheme } from "@x402/evm/exact/client";
 import { wrapFetchWithPayment } from "@x402/fetch";
 
 const client = new x402Client();
+client.setSpendControls?.(false); // @x402/core 2.23+ refuses anything over $1 or off the pegged-asset list by default; keep your own ceiling in code instead
 registerExactEvmScheme(client, { signer: account });
 const payFetch = wrapFetchWithPayment(fetch, client);
 const res = await payFetch("http://localhost:3000/api/hash", {

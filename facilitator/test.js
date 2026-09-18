@@ -842,7 +842,25 @@ if (!(await waitForHealthy(IMPATIENT_BASE_URL))) fail("impatient facilitator did
   const s = await post(IMPATIENT_BASE_URL, "/settle", { x402Version: 2, paymentPayload: payload, paymentRequirements: req });
   ok(s.status === 200, `timeout: /settle HTTP 200 even on timeout (got ${s.status})`);
   ok(s.body.success === false, "timeout: /settle success false");
-  ok(s.body.transaction === "", "timeout: /settle transaction is the empty-string placeholder, never a guess");
+  // Never a guess: either the empty placeholder (nothing submitted before the
+  // response) or the hash of a transaction the facilitator really submitted,
+  // which testnet Horizon must then know about. The underlying settle keeps
+  // running past the 1 ms bound, and on @x402 2.26 it submits inside the
+  // payer-recovery await often enough that the hash rides in the body (the
+  // 2026-08-28 design: the caller confirms THAT transaction on chain).
+  {
+    const tx = s.body.transaction;
+    if (tx === "") ok(true, "timeout: /settle transaction is the empty-string placeholder (nothing submitted before the response)");
+    else {
+      ok(/^[0-9a-f]{64}$/.test(String(tx)), `timeout: a non-empty transaction is a 64-hex hash, never a guess (got ${JSON.stringify(tx)})`);
+      let known = false;
+      for (let i = 0; i < 8 && !known; i++) {
+        const h = await fetch(`https://horizon-testnet.stellar.org/transactions/${tx}`).catch(() => null);
+        if (h && h.status === 200) known = true; else await new Promise((r) => setTimeout(r, 2500));
+      }
+      ok(known, `timeout: the hash the body carried is a transaction testnet Horizon knows (${String(tx).slice(0, 12)}...), so it was really submitted`);
+    }
+  }
   ok(s.body.errorReason === "settle_timed_out", `timeout: /settle carries its own reason, not a generic one (got ${JSON.stringify(s.body)})`);
   // The actual point of this whole test: without payer recovery,
   // src/stellar-confirm.js's settlePayerOf(res) would read undefined here

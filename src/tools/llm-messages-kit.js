@@ -33,7 +33,7 @@ import {
   clampToMargin, flexAttempts, cacheControlPref, upstreamUserId, PROVIDER_SORT_ENABLED,
   fetchOpenRouter, throwUpstreamError, streamOpenRouterTo, bad, MAX_IMAGES,
   refuseCostVariants, checkBlockCacheControl, meteredQuoteForProbe, costFor,
-  assertUpstreamBody,
+  assertUpstreamBody, reasoningProfile, REASONING_EFFORTS,
 } from "./llm-gateway-kit.js";
 import { METER_MARKUP, METER_MIN_SETTLE_USD, setMeterSentinel } from "../gateway-meter.js";
 import { gatewaySettleBreakerCheck } from "../gateway-settle-breaker.js";
@@ -70,6 +70,19 @@ export function meteredMessagesQuoteUsd(input) {
   }
 }
 export const MESSAGES_TIER_BY_PATH = Object.fromEntries(Object.entries(MESSAGES_PATH_BY_TIER).map(([t, p]) => [p, t]));
+
+/** Claude models released after Opus 4.6 (live docs 2026-08-28 + the Fable
+ *  parameter list 2026-09-18): top_k gone, temperature must be 1, top_p >= 0.99.
+ *  Exported for the tests. */
+export function isPostOpus46(model) {
+  return /^anthropic\/claude-(opus-(5|4\.[78])|sonnet-5|fable)/.test(String(model || ""));
+}
+/** Models whose live parameter list carries no tool_choice and which refuse a
+ *  forced choice ({type:"any"} / {type:"tool"}) with a 400 - Fable 5.1,
+ *  measured 2026-09-18. Fable 5 still lists tool_choice and is not admitted. */
+export function noForcedToolChoice(model) {
+  return /^anthropic\/claude-fable-5\.1/.test(String(model || ""));
+}
 
 function textOfBlocks(content) {
   if (typeof content === "string") return content;
@@ -193,9 +206,10 @@ export function validateMessagesRequest(input, tierSlug) {
   // other than 1, and `top_p` under 0.99 - a 400 from Anthropic, relayed to
   // the buyer as an upstream error with no explanation. Say it ourselves, and
   // only for the models it applies to; older models keep the old freedom.
-  // Only the models released AFTER Opus 4.6 (opus-4.7/4.8/5, sonnet-5).
+  // Only the models released AFTER Opus 4.6 (opus-4.7/4.8/5, sonnet-5, and
+  // Fable 5.x, whose live parameter list carries no temperature at all).
   // Haiku 4.5 and everything older keep the old freedom.
-  const strictSampling = /^anthropic\/claude-(opus-(5|4\.[78])|sonnet-5)/.test(String(model || ""));
+  const strictSampling = isPostOpus46(model);
   if (strictSampling) {
     if (input.top_k !== undefined) throw bad('"top_k" is not supported by this model (Anthropic removed it for models after Claude Opus 4.6); omit it');
     if (input.temperature !== undefined && Number(input.temperature) !== 1) throw bad('"temperature" must be 1 for this model (Anthropic removed other values for models after Claude Opus 4.6)');
@@ -208,6 +222,14 @@ export function validateMessagesRequest(input, tierSlug) {
     const tc = body.tool_choice;
     const okType = tc && typeof tc === "object" && (tc.type === "auto" || tc.type === "any" || tc.type === "none" || (tc.type === "tool" && typeof tc.name === "string"));
     if (!okType) throw bad('"tool_choice" must be {type:"auto"|"any"|"none"} or {type:"tool", name}');
+    // Fable 5.1 refuses a FORCED tool choice - measured live 2026-09-18 through
+    // OpenRouter: `{type:"any"}` answered 400 'tool_choice: type "tool" and
+    // "any" are not supported for this model', `{type:"auto"}` served a
+    // tool_use block. Its live supported_parameters list carries no
+    // tool_choice at all. Say it here with the fix instead of relaying the 400.
+    if (noForcedToolChoice(model) && (tc.type === "any" || tc.type === "tool")) {
+      throw bad(`"tool_choice" {type:"${tc.type}"} is not supported by ${model} - it accepts {type:"auto"} or {type:"none"} only (a forced tool call is refused upstream). Ask for the tool in the prompt and keep tool_choice auto.`);
+    }
   }
   if (input.stop_sequences !== undefined) {
     if (!Array.isArray(input.stop_sequences) || input.stop_sequences.length > MAX_STOP_SEQUENCES || !input.stop_sequences.every((x) => typeof x === "string")) throw bad(`"stop_sequences" must be an array of up to ${MAX_STOP_SEQUENCES} strings`);
@@ -239,6 +261,38 @@ export function validateMessagesRequest(input, tierSlug) {
     }
     body.thinking = th;
   }
+  // `effort` - Anthropic's primary depth control on Opus 5 / Sonnet 5 / Fable
+  // and every Claude 4.7+ (their 2026-07-24 release notes), accepted top-level
+  // by OpenRouter's /api/v1/messages. Measured live 2026-09-18 on sonnet-5:
+  // the field passes through (thinking_tokens moved 741 -> 583 between low and
+  // max on a counting prompt) and OpenRouter does NOT validate the value - an
+  // effort of "turbo" answered 200 as if nothing had been sent. So the value
+  // is validated HERE against the model's own live-guarded effort list
+  // (REASONING_MODELS), refused with that list, and kept in the normalized
+  // body because it changes the answer. A model with no effort table (haiku
+  // 4.5 and older) does not take the field: refused with the thinking form
+  // that model does honour. `thinking:{type:"enabled", budget_tokens}` stays
+  // accepted on every model: through OpenRouter it answered 200 on sonnet-5
+  // (translated; the thinking block came back, the budget is advisory there)
+  // and haiku-4.5 honours it natively (304-char thinking block, same run).
+  if (input.effort !== undefined) {
+    const effort = input.effort;
+    if (typeof effort !== "string" || !REASONING_EFFORTS.includes(effort) || effort === "none") throw bad(`"effort" must be one of: ${REASONING_EFFORTS.filter((e) => e !== "none").join(", ")}`);
+    if (!isRouted) {
+      const prof = reasoningProfile(model);
+      if (!prof) throw bad(`"effort" is not supported by ${model} - it is the depth control on Claude 4.7+ (Opus 5, Sonnet 5, Fable 5.1). On this model use thinking:{type:"enabled", budget_tokens} instead, or omit effort.`);
+      if (!prof.efforts.includes(effort)) throw bad(`"effort" ${JSON.stringify(effort)} is not supported by ${model} - it accepts: ${prof.efforts.join(", ")}`);
+    }
+    // Anthropic's own rule: thinking disabled with effort xhigh/max is a 400
+    // (the two ask for opposite things). Refused before any upstream call.
+    if (body.thinking?.type === "disabled" && (effort === "xhigh" || effort === "max")) throw bad(`"effort" ${JSON.stringify(effort)} cannot be combined with thinking:{type:"disabled"} - a disabled-thinking call takes low or medium effort at most. Drop one of the two.`);
+    body.effort = effort;
+  }
+  // `speed`: OpenRouter's Messages wire accepts Anthropic's `speed` field and
+  // "fast" routes to the priority endpoint (anthropic/fast), which bills 2x the
+  // headline ($10/$50 on opus-5, live endpoints 2026-09-18) - outside every
+  // tier's price and never sent by any wire here. Refuse it rather than drop it.
+  if (input.speed !== undefined && input.speed !== "standard") throw bad('"speed" other than "standard" is not offered - the fast (priority) endpoint bills twice the model\'s list price and is outside this tier\'s price. Omit the field.');
   if (input.stream === true) body.stream = true;
   if (input.zdr === true || input.provider?.zdr === true) body.zdr = true;
   cacheControlPref(input); // shape-validate (400 on bad value); applied call-time
@@ -306,8 +360,14 @@ export function makeMessagesHandler(tierSlug) {
       // billed flat), then carry the clamped cap onto the real body.
       const p = { ...probe, model };
       clampToMargin(p, tier, imageCount); // throws 400 -> caller skips this link
+      // A routed chain (auto tier) walks models with different effort tables;
+      // a link that does not take the buyer's effort gets the call without
+      // it rather than a silently ignored field (explicit-model requests were
+      // validated against their own model above and never reach this branch).
+      const linkProfile = body.effort !== undefined ? reasoningProfile(model) : null;
+      const effortForLink = body.effort !== undefined && (!linkProfile || !linkProfile.efforts.includes(body.effort)) ? undefined : body.effort;
       return {
-        ...body, model, max_tokens: Math.min(body.max_tokens, p.max_tokens), zdr: undefined,
+        ...body, model, max_tokens: Math.min(body.max_tokens, p.max_tokens), zdr: undefined, effort: effortForLink,
         ...(provider ? { provider } : {}), ...(user ? { user, session_id: user } : {}),
         ...(cacheControl ? { cache_control: cacheControl } : {}),
         ...(flex ? { service_tier: "flex" } : {}),
@@ -394,7 +454,8 @@ const INPUT_SCHEMA = {
     messages: { type: "array", description: "Anthropic messages: {role: user|assistant, content: string | [text|image|tool_use|tool_result blocks]}" },
     system: { type: "string", description: "Optional system prompt (string or text blocks)" },
     tools: { type: "array", description: "Optional client tools {name, description, input_schema}; server/built-in tools are not served" },
-    thinking: { type: "object", description: 'Optional {type:"enabled", budget_tokens} | {type:"adaptive"} | {type:"disabled"} - thinking tokens are output tokens' },
+    thinking: { type: "object", description: 'Optional {type:"enabled", budget_tokens} | {type:"adaptive"} | {type:"disabled"} - thinking tokens are output tokens. On Claude 4.7+ (Opus 5, Sonnet 5, Fable 5.1) thinking is adaptive and `effort` is the depth control; a budget_tokens value is advisory there' },
+    effort: { type: "string", description: 'Optional depth control for Claude 4.7+ (Opus 5, Sonnet 5, Fable 5.1): low | medium | high | xhigh | max, validated against the model\'s own list (GET /v1/models). Not accepted on Haiku 4.5 and older, which take thinking.budget_tokens instead' },
     stream: { type: "boolean", description: "Anthropic SSE (message_start … message_stop)" },
     zdr: { type: "boolean", description: "Optional - zero-data-retention providers only" },
   },
@@ -408,7 +469,7 @@ function describe(tierSlug) {
   if (tierSlug === "v1-chat-metered") {
     return `Anthropic Messages API billed per request from what the call costs: the 402 quotes exact-BPE input (system + messages + tools) plus your max_tokens at the model's list price, times ${METER_MARKUP}, from ${price} up to a $${t.maxQuoteUsd} per-call cap. Point the Anthropic SDK (or any Messages-format client) at base_url https://agent402.tools/v1/metered. Any model from the flat tiers (GET /v1/models). Pay the quote over x402 exact, or authorize it as a ceiling over upto, credits or card and settle actual usage. Up to ${t.maxInputChars.toLocaleString("en-US")} input chars and ${t.maxTokens} output tokens; streaming supported.`;
   }
-  const base = `Anthropic Messages API over x402 - point the Anthropic SDK (or Claude Code / the Agent SDK) at base_url https://agent402.tools${MESSAGES_PATH_BY_TIER[tierSlug].replace(/\/messages$/, "")} and pay ${price} per call in USDC, no API key, no signup. Same models, caps and price as this tier's /chat/completions route; any model here is served through the Messages wire (Claude natively, others translated). Up to ${t.maxInputChars.toLocaleString("en-US")} input chars and ${t.maxTokens} output tokens; streaming supported.`;
+  const base = `Anthropic Messages API over x402 - point the Anthropic SDK (or Claude Code / the Agent SDK) at base_url https://agent402.tools${MESSAGES_PATH_BY_TIER[tierSlug].replace(/\/messages$/, "")} and pay ${price} per call in USDC, no API key, no signup. Same models, caps and price as this tier's /chat/completions route; any model here is served through the Messages wire (Claude natively, others translated). Depth: \`effort\` (low..max) on Claude 4.7+, thinking.budget_tokens on older Claude. Up to ${t.maxInputChars.toLocaleString("en-US")} input chars and ${t.maxTokens} output tokens; streaming supported.`;
   return tierSlug === "v1-chat-auto"
     ? `${base} Omit "model" and the gateway routes the prompt to the top-ranked model for its task type; the response adds agent402_router {category, quality, served}.`
     : base + dflt;

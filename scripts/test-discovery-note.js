@@ -443,9 +443,11 @@ ok(!/if \(seller === LOCAL_SELLER\) \{ picked\.push\(entry\); continue; \}/.test
 ok(!/t\.seller !== LOCAL_SELLER && looksLikeListingInjection/.test(src),
   "the listing-injection filter is NO LONGER external-only");
 // The verdict is computed once per tool object (memoized statics, 2026-08-25)
-// and consulted for EVERY row in routeQuery's scoring loop - local and remote
-// alike. Both halves are asserted: the memo computes it, the loop honours it.
-ok(/injected: looksLikeListingInjection\(hay\)/.test(src) && /if \(st\.injected\) continue;/.test(src),
+// and consulted for EVERY row routeQuery scores - local and remote alike.
+// Both halves are asserted: the memo computes it, and the per-row scorer
+// (`scoreRow`, 2026-09-18, which every local row and every index candidate
+// passes through) refuses on it before any term is scored.
+ok(/injected: looksLikeListingInjection\(hay\)/.test(src) && /if \(st\.injected\) (?:continue|return);/.test(src),
   "router drops any listing that trips the injection check - it runs against every row, ours included");
 
 // Each disclosed advantage must still EXIST in the code. Removing one without

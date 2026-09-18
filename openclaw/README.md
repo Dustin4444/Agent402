@@ -48,6 +48,7 @@ client at `http://127.0.0.1:8412/v1` with model `auto`.
 ```bash
 npm i @x402/fetch @x402/evm viem
 export AGENT402_WALLET_KEY=0x...     # an EVM key holding USDC on Base
+export AGENT402_MAX_PER_CALL_USD=2   # per-call ceiling checked before signing (default 2, the gateway's metered cap; 0 disables)
 ```
 
 With no credits key present the proxy signs an x402 payment per call from that

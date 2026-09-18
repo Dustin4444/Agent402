@@ -1,6 +1,7 @@
 // End-to-end paid test: a real x402 agent that buys EVERY tool in the catalog.
 // MODE=address  — generate/load the burner key, print the funding address.
 // MODE=run      — wait for USDC funding, then buy all 56 endpoints once each.
+import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { createPublicClient, http, erc20Abi, formatUnits } from "viem";
 import { base } from "viem/chains";
@@ -56,7 +57,7 @@ if (bal < SUITE_BUDGET) {
 const startBal = bal;
 console.log(`FUNDED: $${formatUnits(bal, 6)} USDC. Buying the verification catalog from ${TARGET}`);
 
-const client = new x402Client();
+const client = disableVendorSpendControls(new x402Client());
 registerExactEvmScheme(client, { signer: account });
 // Mark every e2e purchase as internal traffic: X-Heartbeat-Token =
 // HMAC(POW_SECRET, UTC minute), the same unspoofable marker paid-canary.js

@@ -13,9 +13,11 @@
 //
 // It FAILS on network error rather than skipping: a skipped guard is the same
 // silent green that let every one of those ship.
+import { readFileSync } from "node:fs";
 import {
   TIERS, AUTO_RANKINGS, SPEECH_MODELS, MODEL_COST, FLEX_MODELS, REASONING_MODELS, reasoningRowMatches, costFor, tierFor, tierAllows, STEALTH_MODEL_IDS, modelsList,
 } from "../src/tools/llm-gateway-kit.js";
+import { PRIMARY_PREFERENCE } from "../openclaw/models.js";
 
 // STEALTH listings (stealth/ox-alpha) are the ONE id class this guard must not
 // fail on. A cloaked model is published under a pseudonym while a lab collects
@@ -119,32 +121,112 @@ for (const link of SPEECH_MODELS) ok(speechIds.has(link.id), `speech chain link 
   ok(under.length === 0, `no speech costPerChar row is under its dearest live endpoint price${under.length ? `:\n    ${under.join("\n    ")}` : ""}`);
 }
 // 4. Price floor: for every live model a tier admits, MODEL_COST must not price
-//    it UNDER its live list price while that price sits inside the tier's
-//    max_price bound (above the bound OpenRouter refuses the provider anyway).
+//    it UNDER the DEAREST endpoint a default-tier call can be routed to, prompt
+//    and completion taken separately, while that endpoint sits inside the
+//    tier's max_price bound (an endpoint above the bound is refused by the
+//    provider.max_price every flat-tier call carries). The catalog HEADLINE is
+//    one endpoint's price and was what this rule compared against until
+//    2026-09-18: gpt-5.6-sol's headline read $2/$10 while its azure/us and
+//    azure/eu endpoints billed $5.5/$33 inside the premium bound, and every
+//    Claude model's regional endpoints bill 10% over the headline - so the
+//    clamp was letting through ~2.75x the tokens the bound allowed on a sol
+//    fallback. Same shape as the speech rule above (1b).
+//
+//    Endpoints tagged "*/fast" are the PRIORITY service tier (openai/fast,
+//    anthropic/fast: 2x list). OpenRouter routes to them only for
+//    service_tier "priority", which no wire here ever sends - pinned from
+//    source below, with the flex literal as the control that proves the scan
+//    sees the field at all - so they bound nothing we serve and are excluded.
 //    Underestimating = the margin clamp lets too many tokens through.
-const under = [];
-for (const m of models) {
+{
+  const wires = ["llm-gateway-kit.js", "llm-messages-kit.js", "llm-responses-kit.js", "llm-images-fast-kit.js"]
+    .map((f) => readFileSync(new URL(`../src/tools/${f}`, import.meta.url), "utf8")).join("\n");
+  ok(!/service_tier\s*[:=]\s*["'`]priority["'`]/.test(wires) && /service_tier\s*:\s*["']flex["']/.test(wires), 'no wire sends service_tier "priority" (so */fast endpoints never serve a call and rule 4 may exclude them); the flex literal is the control');
+}
+// Priority-tier tags read two ways on the live catalog: "openai/fast" /
+// "anthropic/fast" and "google-vertex/global/priority" / "xai/zdr/priority".
+const PRIORITY_TAG = /\/(fast|priority)$/;
+async function endpointPrices(id) {
+  try {
+    const r = await fetch(`https://openrouter.ai/api/v1/models/${id}/endpoints`, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(30_000) });
+    if (!r.ok) return null;
+    const eps = (await r.json())?.data?.endpoints;
+    if (!Array.isArray(eps)) return null;
+    return eps.map((e) => ({ tag: String(e?.tag || ""), p: Number(e?.pricing?.prompt) * 1e6, c: Number(e?.pricing?.completion) * 1e6 })).filter((e) => Number.isFinite(e.p) && Number.isFinite(e.c));
+  } catch { return null; }
+}
+const admitted = models.filter((m) => {
   // ":batch" (async) and ":online" (per-request web billing) are refused by
   // refuseCostVariants on every wire, so their live prices bound nothing we
   // serve (qwen3.8-2.4t-a95b:batch listed ABOVE its own base model, 2026-08-28).
-  if (/:(batch|online)$/.test(m.id)) continue;
-  const slug = tierFor(m.id);
-  if (!slug) continue;
-  const tier = TIERS[slug];
-  const p = Number(m.pricing?.prompt) * 1e6, c = Number(m.pricing?.completion) * 1e6;
-  if (!Number.isFinite(p) || !Number.isFinite(c)) continue;
-  if (tier.maxPrice && (p > tier.maxPrice.prompt || c > tier.maxPrice.completion)) continue;
-  const table = costFor(m.id);
-  if (!table) { under.push(`${m.id} (no MODEL_COST entry)`); continue; }
-  if (p > table.prompt + 1e-9 || c > table.completion + 1e-9) under.push(`${m.id} live $${p}/$${c} vs table $${table.prompt}/$${table.completion} (${slug})`);
+  if (/:(batch|online)$/.test(m.id)) return false;
+  return !!tierFor(m.id);
+});
+const under = [];
+let endpointReads = 0, headlineOnly = 0, priorityExcluded = 0;
+{
+  const queue = [...admitted];
+  const worker = async () => {
+    for (let m = queue.shift(); m; m = queue.shift()) {
+      const slug = tierFor(m.id);
+      const tier = TIERS[slug];
+      const eps = await endpointPrices(m.id);
+      let prices = [];
+      if (eps) {
+        endpointReads++;
+        priorityExcluded += eps.filter((e) => PRIORITY_TAG.test(e.tag)).length;
+        prices = eps.filter((e) => !PRIORITY_TAG.test(e.tag));
+      } else {
+        headlineOnly++;
+      }
+      const hp = Number(m.pricing?.prompt) * 1e6, hc = Number(m.pricing?.completion) * 1e6;
+      if (Number.isFinite(hp) && Number.isFinite(hc)) prices.push({ tag: "headline", p: hp, c: hc });
+      // An endpoint above the tier bound on EITHER unit is refused by provider.max_price.
+      if (tier.maxPrice) prices = prices.filter((e) => e.p <= tier.maxPrice.prompt && e.c <= tier.maxPrice.completion);
+      if (!prices.length) continue;
+      const p = Math.max(...prices.map((e) => e.p)), c = Math.max(...prices.map((e) => e.c));
+      const table = costFor(m.id);
+      if (!table) { under.push(`${m.id} (no MODEL_COST entry; dearest routable endpoint $${p}/$${c})`); continue; }
+      if (p > table.prompt + 1e-9 || c > table.completion + 1e-9) {
+        const dearP = prices.find((e) => e.p === p)?.tag, dearC = prices.find((e) => e.c === c)?.tag;
+        under.push(`${m.id} dearest routable endpoint $${p} (${dearP}) / $${c} (${dearC}) vs table $${table.prompt}/$${table.completion} (${slug}; ${prices.length} endpoint price(s) read)`);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: 6 }, worker));
 }
-ok(under.length === 0, `MODEL_COST never underestimates a live admitted model${under.length ? `:\n    ${under.join("\n    ")}` : ""}`);
+console.log(`rule 4: ${admitted.length} admitted live models, ${endpointReads} endpoint lists read, ${headlineOnly} graded on the headline alone, ${priorityExcluded} priority-tier endpoint(s) excluded`);
+ok(endpointReads >= admitted.length / 2, `rule 4 read endpoint lists for most admitted models (${endpointReads} of ${admitted.length}); a headline-only run would be the old, weaker check`);
+ok(under.length === 0, `MODEL_COST never underestimates a live admitted model's dearest routable endpoint${under.length ? `:\n    ${under.join("\n    ")}` : ""}`);
 // 5. Expiring models: OpenRouter stamps expiration_date; anything we rank or
 //    fail over to that expires within 14 days fails now, not on the day.
 const soon = Date.now() + 14 * 86_400_000;
+const expiryOf = (m) => m.expiration_date || m.deprecation_date || null;
 const watched = new Set([...Object.values(AUTO_RANKINGS).flatMap((b) => Object.values(b).flat()), ...Object.values(TIERS).flatMap((t) => t.fallbacks || [])]);
-const expiring = models.filter((m) => watched.has(m.id) && m.expiration_date && Date.parse(m.expiration_date) < soon).map((m) => `${m.id} (${m.expiration_date})`);
+const expiring = models.filter((m) => watched.has(m.id) && expiryOf(m) && Date.parse(expiryOf(m)) < soon).map((m) => `${m.id} (${expiryOf(m)})`);
 ok(expiring.length === 0, `no ranked/fallback model expires within 14 days${expiring.length ? ` (${expiring.join(", ")})` : ""}`);
+// 5b. DEFAULTS have no horizon: a tier's defaultModel is what a caller who names
+//     no model is served, and OpenClaw's PRIMARY_PREFERENCE is what `setup`
+//     writes into a user's config. A chain can walk past an expiring link; a
+//     default needs a decided successor, so ANY expiration date upstream fails
+//     now. Built 2026-09-18 for claude-haiku-4.5 (metered default + OpenClaw's
+//     first pick; retirement floor 2026-10-15, no notice yet, no haiku-5 in the
+//     catalog to switch to) - the old rule watched ranked/fallback ids only.
+{
+  const defaults = new Set([
+    ...Object.values(TIERS).map((t) => t.defaultModel).filter(Boolean),
+    ...PRIMARY_PREFERENCE,
+  ]);
+  ok(defaults.has("anthropic/claude-haiku-4.5") && PRIMARY_PREFERENCE[0] === "anthropic/claude-haiku-4.5", "the default set covers the metered tier default and OpenClaw's first pick (haiku-4.5 today)");
+  for (const id of defaults) {
+    const m = models.find((x) => x.id === id);
+    if (!m && isStealth(id)) { warn(`default ${id} is a stealth listing and is gone - expected, not a failure`); continue; }
+    ok(!!m, `default model ${id} is live upstream`);
+    if (!m) continue;
+    const exp = expiryOf(m);
+    ok(!exp, `default model ${id} carries no expiration/deprecation date upstream${exp ? ` (marked ${exp}: pick a successor - it is served to callers who name no model)` : ""}`);
+  }
+}
 
 // 6. Flex table: every FLEX_MODELS entry must still carry a "*/flex" endpoint
 //    upstream - flex on a model without one 404s and costs a failed attempt

@@ -8,6 +8,7 @@
 //
 // CHAIN must be "polygon" or "arbitrum". The server should already be booted
 // with PAYMENT_NETWORKS=<chain> so the buyer's only option is that chain.
+import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
 import { readFileSync } from "node:fs";
 import { privateKeyToAccount } from "viem/accounts";
 import { x402Client } from "@x402/core/client";
@@ -70,7 +71,7 @@ if (bal === 0n) {
 
 // 1. Buy one cheap tool. The server offers only this chain, so the buyer's
 //    ExactEvmScheme will sign a transferWithAuthorization for that network.
-const client = new x402Client();
+const client = disableVendorSpendControls(new x402Client());
 registerExactEvmScheme(client, { signer: account });
 const payFetch = wrapFetchWithPayment(fetch, client);
 

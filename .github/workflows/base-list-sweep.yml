@@ -32,7 +32,7 @@ permissions:
 
 jobs:
   sweep:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The report composites run 30 s to 4 min each and the paywall settles AFTER
     # the handler, so the sweep has to outlast the work on every one of them.
     timeout-minutes: 330
@@ -45,7 +45,7 @@ jobs:
         with:
           node-version: 22
       - name: Install x402 client
-        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/core@2.22.0 @x402/evm@2.22.0
+        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/core@2.26.0 @x402/evm@2.26.0
       - name: Run the sweep
         env:
           BURNER_KEY: ${{ secrets.BURNER_KEY }}

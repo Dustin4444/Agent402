@@ -140,6 +140,7 @@ import { wrapFetchWithPayment } from "@x402/fetch";
 import { x402Client } from "@x402/core/client";
 import { registerExactEvmScheme } from "@x402/evm/exact/client";
 const client = new x402Client();
+client.setSpendControls?.(false); // @x402/core 2.23+ refuses anything over $1 or off the pegged-asset list by default; keep your own ceiling in code instead
 registerExactEvmScheme(client, { signer: privateKeyToAccount(process.env.AGENT_KEY) });
 const a = new Agent402({ fetch: wrapFetchWithPayment(fetch, client) });
 \`\`\`

@@ -204,9 +204,12 @@ const openapiTools = [
   const [merged] = mergeOpenapiIntoBazaar([documented], guessed);
   ok(guessed[0].methodInferred === true, "a missing Bazaar method is marked as inferred");
   ok(documented.method === "GET", "OpenAPI normalisation keeps the declared GET method");
-  ok(documented.price === "0.003", "x-payment-info amount is normalised as the tool price");
+  // Since the one-reader change (2026-09-18) every annotation dialect comes out
+  // through parseManifestPrice, so the figure carries the display "$" like a
+  // manifest row's does (it used to be the raw "0.003" amount string).
+  ok(documented.price === "$0.003", "x-payment-info amount is normalised as the tool price");
   ok(merged.method === "GET", `OpenAPI method replaces Bazaar's guessed POST (got ${merged.method})`);
-  ok(merged.price === "0.003", `OpenAPI price fills an unknown Bazaar amount (got ${merged.price})`);
+  ok(merged.price === "$0.003", `OpenAPI price fills an unknown Bazaar amount (got ${merged.price})`);
 }
 
 // ---- 3c. Explicit Bazaar observations remain payment truth ----

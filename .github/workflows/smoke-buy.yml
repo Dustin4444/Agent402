@@ -46,7 +46,7 @@ permissions:
 
 jobs:
   smoke:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 8
     env:
       TARGET_URL: https://agent402.tools
@@ -64,7 +64,7 @@ jobs:
         # match one of [x402V2Pay...]` - our own canary never caught it because
         # it only pays OUR 402s, which the old client still shaped correctly.
         # A buyer workflow that cannot pay a third party is not a buyer test.
-        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/fetch@2.22.0 @x402/core@2.22.0 @x402/evm@2.22.0 viem@2.52.2
+        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/fetch@2.26.0 @x402/core@2.26.0 @x402/evm@2.26.0 viem@2.52.2
       - name: Buy one tool from production (real USDC)
         env:
           BURNER_KEY: ${{ secrets.BURNER_KEY }}

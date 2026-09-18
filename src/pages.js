@@ -291,6 +291,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { metaTitle, metaDescription } from "./seo-meta.js";
 
 const client = new x402Client();
+client.setSpendControls?.(false); // @x402/core 2.23+ refuses anything over $1 or off the pegged-asset list by default; keep your own ceiling in code instead
 registerExactEvmScheme(client, { signer: privateKeyToAccount(KEY) });
 const payFetch = wrapFetchWithPayment(fetch, client);
 

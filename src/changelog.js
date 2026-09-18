@@ -2,6 +2,20 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 
 const ENTRIES = [
   {
+    date: "2026-09-18",
+    title: "@x402 2.26 with our own boot handshake, Astra and Fable on premium, effort on the Messages wire, and a router that indexes",
+    items: [
+      "@x402/* 2.22.0 -> 2.26.0 on the server, the Stellar facilitator and agent402-mcp: the vendor client's spend controls (a $1 pegged-assets cap, default on since 2.23) are switched off on every client we build because our own bounds already hold the line (the buyer's maxAtomic re-check, the spend guard, the canary legs), and the facilitator handshake is driven by src/x402-boot-init.js so a facilitator that is dead at boot leaves paid routes answering 500 until a retry succeeds instead of exiting the process; every buyer workflow's client pin moved with it",
+      "@solana/kit 5.5.1 -> 8.3.0 (token 0.16.1, compute-budget 0.18.1) with overrides for @x402/svm's kit-5-peered program packages, pinned against svm's own import list",
+      "Premium tier admits openai/gpt-6-astra and anthropic/claude-fable-5.1 ($10/$50 headline, 1M context, reasoning mandatory); MODEL_COST rows now carry the dearest default-tier endpoint a call can route to rather than the catalog headline (gpt-5.6-sol's regional endpoints bill 2.75x its headline); the live model guard reads every admitted model's endpoint list and fails on any tier default or OpenClaw primary pick that carries an expiration date upstream",
+      "Messages wire: top-level effort (low to max) on Claude 4.7+, validated against the model's own effort list; speed other than standard refused (the priority endpoint bills 2x list); Fable 5.1 refuses a forced tool_choice with the fix named; GPT-6 Astra refuses temperature and top_p instead of the upstream dropping them silently",
+      "transcribe moved off gpt-4o-mini-transcribe onto gpt-transcribe ahead of its 2027-02-26 shutdown, cap 5 -> 4 minutes so the worst case stays under 70% of the price; the two tiers now differ only in cap and price",
+      "Settle fallback: Solvador first on the networks it advertises (free tier), then PayAI (gas x 1.3 in prepaid credits), Solvador as the last resort elsewhere",
+      "/api/route answers from a candidate index instead of a full scan of the seller pool (ranking byte-identical to the full scan on a prod-sized golden); the crawler reads every OpenAPI payment-annotation dialect through one reader; Polymarket price history on the Data API; Exa categories validated against the current list (retired names refused, research paper -> publication)",
+      "agent402-mcp 0.13.2, agent402-openclaw 0.4.3 (gemini-2.5-flash left the preferred primaries: it carries an upstream expiration date), elizaos-plugin-agent402 0.2.3, agent402-agentkit 0.1.3; base image on Node 22.23.2 (the 2026-07-29 security release); every workflow runner pinned to ubuntu-24.04",
+    ],
+  },
+  {
     date: "2026-09-02",
     title: "Typed 402s, tokenized assets, MPP on the edge, and two alarms that stopped lying",
     items: [

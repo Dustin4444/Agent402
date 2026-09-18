@@ -432,11 +432,18 @@ export const TIERS = {
     prefixes: [
       // gpt-5.6-sol needs its own entry: prefix matching is boundary-aware
       // ("openai/gpt-5" matches gpt-5-*, not gpt-5.6-*). claude-opus covers
-      // claude-opus-5 ($5/$25) and claude-opus-5-fast ($10/$50).
+      // claude-opus-5 ($5/$25); the -fast ids left the catalog 2026-07-24.
       // openai/o4 (the never-released flagship prefix) retired 2026-09-02 ahead of its
       // 2026-10-23 removal: o4-mini stays by its own id, gpt-5.6-terra is the successor.
       "openai/gpt-5", "openai/gpt-5.6-sol", "openai/gpt-5.6-terra", "openai/o3", "openai/o4-mini",
       "anthropic/claude-opus",
+      // Admitted 2026-09-18, both $10/$50 headline, both 1M context, both
+      // reasoning-mandatory (REASONING_MODELS). gpt-6-astra also admits
+      // gpt-6-astra-pro (same price) under the "-suffix" rule; the exact id
+      // for Fable keeps fable-5 (a different, older model) out. Measured at
+      // premium's $0.50 with a 4k-char prompt the clamp leaves ~6k output
+      // tokens on either, so the tier is usable (pinned in test-llm-gateway).
+      "openai/gpt-6-astra", "anthropic/claude-fable-5.1",
     ],
   },
   // Auto tier - model chosen server-side (see AUTO_RANKINGS above). Listed
@@ -702,8 +709,10 @@ export const MODEL_COST = [
   ["openai/o3-mini", { prompt: 1.1, completion: 4.4 }],
   ["openai/o3", { prompt: 2, completion: 8 }],
   ["openai/o4-mini", { prompt: 1.1, completion: 4.4 }],
-  ["openai/gpt-5-nano", { prompt: 0.05, completion: 0.4 }],
-  ["openai/gpt-5-mini", { prompt: 0.25, completion: 2 }],
+  // OpenAI-family rows carry the azure/swedencentral figure, 10% over the
+  // headline and inside every tier bound (live endpoints 2026-09-18).
+  ["openai/gpt-5-nano", { prompt: 0.055, completion: 0.44 }],
+  ["openai/gpt-5-mini", { prompt: 0.275, completion: 2.2 }],
   // gpt-5.6 family — explicit entries are LOAD-BEARING: costFor's plain
   // startsWith would otherwise match "openai/gpt-5" and price sol at a fifth
   // of its real cost. -pro variants share their base price and match these
@@ -712,54 +721,74 @@ export const MODEL_COST = [
   // said "sol $5/$30" a day after the row beneath it had been corrected to
   // 2/10, so a reader could not tell which to believe. test-gateway-model-ids
   // checks every row against the live catalog on each run.
-  ["openai/gpt-5.6-sol", { prompt: 2, completion: 10 }],   // live 2026-08-28 (was 6/35: the clamp cut max_tokens ~3.5x too hard)
-  ["openai/gpt-5.6-terra", { prompt: 2, completion: 12 }], // live 2026-08-28: the row was UNDER the real price
+  // Rows are the DEAREST live endpoint OpenRouter can route a default-tier call
+  // to, not the catalog headline (2026-09-18 audit): sol's headline is $2/$10
+  // but its azure/us and azure/eu endpoints bill $5.5/$33 and sit inside the
+  // premium max_price bound, so the headline row under-counted a routable
+  // fallback by 2.75x. test-gateway-model-ids rule 4 reads every admitted
+  // model's /endpoints and fails on a row under any default-tier endpoint;
+  // the priority ("*/fast") endpoints are excluded because no wire ever sends
+  // service_tier "priority" (pinned from source in the same test).
+  ["openai/gpt-5.6-sol", { prompt: 5.5, completion: 33 }],   // live endpoints 2026-09-18 (headline 2/10; azure/us + azure/eu 5.5/33)
+  ["openai/gpt-5.6-terra", { prompt: 2.2, completion: 13.2 }], // headline 2/12; azure/us + azure/eu bill 2.2/13.2 (live endpoints 2026-09-18)
+  // GPT-6 Astra (premium, admitted 2026-09-18): headline $10/$50, azure/us
+  // endpoint $11/$55 inside the premium bound; the "openai/gpt-5" row would
+  // never match it (boundary-aware) so it would have fallen to the tier bound.
+  ["openai/gpt-6-astra", { prompt: 11, completion: 55 }],
   // Nano-tier small models, live 2026-09-02 (exact rows so the clamp prices
   // them at cost instead of the tier bound).
-  ["mistralai/ministral-8b-2512", { prompt: 0.15, completion: 0.15 }],
-  ["mistralai/ministral-3b-2512", { prompt: 0.1, completion: 0.1 }],
-  ["openai/gpt-5.6-luna", { prompt: 0.2, completion: 1.2 }], // live 2026-08-19: $0.20/$1.20 (was $1)
+  ["mistralai/ministral-8b-2512", { prompt: 0.165, completion: 0.165 }], // mistral/eu endpoint +10% (live endpoints 2026-09-18)
+  ["mistralai/ministral-3b-2512", { prompt: 0.11, completion: 0.11 }],
+  ["openai/gpt-5.6-luna", { prompt: 0.22, completion: 1.32 }], // headline $0.20/$1.20; azure/us + azure/eu bill 0.22/1.32 (live endpoints 2026-09-18)
   // gpt-5-pro / gpt-5-image (+ -mini, :batch) sit under the "openai/gpt-5"
   // prefix at far higher rates - explicit so the family rate never prices them
   // (live 2026-08-19: image $10/$10, image-mini $2.5/$2, pro:batch $7.5/$60).
   ["openai/gpt-5-pro", { prompt: 15, completion: 120 }],
   ["openai/gpt-5-image", { prompt: 10, completion: 10 }],
-  ["openai/gpt-5", { prompt: 1.25, completion: 10 }],
-  ["openai/gpt-4o-mini", { prompt: 0.15, completion: 0.6 }],
+  ["openai/gpt-5", { prompt: 1.375, completion: 11 }],
+  ["openai/gpt-4o-mini", { prompt: 0.165, completion: 0.66 }],
   // STILL LIVE upstream at $5/$15 until OpenAI removes it on 2026-10-23, and the
   // "openai/gpt-4o" prefix admits it, so the row stays until the id is gone: with
   // no row the plain gpt-4o price would UNDER-count it (the live guard says so).
   // Delete this row once the live guard reports the id absent.
   ["openai/gpt-4o-2024-05-13", { prompt: 5, completion: 15 }],
   ["openai/gpt-4o", { prompt: 2.5, completion: 10 }],
-  ["openai/gpt-4.1-mini", { prompt: 0.4, completion: 1.6 }],
-  ["openai/gpt-4.1", { prompt: 2, completion: 8 }],
-  // claude-opus covers claude-opus-5 ($5/$25) and -fast ($10/$50) — the $15/$75
-  // legacy-opus bound overestimates both, which is the safe direction.
-  // Longest prefix wins, so the specific rows below beat the legacy blanket.
-  // Verified live on OpenRouter 2026-08-22. The "-fast" variants cost MORE than
-  // their base model, so each needs its own row or the base row would
-  // UNDERPRICE them.
-  ["anthropic/claude-opus-5-fast", { prompt: 10, completion: 50 }],
-  ["anthropic/claude-opus-5", { prompt: 5, completion: 25 }],
-  ["anthropic/claude-opus-4.7-fast", { prompt: 30, completion: 150 }],
-  ["anthropic/claude-opus-4.8-fast", { prompt: 10, completion: 50 }],
-  ["anthropic/claude-opus-4.5", { prompt: 5, completion: 25 }],
-  ["anthropic/claude-opus-4.6", { prompt: 5, completion: 25 }],
-  ["anthropic/claude-opus-4.7", { prompt: 5, completion: 25 }],
-  ["anthropic/claude-opus-4.8", { prompt: 5, completion: 25 }],
+  ["openai/gpt-4.1-mini", { prompt: 0.44, completion: 1.76 }],
+  ["openai/gpt-4.1", { prompt: 2.2, completion: 8.8 }],
+  // claude-opus covers claude-opus-5 ($5/$25 headline) - the $15/$75 legacy-opus
+  // blanket overestimates it, which is the safe direction. Longest prefix wins,
+  // so the specific rows below beat the legacy blanket. The "-fast" model ids
+  // (claude-opus-5-fast, -4.7-fast, -4.8-fast) LEFT the catalog when Anthropic
+  // retired fast mode on 2026-07-24; "anthropic/fast" is now an ENDPOINT TAG
+  // (priority tier, $10/$50 on opus-5) that a default-tier call never routes to,
+  // so those rows were deleted 2026-09-18 (the live guard reads the ids absent).
+  // Regional endpoints (google-vertex/us, amazon-bedrock/eu-west-1 ...) bill
+  // 10% over the headline on every Claude model and are inside every tier
+  // bound, so the rows carry the regional figure (live endpoints 2026-09-18).
+  ["anthropic/claude-opus-5", { prompt: 5.5, completion: 27.5 }],
+  ["anthropic/claude-opus-4.5", { prompt: 5.5, completion: 27.5 }],
+  ["anthropic/claude-opus-4.6", { prompt: 5.5, completion: 27.5 }],
+  ["anthropic/claude-opus-4.7", { prompt: 5.5, completion: 27.5 }],
+  ["anthropic/claude-opus-4.8", { prompt: 5.5, completion: 27.5 }],
   // opus-4 and 4.1 genuinely still list at $15/$75.
   ["anthropic/claude-opus", { prompt: 15, completion: 75 }],
+  // Claude Fable 5.1 (premium, admitted 2026-09-18): headline $10/$50 on every
+  // endpoint; the family row is the belt for fable-5, whose google-vertex/europe
+  // endpoint bills $11/$55. Without these the "anthropic/claude" haiku blanket
+  // ($1/$5) would price Fable at a TENTH of its cost.
+  ["anthropic/claude-fable-5.1", { prompt: 10, completion: 50 }],
+  ["anthropic/claude-fable", { prompt: 11, completion: 55 }],
   // claude-sonnet covers claude-sonnet-5 — was priced at an anticipated
   // STANDARD $3/$15 to guard against a scheduled 2026-09-01 increase from the
   // $2/$10 intro rate; Anthropic cancelled that increase on 2026-08-10 and
   // made $2/$10 the permanent standard price (confirmed against their own
   // release notes, not just OpenRouter's current listing — the two would
   // read identically before 09-01 either way). Live on OpenRouter at $2/$10.
-  ["anthropic/claude-sonnet-4", { prompt: 3, completion: 15 }], // sonnet-4 / 4.5 / 4.6 still list at $3/$15 (live 2026-08-19)
-  ["anthropic/claude-sonnet", { prompt: 2, completion: 10 }],
+  ["anthropic/claude-sonnet-4", { prompt: 3.3, completion: 16.5 }], // sonnet-4 / 4.5 / 4.6 headline $3/$15, regional endpoints +10% (live 2026-09-18)
+  ["anthropic/claude-sonnet", { prompt: 2.2, completion: 11 }], // sonnet-5 headline $2/$10; google-vertex/us + amazon-bedrock/eu-west-1 bill $2.2/$11 (live 2026-09-18)
   ["anthropic/claude-3.5-sonnet", { prompt: 3, completion: 15 }],
   ["anthropic/claude-3.7-sonnet", { prompt: 3, completion: 15 }],
+  ["anthropic/claude-haiku-4.5", { prompt: 1.1, completion: 5.5 }], // headline $1/$5; amazon-bedrock/us + google-vertex/us-east5 bill $1.1/$5.5 (live 2026-09-18)
   ["anthropic/claude", { prompt: 1, completion: 5 }], // haiku family
   ["google/gemini-2.5-pro", { prompt: 1.25, completion: 10 }], // live 2026-08-28
   ["google/gemini-pro", { prompt: 2.5, completion: 15 }],
@@ -768,11 +797,11 @@ export const MODEL_COST = [
   // $1.5/$7.5, 3.1-pro(-preview) $2/$12, lites $0.25-0.30/$1.5-2.5.
   ["google/gemini-3.5-flash-lite", { prompt: 0.4, completion: 3 }],
   ["google/gemini-3.5-flash", { prompt: 2, completion: 10 }],
-  ["google/gemini-3.6-flash", { prompt: 0.75, completion: 3.75 }], // live 2026-08-28
+  ["google/gemini-3.6-flash", { prompt: 0.825, completion: 4.125 }], // headline 0.75/3.75; google-vertex/us bills +10% (live endpoints 2026-09-18)
   ["google/gemini-3.1-flash-lite", { prompt: 0.4, completion: 2 }],
   ["google/gemini-3.1-pro", { prompt: 2.5, completion: 15 }],
   ["google/gemini", { prompt: 0.4, completion: 2.5 }], // flash family
-  ["x-ai/grok", { prompt: 2, completion: 6 }],           // live 2026-08-28 (grok-4.6)
+  ["x-ai/grok", { prompt: 2.2, completion: 6.6 }],       // grok-4.6 headline 2/6; amazon-bedrock/us-west-2 bills 2.2/6.6 (live endpoints 2026-09-18)
   // deepseek-v4-pro and r1 price above deepseek-chat; explicit so the family
   // rate keeps fitting chat. This prefix covers TWO live pools that repriced
   // three times in two days (completion 3.168 -> 3.96 on -0813; then base
@@ -780,11 +809,12 @@ export const MODEL_COST = [
   // pinned AT v1-chat's max_price prompt cap (2.5), so no provider the tier
   // admits can ever exceed it there — this guard cannot re-fire on prompt;
   // completion 4.5 covers the observed max 3.96 with ~14% headroom.
-  ["deepseek/deepseek-v4-pro", { prompt: 2.5, completion: 4.5 }],
+  ["deepseek/deepseek-v4-pro", { prompt: 2.5, completion: 4.95 }], // completion: venice endpoint 4.95 (live endpoints 2026-09-18)
+  ["deepseek/deepseek-v3.2", { prompt: 1, completion: 2.5 }], // phala endpoint prompt $1 vs the $0.6 family rate (live endpoints 2026-09-18)
   ["deepseek/deepseek-r1", { prompt: 0.8, completion: 2.5 }],
   ["deepseek/", { prompt: 0.6, completion: 2.5 }],
   ["meta-llama/", { prompt: 3.5, completion: 3.5 }],
-  ["mistralai/", { prompt: 2, completion: 7.5 }], // mistral-medium-3-5 $1.5/$7.5 (live 2026-08-19)
+  ["mistralai/", { prompt: 2.2, completion: 7.5 }], // mistral-medium-3-5 $1.5/$7.5 (live 2026-08-19); mistral-large on mistral/eu 2.2/6.6 (live endpoints 2026-09-18)
   ["qwen/", { prompt: 2, completion: 6.4 }], // qwen3.8-max / -2.4t-a95b $2/$6 (live 2026-08-19)
   ["poolside/", { prompt: 0.15, completion: 0.3 }], // laguna xs/s: $0.06-0.09/$0.12-0.18
   // Stealth listing: genuinely $0/$0 upstream (verified on the live catalog
@@ -834,6 +864,14 @@ export function tokenizerFactor(model) {
   // The models on the OLD tokenizer, by their own documentation.
   if (/claude-(3|3\.5|3\.7|sonnet-4|opus-4(\.[0-6])?|haiku-4)/.test(m)) return 1;
   return NEW_TOKENIZER_FACTOR;
+}
+
+/** Models that take NO sampling knobs (no temperature / top_p in their live
+ *  supported_parameters; the upstream drops them silently). GPT-6 Astra today;
+ *  the Claude post-4.6 rule (temperature must be 1) lives on the Messages
+ *  wire, where the Anthropic-native fields are. Exported for the tests. */
+export function noSamplingKnobs(model) {
+  return /^openai\/gpt-6-astra/.test(canonicalModel(model).toLowerCase());
 }
 
 /** Buyer's prompt-cache preference (top-level OpenRouter `cache_control`):
@@ -1421,9 +1459,29 @@ export function validateRequest(input, tierSlug, { clamp = true } = {}) {
 
   const body = { model, messages, max_tokens: maxTokens };
   for (const k of PASSTHROUGH) if (input[k] !== undefined) body[k] = input[k];
+  // Sampling knobs a model does not take. GPT-6 Astra lists neither
+  // `temperature` nor `top_p` among its supported parameters and OpenRouter
+  // DROPS them silently (measured 2026-09-18: temperature 0.2 and top_p 0.5
+  // both answered 200 with no effect), so a buyer would believe they set a
+  // knob that did nothing. Say so, the way the Messages wire already does for
+  // the post-Opus-4.6 Claude models.
+  if (noSamplingKnobs(model)) {
+    for (const k of ["temperature", "top_p"]) {
+      if (body[k] !== undefined) throw bad(`"${k}" is not supported by ${model} (its reasoning is mandatory and it takes no sampling parameters; the upstream drops the field silently). Remove it, or steer with reasoning.effort instead.`);
+    }
+  }
   // Buyer reasoning preference (changes the answer -> normalized body).
   const reasoning = validateReasoning(input, tier);
   if (reasoning !== undefined) body.reasoning = reasoning;
+  // An effort the model does not support is refused with the model's own list
+  // (GPT-6 Astra has no "none": reasoning is mandatory there, and OpenRouter
+  // does not validate the value - a bogus effort answered 200, measured
+  // 2026-09-18 on the Messages wire). Models with no table row keep only the
+  // generic REASONING_EFFORTS check inside validateReasoning.
+  if (reasoning?.effort !== undefined) {
+    const prof = reasoningProfile(model);
+    if (prof && !prof.efforts.includes(reasoning.effort)) throw bad(`"reasoning.effort" ${JSON.stringify(reasoning.effort)} is not supported by ${model} - it accepts: ${prof.efforts.join(", ")}${prof.efforts.includes("none") ? "" : ' (reasoning is mandatory on this model, so "none" is not offered)'}`);
+  }
   // Anthropic's own rule, enforced for every model: the reasoning budget must
   // be strictly below max_tokens. The clamp and the metered quote price
   // `max_tokens` as the whole output; a reasoning budget at or above it would
@@ -1584,6 +1642,13 @@ export const REASONING_MODELS = [
   { id: "google/gemini-3.6-flash", efforts: ["minimal", "low", "medium", "high"] },
   { id: "anthropic/claude-sonnet-5", efforts: ["low", "medium", "high", "xhigh", "max"] },
   { id: "anthropic/claude-opus-5", efforts: ["low", "medium", "high", "xhigh", "max"] },
+  // GPT-6 Astra: reasoning MANDATORY (no "none"), default effort medium; the
+  // prefix covers gpt-6-astra-pro, which the live catalog lists with the same
+  // set. Claude Fable 5.1: adaptive thinking mandatory, default effort high.
+  // Both live-read 2026-09-18. On the premium tier the policy is "model", so
+  // nothing is injected; on metered ("lowest") they get "low".
+  { prefix: "openai/gpt-6-astra", efforts: ["low", "medium", "high", "xhigh", "max"] },
+  { id: "anthropic/claude-fable-5.1", efforts: ["low", "medium", "high", "xhigh", "max"] },
   // stealth/ox-alpha: reasoning.mandatory true, default_effort "max" (live
   // catalog 2026-08-22). Without this row defaultReasoningFor returns null,
   // the model reasons at "max" by default and a small budget comes back empty
@@ -3147,7 +3212,7 @@ export const LLM_GATEWAY_TOOLS = [
     category: "llm",
     price: "$0.50",
     description:
-      "OpenAI-compatible chat completions, premium tier: gpt-5, o3/o4, claude opus - paid per call in USDC over x402. Same wire format as /v1/chat/completions with the largest caps (64k chars in, 8192 tokens out).",
+      "OpenAI-compatible chat completions, premium tier: gpt-5, gpt-6 astra, o3 and o4-mini, claude opus, claude fable 5.1 - paid per call in USDC over x402. Same wire format as /v1/chat/completions with the largest caps (85k chars in, 8192 tokens out).",
     tags: SHARED_TAGS,
     discovery: { bodyType: "json", input: { ...EXAMPLE, model: "anthropic/claude-opus-4" }, inputSchema: INPUT_SCHEMA, output: { example: { ...EXAMPLE_OUT, model: "anthropic/claude-opus-4" } } },
     handler: makeHandler("v1-chat-premium"),

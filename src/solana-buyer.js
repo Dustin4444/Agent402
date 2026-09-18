@@ -15,6 +15,8 @@
 // account, read from the chain, failing CLOSED on any RPC error. A seller
 // nobody pays is not routable, whatever a registry says.
 
+import { disableVendorSpendControls } from "./x402-spend-controls.js";
+
 const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 export const SOLANA_CAIP2 = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
 // Devnet's genesis hash is a DIFFERENT CAIP-2 suffix - an accept labeled
@@ -49,7 +51,8 @@ export async function getUpstreamBuyerSvm() {
     ]);
     const bytes = raw.startsWith("[") ? Uint8Array.from(JSON.parse(raw)) : new Uint8Array(kit.getBase58Encoder().encode(raw));
     const signer = await kit.createKeyPairSignerFromBytes(bytes);
-    const client = new x402Client();
+    // Vendor spend controls off: payX402 pins maxAtomic itself (x402-spend-controls.js).
+    const client = disableVendorSpendControls(new x402Client());
     // Registered by hand rather than via registerExactSvmScheme so the scheme
     // reads OUR RPC (SOLANA_RPC_URL) for mint metadata instead of the
     // library's hardcoded default - and so an offline test can point it at a

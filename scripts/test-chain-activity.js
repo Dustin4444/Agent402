@@ -80,6 +80,21 @@ ok(a.error === "SOLANA_WALLET_ADDRESS unset" && a.buckets.length === 0 && a.tota
 a = await robinhoodActivity(null);
 ok(a.error === "WALLET_ADDRESS unset" && a.buckets.length === 0 && a.totals.tx === 0,
   "robinhoodActivity: no wallet -> unavailable shape, no throw");
+// Host decision pinned (2026-09-18): Blockscout's per-instance API stays the
+// source until a key is on Railway (api.blockscout.com/4663 answers 402 keyless,
+// probed that day), and an edge challenge (the 403 HTML the legacy host served
+// a residential probe) is reported as the honest unavailable shape, not thrown
+// and never read as "no transfers".
+{
+  const realFetch = globalThis.fetch;
+  const seen = [];
+  globalThis.fetch = async (url) => { seen.push(String(url)); return { ok: false, status: 403, headers: { get: () => "text/html" }, json: async () => { throw new Error("html"); }, text: async () => "<html>Just a moment...</html>" }; };
+  a = await robinhoodActivity("0xabf4fabd7c416fb67202e5f9002389fc75e2a9d0");
+  ok(a.error === "Blockscout HTTP 403" && a.buckets.length === 0 && a.totals.tx === 0, `robinhoodActivity: an edge 403 page -> error named, empty buckets, no throw (got ${a.error})`);
+  ok(seen.length === 2 && seen.every((u) => u.startsWith("https://robinhoodchain.blockscout.com/api?module=account&action=tokentx")), `robinhoodActivity: legacy per-instance host, one retry (${seen.length} calls)`);
+  ok(!seen.some((u) => new URL(u).hostname === "api.blockscout.com"), "robinhoodActivity: the keyless read never asks api.blockscout.com (402 without a key)");
+  globalThis.fetch = realFetch;
+}
 
 // --- Market-page render: fixture non-null activity shows the cards --------
 const LOCAL = { origin: "self", displayName: "Agent402.Tools", homepage: "https://agent402.tools", local: true, toolCount: 2, tools: [{ slug: "hash", name: "Hash", category: "encoding", price: 0.001 }] };

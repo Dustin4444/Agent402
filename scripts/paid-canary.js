@@ -18,6 +18,7 @@
 // Exit codes: 0 = buying works (warnings allowed) · 1 = buying broken · 2 = misconfig
 //   · 3 = underfunded (settlement proven; burner empty) · 4 = green but burner low
 //   · 5 = partial-rail (tools settled; one or more chain rail legs failed)
+import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
 import { readFileSync, existsSync, appendFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createHmac } from "node:crypto";
@@ -247,7 +248,7 @@ export const TOOLS = [
     // quote that silently collapses to the floor - an @x402 adapter change that
     // hides the body, say - changes what this leg pays and the pin fails.
     body: { model: "openai/gpt-5-nano", messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 2000 },
-    priceUsd: 0.001122,
+    priceUsd: 0.001215,
     check: (r) => isExactOkReply(r.choices?.[0]?.message?.content) || `expected an exact "OK" reply, got ${JSON.stringify(r).slice(0, 100)}`,
   },
   {
@@ -260,7 +261,7 @@ export const TOOLS = [
     path: "/v1/metered/messages",
     method: "POST",
     body: { model: "anthropic/claude-haiku-4.5", max_tokens: 300, messages: [{ role: "user", content: "Reply with exactly: OK" }] },
-    priceUsd: 0.001977,
+    priceUsd: 0.002155,
     check: (r) =>
       (r.type === "message" && r.role === "assistant" && Array.isArray(r.content) && r.content.some((b) => b.type === "text" && typeof b.text === "string") &&
         r.usage && typeof r.usage.output_tokens === "number" && !("cost" in r.usage)) ||
@@ -274,7 +275,7 @@ export const TOOLS = [
     path: "/v1/metered/responses",
     method: "POST",
     body: { model: "anthropic/claude-haiku-4.5", max_output_tokens: 300, input: "Reply with exactly: OK" },
-    priceUsd: 0.001964,
+    priceUsd: 0.002141,
     check: (r) =>
       (r.object === "response" && r.status === "completed" && Array.isArray(r.output) && r.output.some((o) => o.type === "message" && Array.isArray(o.content) && o.content.some((c) => c.type === "output_text" && typeof c.text === "string")) &&
         r.usage && typeof r.usage.output_tokens === "number" && !("cost" in r.usage) && r.store !== true) ||
@@ -417,6 +418,20 @@ export const TOOLS = [
     body: { input: "Agent402 canary: text to speech is live.", voice: "alloy" },
     priceUsd: 0.06,
     check: (t) => (typeof t === "string" && t.length > 5_000) || `expected raw audio bytes, got ${String(t).length} chars`,
+  },
+  {
+    // transcribe moved to gpt-transcribe with a 4-minute cap on 2026-09-18; the
+    // fixture is our own 32 KB wav, so the leg proves the model swap and the
+    // cap path live for $0.03 a day (the only STT proof there was before this
+    // was the local duration test).
+    kit: "transcribe",
+    path: "/api/transcribe",
+    method: "POST",
+    body: { url: "https://agent402.tools/fixtures/sample-audio.wav" },
+    priceUsd: 0.03,
+    check: (r) =>
+      (typeof r.text === "string" && r.text.trim().length > 0 && r.model === "gpt-transcribe") ||
+      `expected a non-empty transcript from gpt-transcribe, got ${JSON.stringify(r).slice(0, 120)}`,
   },
   {
     // Supply-chain leg — the catalog's first PAID x402 UPSTREAM (blockscout-kit).
@@ -865,7 +880,7 @@ async function main() {
     import("viem/accounts"), import("@x402/core/client"), import("@x402/evm/exact/client"), import("@x402/fetch"),
   ]);
   const account = privateKeyToAccount(pk);
-  const client = new x402Client();
+  const client = disableVendorSpendControls(new x402Client());
   registerExactEvmScheme(client, { signer: account });
 
   // Mark every canary request as internal traffic: X-Heartbeat-Token =
@@ -991,7 +1006,7 @@ async function main() {
       ]);
       const bytes = raw.startsWith("[") ? Uint8Array.from(JSON.parse(raw)) : new Uint8Array(kit.getBase58Encoder().encode(raw));
       const signer = await kit.createKeyPairSignerFromBytes(bytes);
-      const svmPay = wrapSvm(synthFetch, registerExactSvmScheme(new SvmClient(), { signer }));
+      const svmPay = wrapSvm(synthFetch, registerExactSvmScheme(disableVendorSpendControls(new SvmClient()), { signer }));
       const res = await svmPay(`${TARGET}/api/skill/decode-blob`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         // The pack's own documented example blob (a JWT) — deterministic steps.
@@ -1283,7 +1298,7 @@ async function main() {
         return;
       }
       const quotedUsd = Number(upto.amount) / 1e6;
-      const uptoClient = new x402Client((_v, list) => list.find((a) => a?.scheme === "upto" && a?.network === "eip155:8453") || list[0]);
+      const uptoClient = disableVendorSpendControls(new x402Client((_v, list) => list.find((a) => a?.scheme === "upto" && a?.network === "eip155:8453") || list[0]));
       registerExactEvmScheme(uptoClient, { signer: account });
       uptoClient.register("eip155:8453", new UptoEvmScheme(account));
       let sentScheme = null;
@@ -1534,7 +1549,7 @@ async function main() {
       // Override with STELLAR_RPC_URL; the fallback is the free public endpoint
       // from the providers list at developers.stellar.org/docs/data/apis/rpc.
       const rpcUrl = (process.env.STELLAR_RPC_URL || "https://mainnet.sorobanrpc.com").trim();
-      const stellarClient = new StellarX402Client();
+      const stellarClient = disableVendorSpendControls(new StellarX402Client());
       stellarClient.register("stellar:*", new ExactStellarScheme(signer, { url: rpcUrl }));
       const stellarPay = wrapStellar(synthFetch, stellarClient);
       // Anchor BEFORE the call, with a small skew allowance, so a late-confirming
@@ -1620,7 +1635,7 @@ async function main() {
       // The client-side scheme builds the transaction group itself, so it
       // needs an algod URL — mainnet AlgoNode is free and keyless.
       const algodUrl = (process.env.ALGORAND_ALGOD_URL || "https://mainnet-api.algonode.cloud").trim();
-      const avmClient = new AvmX402Client();
+      const avmClient = disableVendorSpendControls(new AvmX402Client());
       avmClient.register("algorand:*", new ExactAvmScheme(signer, { algodUrl }));
       const avmPay = wrapAvm(synthFetch, avmClient);
       const res = await avmPay(`${TARGET}/api/hash`, {

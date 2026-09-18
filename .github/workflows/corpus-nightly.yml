@@ -30,7 +30,7 @@ concurrency:
 
 jobs:
   corpus:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
       GH_TOKEN: ${{ github.token }}
@@ -120,7 +120,7 @@ jobs:
   # somebody pushes. Found 2026-09-18: Kokoro's dearest endpoint had been 6.5x our
   # row for some time and only an audit noticed. Network-only, no key, spends nothing.
   model-guard:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       GH_TOKEN: ${{ github.token }}

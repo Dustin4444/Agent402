@@ -13,6 +13,7 @@
 //   TARGET_URL   — Agent402 instance (default: https://agent402.tools)
 //   AGENT_KEY    — private key for x402 USDC payment (optional; PoW if unset)
 
+import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
 import { Agent402 } from "../client/index.js";
 
 const TARGET = process.env.TARGET_URL || "https://agent402.tools";
@@ -49,7 +50,7 @@ if (AGENT_KEY) {
   const { registerExactEvmScheme } = await import("@x402/evm/exact/client");
   const { wrapFetchWithPayment } = await import("@x402/fetch");
   const { privateKeyToAccount } = await import("viem/accounts");
-  const xClient = new x402Client();
+  const xClient = disableVendorSpendControls(new x402Client());
   registerExactEvmScheme(xClient, { signer: privateKeyToAccount(AGENT_KEY) });
   // Operator-only attribution: when POW_SECRET is set (internal demo runs),
   // buys carry X-Heartbeat-Token and record as internal traffic in the sales
