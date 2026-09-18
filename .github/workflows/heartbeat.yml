@@ -281,33 +281,40 @@ jobs:
             gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: \$$USD on Base at $(date -u +%FT%TZ)."
           fi
 
-      # PayAI settlement quota watch — PayAI is the PRIMARY facilitator for
-      # Solana/Polygon/Arbitrum/Avalanche (free tier: 10k settlements/month).
-      # Solana is our #2 revenue chain, so hitting the cap silently would be
-      # the CDP-billing-gate incident class all over again: PayAI rejects
-      # settles and a top rail goes dark. Counted from the on-chain ledger
-      # (/api/revenue/daily, ext+int — the canary consumes quota too); this is
-      # a LOWER bound since rejected settles may also meter. Same issue
-      # open/close pattern as the gateway-credits alarm. A missing/unparseable
-      # field is logged LOUDLY and never silently treated as "fine" — a silent
-      # skip is exactly what kept the charged-failure alarm dead for months.
-      - name: PayAI settlement quota watch (1k/month free tier)
+      # PayAI credit watch. PayAI repriced on 2026-09-21 12:00 UTC: a settlement
+      # costs the chain's gas x 1.3 in credits ($0.001/credit; Avalanche 0.09,
+      # Sei 0.43, Base 2.12, Polygon 3.98, Arbitrum 6.08) and the free allowance
+      # is 1,000 credits PER RECEIVING WALLET, LIFETIME - not monthly, so this
+      # counter never resets. PayAI is FIRST-TRIED only for Avalanche and Sei
+      # (CDP is first for Base/Polygon/Arbitrum/Solana), so those two rails are
+      # what draws it down; a settle-fallback hop onto PayAI also meters and is
+      # not visible here (a lower bound, as before). Counted from the on-chain
+      # ledger (/api/revenue/daily, ext+int - the canary spends credits too)
+      # since the pricing start. With PAYAI_API_KEY_ID/SECRET on Railway the
+      # account bills prepaid credits past the allowance and the durable fix for
+      # a high reading is a top-up at merchant.payai.network; without keys the
+      # rails go dark on 403 free_tier_exhausted (Solvador catches Avalanche on
+      # a clean rejection, nothing catches Sei). A missing/unparseable field is
+      # logged LOUDLY and never silently treated as "fine".
+      - name: PayAI credit watch (1,000 free credits, lifetime, per receiving wallet)
         if: always()
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           THRESH: ${{ vars.PAYAI_QUOTA_WARN || 800 }}
         run: |
-          CUT=$(date -u -d '30 days ago' +%F)
-          COUNT=$(curl -s --max-time 20 "$PROD/api/revenue/daily" | jq -e --arg cut "$CUT"             '[.days[] | select(.day >= $cut) | select(.chain=="solana" or .chain=="polygon" or .chain=="arbitrum" or .chain=="avalanche") | (.extTx + .intTx)] | add // 0')             || { echo "::warning::PayAI quota watch UNREADABLE — /api/revenue/daily missing or unparseable. NOT skipping silently: investigate."; exit 0; }
-          echo "PayAI-chain settles, rolling 30d: $COUNT / 1000 free (warn at $THRESH)"
-          TITLE="PayAI settlement quota HIGH"
+          CUT=2026-09-21
+          CREDITS=$(curl -s --max-time 20 "$PROD/api/revenue/daily" | jq -e --arg cut "$CUT" \
+            '[.days[] | select(.day >= $cut) | select(.chain=="avalanche" or .chain=="sei") | (.extTx + .intTx) * (if .chain=="avalanche" then 0.09 else 0.43 end)] | add // 0 | . * 100 | round / 100') \
+            || { echo "::warning::PayAI credit watch UNREADABLE - /api/revenue/daily missing or unparseable. NOT skipping silently: investigate."; exit 0; }
+          echo "PayAI credits spent since $CUT (Avalanche 0.09 + Sei 0.43 per settle): $CREDITS / 1000 free, lifetime (warn at $THRESH)"
+          TITLE="PayAI credit allowance HIGH"
           OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
-          if [ "$COUNT" -ge "$THRESH" ]; then
+          if awk -v c="$CREDITS" -v t="$THRESH" 'BEGIN { exit !(c >= t) }'; then
             if [ -z "$OPEN" ]; then
-              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "Rolling 30-day settlements on PayAI-settled chains (Solana/Polygon/Arbitrum/Avalanche) reached $COUNT of the 10,000/month free tier (warn threshold $THRESH). If the cap is hit, PayAI rejects settles and those rails go dark — the settle-fallback chain (Solvador) catches clean rejections, but the durable fixes are PAYAI_API_KEY_ID/SECRET (authenticated tier, merchant.payai.network) or shifting canary volume. Count is on-chain settles (ext+int) from /api/revenue/daily — a lower bound, rejected settles may also meter."
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "Weighted PayAI credits spent on Avalanche + Sei settlements since $CUT reached $CREDITS of the 1,000 free credits (lifetime, per receiving wallet; warn threshold $THRESH). Past the allowance PayAI bills prepaid credits when PAYAI_API_KEY_ID/SECRET are set (top up at merchant.payai.network) and answers 403 free_tier_exhausted when they are not (Sei goes dark; Avalanche falls to Solvador on a clean rejection). Fallback hops onto PayAI meter too and are not counted here - this is a lower bound. Pricing: docs.payai.network/x402/facilitators/pricing."
             else
-              gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "Still high: $COUNT / 1000 free at $(date -u +%FT%TZ)."
+              gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "Still high: $CREDITS / 1000 free credits at $(date -u +%FT%TZ)."
             fi
           elif [ -n "$OPEN" ]; then
             gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: rolling 30-day count back to $COUNT (below $THRESH) at $(date -u +%FT%TZ)."

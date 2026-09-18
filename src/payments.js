@@ -1851,9 +1851,12 @@ async function resolvePayAIFacilitatorConfig() {
     console.log("Facilitator (Solana): PayAI (authenticated)");
     return createFacilitatorConfig(process.env.PAYAI_API_KEY_ID, process.env.PAYAI_API_KEY_SECRET);
   }
-  // PayAI free tier: 1,000 settlements/month per receiving wallet, no API
-  // key needed; past that /settle answers 403 free_tier_exhausted and the
-  // account bills $0.001/tx from prepaid credits (docs read 2026-08-28).
+  // PayAI keyless: from 2026-09-21 the free allowance is 1,000 credits per
+  // receiving wallet, LIFETIME, and a settlement costs the chain's gas x 1.3 in
+  // credits (Avalanche 0.09, Sei 0.43, Base 2.12, Polygon 3.98, Arbitrum 6.08 at
+  // $0.001/credit; docs read 2026-09-18). Past it /settle answers 403
+  // free_tier_exhausted. The keyed branch above bills prepaid credits instead;
+  // heartbeat.yml's credit watch counts the draw-down either way.
   const { facilitator } = await import("@payai/facilitator");
   console.log("Facilitator (Solana): PayAI (free tier)");
   return facilitator;
