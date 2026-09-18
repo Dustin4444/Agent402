@@ -63,6 +63,12 @@ regexes = [
   # is 40 hex chars precisely; a real EVM private key is 64 hex and is NOT
   # covered here, so it would still fire.
   '''0x[0-9a-fA-F]{40}\b''',
+  # The Sei USDC contract (public, used by the paid canary's rail table). gitleaks
+  # 8.21.2's generic-api-key rule captures this one two characters SHORT of the
+  # full address (0x + 38 hex), so the 40-hex rule above cannot match the capture;
+  # a 40-hex address is not a credential and the capture is a prefix of a known
+  # public value, pinned exactly. Surfaced 2026-09-18 when lines above it moved.
+  '''0xe15fc38f6d8c56af07bbcbe3baf5708a2bf423''',
   # The leak-guard test's own canary tokens (e.g. fredv2-LEAKCANARY0000).
   '''LEAKCANARY''',
   # test-leaderboard-redaction.js's fake Alchemy key as first committed
