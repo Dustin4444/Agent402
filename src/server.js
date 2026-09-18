@@ -7898,7 +7898,14 @@ bootStep("revenueSnapshot", () => revenueSnapshot(revenueWallets()).catch(() => 
 // the previous good snapshot rather than wiping it — a transient RPC outage
 // shouldn't make /api/leaderboard return nothing. Fire-and-forget so a slow
 // Bazaar walk can't delay boot or /health.
-bootStep("startLeaderboardRefresh", () => startLeaderboardRefresh());
+// crawledWallets: the Base scan's wallet list came from the Bazaar alone, so a
+// seller we indexed ourselves could settle on chain and still read settled:null
+// forever, which the router treats as settlement_required (2026-09-18). Same
+// source the Solana board already uses, injected rather than imported so the
+// leaderboard keeps no dependency on the index.
+bootStep("startLeaderboardRefresh", () => startLeaderboardRefresh({
+  crawledWallets: (chain) => allPayToOrigins(chain?.caip2 || "eip155:8453"),
+}));
 // Warm the on-chain economy snapshot once, off the boot path: the cache is
 // cold exactly once per deploy and only a cold cache blocks a visitor.
 bootStep("warmEconomySnapshot", () => warmEconomySnapshot());
