@@ -1046,6 +1046,17 @@ function buildSettledByOrigin() {
   // both derive from the Bazaar, so before this an unregistered seller scored
   // 0 settled calls however much money it actually moved — "unproven" where the
   // truth was "unlooked". Max-merged, so this can only ever widen the evidence.
+  //
+  // READ THE BOUND BEFORE RELYING ON IT (2026-09-19): topMerchants comes from a
+  // query that ends `ORDER BY payments DESC LIMIT 12` (x402-economy.js), so
+  // this source can only ever see the twelve busiest x402 merchants on all of
+  // Base. It does NOT do what the paragraph above implies for an ordinary
+  // seller - a seller with a handful of settlements is outside the twelve and
+  // scores 0 here, forever. What actually covers the tail is the leaderboard
+  // fold above, whose scan seeds its wallet set from our own crawl's payTos
+  // (mergeCrawledWallets) and keeps a row per wallet with no rank cap
+  // (measured: 1,624 rows over 1,778 wallets queried). Widen the LIMIT only
+  // with the CDP SQL cost in hand; until then this is a top-of-market belt.
   try {
     const econ = economySnapshotCached();
     if (econ?.topMerchants?.length) {
