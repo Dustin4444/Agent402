@@ -260,6 +260,7 @@ import { CRYPTO_HASH_TOOLS } from "./tools/crypto-hash-kit.js";
 import { CALENDAR_TOOLS } from "./tools/calendar-kit.js";
 import { LLM_TOOLS } from "./tools/llm-kit.js";
 import { LLM_MESSAGES_TOOLS, MESSAGES_PATH_BY_TIER } from "./tools/llm-messages-kit.js";
+import { LLM_GEMINI_TOOLS, GEMINI_PATH_BY_TIER } from "./tools/llm-gemini-kit.js";
 import { LLM_RESPONSES_TOOLS } from "./tools/llm-responses-kit.js";
 import { LLM_GATEWAY_TOOLS, TIERS, modelsList, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, rerankCacheKey, RERANK_PATH, gatewayCreditsStatus, oxAlphaAvailable, probeOxAlphaAvailability, OX_ROUTE, oxUpstreamIsFree } from "./tools/llm-gateway-kit.js";
 // /v1/audio/speech stays behind OPENROUTER_TTS_ENABLED as a rollout gate:
@@ -285,6 +286,7 @@ const GATEWAY_TOOLS_ENABLED = [
   ...LLM_GATEWAY_TOOLS.filter((t) => (t.slug !== "v1-audio-speech" || process.env.OPENROUTER_TTS_ENABLED === "true") && (t.slug !== "v1-chat-ox" || oxAlphaAvailable())),
   // Anthropic Messages wire on the same five tiers (src/tools/llm-messages-kit.js).
   ...LLM_MESSAGES_TOOLS,
+  ...LLM_GEMINI_TOOLS,
   // OpenAI Responses wire on the same five tiers (src/tools/llm-responses-kit.js).
   ...LLM_RESPONSES_TOOLS,
 ];
@@ -2152,6 +2154,35 @@ app.use((req, _res, next) => {
   if (target) {
     const q = req.url.indexOf("?");
     req.url = target + (q >= 0 ? req.url.slice(q) : "");
+  }
+  next();
+});
+// Google's own URL shape -> the tier's fixed Gemini route. A Google GenAI SDK
+// appends /v1beta/models/<model>:generateContent to whatever base URL it is
+// given, so pointing it at https://agent402.tools/v1/metered produces
+// /v1/metered/v1beta/models/<model>:generateContent, exactly as the Anthropic
+// SDK produces /v1/metered/v1/messages above. The model rides in the PATH on
+// this wire, and a catalog route has to be a fixed string (the paywall, the
+// pricing surface and the manifest all key on "METHOD /path"), so the model is
+// carried onto the rewritten URL as a query parameter - handlerInputOf merges
+// query and body, so the gate that prices the request and the handler that
+// serves it read the same model. A body `model` is left alone if the path
+// names none. Bare (un-prefixed) /v1beta/... maps to the base tier, the same
+// tier /v1/messages and /v1/chat/completions belong to.
+const GEMINI_ALIAS_PREFIXES = new Map(Object.entries(GEMINI_PATH_BY_TIER).map(([, p]) => [p.replace(/\/gemini$/, ""), p]));
+const GEMINI_ALIAS_RE = /^(.*)\/v1beta\/models\/([^/]+):generateContent$/;
+app.use((req, _res, next) => {
+  const m = GEMINI_ALIAS_RE.exec(req.path);
+  if (m) {
+    const target = GEMINI_ALIAS_PREFIXES.get(m[1] === "" ? "/v1" : m[1]);
+    if (target) {
+      const q = req.url.indexOf("?");
+      const rest = q >= 0 ? req.url.slice(q + 1) : "";
+      // The path's model wins over a query one: the URL is what the SDK chose.
+      const params = new URLSearchParams(rest);
+      params.set("model", decodeURIComponent(m[2]));
+      req.url = `${target}?${params.toString()}`;
+    }
   }
   next();
 });

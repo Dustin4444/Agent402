@@ -87,6 +87,24 @@ try {
   const unknownAlias = await post("/v1/nope/v1/messages", small);
   ok(unknownAlias.status === 404, `an alias for a tier that does not exist stays 404 (got ${unknownAlias.status})`);
 
+  // 2b. Google's own URL shape reaches the Gemini wire the same way, and the
+  // MODEL RIDES IN THE PATH there, so the alias has to carry it onto the fixed
+  // catalog route or the 402 would quote the tier default instead of the model
+  // the SDK asked for. Two different models must quote two different prices.
+  const gBody = { contents: [{ role: "user", parts: [{ text: "hi" }] }], generationConfig: { maxOutputTokens: 64 } };
+  const gFlash = await post("/v1/metered/v1beta/models/google%2Fgemini-2.5-flash:generateContent", gBody);
+  ok(gFlash.status === 402, `Google-shaped path -> the metered Gemini 402 (got ${gFlash.status})`);
+  const gFlash402 = decode402(gFlash);
+  const gBig = decode402(await post("/v1/metered/v1beta/models/openai%2Fgpt-4o:generateContent", gBody));
+  ok(gFlash402 && gBig && Number(amountOf(gBig)) !== Number(amountOf(gFlash402)),
+    `the model in the PATH drives the quote (${amountOf(gFlash402)} vs ${amountOf(gBig)} base units)`);
+  const gDirect = decode402(await post("/v1/metered/gemini", { ...gBody, model: "google/gemini-2.5-flash" }));
+  ok(gDirect && amountOf(gDirect) === amountOf(gFlash402), "the fixed route and the Google-shaped alias quote the same price for the same call");
+  const gBase = await post("/v1beta/models/google%2Fgemini-2.5-flash:generateContent", gBody);
+  ok(gBase.status === 402, `the un-prefixed Google path maps to the BASE tier (got ${gBase.status})`);
+  const gUnknown = await post("/v1/nope/v1beta/models/x:generateContent", gBody);
+  ok(gUnknown.status === 404, `a Gemini alias for a tier that does not exist stays 404 (got ${gUnknown.status})`);
+
   // 3. A real agent-host turn (~110 KB) reaches the metered tier, not the 100 KB parser.
   const big = ccBody(95_000);
   const bigBytes = Buffer.byteLength(JSON.stringify(big));

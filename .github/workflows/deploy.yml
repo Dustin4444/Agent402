@@ -2358,6 +2358,8 @@ jobs:
           t node scripts/test-bazaar-validate.js
           # Anthropic Messages wire on the five tiers (validation, probe clamp, outbound prefs, billing strip, failover, paid-empty guard, SSE scrub - offline)
           t node scripts/test-llm-messages.js
+          # Google's native generateContent wire (translation, not a relay)
+          t node scripts/test-llm-gemini-kit.js
           # Solana revenue scanner (token-balance decode + classification)
           t node scripts/test-revenue-scan-solana.js
           # USDC settle-receipt network attribution (viaUSDCByNetwork)
