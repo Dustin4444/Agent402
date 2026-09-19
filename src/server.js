@@ -2175,19 +2175,42 @@ const GEMINI_ALIAS_PREFIXES = new Map(Object.entries(GEMINI_PATH_BY_TIER).map(([
 // ("gemini-2.5-flash") but ours are vendor-prefixed ("google/gemini-2.5-flash"),
 // and a buyer who writes the prefixed name into an SDK produces
 // /v1beta/models/google/gemini-2.5-flash:generateContent. Encoded or not, both
-// must reach the route - a bare 404 there tells them nothing. So the prefix is
-// LAZY and the model is greedy up to the :generateContent suffix.
-const GEMINI_ALIAS_RE = /^(.*?)\/v1beta\/models\/(.+):generateContent$/;
+// must reach the route - a bare 404 there tells them nothing.
+//
+// NO REGEX HERE, on purpose. The first cut split the path with
+// /^(.*?)\/v1beta\/models\/(.+):generateContent$/ and CodeQL was right to flag
+// it js/polynomial-redos (high): the lazy prefix before a literal the caller
+// can repeat backtracks quadratically on a path made of many copies of
+// "/v1beta/models/", and req.path is caller-controlled on an unauthenticated
+// route. Same class as the ?seller= trim caught on 2026-08-28. indexOf and
+// slice are linear, do the same job, and cannot be made to backtrack; the
+// length bound keeps even the linear scan small.
+const GEMINI_MARK = "/v1beta/models/";
+const GEMINI_SUFFIX = ":generateContent";
+const GEMINI_PATH_MAX = 512;
+export function geminiAliasParts(path) {
+  const p = typeof path === "string" ? path : "";
+  if (p.length > GEMINI_PATH_MAX || !p.endsWith(GEMINI_SUFFIX)) return null;
+  // FIRST occurrence, which is what the lazy prefix used to pick: everything
+  // before it is the tier prefix, everything after it is the model.
+  const i = p.indexOf(GEMINI_MARK);
+  if (i < 0) return null;
+  const model = p.slice(i + GEMINI_MARK.length, p.length - GEMINI_SUFFIX.length);
+  if (!model) return null;
+  return { prefix: p.slice(0, i), model };
+}
 app.use((req, _res, next) => {
-  const m = GEMINI_ALIAS_RE.exec(req.path);
-  if (m) {
-    const target = GEMINI_ALIAS_PREFIXES.get(m[1] === "" ? "/v1" : m[1]);
+  const parts = geminiAliasParts(req.path);
+  if (parts) {
+    const target = GEMINI_ALIAS_PREFIXES.get(parts.prefix === "" ? "/v1" : parts.prefix);
     if (target) {
       const q = req.url.indexOf("?");
       const rest = q >= 0 ? req.url.slice(q + 1) : "";
       // The path's model wins over a query one: the URL is what the SDK chose.
       const params = new URLSearchParams(rest);
-      params.set("model", decodeURIComponent(m[2]));
+      let model = parts.model;
+      try { model = decodeURIComponent(model); } catch { /* a malformed escape stays as written */ }
+      params.set("model", model);
       req.url = `${target}?${params.toString()}`;
     }
   }

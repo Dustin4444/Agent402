@@ -41,6 +41,10 @@ export const REFUSAL_REASONS = Object.freeze([
 
 // Ordered: the FIRST match wins, so the specific patterns precede the generic
 // ones. Each is anchored on words our own `bad()` calls actually use.
+// Bounded repetition throughout: these run over an error message, and a kit's
+// 400 can quote the caller's own input, so an unbounded [a-z_ ]* next to a
+// literal is the same polynomial-backtracking shape CodeQL flagged in the
+// Gemini path alias. Forty characters is far past any real field name.
 const RULES = [
   [/\bis not in the gateway allowlist\b/i, "model_not_allowed"],
   [/\bis served by the .* tier\b|\bcall \/v1\/[a-z0-9/-]+ .*instead\b/i, "model_wrong_tier"],
@@ -51,7 +55,7 @@ const RULES = [
   // has a space next, and quote-to-space is non-word to non-word, so a word
   // boundary there never matches. The first cut had one and classified the
   // commonest enum refusal we serve as "other".
-  [/\bmust be one of\b|\bmust be "[^"]*"|\bunknown [a-z_ ]*(mode|type|period|unit|format|category|network|chain)\b/i, "unknown_field_value"],
+  [/\bmust be one of\b|\bmust be "[^"]*"|\bunknown [a-z_ ]{0,40}(mode|type|period|unit|format|category|network|chain)\b/i, "unknown_field_value"],
   [/\bis required\b|\bmust be a non-empty\b|\bneeds? an? "/i, "missing_required"],
   [/\bmust be an? (object|array|string|number|boolean|integer)\b|\bmust be a JSON object\b/i, "wrong_type"],
   // Format constraints on a field the caller DID send: right name, wrong

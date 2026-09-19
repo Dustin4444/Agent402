@@ -144,5 +144,21 @@ ok(chatToGemini({}, M).candidates[0].finishReason === "FINISH_REASON_UNSPECIFIED
     "a tier with NO Gemini twin keeps its chat path: that is genuinely the only place the model is served");
 }
 
+// ---- the path alias must not be a regex (CodeQL js/polynomial-redos, high) ----
+// The first cut split the Google-shaped path with a lazy prefix before a
+// literal the caller can repeat, which backtracks quadratically on
+// "/v1beta/models/" x N - and req.path is caller-controlled on an
+// unauthenticated route. Pinned from source, because the safe version is
+// defined by what it does NOT contain.
+{
+  const { readFileSync } = await import("node:fs");
+  const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+  const fn = server.slice(server.indexOf("export function geminiAliasParts"), server.indexOf("app.use((req, _res, next) => {", server.indexOf("export function geminiAliasParts")));
+  ok(fn.length > 0 && !/\/\^|RegExp|\.exec\(|\.match\(/.test(fn), "the path alias uses no regex at all, so it cannot be made to backtrack");
+  ok(/indexOf\(GEMINI_MARK\)/.test(fn) && /endsWith\(GEMINI_SUFFIX\)/.test(fn), "it splits with linear indexOf/endsWith");
+  ok(/GEMINI_PATH_MAX/.test(fn), "and bounds the length before scanning");
+  ok(!/GEMINI_ALIAS_RE/.test(server), "the backtracking constant is gone, not merely unused");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
