@@ -413,5 +413,29 @@ try {
   ok(evs.length > 0 && missing.length === 0, `every server event carries $process_person_profile:false (${evs.length} events, ${missing.length} missing${missing.length ? ": " + missing.slice(0, 3).map((e) => e.event).join(",") : ""})`);
 }
 
+// The funnel may only record product keys we actually sell (2026-09-19).
+// On a refusal that value is whatever the caller sent, and the August
+// scanner's path-traversal and template-injection payloads are in this
+// property verbatim in production as a result.
+{
+  const { setKnownProductKeys, capturePostHogHumanFunnel, _testEventsForTest } = await import("../src/posthog.js");
+  setKnownProductKeys(["dossier", "domain-audit"]);
+  const before = _testEventsForTest().length;
+  capturePostHogHumanFunnel({ step: "checkout_started", product: "dossier" });
+  capturePostHogHumanFunnel({ step: "checkout_refused", product: "file:///etc/passwd" });
+  capturePostHogHumanFunnel({ step: "checkout_refused", product: "../../../../etc/passwd" });
+  capturePostHogHumanFunnel({ step: "checkout_refused", product: '"+response.write(9889177*9680697)+"' });
+  const rows = _testEventsForTest().slice(before).filter((e) => e.event === "human_funnel");
+  ok(rows.length === 4, `four funnel rows captured (${rows.length})`);
+  ok(rows[0].properties.product === "dossier", "a real product key is recorded as itself");
+  ok(rows.slice(1).every((r) => r.properties.product === "unknown"), "every caller-supplied value becomes `unknown`");
+  const blob = JSON.stringify(rows);
+  ok(!/etc\/passwd/.test(blob) && !/response\.write/.test(blob) && !/\.\.\//.test(blob), "no attacker payload survives into telemetry");
+  setKnownProductKeys([]);
+  capturePostHogHumanFunnel({ step: "checkout_started", product: "dossier" });
+  const after = _testEventsForTest().filter((e) => e.event === "human_funnel").pop();
+  ok(after.properties.product === "unknown", "before the server seeds the catalog nothing is recognised: it fails CLOSED");
+}
+
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

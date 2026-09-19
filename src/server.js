@@ -262,6 +262,7 @@ import { LLM_TOOLS } from "./tools/llm-kit.js";
 import { LLM_MESSAGES_TOOLS, MESSAGES_PATH_BY_TIER } from "./tools/llm-messages-kit.js";
 import { LLM_GEMINI_TOOLS, GEMINI_PATH_BY_TIER } from "./tools/llm-gemini-kit.js";
 import { refusalReason } from "./refusal-reason.js";
+import { setKnownProductKeys } from "./posthog.js";
 import { LLM_RESPONSES_TOOLS } from "./tools/llm-responses-kit.js";
 import { LLM_GATEWAY_TOOLS, TIERS, modelsList, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, rerankCacheKey, RERANK_PATH, gatewayCreditsStatus, oxAlphaAvailable, probeOxAlphaAvailability, OX_ROUTE, oxUpstreamIsFree } from "./tools/llm-gateway-kit.js";
 // /v1/audio/speech stays behind OPENROUTER_TTS_ENABLED as a rollout gate:
@@ -6474,6 +6475,9 @@ if (!FREE_MODE) {
 
   // A 402 answered to a request that carried a payment header says WHY in the
   // buyer's terms (balance short vs stale authorization) - src/verify-hint.js.
+  // Telemetry may only record product keys we actually sell (see knownProduct
+  // in posthog.js): on a refusal the value is whatever the caller sent.
+  setKnownProductKeys([...Object.keys(HUMAN_PRODUCTS), ...Object.keys(MONITOR_PRODUCTS || {})]);
   app.use(verifyHintMiddleware());
 
   const mppShim = createMppShim({

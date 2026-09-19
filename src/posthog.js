@@ -611,12 +611,32 @@ function flushToolGoneRollup() {
  *  insight, not a ledger grep: checkout_started -> paid (report delivered) |
  *  failed (refunded) | report_opened; monitor_checkout_started -> monitor_paid.
  *  Product + price only - never the buyer's input, email or session id. */
+/** The product key, or "unknown". Set by the server at boot from the real
+ *  catalogs (HUMAN_PRODUCTS + MONITOR_PRODUCTS); until then nothing is
+ *  recognised, which fails CLOSED - an unlabelled funnel row is a small loss,
+ *  an exported attacker payload is not. */
+let knownProductKeys = null;
+export function setKnownProductKeys(keys) {
+  knownProductKeys = new Set((Array.isArray(keys) ? keys : []).map((k) => String(k)));
+}
+function knownProduct(product) {
+  if (product == null || product === "") return null;
+  const p = String(product);
+  return knownProductKeys && knownProductKeys.has(p) ? p : "unknown";
+}
+
 export function capturePostHogHumanFunnel({ step, product, kind, priceUsd, reason }) {
   if (!active()) return;
   try {
     capture("human_funnel", {
       step: String(step || ""),
-      product: product ? String(product) : null,
+      // The product KEY only, and only when it is one we actually sell. On a
+      // refusal this value is whatever the caller sent, and the 2026-08-29
+      // scanner's path-traversal and template-injection payloads are sitting
+      // in this property verbatim as a result. Same rule as the refusal
+      // classifier: a closed vocabulary is groupable, and an unrecognised
+      // value becomes "unknown" rather than exporting a stranger's string.
+      product: knownProduct(product),
       kind: kind ? String(kind) : null,
       priceUsd: priceUsd != null && Number.isFinite(Number(priceUsd)) ? Number(priceUsd) : null,
       reason: reason ? String(reason).slice(0, 120) : null,
