@@ -2170,7 +2170,13 @@ app.use((req, _res, next) => {
 // names none. Bare (un-prefixed) /v1beta/... maps to the base tier, the same
 // tier /v1/messages and /v1/chat/completions belong to.
 const GEMINI_ALIAS_PREFIXES = new Map(Object.entries(GEMINI_PATH_BY_TIER).map(([, p]) => [p.replace(/\/gemini$/, ""), p]));
-const GEMINI_ALIAS_RE = /^(.*)\/v1beta\/models\/([^/]+):generateContent$/;
+// The model segment may itself contain a slash: Google's own names are bare
+// ("gemini-2.5-flash") but ours are vendor-prefixed ("google/gemini-2.5-flash"),
+// and a buyer who writes the prefixed name into an SDK produces
+// /v1beta/models/google/gemini-2.5-flash:generateContent. Encoded or not, both
+// must reach the route - a bare 404 there tells them nothing. So the prefix is
+// LAZY and the model is greedy up to the :generateContent suffix.
+const GEMINI_ALIAS_RE = /^(.*?)\/v1beta\/models\/(.+):generateContent$/;
 app.use((req, _res, next) => {
   const m = GEMINI_ALIAS_RE.exec(req.path);
   if (m) {

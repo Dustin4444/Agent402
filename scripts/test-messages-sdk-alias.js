@@ -102,6 +102,16 @@ try {
   ok(gDirect && amountOf(gDirect) === amountOf(gFlash402), "the fixed route and the Google-shaped alias quote the same price for the same call");
   const gBase = await post("/v1beta/models/google%2Fgemini-2.5-flash:generateContent", gBody);
   ok(gBase.status === 402, `the un-prefixed Google path maps to the BASE tier (got ${gBase.status})`);
+  // The model segment may contain a slash: Google's own names are bare and ours
+  // are vendor-prefixed, so a buyer writing "google/gemini-2.5-flash" into an
+  // SDK produces an extra path segment. Encoded or not, both must route - a
+  // bare 404 there tells them nothing. (Found by driving it: the first cut
+  // matched [^/]+ and 404'd the unencoded form.)
+  const gSlash = await post("/v1/metered/v1beta/models/google/gemini-2.5-flash:generateContent", gBody);
+  const gEnc = await post("/v1/metered/v1beta/models/google%2Fgemini-2.5-flash:generateContent", gBody);
+  ok(gSlash.status === 402 && gEnc.status === 402, `a vendor-prefixed model routes encoded or not (${gSlash.status}, ${gEnc.status})`);
+  ok(amountOf(decode402(gSlash)) === amountOf(decode402(gEnc)), "both spellings quote the same price, so neither is read as a different model");
+
   const gUnknown = await post("/v1/nope/v1beta/models/x:generateContent", gBody);
   ok(gUnknown.status === 404, `a Gemini alias for a tier that does not exist stays 404 (got ${gUnknown.status})`);
 
