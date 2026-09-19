@@ -15,6 +15,7 @@
 //
 //   node scripts/test-seller-dossier.js
 import { strict as assert } from "node:assert";
+import { readFileSync } from "node:fs";
 import { buildSellerDossierTool, composeSellerDossier } from "../src/tools/seller-dossier.js";
 
 let passed = 0, failed = 0;
@@ -320,6 +321,25 @@ check("a delivery failure publishes the chain and the date, never the status or 
     "and neither survives anywhere else in the document, including the prose flags");
   assert.equal(d.router.refusals[0].status, 402,
     "a REFUSAL keeps its status on purpose: a 402 on a paid retry is frequently our own end (a credential we built wrong), so it informs the seller rather than accusing them");
+});
+
+// hostOf ran `/\/.*$/` on a caller-controlled value: polynomial backtracking on
+// a run of slashes (CodeQL js/polynomial-redos, high), the same defect and the
+// same fix as isSelfSellerQuery in host-entry.js on 2026-08-28. It surfaced
+// here when the operator evidence route added a second caller-controlled path
+// into this tool. The bound is asserted in TIME, because a correctness-only
+// check passes against the regex too and would not have caught it.
+check("hostOf is linear on a pathological input", () => {
+  const src = readFileSync(new URL("../src/tools/seller-dossier.js", import.meta.url), "utf8");
+  const hostOf = new Function("return " + src.match(/function hostOf[\s\S]*?\n}/)[0].replace(/^function hostOf/, "function"))();
+  assert.equal(hostOf("https://Proof.Example.com/x/y"), "proof.example.com");
+  assert.equal(hostOf("a.b/c"), "a.b");
+  assert.equal(hostOf(""), "");
+  assert.equal(hostOf(null), "");
+  const t = Date.now();
+  hostOf("/".repeat(200_000));
+  const ms = Date.now() - t;
+  assert.ok(ms < 250, `200k slashes took ${ms}ms`);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

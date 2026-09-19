@@ -58,6 +58,14 @@ jobs:
           # verified. With the key the server's own 25/min bucket is the bound
           # and the cases' shared `paceKey` clock keeps under it.
           COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+          # Our Solana RPC, read-only. RugCheck stopped publishing topHolders
+          # for every mint on 2026-09-19, so sol-token-holders/-report build
+          # their table from getTokenLargestAccounts + one batched
+          # getMultipleAccounts instead. Those cases declare
+          # `requires: SOLANA_RPC_URL` and are reported SKIPPED, never passed,
+          # while this is unset - so the corpus can never certify a table it
+          # did not see. Four reads a night against a PAYG CU plan.
+          SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
         run: |
           set +e
           # --server-log keeps the booted server's own stdout/stderr: a kit's

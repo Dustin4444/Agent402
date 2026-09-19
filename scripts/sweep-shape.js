@@ -49,6 +49,14 @@ export const EMPTY_ARRAY_OK = new Map([
   ["/api/weather-alerts", "alerts"],          // a state with no active NWS alert at that minute (CA read 0 on 2026-09-17 13:48Z); count 0 is the honest answer
   ["/api/nft-metadata", "attributes"],        // a token whose collection publishes no traits
   ["/api/coin-profile", "platforms"],         // a native coin has no contract addresses
+  // RugCheck stopped populating `topHolders` for EVERY mint (measured
+  // 2026-09-19: 5 of 5 majors answered 200 with an empty array while
+  // totalHolders stayed populated). The tool now falls back to OUR Solana RPC,
+  // which restores the table in production - but SOLANA_RPC_URL is a
+  // production credential CI does not hold, so the example is legitimately
+  // empty HERE and populated there. Verified live the same day against the
+  // configured RPC: 20 rows, top1 24.776% on the published JUP example.
+  ["/api/sol-token-holders", "holders"],
   ["/api/memory/grants", "grants"],           // a fresh store holds no grants
   // EVERY OTHER wallet-keyed READ, for the same reason plus a sharper one.
   // Listed as a family on purpose: this was first fixed for /api/memory and

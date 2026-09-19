@@ -27,8 +27,21 @@ function iso(ms) {
   return Number.isFinite(n) && n > 0 ? new Date(n).toISOString() : null;
 }
 
+// Bound the input BEFORE any pattern runs, then strip the scheme and the path
+// with index arithmetic rather than a regex. `/\/.*$/` is polynomial on a
+// value the caller controls (CodeQL js/polynomial-redos, high): a string of
+// many slashes backtracks. Same defect and same fix as isSelfSellerQuery in
+// host-entry.js on 2026-08-28; it surfaced here when the operator evidence
+// route added a second caller-controlled path into this tool, on top of the
+// paid tool's own `origin` parameter.
 function hostOf(raw) {
-  return String(raw || "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").slice(0, 253);
+  let v = String(raw || "").trim().slice(0, 300).toLowerCase();
+  for (const scheme of ["https://", "http://"]) {
+    if (v.startsWith(scheme)) { v = v.slice(scheme.length); break; }
+  }
+  const slash = v.indexOf("/");
+  if (slash >= 0) v = v.slice(0, slash);
+  return v.slice(0, 253);
 }
 
 const TOOL_ROWS_MAX = 50;

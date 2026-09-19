@@ -27,7 +27,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { timedSync } from "./boot-timing.js";
 import { fetchAllBazaarItems as walkBazaar } from "./bazaar-pager.js";
-import { EVM } from "./revenue-live.js";
+import { EVM, OUR_EVM_WALLETS } from "./revenue-live.js";
 import { redactSecrets } from "./tools/redact.js";
 import { NETWORKS } from "./payments.js";
 import { CHROME_HEAD_LINKS, CHROME_CSS, renderHeader, renderFooter } from "./chrome.js";
@@ -329,9 +329,9 @@ export function canonicalHost(rawUrl) {
  * Returns ranked array. Ties on totalUsd break on callsSettled (more activity
  * wins), then alphabetical (purely deterministic — no informational signal).
  */
-export function aggregateLeaderboard(transfers, sellers, { maxCallUsd = DEFAULTS.maxCallUsd } = {}) {
+export function aggregateLeaderboard(transfers, sellers, { maxCallUsd = DEFAULTS.maxCallUsd, ourWallets = OUR_EVM_WALLETS } = {}) {
   const byWallet = initWalletAccumulator(sellers);
-  foldTransfers(byWallet, transfers, maxCallUsd);
+  foldTransfers(byWallet, transfers, maxCallUsd, ourWallets);
   return finalizeLeaderboard(byWallet, { maxCallUsd });
 }
 
@@ -369,12 +369,39 @@ export function initWalletAccumulator(sellers) {
  * discarded right after this call instead of being retained in a master list.
  *
  * `transfers`: [{ wallet, payer, usd }] — `wallet` is the recipient (lowercase)
+ *
+ * OUR OWN PAYMENTS ARE NOT A SELLER'S EVIDENCE (2026-09-19). Every distinct
+ * sender used to count, including us, and these maps feed the router's own
+ * gate through buildSettledByOrigin / buildPayersByOrigin - so money we sent a
+ * seller counted toward the floor that decides whether we should send them
+ * money. Found while verifying three transfers a seller offered as proof: one
+ * was our Base spending wallet paying him because a third party had bought a
+ * seller-payability check against his endpoint. A payment made to TEST whether
+ * a seller can be paid is the clearest thing that is not demand.
+ *
+ * Measured before changing it: about 39 payments a week leave our wallets to
+ * other sellers (route-execute, seller-payability, the Blockscout buys),
+ * against a board whose top row alone settles ~90,000 in the window. So this
+ * moves no ranking. It matters at the BOTTOM, where a seller with three
+ * settlements had one of them from us, and the bottom is exactly the
+ * population the routing floor governs.
+ *
+ * `ourWallets` is injected rather than imported so this stays a pure fold; the
+ * caller passes OUR_EVM_WALLETS. Omitted, behaviour is byte-identical to
+ * before, which keeps every existing test honest.
  */
-export function foldTransfers(byWallet, transfers, maxCallUsd = DEFAULTS.maxCallUsd) {
+export function foldTransfers(byWallet, transfers, maxCallUsd = DEFAULTS.maxCallUsd, ourWallets = null) {
+  const ours = ourWallets instanceof Set
+    ? ourWallets
+    : new Set([...(ourWallets || [])].map((w) => String(w).toLowerCase()));
   for (const t of transfers) {
     const row = byWallet.get(t.wallet);
     if (!row) continue;
     if (!(t.usd > 0) || t.usd > maxCallUsd) continue;
+    // Skipped whole, not just as a payer: a settlement we paid for is not a
+    // settlement the seller earned, so counting the call while dropping the
+    // payer would leave callsSettled overstating what uniqueBuyers reports.
+    if (t.payer && ours.has(String(t.payer).toLowerCase())) { row.selfPaidSkipped = (row.selfPaidSkipped || 0) + 1; continue; }
     row.callsSettled += 1;
     row.totalUsd += t.usd;
     if (t.payer) {
@@ -800,7 +827,7 @@ export async function runLeaderboard(overrides = {}) {
             payer: payerFromLog(l),
             usd: Number(BigInt(l.data)) / 1e6,
           }));
-          foldTransfers(byWallet, chunkTransfers, opts.maxCallUsd);
+          foldTransfers(byWallet, chunkTransfers, opts.maxCallUsd, OUR_EVM_WALLETS);
           transferCount += chunkTransfers.length;
         }
       } catch (e) {

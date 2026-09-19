@@ -3290,7 +3290,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   breaking line, do NOT take it while `@x402/stellar` pins `^16.0.1`). VERIFIED CLEAN and needing nothing: all eleven
   stablecoin addresses and their EIP-712 domain pairs, each proven by recomputing `DOMAIN_SEPARATOR()` rather than trusting
   `name()` (USDG's `version()` reverts and was resolved by brute force, so payments.js's "best-effort" domain comment is
-  actually verified), every chain id, and every registry we list on. DONE, and the pin has moved twice since: `mppx` is `^0.9.3` (0.9.3 taken 2026-09-18, see its entry; the 0.9.x
+  actually verified), every chain id, and every registry we list on. DONE, and the pin has moved three times since: `mppx` is `^0.10.1` (0.10.1 taken 2026-09-18 in 233b24a0 after reading the packed CHANGELOG and a dist diff - its only change is a client-side recipient allowlist in tempo/client/Charge.js, so our gates are untouched; 0.9.3 the same day, see its entry; the 0.9.x
   read that note asked for happened 2026-09-02 - see the mppx 0.9.2 entry, which also found the timed-out-send class the
   bump surfaced). `src/tempo-confirm.js` stays regardless: a library fix upstream does not retire a guard that reads the
   chain. Alchemy `getNFTSales` is removed 2026-09-30.

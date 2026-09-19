@@ -173,6 +173,37 @@ const done = (code) => { try { child.kill("SIGKILL"); } catch { /* */ } process.
     ok(!JSON.stringify(gs.operatorAuth).includes(TOKEN) && !/not-the-token/.test(JSON.stringify(gs.operatorAuth)), "the status carries counts only, never a credential");
   }
 
+  // /__operator/seller-evidence.json - "what settlement evidence do we hold for
+  // this origin", the question sellers email about. Before it, nothing inside
+  // could answer: /api/index?seller= carries the dispatch verdict with no
+  // counts, and /api/leaderboard ranks by volume and serves at most 500 of
+  // 1,600+ rows, so a seller with two settlements is absent from it whether we
+  // hold 2 or 0.
+  {
+    const ev = "/__operator/seller-evidence.json";
+    const anon = await fetch(`${base}${ev}?origin=https://example.com`);
+    ok(anon.status === 404, `seller-evidence is 404 without the token (got ${anon.status})`);
+    const bad = await fetch(`${base}${ev}?origin=https://example.com`, { headers: { authorization: "Bearer not-the-token" } });
+    ok(bad.status === 404, `seller-evidence is 404 on a wrong token (got ${bad.status})`);
+    const noOrigin = await fetch(`${base}${ev}`, { headers: { authorization: `Bearer ${TOKEN}` } });
+    ok(noOrigin.status === 400, `seller-evidence names the missing parameter (got ${noOrigin.status})`);
+    // The tool's own validation answers, not a duplicate check in the route:
+    // it states the real contract, which accepts a bare host too.
+    ok(/bare host/i.test(String((await noOrigin.json()).error)), "the missing-parameter message states the real contract");
+    const r = await fetch(`${base}${ev}?origin=https://proof.example.com`, { headers: { authorization: `Bearer ${TOKEN}` } });
+    ok(r.ok, `seller-evidence answers for the operator (got ${r.status})`);
+    const body = await r.json();
+    ok(body.origin === "https://proof.example.com", "seller-evidence echoes the origin it answered for");
+    // An origin we never crawled must say so rather than report zero evidence:
+    // "we hold none" and "we never looked" are different answers to a seller.
+    ok(body.listed === false && /not in our index/i.test(String(body.reason)), "an uncrawled origin says never looked, not zero");
+    ok(body.settlementEvidence && body.settlementEvidence.base?.observed === false, "unobserved sources read observed:false, never 0");
+    ok(!JSON.stringify(body).includes(TOKEN), "seller-evidence never echoes the credential");
+    // It is under /__operator, which the CORS allow-list denies by name.
+    const cors = await fetch(`${base}${ev}?origin=https://proof.example.com`, { headers: { origin: "https://evil.example" } });
+    ok(!cors.headers.get("access-control-allow-origin"), "seller-evidence is not cross-origin readable");
+  }
+
   console.log(`\n${pass} passed, ${fail} failed`);
   done(fail ? 1 : 0);
 })().catch((e) => { console.error(e); done(1); });

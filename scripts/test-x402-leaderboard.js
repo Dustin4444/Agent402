@@ -410,5 +410,39 @@ eq(original.map((r) => r.name), snap, "rankBy does not mutate input array");
   ok(/crawledWallets: \(chain\) => allPayToOrigins\(/.test(srv), "from allPayToOrigins, the same source the Solana board uses");
 }
 
+// ---- our own payments are not a seller's evidence (2026-09-19) ----
+// Found verifying three transfers a seller offered as proof that his row was
+// mis-measured: one was our own Base spending wallet, paying him because a
+// third party had bought a seller-payability check against his endpoint. A
+// payment made to TEST whether a seller can be paid is the clearest possible
+// thing that is not demand, and these counts feed the router's own gate.
+{
+  const OURS = "0x77065d81e18ad403bcd6e9a0616b288e16744121";
+  const sellers = [{ wallet: "0xseller", name: "S", origins: ["https://s.example"], endpoints: 1, network: "base" }];
+  const transfers = [
+    { wallet: "0xseller", payer: "0xaaa1", usd: 0.005 },
+    { wallet: "0xseller", payer: OURS, usd: 0.005 },
+    { wallet: "0xseller", payer: "0xbbb2", usd: 0.005 },
+  ];
+  const withOurs = aggregateLeaderboard(transfers, sellers, { ourWallets: new Set() })[0];
+  const without = aggregateLeaderboard(transfers, sellers, { ourWallets: new Set([OURS]) })[0];
+  ok(withOurs.callsSettled === 3 && withOurs.uniqueBuyers === 3, "counting everything sees three settlements from three payers (the old behaviour)");
+  ok(without.callsSettled === 2 && without.uniqueBuyers === 2, "excluding our wallet leaves the two genuine outside settlements");
+  ok(Math.abs(without.totalUsd - 0.01) < 1e-9, "and the dollars drop with them, so totalUsd cannot disagree with callsSettled");
+
+  // Whole-row skip, not payer-only: counting the call while dropping the payer
+  // would leave callsSettled overstating what uniqueBuyers reports.
+  const onlyOurs = aggregateLeaderboard([{ wallet: "0xseller", payer: OURS, usd: 0.005 }], sellers, { ourWallets: new Set([OURS]) })[0];
+  ok(onlyOurs.callsSettled === 0 && onlyOurs.uniqueBuyers === 0 && onlyOurs.totalUsd === 0, "a seller whose ONLY settlement came from us has no evidence at all, rather than one anonymous call");
+
+  // Case-insensitive: an address from a log is lowercase, one from config may not be.
+  const mixed = aggregateLeaderboard([{ wallet: "0xseller", payer: OURS.toUpperCase().replace("0X", "0x"), usd: 0.005 }], sellers, { ourWallets: new Set([OURS]) })[0];
+  ok(mixed.callsSettled === 0, "the match is case-insensitive, so a checksummed address is still ours");
+
+  // Default (no ourWallets passed) must stay byte-identical to before.
+  const dflt = aggregateLeaderboard(transfers, sellers, { ourWallets: null })[0];
+  ok(dflt.callsSettled === 3, "passing no wallet set changes nothing, so every existing caller and test stays honest");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
