@@ -611,10 +611,17 @@ export const SOLANA_INTEL_TOOLS = [
         symbol: r?.tokenMeta?.symbol ?? null,
         decimals,
         supply: rawSupply != null && decimals != null && (rawSupply > 0 || h.rows.length) ? round(rawSupply / 10 ** decimals, 2) : null,
-        // RugCheck publishes holder data for launch-style tokens; for a mint it
-        // does not track (USDC) it answers 0 rows and totalHolders 0, which read
-        // as "this token has no holders" (corpus, 2026-09-06). Say "no data".
-        totalHolders: h.rows.length === 0 && !(num(r?.totalHolders) > 0) ? null : num(r?.totalHolders),
+        // RugCheck's own holder COUNT, and null whenever it does not publish a
+        // positive one - never 0. Two reasons, and the second only appeared
+        // once the RPC fallback landed: a mint RugCheck does not track answers
+        // 0, which reads as "this token has no holders" (corpus, 2026-09-06);
+        // and RugCheck's counts degraded with its topHolders (BONK read
+        // 2,069,663 and then 0 within hours on 2026-09-19), so with a filled
+        // table from the RPC the old expression printed `totalHolders: 0`
+        // beside twenty holders - a self-contradicting answer. The table and
+        // the count come from different sources now, so each says its own
+        // truth and neither invents the other.
+        totalHolders: num(r?.totalHolders) > 0 ? num(r?.totalHolders) : null,
         ...(h.rows.length === 0
           ? { note: "No top-holder table is available for this mint: RugCheck published none and the Solana RPC returned no token accounts. totalHolders, when present, is still RugCheck's own count." }
           : {}),
