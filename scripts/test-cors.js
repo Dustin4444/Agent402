@@ -14,19 +14,34 @@ let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; } else { fail++; console.error(`FAIL: ${m}`); } };
 
 // --- decision -------------------------------------------------------------
-for (const p of ["/api/hash", "/api/find", "/v1/chat/completions", "/mcp", "/.well-known/x402", "/openapi.json", "/llms.txt"])
+for (const p of ["/api/hash", "/api/find", "/v1/chat/completions", "/.well-known/x402", "/openapi.json", "/llms.txt"])
   ok(corsAllowsPath(p), `machine surface allowed: ${p}`);
 // HTML pages are read on our own origin; nothing cross-origin needs them, and
 // they render third-party seller text.
 for (const p of ["/", "/marketplace", "/reports", "/why", "/tools/hash"])
   ok(!corsAllowsPath(p), `page surface NOT allowed: ${p}`);
+// `/mcp` is NOT ours: src/mcp-http.js sets its own complete CORS including
+// DELETE (session termination) and the Mcp-Session-Id expose header. Listing
+// it here made this middleware answer the preflight first with a method list
+// that omitted DELETE, which shipped to prod and broke browser MCP session
+// termination for one deploy.
+for (const p of ["/mcp", "/mcp/", "/mcpfoo"])
+  ok(!corsAllowsPath(p), `the MCP connector answers its own CORS, not this middleware: ${p}`);
+
+// Express routes case-insensitively (`case sensitive routing` is never set),
+// so the deny list must too, or /api/status/PROBE reaches the handler while
+// failing the deny test and inheriting the /api/ allow.
+for (const p of ["/api/status/PROBE", "/API/STATUS/PROBE", "/__OPERATOR/stats"])
+  ok(!corsAllowsPath(p), `the deny list is case-insensitive, like the router: ${p}`);
+ok(corsAllowsPath("/API/hash"), "a normal tool path still allows whatever its casing");
+
 // The operator control plane and the uptime-record writer stay closed. Note
 // honestly which of these the deny list is actually load-bearing for: only
 // `/api/status/probe` matches an allow prefix, so it is the one a mutation
 // removing CORS_DENY_PREFIXES kills. The `/__operator` entries pass because no
 // allow prefix matches them either way - the deny entry is a documented belt
 // against a future `/api/__operator`-shaped path, not a live gate.
-for (const p of ["/__operator", "/__operator/stats", "/__operator/credits.json", "/api/status/probe"])
+for (const p of ["/__operator", "/__operator/stats", "/__operator/credits.json", "/api/status/probe", "/api/route/external-debug"])
   ok(!corsAllowsPath(p), `operator surface denied: ${p}`);
 ok(!corsAllowsPath("/api/status/probe"), "the deny list is load-bearing for the probe writer");
 

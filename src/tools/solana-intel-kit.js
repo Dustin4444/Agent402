@@ -184,7 +184,11 @@ async function topAccountsFromRpc(mint, supplyRaw) {
   if (!url) return null;
   const call = async (body) => {
     const r = await upstreamJson(url, { label: "Solana RPC", method: "POST", body });
-    if (r?.error) throw bad(`Solana RPC refused the read (${String(r.error?.message || "").slice(0, 80)})`, 502);
+    // No upstream text: this module's own rule is that an upstream body is
+    // never relayed to the buyer. Unreachable today (both call sites catch and
+    // fall back to null), which is exactly why it is worth deleting rather
+    // than trusting - it is one removed `try` away from becoming a live relay.
+    if (r?.error) throw bad("Solana RPC refused the read", 502);
     return r?.result?.value ?? null;
   };
   let largest;

@@ -17,7 +17,15 @@ export function handlerInputOf(req, def) {
   // object for pricing and serving" still passed. The fill only adds a missing
   // key, so running it on every call is idempotent.
   if (req.__handlerInput) { aliasInto(req, req.__handlerInput, def); return req.__handlerInput; }
-  const input = { ...(req.query ?? {}), ...(req.body && typeof req.body === "object" && !Array.isArray(req.body) ? req.body : {}) };
+  // A Buffer is an object and is not an Array, so the plain shape test spread
+  // RAW BODIES one property per BYTE. Measured 2026-09-19: a 3 MB multipart
+  // upload became 3,145,728 keys in 500 ms of blocked event loop, and this
+  // runs on every paid request through the dispatcher and again at the route
+  // binder. It arrived with the transcription wire earlier today, the first
+  // route to mount express.raw. A raw body is the handler's business, never a
+  // bag of named parameters.
+  const bodyIsParams = req.body && typeof req.body === "object" && !Array.isArray(req.body) && !Buffer.isBuffer(req.body);
+  const input = { ...(req.query ?? {}), ...(bodyIsParams ? req.body : {}) };
   // Accept MCP-style envelopes posted directly to the HTTP route. Agents
   // frequently mirror the shape they use over /mcp ({slug, params:{...}})
   // into POST /api/<slug> bodies, or wrap fields in {input:{...}} /

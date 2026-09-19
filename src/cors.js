@@ -27,7 +27,14 @@
 // Origin` is needed.
 
 /** Path prefixes a cross-origin machine client may read. */
-export const CORS_PREFIXES = ["/api/", "/v1/", "/mcp", "/.well-known/"];
+// `/mcp` is deliberately ABSENT: src/mcp-http.js has set its own complete CORS
+// since long before this file existed, including `DELETE` (session
+// termination) and the `Mcp-Session-Id` expose header. The first cut listed it
+// here, and because this middleware mounts far earlier it answered the
+// preflight first with `GET, HEAD, POST, OPTIONS` - silently dropping DELETE
+// and breaking browser MCP session termination on prod for one deploy. Two
+// modules must not write the same headers; the connector owns its own.
+export const CORS_PREFIXES = ["/api/", "/v1/", "/.well-known/"];
 
 /** Exact machine surfaces outside those prefixes. */
 export const CORS_EXACT = new Set(["/openapi.json", "/llms.txt", "/api", "/v1"]);
@@ -39,7 +46,7 @@ export const CORS_EXACT = new Set(["/openapi.json", "/llms.txt", "/api", "/v1"])
  * credential-gated, so exposing them buys nothing and widens the blast radius
  * of a leaked token to "any page the operator visits".
  */
-export const CORS_DENY_PREFIXES = ["/__operator", "/api/status/probe"];
+export const CORS_DENY_PREFIXES = ["/__operator", "/api/status/probe", "/api/route/external-debug"];
 
 /**
  * Response headers a cross-origin caller may READ. The payment four are the
@@ -92,7 +99,13 @@ const MAX_ECHO_HEADERS = 32;
 
 /** Does this path get cross-origin access? */
 export function corsAllowsPath(path) {
-  const p = String(path || "");
+  // LOWERCASED before the deny check: `app.set("case sensitive routing")` is
+  // never called, so Express routes `/api/status/PROBE` to the same handler
+  // while a case-sensitive deny test would miss it and fall through to the
+  // `/api/` allow. Inert today (every operator surface is header-credential
+  // gated and this server sets no ambient-authority cookie outside
+  // /__operator), but the deny list is supposed to mean what it says.
+  const p = String(path || "").toLowerCase();
   for (const deny of CORS_DENY_PREFIXES) if (p === deny || p.startsWith(`${deny}/`) || p.startsWith(deny)) return false;
   if (CORS_EXACT.has(p)) return true;
   return CORS_PREFIXES.some((prefix) => p.startsWith(prefix));

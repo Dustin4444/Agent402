@@ -68,5 +68,23 @@ throws(() => parseMultipartFile(build([field("big", "x".repeat(5000))]), CT), "t
   ok(e && /no "file" part/.test(e.message), "a multipart body with no file names the missing part");
 }
 
+// handlerInputOf spread the RAW BODY one property per BYTE, because a Buffer
+// is an object and is not an Array. 3 MB became 3,145,728 keys in 500 ms of
+// blocked event loop, on every paid request, and it arrived with this route -
+// the first to mount express.raw. Asserted in TIME as well as shape: a
+// correctness-only check passes against the old condition too.
+{
+  const { handlerInputOf } = await import("../src/handler-input.js");
+  const big = Buffer.alloc(3 * 1024 * 1024);
+  const t = Date.now();
+  const got = handlerInputOf({ query: { a: "1" }, headers: {}, body: big });
+  const ms = Date.now() - t;
+  ok(Object.keys(got).length === 1, `a raw body is not expanded into parameters (got ${Object.keys(got).length} keys)`);
+  ok(got.a === "1", "the query string still becomes parameters beside a raw body");
+  ok(ms < 100, `a 3 MB raw body costs no measurable time (${ms}ms)`);
+  const json = handlerInputOf({ query: {}, headers: {}, body: { text: "x" } });
+  ok(json.text === "x", "a JSON body is still spread into parameters, unchanged");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
