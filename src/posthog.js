@@ -175,7 +175,7 @@ export function capturePostHogToolError({ slug, status, message, shape, syntheti
 const ROLLED_UP_SLUG_RE = /^_/;
 let discoveryCallCounts = new Map(); // "slug|synthetic|cached|errored|status" -> { ..., count, latencySum }
 
-export function capturePostHogToolCall({ slug, latencyMs, cached, errored, status, synthetic, probe, payer }) {
+export function capturePostHogToolCall({ slug, latencyMs, cached, errored, status, synthetic, probe, payer, refusalReason }) {
   if (!active()) return;
   if (ROLLED_UP_SLUG_RE.test(String(slug || ""))) {
     try {
@@ -197,6 +197,11 @@ export function capturePostHogToolCall({ slug, latencyMs, cached, errored, statu
     status: Number(status) || 200,
     synthetic: !!synthetic,
     probe: !!probe,
+    // The CLASS of a 4xx, never the words (src/refusal-reason.js): a scanner
+    // and a mistyped field were indistinguishable here, which made one burst
+    // read as the metered tier refusing 89% of its buyers. A closed vocabulary
+    // is groupable; the caller's message and values never leave the process.
+    ...(refusalReason ? { refusalReason } : {}),
     ...(payer ? { payer } : {}),
   });
 }

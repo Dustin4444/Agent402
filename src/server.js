@@ -261,6 +261,7 @@ import { CALENDAR_TOOLS } from "./tools/calendar-kit.js";
 import { LLM_TOOLS } from "./tools/llm-kit.js";
 import { LLM_MESSAGES_TOOLS, MESSAGES_PATH_BY_TIER } from "./tools/llm-messages-kit.js";
 import { LLM_GEMINI_TOOLS, GEMINI_PATH_BY_TIER } from "./tools/llm-gemini-kit.js";
+import { refusalReason } from "./refusal-reason.js";
 import { LLM_RESPONSES_TOOLS } from "./tools/llm-responses-kit.js";
 import { LLM_GATEWAY_TOOLS, TIERS, modelsList, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, rerankCacheKey, RERANK_PATH, gatewayCreditsStatus, oxAlphaAvailable, probeOxAlphaAvailability, OX_ROUTE, oxUpstreamIsFree } from "./tools/llm-gateway-kit.js";
 // /v1/audio/speech stays behind OPENROUTER_TTS_ENABLED as a rollout gate:
@@ -7518,6 +7519,7 @@ for (const tool of ALL_KIT) {
     let errored = false;
     let probe = false;
     let status = 200;
+    let refusalClass = null;
     try {
       // The SAME object the quote was priced from (src/handler-input.js):
       // query merged, MCP-style {params|input|args} envelopes unwrapped once,
@@ -7673,6 +7675,11 @@ for (const tool of ALL_KIT) {
     } catch (err) {
       errored = true;
       status = err.statusCode || 500;
+      // The CLASS of this refusal for telemetry (src/refusal-reason.js). Read
+      // here and never sent on: the vocabulary is closed and an unrecognised
+      // message becomes "other", so a buyer's own words cannot reach an
+      // analytics service through a new error string.
+      refusalClass = refusalReason(err?.message, status);
       // A composite cut off by the drain is a 503 with the reason, whatever
       // shape the aborted upstream call surfaced it in (>= 400: not charged).
       if (isDrainAbort(err)) { status = 503; err = Object.assign(new Error("This host is redeploying and stopped the run before it finished; nothing was charged. Retry in a minute."), { statusCode: 503 }); }
@@ -7715,7 +7722,7 @@ for (const tool of ALL_KIT) {
       const latencyMs = Date.now() - startedAt;
       // Fire-and-forget. Analytics outages must NEVER affect agents.
       recordToolCall({ slug: tool.slug, latencyMs, cached, errored, status, synthetic, probe }).catch(() => {});
-      capturePostHogToolCall({ slug: tool.slug, latencyMs, cached, errored, status, synthetic, probe, payer });
+      capturePostHogToolCall({ slug: tool.slug, latencyMs, cached, errored, status, synthetic, probe, payer, refusalReason: refusalClass });
     }
   });
 }
