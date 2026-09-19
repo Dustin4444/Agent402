@@ -426,7 +426,7 @@ Determine it from the response you already hold, without asking us:
 - **\`PAYMENT-RESPONSE\` present, receipt not \`success: false\`, status under 400** - charged and served. Normal.
 - **\`PAYMENT-RESPONSE\` present, receipt not \`success: false\`, status 400 or above** - the residual case: a settlement completed without a successful response. Do NOT blind-retry; this is the one shape where money may have moved without service. We count and alarm on it as an incident rather than claim it cannot happen.
 
-Every x402 authorization is single-use, so any retry needs a fresh signature. Send an \`Idempotency-Key\` header and a retry of an already-served paid call replays the original result instead of charging again.
+Every x402 authorization is single-use, so any retry needs a fresh signature. Send an \`Idempotency-Key\` header and a retry of an already-served paid call replays the original result instead of charging again. **Making many calls? Pay once instead of signing each one.** Exact x402 is one signature and one settlement per request, which is the wrong shape at volume. Two ways to stop: a prepaid credits key (${baseUrl}/credits - one card charge, then \`Authorization: Bearer a402_...\`, no wallet, no signature, no gas) or, to keep the wallet, a one-time Permit2 approval for USDC on Base, after which the gateway's per-request quote is a CEILING and the call settles at actual usage under it (\`npx agent402-openclaw permit2-approve\`). Both stay per-request priced and debited only on a 200.
 
 We state it this way deliberately: the honest guarantee is "settlement ordering makes an error non-chargeable, and here is how to verify it yourself", not "this can never happen". A contract you can check beats one you have to believe.
 
