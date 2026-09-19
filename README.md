@@ -11,6 +11,7 @@ Operated by [Havok Holdings LLC](https://havok.holdings) · [Live](https://agent
 **Who pays:** agents pay per call (from $0.001; models metered under a quoted ceiling and settled at actual usage); people buy finished reports ($2 to $5) and monitors ($5 a month) by card; sites charge crawlers with the tollbooth.
 
 [![Live](https://img.shields.io/website?url=https%3A%2F%2Fagent402.tools%2Fhealth&label=agent402.tools&up_message=live)](https://agent402.tools)
+[![Wellknown](https://wellknown.network/agents/agent402-mcp/badge.svg)](https://wellknown.network/agents/agent402-mcp)
 [![CodeQL](https://github.com/MikeyPetrillo/Agent402/actions/workflows/codeql.yml/badge.svg)](https://github.com/MikeyPetrillo/Agent402/actions/workflows/codeql.yml)
 [![Secret scan](https://github.com/MikeyPetrillo/Agent402/actions/workflows/secret-scan.yml/badge.svg)](https://github.com/MikeyPetrillo/Agent402/actions/workflows/secret-scan.yml)
 [![npm](https://img.shields.io/npm/v/agent402-mcp?label=agent402-mcp)](https://www.npmjs.com/package/agent402-mcp)
