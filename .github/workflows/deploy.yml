@@ -2364,6 +2364,8 @@ jobs:
           t node scripts/test-refusal-reason.js
           # OpenAI's transcription wire: the hand-written multipart parser
           t node scripts/test-multipart.js
+          # Cross-origin reads for the machine surfaces (browser-side x402 buyers)
+          t node scripts/test-cors.js
           # Solana revenue scanner (token-balance decode + classification)
           t node scripts/test-revenue-scan-solana.js
           # USDC settle-receipt network attribution (viaUSDCByNetwork)

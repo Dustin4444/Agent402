@@ -324,6 +324,7 @@ import { USAGE_TOOLS } from "./tools/usage-kit.js";
 import { FEEDBACK_TOOLS } from "./tools/feedback-kit.js";
 import { CHAIN_RPC_TOOLS } from "./tools/chain-rpc-kit.js";
 import { chainNamespaceMiddleware, chainNamespaceMap, chainVerbAliasesByRoute } from "./chain-namespace.js";
+import { corsMiddleware } from "./cors.js";
 import { MODERATE_TOOLS } from "./tools/moderate-kit.js";
 import { CDP_TOOLS } from "./tools/cdp-kit.js";
 import { toolPage, toolsIndexPage, openapiSpec, toolList, CATEGORIES, faqPage, categoryPage } from "./pages.js";
@@ -2134,6 +2135,12 @@ app.all(/^\/e\/(.*)$/, express.raw({ type: () => true, limit: "2mb" }), async (r
 // filter already skips non-text content-types, this is belt-and-braces.
 // Everything else — HTML pages (the 475KB-and-growing /index chief among
 // them) and JSON APIs — compresses.
+// Cross-origin reads for the machine surfaces. Mounted here - after the
+// canonical-host redirect, before compression, the body parsers, every rate
+// limiter and every payment gate - so a browser preflight is answered without
+// spending a limiter token or being asked to pay. See src/cors.js.
+app.use(corsMiddleware());
+
 app.use(compression({
   filter: (req, res) => {
     if (req.path.startsWith("/v1") || req.path.startsWith("/mcp")) return false;
