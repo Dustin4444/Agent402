@@ -305,6 +305,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   // Google's native generateContent wire (llm-gemini-kit): same tiers, same
   // upstream spend, so wallet-only for the same reason as every other wire.
   "v1-chat-nano-gemini", "v1-chat-auto-gemini", "v1-chat-gemini", "v1-chat-pro-gemini", "v1-chat-premium-gemini", "v1-chat-metered-gemini",
+  "v1-audio-transcriptions", "v1-audio-transcriptions-pro",
   "v1-chat-nano-responses", "v1-chat-auto-responses", "v1-chat-responses", "v1-chat-pro-responses", "v1-chat-premium-responses", "v1-chat-metered-responses",
   // research-deep composites (src/tools/research-deep-kit.js) — each fans out
   // to multiple metered gateway calls (grounded search + rerank + synthesis),

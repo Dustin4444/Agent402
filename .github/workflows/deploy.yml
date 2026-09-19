@@ -2362,6 +2362,8 @@ jobs:
           t node scripts/test-llm-gemini-kit.js
           # The CLASS of a 4xx in telemetry, and the promise no buyer text rides with it
           t node scripts/test-refusal-reason.js
+          # OpenAI's transcription wire: the hand-written multipart parser
+          t node scripts/test-multipart.js
           # Solana revenue scanner (token-balance decode + classification)
           t node scripts/test-revenue-scan-solana.js
           # USDC settle-receipt network attribution (viaUSDCByNetwork)

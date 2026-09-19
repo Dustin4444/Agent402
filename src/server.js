@@ -2229,6 +2229,14 @@ app.use(chainNamespaceMiddleware);
 // and the global 100 KB parser answered it with an opaque 413 before the
 // tier's own 200k-char cap could speak. body-parser skips a body that is
 // already parsed, so this route-scoped parser wins over the global one below.
+// OpenAI's transcription wire is multipart, which Express parses not at all,
+// so these two routes take the RAW body and src/multipart.js reads one file
+// part out of it. Mounted before the gates for the same reason the metered
+// parser is: the paywall and the dispatcher run first and must not meet an
+// unparsed stream. 26 MB matches the tool's own 25 MB file cap plus the
+// multipart envelope; anything larger is refused by the parser, not by us
+// reading it into memory twice.
+app.use(["/v1/audio/transcriptions", "/v1/pro/audio/transcriptions"], express.raw({ type: "multipart/form-data", limit: "26mb" }));
 app.use("/v1/metered", express.json({ limit: "1mb" }));
 // An unpaid POST here tokenizes the body for its 402 quote (measured 28 ms
 // per 190k CJK chars): bound unauthenticated quote requests per IP so the

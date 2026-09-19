@@ -23,6 +23,7 @@
 // the SAME model and differ only in the duration cap (and price); the pro
 // tier is the longer-recording tier, not a higher-accuracy one.
 
+import { parseMultipartFile } from "../multipart.js";
 import { parseBuffer } from "music-metadata";
 import { safeFetch } from "./fetch-guard.js";
 import { redactSecrets } from "./redact.js";
@@ -183,6 +184,35 @@ function makeHandler(tierSlug) {
   };
 }
 
+/** OpenAI's own transcription wire: multipart/form-data with `file`.
+ *
+ *  We served /v1/audio/speech, /v1/rerank and /v1/embeddings on OpenAI's paths
+ *  while /v1/audio/transcriptions answered 404, so an SDK pointed at this
+ *  gateway spoke to three routes and then looked broken on the fourth - the
+ *  same "the handler is here, the URL is not" defect the Gemini wire fixed.
+ *
+ *  It joins the existing handler ONE LAYER IN, at the bytes: everything that
+ *  bounds this tool (the duration cap that holds the margin, the model lock,
+ *  the upstream call) is downstream of `buf` and is reached unchanged. The
+ *  only difference is where the bytes came from - an upload instead of a
+ *  fetch - so an uploaded file skips the SSRF-guarded fetch entirely.
+ */
+export function makeMultipartHandler(tierSlug) {
+  return async (_input, req) => {
+    const ct = req?.headers?.["content-type"] || "";
+    const body = req?.body;
+    if (!/^multipart\/form-data/i.test(String(ct)) || !Buffer.isBuffer(body)) {
+      throw bad(`This route takes OpenAI's transcription wire: multipart/form-data with a "file" part (and an optional "language"). To transcribe a URL instead, POST JSON {"url":"..."} to ${tierSlug === "transcribe-pro" ? "/api/transcribe-pro" : "/api/transcribe"}.`);
+    }
+    const { fields, file } = parseMultipartFile(body, ct);
+    if (!file) throw bad('multipart body has no "file" part');
+    const language = typeof fields.language === "string" && fields.language ? fields.language : undefined;
+    const probedDuration = await assertWithinDurationCap(file.buf, file.filename, tierSlug);
+    const tier = TIERS[tierSlug];
+    return callOpenAI(file.buf, file.filename, tier.model, language, probedDuration);
+  };
+}
+
 const SHARED_TAGS = ["stt", "speech-to-text", "transcription", "audio", "whisper", "openai"];
 
 export const STT_TOOLS = [
@@ -247,5 +277,39 @@ export const STT_TOOLS = [
       },
     },
     handler: makeHandler("transcribe-pro"),
+  },
+  {
+    route: "POST /v1/audio/transcriptions",
+    name: "Speech-to-text (OpenAI transcription wire)",
+    slug: "v1-audio-transcriptions",
+    category: "ai",
+    price: "$0.030",
+    description:
+      "OpenAI's own transcription wire: POST multipart/form-data with a `file` part and get the transcript back. Point any Whisper-shaped SDK at this gateway and pay per call with USDC, no account and no API key. Same model and same four-minute cap as /api/transcribe, which takes a URL instead of an upload; /v1/pro/audio/transcriptions takes it to ten minutes.",
+    tags: [...SHARED_TAGS],
+    discovery: {
+      bodyType: "form-data",
+      input: { file: "<audio bytes, multipart part named file>", language: "en" },
+      inputSchema: { type: "object", required: ["file"], properties: { file: { type: "string", description: "The audio file, as a multipart part named `file`" }, language: { type: "string", description: "Optional ISO-639-1 hint" } } },
+      output: { example: { text: "Example transcript.", duration: 3.2, model: "gpt-transcribe" } },
+    },
+    handler: makeMultipartHandler("transcribe"),
+  },
+  {
+    route: "POST /v1/pro/audio/transcriptions",
+    name: "Speech-to-text, long audio (OpenAI transcription wire)",
+    slug: "v1-audio-transcriptions-pro",
+    category: "ai",
+    price: "$0.100",
+    description:
+      "OpenAI's transcription wire on the ten-minute tier: POST multipart/form-data with a `file` part. Same model as /v1/audio/transcriptions with a longer cap, for a recording a four-minute route refuses.",
+    tags: [...SHARED_TAGS],
+    discovery: {
+      bodyType: "form-data",
+      input: { file: "<audio bytes, multipart part named file>" },
+      inputSchema: { type: "object", required: ["file"], properties: { file: { type: "string", description: "The audio file, as a multipart part named `file`" }, language: { type: "string", description: "Optional ISO-639-1 hint" } } },
+      output: { example: { text: "Example transcript.", duration: 420.5, model: "gpt-transcribe" } },
+    },
+    handler: makeMultipartHandler("transcribe-pro"),
   },
 ];
