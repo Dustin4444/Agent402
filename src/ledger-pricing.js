@@ -12,6 +12,10 @@ import { RAILS_OR, RAILS_SHORT } from "./rails.js";
 // exactly this class only inspected meta descriptions, not page bodies.
 import { reportLadderProse } from "./report-tiers.js";
 import { MONITOR_PRODUCTS } from "./stripe-subscriptions.js";
+// Pack prices are DERIVED, never typed: the same table the checkout charges
+// from. A page that quotes a price the checkout does not is the drift class
+// test-price-prose exists for.
+import { CREDIT_PACKS } from "./credits.js";
 const MONITOR_MONTHLY = reportLadderProse({ monitorProducts: MONITOR_PRODUCTS }).monthly || "see /monitors";
 
 const fmtNum = (n) => Number(n || 0).toLocaleString("en-US");
@@ -150,6 +154,35 @@ export function ledgerPricingPage(baseUrl, catalog) {
       <div style="border-left:1px dashed var(--dash);padding-left:30px;display:flex;flex-direction:column;justify-content:center;font-family:var(--font-mono);font-size:14px;">
         <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px;"><span style="color:var(--muted);">build it yourself</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span><span style="font-weight:700;">~5,000 tokens</span></div>
         <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">call the tested endpoint</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span><span style="font-weight:700;color:var(--accent);">$0.001</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- The volume path. Every rail we sell is priced per call, and the per-call
+       COST a buyer actually feels at volume is not the price, it is the
+       signature: an x402 exact payment is one authorization signed and one
+       settlement waited on, per call. Both answers to that already shipped
+       (prepaid credits 2026-08-22, the upto meter 2026-08-26) and neither was
+       ever addressed to the buyer who needs it - measured 2026-09-19, our
+       median external buyer settles twice while a comparable seller's busiest
+       endpoint carries ~233 calls per buyer. This section is that copy. The
+       pack figures come from CREDIT_PACKS, the checkout's own table. -->
+  <section style="max-width:1180px;margin:0 auto;padding:56px 30px 0;">
+    <div style="border:1px solid var(--hairline);background:var(--card);padding:28px 30px;">
+      <div style="font-family:var(--font-mono);font-size:11px;color:var(--accent);letter-spacing:.1em;margin-bottom:10px;">MAKING A LOT OF CALLS</div>
+      <h2 style="font-family:var(--font-body);font-weight:800;font-size:34px;line-height:1;letter-spacing:-.02em;margin:0 0 10px;">Stop signing every call.</h2>
+      <p style="font-size:15px;line-height:1.55;color:var(--muted);max-width:720px;margin:0 0 22px;">Per-call pricing is the point, but a signature per call is not. Paying exact over x402 means one authorization signed and one settlement waited on for every request, which is fine for ten calls and the wrong shape for ten thousand. Two ways to pay once and then just call, both live today, both still per-request priced and still debited only on a 200.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:30px;">
+        <div>
+          <div style="font-family:var(--font-mono);font-size:12px;font-weight:700;margin-bottom:6px;">Prepaid credits &middot; no wallet at all</div>
+          <p style="font-size:14.5px;line-height:1.55;color:var(--muted);margin:0 0 10px;">Buy a pack by card once, then send <code>Authorization: Bearer a402_&hellip;</code> on any paid route. No wallet, no signature, no gas, no subscription. The list price is held before the call and debited only when it returns 200; on the metered gateway you are debited what the call actually used, not the quote.</p>
+          <div style="font-family:var(--font-mono);font-size:13px;"><a href="/credits" style="color:var(--accent);">/credits</a> &middot; ${Object.entries(CREDIT_PACKS).map(([, p]) => `$${(p.cents / 100).toFixed(0)}`).join(" / ")}</div>
+        </div>
+        <div style="border-left:1px dashed var(--dash);padding-left:30px;">
+          <div style="font-family:var(--font-mono);font-size:12px;font-weight:700;margin-bottom:6px;">Keep the wallet &middot; approve once</div>
+          <p style="font-size:14.5px;line-height:1.55;color:var(--muted);margin:0 0 10px;">A one-time Permit2 approval for USDC on Base turns every quote into a ceiling rather than a charge: the gateway settles the actual usage under it, per request, with no fixed tier to overpay into. Non-custodial on this rail, and the approval is yours to revoke.</p>
+          <div style="font-family:var(--font-mono);font-size:13px;color:var(--muted);">npx agent402-openclaw permit2-approve</div>
+        </div>
       </div>
     </div>
   </section>

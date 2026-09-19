@@ -19,7 +19,7 @@ export function creditsPage(baseUrl) {
   <section class="hero">
     <div class="eyebrow">Prepaid credits · every tool · no wallet</div>
     <h1>One card, <em>every tool.</em></h1>
-    <p class="lede">Buy credits once, get a key, spend it across all 500+ pay-per-call tools and every report - per request, at list price, debited only when a call succeeds. <b>No account, no subscription, no wallet.</b> The card-native twin of paying per call in USDC.</p>
+    <p class="lede">Buy credits once, get a key, spend it across all 500+ pay-per-call tools and every report - per request, at list price, debited only when a call succeeds. <b>No account, no subscription, no wallet.</b> The card-native twin of paying per call in USDC - and no signature per call either, which is the part that matters once an agent is making thousands of them: paying exact over x402 signs an authorization and waits for a settlement every single request, where this is one header.</p>
     <div class="trust"><span><span class="dot"></span> Debited only on a successful call</span><span><span class="dot"></span> Never expires</span><span><span class="dot"></span> Secured by Stripe</span></div>
   </section>
   <section>
