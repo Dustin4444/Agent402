@@ -107,5 +107,52 @@ ok(applyInputAliases({ domain: "x" }, { discovery: {} }).length === 0, "a tool w
   ok(input.host === "example.com", "an alias inside a {input:{...}} envelope still resolves");
 }
 
+// --- second pass (2026-09-19): the table covered 22 of 186 required names ---
+// A sweep of every route's own required list found 164 names with no synonym
+// at all, across 255 routes. Measured cause: barcode-lookup refused 1,160 of
+// 1,180 external calls with its own 400, and `code` mapped only to `source`
+// and `src` (aimed at code-running tools), so a caller sending `barcode` or
+// `upc` could not be understood. These pin the pairs that matter and, just as
+// importantly, the ones rule 2 must REFUSE to apply.
+{
+  const cases = [
+    ["code", "barcode", "barcode-lookup"], ["code", "upc", "barcode-lookup"], ["code", "ean", "barcode-lookup"],
+    ["coin", "symbol", "crypto-price"], ["coin", "ticker", "perp-funding"],
+    ["hash", "txid", "tx-status"], ["hash", "transaction", "tx-inspect"],
+    ["mint", "token", "sol-token-safety"], ["mint", "address", "sol-token-report"],
+    ["values", "series", "stats-summary"], ["json", "body", "json-format"],
+    ["prompt", "description", "image-gen"], ["html", "markup", "html-table"],
+    ["spec", "openapi", "openapi-lint"], ["country", "countryCode", "public-holidays"],
+    ["principal", "amount", "loan-payment"], ["years", "term", "bond-price"],
+    ["horizon", "periods", "forecast-ses"], ["payload", "claims", "jwt-sign"],
+  ];
+  let filled = 0;
+  for (const [canon, synonym] of cases) {
+    const input = { [synonym]: "X" };
+    applyInputAliases(input, def([canon], [canon]));
+    if (input[canon] === "X") filled++;
+  }
+  ok(filled === cases.length, `every new pair fills its canonical field (${filled}/${cases.length})`);
+
+  // Rule 2 in the cases that actually occur in the catalog: the synonym is a
+  // real, different field on that tool, so the 400 is the better answer.
+  const quoted = { currency: "usd" };
+  applyInputAliases(quoted, def(["coin"], ["coin", "currency"]));
+  ok(quoted.coin === undefined, "coin is NOT filled from `currency` on a tool that declares currency (it is the quote asset there, not the coin)");
+
+  const responses = { text: { format: "json" } };
+  applyInputAliases(responses, def(["input"], ["input", "text"]));
+  ok(responses.input === undefined, "input is NOT filled from `text` on the Responses wire, where `text` is its own field");
+
+  // Rule 1 and rule 3 still hold over the widened table.
+  const present = { code: "737628064502", barcode: "0000" };
+  applyInputAliases(present, def(["code"], ["code"]));
+  ok(present.code === "737628064502", "a required field the caller DID send is never overwritten by a synonym");
+
+  const two = { barcode: "1", upc: "2" };
+  applyInputAliases(two, def(["code"], ["code"]));
+  ok(two.code === undefined, "two matching synonyms is ambiguity, so the 400 stands rather than a guess");
+}
+
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
