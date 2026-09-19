@@ -11,8 +11,17 @@ const REVERT = "[CDP (Base)] invalid_payload: contract call failed: unable to ca
 // hintFor
 const empty = hintFor({ reason: REVERT, balanceUsd: 0, priceUsd: 0.005, network: "eip155:8453", payer: PAYER });
 ok(empty.retry === "fund-wallet" && /holds \$0\.0000 USDC on Base and this call costs \$0\.0050/.test(empty.hint) && /sign a NEW authorization/.test(empty.hint), "execution reverted + empty wallet -> fund-wallet, with the balance and the price");
+// SUPERSEDED, not deleted (2026-09-19). This used to assert that a balance
+// under the price is "fund-wallet" like an empty one. Measured on 30 days of
+// production: 6,473 of 6,582 Base verify failures were this exact state - 20
+// wallets holding USDC, just less than the price - each retrying the same
+// doomed authorization 300-plus times, while a truly EMPTY wallet accounted
+// for 10 attempts. "Fund the wallet" is a dead end for a buyer who can already
+// afford something; naming what the balance covers is a route they can take
+// now. An empty wallet still gets fund-wallet, which the case above pins.
 const short = hintFor({ reason: REVERT, balanceUsd: 0.002, priceUsd: 0.005, payer: PAYER });
-ok(short.retry === "fund-wallet" && /holds \$0\.0020/.test(short.hint), "a balance under the price is 'fund-wallet' too");
+ok(short.retry === "lower-price-route" && short.wantsAffordable === true && /holds \$0\.0020/.test(short.hint), "a FUNDED wallet under the price is pointed at what it can afford, not told to top up");
+ok(/\/api\/pricing/.test(short.hint) && /\/api\/find/.test(short.hint), "and the hint names the two surfaces that answer 'what can I afford'");
 const stale = hintFor({ reason: REVERT, balanceUsd: 12.5, priceUsd: 0.005, payer: PAYER });
 ok(stale.retry === "fresh-authorization" && /nonce was already spent or its validity window has passed/.test(stale.hint) && /Never re-send/.test(stale.hint), "execution reverted with a funded wallet -> the authorization is stale: sign a fresh one");
 ok(hintFor({ reason: REVERT, balanceUsd: null, priceUsd: 0.005 }).retry === "fresh-authorization", "unreadable balance never claims the wallet is empty");

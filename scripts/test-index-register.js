@@ -1,6 +1,6 @@
 // Offline unit tests for self-serve listing: origin validation + the
 // registerOrigin flow with an injected fake crawler. No network, no /data.
-import { validateOriginInput, registerOrigin, __testResetSubmitted, __testSetSubmittedCap } from "../src/x402-index.js";
+import { validateOriginInput, registerOrigin, __testResetSubmitted, __testSetSubmittedCap, __resetForcedCrawlForTest } from "../src/x402-index.js";
 
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log(`ok - ${msg}`); } else { fail++; console.error(`FAIL - ${msg}`); } };
@@ -34,6 +34,16 @@ __testResetSubmitted();
   const before = crawls;
   const again = await registerOrigin(origin, { crawl: rich });
   ok(crawls === before + 1, "re-registering a KNOWN origin crawls it again (was a price-only no-op)");
+  // The cost of that lever is bounded AT THE ORIGIN, because registration
+  // needs no proof of control: anyone can ask us to re-read anyone's
+  // documents, and per-IP limits let the victim feel the sum of every caller.
+  const afterFirst = crawls;
+  await registerOrigin(origin, { crawl: rich });
+  await registerOrigin(origin, { crawl: rich });
+  ok(crawls === afterFirst, "two more re-registrations inside the window re-read NOTHING (the origin's cooldown, not the caller's)");
+  __resetForcedCrawlForTest();
+  await registerOrigin(origin, { crawl: rich });
+  ok(crawls === afterFirst + 1, "and once the window passes, an explicit ask is honoured again");
   ok(again.listed === true, "the re-registration still lists the origin");
   const row = (again.seller?.tools || [])[0];
   if (row) ok((row.description || "").length > 0, "the answer describes the FRESH entry, not the pre-crawl one");

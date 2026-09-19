@@ -1424,6 +1424,31 @@ export function revenueChartSection() {
   <script src="/js/revenue-chart.js"></script>`;
 }
 
+/** The next step for someone who just read our P&L.
+ *
+ *  /revenue is the most-visited page on the site - 1,172 views across 508
+ *  sessions in 30 days, ahead of the homepage - and it ended on a link to a
+ *  third-party index. A reader who has just decided we are credible had
+ *  nowhere to go. This is the one honest next step, in the page's own
+ *  register: the numbers above came from this rail, and here is the command
+ *  that puts a line on it. No claim, no adjectives, a real price and a real
+ *  route. The three doors below it are the three audiences the page actually
+ *  has: someone who wants to call a tool, someone who wants to be paid, and
+ *  someone who wants the finished work rather than the API.
+ */
+export function revenueNextStep() {
+  return `<div style="margin:36px 0 0;border:1px solid var(--hairline);background:var(--card);padding:22px 20px;">
+    <h2 style="font-family:var(--font-body);font-weight:800;font-size:22px;letter-spacing:-.01em;margin:0 0 6px;">Put a line on this table.</h2>
+    <p style="font-size:14px;line-height:1.6;color:var(--muted);margin:0 0 14px;max-width:68ch;">Every number above is a settlement through the same gate this command hits. It costs a tenth of a cent and needs no account: the 402 comes back with the price and the rails, your client signs, the call is served.</p>
+    <pre style="margin:0 0 16px;padding:12px 14px;overflow-x:auto;background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-size:12.5px;line-height:1.5;"><code>curl -i https://agent402.tools/api/hash?text=hello</code></pre>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <a href="/markets" style="font-family:var(--font-mono);font-size:12.5px;border:1px solid var(--ink);padding:8px 12px;text-decoration:none;color:var(--btn-fg);background:var(--btn-bg);">Tools an agent can call &rarr;</a>
+      <a href="/sell" style="font-family:var(--font-mono);font-size:12.5px;border:1px solid var(--hairline);padding:8px 12px;text-decoration:none;color:var(--ink);">Get paid on these rails &rarr;</a>
+      <a href="/reports" style="font-family:var(--font-mono);font-size:12.5px;border:1px solid var(--hairline);padding:8px 12px;text-decoration:none;color:var(--ink);">Buy a finished report &rarr;</a>
+    </div>
+  </div>`;
+}
+
 export function revenuePage(baseUrl, snap) {
   const canonical = baseUrl + "/revenue";
   const title = "Transactions - x402 and MPP payment rails, every settle on-chain | Agent402";
@@ -1517,6 +1542,9 @@ export function revenuePage(baseUrl, snap) {
     </section>
     <section>
     ${mppRailsSection(snap.mpp)}
+    </section>
+    <section>
+    ${revenueNextStep()}
     </section>
     <section>
     <p style="font-size:13.5px;color:var(--muted);margin-top:30px;max-width:70ch;">Check us independently: <a href="https://www.x402scan.com/server/07eb3020-932a-436d-a739-557b6e47101d" rel="noopener">x402scan indexes our settlements</a>. Their totals include our own traffic, so they read higher than the external figures here; <a href="/transparency#revenue-figures">why the two differ</a>.</p>

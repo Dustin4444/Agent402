@@ -146,7 +146,22 @@ export function overallState(components, railComponents = []) {
 }
 
 /** Build the whole view. `nowMs` is injectable so the tests can pin an instant. */
-export function statusSnapshot({ baseUrl = "", nowMs = Date.now(), historyDays = 90, live = {} } = {}) {
+// The per-component strip is 30 DAYS, not 90 (2026-09-18, the operator: "a lot of
+// whitespace"). It was not a layout problem and the fix is not cosmetic.
+// MEASURED on prod the same day: six of the seven components carry no
+// observation at all before 2026-07-25, when their probes were first recorded,
+// so 33 to 36 of every 90 bars were blank - about 37% of each strip was a
+// truthful "no data" rendered as emptiness. A strip whose first third is blank
+// reads as a gap in SERVICE rather than a gap in MEASUREMENT, which is the
+// opposite of what this page exists to say. Thirty days is fully covered for
+// every component today, so every bar carries a real reading.
+// The 7d / 30d / 90d window figures below are untouched: those print their own
+// observation COUNT beside the percentage, so a shorter history is visible in
+// the number rather than implied by white space.
+// STRIP_DAYS must stay a key of WINDOWS - the footer reads windows[`${STRIP_DAYS}d`]
+// and a value with no matching row renders undefined. Pinned in test-status-store.
+export const STRIP_DAYS = 30;
+export function statusSnapshot({ baseUrl = "", nowMs = Date.now(), historyDays = STRIP_DAYS, live = {} } = {}) {
   const latest = new Map(latestByComponent().map((r) => [r.component, r]));
   const since = nowMs - historyDays * DAY;
 
@@ -247,7 +262,7 @@ function bars(daily) {
 }
 
 function componentRow(c) {
-  const w = c.windows["90d"];
+  const w = c.windows[`${STRIP_DAYS}d`];
   return `<div class="comp">
   <div class="comp-h">
     <span class="dot ${DOT[c.current.state]}" aria-hidden="true"></span>
@@ -258,7 +273,7 @@ function componentRow(c) {
   ${
     c.observed > 0
       ? `<div class="bars">${bars(c.daily)}</div>
-  <div class="comp-f"><span>90 days ago</span><span class="up-n">${fmtPct(w.pct)} <em>of ${w.observed} probe${plural(w.observed)}</em></span><span>today</span></div>`
+  <div class="comp-f"><span>${STRIP_DAYS} days ago</span><span class="up-n">${fmtPct(w.pct)} <em>of ${w.observed} probe${plural(w.observed)}</em></span><span>today</span></div>`
       : `<p class="nomeasure">Not yet measured. No observations are recorded for this check, so no availability is claimed for it.</p>`
   }
 </div>`;
@@ -380,19 +395,24 @@ h2{font-family:var(--font-body);font-weight:800;letter-spacing:-.02em;margin:34p
 .st-links{margin-top:26px;color:var(--faint);font-family:var(--font-mono);font-size:13px}
 .st-links a{color:var(--accent);text-decoration:none}
 .st-links a:hover{text-decoration:underline}
-/* The 90-day strip is 90 bars in a flex row, and on a phone it pushed the
-   page sideways - reported from a real handset 2026-09-11.
+/* The strip is one bar per day in a flex row, and at 90 days it pushed a
+   phone page sideways - reported from a real handset 2026-09-11.
 
    Measured, not estimated: the strip sits inside TWO 18px paddings (the
    page wrapper and the component card), so a 390px phone leaves it 316px
-   and a 320px phone leaves 246px. At the desktop 2px gap the strip cannot
-   go below 90*2 + 89*2 = 358px, so it overflowed every handset.
+   and a 320px phone leaves 246px. At 90 bars and the desktop 2px gap the
+   strip could not go below 90*2 + 89*2 = 358px, so it overflowed every
+   handset, and 1px gaps left only 1.74px per bar at the narrowest.
 
-   1px gaps leave 246-89 = 157px for 90 bars at the narrowest, i.e. 1.74px
-   each, so the min-width comes down to 1.5px or the floor still wins. The
-   bars deliberately stay ABOVE a hairline: the strip exists so that a bad
-   day is visible, and one that fits by collapsing to invisible lines
-   passes an overflow check while failing the reader. */
+   At STRIP_DAYS = 30 (2026-09-18) the arithmetic stops biting: 30*2 +
+   29*2 = 118px against 246px at the narrowest, so each bar gets about
+   7px on the smallest phone and the desktop 2px min-width is never the
+   binding constraint. The mobile overrides below are KEPT rather than
+   deleted: they cost nothing at 30 bars and they are what stops the
+   overflow returning if the window is ever widened again. The bars
+   deliberately stay ABOVE a hairline - the strip exists so that a bad day
+   is visible, and one that fits by collapsing to invisible lines passes
+   an overflow check while failing the reader. */
 @media(max-width:640px){.st-h1{font-size:34px}.st-wrap{padding:36px 18px}.bars{height:26px;gap:1px}.bars .b{min-width:1.5px}.comp-s{margin-left:0;width:100%}
 /* Incidents reflow to stacked cards on phones: no 520px min-width, no
    left-right scrolling - each row becomes a bordered card with per-cell

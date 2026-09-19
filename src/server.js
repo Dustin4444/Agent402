@@ -260,6 +260,9 @@ import { CRYPTO_HASH_TOOLS } from "./tools/crypto-hash-kit.js";
 import { CALENDAR_TOOLS } from "./tools/calendar-kit.js";
 import { LLM_TOOLS } from "./tools/llm-kit.js";
 import { LLM_MESSAGES_TOOLS, MESSAGES_PATH_BY_TIER } from "./tools/llm-messages-kit.js";
+import { LLM_GEMINI_TOOLS, GEMINI_PATH_BY_TIER } from "./tools/llm-gemini-kit.js";
+import { refusalReason } from "./refusal-reason.js";
+import { setKnownProductKeys } from "./posthog.js";
 import { LLM_RESPONSES_TOOLS } from "./tools/llm-responses-kit.js";
 import { LLM_GATEWAY_TOOLS, TIERS, modelsList, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, rerankCacheKey, RERANK_PATH, gatewayCreditsStatus, oxAlphaAvailable, probeOxAlphaAvailability, OX_ROUTE, oxUpstreamIsFree } from "./tools/llm-gateway-kit.js";
 // /v1/audio/speech stays behind OPENROUTER_TTS_ENABLED as a rollout gate:
@@ -285,6 +288,7 @@ const GATEWAY_TOOLS_ENABLED = [
   ...LLM_GATEWAY_TOOLS.filter((t) => (t.slug !== "v1-audio-speech" || process.env.OPENROUTER_TTS_ENABLED === "true") && (t.slug !== "v1-chat-ox" || oxAlphaAvailable())),
   // Anthropic Messages wire on the same five tiers (src/tools/llm-messages-kit.js).
   ...LLM_MESSAGES_TOOLS,
+  ...LLM_GEMINI_TOOLS,
   // OpenAI Responses wire on the same five tiers (src/tools/llm-responses-kit.js).
   ...LLM_RESPONSES_TOOLS,
 ];
@@ -2152,6 +2156,64 @@ app.use((req, _res, next) => {
   if (target) {
     const q = req.url.indexOf("?");
     req.url = target + (q >= 0 ? req.url.slice(q) : "");
+  }
+  next();
+});
+// Google's own URL shape -> the tier's fixed Gemini route. A Google GenAI SDK
+// appends /v1beta/models/<model>:generateContent to whatever base URL it is
+// given, so pointing it at https://agent402.tools/v1/metered produces
+// /v1/metered/v1beta/models/<model>:generateContent, exactly as the Anthropic
+// SDK produces /v1/metered/v1/messages above. The model rides in the PATH on
+// this wire, and a catalog route has to be a fixed string (the paywall, the
+// pricing surface and the manifest all key on "METHOD /path"), so the model is
+// carried onto the rewritten URL as a query parameter - handlerInputOf merges
+// query and body, so the gate that prices the request and the handler that
+// serves it read the same model. A body `model` is left alone if the path
+// names none. Bare (un-prefixed) /v1beta/... maps to the base tier, the same
+// tier /v1/messages and /v1/chat/completions belong to.
+const GEMINI_ALIAS_PREFIXES = new Map(Object.entries(GEMINI_PATH_BY_TIER).map(([, p]) => [p.replace(/\/gemini$/, ""), p]));
+// The model segment may itself contain a slash: Google's own names are bare
+// ("gemini-2.5-flash") but ours are vendor-prefixed ("google/gemini-2.5-flash"),
+// and a buyer who writes the prefixed name into an SDK produces
+// /v1beta/models/google/gemini-2.5-flash:generateContent. Encoded or not, both
+// must reach the route - a bare 404 there tells them nothing.
+//
+// NO REGEX HERE, on purpose. The first cut split the path with
+// /^(.*?)\/v1beta\/models\/(.+):generateContent$/ and CodeQL was right to flag
+// it js/polynomial-redos (high): the lazy prefix before a literal the caller
+// can repeat backtracks quadratically on a path made of many copies of
+// "/v1beta/models/", and req.path is caller-controlled on an unauthenticated
+// route. Same class as the ?seller= trim caught on 2026-08-28. indexOf and
+// slice are linear, do the same job, and cannot be made to backtrack; the
+// length bound keeps even the linear scan small.
+const GEMINI_MARK = "/v1beta/models/";
+const GEMINI_SUFFIX = ":generateContent";
+const GEMINI_PATH_MAX = 512;
+export function geminiAliasParts(path) {
+  const p = typeof path === "string" ? path : "";
+  if (p.length > GEMINI_PATH_MAX || !p.endsWith(GEMINI_SUFFIX)) return null;
+  // FIRST occurrence, which is what the lazy prefix used to pick: everything
+  // before it is the tier prefix, everything after it is the model.
+  const i = p.indexOf(GEMINI_MARK);
+  if (i < 0) return null;
+  const model = p.slice(i + GEMINI_MARK.length, p.length - GEMINI_SUFFIX.length);
+  if (!model) return null;
+  return { prefix: p.slice(0, i), model };
+}
+app.use((req, _res, next) => {
+  const parts = geminiAliasParts(req.path);
+  if (parts) {
+    const target = GEMINI_ALIAS_PREFIXES.get(parts.prefix === "" ? "/v1" : parts.prefix);
+    if (target) {
+      const q = req.url.indexOf("?");
+      const rest = q >= 0 ? req.url.slice(q + 1) : "";
+      // The path's model wins over a query one: the URL is what the SDK chose.
+      const params = new URLSearchParams(rest);
+      let model = parts.model;
+      try { model = decodeURIComponent(model); } catch { /* a malformed escape stays as written */ }
+      params.set("model", model);
+      req.url = `${target}?${params.toString()}`;
+    }
   }
   next();
 });
@@ -6413,6 +6475,9 @@ if (!FREE_MODE) {
 
   // A 402 answered to a request that carried a payment header says WHY in the
   // buyer's terms (balance short vs stale authorization) - src/verify-hint.js.
+  // Telemetry may only record product keys we actually sell (see knownProduct
+  // in posthog.js): on a refusal the value is whatever the caller sent.
+  setKnownProductKeys([...Object.keys(HUMAN_PRODUCTS), ...Object.keys(MONITOR_PRODUCTS || {})]);
   app.use(verifyHintMiddleware());
 
   const mppShim = createMppShim({
@@ -7481,6 +7546,7 @@ for (const tool of ALL_KIT) {
     let errored = false;
     let probe = false;
     let status = 200;
+    let refusalClass = null;
     try {
       // The SAME object the quote was priced from (src/handler-input.js):
       // query merged, MCP-style {params|input|args} envelopes unwrapped once,
@@ -7636,6 +7702,11 @@ for (const tool of ALL_KIT) {
     } catch (err) {
       errored = true;
       status = err.statusCode || 500;
+      // The CLASS of this refusal for telemetry (src/refusal-reason.js). Read
+      // here and never sent on: the vocabulary is closed and an unrecognised
+      // message becomes "other", so a buyer's own words cannot reach an
+      // analytics service through a new error string.
+      refusalClass = refusalReason(err?.message, status);
       // A composite cut off by the drain is a 503 with the reason, whatever
       // shape the aborted upstream call surfaced it in (>= 400: not charged).
       if (isDrainAbort(err)) { status = 503; err = Object.assign(new Error("This host is redeploying and stopped the run before it finished; nothing was charged. Retry in a minute."), { statusCode: 503 }); }
@@ -7678,7 +7749,7 @@ for (const tool of ALL_KIT) {
       const latencyMs = Date.now() - startedAt;
       // Fire-and-forget. Analytics outages must NEVER affect agents.
       recordToolCall({ slug: tool.slug, latencyMs, cached, errored, status, synthetic, probe }).catch(() => {});
-      capturePostHogToolCall({ slug: tool.slug, latencyMs, cached, errored, status, synthetic, probe, payer });
+      capturePostHogToolCall({ slug: tool.slug, latencyMs, cached, errored, status, synthetic, probe, payer, refusalReason: refusalClass });
     }
   });
 }

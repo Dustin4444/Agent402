@@ -1306,6 +1306,19 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   ok(seenUrl.includes("openrouter.ai/api/v1/audio/speech"), "hits OpenRouter's audio speech endpoint");
   ok(seen.model === "mistralai/voxtral-mini-tts-2603" && seen.voice === "gb_jane_confident", "upstream body carries the primary model and mapped voice");
   ok(Buffer.isBuffer(out.__binary) && out.__binary.length === FAKE_MP3.length && out.contentType === "audio/mpeg", "raw bytes returned via the __binary sentinel");
+  ok(!("user" in seen), "a request we cannot key sends NO user (never a shared placeholder, which would pool every buyer upstream)");
+
+  // Per-buyer `user` (2026-09-18): this wire sent none, which the OpenRouter
+  // log showed as an empty Client User ID on every speech row while every chat
+  // row carried one. It is what scopes an upstream provider policy block to ONE
+  // buyer. Call-time only; this route caches nothing (raw audio bytes).
+  {
+    const { upstreamUserId: uid } = await import("../src/tools/llm-gateway-kit.js");
+    const req = { ip: "203.0.113.9", headers: {}, header: (n) => (String(n).toLowerCase() === "x-forwarded-for" ? "203.0.113.9" : null) };
+    const expected = uid(req);
+    await speechTool.handler({ input: "hello", voice: "nova" }, req);
+    ok(typeof expected === "string" && seen.user === expected, `speech sends the per-buyer user id (${expected})`);
+  }
 
   // A provider outage never becomes the buyer's failure: 502 on the primary
   // walks to the next link; empty audio walks too.

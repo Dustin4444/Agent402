@@ -175,6 +175,21 @@ const NOW = Date.UTC(2026, 6, 25, 12, 0, 0); // 2026-07-25T12:00:00Z
     overallState([c("api", "operational")]) === "operational");
 }
 
+// ---- the strip window and the footer figure must agree (2026-09-18) ----
+// The per-component footer reads windows[`${STRIP_DAYS}d`]. That key is only
+// present because 30d happens to be one of the WINDOWS rows; set STRIP_DAYS to
+// a value with no matching window (45, say) and `w` is undefined and the page
+// throws on render. Nothing else would catch that, and /status is the page that
+// is supposed to be up when everything else is not.
+{
+  const { STRIP_DAYS, statusSnapshot } = await import("../src/status.js");
+  const snap = statusSnapshot({ baseUrl: "https://example.test" });
+  check(`STRIP_DAYS (${STRIP_DAYS}) has a matching window key, so the footer figure exists`,
+    snap.components.every((c) => c.windows && c.windows[`${STRIP_DAYS}d`] && typeof c.windows[`${STRIP_DAYS}d`].observed === "number"));
+  check(`the strip renders exactly STRIP_DAYS bars (${STRIP_DAYS})`,
+    snap.components.every((c) => Array.isArray(c.daily) && c.daily.length === STRIP_DAYS));
+}
+
 _resetForTest();
 try { rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
 check("scratch DB cleaned up", !existsSync(join(dir, "status.db")));

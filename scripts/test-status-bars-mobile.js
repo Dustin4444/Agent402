@@ -1,4 +1,4 @@
-// The /status 90-day strip must not push the page sideways on a phone.
+// The /status daily strip must not push the page sideways on a phone.
 //
 // Reported from a real handset 2026-09-11: "the status green orange bars go
 // off the page". It is arithmetic, not a rendering quirk. The strip is 90
@@ -26,7 +26,13 @@ import { chromium } from "playwright-core";
 // and tests exactly the rule that broke: 90 flex children under the phone
 // breakpoint must fit the container the page actually gives them.
 const TARGET = process.env.TARGET_URL || "http://localhost:3000";
-const BARS = 90; // the window the page renders; see bars() in src/status.js
+// DERIVED from the page's own constant, never typed here (2026-09-18): the
+// window moved 90 -> 30 and a hardcoded 90 would have kept asserting a strip
+// the page no longer renders - passing while measuring nothing real. The
+// arithmetic this guards is "N flex children must fit the container the page
+// gives them", which holds at any N.
+const { STRIP_DAYS } = await import("../src/status.js");
+const BARS = STRIP_DAYS;
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log("ok -", m); } else { fail++; console.log("FAIL -", m); } };

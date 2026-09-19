@@ -65,6 +65,41 @@ export const PARAM_ALIASES = {
   limit: ["count", "max", "top", "n"],
   slug: ["tool", "name", "id"],
   ticker_or_cik: ["ticker", "cik", "company"],
+
+  // ---------------------------------------------------------------------
+  // Second pass (2026-09-19). The first pass covered 22 names; a sweep of
+  // every route's OWN required list found 186 distinct required names, so
+  // 164 had no synonym at all across 255 routes. These are the ones where a
+  // competent agent would plausibly reach for a different word, chosen by
+  // reading each tool's description rather than by pattern. The three rules
+  // still make a wrong guess structurally impossible: only a MISSING required
+  // field is ever filled, never an overwrite; a synonym that the tool itself
+  // declares is skipped, so `key` on a memory tool and `key` on a crypto tool
+  // cannot be confused; and two matching synonyms is ambiguity, which keeps
+  // the 400. Deliberately NOT aliased: the wire-standard names an SDK already
+  // sends verbatim (messages, contents, max_tokens, tools) - a caller holding
+  // an OpenAI or Google client sends those exactly, so a synonym there is
+  // noise that can only add ambiguity.
+  code: ["source", "src", "barcode", "upc", "ean", "gtin"],
+  coin: ["symbol", "id", "ticker", "asset", "currency"],
+  input: ["text", "data", "str", "string", "body", "content"],
+  values: ["data", "series", "numbers", "nums", "points"],
+  json: ["data", "body", "input", "obj", "object"],
+  prompt: ["text", "input", "description", "q", "query"],
+  html: ["content", "body", "markup", "text", "source"],
+  hash: ["tx", "txid", "txHash", "tx_hash", "transaction", "signature"],
+  mint: ["token", "mintAddress", "address", "contract", "tokenAddress"],
+  spec: ["openapi", "schema", "document", "doc", "definition"],
+  payload: ["body", "data", "claims", "message"],
+  secret: ["key", "password", "passphrase"],
+  data: ["input", "body", "payload", "content"],
+  image: ["imageUrl", "image_url", "src", "file", "photo"],
+  country: ["countryCode", "country_code", "cc", "iso", "nation"],
+  principal: ["amount", "p", "balance", "loan"],
+  years: ["term", "duration", "period", "nper"],
+  horizon: ["periods", "steps", "ahead", "forecast"],
+  seriesId: ["series", "series_id", "id"],
+  manager: ["fund", "firm", "company", "name"],
 };
 
 /** Required property names a tool declares, from its own discovery schema. */

@@ -98,9 +98,22 @@ export function hintFor({ reason, balanceUsd, priceUsd, network, payer }) {
   const short = payer ? `${payer.slice(0, 6)}...${payer.slice(-4)}` : "your wallet";
   const reverted = /execution reverted|contract call failed|insufficient|balance/i.test(r);
   if (reverted && balanceUsd != null && (balanceUsd <= 0 || (Number.isFinite(priceUsd) && balanceUsd < priceUsd))) {
+    // MEASURED 2026-09-19: 6,473 of 6,582 Base verify failures in 30 days came
+    // from 20 wallets in this exact state - holding USDC, just less than the
+    // price - and each retried the same doomed authorization 300-plus times.
+    // Only 10 attempts were an actually EMPTY wallet. So the common case is
+    // not "fund me", it is a buyer who can afford something and is asking for
+    // the wrong thing, and "fund the wallet" is a dead end for them. Naming
+    // what their balance DOES cover turns the refusal into a route they can
+    // take now. `affordable` is filled by the middleware, which is where the
+    // catalog is reachable; the sentence degrades gracefully without it.
+    const funded = balanceUsd > 0;
     return {
-      retry: "fund-wallet",
-      hint: `${short} holds $${balanceUsd.toFixed(4)} USDC on Base and this call costs ${price}. Fund the wallet (or pay on another network listed in accepts), then sign a NEW authorization; re-sending this one will keep failing.`,
+      retry: funded ? "lower-price-route" : "fund-wallet",
+      wantsAffordable: funded,
+      hint: `${short} holds $${balanceUsd.toFixed(4)} USDC on Base and this call costs ${price}. ${funded
+        ? "Either fund the wallet and sign a NEW authorization, or call something this balance already covers - GET /api/pricing lists every route and its price, and /api/find?q=<task> ranks them."
+        : "Fund the wallet (or pay on another network listed in accepts), then sign a NEW authorization; re-sending this one will keep failing."}`,
     };
   }
   if (reverted) {

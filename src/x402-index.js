@@ -658,8 +658,22 @@ export async function registerOrigin(origin, { crawl, replaces = null } = {}) {
       // The backoff and the stored validators are cleared for THIS origin
       // only, so a path we had backed off is re-asked and a document we would
       // revalidate is read in full rather than answered 304 from our own ETag.
-      clearOriginProbeState(origin);
-      if (crawl) await crawl(origin); else await crawlSeller(origin);
+      // PER-ORIGIN COOLDOWN (2026-09-18, security review). Registration
+      // requires no proof of control, so "re-read this origin's documents" is
+      // a lever anyone can pull at ANY origin, and the clear above deliberately
+      // defeats the backoff that exists to stop us hammering one. Per-IP limits
+      // cannot bound that: the victim feels the sum of every caller, and the
+      // global cap (300/hour) is the real ceiling on how often WE fetch one
+      // seller's 4MB manifest and 12MB OpenAPI. The bound therefore lives on
+      // the ORIGIN, where the cost lands, not on the caller.
+      // A re-registration inside the window still re-prices (the lever's
+      // original job, and free of third-party fetches beyond the seller's own
+      // 402s) and still answers listed - it simply does not re-read documents.
+      if (forcedCrawlDue(origin)) {
+        noteForcedCrawl(origin);
+        clearOriginProbeState(origin);
+        if (crawl) await crawl(origin); else await crawlSeller(origin);
+      }
       const fresh = cache.get(origin);
       const tools = Array.isArray(fresh?.tools) && fresh.tools.length ? fresh.tools : existing.tools;
       await enrichLiveQuotes(tools, origin, { ignoreBudget: true });
@@ -2961,6 +2975,25 @@ export function noteProbeOutcome(originUrl, path, ok, now = Date.now()) {
  *  asking us to look again, so a path we backed off (or a document we would
  *  revalidate and be told is unchanged) must be re-read rather than skipped.
  *  Scoped to the caller's own origin and rate-limited upstream (5/hour/IP). */
+// When an origin was last force-re-crawled by an explicit registration, so the
+// cost of that lever is bounded AT THE ORIGIN rather than per caller. Capped
+// like every other unbounded-key map here; a restart forgets, which at worst
+// allows one extra re-read per origin.
+const forcedCrawlAt = new Map();
+const FORCED_CRAWL_COOLDOWN_MS = Math.max(60_000, Number(process.env.INDEX_FORCE_CRAWL_COOLDOWN_MS || 15 * 60_000));
+export function forcedCrawlDue(originUrl, now = Date.now()) {
+  const at = forcedCrawlAt.get(originUrl);
+  return !at || now - at >= FORCED_CRAWL_COOLDOWN_MS;
+}
+export function noteForcedCrawl(originUrl, now = Date.now()) {
+  if (forcedCrawlAt.size > 2000) {
+    for (const [k, t] of forcedCrawlAt) if (now - t >= FORCED_CRAWL_COOLDOWN_MS) forcedCrawlAt.delete(k);
+    if (forcedCrawlAt.size > 2000) forcedCrawlAt.clear();
+  }
+  forcedCrawlAt.set(originUrl, now);
+}
+export function __resetForcedCrawlForTest() { forcedCrawlAt.clear(); }
+
 export function clearOriginProbeState(originUrl) {
   let cleared = 0;
   for (const k of [...crawlBackoff.keys()]) {
