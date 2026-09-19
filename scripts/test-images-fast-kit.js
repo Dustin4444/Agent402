@@ -252,6 +252,39 @@ function installVideoFetch({ statuses = ["pending", "in_progress", "completed"],
   process.env.OPENROUTER_API_KEY = "test-key";
 }
 
+// ---- per-buyer `user` rides every media call (2026-09-18) ----
+// These three routes sent no `user`, which the OpenRouter log showed as an
+// empty Client User ID on every FLUX / Veo row while every chat row carried
+// one. It is what scopes an upstream provider policy block to ONE buyer, so
+// without it an abusive caller here is unattributed and the blast radius is
+// the whole account. A request we cannot key sends none rather than a
+// placeholder - a shared constant would be worse than absent, since it would
+// pool every buyer under one id upstream.
+{
+  const { upstreamUserId } = await import("../src/tools/llm-gateway-kit.js");
+  // upstreamUserId reads the payment header, else the authorization header,
+  // else the client address, through Express's own req.header().
+  const req = { ip: "203.0.113.7", headers: {}, header: (n) => (String(n).toLowerCase() === "x-forwarded-for" ? "203.0.113.7" : null) };
+  const expected = upstreamUserId(req);
+  ok(typeof expected === "string" && expected.startsWith("a402:"), `upstreamUserId keys a request (${expected})`);
+
+  installFetch(); calls = []; listingReply = null; perModel = {};
+  await bySlug("v1-images-fast").handler({ prompt: "a fox" }, req);
+  ok(calls.length === 1 && calls[0].body.user === expected, "images/fast sends the per-buyer user id");
+
+  calls = [];
+  await bySlug("v1-images-pro").handler({ prompt: "a fox" }, req);
+  ok(calls.length === 1 && calls[0].body.user === expected, "images/pro sends it too");
+
+  calls = [];
+  await bySlug("v1-images-fast").handler({ prompt: "a fox" }, null);
+  ok(calls.length === 1 && !("user" in calls[0].body), "a request we cannot key sends NO user, never a shared placeholder");
+
+  const seen = installVideoFetch();
+  await bySlug("v1-videos").handler({ prompt: "a boat" }, req);
+  ok(seen.submit.body.user === expected, "videos sends it on the submit call");
+}
+
 globalThis.fetch = realFetch;
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

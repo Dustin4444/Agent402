@@ -331,7 +331,12 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   the cost to the same PostHog event, so streams carry margin telemetry now. **`user` field:**
   every upstream call carries `user: a402:<sha256(payer or gate credential)>` (`upstreamUserId`) -
   OpenRouter scopes provider policy blocks to it; without it one abusive buyer could get the whole
-  account blocked. Call-time injection, never in cache keys. **Variants:** `:online` (per-request
+  account blocked. Call-time injection, never in cache keys. **Three routes sent none until 2026-09-18**
+  (`/v1/audio/speech`, and `/v1/images/fast` / `/v1/images/pro` / `/v1/videos/generations` in
+  llm-images-fast-kit, which never imported the helper) - found by READING the OpenRouter log rather than
+  the code: every chat row carried `a402:...` in Client User ID and every FLUX / Veo / Voxtral row was
+  empty. Pinned now in test-images-fast-kit and test-llm-gateway, including that a request we cannot key
+  sends NO user rather than a shared placeholder, which would pool every buyer under one id upstream. **Variants:** `:online` (per-request
   web-search billing outside max_price) and `:batch` (async) are refused with self-explaining 400s;
   `:floor` still passes; `:nitro` passes but is NOT routing-only (2026-09-18: a live `luna:nitro` call with no `service_tier`
   was served at the 2x priority endpoint), so a `:nitro` attempt now carries an explicit `service_tier:"default"` unless

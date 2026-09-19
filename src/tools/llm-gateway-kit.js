@@ -2818,6 +2818,13 @@ async function speechHandler(input, req) {
   const { bodies, contentType } = validateSpeechRequest(input);
   const key = OPENROUTER_KEY();
   if (!key) throw bad("LLM gateway not configured (OPENROUTER_API_KEY unset)", 503);
+  // Per-buyer `user` (see upstreamUserId). Every other wire sends it; this one
+  // did not, which the OpenRouter log showed as an empty Client User ID on
+  // every speech row (2026-09-18). It is what scopes an upstream provider
+  // policy block to ONE buyer, so without it an abusive caller on this route
+  // is unattributed and the blast radius is the whole account. Call-time only,
+  // never in a cache key - this route caches nothing (raw audio bytes).
+  const user = upstreamUserId(req);
   let lastErr;
   for (const body of bodies) {
     try {
@@ -2830,7 +2837,7 @@ async function speechHandler(input, req) {
             "Content-Type": "application/json",
             ...OPENROUTER_ATTRIBUTION,
           },
-          body: JSON.stringify(body),
+          body: JSON.stringify(user ? { ...body, user } : body),
           signal: AbortSignal.timeout(60_000),
         });
       } catch (e) {

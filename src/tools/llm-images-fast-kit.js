@@ -44,7 +44,7 @@
 // the chat tiers). Content is fetched with our key (the unsigned URLs 401
 // without it - measured) and returned inline as base64, never as a URL that
 // would expose our job ids.
-import { bad, fetchOpenRouter, throwUpstreamError, assertUpstreamBody, MARGIN, OPENROUTER_ATTRIBUTION } from "./llm-gateway-kit.js";
+import { bad, fetchOpenRouter, throwUpstreamError, assertUpstreamBody, MARGIN, OPENROUTER_ATTRIBUTION, upstreamUserId } from "./llm-gateway-kit.js";
 import { redactSecrets } from "./redact.js";
 
 export const OPENROUTER_IMAGES_URL = "https://openrouter.ai/api/v1/images";
@@ -194,8 +194,20 @@ export function linkRepriced(link, endpoints) {
 export function _resetListingCacheForTest() { listingCache.clear(); }
 
 // ---------------------------------------------------------------------------
+// Per-buyer `user` for OpenRouter's abuse isolation (see upstreamUserId in the
+// gateway kit). These three routes sent none, which the OpenRouter log showed
+// as an empty Client User ID on every FLUX / Veo row (2026-09-18), while chat,
+// Messages, Responses, embeddings, rerank and /v1/images/generations all send
+// it. It is what scopes an upstream provider policy block to ONE buyer; without
+// it an abusive caller here is unattributed and the blast radius is the whole
+// account. Call-time only and never part of a cache key - these routes cache
+// nothing. A request we cannot key (no payer, no gate credential) sends none,
+// exactly as the other wires behave.
+function userOf(req) { try { return req ? upstreamUserId(req) : undefined; } catch { return undefined; } }
+
 // Image handler: walk the chain, first link that returns an image wins.
-async function imageTierHandler(tierSlug, input) {
+async function imageTierHandler(tierSlug, input, req) {
+  const user = userOf(req);
   const tier = IMAGE_TIERS[tierSlug];
   const { prompt } = validateImageTierRequest(input, tierSlug);
   let lastErr = null;
@@ -205,7 +217,7 @@ async function imageTierHandler(tierSlug, input) {
       lastErr = bad("Image tier temporarily unavailable - upstream repriced above the bound; the operator has been notified", 503);
       continue;
     }
-    const body = { model: link.model, prompt, n: 1, ...link.params, provider: { only: [link.provider] } };
+    const body = { model: link.model, prompt, n: 1, ...link.params, provider: { only: [link.provider] }, ...(user ? { user } : {}) };
     try {
       const res = await fetchOpenRouter(body, { url: OPENROUTER_IMAGES_URL, timeoutMs: IMAGE_LINK_TIMEOUT_MS });
       if (!res.ok) await throwUpstreamError(res);
@@ -293,9 +305,10 @@ async function openRouterGet(url, { timeoutMs = 30_000, accept } = {}) {
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function videosHandler(input) {
+async function videosHandler(input, req) {
+  const user = userOf(req);
   const { prompt, aspect_ratio } = validateVideosRequest(input);
-  const body = { model: VIDEOS_MODEL, prompt, duration: VIDEOS_DURATION_SECONDS, resolution: VIDEOS_RESOLUTION, aspect_ratio, generate_audio: false };
+  const body = { model: VIDEOS_MODEL, prompt, duration: VIDEOS_DURATION_SECONDS, resolution: VIDEOS_RESOLUTION, aspect_ratio, generate_audio: false, ...(user ? { user } : {}) };
   const started = Date.now();
   const res = await fetchOpenRouter(body, { url: OPENROUTER_VIDEOS_URL, timeoutMs: 30_000 });
   if (!res.ok) await throwUpstreamError(res);
@@ -373,7 +386,7 @@ export const IMAGES_FAST_TOOLS = [
       inputSchema: imageInputSchema,
       output: { example: imageOutputExample(IMAGE_TIERS["v1-images-fast"].chain[0].model) },
     },
-    handler: (input) => imageTierHandler("v1-images-fast", input),
+    handler: (input, req) => imageTierHandler("v1-images-fast", input, req),
   },
   {
     route: `POST ${IMAGES_PRO_PATH}`,
@@ -390,7 +403,7 @@ export const IMAGES_FAST_TOOLS = [
       inputSchema: imageInputSchema,
       output: { example: imageOutputExample(IMAGE_TIERS["v1-images-pro"].chain[0].model) },
     },
-    handler: (input) => imageTierHandler("v1-images-pro", input),
+    handler: (input, req) => imageTierHandler("v1-images-pro", input, req),
   },
   {
     route: `POST ${VIDEOS_PATH}`,
