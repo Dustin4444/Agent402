@@ -439,6 +439,17 @@ eq(original.map((r) => r.name), snap, "rankBy does not mutate input array");
   const mixed = aggregateLeaderboard([{ wallet: "0xseller", payer: OURS.toUpperCase().replace("0X", "0x"), usd: 0.005 }], sellers, { ourWallets: new Set([OURS]) })[0];
   ok(mixed.callsSettled === 0, "the match is case-insensitive, so a checksummed address is still ours");
 
+  // ...and the SAME must hold when the mixed case is in the SET rather than in
+  // the transfer. The first cut normalized only when ourWallets arrived as an
+  // array and took a Set as-is, because OUR_EVM_WALLETS happens to be
+  // lowercase. A caller holding checksummed addresses would therefore have
+  // excluded nothing, silently, and the board would have looked MORE
+  // flattering rather than failing loudly - the direction that never gets
+  // noticed. Verified against the old expression: it returned false here.
+  const mixedSet = aggregateLeaderboard([{ wallet: "0xseller", payer: OURS, usd: 0.005 }], sellers,
+    { ourWallets: new Set([OURS.toUpperCase().replace("0X", "0x")]) })[0];
+  ok(mixedSet.callsSettled === 0, "a checksummed address IN THE SET still excludes, so the rule cannot fail open on a caller's casing");
+
   // Default (no ourWallets passed) must stay byte-identical to before.
   const dflt = aggregateLeaderboard(transfers, sellers, { ourWallets: null })[0];
   ok(dflt.callsSettled === 3, "passing no wallet set changes nothing, so every existing caller and test stays honest");

@@ -391,9 +391,15 @@ export function initWalletAccumulator(sellers) {
  * before, which keeps every existing test honest.
  */
 export function foldTransfers(byWallet, transfers, maxCallUsd = DEFAULTS.maxCallUsd, ourWallets = null) {
-  const ours = ourWallets instanceof Set
-    ? ourWallets
-    : new Set([...(ourWallets || [])].map((w) => String(w).toLowerCase()));
+  // ALWAYS normalize, including when a Set is passed. The first cut took a Set
+  // as-is on the assumption it was already lowercase, which OUR_EVM_WALLETS is
+  // - but that made the exclusion fail OPEN for any future caller holding
+  // checksummed addresses: a mixed-case entry would simply never match, our
+  // own payments would silently count as a seller's evidence again, and the
+  // board would look MORE flattering rather than throwing. Lowercasing is
+  // correct here and only here because this fold is EVM-only; base58 and
+  // Stellar addresses are case-significant and are never folded through it.
+  const ours = new Set([...(ourWallets || [])].map((w) => String(w).toLowerCase()));
   for (const t of transfers) {
     const row = byWallet.get(t.wallet);
     if (!row) continue;
