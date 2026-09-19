@@ -1273,6 +1273,12 @@ jobs:
         run: CHALLENGE_LOCAL_BOOT=1 TARGET_URL=https://agent402.tools node scripts/test-challenge-size.js
       - name: Router aliases + short-term token rule (offline)
         run: X402_INDEX_CRAWL=off node scripts/test-route-aliases.js
+      # What a seller can buy by renaming: the slug/name/description weights,
+      # the placement premium as absolute scores, and both failure directions
+      # (a 40-keyword slug must not win short queries; a FastAPI-generated
+      # operationId must not be penalized for being long). Offline, mutation-tested.
+      - name: Router slug weighting - what renaming is worth (offline)
+        run: X402_INDEX_CRAWL=off node scripts/test-route-slug-weighting.js
       # /api/route on a prod-sized pool (3,000 sellers / ~113k rows): the candidate index keeps a
       # query under the bound and the ranking byte-identical to the full-scan golden (offline, mutation-tested)
       - name: Router perf pin + golden ranking on a prod-sized index (offline)
