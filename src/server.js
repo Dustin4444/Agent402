@@ -1596,6 +1596,10 @@ for (const tier of EXEC_TIERS) {
   ALL_KIT.push(tool);
 }
 
+// Set by the dossier block below: the same assembly, callable free from the
+// operator route. Declared out here because the block is a scope of its own.
+let operatorDossier = null;
+
 // Seller dossier - every evidence source the router and the marketplace already
 // keep, assembled for one origin. Same injection discipline as seller-trust:
 // the tool file imports nothing stateful, each accessor is handed in here from
@@ -1651,6 +1655,17 @@ for (const tier of EXEC_TIERS) {
   if (CATALOG[tool.route]) throw new Error(`Duplicate route: ${tool.route}`);
   CATALOG[tool.route] = tool;
   ALL_KIT.push(tool);
+  // The SAME assembly, free, for the operator. "What settlement evidence do we
+  // hold for this origin?" is the question sellers email about, and until now
+  // nothing could answer it from outside: /api/index?seller= carries the
+  // dispatch verdict but no counts, and /api/leaderboard ranks by volume and
+  // serves at most 500 of 1,600+ rows, so a seller with a handful of
+  // settlements is invisible there whether we hold 0 or 2 - indistinguishable,
+  // which is how a thread ran three rounds on "your row shows no settlements"
+  // that nobody inside could actually verify. Deliberately the tool's own
+  // handler rather than a second read of the same maps, so the operator answer
+  // and the $0.05 product can never disagree.
+  operatorDossier = (origin) => tool.handler({ origin });
 }
 
 // Seller payability check - the LIVE counterpart to the dossier above. The
@@ -4186,6 +4201,26 @@ app.post("/__operator/successions/revoke", express.json(), (req, res) => {
   const revoked = revokeSuccession(from);
   res.set("Cache-Control", "no-store").json({ revoked, from, note: revoked ? "the origin is listed again from the next read" : "no succession was recorded for that origin" });
 });
+// What settlement evidence do we hold for ONE origin, per source, free.
+// Runs the seller-dossier tool's own handler so the operator answer and the
+// paid product read the same maps and can never disagree. Not on the CORS
+// allow-list (it is under /__operator, which is denied by name) and never
+// cached.
+app.get("/__operator/seller-evidence.json", async (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  const origin = String(req.query.origin || "").trim();
+  if (!operatorDossier) return res.status(503).json({ error: "Dossier assembly is not mounted on this build" });
+  // No `origin` check here on purpose: the tool validates it and its own 400
+  // is the better message (it accepts a bare host, which a check written here
+  // told the operator it did not). A redundant guard that states the contract
+  // wrongly is worse than no guard.
+  try {
+    res.set("Cache-Control", "no-store").json(await operatorDossier(origin));
+  } catch (e) {
+    res.status(e?.statusCode || 500).json({ error: String(e?.message || e).slice(0, 300) });
+  }
+});
+
 app.get("/__operator/seller-registrations.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   const now = Date.now();
