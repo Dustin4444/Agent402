@@ -18,7 +18,7 @@ const h = (slug) => SOLANA_INTEL_TOOLS.find((t) => t.slug === slug).handler;
 const jsonRes = (body, status = 200) => ({ ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(body) });
 const textRes = (text, status = 200) => ({ ok: status >= 200 && status < 300, status, text: async () => text });
 
-const ALLOWED_HOSTS = new Set(["api.rugcheck.xyz", "api.dexscreener.com", "lite-api.jup.ag"]);
+const ALLOWED_HOSTS = new Set(["api.rugcheck.xyz", "api.dexscreener.com", "lite-api.jup.ag", "rpc.test.invalid"]);
 let calls = [];
 const stub = (handler) => {
   calls = [];
@@ -238,6 +238,64 @@ try {
   ok(r.supply === 6862431164.93 && r.totalHolders === 2873512 && r.symbol === "JUP", "holders: supply/totalHolders/symbol");
   r = await h("sol-token-holders")({ mint: JUP });
   ok(r.holders.length === 20, "holders: default limit 20");
+  ok(r.holdersSource === "rugcheck" && r.insiderFlagAvailable === true, "holders: RugCheck path names itself and offers the insider flag");
+
+  // RugCheck stopped populating topHolders for EVERY mint before 2026-09-19
+  // (measured: 5 of 5 majors, 200 with an empty array while totalHolders stayed
+  // populated). The field is still DECLARED, so nothing threw and the tool sold
+  // an empty table with a null concentration at $0.005 - the hollow-200 shape.
+  // The RPC fallback restores it. CI holds no SOLANA_RPC_URL, so the live path
+  // is unreachable there and this is the only place the logic is pinned.
+  const RC_NO_HOLDERS = { ...RC_REPORT, topHolders: [] };
+  const RPC = "https://rpc.test.invalid/k";
+  const rpcStub = (largest, owners) => (url, opts) => {
+    if (new URL(String(url)).host !== "rpc.test.invalid") return Promise.resolve(jsonRes(RC_NO_HOLDERS));
+    const body = JSON.parse(opts.body);
+    if (body.method === "getTokenLargestAccounts") return Promise.resolve(jsonRes({ result: { value: largest } }));
+    if (body.method === "getMultipleAccounts") return Promise.resolve(jsonRes({ result: { value: owners } }));
+    return Promise.resolve(jsonRes({ error: { message: "unexpected method" } }));
+  };
+  // 30% and 10% of the fixture's own raw supply (6862431164927844), so the
+  // assertion below is about the pct DENOMINATOR, not about round numbers.
+  const LARGEST = [
+    { address: "TA1", amount: "2058729349478353", uiAmount: 2058729349.478 },
+    { address: "TA2", amount: "686243116492784", uiAmount: 686243116.493 },
+  ];
+  const OWNERS = [
+    { data: { parsed: { info: { owner: "W1" } } } },
+    { data: { parsed: { info: { owner: "W2" } } } },
+  ];
+  const prevRpc = process.env.SOLANA_RPC_URL;
+  process.env.SOLANA_RPC_URL = RPC;
+  stub(rpcStub(LARGEST, OWNERS));
+  r = await h("sol-token-holders")({ mint: JUP, limit: 10 });
+  ok(r.holders.length === 2, "holders: RPC fallback fills the table RugCheck emptied");
+  ok(r.holders[0].tokenAccount === "TA1" && r.holders[0].owner === "W1", "holders: RPC rows carry the owner wallet, not just the token account");
+  // pct is a share of the mint's own raw supply, the figure RugCheck published,
+  // never a share of the top 20 (which would read 75% for a 3-of-4 holder).
+  ok(r.holders[0].pct === 30 && r.holders[1].pct === 10, "holders: RPC pct is measured against total supply");
+  ok(r.concentration && r.concentration.top1Pct === 30, "holders: concentration is computed on the fallback rows");
+  ok(r.holdersSource === "solana-rpc" && r.source === "rugcheck+rpc", "holders: the fallback names its own source");
+  // The insider flag only exists on the RugCheck path. Saying so is the
+  // difference between "no insiders" and "we did not measure insiders".
+  ok(r.insiderFlagAvailable === false && r.holders.every((x) => x.insider === false), "holders: insider flag declared unavailable on the RPC path");
+  ok(!r.note, "holders: a filled table carries no empty-data note");
+  // sol-token-report shares the block and had the same hollow shape.
+  stub(rpcStub(LARGEST, OWNERS));
+  r = await h("sol-token-report")({ mint: JUP });
+  ok((r.holders?.rows || []).length === 2 && r.holders.concentration.top1Pct === 30, "report: the same fallback fills its holders block");
+  // An RPC that answers nothing degrades to the honest empty, never a crash and
+  // never an invented table.
+  stub(rpcStub([], []));
+  r = await h("sol-token-holders")({ mint: JUP });
+  ok(r.holders.length === 0 && r.concentration === null && r.holdersSource === null, "holders: a silent RPC leaves an honest empty");
+  ok(/no top-holder table/i.test(String(r.note)), "holders: the empty case says why, naming both sources");
+  // With no RPC configured at all the fallback is skipped, not attempted.
+  process.env.SOLANA_RPC_URL = "";
+  stub(() => Promise.resolve(jsonRes(RC_NO_HOLDERS)));
+  r = await h("sol-token-holders")({ mint: JUP });
+  ok(r.holders.length === 0 && calls.every((c) => new URL(c.url).host === "api.rugcheck.xyz"), "holders: no RPC configured means no RPC call");
+  if (prevRpc === undefined) delete process.env.SOLANA_RPC_URL; else process.env.SOLANA_RPC_URL = prevRpc;
 
   // --------------------------------------------------------------------------
   // sol-token-pairs

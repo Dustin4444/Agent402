@@ -159,11 +159,67 @@ function authorityState(v) {
   return { revoked: false, address: String(v) };
 }
 
-function shapeHolders(report, limit) {
+/**
+ * The top token accounts for a mint, read from OUR Solana RPC.
+ *
+ * RugCheck stopped populating `topHolders` for every mint at some point before
+ * 2026-09-19 (measured that day: 5 of 5 majors answered HTTP 200 with
+ * `topHolders: []` while `totalHolders` stayed populated - JUP read 0 rows
+ * against 2,882,275 holders). The field is still DECLARED in their report, so
+ * nothing errored: the tool kept answering 200 with an empty table and a null
+ * concentration block, which is the hollow-200 shape that is indistinguishable
+ * from "this token has no whales" and was being sold at $0.005.
+ *
+ * The kit header's note that the public RPC throttles getTokenLargestAccounts
+ * still stands, and is exactly why this reads OUR configured RPC
+ * (`SOLANA_RPC_URL`, an Alchemy endpoint in production) rather than
+ * api.mainnet-beta. Two calls: the largest accounts, then one batched
+ * getMultipleAccounts to resolve each token account's OWNER wallet, which is
+ * the field a buyer actually acts on. Returns null - never an empty list - when
+ * the RPC is unset or unhappy, so the caller can tell "no data" from "no
+ * holders".
+ */
+async function topAccountsFromRpc(mint, supplyRaw) {
+  const url = (process.env.SOLANA_RPC_URL || "").trim();
+  if (!url) return null;
+  const call = async (body) => {
+    const r = await upstreamJson(url, { label: "Solana RPC", method: "POST", body });
+    if (r?.error) throw bad(`Solana RPC refused the read (${String(r.error?.message || "").slice(0, 80)})`, 502);
+    return r?.result?.value ?? null;
+  };
+  let largest;
+  try { largest = await call({ jsonrpc: "2.0", id: 1, method: "getTokenLargestAccounts", params: [mint] }); } catch { return null; }
+  if (!Array.isArray(largest) || !largest.length) return null;
+  const rows = largest.slice(0, 20);
+  let owners = [];
+  try {
+    owners = (await call({ jsonrpc: "2.0", id: 2, method: "getMultipleAccounts", params: [rows.map((r) => r.address), { encoding: "jsonParsed" }] })) || [];
+  } catch { owners = []; }
+  // pct is computed against the mint's own raw supply, so it matches the
+  // figure RugCheck used to publish rather than a share of the top 20.
+  const supply = Number(supplyRaw);
+  return rows.map((r, idx) => {
+    const info = owners[idx]?.data?.parsed?.info || {};
+    const raw = Number(r?.amount);
+    return {
+      address: r?.address ?? null,
+      owner: info?.owner ?? null,
+      uiAmount: num(r?.uiAmount),
+      pct: Number.isFinite(supply) && supply > 0 && Number.isFinite(raw) ? (raw / supply) * 100 : null,
+      insider: false,
+    };
+  });
+}
+
+function shapeHolders(report, limit, rpcRows) {
   const known = report?.knownAccounts && typeof report.knownAccounts === "object" ? report.knownAccounts : {};
-  // Concentration is computed over EVERY holder RugCheck returns (20); the
+  const reported = Array.isArray(report?.topHolders) ? report.topHolders : [];
+  // RugCheck first (it carries the insider flag we cannot derive), the RPC only
+  // when RugCheck publishes nothing.
+  const src = reported.length ? reported : (Array.isArray(rpcRows) ? rpcRows : []);
+  // Concentration is computed over EVERY holder the source returns (20); the
   // row list alone is cut to `limit`.
-  const all = (Array.isArray(report?.topHolders) ? report.topHolders : []).slice(0, 20).map((h) => {
+  const all = src.slice(0, 20).map((h) => {
     const label = known[h?.owner] || known[h?.address] || null;
     return {
       tokenAccount: h?.address ?? null,
@@ -465,6 +521,7 @@ export const SOLANA_INTEL_TOOLS = [
       const risks = shapeRisks(r?.risks);
       const decimals = num(r?.token?.decimals);
       const rawSupply = num(r?.token?.supply);
+      const reportRpcRows = Array.isArray(r?.topHolders) && r.topHolders.length ? null : await topAccountsFromRpc(mint, rawSupply);
       return {
         mint,
         token: {
@@ -498,7 +555,9 @@ export const SOLANA_INTEL_TOOLS = [
         insiderNetworks: num(r?.graphInsidersDetected),
         transferFee: r?.transferFee ? { pct: num(r.transferFee.pct), maxAmount: num(r.transferFee.maxAmount) } : null,
         verification: r?.verification ? { jupVerified: Boolean(r.verification.jup_verified), jupStrict: Boolean(r.verification.jup_strict) } : null,
-        holders: shapeHolders(r, holderLimit),
+        // Same RugCheck-empty fallback as /api/sol-token-holders: without it
+        // this block's rows and concentration go hollow on every mint.
+        holders: shapeHolders(r, holderLimit, reportRpcRows),
         markets: shapeMarkets(r, marketLimit),
         lockers: shapeLockers(r, 10),
         source: "rugcheck",
@@ -544,7 +603,9 @@ export const SOLANA_INTEL_TOOLS = [
       const r = await upstreamJson(`${RUGCHECK}/tokens/${mint}/report`, { label: "RugCheck", notFound: "RugCheck has no report for that mint (not an SPL token mint?)" });
       const decimals = num(r?.token?.decimals);
       const rawSupply = num(r?.token?.supply);
-      const h = shapeHolders(r, limit);
+      const fromRugcheck = Array.isArray(r?.topHolders) && r.topHolders.length > 0;
+      const rpcRows = fromRugcheck ? null : await topAccountsFromRpc(mint, rawSupply);
+      const h = shapeHolders(r, limit, rpcRows);
       return {
         mint,
         symbol: r?.tokenMeta?.symbol ?? null,
@@ -554,10 +615,17 @@ export const SOLANA_INTEL_TOOLS = [
         // does not track (USDC) it answers 0 rows and totalHolders 0, which read
         // as "this token has no holders" (corpus, 2026-09-06). Say "no data".
         totalHolders: h.rows.length === 0 && !(num(r?.totalHolders) > 0) ? null : num(r?.totalHolders),
-        ...(h.rows.length === 0 ? { note: "RugCheck publishes no holder data for this mint (common for major stablecoins and long-established tokens); totalHolders is unknown, not zero" } : {}),
+        ...(h.rows.length === 0
+          ? { note: "No top-holder table is available for this mint: RugCheck published none and the Solana RPC returned no token accounts. totalHolders, when present, is still RugCheck's own count." }
+          : {}),
         holders: h.rows,
         concentration: h.rows.length ? h.concentration : null,
-        source: "rugcheck",
+        // Say which source produced the TABLE. The insider flag and the
+        // pool/locker labels only exist on the RugCheck path, so a buyer reading
+        // `rpc` knows `insider` is false-by-absence rather than measured.
+        source: fromRugcheck ? "rugcheck" : h.rows.length ? "rugcheck+rpc" : "rugcheck",
+        holdersSource: h.rows.length ? (fromRugcheck ? "rugcheck" : "solana-rpc") : null,
+        insiderFlagAvailable: fromRugcheck,
         fetchedAt: stamp(),
       };
     },
