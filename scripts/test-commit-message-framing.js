@@ -39,7 +39,7 @@ const RULES = [
     // exits 1" is a real commit and not a comparison. Requires a dollar
     // figure or a number of at least three digits, which is what a buyer /
     // revenue / settlement comparison actually looks like.
-    re: /\bagainst our\b[^.]{0,40}(\$[\d,.]+|\b\d[\d,]{2,}\b)/i,
+    re: /\bagainst our\b[^.]{0,40}(\$[\d,.]+|\b(?!(?:19|20)\d\d\b)\d[\d,]{2,}\b)/i,
     why: "sets their figures against ours",
   },
   {
@@ -133,6 +133,7 @@ const MUST_PASS = [
   ["keep serving through a deploy instead of closing on arrival, never draining at all", "'arrival' again"],
   ["Seller dossier: everything we already hold about one external x402 origin", "describing a product over seller data"],
   ["this host mounts no offer-receipt extension, so a capture against our own production always exits 1 by design", "'against our' + a digit is not a comparison"],
+  ["the JSON leaderboard ranked us against our own written commitment (2026-09-13, claims audit)", "a DATE is not a quantity"],
   ["Say \"another seller\" in the shared-hosting threat model\n\nThe comment described the victim as a competitor's listing. The party\nbeing starved is another seller in the index.", "a commit quoting the wording it REMOVES"],
   ["Stop naming a real competitor in the live MCP about/description", "a commit removing the framing"],
   ["Drop market framing from a served source file\n\nThe repo rule is technical mechanism only: no market framing, no\ncompetitors, no positioning.", "a commit FIXING this class must be able to name it"],

@@ -651,9 +651,8 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `crypto-news [ethereum in the last two days]` was MY expectation, not a defect - 104 items in 48 h across the eight feeds,
   39 matching bitcoin and zero matching ethereum; the case now asks for the best-covered asset and says why.
 - **`/api/chain/<verb>`: the RPC name a buyer can guess (2026-09-12, `src/chain-namespace.js`, `src/tools/chain-rpc-kit.js`,
-  `scripts/test-chain-namespace.js` 40 in CI):** the busiest seller on x402scan by BUYER COUNT (api.onesource.io: 1,933 buyers,
-  16,716 settlements, $70.83 lifetime, one payTo, Base + Ethereum) sells exactly one thing - a paid JSON-RPC facade, 25
-  endpoints all under `/api/chain/*`, named for the RPC verbs. Measured against our catalog: **we already sold 20 of the 25**
+  `scripts/test-chain-namespace.js` 40 in CI):** a paid JSON-RPC facade is a shape agents reach for - 25 endpoints under
+  `/api/chain/*`, each named for the RPC verb rather than for what it does. Measured against our catalog: **we already sold 20 of the 25**
   under our own names, and `evm-rpc`/`eth-call` covered the rest. The gap was never capability, it was that an agent holding
   `eth_getTransactionCount` cannot guess `wallet-transactions`. So: (1) a pre-gate PATH REWRITE (mounted beside
   `MESSAGES_SDK_ALIASES`, before the paywall and before the method alias, so a POST on a GET-only canonical route still
@@ -669,8 +668,8 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   a 502). Guards: every verb must resolve to a route the BOOTED server serves (a retired tool would otherwise leave our own
   index pointing at a 404), the two maps must stay disjoint, an alias must be answered by the canonical tool naming itself,
   and no alias verb may collide with a real catalog route. Mutation-checked (the one-segment verb regex, the query-string
-  carry, case folding, a dead target). Note on the figures: 1,933 buyers against our 348, on $70 against our $145 - they are
-  out-ACQUIRING us, not out-earning us, and the lever was a namespace rather than a product.
+  carry, case folding, a dead target). The lever here was a NAMESPACE rather than a product: every capability already
+  existed and was simply unreachable under the names an agent holds, which is worth checking before building anything new.
 - **The namespace's verbs are folded into our OWN resolvers (2026-09-12, same day as the namespace):** shipping
   `/api/chain/eth_getlogs` while `/api/find?q=eth_getLogs` still missed would have been the URL a buyer guesses and the search
   a buyer runs disagreeing about one tool. `chainVerbAliasesByRoute()` derives route -> verbs from the namespace map (declared
@@ -684,15 +683,13 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   only the search claim is withdrawn. The top-five promise is pinned per verb against the booted server rather than asserted,
   and both mutations (dropping aliases from the haystack, folding the withdrawn verb anyway) are killed.
 - **`/x402-test`: the refusal diagnostic we already shipped, finally advertised (2026-09-12, `src/x402-test-page.js`):**
-  measured against the second seller the operator asked about (api.botpay.network, 1,924 buyers, 29,324 settlements,
-  $1,985.87 across FOUR payTos): it is not an API business. Three of its six endpoints are test resources ("Purchase the
-  BotPay paid resource", "Verify payment before connecting an MCP trading service"), `/token` sells their own token at
-  1 USDC = 10 BOTPAY (a swap, not a sale) and `/safe` takes $1 and returns a redeemable $1 voucher (a liability, not
-  income) - so both headline figures are something other than they look, and its buyers are largely DEVELOPERS TESTING
-  x402 CLIENTS. Probed live the same day: `/pay`, `/test` and `/go` are GET-only and answer 405/404 to a POST, the exact
-  defect that cost us paying buyers until the 08-28 method alias. The one real idea in it is that being the endpoint
-  people test against collects the address of every developer entering the ecosystem, already integrated. **We had the
-  better version and no front door:** `payment-reject.js` + `verify-hint.js` have classified refusals into the buyer's
+  prompted by a review of how x402 test traffic actually behaves. A large share of the calls on this protocol are not
+  purchases at all: they are developers checking that their client works, against endpoints published for exactly that
+  purpose. Probing several of those the same day, some are GET-only and answer 405/404 to a POST - the exact defect
+  that cost us paying buyers until the 08-28 method alias, so it is worth re-checking our own method handling whenever
+  a new route ships. The idea worth taking from that pattern: whoever hosts the endpoint people test against reaches
+  every developer entering the ecosystem at the moment they need something real. **We had the better version and no
+  front door:** `payment-reject.js` + `verify-hint.js` have classified refusals into the buyer's
   own 402 body since August (reason + a hint in words + a retry class), and nothing said so. `/x402-test` is that page -
   the curl, a real refusal body, and the full reason table DERIVED from the classifier's own `REJECTION_REASONS`, with a
   test that scans the module for `reason:` literals in BOTH directions so the page cannot teach a vocabulary the server
@@ -704,6 +701,9 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   checked: the no-values rule, the accepts guard, and both directions of the drift check. NOT built and deliberately
   scoped out for now: a paid `POST /api/x402/echo` that returns the decoded credential and every check that passed once
   payment settles (it would charge only on success, since a >= 400 cancels settlement).
+  (Reworded 2026-09-20. This entry previously characterised a NAMED third party's business, revenue and customers.
+  Read the "no strategy or competitors public" rule before writing anything of that shape again: other people's
+  businesses are not ours to assess in a public file, whatever the measurement says.)
 - **`npx agent402-tollbooth` started NOTHING, and the JSON leaderboard ranked us against our own written commitment
   (2026-09-13, claims audit):** two findings that cost a real user something. (1) **The published tollbooth CLI was a
   silent no-op through the npm bin symlink** - `index.js:913` compared `fileURLToPath(import.meta.url)` to
@@ -728,7 +728,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   now. `test-static-pages` gained the guard no other check could do: every other one reads RENDERED values, so none of
   them can see the syntax of an UNRENDERED one - it now fails on any `${...}` in any page's HTML. **The framing band:**
   a diligence review found /revenue, /proof and /leaderboard each headline a true, deliberately published number
-  ($109 lifetime; 6 external settlements; a rival settling $1,419 in a week on our own board) with no frame, so the
+  ($109 lifetime; 6 external settlements; another seller's far larger week visible on our own board) with no frame, so the
   reader supplies one and reaches for "small business" instead of "market operator that publishes its own P&L". One
   derived paragraph (`standingFigures()` in server.js -> `standingBand()`) now says what the page is measuring: sellers
   indexed, tool listings, settlements through these gates, rails - with our own small number IN THE SAME BREATH (the
@@ -982,10 +982,11 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   already refuses with its own `code` at the call site, so a surface would add a number nobody acts on. Wire it the day
   something needs to READ the day's spend rather than be refused by it.
   **Resolve-time model check (2026-09-02, `sellerServesModel` in x402-buyer.js):** an LLM task names a model and the
-  model namespace is the SELLER'S own - "chat completions" + `gpt-4o-mini` on Solana resolved to api.xfuel.app, which
-  settled the $0.01 and answered 400 model_not_found, and xfuel KEEPS the money on a 400 (our chain check saw the
-  debit, so no fallthrough). Every OpenAI-shaped seller publishes GET .../models for free (blockrun + netintel list
-  gpt-4o-mini; xfuel, openrelay, ai-rook, agentexchange do not), so route-execute hands `params.model` to
+  model namespace is the SELLER'S own - "chat completions" + `gpt-4o-mini` on Solana resolved to a seller that settled
+  the $0.01 and then answered 400 model_not_found. The lesson is about OUR assumption, not their conduct: a 4xx does
+  not imply the payment was reversed, and our chain check saw the debit, so there was no fallthrough and the buyer was
+  out the money. Read the chain before treating a seller's error as unpaid. Many OpenAI-shaped sellers publish GET
+  .../models for free and some do not (a capability check, not a judgement), so route-execute hands `params.model` to
   `resolveExternalSeller({ wantModel })`, which reads the candidate's list (chat-shaped routes only: chat/completions,
   completions, messages, responses -> /models; cached 10 min per list URL; SSRF-guarded; 5 s) and SKIPS a seller whose
   READABLE list lacks the model, before the probe. Only "not-served" decides: no list, empty list, unparseable, non-chat
