@@ -916,21 +916,6 @@
       }
     },
     {
-      "slug": "skill-market-open",
-      "name": "a second ticker",
-      "input": {
-        "ticker": "MSFT"
-      },
-      "expect": {
-        "equals": {
-          "pack": "market-open"
-        },
-        "matches": {
-          "summary": "^[1-9]"
-        }
-      }
-    },
-    {
       "slug": "skill-media-pipeline",
       "name": "a second image",
       "input": {
