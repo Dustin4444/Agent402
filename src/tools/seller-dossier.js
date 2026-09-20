@@ -130,7 +130,11 @@ export function composeSellerDossier(a) {
   if (detail.error) flags.push(`last crawl failed: ${String(detail.error).slice(0, 120)}`);
   if (entry?.robotsBlocked) flags.push("the seller's robots.txt blocks our crawler; the catalog below may be stale");
   if (detail.originResponded === false) flags.push("the origin did not respond on the last crawl");
-  if (injected) flags.push("listing text contains instructions aimed at agents (prompt-injection shape); rows are excluded from routing");
+  // Describe the MATCH, never a purpose. "instructions aimed at agents" asserts
+  // intent we cannot observe from text alone, about a named business; the
+  // observable fact is that the listing text matches an imperative-instruction
+  // pattern, and that we excluded the rows. Same finding, no imputed motive.
+  if (injected) flags.push("listing text matches our imperative-instruction pattern (the shape a prompt injection takes); rows are excluded from routing as a precaution");
 
   // ------------------------------------------------------------------ health
   const paywall = detail.paywall || null;
@@ -373,9 +377,37 @@ export function composeSellerDossier(a) {
     flags,
     caveats,
     evidenceSource: "x402 seller crawl + on-chain settlement + Bazaar + MPP index + our own paid calls",
+    // Every line above is an OBSERVATION we made, at generatedAt, by the method
+    // named in evidenceSource - not a conclusion about the business, its
+    // operators or their conduct. Published about named third parties, so it
+    // says so in the payload itself rather than in documentation the reader may
+    // never open, and it names a route to have a reading corrected.
+    notice: NOTICE,
     generatedAt,
   };
 }
+
+// What this report claims, stated in the report itself.
+//
+// This is the one product that publishes an assessment-shaped read of a NAMED
+// third-party business, so the discipline is: every line is an observation we
+// made, by a stated method, at a stated time - never a characterisation of the
+// company, its operators or their intent. Truth and disclosed method are what
+// make a report like this fair; a verdict dressed as a fact is what makes it
+// actionable. Flags describe what WE read and what OUR router experienced, in
+// the first person, and unobserved is "not observed", never zero.
+//
+// The notice ships inside the payload rather than in documentation, because the
+// payload is what gets quoted, and it names a route to have a reading corrected.
+// A seller who thinks a line is wrong should be able to reach us without
+// guessing; that path is also the cheapest way for us to find out we are wrong.
+export const NOTICE = Object.freeze({
+  what: "Automated observations of public data, recorded by Agent402 at generatedAt using the methods named in evidenceSource.",
+  notAnAssessment: "This is not an assessment of the business, its operators, their conduct or their creditworthiness, and it is not advice. Flags describe what our crawler read and what our router experienced, not conclusions about the seller.",
+  unobserved: "\"Not observed\" means we hold no reading, not that the thing did not happen. Absence of evidence here is absence of OUR evidence.",
+  pointInTime: "Every figure is as of generatedAt and may already be stale; re-read before relying on it.",
+  corrections: "A seller who believes a line misreads them can write to mike@agent402.tools and we will re-read the origin and correct or withdraw the line.",
+});
 
 export function buildSellerDossierTool({
   getSellerDetail, getSellerEntry, getDispatchRow, getEvidenceBinding, getLeaderboardRow, getBazaarQuality,

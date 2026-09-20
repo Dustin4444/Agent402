@@ -1270,6 +1270,12 @@ ${sortToggle}
       <li>Measure how many DISTINCT sellers on this board each payer settles with. A row flagged <code>cross-seller N%</code> draws that share of its settlements from wallets that also pay ${esc(PAYER_BREADTH.multiSellerMin)}+ other sellers here - evaluators and scanners walking the ecosystem rather than customers who chose one seller. Breadth is measured against the sellers we index, never the whole chain.</li>
       <li>Payer addresses are never published on any of these surfaces. A seller's payer roster is their customer list, the same rule we apply to our own buyers on <a href="/revenue">/revenue</a>. Our own row is measured and flagged on identical terms.</li>
       <li>Rank by totalUsd; tiebreak on activity, then alphabetical.</li>
+      <!-- A concentration flag is a MEASUREMENT, and next to a named business a
+           measurement invites an inference we have not made and cannot prove.
+           Say what it does not mean, in the methodology, where the figure is
+           explained - and name a route to have a row corrected. -->
+      <li><strong>What a concentration flag is not.</strong> <code>1 payer N%</code> and <code>cross-seller N%</code> report the distribution of on-chain settlements we observed, nothing more. A concentrated row is the expected shape for a seller with one large integration partner, a seller in its first weeks, or a seller whose buyers run many agents from one wallet. We are not asserting that any flagged row is inauthentic, and no row here is a judgement about a business or its operators.</li>
+      <li><strong>Corrections.</strong> Every figure is an on-chain reading as of the scan above and may be stale or, where wallets fold to the wrong operator, simply wrong. A seller who believes their row misreads them can write to <a href="mailto:mike@agent402.tools">mike@agent402.tools</a> and we will re-scan and correct or withdraw it.</li>
     </ol>
     <pre>curl -s ${esc(baseUrl)}/api/leaderboard?top=10
 curl -s ${esc(baseUrl)}/api/leaderboard?include=external   # exclude Agent402 itself
