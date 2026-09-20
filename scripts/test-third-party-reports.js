@@ -55,9 +55,14 @@ ok(Object.isFrozen(NOTICE), "the notice is frozen: a caller cannot edit it out o
 // ledgerLeaderboardPage. A guard that greps the module its author happened to
 // edit certifies only that module. Render the page a visitor gets instead.
 {
-  const target = process.env.TARGET_URL;
-  if (!target) {
-    console.log("skip - leaderboard render check needs TARGET_URL (booted server)");
+  // Defaults to the booted server the CI lane already runs on :3000, like every
+  // other page test here. Reading only TARGET_URL would make these three
+  // assertions skip in CI - inert, which is the failure this guard exists to
+  // catch. A server that is not up fails the check rather than skipping it.
+  const target = process.env.TARGET_URL || "http://localhost:3000";
+  const up = await fetch(`${target}/health`).then((r) => r.ok).catch(() => false);
+  if (!up) {
+    ok(false, `leaderboard render check could not reach a server at ${target} (boot one, or set TARGET_URL)`);
   } else {
     const html = await fetch(`${target}/leaderboard`).then((r) => r.text());
     ok(/not asserting that any flagged row is inauthentic/i.test(html),
