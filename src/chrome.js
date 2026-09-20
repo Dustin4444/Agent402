@@ -4,7 +4,7 @@
 // branding, and "back to home" behavior are identical site-wide.
 //
 // Classes are prefixed `site-` so they don't collide with page-specific CSS
-// that lives in landing.js, pages.js, guides.js, etc.
+// that lives in pages.js, guides.js, etc.
 
 export const CHROME_HEAD_LINKS = `<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="icon" type="image/png" sizes="512x512" href="/logo.png">

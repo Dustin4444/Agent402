@@ -124,7 +124,7 @@ export function defaultMapInput(args, tool) {
 // one module. rankSkillPacks() needs the price to tell a buyer what the
 // one-call purchase costs, and skills.js cannot import from tools/ without a
 // cycle (this file already imports SKILL_PACKS from there). Re-exported here
-// because ledger-home.js and landing.js import it from this path.
+// because ledger-home.js imports it from this path.
 export { PACK_PRICES };
 
 // ──────────────────────────────────────────────────────────────────────────
