@@ -106,12 +106,32 @@ ok(/aria-current="true"/.test(html), "the server marks the selected row for assi
 ok(/role="table"/.test(html) && /role="columnheader"/.test(html), "the roster is a real table to assistive tech");
 
 // --- escaping --------------------------------------------------------------
+// Seller hostnames come from a crawl of third-party origins, so every one of
+// them is attacker-controlled text arriving at an HTML sink.
+//
+// Asserting "the output does not contain <script>" is the wrong test and
+// CodeQL flags it as such (js/bad-tag-filter): that check is case-sensitive,
+// so an escaper broken only for upper case would pass it. Assert the POSITIVE
+// instead - the payload must appear entity-encoded - and then check for a raw
+// tag in a way that cannot be case-dodged.
 const nasty = `</span><script>alert(1)</script>`;
-const esc1 = terminalRoster([{ host: nasty, calls: 1, usd: 1, buyers: 1, tools: 1, routable: true }], null);
-const esc2 = terminalTicker([{ host: nasty, value: nasty, dir: "up", pct: 1 }]);
-const esc3 = terminalStatusBar({ chainName: nasty, asset: nasty, sellerCount: 1, activity, scopeLabel: nasty });
-for (const [name, out] of [["roster", esc1], ["ticker", esc2], ["status bar", esc3]]) {
-  ok(!/<script>/.test(out), `${name} escapes a hostile host string (crawled seller hostnames are third-party input)`);
+const NASTY_UPPER = `</SPAN><SCRIPT>alert(1)</SCRIPT>`;
+const rawTag = /<\s*\/?\s*(script|span)\b/i;   // any case, optional slash, optional space
+for (const payload of [nasty, NASTY_UPPER]) {
+  const cases = [
+    ["roster", terminalRoster([{ host: payload, calls: 1, usd: 1, buyers: 1, tools: 1, routable: true }], null)],
+    ["ticker", terminalTicker([{ host: payload, value: payload, dir: "up", pct: 1 }])],
+    ["status bar", terminalStatusBar({ chainName: payload, asset: payload, sellerCount: 1, activity, scopeLabel: payload })],
+  ];
+  const label = payload === nasty ? "lower case" : "upper case";
+  for (const [name, out] of cases) {
+    // The markup the component writes itself contains real <span> tags, so the
+    // raw-tag scan runs over what is left once those are removed - anything
+    // matching after that came from the payload.
+    const injected = out.replace(/<\/?(?:span|svg|path|div|a|i|b|input|kbd|dl|dt|dd|button|section|h2)\b[^>]*>/gi, "");
+    ok(!rawTag.test(injected), `${name} emits no raw tag from a hostile host string (${label})`);
+    ok(out.includes("&lt;"), `${name} entity-encodes the payload rather than dropping it (${label})`);
+  }
 }
 
 // --- honesty ---------------------------------------------------------------
