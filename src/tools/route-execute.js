@@ -304,6 +304,21 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           // 5xx from the PAID leg advances - a 4xx cancels settlement and means
           // our request is wrong, and a receipt means we already paid.
           const MAX_CANDIDATES = Math.max(1, Number(process.env.SOR_MAX_CANDIDATES || "3"));
+          // Bound the number of SIGNED payments ONE request may cause. Each attempt is
+          // already amount-capped and the per-payer / per-chain ceilings bound the
+          // aggregate, but nothing bounded the COUNT inside a single call: a caller
+          // quoted one price could cause several signatures by choosing a task whose
+          // candidates all take payment and then fail.
+          //
+          // Only attempts that actually SIGNED count - a candidate skipped at
+          // resolution (over cap, wrong chain, no model) costs nothing and must not
+          // consume the budget. Malformed reads as 1, never as unlimited.
+          const MAX_PAID_ATTEMPTS = (() => {
+            const raw = String(process.env.SOR_MAX_PAID_ATTEMPTS ?? "").trim();
+            if (!raw) return 1;
+            const n = Number(raw);
+            return Number.isInteger(n) && n >= 1 && n <= 10 ? n : 1;
+          })();
           // The requested model rides into resolution so a chat seller that
           // publishes a model list without it is skipped before anything is
           // probed or paid (a seller can charge on the 400 it answers).
@@ -323,6 +338,7 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           // reports something real. A 5xx from a seller's paid leg -> next
           // candidate; anything else stops (return on success, throw otherwise).
           let lastErr = null;
+          let __paidAttempts = 0;
           for (let __i = 0; __i < candidateList.length; __i++) {
           const ext = candidateList[__i];
           const hasNext = __i < candidateList.length - 1;
@@ -405,6 +421,11 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
             // against the accept actually signed. Null = no chain-derived
             // address on record, which is not a failure - see provenPayToMatches.
             if (ext.unproven) console.warn(`[sor] paying UNPROVEN ${chain} seller ${ext.seller} (${ext.price}) - every proven candidate was exhausted; loss bounded by the unproven allowance`);
+            if (__paidAttempts >= MAX_PAID_ATTEMPTS) {
+              // Not a fall-through: the next candidate would be a SECOND signature,
+              // which is the thing being bounded.
+              throw lastErr || bad(`Tried ${__paidAttempts} paid seller(s) for this task without a delivered answer. Refusing to sign another payment for one request.`, 502);
+            }
             paid = await payExternal(extUrl, { method: extMethod, body: extBody, maxAtomic: BigInt(Math.round(cap * 1e6)), chain, provenPayTo: ext.provenPayTo || null, allowUnproven: ext.unproven === true, refusalMaxWaitMs: refusalBudgetMs(), ...(tempoBudgetMs != null ? { timeoutMs: Math.max(3000, remainingMs()) } : {}) });
           } catch (e) {
             // The exposure DELIBERATELY stands. It is tempting to clear it here
@@ -438,7 +459,12 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
             // OUR buyer code from whether the header was sent, which the seller
             // cannot influence. Tempo never falls through either way (single-
             // use, time-boxed credential).
+            // A pre-payment failure (unreachable, over cap, SSRF refusal) signed
+            // NOTHING, so it must not consume the paid-attempt budget - counting
+            // it would let two cheap misses starve a legitimate retry. `committed`
+            // is payX402's own stamp for "the authorization left".
             const spentMaybe = e?.committed === true;
+            if (spentMaybe) __paidAttempts++;
             if (hasNext && !spentMaybe && chain !== "tempo") {
               console.warn(e?.refused
                 ? `[sor] seller ${ext.seller} refused the payment and the chain shows no debit - trying next candidate, nothing spent`

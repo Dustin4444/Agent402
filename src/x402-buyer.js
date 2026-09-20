@@ -9,6 +9,7 @@
 // settlement can cost us the one upstream payment (the LLM-gateway risk class),
 // so the margin guard below refuses any upstream quote over the caller's cap.
 import { assertPublicUrl, ssrfDispatcher } from "./tools/fetch-guard.js";
+import { recordOutbound } from "./outbound-ledger.js";
 import { assertSigningAllowed } from "./signing-halt.js";
 import { recordUpstreamSpend } from "./stats.js";
 import { provenPayToMatches } from "./settlement-proof.js";
@@ -517,7 +518,7 @@ export function _spentThisWindow() { return spentThisWindow; } // test hook
  * A 200 on the bare request means the endpoint is free — returned with no
  * spend. Only a 402 triggers a payment; anything else is a 502.
  */
-export async function payX402(url, { maxAtomic, method = "GET", body, headers = {}, timeoutMs = 20000, maxBytes = DEFAULT_MAX_BYTES, trusted = false, chain = "base", provenPayTo = null, sellerProof = null, notDebited = null, allowUnproven = false, refusalMaxWaitMs = refusalMaxWaitMsDefault(), memoizeDelivery = false } = {}) {
+export async function payX402(url, { maxAtomic, method = "GET", body, headers = {}, timeoutMs = 20000, maxBytes = DEFAULT_MAX_BYTES, trusted = false, chain = "base", provenPayTo = null, sellerProof = null, notDebited = null, allowUnproven = false, refusalMaxWaitMs = refusalMaxWaitMsDefault(), memoizeDelivery = false, slug = null } = {}) {
   assertSigningAllowed("an external x402 payment");
   if (maxAtomic == null) throw bad("payX402 requires maxAtomic (the margin-guard ceiling)", 500);
   const chainCfg = BUYER_CHAINS[chain];
@@ -877,6 +878,13 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
       // down; the two are kept separate because they need different answers.
       if (memoizeDelivery && paid.status >= 500 && !(paid.headers.get("payment-response") || paid.headers.get("x-payment-response"))) {
         noteSellerDeliveryFailure(sellerOrigin, chain, { status: paid.status, ms: Date.now() - sentAtMs });
+        // The money left and nothing came back. Before this, the case with the
+        // most to explain afterwards was the one that recorded least.
+        recordOutbound({
+          chain, payTo: payable?.payTo ?? null, amountAtomic: quotedAtomic,
+          asset: payable?.asset ?? null, usd: Number(quotedAtomic) / 1e6,
+          slug: slug || null, origin: sellerOrigin, result: "undelivered", tx: null,
+        });
         console.warn(`[x402-buyer] ${where} failed to deliver after payment (HTTP ${paid.status}, no receipt, ${Date.now() - sentAtMs}ms) - memoized as failing on ${chain}, the resolver will skip it`);
       }
       // A 402/401 on the PAID retry is the seller refusing the payment; a 4xx/5xx
@@ -970,6 +978,14 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
     // so a diagnostic can never clear what the router learned.
     if (memoizeDelivery && tx) clearSellerDeliveryFailure(sellerOrigin, chain);
     recordUpstreamSpend("x402-buyer", Number(quotedAtomic) / 1e6);
+    // The aggregate above answers "what did upstream cost". This answers
+    // "which payment, to whom, on what chain, did it arrive" - what an
+    // incident asks and the aggregate cannot.
+    recordOutbound({
+      chain, payTo: payable?.payTo ?? null, amountAtomic: quotedAtomic,
+      asset: payable?.asset ?? null, usd: Number(quotedAtomic) / 1e6,
+      slug: slug || null, origin: sellerOrigin, result: "delivered", tx: tx,
+    });
     return {
       // F3: post-spend read never throws — the buyer must be charged (we paid).
       result: await readAfterSpend(paid, maxBytes),
