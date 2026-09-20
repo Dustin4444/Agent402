@@ -2450,6 +2450,8 @@ jobs:
           t node scripts/test-seller-trust.js
           # Seller-dossier honesty invariants (unknown is unknown; inherited wallets named; no score; flags name their evidence — offline)
           t node scripts/test-seller-dossier.js
+          # F-15: what the dossier and the leaderboards publish about NAMED outside businesses
+          t node scripts/test-third-party-reports.js
           # Seller payability check (buys one call from a seller): contract, the spend bound, the wrong-domain case, every refusal (offline stubs)
           t node scripts/test-seller-payability.js
           # Package integrity (files allowlist covers every import; no sibling dep range excludes what we ship — offline)

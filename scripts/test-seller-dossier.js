@@ -214,7 +214,7 @@ check("crawl failure, robots block, failed paywall probe and injected listing te
   assert.ok(r.flags.some((f) => /did not respond/.test(f)));
   assert.ok(r.flags.some((f) => /paywall probe failed/.test(f)));
   assert.ok(r.flags.some((f) => /crawl health 0\.20/.test(f)));
-  assert.ok(r.flags.some((f) => /prompt-injection shape/.test(f)));
+  assert.ok(r.flags.some((f) => /imperative-instruction pattern/.test(f) && /excluded from routing/.test(f)));
   assert.equal(r.identity.listingTextLooksInjected, true);
   assert.equal(r.identity.robotsBlocked, true);
 });
