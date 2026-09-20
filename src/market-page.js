@@ -493,8 +493,8 @@ export function marketActivityHtml(chainKey, activity, selected) {
 // payTo wallets, not just the one advertised on this chain, so a router whose
 // real volume lives on a second wallet isn't undercounted. When a seller has no
 // leaderboard row (too small / off-chain-window), we fall back to the scoped
-// on-chain scan's totals; that scan caps at 10k transfers, so a capped total is
-// rendered as a floor ("N+"). The on-chain scan still powers the 30-day Activity
+// on-chain scan's totals; that scan is bounded by a time budget rather than a
+// record count now, so a total it did not finish is rendered as a floor ("N+"). The on-chain scan still powers the 30-day Activity
 // charts below regardless — that's where its per-address precision belongs.
 export function sellerCardHtml(chainKey, seller, sel, activity, stat, payTo, windowLabel) {
   const C = CHAIN_PAGES[chainKey];
@@ -905,6 +905,15 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
   const body = `
 <div style="max-width:1080px;margin:0 auto;padding:36px 24px;">
   <section>${headerHtml}</section>
+  <!-- Two surfaces over the same sellers, deliberately, because they answer
+       different questions. The terminal is the INDEX: every seller on the rail
+       as one comparable row, sortable, searchable and keyboard-navigable, for
+       "who is here and how do they compare". The roster below is the per-seller
+       DISCLOSURE: the leaderboard join, collapsed sibling endpoints ("+N more"),
+       the MPP badge, dispatch eligibility and its legend - facts that need a
+       sentence rather than a column, and that the dense grid would have to drop
+       or truncate. Folding those into the terminal rows is the remaining step;
+       until it is done, deleting the roster would quietly lose them. -->
   <section aria-label="Market terminal">${terminalHtml}</section>
 
   <section>
