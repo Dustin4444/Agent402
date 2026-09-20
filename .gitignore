@@ -81,3 +81,11 @@ TOOLS_REPORTS_INTEGRATIONS_INVENTORY.md
 REPO_STRATEGY.md
 OWNER_ACTION_ITEMS.md
 RESIDUAL_RISK.md
+
+# Working papers and scratch space. Neither directory is tracked and nothing has
+# leaked through them; these patterns exist so a stray `git add -A` cannot start.
+# Both are conventional names for exactly the material that must never ship, and
+# the entry above records that an unexamined `git add -A` has reached this public
+# repository once already (2026-08-29). Stage explicit paths.
+private/
+scratchpad/
