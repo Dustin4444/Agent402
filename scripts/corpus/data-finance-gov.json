@@ -81,36 +81,6 @@
       }
     },
     {
-      "slug": "dividend-calendar",
-      "name": "a fixed past date",
-      "input": {
-        "date": "2026-08-14"
-      },
-      "expect": {
-        "populated": [
-          "date"
-        ],
-        "gte": {
-          "count": 0
-        }
-      }
-    },
-    {
-      "slug": "earnings-calendar",
-      "name": "a fixed past date with entries",
-      "input": {
-        "date": "2026-07-30"
-      },
-      "expect": {
-        "gte": {
-          "count": 1
-        },
-        "populated": [
-          "entries[0]"
-        ]
-      }
-    },
-    {
       "slug": "earthquakes",
       "name": "a week of strong quakes",
       "input": {

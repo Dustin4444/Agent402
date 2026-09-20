@@ -21,14 +21,14 @@ export const PACK_PRICES = {
   // advertised tools' prices minus the 10% bundle discount, rounded up to $0.001,
   // never below $0.001. CI recomputes it (pack-prices.js in check mode) and fails
   // on drift, so do not hand-edit a number here - reprice the tool, then --write.
-  "earnings-deep-dive": 0.043, // 5 tools, parts $0.047
+  "earnings-deep-dive": 0.042, // 4 tools, parts $0.046
   "options-analytics": 0.026, // 4 tools, parts $0.028
   "fixed-income-desk": 0.017, // 5 tools, parts $0.018
   "defi-protocol-scanner": 0.034, // 4 tools, parts $0.037
   "security-audit": 0.017, // 7 tools, parts $0.018
   "email-deliverability": 0.009, // 6 tools, parts $0.009
   "market-brief": 0.009, // 3 tools, parts $0.01
-  "financial-analysis": 0.02, // 3 tools, parts $0.022
+  "financial-analysis": 0.019, // 2 tools, parts $0.021
   "financial-research": 0.024, // 6 tools, parts $0.026
   "macro-economics": 0.036, // 7 tools, parts $0.04
   "macro-dashboard": 0.071, // 14 tools, parts $0.078
@@ -64,7 +64,7 @@ export const PACK_PRICES = {
   "company-dossier": 0.046, // 5 tools, parts $0.051
   "domain-intel": 0.016, // 6 tools, parts $0.017
   "crypto-dossier": 0.05, // 6 tools, parts $0.055
-  "earnings-watch": 0.02, // 3 tools, parts $0.022
+  "earnings-watch": 0.019, // 2 tools, parts $0.021
   "insider-alert": 0.01, // 3 tools, parts $0.011
   "ipo-watch": 0.041, // 3 tools, parts $0.045
   "yield-dashboard": 0.014, // 3 tools, parts $0.015
@@ -90,7 +90,7 @@ export const PACK_PRICES = {
   "domain-age": 0.008, // 3 tools, parts $0.008
   "contract-audit": 0.022, // 5 tools, parts $0.024
   "tx-forensics": 0.011, // 5 tools, parts $0.012
-  "market-open": 0.012, // 5 tools, parts $0.013
+  "market-open": 0.011, // 4 tools, parts $0.012
   "entity-enrich": 0.023, // 6 tools, parts $0.025
   "feed-watch": 0.016, // 4 tools, parts $0.017
   "subtitle-pipeline": 0.03, // 3 tools, parts $0.033
@@ -135,9 +135,9 @@ export const SKILL_PACKS = [
     promptArgs: [
       { name: "ticker", description: "Stock ticker (e.g. TSLA, MSFT)", required: true, substitute: "TSLA" },
     ],
-    toolSlugs: ["earnings-calendar", "company-financials", "edgar-filings", "stock-quote", "search"],
+    toolSlugs: ["company-financials", "edgar-filings", "stock-quote", "search"],
     workflow: [
-      "Get the next earnings date from earnings-calendar so you know the window you're positioning around.",
+      "Read the filing history from edgar-filings so you know the window you're positioning around.",
       "Pull the latest fundamentals from company-financials - revenue, margins, EPS, cash flow - the baseline the print will be judged against.",
       "List recent SEC filings via edgar-filings to catch any 8-K, guidance, or S-1 activity since the last report.",
       "Get the live quote from stock-quote for the market's current positioning (price vs 52-week range).",
@@ -302,7 +302,6 @@ export const SKILL_PACKS = [
     toolSlugs: [
       "stock-quote",
       "company-financials",
-      "earnings-calendar",
     ],
     workflow: [
       "Get the live quote from stock-quote - current price, market cap, day range, 52-week high/low, volume.",
@@ -1611,7 +1610,6 @@ export const SKILL_PACKS = [
       { name: "ticker", description: "Stock ticker symbol (e.g. AAPL, NVDA)", required: true, substitute: "AAPL" },
     ],
     toolSlugs: [
-      "earnings-calendar",
       "stock-quote",
       "search",
     ],
@@ -2220,13 +2218,12 @@ export const SKILL_PACKS = [
     promptArgs: [
       { name: "ticker", description: "Stock ticker (e.g. AAPL, NVDA, SPY)", required: true, substitute: "AAPL" },
     ],
-    toolSlugs: ["stock-quote", "premarket-quote", "options-chain", "stock-dividends", "earnings-calendar"],
+    toolSlugs: ["stock-quote", "premarket-quote", "options-chain", "stock-dividends"],
     workflow: [
       "Get the live quote from stock-quote - last price, day range, 52-week range, volume.",
       "Pull the pre-market quote from premarket-quote - where the stock is trading before the bell and the gap versus the prior close.",
       "Fetch the options chain from options-chain - strikes, bids/asks, and implied volatility for the nearest expiry.",
       "Check dividend posture with stock-dividends - recent payouts and whether an ex-dividend date is close.",
-      "Pull today's market-wide earnings calendar from earnings-calendar - every company reporting today, so no print ambushes the open.",
     ],
     claudePrompt:
       "Build a pre-open trading brief for AAPL using Agent402's market-open skill pack. (1) Get the live quote, (2) get the pre-market quote and compute the gap, (3) pull the options chain for the nearest expiry, (4) check recent dividends and any upcoming ex-date, (5) pull today's market-wide earnings calendar to see which prints hit the tape today. Summarize: current positioning, pre-market signal, what implied vol says, dividend posture, and today's notable earnings reports.",

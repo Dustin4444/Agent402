@@ -262,7 +262,6 @@ export const PACK_STEPS = {
     steps: [
       { slug: "stock-quote",         mapInput: (a) => ({ symbol: a.ticker }) },
       { slug: "company-financials",  mapInput: (a) => ({ ticker: a.ticker }) },
-      { slug: "earnings-calendar",   mapInput: (a) => ({ symbol: a.ticker }) },
     ],
   },
 
@@ -1502,7 +1501,6 @@ export const PACK_STEPS = {
   "earnings-deep-dive": {
     mode: "fanout",
     steps: [
-      { slug: "earnings-calendar",  mapInput: (a) => ({ symbol: a.ticker }) },
       { slug: "company-financials", mapInput: (a) => ({ ticker: a.ticker }) },
       { slug: "edgar-filings",      mapInput: (a) => ({ ticker: a.ticker, limit: 10 }) },
       { slug: "stock-quote",        mapInput: (a) => ({ symbol: a.ticker }) },
@@ -1589,7 +1587,6 @@ export const PACK_STEPS = {
   "earnings-watch": {
     mode: "fanout",
     steps: [
-      { slug: "earnings-calendar", mapInput: (a) => ({ symbol: a.ticker }) },
       { slug: "stock-quote",       mapInput: (a) => ({ symbol: a.ticker }) },
       { slug: "search",            mapInput: (a) => ({ q: `${a.ticker} earnings`, count: 5 }) },
     ],
@@ -2248,12 +2245,8 @@ export const PACK_STEPS = {
     ],
   },
 
-  // Pre-open trading snapshot: four ticker reads + today's market-wide
-  // earnings calendar. The earnings step deliberately does NOT filter by the
-  // ticker — earnings-calendar returns companies reporting on ONE date
-  // (defaults today; symbol is only a filter), so a ticker filter comes back
-  // empty on almost every day and always for ETFs. The market-wide list
-  // ("which prints hit the tape today") is the useful pre-open context.
+  // Pre-open trading snapshot: four ticker reads. The market-wide earnings
+  // calendar step was removed with the Nasdaq-sourced tools (2026-09-20).
   "market-open": {
     mode: "fanout",
     steps: [
@@ -2261,7 +2254,6 @@ export const PACK_STEPS = {
       { slug: "premarket-quote",   mapInput: (a) => ({ symbol: a.ticker }) },
       { slug: "options-chain",     mapInput: (a) => ({ symbol: a.ticker }) },
       { slug: "stock-dividends",   mapInput: (a) => ({ symbol: a.ticker }) },
-      { slug: "earnings-calendar", mapInput: () => ({}) },
     ],
   },
 

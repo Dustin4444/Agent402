@@ -56,7 +56,7 @@ const TASKS = [
   {
     goal: "Track equities",
     answer: "Live quote, OHLCV history, and earnings calendar - works for stocks, indices, FX, and crypto symbols via Yahoo's chart endpoint.",
-    slugs: ["stock-quote", "stock-history", "earnings-calendar"],
+    slugs: ["stock-quote", "stock-history"],
     example: "/api/stock-quote?symbol=AAPL",
   },
   {
