@@ -26,7 +26,7 @@ let pass = 0;
 const fail = (m) => { console.error("FAIL:", m); process.exit(1); };
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else fail(m); };
 
-const { evmActivity, stellarActivity, algorandActivity, USDC_ISSUER } = await import("../src/revenue-live.js");
+const { evmActivity, stellarActivity, algorandActivity, solanaActivity, USDC_ISSUER } = await import("../src/revenue-live.js");
 
 const DAY = 86_400_000;
 const realFetch = globalThis.fetch;
@@ -95,9 +95,35 @@ function installStub({ total, delayMs = 0 }) {
       const next = start + PAGE;
       return json(next >= total ? { transactions } : { transactions, "next-token": String(next) });
     }
+    if (body?.method === "getTokenAccountsByOwner") return json({ jsonrpc: "2.0", id: 1, result: { value: [{ pubkey: "TOKENACCT" }] } });
+    if (body?.method === "getSignaturesForAddress") {
+      // One page of signatures, newest first, then one past the cutoff so the
+      // walk terminates at the window edge the way the real source would.
+      const before = body.params[1]?.before;
+      const start = before ? Number(String(before).replace("sig", "")) + 1 : 0;
+      const value = [];
+      for (let i = start; i < Math.min(start + PAGE, total); i++) {
+        value.push({ signature: `sig${i}`, blockTime: Math.floor((Date.now() - (i % 20) * DAY) / 1000), err: null });
+      }
+      if (start + PAGE >= total) value.push({ signature: "sigold", blockTime: Math.floor((Date.now() - 400 * DAY) / 1000), err: null });
+      return json({ jsonrpc: "2.0", id: 1, result: value });
+    }
+    if (body?.method === "getTransaction") {
+      const i = Number(String(body.params[0]).replace("sig", "")) || 0;
+      return json({ jsonrpc: "2.0", id: 1, result: {
+        blockTime: Math.floor((Date.now() - (i % 20) * DAY) / 1000),
+        meta: {
+          preTokenBalances: [{ owner: "SWALLET", mint: USDC_SOL_MINT, uiTokenAmount: { uiAmount: 0 } },
+                             { owner: `BUYER${i % 37}`, mint: USDC_SOL_MINT, uiTokenAmount: { uiAmount: 1 } }],
+          postTokenBalances: [{ owner: "SWALLET", mint: USDC_SOL_MINT, uiTokenAmount: { uiAmount: 0.001 } },
+                              { owner: `BUYER${i % 37}`, mint: USDC_SOL_MINT, uiTokenAmount: { uiAmount: 0.999 } }],
+        },
+      } });
+    }
     return json({});
   };
 }
+const USDC_SOL_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const json = (o) => new Response(JSON.stringify(o), { status: 200, headers: { "content-type": "application/json" } });
 const restore = () => { globalThis.fetch = realFetch; };
 
@@ -166,6 +192,21 @@ ok(stl.truncated === false, `stellar: a completed walk is not truncated (got ${s
 installStub({ total: 5000, delayMs: 30 });
 const stlStarved = await stellarActivity("GWALLET", { budgetMs: 120 });
 ok(stlStarved.truncated === true, `stellar: a budget-stopped walk reports truncated:true (got ${stlStarved.truncated})`);
+
+// Solana is bounded per TRANSACTION rather than per page, so its old ceiling
+// was a far tighter sixty records - the same class of defect, a different
+// number. The clock is the bound there now and maxTx is only a backstop.
+installStub({ total: 400 });
+const sol = await solanaActivity("SWALLET", { budgetMs: 60_000 });
+ok(!sol.error, `solana: stub scan succeeded (${sol.error || "no error"})`);
+ok(sol.totals.tx === 400, `solana: reports all 400 transfers, past the old hard 60-transaction cap (got ${sol.totals.tx})`);
+ok(sol.totals.tx > 60, `solana: the reported total is past the old ceiling (got ${sol.totals.tx})`);
+ok(sol.truncated === false, `solana: a completed walk is not truncated (got ${sol.truncated})`);
+
+installStub({ total: 400, delayMs: 20 });
+const solStarved = await solanaActivity("SWALLET", { budgetMs: 150 });
+ok(solStarved.truncated === true, `solana: a budget-stopped walk reports truncated:true (got ${solStarved.truncated})`);
+ok(solStarved.totals.tx < 400, `solana: and returns an honest partial floor (got ${solStarved.totals.tx})`);
 
 restore();
 console.log(`\n${pass} passed`);

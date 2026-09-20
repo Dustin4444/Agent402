@@ -1014,11 +1014,11 @@ export function parseSolanaTransfer(txn, owner) {
 }
 
 // Trailing-window activity scan: page getSignaturesForAddress on the wallet's
-// USDC token account (limit 1000, `before` cursor, newest first, `maxPages`
-// cap), decoding each signature with getTransaction up to a hard `maxTx`
-// budget — getTransaction is one RPC call each, so a busy page must not fire
-// hundreds of them. An RPC failure mid-scan keeps whatever was collected so
-// far (`truncated:true`); only a failure with nothing collected is an error.
+// USDC token account (limit 1000, `before` cursor, newest first), decoding
+// each signature with getTransaction — one RPC call each, so a busy page must
+// not fire hundreds of them unbounded. An RPC failure mid-scan keeps whatever
+// was collected so far (`truncated:true`); only a failure with nothing
+// collected is an error.
 // Solana's cost is per TRANSACTION, not per page: each signature inside the
 // window needs its own getTransaction. Measured 2026-09-20 against the busiest
 // Solana payTo we index, that call runs a 65ms median, so the shared budget
