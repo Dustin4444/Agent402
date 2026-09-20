@@ -126,23 +126,6 @@ async function fetchChart(symbol, params = {}) {
 }
 
 // Optional Cloudflare Worker relay for Nasdaq's calendar endpoint. Same
-// pattern as fetchChart/yfinance-relay: Railway egress IPs are null-routed
-// by Nasdaq's CloudFront. See workers/nasdaq-relay/README.md.
-async function fetchNasdaq(path) {
-  // Go DIRECT first. Confirmed from inside Railway prod: api.nasdaq.com returns
-  // 200 to a browser UA (see financeUserAgent) from our own egress IP — there is
-  // no IP block. The CF Worker relay is now the BROKEN path: Nasdaq blocks
-  // Cloudflare's Worker egress IPs and returns 520 through it. So the relay is
-  // only a fallback for a hypothetical future direct failure, never the primary.
-  const relayUrl = (process.env.NASDAQ_RELAY_URL || "").trim().replace(/\/$/, "");
-  const relayToken = (process.env.NASDAQ_RELAY_TOKEN || "").trim();
-  if (!(relayUrl && relayToken)) return jsonGet(`https://api.nasdaq.com${path}`, "Nasdaq");
-  try {
-    return await jsonGet(`https://api.nasdaq.com${path}`, "Nasdaq");
-  } catch (e) {
-    return jsonGet(`${relayUrl}${path}`, "Nasdaq (relay)", { Authorization: `Bearer ${relayToken}` });
-  }
-}
 
 // --- Yahoo options session (cookie + crumb handshake) -----------------------
 // fc.yahoo.com answers 404 but sets the HttpOnly A3 session cookie;
@@ -383,67 +366,6 @@ export const FINANCE_TOOLS = [
     },
   },
 
-  {
-    route: "GET /api/earnings-calendar",
-    name: "Earnings calendar",
-    slug: "earnings-calendar",
-    category: "data",
-    price: "$0.001",
-    description:
-      "Earnings calendar for a given date - every company reporting that day with EPS estimate, EPS actual (if reported), and reporting time slot. Optional `symbol` filter narrows to one ticker. Defaults to today (UTC). Backed by Nasdaq's public calendar API.",
-    tags: ["finance", "earnings", "calendar", "eps", "events"],
-    discovery: {
-      input: { date: "2026-06-22" },
-      inputSchema: {
-        properties: {
-          date: { type: "string", description: "YYYY-MM-DD (default: today UTC)" },
-          symbol: { type: "string", description: "Optional ticker filter" },
-        },
-      },
-      output: {
-        example: {
-          date: "2026-06-22",
-          count: 2,
-          entries: [
-            { symbol: "AAPL", name: "Apple Inc.", time: "amc", epsEstimate: 1.55, epsActual: null, marketCap: 3400000000000 },
-            { symbol: "TSLA", name: "Tesla, Inc.", time: "bmo", epsEstimate: 0.72, epsActual: null, marketCap: 800000000000 },
-          ],
-        },
-      },
-    },
-    handler: async (i) => {
-      const date = typeof i.date === "string" && i.date ? i.date : new Date().toISOString().slice(0, 10);
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw bad('"date" must be YYYY-MM-DD');
-      const data = await fetchNasdaq(
-        `/api/calendar/earnings?date=${encodeURIComponent(date)}`,
-      );
-      // Nasdaq wraps every response in { data: { rows: [...] }, status: {...} }.
-      // When there are no earnings on a date, `data` is null — surface as empty
-      // rather than 422, since "no companies reporting" is a valid answer.
-      const rows = data?.data?.rows ?? [];
-      const filter = typeof i.symbol === "string" ? normalizeSymbol(i.symbol) : null;
-      // Nasdaq quirks: marketCap is a $-prefixed comma-separated string like
-      // "$3,400,000,000,000", and epsEstimate/epsActual can be "$1.55", "$(0.12)"
-      // for negatives, or "N/A". parseNumeric handles all three.
-      const parseNumeric = (s) => {
-        if (s == null || s === "" || s === "N/A") return null;
-        const cleaned = String(s).replace(/[$,]/g, "").replace(/^\((.+)\)$/, "-$1");
-        const n = Number(cleaned);
-        return Number.isFinite(n) ? n : null;
-      };
-      const entries = rows
-        .filter((row) => !filter || row.symbol === filter)
-        .map((row) => ({
-          symbol: row.symbol ?? null,
-          name: row.name ?? null,
-          time: row.time ?? null,
-          epsEstimate: parseNumeric(row.epsForecast),
-          epsActual: parseNumeric(row.eps),
-          marketCap: parseNumeric(row.marketCap),
-        }));
-      return { date, count: entries.length, entries };
-    },
-  },
 
   {
     route: "GET /api/options-chain",
@@ -690,68 +612,4 @@ export const FINANCE_TOOLS = [
     },
   },
 
-  {
-    route: "GET /api/dividend-calendar",
-    name: "Dividend calendar",
-    slug: "dividend-calendar",
-    category: "data",
-    price: "$0.005",
-    description:
-      "Market-wide ex-dividend calendar for a given date - every US-listed company going ex-dividend that day with dividend rate, indicated annual dividend, payment date, and record date. Optional `symbol` filter narrows to one ticker. Defaults to today (UTC). Backed by Nasdaq's public calendar API - same upstream as earnings-calendar.",
-    tags: ["finance", "dividends", "calendar", "ex-dividend", "income", "events"],
-    discovery: {
-      input: {},
-      inputSchema: {
-        properties: {
-          date: { type: "string", description: "YYYY-MM-DD (default: today UTC)" },
-          symbol: { type: "string", description: "Optional ticker filter" },
-        },
-      },
-      output: {
-        example: {
-          date: "2026-07-14",
-          count: 1,
-          entries: [
-            { symbol: "APOG", name: "Apogee Enterprises, Inc. Common Stock", exDate: "2026-07-14", paymentDate: "2026-07-29", recordDate: "2026-07-14", announcementDate: "2026-06-24", dividend: 0.27, annualDividend: 1.08 },
-          ],
-        },
-      },
-    },
-    handler: async (i) => {
-      const date = typeof i.date === "string" && i.date ? i.date : new Date().toISOString().slice(0, 10);
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw bad('"date" must be YYYY-MM-DD');
-      const data = await fetchNasdaq(`/api/calendar/dividends?date=${encodeURIComponent(date)}`);
-      // Nasdaq nests dividend rows one level deeper than earnings:
-      // { data: { calendar: { rows: [...] } } }. Empty dates → null calendar —
-      // surface as count: 0, "nothing goes ex-div today" is a valid answer.
-      const rows = data?.data?.calendar?.rows ?? [];
-      const filter = typeof i.symbol === "string" ? normalizeSymbol(i.symbol) : null;
-      // Rates arrive as numbers, but guard the "N/A"/string case Nasdaq uses
-      // elsewhere in the same API family (see earnings-calendar).
-      const num = (v) => {
-        if (v == null || v === "" || v === "N/A") return null;
-        const n = Number(String(v).replace(/[$,]/g, ""));
-        return Number.isFinite(n) ? n : null;
-      };
-      // Dates arrive US-style ("7/14/2026") — normalize to ISO for agents.
-      const usDate = (s) => {
-        if (typeof s !== "string" || !s || s === "N/A") return null;
-        const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-        return m ? `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}` : null;
-      };
-      const entries = rows
-        .filter((row) => !filter || row.symbol === filter)
-        .map((row) => ({
-          symbol: row.symbol ?? null,
-          name: row.companyName ?? null,
-          exDate: usDate(row.dividend_Ex_Date),
-          paymentDate: usDate(row.payment_Date),
-          recordDate: usDate(row.record_Date),
-          announcementDate: usDate(row.announcement_Date),
-          dividend: num(row.dividend_Rate),
-          annualDividend: num(row.indicated_Annual_Dividend),
-        }));
-      return { date, count: entries.length, entries };
-    },
-  },
 ];

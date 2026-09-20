@@ -22,7 +22,6 @@
 export const SELFCHECK_SLUGS = [
   "hash",                  // pure-CPU canary — proves the server itself is healthy
   "stock-quote",           // wedge star (Yahoo, via relay in prod)
-  "earnings-calendar",     // the tool that silently died (Nasdaq UA)
   "treasury-debt",         // Treasury Fiscal Data
   "treasury-avg-rates",    // Treasury Fiscal Data
   "treasury-yield-curve",  // FRED CSV (keyless — also proves FRED CSV is reachable)

@@ -637,7 +637,8 @@ export const CRYPTO_SIGNALS_TOOLS = [
         .map((c) => ({ t: num(c.t), o: num(c.o), h: num(c.h), l: num(c.l), c: num(c.c), v: num(c.v) ?? 0 }))
         .filter((c) => c.t != null && c.o != null && c.h != null && c.l != null && c.c != null);
       if (candles.length < 2) throw bad("Hyperliquid returned too few candles for that coin/interval", 502);
-      return { source: "hyperliquid", coin, interval, ...computeIndicators(candles, want, points), fetchedAt: nowIso() };
+      return { source: "hyperliquid", coin, interval, ...computeIndicators(candles, want, points), fetchedAt: nowIso(),
+        disclaimer: "Technical indicators computed from public market data. Not investment advice and not a trading signal or recommendation." };
     },
   },
 

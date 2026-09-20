@@ -23,15 +23,12 @@ for (const [slug, args, label] of [
   ["stock-history", {}, "stock-history rejects missing symbol"],
   ["stock-history", { symbol: "AAPL", interval: "30s" }, "stock-history rejects invalid interval"],
   ["stock-history", { symbol: "AAPL", range: "decade" }, "stock-history rejects invalid range"],
-  ["earnings-calendar", { date: "20260622" }, "earnings-calendar rejects YYYYMMDD date"],
-  ["earnings-calendar", { date: "June 22, 2026" }, "earnings-calendar rejects human-readable date"],
   ["options-chain", {}, "options-chain rejects missing symbol"],
   ["options-chain", { symbol: "AAPL", expiration: "07/17/2026" }, "options-chain rejects US-format expiration"],
   ["options-chain", { symbol: "BAD SYMBOL!" }, "options-chain rejects invalid symbol"],
   ["premarket-quote", {}, "premarket-quote rejects missing symbol"],
   ["stock-dividends", {}, "stock-dividends rejects missing symbol"],
   ["stock-dividends", { symbol: "AAPL", range: "decade" }, "stock-dividends rejects invalid range"],
-  ["dividend-calendar", { date: "20260714" }, "dividend-calendar rejects YYYYMMDD date"],
 ]) {
   try { await h(slug)(args); ok(false, label); }
   catch (e) { ok(e.statusCode === 400, label + ` (got ${e.statusCode})`); }
@@ -101,9 +98,6 @@ await live("stock-history", { symbol: "AAPL", interval: "1d", range: "1mo" },
 // API still returns 200 with an empty rows array, which our handler
 // surfaces as count: 0. Either populated or empty is a valid pass.
 const today = new Date().toISOString().slice(0, 10);
-await live("earnings-calendar", { date: today },
-  (r) => r.date === today && typeof r.count === "number" && Array.isArray(r.entries),
-  `earnings-calendar ${today}`);
 
 // Options chain — AAPL always has listed options with dozens of expirations.
 // Exercises the cookie+crumb handshake (the endpoint 401s without it), the
@@ -132,11 +126,7 @@ await live("stock-dividends", { symbol: "AAPL" },
     Array.isArray(r.splits),
   "stock-dividends AAPL 5y");
 
-// Dividend calendar — same Nasdaq API family as earnings-calendar; weekends
 // return an empty rows array which surfaces as count: 0 (a valid answer).
-await live("dividend-calendar", { date: today },
-  (r) => r.date === today && typeof r.count === "number" && Array.isArray(r.entries),
-  `dividend-calendar ${today}`);
 
 console.log(`\nvalidation asserts failed: ${assertFail} | live ok: ${liveOk} | live upstream-errors (tolerated): ${liveErr}`);
 if (assertFail > 0 || liveOk === 0) { console.error("finance-kit: FAILED"); process.exit(1); }

@@ -108,8 +108,8 @@ export const WALLET_ONLY_SLUGS = new Set([
   "edgar-insider-trades", "edgar-13f-holdings", "edgar-recent-ipos", "edgar-search",
   "edgar-13f-datasets", "edgar-13f-dataset-head",  // sec.gov bulk 13F data sets (index page + bounded Range reads) - 2026-09-18
   "company-financials",
-  "stock-quote", "stock-history", "earnings-calendar",
-  "options-chain", "premarket-quote", "stock-dividends", "dividend-calendar",
+  "stock-quote", "stock-history",
+  "options-chain", "premarket-quote", "stock-dividends",
   "crypto-price", "crypto-market", "crypto-history", "crypto-trending", "crypto-global",
   "crypto-orderbook", "stablecoin-peg",
   // Composite research tools fan out to multiple paid upstreams; PoW would
@@ -290,7 +290,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   // (skill-schema-guard is pure CPU and stays PoW-eligible):
   "skill-contract-audit",    // calls contract-source + selector-lookup + tx-simulate (all wallet-only)
   "skill-tx-forensics",      // calls tx-status + evm-rpc + calldata-decode + selector-lookup (all wallet-only)
-  "skill-market-open",       // calls stock-quote + premarket-quote + options-chain + stock-dividends + earnings-calendar (all wallet-only)
+  "skill-market-open",       // calls stock-quote + premarket-quote + options-chain + stock-dividends (all wallet-only)
   "skill-entity-enrich",     // calls wikidata-entity + lei-lookup + edgar-company-lookup + whois + tech-stack + favicon-grab (all wallet-only)
   "skill-feed-watch",        // calls feed-parse + extract (both wallet-only)
   "skill-subtitle-pipeline", // calls transcribe (wallet-only — OpenAI upstream credit)

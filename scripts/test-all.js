@@ -166,8 +166,8 @@ const NETWORK = new Set([
   "/api/company-financials",
   // Finance-kit: Yahoo Finance chart (quote + history) and Nasdaq earnings
   // calendar — keyless live upstreams; tolerate transient 502/503/504.
-  "/api/stock-quote", "/api/stock-history", "/api/earnings-calendar",
-  "/api/options-chain", "/api/premarket-quote", "/api/stock-dividends", "/api/dividend-calendar",
+  "/api/stock-quote", "/api/stock-history",
+  "/api/options-chain", "/api/premarket-quote", "/api/stock-dividends",
   // Crypto-kit: CoinGecko public API — keyless, ~30 req/min from a single IP.
   // Tolerate transient 429/502/503/504 (rate limit + Cloudflare hiccups).
   // crypto-orderbook rides Coinbase Exchange's public API (same lenient posture).
