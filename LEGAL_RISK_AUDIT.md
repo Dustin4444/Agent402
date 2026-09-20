@@ -6,6 +6,9 @@ plaintiff's attorney or a regulator actually file?
 
 **Date:** 2026-09-20 · **Subject:** Havok Holdings LLC (Agent402.Tools and related packages)
 
+> **THIS DOCUMENT MUST NOT STAY IN A PUBLIC REPOSITORY.** It is a self-authored record of known
+> issues; publishing it removes any argument that they were unknown. See `REPO_STRATEGY.md`.
+>
 > **This is not legal advice.** It is an engineering read of where the code and copy diverge from
 > common statutory requirements. Every item marked *Needs counsel* is a judgment call that a
 > licensed attorney must make. Items marked *Code* or *Content* are mechanical and were fixed.
