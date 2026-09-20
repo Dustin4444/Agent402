@@ -21,12 +21,12 @@
 
 export const SELFCHECK_SLUGS = [
   "hash",                  // pure-CPU canary — proves the server itself is healthy
-  "stock-quote",           // wedge star (Yahoo, via relay in prod)
+  "stock-quote",           // wedge star (Databento; 503s without DATABENTO_API_KEY)
   "treasury-debt",         // Treasury Fiscal Data
   "treasury-avg-rates",    // Treasury Fiscal Data
   "treasury-yield-curve",  // FRED CSV (keyless — also proves FRED CSV is reachable)
   "fx-dashboard",          // ECB / Frankfurter
-  "stock-history",         // wedge (Yahoo) — second Yahoo endpoint beyond the quote
+  "stock-history",         // wedge — the second Databento endpoint beyond the quote
   "crypto-market",         // crypto prices
   "whois",                 // DNS / RDAP
   // High-value paid tools the reliability review flagged as unmonitored — added so
@@ -133,7 +133,7 @@ async function checkOne(def, timeoutMs) {
 
 // Run the curated self-check against a route→def CATALOG. Each failing tool is
 // retried ONCE after a short backoff before being reported failed, so a single
-// transient upstream blip (Yahoo/Nasdaq hiccup) can't page us — only a tool that
+// transient upstream blip can't page us — only a tool that
 // fails twice in a row is real.
 // Keyed checks hit PAID upstreams (Brave web search bills ~$0.005/call), and
 // they exist to catch KEY EXPIRY — an hours-scale event. The route's 5-min

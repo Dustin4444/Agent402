@@ -200,6 +200,15 @@ function parseGoalString(s) {
 // a matching PACK_STEPS entry falls back to the auto-stub in getStepConfig
 // (every step returns 501 — the envelope is still well-formed).
 // ──────────────────────────────────────────────────────────────────────────
+// stock-history is priced per session now and takes `days`, not the old
+// range vocabulary. Every pack here used to pass range: "1y" / "2y" / "3mo",
+// which the handler silently ignored - so a pack promising a year of closes
+// and computing a year-over-year return from them would have been served 30
+// sessions and produced a confident wrong number. Translate here, once, and
+// cap at the 250 sessions the licensed window actually serves.
+const HISTORY_SESSIONS = { "1d": 1, "5d": 5, "1mo": 21, "3mo": 63, "6mo": 126, ytd: 180, "1y": 250, "2y": 250, "5y": 250, "10y": 250, max: 250 };
+const sessionsFor = (range, fallback = 250) => HISTORY_SESSIONS[String(range || "").toLowerCase()] ?? fallback;
+
 export const PACK_STEPS = {
   // ▼ Example 1: simple fanout. All tools key off one prompt arg (domain).
   "security-audit": {
@@ -222,7 +231,7 @@ export const PACK_STEPS = {
     steps: [
       // Equity ticker: fetch OHLCV (range from horizon arg if provided).
       // Yahoo bars come back as [{time,open,high,low,close,volume}].
-      { slug: "stock-history", mapInput: (a) => ({ symbol: a.series, range: a.horizon || "1y" }) },
+      { slug: "stock-history", mapInput: (a) => ({ symbol: a.series, days: sessionsFor(a.horizon, 250) }) },
       // Macro indicator: the workflow's own "for a FRED series id" branch,
       // advertised in toolSlugs and never run until 2026-09-02. Runs ONLY
       // when stock-history served nothing (a FRED id is not a ticker), so an
@@ -271,7 +280,7 @@ export const PACK_STEPS = {
     mode: "fanout",
     steps: [
       { slug: "stock-quote",         mapInput: (a) => ({ symbol: a.ticker }) },
-      { slug: "stock-history",       mapInput: (a) => ({ symbol: a.ticker, range: "1y" }) },
+      { slug: "stock-history",       mapInput: (a) => ({ symbol: a.ticker, days: sessionsFor("1y") }) },
       { slug: "edgar-filings",       mapInput: (a) => ({ ticker: a.ticker }) },
       { slug: "edgar-company-facts", mapInput: (a) => ({ ticker: a.ticker }) },
       { slug: "edgar-insider-trades", mapInput: (a) => ({ ticker: a.ticker, lookbackDays: 90 }) },
@@ -1313,7 +1322,7 @@ export const PACK_STEPS = {
   "forecasting-bake-off": {
     mode: "chain",
     steps: [
-      { slug: "stock-history", mapInput: (a) => ({ symbol: a.series, range: "2y" }) },
+      { slug: "stock-history", mapInput: (a) => ({ symbol: a.series, days: sessionsFor("2y") }) },
       { slug: "fred-series",   mapInput: (a) => ({ seriesId: a.series }) },
       // Helper: closes from whichever fetcher succeeded.
       ...["naive", "ses", "holt", "holt-winters"].map((method) => ({
@@ -1516,7 +1525,7 @@ export const PACK_STEPS = {
     mode: "chain",
     steps: [
       { slug: "stock-quote",   mapInput: (a) => ({ symbol: a.ticker }) },
-      { slug: "stock-history", mapInput: (a) => ({ symbol: a.ticker, range: "3mo" }) },
+      { slug: "stock-history", mapInput: (a) => ({ symbol: a.ticker, days: sessionsFor("3mo") }) },
       { slug: "black-scholes", mapInput: (a, p) => {
           const spot = requireNumber(p["stock-quote"]?.price, "the live spot price");
           const volatility = realizedVolatility(p["stock-history"]?.bars);
@@ -2174,7 +2183,7 @@ export const PACK_STEPS = {
     mode: "fanout",
     steps: [
       { slug: "stock-quote",    mapInput: (a) => ({ symbol: a.ticker }) },
-      { slug: "stock-history",  mapInput: (a) => ({ symbol: a.ticker, range: "1y" }) },
+      { slug: "stock-history",  mapInput: (a) => ({ symbol: a.ticker, days: sessionsFor("1y") }) },
       { slug: "crypto-price",   mapInput: (a) => ({ coins: a.coin, currency: "usd" }) },
       { slug: "crypto-history", mapInput: (a) => ({ coin: a.coin, days: "365", currency: "usd" }) },
       { slug: "date-format",    mapInput: () => ({ datetime: new Date().toISOString() }) },
@@ -2248,16 +2257,6 @@ export const PACK_STEPS = {
   },
 
   // Pre-open trading snapshot: four ticker reads. The market-wide earnings
-  // calendar step was removed with the Nasdaq-sourced tools (2026-09-20).
-  "market-open": {
-    mode: "fanout",
-    steps: [
-      { slug: "stock-quote",       mapInput: (a) => ({ symbol: a.ticker }) },
-      { slug: "premarket-quote",   mapInput: (a) => ({ symbol: a.ticker }) },
-      { slug: "options-chain",     mapInput: (a) => ({ symbol: a.ticker }) },
-      { slug: "stock-dividends",   mapInput: (a) => ({ symbol: a.ticker }) },
-    ],
-  },
 
   // KYB-style identity dossier: six independent lookups keyed off the
   // company name / domain / ticker. Private companies fail the EDGAR step

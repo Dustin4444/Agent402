@@ -109,7 +109,6 @@ export const WALLET_ONLY_SLUGS = new Set([
   "edgar-13f-datasets", "edgar-13f-dataset-head",  // sec.gov bulk 13F data sets (index page + bounded Range reads) - 2026-09-18
   "company-financials",
   "stock-quote", "stock-history",
-  "options-chain", "premarket-quote", "stock-dividends",
   "crypto-price", "crypto-market", "crypto-history", "crypto-trending", "crypto-global",
   "crypto-orderbook", "stablecoin-peg",
   // Composite research tools fan out to multiple paid upstreams; PoW would
@@ -236,7 +235,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   "image-ocr",
   // Skill packs (bundled execution endpoints) — premium + standard tiers
   // orchestrate paid-upstream tools (EDGAR / FRED / Alchemy / Brave /
-  // Yahoo / CoinGecko / DefiLlama / DNS resolvers / Chromium). PoW would
+  // Databento / CoinGecko / DefiLlama / DNS resolvers / Chromium). PoW would
   // turn one free request into N paid sub-calls. Light-tier packs that
   // call at least one wallet-only tool must also be listed here — the
   // skill runner calls handlers in-process, bypassing the route paywall.
@@ -259,7 +258,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   "skill-location-intel", "skill-dns-network-ops", "skill-status-snapshot",
   "skill-schema-evolution",
   // Premium dossier packs (2026-07): multi-tool chains hitting paid upstreams
-  // (EDGAR, Brave Search, Yahoo, CoinGecko, DNS resolvers).
+  // (EDGAR, Brave Search, Databento, CoinGecko, DNS resolvers).
   "skill-company-dossier", "skill-domain-intel", "skill-crypto-dossier",
   // Strategy additions (2026-07): every underlying tool hits the network
   // (CDP-indexed balances/SQL, live gas RPCs, page fetches) — wallet-only.
@@ -290,7 +289,6 @@ export const WALLET_ONLY_SLUGS = new Set([
   // (skill-schema-guard is pure CPU and stays PoW-eligible):
   "skill-contract-audit",    // calls contract-source + selector-lookup + tx-simulate (all wallet-only)
   "skill-tx-forensics",      // calls tx-status + evm-rpc + calldata-decode + selector-lookup (all wallet-only)
-  "skill-market-open",       // calls stock-quote + premarket-quote + options-chain + stock-dividends (all wallet-only)
   "skill-entity-enrich",     // calls wikidata-entity + lei-lookup + edgar-company-lookup + whois + tech-stack + favicon-grab (all wallet-only)
   "skill-feed-watch",        // calls feed-parse + extract (both wallet-only)
   "skill-subtitle-pipeline", // calls transcribe (wallet-only — OpenAI upstream credit)

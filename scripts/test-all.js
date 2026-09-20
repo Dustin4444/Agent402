@@ -164,7 +164,7 @@ const NETWORK = new Set([
   "/api/edgar-insider-trades", "/api/edgar-13f-holdings", "/api/edgar-recent-ipos", "/api/edgar-search",
   "/api/edgar-13f-datasets", "/api/edgar-13f-dataset-head",
   "/api/company-financials",
-  // Finance-kit: Yahoo Finance chart (quote + history) and Nasdaq earnings
+  // Finance-kit: Databento equities (quote + history)
   // calendar — keyless live upstreams; tolerate transient 502/503/504.
   "/api/stock-quote", "/api/stock-history",
   "/api/options-chain", "/api/premarket-quote", "/api/stock-dividends",
@@ -282,7 +282,7 @@ const NETWORK = new Set([
   "/api/skill/webhook-intake",
   // Packs that compose WALLET_ONLY (egress) tools and were never added here, so
   // a slow upstream tripping the 20s AbortSignal counted as a strict failure —
-  // price-monitor (Yahoo + CoinGecko) broke the build this way on 2026-07-24.
+  // price-monitor (equities + CoinGecko) broke the build this way on 2026-07-24.
   // Scoped deliberately: an audit of all 109 packs found 23 absent from this
   // set, but only these 6 reach the network. The other 17 are pure-CPU chains
   // with no upstream that could ever be slow, so they stay STRICT rather than

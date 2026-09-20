@@ -5002,6 +5002,7 @@ jobs:
     # secrets keep working until they are migrated to the environment.
     environment: "agent402 / production"
     env:
+      DATABENTO_API_KEY: ${{ secrets.DATABENTO_API_KEY }}
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
       # The project id is KNOWN (repo var). Railway's `projects` listing query
       # answered "Internal Server Error" for account tokens on 2026-09-08 (the
@@ -5016,14 +5017,6 @@ jobs:
       BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
       FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
       FRED_API_KEY_V2: ${{ secrets.FRED_API_KEY_V2 }}
-      # Cloudflare Worker relay for Yahoo Finance (workers/yfinance-relay).
-      # Both must be set for the relay to engage; otherwise finance-kit hits
-      # Yahoo directly. Surfaced as flags.yahooRelay on /health.
-      YAHOO_RELAY_URL: ${{ secrets.YAHOO_RELAY_URL }}
-      YAHOO_RELAY_TOKEN: ${{ secrets.YAHOO_RELAY_TOKEN }}
-      # MPP dual-stack shim (src/mpp-shim.js) — HMAC secret binding MPP
-      # challenge ids. Presence is the rollout switch: unset → shim not
-      # mounted, server stays pure-x402.
       MPP_SECRET_KEY: ${{ secrets.MPP_SECRET_KEY }}
       X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
       # Offsite /data backup (src/backup.js) - Railway Bucket S3 creds. All
@@ -5070,10 +5063,10 @@ jobs:
         run: |
           [ -n "$RAILWAY_API_TOKEN" ] && echo "::add-mask::$RAILWAY_API_TOKEN"
           [ -n "$CDP_KEY_SECRET" ] && echo "::add-mask::$CDP_KEY_SECRET"
+          [ -n "$DATABENTO_API_KEY" ] && echo "::add-mask::$DATABENTO_API_KEY"
           [ -n "$BRAVE_API_KEY" ] && echo "::add-mask::$BRAVE_API_KEY"
           [ -n "$FRED_API_KEY" ] && echo "::add-mask::$FRED_API_KEY"
           [ -n "$FRED_API_KEY_V2" ] && echo "::add-mask::$FRED_API_KEY_V2"
-          [ -n "$YAHOO_RELAY_TOKEN" ] && echo "::add-mask::$YAHOO_RELAY_TOKEN"
           [ -n "$MPP_SECRET_KEY" ] && echo "::add-mask::$MPP_SECRET_KEY"
           [ -n "$X_BEARER_TOKEN" ] && echo "::add-mask::$X_BEARER_TOKEN"
           [ -n "$BACKUP_S3_KEY_ID" ] && echo "::add-mask::$BACKUP_S3_KEY_ID"
@@ -5277,6 +5270,13 @@ jobs:
           if [ -n "$CDP_KEY_ID" ] && [ -n "$CDP_KEY_SECRET" ]; then
             VARS=$(echo "$VARS" | jq --arg i "$CDP_KEY_ID" --arg s "$CDP_KEY_SECRET" '. + {CDP_API_KEY_ID:$i, CDP_API_KEY_SECRET:$s}')
           fi
+          # Databento replaced Yahoo Finance for the equity tools (2026-09-20).
+          # Prod needs the key; CI deliberately does NOT get it - Databento
+          # bills per query, and an unkeyed CI is what keeps a sweep from
+          # spending, the same rule as Brave, E2B and CoinGecko.
+          if [ -n "$DATABENTO_API_KEY" ]; then
+            VARS=$(echo "$VARS" | jq --arg d "$DATABENTO_API_KEY" '. + {DATABENTO_API_KEY:$d}')
+          fi
           if [ -n "$BRAVE_API_KEY" ]; then
             VARS=$(echo "$VARS" | jq --arg b "$BRAVE_API_KEY" '. + {BRAVE_API_KEY:$b}')
           fi
@@ -5288,9 +5288,6 @@ jobs:
           fi
           # Yahoo relay: only inject when BOTH are set — partial config would
           # silently fall through to direct Yahoo and re-trigger the canary.
-          if [ -n "$YAHOO_RELAY_URL" ] && [ -n "$YAHOO_RELAY_TOKEN" ]; then
-            VARS=$(echo "$VARS" | jq --arg u "$YAHOO_RELAY_URL" --arg t "$YAHOO_RELAY_TOKEN" '. + {YAHOO_RELAY_URL:$u, YAHOO_RELAY_TOKEN:$t}')
-          fi
           if [ -n "$OPENROUTER_TTS_ENABLED" ]; then
             VARS=$(echo "$VARS" | jq --arg v "$OPENROUTER_TTS_ENABLED" '. + {OPENROUTER_TTS_ENABLED:$v}')
           fi

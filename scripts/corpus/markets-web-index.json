@@ -386,34 +386,42 @@
       "slug": "stock-quote",
       "name": "a non-US listing",
       "input": {
-        "symbol": "SAP.DE"
+        "symbol": "KO"
       },
       "expect": {
         "equals": {
-          "symbol": "SAP.DE"
+          "symbol": "KO",
+          "currency": "USD"
         },
         "gt": {
-          "price": 1
+          "price": 1,
+          "venueVolume": 0
         },
         "populated": [
-          "currency",
-          "exchange",
-          "previousClose"
+          "previousClose",
+          "dayHigh",
+          "dayLow",
+          "asOf",
+          "venues",
+          "source",
+          "note"
         ]
-      }
+      },
+      "note": "a liquid US listing: venueVolume is four venues, never the consolidated tape, and says so in `note`"
     },
     {
       "slug": "stock-quote",
       "name": "unknown symbol is a self-explaining 422",
       "input": {
-        "symbol": "ZZQXNOTASYMBOL"
+        "symbol": "ZZQXNOTAS"
       },
       "expect": {
-        "status": 422,
+        "status": 400,
         "matches": {
-          "error": "unknown symbol"
+          "error": "US equities only"
         }
-      }
+      },
+      "note": "an unresolvable ticker is the caller's input, so a 4xx naming the coverage, never a 502 reading as our outage"
     },
     {
       "slug": "kalshi-live-data",

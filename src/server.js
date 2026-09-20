@@ -2506,10 +2506,6 @@ app.get("/health", (req, res) => {
     operatorToken: Boolean(OPERATOR_TOKEN),
     sentry: sentryEnabled(),
     posthog: posthogEnabled(),
-    // True only when BOTH relay env vars are set — matches finance-kit's gate
-    // (src/tools/finance-kit.js). Either unset = direct-to-Yahoo, which is
-    // currently null-routed by Railway egress and causes ETIMEDOUT canaries.
-    yahooRelay: Boolean((process.env.YAHOO_RELAY_URL || "").trim()) && Boolean((process.env.YAHOO_RELAY_TOKEN || "").trim()),
     // True when the stats SQLite DB is on the /data volume (counters + the
     // recentCalls ring buffer survive restarts). False = silent fallback to
     // /tmp, which wipes the activity feed on every container restart and
