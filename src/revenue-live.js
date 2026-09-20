@@ -620,10 +620,42 @@ export function bucketStellarActivity(entries, { days = 30, now = Date.now() } =
   };
 }
 
+// ---------------------------------------------------------------------------
+// Scan bounds for the trailing-window activity walkers below.
+//
+// A paged scan stops for exactly one of three reasons: it reached the far edge
+// of the window (complete), the source ran out of pages (complete), or it hit
+// a bound we imposed (truncated, and the totals are an honest floor).
+//
+// That bound used to be a PAGE COUNT, ten everywhere. A page count is a poor
+// proxy for cost: it drifts with the page size each source happens to return
+// and with how fast the source answers, and it silently turns into a hard
+// ceiling on the reported number. Measured on Base 2026-09-20, the busiest
+// seller's payTo held 30,253 inbound USDC transfers in the trailing 30 days
+// and every surface we rendered said exactly 10,000 - ten pages of a thousand
+// - for months, because the walk stopped mid-window every single time. The
+// walk was already keyset (each source's own cursor), so nothing was wrong
+// with the paging; the bound was simply placed where a real figure used to be.
+//
+// Bound the WALL CLOCK instead, which is what a page load can actually afford
+// and what the cost of a scan is proportional to. The page ceiling stays only
+// as a backstop against a cursor that never terminates. Same Base wallet:
+// 31 pages, 7.0s end to end, median 222ms per page, so the default budget
+// carries roughly 1.7x the busiest wallet on the chain and degrades honestly
+// (truncated: true) rather than lying when a source has a slow day.
+const SCAN_BUDGET_MS = Math.max(1000, Number(process.env.MARKET_SCAN_BUDGET_MS) || 12_000);
+// Backstop only. At the measured page sizes this is 40k-200k records, far past
+// any wallet we have seen, so in practice the clock is always what stops a
+// long walk and this only catches a source that keeps handing back cursors.
+const SCAN_MAX_PAGES = 200;
+/** Deadline for one scan. Call sites compare against it before each fetch. */
+const scanDeadline = (budgetMs = SCAN_BUDGET_MS) => Date.now() + budgetMs;
+
 // Trailing-window activity scan: page Horizon's payments feed back `days`
-// days (newest first, `maxPages` × 200 records cap — a busy wallet sets
-// `truncated: true` and the totals are an honest floor, never an estimate).
-export async function stellarActivity(wallet, { days = 30, maxPages = 10 } = {}) {
+// days (newest first, 200 records a page, bounded by the scan budget above —
+// a wallet busier than the budget carries sets `truncated: true` and the
+// totals are an honest floor, never an estimate).
+export async function stellarActivity(wallet, { days = 30, maxPages = SCAN_MAX_PAGES, budgetMs = SCAN_BUDGET_MS } = {}) {
   const out = { rail: "Stellar", wallet: wallet || null, days, buckets: [], totals: { tx: 0, usd: 0, buyers: 0, internalTx: 0, internalUsd: 0 }, truncated: false, error: null };
   if (!wallet) { out.error = "STELLAR_WALLET_ADDRESS unset"; return out; }
   const ours = new Set([...OUR_STELLAR_WALLETS, wallet]);
@@ -631,11 +663,18 @@ export async function stellarActivity(wallet, { days = 30, maxPages = 10 } = {})
   const entries = [];
   try {
     let url = `https://horizon.stellar.org/accounts/${wallet}/payments?order=desc&limit=200`;
+    const until = scanDeadline(budgetMs);
+    let more = false; // a cursor is still pending, i.e. we stopped early
     for (let page = 0; page < maxPages && url; page++) {
       const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
       if (!res.ok) { out.error = `Horizon HTTP ${res.status}`; return out; }
       const data = await res.json();
       const records = data?._embedded?.records || [];
+      // Cleared every iteration so that ANY exit path is honest: `more` means
+      // "we stopped with a cursor still pending", and only the line that sets it
+      // just before the deadline check can claim that. Carrying the flag across
+      // iterations marked a walk that ran cleanly to the window edge as truncated.
+      more = false;
       if (!records.length) { url = null; break; }
       let pastWindow = false;
       for (const r of records) {
@@ -651,8 +690,11 @@ export async function stellarActivity(wallet, { days = 30, maxPages = 10 } = {})
       // a response body.
       const next = data?._links?.next?.href || "";
       url = next.startsWith("https://horizon.stellar.org/") ? next : null;
-      if (url && page === maxPages - 1) out.truncated = true;
+      if (!url) break;
+      more = true;
+      if (Date.now() >= until) break;
     }
+    out.truncated = more;
   } catch (e) {
     out.error = String(e?.message || e).slice(0, 120);
     return out;
@@ -762,10 +804,11 @@ export async function algorandRail(wallet) {
 }
 
 // Trailing-window activity scan for Algorand: page AlgoNode's indexer back
-// `days` days (newest first via `after-time`, `maxPages` × 1000 records cap —
+// `days` days (newest first via `after-time`, 1000 records a page, bounded by
+// the scan budget above —
 // a busy wallet sets `truncated: true` and the totals are an honest floor,
 // never an estimate). Mirrors stellarActivity's shape and honesty posture.
-export async function algorandActivity(wallet, { days = 30, maxPages = 10 } = {}) {
+export async function algorandActivity(wallet, { days = 30, maxPages = SCAN_MAX_PAGES, budgetMs = SCAN_BUDGET_MS } = {}) {
   const out = { rail: "Algorand", wallet: wallet || null, days, buckets: [], totals: { tx: 0, usd: 0, buyers: 0, internalTx: 0, internalUsd: 0 }, truncated: false, error: null };
   if (!wallet) { out.error = "ALGORAND_WALLET_ADDRESS unset"; return out; }
   const ours = new Set([...OUR_ALGORAND_WALLETS, wallet]);
@@ -773,6 +816,8 @@ export async function algorandActivity(wallet, { days = 30, maxPages = 10 } = {}
   const entries = [];
   try {
     let next = null;
+    const until = scanDeadline(budgetMs);
+    let more = false; // a cursor is still pending, i.e. we stopped early
     for (let page = 0; page < maxPages; page++) {
       // Walk the indexer bases (relay first when configured) — this loop used
       // to hardcode the direct Nodely host, silently bypassing both the env
@@ -784,6 +829,11 @@ export async function algorandActivity(wallet, { days = 30, maxPages = 10 } = {}
       if (!res.ok) { out.error = res.error || `indexer HTTP ${res.status}`; return out; }
       const data = res.json || {};
       const txs = data?.transactions || [];
+      // Cleared every iteration so that ANY exit path is honest: `more` means
+      // "we stopped with a cursor still pending", and only the line that sets it
+      // just before the deadline check can claim that. Carrying the flag across
+      // iterations marked a walk that ran cleanly to the window edge as truncated.
+      more = false;
       for (const t of txs) {
         const xfer = t["asset-transfer-transaction"];
         // Defense in depth, matching algorandRail's issuer check: re-verify
@@ -803,8 +853,10 @@ export async function algorandActivity(wallet, { days = 30, maxPages = 10 } = {}
       }
       next = data["next-token"] || null;
       if (!next) break;
-      if (page === maxPages - 1) out.truncated = true;
+      more = true;
+      if (Date.now() >= until) break;
     }
+    out.truncated = more;
   } catch (e) {
     out.error = String(e?.message || e).slice(0, 120);
     return out;
@@ -842,10 +894,10 @@ export function parseEvmTransfer(t) {
 // Trailing-window activity scan for an EVM rail (base/polygon/arbitrum/
 // robinhood) via Alchemy's alchemy_getAssetTransfers — newest first, paged
 // via the response's `pageKey`, STOP once a transfer is older than the `days`
-// cutoff, `maxPages` cap (sets truncated). Public RPCs don't implement this
-// method, so no ALCHEMY_API_KEY → immediate honest "unavailable" rather than
+// cutoff, and otherwise at the scan budget above (which sets truncated).
+// Public RPCs don't implement this method, so no ALCHEMY_API_KEY → immediate honest "unavailable" rather than
 // a failed call per page.
-export async function evmActivity(chainKey, wallet, { days = 30, maxPages = 10 } = {}) {
+export async function evmActivity(chainKey, wallet, { days = 30, maxPages = SCAN_MAX_PAGES, budgetMs = SCAN_BUDGET_MS } = {}) {
   const c = EVM[chainKey];
   const out = { rail: c?.label || chainKey, wallet: wallet || null, days, buckets: [], totals: { tx: 0, usd: 0, buyers: 0, internalTx: 0, internalUsd: 0 }, truncated: false, error: null };
   if (!c) { out.error = "unsupported chain"; return out; }
@@ -856,6 +908,8 @@ export async function evmActivity(chainKey, wallet, { days = 30, maxPages = 10 }
   const entries = [];
   try {
     let pageKey;
+    const until = scanDeadline(budgetMs);
+    let more = false; // a cursor is still pending, i.e. we stopped early
     for (let page = 0; page < maxPages; page++) {
       const params = {
         fromBlock: "0x0", toBlock: "latest", toAddress: wallet, contractAddresses: [c.token],
@@ -864,6 +918,11 @@ export async function evmActivity(chainKey, wallet, { days = 30, maxPages = 10 }
       };
       const res = await rpcCall([alchemyUrl], "alchemy_getAssetTransfers", [params], 8000);
       const transfers = res?.transfers || [];
+      // Cleared every iteration so that ANY exit path is honest: `more` means
+      // "we stopped with a cursor still pending", and only the line that sets it
+      // just before the deadline check can claim that. Carrying the flag across
+      // iterations marked a walk that ran cleanly to the window edge as truncated.
+      more = false;
       if (!transfers.length) { pageKey = null; break; }
       let pastWindow = false;
       for (const t of transfers) {
@@ -877,8 +936,10 @@ export async function evmActivity(chainKey, wallet, { days = 30, maxPages = 10 }
       if (pastWindow) { pageKey = null; break; }
       pageKey = res?.pageKey || null;
       if (!pageKey) break;
-      if (page === maxPages - 1) out.truncated = true;
+      more = true;
+      if (Date.now() >= until) break;
     }
+    out.truncated = more;
   } catch (e) {
     out.error = String(e?.message || e).slice(0, 120);
     return out;
@@ -958,7 +1019,13 @@ export function parseSolanaTransfer(txn, owner) {
 // budget — getTransaction is one RPC call each, so a busy page must not fire
 // hundreds of them. An RPC failure mid-scan keeps whatever was collected so
 // far (`truncated:true`); only a failure with nothing collected is an error.
-export async function solanaActivity(wallet, { days = 30, maxPages = 10, maxTx = 60 } = {}) {
+// Solana's cost is per TRANSACTION, not per page: each signature inside the
+// window needs its own getTransaction. Measured 2026-09-20 against the busiest
+// Solana payTo we index, that call runs a 65ms median, so the shared budget
+// below carries roughly 180 transactions where the old hard `maxTx = 60`
+// stopped at sixty on every wallet busier than that. maxTx stays as a backstop
+// only - the clock is what stops a long walk here.
+export async function solanaActivity(wallet, { days = 30, maxPages = SCAN_MAX_PAGES, maxTx = 2000, budgetMs = SCAN_BUDGET_MS } = {}) {
   const out = { rail: "Solana", wallet: wallet || null, days, buckets: [], totals: { tx: 0, usd: 0, buyers: 0, internalTx: 0, internalUsd: 0 }, truncated: false, error: null };
   if (!wallet) { out.error = "SOLANA_WALLET_ADDRESS unset"; return out; }
   const cutoff = Date.now() - days * 86_400_000;
@@ -973,6 +1040,7 @@ export async function solanaActivity(wallet, { days = 30, maxPages = 10, maxTx =
   }
   let txBudget = maxTx;
   let capped = false;
+  const until = scanDeadline(budgetMs);
   try {
     let before;
     scan: for (let page = 0; page < maxPages; page++) {
@@ -983,7 +1051,7 @@ export async function solanaActivity(wallet, { days = 30, maxPages = 10, maxTx =
         const tms = s.blockTime ? s.blockTime * 1000 : null;
         if (tms != null && tms < cutoff) break scan;
         if (s.err) continue;
-        if (txBudget <= 0) { capped = true; break scan; }
+        if (txBudget <= 0 || Date.now() >= until) { capped = true; break scan; }
         txBudget--;
         try {
           const txn = await rpcCall(SOLANA_RPCS, "getTransaction", [s.signature, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 }], 6000);
@@ -996,7 +1064,7 @@ export async function solanaActivity(wallet, { days = 30, maxPages = 10, maxTx =
       }
       before = sigs[sigs.length - 1]?.signature;
       if (!before) break;
-      if (page === maxPages - 1) capped = true;
+      if (Date.now() >= until) { capped = true; break; }
     }
   } catch (e) {
     if (!entries.length) { out.error = String(e?.message || e).slice(0, 120); return out; }
