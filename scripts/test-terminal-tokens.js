@@ -15,7 +15,7 @@
 import { readFileSync } from "node:fs";
 import {
   TERMINAL_CSS, marketTerminalHtml, terminalRoster, terminalStatusBar,
-  terminalTicker, terminalMetrics, sparkline, trendOf, compactUsd,
+  terminalTicker, terminalMetrics, sparkline, trendOf, compactUsd, observedSlice,
 } from "../src/market-terminal.js";
 import { LEDGER_CSS } from "../src/ledger-chrome.js";
 
@@ -179,6 +179,35 @@ ok(/t-na/.test(naMarkup), "a series too short to trend renders as unknown, not a
 // compactUsd must never round a real figure away to $0.
 ok(compactUsd(0.0004) === "$0.0004", "compactUsd keeps sub-cent precision (a $0.001 rail must not read $0.00)");
 ok(compactUsd(1234) === "$1.2k" && compactUsd(1_500_000) === "$1.50M", "compactUsd scales at k and M");
+
+// --- a truncated scan must not be read as a trend --------------------------
+// The scan walks newest-first, so a budget-stopped walk leaves the OLDEST days
+// of the window unreached. They arrive as zeros that mean "not scanned", not
+// "quiet". Measured on production 2026-09-20: 17 of 30 days scanned for the
+// busiest seller on Base, 21 zero buckets, and the panel rendered +4369.9% for
+// traffic that is roughly flat. A gap is not a measurement.
+const partial = Array.from({ length: 30 }, (_, i) => (i < 21
+  ? { date: `d${i}`, tx: 0, usd: 0, buyers: 0 }
+  : { date: `d${i}`, tx: 900 + i, usd: 9, buyers: 4 }));
+const truncAct = { days: 30, truncated: true, totals: { tx: 17000, usd: 258.08, buyers: 38 }, buckets: partial };
+const truncOut = terminalMetrics(truncAct, "X", "");
+const deltasOf = (html) => [...html.matchAll(/class="t-delta[^"]*">([^<]*)</g)].map((m) => m[1]);
+
+ok(trendOf(partial.map((x) => x.tx)).dir === "up", "control: the raw partial series DOES read as a huge rise - this is the artifact being suppressed");
+ok(deltasOf(truncOut).every((d) => d === "--"), `a truncated scan claims no direction on any metric (got ${JSON.stringify(deltasOf(truncOut))})`);
+ok(/OF 30D SCANNED/.test(truncOut), "the panel says how much of the window was actually scanned");
+ok(!/%/.test(truncOut.match(/t-metric-h[\s\S]*?<\/div>/)?.[0] || ""), "no percentage is printed beside a partial window");
+
+const fullAct = { days: 30, truncated: false, totals: { tx: 30253, usd: 332.18, buyers: 46 }, buckets: buckets };
+ok(deltasOf(terminalMetrics(fullAct, "X", "")).some((d) => /%/.test(d)), "a COMPLETE scan still shows its real deltas - the suppression is scoped to truncation");
+
+// observedSlice drops only the unreached leading run, and only when truncated.
+ok(observedSlice(partial, true).length === 9, `observedSlice keeps the 9 observed days (got ${observedSlice(partial, true).length})`);
+ok(observedSlice(partial, false).length === 30, "observedSlice is a no-op on a complete scan, where a zero day IS a measurement");
+ok(observedSlice([{ tx: 0, usd: 0, buyers: 0 }, { tx: 0, usd: 0, buyers: 0 }], true).length === 2,
+  "an all-zero truncated series is returned whole rather than emptied");
+ok(observedSlice([{ tx: 5, usd: 1, buyers: 1 }, { tx: 0, usd: 0, buyers: 0 }], true).length === 2,
+  "a zero INSIDE the observed run is kept - only the leading unreached run is dropped");
 
 // --- sparkline -------------------------------------------------------------
 ok(/<svg/.test(sparkline([1, 2, 3])) && /aria-hidden="true"/.test(sparkline([1, 2, 3])), "sparkline is an inline SVG hidden from assistive tech (the figure beside it is the value)");
