@@ -3710,8 +3710,8 @@ const MULTI_PART_TLDS = new Set(["co.uk", "org.uk", "ac.uk", "gov.uk", "co.jp", 
 // different host of one operator. Without these, "last two labels" made every
 // Vercel seller one operator, every Workers seller one operator, and so on -
 // they would then have shared a single per-cycle crawl budget, and an attacker
-// could have registered throwaway origins under the same suffix to starve a
-// competitor's listing until its learned quote went stale (QUOTE_MAX_AGE_MS).
+// could have registered throwaway origins under the same suffix to starve another
+// seller's listing until its learned quote went stale (QUOTE_MAX_AGE_MS).
 // This file already knew better in one place: railwayDeploymentOrigin exists
 // precisely because unrelated sellers publish on *.up.railway.app.
 const SHARED_HOSTING_SUFFIXES = [
