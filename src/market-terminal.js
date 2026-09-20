@@ -76,9 +76,33 @@ export function sparkline(values = [], { w = 120, h = 28 } = {}) {
     + `<path class="t-spark-l" d="M${pts.join(" L")}"/></svg>`;
 }
 
-/** One headline metric: label, value, trend, sparkline. */
-function metric(label, value, series, { hint = "" } = {}) {
-  const t = trendOf(series);
+/** The slice of a series that was actually OBSERVED.
+ *
+ *  A truncated scan walks newest-first and stops, so the days at the far end
+ *  of the window were never reached. They arrive here as zeros, which are
+ *  indistinguishable from a genuinely quiet day - and a zero that means "not
+ *  scanned" is not a measurement. Measured on production 2026-09-20: the
+ *  busiest seller on Base scanned 17 of ~30 days inside the budget, the
+ *  remaining 21 buckets read zero, and the trend that produced rendered
+ *  +4369.9% for traffic that is roughly flat, with a sparkline drawing a
+ *  cliff out of the gap.
+ *
+ *  So on a truncated scan the leading run of all-zero buckets is dropped
+ *  rather than drawn, and the caller must not claim a direction over what is
+ *  left: the recent days are known, the window is not. */
+export function observedSlice(buckets = [], truncated = false) {
+  if (!truncated || !buckets.length) return buckets;
+  const empty = (b) => !(Number(b?.tx) || 0) && !(Number(b?.usd) || 0) && !(Number(b?.buyers) || 0);
+  let i = 0;
+  while (i < buckets.length && empty(buckets[i])) i++;
+  return i >= buckets.length ? buckets : buckets.slice(i);
+}
+
+/** One headline metric: label, value, trend, sparkline.
+ *  `known` false means the series is a partial window, so no direction is
+ *  claimed however clean the remaining numbers look. */
+function metric(label, value, series, { hint = "", known = true } = {}) {
+  const t = known ? trendOf(series) : null;
   const dir = t ? t.dir : "flat";
   return `<div class="t-metric t-${dir}">
       <div class="t-metric-h"><span class="t-label">${esc(label)}</span>${t ? `<span class="t-delta">${esc(pct(t.pct))}</span>` : `<span class="t-delta t-na">--</span>`}</div>
@@ -186,15 +210,20 @@ export function terminalMetrics(activity, scopeLabel, noteText) {
     return `<div class="t-panel"><div class="t-panel-h"><span class="t-label">ACTIVITY</span><span class="t-label t-dim">${esc(scopeLabel)}</span></div>
       <div class="t-empty">${esc(noteText || "activity scan unavailable for this seller")}</div></div>`;
   }
-  const b = activity.buckets;
+  const truncated = !!activity.truncated;
+  const b = observedSlice(activity.buckets, truncated);
   const t = activity.totals || {};
-  const floor = activity.truncated ? "+" : "";
+  const floor = truncated ? "+" : "";
+  const known = !truncated;
+  const span = truncated
+    ? `${esc(scopeLabel)} · ${b.length}D OF ${esc(activity.days)}D SCANNED`
+    : `${esc(scopeLabel)} · ${esc(activity.days)}D`;
   return `<div class="t-panel">
-      <div class="t-panel-h"><span class="t-label">ACTIVITY</span><span class="t-label t-dim">${esc(scopeLabel)} · ${esc(activity.days)}D</span></div>
+      <div class="t-panel-h"><span class="t-label">ACTIVITY</span><span class="t-label t-dim">${span}</span></div>
       <div class="t-metrics">
-        ${metric("TRANSACTIONS", num(t.tx) + floor, b.map((x) => x.tx))}
-        ${metric("VOLUME", compactUsd(t.usd) + floor, b.map((x) => x.usd))}
-        ${metric("BUYERS", num(t.buyers) + floor, b.map((x) => x.buyers))}
+        ${metric("TRANSACTIONS", num(t.tx) + floor, b.map((x) => x.tx), { known })}
+        ${metric("VOLUME", compactUsd(t.usd) + floor, b.map((x) => x.usd), { known })}
+        ${metric("BUYERS", num(t.buyers) + floor, b.map((x) => x.buyers), { known })}
       </div>
       ${noteText ? `<div class="t-note">${esc(noteText)}</div>` : ""}
     </div>`;
