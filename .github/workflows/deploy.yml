@@ -101,6 +101,32 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
         with:
           fetch-depth: 0
+      - name: Commit messages carry mechanism, not market framing
+        # Scoped to the PUSH RANGE, never all history: the offenders already
+        # merged cannot be reworded (the oldest is 2026-06-16, so a rewrite
+        # means new SHAs for ~90% of the repo, a force-push to a protected
+        # branch and a broken .gitleaks.toml commit allowlist - and the old
+        # objects stay addressable by SHA and live on in every fork anyway).
+        # This stops the NEXT one, which is the part still controllable.
+        # Lives here because this job is the only one that checks out full
+        # history (fetch-depth: 0) and already has the range.
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != "push" ]; then
+            echo "Event is $EVENT_NAME (not push) - no range to scan."
+            exit 0
+          fi
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            RANGE="$AFTER~1..$AFTER"
+          else
+            RANGE="$BEFORE..$AFTER"
+          fi
+          echo "Scanning $RANGE"
+          COMMIT_RANGE="$RANGE" node scripts/test-commit-message-framing.js
       - id: parse
         name: Parse markers from commit subject lines only
         env:
