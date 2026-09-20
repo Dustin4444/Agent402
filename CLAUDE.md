@@ -3275,9 +3275,11 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   or used for commercial purposes or to solicit contributions - contributor-level PII only, not a blanket commercial bar
   and nothing about model training, which we do not do anyway. Our one FEC tool is `fec-candidates`, which returns
   candidate name, party, office, state, incumbent status and FEC id from `/v1/candidates/search`; it reads no contributor
-  record and no Schedule A. Re-open this only if a tool ever returns contributor names or addresses. FRED's terms require the
-  "not endorsed or certified by the Federal Reserve Bank of St. Louis" line, which no surface of ours carries; and Nasdaq's
-  2026-05-11 terms are personal non-commercial only. The licensing cluster is one business decision, not nine tasks.
+  record and no Schedule A. Re-open this only if a tool ever returns contributor names or addresses. FRED's required
+  attribution line ships on all five fred-* descriptions (macro-kit.js). The Nasdaq-sourced tools were RETIRED 2026-09-20
+  along with their relay; nothing in the catalogue reads that source. **Before adding any data source, read its terms
+  first and record the conclusion HERE ONLY IF IT IS "we comply".** A standing note that we know a source's terms and
+  serve it anyway is the single most useful exhibit an opposing party could be handed, and this file is public.
 - **Chain/RPC sweep (2026-08-28, every endpoint probed live):** four dead-endpoint classes, two of them money paths failing
   CLOSED. (1) `scripts/refund-run.js` had `polygon-rpc.com` as the ONLY Polygon RPC - Polygon shut it off 2026-07-31 (probe:
   `tenant disabled`, 403), so every Polygon refund held unpaid; now `polygon-bor-rpc.publicnode.com`. (2) The same file pointed

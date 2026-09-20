@@ -28,7 +28,7 @@ export const PACK_PRICES = {
   "security-audit": 0.017, // 7 tools, parts $0.018
   "email-deliverability": 0.009, // 6 tools, parts $0.009
   "market-brief": 0.009, // 3 tools, parts $0.01
-  "financial-analysis": 0.019, // 2 tools, parts $0.021
+  "financial-analysis": 0.024, // 3 tools, parts $0.026
   "financial-research": 0.024, // 6 tools, parts $0.026
   "macro-economics": 0.036, // 7 tools, parts $0.04
   "macro-dashboard": 0.071, // 14 tools, parts $0.078
@@ -64,7 +64,7 @@ export const PACK_PRICES = {
   "company-dossier": 0.046, // 5 tools, parts $0.051
   "domain-intel": 0.016, // 6 tools, parts $0.017
   "crypto-dossier": 0.05, // 6 tools, parts $0.055
-  "earnings-watch": 0.019, // 2 tools, parts $0.021
+  "earnings-watch": 0.024, // 3 tools, parts $0.026
   "insider-alert": 0.01, // 3 tools, parts $0.011
   "ipo-watch": 0.041, // 3 tools, parts $0.045
   "yield-dashboard": 0.014, // 3 tools, parts $0.015
@@ -302,11 +302,12 @@ export const SKILL_PACKS = [
     toolSlugs: [
       "stock-quote",
       "company-financials",
+      "stock-history",
     ],
     workflow: [
       "Get the live quote from stock-quote - current price, market cap, day range, 52-week high/low, volume.",
       "Pull key financials from company-financials - revenue, net income, operating income, total assets, liabilities, equity, EPS, and operating cash flow from the latest annual and quarterly SEC filings.",
-      "Check the earnings calendar for today's date to see if this company has upcoming or just-reported earnings (EPS estimate vs actual).",
+      "Pull the price history from stock-history - how the quote sits against recent trading rather than on its own.",
     ],
     claudePrompt:
       "Give me a quick financial snapshot of AAPL. Use Agent402's financial-analysis skill pack to get the current quote, key financial metrics (revenue, net income, EPS, cash flow), and any upcoming earnings. Summarize in a few bullet points.",
@@ -1603,23 +1604,24 @@ export const SKILL_PACKS = [
     slug: "earnings-watch",
     title: "Earnings watch",
     tagline:
-      "Is this company reporting soon and what's the consensus? Earnings calendar, live quote, and recent search results in one call.",
+      "Has this company just reported, and what is being said about it? Recent SEC filings, the live quote, and current coverage in one call.",
     useCase:
-      "Pre-earnings positioning - check if a report is imminent, what the stock price implies, and what analysts are saying.",
+      "Around an earnings report - see what the company has actually filed, what the stock price implies, and what is being written.",
     promptArgs: [
       { name: "ticker", description: "Stock ticker symbol (e.g. AAPL, NVDA)", required: true, substitute: "AAPL" },
     ],
     toolSlugs: [
       "stock-quote",
       "search",
+      "edgar-filings",
     ],
     workflow: [
-      "Check the earnings calendar for upcoming or recent report dates and EPS estimates.",
+      "Read the newest SEC filings from edgar-filings - an earnings report arrives as an 8-K, so this is the company's own account rather than a forecast.",
       "Get the live stock quote - price, market cap, and day range heading into earnings.",
       "Search the web for recent earnings-related coverage and analyst expectations.",
     ],
     claudePrompt:
-      "Check if AAPL is reporting earnings soon using Agent402's earnings-watch skill pack. Get (1) earnings calendar for dates and EPS consensus, (2) live quote, (3) recent search results for analyst expectations. Summarize the setup heading into the report.",
+      "Check what AAPL has just reported using Agent402's earnings-watch skill pack. Get (1) the newest SEC filings, consensus, (2) live quote, (3) recent search results for analyst expectations. Summarize the setup heading into the report.",
   },
 
   {

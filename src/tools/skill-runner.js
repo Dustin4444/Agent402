@@ -262,6 +262,7 @@ export const PACK_STEPS = {
     steps: [
       { slug: "stock-quote",         mapInput: (a) => ({ symbol: a.ticker }) },
       { slug: "company-financials",  mapInput: (a) => ({ ticker: a.ticker }) },
+      { slug: "stock-history",       mapInput: (a) => ({ symbol: a.ticker }) },
     ],
   },
 
@@ -1589,6 +1590,7 @@ export const PACK_STEPS = {
     steps: [
       { slug: "stock-quote",       mapInput: (a) => ({ symbol: a.ticker }) },
       { slug: "search",            mapInput: (a) => ({ q: `${a.ticker} earnings`, count: 5 }) },
+      { slug: "edgar-filings",     mapInput: (a) => ({ ticker: a.ticker }) },
     ],
   },
 

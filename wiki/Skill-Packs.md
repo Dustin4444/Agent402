@@ -65,14 +65,14 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | Pack | Price | What it solves |
 |---|---|---|
 | [**financial-research**](https://agent402.tools/skills/financial-research) | $0.024 | SEC filings + real-time quotes + history + macro context for a single ticker. |
-| [**financial-analysis**](https://agent402.tools/skills/financial-analysis) | $0.020 | Quick company snapshot: live quote, 9 key financial metrics, and upcoming earnings. |
+| [**financial-analysis**](https://agent402.tools/skills/financial-analysis) | $0.024 | Quick company snapshot: live quote, 9 key financial metrics, and upcoming earnings. |
 | [**company-dossier**](https://agent402.tools/skills/company-dossier) | $0.046 | Comprehensive company research in one call: quote, financials, filings, insider trades, news. |
-| [**earnings-watch**](https://agent402.tools/skills/earnings-watch) | $0.020 | Is this company reporting soon and what's the consensus? Earnings calendar, quote, recent results. |
-| [**earnings-deep-dive**](https://agent402.tools/skills/earnings-deep-dive) | $0.043 | Everything before a company reports: the upcoming date, latest financials, recent filings, live quote, and fresh news in one pass. |
+| [**earnings-watch**](https://agent402.tools/skills/earnings-watch) | $0.024 | Is this company reporting soon and what's the consensus? Earnings calendar, quote, recent results. |
+| [**earnings-deep-dive**](https://agent402.tools/skills/earnings-deep-dive) | $0.042 | Everything before a company reports: the upcoming date, latest financials, recent filings, live quote, and fresh news in one pass. |
 | [**insider-alert**](https://agent402.tools/skills/insider-alert) | $0.010 | Insider buying/selling for a stock: Form 4 trades, live quote, and recent SEC filings. |
 | [**price-monitor**](https://agent402.tools/skills/price-monitor) | $0.021 | Side-by-side snapshot of a stock and a crypto asset: live quotes, 1-year history, date-stamped compare. |
 | [**options-analytics**](https://agent402.tools/skills/options-analytics) | $0.026 | Price a European option on a live stock: current quote, volatility from recent history, Black-Scholes fair value plus the full greeks, and catalyst news. |
-| [**market-open**](https://agent402.tools/skills/market-open) | $0.012 | Pre-trade snapshot for one ticker before the bell: live quote, pre-market quote, options surface, dividend posture, and today's earnings calendar. |
+| [**market-open**](https://agent402.tools/skills/market-open) | $0.011 | Pre-trade snapshot for one ticker before the bell: live quote, pre-market quote, options surface, dividend posture, and today's earnings calendar. |
 
 ## Macro & SEC (12)
 
