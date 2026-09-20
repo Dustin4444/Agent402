@@ -2221,6 +2221,8 @@ jobs:
           t node scripts/test-port-hygiene.js
           # Licensing split stays legible: server AGPL, every published package MIT with its own LICENSE + repository.directory (offline)
           t node scripts/test-package-licenses.js
+          # OFL 1.1 condition 2: a redistributed font ships its licence
+          t node scripts/test-font-licenses.js
           # CI tree gate (a merge may skip the suite ONLY on a tree that already passed it — offline)
           t node scripts/test-ci-tree-gate.js
           # Single-resource x402 manifest (spec 402-body shape; chains reach an OpenAPI-sourced row — offline)
