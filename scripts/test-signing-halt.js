@@ -4,9 +4,18 @@
 // Both halves run their CONTROL FIRST. A guard that only ever refuses would pass
 // while proving nothing, and a persistence test whose ceiling never refuses in
 // the first place proves nothing either.
-import { readFileSync, existsSync, mkdtempSync } from "node:fs";
+import { readFileSync, existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+// A hang in this file once cost a CI lane 59 minutes before the job timed out.
+// Fail fast instead: if the suite has not finished in 60 s something is stuck,
+// and a stuck test should say so rather than burn a runner.
+const watchdog = setTimeout(() => {
+  console.error("FAIL - test-signing-halt did not finish within 60s (something is blocking)");
+  process.exit(1);
+}, 60_000);
+watchdog.unref();
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
@@ -97,7 +106,16 @@ ok(after?.ok === false, "after a RESTART the day is still spent - the ceiling di
   }
 
   // Bookkeeping must never throw into a payment path that already committed.
-  process.env.OUTBOUND_LEDGER_FILE = "/proc/nonexistent/x.ndjson";
+  //
+  // The unwritable path is a file used as a directory, which fails ENOTDIR
+  // immediately on every platform. An earlier version used /proc/nonexistent:
+  // macOS has no /proc so it returned at once, while on Linux the recursive
+  // mkdir into procfs BLOCKED, and this test hung a CI lane for 59 minutes
+  // before the job timed out. Never reach for a kernel filesystem to get a
+  // predictable failure.
+  const blocker = join(dir2, "not-a-directory");
+  writeFileSync(blocker, "x");
+  process.env.OUTBOUND_LEDGER_FILE = join(blocker, "x.ndjson");
   const { recordOutbound: r2 } = await import("../src/outbound-ledger.js?fresh=1");
   try { r2({ chain: "base", payTo: "0x1", amountAtomic: "1", result: "delivered" }); ok(true, "an unwritable ledger does not throw into the payment path"); }
   catch { ok(false, "an unwritable ledger does not throw into the payment path"); }
