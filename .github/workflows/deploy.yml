@@ -1356,6 +1356,8 @@ jobs:
           t node scripts/test-seller-delivery-memory.js
           # "External spend guard (per-payer debt ceiling: an UNSETTLED upstream spend keeps counting, so verify-then-fail-to-settle cannot drain the wallet — offline)"
           t node scripts/test-external-spend-guard.js
+          # H-01/H-03: one halt reaches every signing path; the daily ceiling survives a restart
+          t node scripts/test-signing-halt.js
           # A paid seller's rejection is logged with its reason, and none of their body reaches our buyer (source assertions, offline)
           t node scripts/test-buyer-rejection-diagnostics.js
 

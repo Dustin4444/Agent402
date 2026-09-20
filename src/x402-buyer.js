@@ -9,6 +9,7 @@
 // settlement can cost us the one upstream payment (the LLM-gateway risk class),
 // so the margin guard below refuses any upstream quote over the caller's cap.
 import { assertPublicUrl, ssrfDispatcher } from "./tools/fetch-guard.js";
+import { assertSigningAllowed } from "./signing-halt.js";
 import { recordUpstreamSpend } from "./stats.js";
 import { provenPayToMatches } from "./settlement-proof.js";
 import { usdcDomainVerdict, unsignableByStockBuyer } from "./evm-usdc-domain.js";
@@ -517,6 +518,7 @@ export function _spentThisWindow() { return spentThisWindow; } // test hook
  * spend. Only a 402 triggers a payment; anything else is a 502.
  */
 export async function payX402(url, { maxAtomic, method = "GET", body, headers = {}, timeoutMs = 20000, maxBytes = DEFAULT_MAX_BYTES, trusted = false, chain = "base", provenPayTo = null, sellerProof = null, notDebited = null, allowUnproven = false, refusalMaxWaitMs = refusalMaxWaitMsDefault(), memoizeDelivery = false } = {}) {
+  assertSigningAllowed("an external x402 payment");
   if (maxAtomic == null) throw bad("payX402 requires maxAtomic (the margin-guard ceiling)", 500);
   const chainCfg = BUYER_CHAINS[chain];
   if (!chainCfg) throw bad(`payX402: unknown chain "${chain}" (known: ${Object.keys(BUYER_CHAINS).join(", ")})`, 500);

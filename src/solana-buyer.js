@@ -16,6 +16,7 @@
 // nobody pays is not routable, whatever a registry says.
 
 import { disableVendorSpendControls } from "./x402-spend-controls.js";
+import { assertSigningAllowed } from "./signing-halt.js";
 
 const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 export const SOLANA_CAIP2 = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
@@ -261,6 +262,7 @@ export function svmUnprovenAllowanceAtomic() {
  * transaction: base64}}), so the facilitator accepts it unchanged.
  */
 export async function createSvmPaymentPayload(signer, paymentRequirements) {
+  assertSigningAllowed("a Solana payment");
   const kit = await import("@solana/kit");
   const { findAssociatedTokenPda, getTransferCheckedInstruction, TOKEN_PROGRAM_ADDRESS } = await import("@solana-program/token");
   const { getSetComputeUnitLimitInstruction, setTransactionMessageComputeUnitPrice } = await import("@solana-program/compute-budget");
