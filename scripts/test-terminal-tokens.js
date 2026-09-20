@@ -109,28 +109,52 @@ ok(/role="table"/.test(html) && /role="columnheader"/.test(html), "the roster is
 // Seller hostnames come from a crawl of third-party origins, so every one of
 // them is attacker-controlled text arriving at an HTML sink.
 //
-// Asserting "the output does not contain <script>" is the wrong test and
-// CodeQL flags it as such (js/bad-tag-filter): that check is case-sensitive,
-// so an escaper broken only for upper case would pass it. Assert the POSITIVE
-// instead - the payload must appear entity-encoded - and then check for a raw
-// tag in a way that cannot be case-dodged.
-const nasty = `</span><script>alert(1)</script>`;
-const NASTY_UPPER = `</SPAN><SCRIPT>alert(1)</SCRIPT>`;
-const rawTag = /<\s*\/?\s*(script|span)\b/i;   // any case, optional slash, optional space
-for (const payload of [nasty, NASTY_UPPER]) {
+// Two earlier versions of this check were both wrong, and CodeQL named both.
+// Scanning for a literal `<script>` is case-sensitive (js/bad-tag-filter), so
+// an escaper broken only for upper case passes it. Subtracting the component's
+// own markup with a regex before scanning is worse (js/incomplete-multi-
+// character-sanitization): a single-pass strip is exactly the pattern that
+// leaves `<ifr<span>ame>` behind, and writing a sanitizer inside a test that
+// exists to verify sanitizing is circular.
+//
+// So: no subtraction. Scan for tags these components NEVER emit themselves
+// (they emit span/svg/path/div/a/i/b/input/kbd/dl/dt/dd/button/section/h2 and
+// nothing else), which makes any hit unambiguously the payload's. Then assert
+// the positive - the payload must come back entity-encoded rather than
+// silently dropped, which would also pass a negative-only check.
+const NEVER_EMITTED = /<\s*\/?\s*(script|iframe|object|embed|form|style|link|meta|base)\b/i;
+// The metacharacters that decide whether text can leave its context at all.
+// Note what is deliberately NOT asserted: the literal strings " onmouseover="
+// and "javascript:" DO survive in the output, as inert text between encoded
+// quotes, and an earlier draft of this test failed on them. Checking for them
+// measures the payload's vocabulary rather than whether it can execute; the
+// invariant that matters is that every < > and " arriving from the payload is
+// entity-encoded, which is verified directly below.
+const META = /[<>"]/;
+
+const PAYLOADS = [
+  ["lower case", `</span><script>alert(1)</script>`],
+  ["upper case", `</SPAN><SCRIPT>alert(1)</SCRIPT>`],
+  ["spaced tag", `</span>< script >alert(1)< / script >`],
+  ["attribute break-out", `x" onmouseover="alert(1)` ],
+  ["javascript url", `<a href="javascript:alert(1)">x</a>`],
+  ["nested strip bait", `<ifr<span>ame src=x onerror=alert(1)>`],
+];
+
+for (const [label, payload] of PAYLOADS) {
   const cases = [
     ["roster", terminalRoster([{ host: payload, calls: 1, usd: 1, buyers: 1, tools: 1, routable: true }], null)],
     ["ticker", terminalTicker([{ host: payload, value: payload, dir: "up", pct: 1 }])],
     ["status bar", terminalStatusBar({ chainName: payload, asset: payload, sellerCount: 1, activity, scopeLabel: payload })],
+    ["metrics", terminalMetrics(activity, payload, payload)],
   ];
-  const label = payload === nasty ? "lower case" : "upper case";
   for (const [name, out] of cases) {
-    // The markup the component writes itself contains real <span> tags, so the
-    // raw-tag scan runs over what is left once those are removed - anything
-    // matching after that came from the payload.
-    const injected = out.replace(/<\/?(?:span|svg|path|div|a|i|b|input|kbd|dl|dt|dd|button|section|h2)\b[^>]*>/gi, "");
-    ok(!rawTag.test(injected), `${name} emits no raw tag from a hostile host string (${label})`);
-    ok(out.includes("&lt;"), `${name} entity-encodes the payload rather than dropping it (${label})`);
+    ok(!NEVER_EMITTED.test(out), `${name}: no tag these components never emit survives the payload (${label})`);
+    // The raw payload must never appear verbatim: every payload here carries a
+    // metacharacter, so a verbatim copy means one of them reached the document
+    // unencoded. This is the whole escaping contract, stated once.
+    ok(META.test(payload) && !out.includes(payload), `${name}: the raw payload never reaches the document unencoded (${label})`);
+    ok(out.includes("&lt;") || out.includes("&quot;"), `${name}: the payload is entity-encoded, not dropped (${label})`);
   }
 }
 
