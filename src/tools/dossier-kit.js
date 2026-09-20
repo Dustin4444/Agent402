@@ -435,6 +435,7 @@ Write a thorough, well-structured dossier of up to ${t.words} words, with these 
     });
 
     const meta = {
+      disclaimer: "Research and analysis from public filings and public sources. Not investment advice and not a recommendation to buy, sell or hold any security. Verify against the primary filings before acting.",
       tier: tierSlug, company, ticker,
       filings_10k: (k10.ok && k10.data?.filings?.length) || 0,
       filings_10q: (q10.ok && q10.data?.filings?.length) || 0,
