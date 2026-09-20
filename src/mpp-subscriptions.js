@@ -75,6 +75,7 @@
 // Deliberately NOT gated on TEMPO_API_KEY: that key is the relay credential for
 // tempo/charge, and no subscription call ever touches the relay.
 import { readFileSync, writeFileSync, renameSync, existsSync } from "node:fs";
+import { assertSigningAllowed } from "./signing-halt.js";
 import { createHmac, timingSafeEqual, randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { Challenge, Credential, Method, Receipt } from "mppx";
@@ -987,6 +988,7 @@ export function createMppSubscriptions({
    *  delegated access key and broadcasts it to a Tempo RPC. Returns null when
    *  mppx says nothing is due. */
   async function defaultChargePeriod(rec) {
+    assertSigningAllowed("a subscription renewal");
     const result = await tempoServer.renewSubscription({
       subscriptionId: rec.mppxSubscriptionId,
       store: kv,

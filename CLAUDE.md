@@ -34,7 +34,7 @@ Hosted at https://agent402.tools. Maintained by Havok Holdings LLC (the operatin
   the real server, stock SDK client + `McpClient.wrap`, stub facilitator sees exactly one verify + one settle).
 - `src/find.js` — `/api/find` tool resolver (lexical ranking; also used by the `find_tool` MCP tool).
 - `src/discovery.js` — `/.well-known/x402` service manifest + `/api/reliability` report.
-- `src/stats.js`, `src/seo.js`, `src/landing.js`, `src/pages.js`, `src/guides.js`, `src/privacy.js`, `src/terms.js`.
+- `src/stats.js`, `src/seo.js`, `src/pages.js`, `src/guides.js`, `src/privacy.js`, `src/terms.js`.
 - `scripts/` — tests + ops (revenue-scan, paid-canary, demo-payment, etc.).
 - `mcp/` — `agent402-mcp` npm package (stdio MCP server). `tollbooth/` — `agent402-tollbooth` package. `client/` — `agent402-client` SDK.
 - `wiki/` — source for the GitHub wiki (CI-synced). `docs/` — ecosystem-listing copy.
@@ -2095,8 +2095,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `test-css-tokens-resolve`, `test-faint-contrast`, `test-home-page`, `test-surface-copy`, ...) green.
   Booted page tests default to `TARGET_URL=http://localhost:3000` - if another app holds :3000 locally
   they read its HTML and fail confusingly; boot ours on a free port and export TARGET_URL.
-- **Homepage = `src/ledger-home.js`** (`ledgerHomePage`; the old `src/landing.js` is unused
-  but still unit-tested). Its `faqs` array renders BOTH the visible FAQ and the FAQPage
+- **Homepage = `src/ledger-home.js`** (`ledgerHomePage`). Its `faqs` array renders BOTH the visible FAQ and the FAQPage
   JSON-LD, and the WebApplication offer is an AggregateOffer — deploy.yml's SEO gate greps
   prod for `"FAQPage"` / `GET /faq` / `AggregateOffer`. That gate runs BEFORE the deploy job,
   so a fix to those surfaces goes green on the run AFTER the one shipping it.

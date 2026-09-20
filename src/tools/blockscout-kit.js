@@ -18,6 +18,7 @@
 // - Responses are external attacker-influenceable content -> byte-capped and
 //   markUntrusted (R-14), same as extract/search/a2a-card-fetch.
 import { markUntrusted } from "./provenance.js";
+import { assertSigningAllowed } from "../signing-halt.js";
 
 function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
@@ -108,6 +109,7 @@ async function buyBlockscout(path) {
  *  settlement, nobody charged) when the wallet has hit its ceiling. The retry
  *  above is a SECOND buy (the first authorization is spent), so it books again. */
 async function payBlockscoutOnce(url, opts) {
+  assertSigningAllowed("a Blockscout data purchase");
   const capUsd = Number(UPSTREAM_MAX_ATOMIC) / 1e6;
   const allowed = maySpend(null, capUsd, { chain: "base" });
   if (!allowed.ok) throw bad(`Blockscout lookups are briefly paused: ${allowed.reason} Nothing was charged; retry later.`, 503);

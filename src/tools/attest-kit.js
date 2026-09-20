@@ -29,6 +29,7 @@
 // string, resolver and revocable flag - pinned against a live Base schema in
 // scripts/test-attest-kit.js). Non-revocable, no resolver, no expiry.
 import { createHash } from "node:crypto";
+import { assertSigningAllowed } from "../signing-halt.js";
 import { saleByTx, setAttestation } from "../sales-ledger.js";
 import { maySpend, noteSpend, adjustSpend } from "../external-spend-guard.js";
 import { payerFromRequest } from "../payer.js";
@@ -163,6 +164,7 @@ async function realChain() {
     return {
       address: account.address,
       async ensureSchema(uid) {
+        assertSigningAllowed("a schema registration");
         if (schemaChecked) return;
         const s = await publicClient.readContract({ address: SCHEMA_REGISTRY_ADDRESS, abi: REGISTRY_ABI, functionName: "getSchema", args: [uid] });
         if (s && s.uid && s.uid !== ZERO_BYTES32) { schemaChecked = true; return; }
@@ -202,6 +204,7 @@ async function realChain() {
         return costUsd(gas);
       },
       async attest(uid, recipient, data) {
+        assertSigningAllowed("an attestation");
         return serial(async () => {
           const hash = await walletClient.writeContract({ address: EAS_ADDRESS, abi: EAS_ABI, functionName: "attest", args: [{ schema: uid, data: { recipient, expirationTime: 0n, revocable: false, refUID: ZERO_BYTES32, data, value: 0n } }] });
           const rcpt = await publicClient.waitForTransactionReceipt({ hash, timeout: 90_000 });

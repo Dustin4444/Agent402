@@ -22,6 +22,7 @@
 //     so we sign and send immediately - a slow seller is bounded by their own
 //     window, never by ours.
 import { createHash } from "node:crypto";
+import { assertSigningAllowed } from "./signing-halt.js";
 import { recordUpstreamSpend } from "./stats.js";
 import { assertPublicUrl, ssrfDispatcher } from "./tools/fetch-guard.js";
 
@@ -125,6 +126,7 @@ export async function payTempo(url, {
   maxAtomic, method = "POST", body, headers = {}, timeoutMs = 20000, maxBytes = DEFAULT_MAX_BYTES,
   trusted = false, createCredential = null, proof = tempoInboundCount, minSettled = tempoMinSettled(),
 } = {}) {
+  assertSigningAllowed("a Tempo payment");
   if (maxAtomic == null) throw bad("payTempo requires maxAtomic (the margin-guard ceiling)", 500);
   if (!tempoBuyerConfigured() && !createCredential) throw bad("Tempo spending wallet not configured (TEMPO_UPSTREAM_BUYER_KEY)", 409);
   if (!trusted) await assertPublicUrl(url);
