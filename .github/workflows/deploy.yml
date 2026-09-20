@@ -2382,6 +2382,8 @@ jobs:
           t node scripts/test-credits.js
           # CAN-SPAM: every outbound email carries the physical postal address
           t node scripts/test-email-postal-address.js
+          # Prepaid credits are not SOLD by default (no held balance), but existing keys still redeem
+          t node scripts/test-credits-sales-gate.js
           # Stripe shadow ledger (off by default and inert, idempotent on tx hash, failures swallowed, restart-durable, caller unchanged in every world)
           t node scripts/test-stripe-shadow-ledger.js
           # Fetch-guard error attribution (upstream 4xx→422, 5xx→502; media Content-Type fail-fast)

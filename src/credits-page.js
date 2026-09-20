@@ -5,7 +5,12 @@ import { CREDIT_PACKS } from "./credits.js";
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 import { REPORTS_CSS } from "./human-reports-page.js";
 
-export function creditsPage(baseUrl) {
+export function creditsPage(baseUrl, salesEnabled = false) {
+  // Sales are off by default (see the gate in server.js): selling a prepaid
+  // balance means holding someone's money against future redemption. When off,
+  // the page must not advertise a purchase it will refuse - a buy button that
+  // 503s is its own deceptive-practice problem - so it states the position and
+  // points at the two ways to pay that are open.
   const cards = Object.entries(CREDIT_PACKS).map(([key, p]) => `
     <div class="pcard" data-pack="${esc(key)}" style="text-align:center;">
       <div class="k">${esc(p.label)}</div>
@@ -14,16 +19,24 @@ export function creditsPage(baseUrl) {
       <button class="btn btn-primary" style="width:100%;justify-content:center" data-pack-buy="${esc(key)}">Buy $${(p.cents / 100).toFixed(0)} of credits →</button>
       <div class="err" id="err-${esc(key)}"></div>
     </div>`).join("");
+  const closed = `
+    <div class="pcard" style="max-width:720px;margin:0 auto;">
+      <div class="k">Not on sale right now</div>
+      <p style="margin:8px 0 0;">We are not selling prepaid balances at the moment. Keys already issued keep working and
+      spend down exactly as before - nothing is stranded and nothing expires.</p>
+      <p style="margin:12px 0 0;">Two ways to pay are open: <a href="/pricing">pay per call from a wallet</a> over x402 or
+      MPP, with no account and no balance to top up, or <a href="/reports">buy a finished report by card</a>.</p>
+    </div>`;
   const body = `
 <div class="wrap">
   <section class="hero">
     <div class="eyebrow">Prepaid credits · every tool · no wallet</div>
     <h1>One card, <em>every tool.</em></h1>
-    <p class="lede">Buy credits once, get a key, spend it across all 500+ pay-per-call tools and every report - per request, at list price, debited only when a call succeeds. <b>No account, no subscription, no wallet.</b> The card-native twin of paying per call in USDC - and no signature per call either, which is the part that matters once an agent is making thousands of them: paying exact over x402 signs an authorization and waits for a settlement every single request, where this is one header.</p>
+    <p class="lede">${salesEnabled ? "Buy credits once, get a key," : "A prepaid key spends"} spend it across all 500+ pay-per-call tools and every report - per request, at list price, debited only when a call succeeds. <b>No account, no subscription, no wallet.</b> The card-native twin of paying per call in USDC - and no signature per call either, which is the part that matters once an agent is making thousands of them: paying exact over x402 signs an authorization and waits for a settlement every single request, where this is one header.</p>
     <div class="trust"><span><span class="dot"></span> Debited only on a successful call</span><span><span class="dot"></span> Never expires</span><span><span class="dot"></span> Secured by Stripe</span></div>
   </section>
   <section>
-    <div class="products">${cards}</div>
+    <div class="products">${salesEnabled ? cards : closed}</div>
     <p class="note">Your key is shown once on the next page and emailed to you · keep it secret · balance at <span style="font-family:var(--font-mono);">GET /api/credits/balance</span> · agents with a wallet can skip this and pay per call over x402 / MPP</p>
   </section>
   <section>

@@ -3074,10 +3074,26 @@ app.get("/reports/dossier", (req, res) => { if (_pgLimited(req, res)) return; re
 app.get("/reports/insider/:ticker", (req, res, next) => { _programmaticEntity(req, res, next, "insider").catch(next); });
 app.get("/reports/fund/:manager", (req, res, next) => { _programmaticEntity(req, res, next, "fund").catch(next); });
 app.get("/reports/dossier/:ticker", (req, res, next) => { _programmaticEntity(req, res, next, "dossier").catch(next); });
-app.get("/credits", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(creditsPage(BASE_URL)));
+// SELLING prepaid credits means accepting a third party's funds and holding
+// them against future redemption, which is the activity state money
+// transmitter statutes are written about. Closed-loop balances like this one
+// are exempt in many states, but that determination needs a lawyer and we do
+// not have one, so the safe default is not to create the obligation at all.
+//
+// OFF unless CREDITS_SALES=on, and off by DEFAULT so a host that never sets
+// the variable is in the safe state rather than the exposed one. Redemption
+// is deliberately untouched: existing keys keep spending their balance, so
+// nobody's money is stranded by this switch. Nothing has ever been sold to an
+// outside buyer (one key has ever existed, bought by the operator and gifted
+// unused), so no refund is owed and no customer is disrupted.
+const creditsSalesEnabled = () => /^(1|true|on|yes)$/i.test(String(process.env.CREDITS_SALES || "").trim());
+app.get("/credits", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(creditsPage(BASE_URL, creditsSalesEnabled())));
 app.get("/credits/thanks", (req, res) => res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html").send(creditsThanksPage(String(req.query.session || ""), BASE_URL)));
 if (_credits) {
   app.post("/api/credits/checkout", async (req, res) => {
+    // Sales off: refuse before Stripe is touched, so no session is created and
+    // no obligation exists. Redemption below is untouched on purpose.
+    if (!creditsSalesEnabled()) return res.status(503).json({ error: "Prepaid credits are not on sale. Existing keys still work and spend down as normal; pay per call with a wallet over x402, or buy a report by card." });
     if (!req.__checkoutRateChecked && checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
     try { res.json({ url: (await _credits.createCheckout(req.body?.pack)).url }); }
     catch (e) {
@@ -3109,7 +3125,11 @@ if (_credits) {
     res.json({ ok: _credits.setDisabled(String(keyId || ""), !!disabled) });
   });
 } else {
-  app.post("/api/credits/checkout", (_req, res) => res.status(503).json({ error: "Card credits are not configured on this server." }));
+  app.post("/api/credits/checkout", (_req, res) => res.status(503).json({
+    error: _credits
+      ? "Prepaid credits are not on sale. Existing keys still work and spend down as normal; pay per call with a wallet over x402, or buy a report by card."
+      : "Card credits are not configured on this server.",
+  }));
 }
 if (!humanCheckoutEnabled()) {
   app.post("/api/buy", (_req, res) => res.status(503).json({ error: "Card checkout is not configured on this server." }));
