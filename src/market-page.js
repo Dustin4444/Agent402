@@ -55,6 +55,8 @@ const usd = (n) => {
 
 /** Per-chain identity + copy. Add a chain here (not a new route) once it has
  *  a live page. Ordered to match src/rails.js (primary rail first). */
+import { marketTerminalHtml, TERMINAL_CSS, compactUsd, trendOf } from "./market-terminal.js";
+
 export const CHAIN_PAGES = {
   base: {
     chainName: "Base",
@@ -491,8 +493,8 @@ export function marketActivityHtml(chainKey, activity, selected) {
 // payTo wallets, not just the one advertised on this chain, so a router whose
 // real volume lives on a second wallet isn't undercounted. When a seller has no
 // leaderboard row (too small / off-chain-window), we fall back to the scoped
-// on-chain scan's totals; that scan caps at 10k transfers, so a capped total is
-// rendered as a floor ("N+"). The on-chain scan still powers the 30-day Activity
+// on-chain scan's totals; that scan is bounded by a time budget rather than a
+// record count now, so a total it did not finish is rendered as a floor ("N+"). The on-chain scan still powers the 30-day Activity
 // charts below regardless — that's where its per-address precision belongs.
 export function sellerCardHtml(chainKey, seller, sel, activity, stat, payTo, windowLabel) {
   const C = CHAIN_PAGES[chainKey];
@@ -831,6 +833,48 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
   ${marketFilterBar(chainKey, baseUrl)}
   ${statsHtml}`;
 
+  // --- terminal roster -----------------------------------------------------
+  // The dense surface renders a single 26px row per seller rather than a card,
+  // so the transfer cost of a row collapsed and the old 100-row cap (sized for
+  // cards, where a full Base roster was a 700KB page) is the wrong number for
+  // it. Measured on this markup: 400 rows is 293KB raw and 18KB gzipped, and
+  // the DOM cost of holding them is what the windowing in
+  // assets/js/market-terminal.js exists to absorb. The cap is still a cap -
+  // Base lists well over a thousand sellers - and ?all=1 still opts out.
+  const TERMINAL_ROW_CAP = 400;
+  const terminalPool = all ? rosterSellers : rosterSellers.slice(0, TERMINAL_ROW_CAP);
+  const terminalRows = terminalPool.map((s) => {
+    const st = sellerStat(s) || {};
+    return {
+      host: s.local ? (host || "this host") : hostOf(s.homepage).toLowerCase(),
+      calls: st.calls || 0, usd: st.usd || 0, buyers: st.buyers || 0,
+      tools: Number(s.toolCount) || (s.local ? tools.length : 0),
+      routable: !!(s.local || s.routable),
+    };
+  });
+  // Ticker rows are the busiest sellers this page already lists, with the
+  // direction taken from the selected seller's own daily series when it is the
+  // one in scope. A seller we hold no series for carries no arrow rather than
+  // a fabricated one.
+  const activityTrend = activity && Array.isArray(activity.buckets) ? trendOf(activity.buckets.map((b) => b.tx)) : null;
+  const tickerRows = terminalRows.filter((r) => r.calls > 0).slice(0, 14).map((r) => ({
+    host: r.host,
+    value: compactUsd(r.usd),
+    dir: selHost && r.host === selHost && activityTrend ? activityTrend.dir : "flat",
+    pct: selHost && r.host === selHost && activityTrend ? activityTrend.pct : null,
+  }));
+  const terminalNote = [
+    selHost
+      ? `all inbound ${C.asset} to this seller's advertised x402 payTo - may include non-x402 transfers`
+      : `all inbound ${C.asset} settlements to this host's ${C.chainName} wallet`,
+    activity && activity.truncated ? "scan stopped at its time budget - totals are a floor" : "",
+  ].filter(Boolean).join(" \u00b7 ");
+  const terminalHtml = marketTerminalHtml({
+    chainName: C.chainName, asset: C.asset, rows: terminalRows, selectedHost: selHost,
+    activity, scopeLabel: selHost ? String(selHost).toUpperCase() : "THIS HOST",
+    noteText: terminalNote, ticker: tickerRows,
+  });
+
   const rosterHtml = `
   <h2 id="sellers" style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1px solid var(--hairline);padding-bottom:8px;">Sellers settling on ${esc(C.chainName)}</h2>
   <p style="font-size:13px;color:var(--faint);margin:-6px 0 12px;">pick a seller to scope the activity charts · THIS HOST = run by agent402 · every other seller is independent, found by the open crawl · tx = settled calls, last 7 days on-chain</p>
@@ -861,6 +905,17 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
   const body = `
 <div style="max-width:1080px;margin:0 auto;padding:36px 24px;">
   <section>${headerHtml}</section>
+  <!-- Two surfaces over the same sellers, deliberately, because they answer
+       different questions. The terminal is the INDEX: every seller on the rail
+       as one comparable row, sortable, searchable and keyboard-navigable, for
+       "who is here and how do they compare". The roster below is the per-seller
+       DISCLOSURE: the leaderboard join, collapsed sibling endpoints ("+N more"),
+       the MPP badge, dispatch eligibility and its legend - facts that need a
+       sentence rather than a column, and that the dense grid would have to drop
+       or truncate. Folding those into the terminal rows is the remaining step;
+       until it is done, deleting the roster would quietly lose them. -->
+  <section aria-label="Market terminal">${terminalHtml}</section>
+
   <section>
     <div id="market-panel" data-chain="${esc(chainKey)}">${marketPanelHtml(chainKey, { snapshot, activity, selectedSeller, leaderboardSnap })}</div>
 
@@ -878,6 +933,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
   <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:28px;">machine-readable: <a href="/api/route?q=hash&amp;network=${esc(C.networkParam)}">/api/route?network=${esc(C.networkParam)}</a> · <a href="/.well-known/x402">/.well-known/x402</a> · <a href="/openapi.json">/openapi.json</a> · <a href="/api/reliability">/api/reliability</a></p>
 </div>
 <script src="/js/market-seller-switch.js"></script>
+<script src="/js/market-terminal.js"></script>
 ${ledgerFooterCompact()}`;
 
   return ledgerShell({
@@ -887,7 +943,7 @@ ${ledgerFooterCompact()}`;
     baseUrl,
     activePath: `/${chainKey}`,
     jsonLd,
-    extraCss: ROSTER_CSS,
+    extraCss: ROSTER_CSS + TERMINAL_CSS,
     body,
   });
 }

@@ -135,6 +135,22 @@ html { overflow-x: clip; }
   --obsidian-border: rgba(255,255,255,.10);
   --card-inset: rgba(255,255,255,.04);
   --chip-bg: rgba(255,255,255,.04);
+  --t-bg: #0A0E14;
+  --t-panel: #0F141C;
+  --t-panel-2: #141B24;
+  --t-rule: #1E2733;
+  --t-rule-2: #2A3542;
+  --t-ink: #DCE4EE;
+  --t-ink-dim: #8A97A8;
+  --t-ink-faint: #7C8AA0;
+  --t-cyan: #4FD1D9;
+  --t-violet: #A78BFA;
+  --t-up: #6EE7A8;
+  --t-down: #FF8A7A;
+  --t-warn: #F5C97B;
+  --t-sel: rgba(79,209,217,.14);
+  --t-sel-edge: #4FD1D9;
+  --t-grid: rgba(220,228,238,.05);
   --shadow-lg: 0 18px 40px rgba(0,0,0,.35);
 }
 :root { color-scheme: light; }
@@ -178,6 +194,40 @@ html { overflow-x: clip; }
   --obsidian-border: rgba(255,255,255,.08);
   --card-inset: #FFFFFF;
   --chip-bg: rgba(255,255,255,.55);
+  /* --- Terminal surfaces (market pages) -------------------------------
+     A dense data surface needs its own scale: the page palette above is
+     built for prose at 15-21px, and reusing it at 11-12px in a grid gives
+     rules that vanish and dim text that fails contrast. These are scoped by
+     name (--t-*) rather than by selector so the theme parity gate covers
+     them like any other token, and so a terminal panel dropped on any page
+     inherits the right theme with no extra wiring.
+
+     Palette: "Deepwater". The two terminal cliches are amber-on-black and
+     phosphor-green-on-black - both warm-or-green monochromes on pure black.
+     This is neither: a cool, low-chroma blue-slate base (pure black halates
+     on OLED and is not what a real desk uses) with a cyan primary and a
+     violet for live/attention. Direction is mint and coral rather than
+     green and red, which stays legible under deuteranopia and is far less
+     garish at this density. Every value below clears WCAG AA 4.5:1 against
+     every surface it is composited on, in BOTH themes - measured, and
+     pinned by scripts/test-terminal-tokens.js, because density is exactly
+     where contrast normally gets given away. */
+  --t-bg: #EEF2F6;
+  --t-panel: #FFFFFF;
+  --t-panel-2: #F5F8FB;
+  --t-rule: #D4DDE6;
+  --t-rule-2: #BCC8D4;
+  --t-ink: #0E1721;
+  --t-ink-dim: #46566A;
+  --t-ink-faint: #5A6B7F;
+  --t-cyan: #0E6F78;
+  --t-violet: #5B3FBF;
+  --t-up: #0F7A54;
+  --t-down: #B4402F;
+  --t-warn: #8A5A12;
+  --t-sel: rgba(14,111,120,.10);
+  --t-sel-edge: #0E6F78;
+  --t-grid: rgba(14,23,33,.05);
   --shadow-lg: 0 18px 40px rgba(17,19,21,.10);
   color-scheme: light;
 }

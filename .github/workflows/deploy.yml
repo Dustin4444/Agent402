@@ -2472,6 +2472,12 @@ jobs:
           t node scripts/test-reveal-no-hero-flash.js
           # Revenue buyers series (distinct-count semantics; seeded ledger — offline)
           t node scripts/test-revenue-buyers.js
+          # Marketplace activity scan bounds (a paged walk must report the whole window,
+          # not its own page ceiling; stubbed sources — offline, spends nothing)
+          t node scripts/test-scan-cap.js
+          # Market terminal contract (palette resolves + clears WCAG AA in BOTH themes,
+          # no literal hex, escaping, and a capped scan still reads as a floor — offline)
+          t node scripts/test-terminal-tokens.js
           # Revenue buyers trend (rolling 14d recent-vs-prior comparison — offline)
           t node scripts/test-buyers-trend.js
           # Per-chain price premiums (fee-charging rails priced in; dormant default byte-identical — offline)
