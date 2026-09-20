@@ -90,7 +90,6 @@ export const PACK_PRICES = {
   "domain-age": 0.008, // 3 tools, parts $0.008
   "contract-audit": 0.022, // 5 tools, parts $0.024
   "tx-forensics": 0.011, // 5 tools, parts $0.012
-  "market-open": 0.011, // 4 tools, parts $0.012
   "entity-enrich": 0.023, // 6 tools, parts $0.025
   "feed-watch": 0.016, // 4 tools, parts $0.017
   "subtitle-pipeline": 0.03, // 3 tools, parts $0.033
@@ -129,7 +128,7 @@ export const SKILL_PACKS = [
     slug: "earnings-deep-dive",
     title: "Earnings deep-dive",
     tagline:
-      "Everything you need before a company reports: the upcoming earnings date, the latest financials, recent SEC filings, the live quote, and fresh analyst news - in one pass.",
+      "Everything you need before a company reports: the upcoming earnings date, the latest financials, recent SEC filings, the latest close, and fresh analyst news - in one pass.",
     useCase:
       "Prepping for an earnings call or positioning ahead of a print - you want the date, the fundamentals, any recent filings, the market's current read, and the news narrative without stitching five sources together by hand.",
     promptArgs: [
@@ -140,11 +139,11 @@ export const SKILL_PACKS = [
       "Read the filing history from edgar-filings so you know the window you're positioning around.",
       "Pull the latest fundamentals from company-financials - revenue, margins, EPS, cash flow - the baseline the print will be judged against.",
       "List recent SEC filings via edgar-filings to catch any 8-K, guidance, or S-1 activity since the last report.",
-      "Get the live quote from stock-quote for the market's current positioning (price vs 52-week range).",
+      "Get the latest close from stock-quote for the market's current positioning (price, day range, change vs the previous close).",
       "Search the web for analyst expectations and recent news to frame the whisper number and the key debates.",
     ],
     claudePrompt:
-      "Prepare an earnings deep-dive on TSLA using Agent402's earnings-deep-dive skill pack. (1) Get the next earnings date, (2) pull the latest financials, (3) list recent SEC filings, (4) get the live quote, (5) search for analyst expectations. Summarize as a pre-earnings brief: date, what to watch in fundamentals, filing flags, current positioning, and the key debate going into the print.",
+      "Prepare an earnings deep-dive on TSLA using Agent402's earnings-deep-dive skill pack. (1) Get the next earnings date, (2) pull the latest financials, (3) list recent SEC filings, (4) get the latest close, (5) search for analyst expectations. Summarize as a pre-earnings brief: date, what to watch in fundamentals, filing flags, current positioning, and the key debate going into the print.",
   },
   {
     slug: "options-analytics",
@@ -158,13 +157,13 @@ export const SKILL_PACKS = [
     ],
     toolSlugs: ["stock-quote", "stock-history", "black-scholes", "search"],
     workflow: [
-      "Get the live spot price from stock-quote - the underlying S for the option.",
+      "Get the latest close from stock-quote - the underlying S for the option.",
       "Pull ~60 days of closes from stock-history and compute annualized realized volatility (stddev of daily log returns × sqrt(252)) - the sigma input.",
       "Run black-scholes with the live spot, your strike/expiry, the current risk-free rate, and that volatility to get fair value plus delta, gamma, vega, theta, and rho.",
       "Search the web for any earnings, guidance, or events before expiry that could move implied vol beyond the realized estimate.",
     ],
     claudePrompt:
-      "Price a call option on AAPL using Agent402's options-analytics skill pack. (1) Get the live quote for the spot price, (2) pull 60 days of history and compute annualized realized volatility, (3) run black-scholes with spot=live price, strike=nearest round number, 30 days to expiry, riskFreeRate=0.05 and the realized vol, (4) search for events before expiry. Report the fair value, all five greeks, and whether the option looks rich or cheap versus the model.",
+      "Price a call option on AAPL using Agent402's options-analytics skill pack. (1) Get the latest close for the spot price, (2) pull 60 days of history and compute annualized realized volatility, (3) run black-scholes with spot=live price, strike=nearest round number, 30 days to expiry, riskFreeRate=0.05 and the realized vol, (4) search for events before expiry. Report the fair value, all five greeks, and whether the option looks rich or cheap versus the model.",
   },
   {
     slug: "fixed-income-desk",
@@ -293,7 +292,7 @@ export const SKILL_PACKS = [
     slug: "financial-analysis",
     title: "Financial analysis",
     tagline:
-      "Quick company snapshot: live quote, 9 key financial metrics (revenue through cash flow), and upcoming earnings - one call, one payment.",
+      "Quick company snapshot: latest close, 9 key financial metrics (revenue through cash flow), and upcoming earnings - one call, one payment.",
     useCase:
       "An agent needs to answer 'how is this company doing?' without knowing XBRL tags or juggling 3 separate API calls. The $0.04 bundle is cheaper than calling the tools individually ($0.045).",
     promptArgs: [
@@ -305,7 +304,7 @@ export const SKILL_PACKS = [
       "stock-history",
     ],
     workflow: [
-      "Get the live quote from stock-quote - current price, market cap, day range, 52-week high/low, volume.",
+      "Get the latest close from stock-quote - price, day range, change vs the previous close, and venue volume (four venues, not the market total).",
       "Pull key financials from company-financials - revenue, net income, operating income, total assets, liabilities, equity, EPS, and operating cash flow from the latest annual and quarterly SEC filings.",
       "Pull the price history from stock-history - how the quote sits against recent trading rather than on its own.",
     ],
@@ -316,7 +315,7 @@ export const SKILL_PACKS = [
     slug: "financial-research",
     title: "Financial research",
     tagline:
-      "Pull SEC filings, real-time quotes, historical prices, and macro context for a single ticker in one pass.",
+      "Pull SEC filings, the latest close, historical prices, and macro context for a single ticker in one pass.",
     useCase:
       "Building a one-pager on a public company - you want fundamentals, recent insider activity, and the macro backdrop without leaving the agent loop.",
     promptArgs: [
@@ -331,7 +330,7 @@ export const SKILL_PACKS = [
       "fred-series",
     ],
     workflow: [
-      "Get the live quote from stock-quote - current price, market cap, day range, volume.",
+      "Get the latest close from stock-quote - price, day range, change vs the previous close, and venue volume (four venues, not the market total).",
       "Pull 1Y of OHLCV from stock-history to compute return, vol, and drawdown for the brief.",
       "List recent SEC filings (10-K, 10-Q, 8-K) via edgar-filings - link each one in the report.",
       "Pull the structured XBRL company facts (revenue, net income, total assets, share count) from edgar-company-facts for the canonical numbers.",
@@ -656,7 +655,7 @@ export const SKILL_PACKS = [
       "Forecast forward with the winning method. Call forecast-naive / forecast-ses / forecast-holt (whichever won) with the full values + the user's horizon. Return the point forecast AND lower95/upper95 - never report a point estimate without its interval; that's the whole reason these tools exist instead of an LLM guess. Combine summary + trend + outliers + optional correlation + forecast into a single JSON object. That's the deterministic analyst-grade reply.",
     ],
     claudePrompt:
-      "Run a full trend analysis on AAPL over the last 1y using Agent402, then project the next quarter forward. (1) Fetch the daily closes via stock-history (ticker=AAPL, range=1y). (2) Run stats-summary on the closes for the descriptive panel. (3) Run moving-average with window=20, which=\"both\" - compare SMA vs EMA. (4) Run linear-regression with x=[0..n-1], y=closes; report slope (annualized = slope·252), intercept, r². (5) Run outliers method=\"iqr\" and map the flagged indices back to actual dates from the fetch. (6) Pick a forecast method: call forecast-eval three times with method=\"drift\", \"ses\", \"holt\" and testSize=50 (≈ 20% of a 252-day year); pick the lowest RMSE. (7) Forecast the next ~63 trading days using the winning method (forecast-naive / forecast-ses / forecast-holt) and report both point and 95% interval. (8) Return a single JSON object: {summary, trend, outlierDates, forecastMethod, forecastWithIntervals, oneLineConclusion}. The stats + forecast steps are free over PoW; only the stock-history fetch is paid.",
+      "Run a full trend analysis on AAPL over the last 1y using Agent402, then project the next quarter forward. (1) Fetch the daily closes via stock-history (ticker=AAPL, days=250). (2) Run stats-summary on the closes for the descriptive panel. (3) Run moving-average with window=20, which=\"both\" - compare SMA vs EMA. (4) Run linear-regression with x=[0..n-1], y=closes; report slope (annualized = slope·252), intercept, r². (5) Run outliers method=\"iqr\" and map the flagged indices back to actual dates from the fetch. (6) Pick a forecast method: call forecast-eval three times with method=\"drift\", \"ses\", \"holt\" and testSize=50 (≈ 20% of a 252-day year); pick the lowest RMSE. (7) Forecast the next ~63 trading days using the winning method (forecast-naive / forecast-ses / forecast-holt) and report both point and 95% interval. (8) Return a single JSON object: {summary, trend, outlierDates, forecastMethod, forecastWithIntervals, oneLineConclusion}. The stats + forecast steps are free over PoW; only the stock-history fetch is paid.",
   },
   {
     slug: "forecasting-bake-off",
@@ -1341,7 +1340,7 @@ export const SKILL_PACKS = [
     slug: "price-monitor",
     title: "Cross-asset price monitor",
     tagline:
-      "Side-by-side snapshot of a stock and a crypto asset: live quotes, 1-year history, and a date-stamped comparison.",
+      "Side-by-side snapshot of a stock and a crypto asset: the equity's latest close against a live crypto quote, a trailing-year series for each, and a date-stamped comparison.",
     useCase:
       "An agent or analyst wants to compare a traditional equity with a crypto asset - e.g. 'How has AAPL performed versus BTC over the last year?' Running stock-quote and crypto-price individually gives two disconnected numbers; adding historical data from both sides plus a date-format timestamp turns it into a dated comparison card the caller can track over time or feed into a report. Useful for portfolio dashboards, market-update bots, newsletter generators, and any agent that needs a quick cross-asset health check.",
     toolSlugs: [
@@ -1353,13 +1352,13 @@ export const SKILL_PACKS = [
     ],
     workflow: [
       "Call date-format with datetime='now' (or the current ISO timestamp) to get a formatted snapshot timestamp - ISO, date-only, and day of week. This anchors the comparison to a specific point in time so the caller can track changes across repeated runs. The unix timestamp is useful as a cache key or filename.",
-      "Call stock-quote with symbol=<ticker> to get the live equity price: price, change, changePercent, volume, marketCap. This is the 'right now' read for the traditional side. If the market is closed, the quote reflects the last close - note the timestamp from step 1 so the caller knows whether this is live or stale.",
-      "Call stock-history with symbol=<ticker> and range='1y' to get the 1-year price series. Extract the first and last data points to compute the year-over-year return: ((last - first) / first * 100). This is the equity's trailing-12-month performance.",
+      "Call stock-quote with symbol=<ticker> to get the equity's latest close: price, previousClose, changeAbs, changePct, dayHigh, dayLow and venueVolume. This is end-of-day, not an intraday print, and venueVolume counts four venues rather than the whole market - note the timestamp from step 1 so the caller knows which session it is.",
+      "Call stock-history with symbol=<ticker> and days=250 to get a trailing-year price series (250 sessions is the maximum this endpoint serves). Extract the first and last data points to compute the year-over-year return: ((last - first) / first * 100). This is the equity's trailing-12-month performance.",
       "Call crypto-price with coins=<coin> and currency=usd to get the live crypto price: price, market_cap, 24h_volume, 24h_change. This is the 'right now' read for the crypto side.",
       "Call crypto-history with coin=<coin>, days=365, and currency=usd to get the 1-year price series. Compute the year-over-year return the same way as step 3. Final payload: { timestamp: <step 1>, stock: { symbol, price, change, changePercent, yearReturn }, crypto: { coin, price, change24h, yearReturn }, comparison: { stockOutperforms: stockYearReturn > cryptoYearReturn, spreadPct: Math.abs(stockYearReturn - cryptoYearReturn) } }.",
     ],
     claudePrompt:
-      "Build a cross-asset price comparison for ticker=AAPL vs coin=bitcoin using Agent402.\n\n(1) date-format with datetime=new Date().toISOString() - returns {iso, date, dayOfWeek, unix}. Save as snapshot timestamp.\n\n(2) stock-quote with symbol=AAPL - returns {price, change, changePercent, volume, marketCap}.\n\n(3) stock-history with symbol=AAPL, range='1y' - returns {history: [{date, close}]}. Compute stockYearReturn = ((history[last].close - history[0].close) / history[0].close * 100).toFixed(2).\n\n(4) crypto-price with coins=bitcoin, currency='usd' - returns [{price, market_cap, change_24h}].\n\n(5) crypto-history with coin=bitcoin, days='365', currency='usd' - returns {prices: [[timestamp, price]]}. Compute cryptoYearReturn = ((prices[last][1] - prices[0][1]) / prices[0][1] * 100).toFixed(2).\n\nFinal return: {timestamp: {iso: <step 1 iso>, date: <step 1 date>, dayOfWeek: <step 1 dayOfWeek>}, stock: {symbol: 'AAPL', price: <step 2 price>, change: <step 2 change>, changePercent: <step 2 changePercent>, yearReturn: stockYearReturn}, crypto: {coin: 'bitcoin', price: <step 4 price>, change24h: <step 4 change_24h>, yearReturn: cryptoYearReturn}, comparison: {stockOutperforms: parseFloat(stockYearReturn) > parseFloat(cryptoYearReturn), spreadPct: Math.abs(parseFloat(stockYearReturn) - parseFloat(cryptoYearReturn)).toFixed(2)}}. Budget ~$0.005 paid; all 5 tools are wallet-only (external API calls).",
+      "Build a cross-asset price comparison for ticker=AAPL vs coin=bitcoin using Agent402.\n\n(1) date-format with datetime=new Date().toISOString() - returns {iso, date, dayOfWeek, unix}. Save as snapshot timestamp.\n\n(2) stock-quote with symbol=AAPL - returns {price, previousClose, changeAbs, changePct, dayHigh, dayLow, venueVolume}.\n\n(3) stock-history with symbol=AAPL, days=250 - returns {bars: [{day, close}]}. Compute stockYearReturn = ((bars[last].close - bars[0].close) / bars[0].close * 100).toFixed(2).\n\n(4) crypto-price with coins=bitcoin, currency='usd' - returns [{price, market_cap, change_24h}].\n\n(5) crypto-history with coin=bitcoin, days='365', currency='usd' - returns {prices: [[timestamp, price]]}. Compute cryptoYearReturn = ((prices[last][1] - prices[0][1]) / prices[0][1] * 100).toFixed(2).\n\nFinal return: {timestamp: {iso: <step 1 iso>, date: <step 1 date>, dayOfWeek: <step 1 dayOfWeek>}, stock: {symbol: 'AAPL', price: <step 2 price>, change: <step 2 change>, changePercent: <step 2 changePercent>, yearReturn: stockYearReturn}, crypto: {coin: 'bitcoin', price: <step 4 price>, change24h: <step 4 change_24h>, yearReturn: cryptoYearReturn}, comparison: {stockOutperforms: parseFloat(stockYearReturn) > parseFloat(cryptoYearReturn), spreadPct: Math.abs(parseFloat(stockYearReturn) - parseFloat(cryptoYearReturn)).toFixed(2)}}. Budget ~$0.005 paid; all 5 tools are wallet-only (external API calls).",
     promptArgs: [
       {
         name: "ticker",
@@ -1516,7 +1515,7 @@ export const SKILL_PACKS = [
     slug: "company-dossier",
     title: "Company dossier",
     tagline:
-      "Comprehensive company research report in one call: live quote, financials, SEC filings, insider trades, and recent news - all in parallel.",
+      "Comprehensive company research report in one call: latest close, financials, SEC filings, insider trades, and recent news - all in parallel.",
     useCase:
       "Building an investment thesis, preparing for a board presentation, or doing acquisition diligence - you want the full public picture of a company without leaving the agent loop.",
     promptArgs: [
@@ -1530,14 +1529,14 @@ export const SKILL_PACKS = [
       "search",
     ],
     workflow: [
-      "Get the live quote from stock-quote - current price, market cap, day range, 52-week high/low, volume.",
+      "Get the latest close from stock-quote - price, day range, change vs the previous close, and venue volume (four venues, not the market total).",
       "Pull key financials from company-financials - revenue, net income, operating income, total assets, liabilities, equity, EPS, and operating cash flow.",
       "List the 5 most recent SEC filings via edgar-filings to surface any 10-K, 10-Q, 8-K, or S-1 activity.",
       "Check edgar-insider-trades for Form 4 filings in the last 90 days - directional insider activity is a real signal.",
       "Search the web for recent news about the company to catch catalysts, analyst upgrades, or red flags.",
     ],
     claudePrompt:
-      "Build a comprehensive dossier on NVDA using Agent402's company-dossier skill pack. Get (1) live quote, (2) key financials, (3) last 5 SEC filings, (4) 90-day insider trades, (5) recent news search, (6) full text of the top article. Summarize as a structured one-pager with sections for valuation, fundamentals, insider signal, and news catalyst.",
+      "Build a comprehensive dossier on NVDA using Agent402's company-dossier skill pack. Get (1) the latest close, (2) key financials, (3) last 5 SEC filings, (4) 90-day insider trades, (5) recent news search, (6) full text of the top article. Summarize as a structured one-pager with sections for valuation, fundamentals, insider signal, and news catalyst.",
   },
 
   {
@@ -1604,7 +1603,7 @@ export const SKILL_PACKS = [
     slug: "earnings-watch",
     title: "Earnings watch",
     tagline:
-      "Has this company just reported, and what is being said about it? Recent SEC filings, the live quote, and current coverage in one call.",
+      "Has this company just reported, and what is being said about it? Recent SEC filings, the latest close, and current coverage in one call.",
     useCase:
       "Around an earnings report - see what the company has actually filed, what the stock price implies, and what is being written.",
     promptArgs: [
@@ -1621,14 +1620,14 @@ export const SKILL_PACKS = [
       "Search the web for recent earnings-related coverage and analyst expectations.",
     ],
     claudePrompt:
-      "Check what AAPL has just reported using Agent402's earnings-watch skill pack. Get (1) the newest SEC filings, consensus, (2) live quote, (3) recent search results for analyst expectations. Summarize the setup heading into the report.",
+      "Check what AAPL has just reported using Agent402's earnings-watch skill pack. Get (1) the newest SEC filings, consensus, (2) the latest close, (3) recent search results for analyst expectations. Summarize the setup heading into the report.",
   },
 
   {
     slug: "insider-alert",
     title: "Insider alert",
     tagline:
-      "Insider buying/selling activity for a stock: Form 4 trades, live quote, and recent SEC filings in one call.",
+      "Insider buying/selling activity for a stock: Form 4 trades, the latest close, and recent SEC filings in one call.",
     useCase:
       "Screening for insider signal - large buys or cluster selling often precede material moves.",
     promptArgs: [
@@ -1645,7 +1644,7 @@ export const SKILL_PACKS = [
       "List the 3 most recent SEC filings to correlate insider moves with material disclosures.",
     ],
     claudePrompt:
-      "Check insider activity for AAPL using Agent402's insider-alert skill pack. Get (1) 30-day insider trades, (2) live quote, (3) last 3 SEC filings. Flag any cluster buying or selling and correlate with recent filings.",
+      "Check insider activity for AAPL using Agent402's insider-alert skill pack. Get (1) 30-day insider trades, (2) the latest close, (3) last 3 SEC filings. Flag any cluster buying or selling and correlate with recent filings.",
   },
 
   {
@@ -2210,26 +2209,7 @@ export const SKILL_PACKS = [
     claudePrompt:
       "Explain what transaction 0x1c0592f73d1f9182ee9bd40eb34d9b6c70b3196814b111589b82df4e79e7fb59 on base actually did, using Agent402's tx-forensics skill pack. (1) Check its confirmation status, (2) fetch the raw transaction via eth_getTransactionByHash, (3) decode the calldata into the function and arguments, (4) resolve the selector against the signature databases, (5) label the destination address. Summarize as a plain-English story: what was called, with what arguments, by whom, to whom, and whether it succeeded.",
   },
-  {
-    slug: "market-open",
-    title: "Market open brief",
-    tagline:
-      "Full pre-trade snapshot for one ticker before the bell: the live quote, the pre-market quote, the options surface, dividend posture, and today's market-wide earnings calendar - one payment.",
-    useCase:
-      "An agent positioning ahead of the open needs everything that moves a pre-trade decision: where the stock closed, where pre-market has taken it, what the options chain implies, whether a dividend is imminent, and which earnings prints hit the tape today.",
-    promptArgs: [
-      { name: "ticker", description: "Stock ticker (e.g. AAPL, NVDA, SPY)", required: true, substitute: "AAPL" },
-    ],
-    toolSlugs: ["stock-quote", "premarket-quote", "options-chain", "stock-dividends"],
-    workflow: [
-      "Get the live quote from stock-quote - last price, day range, 52-week range, volume.",
-      "Pull the pre-market quote from premarket-quote - where the stock is trading before the bell and the gap versus the prior close.",
-      "Fetch the options chain from options-chain - strikes, bids/asks, and implied volatility for the nearest expiry.",
-      "Check dividend posture with stock-dividends - recent payouts and whether an ex-dividend date is close.",
-    ],
-    claudePrompt:
-      "Build a pre-open trading brief for AAPL using Agent402's market-open skill pack. (1) Get the live quote, (2) get the pre-market quote and compute the gap, (3) pull the options chain for the nearest expiry, (4) check recent dividends and any upcoming ex-date, (5) pull today's market-wide earnings calendar to see which prints hit the tape today. Summarize: current positioning, pre-market signal, what implied vol says, dividend posture, and today's notable earnings reports.",
-  },
+
   {
     slug: "entity-enrich",
     title: "Entity enrichment",

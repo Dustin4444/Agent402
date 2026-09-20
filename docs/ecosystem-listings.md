@@ -213,7 +213,7 @@ that takes a GitHub repo URL; no PR, no fork.
      ```
      Agent402 gives AI agents the headless browser, live web search + answers
      with citations, OCR, PDF text extraction, financial/crypto/macro data
-     (Yahoo, CoinGecko, FRED, ECB, World Bank), SEC EDGAR filings, DNS/TLS/WHOIS,
+     (Databento, CoinGecko, FRED, ECB, World Bank), SEC EDGAR filings, DNS/TLS/WHOIS,
      wallet-keyed shared memory, and 200+ deterministic utilities (hash, JWT,
      regex, compression, forecasting, statistics, finance math, etc.) - paid per
      call in USDC on Base (or Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar,

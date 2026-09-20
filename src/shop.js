@@ -55,7 +55,7 @@ const TASKS = [
   },
   {
     goal: "Track equities",
-    answer: "Live quote, OHLCV history, and earnings calendar - works for stocks, indices, FX, and crypto symbols via Yahoo's chart endpoint.",
+    answer: "End-of-day US equity quote and daily OHLCV bars from a licensed four-venue consolidation. US equities only - for crypto pairs use crypto-price. Volume is those four venues, returned as venueVolume, never as a market total.",
     slugs: ["stock-quote", "stock-history"],
     example: "/api/stock-quote?symbol=AAPL",
   },

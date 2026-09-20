@@ -132,6 +132,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // upstream means listing its slugs here (and skill packs resolve transitively).
 export const METERED_SLUGS = new Set([
   "attest",  // attest-kit.js: spends Base gas from the spending wallet, unset in CI
+  // Databento equities: a query is billed by the bytes it returns and CI
+  // holds no key on purpose, so an unkeyed sweep would 503 here and a keyed
+  // one would spend on every push. Same rule as Brave, E2B and CoinGecko.
+  "stock-quote", "stock-history",
   // Brave Search subscription
   "search", "search-news", "search-images", "search-videos", "search-suggest", "answer", "multi-search",
   "llm-context",      // Brave /llm/context - same subscription, billed per call

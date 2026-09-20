@@ -233,7 +233,7 @@ export const ALGORAND_INDEXER_URLS = (process.env.ALGORAND_INDEXER_URLS ||
 // 2026-07-16: both hostnames, any User-Agent — an IP-level block, and BOTH
 // direct bases above are the same provider, so the walk cannot recover from
 // prod). When the ALGORAND_RELAY_URL + ALGORAND_RELAY_TOKEN pair is set
-// (workers/algorand-relay/ — same CF Worker pattern as the Yahoo/Nasdaq
+// (workers/algorand-relay/ — same CF Worker pattern as the Sei RPC
 // relays), the relay is walked FIRST; the direct bases stay in the list for
 // local/dev runs and as insurance if the block is ever lifted.
 const ALGORAND_RELAY_URL = (process.env.ALGORAND_RELAY_URL || "").trim().replace(/\/+$/, "");

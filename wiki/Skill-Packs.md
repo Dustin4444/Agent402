@@ -60,7 +60,7 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | [**competitor-scan**](https://agent402.tools/skills/competitor-scan) | $0.014 | What's a competitor running? Tech stack, HTTP headers, WHOIS, and page metadata in one call. |
 | [**status-snapshot**](https://agent402.tools/skills/status-snapshot) | $0.008 | "Is this site healthy, addressable, and crawlable - right now?" DNS → HTTP → headers → TLS → robots. |
 
-## Finance (9)
+## Finance (8)
 
 | Pack | Price | What it solves |
 |---|---|---|
@@ -72,7 +72,6 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | [**insider-alert**](https://agent402.tools/skills/insider-alert) | $0.010 | Insider buying/selling for a stock: Form 4 trades, live quote, and recent SEC filings. |
 | [**price-monitor**](https://agent402.tools/skills/price-monitor) | $0.021 | Side-by-side snapshot of a stock and a crypto asset: live quotes, 1-year history, date-stamped compare. |
 | [**options-analytics**](https://agent402.tools/skills/options-analytics) | $0.026 | Price a European option on a live stock: current quote, volatility from recent history, Black-Scholes fair value plus the full greeks, and catalyst news. |
-| [**market-open**](https://agent402.tools/skills/market-open) | $0.011 | Pre-trade snapshot for one ticker before the bell: live quote, pre-market quote, options surface, dividend posture, and today's earnings calendar. |
 
 ## Macro & SEC (12)
 

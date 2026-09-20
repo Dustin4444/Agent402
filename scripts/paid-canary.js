@@ -176,17 +176,6 @@ export const TOOLS = [
       || `expected an indexed dossier with a priced catalog and observed settlement evidence, got ${JSON.stringify(r).slice(0, 140)}`,
   },
   {
-    // Options-chain rides the Yahoo relay's options endpoint (session-crumb
-    // handshake handled server-side) — a different relay path than
-    // stock-quote's chart endpoint, so this leg keeps the deployed options
-    // route continuously proven. Input is the tool's own discovery example.
-    kit: "finance",
-    path: "/api/options-chain?symbol=AAPL",
-    method: "GET",
-    priceUsd: 0.005,
-    check: (r) => (r.symbol === "AAPL" && Array.isArray(r.expirations) && r.expirations.length > 0 && Array.isArray(r.strikes) && Array.isArray(r.calls) && Array.isArray(r.puts)) || `expected AAPL chain with expirations/strikes/calls/puts, got ${JSON.stringify(r).slice(0, 100)}`,
-  },
-  {
     kit: "crypto",
     path: "/api/crypto-price?coins=BTC",
     method: "GET",
@@ -926,9 +915,6 @@ async function main() {
     // /health.flags is operator-gated now (security audit A402-11); the canary
     // has no operator token, so flags is usually absent here. Only assert when
     // it IS present (e.g. a token-carrying run); otherwise skip the preflight.
-    const yr = health?.flags?.yahooRelay;
-    if (yr === true) console.log("OK    preflight /health.flags.yahooRelay=true");
-    else if (health?.flags) console.warn(`WARN  preflight: /health.flags.yahooRelay=${yr} (set YAHOO_RELAY_URL/TOKEN) — finance tool may warn`);
   } catch (e) {
     console.warn(`WARN  preflight: GET ${TARGET}/health failed: ${(e?.message || String(e)).slice(0, 120)}`);
   }

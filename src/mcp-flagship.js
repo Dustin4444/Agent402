@@ -373,8 +373,6 @@ export const FLAGSHIP_OUTPUT_SCHEMAS = {
     type: "object",
     properties: {
       symbol: { type: "string" },
-      name: { type: "string" },
-      exchange: { type: "string" },
       currency: { type: "string" },
       price: { type: "number" },
       previousClose: { type: "number" },
@@ -382,10 +380,13 @@ export const FLAGSHIP_OUTPUT_SCHEMAS = {
       changePct: { type: "number" },
       dayHigh: { type: "number" },
       dayLow: { type: "number" },
-      fiftyTwoWeekHigh: { type: "number" },
-      fiftyTwoWeekLow: { type: "number" },
-      volume: { type: "number" },
-      regularMarketTime: { type: "string" },
+      // Four venues, not the consolidated tape. Named so it can never be
+      // read as a market total; `volume` is deliberately not declared.
+      venueVolume: { type: "number" },
+      asOf: { type: "string" },
+      venues: { type: "string" },
+      source: { type: "string" },
+      note: { type: "string" },
     },
     required: ["symbol", "price"],
   },

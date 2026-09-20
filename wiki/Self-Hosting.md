@@ -84,8 +84,6 @@ Set these on your host. None are committed to the repo.
 | `NEYNAR_API_KEY` | No | Enables Farcaster tools (Neynar API); falls back to `WARPCAST_API_KEY` |
 | `FRED_API_KEY` | No | Enables macro-kit v1 (FRED economic data) |
 | `FRED_API_KEY_V2` | No | Distinct key for macro-kit v2 bulk endpoints |
-| `YAHOO_RELAY_URL` | No | Cloudflare Worker relay URL for Yahoo Finance charts (both URL and TOKEN must be set) |
-| `YAHOO_RELAY_TOKEN` | No | Bearer token for the Yahoo relay worker |
 | `OPENROUTER_API_KEY` | No | Enables the `/v1` LLM gateway tiers (chat, metered, embeddings, rerank, images, speech); the routes answer `503` without it |
 | `OPENAI_API_KEY` | No | Enables the older `/api/llm*`, `/api/image-gen*`, `/api/tts*`, `/api/transcribe*` and `/api/embed*` proxies |
 | `E2B_API_KEY` | No | Enables the `/api/code-run*` sandbox tools |

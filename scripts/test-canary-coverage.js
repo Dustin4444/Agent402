@@ -43,7 +43,6 @@ const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail+
 const NEW_TOOLS = [
   ...["contract-source", "contract-abi", "solidity-scan", "calldata-decode", "selector-lookup", "tx-simulate", "address-label"].map((s) => [s, CONTRACT_TOOLS, "contract-kit"]),
   ...["crypto-orderbook", "stablecoin-peg"].map((s) => [s, CRYPTO_TOOLS, "crypto-kit"]),
-  ...["options-chain", "premarket-quote", "stock-dividends"].map((s) => [s, FINANCE_TOOLS, "finance-kit"]),
   ...["lei-lookup", "wikidata-entity", "gravatar-check", "github-repo", "favicon-grab"].map((s) => [s, ENRICH_TOOLS, "enrich-kit"]),
   ...["search-videos"].map((s) => [s, SEARCH_TOOLS, "search-kit"]),
   ...["archive-snapshot", "feed-parse", "unshorten-url"].map((s) => [s, WEB_TOOLS, "web-kit"]),
@@ -113,15 +112,6 @@ const tr = CANARY_LEGS.find((l) => l.kit === "transcribe");
 const STT_EXAMPLE_URL = STT_TOOLS.find((t) => t.slug === "transcribe")?.discovery?.input?.url;
 const trExample = STT_EXAMPLE_URL;
 ok(!!tr && tr.priceUsd === 0.03 && tr.body?.url === trExample, `transcribe leg exists at $0.03 and buys the tool's own documented example, a spoken clip (got ${tr ? `$${tr.priceUsd} ${tr.body?.url}` : "no leg"})`);
-const oc = legFor("/api/options-chain");
-ok(!!oc, "canary has an options-chain leg (relay path continuously proven)");
-if (oc) {
-  ok(oc.method === "GET" && oc.path.includes("symbol=AAPL"), "options-chain leg uses the tool's own discovery example (GET symbol=AAPL)");
-  ok(oc.priceUsd === advertised(FINANCE_TOOLS, "options-chain"), `options-chain leg priceUsd (${oc?.priceUsd}) matches the kit's advertised price ($${advertised(FINANCE_TOOLS, "options-chain")})`);
-  const happy = { symbol: "AAPL", expirations: ["2026-07-17"], strikes: [230], calls: [{}], puts: [{}] };
-  ok(oc.check(happy) === true, "options-chain leg check accepts the documented happy-path shape");
-  ok(typeof oc.check({ symbol: "AAPL" }) === "string", "options-chain leg check rejects a chain-less response");
-}
 
 // The Ox leg is the only standing proof of two things a stub cannot show: that
 // our `provider.max_price` bound admits a $0-priced endpoint (if it refused the
