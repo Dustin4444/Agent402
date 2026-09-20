@@ -21,22 +21,23 @@ plaintiff's attorney or a regulator actually file?
    finding: strict liability, per-message statutory exposure, no intent required, and the FTC
    has brought exactly this case many times. **Fixed mechanically; needs a real address.**
 
-2. **Stored value without a licensing determination (F-02).** `/credits` sells a prepaid balance
+2. **Stored value without a licensing determination (F-02). RESOLVED by not selling.** `/credits` sells a prepaid balance
    by card that the company holds until spent, and the terms say credits never expire. Holding
    customer funds for future redemption is the definition of stored value in most state money
    transmitter statutes. Whether an exemption applies (closed-loop / agent-of-payee) is a real
-   legal question, not an engineering one. **Needs counsel, urgently, because the remedy is a
-   license or a product change, not a code edit.**
+   legal question, not an engineering one. The remedy chosen was the product change: sales are off by
+   default, redemption still works, and the ledger confirmed no outside party had ever bought,
+   so nothing was held and no refund is owed.
 
 3. **Financial analysis sold without an advice disclaimer (F-03).** Four paid products that
    output investment-shaped analysis carry no "not investment advice" language, while four
    comparable ones do. The inconsistency is the problem: it shows the company knew the
    disclaimer was appropriate and applied it unevenly. **Fixed.**
 
-4. **Third-party terms: Nasdaq (F-04).** The project's own notes record that Nasdaq's terms are
+4. **Third-party terms: Nasdaq (F-04). RESOLVED by removal.** The project's own notes record that Nasdaq's terms are
    "personal non-commercial only," and the earnings-calendar tool still calls `api.nasdaq.com`
    on a commercial service. A written admission of knowledge is the worst posture to be in.
-   **Needs counsel plus a product decision.**
+   Both tools and the relay behind them are removed.
 
 5. **A credential is in public git history (F-05).** Disclosed and tracked in `.gitleaks.toml`;
    the value is reported rotated. The residual issue is that a public leak must be assumed
@@ -49,9 +50,9 @@ plaintiff's attorney or a regulator actually file?
 | ID | Category | Severity | Likely claimant | Legal theory | Evidence | Fix | Type |
 |----|----------|----------|-----------------|--------------|----------|-----|------|
 | F-01 | Communications | **High** | FTC / state AG / class | CAN-SPAM 15 U.S.C. §7704(a)(5): commercial email must contain a valid physical postal address | `src/free-alerts.js`, `src/followups.js`, `src/wallet-digest.js`, `src/monitor-scheduler.js` - unsubscribe present, address absent | Render a postal address in every email footer | Code + **needs address** |
-| F-02 | Payments / stored value | **High** | State regulator (DFS/DFPI et al.) | Money transmission / stored value; prepaid access rules | `src/credits.js`; `/credits`; terms: "Credits never expire" | Determine exemption or license; consider closed-loop framing | **Needs counsel** |
+| F-02 | Payments / stored value | **High** → resolved | State regulator (DFS/DFPI et al.) | Money transmission / stored value; prepaid access rules | `src/credits.js`; `/credits` | **Sales off by default (`CREDITS_SALES`).** No outside party ever bought; the one key was operator-funded and gifted, so nothing was held and nothing is owed. Redemption left working | Code |
 | F-03 | AI output / financial | **Medium** | Individual / state AG | UDAP; investment adviser exposure where analysis reads as a recommendation | `dossier-kit.js`, `crypto-signals-kit.js`, `research-deep-kit.js`, `recall-report-kit.js` had none; `token-risk`, `token-brief`, `insider-flow`, `filing-watch` did | Add the same disclaimer used by the others | Content |
-| F-04 | Third-party terms | **Medium** | Nasdaq (rights holder) | Breach of terms; CFAA-adjacent claims are weak post-*Van Buren* but contract is not | `src/tools/finance-kit.js:132`; `CLAUDE.md` records the terms are non-commercial | Drop the tool, license the feed, or accept knowingly | **Needs counsel** |
+| F-04 | Third-party terms | **Medium** → resolved | Nasdaq (rights holder) | Breach of terms; CFAA-adjacent claims are weak post-*Van Buren* but contract is not | `src/tools/finance-kit.js`; `CLAUDE.md` records the terms are non-commercial | **Both tools and the relay removed.** Measured first: ~21 settlements each per 90 days, ~$0.10 revenue apiece | Code |
 | F-05 | Security | **Medium** | N/A (exposure, not a claim) | Negligence if the credential were live | `.gitleaks.toml:46-52`, commit `70fcc517` | Confirm rotation; purge history | Documented |
 | F-06 | Accessibility | **Medium** | Serial ADA plaintiff | ADA Title III; website accessibility | `/digest`: 6 form inputs with no `id` or `aria-label` | Label every input | Code |
 | F-07 | Deceptive practices | **Low** | Competitor / FTC | FTC Act §5 if a claim outruns the code | Swept: "guaranteed" is the `guaranteedPaths` field, "risk-free" is the interest rate. No unsupported marketing absolutes found | None | No action |
@@ -73,3 +74,20 @@ secrets scan (gitleaks clean apart from the disclosed F-05) · `LICENSE`, `NOTIC
 F-07 through F-12 are theoretical. I looked for the common filings - unsupported "secure" and
 "guaranteed" claims, chance-based paid mechanics, scraped IP, missing license - and did not find
 them. The three that matter are F-01, F-02 and F-04.
+
+
+---
+
+## Status after remediation (2026-09-20)
+
+Fixed in `legal-risk-remediation`: **F-01** (postal address in every email, needs the value set),
+**F-02** (credit sales off by default), **F-03** (advice disclaimers), **F-04** (Nasdaq tools
+removed), **F-06** (form labels).
+
+Still open: **F-05** - confirm the exposed credential is revoked, then decide whether a history
+purge is worth what it costs (`SECRETS_TO_ROTATE.md`).
+
+The operator has chosen not to retain counsel. Where a judgement call existed, the safer branch
+was taken rather than the one that needed an opinion: the activity was stopped rather than
+argued for. That is a defensible posture but it is not the same as advice, and any of these can
+be revisited if counsel is ever engaged.
