@@ -163,9 +163,7 @@ export function ledgerPricingPage(baseUrl, catalog) {
        signature: an x402 exact payment is one authorization signed and one
        settlement waited on, per call. Both answers to that already shipped
        (prepaid credits 2026-08-22, the upto meter 2026-08-26) and neither was
-       ever addressed to the buyer who needs it - measured 2026-09-19, our
-       median external buyer settles twice while a comparable seller's busiest
-       endpoint carries ~233 calls per buyer. This section is that copy. The
+       ever addressed to the buyer who needs it. This section is that copy. The
        pack figures come from CREDIT_PACKS, the checkout's own table. -->
   <section style="max-width:1180px;margin:0 auto;padding:56px 30px 0;">
     <div style="border:1px solid var(--hairline);background:var(--card);padding:28px 30px;">
