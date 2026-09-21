@@ -26,7 +26,7 @@ let pass = 0;
 const fail = (m) => { console.error("FAIL:", m); process.exit(1); };
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else fail(m); };
 
-const { evmActivity, stellarActivity, algorandActivity, solanaActivity, USDC_ISSUER } = await import("../src/revenue-live.js");
+const { evmActivity, stellarActivity, algorandActivity, solanaActivity, mergeScanEntries, USDC_ISSUER } = await import("../src/revenue-live.js");
 
 const DAY = 86_400_000;
 const realFetch = globalThis.fetch;
@@ -39,14 +39,28 @@ let calls = 0;
 // ---------------------------------------------------------------------------
 const PAGE = 1000;
 
-function evmPage(total, cursor) {
-  const start = cursor ? Number(cursor) : 0;
+// Block numbers run DOWNWARD with the index, because the scan walks
+// newest-first: row 0 is the newest transfer and sits at the highest block.
+const blockOf = (i) => 1_000_000 - i;
+function evmPage(total, cursor, fromBlock = 0, extraNew = 0) {
+  // A NEGATIVE index is a transfer that landed after the prior scan: higher
+  // block, own uid, newest-first so it leads the page. Appending at the far
+  // end instead would be an OLDER transfer, which is not what "arrived since"
+  // means and would let a resume that never advances still pass.
+  const first = -extraNew;
+  const start = cursor ? Number(cursor) : first;
   const transfers = [];
   for (let i = start; i < Math.min(start + PAGE, total); i++) {
+    if (blockOf(i) < fromBlock) break;                    // the source honours fromBlock
     transfers.push({
       value: 0.001,
-      from: `0x${String(i % 37).padStart(40, "0")}`,       // 37 distinct buyers
-      metadata: { blockTimestamp: new Date(Date.now() - (i % 20) * DAY).toISOString() },
+      uniqueId: `0xhash${i}:log:0`,
+      blockNum: "0x" + blockOf(i).toString(16),
+      // Math.abs: a NEGATIVE index (a transfer that arrived since) would give a
+      // negative modulus and so a FUTURE timestamp, which the bucketer drops -
+      // the rows would be fetched and then silently vanish from the totals.
+      from: `0x${String(Math.abs(i) % 37).padStart(40, "0")}`,   // 37 distinct buyers
+      metadata: { blockTimestamp: new Date(Date.now() - (Math.abs(i) % 20) * DAY).toISOString() },
     });
   }
   const next = start + PAGE;
@@ -58,7 +72,7 @@ function evmPage(total, cursor) {
   return { transfers, pageKey: String(next) };
 }
 
-function installStub({ total, delayMs = 0 }) {
+function installStub({ total, delayMs = 0, extraNew = 0 }) {
   calls = 0;
   globalThis.fetch = async (url, init) => {
     calls++;
@@ -68,7 +82,7 @@ function installStub({ total, delayMs = 0 }) {
 
     if (body?.method === "alchemy_getAssetTransfers") {
       const p = body.params[0];
-      return json({ jsonrpc: "2.0", id: 1, result: evmPage(total, p.pageKey) });
+      return json({ jsonrpc: "2.0", id: 1, result: evmPage(total, p.pageKey, Number.parseInt(p.fromBlock, 16) || 0, extraNew) });
     }
     if (u.includes("horizon")) {                                  // Stellar
       const m = /cursor=(\d+)/.exec(u);
@@ -192,6 +206,59 @@ ok(stl.truncated === false, `stellar: a completed walk is not truncated (got ${s
 installStub({ total: 5000, delayMs: 30 });
 const stlStarved = await stellarActivity("GWALLET", { budgetMs: 120 });
 ok(stlStarved.truncated === true, `stellar: a budget-stopped walk reports truncated:true (got ${stlStarved.truncated})`);
+
+// ---------------------------------------------------------------------------
+// Incremental resume. The scan used to re-walk the window from block 0 on
+// every refresh, so a busy wallet re-paid for thirty days of history every ten
+// minutes. Measured on the real busiest Base wallet: 31 calls / 7.1s cold,
+// 1 call / 98ms resumed, identical totals.
+// ---------------------------------------------------------------------------
+installStub({ total: 5000 });
+const cold = await evmActivity("base", "0xwallet", { budgetMs: 60_000 });
+const coldCalls = calls;
+ok(cold.resumed === false, "a scan with no prior state is a full scan");
+ok(coldCalls >= 5, `control: the cold scan really paged (${coldCalls} calls)`);
+ok(!!cold.__scanState, "a completed scan publishes the state its successor resumes from");
+ok(Object.keys(cold).indexOf("__scanState") === -1 && !JSON.stringify(cold).includes("__scanState"),
+  "that state is non-enumerable: it never reaches a response body, a cache file or a log");
+
+installStub({ total: 5000 });
+const warm = await evmActivity("base", "0xwallet", { budgetMs: 60_000, prior: cold.__scanState });
+ok(warm.resumed === true, "a scan with complete prior state resumes");
+ok(calls < coldCalls, `a resumed scan costs fewer calls than the cold one (${calls} vs ${coldCalls})`);
+ok(calls <= 2, `a resumed scan with nothing new costs about one call (got ${calls})`);
+ok(warm.totals.tx === cold.totals.tx, `resuming reports the same transactions as a full scan (${warm.totals.tx} vs ${cold.totals.tx})`);
+ok(warm.totals.buyers === cold.totals.buyers, "resuming reports the same distinct buyers");
+ok(Math.abs(warm.totals.usd - cold.totals.usd) < 1e-6, "resuming reports the same volume - the overlap is deduplicated, not double-counted");
+
+installStub({ total: 5000, extraNew: 200 });
+const grown = await evmActivity("base", "0xwallet", { budgetMs: 60_000, prior: cold.__scanState });
+ok(grown.totals.tx === cold.totals.tx + 200, `a resumed scan picks up the transfers that arrived since (${grown.totals.tx} = ${cold.totals.tx} + 200)`);
+ok(grown.resumed === true, "and it still resumed rather than silently rescanning to find them");
+
+// A TRUNCATED prior never held the far end of the window, so resuming from it
+// would freeze that gap in place forever. It must force a full rescan.
+installStub({ total: TOTAL, delayMs: 30 });
+const partial = await evmActivity("base", "0xwallet", { budgetMs: 120 });
+ok(partial.truncated === true, "control: that prior really is truncated");
+installStub({ total: TOTAL });
+const afterPartial = await evmActivity("base", "0xwallet", { budgetMs: 60_000, prior: partial.__scanState });
+ok(afterPartial.resumed === false, "a truncated prior is never resumed - the gap would never be filled");
+ok(afterPartial.totals.tx === TOTAL, `the forced rescan covers the whole window (${afterPartial.totals.tx})`);
+
+installStub({ total: 5000 });
+const stale = await evmActivity("base", "0xwallet", { budgetMs: 60_000, prior: { ...cold.__scanState, at: Date.now() - 400 * DAY } });
+ok(stale.resumed === false, "a prior older than the window is discarded rather than resumed");
+
+// mergeScanEntries is where a wrong merge would double-count silently.
+const cut = Date.now() - 30 * DAY;
+const row = (uid, ageDays, usd = 1) => ({ uid, usd, from: "0xa", when: new Date(Date.now() - ageDays * DAY).toISOString() });
+ok(mergeScanEntries([row("a", 1)], [row("a", 1)], cut).length === 1, "merge: the same uid from both sides counts once");
+ok(mergeScanEntries([row("a", 1)], [row("b", 2)], cut).length === 2, "merge: distinct uids are both kept");
+ok(mergeScanEntries([], [row("old", 90)], cut).length === 0, "merge: a prior row now past the window is dropped");
+ok(mergeScanEntries([row("n", 1)], [row("o", 400)], cut).map((e) => e.uid).join() === "n", "merge: pruning keeps the fresh row and drops the expired one");
+ok(mergeScanEntries([{ usd: 1, when: new Date().toISOString() }], [], cut).length === 1, "merge: a row with no uid is kept rather than dropped");
+ok(mergeScanEntries([row("x", 1)], [row("y", 1)], cut)[0].uid === "x", "merge: fresh rows lead, so the newest data wins on any tie");
 
 // Solana is bounded per TRANSACTION rather than per page, so its old ceiling
 // was a far tighter sixty records - the same class of defect, a different
