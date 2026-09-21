@@ -32,6 +32,19 @@ function verdict(c, threshold) {
   return { label: "held", color: "#c4a44e", note: `not yet sustained${near}` };
 }
 
+// An intent judgment, shown as its own thing. Measured on sixteen live rows
+// (2026-09-21): adverts read 0.83-0.96, plain wishes 0.96-0.98 on the other
+// side, nothing in between. The probability is printed because a reader
+// deciding whether to trust a row deserves the number, not just the word.
+function intentCell(c) {
+  const i = c.intent;
+  if (!i) return `<span class="ow-faint ow-small">-</span>`;
+  const color = i.kind === "advertisement" ? "#c4574e" : i.kind === "unclear" ? "#c4a44e" : "#8C8C8C";
+  const word = i.kind === "advertisement" ? "advert" : i.kind === "unclear" ? "unclear" : "wish";
+  return `<span class="ow-badge" style="color:${color};border-color:${color}55">${esc(word)}</span>`
+    + `<div class="ow-note">p=${esc(Number(i.p).toFixed(2))}</div>`;
+}
+
 export function operatorWishesPage(baseUrl, aggregate) {
   const { distinctClusters = 0, totalWishes = 0, threshold = 5, qualifyMinSpanHours = 24, clusters = [] } = aggregate || {};
   const atThreshold = clusters.filter((c) => c.count >= threshold);
@@ -53,6 +66,7 @@ export function operatorWishesPage(baseUrl, aggregate) {
     return `<tr>
       <td class="ow-mono ow-num">${esc(c.count)}</td>
       <td><span class="ow-badge" style="color:${v.color};border-color:${v.color}55">${esc(v.label)}</span><div class="ow-note">${esc(v.note)}</div></td>
+      <td>${intentCell(c)}</td>
       <td class="ow-mono ow-faint" title="api / mcp / find-miss">${esc(src)}</td>
       <td class="ow-mono ow-small ow-faint">${esc(fmt(c.firstSeen))}<br>${esc(fmt(c.lastSeen))}</td>
       <td class="ow-text">${c.text}</td>
@@ -62,7 +76,7 @@ export function operatorWishesPage(baseUrl, aggregate) {
   const table = clusters.length
     ? `<div class="ow-tbl-wrap"><table>
         <thead><tr>
-          <th class="ow-num">Count</th><th>Verdict</th><th title="api / mcp / find-miss">a/m/f</th><th>First / last</th><th>Normalized request</th>
+          <th class="ow-num">Count</th><th>Verdict</th><th title="Advert judgment - opt in with ?intent=1; spends per uncached row">Intent</th><th title="api / mcp / find-miss">a/m/f</th><th>First / last</th><th>Normalized request</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table></div>`
@@ -101,7 +115,7 @@ tr:last-child td{border-bottom:0}
   const body = `
 <div class="ow-wrap">
   <h1 class="ow-h1">Agent demand</h1>
-  <p class="ow-sub">The full wish board, ranked - every cluster including single-source and below-threshold, which the public feed never shows ranked. A cluster auto-opens a GitHub issue only when <b>qualified</b> (count &ge; ${esc(threshold)} and either &ge;2 sources or sustained past ${esc(qualifyMinSpanHours)}h). Not public - gated by <code>AGENT402_OPERATOR_TOKEN</code>. <a href="/__operator">Back to operator</a> &middot; <form method="POST" action="/__operator/logout" style="display:inline;margin:0"><button type="submit" style="background:none;border:0;padding:0;color:var(--accent);font:inherit;cursor:pointer">Log out</button></form></p>
+  <p class="ow-sub">The full wish board, ranked - every cluster including single-source and below-threshold, which the public feed never shows ranked. A cluster auto-opens a GitHub issue only when <b>qualified</b> (count &ge; ${esc(threshold)} and either &ge;2 sources or sustained past ${esc(qualifyMinSpanHours)}h). Not public - gated by <code>AGENT402_OPERATOR_TOKEN</code>. <b>Intent</b> is blank unless you add <code>?intent=1</code>: it asks a paid model whether a row is a seller advertising rather than a request, and spends per uncached row. It annotates only - it can never change a count or a verdict. <a href="/__operator">Back to operator</a> &middot; <form method="POST" action="/__operator/logout" style="display:inline;margin:0"><button type="submit" style="background:none;border:0;padding:0;color:var(--accent);font:inherit;cursor:pointer">Log out</button></form></p>
   ${summary}
   ${table}
 </div>

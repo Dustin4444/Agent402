@@ -126,4 +126,44 @@ for (const [label, opts] of [["a refused key (401)", { status: 401 }], ["a 500",
     "src/wish.js does NOT import the classifier: recording a wish stays deterministic, free and synchronous");
 }
 
+
+// --- the operator wiring ------------------------------------------------------
+// This is a PAID third-party call on a request path. Operator auth bounds WHO
+// can spend, never how often - the rule the settlement-reconciliation route
+// states two blocks above it in server.js. So the pass must be opt-in, rate
+// limited, and absent by default. Pinned from source because the tempting
+// simplification is to "just run it" on every board load.
+{
+  const { readFileSync } = await import("node:fs");
+  const srv = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+  const seg = srv.slice(srv.indexOf("const wishIntentLimiter"), srv.indexOf('app.get("/__operator/wishes.json"') + 600);
+  ok(seg.length > 200, "control: the wiring was located in server.js");
+
+  ok(/wantsIntent\(req\)/.test(seg), "the pass runs only when the request asks for it");
+  ok(/\?intent=1|query\?\.intent/.test(seg), "and the opt-in is an explicit query flag");
+  ok(/wishIntentLimiter\.check/.test(seg), "a rate limiter bounds how often it can be asked for");
+  ok(/createRateLimiter\("wish-intent"/.test(srv), "with its own bucket, not one shared with a different surface");
+  ok(/!wishClassifyEnabled\(\)/.test(seg), "and it is skipped outright when no key is configured");
+  ok(/try \{ await classifyWishes/.test(seg), "a failing pass cannot take the board down with it");
+
+  // Both routes must go through the same seam, or one of them grows its own rules.
+  const htmlRoute = srv.slice(srv.indexOf('app.get("/__operator/wishes"'), srv.indexOf('app.get("/__operator/wishes"') + 420);
+  const jsonRoute = srv.slice(srv.indexOf('app.get("/__operator/wishes.json"'), srv.indexOf('app.get("/__operator/wishes.json"') + 420);
+  ok(/withIntent\(req, agg\)/.test(htmlRoute), "the HTML board routes through the shared seam");
+  ok(/withIntent\(req, agg\)/.test(jsonRoute), "and so does the JSON feed");
+
+  // The renderer must keep the judgment OUT of the verdict that opens issues.
+  const page = readFileSync(new URL("../src/operator-wishes.js", import.meta.url), "utf8");
+  // Bound the slice at verdict()'s OWN end, not at the next export: intentCell
+  // now sits between the two, so the wider slice swept it in and the assertion
+  // failed against correct code.
+  const vStart = page.indexOf("function verdict(c, threshold)");
+  const vEnd = page.indexOf("\n}", page.indexOf('return { label: "held"', vStart));
+  const verdictFn = page.slice(vStart, vEnd);
+  ok(vStart > 0 && vEnd > vStart, "control: verdict() was located and bounded");
+  ok(!/intent/i.test(verdictFn),
+    "verdict() never reads intent: a model opinion cannot reach what opens a GitHub issue");
+  ok(/function intentCell/.test(page), "the judgment renders in its own column instead");
+}
+
 console.log(`\n${pass} passed`);
