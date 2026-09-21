@@ -18,7 +18,8 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 import { chainMark, CHAIN_ORDER } from "./chain-logos.js";
 import { RAILS, railKey } from "./rails.js";
 
-const REPO = "https://github.com/MikeyPetrillo/Agent402";
+import { REPO_URL } from "./repo-link.js";
+const REPO = REPO_URL;
 
 const COSTS = [
   ["listing fee", "$0", "green"],

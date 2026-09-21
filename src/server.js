@@ -2307,6 +2307,28 @@ app.use(CHECKOUT_RATE_PATHS, (req, res, next) => {
   req.__checkoutRateChecked = true;
   next();
 });
+// Public transaction data (/revenue and its four JSON surfaces). These are
+// MEANT to be world-readable - publishing settlement data is the point of the
+// page, and every figure links to its own on-chain proof - so this is not an
+// access control. It is a scraping bound: the recent-transfer feed names the
+// payer of each settlement, and while any one of those is derivable from the
+// tx hash beside it (the hash is the verification primitive and cannot be
+// withheld), harvesting the whole feed on a loop assembles the buyer roster far
+// faster than reading the chain would. Deliberately generous: the responses are
+// cached 30-300s, a dashboard polling every 30s spends 2/min, and a page load
+// fires four. A client at 60/min is not reading the page.
+const REVENUE_READ_PATHS = ["/revenue", "/api/revenue", "/api/revenue/daily", "/api/revenue/mpp", "/api/revenue/tempo-daily", "/api/calls/daily"];
+const revenueReadLimiter = createRateLimiter("revenue-read", { perMin: 60, perHour: 600 });
+app.use(REVENUE_READ_PATHS, (req, res, next) => {
+  if (!revenueReadLimiter.check(clientIp(req)).limited) return next();
+  res.set("Retry-After", "60");
+  // A 429 to a crawler costs the page in the index, so the HTML path says so
+  // in words and the JSON path stays machine-readable.
+  return req.path === "/revenue" || (req.headers.accept || "").includes("text/html")
+    ? res.status(429).type("html").send("<p>Too many requests for the live transaction view. It refreshes at most once a minute, so please slow down and retry shortly.</p>")
+    : res.status(429).json({ error: "Too many requests", detail: "The transaction surfaces are cached 30-300s; poll no faster than that.", retryAfterSeconds: 60 });
+});
+
 app.use(express.json({ limit: "100kb" }));
 
 // Funnel stage 1 — discovery. An agent fetching any of these machine-readable

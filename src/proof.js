@@ -9,6 +9,7 @@
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 import { standingBand } from "./standing.js";
 
+import { REPO_URL } from "./repo-link.js";
 const EXPLORER = {
   base: (h) => `https://basescan.org/tx/${h}`,
   polygon: (h) => `https://polygonscan.com/tx/${h}`,
@@ -72,7 +73,7 @@ ${standingBand(standing || {})}
 <section style="max-width:1180px;margin:0 auto;padding:40px 30px 56px;display:grid;gap:18px;">
   ${rowHtml("LATEST EXTERNAL SETTLEMENT (a buyer that is not us)", ext, ext.latest ? "" : "The metered route is new; this row fills in with the first outside buyer's settlement.")}
   ${rowHtml("LATEST INTERNAL SETTLEMENT (our own daily canary, paying with our own wallet)", int, "Internal by construction: the CI canary buys this route every day from our burner wallet to prove the settle-actual path, and the ledger files it as ours, never as revenue.")}
-  <p style="font-size:14px;line-height:1.6;color:var(--muted);margin:6px 0 0;">Nothing here identifies a buyer. The rest of the proof lives on <a href="/status" style="color:var(--ink);">/status</a> (uptime observed from outside production), <a href="/revenue" style="color:var(--ink);">/revenue</a> (transactions by rail and wire) and the <a href="https://github.com/MikeyPetrillo/Agent402" style="color:var(--ink);">source</a>.</p>
+  <p style="font-size:14px;line-height:1.6;color:var(--muted);margin:6px 0 0;">Nothing here identifies a buyer. The rest of the proof lives on <a href="/status" style="color:var(--ink);">/status</a> (uptime observed from outside production), <a href="/revenue" style="color:var(--ink);">/revenue</a> (transactions by rail and wire) and the <a href="${REPO_URL}" style="color:var(--ink);">source</a>.</p>
 </section>
 ${ledgerFooterCompact()}`;
   return ledgerShell({ title, description, canonical, baseUrl, activePath: "/proof", body, robots: undefined, jsonLd: [{ "@type": "BreadcrumbList", itemListElement: [

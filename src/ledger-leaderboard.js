@@ -22,6 +22,7 @@ import { RAILS } from "./rails.js";
 import { CAIP2_NAMES } from "./stats.js";
 import { hostRowHtml, HOST_EXCLUSION_NOTE } from "./host-entry.js";
 
+import { REPO_URL } from "./repo-link.js";
 const HTML_ROWS = 12;
 
 const fmtNum = (n) => Number(n || 0).toLocaleString("en-US");
@@ -266,7 +267,7 @@ ${standingBand(standing || {})}
   const description =
     "The public on-chain ranking of every x402 seller by Base USDC settled volume: calls settled, total USD and unique buyers per seller. Hourly snapshot, built from the Coinbase CDP Bazaar and eth_getLogs. Agent402 excluded from its own ranking.";
 
-  const orgLd = { "@type": "Organization", "@id": `${baseUrl}/#organization`, name: "Agent402", url: baseUrl, logo: { "@type": "ImageObject", url: `${baseUrl}/logo.png` }, sameAs: ["https://github.com/MikeyPetrillo/Agent402", "https://x.com/Agent402Tools"] };
+  const orgLd = { "@type": "Organization", "@id": `${baseUrl}/#organization`, name: "Agent402", url: baseUrl, logo: { "@type": "ImageObject", url: `${baseUrl}/logo.png` }, sameAs: [REPO_URL, "https://x.com/Agent402Tools"] };
   const breadcrumbLd = { "@type": "BreadcrumbList", itemListElement: [
     { "@type": "ListItem", position: 1, name: "Agent402", item: `${baseUrl}/` },
     { "@type": "ListItem", position: 2, name: "Leaderboard", item: canonical },

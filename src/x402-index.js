@@ -49,6 +49,7 @@ import { rankBy, canonicalHost, getLeaderboardSnapshot } from "./leaderboard.js"
 import { routeExecuteHint } from "./tools/route-execute.js";
 import { sellerRegistrationFirstSeen, recordSellerRegistrationSeen, getSellerRegistrations } from "./stats.js";
 
+import { REPO_URL } from "./repo-link.js";
 // RAILS caip2 -> CHAIN_PAGES key, same join the homepage's by-chain strip uses
 // (see ledger-home.js) so /index's own row derives the same way: page
 // availability from CHAIN_PAGES, live seller counts from marketSellers() run
@@ -5489,7 +5490,7 @@ export function routeQuery({ query, top, include, networkFilter, strictNetwork =
         "our own health is self-asserted as 1 because the crawler never probes itself; external health is measured from crawl outcomes. Every result reports why.healthSource so the two are distinguishable",
       ],
       excludeHost: 'include=external removes our catalog from the ranking entirely',
-      source: "https://github.com/MikeyPetrillo/Agent402",
+      source: REPO_URL,
     },
     ...(anyExternal ? { containsUntrustedContent: true } : {}),
     ...(wantNet ? { network: wantNet } : {}),

@@ -3,6 +3,7 @@
 // has no accounts, so there is genuinely little to say.
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 
+import { REPO_URL, repoUrl } from "./repo-link.js";
 export function privacyPage(baseUrl) {
   const title = "Privacy - Agent402";
   const description = "Agent402's privacy policy: no accounts, no cookies, first-party page analytics only. What we process, why, how long we keep it, and how to have it erased.";
@@ -41,7 +42,7 @@ counter (PostHog, served from our own domain: page path, referrer and screen siz
 held in session storage, never a cookie, never your IP forwarded to the analytics provider). Free email
 alerts and the tollbooth waitlist are the only forms that take an address, and both say so where you
 enter it. The only personal data we hold is what a card purchase needs to deliver what you bought (see
-"Card purchases" below). The entire server is <a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener">open source</a>,
+"Card purchases" below). The entire server is <a href="${REPO_URL}" rel="noopener">open source</a>,
 so every claim below is verifiable in code.</p>
 
 <h2>What we process, and why</h2>
@@ -133,7 +134,7 @@ and abuse reports: <a href="mailto:mike@agent402.tools">mike@agent402.tools</a>.
 
 <h2>Operator &amp; contact</h2>
 <p>Agent402.Tools is operated by <strong><a href="https://havok.holdings" rel="noopener">Havok Holdings LLC</a></strong>. Contact: <a href="mailto:mike@agent402.tools">mike@agent402.tools</a>,
-<a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">GitHub issues</a>,
+<a href="${repoUrl("issues")}" rel="noopener">GitHub issues</a>,
 or <a href="https://x.com/Agent402Tools" rel="noopener">@Agent402Tools on X</a>.</p>
 </div>
 </section>

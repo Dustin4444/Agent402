@@ -19,6 +19,21 @@ import { RAILS, RAILS_AMP } from "./rails.js";
 // plausible per-call price. Internal test money is shown but never counted.
 import { usdcDeltaForOwner, payerFromMeta, isExternalPayment } from "../scripts/revenue-scan-solana.js";
 import { cdpSql, cdpConfigured } from "./tools/cdp-kit.js";
+import { redactSecrets } from "./tools/redact.js";
+
+// Every string in this module that can reach /api/revenue goes through here.
+//
+// The rail scanners put upstream failure text straight into `rail.error`, and
+// /api/revenue is unauthenticated. Eleven of the RPC endpoints they walk carry
+// ALCHEMY_API_KEY in the URL PATH, and an upstream can echo its request back in
+// an error body - which is exactly how the key reached the public
+// /api/leaderboard body in the 2026-08-18 leak. leaderboard.js, mpp-leaderboard
+// .js, solana-leaderboard.js and tempo-transfers.js all redact for that reason;
+// this module was the one public error surface that did not.
+//
+// Redact first, THEN truncate: slicing first can cut a secret in half and leave
+// a matchable prefix that the redactor no longer recognises.
+export const pubErr = (e, max = 120) => redactSecrets(String(e?.message || e)).slice(0, max);
 
 export const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 export const USDC_SOL_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
@@ -269,7 +284,7 @@ export async function getJsonAcross(bases, path, { timeoutMs = 10000, okStatuses
       }
       last = { ok: false, status: res.status, json: null, base, error: `HTTP ${res.status}` };
     } catch (e) {
-      last = { ok: false, status: 0, json: null, base, error: String(e?.message || e).slice(0, 120) };
+      last = { ok: false, status: 0, json: null, base, error: pubErr(e, 120) };
     }
   }
   return last;
@@ -329,7 +344,7 @@ export async function rpcCall(urls, method, params, timeoutMs = 5000) {
  * "the host is down", which are very different fixes.
  */
 export function describeError(err) {
-  const msg = String(err?.message || err).slice(0, 90);
+  const msg = redactSecrets(String(err?.message || err)).slice(0, 90);
   const cause = err?.cause;
   if (Array.isArray(cause?.errors) && cause.errors.length) {
     const subs = cause.errors.slice(0, 3)
@@ -401,7 +416,7 @@ async function recentInbound(c, wallet, latest) {
       // and nothing said what the actual per-chunk error was).
       if (!loggedChunkFailure.has(c.label)) {
         loggedChunkFailure.add(c.label);
-        console.warn(`[revenue] ${c.label} getLogs chunk failed: ${String(e?.message || e).slice(0, 160)}`);
+        console.warn(`[revenue] ${c.label} getLogs chunk failed: ${pubErr(e, 160)}`);
       }
     }
   }
@@ -489,7 +504,7 @@ async function evmRail(name, wallet) {
     out.windowBlocks = c.span;
     if (missed) out.scanNote = `transfer scan partial: ${missed}/${chunks} windows unavailable from public RPCs (balance is live)`;
   } catch (e) {
-    out.error = String(e?.message || e).slice(0, 120);
+    out.error = pubErr(e, 120);
   }
   return out;
 }
@@ -539,7 +554,7 @@ async function solanaRail(wallet) {
     }
     out.externalUsd = Number(out.recent.filter((t) => t.external && inWindow(t)).reduce((s, t) => s + t.usd, 0).toFixed(6));
   } catch (e) {
-    out.error = String(e?.message || e).slice(0, 120);
+    out.error = pubErr(e, 120);
   }
   return out;
 }
@@ -696,7 +711,7 @@ export async function stellarActivity(wallet, { days = 30, maxPages = SCAN_MAX_P
     }
     out.truncated = more;
   } catch (e) {
-    out.error = String(e?.message || e).slice(0, 120);
+    out.error = pubErr(e, 120);
     return out;
   }
   const bucketed = bucketStellarActivity(entries, { days });
@@ -737,7 +752,7 @@ export async function stellarRail(wallet) {
       out.externalUsd = Number(out.recent.filter((t) => t.external && inWindow(t)).reduce((s, t) => s + (t.usd || 0), 0).toFixed(6));
     } catch { /* payment scan is best-effort */ }
   } catch (e) {
-    out.error = String(e?.message || e).slice(0, 120);
+    out.error = pubErr(e, 120);
   }
   return out;
 }
@@ -798,7 +813,7 @@ export async function algorandRail(wallet) {
       out.externalUsd = Number(out.recent.filter((t) => t.external && inWindow(t)).reduce((s, t) => s + (t.usd || 0), 0).toFixed(6));
     } catch { /* transaction scan is best-effort */ }
   } catch (e) {
-    out.error = String(e?.message || e).slice(0, 120);
+    out.error = pubErr(e, 120);
   }
   return out;
 }
@@ -858,7 +873,7 @@ export async function algorandActivity(wallet, { days = 30, maxPages = SCAN_MAX_
     }
     out.truncated = more;
   } catch (e) {
-    out.error = String(e?.message || e).slice(0, 120);
+    out.error = pubErr(e, 120);
     return out;
   }
   // bucketStellarActivity is chain-agnostic (buckets {when, usd, from,
@@ -995,7 +1010,7 @@ export async function evmActivity(chainKey, wallet, { days = 30, maxPages = SCAN
     }
     out.truncated = more;
   } catch (e) {
-    out.error = String(e?.message || e).slice(0, 120);
+    out.error = pubErr(e, 120);
     return out;
   }
   const merged = out.resumed ? mergeScanEntries(entries, prior.entries, cutoff) : entries;
@@ -1048,7 +1063,7 @@ export async function baseActivityViaSql(wallet, { days = 30, now = Date.now() }
       cdpSql(bucketSql, { cacheSeconds: 300 }),
       cdpSql(totalSql, { cacheSeconds: 300 }),
     ]);
-  } catch (e) { out.error = String(e?.message || e).slice(0, 140); return out; }
+  } catch (e) { out.error = pubErr(e, 140); return out; }
   const N = (x) => Number(x) || 0;
   // 0-fill a continuous day series (oldest→newest) so the chart x-axis is complete,
   // matching bucketStellarActivity's window shape.
@@ -1102,7 +1117,7 @@ export async function solanaActivity(wallet, { days = 30, maxPages = SCAN_MAX_PA
     const res = await rpcCall(SOLANA_RPCS, "getTokenAccountsByOwner", [wallet, { mint: USDC_SOL_MINT }, { encoding: "jsonParsed" }], 6000);
     tokenAccount = res?.value?.[0]?.pubkey || wallet;
   } catch (e) {
-    out.error = String(e?.message || e).slice(0, 120);
+    out.error = pubErr(e, 120);
     return out;
   }
   let txBudget = maxTx;
@@ -1134,7 +1149,7 @@ export async function solanaActivity(wallet, { days = 30, maxPages = SCAN_MAX_PA
       if (Date.now() >= until) { capped = true; break; }
     }
   } catch (e) {
-    if (!entries.length) { out.error = String(e?.message || e).slice(0, 120); return out; }
+    if (!entries.length) { out.error = pubErr(e, 120); return out; }
     capped = true; // partial results survive an RPC failure mid-scan
   }
   out.truncated = capped;
@@ -1206,7 +1221,7 @@ export async function robinhoodActivity(wallet, { days = 30 } = {}) {
       rows = await fetchOnce(); // one retry — this endpoint flaps transiently
     }
   } catch (e) {
-    out.error = String(e?.message || e).slice(0, 120);
+    out.error = pubErr(e, 120);
     return out;
   }
   const entries = [];
@@ -1646,7 +1661,7 @@ export function revenuePage(baseUrl, snap) {
       ${big(throughput, "settled transactions, all-time", `x402 + MPP, ours included${at.syncing ? " · ledger still backfilling" : ""}`)}
       ${agents ? big(agents, `distinct agent${agents === 1 ? "" : "s"} have paid us`, `unique outside wallets${snap.agents?.top5SharePct != null ? ` · top 5 = ${snap.agents.top5SharePct}% of their payments` : ""}`) : ""}
     </div>
-    <p style="font-family:var(--font-mono);font-size:13px;color:var(--ink);margin:0 0 4px;"><strong>${extCount.toLocaleString()}</strong> external payment${extCount === 1 ? "" : "s"} · <strong>$${extUsd.toFixed(2)}</strong> revenue, settled on-chain${snap.card?.allTimeCount ? ` · <strong>${Number(snap.card.allTimeCount).toLocaleString()}</strong> card purchase${snap.card.allTimeCount === 1 ? "" : "s"} ($${Number(snap.card.allTimeUsd).toFixed(2)})` : ""}</p>` : "";
+    <p style="font-family:var(--font-mono);font-size:13px;color:var(--ink);margin:0 0 4px;"><strong>${extCount.toLocaleString()}</strong> external payment${extCount === 1 ? "" : "s"} · <strong>$${extUsd.toFixed(2)}</strong> revenue, settled on-chain${snap.card?.allTimeCount ? ` · <strong>${Number(snap.card.allTimeCount).toLocaleString()}</strong> card purchase${snap.card.allTimeCount === 1 ? "" : "s"} (${Number(snap.card.allTimeUsd).toFixed(2)}) <span style="color:var(--muted);font-weight:400;">by card, not on-chain</span>` : ""}</p>` : "";
 
   const body = `
   <div style="max-width:1100px;margin:0 auto;padding:56px 30px;">
@@ -1658,6 +1673,7 @@ export function revenuePage(baseUrl, snap) {
     </p>
     ${standing}
     ${hero}
+    <p style="font-size:12px;line-height:1.55;color:var(--muted);margin:2px 0 14px;max-width:72ch;">Published so these rails can be checked against the chain. Operating history for a payments service, stated for transparency: information only, not an offer, a solicitation, a recommendation or investment advice, and not a projection. <a href="/transparency#revenue-figures">How each figure is derived</a>.</p>
     <p style="font-family:var(--font-mono);font-size:12px;color:var(--muted);margin:0 0 28px;">as of ${esc(snap.asOf)} · 60s cache · <a href="/api/revenue">/api/revenue</a> · <a href="/api/revenue/mpp">/api/revenue/mpp</a> · <a href="/api/revenue/daily">/api/revenue/daily</a></p>
     </section>
     <section>

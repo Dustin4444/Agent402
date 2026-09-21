@@ -1,6 +1,7 @@
 import { CHROME_HEAD_LINKS, CHROME_CSS, renderHeader, renderFooter } from "./chrome.js";
 import { applyMetaTrims } from "./seo-meta.js";
 
+import { repoUrl } from "./repo-link.js";
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 const INTEGRATIONS = [
@@ -34,7 +35,7 @@ const INTEGRATIONS = [
     }
   }
 }`,
-    link: "https://github.com/MikeyPetrillo/Agent402/tree/main/mcp",
+    link: repoUrl("tree/main/mcp"),
     linkLabel: "GitHub"
   },
   {
@@ -46,7 +47,7 @@ const INTEGRATIONS = [
     snippet: `import { agent402Tools } from "agent402-openai-tools";
 const { tools, execute } = await agent402Tools();
 // pass tools to chat.completions or Assistants`,
-    link: "https://github.com/MikeyPetrillo/Agent402/tree/main/adapters/openai-tools",
+    link: repoUrl("tree/main/adapters/openai-tools"),
     linkLabel: "GitHub"
   },
   {
@@ -58,7 +59,7 @@ const { tools, execute } = await agent402Tools();
     snippet: `import { agent402Tools } from "agent402-anthropic-tools";
 const { tools, execute } = await agent402Tools();
 // pass tools to messages.create()`,
-    link: "https://github.com/MikeyPetrillo/Agent402/tree/main/adapters/anthropic-tools",
+    link: repoUrl("tree/main/adapters/anthropic-tools"),
     linkLabel: "GitHub"
   },
   {
@@ -70,7 +71,7 @@ const { tools, execute } = await agent402Tools();
     snippet: `import { agent402Tools } from "agent402-ai-sdk";
 const { tools, execute } = await agent402Tools();
 // pass tools to streamText() or generateText()`,
-    link: "https://github.com/MikeyPetrillo/Agent402/tree/main/adapters/ai-sdk",
+    link: repoUrl("tree/main/adapters/ai-sdk"),
     linkLabel: "GitHub"
   },
   {
@@ -82,7 +83,7 @@ const { tools, execute } = await agent402Tools();
     snippet: `import { agent402Tools } from "agent402-langchain";
 const { tools, execute } = await agent402Tools();
 // pass tools to createReactAgent()`,
-    link: "https://github.com/MikeyPetrillo/Agent402/tree/main/adapters/langchain",
+    link: repoUrl("tree/main/adapters/langchain"),
     linkLabel: "GitHub"
   },
   {
@@ -94,7 +95,7 @@ const { tools, execute } = await agent402Tools();
     snippet: `import { agent402Tools } from "agent402-llamaindex";
 const { tools, execute } = await agent402Tools();
 // pass tools to new OpenAIAgent({ tools })`,
-    link: "https://github.com/MikeyPetrillo/Agent402/tree/main/adapters/llamaindex",
+    link: repoUrl("tree/main/adapters/llamaindex"),
     linkLabel: "GitHub"
   },
   {
@@ -106,7 +107,7 @@ const { tools, execute } = await agent402Tools();
     snippet: `import { agent402Tools } from "agent402-google-adk";
 const tools = await agent402Tools();
 // pass to new LlmAgent({ tools })`,
-    link: "https://github.com/MikeyPetrillo/Agent402/tree/main/adapters/google-adk",
+    link: repoUrl("tree/main/adapters/google-adk"),
     linkLabel: "GitHub"
   },
   {
@@ -118,7 +119,7 @@ const tools = await agent402Tools();
     snippet: `import { agent402Tools } from "agent402-openai-agents";
 const tools = await agent402Tools();
 // pass to new Agent({ tools })`,
-    link: "https://github.com/MikeyPetrillo/Agent402/tree/main/adapters/openai-agents",
+    link: repoUrl("tree/main/adapters/openai-agents"),
     linkLabel: "GitHub"
   },
   {
@@ -130,7 +131,7 @@ const tools = await agent402Tools();
     snippet: `import { agent402Tools } from "agent402-strands";
 const tools = await agent402Tools();
 // pass to new Agent({ tools })`,
-    link: "https://github.com/MikeyPetrillo/Agent402/tree/main/adapters/strands",
+    link: repoUrl("tree/main/adapters/strands"),
     linkLabel: "GitHub"
   },
   {
@@ -142,7 +143,7 @@ const tools = await agent402Tools();
     snippet: `import { Agent402 } from "agent402-client";
 const a = new Agent402();
 const out = await a.call("hash", { text: "hello" });`,
-    link: "https://github.com/MikeyPetrillo/Agent402/tree/main/client",
+    link: repoUrl("tree/main/client"),
     linkLabel: "GitHub"
   }
 ];

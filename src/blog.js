@@ -1,6 +1,7 @@
 import { routingProofSentence } from "./routing-proof.js";
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 
+import { REPO_URL } from "./repo-link.js";
 export const BLOG_POSTS = [
   {
     slug: "what-is-agentic-finance-aifi",
@@ -237,7 +238,7 @@ export const BLOG_POSTS = [
 
 <p>Beyond MCP, we publish framework-specific adapters for direct integration: OpenAI, Anthropic SDK, Vercel AI SDK, LangChain, LlamaIndex, Google ADK, OpenAI Agents, and AWS Strands. Each adapter wraps Agent402 tools in the framework's native tool format, so you can drop them into existing agent code without protocol translation.</p>
 
-<p>All adapters and the MCP package are open source and published on npm. Check the <a href="https://github.com/MikeyPetrillo/Agent402">GitHub repo</a> for the latest versions.</p>`,
+<p>All adapters and the MCP package are open source and published on npm. Check the <a href="${REPO_URL}">GitHub repo</a> for the latest versions.</p>`,
   },
 ];
 

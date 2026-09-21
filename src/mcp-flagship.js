@@ -11,6 +11,9 @@
 // Exactly 8 catalog flagships so hosted tools/list stays ~15 with meta tools
 // (Glama's well-scoped band is 3–15).
 
+import { REPO_SLUG } from "./repo-link.js";
+const REPO_OWNER = REPO_SLUG.split("/")[0];
+
 export const FLAGSHIP_SLUGS = [
   "search",
   "answer",
@@ -490,7 +493,7 @@ export function mcpInstallHints(baseUrl) {
       },
     },
     npm: "npx -y agent402-mcp",
-    smithery: "Paste the hosted URL at https://smithery.ai/new (or: smithery mcp publish \"https://agent402.tools/mcp\" -n @MikeyPetrillo/agent402). Submission is external; Agent402 does not auto-publish.",
+    smithery: `Paste the hosted URL at https://smithery.ai/new (or: smithery mcp publish "https://agent402.tools/mcp" -n @${REPO_OWNER}/agent402). Submission is external; Agent402 does not auto-publish.`,
     maintainer: "Havok Holdings LLC",
   };
 }

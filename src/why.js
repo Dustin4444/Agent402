@@ -6,6 +6,7 @@
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 import { routingProofSentence } from "./routing-proof.js";
 
+import { REPO_URL } from "./repo-link.js";
 export const WHY_POINTS = [
   {
     id: "actual",
@@ -54,7 +55,7 @@ export const WHY_POINTS = [
     kicker: "07 / PROOF",
     h: "Everything is checkable.",
     p: "Uptime is observed by two probes outside production, a real-money canary buys through every rail daily, transactions are published by rail and by wire, and the whole server is open source and self-hostable. The deterministic tools are pure code with no model in their path - parsers, hashes, math, a real browser - and the ones that DO run a model are named rather than blended in: the /v1 gateway tiers, the report products, and the image, speech, transcription, embedding and AI-answer tools. Every 402 also carries the SHAPE of the answer before you pay: the accept declares an outputSchema, so an agent can check what came back against what was promised instead of taking a status code on trust. The operator is identified on-chain too: Agent402 is agent 94639 in the ERC-8004 Identity Registry on Base, and /.well-known/agent-registration.json is the record that registration points at, beside an A2A agent card at /.well-known/agent-card.json. So an agent can resolve who serves this catalog from the chain rather than from this page.",
-    links: [["/proof", "receipts"], ["/status", "status"], ["/revenue", "transactions"], ["/.well-known/agent-registration.json", "on-chain identity"], ["https://github.com/MikeyPetrillo/Agent402", "source"]],
+    links: [["/proof", "receipts"], ["/status", "status"], ["/revenue", "transactions"], ["/.well-known/agent-registration.json", "on-chain identity"], [REPO_URL, "source"]],
   },
 ];
 
