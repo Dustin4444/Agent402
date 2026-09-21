@@ -729,7 +729,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
 
   const statsHtml = `
   <div class="ml-2col" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:26px 0 0;">
-    <div style="border:1px solid var(--hairline);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">SELLERS LISTED</div><div style="font-size:26px;font-weight:800;">${rosterSellers.length.toLocaleString("en-US")}</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--faint);margin-top:2px;">distinct payees &middot; ${sellers.length.toLocaleString("en-US")} endpoints indexed</div></div>
+    <div style="border:1px solid var(--hairline);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">SELLERS LISTED</div><div style="font-size:26px;font-weight:800;">${rosterSellers.length.toLocaleString("en-US")}</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--faint);margin-top:2px;">distinct payees &middot; ${sellers.length.toLocaleString("en-US")} origins indexed</div></div>
     <div style="border:1px solid var(--hairline);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">TOOLS (THIS HOST)</div><div style="font-size:26px;font-weight:800;">${tools.length.toLocaleString("en-US")}</div></div>
     <div style="border:1px solid var(--hairline);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">LATEST SETTLE</div><div style="font-size:26px;font-weight:800;">${latest ? usd(latest.usd) : "-"}</div></div>
     <div style="border:1px solid var(--hairline);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">PRICE FLOOR</div><div style="font-size:26px;font-weight:800;">${usd(low)}</div></div>
@@ -1162,7 +1162,7 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
 
   const statsHtml = `
   <div class="ml-2col ml-4col" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:26px 0 0;">
-    <div style="border:1px solid var(--hairline);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">SELLERS LISTED</div><div style="font-size:26px;font-weight:800;">${rosterSellers.length.toLocaleString("en-US")}</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--faint);margin-top:2px;">distinct payees &middot; ${sellers.length.toLocaleString("en-US")} endpoints indexed</div></div>
+    <div style="border:1px solid var(--hairline);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">SELLERS LISTED</div><div style="font-size:26px;font-weight:800;">${rosterSellers.length.toLocaleString("en-US")}</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--faint);margin-top:2px;">distinct payees &middot; ${sellers.length.toLocaleString("en-US")} origins indexed</div></div>
     <div style="border:1px solid var(--hairline);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">TOOL LISTINGS</div><div style="font-size:26px;font-weight:800;">${totalToolListings.toLocaleString("en-US")}</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--faint);margin-top:2px;">advertised &middot; ours and every other seller</div></div>
     <div style="border:1px solid var(--hairline);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">CHAINS SUPPORTED</div><div style="font-size:26px;font-weight:800;">${Object.keys(CHAIN_PAGES).length}</div></div>
     <div style="border:1px solid var(--hairline);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">TOOLS (THIS HOST)</div><div style="font-size:26px;font-weight:800;">${(sellers.find((s) => s.local)?.toolCount || 0).toLocaleString("en-US")}</div></div>
@@ -1191,6 +1191,11 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
       </div>
     </div>
     <p style="font-size:13px;color:var(--faint);margin:10px 0 0;">Describe the job, not the tool name - FIND searches every tool and shows live results. Resolving is free (<span style="color:var(--muted);">GET /api/find</span>), you only pay to execute. This is the neutral x402 index: every seller, not just ours.</p>
+    <div style="margin:12px 0 0;padding:12px 18px;border:1px solid var(--hairline);background:var(--card);max-width:640px;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;">
+      <span style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--faint);">SELLER PATH</span>
+      <span style="font-size:13.5px;color:var(--muted);flex:1;min-width:220px;">Selling an x402 API? Listing is free, takes no signup, and deducts nothing from your price.</span>
+      <a href="/sell" style="font-family:var(--font-mono);font-size:12.5px;font-weight:700;color:var(--accent);text-decoration:none;white-space:nowrap;">list your API →</a>
+    </div>
     ${statsHtml}
   </div>`;
 
@@ -1330,9 +1335,9 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
   <section>${chainGridSection}</section>
   <section>${economyStripHtml(economySnap)}</section>
   <section>${routerAndMethodSection}</section>
-  <section>${faqSection}</section>
+  <section>${closingCta}</section>
   <section>
-    ${closingCta}
+    ${faqSection}
     <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:28px;">machine-readable: <a href="/.well-known/x402">/.well-known/x402</a> · <a href="/openapi.json">/openapi.json</a> · <a href="/api/reliability">/api/reliability</a></p>
   </section>
 </div>

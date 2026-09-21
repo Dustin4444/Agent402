@@ -123,11 +123,17 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   // Hero counter = the chain-derived settled count (same two ledger reads as
   // /revenue - the numbers must agree across surfaces); the in-process tally
   // is the fallback only while the ledger is still warming after a boot.
-  const heroCount = Number(settledOnChain) || viaUsdc;
+  // Two DIFFERENT quantities, so the label has to follow which one we got:
+  // settledOnChain counts inbound on-chain transfers to our wallets (ours
+  // included), viaUsdc counts calls this server actually served for a
+  // stablecoin payment. The fallback exists because the ledger warms after a
+  // boot, but a number that changes meaning silently is worse than a number
+  // that is briefly missing.
+  const heroFromChain = Number(settledOnChain) > 0;
+  const heroCount = heroFromChain ? Number(settledOnChain) : viaUsdc;
+  const heroLabel = heroFromChain ? "on-chain settlements · all rails · ours included" : "calls served for a stablecoin payment";
   const viaPow = Number(served.viaProofOfWork) || 0;
   const mppWire = Number(served.viaMPPWire) || 0;
-  const viaRouter = Number(served.viaRouter) || 0;
-  const routerPct = viaUsdc ? (viaRouter / viaUsdc < 0.001 ? "under 0.1%" : `${((100 * viaRouter) / viaUsdc).toFixed(1)}%`) : "0%";
   const rails = railsByVolume(stats);
   const attributed = rails.reduce((sum, r) => sum + r.n, 0);
   const board = externalLeaderboardRows(leaderboardSnapshot);
@@ -254,9 +260,9 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
             <div id="hm-counter" data-via-usdc="${esc(heroCount)}" style="font-family:var(--font-body);font-weight:500;font-size:44px;line-height:.95;letter-spacing:-.035em;color:var(--on-dark);font-variant-numeric:tabular-nums;">${heroCount ? fmtNum(heroCount) : ""}</div>
             <div id="hm-counter-empty" style="display:${heroCount ? "none" : "flex"};align-items:center;gap:11px;">
               <span style="width:8px;height:8px;border-radius:50%;background:var(--accent-lit);flex:none;animation:ml-pulse 1.6s ease-in-out infinite;"></span>
-              <span style="font-family:var(--font-mono);font-size:15px;color:var(--on-dark2);">Listening for on-chain payments…</span>
+              <span style="font-family:var(--font-mono);font-size:15px;color:var(--on-dark2);">Settlement count loading</span>
             </div>
-            <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dk-muted3);margin-top:8px;">calls paid in stablecoin · all rails</div>
+            <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dk-muted3);margin-top:8px;">${heroLabel}</div>
           </div>
           <div style="font-family:var(--font-mono);font-size:12px;color:var(--dk-muted3);text-align:right;">+ <strong id="hm-freepow" style="color:var(--on-dark2);font-weight:500;">${fmtNum(viaPow)}</strong> more served free over proof-of-work<br><a href="https://basescan.org/address/0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0#tokentxns" style="color:var(--accent-lit);text-decoration:none;">verify on Basescan ↗</a></div>
         </div>
@@ -298,7 +304,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
 
 <section style="max-width:1180px;margin:0 auto;padding:36px 30px 0;">
   <div class="hm-proof" style="padding:26px 0;border-top:1px solid var(--hairline);border-bottom:1px solid var(--hairline);">
-    <div style="display:flex;flex-direction:column;gap:4px;"><span style="font-family:var(--font-mono);font-size:26px;letter-spacing:-.02em;color:var(--ink);font-variant-numeric:tabular-nums;">${heroCount ? fmtNum(heroCount) : "·"}</span><span style="font-size:13px;color:var(--faint);">calls settled on chain, all rails</span></div>
+    <div style="display:flex;flex-direction:column;gap:4px;"><span style="font-family:var(--font-mono);font-size:26px;letter-spacing:-.02em;color:var(--ink);font-variant-numeric:tabular-nums;">${heroCount ? fmtNum(heroCount) : "·"}</span><span style="font-size:13px;color:var(--faint);">${heroLabel}</span></div>
     <div style="display:flex;flex-direction:column;gap:4px;"><span style="font-family:var(--font-mono);font-size:26px;letter-spacing:-.02em;color:var(--ink);font-variant-numeric:tabular-nums;">${fmtNum(count)}</span><span style="font-size:13px;color:var(--faint);">tools · ${packCount}+ skill packs</span></div>
     <div style="display:flex;flex-direction:column;gap:4px;"><span style="font-family:var(--font-mono);font-size:26px;letter-spacing:-.02em;color:var(--ink);font-variant-numeric:tabular-nums;">${RAILS.length}</span><span style="font-size:13px;color:var(--faint);">settlement rails · x402 + MPP</span></div>
     <div style="display:flex;flex-direction:column;gap:4px;"><span style="font-family:var(--font-mono);font-size:26px;letter-spacing:-.02em;color:var(--accent);">0%</span><span style="font-size:13px;color:var(--faint);">deducted from sellers · open source</span></div>
@@ -312,7 +318,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
     <h2 class="hm-h2">Or pay with CPU instead.</h2>
     <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">no wallet · no signup · runs in this tab</span>
   </div>
-  <p class="hm-lede" style="max-width:700px;margin:0 0 26px;">The pure-CPU tools are payable in compute: the server issues a signed sha256 puzzle, you burn a fraction of a second solving it, and the call is served free. This is not a diagram - press the button and your browser will fetch a real challenge from the live server, solve it here, and make a real paid call.</p>
+  <p class="hm-lede" style="max-width:700px;margin:0 0 26px;">The pure-CPU tools are payable in compute: the server issues a signed sha256 puzzle, you burn a fraction of a second solving it, and the call is served free. Press the button: your browser fetches a real challenge from the live server, solves it here, and makes a real call.</p>
   <div class="hm-2col" style="gap:0;border-radius:18px;overflow:hidden;border:1px solid var(--hairline);">
     <div style="padding:26px;background:var(--card);border-right:1px solid var(--hairline);">
       <label for="hm-demo-in" style="display:block;font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:10px;">Text to hash</label>
@@ -327,7 +333,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
     <div style="background:var(--surface);color:var(--on-dark);display:flex;flex-direction:column;">
       <div style="padding:14px 20px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;color:var(--dk-muted);display:flex;justify-content:space-between;gap:12px;">
         <span>POST /api/hash</span>
-        <span id="hm-demo-status" style="color:var(--dk-muted3);">idle</span>
+        <span id="hm-demo-status" style="color:var(--dk-muted3);">ready</span>
       </div>
       <pre id="hm-demo-out" class="hm-term" style="padding:20px;flex:1;color:var(--on-dark);"># the same three steps, from a shell:
 curl -s '/api/pow/challenge?slug=hash'
@@ -388,7 +394,7 @@ curl -X POST /api/hash \\
       <tr><th scope="row" style="text-align:left;font-weight:500;padding:13px 18px;color:var(--ink);">Cross-chain buyers</th><td style="padding:13px 18px;text-align:right;color:var(--muted);white-space:nowrap;">Base · Algorand</td></tr>
     </tbody>
   </table>
-  <p style="font-family:var(--font-mono);font-size:12.5px;line-height:1.6;color:var(--faint);margin:14px 0 0;"><strong style="color:var(--ink);font-weight:500;">${fmtNum(viaRouter)}</strong> of ${fmtNum(viaUsdc)} paid calls (${esc(routerPct)}) came through the router, which is the only path Agent402 earns on. Every other paid call went buyer wallet to seller wallet.</p>
+  <p style="font-family:var(--font-mono);font-size:12.5px;line-height:1.6;color:var(--faint);margin:14px 0 0;">No listing fee and no commission. A buyer pays your wallet directly from your own 402, which names your payTo and not ours, so nothing is deducted and nothing routes through us unless a buyer asks us to buy on their behalf.</p>
   <div style="margin-top:16px;font-family:var(--font-mono);font-size:13px;"><a href="/sell" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--ink);padding-bottom:1px;">everything for sellers → /sell</a></div>
 </section>
 
