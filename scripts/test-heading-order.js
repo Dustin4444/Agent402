@@ -17,13 +17,45 @@ const PAGES = ["/", "/reports", "/monitors", "/quickstart", "/pricing", "/docs",
   "/leaderboard", "/revenue", "/sell", "/tools", "/why", "/proof", "/company", "/security",
   "/transparency", "/privacy", "/terms", "/faq", "/credits", "/markets", "/skills"];
 
+// Ranges of raw-text elements, found by SCANNING rather than by pattern.
+//
+// Two earlier attempts here stripped script and style with a regex and CodeQL
+// flagged both, correctly: `<\/script>` does not match `</script >`, which is
+// legal HTML, and a strip that misses one leaves markup the extractor then
+// reads as a heading. Widening the pattern did not clear it either, and that is
+// the signal to stop - a regex that filters tags is the wrong instrument, and
+// the same lesson landed on another test in this repo a fortnight ago.
+//
+// indexOf cannot be fooled by whitespace inside a closing tag, so this finds
+// where those elements START and END and the extractor simply ignores headings
+// that fall inside one. Nothing is rewritten, so nothing can be rewritten
+// wrongly.
+function rawTextRanges(html) {
+  const ranges = [];
+  const lower = html.toLowerCase();
+  for (const tag of ["script", "style"]) {
+    let from = 0;
+    for (;;) {
+      const open = lower.indexOf("<" + tag, from);
+      if (open === -1) break;
+      const openEnd = lower.indexOf(">", open);
+      if (openEnd === -1) { ranges.push([open, html.length]); break; }
+      const close = lower.indexOf("</" + tag, openEnd);
+      // An unclosed raw-text element runs to the end of the document, which is
+      // what a browser does with it too.
+      const end = close === -1 ? html.length : lower.indexOf(">", close) + 1 || html.length;
+      ranges.push([open, end]);
+      from = end;
+    }
+  }
+  return ranges;
+}
+
 const headings = (html) => {
-  // Tolerant closing tags: </script > and </style\n> are both legal HTML, and a
-  // strip that misses one leaves markup this function would read as a heading.
-  const h = html
-    .replace(/<style\b[\s\S]*?<\/\s*style\s*>/gi, " ")
-    .replace(/<script\b[\s\S]*?<\/\s*script\s*>/gi, " ");
-  return [...h.matchAll(/<(h[1-6])[^>]*>([\s\S]*?)<\/\1>/gi)]
+  const ranges = rawTextRanges(html);
+  const inside = (i) => ranges.some(([a2, b2]) => i >= a2 && i < b2);
+  return [...html.matchAll(/<(h[1-6])[^>]*>([\s\S]*?)<\/\1>/gi)]
+    .filter((m) => !inside(m.index))
     .map((m) => ({ level: Number(m[1][1]), text: m[2].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim() }));
 };
 
