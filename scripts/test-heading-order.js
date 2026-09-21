@@ -51,12 +51,30 @@ function rawTextRanges(html) {
   return ranges;
 }
 
+// Visible text of a heading, by the same scanning rule as above.
+//
+// `replace(/<[^>]+>/g, "")` is the third regex in this file CodeQL objected to,
+// and it is right that the pattern is not a tag parser. It is also the last
+// place this file needs one: the result is only ever compared, measured for
+// emptiness, and sliced into a failure message, never put back into a page. So
+// rather than argue the exploitability, walk the string and keep what is
+// outside angle brackets. Shorter than the regex and not arguable.
+function visibleText(fragment) {
+  let out = "", depth = 0;
+  for (const ch of fragment) {
+    if (ch === "<") depth++;
+    else if (ch === ">") { if (depth > 0) depth--; }
+    else if (depth === 0) out += ch;
+  }
+  return out.replace(/\s+/g, " ").trim();
+}
+
 const headings = (html) => {
   const ranges = rawTextRanges(html);
   const inside = (i) => ranges.some(([a2, b2]) => i >= a2 && i < b2);
   return [...html.matchAll(/<(h[1-6])[^>]*>([\s\S]*?)<\/\1>/gi)]
     .filter((m) => !inside(m.index))
-    .map((m) => ({ level: Number(m[1][1]), text: m[2].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim() }));
+    .map((m) => ({ level: Number(m[1][1]), text: visibleText(m[2]) }));
 };
 
 // CONTROL. A sweep that has never seen a skip cannot tell "clean" from "blind",
