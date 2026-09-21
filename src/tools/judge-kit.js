@@ -139,6 +139,7 @@ export const JUDGE_TOOLS = [{
   description: "Ask a typed question about any content and get an answer your code can branch on, not prose to parse. Three question types: choice (pick one of your named options, with a probability for each and a confidence), score (a position on levels you describe), and noul (a yes/no as a probability from 0 to 1). Up to 8 questions per call, answered in parallel over one piece of state. Model-backed, not deterministic.",
   tags: ["ai", "classify", "judgment", "routing", "extraction"],
   discovery: {
+    bodyType: "json",
     inputSchema: {
       type: "object",
       required: ["state", "questions"],
