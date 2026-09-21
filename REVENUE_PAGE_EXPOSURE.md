@@ -25,7 +25,7 @@ The severities below are set on that basis.
 | ID | Category | What is exposed | Realistic risk | Severity | Location | Fix | Confidence |
 |----|----------|-----------------|----------------|----------|----------|-----|------------|
 | **F-1** | Fund security / API | Raw upstream error text on an unauthenticated endpoint. Eleven of the RPC endpoints the rail scanners walk carry `ALCHEMY_API_KEY` **in the URL path**, and an upstream that echoes its own request inside an error body publishes it. The identical leak occurred on `/api/leaderboard` in Aug 2026 and was fixed in four modules; this one was missed. | Credential theft, then billed usage on our Alchemy account | **High** | `src/revenue-live.js` 13 `out.error` sites, `getJsonAcross`, `rpcCall` via `describeError` | **Fixed on this branch.** All public error text goes through `pubErr()`, which redacts **before** truncating. Guard `scripts/test-revenue-redaction.js`, 6 mutations killed, wired into CI. | High. Reproduced with a planted key. |
-| **F-2** | Fund security | `ALCHEMY_API_KEY` was reachable through the path in F-1 for an unknown period | Same as F-1 | **High** | Railway env | **Owner action: rotate.** No evidence it leaked; the correct response to "was reachable" is to assume it did. | High |
+| **F-2** | Fund security | `ALCHEMY_API_KEY` was reachable through the path in F-1 for an unknown period | Same as F-1 | **Closed, accepted** | Railway env | **Rotation declined by the owner, 2026-09-20, with the reasoning below.** A usage alert at $30/month was set instead, which bounds the cost of any future leak rather than only this one. | High |
 | **F-3** | Fund security | The SOR spending wallet's address is published on every `route-execute*` 402 challenge as the Base payTo (`0x7706…4121`), and the AVM one as the Algorand payTo. Its sweeps to the treasury are visible on-chain, so the two are linkable. | Targeting: an attacker can watch the hot wallet's balance and time an attempt for when it is funded | **Medium** | `src/payments.js` `acceptsForItem` / `SELF_FUNDING_SLUGS` | **Not fixable by hiding.** A payTo must be published to be paid, and the self-funding loop is what stops the wallet needing manual top-ups. Mitigate by bounding the balance instead: see `WALLET_ISOLATION_PLAN.md`. | High |
 | **F-4** | API / competitive | `/api/revenue` names the payer of every row in `rails[].recent[].from`. One snapshot carried 94 rows across 12 rails and **11 distinct payers**, so the exposure is accumulation over time rather than the size of any single read. `/api/revenue/daily` deliberately publishes counts only, with the reason written in the code: "a per-day roster of who pays us is a customer list." | Customer-list harvesting; a competitor learns exactly who buys | **Low** | `src/revenue-live.js` recent-transfer feed | **Deliberately not removed.** Each `from` is one click from the `txHash` published beside it, and the hash is the verification primitive that cannot be withheld, so dropping the field would be cosmetic. Bounded instead by F-5. | High |
 | **F-5** | API | No rate limit on any of the six transaction surfaces. Responses are cached 30-300s, so this is not a load problem; it is a bulk-scraping problem for the feed in F-4. | Buyer-roster harvesting at speed | **Medium** | `src/server.js` | **Fixed on this branch.** Own bucket, 60/min and 600/hour, mounted before the handlers, `Retry-After` on refusal, HTML refusal on `/revenue` so a crawler does not lose the page. Pinned from source. | High |
@@ -37,6 +37,42 @@ The severities below are set on that basis.
 | **F-11** | Identity | `duns: "142233542"` in the `/company` `Organization` JSON-LD, with `addressRegion: NC` | Marginal. A DUNS record is already publicly searchable and names the business, not the person. | **Informational** | `src/company.js` | No change recommended. Correct entity, correct level of disclosure. | High |
 | **F-12** | Identity | `src/tools/enrich-kit.js` uses this repository as the documented example input for the `github-repo` tool, so the handle appears in `/openapi.json` and `/llms.txt` | Marginal, but it is a served surface | **Informational** | `enrich-kit.js` | Left alone deliberately and exempted with a reason in the guard: the CI example check drives that tool against the live API, so the repo named there is test data and changing it means changing a published example and its expected output. Revisit when the repo moves. | High |
 | **F-13** | Claims | Buyer concentration ("top 5 = N% of their payments") and exact distinct-buyer counts are published | Competitive intelligence, not a legal risk | **Informational** | `revenuePage` hero, `/api/revenue/daily` | **Flagged, not changed.** This looks intentional: the code comment beside it says a buyer count "means nothing if one wallet is most of the volume", which is a transparency argument, and the figures are counts with no addresses. Raised here only so the choice is explicit. | High |
+
+## F-2: why rotation was declined
+
+Recorded because a decision to accept a risk is worth more to a later reader
+than a recommendation nobody acted on, and because the evidence behind it was
+measured rather than assumed.
+
+The key was checked against twelve live public surfaces (`/api/revenue`,
+`/api/leaderboard`, `/api/gateway-status`, `/api/stats`, `/api/status`,
+`/openapi.json`, `/llms.txt`, `/.well-known/x402`, `/api/reliability`,
+`/api/solana-leaderboard`, `/api/index`, `/api/revenue/daily`), roughly 3 MB of
+response bodies, by grepping for the literal value read out of Railway into
+shell memory and never printed. **Clean on all twelve**, with a control proving
+the grep could see the value if it were present. It is also absent from the
+repository tree and from every revision in git history.
+
+So the honest characterisation is a **near miss, not an incident**: a path
+existed by which an upstream echoing its own request URL inside an error body
+during an outage would have published the key, and nothing indicates that ever
+happened. That path is closed (F-1), pinned by a guard, and mutation-tested.
+
+The owner set a **$30/month usage alert** instead. That is the better control
+of the two on its own terms: rotation only addresses this one exposure, while
+an alert bounds the cost of any future leak through a path nobody has thought
+of yet. Alchemy is pay-as-you-go at roughly $16/month, so an alert at about 2x
+normal is heard days before a leak becomes expensive.
+
+**What was consciously accepted:** if the key did leak through that path before
+it was closed, it is still valid. The alert is what would surface that, as
+anomalous spend rather than as a breach notification. Revisit if the alert ever
+fires without an explanation in our own traffic.
+
+A hard spending cap was discussed and deliberately not set: a cap that bites
+takes down the revenue scanners, `/revenue` and the Solana leaderboard, so it is
+a denial of service against ourselves. An alert acted on beats a cap that fires
+at 3am.
 
 ## Part-by-part answers
 
