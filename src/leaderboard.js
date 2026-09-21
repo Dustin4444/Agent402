@@ -61,7 +61,7 @@ export const CONCENTRATION = { majority: 0.5, supermajority: 0.9 };
 // uniqueBuyers cannot tell them apart.
 export const PAYER_BREADTH = { multiSellerMin: 3 };
 
-const DEFAULTS = {
+export const DEFAULTS = {
   bazaarUrl: process.env.BAZAAR_URL || "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources",
   spanBlocks: parseInt(process.env.SPAN_BLOCKS || "43200", 10), // ~24h of Base blocks
   // Free-tier Base RPCs cap eth_getLogs at 10,000 blocks per call; chunk a wide
@@ -138,6 +138,70 @@ export function baseUsdcPayToFromItem(item, chain = { caip2: BASE_MAINNET, token
   return null;
 }
 
+/** The price this listing ADVERTISES on the scanned chain, in micro-dollars,
+ *  or null when it declares none we can read.
+ *
+ *  Reads the same accept `baseUsdcPayToFromItem` picked, so the price and the
+ *  wallet always come from one row rather than two. USDC is 6 decimals on
+ *  every chain we scan, so base units ARE micro-dollars. */
+export function advertisedMicroUsd(item, chain = { caip2: BASE_MAINNET, token: USDC, key: "base" }) {
+  const accepts = Array.isArray(item?.accepts) ? item.accepts : [];
+  const want = String(chain.caip2 || BASE_MAINNET);
+  const token = String(chain.token || USDC).toLowerCase();
+  for (const a of accepts) {
+    if (a?.network !== want) continue;
+    const asset = String(a.asset || "").toLowerCase();
+    if (asset && asset !== token) continue;
+    const raw = a.amount ?? a.maxAmountRequired;
+    const n = Number(raw);
+    // Whole positive base units only. A decimal, a NaN or a zero tells us
+    // nothing about what this seller charges, and a wrong price here would
+    // admit transfers rather than exclude them.
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) return null;
+    return n;
+  }
+  return null;
+}
+
+/** Does this transfer look like a purchase at a price the seller publishes?
+ *
+ *  WHY THIS EXISTS. The fold used to keep a transfer only when it was under a
+ *  flat MAX_CALL_USD ceiling, with the reasoning that "bigger transfers are
+ *  funding/swaps, not tool buys". That was true when every x402 tool cost a
+ *  fraction of a cent and it is not true now. Measured 2026-09-21 against a
+ *  curated list of seven active services over the same 7-day window we scan:
+ *  SIX were absent from our board entirely, and every one of those six has an
+ *  average transfer above the ceiling - one of them by four cents (27,590
+ *  transactions, 715 buyers, $0.79 each). We were not ranking them lower. We
+ *  could not see them.
+ *
+ *  The ceiling was not simply wrong, which is why this does not just raise it.
+ *  Some of those services convert stablecoins or sell gift cards, so their
+ *  volume is the value moved rather than a fee, and folding that in would make
+ *  this a table of money-moved and call it API revenue. The ceiling was
+ *  aiming at that and hitting everything else.
+ *
+ *  So ask the seller instead. We already hold every price each wallet
+ *  advertises, from the same feed and the same accept the wallet came from. A
+ *  transfer that equals one of them is a purchase at a published price, at any
+ *  size. A transfer that matches nothing is held to the old ceiling, which is
+ *  the honest fallback for a wallet whose listings we cannot read.
+ *
+ *  TOLERANCE. Premium chains quote slightly above list (NETWORK_PRICE_PREMIUMS)
+ *  and a buyer may round up, so a payment AT or slightly ABOVE a published
+ *  price counts, and one below it does not - underpaying is not buying. The
+ *  window is one cent or 2%, whichever is larger, which covers a premium on a
+ *  dollar-scale price without letting a $1,000 transfer match a $0.99 listing.
+ */
+export function priceMatches(microUsd, prices) {
+  if (!prices || !prices.size || !Number.isFinite(microUsd)) return false;
+  for (const p of prices) {
+    const slack = Math.max(10_000, Math.round(p * 0.02));
+    if (microUsd >= p && microUsd <= p + slack) return true;
+  }
+  return false;
+}
+
 /** Scan config for any EVM rail we settle on, assembled from the two places
  *  that already define them: NETWORKS (CAIP-2) and revenue-live's EVM block
  *  (USDC address, Alchemy-first RPCs, and a span already tuned to that chain's
@@ -191,12 +255,18 @@ export function extractWalletsFromBazaar(payload, chain = undefined) {
         origins: new Set(),
         names: new Map(), // name → count, so we can pick the most common
         endpoints: 0,
+        // Every price this wallet ADVERTISES, in micro-dollars. This is what
+        // turns "is this transfer a tool buy" from a guess into a reading of
+        // the seller's own listing - see priceMatches below.
+        prices: new Set(),
       });
     }
     const row = byWallet.get(pay.wallet);
     if (origin) row.origins.add(origin);
     const name = String(item?.serviceName || item?.name || "").trim();
     if (name) row.names.set(name, (row.names.get(name) || 0) + 1);
+    const micro = advertisedMicroUsd(item, chain);
+    if (micro != null) row.prices.add(micro);
     row.endpoints += 1;
   }
   return [...byWallet.values()].map((r) => {
@@ -222,6 +292,10 @@ export function extractWalletsFromBazaar(payload, chain = undefined) {
       origins,
       homepage: origins[0] || null,
       endpoints: r.endpoints,
+      // Carried through to the fold, which needs the seller's own prices to
+      // decide whether a transfer is a purchase. Kept as a Set: it is read
+      // per transfer and never serialised.
+      prices: r.prices,
     };
   });
 }
@@ -404,7 +478,16 @@ export function foldTransfers(byWallet, transfers, maxCallUsd = DEFAULTS.maxCall
   for (const t of transfers) {
     const row = byWallet.get(t.wallet);
     if (!row) continue;
-    if (!(t.usd > 0) || t.usd > maxCallUsd) continue;
+    if (!(t.usd > 0)) continue;
+    // A transfer counts when the seller publishes that price, at any size;
+    // otherwise it falls back to the flat ceiling. `prices` is empty for a
+    // wallet whose listings carry no readable amount, and then this is exactly
+    // the old rule. See priceMatches for why the ceiling alone was hiding
+    // whole sellers rather than ranking them low.
+    const micro = Math.round(t.usd * 1e6);
+    const matched = priceMatches(micro, row.prices);
+    if (!matched && t.usd > maxCallUsd) { row.overCeilingSkipped = (row.overCeilingSkipped || 0) + 1; continue; }
+    if (matched && t.usd > maxCallUsd) row.abovePriceMatched = (row.abovePriceMatched || 0) + 1;
     // Skipped whole, not just as a payer: a settlement we paid for is not a
     // settlement the seller earned, so counting the call while dropping the
     // payer would leave callsSettled overstating what uniqueBuyers reports.
@@ -561,6 +644,10 @@ export function finalizeLeaderboard(byWallet, { maxCallUsd = DEFAULTS.maxCallUsd
     const g = groups.get(key);
     g.callsSettled += w.callsSettled;
     g.totalUsd += w.totalUsd;
+    // Visible rather than silent: how much of this row the flat ceiling alone
+    // would have dropped, and how much it is still dropping.
+    g.abovePriceMatched = (g.abovePriceMatched || 0) + (w.abovePriceMatched || 0);
+    g.overCeilingSkipped = (g.overCeilingSkipped || 0) + (w.overCeilingSkipped || 0);
     for (const [payer, v] of w.perPayer) {
       const p = g.perPayer.get(payer) || { calls: 0, usd: 0 };
       p.calls += v.calls;
@@ -615,6 +702,11 @@ export function finalizeLeaderboard(byWallet, { maxCallUsd = DEFAULTS.maxCallUsd
         callsSettled: g.callsSettled,
         totalUsd: Number(g.totalUsd.toFixed(6)),
         uniqueBuyers: g.perPayer.size,
+        // Published so a reader can see the rule working rather than take it on
+        // trust: settlements counted ONLY because they matched a price this
+        // seller advertises, and settlements still dropped for matching none.
+        settlementsAbovePerCallCeiling: g.abovePriceMatched || 0,
+        transfersSkippedOverCeiling: g.overCeilingSkipped || 0,
         ...payerConcentration(g.perPayer, g.callsSettled, g.totalUsd),
         ...payerBreadth(g.perPayer, g.callsSettled, sellersPerPayer),
       };
