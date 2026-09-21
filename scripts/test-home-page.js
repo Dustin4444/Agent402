@@ -41,7 +41,24 @@ const catalog = {
   ok(html.includes("214") && html.includes(">Robinhood Chain<") && html.includes(">USDG<"), "Robinhood Chain renders with its real count and USDG asset, not USDC");
   ok(html.includes(">·<"), "a rail with zero recorded settlements renders as a dash placeholder, never a fabricated 0");
   ok(html.includes("69") && html.includes("settled over the MPP wire"), "MPP wire count renders");
-  ok(html.includes(">41</strong> of 40,233 paid calls"), "router-share disclosure renders the real viaRouter/viaUSDC numbers");
+  ok(html.includes(">41</strong> time"), "router disclosure renders the real viaRouter count, not a fabricated one");
+  // The sentence this replaced compared viaRouter to viaUSDC and then said
+  // "every other paid call went buyer wallet to seller wallet". viaUSDC is OUR
+  // OWN paid tool calls: those other calls are buyers paying US, settling to
+  // our treasury, and we are the seller on them. So the clause described the
+  // money going somewhere it did not and wrote off the primary business in the
+  // same breath. Pinned in both directions because a percentage next to a
+  // neutrality claim is the tempting shape to reach for again.
+  // Scoped to the router sentence: "N of M paid calls" is a CORRECT shape
+  // elsewhere on this page (the per-rail attribution line compares two figures
+  // that are both our own paid calls). It is only wrong when M is our own
+  // volume and the subject is the router.
+  const routerP = html.slice(html.indexOf("No listing fee and no commission"), html.indexOf("everything for sellers"));
+  ok(routerP.length > 80, "control: the router paragraph was located");
+  ok(!/of [\d,]+ paid calls/.test(routerP), "the router count is NOT divided by our own paid call volume");
+  ok(!/%/.test(routerP), "no share-of-our-volume percentage in the router disclosure");
+  ok(!html.includes("went buyer wallet to seller wallet"), "the claim that every other paid call bypassed us is gone");
+  ok(/no commission/i.test(html) && /never out of your price/i.test(html), "the neutrality claim a seller is asking about is still made, plainly");
   ok(html.includes("Seller-One.example") && html.includes("agents.chain.link"), "external leaderboard rows render");
   {
     // The five-column mono table is ~520px wide; at a 375px viewport the card's
@@ -64,7 +81,7 @@ const catalog = {
   ok(html.includes("Listening for on-chain payments"), "empty-state counter pulse renders instead of a bare 0");
   ok(!/>0</.test(html.slice(html.indexOf('id="hm-counter"'), html.indexOf('id="hm-counter"') + 400)), "counter does not render a fabricated 0 with no data");
   ok(html.includes("unavailable"), "leaderboard section states unavailable rather than rendering an empty table silently");
-  ok(html.includes(">0</strong> of 0 paid calls"), "router-share disclosure degrades to real zeros, not hidden or fabricated, with no data");
+  ok(html.includes(">0</strong> times"), "router disclosure degrades to a real zero, not hidden or fabricated, with no data");
 }
 
 // --- commercial sensitivity: no tool slug next to a purchase count ----------

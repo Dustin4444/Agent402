@@ -127,7 +127,6 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   const viaPow = Number(served.viaProofOfWork) || 0;
   const mppWire = Number(served.viaMPPWire) || 0;
   const viaRouter = Number(served.viaRouter) || 0;
-  const routerPct = viaUsdc ? (viaRouter / viaUsdc < 0.001 ? "under 0.1%" : `${((100 * viaRouter) / viaUsdc).toFixed(1)}%`) : "0%";
   const rails = railsByVolume(stats);
   const attributed = rails.reduce((sum, r) => sum + r.n, 0);
   const board = externalLeaderboardRows(leaderboardSnapshot);
@@ -388,7 +387,7 @@ curl -X POST /api/hash \\
       <tr><th scope="row" style="text-align:left;font-weight:500;padding:13px 18px;color:var(--ink);">Cross-chain buyers</th><td style="padding:13px 18px;text-align:right;color:var(--muted);white-space:nowrap;">Base · Algorand</td></tr>
     </tbody>
   </table>
-  <p style="font-family:var(--font-mono);font-size:12.5px;line-height:1.6;color:var(--faint);margin:14px 0 0;"><strong style="color:var(--ink);font-weight:500;">${fmtNum(viaRouter)}</strong> of ${fmtNum(viaUsdc)} paid calls (${esc(routerPct)}) came through the router, which is the only path Agent402 earns on. Every other paid call went buyer wallet to seller wallet.</p>
+  <p style="font-family:var(--font-mono);font-size:12.5px;line-height:1.6;color:var(--faint);margin:14px 0 0;">No listing fee and no commission: we earn on the buyer side, never out of your price. The one exception is the router, where a buyer pays us to buy from a seller on their behalf and we keep a margin, and it has done that <strong style="color:var(--ink);font-weight:500;">${fmtNum(viaRouter)}</strong> time${viaRouter === 1 ? "" : "s"}. Every other sale by a seller here settles straight from the buyer's wallet to theirs, with us not in the path.</p>
   <div style="margin-top:16px;font-family:var(--font-mono);font-size:13px;"><a href="/sell" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--ink);padding-bottom:1px;">everything for sellers → /sell</a></div>
 </section>
 
