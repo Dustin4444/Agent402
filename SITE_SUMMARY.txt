@@ -1,0 +1,64 @@
+SITE AUDIT AND HARDENING - agent402.tools (see SUMMARY.txt for the earlier revenue-surface review)
+Branch: site-audit   Crawl: 72 routes, live prod, 2026-09-21
+
+ALL PUBLIC NUMBERS NOW DERIVE FROM ONE SOURCE?   YES for the four that were in
+  conflict, documented in METRICS_SOURCE.md. Two figures remain YOUR decision
+  to publish or not (see below); neither is inconsistent, both are deliberate.
+
+ANY PERSONAL IDENTIFIER STILL PUBLIC?            YES, one, and it is not code.
+  The repository URL still contains a personal account name. All 91 places that
+  render it now read one constant, so the fix is `AGENT402_REPO_URL` after you
+  move the repo to an org. Nothing else: no personal email, phone or address on
+  any page, OG image, meta tag, JSON API, llms.txt or openapi.json.
+
+SPENDING-WALLET ADDRESS STILL PUBLIC?            YES, and it cannot be otherwise.
+  It is the payTo on the four route-execute tiers, which is what makes the
+  self-funding loop work. A payTo must be published to be paid. The defence is
+  the balance and the daily ceiling, not the address. See WALLET_ISOLATION_PLAN.md.
+
+THE FIVE HIGHEST-IMPACT CHANGES
+
+  1. THE HERO COUNTER WAS TWO DIFFERENT METRICS UNDER ONE LABEL. heroCount falls
+     back from the chain figure (inbound transfers, ours included) to the served
+     figure (calls paid in stablecoin). Those differ by about ten thousand, and
+     which one a visitor saw depended on whether the ledger had warmed since the
+     last deploy. The label follows the value now.
+
+  2. 4,287 WAS LABELLED TWO THINGS. "endpoints indexed" on /marketplace,
+     "seller origins indexed" on three other pages. Same number, same source.
+
+  3. THE ROUTER SHARE IS GONE, NOT CORRECTED. It published what fraction of our
+     own traffic we monetize. The sentence was also false: it claimed every
+     other paid call went buyer to seller, when those are buyers paying US for
+     OUR tools. The replacement claim is stronger and checkable from any 402.
+
+  4. INTERNAL STATE STRINGS OUT OF SERVED COPY. "Listening for on-chain
+     payments...", "idle", and a line arguing the demo "is not a diagram".
+
+  5. THE SELLER PATH WAS LAST. Register sat at 95% into the marketplace body,
+     after the FAQ, with no entry point near the top despite the header card
+     announcing itself as "BUYER PATH". Now 5% and 81%.
+
+WHAT I DID NOT DO
+
+  The nav collapse, the homepage section restructure and a new token system are
+  the parts of this brief that are judgment calls about how the site should
+  look, not defects. They touch shared chrome on 52 pages, and doing them blind
+  in one pass is how a redesign becomes a regression. SITE_AUDIT.md carries each
+  one as a finding with a recommendation. Say the word and I will mock the nav
+  first rather than rewrite it first.
+
+TWO THINGS THAT NEED YOUR DECISION, NOT MINE
+
+  - Headlining exact lifetime revenue on /revenue.
+  - Buyer concentration and exact buyer counts.
+  Both are flagged in the brief. Both are also covered by an explicit operator
+  decision recorded in CLAUDE.md on 2026-09-01 (lead with counts, never remove
+  the revenue split). I did not silently reverse that.
+
+WHAT THE CRAWL FOUND CLEAN
+
+  No 404s across 72 routes. No broken anchors across 52 pages. No dead internal
+  links. No leftover or debug text. Every agent surface consistent and
+  untouched. Two things I first reported as defects were my own crawler's false
+  positives and are recorded as such in SITE_AUDIT.md so nobody re-chases them.
