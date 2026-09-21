@@ -20,14 +20,16 @@ const fmt = (iso) => String(iso || "").replace("T", " ").slice(0, 16) + "Z";
 // A cluster's story at a glance: qualified (would auto-open an issue), or the
 // reason it won't. Mirrors clusterQualifies in wish.js.
 function verdict(c, threshold) {
-  // Served beats every other verdict: the catalog can answer this text NOW,
-  // so it is not outstanding demand no matter how qualified the count looks.
-  if (c.served) return { label: "served", color: "#5B8DEF", note: `find returns ${c.served.slug}` };
-  if (c.qualified) return { label: "qualified", color: "#3E9B6E", note: "opens an issue" };
-  if (c.count < threshold) return { label: "below", color: "#8C8C8C", note: `needs ${threshold - c.count} more` };
+  // The resolver's closest catalog match, shown as evidence and never as a
+  // verdict. It scores name similarity, not whether a tool answers a need, so
+  // it may not outrank "qualified": a lexical coincidence must never bury real
+  // demand, which is exactly what the old "served" label did.
+  const near = c.closestMatch ? ` - closest catalog match ${c.closestMatch.slug} (${c.closestMatch.score})` : "";
+  if (c.qualified) return { label: "qualified", color: "#3E9B6E", note: `opens an issue${near}` };
+  if (c.count < threshold) return { label: "below", color: "#8C8C8C", note: `needs ${threshold - c.count} more${near}` };
   const distinct = ["api", "mcp", "find-miss"].filter((s) => (c.sources?.[s] || 0) > 0).length;
-  if (distinct < 2) return { label: "single-source", color: "#c4a44e", note: "one surface, not corroborated" };
-  return { label: "held", color: "#c4a44e", note: "not yet sustained" };
+  if (distinct < 2) return { label: "single-source", color: "#c4a44e", note: `one surface, not corroborated${near}` };
+  return { label: "held", color: "#c4a44e", note: `not yet sustained${near}` };
 }
 
 export function operatorWishesPage(baseUrl, aggregate) {

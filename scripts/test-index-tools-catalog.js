@@ -330,5 +330,86 @@ const page = (results, extra = {}) =>
   check("x-payment-required:false alone never reads as a paid signal", openapiOperationPayment({ "x-payment-required": false }).paid === false);
 }
 
+
+// --- the origin-declaration anchor (2026-09-21) ------------------------------
+// CN Evidence reported a $0.032 route listed at $0.002 across two
+// re-registrations. The correction that should have caught it re-probes a
+// route whose learned price disagrees with the origin's declaration - and the
+// anchor it needs, originDeclaredPrice, was never stamped for them, so there
+// was nothing to disagree with. Measured across 41 indexed sellers carrying
+// priced rows, 38 had no anchor at all: the fix shipped in August and again in
+// September was inert for about 93% of them.
+{
+  const { normaliseOpenapiTools } = await import("../src/x402-index.js");
+  const openapi = {
+    openapi: "3.0.0",
+    paths: {
+      "/paid": { get: { summary: "Paid thing", "x-price": "$0.032" } },
+      "/free": { get: { summary: "Free thing" } },
+    },
+  };
+  const rows = normaliseOpenapiTools(openapi, "https://seller.example");
+  const paid = rows.find((r) => r.route === "/paid");
+  check(`an x-price in the origin's OWN OpenAPI stamps the anchor (got ${paid?.originDeclaredPrice})`, Number(paid?.originDeclaredPrice) === 0.032);
+  const free = rows.find((r) => r.route === "/free");
+  check("an operation that declares no price declares no anchor either", free && free.originDeclaredPrice === undefined);
+
+  // The stamp must survive a display string. A bare Number("$0.032") is NaN,
+  // which skipped the stamp silently on the manifest path once already.
+  const dollars = normaliseOpenapiTools({ openapi: "3.0.0", paths: { "/d": { get: { "x-price": "$1.25" } } } }, "https://seller.example");
+  check(`a display-string price still stamps (got ${dollars[0]?.originDeclaredPrice})`, Number(dollars[0]?.originDeclaredPrice) === 1.25);
+}
+
+// --- a priced catalogue beside an unpriced canonical array --------------------
+{
+  const { normaliseManifestTools } = await import("../src/x402-index.js");
+  // CN Evidence's real shape: `resources` is bare URL strings carrying no
+  // price, and the priced rows live one key over in `resourceCatalog`.
+  const manifest = {
+    resources: ["https://seller.example/x402/basic", "https://seller.example/x402/full"],
+    resourceCatalog: [
+      { id: "basic", method: "GET", url: "https://seller.example/x402/basic", price: { amount: "0.032", currency: "USDC" } },
+      { id: "full", method: "POST", url: "https://seller.example/x402/full", price: { amount: "0.093", currency: "USDC" } },
+    ],
+  };
+  const rows = normaliseManifestTools(manifest, "https://seller.example");
+  check(`the bare URL and its priced catalogue entry merge into ONE row per route (got ${rows.length})`, rows.length === 2);
+  const basic = rows.find((r) => r.route === "/x402/basic");
+  const full = rows.find((r) => r.route === "/x402/full");
+  check(`the price is read from the catalogue (got ${basic?.price})`, Number(String(basic?.price).replace(/[^0-9.]/g, "")) === 0.032);
+  check("and it anchors, so a stale learned quote can be corrected", Number(basic?.originDeclaredPrice) === 0.032);
+  check(`the declared method wins over the verb inferred from a bare URL (got ${full?.method})`, full?.method === "POST");
+}
+
+// --- an inferred verb must not publish a seller's route twice -----------------
+{
+  const { normaliseManifestTools } = await import("../src/x402-index.js");
+  // Measured on api.aurelianflo.com: 8 bare `resources` URLs inferred as GET
+  // alongside the SAME 8 routes declared POST in `endpoints`, so every endpoint
+  // was listed twice and half the buyers were sent to a verb the seller answers
+  // 405 to. jmt-x402-proxy carried 20 of these.
+  const dup = {
+    resources: ["https://seller.example/api/thing"],
+    endpoints: [{ path: "/api/thing", method: "POST", name: "Thing" }],
+  };
+  const rows = normaliseManifestTools(dup, "https://seller.example");
+  check(`an inferred-GET row is dropped when a declared sibling exists for that route (got ${rows.length})`, rows.length === 1);
+  check("the surviving row carries the method the seller declared", rows[0].method === "POST");
+
+  // A seller who genuinely serves both declares both, and neither is inferred.
+  const both = {
+    endpoints: [
+      { path: "/api/thing", method: "GET", name: "Read" },
+      { path: "/api/thing", method: "POST", name: "Write" },
+    ],
+  };
+  const kept = normaliseManifestTools(both, "https://seller.example");
+  check(`two DECLARED verbs on one route both survive (got ${kept.length})`, kept.length === 2);
+
+  // An inferred row with no declared sibling is real listing data and stays.
+  const lone = { resources: ["https://seller.example/api/only"] };
+  check("an inferred row with no declared sibling is kept - the rule removes duplicates, not discoveries", normaliseManifestTools(lone, "https://seller.example").length === 1);
+}
+
 console.log(`\ntest-index-tools-catalog: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

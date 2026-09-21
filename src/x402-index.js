@@ -1355,6 +1355,25 @@ export function normaliseOpenapiTools(openapi, originUrl) {
         category: tags[0] || "other",
         tags,
         price: pay.price,
+        // An x-price in the origin's OWN OpenAPI is the origin declaring a
+        // price, so stamp the anchor here rather than only in the Bazaar merge.
+        //
+        // Without it the anti-ratchet correction is inert: it re-probes a route
+        // whose learned price disagrees with the declaration, and with no
+        // declaration there is nothing to disagree with. Measured across 41
+        // indexed sellers carrying priced rows, 38 had no anchor at all - so
+        // the correction built in August and again in September was dead for
+        // about 93% of them, silently, because a stale price is invisible to us
+        // and visible only to the seller reading their own listing. All three
+        // reports of it arrived by email for exactly that reason.
+        //
+        // Same normalisation as the manifest path: an x-price is usually a
+        // display string ("$0.032"), and a bare Number() on that yields NaN and
+        // skips the stamp without a sound.
+        ...(() => {
+          const micro = priceToMicroUsd(pay.price);
+          return micro != null && micro > 0 ? { originDeclaredPrice: microUsdToPrice(micro) } : {};
+        })(),
         ...(pay.networks.length ? { networks: pay.networks } : {}),
         ...(Object.keys(pay.payToByNetwork).length ? { payToByNetwork: pay.payToByNetwork } : {}),
         // In a document that distinguishes paid operations, an unannotated
@@ -1603,7 +1622,14 @@ export function normaliseManifestTools(manifest, originUrl) {
   if (!manifest || typeof manifest !== "object") return [];
   let origin;
   try { origin = new URL(originUrl); } catch { return []; }
-  const catalogues = ["tools", "resources", "endpoints", "services"]
+  // `resourceCatalog` is the same dialect one key over: CN Evidence publishes
+  // `resources` as bare URL strings (no price anywhere) and the real rows,
+  // with prices, in `resourceCatalog`. Reading only the canonical array left
+  // both of their rows unpriced and unanchored, which is how a $0.032 route
+  // sat in the index at $0.002 across two re-registrations. Rows merge by
+  // route, and a price already taken from an earlier catalogue wins, so this
+  // can only FILL a gap and never overwrite what the canonical array declared.
+  const catalogues = ["tools", "resources", "endpoints", "services", "resourceCatalog"]
     .map((k) => manifest[k])
     .filter((v) => Array.isArray(v) && v.length);
   if (!catalogues.length) {
@@ -1744,6 +1770,23 @@ export function normaliseManifestTools(manifest, originUrl) {
     // the reporter's own live manifest).
     const micro = priceToMicroUsd(t.price);
     if (micro != null && micro > 0 && !(Number(t.originDeclaredPrice) > 0)) t.originDeclaredPrice = microUsdToPrice(micro);
+  }
+  // Drop a row whose METHOD we guessed when another row declares a method for
+  // the same route. A bare `resources` string ("https://origin/x402/thing")
+  // carries no verb, so it is inferred as GET; if a richer catalogue entry for
+  // that same route states POST, keeping both publishes the endpoint twice and
+  // sends half the buyers to a verb the seller answers 405 to. CN Evidence
+  // reported exactly this duplicate from their own compatibility array and
+  // worked around it by deleting theirs - reading `resourceCatalog` would have
+  // re-created it from a different key.
+  //
+  // Only the INFERRED row is dropped, and only when a declared sibling exists:
+  // a seller who genuinely serves GET and POST on one route declares both, and
+  // neither is inferred, so both survive.
+  const declaredRoutes = new Set();
+  for (const t of byKey.values()) if (!t.methodInferred && t.route) declaredRoutes.add(String(t.route));
+  for (const [k, t] of [...byKey.entries()]) {
+    if (t.methodInferred && t.route && declaredRoutes.has(String(t.route))) byKey.delete(k);
   }
   return [...byKey.values()];
 }

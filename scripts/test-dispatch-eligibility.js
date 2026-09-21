@@ -135,13 +135,26 @@ ok(dispatchEligibility({ local: true }).reason === "local_catalog" && dispatchEl
 {
   const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
   const fn = server.slice(server.indexOf("async function resolveExternalSeller("), server.indexOf("async function diagnoseExternalSeller("));
-  ok(/dispatchEligibility\(\{ routable: true, networks: r\.networks, settled: r\.settled, payers: r\.payers/.test(fn) && /\.chains\.base\?\.eligible === true\)/.test(fn), "resolveExternalSeller's Base gate is dispatchEligibility's Base verdict (label == decision)");
+  // Not anchored to one expression any more: the filter became a block when it
+  // started tallying WHY it drops a candidate. What must not move is the
+  // decision, so the comparison is pinned on its own AND the fail-open form is
+  // forbidden by name. The first cut of that refactor wrote `!== false`, which
+  // admits an undefined verdict and turns this fail-closed gate fail-open on a
+  // spend path; a pin that only checked "calls dispatchEligibility" passed it.
+  ok(/dispatchEligibility\(\{ routable: true, networks: r\.networks, settled: r\.settled, payers: r\.payers/.test(fn) && /\.chains\.base\?\.eligible === true/.test(fn), "resolveExternalSeller's Base gate is dispatchEligibility's Base verdict (label == decision)");
+  ok(!/\.chains\.base\?\.eligible !== false/.test(fn), "the Base gate compares === true, never !== false (an undefined verdict must not admit a seller)");
+  // The floors must be PASSED, not defaulted. dispatchEligibility declares
+  // minSettled = 50 / minPayers = 3 in its own signature, so dropping these two
+  // arguments leaves a gate that still works and silently stops honouring the
+  // configured thresholds - the quietest possible way to change who gets paid.
+  ok(/minSettled: SOR_MIN_SETTLED_TX/.test(fn) && /minPayers: SOR_MIN_DISTINCT_PAYERS/.test(fn),
+    "the resolver passes the configured settlement floors rather than falling back to the defaults");
   ok(!/meetsRouterGate\(\{ settled: r\.settled/.test(fn), "the resolver no longer calls the raw gate beside the labelled one (two implementations would drift)");
   // The wrong-domain observation reaches the decision at all three points: the
   // crawl's observation in the pre-probe filter and the public label, and the
   // LIVE accept after the probe (a seller who fixed it since the crawl is
   // admitted; one who broke it since is not).
-  ok(/usdcDomain: r\.evmDomainByNetwork\?\.\["eip155:8453"\] \|\| null \}\)\.chains\.base\?\.eligible === true\)/.test(fn), "the resolver's pre-probe Base gate passes the crawl's domain observation");
+  ok(/usdcDomain: r\.evmDomainByNetwork\?\.\["eip155:8453"\] \|\| null \}\)/.test(fn), "the resolver's pre-probe Base gate passes the crawl's domain observation");
   // The gate must go through the shared predicate, not a string compare: a
   // Gateway-rail accept used to pass here as "unknown" and be refused one hop
   // later in payX402, and the next unsignable rail would do the same.

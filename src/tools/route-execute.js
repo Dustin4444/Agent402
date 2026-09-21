@@ -323,16 +323,29 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           // publishes a model list without it is skipped before anything is
           // probed or paid (a seller can charge on the 400 it answers).
           const wantModel = typeof input.params?.model === "string" && input.params.model.trim() ? input.params.model.trim() : null;
-          let candidateList = []; let chain = chains[0];
+          let candidateList = []; let chain = chains[0]; let lastDrops = null;
           for (const c of chains) {
             const found = await resolveExternal(input.task, { cap, baseUrl, chain: c, limit: MAX_CANDIDATES, wantModel });
             const list = Array.isArray(found) ? found : (found ? [found] : []);
+            // Keep the tally from the LAST chain tried even when it resolved
+            // nothing, or an all-empty run would report no reason at all.
+            if (found && found.__gateDrops) lastDrops = found.__gateDrops;
             if (list.length) { candidateList = list; chain = c; break; }
           }
           if (tempoBudgetMs != null && remainingMs() < 4000) {
             throw bad(`Resolving an external seller used the Tempo time budget (${tempoBudgetMs}ms); nothing was spent and nothing is charged. Tempo credentials expire about 25s after signing, so retry with a fresh credential or pay this route over an EVM rail.`, 504);
           }
           const chainCaip2 = EXTERNAL_CHAIN_CAIP2[chain];
+          // Name WHICH world this is. The resolver tallies candidates it dropped at
+          // the dispatch gate, so "nothing does this task" and "plenty do, all of
+          // them below the settlement floor" stop sharing one message. They call
+          // for opposite responses, and until now telemetry classified both as
+          // "other".
+          const drops = candidateList.__gateDrops || lastDrops || { total: 0, byReason: {} };
+          const gatedOut = Number(drops.byReason?.settlement_required || 0);
+          if (!candidateList.length && gatedOut > 0) {
+            throw bad(`No external seller is eligible for this task on ${chain} right now: ${gatedOut} matched it and all of them are below our settlement gate. Nothing was spent and nothing is charged.`, 409);
+          }
           if (!candidateList.length) throw bad(`No external ${chains.includes("tempo") && chains.length > 1 ? "x402 or MPP" : chains[0] === "tempo" ? "MPP" : "x402"} seller matched that task${chains[0] !== "base" || chains.length > 1 ? ` on ${chains.join("/")}` : ""}. Explore /api/route?q=<task>&include=external.`, 404);
           // Try candidates in order; keep the last error so an all-fail run
           // reports something real. A 5xx from a seller's paid leg -> next

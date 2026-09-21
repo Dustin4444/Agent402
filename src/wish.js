@@ -144,11 +144,39 @@ export function clusterQualifies(c) {
  * is injected (server wires findTools + CATALOG) so this stays pure and the
  * threshold lives with the caller. Mutates and returns the same array.
  */
+/** Attach the resolver's closest catalog match to each cluster, as EVIDENCE
+ *  rather than as a verdict.
+ *
+ *  This used to set `served: {slug, score}` whenever the score cleared a
+ *  threshold, and the operator board rendered that as "served - not
+ *  outstanding demand". It was wrong often enough to hide real demand:
+ *  measured across 138 marked clusters on the live board, fx-historical
+ *  (foreign exchange) was marked as serving "historical technical evidence
+ *  website", and image-dominant-color was marked as serving "index url
+ *  metadata api at ..." at a score of 98.3.
+ *
+ *  Four candidate rules were measured against that board and every one traded
+ *  a false positive for a worse false negative. Requiring the wish to cover
+ *  the slug's tokens downgraded unit-convert on "convert us gallons to
+ *  liters", crypto-indicators on "price and rsi ema", and unemployment-rate
+ *  on "bls cpi unemployment". Term coverage ranked the known-bad match ABOVE
+ *  two known-good ones. Score does not separate them either, and neither does
+ *  the margin over the runner-up (the worst match had the widest margin).
+ *
+ *  The reason none of them work is that the resolver scores NAME SIMILARITY,
+ *  not whether a tool answers a need. It cannot support a binary verdict, so
+ *  this no longer states one. The slug and the score are reported and the
+ *  reader judges: at 109 the match is obvious, at 47 it deserves suspicion.
+ *  That is strictly more information than the old boolean carried, and none
+ *  of it is a claim we cannot evidence.
+ *
+ *  Nothing is suppressed by this annotation and nothing ever was: it is a
+ *  label on an operator board, and qualification never consulted it. */
 export function annotateServed(clusters, scoreFn, minScore) {
   for (const c of clusters || []) {
     try {
       const top = scoreFn(c.text);
-      if (top && top.score >= minScore) c.served = { slug: top.slug, score: top.score };
+      if (top && top.score >= minScore) c.closestMatch = { slug: top.slug, score: Math.round(top.score) };
     } catch { /* annotation is best-effort - the board must render regardless */ }
   }
   return clusters;
