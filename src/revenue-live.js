@@ -888,7 +888,12 @@ export function parseEvmTransfer(t) {
   if (!Number.isFinite(usd) || usd <= 0) return null;
   const when = typeof t.metadata?.blockTimestamp === "string" ? t.metadata.blockTimestamp : null;
   const from = typeof t.from === "string" ? t.from.toLowerCase() : null;
-  return { when, usd: Number(usd.toFixed(6)), from };
+  // uid + block are the incremental scan's identity and cursor: Alchemy's
+  // uniqueId is per transfer (hash:log:N), so it survives the block overlap a
+  // resumed scan re-reads, and blockNum is where the next scan starts.
+  const uid = typeof t.uniqueId === "string" ? t.uniqueId : null;
+  const block = Number.parseInt(t.blockNum, 16);
+  return { when, usd: Number(usd.toFixed(6)), from, uid, block: Number.isFinite(block) ? block : null };
 }
 
 // Trailing-window activity scan for an EVM rail (base/polygon/arbitrum/
@@ -897,7 +902,38 @@ export function parseEvmTransfer(t) {
 // cutoff, and otherwise at the scan budget above (which sets truncated).
 // Public RPCs don't implement this method, so no ALCHEMY_API_KEY → immediate honest "unavailable" rather than
 // a failed call per page.
-export async function evmActivity(chainKey, wallet, { days = 30, maxPages = SCAN_MAX_PAGES, budgetMs = SCAN_BUDGET_MS } = {}) {
+/** How far back a resumed scan re-reads, in blocks. Base produces a block
+ *  every ~2s, so this is a couple of minutes of overlap: enough that a
+ *  transfer landing between two scans cannot fall in the gap, small enough to
+ *  cost nothing. Duplicates are removed by uid, so overlap is free. */
+const RESUME_OVERLAP_BLOCKS = 60;
+
+/** Rows retained per wallet for a resume. The busiest wallet on Base holds
+ *  ~30k in a 30-day window at ~150 bytes each; the cap bounds one pathological
+ *  wallet rather than the normal case, and overflowing it costs that wallet a
+ *  full rescan, never a wrong number. */
+const SCAN_STATE_MAX_ENTRIES = 60_000;
+
+/** Merge a resumed scan's new rows into what the previous scan kept, newest
+ *  first, dropping duplicates by uid and anything now past the window.
+ *  Exported for the guard: a wrong merge here double-counts silently. */
+export function mergeScanEntries(fresh = [], prior = [], cutoff = 0) {
+  const seen = new Set();
+  const out = [];
+  for (const e of [...fresh, ...prior]) {
+    if (!e) continue;
+    const ts = Date.parse(e.when || "");
+    if (Number.isFinite(ts) && ts < cutoff) continue;   // outside the window now
+    // A row with no uid cannot be deduplicated, so it is kept: that is only
+    // reachable if the upstream stops sending uniqueId, and dropping rows
+    // would be the worse failure.
+    if (e.uid) { if (seen.has(e.uid)) continue; seen.add(e.uid); }
+    out.push(e);
+  }
+  return out;
+}
+
+export async function evmActivity(chainKey, wallet, { days = 30, maxPages = SCAN_MAX_PAGES, budgetMs = SCAN_BUDGET_MS, prior = null } = {}) {
   const c = EVM[chainKey];
   const out = { rail: c?.label || chainKey, wallet: wallet || null, days, buckets: [], totals: { tx: 0, usd: 0, buyers: 0, internalTx: 0, internalUsd: 0 }, truncated: false, error: null };
   if (!c) { out.error = "unsupported chain"; return out; }
@@ -906,17 +942,32 @@ export async function evmActivity(chainKey, wallet, { days = 30, maxPages = SCAN
   const alchemyUrl = c.rpcs[0]; // prepended first in EVM config above when the key is set
   const cutoff = Date.now() - days * 86_400_000;
   const entries = [];
+  let rpcCalls = 0;
   try {
     let pageKey;
     const until = scanDeadline(budgetMs);
     let more = false; // a cursor is still pending, i.e. we stopped early
+
+    // RESUME. This scan used to re-walk the window from block 0 on every
+    // refresh, so a busy wallet re-paid for thirty days of history every ten
+    // minutes. A prior scan that COVERED the window (never truncated) and is
+    // itself still inside it lets this one start at the last block it saw and
+    // read only what is new - normally one page. A truncated prior is NOT
+    // resumable: it never held the far end of the window, and resuming would
+    // freeze that gap in place forever.
+    const resumable = !!(prior && !prior.truncated && Number.isFinite(prior.newestBlock)
+      && Array.isArray(prior.entries) && Number.isFinite(prior.at) && prior.at >= cutoff);
+    const startBlock = resumable ? Math.max(0, prior.newestBlock - RESUME_OVERLAP_BLOCKS) : 0;
+    out.resumed = resumable;
+
     for (let page = 0; page < maxPages; page++) {
       const params = {
-        fromBlock: "0x0", toBlock: "latest", toAddress: wallet, contractAddresses: [c.token],
+        fromBlock: "0x" + startBlock.toString(16), toBlock: "latest", toAddress: wallet, contractAddresses: [c.token],
         category: ["erc20"], withMetadata: true, excludeZeroValue: true, maxCount: "0x3e8", order: "desc",
         ...(pageKey ? { pageKey } : {}),
       };
       const res = await rpcCall([alchemyUrl], "alchemy_getAssetTransfers", [params], 8000);
+      rpcCalls++;
       const transfers = res?.transfers || [];
       // Cleared every iteration so that ANY exit path is honest: `more` means
       // "we stopped with a cursor still pending", and only the line that sets it
@@ -930,6 +981,9 @@ export async function evmActivity(chainKey, wallet, { days = 30, maxPages = SCAN
         if (!entry) continue;
         const ts = Date.parse(entry.when || "");
         if (Number.isFinite(ts) && ts < cutoff) { pastWindow = true; break; }
+        // A resumed scan walks newest-first and only needs what sits above its
+        // cursor; reaching the overlap means it has caught up and can stop.
+        if (resumable && Number.isFinite(entry.block) && entry.block < startBlock) { pastWindow = true; break; }
         entry.internal = entry.from != null && OUR_EVM_WALLETS.has(entry.from);
         entries.push(entry);
       }
@@ -944,9 +998,22 @@ export async function evmActivity(chainKey, wallet, { days = 30, maxPages = SCAN
     out.error = String(e?.message || e).slice(0, 120);
     return out;
   }
-  const bucketed = bucketStellarActivity(entries, { days });
+  const merged = out.resumed ? mergeScanEntries(entries, prior.entries, cutoff) : entries;
+  const bucketed = bucketStellarActivity(merged, { days });
   out.buckets = bucketed.buckets;
   out.totals = bucketed.totals;
+  out.rpcCalls = rpcCalls;
+  // The state the NEXT scan resumes from. Non-enumerable so it never reaches a
+  // response body, a cache file or a log line: it is tens of thousands of rows
+  // on a busy wallet and is nobody's business but the scanner's.
+  Object.defineProperty(out, "__scanState", {
+    enumerable: false, value: {
+      entries: merged.slice(0, SCAN_STATE_MAX_ENTRIES),
+      newestBlock: merged.reduce((m, e) => (Number.isFinite(e.block) && e.block > m ? e.block : m), -1),
+      truncated: !!out.truncated,
+      at: Date.now(),
+    },
+  });
   return out;
 }
 

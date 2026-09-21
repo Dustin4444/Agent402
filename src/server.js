@@ -5105,7 +5105,7 @@ export function paidScanBudgetState() {
   return { day: sqlScanDay, used: sqlScanCount, budget: SQL_SCAN_DAILY_BUDGET, skipped: sqlScanSkipped };
 }
 
-async function scanActivity(chainKey, wallet) {
+async function scanActivity(chainKey, wallet, prior = null) {
   if (chainKey === "solana") return solanaActivity(wallet);
   if (chainKey === "robinhood") return robinhoodActivity(wallet);
   if (chainKey === "base") {
@@ -5114,9 +5114,9 @@ async function scanActivity(chainKey, wallet) {
       const viaSql = await baseActivityViaSql(wallet).catch(() => null);
       if (viaSql && !viaSql.error) return viaSql; // exact + fast
     }
-    return evmActivity("base", wallet);          // free fallback, always available
+    return evmActivity("base", wallet, { prior });  // free fallback, always available
   }
-  return evmActivity(chainKey, wallet);
+  return evmActivity(chainKey, wallet, { prior });
 }
 
 // Stale-while-revalidate: a warm wallet returns instantly (even once past the
@@ -5143,9 +5143,16 @@ async function getActivityForChain(chainKey, wallet) {
   if (stale && !entry.inFlight) {
     entry.inFlight = (async () => {
       try {
-        const a = await scanActivity(chainKey, wallet);
+        // The prior scan's cursor + retained rows, so a refresh reads only
+        // what is new instead of re-walking the whole window (and re-paying
+        // for it) every TTL. Kept on the cache entry rather than in a second
+        // map so there is ONE eviction policy, not two.
+        const a = await scanActivity(chainKey, wallet, entry.scanState || null);
         entry.at = Date.now();
-        if (a && !a.error) entry.value = a; // success — refresh the cached value
+        if (a && !a.error) {
+          entry.value = a; // success — refresh the cached value
+          if (a.__scanState) entry.scanState = a.__scanState;
+        }
         // else: keep the prior good value (stale-serve) or stay null
       } catch {
         entry.at = Date.now(); // still respect the TTL before retrying
