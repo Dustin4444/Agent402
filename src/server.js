@@ -434,6 +434,7 @@ import { payTempo, tempoBuyerConfigured, tempoBuyerStatus } from "./tempo-buyer.
 import { issueChallenge, verifySolution, isComputePayable, powInfo, POW_DIFFICULTY, WALLET_ONLY_SLUGS, verifyHeartbeatToken } from "./pow.js";
 import { createLimiter as createRateLimiter, LIMITS_LABEL as POW_LIMITS_LABEL } from "./rate-limit.js";
 import { classifyWishes, wishClassifyEnabled } from "./wish-classify.js";
+import { rerankMisses, rerankEnabled } from "./discovery-rerank.js";
 import { sweepStaleTsMap, makeWindowCounter } from "./rate-sweep.js";
 
 // Shared with the MCP free tier (src/mcp-http.js) — same policy, separate
@@ -4051,6 +4052,17 @@ app.get("/__operator/stats", (req, res) => {
 // byte what it was: synchronous, free, and unable to reach a third party.
 const wishIntentLimiter = createRateLimiter("wish-intent", { perMin: 4, perHour: 30 });
 const wantsIntent = (req) => /^(1|true|yes|on)$/i.test(String(req.query?.intent || "").trim());
+const wishRerankLimiter = createRateLimiter("wish-rerank", { perMin: 2, perHour: 20 });
+// Candidates come from find, injected rather than imported, so discovery-rerank
+// cannot widen its own reach past what discovery already surfaces.
+const rerankResolve = (q, k) => (findTools(CATALOG, q, { k, baseUrl: BASE_URL, powSlugs: POW_SLUGS }).results || []);
+async function withRerank(req, agg) {
+  if (!/^(1|true|yes|on)$/i.test(String(req.query?.rerank || "").trim()) || !rerankEnabled()) return agg;
+  if (wishRerankLimiter.check(clientIp(req)).limited) { agg.rerankNote = "rate limited - each pass spends per uncached query"; return agg; }
+  try { agg.rerankSummary = await rerankMisses(agg.clusters, rerankResolve); }
+  catch { agg.rerankNote = "re-rank pass unavailable"; }
+  return agg;
+}
 async function withIntent(req, agg) {
   if (!wantsIntent(req) || !wishClassifyEnabled()) return agg;
   if (wishIntentLimiter.check(clientIp(req)).limited) { agg.intentNote = "rate limited - each pass spends per uncached row"; return agg; }
@@ -4061,7 +4073,7 @@ app.get("/__operator/wishes", async (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).type("html").send("<p>Not found.</p>");
   const agg = getWishesAggregate({ limit: 500, detailed: true });
   annotateServed(agg.clusters, wishServedScore, WISH_SERVED_MIN_SCORE);
-  res.type("html").send(operatorWishesPage(BASE_URL, await withIntent(req, agg)));
+  res.type("html").send(operatorWishesPage(BASE_URL, await withRerank(req, await withIntent(req, agg))));
 });
 // Token-gated DETAILED wish feed (per-cluster text/counts/verdicts) — the raw
 // demand board is strategic intel, so the itemized view lives behind the
@@ -4104,7 +4116,7 @@ app.get("/__operator/wishes.json", async (req, res) => {
   res.set("Cache-Control", "no-store");
   const agg = getWishesAggregate({ limit: req.query?.limit, detailed: true });
   annotateServed(agg.clusters, wishServedScore, WISH_SERVED_MIN_SCORE);
-  res.json(await withIntent(req, agg));
+  res.json(await withRerank(req, await withIntent(req, agg)));
 });
 // Per-chain revenue-ledger sync state. A chain that is merely BEHIND produces
 // no rows and no error, which is indistinguishable from a chain with no

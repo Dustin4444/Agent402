@@ -2622,6 +2622,8 @@ jobs:
           t node scripts/test-wish.js
           # Wish-board intent judgment: no key means no calls, a failing upstream changes no row, and no verdict can move a count (offline, stubbed)
           t node scripts/test-wish-classify.js
+          # Discovery re-rank: build-vs-alias verdicts, no key means no calls, adverts never reach the build list, /api/find untouched (offline, stubbed)
+          t node scripts/test-discovery-rerank.js
           # Wish-board input hygiene (a client bug is not market demand)
           t node scripts/test-wish-hygiene.js
 
