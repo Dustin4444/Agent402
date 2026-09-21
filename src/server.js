@@ -1316,15 +1316,23 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
       // responses (list more sellers vs revisit the gate) and telemetry could
       // not tell them apart. The tally rides back on the array so the caller
       // can name the cause without re-deriving it.
+      //
+      // The argument list and the `=== true` below are the ORIGINAL verbatim.
+      // The first cut of this wrapper rewrote them from memory and got two
+      // things wrong that matter on a spend path: `!== false` admits an
+      // undefined verdict, turning a fail-closed gate fail-open, and four
+      // arguments went missing, among them the wrong-EIP-712-domain
+      // observation. Only the tally is new; the decision is untouched, and it
+      // is computed ONCE per candidate rather than once per branch.
       .filter((r) => {
-        const verdict = dispatchEligibility({ routable: true, networks: r.networks, settled: r.settled, payers: r.payers, priceUsd: r.priceUsd, urlTemplate: !!r.urlTemplate, spendChains, evidence: r.binding });
-        const ok = verdict.chains?.base?.eligible !== false;
-        if (!ok) {
+        const verdict = dispatchEligibility({ routable: true, networks: r.networks, settled: r.settled, payers: r.payers, priceUsd: r.priceUsd, urlTemplate: !!r.urlTemplate, spendChains: ["base"], minSettled: SOR_MIN_SETTLED_TX, minPayers: SOR_MIN_DISTINCT_PAYERS, usdcDomain: r.evmDomainByNetwork?.["eip155:8453"] || null });
+        const eligible = verdict.chains.base?.eligible === true;
+        if (!eligible) {
           gateDrops.total++;
-          const why = verdict.chains?.base?.reason || verdict.reason || "other";
+          const why = verdict.chains.base?.reason || "other";
           gateDrops.byReason[why] = (gateDrops.byReason[why] || 0) + 1;
         }
-        return ok;
+        return eligible;
       })
       .sort((a, b) => b.settled - a.settled)
       .slice(0, 5);
