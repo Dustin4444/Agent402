@@ -34,6 +34,7 @@
 // It proposes. It writes no alias, changes no count, and cannot alter what
 // /api/find returns to anyone.
 import { logSafe } from "./log-safe.js";
+import { looksLikeListingInjection } from "./x402-index.js";
 
 const ENDPOINT = (process.env.TYPESAFE_API_URL || "https://api.typesafe.ai/v1/systemone").trim();
 const MODEL = (process.env.TYPESAFE_MODEL || "jev-latest").trim();
@@ -127,7 +128,7 @@ export function classify({ choice, confidence }, topSlug) {
  * answer, a refused key or a timeout leaves the row exactly as it arrived.
  */
 export async function rerankMisses(rows, resolve, { fetchImpl = fetch, max = MAX_ROWS, candidates = CANDIDATES, now = Date.now() } = {}) {
-  const summary = { considered: 0, judged: 0, cached: 0, skipped: 0, skippedAdverts: 0, failed: 0, byKind: {} };
+  const summary = { considered: 0, judged: 0, cached: 0, skipped: 0, skippedAdverts: 0, skippedInjection: 0, failed: 0, byKind: {} };
   if (!rerankEnabled() || !Array.isArray(rows) || !rows.length) return summary;
 
   for (const row of rows) {
@@ -143,6 +144,14 @@ export async function rerankMisses(rows, resolve, { fetchImpl = fetch, max = MAX
     // run, honour it. Skipping also means we do not pay to judge a row we have
     // already decided is spam.
     if (row?.intent?.kind === "advertisement") { summary.skippedAdverts++; continue; }
+
+    // Text written to steer the judgment is marked, never sent. Same screen the
+    // crawler already runs on seller listings.
+    if (looksLikeListingInjection(query)) {
+      row.rerank = { kind: "unscreened", confidence: null, note: "text matches the listing-injection screen; not sent to a model" };
+      summary.skippedInjection++;
+      continue;
+    }
 
     const hit = cache.get(query);
     if (hit && now - hit.at < CACHE_TTL_MS) {
