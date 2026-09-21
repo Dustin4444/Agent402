@@ -46,9 +46,12 @@ TOP FIVE ACTIONS, IN ORDER
      branch routes all 91 sites through one constant; set AGENT402_REPO_URL after
      the move and every surface follows in one deploy.  (F-6)
 
-  3. ROTATE ALCHEMY_API_KEY.  Cheap, and the correct response to "it was
-     reachable through a public error path for an unknown period". Nothing shows
-     it actually leaked; treat it as compromised anyway.  (F-2)
+  3. DONE, AND CLOSED WITHOUT ROTATION.  The key was checked against twelve live
+     public surfaces, the repository tree and every revision in git history, and
+     appears in none of them, with a control proving the check was not blind. The
+     owner set a $30/month usage alert instead of rotating, which bounds the cost
+     of any FUTURE leak rather than only this one. Reasoning and what was
+     consciously accepted are in REVENUE_PAGE_EXPOSURE.md.  (F-2)
 
   4. DECIDE THE RESERVE SPLIT.  Today one address receives on nine EVM chains and
      holds the float, so its balance is the company's full liquid position and
