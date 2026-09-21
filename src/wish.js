@@ -510,8 +510,31 @@ export function getWishesAggregate({ limit = 200, detailed = false } = {}) {
       // necessary but not sufficient — see clusterQualifies / QUALIFY_MIN_SPAN_MS.
       qualified: clusterQualifies(c),
     }));
+  // ATTRIBUTABLE VS NOT, because reading this board by count is misleading and
+  // nothing said so. Measured on the live board 2026-09-21: 227 of 400 rows
+  // carried ZERO distinct callers and held 2,636 of the 2,962 hits - 89% of the
+  // volume - and all but 18 of those rows were first seen before 2026-08-27,
+  // the day per-caller fingerprinting shipped. That mass is machines looping in
+  // August, and sorting by count puts it on top.
+  //
+  // The rows are NOT removed and the counts are NOT changed. A cluster with no
+  // caller credit is still a real observation; it is just not evidence of
+  // distinct demand, which is the thing the board exists to measure. Saying so
+  // in one derived line is cheaper than a filter the next reader has to find.
+  const attributableOf = (rows2) => {
+    const withCallers = rows2.filter((r) => (r.callers || 0) > 0);
+    const hits = (rs) => rs.reduce((n, r) => n + (r.count || 0), 0);
+    return {
+      clusters: withCallers.length,
+      hits: hits(withCallers),
+      unattributedClusters: rows2.length - withCallers.length,
+      unattributedHits: hits(rows2) - hits(withCallers),
+      note: "A cluster with no distinct caller cannot qualify however many hits it holds, so counts alone do not rank demand. Most un-attributed volume predates per-caller fingerprinting.",
+    };
+  };
   return {
     ...base,
+    attributable: attributableOf(rows),
     // Stated, so a quiet board reads as quiet rather than as a rendering bug.
     staleDays: WISH_STALE_DAYS,
     staleHidden: clusters.size - live.length,

@@ -2620,6 +2620,8 @@ jobs:
           t node scripts/test-mpp-market-page.js
           # Agent wish loop tests (caps, dedup clustering, rate limits, file cap, aggregate shape — offline)
           t node scripts/test-wish.js
+          # Wish-board intent judgment: no key means no calls, a failing upstream changes no row, and no verdict can move a count (offline, stubbed)
+          t node scripts/test-wish-classify.js
           # Wish-board input hygiene (a client bug is not market demand)
           t node scripts/test-wish-hygiene.js
 
