@@ -18,7 +18,11 @@ const PAGES = ["/", "/reports", "/monitors", "/quickstart", "/pricing", "/docs",
   "/transparency", "/privacy", "/terms", "/faq", "/credits", "/markets", "/skills"];
 
 const headings = (html) => {
-  const h = html.replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<script[\s\S]*?<\/script>/gi, " ");
+  // Tolerant closing tags: </script > and </style\n> are both legal HTML, and a
+  // strip that misses one leaves markup this function would read as a heading.
+  const h = html
+    .replace(/<style\b[\s\S]*?<\/\s*style\s*>/gi, " ")
+    .replace(/<script\b[\s\S]*?<\/\s*script\s*>/gi, " ");
   return [...h.matchAll(/<(h[1-6])[^>]*>([\s\S]*?)<\/\1>/gi)]
     .map((m) => ({ level: Number(m[1][1]), text: m[2].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim() }));
 };

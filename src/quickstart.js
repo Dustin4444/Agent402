@@ -218,7 +218,7 @@ await execute(name, args);</code></pre>
 
 <!-- Panel: Pay with USDC -->
 <div class="qs-panel" id="panel-usdc" role="tabpanel">
-<h2>Pay directly with ${RAILS_AMP.replace("&", "&amp;")}</h2>
+<h2>Pay directly with ${RAILS_AMP.replaceAll("&", "&amp;")}</h2>
 <p class="qs-oneliner">Use the x402 protocol for on-chain payment - no API keys, no accounts.</p>
 
 <span class="qs-label">Install</span>
