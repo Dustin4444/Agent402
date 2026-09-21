@@ -1506,6 +1506,10 @@ jobs:
           t node scripts/test-tempo-confirm.js
           # Leaderboard RPC failures never carry the Alchemy key (host-only naming + redaction on the public lastError path — offline)
           t node scripts/test-leaderboard-redaction.js
+          # /api/revenue error strings never carry the Alchemy key, and the transaction surfaces keep their scraping bound (offline + source pins)
+          t node scripts/test-revenue-redaction.js
+          # The public source link is read from one constant, so moving the repo off a personal account stays a one-line change (offline)
+          t node scripts/test-repo-link.js
           # Surface copy gate (every package, README, wiki page, connector string and machine surface names Agentic Finance + both wires - offline)
           t node scripts/test-surface-copy.js
           # Leaderboard SEO/discovery surfaces (robots, sitemap, llms.txt, manifest, landing JSON-LD)

@@ -33,13 +33,23 @@ const { pubErr, describeError, rpcCall, getJsonAcross } = await import("../src/r
 const rawLeak = `rate limited for https://base-mainnet.g.alchemy.com/v2/${FAKE_KEY}`;
 ok(rawLeak.includes(FAKE_KEY), "control: the planted message really does carry the key");
 ok(!pubErr(new Error(rawLeak)).includes(FAKE_KEY), "pubErr strips a key an upstream echoed back");
-ok(!describeError(new Error(rawLeak)).includes(FAKE_KEY), "describeError strips it too (the rpcCall funnel)");
+// Short enough that describeError's own 90-char slice cannot remove the key
+// for us: a long message would make this assertion pass whether the code
+// redacts or not, which is how the first draft of this test passed against an
+// unredacted describeError.
+const shortLeak = `boom ${FAKE_KEY}`;
+ok(shortLeak.length < 90, "control: the message survives describeError's slice intact, so only redaction can remove the key");
+ok(!describeError(new Error(shortLeak)).includes(FAKE_KEY), "describeError strips it too (the rpcCall funnel)");
 ok(pubErr(new Error(rawLeak)).includes("[redacted]"), "the replacement is visible, not a silent truncation");
 
 // Redact-then-truncate, not the reverse: slicing first can cut a secret in
 // half and leave a matchable prefix the redactor no longer recognises.
-const longLeak = "x".repeat(100) + FAKE_KEY;
-ok(!pubErr(new Error(longLeak), 140).includes(FAKE_KEY.slice(0, 20)),
+// The key must START inside the budget and END outside it. Redact-first
+// removes the whole thing; truncate-first leaves a matchable prefix behind.
+const straddle = "x".repeat(110) + FAKE_KEY;
+ok(straddle.slice(0, 120).includes(FAKE_KEY.slice(0, 10)) && !straddle.slice(0, 120).includes(FAKE_KEY),
+  "control: at this length a plain 120-char slice really does leave a key prefix behind");
+ok(!pubErr(new Error(straddle), 120).includes(FAKE_KEY.slice(0, 10)),
   "a key straddling the truncation point is redacted before the slice, not bisected by it");
 
 // ---------------------------------------------------------------------------
@@ -88,3 +98,31 @@ const pubErrSites = (src.match(/pubErr\(/g) || []).length;
 ok(pubErrSites >= 13, `every scanner routes its error through pubErr (${pubErrSites} call sites)`);
 
 console.log(`\n${pass} passed`);
+
+// ---------------------------------------------------------------------------
+// The scraping bound on the same surface. Source-pinned rather than driven:
+// booting the whole server to spend 60 requests proves less than pinning that
+// the middleware is mounted on every path and BEFORE the handlers, which is
+// the property that actually decides whether it runs.
+// ---------------------------------------------------------------------------
+const srv = readFileSync(join(ROOT, "src", "server.js"), "utf8");
+const mountAt = srv.indexOf("app.use(REVENUE_READ_PATHS");
+ok(mountAt > 0, "the revenue read limiter is mounted");
+
+const PROTECTED = ["/revenue", "/api/revenue", "/api/revenue/daily", "/api/revenue/mpp", "/api/revenue/tempo-daily", "/api/calls/daily"];
+const pathsDecl = /const REVENUE_READ_PATHS = \[([^\]]*)\]/.exec(srv);
+ok(!!pathsDecl, "REVENUE_READ_PATHS is declared");
+for (const p of PROTECTED) {
+  ok(pathsDecl[1].includes(`"${p}"`), `${p} is inside the bound`);
+  // Express runs middleware in mount order, so a limiter declared after the
+  // route it guards never runs for it.
+  const handlerAt = srv.indexOf(`app.get("${p}"`);
+  if (handlerAt > 0) ok(mountAt < handlerAt, `the limiter is mounted BEFORE the ${p} handler`);
+}
+ok(/createRateLimiter\("revenue-read"/.test(srv), "it has its own bucket, not one shared with a tighter surface");
+const perMin = /createRateLimiter\("revenue-read", \{ perMin: (\d+)/.exec(srv);
+ok(perMin && Number(perMin[1]) >= 30,
+  `the bound stays generous enough for honest polling (perMin=${perMin?.[1]}); these responses are cached 30-300s and a page load fires four`);
+ok(/Retry-After/.test(srv.slice(mountAt, mountAt + 1200)), "a refusal carries Retry-After, so a crawler backs off instead of dropping the page");
+
+console.log(`${pass} passed (including the scraping bound)`);
