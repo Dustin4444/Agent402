@@ -30,7 +30,6 @@
 // interface, not the truth.
 import { logSafe } from "./log-safe.js";
 import { looksLikeListingInjection } from "./x402-index.js";
-import { looksLikeListingInjection } from "./x402-index.js";
 
 const ENDPOINT = (process.env.TYPESAFE_API_URL || "https://api.typesafe.ai/v1/systemone").trim();
 const MODEL = (process.env.TYPESAFE_MODEL || "jev-latest").trim();
@@ -122,9 +121,6 @@ export async function classifyWishes(rows, { fetchImpl = fetch, max = MAX_ROWS, 
   for (const row of rows) {
     const text = String(row?.text || "");
     if (!text) continue;
-    // See the note in discovery-rerank: attacker-controlled text is screened
-    // with the crawler's own detector before we pay to judge it.
-    if (looksLikeListingInjection(text)) { row.intent = { kind: "unscreened", p: null }; continue; }
     // See the note in discovery-rerank: attacker-controlled text is screened
     // with the crawler's own detector before we pay to judge it.
     if (looksLikeListingInjection(text)) { row.intent = { kind: "unscreened", p: null }; continue; }
