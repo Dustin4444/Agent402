@@ -339,6 +339,8 @@ export const WALLET_ONLY_SLUGS = new Set([
   // rated, so a PoW call has no standing to write one. (The TALLY,
   // feedback-summary, is counts only and stays free.)
   "feedback",
+  // Typed judgment: a paid third-party model per call, so never PoW-payable.
+  "judge",
   // Image generation kit: every call burns real upstream inference credit
   // (OpenAI GPT Image API). Same rationale as LLM proxy.
   "image-gen", "image-gen-hd", "image-gen-premium",

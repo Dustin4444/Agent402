@@ -373,7 +373,10 @@ import { hostFigures, hostIndexEntry, isSelfSellerQuery } from "./host-entry.js"
 import { ledgerDocsPage } from "./ledger-docs.js";
 import { ledgerIntegrationsPage } from "./ledger-integrations.js";
 
-const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZE_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...CRYPTO_HASH_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...RECALL_TOOLS, ...IPO_TOOLS, ...INSIDER_TOOLS, ...TOKEN_RISK_TOOLS, ...TOKEN_SAFETY_TOOLS, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...BLOCKSCOUT_TOOLS, ...CAPTCHA_TOOLS, ...SQL_GUARD_TOOLS, ...ACTION_GATE_TOOLS, ...DERIVATIVES_TOOLS, ...SOLANA_INTEL_TOOLS, ...X_DATA_TOOLS_ENABLED, ...EXA_TOOLS_ENABLED, ...B2B_ENRICH_TOOLS_ENABLED, ...CRAWL_TOOLS, ...CRYPTO_SIGNALS_TOOLS, ...DEFI_TOOLS, ...CRYPTO_MARKETS_TOOLS, ...FARCASTER_SOCIAL_TOOLS_ENABLED, ...ALCHEMY_DATA_TOOLS, ...IMAGES_FAST_TOOLS, ...TOKEN_BRIEF_TOOLS, ...TICKER_PACK_TOOLS, ...FILING_WATCH_TOOLS, ...LLM_CONTEXT_TOOLS, ...LINKEDIN_TOOLS, ...ATTEST_TOOLS, ...SANCTIONS_TOOLS, ...FEEDBACK_TOOLS, ...CHAIN_RPC_TOOLS];
+// Listed only with a key, like every other env-gated kit: a tool we cannot serve
+// must not appear in the catalog, on /api/pricing, or in a 402's offer.
+const JUDGE_TOOLS_ENABLED = judgeEnabled() ? JUDGE_TOOLS : [];
+const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZE_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...CRYPTO_HASH_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...RECALL_TOOLS, ...IPO_TOOLS, ...INSIDER_TOOLS, ...TOKEN_RISK_TOOLS, ...TOKEN_SAFETY_TOOLS, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...BLOCKSCOUT_TOOLS, ...CAPTCHA_TOOLS, ...SQL_GUARD_TOOLS, ...ACTION_GATE_TOOLS, ...DERIVATIVES_TOOLS, ...SOLANA_INTEL_TOOLS, ...X_DATA_TOOLS_ENABLED, ...EXA_TOOLS_ENABLED, ...B2B_ENRICH_TOOLS_ENABLED, ...CRAWL_TOOLS, ...CRYPTO_SIGNALS_TOOLS, ...DEFI_TOOLS, ...CRYPTO_MARKETS_TOOLS, ...FARCASTER_SOCIAL_TOOLS_ENABLED, ...ALCHEMY_DATA_TOOLS, ...IMAGES_FAST_TOOLS, ...TOKEN_BRIEF_TOOLS, ...TICKER_PACK_TOOLS, ...FILING_WATCH_TOOLS, ...LLM_CONTEXT_TOOLS, ...LINKEDIN_TOOLS, ...ATTEST_TOOLS, ...SANCTIONS_TOOLS, ...FEEDBACK_TOOLS, ...CHAIN_RPC_TOOLS, ...JUDGE_TOOLS_ENABLED];
 // House style on every report tier's output (agents, card buyers, monitors
 // all reach the same handler object): no em or en dashes in what a person
 // reads. Wrapped in place so _premiumHandlers below sees the wrapped one.
@@ -388,6 +391,7 @@ const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZ
 // code, and the model-backed ones are named rather than hidden - so the copy
 // now says that and derives its counts from here.
 const MODEL_BACKED_KITS = [
+  ...JUDGE_TOOLS,   // model-backed whether or not the key is set, so the claim is never wrong
   ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...IMAGE_GEN_TOOLS, ...IMAGES_FAST_TOOLS, ...TTS_TOOLS, ...STT_TOOLS,
   ...EMBED_TOOLS, ...MODERATE_TOOLS, ...PDF_SUMMARIZE_TOOLS,
   ...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...RECALL_TOOLS,
@@ -433,6 +437,9 @@ import { svmBuyerConfigured, svmBuyerStatus, SOLANA_NETWORK_LABELS } from "./sol
 import { payTempo, tempoBuyerConfigured, tempoBuyerStatus } from "./tempo-buyer.js";
 import { issueChallenge, verifySolution, isComputePayable, powInfo, POW_DIFFICULTY, WALLET_ONLY_SLUGS, verifyHeartbeatToken } from "./pow.js";
 import { createLimiter as createRateLimiter, LIMITS_LABEL as POW_LIMITS_LABEL } from "./rate-limit.js";
+import { classifyWishes, wishClassifyEnabled } from "./wish-classify.js";
+import { rerankMisses, rerankEnabled } from "./discovery-rerank.js";
+import { JUDGE_TOOLS, judgeEnabled } from "./tools/judge-kit.js";
 import { sweepStaleTsMap, makeWindowCounter } from "./rate-sweep.js";
 
 // Shared with the MCP free tier (src/mcp-http.js) — same policy, separate
@@ -4041,11 +4048,37 @@ app.get("/__operator/stats", (req, res) => {
   // to sum over a billing month; the in-memory fields reset on every redeploy.
   res.json({ ...getOperatorBreakdown({ prices: TOOL_PRICES, walletOnlySet: WALLET_ONLY_SLUGS, offeredNetworks: enabledNetworks(NETWORK) }), upstreamCalls: { brave: { ...braveCallMeter(), daily: getDailyUpstreamCalls("brave") } } });
 });
-app.get("/__operator/wishes", (req, res) => {
+// The intent pass is OPT-IN (?intent=1) and never runs on a default load.
+// It is a PAID third-party call per uncached row, on a request path, and the
+// note beside the reconciliation route above states the rule this follows:
+// operator auth bounds WHO can spend, never HOW OFTEN. So the flag bounds
+// intent (you asked), the limiter bounds rate, classifyWishes bounds rows per
+// run, and its cache bounds repeats. Without the flag this route is byte-for-
+// byte what it was: synchronous, free, and unable to reach a third party.
+const wishIntentLimiter = createRateLimiter("wish-intent", { perMin: 4, perHour: 30 });
+const wantsIntent = (req) => /^(1|true|yes|on)$/i.test(String(req.query?.intent || "").trim());
+const wishRerankLimiter = createRateLimiter("wish-rerank", { perMin: 2, perHour: 20 });
+// Candidates come from find, injected rather than imported, so discovery-rerank
+// cannot widen its own reach past what discovery already surfaces.
+const rerankResolve = (q, k) => (findTools(CATALOG, q, { k, baseUrl: BASE_URL, powSlugs: POW_SLUGS }).results || []);
+async function withRerank(req, agg) {
+  if (!/^(1|true|yes|on)$/i.test(String(req.query?.rerank || "").trim()) || !rerankEnabled()) return agg;
+  if (wishRerankLimiter.check(clientIp(req)).limited) { agg.rerankNote = "rate limited - each pass spends per uncached query"; return agg; }
+  try { agg.rerankSummary = await rerankMisses(agg.clusters, rerankResolve); }
+  catch { agg.rerankNote = "re-rank pass unavailable"; }
+  return agg;
+}
+async function withIntent(req, agg) {
+  if (!wantsIntent(req) || !wishClassifyEnabled()) return agg;
+  if (wishIntentLimiter.check(clientIp(req)).limited) { agg.intentNote = "rate limited - each pass spends per uncached row"; return agg; }
+  try { await classifyWishes(agg.clusters); } catch { agg.intentNote = "intent pass unavailable"; }
+  return agg;
+}
+app.get("/__operator/wishes", async (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).type("html").send("<p>Not found.</p>");
   const agg = getWishesAggregate({ limit: 500, detailed: true });
   annotateServed(agg.clusters, wishServedScore, WISH_SERVED_MIN_SCORE);
-  res.type("html").send(operatorWishesPage(BASE_URL, agg));
+  res.type("html").send(operatorWishesPage(BASE_URL, await withRerank(req, await withIntent(req, agg))));
 });
 // Token-gated DETAILED wish feed (per-cluster text/counts/verdicts) — the raw
 // demand board is strategic intel, so the itemized view lives behind the
@@ -4083,12 +4116,12 @@ app.get("/__operator/discovery-gap.json", async (req, res) => {
     res.status(500).json({ ok: false, error: String(e?.message || e).slice(0, 200) });
   }
 });
-app.get("/__operator/wishes.json", (req, res) => {
+app.get("/__operator/wishes.json", async (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   res.set("Cache-Control", "no-store");
   const agg = getWishesAggregate({ limit: req.query?.limit, detailed: true });
   annotateServed(agg.clusters, wishServedScore, WISH_SERVED_MIN_SCORE);
-  res.json(agg);
+  res.json(await withRerank(req, await withIntent(req, agg)));
 });
 // Per-chain revenue-ledger sync state. A chain that is merely BEHIND produces
 // no rows and no error, which is indistinguishable from a chain with no
