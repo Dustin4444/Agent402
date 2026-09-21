@@ -474,10 +474,38 @@ export function validateOriginInput(raw, { selfOrigin } = {}) {
   try { u = new URL(String(raw || "").trim()); } catch { return { error: "origin must be a valid URL" }; }
   if (u.protocol !== "https:") return { error: "origin must be https" };
   if (u.username || u.password) return { error: "origin must not contain credentials" };
-  if (u.port && u.port !== "443") return { error: "origin must use the default https port" };
+  // A NON-DEFAULT PORT IS CARRIED, not refused (2026-09-21). The normaliser
+  // below builds the origin from `u.host`, which includes a port when there is
+  // one and omits it when it is 443, because WHATWG URL drops a scheme's
+  // default port on parse. So `https://host:443` and `https://host` normalise
+  // to the same key and `https://host:8443` keeps its own.
+  //
+  // This door used to refuse a port, and the reason it gave (that supporting
+  // one meant reshaping a persisted key across a dozen modules) was wrong. The
+  // rest of the index was already port-safe and had been all along: the
+  // discovery normaliser `extractOrigin` has always used `u.host`, crawls build
+  // URLs with `new URL(path, origin)` or by concatenation onto the whole origin,
+  // `canonicalHost` and the payTo grouping read `u.host`, the persisted cache
+  // treats the origin as an opaque key, and the display sites strip the scheme
+  // and print whatever is left. Six ported origins were sitting in the live
+  // index when this was measured, three of them routable, every one of them
+  // arrived through discovery. Registration was the only door that refused one.
+  //
+  // NOT an SSRF control, which is worth saying because it looked like one.
+  // Every outbound crawl goes through safeFetch -> assertPublicUrl, which
+  // resolves the host and refuses private addresses and never inspects the
+  // port, so the port was never what bounded the reach. What a port does add is
+  // a crude prober: registering an origin reports whether that host:port speaks
+  // TLS and HTTP. That was already true of 443 on any public host, the hosts
+  // are public either way, and registration is rate limited per IP and
+  // globally, so the honest trade is to accept a real seller's port rather than
+  // guard a fact anyone can read with nmap.
+  //
+  // `operatorKey` still groups by hostname alone, deliberately: two ports on
+  // one host are one operator and share one crawl budget.
   if ((u.pathname && u.pathname !== "/") || u.search || u.hash) return { error: "submit the bare origin (no path or query)" };
   if (!u.hostname.includes(".")) return { error: "origin must be a public hostname" };
-  const origin = `https://${u.hostname.toLowerCase()}`;
+  const origin = `https://${u.host.toLowerCase()}`;
   if (selfOrigin && origin === String(selfOrigin).toLowerCase()) return { error: "this host is already the local catalog" };
   return { origin };
 }
