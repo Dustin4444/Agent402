@@ -2906,6 +2906,9 @@ jobs:
       - name: Single <main> landmark per page (no page-level renderer may nest a second <main> inside ledgerShell's own)
         run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-single-main-landmark.js
 
+      - name: Heading order (one h1 per page, no skipped levels, no empty headings - a screen reader announces level as structure)
+        run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-heading-order.js
+
       - name: Wrong-method 405 with Allow header (a known catalog path hit with the wrong verb no longer looks like a dead route)
         run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-wrong-method-405.js
 

@@ -104,9 +104,18 @@ export function ledgerLeaderboardPage(baseUrl, snapshot, { stats, walletAddress,
   const selfMpp = fmtNum(served.viaMPPWire);
   const selfRails = railsWithTraffic(stats);
 
+  // Two real figures that usually coincide, and reading the same number twice
+  // under two labels looks like a bug rather than a fact. scannedSellers counts
+  // origins in the scan; walletsQueried counts the payTo addresses those origins
+  // resolve to. They diverge only when a seller advertises no wallet, or several
+  // sellers settle to one - and THAT is the interesting case, so it is the one
+  // that gets two rows. When they agree, say so once and say why.
+  const walletsQueried = Number(snapshot?.walletsQueried);
+  const sameCount = Number.isFinite(walletsQueried) && walletsQueried === Number(scannedSellers);
+
   const meta = [
-    ["sellers ranked", fmtNum(scannedSellers)],
-    ["wallets queried", fmtNum(snapshot?.walletsQueried)],
+    [sameCount ? "sellers ranked, one wallet each" : "sellers ranked", fmtNum(scannedSellers)],
+    ...(sameCount ? [] : [["wallets queried", fmtNum(walletsQueried)]]),
     ["bazaar listings", fmtNum(snapshot?.bazaarTotal)],
     ["blocks scanned", fmtNum(snapshot?.scannedBlocks)],
     ["window", windowLabel],

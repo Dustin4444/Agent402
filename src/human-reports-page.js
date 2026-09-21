@@ -115,6 +115,7 @@ export function humanReportsPage(baseUrl) {
   </div>
 </section>
   <section>
+    <h2 class="sr-section">Every report you can buy</h2>
     <p class="note" style="margin:0 0 16px;">Card prices include payment processing, which has a fixed cost per charge. An agent paying per call over x402 or MPP pays the tool's own price instead, which sits just above what the report costs us to produce. Both buy the same report.</p>
     <div class="products">
       <div class="pcard" data-kind="research">

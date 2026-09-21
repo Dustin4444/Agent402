@@ -82,6 +82,11 @@ export const LEDGER_HEAD = `<link rel="preload" href="/fonts/geist-500-latin.wof
 // ---------------------------------------------------------------------------
 
 export const LEDGER_CSS = `
+/* A heading that exists for structure rather than for the eye. A screen reader
+   announces heading LEVEL as structure, so h1 straight to h3 tells a listener
+   there is a section title they have missed. Where a visual design genuinely
+   has no title, this supplies one without changing the page for anyone else. */
+.sr-section{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 /* Hard stop on page-level horizontal scroll: no content should ever push the
    document sideways on a phone. Uses overflow-x: clip (not hidden) so it never
    turns the root into a scroll container - position: sticky (docs TOC) keeps
@@ -279,6 +284,10 @@ a { color: inherit; }
 .mlnav-g { position: relative; }
 .mlnav-g > .mlnav-dd { display: none; position: absolute; top: 100%; left: -18px; padding-top: 13px; z-index: 60; }
 .mlnav-g:hover > .mlnav-dd, .mlnav-g:focus-within > .mlnav-dd { display: block; }
+.mlnav-row { display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink); }
+.mlnav-row--sep { border-bottom: 1px solid var(--hairline); }
+.mlnav-label { display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline); }
+.mlnav-faint { color: var(--faint); }
 .mlnav-row:hover { background: var(--card-zebra); }
 .ml-nav-link { color: var(--muted); text-decoration: none; border-bottom: 1.5px solid transparent; padding-bottom: 2px; transition: color .15s ease, border-color .15s ease; }
 .ml-nav-link:hover { color: var(--ink); border-bottom-color: var(--dash); }
@@ -512,13 +521,13 @@ function chainRowHtml(c, live) {
     // the two numbers an agent picks a chain on. Tools omitted (not zeroed) if
     // the count is missing, never a fabricated 0.
     const toolsSpan = typeof c.tools === "number" && c.tools > 0
-      ? `<span style="color:var(--faint);">${fmt(c.tools)} tool${c.tools === 1 ? "" : "s"}</span>`
+      ? `<span class="mlnav-faint">${fmt(c.tools)} tool${c.tools === 1 ? "" : "s"}</span>`
       : "";
-    return `<a href="${esc(c.href)}" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">${esc(c.label)}</span><span style="display:inline-flex;align-items:center;gap:10px;"><span style="display:inline-flex;align-items:center;gap:6px;color:var(--green);"><span style="width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;"></span>${fmt(c.sellers)} seller${c.sellers === 1 ? "" : "s"}</span>${toolsSpan}</span></a>`;
+    return `<a href="${esc(c.href)}" class="mlnav-row"><span style="font-weight:700;">${esc(c.label)}</span><span style="display:inline-flex;align-items:center;gap:10px;"><span style="display:inline-flex;align-items:center;gap:6px;color:var(--green);"><span style="width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;"></span>${fmt(c.sellers)} seller${c.sellers === 1 ? "" : "s"}</span>${toolsSpan}</span></a>`;
   }
   // Provider returned this chain but its data failed - honesty rule:
   // "unavailable", never zero.
-  return `<a href="${esc(c.href)}" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">${esc(c.label)}</span><span style="display:inline-flex;align-items:center;gap:6px;color:var(--faint);"><span style="width:7px;height:7px;border-radius:50%;background:var(--faint);display:inline-block;"></span>unavailable</span></a>`;
+  return `<a href="${esc(c.href)}" class="mlnav-row"><span style="font-weight:700;">${esc(c.label)}</span><span style="display:inline-flex;align-items:center;gap:6px;color:var(--faint);"><span style="width:7px;height:7px;border-radius:50%;background:var(--faint);display:inline-block;"></span>unavailable</span></a>`;
 }
 
 // Marketplace dropdown - the single buy-side door (the old separate
@@ -534,13 +543,13 @@ function marketPanelNav(chainInfo) {
   // set. Explainers (what is x402, agentic finance) live under Docs.
   return `<span class="mlnav-dd">
               <span style="display:block;width:340px;border:1px solid var(--hairline);border-radius:12px;overflow:hidden;background:var(--card);box-shadow:0 18px 40px rgba(17,19,21,.12);">
-                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">SELLERS, INDEXED AND VERIFIED</span>
-                <a href="/marketplace" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">x402 marketplace</span><span style="color:var(--faint);">every indexed seller</span></a>
-                <a href="/mpp-marketplace" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">MPP marketplace</span><span style="color:var(--faint);">verified sellers</span></a>
-                <a href="/leaderboard" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">leaderboard</span><span style="color:var(--faint);">settled on-chain</span></a>
-                <a href="/revenue" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">transactions</span><span style="color:var(--faint);">our rails, every settle</span></a>
-                <a href="/marketplace/tools" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--hairline);"><span style="font-weight:700;">every tool indexed</span><span style="color:var(--faint);">ours + third-party</span></a>
-                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">BY CHAIN</span>
+                <span class="mlnav-label">SELLERS, INDEXED AND VERIFIED</span>
+                <a href="/marketplace" class="mlnav-row"><span style="font-weight:700;">x402 marketplace</span><span class="mlnav-faint">every indexed seller</span></a>
+                <a href="/mpp-marketplace" class="mlnav-row"><span style="font-weight:700;">MPP marketplace</span><span class="mlnav-faint">verified sellers</span></a>
+                <a href="/leaderboard" class="mlnav-row"><span style="font-weight:700;">leaderboard</span><span class="mlnav-faint">settled on-chain</span></a>
+                <a href="/revenue" class="mlnav-row"><span style="font-weight:700;">transactions</span><span class="mlnav-faint">our rails, every settle</span></a>
+                <a href="/marketplace/tools" class="mlnav-row mlnav-row--sep"><span style="font-weight:700;">every tool indexed</span><span class="mlnav-faint">ours + third-party</span></a>
+                <span class="mlnav-label">BY CHAIN</span>
                 ${rows}
                 <a href="/guides/smart-order-router" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--surface);color:var(--on-dark);"><span style="font-weight:700;">buy from any seller with one call</span><span style="opacity:.7;">→</span></a>
               </span>
@@ -551,10 +560,10 @@ function marketPanelNav(chainInfo) {
 function peoplePanelNav() {
   return `<span class="mlnav-dd">
               <span style="display:block;width:300px;border:1px solid var(--hairline);border-radius:12px;overflow:hidden;background:var(--card);box-shadow:0 18px 40px rgba(17,19,21,.12);">
-                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">FOR PEOPLE · CARD OR USDC</span>
-                <a href="/reports" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">reports</span><span style="color:var(--faint);">finished, cited, $2 and up</span></a>
-                <a href="/monitors" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">monitors</span><span style="color:var(--faint);">watch one target monthly</span></a>
-                <a href="/credits" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--hairline);"><span style="font-weight:700;">credits</span><span style="color:var(--faint);">pay by card, use every tool</span></a>
+                <span class="mlnav-label">FOR PEOPLE · CARD OR USDC</span>
+                <a href="/reports" class="mlnav-row"><span style="font-weight:700;">reports</span><span class="mlnav-faint">finished, cited, $2 and up</span></a>
+                <a href="/monitors" class="mlnav-row"><span style="font-weight:700;">monitors</span><span class="mlnav-faint">watch one target monthly</span></a>
+                <a href="/credits" class="mlnav-row mlnav-row--sep"><span style="font-weight:700;">credits</span><span class="mlnav-faint">pay by card, use every tool</span></a>
                 <a href="/reports" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--surface);color:var(--on-dark);"><span style="font-weight:700;">get a report</span><span style="opacity:.7;">→</span></a>
               </span>
             </span>`;
@@ -566,14 +575,14 @@ function peoplePanelNav() {
 function docsPanelNav() {
   return `<span class="mlnav-dd">
               <span style="display:block;width:300px;border:1px solid var(--hairline);border-radius:12px;overflow:hidden;background:var(--card);box-shadow:0 18px 40px rgba(17,19,21,.12);">
-                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">BUILD ON AGENT402</span>
-                <a href="/docs" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">docs</span><span style="color:var(--faint);">API, MCP, SDKs</span></a>
-                <a href="/quickstart" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">quickstart</span><span style="color:var(--faint);">first paid call in a minute</span></a>
-                <a href="/guides" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">guides</span><span style="color:var(--faint);">hosts, router, selling</span></a>
-                <a href="/integrations" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--hairline);"><span style="font-weight:700;">integrations</span><span style="color:var(--faint);">frameworks and adapters</span></a>
-                <a href="/x402-test" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--hairline);"><span style="font-weight:700;">test your client</span><span style="color:var(--faint);">why a payment was refused</span></a>
-                <a href="/blog" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">blog</span><span style="color:var(--faint);"></span></a>
-                <a href="/changelog" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">changelog</span><span style="color:var(--faint);">what shipped</span></a>
+                <span class="mlnav-label">BUILD ON AGENT402</span>
+                <a href="/docs" class="mlnav-row"><span style="font-weight:700;">docs</span><span class="mlnav-faint">API, MCP, SDKs</span></a>
+                <a href="/quickstart" class="mlnav-row"><span style="font-weight:700;">quickstart</span><span class="mlnav-faint">first paid call in a minute</span></a>
+                <a href="/guides" class="mlnav-row"><span style="font-weight:700;">guides</span><span class="mlnav-faint">hosts, router, selling</span></a>
+                <a href="/integrations" class="mlnav-row mlnav-row--sep"><span style="font-weight:700;">integrations</span><span class="mlnav-faint">frameworks and adapters</span></a>
+                <a href="/x402-test" class="mlnav-row mlnav-row--sep"><span style="font-weight:700;">test your client</span><span class="mlnav-faint">why a payment was refused</span></a>
+                <a href="/blog" class="mlnav-row"><span style="font-weight:700;">blog</span><span class="mlnav-faint"></span></a>
+                <a href="/changelog" class="mlnav-row"><span style="font-weight:700;">changelog</span><span class="mlnav-faint">what shipped</span></a>
                 <a href="/docs" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--surface);color:var(--on-dark);"><span style="font-weight:700;">read the docs</span><span style="opacity:.7;">→</span></a>
               </span>
             </span>`;
@@ -584,15 +593,15 @@ function docsPanelNav() {
 function whyPanelNav() {
   return `<span class="mlnav-dd">
               <span style="display:block;width:300px;border:1px solid var(--hairline);border-radius:12px;overflow:hidden;background:var(--card);box-shadow:0 18px 40px rgba(17,19,21,.12);">
-                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">WHY PAY HERE</span>
-                <a href="/why" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">seven things</span><span style="color:var(--faint);">each with its proof</span></a>
-                <a href="/proof" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--hairline);"><span style="font-weight:700;">receipts</span><span style="color:var(--faint);">metered calls against their quotes</span></a>
-                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">WHAT THIS IS</span>
-                <a href="/101" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">x402 &amp; MPP 101</span><span style="color:var(--faint);">the walkthrough</span></a>
-                <a href="/what-is-x402" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">what is x402</span><span style="color:var(--faint);">the HTTP 402 protocol</span></a>
-                <a href="/what-is-mpp" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">what is MPP</span><span style="color:var(--faint);">the Payment auth scheme</span></a>
-                <a href="/agentic-finance" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">agentic finance</span><span style="color:var(--faint);">the category</span></a>
-                <a href="/glossary" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">glossary</span><span style="color:var(--faint);">the terms</span></a>
+                <span class="mlnav-label">WHY PAY HERE</span>
+                <a href="/why" class="mlnav-row"><span style="font-weight:700;">seven things</span><span class="mlnav-faint">each with its proof</span></a>
+                <a href="/proof" class="mlnav-row mlnav-row--sep"><span style="font-weight:700;">receipts</span><span class="mlnav-faint">metered calls against their quotes</span></a>
+                <span class="mlnav-label">WHAT THIS IS</span>
+                <a href="/101" class="mlnav-row"><span style="font-weight:700;">x402 &amp; MPP 101</span><span class="mlnav-faint">the walkthrough</span></a>
+                <a href="/what-is-x402" class="mlnav-row"><span style="font-weight:700;">what is x402</span><span class="mlnav-faint">the HTTP 402 protocol</span></a>
+                <a href="/what-is-mpp" class="mlnav-row"><span style="font-weight:700;">what is MPP</span><span class="mlnav-faint">the Payment auth scheme</span></a>
+                <a href="/agentic-finance" class="mlnav-row"><span style="font-weight:700;">agentic finance</span><span class="mlnav-faint">the category</span></a>
+                <a href="/glossary" class="mlnav-row"><span style="font-weight:700;">glossary</span><span class="mlnav-faint">the terms</span></a>
                 <a href="/why" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--surface);color:var(--on-dark);"><span style="font-weight:700;">why pay here</span><span style="opacity:.7;">→</span></a>
               </span>
             </span>`;
@@ -601,12 +610,12 @@ function whyPanelNav() {
 function ourToolsPanelNav() {
   return `<span class="mlnav-dd">
               <span style="display:block;width:280px;border:1px solid var(--hairline);border-radius:12px;overflow:hidden;background:var(--card);box-shadow:0 18px 40px rgba(17,19,21,.12);">
-                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">OUR 500+ TOOL CATALOG</span>
-                <a href="/tools" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">catalog</span><span style="color:var(--faint);">browse by category</span></a>
-                <a href="/skills" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">skill packs</span><span style="color:var(--faint);">one payment, N tools</span></a>
-                <a href="/tools/category/crypto" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">crypto, DeFi &amp; Solana</span><span style="color:var(--faint);">perps · yields · token risk</span></a>
-                <a href="/tools/category/llm" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">images &amp; video</span><span style="color:var(--faint);">flat per picture or clip</span></a>
-                <a href="/playground" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">playground</span><span style="color:var(--faint);">try free · PoW</span></a>
+                <span class="mlnav-label">OUR 500+ TOOL CATALOG</span>
+                <a href="/tools" class="mlnav-row"><span style="font-weight:700;">catalog</span><span class="mlnav-faint">browse by category</span></a>
+                <a href="/skills" class="mlnav-row"><span style="font-weight:700;">skill packs</span><span class="mlnav-faint">one payment, N tools</span></a>
+                <a href="/tools/category/crypto" class="mlnav-row"><span style="font-weight:700;">crypto, DeFi &amp; Solana</span><span class="mlnav-faint">perps · yields · token risk</span></a>
+                <a href="/tools/category/llm" class="mlnav-row"><span style="font-weight:700;">images &amp; video</span><span class="mlnav-faint">flat per picture or clip</span></a>
+                <a href="/playground" class="mlnav-row"><span style="font-weight:700;">playground</span><span class="mlnav-faint">try free · PoW</span></a>
                 <a href="/pricing" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--surface);color:var(--on-dark);"><span style="font-weight:700;">pricing →</span><span style="color:var(--dk-muted);">/pricing</span></a>
               </span>
             </span>`;
@@ -615,10 +624,10 @@ function ourToolsPanelNav() {
 function sellPanelHtml() {
   return `<span class="mlnav-dd">
               <span style="display:block;width:330px;border:1px solid var(--hairline);border-radius:12px;overflow:hidden;background:var(--card);box-shadow:0 18px 40px rgba(17,19,21,.12);">
-                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">FOR API SELLERS - GET PAID PER CALL</span>
-                <a href="/sell" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">list your API</span><span style="color:var(--faint);">free · health-ranked</span></a>
-                <a href="/tollbooth" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">tollbooth</span><span style="color:var(--faint);">pay-per-crawl</span></a>
-                <a href="/contribute" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">contribute a tool</span><span style="color:var(--faint);">AGPL · ~15 lines</span></a>
+                <span class="mlnav-label">FOR API SELLERS - GET PAID PER CALL</span>
+                <a href="/sell" class="mlnav-row"><span style="font-weight:700;">list your API</span><span class="mlnav-faint">free · health-ranked</span></a>
+                <a href="/tollbooth" class="mlnav-row"><span style="font-weight:700;">tollbooth</span><span class="mlnav-faint">pay-per-crawl</span></a>
+                <a href="/contribute" class="mlnav-row"><span style="font-weight:700;">contribute a tool</span><span class="mlnav-faint">AGPL · ~15 lines</span></a>
                 <a href="/sell" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--surface);color:var(--on-dark);"><span style="font-weight:700;">start selling →</span><span style="color:var(--dk-muted);">/sell</span></a>
               </span>
             </span>`;

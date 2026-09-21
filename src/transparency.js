@@ -110,6 +110,8 @@ terms that travel with every clone are in the
 <a href="${repoUrl("blob/main/LICENSE")}" rel="noopener">AGPL-3.0 license</a>:
 run a modified copy as a network service and you must publish your source.</p>` : ""}
 
+<h2 class="sr-section">Disclosures in full</h2>
+
 <details class="tp-fold">
 <summary>A community member independently launched a token using the project's name ($AGENT402, on Robinhood Chain). It was not created, issued, endorsed, or controlled by Agent402. Full record and on-chain receipts - click to expand.</summary>
 <h3>The community-launched $AGENT402 token (Robinhood Chain)</h3>
