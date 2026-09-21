@@ -1199,6 +1199,9 @@ function withDispatchSnapshot(snapshot) {
   return { ...snapshot, sellers: snapshot.sellers.map((sel) => (sel?.local ? sel : withDispatchFields(sel))) };
 }
 async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wantModel = null } = {}) {
+  // Filled by the dispatch gate below; read by route-execute when nothing
+  // resolves, so the refusal can say which world it is in.
+  const gateDrops = { total: 0, byReason: {} };
   // F4: never route to ourselves (paying our own endpoint over x402 = fee loss
   // / accidental self-recursion) — exclude our own host from candidates.
   const ourHost = (() => { try { return new URL(BASE_URL).host.toLowerCase(); } catch { return ""; } })();
@@ -1306,7 +1309,23 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
       // rule cannot drift from what is asserted about it.
       // The SAME function that labels every public row (dispatch-eligibility.js),
       // asked for its Base verdict, so the label and the decision cannot drift.
-      .filter((r) => dispatchEligibility({ routable: true, networks: r.networks, settled: r.settled, payers: r.payers, priceUsd: r.priceUsd, urlTemplate: !!r.urlTemplate, spendChains: ["base"], minSettled: SOR_MIN_SETTLED_TX, minPayers: SOR_MIN_DISTINCT_PAYERS, usdcDomain: r.evmDomainByNetwork?.["eip155:8453"] || null }).chains.base?.eligible === true)
+      // WHY a candidate was dropped, not just that it was. Before this the
+      // filter discarded silently, so "no seller matched" covered two very
+      // different worlds: nothing in the index does this task, or plenty do
+      // and every one is below the settlement floor. Those call for opposite
+      // responses (list more sellers vs revisit the gate) and telemetry could
+      // not tell them apart. The tally rides back on the array so the caller
+      // can name the cause without re-deriving it.
+      .filter((r) => {
+        const verdict = dispatchEligibility({ routable: true, networks: r.networks, settled: r.settled, payers: r.payers, priceUsd: r.priceUsd, urlTemplate: !!r.urlTemplate, spendChains, evidence: r.binding });
+        const ok = verdict.chains?.base?.eligible !== false;
+        if (!ok) {
+          gateDrops.total++;
+          const why = verdict.chains?.base?.reason || verdict.reason || "other";
+          gateDrops.byReason[why] = (gateDrops.byReason[why] || 0) + 1;
+        }
+        return ok;
+      })
       .sort((a, b) => b.settled - a.settled)
       .slice(0, 5);
   }
@@ -1511,8 +1530,19 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
   // route-execute can fall through to the next seller when one 5xxs on the paid
   // leg (its own upstream down) instead of failing a route another seller could
   // serve. Order is preserved: settled-desc from the ranker.
-  if (Math.max(1, limit) === 1) return resolved[0] || null;
-  return resolved;
+  // Non-enumerable: this is diagnostics for our own refusal path and must not
+  // appear in a receipt, a response body or a log line.
+  const carry = (v) => {
+    if (v && typeof v === "object") {
+      try { Object.defineProperty(v, "__gateDrops", { enumerable: false, configurable: true, value: gateDrops }); } catch { /* frozen or sealed: diagnostics are additive */ }
+    }
+    return v;
+  };
+  // The limit===1 contract still returns null for "nothing", never an empty
+  // array: an array is truthy and every `if (!seller)` caller would break.
+  // Only the list form carries diagnostics, which is the form route-execute uses.
+  if (Math.max(1, limit) === 1) return resolved[0] ? carry(resolved[0]) : null;
+  return carry(resolved);
 }
 // Operator-only diagnostic: run the SAME resolve pipeline as resolveExternalSeller
 // but report why each candidate is kept or dropped (settled count, cap, base,
