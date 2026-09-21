@@ -474,7 +474,31 @@ export function validateOriginInput(raw, { selfOrigin } = {}) {
   try { u = new URL(String(raw || "").trim()); } catch { return { error: "origin must be a valid URL" }; }
   if (u.protocol !== "https:") return { error: "origin must be https" };
   if (u.username || u.password) return { error: "origin must not contain credentials" };
-  if (u.port && u.port !== "443") return { error: "origin must use the default https port" };
+  // NOT a spec rule and not a security rule: it guards the normaliser three
+  // lines below, which builds the origin from `hostname` alone and so cannot
+  // represent a port. Without this check https://host:8443 would be stored as
+  // https://host and we would crawl port 443 of that host - a different service,
+  // or nothing. Refusing is the honest failure; silently rewriting a seller's
+  // origin is not.
+  //
+  // NOT the SSRF guard, and worth stating because it looks like one. Every
+  // outbound crawl fetch goes through safeFetch -> assertPublicUrl, which
+  // resolves the host and refuses private addresses and never inspects the
+  // port. The register handler also uses the NORMALISED origin, so the raw
+  // port never reaches a fetch even if this check were removed. And origins
+  // arriving from the Bazaar feed or a redirect keep their port, because
+  // new URL(x).origin preserves it - so this is the only door that refuses
+  // one, and it refuses something the next line would have discarded.
+  //
+  // Supporting ports means changing the shape of `origin`, which is a key
+  // persisted to /data and joined against the leaderboard, successions and the
+  // evidence binding across a dozen modules. Zero of the ~250 indexed sellers
+  // use one today. Raised by a seller on :8443 (2026-09-21) whose endpoint was
+  // otherwise fully v2-compatible, so this is a real limitation with a real
+  // cost, not a rule worth defending on its merits.
+  if (u.port && u.port !== "443") {
+    return { error: "we can only index an origin on the default https port (443); this is our limitation, not an x402 requirement" };
+  }
   if ((u.pathname && u.pathname !== "/") || u.search || u.hash) return { error: "submit the bare origin (no path or query)" };
   if (!u.hostname.includes(".")) return { error: "origin must be a public hostname" };
   const origin = `https://${u.hostname.toLowerCase()}`;
