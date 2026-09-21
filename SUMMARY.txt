@@ -1,0 +1,79 @@
+REVENUE PAGE EXPOSURE REVIEW - agent402.tools/revenue and its data layer
+Branch: revenue-exposure-review   Reviewed: 2026-09-20   Scope: Parts 1-5 of the brief
+
+IS THE AUTONOMOUS SPENDING WALLET ISOLATED?   YES on the key. NO on the address.
+IS ANY PRIVATE KEY EXPOSED?                   NO.
+
+  The SOR spending wallet (0x7706...4121 on Base, W4GZ...67UOE on Algorand) is a
+  separate address from the treasury (0xaBF4...a9D0), holds its own key, and is
+  never named on /revenue or in any /api/revenue* body. But it IS published, on
+  every 402 challenge for the four route-execute tiers, because those tiers
+  settle their Base and Algorand legs TO it - that is the self-funding loop, and
+  a payTo has to be published to be paid. It is also linkable to the treasury by
+  anyone watching the periodic burner-to-treasury sweeps on-chain.
+
+  So the honest statement is: the wallet is isolated in the way that matters for
+  theft (its own key, a working balance, a daily ceiling, a kill switch) and is
+  NOT unlinkable. Unlinkability was already spent the day the loop shipped and
+  cannot be recovered for existing history. WALLET_ISOLATION_PLAN.md covers what
+  can still be separated going forward.
+
+  No private key, mnemonic or keystore appears in the tree or in git history.
+  The only PRIVATE KEY string in src/ is a documentation placeholder. The one
+  file that ever looked like a rotation record (SECRETS_TO_ROTATE.md, since
+  removed) never carried a literal value.
+
+THE SINGLE BIGGEST EXPOSURE
+
+  F-1. /api/revenue published raw upstream error text on an unauthenticated
+  endpoint, and eleven of the RPC endpoints its scanners walk carry
+  ALCHEMY_API_KEY in the URL PATH. An upstream that echoes its own request back
+  in an error body - which they do - would have published the key. This is not
+  hypothetical: the identical leak happened on /api/leaderboard in August, was
+  fixed there and in three sibling modules, and revenue-live.js was missed.
+  Fixed on this branch, with a guard and six killed mutations.
+
+TOP FIVE ACTIONS, IN ORDER
+
+  1. MERGE THIS BRANCH.  Closes the key-leak path (F-1), bounds bulk scraping of
+     the buyer feed (F-5), and makes the repo move below a one-line change.
+
+  2. MOVE THE REPOSITORY OFF THE PERSONAL ACCOUNT.  (Owner action, on GitHub.)
+     The footer, six Organization JSON-LD sameAs blocks, /company, /terms,
+     /security and the crawler User-Agent all pointed at a URL containing a
+     personal handle. That is the join that turns published wallets into a named
+     individual, and from there into a home address through public records. This
+     branch routes all 91 sites through one constant; set AGENT402_REPO_URL after
+     the move and every surface follows in one deploy.  (F-6)
+
+  3. ROTATE ALCHEMY_API_KEY.  Cheap, and the correct response to "it was
+     reachable through a public error path for an unknown period". Nothing shows
+     it actually leaked; treat it as compromised anyway.  (F-2)
+
+  4. DECIDE THE RESERVE SPLIT.  Today one address receives on nine EVM chains and
+     holds the float, so its balance is the company's full liquid position and
+     anyone can read it. Splitting receive from reserve costs one env var and one
+     periodic sweep, and does not weaken verification: the receive address stays
+     published and every settlement still lands somewhere a reader can check.
+     (F-7, WALLET_ISOLATION_PLAN.md)
+
+  5. SET SOR_EXTERNAL_ENABLED DELIBERATELY.  It gates the whole autonomous-spend
+     path and was already an open owner decision before this review. The controls
+     around it are real and tested (per-payer unsettled ceiling, per-chain daily
+     ceiling that survives restart, cap re-checked against the accept actually
+     signed, payTo binding, sanctions screen, one kill switch every signing path
+     consults). The residual is a policy question, not a missing control.  (F-9)
+
+WHAT WAS ALREADY RIGHT, AND WAS NOT CHANGED
+
+  Revenue vs throughput vs internal is distinguished in the hero, the rail table,
+  the MPP section, the API note and /transparency - more carefully than most of
+  what this page could be compared to. Buyer identities are counts-only on
+  /api/revenue/daily with the reasoning written beside them. Itemized MPP rows
+  are operator-gated. Seller labels are factual and sourced, and the two
+  leaderboards already carried a corrections path (this branch puts it where a
+  seller reading JSON will find it). Spend controls exist, are enforced before
+  signing, and are covered by four test suites.
+
+  Nothing in this review found a figure on /revenue that cannot be reproduced
+  from the source it cites.
