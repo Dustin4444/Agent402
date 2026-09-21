@@ -44,6 +44,11 @@ const CACHE_TTL_MS = Number(process.env.TYPESAFE_CACHE_TTL_MS || 12 * 3_600_000)
 const CACHE_MAX = 2_000;
 const TIMEOUT_MS = 8_000;
 // Below this the answer is not acted on by any caller; recorded, never asserted.
+// MEASURED on 16 hand-labelled live board rows, 2026-09-21: eight adverts
+// scored 0.84 to 0.95, eight plain wishes scored 0.03 to 0.53. 0.75 sits in the
+// empty band between them with room on both sides. Re-measure before moving it,
+// and note that instruction wording moved one row from 0.44 to 0.87, so a
+// reworded question invalidates this calibration.
 export const CONFIDENT = Number(process.env.TYPESAFE_MIN_PROBABILITY || 0.75);
 
 const cache = new Map(); // text -> { at, verdict }
@@ -61,14 +66,6 @@ function questionsFor() {
         + "the author already operates, rather than asking for one? Signs of advertising "
         + "include quoting a price the author is charging, naming a payment address they "
         + "receive at, or linking an endpoint they are inviting others to call.",
-    },
-    requests: {
-      type: "noul",
-      instructions:
-        "Does this text describe a capability the author WANTED and could not find? "
-        + "A capability request describes a job to be done. It is not a request if the "
-        + "text is a malformed value, a test string, or a description of something the "
-        + "author is offering to others.",
     },
   };
 }
@@ -94,17 +91,19 @@ async function judge(text, fetchImpl = fetch) {
     const v = ans?.noul ?? ans?.probability ?? ans?.value ?? ans;
     return typeof v === "number" && v >= 0 && v <= 1 ? v : null;
   };
-  return { advertises: p("advertises"), requests: p("requests") };
+  return { advertises: p("advertises") };
 }
 
 /** A verdict the operator board can render. Never a number the reader has to
  *  interpret: the probability rides along, but the WORD is what is shown, and
  *  an unconfident judgment says so rather than rounding to a side. */
-export function verdictOf({ advertises, requests }) {
-  if (advertises == null || requests == null) return null;
-  if (advertises >= CONFIDENT && requests < CONFIDENT) return { kind: "advertisement", p: advertises };
-  if (requests >= CONFIDENT && advertises < CONFIDENT) return { kind: "request", p: requests };
-  return { kind: "unclear", p: Math.max(advertises, requests) };
+export function verdictOf({ advertises }) {
+  if (advertises == null) return null;
+  if (advertises >= CONFIDENT) return { kind: "advertisement", p: advertises };
+  // Deliberately NOT "request". Not-advertising is all this judgment supports,
+  // and calling it a request would assert something never measured.
+  if (advertises <= 1 - CONFIDENT) return { kind: "not-advertising", p: 1 - advertises };
+  return { kind: "unclear", p: advertises };
 }
 
 /**

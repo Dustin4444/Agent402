@@ -33,8 +33,8 @@ const stub = (answers, { status = 200, throws = false } = {}) => {
 // prove the code agrees with the stub. Captured shape, 2026-09-21:
 //   {"model":"jev-1.13.0","answers":{"advertises":{"type":"noul","noul":0.44}},...}
 const noul = (n) => ({ type: "noul", noul: n });
-const AD = { advertises: noul(0.97), requests: noul(0.10) };
-const REQ = { advertises: noul(0.04), requests: noul(0.93) };
+const AD = { advertises: noul(0.97) };
+const REQ = { advertises: noul(0.04) };
 
 // --- no key, no feature -----------------------------------------------------
 delete process.env.TYPESAFE_API_KEY;
@@ -65,18 +65,22 @@ ok(wishClassifyEnabled() === true, "control: with a key the feature is on");
   ok(f.calls[0].url.includes("typesafe"), "it called the configured endpoint");
   ok(f.calls[0].body.model && f.calls[0].body.questions.advertises.type === "noul",
     "the request carries a model and asks a noul, per the API contract");
-  ok(Object.keys(f.calls[0].body.questions).length === 2 &&
-     f.calls[0].body.questions.requests, "both directions are asked as SEPARATE questions, not derived from each other");
+  // ONE question, measured. A second noul asking "is this a request?" read 0.32
+  // to 0.53 on obviously-a-request rows because it asks something the text does
+  // not contain: whether the author could not FIND the thing. Pinned so it is not
+  // re-added on the assumption that more questions mean more signal.
+  ok(Object.keys(f.calls[0].body.questions).length === 1, "exactly ONE question is asked per row");
 }
 
 // --- the unconfident band says so -------------------------------------------
-ok(verdictOf({ advertises: 0.97, requests: 0.10 }).kind === "advertisement", "confident advert");
-ok(verdictOf({ advertises: 0.04, requests: 0.93 }).kind === "request", "confident request");
-ok(verdictOf({ advertises: 0.55, requests: 0.60 }).kind === "unclear",
-  "a split judgment is 'unclear', never rounded to whichever side is higher");
-ok(verdictOf({ advertises: 0.9, requests: 0.9 }).kind === "unclear",
-  "confident on BOTH is also unclear: they are not mutually exclusive questions");
-ok(verdictOf({ advertises: null, requests: 0.9 }) === null, "an unreadable probability yields no verdict at all");
+ok(verdictOf({ advertises: 0.97 }).kind === "advertisement", "confident advert");
+ok(verdictOf({ advertises: 0.04 }).kind === "not-advertising",
+  "the other side is not-advertising, NEVER request: that was never measured");
+ok(verdictOf({ advertises: 0.55 }).kind === "unclear", "the middle band says unclear rather than rounding to a side");
+ok(verdictOf({ advertises: null }) === null, "an unreadable probability yields no verdict at all");
+// Live separation measured 2026-09-21: adverts 0.84-0.95, plain wishes 0.03-0.53.
+for (const p of [0.84, 0.87, 0.91, 0.95]) ok(verdictOf({ advertises: p }).kind === "advertisement", `measured advert p=${p} is caught`);
+for (const p of [0.03, 0.35, 0.52, 0.53]) ok(verdictOf({ advertises: p }).kind !== "advertisement", `measured plain wish p=${p} is not called an advert`);
 ok(CONFIDENT > 0.5 && CONFIDENT <= 1, `the confidence bar is above a coin flip (${CONFIDENT})`);
 
 // --- failure changes nothing ------------------------------------------------
@@ -103,7 +107,7 @@ for (const [label, opts] of [["a refused key (401)", { status: 401 }], ["a 500",
   const rows = [{ text: "same text", count: 1 }, { text: "same text", count: 1 }, { text: "same text", count: 1 }];
   await classifyWishes(rows, { fetchImpl: f });
   ok(f.calls.length === 1, "an identical wish is judged ONCE and served from cache after");
-  ok(rows.every((r) => r.intent?.kind === "request"), "every duplicate still gets the verdict");
+  ok(rows.every((r) => r.intent?.kind === "not-advertising"), "every duplicate still gets the verdict");
 }
 {
   // A failing row must not be retried for every row in the same run, or one
