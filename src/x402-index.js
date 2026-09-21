@@ -474,34 +474,38 @@ export function validateOriginInput(raw, { selfOrigin } = {}) {
   try { u = new URL(String(raw || "").trim()); } catch { return { error: "origin must be a valid URL" }; }
   if (u.protocol !== "https:") return { error: "origin must be https" };
   if (u.username || u.password) return { error: "origin must not contain credentials" };
-  // NOT a spec rule and not a security rule: it guards the normaliser three
-  // lines below, which builds the origin from `hostname` alone and so cannot
-  // represent a port. Without this check https://host:8443 would be stored as
-  // https://host and we would crawl port 443 of that host - a different service,
-  // or nothing. Refusing is the honest failure; silently rewriting a seller's
-  // origin is not.
+  // A NON-DEFAULT PORT IS CARRIED, not refused (2026-09-21). The normaliser
+  // below builds the origin from `u.host`, which includes a port when there is
+  // one and omits it when it is 443, because WHATWG URL drops a scheme's
+  // default port on parse. So `https://host:443` and `https://host` normalise
+  // to the same key and `https://host:8443` keeps its own.
   //
-  // NOT the SSRF guard, and worth stating because it looks like one. Every
-  // outbound crawl fetch goes through safeFetch -> assertPublicUrl, which
+  // This door used to refuse a port, and the reason it gave (that supporting
+  // one meant reshaping a persisted key across a dozen modules) was wrong. The
+  // rest of the index was already port-safe and had been all along: the
+  // discovery normaliser `extractOrigin` has always used `u.host`, crawls build
+  // URLs with `new URL(path, origin)` or by concatenation onto the whole origin,
+  // `canonicalHost` and the payTo grouping read `u.host`, the persisted cache
+  // treats the origin as an opaque key, and the display sites strip the scheme
+  // and print whatever is left. Six ported origins were sitting in the live
+  // index when this was measured, three of them routable, every one of them
+  // arrived through discovery. Registration was the only door that refused one.
+  //
+  // NOT an SSRF control, which is worth saying because it looked like one.
+  // Every outbound crawl goes through safeFetch -> assertPublicUrl, which
   // resolves the host and refuses private addresses and never inspects the
-  // port. The register handler also uses the NORMALISED origin, so the raw
-  // port never reaches a fetch even if this check were removed. And origins
-  // arriving from the Bazaar feed or a redirect keep their port, because
-  // new URL(x).origin preserves it - so this is the only door that refuses
-  // one, and it refuses something the next line would have discarded.
+  // port, so the port was never what bounded the reach. What a port does add is
+  // a crude prober: registering an origin reports whether that host:port speaks
+  // TLS and HTTP. That was already true of 443 on any public host, the hosts
+  // are public either way, and registration is rate limited per IP and
+  // globally, so the honest trade is to accept a real seller's port rather than
+  // guard a fact anyone can read with nmap.
   //
-  // Supporting ports means changing the shape of `origin`, which is a key
-  // persisted to /data and joined against the leaderboard, successions and the
-  // evidence binding across a dozen modules. Zero of the ~250 indexed sellers
-  // use one today. Raised by a seller on :8443 (2026-09-21) whose endpoint was
-  // otherwise fully v2-compatible, so this is a real limitation with a real
-  // cost, not a rule worth defending on its merits.
-  if (u.port && u.port !== "443") {
-    return { error: "we can only index an origin on the default https port (443); this is our limitation, not an x402 requirement" };
-  }
+  // `operatorKey` still groups by hostname alone, deliberately: two ports on
+  // one host are one operator and share one crawl budget.
   if ((u.pathname && u.pathname !== "/") || u.search || u.hash) return { error: "submit the bare origin (no path or query)" };
   if (!u.hostname.includes(".")) return { error: "origin must be a public hostname" };
-  const origin = `https://${u.hostname.toLowerCase()}`;
+  const origin = `https://${u.host.toLowerCase()}`;
   if (selfOrigin && origin === String(selfOrigin).toLowerCase()) return { error: "this host is already the local catalog" };
   return { origin };
 }
