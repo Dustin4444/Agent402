@@ -58,7 +58,14 @@ function rawTextRanges(html) {
 // place this file needs one: the result is only ever compared, measured for
 // emptiness, and sliced into a failure message, never put back into a page. So
 // rather than argue the exploitability, walk the string and keep what is
-// outside angle brackets. Shorter than the regex and not arguable.
+// outside angle brackets.
+//
+// It is NOT an HTML parser, and saying so matters more than the line it saves:
+// a ">" inside an attribute value confuses the depth count exactly as it
+// confused the regex. That does not occur in a heading on this site, and if it
+// ever did the consequence is a slightly wrong excerpt in a failure message
+// rather than a wrong verdict, because the LEVEL comes from the match and not
+// from here.
 function visibleText(fragment) {
   let out = "", depth = 0;
   for (const ch of fragment) {
