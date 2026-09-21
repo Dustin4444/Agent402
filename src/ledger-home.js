@@ -352,7 +352,7 @@ curl -X POST /api/hash \\
 </section>
 
 <section id="sell" style="max-width:1180px;margin:0 auto;padding:70px 30px 0;">
-  <div class="hm-kicker">For sellers</div>
+  <div class="hm-kicker">$ POST /api/index/register</div>
   <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:14px;">
     <h2 class="hm-h2">Sell into the agent economy.</h2>
     <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">free listing · nothing deducted · non-custodial</span>
@@ -442,7 +442,7 @@ curl -X POST /api/hash \\
 </section>
 
 <section style="max-width:1180px;margin:0 auto;padding:64px 30px 0;">
-  <div class="hm-kicker">Measured demand</div>
+  <div class="hm-kicker">$ GET /api/bestsellers · $0.005</div>
   <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:14px;">
     <h2 class="hm-h2">What agents actually pay for.</h2>
     <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">lanes shown · figures are a paid read</span>
@@ -469,7 +469,7 @@ curl -X POST /api/hash \\
 </section>
 
 <section style="max-width:900px;margin:0 auto;padding:70px 30px 20px;">
-  <div class="hm-kicker">Common questions</div>
+  <div class="hm-kicker">$ GET /faq</div>
   <h2 class="hm-h2" style="margin:0 0 28px;">Questions people and agents ask.</h2>
   <div style="display:flex;flex-direction:column;gap:0;border-top:1px solid var(--hairline);">${faqHtml}</div>
   <p style="font-family:var(--font-mono);font-size:13px;color:var(--muted);margin:20px 0 0;">More, including data handling and the OpenAI-compatible gateway: <a href="/faq" style="color:var(--accent);font-weight:500;">/faq</a></p>
