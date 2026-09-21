@@ -82,9 +82,16 @@ async function judge(text, fetchImpl = fetch) {
   });
   if (!res.ok) throw new Error(`typesafe HTTP ${res.status}`);
   const body = await res.json();
+  // The wire puts a noul probability under a key NAMED FOR THE TYPE:
+  //   {"answers":{"advertises":{"type":"noul","noul":0.44}}}
+  // The first cut of this guessed `probability`/`value`, which parses to null
+  // on every real answer - so every row would have come back unannotated while
+  // all 27 stubbed assertions passed, because the fixture encoded the same
+  // guess. Read from the live wire, keep the other spellings as a belt, and
+  // never accept a non-number.
   const p = (id) => {
-    const a = body?.answers?.[id];
-    const v = a?.probability ?? a?.value ?? a;
+    const ans = body?.answers?.[id];
+    const v = ans?.noul ?? ans?.probability ?? ans?.value ?? ans;
     return typeof v === "number" && v >= 0 && v <= 1 ? v : null;
   };
   return { advertises: p("advertises"), requests: p("requests") };

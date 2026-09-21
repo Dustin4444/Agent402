@@ -26,9 +26,15 @@ const stub = (answers, { status = 200, throws = false } = {}) => {
   f.calls = calls;
   return f;
 };
-const AD = { advertises: { probability: 0.97 }, requests: { probability: 0.10 } };
-const REQ = { advertises: { probability: 0.04 }, requests: { probability: 0.93 } };
-const MUSH = { advertises: { probability: 0.55 }, requests: { probability: 0.60 } };
+// VERBATIM from a live api.typesafe.ai response, not invented. The first cut
+// of this file guessed {probability: n}; the real wire is {type, noul: n}, so
+// the parser returned null for every real answer while all 27 assertions here
+// passed against the fixture built from the same guess. A stub can only ever
+// prove the code agrees with the stub. Captured shape, 2026-09-21:
+//   {"model":"jev-1.13.0","answers":{"advertises":{"type":"noul","noul":0.44}},...}
+const noul = (n) => ({ type: "noul", noul: n });
+const AD = { advertises: noul(0.97), requests: noul(0.10) };
+const REQ = { advertises: noul(0.04), requests: noul(0.93) };
 
 // --- no key, no feature -----------------------------------------------------
 delete process.env.TYPESAFE_API_KEY;
