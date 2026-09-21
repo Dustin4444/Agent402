@@ -16,6 +16,7 @@ import { priceUsdFor } from "./report-tiers.js";
 import { samplePaths } from "./sample-reports.js";
 import { listPublicReports } from "./human-checkout.js";
 
+import { REPO_URL } from "./repo-link.js";
 /** The llms.txt "finished reports" paragraph, DERIVED from the live catalog
  *  (route + price per slug) and the product tables (card + monitor prices),
  *  so it cannot quote a ladder that has since moved: a hand-written copy sat a
@@ -397,7 +398,7 @@ export function llmsTxt(baseUrl, catalog) {
 
 Base URL: ${baseUrl}
 
-**Open source and two-sided.** Agent402 is the open-source, self-hostable applied layer of Agentic Finance (agents paying and getting paid on their own) for x402 and MPP (+ MCP server): 500+ pay-per-call tools for agents to buy (live web search + cited answers, browser rendering, PDFs, OCR, images, live financial / crypto / macro data, SEC EDGAR, wallet-keyed memory, a metered model gateway, finished reports), a neutral cross-seller index and on-chain leaderboard for the whole x402 ecosystem, and \`agent402-tollbooth\` for API sellers to charge AI crawlers per request. Maintainer: Havok Holdings LLC. Read every line and run it yourself: https://github.com/MikeyPetrillo/Agent402
+**Open source and two-sided.** Agent402 is the open-source, self-hostable applied layer of Agentic Finance (agents paying and getting paid on their own) for x402 and MPP (+ MCP server): 500+ pay-per-call tools for agents to buy (live web search + cited answers, browser rendering, PDFs, OCR, images, live financial / crypto / macro data, SEC EDGAR, wallet-keyed memory, a metered model gateway, finished reports), a neutral cross-seller index and on-chain leaderboard for the whole x402 ecosystem, and \`agent402-tollbooth\` for API sellers to charge AI crawlers per request. Maintainer: Havok Holdings LLC. Read every line and run it yourself: ${REPO_URL}
 
 **Why pay here (seven first-party differences, each proven on a live surface - full page: /why).** ${whyPointsPlain().map((line, i) => `(${i + 1}) ${line}`).join(" ")} Metered usage pricing: \`POST /v1/metered/chat/completions\` quotes each request from its body; prepaid card credits: /credits; finished reports and monitors: /reports and /monitors; buying on your behalf: \`POST /api/route/execute\`; proof: /status and /revenue.
 
@@ -483,7 +484,7 @@ ${chainItems}
 ${toolSections}
 
 ## Optional
-- [GitHub repository](https://github.com/MikeyPetrillo/Agent402): full source, AGPL-3.0, self-hostable
+- [GitHub repository](${REPO_URL}): full source, AGPL-3.0, self-hostable
 - [agent402-tollbooth](${baseUrl}/tollbooth): open-source, self-hostable x402 pay-per-crawl gate for your own site
 - [Skill packs JSON](${baseUrl}/api/skill-packs.json): machine-readable pack index
 - [Tool docs](${baseUrl}/tools): human-readable documentation per tool
@@ -497,6 +498,6 @@ ${toolSections}
 - [x402 & MPP 101](${baseUrl}/101): the ten-minute walkthrough for people new to the space - plain language, speaker notes, and a live demo (402 quote decoded, pay with a puzzle, real receipts)
 - [Glossary](${baseUrl}/glossary): x402, MPP, HTTP 402, facilitator, EIP-3009, receipts, settlement, rails, dual-stack, PoW tier, SOR, tollbooth - every term defined once, with anchors
 - [What is x402?](${baseUrl}/what-is-x402) / [What is MPP?](${baseUrl}/what-is-mpp): the two payment wires explained
-- [Maintainer](https://github.com/MikeyPetrillo/Agent402): Havok Holdings LLC, mike@agent402.tools
+- [Maintainer](${REPO_URL}): Havok Holdings LLC, mike@agent402.tools
 `;
 }

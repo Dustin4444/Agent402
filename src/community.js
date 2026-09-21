@@ -1,5 +1,6 @@
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 
+import { REPO_URL, repoUrl } from "./repo-link.js";
 // Real, free-to-read outputs of the product (assets/samples), never placeholders.
 const SHOWCASE_PROJECTS = [
   { title: "Company due-diligence dossier: NVDA", description: "Filings, financial trend, insider and institutional activity, litigation and risk themes, 20 cited sources. Read the real report at /reports/sample/dossier.", badge: "Live sample", href: "/reports/sample/dossier" },
@@ -32,7 +33,7 @@ export function communityPage(baseUrl) {
     {
       title: "GitHub",
       description: "Source code, issues, and pull requests. Star the repo and follow development.",
-      href: "https://github.com/MikeyPetrillo/Agent402",
+      href: REPO_URL,
       linkText: "View repository",
     },
     {
@@ -65,7 +66,7 @@ export function communityPage(baseUrl) {
     {
       title: "Report a bug",
       description: "Found something broken? Open an issue on GitHub with reproduction steps.",
-      href: "https://github.com/MikeyPetrillo/Agent402/issues",
+      href: repoUrl("issues"),
       linkText: "Open an issue",
     },
   ];

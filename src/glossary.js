@@ -11,6 +11,7 @@
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 import { routingProofSentence } from "./routing-proof.js";
 
+import { REPO_URL } from "./repo-link.js";
 // { id, name, alt?: [names], def, see: [[href, label]] } - keep `def` a single
 // plain-text paragraph: it is rendered verbatim AND emitted as the DefinedTerm
 // description in JSON-LD, so no markup.
@@ -92,7 +93,7 @@ export function glossaryPage(baseUrl) {
   const description =
     "Plain-English definitions of the vocabulary of Agentic Finance (AIFI): x402, MPP, HTTP 402, payment requirements and challenges, facilitators, EIP-3009, receipts, settlement, wallets as identity, rails, dual-stack, the proof-of-work free tier, the Smart Order Router, the tollbooth, and more. Each term links to the page that goes deep.";
 
-  const orgLd = { "@type": "Organization", "@id": `${baseUrl}/#organization`, name: "Agent402", url: baseUrl, logo: { "@type": "ImageObject", url: `${baseUrl}/logo.png` }, sameAs: ["https://github.com/MikeyPetrillo/Agent402", "https://x.com/Agent402Tools"] };
+  const orgLd = { "@type": "Organization", "@id": `${baseUrl}/#organization`, name: "Agent402", url: baseUrl, logo: { "@type": "ImageObject", url: `${baseUrl}/logo.png` }, sameAs: [REPO_URL, "https://x.com/Agent402Tools"] };
   const breadcrumbLd = { "@type": "BreadcrumbList", itemListElement: [
     { "@type": "ListItem", position: 1, name: "Agent402", item: `${baseUrl}/` },
     { "@type": "ListItem", position: 2, name: "Agentic Finance (AIFI)", item: `${baseUrl}/agentic-finance` },

@@ -3,6 +3,7 @@
 // open-source, pay-per-call tool service.
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 
+import { REPO_URL, REPO_SLUG } from "./repo-link.js";
 export function termsPage(baseUrl) {
   const title = "Terms of Service - Agent402";
   const description = "Agent402 terms of service: open-source, pay-per-call web tools. As-is, no warranty, on-chain settlement.";
@@ -41,7 +42,7 @@ you agree to these terms. If you operate an agent that uses the service, you are
 agent's use. You must be at least 18, able to form a binding contract, not barred from receiving
 services under U.S. or other applicable law, and not located in an embargoed jurisdiction or listed on
 any U.S. government sanctions list. The service is
-<a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener">open source</a>; these terms cover the hosted instance at agent402.tools.
+<a href="${REPO_URL}" rel="noopener">open source</a>; these terms cover the hosted instance at agent402.tools.
 If you do not agree to these terms, do not use the service.</p>
 
 <h2>The service</h2>
@@ -197,7 +198,7 @@ survive any termination of your use.</p>
 
 <h2>Operator &amp; contact</h2>
 <p>Agent402.Tools is operated by <strong><a href="https://havok.holdings" rel="noopener">Havok Holdings LLC</a></strong>. Contact: <a href="mailto:mike@agent402.tools">mike@agent402.tools</a>,
-<a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener">github.com/MikeyPetrillo/Agent402</a>,
+<a href="${REPO_URL}" rel="noopener">github.com/${REPO_SLUG}</a>,
 or <a href="https://x.com/Agent402Tools" rel="noopener">@Agent402Tools on X</a>.</p>
 </div>
 </section>

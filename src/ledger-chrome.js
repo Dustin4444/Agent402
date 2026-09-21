@@ -1,6 +1,7 @@
 import { RAILS, RAILS_AMP, RAILS_OS } from "./rails.js";
 import { metaTitle, metaDescription } from "./seo-meta.js";
 import { ogSectionFor } from "./og-cards.js";
+import { REPO_URL } from "./repo-link.js";
 // Machine Ledger design system — shared chrome for the Agent402 marketing site.
 // Exports the status line, nav, footers (full + compact), design-token CSS,
 // and a ledgerShell() wrapper that composes a full HTML page.
@@ -812,7 +813,7 @@ export function ledgerFooterCompact() {
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--hairline);">
       <span>© 2026 Havok Holdings LLC · <a href="mailto:mike@agent402.tools" style="color:var(--muted);text-decoration:underline;">mike@agent402.tools</a></span>
-      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/status" style="color:var(--muted);text-decoration:none;">status</a><a href="/security" style="color:var(--muted);text-decoration:none;">security</a><a href="/transparency" style="color:var(--muted);text-decoration:none;">transparency</a><a href="/privacy" style="color:var(--muted);text-decoration:none;">privacy</a><a href="/terms" style="color:var(--muted);text-decoration:none;">terms</a><a href="/company#contact" style="color:var(--muted);text-decoration:none;">contact</a><a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" aria-label="GitHub" title="GitHub" style="display:inline-flex;align-items:center;color:var(--muted);text-decoration:none;">${GITHUB_ICON_SVG}</a><a href="https://x.com/Agent402Tools" rel="noopener" aria-label="X" title="X" style="display:inline-flex;align-items:center;color:var(--muted);text-decoration:none;">${X_ICON_SVG}</a></span>
+      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/status" style="color:var(--muted);text-decoration:none;">status</a><a href="/security" style="color:var(--muted);text-decoration:none;">security</a><a href="/transparency" style="color:var(--muted);text-decoration:none;">transparency</a><a href="/privacy" style="color:var(--muted);text-decoration:none;">privacy</a><a href="/terms" style="color:var(--muted);text-decoration:none;">terms</a><a href="/company#contact" style="color:var(--muted);text-decoration:none;">contact</a><a href="${REPO_URL}" rel="noopener" aria-label="GitHub" title="GitHub" style="display:inline-flex;align-items:center;color:var(--muted);text-decoration:none;">${GITHUB_ICON_SVG}</a><a href="https://x.com/Agent402Tools" rel="noopener" aria-label="X" title="X" style="display:inline-flex;align-items:center;color:var(--muted);text-decoration:none;">${X_ICON_SVG}</a></span>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:10px;">
       <span style="letter-spacing:.1em;text-transform:uppercase;">for agents</span>

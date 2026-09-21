@@ -33,6 +33,7 @@ import { NETWORKS } from "./payments.js";
 import { CHROME_HEAD_LINKS, CHROME_CSS, renderHeader, renderFooter } from "./chrome.js";
 import { applyMetaTrims } from "./seo-meta.js";
 
+import { REPO_URL } from "./repo-link.js";
 // Base block time is ~2s, so 24h ≈ 43200 blocks and 7d ≈ 302400 blocks. A
 // wider window surfaces sellers with bursty (vs. constant) traffic — without
 // it, any seller below ~9 calls/sec averaged over a day shows $0 even when
@@ -1284,7 +1285,7 @@ curl -s ${esc(baseUrl)}/api/leaderboard?window=7d           # window hint (defau
   </div>
 </div>
 
-<p class="foot">x402 Leaderboard is open-source - part of <a href="https://github.com/MikeyPetrillo/Agent402">Agent402</a>. Sellers don't have to register: any wallet that appears in the Bazaar with Base-mainnet USDC payment options is scanned automatically.</p>
+<p class="foot">x402 Leaderboard is open-source - part of <a href="${REPO_URL}">Agent402</a>. Sellers don't have to register: any wallet that appears in the Bazaar with Base-mainnet USDC payment options is scanned automatically.</p>
 
 </div>
 ${renderFooter()}

@@ -11,6 +11,7 @@
 // Counts are derived from the live catalog (runtime surfaces stay exact); the
 // prose claim is the evergreen "500+". No secrets, no strategy - this is a
 // public instruction sheet an agent will read verbatim.
+import { REPO_URL } from "./repo-link.js";
 import { isComputePayable, POW_DIFFICULTY } from "./pow.js";
 // (isComputePayable + POW_DIFFICULTY both live in pow.js - same import seo.js uses)
 
@@ -42,7 +43,7 @@ ${baseUrl}. Every endpoint answers HTTP 402 with a machine-readable price and
 two ways to pay (x402 and MPP), plus prepaid card credits as a Bearer key for
 buyers without a wallet. There is no signup and no human in the loop: the
 payment is the identity. Maintainer: Havok Holdings LLC. Source:
-https://github.com/MikeyPetrillo/Agent402
+${REPO_URL}
 
 ## What I can accomplish
 

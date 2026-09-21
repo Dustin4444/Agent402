@@ -1,3 +1,4 @@
+import { repoUrl } from "./repo-link.js";
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 
 export const ADAPTERS = [
@@ -31,7 +32,7 @@ console.log(result);`,
       { option: "agentKey", type: "string", desc: "Private key for wallet-only (paid) tools.", example: `agent402Tools({ agentKey: process.env.AGENT_KEY })` },
     ],
     worksWith: ["GPT-4o", "GPT-4o-mini", "GPT-4.1", "o3", "OpenAI Assistants v2", "OpenAI Responses API"],
-    github: "https://github.com/MikeyPetrillo/Agent402/tree/main/adapters/openai-tools",
+    github: repoUrl("tree/main/adapters/openai-tools"),
   },
   {
     slug: "anthropic",
@@ -64,7 +65,7 @@ console.log(result);`,
       { option: "agentKey", type: "string", desc: "Private key for wallet-only (paid) tools.", example: `agent402Tools({ agentKey: process.env.AGENT_KEY })` },
     ],
     worksWith: ["Claude Sonnet 4", "Claude Opus 4", "Claude Haiku 3.5", "Anthropic Messages API", "Anthropic Batch API"],
-    github: "https://github.com/MikeyPetrillo/Agent402/tree/main/adapters/anthropic-tools",
+    github: repoUrl("tree/main/adapters/anthropic-tools"),
   },
   {
     slug: "ai-sdk",
@@ -98,7 +99,7 @@ for (const call of toolCalls) {
       { option: "agentKey", type: "string", desc: "Private key for wallet-only (paid) tools.", example: `agent402Tools({ agentKey: process.env.AGENT_KEY })` },
     ],
     worksWith: ["OpenAI (via @ai-sdk/openai)", "Anthropic (via @ai-sdk/anthropic)", "Google (via @ai-sdk/google)", "Mistral (via @ai-sdk/mistral)", "streamText", "generateText", "generateObject"],
-    github: "https://github.com/MikeyPetrillo/Agent402/tree/main/adapters/ai-sdk",
+    github: repoUrl("tree/main/adapters/ai-sdk"),
   },
   {
     slug: "langchain",
@@ -129,7 +130,7 @@ console.log(result);`,
       { option: "agentKey", type: "string", desc: "Private key for wallet-only (paid) tools.", example: `agent402Tools({ agentKey: process.env.AGENT_KEY })` },
     ],
     worksWith: ["LangChain JS", "LangGraph", "createReactAgent", "createToolCallingAgent", "Any LangChain-compatible LLM"],
-    github: "https://github.com/MikeyPetrillo/Agent402/tree/main/adapters/langchain",
+    github: repoUrl("tree/main/adapters/langchain"),
   },
   {
     slug: "llamaindex",
@@ -156,7 +157,7 @@ console.log(response.toString());`,
       { option: "agentKey", type: "string", desc: "Private key for wallet-only (paid) tools.", example: `agent402Tools({ agentKey: process.env.AGENT_KEY })` },
     ],
     worksWith: ["LlamaIndex TS", "OpenAIAgent", "ReActAgent", "FunctionTool", "Any LlamaIndex query engine"],
-    github: "https://github.com/MikeyPetrillo/Agent402/tree/main/adapters/llamaindex",
+    github: repoUrl("tree/main/adapters/llamaindex"),
   },
   {
     slug: "google-adk",
@@ -183,7 +184,7 @@ const agent = new LlmAgent({
       { option: "agentKey", type: "string", desc: "Private key for wallet-only (paid) tools.", example: `agent402Tools({ agentKey: process.env.AGENT_KEY })` },
     ],
     worksWith: ["Gemini 2.0 Flash", "Gemini 2.5 Pro", "Google Agent Development Kit", "LlmAgent", "SequentialAgent"],
-    github: "https://github.com/MikeyPetrillo/Agent402/tree/main/adapters/google-adk",
+    github: repoUrl("tree/main/adapters/google-adk"),
   },
   {
     slug: "openai-agents",
@@ -212,7 +213,7 @@ console.log(result.finalOutput);`,
       { option: "agentKey", type: "string", desc: "Private key for wallet-only (paid) tools.", example: `agent402Tools({ agentKey: process.env.AGENT_KEY })` },
     ],
     worksWith: ["OpenAI Agents SDK", "GPT-4o", "GPT-4o-mini", "Agent", "Runner"],
-    github: "https://github.com/MikeyPetrillo/Agent402/tree/main/adapters/openai-agents",
+    github: repoUrl("tree/main/adapters/openai-agents"),
   },
   {
     slug: "strands",
@@ -239,7 +240,7 @@ console.log(result);`,
       { option: "agentKey", type: "string", desc: "Private key for wallet-only (paid) tools.", example: `agent402Tools({ agentKey: process.env.AGENT_KEY })` },
     ],
     worksWith: ["AWS Strands Agents", "Amazon Bedrock", "Claude (via Bedrock)", "Any Strands-compatible model"],
-    github: "https://github.com/MikeyPetrillo/Agent402/tree/main/adapters/strands",
+    github: repoUrl("tree/main/adapters/strands"),
   },
 ];
 

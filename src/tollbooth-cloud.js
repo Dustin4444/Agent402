@@ -9,7 +9,8 @@
 // who just want the snippet — this page links to it from "Self-host the OSS".
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 
-const REPO = "https://github.com/MikeyPetrillo/Agent402";
+import { REPO_URL } from "./repo-link.js";
+const REPO = REPO_URL;
 // All CTAs route through the on-site waitlist form (/tollbooth/waitlist) which
 // collects structured intent and then submits a labeled GitHub issue. Keeps the
 // agency-pitch UX out of GitHub's raw issue editor.

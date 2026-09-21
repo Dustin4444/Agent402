@@ -29,7 +29,8 @@ import {
 } from "./status-store.js";
 import { RAILS } from "./rails.js";
 
-const REPO = "https://github.com/MikeyPetrillo/Agent402";
+import { REPO_URL } from "./repo-link.js";
+const REPO = REPO_URL;
 const HEARTBEAT_RUNS = `${REPO}/actions/workflows/heartbeat.yml`;
 const CANARY_RUNS = `${REPO}/actions/workflows/paid-canary.yml`;
 const DAY = 86400000;

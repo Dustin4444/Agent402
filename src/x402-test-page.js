@@ -15,6 +15,7 @@
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 import { REJECTION_REASONS } from "./payment-reject.js";
 
+import { repoUrl } from "./repo-link.js";
 // The cheapest real route we sell: pure CPU, a fraction of a cent, no upstream
 // to burn. A conformance probe should cost the buyer nothing to get wrong and
 // almost nothing to get right.
@@ -89,7 +90,7 @@ export function x402TestPage(baseUrl) {
     <h2 style="font-weight:800;font-size:30px;line-height:1.05;letter-spacing:-.025em;margin:0 0 14px;color:var(--on-dark);">If the refusal looks wrong, it may be ours.</h2>
     <p style="font-size:16px;line-height:1.6;color:var(--dk-muted2);margin:0 0 24px;max-width:640px;">A refusal we cannot classify is as likely to be a defect on this server as a fault in your client, and we would rather hear about it than have you work around it. Two of the classes in the table above exist because someone outside told us their client was being refused for a reason that turned out to be ours.</p>
     <div style="display:flex;gap:11px;flex-wrap:wrap;">
-      <a href="https://github.com/MikeyPetrillo/Agent402/issues/new" style="background:var(--accent);color:var(--on-accent);${mono}font-weight:700;font-size:14px;text-decoration:none;padding:14px 24px;">TELL US →</a>
+      <a href="${repoUrl("issues/new")}" style="background:var(--accent);color:var(--on-accent);${mono}font-weight:700;font-size:14px;text-decoration:none;padding:14px 24px;">TELL US →</a>
       <a href="/status" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--on-dark);${mono}font-weight:700;font-size:14px;text-decoration:none;padding:13px 24px;">UPTIME, MEASURED OUTSIDE</a>
     </div>
   </div>

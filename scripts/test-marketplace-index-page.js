@@ -105,10 +105,15 @@ function chainCard(html, slug) {
 {
   const html = marketPage(null, BASE_URL, { snapshot: { sellers: [LOCAL] }, leaderboardSnap: { leaderboard: [] } });
   ok(html.includes("About this index."), "FAQ section heading renders");
+  // The invariant is the 1:1 match, not the literal number. Pinning the count
+  // meant every added answer failed this test with nothing wrong, which trains
+  // an author to bump a number rather than check the pairing - and the pairing
+  // is what matters: a JSON-LD question with no visible answer is the shape
+  // Google penalises. The floor keeps a collapsed FAQ from passing as "equal".
   const faqVisibleCount = (html.match(/<article style="padding:22px 0/g) || []).length;
-  ok(faqVisibleCount === 4, `visible FAQ carries exactly 4 questions (got ${faqVisibleCount})`);
   const faqLdCount = (html.match(/"@type":"Question"/g) || []).length;
-  ok(faqLdCount === 4, `FAQPage JSON-LD carries exactly 4 questions, matching the visible content 1:1 (got ${faqLdCount})`);
+  ok(faqVisibleCount >= 4, `visible FAQ is populated (got ${faqVisibleCount})`);
+  ok(faqLdCount === faqVisibleCount, `FAQPage JSON-LD matches the visible content 1:1 (${faqLdCount} vs ${faqVisibleCount})`);
   ok(html.includes('"@type":"Dataset"') && html.includes('"@type":"DataDownload"'), "Dataset + DataDownload JSON-LD present");
   const chainListMatch = html.match(/"@id":"https:\/\/agent402\.tools\/marketplace#chains"[\s\S]*?"itemListElement":(\[[\s\S]*?\])\}/);
   const chainListCount = chainListMatch ? (chainListMatch[1].match(/"@type":"ListItem"/g) || []).length : 0;

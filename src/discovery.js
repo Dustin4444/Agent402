@@ -19,7 +19,8 @@ import { toolList, CATEGORIES } from "./pages.js";
 import { SKILL_PACKS } from "./skills.js";
 import { RAIL_CHAIN_NAMES, RAILS_NOTE } from "./rails.js";
 
-const REPO = "https://github.com/MikeyPetrillo/Agent402";
+import { REPO_URL, REPO_NAMESPACE } from "./repo-link.js";
+const REPO = REPO_URL;
 const MAINTAINER = { name: "Havok Holdings LLC", email: "mike@agent402.tools", url: REPO };
 
 function priceRange(prices) {
@@ -186,7 +187,7 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
       remoteConnector: `${baseUrl}/mcp`,
       remoteNote: "Streamable HTTP, no auth - paste into Claude, Claude Code, Cursor, ChatGPT (Pro+), or VS Code (GitHub Copilot MCP) custom connectors. Pure-CPU tools run free (rate-limited).",
       package: "agent402-mcp",
-      registry: "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.MikeyPetrillo/agent402",
+      registry: `https://registry.modelcontextprotocol.io/v0/servers?search=${REPO_NAMESPACE}/agent402`,
     },
     machineReadable: {
       openapi: `${baseUrl}/openapi.json`,

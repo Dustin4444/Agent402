@@ -57,6 +57,7 @@ const usd = (n) => {
  *  a live page. Ordered to match src/rails.js (primary rail first). */
 import { marketTerminalHtml, TERMINAL_CSS, compactUsd, trendOf } from "./market-terminal.js";
 
+import { repoUrl } from "./repo-link.js";
 export const CHAIN_PAGES = {
   base: {
     chainName: "Base",
@@ -80,7 +81,7 @@ export const CHAIN_PAGES = {
     isNetwork: (n) => n === "eip155:8453",
     honestyNetworkPhrase: "the Base network",
     canaryLine: "A paid canary buys tools over the Base rail daily (facilitator: Coinbase CDP) - uptime proven with real settlements, not pings.",
-    sellParagraphHtml: `Accept the Base CAIP-2 network (<code>eip155:8453</code>) in your 402 challenge - the Coinbase CDP facilitator verifies and settles, gas sponsored, and a listed origin is picked up by the CDP Bazaar too. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
+    sellParagraphHtml: `Accept the Base CAIP-2 network (<code>eip155:8453</code>) in your 402 challenge - the Coinbase CDP facilitator verifies and settles, gas sponsored, and a listed origin is picked up by the CDP Bazaar too. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="${repoUrl("issues")}" rel="noopener">Open a seed request</a>.`,
   },
   solana: {
     chainName: "Solana",
@@ -101,7 +102,7 @@ export const CHAIN_PAGES = {
     isNetwork: (n) => n === "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
     honestyNetworkPhrase: "the Solana network",
     canaryLine: "A paid canary buys tools over the Solana rail daily (facilitator: Coinbase CDP first, PayAI as fallback) - uptime proven with real settlements, not pings.",
-    sellParagraphHtml: `Accept the Solana CAIP-2 network (<code>solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp</code>) in your 402 challenge using the <a href="https://www.npmjs.com/package/@x402/svm" rel="noopener"><code>@x402/svm</code></a> server scheme - the PayAI facilitator verifies and settles, fees sponsored. Your payTo wallet needs an existing USDC associated token account before it can receive payments (send it any amount of USDC once to create one). Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
+    sellParagraphHtml: `Accept the Solana CAIP-2 network (<code>solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp</code>) in your 402 challenge using the <a href="https://www.npmjs.com/package/@x402/svm" rel="noopener"><code>@x402/svm</code></a> server scheme - the PayAI facilitator verifies and settles, fees sponsored. Your payTo wallet needs an existing USDC associated token account before it can receive payments (send it any amount of USDC once to create one). Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="${repoUrl("issues")}" rel="noopener">Open a seed request</a>.`,
   },
   polygon: {
     chainName: "Polygon",
@@ -121,7 +122,7 @@ export const CHAIN_PAGES = {
     isNetwork: (n) => n === "eip155:137",
     honestyNetworkPhrase: "the Polygon network",
     canaryLine: "A paid canary buys tools over the Polygon rail daily (facilitator: Coinbase CDP first, PayAI as fallback) - uptime proven with real settlements, not pings.",
-    sellParagraphHtml: `Accept the Polygon CAIP-2 network (<code>eip155:137</code>) in your 402 challenge - the PayAI facilitator verifies and settles, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
+    sellParagraphHtml: `Accept the Polygon CAIP-2 network (<code>eip155:137</code>) in your 402 challenge - the PayAI facilitator verifies and settles, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="${repoUrl("issues")}" rel="noopener">Open a seed request</a>.`,
   },
   arbitrum: {
     chainName: "Arbitrum",
@@ -142,7 +143,7 @@ export const CHAIN_PAGES = {
     isNetwork: (n) => n === "eip155:42161",
     honestyNetworkPhrase: "the Arbitrum network",
     canaryLine: "A paid canary buys tools over the Arbitrum rail daily (facilitator: Coinbase CDP first, PayAI as fallback) - uptime proven with real settlements, not pings.",
-    sellParagraphHtml: `Accept the Arbitrum CAIP-2 network (<code>eip155:42161</code>) in your 402 challenge - the PayAI facilitator verifies and settles, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
+    sellParagraphHtml: `Accept the Arbitrum CAIP-2 network (<code>eip155:42161</code>) in your 402 challenge - the PayAI facilitator verifies and settles, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="${repoUrl("issues")}" rel="noopener">Open a seed request</a>.`,
   },
   monad: {
     chainName: "Monad",
@@ -162,7 +163,7 @@ export const CHAIN_PAGES = {
     isNetwork: (n) => n === "eip155:143",
     honestyNetworkPhrase: "the Monad network",
     canaryLine: "A paid canary buys tools over the Monad rail daily (facilitator: molandak) - uptime proven with real settlements, not pings.",
-    sellParagraphHtml: `Accept the Monad CAIP-2 network (<code>eip155:143</code>) in your 402 challenge - the molandak facilitator verifies and settles native Circle USDC, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
+    sellParagraphHtml: `Accept the Monad CAIP-2 network (<code>eip155:143</code>) in your 402 challenge - the molandak facilitator verifies and settles native Circle USDC, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="${repoUrl("issues")}" rel="noopener">Open a seed request</a>.`,
   },
   celo: {
     chainName: "Celo",
@@ -184,7 +185,7 @@ export const CHAIN_PAGES = {
     isNetwork: (n) => n === "eip155:42220",
     honestyNetworkPhrase: "the Celo network",
     canaryLine: "A paid canary buys tools over the Celo rail daily (facilitator: x402.celo.org) - uptime proven with real settlements, not pings.",
-    sellParagraphHtml: `Accept the Celo CAIP-2 network (<code>eip155:42220</code>) in your 402 challenge - the <a href="https://x402.celo.org" rel="noopener">Celo facilitator</a> verifies and settles native Circle USDC, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
+    sellParagraphHtml: `Accept the Celo CAIP-2 network (<code>eip155:42220</code>) in your 402 challenge - the <a href="https://x402.celo.org" rel="noopener">Celo facilitator</a> verifies and settles native Circle USDC, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="${repoUrl("issues")}" rel="noopener">Open a seed request</a>.`,
   },
   avalanche: {
     chainName: "Avalanche",
@@ -204,7 +205,7 @@ export const CHAIN_PAGES = {
     isNetwork: (n) => n === "eip155:43114",
     honestyNetworkPhrase: "the Avalanche network",
     canaryLine: "A paid canary buys tools over the Avalanche rail daily (facilitator: PayAI) - uptime proven with real settlements, not pings.",
-    sellParagraphHtml: `Accept the Avalanche CAIP-2 network (<code>eip155:43114</code>) in your 402 challenge - the PayAI facilitator verifies and settles native Circle USDC, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
+    sellParagraphHtml: `Accept the Avalanche CAIP-2 network (<code>eip155:43114</code>) in your 402 challenge - the PayAI facilitator verifies and settles native Circle USDC, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="${repoUrl("issues")}" rel="noopener">Open a seed request</a>.`,
   },
   sei: {
     chainName: "Sei",
@@ -224,7 +225,7 @@ export const CHAIN_PAGES = {
     isNetwork: (n) => n === "eip155:1329",
     honestyNetworkPhrase: "the Sei network",
     canaryLine: "A paid canary buys tools over the Sei rail daily (facilitator: PayAI) - uptime proven with real settlements, not pings.",
-    sellParagraphHtml: `Accept the Sei CAIP-2 network (<code>eip155:1329</code>) in your 402 challenge - the PayAI facilitator verifies and settles native Circle USDC, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
+    sellParagraphHtml: `Accept the Sei CAIP-2 network (<code>eip155:1329</code>) in your 402 challenge - the PayAI facilitator verifies and settles native Circle USDC, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="${repoUrl("issues")}" rel="noopener">Open a seed request</a>.`,
   },
   optimism: {
     chainName: "Optimism",
@@ -245,7 +246,7 @@ export const CHAIN_PAGES = {
     isNetwork: (n) => n === "eip155:10",
     honestyNetworkPhrase: "the Optimism network",
     canaryLine: "A paid canary buys tools over the Optimism rail daily (facilitator: Solvador) - uptime proven with real settlements, not pings.",
-    sellParagraphHtml: `Accept the Optimism CAIP-2 network (<code>eip155:10</code>) in your 402 challenge - the Solvador facilitator verifies and settles native Circle USDC, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
+    sellParagraphHtml: `Accept the Optimism CAIP-2 network (<code>eip155:10</code>) in your 402 challenge - the Solvador facilitator verifies and settles native Circle USDC, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="${repoUrl("issues")}" rel="noopener">Open a seed request</a>.`,
   },
   stellar: {
     chainName: "Stellar",
@@ -265,7 +266,7 @@ export const CHAIN_PAGES = {
     isNetwork: (n) => typeof n === "string" && n.startsWith("stellar") && !n.includes("test"),
     honestyNetworkPhrase: "a Stellar network",
     canaryLine: "A paid canary buys tools over the Stellar rail daily (facilitator: our own open-source Soroban facilitator, with OpenZeppelin as the settlement fallback) - uptime proven with real settlements, not pings.",
-    sellParagraphHtml: `Accept x402 payments with a <code>stellar:pubnet</code> accept in your 402 challenge - the <a href="https://developers.stellar.org/docs/build/agentic-payments/x402/built-on-stellar" rel="noopener">Built on Stellar facilitator</a> (OpenZeppelin) verifies and settles, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/stellar" rel="noopener"><code>@x402/stellar</code></a> for the wire, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
+    sellParagraphHtml: `Accept x402 payments with a <code>stellar:pubnet</code> accept in your 402 challenge - the <a href="https://developers.stellar.org/docs/build/agentic-payments/x402/built-on-stellar" rel="noopener">Built on Stellar facilitator</a> (OpenZeppelin) verifies and settles, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/stellar" rel="noopener"><code>@x402/stellar</code></a> for the wire, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="${repoUrl("issues")}" rel="noopener">Open a seed request</a>.`,
   },
   algorand: {
     chainName: "Algorand",
@@ -288,7 +289,7 @@ export const CHAIN_PAGES = {
     isNetwork: (n) => typeof n === "string" && n.startsWith("algorand:wGHE2Pwd"),
     honestyNetworkPhrase: "the Algorand mainnet network",
     canaryLine: "A paid canary buys tools over the Algorand rail daily (facilitator: GoPlausible, fees sponsored) - uptime proven with real settlements, not pings.",
-    sellParagraphHtml: `Accept the Algorand mainnet CAIP-2 network in your 402 challenge using the <a href="https://www.npmjs.com/package/@x402/avm" rel="noopener"><code>@x402/avm</code></a> server SDK - the GoPlausible facilitator verifies and settles, fees sponsored. Your payTo wallet must be opted in to ASA <code>31566704</code> (USDC) before it can receive payments. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
+    sellParagraphHtml: `Accept the Algorand mainnet CAIP-2 network in your 402 challenge using the <a href="https://www.npmjs.com/package/@x402/avm" rel="noopener"><code>@x402/avm</code></a> server SDK - the GoPlausible facilitator verifies and settles, fees sponsored. Your payTo wallet must be opted in to ASA <code>31566704</code> (USDC) before it can receive payments. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="${repoUrl("issues")}" rel="noopener">Open a seed request</a>.`,
   },
   robinhood: {
     chainName: "Robinhood Chain",
@@ -1245,6 +1246,7 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
     { q: "What is an x402 marketplace?", a: "A directory of services that accept x402 payments, so an AI agent can find something to buy and pay for it in one round trip without an account. This index lists every seller it can crawl, not only our own tools, and publishes the tool counts, settlement chains and crawl health it observes." },
     { q: "How does a seller get listed?", a: "By serving x402 challenges and registering its origin with POST /api/index/register, or by appearing in the Coinbase CDP Bazaar, which the crawler reads on its hourly pass. Listing is free, there is no review queue, and there is no pay-for-placement." },
     { q: "What does crawl health mean?", a: "A rolling success rate across recent crawls of a seller's manifest and 402 challenge. One bad hour does not delist anyone, and a new seller is not penalised for having no history. The Smart Order Router uses it to break ties and to route around sellers that are down." },
+    { q: "My listing is wrong. How do I correct or remove it?", a: "Write to mike@agent402.tools. Every figure here is a reading of public data - the seller's own manifest and 402 challenges, plus on-chain settlements - taken at the scan time shown, so it can go stale or fold to the wrong operator. We re-scan and correct or withdraw a row on request. Delisting needs no request either: an origin that stops serving x402 drops out on its own." },
     { q: "Why do tool counts and settled volume disagree?", a: "Tool counts are what a seller advertises; settled volume is what buyers actually paid for. A large catalog with no settlements has not found buyers yet, and a small catalog with heavy volume has found exactly the right one. Both numbers are shown so you can see the difference." },
   ];
   const faqHtml = MARKET_FAQS.map((f) => `<article style="padding:22px 0;border-bottom:1px solid var(--hairline);"><h3 style="font-weight:800;font-size:17.5px;margin:0 0 10px;color:var(--ink);">${esc(f.q)}</h3><p style="font-size:15px;line-height:1.65;color:var(--muted);margin:0;">${esc(f.a)}</p></article>`).join("");

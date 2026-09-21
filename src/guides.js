@@ -1,6 +1,7 @@
 // Server-rendered technical guides — the prose layer for organic search.
 // Machine surfaces (llms.txt, OpenAPI) serve agents; these serve the humans
 // googling "x402 example" or "AI agent payments" before their agents do.
+import { REPO_URL, repoUrl } from "./repo-link.js";
 import { marked } from "marked";
 // Headings carry ids (GitHub-style slugs) so the dev shortlinks (/claude ->
 // /guides/agent-hosts#claude-code) and readers can deep-link a section.
@@ -116,7 +117,7 @@ caps enforced before any payment is signed.
 Per-call payment with no accounts means an agent can acquire capabilities at
 the moment it discovers it needs them - and the seller can prove every cent of
 revenue on-chain. Every claim in this guide is verifiable: the server is
-[open source](https://github.com/MikeyPetrillo/Agent402) and settled calls land
+[open source](${REPO_URL}) and settled calls land
 at a [public wallet](https://agent402.tools/api/stats).
 `,
   },
@@ -186,8 +187,8 @@ bill. The point of wallet-keyed memory is that an agent **mid-task** can't do
 any of that, and doesn't need to: the credential it already holds for payment
 doubles as its identity, the marginal cost is $0.002 a call, and state outlives
 any single sandbox. The whole implementation is
-[open source](https://github.com/MikeyPetrillo/Agent402) - see the
-[memory wiki page](https://github.com/MikeyPetrillo/Agent402/wiki/Memory-and-Coordination)
+[open source](${REPO_URL}) - see the
+[memory wiki page](${repoUrl("wiki/Memory-and-Coordination")})
 for the full API.
 `,
   },
@@ -231,7 +232,7 @@ settling real money on mainnet. Test the buyer side yourself with Stripe's
 ## What we learned operating one (the honest part)
 
 [agent402.tools](https://agent402.tools) runs ~500+ paid endpoints this way -
-[fully open source](https://github.com/MikeyPetrillo/Agent402). The lessons:
+[fully open source](${REPO_URL}). The lessons:
 
 1. **x402 settles before your handler runs.** If your tool then fails, you took
    money for nothing. Anything that can't be served reliably (upstreams that
@@ -254,7 +255,7 @@ settling real money on mainnet. Test the buyer side yourself with Stripe's
 
 The entire stack described here - paywall, PoW tier, MCP servers, CI, even the
 on-chain customer detector - is in
-[one repo](https://github.com/MikeyPetrillo/Agent402) you can fork.
+[one repo](${REPO_URL}) you can fork.
 `,
   },
   {
@@ -342,7 +343,7 @@ Custodial "pay for me" services have to hold your funds - which means money
 transmission, KYC/AML, and trust in a middleman. These tools never touch your
 money: you keep your key, you sign, you send. That's the right architecture for
 agent payments, and it's the one Agent402 ships. The whole kit is
-[open source](https://github.com/MikeyPetrillo/Agent402) and priced per call in
+[open source](${REPO_URL}) and priced per call in
 USDC (or proof-of-work on the free tools).
 `,
   },
@@ -1013,7 +1014,7 @@ The gate delegates verify and settle to \`@x402/express\` in its own order
 (verify, run your handler, settle only on a success response) and, by default,
 also accepts the MPP wire, so agents on either protocol can pay. The full
 runnable example is in the repo:
-[examples/coinbase-business-tollbooth](https://github.com/MikeyPetrillo/Agent402/tree/main/examples/coinbase-business-tollbooth).
+[examples/coinbase-business-tollbooth](${repoUrl("tree/main/examples/coinbase-business-tollbooth")}).
 
 ## 4. Prove it with one paid call
 

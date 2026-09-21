@@ -3,6 +3,7 @@
 
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 
+import { REPO_URL } from "./repo-link.js";
 export function webhooksPage(baseUrl) {
   const canonical = `${baseUrl}/docs/webhooks`;
   const title = "Webhooks & Callbacks - Agent402 Docs";
@@ -98,7 +99,7 @@ await a.call("memory-write", {
         4. Poll <code style="font-family:var(--font-mono);background:var(--paper);padding:1px 5px;font-size:.85em;">/api/jobs/:id</code> as a fallback if the callback fails.</p>
       </div>
 
-      <p style="color:var(--muted);line-height:1.7;margin:0 0 36px;">Want to be notified when webhooks launch? Follow <a href="https://x.com/Agent402Tools" rel="noopener" style="color:var(--accent);">@Agent402Tools</a> or watch the <a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" style="color:var(--accent);">GitHub repo</a>.</p>
+      <p style="color:var(--muted);line-height:1.7;margin:0 0 36px;">Want to be notified when webhooks launch? Follow <a href="https://x.com/Agent402Tools" rel="noopener" style="color:var(--accent);">@Agent402Tools</a> or watch the <a href="${REPO_URL}" rel="noopener" style="color:var(--accent);">GitHub repo</a>.</p>
 
       <h2 id="related" style="font-family:var(--font-body);font-weight:800;font-size:24px;letter-spacing:-.02em;margin:0 0 12px;">Related</h2>
       <p style="color:var(--muted);line-height:1.7;margin:0;">
