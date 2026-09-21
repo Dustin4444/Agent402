@@ -41,12 +41,21 @@ __testResetSubmitted();
 {
   const seen = [];
   const crawl = async (o) => { seen.push(o); return { manifest: { name: "Ported" }, tools: [{ slug: "t", route: "/v1/x" }], error: null, history: [true] }; };
-  const r = await registerOrigin("https://ported.example:8443", { crawl });
+  // Through the SAME two steps the register route takes, in the same order:
+  // registerOrigin trusts its argument, so handing it a literal here would
+  // prove only that it passes a string along and would survive the normaliser
+  // being reverted.
+  const submit = async (raw) => {
+    const v = validateOriginInput(raw, { selfOrigin: "https://agent402.tools" });
+    if (v.error) return { error: v.error };
+    return registerOrigin(v.origin, { crawl });
+  };
+  const r = await submit("https://Ported.example:8443/");
   ok(seen[0] === "https://ported.example:8443", "the crawler is handed the origin WITH its port");
   ok(r.listed === true && r.origin === "https://ported.example:8443", "and the ported origin is listed under its own key");
   // Same host, default port: a different seller, not a re-registration of the
   // one above.
-  const plain = await registerOrigin("https://ported.example", { crawl });
+  const plain = await submit("https://ported.example");
   ok(seen[1] === "https://ported.example", "the bare host is crawled separately");
   ok(plain.origin === "https://ported.example", "and keyed separately from its ported twin");
 }
