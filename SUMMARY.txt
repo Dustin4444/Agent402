@@ -1,79 +1,64 @@
-REVENUE PAGE EXPOSURE REVIEW - agent402.tools/revenue and its data layer
-Branch: revenue-exposure-review   Reviewed: 2026-09-20   Scope: Parts 1-5 of the brief
+SITE AUDIT AND HARDENING - agent402.tools
+Branch: site-audit   Crawl: 72 routes, live prod, 2026-09-21
 
-IS THE AUTONOMOUS SPENDING WALLET ISOLATED?   YES on the key. NO on the address.
-IS ANY PRIVATE KEY EXPOSED?                   NO.
+ALL PUBLIC NUMBERS NOW DERIVE FROM ONE SOURCE?   YES for the four that were in
+  conflict, documented in METRICS_SOURCE.md. Two figures remain YOUR decision
+  to publish or not (see below); neither is inconsistent, both are deliberate.
 
-  The SOR spending wallet (0x7706...4121 on Base, W4GZ...67UOE on Algorand) is a
-  separate address from the treasury (0xaBF4...a9D0), holds its own key, and is
-  never named on /revenue or in any /api/revenue* body. But it IS published, on
-  every 402 challenge for the four route-execute tiers, because those tiers
-  settle their Base and Algorand legs TO it - that is the self-funding loop, and
-  a payTo has to be published to be paid. It is also linkable to the treasury by
-  anyone watching the periodic burner-to-treasury sweeps on-chain.
+ANY PERSONAL IDENTIFIER STILL PUBLIC?            YES, one, and it is not code.
+  The repository URL still contains a personal account name. All 91 places that
+  render it now read one constant, so the fix is `AGENT402_REPO_URL` after you
+  move the repo to an org. Nothing else: no personal email, phone or address on
+  any page, OG image, meta tag, JSON API, llms.txt or openapi.json.
 
-  So the honest statement is: the wallet is isolated in the way that matters for
-  theft (its own key, a working balance, a daily ceiling, a kill switch) and is
-  NOT unlinkable. Unlinkability was already spent the day the loop shipped and
-  cannot be recovered for existing history. WALLET_ISOLATION_PLAN.md covers what
-  can still be separated going forward.
+SPENDING-WALLET ADDRESS STILL PUBLIC?            YES, and it cannot be otherwise.
+  It is the payTo on the four route-execute tiers, which is what makes the
+  self-funding loop work. A payTo must be published to be paid. The defence is
+  the balance and the daily ceiling, not the address. See WALLET_ISOLATION_PLAN.md.
 
-  No private key, mnemonic or keystore appears in the tree or in git history.
-  The only PRIVATE KEY string in src/ is a documentation placeholder. The one
-  file that ever looked like a rotation record (SECRETS_TO_ROTATE.md, since
-  removed) never carried a literal value.
+THE FIVE HIGHEST-IMPACT CHANGES
 
-THE SINGLE BIGGEST EXPOSURE
+  1. THE HERO COUNTER WAS TWO DIFFERENT METRICS UNDER ONE LABEL. heroCount falls
+     back from the chain figure (inbound transfers, ours included) to the served
+     figure (calls paid in stablecoin). Those differ by about ten thousand, and
+     which one a visitor saw depended on whether the ledger had warmed since the
+     last deploy. The label follows the value now.
 
-  F-1. /api/revenue published raw upstream error text on an unauthenticated
-  endpoint, and eleven of the RPC endpoints its scanners walk carry
-  ALCHEMY_API_KEY in the URL PATH. An upstream that echoes its own request back
-  in an error body - which they do - would have published the key. This is not
-  hypothetical: the identical leak happened on /api/leaderboard in August, was
-  fixed there and in three sibling modules, and revenue-live.js was missed.
-  Fixed on this branch, with a guard and six killed mutations.
+  2. 4,287 WAS LABELLED TWO THINGS. "endpoints indexed" on /marketplace,
+     "seller origins indexed" on three other pages. Same number, same source.
 
-TOP FIVE ACTIONS, IN ORDER
+  3. THE ROUTER SHARE IS GONE, NOT CORRECTED. It published what fraction of our
+     own traffic we monetize. The sentence was also false: it claimed every
+     other paid call went buyer to seller, when those are buyers paying US for
+     OUR tools. The replacement claim is stronger and checkable from any 402.
 
-  1. MERGE THIS BRANCH.  Closes the key-leak path (F-1), bounds bulk scraping of
-     the buyer feed (F-5), and makes the repo move below a one-line change.
+  4. INTERNAL STATE STRINGS OUT OF SERVED COPY. "Listening for on-chain
+     payments...", "idle", and a line arguing the demo "is not a diagram".
 
-  2. MOVE THE REPOSITORY OFF THE PERSONAL ACCOUNT.  (Owner action, on GitHub.)
-     The footer, six Organization JSON-LD sameAs blocks, /company, /terms,
-     /security and the crawler User-Agent all pointed at a URL containing a
-     personal handle. That is the join that turns published wallets into a named
-     individual, and from there into a home address through public records. This
-     branch routes all 91 sites through one constant; set AGENT402_REPO_URL after
-     the move and every surface follows in one deploy.  (F-6)
+  5. THE SELLER PATH WAS LAST. Register sat at 95% into the marketplace body,
+     after the FAQ, with no entry point near the top despite the header card
+     announcing itself as "BUYER PATH". Now 5% and 81%.
 
-  3. ROTATE ALCHEMY_API_KEY.  Cheap, and the correct response to "it was
-     reachable through a public error path for an unknown period". Nothing shows
-     it actually leaked; treat it as compromised anyway.  (F-2)
+WHAT I DID NOT DO
 
-  4. DECIDE THE RESERVE SPLIT.  Today one address receives on nine EVM chains and
-     holds the float, so its balance is the company's full liquid position and
-     anyone can read it. Splitting receive from reserve costs one env var and one
-     periodic sweep, and does not weaken verification: the receive address stays
-     published and every settlement still lands somewhere a reader can check.
-     (F-7, WALLET_ISOLATION_PLAN.md)
+  The nav collapse, the homepage section restructure and a new token system are
+  the parts of this brief that are judgment calls about how the site should
+  look, not defects. They touch shared chrome on 52 pages, and doing them blind
+  in one pass is how a redesign becomes a regression. SITE_AUDIT.md carries each
+  one as a finding with a recommendation. Say the word and I will mock the nav
+  first rather than rewrite it first.
 
-  5. SET SOR_EXTERNAL_ENABLED DELIBERATELY.  It gates the whole autonomous-spend
-     path and was already an open owner decision before this review. The controls
-     around it are real and tested (per-payer unsettled ceiling, per-chain daily
-     ceiling that survives restart, cap re-checked against the accept actually
-     signed, payTo binding, sanctions screen, one kill switch every signing path
-     consults). The residual is a policy question, not a missing control.  (F-9)
+TWO THINGS THAT NEED YOUR DECISION, NOT MINE
 
-WHAT WAS ALREADY RIGHT, AND WAS NOT CHANGED
+  - Headlining exact lifetime revenue on /revenue.
+  - Buyer concentration and exact buyer counts.
+  Both are flagged in the brief. Both are also covered by an explicit operator
+  decision recorded in CLAUDE.md on 2026-09-01 (lead with counts, never remove
+  the revenue split). I did not silently reverse that.
 
-  Revenue vs throughput vs internal is distinguished in the hero, the rail table,
-  the MPP section, the API note and /transparency - more carefully than most of
-  what this page could be compared to. Buyer identities are counts-only on
-  /api/revenue/daily with the reasoning written beside them. Itemized MPP rows
-  are operator-gated. Seller labels are factual and sourced, and the two
-  leaderboards already carried a corrections path (this branch puts it where a
-  seller reading JSON will find it). Spend controls exist, are enforced before
-  signing, and are covered by four test suites.
+WHAT THE CRAWL FOUND CLEAN
 
-  Nothing in this review found a figure on /revenue that cannot be reproduced
-  from the source it cites.
+  No 404s across 72 routes. No broken anchors across 52 pages. No dead internal
+  links. No leftover or debug text. Every agent surface consistent and
+  untouched. Two things I first reported as defects were my own crawler's false
+  positives and are recorded as such in SITE_AUDIT.md so nobody re-chases them.
