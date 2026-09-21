@@ -41,7 +41,14 @@ const catalog = {
   ok(html.includes("214") && html.includes(">Robinhood Chain<") && html.includes(">USDG<"), "Robinhood Chain renders with its real count and USDG asset, not USDC");
   ok(html.includes(">·<"), "a rail with zero recorded settlements renders as a dash placeholder, never a fabricated 0");
   ok(html.includes("69") && html.includes("settled over the MPP wire"), "MPP wire count renders");
-  ok(html.includes(">41</strong> time"), "router disclosure renders the real viaRouter count, not a fabricated one");
+  // The router share is GONE, not corrected. Even stated accurately it
+  // publishes what fraction of our traffic we monetize: a competitor's figure
+  // to have, answering a question no seller asked, on the page meant to
+  // persuade them. The architectural claim underneath needs no number, and a
+  // reader can verify it from any 402 on the site, which names the seller's
+  // own payTo. Pinned as an absence because the tempting fix is to put a
+  // "reassuring" small number back.
+  ok(!/\b41\b/.test(html.slice(html.indexOf("No listing fee"), html.indexOf("everything for sellers"))), "no router call count in the seller section");
   // The sentence this replaced compared viaRouter to viaUSDC and then said
   // "every other paid call went buyer wallet to seller wallet". viaUSDC is OUR
   // OWN paid tool calls: those other calls are buyers paying US, settling to
@@ -58,7 +65,8 @@ const catalog = {
   ok(!/of [\d,]+ paid calls/.test(routerP), "the router count is NOT divided by our own paid call volume");
   ok(!/%/.test(routerP), "no share-of-our-volume percentage in the router disclosure");
   ok(!html.includes("went buyer wallet to seller wallet"), "the claim that every other paid call bypassed us is gone");
-  ok(/no commission/i.test(html) && /never out of your price/i.test(html), "the neutrality claim a seller is asking about is still made, plainly");
+  ok(/no commission/i.test(html) && /nothing is deducted/i.test(html), "the neutrality claim a seller is asking about is still made, plainly");
+  ok(/names your payTo and not ours/i.test(html), "and it is made in a form the reader can check against a live 402, not asserted");
   ok(html.includes("Seller-One.example") && html.includes("agents.chain.link"), "external leaderboard rows render");
   {
     // The five-column mono table is ~520px wide; at a 375px viewport the card's
@@ -78,10 +86,19 @@ const catalog = {
 // --- honest fallback when no data is available -------------------------------
 {
   const html = ledgerHomePage(BASE_URL, catalog, {}, {}, []);
-  ok(html.includes("Listening for on-chain payments"), "empty-state counter pulse renders instead of a bare 0");
+  // "Listening for on-chain payments…" was a widget's waiting state rendered
+  // as served copy: a visitor arriving before the ledger warms read it as the
+  // site describing itself. The empty state must still not fabricate a 0.
+  ok(!/Listening for on-chain payments/.test(html), "no internal widget state string in served copy");
+  ok(html.includes("Settlement count loading"), "the empty state says what is missing, in words a visitor can read");
   ok(!/>0</.test(html.slice(html.indexOf('id="hm-counter"'), html.indexOf('id="hm-counter"') + 400)), "counter does not render a fabricated 0 with no data");
   ok(html.includes("unavailable"), "leaderboard section states unavailable rather than rendering an empty table silently");
-  ok(html.includes(">0</strong> times"), "router disclosure degrades to a real zero, not hidden or fabricated, with no data");
+  // Scoped to the seller section for the same reason as above: "N of M paid
+  // calls" is correct on the per-rail attribution line, where both figures
+  // really are ours.
+  const sellerSeg = html.slice(html.indexOf("No listing fee"), html.indexOf("everything for sellers"));
+  ok(sellerSeg.length > 80, "control: the seller section was located in the empty state too");
+  ok(!/came through the router|paid calls|%/.test(sellerSeg), "no router-share disclosure to degrade: the figure is not published at all");
 }
 
 // --- commercial sensitivity: no tool slug next to a purchase count ----------
