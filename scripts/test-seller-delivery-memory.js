@@ -240,7 +240,16 @@ const { dispatchEligibility, DISPATCH_REASONS, dispatchLegend } = await import("
 // readers are asserted here because neither is reachable from an offline test.
 {
   const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
-  const fn = server.slice(server.indexOf("async function resolveExternalSeller"), server.indexOf("async function resolveExternalSeller") + 12000);
+  // Slice to the function's REAL end, not a byte count. This used to take the
+  // first 12000 characters, and the live probe sat at ~11900 of a function that
+  // has since grown past 24000 - so adding a comment block to the resolver put
+  // the probe outside the window, indexOf returned -1, and the ordering check
+  // failed while the ordering itself was untouched. A pin measured in bytes
+  // expires on the next edit.
+  const fnStart = server.indexOf("async function resolveExternalSeller");
+  const fnEnd = server.indexOf("async function diagnoseExternalSeller", fnStart);
+  ok(fnStart >= 0 && fnEnd > fnStart, "the resolver and the function that follows it are both still present (the slice has real bounds)");
+  const fn = server.slice(fnStart, fnEnd);
   // The literal statement, not just the call: a guard whose result is discarded
   // (or short-circuited away) reads identically to one that works.
   ok(fn.includes("const failing = sellerDeliveryFailingRecently(r.seller, chain);"), "the resolver consults the memo for the candidate and chain it is about to pay");
