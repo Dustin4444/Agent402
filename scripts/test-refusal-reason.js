@@ -170,11 +170,18 @@ ok(strayOther.length === 0,
   `no routing refusal classifies as "other"${strayOther.length ? ` - ${JSON.stringify(strayOther[0][0].slice(0, 70))}` : ""}`);
 
 // The resolver must actually tally, or the message above can never be reached.
-const serverSrc = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
-ok(/gateDrops\.total\+\+/.test(serverSrc), "the dispatch-gate filter counts what it drops");
+const serverSrcRaw = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+// Strip line comments BEFORE testing. Two mutations survived the first cut of
+// these pins: commenting out the increment left the text in place so a bare
+// substring search still matched, and an `a|b` regex whose second alternative
+// ignored `enumerable: false` passed whatever that flag said. A pin that a
+// comment or a spare alternative can satisfy is decoration.
+const serverSrc = serverSrcRaw.split("\n").filter((l) => !/^\s*\/\//.test(l)).join("\n");
+ok(/gateDrops\.total\+\+/.test(serverSrc), "the dispatch-gate filter counts what it drops, in live code");
 ok(/__gateDrops/.test(serverSrc) && /__gateDrops/.test(routeSrc), "the tally is carried to the caller that reports it");
-ok(/enumerable: false[^}]*value: gateDrops|value: gateDrops/.test(serverSrc.replace(/\s+/g, " ")),
-  "the tally is non-enumerable, so it cannot reach a receipt or a response body");
+const defineBlock = (serverSrc.match(/defineProperty\([^;]*__gateDrops[^;]*;/s) || [""])[0].replace(/\s+/g, " ");
+ok(/enumerable: false/.test(defineBlock) && /value: gateDrops/.test(defineBlock),
+  `the tally is non-enumerable, so it cannot reach a receipt or a response body (${defineBlock.slice(0, 80)})`);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
