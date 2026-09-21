@@ -51,7 +51,12 @@ const baseBranch = src.slice(src.indexOf('if (chainKey === "base")'), src.indexO
 ok(/paidScanAllowed\(\)/.test(baseBranch), "the Base branch consults the budget");
 ok(baseBranch.indexOf("paidScanAllowed()") < baseBranch.indexOf("baseActivityViaSql"),
   "the budget is checked BEFORE the query - checking after would still spend");
-ok(/return evmActivity\("base", wallet\)/.test(baseBranch),
+// Matches the CALL, not its argument list: the scanner grew a `prior` option
+// for the incremental resume, and pinning the exact arguments would fail on a
+// change that leaves this guarantee untouched. What must hold is that the
+// over-budget path RETURNS the free scanner for this wallet - not an error,
+// not null, not the paid query again.
+ok(/return evmActivity\("base", wallet[,)]/.test(baseBranch),
   "past the ceiling it falls back to the FREE scanner rather than erroring - the panel still renders");
 
 // 3. The cache must not empty itself under load.
