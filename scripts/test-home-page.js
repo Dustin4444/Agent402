@@ -152,5 +152,30 @@ const catalog = {
   ok(html.includes("No account. No API key. No card on file.") && html.includes("Pay for any API call"), "hero leads with the one sentence: pay for any API call without an account, key or card on file");
 }
 
+
+// --- the hero counter's label must follow its metric --------------------------
+// heroCount falls back from settledOnChain (inbound on-chain TRANSFERS to our
+// wallets, ours included) to viaUSDC (calls this server SERVED for a stablecoin
+// payment). Those differ by about ten thousand in production, and which one a
+// visitor sees depends on whether the ledger has warmed since the last deploy.
+// A shared label made the most important number on the site mean two things.
+// Pinned because the tempting simplification is one nice short label for both.
+{
+  const stats = { toolCallsServed: { viaUSDC: 35138, viaProofOfWork: 1, viaMPPWire: 0, viaRouter: 0, viaUSDCByNetwork: {} } };
+  const chain = ledgerHomePage(BASE_URL, catalog, stats, { leaderboard: [] }, [], { settledOnChain: 46007 });
+  const served = ledgerHomePage(BASE_URL, catalog, stats, { leaderboard: [] }, [], { settledOnChain: 0 });
+
+  ok(chain.includes("46,007"), "control: with a chain figure the hero renders it");
+  ok(/on-chain settlements/.test(chain) && /ours included/i.test(chain),
+    "the chain figure is labelled as settlements, and says it includes our own traffic");
+  ok(!/on-chain settlements/.test(served), "the served-call fallback does NOT claim to be on-chain settlements");
+  ok(served.includes("35,138") && /calls served for a stablecoin payment/.test(served),
+    "the fallback renders viaUSDC and is labelled as calls served");
+  // A transfer is not a call. Whichever value is in play, the word "calls" may
+  // not sit on the chain-derived figure.
+  const heroSeg = chain.slice(chain.indexOf("46,007") - 300, chain.indexOf("46,007") + 300);
+  ok(!/\bcalls\b/.test(heroSeg), "the chain-derived hero figure is never called a call count");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
