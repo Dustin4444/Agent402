@@ -23,6 +23,7 @@
 //     window, never by ours.
 import { createHash } from "node:crypto";
 import { assertSigningAllowed } from "./signing-halt.js";
+import { ROUTER_UA } from "./x402-buyer.js";
 import { recordUpstreamSpend } from "./stats.js";
 import { assertPublicUrl, ssrfDispatcher } from "./tools/fetch-guard.js";
 
@@ -132,7 +133,17 @@ export async function payTempo(url, {
   if (!trusted) await assertPublicUrl(url);
   const init = (extra = {}) => ({
     method,
-    headers: { accept: "application/json", ...(body !== undefined ? { "content-type": "application/json" } : {}), ...headers, ...extra },
+    // Same identification as the x402 buyer, for the same reason: this path is
+    // a bare fetch, so without it a Tempo purchase reaches the seller as `node`.
+    // `extra` stays last - it carries the payment credential.
+    headers: {
+      accept: "application/json",
+      ...(body !== undefined ? { "content-type": "application/json" } : {}),
+      ...headers,
+      "user-agent": ROUTER_UA,
+      "x-agent402-via": "router",
+      ...extra,
+    },
     ...(body !== undefined ? { body: typeof body === "string" ? body : JSON.stringify(body) } : {}),
     redirect: "manual",
     signal: AbortSignal.timeout(timeoutMs),

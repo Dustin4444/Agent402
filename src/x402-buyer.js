@@ -9,6 +9,11 @@
 // settlement can cost us the one upstream payment (the LLM-gateway risk class),
 // so the margin guard below refuses any upstream quote over the caller's cap.
 import { assertPublicUrl, ssrfDispatcher } from "./tools/fetch-guard.js";
+
+// What a seller sees in their logs when our router buys from them. Points at
+// the same page as the crawler's string: one place that says who we are.
+export const ROUTER_UA =
+  "Mozilla/5.0 (compatible; Agent402-Router/1.0; +https://agent402.tools/crawler)";
 import { recordOutbound } from "./outbound-ledger.js";
 import { assertSigningAllowed } from "./signing-halt.js";
 import { recordUpstreamSpend } from "./stats.js";
@@ -541,7 +546,29 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
   const { client, http } = buyer;
   const reqInit = {
     method,
-    headers: { Accept: "application/json", ...(body !== undefined ? { "Content-Type": "application/json" } : {}), ...headers },
+    // SAY WHO WE ARE ON A PAID CALL (2026-09-21). The crawler has identified
+    // itself since it existed, through safeFetch's User-Agent and the page that
+    // string points at. This path is not safeFetch - it is a bare fetch with the
+    // SSRF dispatcher - and it set no User-Agent at all, so undici sent `node`
+    // and a real purchase from our router was indistinguishable at the seller
+    // from any other script on the internet. Raised by a seller separating our
+    // probes from our purchases in their own logs, which they could not do.
+    //
+    // AFTER the caller's `headers` on purpose: who we are is not a parameter a
+    // tool can override or strip, and some of the values that reach a router
+    // call are shaped by the buyer's own input.
+    //
+    // A distinct UA rather than reusing CRAWLER_UA, because separating a probe
+    // from a purchase is the whole ask and not every seller logs headers. Same
+    // shape and same `Agent402` token, so anything already tolerating the
+    // crawler tolerates this, and it points at the same page.
+    headers: {
+      Accept: "application/json",
+      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+      ...headers,
+      "User-Agent": ROUTER_UA,
+      "X-Agent402-Via": "router",
+    },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     // F1: pin every connection to the validated IP and re-validate each redirect
     // hop (ssrfDispatcher) — a one-shot assertPublicUrl is TOCTOU-rebindable and
