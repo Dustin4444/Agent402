@@ -235,20 +235,17 @@ export function docPrevNextHtml(slug) {
 // wiki page - before this they were two unrelated layouts, so clicking from
 // the landing page into any real doc page felt like leaving the site rather
 // than navigating within it.
+// The H1 clamp: wiki page titles (rendered from each doc's own markdown
+// heading) wrap up to 3 lines at narrow widths while others stay on 1
+// (measured live, 126px vs 42px), so a 2-line clamp bounds the height the way
+// /tools and /skills do. No title="" attribute: this H1 comes from marked's
+// rendering, not a template string, and the page's own <title> carries the
+// full text. A JS comment, not a CSS one: the CSS block is served to every
+// visitor.
 export const DOCS_LAYOUT_CSS = `
   .ml-docs-layout { display:block; }
   .ml-docs-side { display:none; }
   .ml-docs-main { min-width:0; }
-  /* Wiki page titles vary enough in length (rendered from each doc's own
-     markdown # heading) to wrap up to 3 lines at narrow widths while others
-     stay on 1 - measured live, up to 126px vs 42px. Same fix as /tools and
-     /skills: a 2-line clamp bounds the height regardless of title length,
-     instead of an unbounded wrap. No title="" attribute here (unlike those
-     two) - this H1 comes from marked's markdown rendering, not a controlled
-     template string, so injecting one would mean hooking marked's renderer
-     rather than a simple string edit; the page's own <title> tag already
-     carries the full text, and most titles here don't come close to
-     truncating anyway. */
   .ml-docs-main h1 { font-family:var(--font-body);font-weight:800;font-size:42px;line-height:1;letter-spacing:-.02em;margin:0 0 18px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-overflow:ellipsis; }
   .ml-docs-main h2 { font-size:1.2rem;margin-top:36px;color:var(--accent);font-weight:700; }
   .ml-docs-main h3 { font-size:1.02rem;margin-top:26px;font-weight:700; }
