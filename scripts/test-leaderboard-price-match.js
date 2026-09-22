@@ -45,7 +45,7 @@ const row = (prices, transfers) => aggregateLeaderboard(transfers, seller(prices
   ok(DEFAULTS.maxCallUsd === 0.75, "control: the ceiling under test is the one in production");
 }
 
-// --- a published price is admitted at any size ------------------------------
+// --- a published price is admitted above the flat ceiling ---------------------
 {
   // $2.00 listed. 2.00 exact, 2.01 a premium-chain rounding, 0.50 under the
   // ceiling on its own merits, 1000 matching nothing.
@@ -88,6 +88,22 @@ const row = (prices, transfers) => aggregateLeaderboard(transfers, seller(prices
   ok(priceMatches(1_020_000, new Set([1_000_000])), "2% of a dollar-scale price is allowed");
   ok(!priceMatches(2_000_000, new Set()), "no prices means no match, never a match against nothing");
   ok(!priceMatches(NaN, new Set([1])), "a NaN amount never matches");
+}
+
+// --- the price-match rule is itself bounded ----------------------------------
+//
+// A wallet that publishes $1,000 (a gift card, a stablecoin conversion) would
+// otherwise count every $1,000 transfer as a tool call, on a board whose default
+// sort is dollars. Measured live the day the rule shipped: five matched transfers
+// above the ceiling supplied ~$5,000 of one seller's $5,072 row.
+{
+  const r = row([1_000_000_000, 2_000_000], [t(1000, "0xg1"), t(1000, "0xg2"), t(2.00, "0xg3")]);
+  eq(r.callsSettled, 1, "the $1,000 transfers are dropped although the price is published; the $2 one counts");
+  eq(r.transfersSkippedOverCeiling, 2, "...and they are reported as skipped over the ceiling");
+  eq(r.settlementsAbovePerCallCeiling, 1, "...while the $2 match above the flat ceiling is still admitted");
+  const wide = aggregateLeaderboard([t(1000, "0xg1")], seller([1_000_000_000]), { priceMatchMaxUsd: 5000 })[0];
+  eq(wide.callsSettled, 1, "the bound is a parameter: raised, the same transfer counts");
+  ok(DEFAULTS.priceMatchMaxUsd >= 1 && DEFAULTS.priceMatchMaxUsd <= 100, `the default bound (${DEFAULTS.priceMatchMaxUsd}) sits between a tool price and a gift card`);
 }
 
 // --- reading a price off a listing ------------------------------------------

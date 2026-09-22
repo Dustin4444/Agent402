@@ -126,14 +126,14 @@ export function ledgerLeaderboardPage(baseUrl, snapshot, { stats, walletAddress,
     "Discover sellers from the Coinbase CDP Bazaar plus our own crawl, refreshed hourly.",
     "Read each seller's advertised payTo addresses out of its x402 manifest.",
     "Pull settlement transfers to those addresses from Base event logs with eth_getLogs.",
-    `Count a transfer when it matches a price that seller publishes, at any size. Anything matching none of their prices is held to a per-call ceiling (${fmtUsd(snapshot?.maxCallUsd)}), so treasury movements and stablecoin conversions are not counted as tool calls.`,
+    `Count a transfer when it matches a price that seller publishes, up to a price-match ceiling (${fmtUsd(snapshot?.priceMatchMaxUsd)}). Anything matching none of their prices is held to a per-call ceiling (${fmtUsd(snapshot?.maxCallUsd)}), so treasury movements, gift cards and stablecoin conversions are not counted as tool calls.`,
     "Aggregate by payTo, group wallets belonging to one seller, and rank.",
   ];
 
   const faqs = [
     {
       q: "How is the x402 leaderboard calculated?",
-      a: "Sellers are discovered from the Coinbase CDP Bazaar plus Agent402's own crawl, their payTo addresses are read from their x402 manifests, and settlement transfers to those addresses are aggregated from Base event logs via eth_getLogs. A transfer counts when it matches a price that seller advertises, whatever the amount; a transfer matching none of their published prices is held to a per-call ceiling, so treasury movements and stablecoin conversions do not inflate a seller. That ceiling used to be the whole rule, which made a seller priced just above it invisible here rather than ranked low. The snapshot refreshes hourly and the raw JSON is free at /api/leaderboard.",
+      a: "Sellers are discovered from the Coinbase CDP Bazaar plus Agent402's own crawl, their payTo addresses are read from their x402 manifests, and settlement transfers to those addresses are aggregated from Base event logs via eth_getLogs. A transfer counts when it matches a price that seller advertises, up to a price-match ceiling; a transfer matching none of their published prices is held to a lower per-call ceiling, so treasury movements, gift cards and stablecoin conversions do not inflate a seller. That ceiling used to be the whole rule, which made a seller priced just above it invisible here rather than ranked low. The snapshot refreshes hourly and the raw JSON is free at /api/leaderboard.",
     },
     {
       q: "Why is Agent402 excluded from its own leaderboard?",
