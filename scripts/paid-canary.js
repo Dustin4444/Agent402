@@ -1638,19 +1638,49 @@ async function main() {
       const avmClient = disableVendorSpendControls(new AvmX402Client());
       avmClient.register("algorand:*", new ExactAvmScheme(signer, { algodUrl }));
       const avmPay = wrapAvm(synthFetch, avmClient);
-      const res = await avmPay(`${TARGET}/api/hash`, {
+      // QUOTA-AWARE ROUTE CHOICE (2026-09-22). The AVM facilitator sponsors the
+      // fee on every settlement and gives our payTo 1,000 free sponsored
+      // sub-cent settlements a month; at or above $0.01 is unlimited. When the
+      // month's allowance is spent - which we did to ourselves in September and
+      // chose to wait out rather than buy Settlement Units - a $0.001 buy here
+      // fails every day until the reset, opens or re-comments a public issue
+      // every day, and marks the rail an outage on /status while it settles
+      // perfectly well at a cent. None of that is a fact about the rail. So:
+      // read the live quota; if it is exhausted, prove the rail with the one
+      // pure-CPU tool priced at $0.01 and SAY the sub-cent path is quota-bound;
+      // if that buy fails too, that IS the rail, and it pages as before. The
+      // exhaustion itself is not hidden: it is printed, and it rides the
+      // /status detail. An unreadable quota keeps the $0.001 leg, which pages
+      // on a real refusal like any other day.
+      const FACIL = (process.env.ALGORAND_FACILITATOR_URL || "https://facilitator.goplausible.xyz").replace(/\/$/, "");
+      let quota = null;
+      try {
+        const bare = await synthFetch(`${TARGET}/api/hash`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+        const pr = JSON.parse(Buffer.from(bare.headers.get("payment-required") || "", "base64").toString("utf8"));
+        const payTo = (pr.accepts || []).find((a) => String(a.network || "").startsWith("algorand:"))?.payTo;
+        if (payTo) {
+          const st = await (await fetch(`${FACIL}/sponsorship/status?wallet=${payTo}`, { signal: AbortSignal.timeout(10000) })).json();
+          quota = (st.chains || []).find((c) => c.chain === "algorand") || null;
+        }
+      } catch { quota = null; }
+      const exhausted = !!quota && Number(quota.usedMonth) >= Number(quota.quota) && Number(quota.suBalance || 0) <= 0;
+      const leg = exhausted
+        ? { path: "/api/solidity-scan", usd: "0.01", body: { source: "pragma solidity ^0.8.0;\ncontract C { function f() external {} }" }, ok: (b) => Array.isArray(b.findings) }
+        : { path: "/api/hash", usd: "0.001", body: { text: "algorand-canary" }, ok: (b) => typeof b.hex === "string" };
+      if (exhausted) console.log(`\nalgorand leg: sub-cent sponsored quota exhausted this month (${quota.usedMonth}/${quota.quota} used, SU ${quota.suBalance}) - proving the rail at $0.01 instead; sub-cent buys resume on the 1st`);
+      const res = await avmPay(`${TARGET}${leg.path}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: "algorand-canary" }),
+        body: JSON.stringify(leg.body),
       });
       const body = await res.json().catch(() => ({}));
-      if (res.status === 200 && typeof body.hex === "string") {
+      if (res.status === 200 && leg.ok(body)) {
         let tx = null;
         const receiptHdr = res.headers.get("payment-response") || res.headers.get("x-payment-response");
         if (receiptHdr) {
           try { tx = JSON.parse(Buffer.from(receiptHdr, "base64").toString("utf8"))?.transaction || null; } catch { /* best-effort */ }
         }
-        console.log(`\nOK    algorand   /api/hash  → settled $0.001 USDC on Algorand (payer ${address})${tx ? `\n      tx: https://allo.info/tx/${tx}` : "\n      (no settle receipt header found — settlement claimed by 200 only)"}`);
-        noteRail("algorand", true);
+        console.log(`\nOK    algorand   ${leg.path}  → settled $${leg.usd} USDC on Algorand (payer ${address})${exhausted ? " [sub-cent quota exhausted; rail proven at one cent]" : ""}${tx ? `\n      tx: https://allo.info/tx/${tx}` : "\n      (no settle receipt header found — settlement claimed by 200 only)"}`);
+        noteRail("algorand", true, exhausted ? `settled at $0.01; sub-cent sponsored quota exhausted this month (${quota.usedMonth}/${quota.quota}), resets on the 1st` : undefined);
       } else if (res.status === 402) {
         const reason = settleRejectReason(res.headers);
         // WARN only for the failure the design was about (our own burner

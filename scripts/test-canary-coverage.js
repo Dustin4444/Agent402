@@ -196,6 +196,17 @@ if (sd) {
     "MPP legs drive the native WWW-Authenticate → Authorization: Payment wire");
   ok(/Payment-Receipt|payment-receipt/.test(canarySrc),
     "MPP legs assert the settled Payment-Receipt header");
+  // The Algorand leg is QUOTA-AWARE (2026-09-22). The facilitator meters
+  // sponsored sub-cent settlements per payTo per month; when the month's
+  // allowance is spent the $0.001 leg fails every day until the reset and
+  // says nothing true about the rail. It reads the live quota, proves the
+  // rail at $0.01 when exhausted, says so, and still pages when that fails.
+  ok(/sponsorship\/status\?wallet=\$\{payTo\}/.test(canarySrc), "the Algorand leg reads the facilitator's live sub-cent quota for our payTo");
+  ok(/const exhausted = !!quota && Number\(quota\.usedMonth\) >= Number\(quota\.quota\)/.test(canarySrc), "...and treats the month as exhausted only when used >= quota with no purchased SUs");
+  ok(/exhausted\s*\?\s*\{ path: "\/api\/solidity-scan", usd: "0\.01"/.test(canarySrc), "when exhausted it proves the rail at $0.01 on the one pure-CPU tool at that price");
+  ok(/: \{ path: "\/api\/hash", usd: "0\.001"/.test(canarySrc), "...and otherwise keeps the $0.001 sub-cent buy, which is the path real buyers take");
+  ok(/sub-cent sponsored quota exhausted this month/.test(canarySrc), "the exhaustion is SAID, in the log and on the /status detail - re-routing must never hide it");
+  ok(/railFail\(\s*["']algorand["']/.test(canarySrc), "a refusal of whichever buy it made still pages through railFail");
   ok(/railFail\(\s*["']mpp["']/.test(canarySrc),
     "Base MPP failures go through railFail (not WARN-only) so a dead shim fails the run");
   ok(/railFail\(\s*["']mpp-celo["']/.test(canarySrc),
