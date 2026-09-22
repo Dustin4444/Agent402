@@ -2599,6 +2599,8 @@ jobs:
           t node scripts/test-alchemy-data-kit.js
           # llm-context kit (Brave grounding context, stubbed fetch, no live Brave call, offline)
           t node scripts/test-llm-context-kit.js
+          # search-lite (Brave web search sample: validation + output shaping, stubbed fetch, no live Brave call, offline)
+          t node scripts/test-search-lite.js
           # Paid-upstream leak guard (Brave + E2B — every metered route/pack must be skipped — offline)
           t node scripts/test-brave-leak.js
           # Derived CI-spend exposure: every paid key a TEST lane can reach must have its slugs bounded

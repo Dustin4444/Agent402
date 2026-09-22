@@ -137,7 +137,7 @@ export const METERED_SLUGS = new Set([
   // one would spend on every push. Same rule as Brave, E2B and CoinGecko.
   "stock-quote", "stock-history",
   // Brave Search subscription
-  "search", "search-news", "search-images", "search-videos", "search-suggest", "answer", "multi-search",
+  "search", "search-lite", "search-news", "search-images", "search-videos", "search-suggest", "answer", "multi-search",
   "llm-context",      // Brave /llm/context - same subscription, billed per call
   // OpenAI
   "llm", "llm-pro", "llm-premium",
