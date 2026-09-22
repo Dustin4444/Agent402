@@ -2860,9 +2860,12 @@ export function carryForwardLearnedQuotes(tools, prev) {
     // address the Base scan needs. A network the rebuilt row already carries a
     // payTo for keeps it (the origin's own current document, read this crawl).
     if (hit.payToByNetwork && typeof hit.payToByNetwork === "object") {
-      const gaps = Object.entries(hit.payToByNetwork)
-        .filter(([net, addr]) => typeof addr === "string" && addr && !(t.payToByNetwork && t.payToByNetwork[net]));
-      if (gaps.length) t.payToByNetwork = { ...Object.fromEntries(gaps), ...(t.payToByNetwork || {}) };
+      const remembered = Object.entries(hit.payToByNetwork).filter(([, addr]) => typeof addr === "string" && addr);
+      // The spread ORDER is the whole rule: what this crawl read from the
+      // origin wins, the remembered address fills the rest. Filtering the
+      // remembered entries as well would make each guard unkillable by the
+      // other, so a test could not tell either of them from a no-op.
+      if (remembered.length) t.payToByNetwork = { ...Object.fromEntries(remembered), ...(t.payToByNetwork || {}) };
     }
     // A route-level hit may change a current row's verb in exactly two cases:
     // the row INFERRED its verb (named none), or the hit is a recorded

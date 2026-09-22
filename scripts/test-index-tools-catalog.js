@@ -472,11 +472,14 @@ const page = (results, extra = {}) =>
       v1[0].payToByNetwork?.["eip155:8453"] === PAYTO);
 
     // the sibling branch: the stated GET does not answer, the declared POST
-    // sibling does, so the payTo belongs on the row that survives.
+    // sibling does, so the payTo belongs on the row that survives. The POST row
+    // is priced and chain-verified from the origin's own document, so it is not
+    // a probe candidate itself - otherwise its own probe would write the payTo
+    // and this case could not observe the sibling write at all.
     globalThis.fetch = stub({ "POST /x402/full": [accept()] });
     const pair = [
       { seller: ORIGIN, route: "/x402/full", method: "GET", slug: "full-get", price: null, networks: [] },
-      { seller: ORIGIN, route: "/x402/full", method: "POST", slug: "full-post", price: null, networks: [] },
+      { seller: ORIGIN, route: "/x402/full", method: "POST", slug: "full-post", price: 0.032, originDeclaredPrice: 0.032, networks: ["eip155:8453"], networksVerifiedAt: Date.now() },
     ];
     await enrichLiveQuotes(pair, ORIGIN, { ignoreBudget: true });
     const survivor = pair.find((r) => r.method === "POST");
