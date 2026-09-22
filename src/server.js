@@ -1,6 +1,7 @@
 import "./boot-profile.js"; // diagnostic boot CPU profile - must stay the FIRST import (see the file)
 import { retiredEntryFor, assertRetiredRegistryConsistent } from "./retired-tools.js";
 import { createTrafficStore, trafficMiddleware } from "./traffic-classifier.js";
+import { createUnpaidQuoteBudget, unpaidQuoteBudgetPerHour } from "./unpaid-quote-budget.js";
 import { RAILS_OR, RAILS_SHORT, RAILS } from "./rails.js";
 // Railway's egress has NO working IPv6 (every AAAA is ENETUNREACH). Node's
 // happy-eyeballs races the IPv6 address on dual-stack upstreams and fails ~15% of
@@ -2313,6 +2314,21 @@ app.use((req, _res, next) => {
 // turns a POST on a GET-only canonical route into the GET it needs, so a buyer
 // can POST every verb in the namespace without knowing which is which.
 app.use(chainNamespaceMiddleware);
+// Hourly budget on unpaid price checks per client (ip + User-Agent product
+// token): src/unpaid-quote-budget.js. After the traffic classifier (so a 429 is
+// still classed) and the path rewrites above (so an alias counts as the route
+// it serves), BEFORE the body parsers and every payment/PoW gate, so a
+// throttled request costs no parse and no challenge build. Not mounted under
+// FREE_MODE: there is no paywall there, and CI sweeps boot in that mode. The
+// same figure is quoted on /crawler, so the page cannot drift from the gate.
+const UNPAID_QUOTE_BUDGET = FREE_MODE ? 0 : unpaidQuoteBudgetPerHour();
+const UNPAID_BUDGET = UNPAID_QUOTE_BUDGET > 0 ? createUnpaidQuoteBudget({
+  budget: UNPAID_QUOTE_BUDGET,
+  isPriced: (method, path) => Boolean(CATALOG[`${method} ${path}`]),
+  isSynthetic: isSyntheticRequest,
+  policyUrl: `${BASE_URL.replace(/\/$/, "")}/crawler`,
+}) : null;
+if (UNPAID_BUDGET) app.use(UNPAID_BUDGET.middleware);
 // The metered tier prices every request from its body, so a big body is a big
 // quote, never an unpriced cost - it can take real agent-host turns. A Claude
 // Code turn is ~110 KB (system prompt + 22 tool schemas, measured 2026-08-27)
@@ -2795,7 +2811,7 @@ app.get("/company", (_req, res) => htmlCache(res, 300, 900).send(companyPage(BAS
 // Who our crawler is, what it reads, and how to be removed. The crawler's own
 // User-Agent points here (src/tools/fetch-guard.js), so an operator who finds
 // it in their logs lands on the answer rather than on a source tree.
-app.get("/crawler", (_req, res) => htmlCache(res, 300, 900).send(crawlerPage(BASE_URL)));
+app.get("/crawler", (_req, res) => htmlCache(res, 300, 900).send(crawlerPage(BASE_URL, { unpaidQuoteBudget: UNPAID_QUOTE_BUDGET })));
 // Real sample reports (assets/samples, src/sample-reports.js): the finished
 // artifact a buyer gets, readable before paying, indexable, with a buy box.
 // Served with or without Stripe: the fixtures are static and the buy box
@@ -4180,7 +4196,11 @@ let ledgerSyncCache = { at: 0, value: null };
 app.get("/__operator/traffic.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   // In-memory rollups (hashed ips, hashed payers, top-N per class) - cheap read.
-  res.set("Cache-Control", "no-store").json(TRAFFIC.report({ days: Math.min(14, parseInt(req.query.days, 10) || 2), top: Math.min(100, parseInt(req.query.top, 10) || 15) }));
+  // unpaidQuoteBudget: counts only (clients seen this hour, throttled since boot), never an address.
+  res.set("Cache-Control", "no-store").json({
+    ...TRAFFIC.report({ days: Math.min(14, parseInt(req.query.days, 10) || 2), top: Math.min(100, parseInt(req.query.top, 10) || 15) }),
+    unpaidQuoteBudget: UNPAID_BUDGET ? UNPAID_BUDGET.stats() : { budget: 0 },
+  });
 });
 app.get("/__operator/egress.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });

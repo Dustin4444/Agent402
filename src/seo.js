@@ -123,6 +123,7 @@ Disallow: /api/buy
 ${costly}
 
 # Machine-readable catalogs for agents: ${baseUrl}/SKILL.md , ${baseUrl}/llms.txt , ${baseUrl}/openapi.json , ${baseUrl}/api/pricing , ${baseUrl}/api/cacheable , ${baseUrl}/.well-known/x402 , ${baseUrl}/.well-known/agent-card.json , ${baseUrl}/.well-known/agent-registration.json , ${baseUrl}/api/reliability , ${baseUrl}/api/find?q={task} , ${baseUrl}/api/route , ${baseUrl}/api/leaderboard
+# Crawling this catalog: every route and price is in ${baseUrl}/.well-known/x402 , ${baseUrl}/openapi.json and ${baseUrl}/api/pricing ; read those rather than each priced route. Crawl policy, including the hourly budget on unpaid price checks: ${baseUrl}/crawler
 Sitemap: ${baseUrl}/sitemap.xml
 Sitemap: ${baseUrl}/sitemapindex.xml
 `;
