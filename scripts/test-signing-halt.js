@@ -53,7 +53,7 @@ catch { ok(false, "permitted state does not throw"); }
 // without the check fails here rather than shipping unguarded.
 const MUST_GUARD = [
   "src/x402-buyer.js", "src/solana-buyer.js", "src/tempo-buyer.js",
-  "src/tools/attest-kit.js", "src/tools/blockscout-kit.js", "src/mpp-subscriptions.js",
+  "src/tools/attest-kit.js", "src/mpp-subscriptions.js",
 ];
 for (const f of MUST_GUARD) {
   const src = readFileSync(new URL(`../${f}`, import.meta.url), "utf8");

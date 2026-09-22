@@ -1,6 +1,7 @@
 import "./boot-profile.js"; // diagnostic boot CPU profile - must stay the FIRST import (see the file)
 import { retiredEntryFor, assertRetiredRegistryConsistent } from "./retired-tools.js";
 import { createTrafficStore, trafficMiddleware } from "./traffic-classifier.js";
+import { createUnpaidQuoteBudget, looksLikePayment, unpaidQuoteBudgetPerHour } from "./unpaid-quote-budget.js";
 import { RAILS_OR, RAILS_SHORT, RAILS } from "./rails.js";
 // Railway's egress has NO working IPv6 (every AAAA is ENETUNREACH). Node's
 // happy-eyeballs races the IPv6 address on dual-stack upstreams and fails ~15% of
@@ -67,16 +68,21 @@ const GATEWAY_METER_ON = String(process.env.GATEWAY_METERED_BILLING || "").toLow
 // quote from the parsed body. Every non-x402 gate (Tempo, Stripe, credits)
 // prices through here so a metered call is held/bound at its quote, never
 // at the catalog floor.
+// A flat chat route carries `tierQuote` instead (price by model: the home
+// tier's price when the body names another flat tier's model), priced here the
+// same way so the three gates hold/bind the price the handler will serve at.
+const priceFnOf = (def) => (typeof def?.quote === "function" ? def.quote : typeof def?.tierQuote === "function" ? def.tierQuote : null);
 function quotedPriceUsd(def, req) {
   const flat = Number(String(def?.price ?? "").replace(/[^0-9.]/g, "")) || 0;
-  if (typeof def?.quote !== "function" || !req) return flat;
+  const quoteFn = priceFnOf(def);
+  if (!quoteFn || !req) return flat;
   // Memoized on the request: payments.js stashes the quote when the x402
   // price function runs, and the gates/appenders reuse it (one tokenization
   // per request, never one per rail).
   if (Number.isFinite(req.__meteredQuoteUsd) && req.__meteredQuoteUsd > 0) return req.__meteredQuoteUsd;
   try {
     // Quote the object the handler will be SERVED, never the raw body.
-    const q = Number(def.quote(handlerInputOf(req, def)));
+    const q = Number(quoteFn(handlerInputOf(req, def)));
     if (Number.isFinite(q) && q > 0) { req.__meteredQuoteUsd = q; return q; }
     return flat;
   } catch { return flat; }
@@ -88,7 +94,7 @@ function settledPriceUsd(def, req, res) {
   const flat = Number(String(def?.price ?? "").replace(/[^0-9.]/g, "")) || 0;
   const metered = Number(res?.getHeader?.("X-Metered-Usd"));
   if (Number.isFinite(metered) && metered > 0) return metered;
-  if (typeof def?.quote === "function" && Number.isFinite(req?.__meteredQuoteUsd) && req.__meteredQuoteUsd > 0) return req.__meteredQuoteUsd;
+  if (priceFnOf(def) && Number.isFinite(req?.__meteredQuoteUsd) && req.__meteredQuoteUsd > 0) return req.__meteredQuoteUsd;
   return flat;
 }
 // Card price for a QUOTED route: the metered quote is worst-case upstream x 1.15,
@@ -210,7 +216,7 @@ import { GEO_TOOLS } from "./tools/geo-kit.js";
 import { OCR_TOOLS } from "./tools/ocr-kit.js";
 import { AGENT_TOOLS } from "./tools/agent-kit.js";
 import { SAMPLE_AGENT_CARD, A2A_WELL_KNOWN_PATHS, buildOurAgentCard, buildAgentRegistration } from "./tools/a2a-card.js";
-import { BLOCKSCOUT_TOOLS, upstreamBuyerStatus } from "./tools/blockscout-kit.js";
+import { upstreamBuyerStatus } from "./upstream-buyer-status.js";
 import { CAPTCHA_TOOLS } from "./tools/captcha-kit.js";
 import { SQL_GUARD_TOOLS } from "./tools/sql-guard-kit.js";
 import { BARCODE_TOOLS } from "./tools/barcode-kit.js";
@@ -266,7 +272,7 @@ import { LLM_GEMINI_TOOLS, GEMINI_PATH_BY_TIER } from "./tools/llm-gemini-kit.js
 import { refusalReason } from "./refusal-reason.js";
 import { setKnownProductKeys } from "./posthog.js";
 import { LLM_RESPONSES_TOOLS } from "./tools/llm-responses-kit.js";
-import { LLM_GATEWAY_TOOLS, TIERS, modelsList, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, rerankCacheKey, RERANK_PATH, gatewayCreditsStatus, oxAlphaAvailable, probeOxAlphaAvailability, OX_ROUTE, oxUpstreamIsFree } from "./tools/llm-gateway-kit.js";
+import { LLM_GATEWAY_TOOLS, TIERS, PRICED_BY_MODEL_NOTE, modelsList, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, rerankCacheKey, RERANK_PATH, gatewayCreditsStatus, oxAlphaAvailable, probeOxAlphaAvailability, OX_ROUTE, oxUpstreamIsFree } from "./tools/llm-gateway-kit.js";
 // /v1/audio/speech stays behind OPENROUTER_TTS_ENABLED as a rollout gate:
 // @x402/express (v2.16) runs the handler first and settles only a <400
 // response, so a 502 is never charged — but an UNLISTED route returns no 402
@@ -378,7 +384,7 @@ import { ledgerIntegrationsPage } from "./ledger-integrations.js";
 // Listed only with a key, like every other env-gated kit: a tool we cannot serve
 // must not appear in the catalog, on /api/pricing, or in a 402's offer.
 const JUDGE_TOOLS_ENABLED = judgeEnabled() ? JUDGE_TOOLS : [];
-const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZE_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...CRYPTO_HASH_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...RECALL_TOOLS, ...IPO_TOOLS, ...INSIDER_TOOLS, ...TOKEN_RISK_TOOLS, ...TOKEN_SAFETY_TOOLS, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...BLOCKSCOUT_TOOLS, ...CAPTCHA_TOOLS, ...SQL_GUARD_TOOLS, ...ACTION_GATE_TOOLS, ...DERIVATIVES_TOOLS, ...SOLANA_INTEL_TOOLS, ...X_DATA_TOOLS_ENABLED, ...EXA_TOOLS_ENABLED, ...B2B_ENRICH_TOOLS_ENABLED, ...CRAWL_TOOLS, ...CRYPTO_SIGNALS_TOOLS, ...DEFI_TOOLS, ...CRYPTO_MARKETS_TOOLS, ...FARCASTER_SOCIAL_TOOLS_ENABLED, ...ALCHEMY_DATA_TOOLS, ...IMAGES_FAST_TOOLS, ...TOKEN_BRIEF_TOOLS, ...TICKER_PACK_TOOLS, ...FILING_WATCH_TOOLS, ...LLM_CONTEXT_TOOLS, ...LINKEDIN_TOOLS, ...ATTEST_TOOLS, ...SANCTIONS_TOOLS, ...FEEDBACK_TOOLS, ...CHAIN_RPC_TOOLS, ...JUDGE_TOOLS_ENABLED];
+const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZE_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...CRYPTO_HASH_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...RECALL_TOOLS, ...IPO_TOOLS, ...INSIDER_TOOLS, ...TOKEN_RISK_TOOLS, ...TOKEN_SAFETY_TOOLS, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...CAPTCHA_TOOLS, ...SQL_GUARD_TOOLS, ...ACTION_GATE_TOOLS, ...DERIVATIVES_TOOLS, ...SOLANA_INTEL_TOOLS, ...X_DATA_TOOLS_ENABLED, ...EXA_TOOLS_ENABLED, ...B2B_ENRICH_TOOLS_ENABLED, ...CRAWL_TOOLS, ...CRYPTO_SIGNALS_TOOLS, ...DEFI_TOOLS, ...CRYPTO_MARKETS_TOOLS, ...FARCASTER_SOCIAL_TOOLS_ENABLED, ...ALCHEMY_DATA_TOOLS, ...IMAGES_FAST_TOOLS, ...TOKEN_BRIEF_TOOLS, ...TICKER_PACK_TOOLS, ...FILING_WATCH_TOOLS, ...LLM_CONTEXT_TOOLS, ...LINKEDIN_TOOLS, ...ATTEST_TOOLS, ...SANCTIONS_TOOLS, ...FEEDBACK_TOOLS, ...CHAIN_RPC_TOOLS, ...JUDGE_TOOLS_ENABLED];
 // House style on every report tier's output (agents, card buyers, monitors
 // all reach the same handler object): no em or en dashes in what a person
 // reads. Wrapped in place so _premiumHandlers below sees the wrapped one.
@@ -2313,6 +2319,21 @@ app.use((req, _res, next) => {
 // turns a POST on a GET-only canonical route into the GET it needs, so a buyer
 // can POST every verb in the namespace without knowing which is which.
 app.use(chainNamespaceMiddleware);
+// Hourly budget on unpaid price checks per client (ip + User-Agent product
+// token): src/unpaid-quote-budget.js. After the traffic classifier (so a 429 is
+// still classed) and the path rewrites above (so an alias counts as the route
+// it serves), BEFORE the body parsers and every payment/PoW gate, so a
+// throttled request costs no parse and no challenge build. Not mounted under
+// FREE_MODE: there is no paywall there, and CI sweeps boot in that mode. The
+// same figure is quoted on /crawler, so the page cannot drift from the gate.
+const UNPAID_QUOTE_BUDGET = FREE_MODE ? 0 : unpaidQuoteBudgetPerHour();
+const UNPAID_BUDGET = UNPAID_QUOTE_BUDGET > 0 ? createUnpaidQuoteBudget({
+  budget: UNPAID_QUOTE_BUDGET,
+  isPriced: (method, path) => Boolean(CATALOG[`${method} ${path}`]),
+  isSynthetic: isSyntheticRequest,
+  policyUrl: `${BASE_URL.replace(/\/$/, "")}/crawler`,
+}) : null;
+if (UNPAID_BUDGET) app.use(UNPAID_BUDGET.middleware);
 // The metered tier prices every request from its body, so a big body is a big
 // quote, never an unpriced cost - it can take real agent-host turns. A Claude
 // Code turn is ~110 KB (system prompt + 22 tool schemas, measured 2026-08-27)
@@ -2341,17 +2362,10 @@ app.use("/v1/metered", (req, res, next) => {
   // 2026-08-28, `Authorization: Bearer garbage` took 80 of 80 requests past
   // this limiter while the same 80 unauthenticated ones were throttled at 44.
   // The gates still decide whether it is really valid; this only decides
-  // whether the request is worth a free tokenizer run.
-  const looksPaid = (h) => {
-    const a = String(req.headers.authorization || "");
-    if (/^Bearer\s+a402_[A-Za-z0-9_-]{8,}/.test(a) || /^Payment\s+\S{16,}/i.test(a)) return true;
-    for (const k of ["payment-signature", "x-payment"]) {
-      const v = req.headers[k];
-      if (typeof v === "string" && v.length >= 32) return true;
-    }
-    return false;
-  };
-  const paid = looksPaid();
+  // whether the request is worth a free tokenizer run. The shapes live in
+  // src/unpaid-quote-budget.js because the unpaid price-check budget has to
+  // read a credential exactly the same way, and two copies of this rule drift.
+  const paid = looksLikePayment(req.headers);
   if (!paid && meteredQuoteLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many unpaid quote requests from this address; send the paid retry, or slow down." });
   next();
 });
@@ -2689,7 +2703,8 @@ app.get("/api/gateway-status", async (req, res) => {
   const _req = req;
   // Top-level fields stay the OpenRouter gateway status (heartbeat reads
   // .status); upstreamBuyer adds the x402 spending wallet's bucketed status
-  // (blockscout-kit) — same alarm pattern, same numbers-never-leave rule.
+  // (src/upstream-buyer-status.js) - same alarm pattern, same
+  // numbers-never-leave rule.
   const [gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, upstreamBuyerSvm, subscriptionFeePayer, stellarFacilitator, databases] = await Promise.all([gatewayCreditsStatus(), upstreamBuyerStatus(), avmBuyerStatus(), tempoBuyerStatus(), svmBuyerStatus().catch(() => ({ status: "unknown", asset: "USDC", chain: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp" })), subscriptionFeePayerStatus(), stellarFacilitatorStatus().catch(() => ({ status: "unknown", asset: "XLM", chain: "stellar:pubnet" })), databasesStatus().catch(() => null)]);
   // `databases`: leads/analytics Postgres reachability, status words only
   // (src/db-status.js) - the heartbeat pages on "unreachable".
@@ -2795,7 +2810,7 @@ app.get("/company", (_req, res) => htmlCache(res, 300, 900).send(companyPage(BAS
 // Who our crawler is, what it reads, and how to be removed. The crawler's own
 // User-Agent points here (src/tools/fetch-guard.js), so an operator who finds
 // it in their logs lands on the answer rather than on a source tree.
-app.get("/crawler", (_req, res) => htmlCache(res, 300, 900).send(crawlerPage(BASE_URL)));
+app.get("/crawler", (_req, res) => htmlCache(res, 300, 900).send(crawlerPage(BASE_URL, { unpaidQuoteBudget: UNPAID_QUOTE_BUDGET })));
 // Real sample reports (assets/samples, src/sample-reports.js): the finished
 // artifact a buyer gets, readable before paying, indexable, with a buy box.
 // Served with or without Stripe: the fixtures are static and the buy box
@@ -4180,7 +4195,11 @@ let ledgerSyncCache = { at: 0, value: null };
 app.get("/__operator/traffic.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   // In-memory rollups (hashed ips, hashed payers, top-N per class) - cheap read.
-  res.set("Cache-Control", "no-store").json(TRAFFIC.report({ days: Math.min(14, parseInt(req.query.days, 10) || 2), top: Math.min(100, parseInt(req.query.top, 10) || 15) }));
+  // unpaidQuoteBudget: counts only (clients seen this hour, throttled since boot), never an address.
+  res.set("Cache-Control", "no-store").json({
+    ...TRAFFIC.report({ days: Math.min(14, parseInt(req.query.days, 10) || 2), top: Math.min(100, parseInt(req.query.top, 10) || 15) }),
+    unpaidQuoteBudget: UNPAID_BUDGET ? UNPAID_BUDGET.stats() : { budget: 0 },
+  });
 });
 app.get("/__operator/egress.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
@@ -6549,13 +6568,23 @@ app.get("/api/pricing", (_req, res) => {
       // under the quote, from $0.001. This string said "never token-metered"
       // for three weeks after the metered tier shipped (outside review, 2026-09-18).
       pricing: "flat per call on the named tiers; the /v1/metered/* routes are quoted per request from the body (quoted: true below, from $0.001) and settle actual usage under the quote",
+      // Third pricing shape, and the reason a flat row's number is not a
+      // ceiling: a flat chat route asked for a model another flat tier serves
+      // quotes and serves that tier. Rows that can do it carry
+      // pricedByModel: true, here and on `endpoints` above.
+      pricingByModel: PRICED_BY_MODEL_NOTE,
       // DERIVED from the catalog, never hand-listed: as a literal array this
       // drifted and omitted /v1/audio/speech, a live sellable tier. Deriving
       // also means an env-gated tier that is switched off is absent here rather
       // than advertised, and the price is always the price actually charged.
       // Notes stay editorial, keyed by path; a path with no note still lists.
       tiers: Object.entries(CATALOG)
-        .map(([route, def]) => ({ path: route.split(" ")[1], price: def.price, ...(typeof def.quote === "function" ? { quoted: true, fromUsd: Number(def.price.replace("$", "")) } : {}) }))
+        .map(([route, def]) => ({
+          path: route.split(" ")[1],
+          price: def.price,
+          ...(typeof def.quote === "function" ? { quoted: true, fromUsd: Number(def.price.replace("$", "")) } : {}),
+          ...(typeof def.tierQuote === "function" ? { pricedByModel: true } : {}),
+        }))
         .filter((t) => t.path.startsWith("/v1/"))
         .sort((a, b) => Number(a.price.replace("$", "")) - Number(b.price.replace("$", "")))
         .map((t) => ({ ...t, note: V1_TIER_NOTES[t.path] || undefined })),
@@ -6573,7 +6602,7 @@ app.get("/api/pricing", (_req, res) => {
     baseUrl: BASE_URL,
     openapi: `${BASE_URL}/openapi.json`,
     categories: Object.fromEntries(Object.entries(CATEGORIES).map(([k, v]) => [k, v.label])),
-    endpoints: Object.entries(CATALOG).map(([route, { name, price, description, category, slug }]) => {
+    endpoints: Object.entries(CATALOG).map(([route, { name, price, description, category, slug, tierQuote }]) => {
       const [method, path] = route.split(" ");
       return {
         method,
@@ -6585,6 +6614,12 @@ app.get("/api/pricing", (_req, res) => {
         description,
         docs: `${BASE_URL}/tools/${slug}`,
         computePayable: POW_SLUGS.has(slug),
+        // `price` is what this route charges for the models it serves; a body
+        // naming another flat tier's model is quoted at THAT tier's price. A
+        // consumer that budgets per route must be able to see that from the
+        // row rather than discover it in a 402 (llmGateway.pricingByModel says
+        // it in words). Absent, never false, on the routes it cannot happen to.
+        ...(typeof tierQuote === "function" ? { pricedByModel: true } : {}),
         // Published per row because the doc's own description says these are
         // marked: a consumer that wants only deterministic code should be able
         // to FILTER for it rather than take a sentence's word for it.
@@ -7084,7 +7119,12 @@ if (FREE_MODE) {
           const attempt = paidAttempt ? "usdc_failed" : powAttempt ? "pow_failed" : "none";
           capturePostHogPaywall({
             slug: def.slug,
-            priceUsd: Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0,
+            // The price the 402 actually quoted THIS request, not the route's
+            // list price: a per-request quote and a flat route priced by the
+            // model named in the body both differ from it, and a bounce logged
+            // at the catalog price hides which amount the buyer walked away
+            // from. The quote is memoized on the request, so this is a read.
+            priceUsd: quotedPriceUsd(def, req),
             powEligible: POW_SLUGS.has(def.slug),
             synthetic: isSyntheticRequest(req),
             attempt,
@@ -7540,7 +7580,11 @@ app.use((req, res, next) => {
         // alone never means "charged" — a Robinhood settle rejection was
         // miscounted as charged-but-failed on 2026-07-16 (no USDG ever moved).
         const receipt = decodeSettleReceipt(settleReceipt);
-        const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
+        // The price THIS request was gated at (a per-request quote, or a flat
+        // route priced by the model's home tier), never the route's list
+        // price: a debt recorded below what the receipt took is a silent
+        // write-off of the difference.
+        const priceUsd = settledPriceUsd(def, req, res);
         const network = networkFromPaymentResponse(settleReceipt);
         const synthetic = isSyntheticRequest(req);
         const payer = payerFromRequest(req) || payerFromPaymentResponse(settleReceipt);
@@ -7852,7 +7896,7 @@ for (const tool of ALL_KIT) {
       // tiers consult it inside their handlers already and the call is
       // idempotent per request). @x402/express settles AFTER the handler, so a
       // payment that verifies and then fails to settle has cost the upstream
-      // read (Alchemy, CoinGecko, Blockscout, Brave ...) with nothing charged.
+      // read (Alchemy, CoinGecko, Brave ...) with nothing charged.
       // Per-read that is a fraction of a cent; the breaker bounds the LOOP: a
       // wallet gets MAX_FAILS such outcomes per window before a 429 that runs
       // before the handler (a >= 400 cancels settlement - the refusal is free),

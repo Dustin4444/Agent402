@@ -713,6 +713,75 @@ export function tierFor(model) {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// PRICE BY MODEL (2026-09-22). A flat tier asked for a model that another flat
+// tier serves used to answer 400 naming that tier. Now the 402 quotes the
+// model's HOME tier price and, once that price is paid, the request is served
+// under the home tier's whole config (allowlist, caps, max_price, margin clamp,
+// failover chain, reasoning defaults, server-tool budget). The price function
+// runs on every request including the paid retry, so a payment authorized at
+// one tier's price cannot ride a body naming a dearer tier's model.
+//
+// Scope: the four named flat tiers only (nano, base, pro, premium) as both the
+// route and the home. The router tiers pick their own model, the grounded tier
+// is sold on its web search, the stealth tier is locked to one model whose
+// provider keeps prompts (never a destination a caller did not choose by
+// route), and the metered tier already serves every flat-tier model.
+export function isFlatTier(slug) {
+  const t = TIERS[slug];
+  return !!t && !t.metered && !t.router && !t.lockedModel && !t.stealth && !t.web;
+}
+/** The flat tier a request should be priced and served as when `routeTier`
+ *  (a flat tier) does not allow `model` but another flat tier does; null when
+ *  the route serves the model itself, the model has no flat home, or the model
+ *  id carries a variant every tier refuses (it is answered by the 400). */
+export function crossTierHome(routeTier, model) {
+  if (!isFlatTier(routeTier)) return null;
+  const m = canonicalModel(model);
+  if (!m || tierAllows(routeTier, m)) return null;
+  try { refuseCostVariants(m); } catch { return null; }
+  const home = tierFor(m);
+  return home && home !== routeTier && isFlatTier(home) ? home : null;
+}
+/** The per-request price of a flat route: its home tier's price when the body
+ *  names another flat tier's model, else the route's own. Cheap (no tokenizer),
+ *  never throws. The wires pass the model the way their validator reads it. */
+export function flatTierQuoteUsd(routeTier, model) {
+  let home = null;
+  try { home = crossTierHome(routeTier, model); } catch { home = null; }
+  return TIERS[home || routeTier].price;
+}
+/** The tier a handler serves under. The home tier only when the price this
+ *  request was gated at (`req.__meteredQuoteUsd`, stashed by the x402 price
+ *  function and by the Tempo, Stripe and credits gates) covers that tier's
+ *  price. No request (route-execute's in-process dispatch) or no stashed price
+ *  (FREE_MODE) keeps the route tier, so the model is refused with the 400
+ *  naming its home tier, exactly as before. */
+export function servedTierFor(routeTier, model, req) {
+  const home = crossTierHome(routeTier, model);
+  if (!home) return routeTier;
+  const gated = Number(req?.__meteredQuoteUsd);
+  return Number.isFinite(gated) && gated + 1e-9 >= TIERS[home].price ? home : routeTier;
+}
+/** What a machine-readable surface must say about a flat chat route now that
+ *  its price depends on the body. The catalog price is still the price for the
+ *  models that tier serves, so the figure on /api/pricing and /openapi.json
+ *  stays exactly right - but a buyer budgeting from it would be surprised by a
+ *  dearer 402 on a cross-tier model, and a fixed number with no sentence beside
+ *  it reads as a promise. ONE copy, read by both surfaces: a price sentence
+ *  typed twice is a price sentence that drifts. */
+export const PRICED_BY_MODEL_NOTE = "Flat per call for the models this tier serves. A body naming another flat tier's model (nano, base, pro, premium) is quoted at that tier's price in the 402 and served under that tier; the answer names it in agent402_tier. The live 402 is always the price.";
+
+/** The additive `agent402_tier` field a cross-tier answer carries. */
+export function crossTierDisclosure(routeTier, servedTier) {
+  return {
+    route: TIERS[routeTier].route.split(" ")[1],
+    served: servedTier,
+    priceUsd: TIERS[servedTier].price,
+    note: `The model you named is served by the ${servedTier} tier, so this call was priced and served as that tier.`,
+  };
+}
+
 const MAX_MESSAGES = 100; // default; a tier may raise it (`maxMessages`) - the metered tier does, its quote grows with the body
 export const MAX_IMAGES = 4;
 const MAX_IMAGE_URL_LEN = 2048;
@@ -2868,9 +2937,13 @@ function countImages(messages) {
   return images;
 }
 
-function makeHandler(tierSlug) {
+function makeHandler(routeTier) {
   return async (input, req) => {
     gatewaySettleBreakerCheck(req);
+    // Price by model: every serving decision below reads `tierSlug`, which is
+    // the route's tier unless the body names another flat tier's model AND the
+    // request was gated at that tier's price (see servedTierFor).
+    const tierSlug = servedTierFor(routeTier, input?.model, req);
     // Availability gate (stealth tiers): the boot probe found the id gone
     // upstream, so answer BEFORE spending a round-trip on a model that no
     // longer exists. 503 is >=400, and @x402/express cancels settlement for
@@ -3003,7 +3076,7 @@ function makeHandler(tierSlug) {
     // the counts are what say WHY a margin moved).
     const recordUsage = (usage, upstreamUsd, served, serviceTier) => import("../posthog.js")
       .then(({ capturePostHogGatewayUsage }) => capturePostHogGatewayUsage({
-        tier: tierSlug, model: served, priceUsd: (TIERS[tierSlug].metered && Number.isFinite(req?.__meteredQuoteUsd) && req.__meteredQuoteUsd > 0) ? req.__meteredQuoteUsd : TIERS[tierSlug].price, upstreamUsd,
+        tier: tierSlug, routeTier, model: served, priceUsd: (TIERS[tierSlug].metered && Number.isFinite(req?.__meteredQuoteUsd) && req.__meteredQuoteUsd > 0) ? req.__meteredQuoteUsd : TIERS[tierSlug].price, upstreamUsd,
         promptTokens: usage?.prompt_tokens, completionTokens: usage?.completion_tokens, serviceTier,
         serverToolCalls: usage?.server_tool_use_details?.tool_calls_executed ?? usage?.server_tool_use?.tool_calls_executed,
         serverToolSearches: usage?.server_tool_use_details?.web_search_requests ?? usage?.server_tool_use?.web_search_requests,
@@ -3094,6 +3167,9 @@ function makeHandler(tierSlug) {
           data.agent402_router = { category: routedCategory, quality: routedQuality, served: data.model || model };
         }
         if (body.__defaultedModel) data.agent402_default_model = body.__defaultedModel; // the caller sent no model; say what served
+        // Served under another flat tier's config at that tier's price: say
+        // which, beside the standard `model` field (additive, non-stream).
+        if (tierSlug !== routeTier && data && typeof data === "object") data.agent402_tier = crossTierDisclosure(routeTier, tierSlug);
         // What this call would have cost metered, when that is materially
         // cheaper (see meteredHintFor). Additive, non-streaming only - a
         // stream has no envelope to carry it.
@@ -3101,7 +3177,9 @@ function makeHandler(tierSlug) {
           const hint = meteredHintFor(body, tierSlug, imageCount);
           if (hint) data.agent402_metered = hint;
         }
-        if (input.cache === true && !TIERS[tierSlug].noCache) {
+        // A request served under another tier's config is never cached: the
+        // pre-paywall read keys on the ROUTE tier, which refuses this model.
+        if (input.cache === true && !TIERS[tierSlug].noCache && tierSlug === routeTier) {
           // FR4-01 class: defer the cache write to AFTER settlement. @x402/express
           // settles after this handler, so writing now would cache an
           // unsettled 200. Stash on req; the route binder commits on a final 200.
@@ -3479,6 +3557,19 @@ export const LLM_GATEWAY_TOOLS = [
     handler: speechHandler,
   },
 ];
+
+// Price by model on the flat chat routes: `tierQuote` makes the x402 price
+// (payments.js) and the Tempo, Stripe and credits gates (server.js
+// quotedPriceUsd) a per-request function of the body, the home tier's price
+// when the body names another flat tier's model. Deliberately NOT `quote`:
+// that name marks a route as per-token metered to route-execute (refused),
+// /api/pricing (`quoted: true`) and the card fee gross-up, and none of those
+// apply to a flat route that still charges one of the four tier prices.
+for (const t of LLM_GATEWAY_TOOLS) {
+  if (isFlatTier(t.slug) && TIERS[t.slug].route === t.route) {
+    t.tierQuote = (body) => flatTierQuoteUsd(t.slug, body?.model);
+  }
+}
 
 // server.js's global express.json({limit:"100kb"}) runs before every /v1/*
 // route and rejects a bigger body with a 413 before a tier's own

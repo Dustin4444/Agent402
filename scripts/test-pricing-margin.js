@@ -371,5 +371,39 @@ for (const r of table) {
   );
 }
 
+// ---- price by model keeps every tier's margin bound (2026-09-22) -----------
+// A flat route asked for another flat tier's model is priced at the model's
+// HOME tier and served under that tier's config, so its margin is the home
+// tier's, which the sweeps above already bound. The invariant to hold is that
+// the price charged and the config served are ALWAYS the same tier: for every
+// flat route and every flat-tier model, the quote equals the tier that serves
+// it, and a stash below the home price never unlocks the home config.
+{
+  const { flatTierQuoteUsd, servedTierFor, isFlatTier, tierFor } = await import("../src/tools/llm-gateway-kit.js");
+  const flat = Object.keys(TIERS).filter(isFlatTier);
+  let pairs = 0, mismatches = [];
+  for (const route of flat) {
+    for (const home of flat) {
+      for (const p of TIERS[home].prefixes) {
+        if (p.endsWith("/")) continue; // a family prefix is not a model id
+        if (tierFor(p) !== home) continue; // admitted by an earlier tier: that tier is its home
+        pairs++;
+        const q = flatTierQuoteUsd(route, p);
+        const served = servedTierFor(route, p, { __meteredQuoteUsd: q });
+        if (TIERS[served].price !== q) mismatches.push(`${route} + ${p}: quoted ${q}, served ${served}`);
+        if (route !== home && TIERS[route].price < TIERS[home].price && servedTierFor(route, p, { __meteredQuoteUsd: TIERS[route].price }) !== route) {
+          mismatches.push(`${route} + ${p}: a stash at the route price unlocked ${home}`);
+        }
+      }
+    }
+  }
+  ok(pairs > 50 && mismatches.length === 0, `price by model: across ${pairs} route x model pairs the quoted price is always the price of the tier that serves (${mismatches.slice(0, 3).join("; ") || "no mismatch"})`);
+  // A crossed call is clamped by the SERVED tier: the premium bound holds for a premium model reached through the base route.
+  const probe = { model: "anthropic/claude-opus-5", messages: [{ role: "user", content: "x".repeat(4000) }], max_tokens: 8192 };
+  clampToMargin(probe, TIERS[servedTierFor("v1-chat", probe.model, { __meteredQuoteUsd: TIERS["v1-chat-premium"].price })], 0);
+  const wc = worstCaseUpstreamCost(probe, TIERS["v1-chat-premium"], 0).totalUsd;
+  ok(wc <= MARGIN * TIERS["v1-chat-premium"].price + 1e-9, `a premium model reached through the base route is clamped under the premium bound ($${wc.toFixed(4)} <= $${(MARGIN * TIERS["v1-chat-premium"].price).toFixed(4)})`);
+}
+
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

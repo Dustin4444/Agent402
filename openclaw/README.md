@@ -75,8 +75,10 @@ from its body (exact-BPE input plus your `max_tokens` at the model's list price,
 times 1.15, from $0.001, capped at $2 per call), so a short call costs a fraction
 of a cent and a long one pays for what it asks. `--flat` (or
 `AGENT402_PRICING=flat`) keeps every model on its flat per-call tier instead.
-Either way OpenClaw's per-token cost fields stay zero; the price is per call. A model sent to the wrong tier is answered with a
-400 naming the right one; nothing is charged. A client-supplied `Idempotency-Key`
+Either way OpenClaw's per-token cost fields stay zero; the price is per call. A model sent to another flat
+tier's route is priced at its home tier: the 402 quotes that tier's price, and the paid call is served under
+that tier's caps (the answer says so in `agent402_tier`). The router, grounded and stealth tiers still answer a
+400 naming the right route; nothing is charged. A client-supplied `Idempotency-Key`
 is passed through (an x402 retry with the same key replays the paid answer);
 without one, each call is its own payment.
 

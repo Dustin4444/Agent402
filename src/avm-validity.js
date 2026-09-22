@@ -2,7 +2,7 @@
 //
 // Settlement runs AFTER the handler (@x402/express v2.16), so a buyer whose
 // signed Algorand txn expires mid-handler is never charged — but our upstream
-// spend (OpenAI, Blockscout, …) is already burned by the time the facilitator
+// spend (OpenAI, OpenRouter, …) is already burned by the time the facilitator
 // rejects the dead txn. algokit's DEFAULT validity window is 10 rounds (~28s),
 // so any tool slower than that fails deterministically for default-configured
 // buyers: proven live by image-gen-premium (~60s of gpt-image-2) in sweep run

@@ -426,20 +426,6 @@ export const TOOLS = [
       `expected a non-empty transcript from gpt-transcribe, got ${JSON.stringify(r).slice(0, 120)}`,
   },
   {
-    // Supply-chain leg — the catalog's first PAID x402 UPSTREAM (blockscout-kit).
-    // One canary buy = two settlements: canary → us on Base, then prod's
-    // spending wallet → Blockscout ($0.002). Proves daily that the upstream
-    // wallet is funded, Blockscout's paywall still interops, and the margin
-    // guard + provenance mark survive on prod. Self-referential input: the
-    // treasury wallet's own Base profile (stable, always a verified contract).
-    kit: "supply-chain",
-    path: "/api/address-profile",
-    method: "POST",
-    body: { chain: "base", address: "0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0" },
-    priceUsd: 0.005,
-    check: (r) => (r.address === "0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0" && typeof r.isContract === "boolean" && r.untrustedContent === true) || `expected treasury profile with untrustedContent, got ${JSON.stringify(r).slice(0, 120)}`,
-  },
-  {
     // Derivatives leg (2026-08-22) - a keyless public upstream, so the only cost
     // is the settle itself. Two jobs: it seeds the new family into the
     // settlement-driven explorers (they index routes that get PAID, the way the
@@ -776,22 +762,6 @@ export function decideCanary(results, { coreKit = CORE_KIT } = {}) {
  *   • tools green + rail failures      → "partial-rail"
  *   • tools green + no rail failures   → "ok"
  */
-/**
- * Consecutive-failure rule for an upstream tool leg. `recentOk` is the
- * component's prior observations newest-first (from /api/status); this run's
- * own outcome is `ok` and is NOT in that list yet. Pages only when this run
- * failed AND the previous (pageAfter - 1) observations all failed. Fewer
- * observations than that, or none readable, never pages: an alarm that fires
- * on missing evidence is the false-positive class the status page forbids.
- */
-export function shouldPageUpstreamLeg({ ok, recentOk, pageAfter = 3 } = {}) {
-  if (ok) return false;
-  const need = Math.max(1, Number(pageAfter) || 3) - 1;
-  if (need === 0) return true;
-  if (!Array.isArray(recentOk) || recentOk.length < need) return false;
-  return recentOk.slice(0, need).every((v) => v === false);
-}
-
 export function classifyRailOutcome({ toolBroken, railFailures = [] } = {}) {
   if (toolBroken) return "broken";
   if (railFailures.length) return "partial-rail";
@@ -946,37 +916,6 @@ async function main() {
     } catch (e) {
       results.push({ kit: t.kit, path: t.path, status: null, shapeOk: false, transportError: true, priceUsd: t.priceUsd });
       console.warn(`WARN  ${t.kit}:${t.path} [unreachable] ${(e?.message || String(e)).slice(0, 140)}`);
-    }
-  }
-
-  // Supply-chain leg (address-profile -> Blockscout, paid from prod's spending
-  // wallet) is graded on a CONSECUTIVE rule. A tool leg is a warning by
-  // doctrine (a 5xx never charges the buyer), and that is right for a one-off
-  // upstream blip - but this leg failed a third of its runs in 2026-08
-  // ("Seller rejected the paid retry (HTTP 500)") and nothing paged, because
-  // every failure was its own blip. The previous outcomes come from /status
-  // (rail_supply-chain, written by this canary's own status step), so the
-  // rule needs no state of its own; unreachable status = no page, never a
-  // false one.
-  {
-    const leg = results.find((r) => r.kit === "supply-chain");
-    if (leg) {
-      const legOk = classifyResult(leg) === "settled";
-      const detail = legOk ? undefined : `HTTP ${leg.status ?? "none"}${typeof leg.shapeOk === "string" ? ` — ${leg.shapeOk}` : ""}`;
-      noteRail("supply-chain", legOk, detail);
-      if (!legOk) {
-        let recentOk = null;
-        try {
-          const snap = await (await fetch(`${TARGET}/api/status`, { signal: AbortSignal.timeout(20000) })).json();
-          recentOk = snap?.railComponents?.find((c) => c.key === "rail_supply-chain")?.recentOk ?? null;
-        } catch { recentOk = null; }
-        const pageAfter = Number(process.env.CANARY_UPSTREAM_PAGE_AFTER) || 3;
-        if (shouldPageUpstreamLeg({ ok: legOk, recentOk, pageAfter })) {
-          railFail("supply-chain", `address-profile failed ${pageAfter} consecutive canary runs (${detail}) — Blockscout upstream / spending wallet path is down, not a blip`);
-        } else {
-          console.warn(`WARN  supply-chain leg failed (${detail}); prior outcomes ${JSON.stringify(recentOk)} — pages after ${pageAfter} consecutive failures`);
-        }
-      }
     }
   }
 

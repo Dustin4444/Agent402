@@ -1,5 +1,5 @@
 {
-  "about": "Paid-upstream tools (tier 2): OpenRouter/OpenAI wires, Brave, E2B, Blockscout, FRED, the browser worker. Skipped on a keyless boot; run weekly with the audit key (--tier 2). Cheap links only.",
+  "about": "Paid-upstream tools (tier 2): OpenRouter/OpenAI wires, Brave, E2B, FRED, the browser worker. Skipped on a keyless boot; run weekly with the audit key (--tier 2). Cheap links only.",
   "cases": [
     {
       "slug": "search",
@@ -20,6 +20,41 @@
           "results[0].url",
           "results[0].title"
         ]
+      }
+    },
+    {
+      "slug": "search-lite",
+      "name": "a two-result sample",
+      "input": {
+        "q": "federal reserve",
+        "count": 2
+      },
+      "requires": "BRAVE_API_KEY",
+      "expect": {
+        "equals": {
+          "untrustedContent": true
+        },
+        "minCount": {
+          "results": 1
+        },
+        "maxCount": {
+          "results": 2
+        },
+        "populated": [
+          "results[0].url",
+          "results[0].title"
+        ]
+      }
+    },
+    {
+      "slug": "search-lite",
+      "name": "a count above 5 is refused, not clamped",
+      "input": {
+        "q": "federal reserve",
+        "count": 6
+      },
+      "expect": {
+        "status": 400
       }
     },
     {
@@ -250,26 +285,6 @@
           "error.message": "boom",
           "error.name": "ValueError"
         }
-      }
-    },
-    {
-      "slug": "contract-inspect",
-      "name": "WETH on base",
-      "input": {
-        "chain": "base",
-        "address": "0x4200000000000000000000000000000000000006"
-      },
-      "requires": "X402_UPSTREAM_BUYER_KEY",
-      "expect": {
-        "equals": {
-          "isVerified": true
-        },
-        "gte": {
-          "abiEntries": 5
-        },
-        "populated": [
-          "name"
-        ]
       }
     },
     {

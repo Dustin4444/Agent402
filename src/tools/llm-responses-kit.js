@@ -25,6 +25,7 @@
 // neither max_output_tokens nor provider.max_price. Function tools only.
 import {
   TIERS, AUTO_RANKINGS, classifyPrompt, canonicalModel, tierAllows, tierFor, meteredQuoteForProbe, costFor,
+  isFlatTier, flatTierQuoteUsd, servedTierFor, crossTierDisclosure,
   clampToMargin, attemptsFor, serviceTierFor, validateServiceTier, cacheControlPref, upstreamUserId, PROVIDER_SORT_ENABLED,
   fetchOpenRouter, throwUpstreamError, streamOpenRouterTo, bad, MAX_IMAGES,
   defaultReasoningFor, validateReasoning,
@@ -243,10 +244,14 @@ function stripBilling(usage) {
   return upstreamUsd;
 }
 
-export function makeResponsesHandler(tierSlug) {
+export function makeResponsesHandler(routeTier) {
   return async function responsesHandler(input, req) {
     // Settle-failure breaker first: refuse (nobody charged) before any upstream call.
     gatewaySettleBreakerCheck(req);
+    // Price by model (chat-wire parity): `tierSlug` is the route's tier unless
+    // the body names another flat tier's model and the request was gated at
+    // that tier's price; then that tier's whole config serves it.
+    const tierSlug = servedTierFor(routeTier, input?.model, req);
     const tier = TIERS[tierSlug];
     const { body, probe, imageCount, isRouted, routedCategory, routedQuality, chain, defaultedModel, namespaceOf } = validateResponsesRequest(input, tierSlug);
     const structured = body.text?.format?.type === "json_schema" || body.text?.format?.type === "json_object";
@@ -291,7 +296,7 @@ export function makeResponsesHandler(tierSlug) {
     };
     const recordUsage = (usage, upstreamUsd, served, serviceTier) => import("../posthog.js")
       .then(({ capturePostHogGatewayUsage }) => capturePostHogGatewayUsage({
-        tier: `${tierSlug}:responses`, model: served, priceUsd: quotedUsd ?? tier.price, upstreamUsd,
+        tier: `${tierSlug}:responses`, routeTier: `${routeTier}:responses`, model: served, priceUsd: quotedUsd ?? tier.price, upstreamUsd,
         promptTokens: usage?.input_tokens, completionTokens: usage?.output_tokens, serviceTier, defaulted: !!defaultedModel,
       })).catch(() => {});
     const attempts = attemptsFor(chain, body);
@@ -345,6 +350,7 @@ export function makeResponsesHandler(tierSlug) {
         await recordUsage(data.usage, upstreamUsd, data.model || model, data.service_tier || (flex ? "flex" : "default"));
         if (routerNote) data.agent402_router = { ...routerNote, served: data.model || model };
         if (defaultedModel) data.agent402_default_model = defaultedModel;
+        if (tierSlug !== routeTier) data.agent402_tier = { ...crossTierDisclosure(routeTier, tierSlug), route: RESPONSES_PATH_BY_TIER[routeTier] };
         if (namespaceOf) attributeNamespaces(data.output, namespaceOf);
         // Metered settlement sentinel (chat-wire parity): the route binder
         // settles actual x markup for upto/credits buyers and strips this
@@ -403,6 +409,8 @@ export const LLM_RESPONSES_TOOLS = Object.entries(RESPONSES_PATH_BY_TIER).map(([
   description: describe(tierSlug),
   tags: tierSlug === "v1-chat-metered" ? ["llm", "ai", "inference", "openai-compatible", "responses-api", "agents-sdk", "codex", "gateway", "openrouter", "metered", "pay-per-token"] : ["llm", "ai", "inference", "openai-compatible", "responses-api", "agents-sdk", "gateway", "openrouter"],
   ...(tierSlug === "v1-chat-metered" ? { quote: (body) => meteredResponsesQuoteUsd(body).usd } : {}),
+  // Price by model on a flat route (see LLM_GATEWAY_TOOLS in the gateway kit).
+  ...(isFlatTier(tierSlug) ? { tierQuote: (body) => flatTierQuoteUsd(tierSlug, body?.model) } : {}),
   discovery: {
     bodyType: "json",
     // A tier whose default model reasons before it speaks (it carries

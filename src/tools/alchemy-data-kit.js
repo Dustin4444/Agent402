@@ -8,8 +8,8 @@
 //   wallet-balance (full ERC-20 portfolio), token-metadata, token-price (spot
 //   by address), wallet-transactions (in+out merged history), nft-holdings,
 //   nft-metadata, gas-snapshot / gas-estimate, eth-call / evm-rpc, event-logs,
-//   block-info, erc721-owner, contract-code, tx-status, tx-inspect, ens-resolve,
-//   token-holders, nft-collection / nft-floor.
+//   block-info, erc721-owner, contract-code, tx-status, ens-resolve,
+//   nft-collection / nft-floor.
 //
 // What IS here (the gaps):
 //   asset-transfers     one filtered alchemy_getAssetTransfers query: one

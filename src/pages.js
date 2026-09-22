@@ -11,6 +11,7 @@ import { HUMAN_PRODUCTS } from "./human-checkout.js";
 import { RAILS_AMP, RAILS_OR, RAILS_PAREN, RAILS_SHORT } from "./rails.js";
 import { tempoDiscoveryInfo } from "./mpp-tempo.js";
 import { stripeDiscoveryInfo } from "./mpp-stripe.js";
+import { PRICED_BY_MODEL_NOTE } from "./tools/llm-gateway-kit.js";
 
 export const CATEGORIES = {
   web: { label: "Web & documents", blurb: "Read the live web: browser rendering, screenshots, article extraction, PDFs, metadata." },
@@ -34,7 +35,7 @@ export const CATEGORIES = {
   // was short by ten keys covering 195 entries (37% of the catalog), which is
   // why seller-trust and the chain-read primitives were invisible to agents.
   crypto: { label: "Crypto & onchain data", blurb: "Keyless reads across chains: token prices and metadata, order books, stablecoin peg health, wallet balances and transaction history, NFT holdings and metadata, gas snapshots." },
-  chain: { label: "Contract & address inspection", blurb: "Deeper onchain reads: verified contract source and ABI, address profiles, token holders, transaction inspection - plus the named block and log primitives (block number, block info, event logs, ERC-721 owner, contract code)." },
+  chain: { label: "Address screening", blurb: "Onchain address checks: screen any blockchain address against every digital currency address on the OFAC SDN list, with the sanctioned entity named on a match." },
   wallet: { label: "Wallet operations", blurb: "Multi-chain balance reads, testnet funding, onramp links, and SQL over onchain data. Non-custodial: the agent signs with its own key." },
   ai: { label: "AI & compute", blurb: "Inference, generation and sandboxed execution priced per call: chat tiers, image generation, text-to-speech, speech-to-text, and code execution in an isolated sandbox." },
   "skill-pack": { label: "Skill packs", blurb: "Multi-tool workflows that run server-side in one request: one payment, one settlement, and a single response with a partial-success envelope if a step fails. Cheaper to integrate than orchestrating the steps yourself." },
@@ -542,6 +543,14 @@ ${ledgerFooterCompact()}`;
   });
 }
 
+// Scalar types a GET query parameter is published with as declared. Everything
+// else (object, array) is documented as a string, because that is what a query
+// string carries. Only "number" passed through before, so an input schema
+// declaring "integer" or "boolean" was published as a string beside a numeric
+// or boolean `example` - an example that does not validate against the type the
+// same operation declares, on the surface a code generator reads.
+const QUERY_PARAM_TYPES = new Set(["number", "integer", "boolean"]);
+
 export function openapiSpec(baseUrl, catalog) {
   const paths = {};
   for (const tool of toolList(catalog)) {
@@ -549,7 +558,12 @@ export function openapiSpec(baseUrl, catalog) {
     const op = {
       operationId: `${tool.slug}${method === "GET" ? "Get" : ""}`,
       summary: `${tool.name} (${tool.price}/call via x402)`,
-      description: `${tool.description}\n\nPrice: ${tool.price} per call, paid in ${RAILS_OR} via the x402 protocol. Unpaid requests receive HTTP 402 with payment requirements; any x402 v2 client can pay and retry automatically. Docs: ${baseUrl}/tools/${tool.slug}`,
+      // A route that can quote MORE than its list price for some bodies says so
+      // here, in the same breath as the number. `x-price` stays the list price
+      // (it is what this route charges for the models it serves, and every
+      // other surface agrees with it); the sentence is what keeps the number
+      // from reading as a ceiling it is not.
+      description: `${tool.description}\n\nPrice: ${tool.price} per call, paid in ${RAILS_OR} via the x402 protocol.${typeof tool.tierQuote === "function" ? ` ${PRICED_BY_MODEL_NOTE}` : ""} Unpaid requests receive HTTP 402 with payment requirements; any x402 v2 client can pay and retry automatically. Docs: ${baseUrl}/tools/${tool.slug}`,
       tags: [tool.category],
       responses: {
         200: {
@@ -662,7 +676,7 @@ export function openapiSpec(baseUrl, catalog) {
           in: "query",
           required: required.includes(name),
           description: schema.description,
-          schema: { type: schema.type === "number" ? "number" : "string" },
+          schema: { type: QUERY_PARAM_TYPES.has(schema.type) ? schema.type : "string" },
           ...(discovery?.input?.[name] !== undefined ? { example: discovery.input[name] } : {}),
         })),
         ...headerParams,

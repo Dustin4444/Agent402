@@ -342,6 +342,13 @@ export function capturePostHogPaywall({ slug, priceUsd, powEligible, synthetic, 
     const key = `${slug}|${synthetic ? 1 : 0}|${att}|${rsn || "-"}|${shp || "-"}`;
     const cur = paywallCounts.get(key) || {
       slug: String(slug || "unknown"),
+      // The price the CALLER was quoted, which is no longer one number per
+      // route: a metered route quotes per request, and a flat chat route
+      // quotes the home tier of the model in the body. A rollup row can only
+      // carry one, so it carries the FIRST of the window for this key - a
+      // representative quote, never a route-wide price. It is deliberately not
+      // part of `key`: a continuously varying amount there would make the key
+      // space unbounded, which is the failure this rollup exists to prevent.
       priceUsd: Number(priceUsd) || 0,
       powEligible: !!powEligible,
       synthetic: !!synthetic,
@@ -675,7 +682,7 @@ export function capturePostHogCompositeUsage({ slug, upstreamUsd, ok, priceUsd, 
   } catch { /* never throw */ }
 }
 
-export function capturePostHogGatewayUsage({ tier, model, priceUsd, upstreamUsd, promptTokens, completionTokens, serviceTier, serverToolCalls, serverToolSearches, defaulted }) {
+export function capturePostHogGatewayUsage({ tier, routeTier, model, priceUsd, upstreamUsd, promptTokens, completionTokens, serviceTier, serverToolCalls, serverToolSearches, defaulted }) {
   // Server-side spend meter runs BEFORE the PostHog gate: cost must be
   // recorded even when telemetry is off (see recordUpstreamSpend's header).
   if (upstreamUsd != null) meterSpend("gateway", upstreamUsd);
@@ -683,7 +690,11 @@ export function capturePostHogGatewayUsage({ tier, model, priceUsd, upstreamUsd,
   const price = Number(priceUsd) || 0;
   const upstream = Number(upstreamUsd) || 0;
   capture("gateway_usage", {
+    // `tier` is the tier that SERVED (and was paid for); `routeTier` is the
+    // route the request arrived on. They differ only when a flat route was
+    // asked for another flat tier's model and priced at that tier.
     tier: String(tier || "unknown"),
+    routeTier: String(routeTier || tier || "unknown"),
     model: String(model || ""),
     // The caller named no model and the tier's default served (2026-08-28) -
     // the measure of whether defaulting recovers real calls or only probes.

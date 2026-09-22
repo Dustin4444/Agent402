@@ -2030,7 +2030,7 @@ jobs:
           t node scripts/test-edgar-kit.js
           # Form 13F data sets: index parser + bounded Range reads of a real in-memory zip (offline)
           t node scripts/test-edgar-13f-datasets.js
-          # Deploy quiet gate (lull detection, fail-open paths — offline)
+          # Deploy quiet gate (outside-traffic lull incl. free/MCP calls, visibility, fail-open paths; offline)
           t node scripts/test-quiet-gate.js
           # Self-check policy (transient-filtering, timeout, unknown-slug — the prod tool-failure alarm — offline)
           t node scripts/test-selfcheck.js
@@ -2599,6 +2599,8 @@ jobs:
           t node scripts/test-alchemy-data-kit.js
           # llm-context kit (Brave grounding context, stubbed fetch, no live Brave call, offline)
           t node scripts/test-llm-context-kit.js
+          # search-lite (Brave web search sample: validation + output shaping, stubbed fetch, no live Brave call, offline)
+          t node scripts/test-search-lite.js
           # Paid-upstream leak guard (Brave + E2B — every metered route/pack must be skipped — offline)
           t node scripts/test-brave-leak.js
           # Derived CI-spend exposure: every paid key a TEST lane can reach must have its slugs bounded
@@ -2832,9 +2834,8 @@ jobs:
           t node scripts/test-crypto-markets-kit.js
 
       - name: Previously-orphaned kit suites (offline, no upstream spend)
-        # These 31 suites existed but no workflow ran them. All verified offline
-        # and spend-free: test-blockscout-kit deletes X402_UPSTREAM_BUYER_KEY
-        # itself, test-enrich-kit gates live calls behind ENRICH_LIVE_TEST.
+        # These 30 suites existed but no workflow ran them. All verified offline
+        # and spend-free: test-enrich-kit gates live calls behind ENRICH_LIVE_TEST.
         # Listed one per line ON PURPOSE - a for-loop over a variable hides
         # which suites actually run, and test-ci-coverage.js requires the
         # literal path so the wiring stays greppable.
@@ -2871,7 +2872,6 @@ jobs:
           node scripts/test-weather-kit.js
           node scripts/test-web-kit.js
           node scripts/test-enrich-kit.js
-          node scripts/test-blockscout-kit.js
 
       - name: Rails-copy lock (rails.js ↔ payments.js + every key page renders every rail)
         run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-rails.js
@@ -2924,7 +2924,7 @@ jobs:
         run: bash scripts/test-heartbeat-probe.sh
 
       # Strict FREE_MODE sweep of paid tools that do NOT burn Brave/OpenAI/
-      # OpenRouter/E2B/Blockscout-buyer/FRED/Neynar/etc. Fails on 502/503/504
+      # OpenRouter/E2B/FRED/Neynar/etc. Fails on 502/503/504
       # (unlike test-all.js NETWORK leniency — that hole kept gov-data green
       # while dead; issue #730). Filter never calls metered routes; own-boot
       # strips keys too. Uses the shared FREE_MODE server when TARGET_URL is set.
@@ -3811,6 +3811,8 @@ jobs:
           t node scripts/test-head-paywall.js
           # Anthropic SDK base-URL alias (/v1/<tier>/v1/messages) + 1 MB body limit on the metered routes (boots a paid server, offline)
           t node scripts/test-messages-sdk-alias.js
+          # Price by model: a flat route's 402 quotes the named model's home tier (x402 + Tempo), and only that payment is served as that tier (boots a paid server, offline)
+          t node scripts/test-price-by-model.js
           # Real sample reports: fixtures are finished reports, pages indexable with own title/JSON-LD, /reports links them, sitemap carries them (boots FREE_MODE, offline)
           t node scripts/test-sample-reports.js
           # openFDA 404 = no matches, an empty result: recall-report must not 502 on it (offline)
@@ -3834,6 +3836,8 @@ jobs:
           t node scripts/test-retired-routes.js
           # Who hits us: per-request classes, the crawler rule, repeat-buyer memory, the operator read (boots a free server)
           t node scripts/test-traffic-classifier.js
+          # Hourly budget on unpaid price checks per client: 429 past it, never for payments, named indexers, our probes or discovery (boots paid + FREE_MODE servers, offline)
+          t node scripts/test-unpaid-quote-budget.js
           # A rejected payment is answered in the buyer's terms (balance vs stale authorization) on the 402 (offline)
           t node scripts/test-verify-hint.js
           t node scripts/test-verify-hint-live.js
@@ -5282,13 +5286,14 @@ jobs:
             echo "$RESP" | jq .
           fi
 
-      # Hold the deploy until external paid traffic has a lull, so a container
-      # swap never lands in the middle of a buyer's burst. Fail-open by design
-      # (stats down / sustained traffic past the max wait → proceed with a
-      # warning) — the in-server SIGTERM drain plus the Railway grace set
-      # below still protect whatever is in flight. Runs BEFORE the variable
-      # upsert because that upsert can itself trigger a redeploy.
-      - name: Quiet gate — wait for a lull in external paid traffic
+      # Hold the deploy until outside traffic has a lull, paid or free (the
+      # hosted /mcp connector's calls count), so a container swap never lands
+      # in the middle of someone's burst; our own heartbeat rows are ignored.
+      # Fail-open by design (stats down / sustained traffic past the max wait:
+      # proceed with a warning); the in-server SIGTERM drain plus the Railway
+      # grace set below still protect whatever is in flight. Runs BEFORE the
+      # variable upsert because that upsert can itself trigger a redeploy.
+      - name: Quiet gate - wait for a lull in outside traffic
         env:
           TARGET_URL: https://${{ env.CUSTOM_DOMAIN || steps.domain.outputs.domain }}
           QUIET_GATE: ${{ vars.QUIET_GATE }}

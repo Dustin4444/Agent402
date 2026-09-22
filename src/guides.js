@@ -1513,8 +1513,8 @@ To pin a model, add a second provider whose \`baseUrl\` is that tier's path and
 whose \`models[]\` list ids from [\`/v1/models\`](https://agent402.tools/v1/models),
 for example \`baseUrl: "https://agent402.tools/v1/premium"\` with
 \`{ id: "openai/gpt-5" }\` and \`{ id: "anthropic/claude-opus-5" }\`. A model sent
-to the wrong tier is answered with a 400 that names its home tier; nothing is
-charged.
+to another flat tier's route is priced at its home tier: the 402 quotes that
+tier's price, and the paid call is served under that tier's caps.
 
 ## Pay from a wallet instead
 

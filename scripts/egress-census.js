@@ -43,7 +43,6 @@ const METERED = [
   // "we could not look" when we could.
   ["api.neynar.com", ["NEYNAR_API_KEY", "WARPCAST_API_KEY"], "Neynar"],
   ["g.alchemy.com", "ALCHEMY_API_KEY", "Alchemy RPC"],
-  ["blockscout.com", "X402_UPSTREAM_BUYER_KEY", "Blockscout Pro"],
 ];
 
 const LOG = join(tmpdir(), `egress-census-${process.pid}.log`);

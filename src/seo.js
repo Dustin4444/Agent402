@@ -99,30 +99,44 @@ export function robotsTxt(baseUrl) {
   const costly = [
     "Disallow: /*?seller=",
     "Disallow: /api/market/",
+  ];
+  // EVERY GROUP GETS THESE, not only `User-agent: *`. A crawler obeys the one
+  // group that names it and no other (RFC 9309), so a rule that lives only in
+  // the wildcard group reaches none of the agents named above: each of them
+  // read `Allow: /` and nothing else, and the bearer-token receipt pages, the
+  // proof-of-work challenge endpoint and the wallet-keyed memory rows were
+  // open to every one of them. Two costs, and the second is the measurable
+  // one: those paths answer an unpaid crawler 4xx, which is what a search
+  // console reports back as a crawl error on a healthy site, and a rule added
+  // to stop exactly that (the /api/pow/ line) had no effect on the crawler it
+  // was written for. Keep the explicit `Allow: /` in each block: the catalog
+  // is FOR these agents, and the welcome is the point of naming them.
+  const priv = [
+    "Disallow: /api/memory",
+    "Disallow: /__operator",
+    "Disallow: /r/",
+    "Disallow: /m/",
+    "Disallow: /monitors/thanks",
+    "Disallow: /monitors/manage",
+    "Disallow: /credits/thanks",
+    "Disallow: /api/r/",
+    "Disallow: /api/m/",
+    "Disallow: /api/credits/",
     "Disallow: /api/convert/",
-  ].join("\n");
-  const blocks = agents.map((a) => `User-agent: ${a}\nAllow: /\n${costly}`).join("\n\n");
+    "Disallow: /api/monitors/",
+    "Disallow: /api/pow/",
+    "Disallow: /api/buy",
+  ];
+  const rules = [...priv, ...costly].join("\n");
+  const blocks = agents.map((a) => `User-agent: ${a}\nAllow: /\n${rules}`).join("\n\n");
   return `${blocks}
 
 User-agent: *
 Allow: /
-Disallow: /api/memory
-Disallow: /__operator
-Disallow: /r/
-Disallow: /m/
-Disallow: /monitors/thanks
-Disallow: /monitors/manage
-Disallow: /credits/thanks
-Disallow: /api/r/
-Disallow: /api/m/
-Disallow: /api/credits/
-Disallow: /api/convert/
-Disallow: /api/monitors/
-Disallow: /api/pow/
-Disallow: /api/buy
-${costly}
+${rules}
 
 # Machine-readable catalogs for agents: ${baseUrl}/SKILL.md , ${baseUrl}/llms.txt , ${baseUrl}/openapi.json , ${baseUrl}/api/pricing , ${baseUrl}/api/cacheable , ${baseUrl}/.well-known/x402 , ${baseUrl}/.well-known/agent-card.json , ${baseUrl}/.well-known/agent-registration.json , ${baseUrl}/api/reliability , ${baseUrl}/api/find?q={task} , ${baseUrl}/api/route , ${baseUrl}/api/leaderboard
+# Crawling this catalog: every route and price is in ${baseUrl}/.well-known/x402 , ${baseUrl}/openapi.json and ${baseUrl}/api/pricing ; read those rather than each priced route. Crawl policy, including the hourly budget on unpaid price checks: ${baseUrl}/crawler
 Sitemap: ${baseUrl}/sitemap.xml
 Sitemap: ${baseUrl}/sitemapindex.xml
 `;

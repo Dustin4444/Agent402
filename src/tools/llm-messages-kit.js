@@ -30,6 +30,7 @@
 import { createHash } from "node:crypto";
 import {
   TIERS, AUTO_RANKINGS, classifyPrompt, canonicalModel, tierAllows, tierFor,
+  isFlatTier, flatTierQuoteUsd, servedTierFor, crossTierDisclosure,
   clampToMargin, attemptsFor, serviceTierFor, validateServiceTier, cacheControlPref, upstreamUserId, PROVIDER_SORT_ENABLED,
   fetchOpenRouter, throwUpstreamError, streamOpenRouterTo, bad, MAX_IMAGES,
   refuseCostVariants, checkBlockCacheControl, meteredQuoteForProbe, costFor,
@@ -323,10 +324,14 @@ function stripBilling(usage) {
   return upstreamUsd;
 }
 
-export function makeMessagesHandler(tierSlug) {
+export function makeMessagesHandler(routeTier) {
   return async function messagesHandler(input, req) {
     // Settle-failure breaker first: refuse (nobody charged) before any upstream call.
     gatewaySettleBreakerCheck(req);
+    // Price by model (chat-wire parity): `tierSlug` is the route's tier unless
+    // the body names another flat tier's model and the request was gated at
+    // that tier's price; then that tier's whole config serves it.
+    const tierSlug = servedTierFor(routeTier, input?.model, req);
     const tier = TIERS[tierSlug];
     const { body, probe, imageCount, isRouted, routedCategory, routedQuality, chain, defaultedModel } = validateMessagesRequest(input, tierSlug);
     // Metered belt (same as the chat wire): the price this request was gated
@@ -379,7 +384,7 @@ export function makeMessagesHandler(tierSlug) {
     };
     const recordUsage = (usage, upstreamUsd, served, serviceTier) => import("../posthog.js")
       .then(({ capturePostHogGatewayUsage }) => capturePostHogGatewayUsage({
-        tier: `${tierSlug}:messages`, model: served, priceUsd: quotedUsd ?? tier.price, upstreamUsd,
+        tier: `${tierSlug}:messages`, routeTier: `${routeTier}:messages`, model: served, priceUsd: quotedUsd ?? tier.price, upstreamUsd,
         promptTokens: usage?.input_tokens, completionTokens: usage?.output_tokens, serviceTier, defaulted: !!defaultedModel,
       })).catch(() => {});
     const attempts = attemptsFor(chain, body);
@@ -434,6 +439,7 @@ export function makeMessagesHandler(tierSlug) {
         await recordUsage(data.usage, upstreamUsd, data.model || model, data.usage?.service_tier || (flex ? "flex" : "default"));
         if (routerNote) data.agent402_router = { ...routerNote, served: data.model || model };
         if (defaultedModel) data.agent402_default_model = defaultedModel; // the caller sent no model; say what served
+        if (tierSlug !== routeTier) data.agent402_tier = { ...crossTierDisclosure(routeTier, tierSlug), route: MESSAGES_PATH_BY_TIER[routeTier] };
         // Metered settlement sentinel (chat-wire parity): the route binder
         // settles actual x markup for upto/credits buyers and strips this
         // before the body leaves. A non-number means "no meter", never "free".
@@ -500,6 +506,8 @@ export const LLM_MESSAGES_TOOLS = Object.entries(MESSAGES_PATH_BY_TIER).map(([ti
   price: priceString(tierSlug),
   // payments.js: a `quote` makes the x402 price a per-request function of the body.
   ...(tierSlug === "v1-chat-metered" ? { quote: (body) => meteredMessagesQuoteUsd(body).usd } : {}),
+  // Price by model on a flat route (see LLM_GATEWAY_TOOLS in the gateway kit).
+  ...(isFlatTier(tierSlug) ? { tierQuote: (body) => flatTierQuoteUsd(tierSlug, body?.model) } : {}),
   description: describe(tierSlug),
   tags: tierSlug === "v1-chat-metered" ? [...TAGS, "metered", "pay-per-token"] : TAGS,
   discovery: {

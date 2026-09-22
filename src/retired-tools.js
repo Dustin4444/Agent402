@@ -18,6 +18,14 @@
 
 /** Tools: /api/<slug>. `replacement` is a live catalog slug or null. */
 export const RETIRED_TOOLS = Object.freeze({
+  // 2026-09-22: the paid explorer upstream these five bought per call was
+  // removed. Where another live tool answers the nearest question it is named;
+  // no live EVM tool ranks a token's holders, so token-holders names none.
+  "contract-inspect": { retiredAt: "2026-09-22", replacement: "contract-source" },
+  "address-profile": { retiredAt: "2026-09-22", replacement: "wallet-balance" },
+  "token-info": { retiredAt: "2026-09-22", replacement: "token-metadata" },
+  "token-holders": { retiredAt: "2026-09-22", replacement: null },
+  "tx-inspect": { retiredAt: "2026-09-22", replacement: "tx-receipt" },
   // 2026-09-20: equities moved onto a licensed feed that serves none of these.
   "options-chain": { retiredAt: "2026-09-20", replacement: "crypto-options-chain" },
   "premarket-quote": { retiredAt: "2026-09-20", replacement: "stock-quote" },

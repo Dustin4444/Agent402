@@ -8,6 +8,31 @@ carries its own version on npm.
 
 Since v2.4.0 (2026-09-18).
 
+### 2026-09-22
+- Read a base-unit `amount` in an index listing as dollars only when the token
+  is one we recognise as dollar-pegged: a declared `decimals` no longer sizes an
+  arbitrary asset, a declaration that contradicts the chain publishes no price,
+  and a figure that cannot be written as a plain decimal is refused.
+- Retire contract-inspect, address-profile, token-info, token-holders and
+  tx-inspect; the routes answer 410, naming a replacement where one exists.
+- Read every `token-risk` token fact from keyless probes; the advertised chains
+  are now the ones the token-security probe serves (celo out, bsc in), and a
+  source that does not answer refuses 502 or 503 rather than 422.
+- Remove the `/api/chain/proxy` verb with the tool it pointed at.
+- Add `search-lite` (`GET`/`POST /api/search-lite`, $0.008): up to 5 web results
+  (title, URL, snippet) from the same index as `search`, no freshness filter.
+  A generic SERP query still resolves to `search` on `/api/route` and
+  `/api/find`.
+- Publish a `GET` query parameter in `/openapi.json` with the type its schema
+  declares when that type is `integer` or `boolean`; both were published as
+  `string` beside a numeric or boolean example.
+- Price a flat chat route by the model it is asked for: a model that another
+  flat tier serves (nano, base, pro, premium) now gets a 402 quoting that
+  tier's price and, once paid, is served under that tier's caps, allowlist and
+  failover instead of a 400. Applies to the chat, Messages, Responses and
+  Gemini wires; the answer carries `agent402_tier`. Catalog prices, `/api/pricing`
+  and `/openapi.json` are unchanged.
+
 ### 2026-09-21
 - Add `POST /v1/judge` ($0.001): typed judgments (a choice from a named set, a
   scored scale, a probability) over a supplied state.

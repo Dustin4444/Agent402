@@ -204,8 +204,9 @@ async function liveAcceptsByNetwork() {
   return byNet;
 }
 
-// payTo is per-SLUG, not per-network. The self-funding routes (route-execute
-// and the Blockscout tools) settle to the SPENDING wallet, not the treasury,
+// payTo is per-SLUG, not per-network. The self-funding routes (route-execute,
+// and the explorer-data tools until their 2026-09-22 retirement) settle to the
+// SPENDING wallet, not the treasury,
 // so verifying every row against /api/hash's treasury payTo made those debts
 // permanently unverifiable - and they are the routes most likely to
 // charged-fail, since they spend upstream on the buyer's behalf. Probing the

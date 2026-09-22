@@ -275,5 +275,40 @@ delete process.env.OPENROUTER_API_KEY;
   ok(old.body.temperature === 0.2 && old.body.top_k === 5, "a pre-Opus-4.6 model keeps temperature and top_k");
 }
 
+// ---- price by model on the Messages wire (2026-09-22) ----------------------
+// Same rule as the chat wire: a flat route's 402 quotes the model's home tier
+// price, and only a request gated at that price is served under that tier.
+{
+  const { TIERS: T } = await import("../src/tools/llm-gateway-kit.js");
+  const baseM = bySlug("v1-chat-messages"), nanoM = bySlug("v1-chat-nano-messages");
+  const OPUS = "anthropic/claude-opus-5";
+  ok(typeof baseM.tierQuote === "function" && typeof baseM.quote !== "function" && typeof bySlug("v1-chat-auto-messages").tierQuote !== "function" && typeof bySlug("v1-chat-metered-messages").tierQuote !== "function", "flat Messages routes carry tierQuote (never quote); auto and metered do not");
+  ok(baseM.tierQuote({ model: OPUS, max_tokens: 10, messages: msg() }) === T["v1-chat-premium"].price && baseM.tierQuote({ model: "anthropic/claude-haiku-4.5", max_tokens: 10, messages: msg() }) === T["v1-chat"].price, "base Messages route: premium model quotes premium, base model keeps base");
+  ok(nanoM.tierQuote({ model: OPUS, max_tokens: 10, messages: msg() }) === T["v1-chat-premium"].price && baseM.tierQuote({ model: "not-a-real/model", max_tokens: 10, messages: msg() }) === T["v1-chat"].price, "nano route + premium model quotes premium; an unknown model quotes the route price");
+  ok(baseM.price === "$0.02", "the base Messages route's catalog price is unchanged");
+  process.env.OPENROUTER_API_KEY = "test-key";
+  const pbmReal = globalThis.fetch;
+  let pbmSeen = [];
+  globalThis.fetch = async (url, init) => { const b = JSON.parse(init.body); pbmSeen.push(b); return { ok: true, status: 200, text: async () => JSON.stringify(reply(b.model)) }; };
+  const reqAt = (usd) => ({ header: () => undefined, headers: {}, ip: "127.0.0.1", ...(usd == null ? {} : { __meteredQuoteUsd: usd }) });
+  try {
+    pbmSeen = [];
+    const out = await baseM.handler({ model: OPUS, max_tokens: 6000, messages: msg() }, reqAt(0.5)).catch((e) => ({ threw: `${e?.statusCode} ${e?.message}` }));
+    ok(JSON.stringify(pbmSeen[0]?.provider?.max_price) === JSON.stringify(T["v1-chat-premium"].maxPrice) && pbmSeen[0]?.max_tokens === 6000 && 6000 > T["v1-chat"].maxTokens, `served under premium's config (max_price ${JSON.stringify(pbmSeen[0]?.provider?.max_price)}, max_tokens ${pbmSeen[0]?.max_tokens})`);
+    ok(out.agent402_tier?.served === "v1-chat-premium" && out.agent402_tier?.route === "/v1/messages" && out.agent402_tier?.priceUsd === 0.5, `the answer names the served tier on this wire (${JSON.stringify(out.agent402_tier)})`);
+    const { _testEventsForTest } = await import("../src/posthog.js");
+    const ev = _testEventsForTest().filter((e) => e.event === "gateway_usage").pop();
+    ok(ev?.properties.tier === "v1-chat-premium:messages" && ev?.properties.routeTier === "v1-chat:messages" && ev?.properties.priceUsd === 0.5, "telemetry records the served tier and the route");
+    for (const [label, r] of [["gated at the base price", reqAt(0.02)], ["no request (route-execute)", undefined]]) {
+      pbmSeen = [];
+      let e = null; try { await baseM.handler({ model: OPUS, max_tokens: 10, messages: msg() }, r); } catch (x) { e = x; }
+      ok(e?.statusCode === 400 && /\/v1\/premium\/messages/.test(e.message) && pbmSeen.length === 0, `${label}: the 400 naming the premium Messages path, nothing sent upstream`);
+    }
+    pbmSeen = [];
+    const same = await baseM.handler({ model: "anthropic/claude-haiku-4.5", max_tokens: 10, messages: msg() }, reqAt(0.02)).catch((e) => ({ threw: `${e?.statusCode} ${e?.message}` }));
+    ok(JSON.stringify(pbmSeen[0]?.provider?.max_price) === JSON.stringify(T["v1-chat"].maxPrice) && same.agent402_tier === undefined, "a same-tier model keeps the base config and carries no agent402_tier");
+  } finally { globalThis.fetch = pbmReal; }
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -201,6 +201,76 @@ function walletRequiredText(tool) {
   ].join(" ");
 }
 
+// ---------------------------------------------------------------------------
+// What THIS call will actually be asked to pay.
+//
+// The catalog price is the ROUTE's list price, and it is not always the amount
+// in the challenge: a route may quote per request from the body (a token-
+// metered route, or a chat route priced by the model named in it). A cap
+// enforced against the list price is therefore not a cap at all, so both paid
+// paths read the amount out of the 402 before spending anything.
+//
+// The preflight carries no payment header and no credits key, so it can only
+// ever draw an unpaid 402 - it never signs and never debits. Only run when a
+// ceiling is configured: with none, the number changes nothing and the round
+// trip is pure cost.
+const CAPS_CONFIGURED = Number.isFinite(MAX_PER_CALL) || Number.isFinite(BUDGET);
+
+/** The accepts array, at the top level or under the envelope keys sellers wrap it in. */
+function acceptsOf(obj) {
+  if (!obj || typeof obj !== "object") return null;
+  if (Array.isArray(obj.accepts) && obj.accepts.length) return obj.accepts;
+  for (const k of ["payment", "x402", "paymentRequired", "payment_required"]) {
+    const nested = obj[k];
+    if (nested && typeof nested === "object" && Array.isArray(nested.accepts) && nested.accepts.length) return nested.accepts;
+  }
+  return null;
+}
+
+/** The MAXIMUM across accepts: the wallet picks which chain to settle on and
+ *  this server cannot know which, so the only sound ceiling is the dearest
+ *  offer. An entry we cannot price makes the whole quote unreadable (null),
+ *  never a guess. */
+function usdFromAccepts(accepts) {
+  if (!Array.isArray(accepts) || !accepts.length) return null;
+  let maxUsd = null;
+  for (const a of accepts) {
+    // v2 names the base-unit amount `amount`; x402 v1 called it `maxAmountRequired`.
+    const atomic = Number(a && (a.amount ?? a.maxAmountRequired));
+    if (!Number.isFinite(atomic) || atomic < 0) return null;
+    // USDC is 6 decimals on every chain these rails settle; a wrong exponent is
+    // a 1000x pricing error, so an out-of-range hint reads as unreadable.
+    const declared = (a && a.extra && a.extra.decimals) ?? (a && a.decimals);
+    const decimals = declared == null ? 6 : Number(declared);
+    if (!Number.isInteger(decimals) || decimals < 0 || decimals > 30) return null;
+    const usd = atomic / 10 ** decimals;
+    if (maxUsd == null || usd > maxUsd) maxUsd = usd;
+  }
+  return maxUsd;
+}
+
+/** The quoted price for this request, or `listUsd` when the 402 cannot be read.
+ *  x402 v2 carries the challenge base64 in the PAYMENT-REQUIRED header and
+ *  leaves the body `{}`; v1 sellers put it in the body. Header first. */
+async function quotedUsd(url, init, listUsd) {
+  if (!CAPS_CONFIGURED) return listUsd;
+  try {
+    const pre = await fetch(url, init);
+    if (pre.status !== 402) return listUsd;
+    let quoted = null;
+    const header = pre.headers.get("payment-required");
+    if (header) {
+      try { quoted = usdFromAccepts(acceptsOf(JSON.parse(Buffer.from(header.trim(), "base64").toString("utf8")))); } catch { quoted = null; }
+    }
+    if (quoted == null) {
+      let body = null; try { body = await pre.json(); } catch { body = null; }
+      quoted = usdFromAccepts(acceptsOf(body));
+    }
+    // Larger of the two: an understated catalog must not lower the ceiling.
+    return quoted == null ? listUsd : Math.max(listUsd, quoted);
+  } catch { return listUsd; /* fail-open to the advertised price */ }
+}
+
 async function callEndpoint(tool, args = {}) {
   const url = new URL(`${BASE}${tool.path}`);
   const init = { method: tool.method, headers: { Accept: "application/json" } };
@@ -216,14 +286,16 @@ async function callEndpoint(tool, args = {}) {
 
   let res;
   if (!HAS_WALLET && HAS_CREDITS) {
-    // Card credits: same budget guards as the wallet path (the server enforces
-    // the balance; these keep a runaway session from draining a pack).
-    const price = parseFloat(String(tool.price).replace(/[^0-9.]/g, "")) || 0;
+    // Card credits: same budget guards as the wallet path, against the same
+    // number - the credits gate holds and debits what the 402 quotes for THIS
+    // body, not the route's list price.
+    const listUsd = parseFloat(String(tool.price).replace(/[^0-9.]/g, "")) || 0;
+    const price = await quotedUsd(url, init, listUsd);
     if (price > MAX_PER_CALL) {
-      return { content: [{ type: "text", text: `Refused: "${tool.slug}" costs ${tool.price}/call, above the AGENT402_MAX_PER_CALL cap of $${MAX_PER_CALL}.` }], isError: true };
+      return { content: [{ type: "text", text: `Refused: "${tool.slug}" is quoted $${price} for this request${price !== listUsd ? ` (list price ${tool.price})` : ""}, above the AGENT402_MAX_PER_CALL cap of $${MAX_PER_CALL}.` }], isError: true };
     }
     if (spentUsd + price > BUDGET) {
-      return { content: [{ type: "text", text: `Refused: session budget exhausted ($${spentUsd.toFixed(4)} of $${BUDGET} spent; "${tool.slug}" costs ${tool.price}).` }], isError: true };
+      return { content: [{ type: "text", text: `Refused: session budget exhausted ($${spentUsd.toFixed(4)} of $${BUDGET} spent; "${tool.slug}" is quoted $${price} for this request).` }], isError: true };
     }
     res = await fetch(url, { ...init, headers: { ...init.headers, Authorization: `Bearer ${CREDITS_KEY}` } });
     if (res.ok) spentUsd += price;
@@ -232,16 +304,20 @@ async function callEndpoint(tool, args = {}) {
       return { content: [{ type: "text", text: `Credits refused for "${tool.slug}": ${body.error || "payment required"}${body.balanceUsd != null ? ` (balance $${body.balanceUsd})` : ""}. Top up at ${body.topup || `${BASE}/credits`}.` }], isError: true };
     }
   } else if (HAS_WALLET) {
-    const price = parseFloat(String(tool.price).replace(/[^0-9.]/g, "")) || 0;
+    // The wallet signs whatever the challenge asks for (vendor spend controls
+    // are off - this package bounds spend itself), so the cap is checked
+    // against that amount, read from the 402 before anything is signed.
+    const listUsd = parseFloat(String(tool.price).replace(/[^0-9.]/g, "")) || 0;
+    const price = await quotedUsd(url, init, listUsd);
     if (price > MAX_PER_CALL) {
       return {
-        content: [{ type: "text", text: `Refused without paying: "${tool.slug}" costs ${tool.price}/call, above the AGENT402_MAX_PER_CALL cap of $${MAX_PER_CALL}. Raise the cap on this MCP server to allow it.` }],
+        content: [{ type: "text", text: `Refused without paying: "${tool.slug}" is quoted $${price} for this request${price !== listUsd ? ` (list price ${tool.price})` : ""}, above the AGENT402_MAX_PER_CALL cap of $${MAX_PER_CALL}. Raise the cap on this MCP server to allow it.` }],
         isError: true,
       };
     }
     if (spentUsd + price > BUDGET) {
       return {
-        content: [{ type: "text", text: `Refused without paying: session budget exhausted ($${spentUsd.toFixed(4)} of $${BUDGET} spent; "${tool.slug}" costs ${tool.price}). Restart the MCP server or raise AGENT402_BUDGET.` }],
+        content: [{ type: "text", text: `Refused without paying: session budget exhausted ($${spentUsd.toFixed(4)} of $${BUDGET} spent; "${tool.slug}" is quoted $${price} for this request). Restart the MCP server or raise AGENT402_BUDGET.` }],
         isError: true,
       };
     }

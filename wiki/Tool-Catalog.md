@@ -17,6 +17,7 @@ These exist because an agent mid-task cannot give itself a browser, a paid searc
 | Tool | Price | What it does |
 |---|---|---|
 | `search` | $0.02 | Live web search over a paid index, no signup: the wallet is the credential |
+| `search-lite` | $0.008 | A quick sample of the same web search: up to 5 results (title, URL, snippet), no freshness filter |
 | `answer` | $0.08 | Web answer with inline citations: a one-call "ask the web" the model couldn't reach otherwise |
 | `render` | $0.02 | Real headless Chromium, JavaScript executed - reads SPAs that `extract` can't |
 | `screenshot` | $0.004 | PNG of any public page (viewport or full-page) |

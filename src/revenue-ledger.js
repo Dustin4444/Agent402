@@ -723,7 +723,7 @@ export function ledgerDaily(wallets, mppTx = null) {
   const rows = db.prepare("SELECT chain, wallet, block, when_ts, usd, external, tx_hash FROM transfers WHERE wallet = ?");
   const chains = walletPairs(wallets);
   // Settled-to split: rows received by the SOR spending wallet (self-funding
-  // slugs: route-execute tiers + Blockscout kit) vs the treasury. On-chain
+  // slugs: the route-execute tiers) vs the treasury. On-chain
   // truth by receiving wallet - the /revenue SOR filter reads these fields.
   const sorWallets = new Set([
     ...(wallets.baseExtraWallets || []).filter(Boolean).map((w) => w.toLowerCase()),

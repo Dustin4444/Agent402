@@ -2,6 +2,16 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 
 const ENTRIES = [
   {
+    date: "2026-09-22",
+    title: "Five explorer-backed tools retired, and token-risk reads its facts from keyless probes",
+    items: [
+      "contract-inspect, address-profile, token-info, token-holders and tx-inspect are retired. Each route answers 410 naming its replacement where there is one: contract-inspect to contract-source, address-profile to wallet-balance, token-info to token-metadata, tx-inspect to tx-receipt. token-holders names none, because nothing in the catalog reads a holder list for an arbitrary token.",
+      "token-risk and token-risk-pro read every token fact from keyless probes instead: name, symbol, supply, holder count and the top holders with their share come from the token-security probe, the market from the deepest DEX pair that has the token as its base, and source verification from Sourcify. The advertised chains are now exactly the ones that probe serves, so celo is gone and bsc arrives.",
+      "A token-security source that does not answer (a rate limit, an upstream error, a timeout) refuses 502 or 503 saying so, rather than a 422 telling the buyer to check an address that is correct. Nothing is charged either way.",
+      "The /api/chain/proxy verb is gone with the tool it pointed at; chain-storage reads the same implementation slot by its key. Every other verb in the namespace still resolves.",
+    ],
+  },
+  {
     date: "2026-09-21",
     title: "Typed judgments, a router that says who it is, and a leaderboard that reads the seller's own prices",
     items: [

@@ -30,7 +30,7 @@ import { IMAGE_TOOLS } from "../src/tools/image-kit.js";
 import { KIT2 } from "../src/tools/kit2.js";
 import { DATA_TOOLS } from "../src/tools/data-kit.js";
 import { CHAIN_TOOLS } from "../src/tools/chain-kit.js";
-import { TOOLS as CANARY_LEGS, shouldPageUpstreamLeg } from "./paid-canary.js";
+import { TOOLS as CANARY_LEGS } from "./paid-canary.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -315,21 +315,14 @@ if (sd) {
     "partial-rail detail must not claim buying could not complete a USDC purchase");
 }
 
-// Supply-chain (Blockscout upstream) leg: a consecutive-failure rule, so a
-// third of runs failing (2026-08) pages while a single blip still does not.
+// The supply-chain leg (and its consecutive-failure paging rule) left with the
+// five retired explorer tools on 2026-09-22. Nothing may bring the leg or its
+// status row back half-wired: a leg with no catalog route buys a 410 daily.
 {
-  ok(shouldPageUpstreamLeg({ ok: true, recentOk: [false, false, false] }) === false, "a run that settled never pages, whatever came before");
-  ok(shouldPageUpstreamLeg({ ok: false, recentOk: [false, false, true] }) === true, "this run + two prior failures = three consecutive -> page");
-  ok(shouldPageUpstreamLeg({ ok: false, recentOk: [false, true, false] }) === false, "a success inside the window breaks the streak");
-  ok(shouldPageUpstreamLeg({ ok: false, recentOk: [false] }) === false, "too few prior observations never page (missing evidence is not evidence)");
-  ok(shouldPageUpstreamLeg({ ok: false, recentOk: null }) === false, "status unreachable never pages");
-  ok(shouldPageUpstreamLeg({ ok: false, recentOk: [], pageAfter: 1 }) === true, "pageAfter=1 pages on this run alone");
   const canarySrc2 = readFileSync(join(ROOT, "scripts", "paid-canary.js"), "utf8");
-  ok(/noteRail\("supply-chain"/.test(canarySrc2) && /railFail\("supply-chain"/.test(canarySrc2) && /rail_supply-chain/.test(canarySrc2),
-    "the canary records the supply-chain leg on /status and pages it through railFail");
+  ok(!/"supply-chain"|\/api\/address-profile/.test(canarySrc2), "the canary carries no supply-chain leg for the retired address-profile route");
   const statusSrc = readFileSync(join(ROOT, "src", "status.js"), "utf8");
-  ok(/key: "rail_supply-chain"/.test(statusSrc) && /recentOk/.test(statusSrc),
-    "status.js carries the rail_supply-chain component and exposes recentOk for the rule");
+  ok(!/rail_supply-chain/.test(statusSrc), "status.js carries no rail_supply-chain component for a leg that no longer runs");
 }
 
 // The daily Algorand leg signs the sweep's 1000-round window (2026-09-22): ten

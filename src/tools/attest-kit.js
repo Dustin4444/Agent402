@@ -15,14 +15,14 @@
 // for THAT payment at THAT time - provenance, signed by the seller.
 //
 // Money: the attestation costs Base gas from X402_UPSTREAM_BUYER_KEY (the same
-// wallet that pays Blockscout upstream). The cost is bounded three ways: a
+// wallet route-execute pays external sellers from). The cost is bounded three ways: a
 // per-attestation gas ceiling (ATTEST_MAX_GAS_USD, refused 503 before signing
 // when the estimate exceeds it, nobody charged), the Base wallet's daily
 // spend ceiling (external-spend-guard, booked before the send and corrected
 // to the estimate after), and one attestation per sale (a repeat returns the
 // existing UID and sends nothing). Settlement of THIS call runs after the
 // handler, so a failed settlement can cost one attestation's gas - the same
-// bounded exposure the Blockscout buys carry.
+// bounded exposure every paid upstream call carries.
 //
 // Schema: registered lazily on first use (one-time gas, bounded separately),
 // its UID derived exactly as EAS derives it (keccak256 of the packed schema

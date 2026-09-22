@@ -15,6 +15,7 @@
 // control here stops being true, change the control or change the page.
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 import { ROUTER_UA } from "./x402-buyer.js";
+import { unpaidQuoteBudgetPerHour } from "./unpaid-quote-budget.js";
 
 export const CRAWLER_UA = "Mozilla/5.0 (compatible; Agent402/1.0; +https://agent402.tools/crawler)";
 
@@ -67,10 +68,33 @@ const SECTIONS = [
   },
 ];
 
-export function crawlerPage(baseUrl) {
+// The other direction: crawlers reading OUR catalog. The budget figure is the
+// one the gate reads (src/unpaid-quote-budget.js, passed in by server.js), so
+// the page cannot quote a number the server does not enforce; 0 means no
+// budget is enforced here (FREE_MODE, or UNPAID_QUOTE_BUDGET_PER_HOUR=off).
+export const CATALOG_CRAWL_ANCHOR = "crawling-this-catalog";
+export function catalogCrawlSection(budget) {
+  const n = Number(budget) || 0;
+  return {
+    h: "Crawling this catalog",
+    id: CATALOG_CRAWL_ANCHOR,
+    p: [
+      `If you index this catalog, three documents carry every route and its price: <code>/.well-known/x402</code>, <code>/openapi.json</code> and <code>/api/pricing</code>. Read those rather than requesting each priced route to learn what it costs. <code>/openapi.json</code> is served with an ETag, so a repeat read that sends <code>If-None-Match</code> is a 304 with no body.`,
+      `Listed prices change when we ship a release, not from one request to the next, so a full walk of every priced route more than a few times an hour is not needed.`,
+      n > 0
+        ? `Unpaid requests to priced routes are budgeted per client, meaning one address and one User-Agent product token. Past ${esc(n.toLocaleString("en-US"))} in an hour, the answer is a 429 with a <code>Retry-After</code> header that counts down to the top of the hour. A request that carries a payment, a credits key or a proof-of-work solution is never counted, and neither are the three documents above, <code>/mcp</code> or any page. Every purchase opens with one bare request, so buying is exempt from the first settlement onward: once a client settles a payment, nothing it sends is counted for the rest of that hour.`
+        : `This server sets no hourly budget on unpaid requests to priced routes.`,
+      `Named indexers, search engines and AI crawlers are not budgeted. If your index needs more than this and we do not recognize it by name, email <a href="mailto:mike@agent402.tools">mike@agent402.tools</a> with the User-Agent it sends and we will add it to the named list.`,
+    ],
+    links: [["/.well-known/x402", "The x402 manifest"], ["/openapi.json", "The OpenAPI document"], ["/api/pricing", "The price list"]],
+  };
+}
+
+export function crawlerPage(baseUrl, { unpaidQuoteBudget = unpaidQuoteBudgetPerHour() } = {}) {
   const canonical = `${baseUrl}/crawler`;
   const title = "Our crawler";
-  const description = "What the Agent402 index reads, how the crawler behaves, how to have a service removed, and what we publish about payers (counts only, never a roster).";
+  const description = "What the Agent402 index reads, how the crawler behaves, how to have a service removed, how to crawl this catalog, and what we publish about payers (counts only, never a roster).";
+  const sections = [...SECTIONS, catalogCrawlSection(unpaidQuoteBudget)];
   const body = `
 <header style="border-bottom:1px solid var(--hairline);">
   <div style="max-width:1180px;margin:0 auto;padding:52px 30px 44px;">
@@ -79,8 +103,8 @@ export function crawlerPage(baseUrl) {
     <p style="font-size:18px;line-height:1.55;color:var(--muted);max-width:820px;margin:0;">Who we are, what we read, and how to be removed. If you found this page from a User-Agent in your logs, that was us.</p>
   </div>
 </header>
-${SECTIONS.map((s) => `
-<section style="max-width:1180px;margin:0 auto;padding:40px 30px 0;">
+${sections.map((s) => `
+<section${s.id ? ` id="${esc(s.id)}"` : ""} style="max-width:1180px;margin:0 auto;padding:40px 30px 0;">
   <div style="display:grid;grid-template-columns:220px 1fr;gap:30px;padding-bottom:36px;border-bottom:1px solid var(--hairline);" class="sec-2col">
     <h2 style="font-family:var(--font-mono);font-size:13px;color:var(--accent);font-weight:600;margin:4px 0 0;">${esc(s.h)}</h2>
     <div>

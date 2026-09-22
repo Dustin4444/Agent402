@@ -463,7 +463,7 @@ export function initWalletAccumulator(sellers) {
  * a seller can be paid is the clearest thing that is not demand.
  *
  * Measured before changing it: about 39 payments a week leave our wallets to
- * other sellers (route-execute, seller-payability, the Blockscout buys),
+ * other sellers (route-execute, seller-payability),
  * against a board whose top row alone settles ~90,000 in the window. So this
  * moves no ranking. It matters at the BOTTOM, where a seller with three
  * settlements had one of them from us, and the bottom is exactly the
