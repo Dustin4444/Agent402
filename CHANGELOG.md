@@ -28,6 +28,8 @@ Since v2.4.0 (2026-09-18).
   stop `/leaderboard` printing the same figure twice; trim ~6 KB of repeated nav
   style from every page.
 - Fix the `x-tweet` documented example to a real tweet id.
+- Retired tools and skill packs answer 410 Gone with the retirement date and the
+  live replacement instead of a 404.
 - Packages: agent402-mcp 0.13.3, agent402-client 0.8.7, agent402-anthropic-tools
   0.1.8, agent402-langchain 0.2.7, agent402-llamaindex 0.1.8,
   agent402-openai-agents 0.1.7, agent402-openai-tools 0.1.8, agent402-strands
