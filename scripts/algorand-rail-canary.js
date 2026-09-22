@@ -55,7 +55,7 @@ import { createHmac } from "node:crypto";
 import { isIdentityBoundRoute } from "../src/payments.js";
 import { isLongRunningSlug } from "../src/composite-spend-guard.js";
 
-import { FAST_REJECT_MS, isThrottle, isUpstreamOutage, isOurSettleBreaker, outcomeOf } from "./avm-canary-classify.js";
+import { FAST_REJECT_MS, isThrottle, isUpstreamOutage, isOurSettleBreaker, outcomeOf, subcentBudget, rotateSubcent } from "./avm-canary-classify.js";
 
 const TARGET = (process.env.TARGET_URL || "https://agent402.tools").replace(/\/$/, "");
 const AVM_CAIP2_PREFIX = "algorand:";
@@ -176,6 +176,35 @@ const seen = new Set();
 tools = tools.filter((t) => { const k = `${t.method} ${t.path}`; if (seen.has(k)) return false; seen.add(k); return true; });
 if (ONLY.length) tools = tools.filter((t) => ONLY.includes(t.slug));
 
+// SUB-CENT BUDGET. The facilitator gives our payTo 1,000 free sponsored
+// sub-cent settlements a month and this sweep spent September's on its own;
+// see subcentBudget/rotateSubcent in avm-canary-classify.js. Read the live
+// quota, keep a reserve for real buyers, cap this run, and rotate which
+// sub-cent tools get it so the catalog is still covered over a month. Tools at
+// or above $0.01 are unlimited and never budgeted. An explicit --slugs run
+// (re-verifying a fix) is exempt: it is a handful of tools by definition.
+const SUBCENT_MAX = Math.max(0, Number(process.env.CANARY_SUBCENT_MAX ?? "150"));
+const SUBCENT_RESERVE = Math.max(0, Number(process.env.CANARY_SUBCENT_RESERVE ?? "300"));
+const FACILITATOR_URL = (process.env.ALGORAND_FACILITATOR_URL || "https://facilitator.goplausible.xyz").replace(/\/$/, "");
+let subcentPlan = { budget: Infinity, source: "slugs-run", remaining: null };
+if (!ONLY.length) {
+  let status = null, payTo = null;
+  try {
+    const r = await fetch(`${TARGET}/api/uuid`, { signal: AbortSignal.timeout(15000) });
+    const pr = JSON.parse(Buffer.from(r.headers.get("payment-required") || "", "base64").toString("utf8"));
+    payTo = (pr.accepts || []).find((a) => String(a.network || "").startsWith(AVM_CAIP2_PREFIX))?.payTo || null;
+    if (payTo) {
+      const st = await (await fetch(`${FACILITATOR_URL}/sponsorship/status?wallet=${payTo}`, { signal: AbortSignal.timeout(15000) })).json();
+      status = (st.chains || []).find((c) => c.chain === "algorand") || null;
+    }
+  } catch (e) { console.warn(`sub-cent quota read failed (${String(e.message).slice(0, 80)}) - applying the fixed cap alone`); }
+  subcentPlan = subcentBudget({ status, max: SUBCENT_MAX, reserve: SUBCENT_RESERVE });
+  const week = Math.floor(Date.now() / (7 * 24 * 3600 * 1000));
+  tools = rotateSubcent(tools, { week, cap: subcentPlan.budget });
+  const subTotal = tools.filter((t) => t.priceUsd < 0.01).length;
+  console.log(`sub-cent budget: ${subcentPlan.budget} of ${subTotal} sub-cent tools this run (${subcentPlan.source}${status ? `; month ${status.usedMonth}/${status.quota} used, SU ${status.suBalance}, reserve ${SUBCENT_RESERVE} kept for buyers` : ""}; window rotates weekly)`);
+}
+
 console.log(`Algorand rail canary · target ${TARGET} · payer ${payerAddress}`);
 console.log(`catalog: ${tools.length} routes · dry=${DRY} · total cap $${MAX_USD} · per-tool cap $${TOOL_MAX_USD}\n`);
 
@@ -206,6 +235,9 @@ for (const t of tools) {
   if (processed >= LIMIT) break;
   const key = `${t.method} ${t.path}`;
   if (t.priceUsd > TOOL_MAX_USD) { report.skipped.push({ key, slug: t.slug, reason: `price $${t.priceUsd} > per-tool cap $${TOOL_MAX_USD}` }); continue; }
+  // Outside this week's sub-cent window: recorded, never bought, never a
+  // failure. It is measured next time its window comes round.
+  if (t.subcentSkip) { report.skipped.push({ key, slug: t.slug, reason: "sub-cent tool outside this week's budget window (facilitator's free sponsored quota reserved for buyers)" }); continue; }
 
   // A bare request yields the 402 challenge, which carries BOTH the live
   // accepts and the tool's own canonical example input (the paywall precedes

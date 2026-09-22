@@ -5,7 +5,7 @@
 // Getting this wrong is why #806 stayed open: a transient edge 502 or an
 // upstream vendor 5xx was booked as a broken tool on first sight.
 import { readFileSync } from "node:fs";
-import { outcomeOf, isUpstreamOutage, isThrottle, isOurSettleBreaker } from "./avm-canary-classify.js";
+import { outcomeOf, isUpstreamOutage, isThrottle, isOurSettleBreaker, subcentBudget, rotateSubcent } from "./avm-canary-classify.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log("ok -", m); } else { fail++; console.error("FAIL -", m); } };
@@ -111,6 +111,55 @@ ok(outcomeOf({ status: 429, body: BREAKER_BODY, elapsedMs: 50 }) === "breaker", 
      "a multipart route is SKIPPED, not driven with JSON and then booked as a handler defect - and it is read from the seller's own declaration, not a slug list");
   ok(/report\.aborted && !bad[\s\S]{0,300}process\.exit\(1\)/.test(src),
      "an aborted sweep FAILS the run even with no defect recorded - a partial sweep may not report a pass");
+}
+
+// ---- SUB-CENT BUDGET: the sweep must never spend the facilitator's free quota -
+//
+// Live values from GoPlausible's /sponsorship/status for our payTo on
+// 2026-09-22: quota 1000, usedMonth 1003, suBalance 0 - the September
+// allowance gone, all of it to this sweep and the daily canary.
+{
+  const exhausted = { quota: 1000, usedMonth: 1003, suBalance: 0 };
+  const fresh = { quota: 1000, usedMonth: 0, suBalance: 0 };
+  ok(subcentBudget({ status: exhausted, max: 150, reserve: 300 }).budget === 0,
+     "with the month's quota spent, the sweep buys ZERO sub-cent tools - it has nothing left to spend that is not a buyer's");
+  ok(subcentBudget({ status: fresh, max: 150, reserve: 300 }).budget === 150,
+     "on a fresh month it spends at most the cap (150 of 1000)");
+  ok(subcentBudget({ status: { quota: 1000, usedMonth: 600, suBalance: 0 }, max: 150, reserve: 300 }).budget === 100,
+     "as the month fills, the reserve holds: 1000 - 600 = 400 left, minus 300 kept for buyers = 100, under the cap");
+  ok(subcentBudget({ status: { quota: 1000, usedMonth: 1003, suBalance: 25000 }, max: 150, reserve: 300 }).budget === 150,
+     "purchased Settlement Units count as headroom (quota gone, 25,000 SU -> the cap applies)");
+  const blind = subcentBudget({ status: null, max: 150, reserve: 300 });
+  ok(blind.budget === 150 && blind.source === "cap-only",
+     "an UNREADABLE quota falls back to the fixed cap alone - it is never treated as unlimited");
+  ok(subcentBudget({ status: fresh, max: -5, reserve: 300 }).budget === 0, "a negative cap is zero, never a spend");
+
+  // Rotation: this week's window, and the next, cover the catalog in turn.
+  const tools = [
+    ...Array.from({ length: 10 }, (_, i) => ({ slug: `sub-${String(i).padStart(2, "0")}`, priceUsd: 0.001 })),
+    { slug: "cent-tool", priceUsd: 0.01 }, { slug: "dollar-tool", priceUsd: 1.5 },
+  ];
+  const w0 = rotateSubcent(tools, { week: 0, cap: 4 });
+  const w1 = rotateSubcent(tools, { week: 1, cap: 4 });
+  const bought = (r) => r.filter((t) => t.priceUsd < 0.01 && !t.subcentSkip).map((t) => t.slug);
+  const eqArr = (a, b, m) => ok(JSON.stringify(a) === JSON.stringify(b), m + ` (got ${JSON.stringify(a)})`);
+  eqArr(bought(w0), ["sub-00", "sub-01", "sub-02", "sub-03"], "week 0 buys the first window of sub-cent tools");
+  eqArr(bought(w1), ["sub-04", "sub-05", "sub-06", "sub-07"], "week 1 buys the NEXT window, not the same four again");
+  eqArr(bought(rotateSubcent(tools, { week: 2, cap: 4 })).sort(), ["sub-00", "sub-01", "sub-08", "sub-09"], "the window wraps, so every sub-cent tool is exercised within ceil(N/cap) weeks (set compare: buying order is the catalog order)");
+  ok(w0.filter((t) => t.priceUsd >= 0.01).every((t) => t.subcentSkip === false),
+     "tools at or above one cent are NEVER budgeted - the facilitator does not meter them");
+  ok(rotateSubcent(tools, { week: 3, cap: 0 }).filter((t) => t.priceUsd < 0.01).every((t) => t.subcentSkip === true),
+     "a zero budget skips every sub-cent tool and touches none at a cent or more");
+  ok(JSON.stringify(bought(rotateSubcent(tools, { week: 7, cap: 4 }))) === JSON.stringify(bought(rotateSubcent(tools, { week: 7, cap: 4 }))),
+     "deterministic in the week: a rerun in the same week covers the same tools");
+
+  // The sweep actually honours it, before any request leaves.
+  const src = readFileSync(new URL("./algorand-rail-canary.js", import.meta.url), "utf8");
+  ok(/tools = rotateSubcent\(tools, \{ week, cap: subcentPlan\.budget \}\)/.test(src), "the sweep rotates its tool list by the computed budget");
+  ok(/if \(t\.subcentSkip\) \{ report\.skipped\.push/.test(src), "a tool outside the window is SKIPPED (recorded, never bought, never a failure)");
+  ok(src.indexOf("if (t.subcentSkip)") < src.indexOf("const bareFetch = () => fetch("), "...and the skip happens BEFORE the bare 402 fetch, so it costs the seller nothing either");
+  ok(/sponsorship\/status\?wallet=\$\{payTo\}/.test(src), "the budget is read from the facilitator's LIVE quota for our payTo, not a constant");
+  ok(/if \(!ONLY\.length\)/.test(src), "an explicit --slugs run is exempt (a handful of tools by definition)");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

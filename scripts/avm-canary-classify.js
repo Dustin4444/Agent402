@@ -65,3 +65,50 @@ export const outcomeOf = (a) =>
         : isThrottle(a.status, a.body) ? "throttle"
           : a.status === 402 ? "slow-402"
             : "other";
+
+// ---------------------------------------------------------------------------
+// SUB-CENT BUDGET (2026-09-22). GoPlausible sponsors the Algorand fee on every
+// settlement we serve and gives each payTo 1,000 free sponsored sub-cent
+// (< $0.01) settlements per UTC month; at or above $0.01 is unlimited. The
+// weekly sweep is ~470 sub-cent buys from one wallet, so in September it spent
+// the whole allowance by itself - 1,325 settlements, zero outside buyers - and
+// from the 21st every sub-cent buyer on the rail was refused. The operator
+// chose to wait for the October reset rather than buy Settlement Units, so the
+// sweep must never again be the thing that spends the allowance.
+//
+// Two pure pieces, tested without booting the sweep:
+//   subcentBudget  - how many sub-cent settles THIS run may make, from the live
+//                    quota read minus a reserve kept for real buyers, capped.
+//   rotateSubcent  - which sub-cent tools get this run's budget, moving the
+//                    window each week so the whole catalog is still exercised
+//                    over a month instead of the same first N forever.
+
+/** Sub-cent settles this run may make. `status` is the facilitator's
+ *  /sponsorship/status row for our payTo (quota, usedMonth, suBalance), or
+ *  null when it could not be read - then the fixed cap alone applies, because
+ *  a quota we cannot read is not a licence to spend. Never negative. */
+export function subcentBudget({ status, max, reserve }) {
+  const cap = Math.max(0, Math.floor(Number(max) || 0));
+  if (!status || !Number.isFinite(Number(status.quota))) return { budget: cap, source: "cap-only", remaining: null };
+  const quota = Number(status.quota), used = Number(status.usedMonth) || 0, su = Number(status.suBalance) || 0;
+  const remaining = Math.max(0, quota - used) + Math.max(0, su);
+  const spendable = Math.max(0, remaining - Math.max(0, Number(reserve) || 0));
+  return { budget: Math.min(cap, spendable), source: "live", remaining };
+}
+
+/** Order the sweep's tools so that this week's window of sub-cent tools comes
+ *  first and the rest of the sub-cent tools are marked to skip. Tools at or
+ *  above one cent are untouched and never budgeted. Deterministic in `week`,
+ *  so two runs in the same week cover the same tools and next week's cover the
+ *  next window; with cap C over N sub-cent tools the whole set is exercised in
+ *  ceil(N / C) weeks. */
+export function rotateSubcent(tools, { week, cap }) {
+  const sub = tools.filter((t) => Number(t.priceUsd) < 0.01).sort((a, b) => String(a.slug).localeCompare(String(b.slug)));
+  const n = sub.length;
+  const c = Math.max(0, Math.floor(Number(cap) || 0));
+  if (n === 0 || c === 0) return tools.map((t) => ({ ...t, subcentSkip: Number(t.priceUsd) < 0.01 }));
+  const start = (Math.max(0, Math.floor(Number(week) || 0)) * c) % n;
+  const chosen = new Set();
+  for (let i = 0; i < Math.min(c, n); i++) chosen.add(sub[(start + i) % n].slug);
+  return tools.map((t) => ({ ...t, subcentSkip: Number(t.priceUsd) < 0.01 && !chosen.has(t.slug) }));
+}
