@@ -296,7 +296,7 @@ export function buildSellerPayabilityTool({
       // challenge or an over-cap quote. This is the COMMON outcome for a tool
       // whose job is diagnosing sellers, and the worst-case booking would
       // otherwise hold $0.02 of the chain's day for the full window on every
-      // such check, quietly starving route-execute and the supply-chain buys.
+      // such check, quietly starving route-execute and attest.
       adjustSpend(spendHandle, 0);
     }
 

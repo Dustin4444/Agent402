@@ -84,8 +84,8 @@ const PAY_NETWORK = (process.env.PAY_NETWORK || "base").toLowerCase();
 const MAX_PRICE_USD = Number(process.env.MAX_PRICE_USD || (MODE === "sweep" ? "0.05" : "Infinity"));
 // UPSTREAM_FREE_ONLY=1 sweeps only routes that cost us nothing per call at a
 // third party, so the pass can run daily instead of weekly. The price ceiling
-// is only a PROXY for upstream cost (a $0.002 Blockscout call bills us $0.002
-// upstream); this is the real question, asked of the server. Memory tools are
+// is only a PROXY for upstream cost (a cheap paid-upstream call still bills us
+// per call upstream); this is the real question, asked of the server. Memory tools are
 // admitted by name: they are wallet-keyed rather than compute-payable, and the
 // only resource they consume is our own Railway volume.
 const UPSTREAM_FREE_ONLY = /^(1|true|yes)$/i.test(process.env.UPSTREAM_FREE_ONLY || "");

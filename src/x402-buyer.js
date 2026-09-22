@@ -1,11 +1,11 @@
-// Shared x402 BUYER primitive — the server acting as a paying client, first
-// proven by blockscout-kit (buy Blockscout Pro data upstream) and reused by the
-// Smart Order Router's external-execution path (pay any indexed x402 seller).
+// Shared x402 BUYER primitive - the server acting as a paying client, used by
+// the Smart Order Router's external-execution path (pay any indexed x402
+// seller) and the seller-payability check.
 //
 // One spending wallet (X402_UPSTREAM_BUYER_KEY) signs every outbound payment: a
 // DEDICATED low-balance hot wallet, never the treasury or the CI burner. Its
-// bucketed balance is surfaced for the heartbeat alarm (blockscout-kit's
-// upstreamBuyerStatus). Every buy is a spend-BEFORE-our-settle: a failed buyer
+// bucketed balance is surfaced for the heartbeat alarm (upstreamBuyerStatus in
+// src/upstream-buyer-status.js). Every buy is a spend-BEFORE-our-settle: a failed buyer
 // settlement can cost us the one upstream payment (the LLM-gateway risk class),
 // so the margin guard below refuses any upstream quote over the caller's cap.
 import { assertPublicUrl, ssrfDispatcher } from "./tools/fetch-guard.js";
@@ -138,8 +138,8 @@ export async function getUpstreamBuyerAvm() {
   return avmBuyerPromise;
 }
 
-// AVM spending-wallet balance status — the upstreamBuyerStatus pattern
-// (blockscout-kit) applied to the Algorand hot wallet: when it runs dry,
+// AVM spending-wallet balance status - the upstreamBuyerStatus pattern
+// (src/upstream-buyer-status.js) applied to the Algorand hot wallet: when it runs dry,
 // Algorand external routing fails 502s (buyers never charged) — the heartbeat
 // alarms on "low" BEFORE that. Bucketed status only; the balance number never
 // leaves the server. Also surfaces optedIn:false when the wallet has not
@@ -510,7 +510,7 @@ export function _spentThisWindow() { return spentThisWindow; } // test hook
  *
  * @param url        the seller endpoint (http/https). SSRF-guarded via
  *                   assertPublicUrl unless {trusted:true} (a fixed first-party
- *                   allowlist like Blockscout's api host, verified by caller).
+ *                   host the caller has verified, never a caller-supplied URL).
  * @param maxAtomic  hard ceiling on the upstream quote in atomic USDC (6dp) —
  *                   the margin guard. A quote above it fails 502, never signs.
  * @param method/body  request shape (POST body is a JSON-serializable object).

@@ -23,8 +23,8 @@
 # NOT entirely circular, and this is what sets the cadence. The ceiling is a
 # PROXY for upstream cost, never an exclusion: at $0.05 the pass also buys the
 # routes that bill a third party per call - the LLM tiers, images, tts,
-# transcribe, code-run (E2B), Brave-backed search, Blockscout (which we pay
-# $0.002 a call upstream), Alchemy, Neynar, and 12 skill packs whose STEPS
+# transcribe, code-run (E2B), Brave-backed search, Alchemy, Neynar, and 12
+# skill packs whose STEPS
 # reach Brave even though the pack's own slug is not metered. Measured
 # 2026-08-31: 97 of the 472 swept routes touch a metered upstream. That spend
 # is real and it is why this runs WEEKLY rather than daily - the rule being

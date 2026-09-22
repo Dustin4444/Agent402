@@ -8,6 +8,9 @@ carries its own version on npm.
 
 Since v2.4.0 (2026-09-18).
 
+### 2026-09-22
+- Retire contract-inspect, address-profile, token-info, token-holders and tx-inspect; the routes answer 410 with a replacement.
+
 ### 2026-09-21
 - Add `POST /v1/judge` ($0.001): typed judgments (a choice from a named set, a
   scored scale, a probability) over a supplied state.

@@ -117,9 +117,6 @@ export const WALLET_ONLY_SLUGS = new Set([
   // 9.9.9.9) or a paid upstream (crt.sh, target site, Team Cymru). PoW would
   // let one client farm our egress; keep them wallet-only.
   "a2a-card-fetch",
-  // Blockscout kit: every call BUYS upstream data over x402 with the server's
-  // spending wallet — PoW would let one client drain the upstream buyer.
-  "contract-inspect", "address-profile", "token-info", "token-holders", "tx-inspect",
   // sql-guard MINTS an Ed25519 execution certificate with SQL_CERT_SIGNING_KEY.
   // Left PoW-eligible it was a free, unlimited signing oracle for our own
   // certifying identity: anyone could obtain unbounded signed certificates for
@@ -323,8 +320,8 @@ export const WALLET_ONLY_SLUGS = new Set([
   // domain-audit composites (src/tools/domain-audit-kit.js) — live network
   // probes (egress) + Opus synthesis; egressing + metered, never PoW-eligible.
   "domain-audit", "domain-audit-pro",
-  // token-risk composites (src/tools/token-risk-kit.js) — buy Blockscout token/
-  // holder data over x402 (upstream spend) + Opus synthesis; never PoW-eligible.
+  // token-risk composites (src/tools/token-risk-kit.js) - keyless token-security,
+  // DEX and verification probes (egress) + Opus synthesis; never PoW-eligible.
   "token-risk", "token-safety", "token-risk-pro",
   // dossier-kit: company due-diligence dossier, fans out to EDGAR + grounded
   // web search + Opus synthesis - metered upstream, never free-tier/PoW.

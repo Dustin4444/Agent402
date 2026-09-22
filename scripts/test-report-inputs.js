@@ -9,7 +9,7 @@ import { parseForm4 } from "../src/tools/insider-flow-kit.js";
 import { parse13fCover } from "../src/tools/edgar-kit.js";
 import { classifyFromSubmissions } from "../src/tools/ipo-report-kit.js";
 import { parse13GCover } from "../src/tools/ticker-pack-kit.js";
-import { shapeGoPlus, privilegedFunctions } from "../src/tools/token-risk-kit.js";
+import { shapeGoPlus, privilegedFunctions, makeTokenRiskHandler } from "../src/tools/token-risk-kit.js";
 import { auditCitations } from "../src/tools/research-deep-kit.js";
 let pass = 0, fail = 0;
 const ok = (c, m) => { c ? pass++ : fail++; console.log(`${c ? "ok" : "FAIL"} - ${m}`); };
@@ -140,6 +140,59 @@ const ok = (c, m) => { c ? pass++ : fail++; console.log(`${c ? "ok" : "FAIL"} - 
   ok(r.cited.join(",") === "1,2" && r.stripped === 1 && !/\[7\]/.test(r.prose) && /\[1\]\[2\]/.test(r.prose), "citations outside the source range are stripped, ranges expand, and cited = the set actually used");
   ok(r.unverified.length === 1 && r.unverified[0].numbers.includes("5,000,000") && !r.unverified.some((u) => u.numbers.includes("41%")), "a number absent from the cited source's text is flagged; one present in its FULL TEXT is not");
   ok(auditCitations("Revenue grew 23% [1].", src, "sub-answer says 23% growth").unverified.length === 0, "a number supported by the sub-answers passes");
+}
+// ---- token-risk after the explorer legs were retired (2026-09-22) ----------
+// Every token fact now comes from keyless probes: GoPlus carries name, symbol,
+// supply, holder count and the top holders; DexScreener carries the market.
+// The refusal must still stop a thin report before any synthesis is bought,
+// and the prompt must not name a source the kit no longer reads.
+{
+  const rec = {
+    token_name: "Wrapped Ether", token_symbol: "WETH", total_supply: "249781.88", holder_count: "5267408",
+    is_open_source: "1", is_proxy: "0", is_mintable: "0", owner_address: "",
+    holders: [
+      { address: "0xbbbbbbbbbb9cc5e90e3b3af64bdaf62c37eeffcb", tag: "", is_contract: 1, balance: "79269.07", percent: "0.317353156510870296", is_locked: 0 },
+      { address: "0x000000000000000000000000000000000000dead", tag: "Burn", is_contract: 0, balance: "20013.25", percent: "0.080122913726510124", is_locked: 1 },
+      { address: "0x1111111111111111111111111111111111111111", tag: "", is_contract: 0, balance: "13306.43", percent: "0.05327218858135073", is_locked: 0 },
+    ],
+  };
+  const g = shapeGoPlus(rec);
+  ok(g.tokenName === "Wrapped Ether" && g.tokenSymbol === "WETH" && g.totalSupply === "249781.88" && g.holderCount === 5267408, "GoPlus supplies name, symbol, supply and holder count");
+  ok(g.topHolders.length === 3 && g.topHolders[0].percent === 31.7353 && g.topHolders[0].isContract === true && g.topHolders[1].locked === true && g.topHolders[1].tag === "Burn",
+    "GoPlus top holders carry share of supply as a percentage, contract and lock flags, and the tag");
+  ok(shapeGoPlus({}).topHolders.length === 0 && shapeGoPlus({}).totalSupply === null, "a record with no holder list or supply reads as none, never invented");
+
+  const ADDR = "0x4200000000000000000000000000000000000006";
+  let asked = 0, prompt = "";
+  const chat = async (body) => { asked++; prompt = String(body?.messages?.[0]?.content || ""); return { choices: [{ message: { content: "# Report\n\nBody." } }], usage: { cost: 0.01 } }; };
+  const tool = (slug) => async () => {
+    if (slug === "contract-source") return { verified: true, match: "exact_match", compiler: { version: "0.8.20" } };
+    if (slug === "contract-abi") return { abi: [{ type: "function", name: "transfer", stateMutability: "nonpayable" }] };
+    throw new Error(`unexpected tool ${slug}`);
+  };
+  const dex = async () => ({ totalPairs: 1, liquidityUsd: 5e6, volume24h: 1e6, txns24h: 900, pairs: [{ dex: "uniswap", pair: "0xp", quote: "USDC", priceUsd: 2500, liquidityUsd: 5e6, volume24h: 1e6, volume1h: 1e4, buys24h: 400, sells24h: 500, buys1h: 10, sells1h: 12, fdv: 6e8, marketCap: 6e8, createdAt: null, hasProfile: true, websites: [] }] });
+  const run = (deps) => makeTokenRiskHandler("token-risk", { tool, probeDexPairs: dex, chat, ...deps });
+  const refusal = async (deps) => { try { await run(deps)({ address: ADDR, chain: "base" }); return null; } catch (e) { return e; } };
+
+  asked = 0;
+  const e1 = await refusal({ probeGoPlus: async () => { throw Object.assign(new Error("GoPlus has no record for this token"), { statusCode: 422 }); } });
+  ok(e1?.statusCode === 422 && /token-security probe failed/.test(e1.message) && /Not charged/.test(e1.message) && asked === 0,
+    "a failed token-security probe refuses 422 before any synthesis is bought");
+  ok(/only the contract source and the DEX pairs were readable/.test(e1?.message || ""), "the refusal names what WAS readable, so the buyer knows why");
+  asked = 0;
+  const e2 = await refusal({ probeGoPlus: async () => shapeGoPlus({ is_honeypot: "0" }) });
+  ok(e2?.statusCode === 422 && /neither supply nor holders/.test(e2.message) && asked === 0,
+    "a token-security record with neither supply nor holders is thin evidence: 422, nothing bought");
+
+  asked = 0;
+  const out = await run({ probeGoPlus: async () => shapeGoPlus(rec) })({ address: ADDR, chain: "base" });
+  ok(asked === 1 && out.report && out.meta.symbol === "WETH" && out.meta.holder_count === 5267408 && out.meta.top1_share_pct === 31.7353,
+    "a readable record produces one synthesis and meta from the token-security probe");
+  ok(!/blockscout/i.test(prompt) && !/token-info|token-holders|address-profile/.test(prompt), "the synthesis prompt names no retired source or tool");
+  ok(/Top holders as listed by GoPlus/.test(prompt) && /31\.74%/.test(prompt) && /\[burn\/dead\]\s+LOCKED \(Burn\)/.test(prompt) && /price \$2500/.test(prompt),
+    "the prompt carries the GoPlus holder shares, the burn label and the DEX market read");
+  ok(Object.keys(out.meta.probes).sort().join(",") === "abi,dexPairs,scan,source,tokenSecurity", "meta.probes lists exactly the legs that ran");
+  ok(out.tables[0]?.name === "holders" && out.tables[0].rows.length === 3, "the holders appendix is built from the GoPlus list");
 }
 console.log(`${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

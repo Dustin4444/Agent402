@@ -15,7 +15,7 @@
 //
 // SCOPE FILTER (documented, deliberate):
 //   IN  — price > 0 AND documented OpenAPI example does not spend Brave /
-//         OpenAI / OpenRouter / E2B / Blockscout-buyer / FRED / Neynar /
+//         OpenAI / OpenRouter / E2B / FRED / Neynar /
 //         Alchemy-hard / CDP keys. Free-public APIs (data.gov DEMO_KEY,
 //         weather.gov, CoinGecko keyless, Nominatim, Open-Meteo, …) stay IN
 //         even when they live in WALLET_ONLY_SLUGS.
@@ -166,13 +166,10 @@ export const METERED_SLUGS = new Set([
   "recall-report", "insider-report", "market-brief", "token-brief", "filing-report", "linkedin-article",
   // ticker-pack - runs the dossier + insider composites in-process.
   "ticker-pack",
-  // token-risk composites — Blockscout x402 buys (upstream-buyer wallet) +
-  // Opus synthesis over OpenRouter; metered upstream both ways.
+  // token-risk composites - keyless probes + Opus synthesis over OpenRouter.
   "token-risk", "token-risk-pro",
   // E2B
   "code-run", "code-run-pro",
-  // Blockscout x402 buyer wallet
-  "contract-inspect", "address-profile", "token-info", "token-holders", "tx-inspect",
   // Route-and-execute can buy external sellers
   "route-execute", "seller-payability", "route-execute-max", "route-execute-plus",
   // Identity-bound (payment = identity)

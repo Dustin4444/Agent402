@@ -54,7 +54,6 @@ export const CHAIN_VERB_ROUTES = new Map(Object.entries({
   "network-info": "/api/chain-info",
   "nft-metadata": "/api/nft-metadata",
   "nft-owner": "/api/erc721-owner",
-  "proxy": "/api/address-profile",
   "receipt": "/api/tx-receipt",
   "rpc": "/api/evm-rpc",
   "source": "/api/contract-source",
@@ -146,14 +145,13 @@ export function chainNamespaceMap() {
  * everywhere else, so folding them into a tool's aliases would assert a claim
  * that fights the rest of the catalog.
  *
- * `proxy` means an EIP-1967 implementation pointer here and an LLM proxy in
- * most of our other descriptions; measured 2026-09-12, folding it put
- * address-profile behind llm, llm-pro and llm-premium for the bare word and
- * would have dragged the LLM tiers down for it in return. The URL still
- * answers - it is the search claim that is withdrawn. Name any addition here
- * with its reason, the way the sweep skiplists do.
+ * Empty since 2026-09-22. Its one entry, `proxy`, meant an EIP-1967
+ * implementation pointer here and an LLM proxy in most of our other
+ * descriptions; it pointed at a tool retired that day and left the namespace
+ * with it (chain-storage reads the implementation slot by its key). Name any
+ * addition here with its reason, the way the sweep skiplists do.
  */
-export const VERBS_NOT_FOLDED = new Set(["proxy"]);
+export const VERBS_NOT_FOLDED = new Set([]);
 
 export function chainVerbAliasesByRoute() {
   const out = new Map();

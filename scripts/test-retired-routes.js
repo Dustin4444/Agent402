@@ -12,7 +12,7 @@ const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { conso
 const throws = (fn, re, m) => { let e = null; try { fn(); } catch (err) { e = err; } ok(e && re.test(e.message), `${m} (${e ? e.message.slice(0, 80) : "did not throw"})`); };
 
 // --- the registry rules ---------------------------------------------------------
-const live = new Set(["crypto-options-chain", "stock-quote", "price-coingecko", "business-days", "cron-next", "slugify", "hash"]);
+const live = new Set(["crypto-options-chain", "stock-quote", "price-coingecko", "business-days", "cron-next", "slugify", "hash", "contract-source", "wallet-balance", "token-metadata", "tx-receipt"]);
 ok(assertRetiredRegistryConsistent(live) === true, "control: the registry is consistent against a live set that carries every replacement");
 throws(() => assertRetiredRegistryConsistent(new Set([...live, "options-chain"])), /listed as retired but is live/, "a retired tool that is live again fails the boot");
 throws(() => assertRetiredRegistryConsistent(new Set([...live, "skill-market-open"])), /pack "market-open" is listed as retired but is live/, "a retired pack that is live again fails the boot");
@@ -51,6 +51,14 @@ try {
   ok(Array.isArray(gb.suggestions) && typeof gb.find === "string", "...and the same find + suggestions the 404 carries");
   const post = await fetch(`${base}/api/options-chain`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ symbol: "AAPL" }) });
   ok(post.status === 410, `POST on a retired route is 410 too (got ${post.status})`);
+  // The 2026-09-22 explorer-data retirement: every one answers 410, never a
+  // 404 and never a 402 (a retired route must not quote a price it cannot serve).
+  for (const [slug, repl] of [["contract-inspect", "contract-source"], ["address-profile", "wallet-balance"], ["token-info", "token-metadata"], ["token-holders", null], ["tx-inspect", "tx-receipt"]]) {
+    const r = await fetch(`${base}/api/${slug}`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    const b = await r.json();
+    ok(r.status === 410 && b.slug === slug && b.retiredAt === "2026-09-22" && (repl ? b.replacement?.slug === repl : b.replacement === null),
+      `POST /api/${slug} is 410 naming ${repl || "no replacement"} (got ${r.status} ${JSON.stringify(b.replacement)})`);
+  }
   const none = await fetch(`${base}/api/stock-dividends`);
   const nb = await none.json();
   ok(none.status === 410 && nb.replacement === null && /no direct replacement/.test(nb.hint), "a retirement with no replacement says so instead of inventing one");

@@ -357,9 +357,10 @@ jobs:
             gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: rolling 30-day count back to $COUNT at $(date -u +%FT%TZ)."
           fi
 
-      # x402 spending-wallet check — same pattern as gateway credits above:
-      # when the upstream buyer wallet (blockscout-kit) runs dry the tools go
-      # dark quietly (502s, buyers never charged), so alarm on "low" first.
+      # x402 spending-wallet check - same pattern as gateway credits above:
+      # when the upstream buyer wallet (src/upstream-buyer-status.js) runs dry
+      # the paths that spend from it refuse quietly (buyers never charged), so
+      # alarm on "low" first.
       # "unknown"/"unconfigured" never page.
       - name: Upstream buyer wallet check (alarm on low x402 spending balance)
         if: always()
@@ -371,7 +372,7 @@ jobs:
           OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
           if [ "$STATUS" = "low" ]; then
             if [ -z "$OPEN" ]; then
-              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "The x402 upstream spending wallet (X402_UPSTREAM_BUYER_KEY) behind the blockscout-kit tools is below the low-water mark (UPSTREAM_BUYER_LOW_USD, default \$0.50). When it empties, contract-inspect/address-profile fail 502 (buyers are never charged, but the tools go dark). Top up: send USDC on Base to the upstream buyer address (see CLAUDE.md env docs)."
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "The x402 upstream spending wallet (X402_UPSTREAM_BUYER_KEY) is below the low-water mark (UPSTREAM_BUYER_LOW_USD). When it empties, route-execute external buys, seller-payability and attest refuse (buyers are never charged, but those paths go dark). Top up: send USDC on Base to the upstream buyer address (see CLAUDE.md env docs)."
             else
               gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "Still low at $(date -u +%FT%TZ)."
             fi
