@@ -42,7 +42,7 @@ import { RAILS, railKey, truncateCaip2 } from "./rails.js";
 import { CHAIN_PAGES, marketSellers } from "./market-page.js";
 import { WELL_KNOWN_PATH, discoveryNote } from "./discovery-note.js";
 import { acceptsFromLive402, quoteFromAccepts, probeMethodsFor, isQuoteResponse } from "./x402-live-quote.js";
-import { evmDomainsOfAccepts } from "./evm-usdc-domain.js";
+import { evmDomainsOfAccepts, EVM_TOKEN_DOMAINS } from "./evm-usdc-domain.js";
 import { queryTerms, isCjkTerm, splitTokens } from "./query-terms.js";
 import { summarize, fmtUsd, fmtPct } from "./economy.js";
 import { rankBy, canonicalHost, getLeaderboardSnapshot } from "./leaderboard.js";
@@ -1086,7 +1086,11 @@ export function priceToMicroUsd(p) {
     if (Number.isFinite(Number(p.amountMinor)) && String(p.currency || "USD").toUpperCase() === "USD") {
       return Math.round(Number(p.amountMinor) * 1e4); // cents -> micro-dollars
     }
-    return priceToMicroUsd(p.display ?? p.price ?? p.amount ?? null);
+    // `amount` beside payment context (decimals / asset / an MPP currency) is
+    // BASE UNITS, the same rule parseManifestPrice reads it by: the million-
+    // fold overquote arrives here too whenever a row stores its price object.
+    const amount = p.amount != null && atomicContext(p) ? atomicAmountToDollars(p, p.amount) : p.amount;
+    return priceToMicroUsd(p.display ?? p.price ?? amount ?? null);
   }
   if (typeof p !== "string") return null;
 
@@ -1556,8 +1560,87 @@ function acceptShaped(raw) {
       || typeof raw.payTo === "string" || typeof raw.maxAmountRequired === "string" || Array.isArray(raw.accepts));
 }
 
+/**
+ * An AMOUNT beside PAYMENT CONTEXT is base units of a token, never dollars
+ * (2026-09-22). Two live shapes still read atomic figures as dollars after the
+ * 2026-09-15 fix, because that one recognised the accept shape at the ENTRY
+ * level only:
+ *   - a manifest price OBJECT, `price: { amount: "3000", asset: <Base USDC>,
+ *     decimals: 6, display: "$0.003" }`, was listed at $3000 (the object path
+ *     took `amount` as dollars and never read `decimals`, `asset` or `display`);
+ *   - MPP's discovery shape in an OpenAPI operation, `x-payment-info: {
+ *     amount: "5000", currency: <Tempo USDC.e>, method: "tempo", intent:
+ *     "charge", offers: [...] }`, was listed at $5000 instead of $0.005.
+ * Payment context is `decimals`, an `asset`, or a `currency` beside an MPP
+ * `method`/`intent`. A bare `currency: "USDC"` beside an amount is NOT context:
+ * catalogues publish `{ amount: "0.032", currency: "USDC" }` meaning dollars.
+ * A fractional figure is never base units, so it keeps its dollar reading.
+ * Decimals are the declared ones, else 6 for the stablecoins every rail here
+ * settles in (USDC on any chain, Tempo USDC.e and PathUSD), else NOTHING: a
+ * token we cannot size is a price we do not publish (the live-402 probe learns
+ * it), because a wrong exponent is the same million-fold error by another road.
+ */
+const SIX_DECIMAL_TICKER = /^(usdc|usd coin|usdc\.e|pathusd)$/i;
+// Each id as its chain publishes it, lowercased HERE rather than by hand: the
+// first cut typed the Solana mint out in lower case and got one letter wrong,
+// which reads as "we cannot size this token" and publishes no price at all.
+const SIX_DECIMAL_ASSETS = new Set([
+  ...EVM_TOKEN_DOMAINS.filter((d) => d.symbol === "USDC").map((d) => d.asset),
+  "0x20C000000000000000000000b9537d11c60E8b50", // Tempo USDC.e
+  "0x20c0000000000000000000000000000000000000", // Tempo PathUSD
+  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // Solana USDC mint
+].map((a) => a.toLowerCase()));
+function tokenDecimalsOf(obj) {
+  const d = obj?.decimals;
+  if (typeof d === "number" && Number.isInteger(d) && d >= 0 && d <= 36) return d;
+  if (typeof d === "string" && /^\s*\d{1,2}\s*$/.test(d) && Number(d) <= 36) return Number(d);
+  for (const id of [obj?.asset, obj?.currency, obj?.asset_address, obj?.assetAddress, obj?.symbol, obj?.extra?.name]) {
+    if (typeof id !== "string" || !id.trim()) continue;
+    const v = id.trim();
+    if (SIX_DECIMAL_TICKER.test(v) || SIX_DECIMAL_ASSETS.has(v.toLowerCase())) return 6;
+  }
+  return null;
+}
+function atomicContext(obj) {
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return false;
+  if (obj.decimals != null) return true;
+  if (typeof obj.asset === "string" && obj.asset.trim()) return true;
+  return typeof obj.currency === "string" && !!obj.currency.trim()
+    && (typeof obj.method === "string" || typeof obj.intent === "string");
+}
+/** The dollar figure an amount in atomic context stands for: a number, the
+ *  fractional figure itself when it cannot be base units, or null for a token
+ *  whose decimals we cannot know. */
+function atomicAmountToDollars(obj, amount) {
+  const whole = typeof amount === "number" ? (Number.isInteger(amount) && amount >= 0)
+    : (typeof amount === "string" && /^\s*\d+\s*$/.test(amount));
+  if (!whole) {
+    const frac = typeof amount === "number" ? Number.isFinite(amount) && amount >= 0
+      : (typeof amount === "string" && /^\s*\d*\.\d+\s*$/.test(amount));
+    return frac ? amount : null;
+  }
+  const decimals = tokenDecimalsOf(obj);
+  if (decimals == null) return null;
+  return Number(String(amount).trim()) / 10 ** decimals;
+}
+/** An explicit DOLLAR label (`display`, `amountLabel`) the seller wrote for
+ *  humans: preferred over any figure we would have to convert. Taken only when
+ *  it reads as one dollar amount ("$0.003", "0.003 USDC"), never a sentence. */
+function dollarLabelOf(obj) {
+  for (const v of [obj?.display, obj?.amountLabel]) {
+    if ((typeof v === "string" || typeof v === "number") && priceToMicroUsd(v) != null) return v;
+  }
+  return null;
+}
+
 function parseManifestPrice(raw) {
-  let p = raw?.price_usd ?? raw?.priceUsd ?? raw?.price ?? (acceptShaped(raw) ? null : raw?.amount) ?? null;
+  let p = raw?.price_usd ?? raw?.priceUsd ?? raw?.price ?? null;
+  // An entry whose own amount sits beside payment context: a label first,
+  // else base units. Accept-shaped entries keep their old rule (the accepts
+  // reader prices them); MPP-shaped ones (currency + method/intent) had none.
+  if (p == null && raw?.amount != null && !acceptShaped(raw)) {
+    p = atomicContext(raw) ? (dollarLabelOf(raw) ?? atomicAmountToDollars(raw, raw.amount)) : raw.amount;
+  }
   // A `price` that is an OBJECT is a richer, entirely legitimate manifest shape:
   // the seller carries scheme/network/asset/payTo per resource and puts the
   // figure inside it. We only read scalars, so such a manifest normalised to
@@ -1572,7 +1655,12 @@ function parseManifestPrice(raw) {
   // survives a future edit to that key list, and noted because no mutation can
   // kill it - the test asserts the OUTCOME (an array declares nothing) instead.
   if (p && typeof p === "object" && !Array.isArray(p)) {
-    p = p.amountUsd ?? p.priceUsd ?? p.price_usd ?? p.amountLabel ?? p.amount ?? p.value ?? null;
+    const o = p;
+    p = o.amountUsd ?? o.priceUsd ?? o.price_usd ?? dollarLabelOf(o) ?? null;
+    if (p == null) {
+      const fig = o.amount ?? o.value;
+      if (fig != null) p = atomicContext(o) ? atomicAmountToDollars(o, fig) : fig;
+    }
   }
   if (typeof p === "number" && Number.isFinite(p)) return `$${p}`;
   if (typeof p === "string" && p.trim()) return p.trim().startsWith("$") ? p.trim() : `$${p.trim()}`;
@@ -1657,12 +1745,57 @@ function catalogueEntryAccepts(raw, fallback) {
   return fallback;
 }
 
-/** The service-wide `payment` block, read as one accept. Empty when absent. */
+/** Does this address have the shape of a wallet on this network's family?
+ *  A service-wide block names ONE payTo beside a LIST of networks, and an EVM
+ *  address paired with a Solana network (or the reverse) is not a wallet
+ *  anyone can be paid at there. A family we do not recognise is not refused:
+ *  every consumer validates the shape again before any RPC call. */
+function payToFitsNetwork(network, addr) {
+  if (typeof addr !== "string" || !addr.trim()) return false;
+  const n = String(network || "").toLowerCase();
+  if (n.startsWith("eip155:")) return /^0x[0-9a-fA-F]{40}$/.test(addr);
+  if (n.startsWith("solana")) return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr);
+  if (n.startsWith("stellar")) return /^G[A-Z2-7]{55}$/.test(addr);
+  if (n.startsWith("algorand")) return /^[A-Z2-7]{58}$/.test(addr);
+  return true;
+}
+
+/**
+ * The `payment.x402` shape: `{ networks: ["base"], primaryNetwork, payTo,
+ * currency }` - one wallet for the whole service, declared once, beside a
+ * catalogue whose `resources` are bare URL strings that carry no payment
+ * terms at all. It was read for the seller's display network and nothing
+ * else, so the payTo it declares never reached a row: live 2026-09-22, a
+ * seller whose every resource is a bare string sat in the index with an
+ * empty payToByNetwork, invisible to the Base scan (allPayToOrigins) and so
+ * unable to clear the settlement floor however many outside buyers paid it.
+ * One accept per declared network, shorthand normalised ("base" ->
+ * eip155:8453), the payTo attached only where its shape fits the network.
+ * The same block at the top level of `payment` (no `x402` key) is read too.
+ */
+function manifestX402BlockAccepts(p) {
+  const x = (p.x402 && typeof p.x402 === "object" && !Array.isArray(p.x402)) ? p.x402
+    : (Array.isArray(p.networks) ? p : null);
+  if (!x) return [];
+  const payTo = typeof x.payTo === "string" ? x.payTo.trim() : (typeof x.pay_to === "string" ? x.pay_to.trim() : "");
+  const nets = [...new Set(
+    [...(Array.isArray(x.networks) ? x.networks : []), x.network, x.primaryNetwork]
+      .filter((v) => typeof v === "string" && v.trim())
+      .map((v) => normalizeNetwork(v.trim())),
+  )].slice(0, 16);
+  return nets.map((network) => ({
+    scheme: typeof x.scheme === "string" ? x.scheme : "exact",
+    network,
+    ...(payToFitsNetwork(network, payTo) ? { payTo } : {}),
+  }));
+}
+
+/** The service-wide `payment` block, read as accepts. Empty when absent. */
 function manifestPaymentAccepts(manifest) {
   const p = manifest?.payment;
   if (!p || typeof p !== "object") return [];
   const network = p.network || p.chain;
-  if (typeof network !== "string" || !network) return [];
+  if (typeof network !== "string" || !network) return manifestX402BlockAccepts(p);
   return [{
     scheme: p.scheme || "exact",
     network,
@@ -2248,6 +2381,15 @@ export function openapiOperationPayment(op) {
     // that one as dollars for exactly this reason).
     if (!out.price && v.amountAtomic != null) takeAtomic(v, v.amountAtomic);
     if (!out.price && acceptShaped(v) && v.amount != null) takeAtomic(v, v.amount);
+    // MPP's discovery shape lists its terms under `offers`; when the top level
+    // states no amount, the first offer is the price and carries the same
+    // base-units rule (parseManifestPrice reads currency + method/intent).
+    if (!out.price && Array.isArray(v.offers)) {
+      for (const offer of v.offers.slice(0, 5)) {
+        takePrice(parseManifestPrice(offer));
+        if (out.price) break;
+      }
+    }
     const net = addNetwork(v.network ?? v.network_default ?? v.chain ?? null);
     if (net && typeof v.payTo === "string" && v.payTo) out.payToByNetwork[net] = v.payTo;
     if (Array.isArray(v.accepts)) {
@@ -2715,6 +2857,19 @@ export function carryForwardLearnedQuotes(tools, prev) {
     // manifest-shaped rebuild has no accepts of its own, and without this the
     // label would forget a wrong-domain seller on every crawl.
     if (!t.evmDomainByNetwork && hit.evmDomainByNetwork && typeof hit.evmDomainByNetwork === "object") t.evmDomainByNetwork = { ...hit.evmDomainByNetwork };
+    // The payTo the live 402 named rides forward the same way, per network,
+    // filling a GAP only: a manifest-shaped rebuild names no wallet on a
+    // bare-string resource, and without this every crawl would forget the one
+    // address the Base scan needs. A network the rebuilt row already carries a
+    // payTo for keeps it (the origin's own current document, read this crawl).
+    if (hit.payToByNetwork && typeof hit.payToByNetwork === "object") {
+      const remembered = Object.entries(hit.payToByNetwork).filter(([, addr]) => typeof addr === "string" && addr);
+      // The spread ORDER is the whole rule: what this crawl read from the
+      // origin wins, the remembered address fills the rest. Filtering the
+      // remembered entries as well would make each guard unkillable by the
+      // other, so a test could not tell either of them from a no-op.
+      if (remembered.length) t.payToByNetwork = { ...Object.fromEntries(remembered), ...(t.payToByNetwork || {}) };
+    }
     // A route-level hit may change a current row's verb in exactly two cases:
     // the row INFERRED its verb (named none), or the hit is a recorded
     // CORRECTION of this very verb (the probe saw it fail and the other answer).
@@ -2800,6 +2955,21 @@ export function quoteProbeCapFor(tools) {
     return Math.max(LIVE_QUOTE_PROBES_PER_CRAWL, Number(process.env.NEW_CATALOG_QUOTE_BURST || "60"));
   }
   return LIVE_QUOTE_PROBES_PER_CRAWL;
+}
+
+/**
+ * Write the payTo a live 402 named, per network, onto an index row. The live
+ * read REPLACES what the row held for each network it names (the 402 is the
+ * current word on where the origin is paid) and leaves networks it does not
+ * name alone, the same way the networks union never drops a manifest chain.
+ * Always a fresh object: manifest rows on one path can share one
+ * payToByNetwork, and writing into it would move a sibling's address too.
+ */
+function applyLivePayTo(row, payToByNetwork) {
+  if (!row || !payToByNetwork || typeof payToByNetwork !== "object") return;
+  const live = Object.entries(payToByNetwork).filter(([net, addr]) => typeof net === "string" && net && typeof addr === "string" && addr);
+  if (!live.length) return;
+  row.payToByNetwork = { ...(row.payToByNetwork || {}), ...Object.fromEntries(live) };
 }
 
 export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false } = {}) {
@@ -2900,9 +3070,14 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
         // The quote lives in the header for x402 v2 and in the body for several
         // real sellers; read a bounded slice of both and let the parser decide.
         const body = await res.text().catch(() => "");
-        const quote = quoteFromAccepts(
-          acceptsFromLive402({ header: res.headers.get("payment-required"), body: body.slice(0, 64_000) }),
-        );
+        // Networks normalised ONCE, as paymentFieldsFromAccepts does for a
+        // manifest or registry row: a v1-style 402 that names "base" must key
+        // its payTo under eip155:8453, or allPayToOrigins (which reads that
+        // key) never sees the wallet and the Base scan never credits it.
+        const live = acceptsFromLive402({ header: res.headers.get("payment-required"), body: body.slice(0, 64_000) });
+        const quote = quoteFromAccepts(Array.isArray(live)
+          ? live.map((a) => (a && typeof a.network === "string" ? { ...a, network: normalizeNetwork(a.network) } : a))
+          : live);
         if (quote) { learned = { ...quote, method }; break; }
       } catch { /* unreachable, blocked, or malformed - try the next method */ }
     }
@@ -2916,6 +3091,15 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
     // The live 402 is the current word on which EIP-712 domain each EVM
     // accept advertises: it replaces any older observation on the row.
     if (learned.evmDomainByNetwork) tool.evmDomainByNetwork = { ...learned.evmDomainByNetwork };
+    // And on where the origin asks to be paid. Until 2026-09-22 this was the
+    // one field of the 402 the probe threw away: a seller whose manifest names
+    // its wallet nowhere a resource reads it (bare-string resources) was listed
+    // with an EMPTY payToByNetwork, so allPayToOrigins never offered that
+    // wallet to the Base scan and no volume of outside buyers could ever move
+    // it past the settlement floor. The address the origin's OWN 402 names is
+    // the address the router would pay, so it is own evidence, never inherited
+    // (src/evidence-binding.js binds only registry and leaderboard wallets).
+    applyLivePayTo(tool, learned.payToByNetwork);
     // The live 402 was read: the row's chains are verified as of now, whatever
     // the manifest claimed (the union above never drops a manifest chain).
     tool.networksVerifiedAt = Date.now();
@@ -2932,6 +3116,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
         if (learned.price != null && !(Number(sibling.price) > 0)) sibling.price = learned.price;
         if (learned.networks?.length) sibling.networks = [...new Set([...(sibling.networks || []), ...learned.networks])];
         if (learned.evmDomainByNetwork) sibling.evmDomainByNetwork = { ...learned.evmDomainByNetwork };
+        applyLivePayTo(sibling, learned.payToByNetwork);
         sibling.networksVerifiedAt = Date.now();
         dropped.add(tool);
         console.log(`[x402-index] live-402: ${originUrl}${tool.route} refuses ${stated} and answers ${learned.method}; the seller declares both, dropping the ${stated} row (sibling kept)`);
@@ -4542,8 +4727,8 @@ export function mppDualStackOrigins() {
 /**
  * Every EVM payTo any known origin advertises on `network`, mapped to the
  * origins advertising it: crawled cache entries (routable or not, error or
- * not - a seller whose probe failed still told us its address) plus the
- * registry-synthesized tools (the Bazaar lists payTo per resource, so a
+ * not - a seller whose probe failed still told us its address, and since
+ * 2026-09-22 so did its own live 402) plus the registry-synthesized tools (the Bazaar lists payTo per resource, so a
  * Bazaar-listed seller we could never crawl is still attributable). The
  * discovery-gap report matched merchants against ROUTABLE sellers only, so
  * every known-but-unroutable origin counted as a blind spot. Attribution and
@@ -4614,10 +4799,13 @@ export function routableSellerSummaries() {
       // inert on whichever surface happens to render.
       discoveryPath: v.discoveryPath || null,
       // payTo per advertised network, so callers can join an origin to on-chain
-      // settlements it received. Sourced ONLY from facilitator discovery-registry
-      // items (bazaarItemToRow) - a seller's own crawled manifest never
-      // contributes one - so this carries exactly the same trust as the
-      // leaderboard's registry-declared payTo, no more.
+      // settlements it received. Read from every surface that states one: the
+      // origin's OWN live 402 (enrichLiveQuotes), its manifest accepts or
+      // service-wide payment block, and facilitator discovery-registry items.
+      // The first two are the origin's own word about where it is paid, which
+      // is the address the router would pay and therefore own evidence; a
+      // wallet an origin merely NAMES in someone else's listing stays bound to
+      // that listing (src/evidence-binding.js decides what it may inherit).
       //
       // Omitting it silently broke the router's chain-derived proven-ness join:
       // baseNetworkPayTo() returned null for every seller, so the evidence
@@ -4706,8 +4894,9 @@ export function sellerDetail(originOrHost) {
       // file has twice shipped a field present on two of three, which is
       // inert on whichever surface happens to render.
       discoveryPath: v.discoveryPath || null,
-      // payTo per advertised network. Registry-sourced only (bazaarItemToTool);
-      // a seller's own crawled manifest never contributes one. Omitting it made
+      // payTo per advertised network, from the origin's own live 402 and its
+      // own documents as well as from a registry listing about it (see the
+      // same field on routableSellerSummaries). Omitting it made
       // advertisedPayToEvidence inert: server.js passes THIS object as `seller`,
       // so baseNetworkPayTo() read undefined and the paid seller-trust tool
       // reported "advertises no payTo" for every seller, including the many that
