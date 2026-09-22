@@ -24,10 +24,12 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 
 ---
 
-## Security & trust (8)
+## Security & trust (10)
 
 | Pack | Price | What it solves |
 |---|---|---|
+| [**jwt-toolkit**](https://agent402.tools/skills/jwt-toolkit) | $0.003 | Decode and verify a JWT in one pass, then re-issue the claims: jwt-decode, jwt-verify, jwt-sign. |
+| [**webhook-intake**](https://agent402.tools/skills/webhook-intake) | $0.006 | The production ingest path for an incoming webhook: verify the signature, validate the payload, hash, timestamp, redact. |
 | [**security-audit**](https://agent402.tools/skills/security-audit) | $0.017 | Enumerate a domain's external attack surface: certs, DNS posture, email auth, HTTP headers, tech stack. |
 | [**email-deliverability**](https://agent402.tools/skills/email-deliverability) | $0.009 | Diagnose why a domain's email lands in spam: SPF, DMARC, DKIM strength, MX, composite score. |
 | [**fraud-signals**](https://agent402.tools/skills/fraud-signals) | $0.027 | Is this domain a phishing site / typosquat / scam? Pull the reputation signals before you click. |
@@ -37,10 +39,13 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | [**brand-protection**](https://agent402.tools/skills/brand-protection) | $0.027 | Is this domain legitimate? WHOIS age, DNS, scam/phishing search, and HTTP headers for a trust read. |
 | [**domain-age**](https://agent402.tools/skills/domain-age) | $0.008 | How old and legit is this domain? WHOIS registration, DNS resolution, and TLS certificate in one pass. |
 
-## Web extraction & document intelligence (9)
+## Web extraction & document intelligence (12)
 
 | Pack | Price | What it solves |
 |---|---|---|
+| [**markdown-convert**](https://agent402.tools/skills/markdown-convert) | $0.003 | Markdown to HTML and back, with a diff of the round trip. |
+| [**text-analyze**](https://agent402.tools/skills/text-analyze) | $0.004 | Word and sentence stats, keyword extraction and an exact token count in one call. |
+| [**text-hygiene**](https://agent402.tools/skills/text-hygiene) | $0.009 | Turn dirty text (chat logs, scraped pages) into clean lines: stats, redaction, dedupe, sort, entities, keywords, readability. |
 | [**content-extraction**](https://agent402.tools/skills/content-extraction) | $0.044 | Turn arbitrary URLs and PDFs into clean structured text - articles, page metadata, PDF pages, OCR. |
 | [**structured-scrape**](https://agent402.tools/skills/structured-scrape) | $0.032 | Pull structured data out of any page deterministically - articles, tables, elements by CSS selector. |
 | [**any-to-markdown**](https://agent402.tools/skills/any-to-markdown) | $0.026 | "I have a URL but it might be HTML, PDF, or an image - give me clean markdown either way." |
@@ -60,10 +65,11 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | [**competitor-scan**](https://agent402.tools/skills/competitor-scan) | $0.014 | What's a competitor running? Tech stack, HTTP headers, WHOIS, and page metadata in one call. |
 | [**status-snapshot**](https://agent402.tools/skills/status-snapshot) | $0.008 | "Is this site healthy, addressable, and crawlable - right now?" DNS → HTTP → headers → TLS → robots. |
 
-## Finance (8)
+## Finance (9)
 
 | Pack | Price | What it solves |
 |---|---|---|
+| [**loan-comparison**](https://agent402.tools/skills/loan-comparison) | $0.006 | Compare loan offers with different rates and terms: payment, amortization, compound interest, NPV, IRR. |
 | [**financial-research**](https://agent402.tools/skills/financial-research) | $0.024 | SEC filings + real-time quotes + history + macro context for a single ticker. |
 | [**financial-analysis**](https://agent402.tools/skills/financial-analysis) | $0.024 | Quick company snapshot: live quote, 9 key financial metrics, and upcoming earnings. |
 | [**company-dossier**](https://agent402.tools/skills/company-dossier) | $0.046 | Comprehensive company research in one call: quote, financials, filings, insider trades, news. |
@@ -90,10 +96,11 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | [**world-data**](https://agent402.tools/skills/world-data) | $0.005 | GDP and population for a country - two key World Bank indicators. |
 | [**macro-dashboard**](https://agent402.tools/skills/macro-dashboard) | $0.071 | The full macro plus crypto dashboard in one call: 5 FRED series, 5 Treasury reads, the curve spread, crypto market/trending/global, and live gas. |
 
-## Time series & forecasting (2)
+## Time series & forecasting (3)
 
 | Pack | Price | What it solves |
 |---|---|---|
+| [**number-crunch**](https://agent402.tools/skills/number-crunch) | $0.003 | Descriptive statistics, correlation and outliers over a numeric series. |
 | [**trend-analysis**](https://agent402.tools/skills/trend-analysis) | $0.015 | Take any numeric series and run the full workup - descriptives, moving averages, trend, outliers, forecast. |
 | [**forecasting-bake-off**](https://agent402.tools/skills/forecasting-bake-off) | $0.014 | Backtest all four methods (naive/drift, SES, Holt, Holt-Winters), rank by RMSE, forecast with the winner. |
 
@@ -115,10 +122,13 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | [**cheapest-rail**](https://agent402.tools/skills/cheapest-rail) | $0.009 | Where should an agent transact this minute? Live gas across L2s, a fee estimate, and ETH spot. |
 | [**contract-audit**](https://agent402.tools/skills/contract-audit) | $0.022 | Triage a smart contract before an agent touches it: verified source, heuristic vulnerability scan, known-address check, selector resolution, and a read-only dry-run of the exact call. |
 
-## Network, DevOps & API work (4)
+## Network, DevOps & API work (7)
 
 | Pack | Price | What it solves |
 |---|---|---|
+| [**schema-guard**](https://agent402.tools/skills/schema-guard) | $0.004 | Contract-test a JSON payload: validate against a schema, infer one, diff, format. |
+| [**json-pipeline**](https://agent402.tools/skills/json-pipeline) | $0.004 | Validate, pretty-print and convert JSON to CSV in one pass. |
+| [**openapi-audit**](https://agent402.tools/skills/openapi-audit) | $0.004 | Lint an OpenAPI spec, validate a sample payload against it, and summarize its security schemes. |
 | [**dns-network-ops**](https://agent402.tools/skills/dns-network-ops) | $0.011 | End-to-end DNS health check: records, multi-resolver propagation, WHOIS, ASN, robots.txt, reachability. |
 | [**api-investigation**](https://agent402.tools/skills/api-investigation) | $0.017 | Point at an unknown API and figure out how to use it: auth, content type, version, rate limits, schema. |
 | [**schema-evolution**](https://agent402.tools/skills/schema-evolution) | $0.008 | "Did this API contract change in a way that breaks us?" - diff two OpenAPI snapshots, lint, validate. |
@@ -138,10 +148,11 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | [**contact-verify**](https://agent402.tools/skills/contact-verify) | $0.004 | Verify an email is deliverable - syntax validation plus MX record check on the domain. |
 | [**entity-enrich**](https://agent402.tools/skills/entity-enrich) | $0.023 | Company name to verified identity plus web footprint: Wikidata facts, the LEI legal-entity record, the SEC filer, domain registration, tech stack, and brand favicon. |
 
-## Location & time (4)
+## Location & time (5)
 
 | Pack | Price | What it solves |
 |---|---|---|
+| [**timezone-planner**](https://agent402.tools/skills/timezone-planner) | $0.003 | Time zone conversion, business-day arithmetic and the next cron fire time. |
 | [**location-intel**](https://agent402.tools/skills/location-intel) | $0.008 | Point at an address and assemble the brief - coords, address, nearby, weather, NWS alerts, seismic. |
 | [**trip-planner**](https://agent402.tools/skills/trip-planner) | $0.006 | Plan a multi-stop journey - geocode each stop, sum pairwise distances, add travel time, pull weather. |
 | [**weather-brief**](https://agent402.tools/skills/weather-brief) | $0.006 | Full weather briefing for a location: current conditions, 7-day forecast, and air quality. |

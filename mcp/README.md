@@ -15,7 +15,7 @@ wrapped with `mppx`'s `McpClient.wrap()` (USDC on Base/Celo, or native Tempo)
 pays and retries on its own, receipt in `_meta`. For no rate limit, or to pay
 over x402 or by card instead, run this package locally:
 
-With a funded wallet (USDC on Base, Polygon, Arbitrum, Monad, or Solana, or USDG on Robinhood Chain - the underlying service accepts 12 chains in total, but this package currently signs only EVM and Solana payments) - every tool available:
+With a funded wallet (USDC on any EVM rail the server offers - Base, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism - or USDG on Robinhood Chain, or USDC on Solana via `SOLANA_AGENT_KEY`; the service also settles on Stellar and Algorand, which this package does not sign) - every tool available:
 
 ```json
 {
@@ -98,7 +98,7 @@ so set `AGENT402_MAX_PER_CALL` if you want a hard per-call ceiling.
   | ≤ $0.50 | $0.55 | `POST /api/route/execute-max` |
 
   A tool priced above the tier's ceiling returns a self-correcting 409 naming its direct route.
-- **Report products** are catalog slugs like any other, so `catalog.call` runs them with a wallet or a credits key: `research` ($0.35), `research-pro` ($0.65), `research-max` ($1.10), `market-brief` ($0.35), `dossier` ($0.55), `dossier-max` ($0.95), `fund-report` ($0.25), `fund-report-max` ($0.50), `domain-audit` ($0.20), `domain-audit-pro` ($0.30), `token-risk` ($0.30), `token-risk-pro` ($0.60), `token-brief` ($0.35), `recall-report` ($0.20), `insider-report` ($0.25), `filing-report` ($0.25), `ticker-pack` ($0.75). The same reports are sold to people by card at https://agent402.tools/reports for $1, or $2 for the deepest three: the card price includes payment processing, and an agent paying per call pays the lower tool price for the same report. The recurring monitors (domain, SEC filing, token, fund, recall, insider, IPO - $3/month) are at https://agent402.tools/monitors.
+- **Report products** are catalog slugs like any other, so `catalog.call` runs them with a wallet or a credits key: `research` ($0.60), `research-pro` ($0.85), `research-max` ($1.10), `market-brief` ($0.85), `dossier` ($0.85), `dossier-max` ($1.10), `fund-report` ($0.60), `fund-report-max` ($0.85), `domain-audit` ($0.60), `domain-audit-pro` ($0.85), `token-risk` ($0.60), `token-risk-pro` ($0.85), `token-brief` ($0.60), `recall-report` ($0.60), `insider-report` ($0.60), `filing-report` ($0.85), `ticker-pack` ($2.00); the live figures are always at https://agent402.tools/api/pricing. The same reports are sold to people by card at https://agent402.tools/reports for $2 to $5 depending on depth: the card price includes payment processing, and an agent paying per call pays the lower tool price for the same report. The recurring monitors (domain, SEC filing, token, fund, recall, insider, IPO, research - $5/month) are at https://agent402.tools/monitors.
 
 ## Workflows (skill packs)
 

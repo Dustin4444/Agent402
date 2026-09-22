@@ -12,7 +12,7 @@ neutral Smart Order Router across every seller).
 |---|---|---|
 | `GET /api/find?q={task}` | ✅ | Best matching tools (route, price, schema, example) |
 | `POST /api/route {query, top, include}` | ✅ | Smart Order Router across every x402 seller, ranked by match → health → price |
-| `GET /api/leaderboard?top=N&include=all\|external` | ✅ | On-chain ranking of every x402 seller by Base USDC settled volume |
+| `GET /api/leaderboard?top=N&include=all\|external` | ✅ | On-chain ranking of every x402 seller by Base USDC settled volume (`?limit=` is accepted as an alias of `?top=`) |
 
 ## Why on-chain volume
 
@@ -37,10 +37,13 @@ self-reports, no caches you have to trust, no API keys involved.
    and the human label in `windowLabel` / `windowServed`. A chunk that fails
    after every RPC retry is skipped rather than aborting the scan; only an
    all-chunks-failed outage throws.
-3. **Per-call ceiling filter** - keep only transfers whose value is ≤ the
-   ceiling reported as `maxCallUsd` (`MAX_CALL_USD`, default **$0.75**).
-   Anything larger is funding, a swap, or a treasury move, not a paid x402
-   call.
+3. **Per-call filter** - a transfer counts as a paid call when its value
+   matches a price the seller publishes, up to the price-match ceiling reported
+   as `priceMatchMaxUsd` (`PRICE_MATCH_MAX_USD`, default **$25**), or when it
+   is at or under the flat ceiling reported as `maxCallUsd` (`MAX_CALL_USD`,
+   default **$0.75**). A transfer matching no published price above the flat
+   ceiling, or matching one above the price-match ceiling, is funding, a swap,
+   a gift card or a treasury move, and is skipped.
 4. **Aggregate** - for each seller: `callsSettled` (count), `totalUsd` (sum),
    `uniqueBuyers` (distinct `from` addresses).
 5. **Rank** - by `totalUsd` (then `callsSettled`, then seller name) and assign
@@ -52,7 +55,7 @@ refresh ever fails, the last good snapshot is preserved.
 ## Calling it
 
 ```bash
-# Top 10, including Agent402 itself (top defaults to 25, clamped to 1..500)
+# Top 10, including Agent402 itself (top, or limit, defaults to 25, clamped to 1..500)
 curl 'https://agent402.tools/api/leaderboard?top=10'
 
 # Rank only the rest of the ecosystem (exclude Agent402)
@@ -108,9 +111,14 @@ Field notes that matter when you parse it:
 
 - **`leaderboard`** is the array. There is no `rows` key.
 - The display name is **`name`**. There is no `serviceName` key.
-- **`maxCallUsd`** is the per-call ceiling actually applied, and
+- **`maxCallUsd`** is the flat per-call ceiling actually applied,
+  **`priceMatchMaxUsd`** the ceiling on price-matched transfers, and
   **`scannedBlocks`** / **`windowServed`** are the window actually scanned.
   Read them rather than hardcoding a ceiling or a window.
+- **`settlementsAbovePerCallCeiling`** counts transfers above `maxCallUsd`
+  that were kept because they matched a price the seller publishes;
+  **`transfersSkippedOverCeiling`** counts those dropped. A seller whose prices
+  sit above the flat ceiling shows up in the first, not the second.
 - One seller can settle to several wallets: `wallet` is the primary, `wallets`
   is the full set, and `walletCount` is its size. `origins` likewise lists
   every host origin collapsed into the row.

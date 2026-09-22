@@ -154,7 +154,7 @@ Boots straight from the repo's `railway.toml` + `Dockerfile`. Optional plugins a
 | **Geo** | `geo-distance` (haversine, pure-CPU), `geocode`, `reverse-geocode`, `place-search`, `geo-lookup` |
 | **Live data** | `fx-rate` (ECB), `barcode-lookup` (Open Food Facts), `gov-data` (data.gov), `weather-forecast`/`weather-alerts`, `earthquakes` (USGS) |
 | **Finance & crypto** | `stock-quote`/`stock-history` (Databento, four-venue consolidation), `crypto-price`/`crypto-market`/`crypto-history`/`crypto-trending`/`crypto-global` (CoinGecko) |
-| **Crypto derivatives & options** | `perp-markets`, `perp-funding`, `perp-funding-screener`, `perp-basis`, `perp-open-interest`, `perp-klines`, `perp-orderbook` (live perpetuals: mark/oracle price, funding, OI, candles, depth); `options-summary`, `crypto-options-chain`, `options-ticker`, `options-volume` (options book, IV and greeks, onchain options volume) - $0.002 to $0.005 a call, no exchange account |
+| **Crypto derivatives & options** | `perp-markets`, `perp-funding`, `perp-funding-screener`, `perp-basis`, `perp-open-interest`, `perp-klines`, `perp-orderbook` (live perpetuals: mark/oracle price, funding, OI, candles, depth); `options-summary`, `crypto-options-chain`, `options-ticker`, `options-volume` (options book, IV and greeks, onchain options volume) - $0.001 to $0.005 a call, no exchange account |
 | **DeFi & stablecoins** | `defi-yields` (screen pools by chain, project, TVL and stablecoin-only), `defi-yield-history`, `defi-protocols`, `defi-protocol`, `defi-chains`, `defi-chain-tvl-history`, `defi-fees`, `defi-dex-volume`, `stablecoins`, `stablecoin-supply-history` - $0.001 to $0.003 a call |
 | **Solana token intel** | `sol-token-safety` (authorities, liquidity, holder concentration, graded), `sol-token-report` (full risk write-up), `sol-token-holders`, `sol-token-pairs`, `sol-token-search`, `sol-trending`, `sol-price`, `sol-swap-quote`, `sol-token-lookup` - the due-diligence pass an agent needs before it touches a mint |
 | **Crypto market coverage** | `crypto-news`, `crypto-indicators` (RSI, MACD, moving averages, computed here), `crypto-market-pulse`, `coin-profile`, `coin-history`, `coin-ohlc`, `coin-market-chart-range`, `coin-categories`, `coin-price-by-contract` (price by token ADDRESS, no coin id needed), `global-defi`, `exchanges`, `exchange-tickers`, `exchange-rates`, `coin-search`, `coins-list` - plus tokenized real-world assets from the same CoinGecko key: `rwa-list`, `rwa-markets`, `rwa-asset`, `rwa-issuers`, `rwa-issuer` (tokenized stocks, ETFs and commodities with onchain market data and the issuers behind them) |
@@ -238,8 +238,8 @@ synthesis; `ipo-report` is fully deterministic (no model at all):
 
 Reports are wallet-only (x402 / MPP / prepaid credits, never proof-of-work) and
 take a few minutes to generate. The same reports are sold to people by card at
-[agent402.tools/reports](https://agent402.tools/reports) for $1, or $2 for the
-three biggest. The card price includes payment processing; an agent paying per
+[agent402.tools/reports](https://agent402.tools/reports) for $2 to $5 depending
+on depth. The card price includes payment processing; an agent paying per
 call over x402 or MPP pays the lower tool price for the same report.
 
 Two companion tools close the loop: `POST /api/route/execute` ($0.01, with
