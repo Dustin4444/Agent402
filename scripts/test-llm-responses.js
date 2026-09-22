@@ -191,5 +191,40 @@ delete process.env.OPENROUTER_API_KEY;
   delete process.env.OPENROUTER_API_KEY;
 }
 
+// ---- price by model on the Responses wire (2026-09-22) ---------------------
+// Same rule as the chat wire: a flat route's 402 quotes the model's home tier
+// price, and only a request gated at that price is served under that tier.
+{
+  const { TIERS: T } = await import("../src/tools/llm-gateway-kit.js");
+  const baseR = bySlug("v1-chat-responses"), nanoR = bySlug("v1-chat-nano-responses");
+  const OPUS = "anthropic/claude-opus-5";
+  ok(typeof baseR.tierQuote === "function" && typeof baseR.quote !== "function" && typeof bySlug("v1-chat-auto-responses").tierQuote !== "function" && typeof bySlug("v1-chat-metered-responses").tierQuote !== "function", "flat Responses routes carry tierQuote (never quote); auto and metered do not");
+  ok(baseR.tierQuote({ model: OPUS, input: "hi" }) === T["v1-chat-premium"].price && baseR.tierQuote({ model: "openai/gpt-4o-mini", input: "hi" }) === T["v1-chat"].price, "base Responses route: premium model quotes premium, base model keeps base");
+  ok(nanoR.tierQuote({ model: OPUS, input: "hi" }) === T["v1-chat-premium"].price && baseR.tierQuote({ model: "not-a-real/model", input: "hi" }) === T["v1-chat"].price, "nano route + premium model quotes premium; an unknown model quotes the route price");
+  ok(baseR.price === "$0.02", "the base Responses route's catalog price is unchanged");
+  process.env.OPENROUTER_API_KEY = "test-key";
+  const pbmReal = globalThis.fetch;
+  let pbmSeen = [];
+  globalThis.fetch = async (url, init) => { const b = JSON.parse(init.body); pbmSeen.push(b); return { ok: true, status: 200, text: async () => JSON.stringify(reply(b.model)) }; };
+  const reqAt = (usd) => ({ header: () => undefined, headers: {}, ip: "127.0.0.1", ...(usd == null ? {} : { __meteredQuoteUsd: usd }) });
+  try {
+    pbmSeen = [];
+    const out = await baseR.handler({ model: OPUS, input: "hi", max_output_tokens: 6000 }, reqAt(0.5)).catch((e) => ({ threw: `${e?.statusCode} ${e?.message}` }));
+    ok(JSON.stringify(pbmSeen[0]?.provider?.max_price) === JSON.stringify(T["v1-chat-premium"].maxPrice) && pbmSeen[0]?.max_output_tokens === 6000 && 6000 > T["v1-chat"].maxTokens && pbmSeen[0]?.reasoning === undefined, `served under premium's config (max_price ${JSON.stringify(pbmSeen[0]?.provider?.max_price)}, max_output_tokens ${pbmSeen[0]?.max_output_tokens}, no base reasoning default)`);
+    ok(out.agent402_tier?.served === "v1-chat-premium" && out.agent402_tier?.route === "/v1/responses" && out.agent402_tier?.priceUsd === 0.5, `the answer names the served tier on this wire (${JSON.stringify(out.agent402_tier)})`);
+    const { _testEventsForTest } = await import("../src/posthog.js");
+    const ev = _testEventsForTest().filter((e) => e.event === "gateway_usage").pop();
+    ok(ev?.properties.tier === "v1-chat-premium:responses" && ev?.properties.routeTier === "v1-chat:responses" && ev?.properties.priceUsd === 0.5, "telemetry records the served tier and the route");
+    for (const [label, r] of [["gated at the base price", reqAt(0.02)], ["no request (route-execute)", undefined]]) {
+      pbmSeen = [];
+      let e = null; try { await baseR.handler({ model: OPUS, input: "hi" }, r); } catch (x) { e = x; }
+      ok(e?.statusCode === 400 && /\/v1\/premium\/responses/.test(e.message) && pbmSeen.length === 0, `${label}: the 400 naming the premium Responses path, nothing sent upstream`);
+    }
+    pbmSeen = [];
+    const same = await baseR.handler({ model: "openai/gpt-4o-mini", input: "hi" }, reqAt(0.02)).catch((e) => ({ threw: `${e?.statusCode} ${e?.message}` }));
+    ok(JSON.stringify(pbmSeen[0]?.provider?.max_price) === JSON.stringify(T["v1-chat"].maxPrice) && same.agent402_tier === undefined, "a same-tier model keeps the base config and carries no agent402_tier");
+  } finally { globalThis.fetch = pbmReal; }
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

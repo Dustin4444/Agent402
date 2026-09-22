@@ -31,6 +31,7 @@
 // be a buyer believing they set something they did not.
 import {
   TIERS, canonicalModel, bad, meteredQuoteForProbe, validateRequest, LLM_GATEWAY_TOOLS,
+  isFlatTier, flatTierQuoteUsd,
 } from "./llm-gateway-kit.js";
 
 /** Tier slug -> the fixed catalog path for that tier's Gemini route.
@@ -310,7 +311,11 @@ export function makeGeminiHandler(tierSlug) {
       if (e && typeof e.message === "string") e.message = repointToGeminiWire(e.message);
       throw e;
     }
-    return chatToGemini(data, model);
+    const out = chatToGemini(data, model);
+    // Price by model: the chat handler served another flat tier's config
+    // because this request was gated at that tier's price; say so here too.
+    if (data?.agent402_tier) out.agent402_tier = { ...data.agent402_tier, route: GEMINI_PATH_BY_TIER[tierSlug] };
+    return out;
   };
 }
 
@@ -345,6 +350,9 @@ export const LLM_GEMINI_TOOLS = Object.entries(GEMINI_PATH_BY_TIER).map(([tierSl
     category: "llm",
     price: tier.metered ? `$${tier.price.toFixed(3)}` : `$${tier.price.toFixed(3)}`,
     ...(tier.metered ? { quote: (body) => meteredGeminiQuoteUsd(body).usd } : {}),
+    // Price by model on a flat route: the same model this wire hands the chat
+    // handler (modelOf), so the gate's price and the served tier agree.
+    ...(isFlatTier(tierSlug) ? { tierQuote: (body) => flatTierQuoteUsd(tierSlug, modelOf(body, tierSlug)) } : {}),
     description: `Google's native generateContent wire on the ${TIER_LABEL[tierSlug]} tier. Send Gemini's own request shape (contents, systemInstruction, generationConfig, function declarations) and get Gemini's own response shape (candidates, usageMetadata) back. Point a Google GenAI SDK at this gateway and pay per request with USDC, no account. Also answers the Google-shaped path /v1beta/models/<model>:generateContent.`,
     tags: ["llm", "gemini", "google", "generatecontent", "chat"],
     discovery: { bodyType: "json", inputSchema: INPUT_SCHEMA, input: EXAMPLE_IN, output: { example: EXAMPLE_OUT } },

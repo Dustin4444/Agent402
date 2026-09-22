@@ -22,6 +22,12 @@ Since v2.4.0 (2026-09-18).
 - Publish a `GET` query parameter in `/openapi.json` with the type its schema
   declares when that type is `integer` or `boolean`; both were published as
   `string` beside a numeric or boolean example.
+- Price a flat chat route by the model it is asked for: a model that another
+  flat tier serves (nano, base, pro, premium) now gets a 402 quoting that
+  tier's price and, once paid, is served under that tier's caps, allowlist and
+  failover instead of a 400. Applies to the chat, Messages, Responses and
+  Gemini wires; the answer carries `agent402_tier`. Catalog prices, `/api/pricing`
+  and `/openapi.json` are unchanged.
 
 ### 2026-09-21
 - Add `POST /v1/judge` ($0.001): typed judgments (a choice from a named set, a

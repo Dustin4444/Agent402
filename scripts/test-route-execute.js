@@ -376,5 +376,30 @@ await expectErr({ slug: "broken-tool", params: {} }, 422, "underlying tool 422 p
   }
 }
 
+// ---- price by model leaves route-execute unchanged (2026-09-22) ------------
+// A flat chat route prices a body that names another flat tier's model at that
+// tier (tierQuote), but it is NOT a `quote` route: route-execute still
+// dispatches it within the tier cap, and because the executor calls the
+// handler with no request (no gated price), the model never crosses tiers - a
+// $0.05 routing fee can never buy a $0.50 premium call.
+{
+  const { EXEC_TIERS } = await import("../src/tools/route-execute.js");
+  const { LLM_GATEWAY_TOOLS } = await import("../src/tools/llm-gateway-kit.js");
+  const chat = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-chat");
+  const cat = { [chat.route]: chat };
+  const plus = buildRouteExecuteTool({ getCatalog: () => cat, baseUrl: "https://agent402.tools", tier: EXEC_TIERS.find((t) => t.slug === "route-execute-plus") });
+  const savedKey = process.env.OPENROUTER_API_KEY;
+  delete process.env.OPENROUTER_API_KEY;
+  try {
+    ok(typeof chat.tierQuote === "function" && typeof chat.quote !== "function", "the flat chat route carries tierQuote, not quote");
+    let e = null;
+    try { await plus.handler({ slug: "v1-chat", params: { model: "anthropic/claude-opus-5", messages: [{ role: "user", content: "hi" }] } }); } catch (x) { e = x; }
+    ok(e?.statusCode === 400 && /served by the v1-chat-premium tier/.test(e.message), `a premium model through route-execute-plus is dispatched and keeps the 400, never served as premium (${e?.statusCode})`);
+    e = null;
+    try { await plus.handler({ slug: "v1-chat", params: { model: "openai/gpt-4o-mini", messages: [{ role: "user", content: "hi" }] } }); } catch (x) { e = x; }
+    ok(e?.statusCode === 503 && /not configured/.test(e.message), `a base model is still dispatched to the flat handler (reached its upstream key check: ${e?.statusCode})`);
+  } finally { if (savedKey !== undefined) process.env.OPENROUTER_API_KEY = savedKey; }
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

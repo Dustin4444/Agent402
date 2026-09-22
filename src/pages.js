@@ -11,6 +11,7 @@ import { HUMAN_PRODUCTS } from "./human-checkout.js";
 import { RAILS_AMP, RAILS_OR, RAILS_PAREN, RAILS_SHORT } from "./rails.js";
 import { tempoDiscoveryInfo } from "./mpp-tempo.js";
 import { stripeDiscoveryInfo } from "./mpp-stripe.js";
+import { PRICED_BY_MODEL_NOTE } from "./tools/llm-gateway-kit.js";
 
 export const CATEGORIES = {
   web: { label: "Web & documents", blurb: "Read the live web: browser rendering, screenshots, article extraction, PDFs, metadata." },
@@ -557,7 +558,12 @@ export function openapiSpec(baseUrl, catalog) {
     const op = {
       operationId: `${tool.slug}${method === "GET" ? "Get" : ""}`,
       summary: `${tool.name} (${tool.price}/call via x402)`,
-      description: `${tool.description}\n\nPrice: ${tool.price} per call, paid in ${RAILS_OR} via the x402 protocol. Unpaid requests receive HTTP 402 with payment requirements; any x402 v2 client can pay and retry automatically. Docs: ${baseUrl}/tools/${tool.slug}`,
+      // A route that can quote MORE than its list price for some bodies says so
+      // here, in the same breath as the number. `x-price` stays the list price
+      // (it is what this route charges for the models it serves, and every
+      // other surface agrees with it); the sentence is what keeps the number
+      // from reading as a ceiling it is not.
+      description: `${tool.description}\n\nPrice: ${tool.price} per call, paid in ${RAILS_OR} via the x402 protocol.${typeof tool.tierQuote === "function" ? ` ${PRICED_BY_MODEL_NOTE}` : ""} Unpaid requests receive HTTP 402 with payment requirements; any x402 v2 client can pay and retry automatically. Docs: ${baseUrl}/tools/${tool.slug}`,
       tags: [tool.category],
       responses: {
         200: {

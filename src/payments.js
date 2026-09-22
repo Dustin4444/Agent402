@@ -401,8 +401,12 @@ export function acceptsForItem(item, rails) {
   // every call, including the paid retry, so the amount a buyer authorized is
   // re-derived from the body actually served. The quote is stashed on the
   // request so the upto meter can use it as the ceiling (gateway-meter.js).
+  // A flat chat route's `tierQuote` rides the same path: it prices a body that
+  // names another flat tier's model at that tier's price (price by model), and
+  // the handler serves that tier only when the stash covers it.
+  const quoteFn = typeof item.quote === "function" ? item.quote : typeof item.tierQuote === "function" ? item.tierQuote : null;
   const priceOf = (caip2) => {
-    if (typeof item.quote !== "function") return priceWithPremium(item.price, caip2);
+    if (!quoteFn) return priceWithPremium(item.price, caip2);
     return async (ctx) => {
       let usd = null;
       try {
@@ -419,7 +423,7 @@ export function acceptsForItem(item, rails) {
           // envelopes unwrapped), never the raw body: a body the quoter cannot
           // read must not quote the floor for a call that is then served.
           const body = req ? handlerInputOf(req, item) : (typeof ctx?.adapter?.getBody === "function" ? ctx.adapter.getBody() : null);
-          usd = Number(item.quote(body && typeof body === "object" ? body : {}));
+          usd = Number(quoteFn(body && typeof body === "object" ? body : {}));
           if (req && Number.isFinite(usd)) req.__meteredQuoteUsd = usd;
         }
       } catch { usd = null; }

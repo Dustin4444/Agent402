@@ -216,6 +216,89 @@ try {
     await capped.close().catch(() => {});
   }
 
+  // Spend caps are enforced against the amount the 402 ACTUALLY QUOTES, not the
+  // catalog price. A route may quote per request from the body (a token-metered
+  // route, or a chat route priced by the model named in it), and this server
+  // pays whatever the challenge asks for - vendor spend controls are off
+  // because the package bounds spend itself - so a cap read off /api/pricing
+  // would not be a cap. Driven against a local stub seller: nothing is signed,
+  // no key is spent, and the whole exchange stays on loopback.
+  {
+    const { createServer } = await import("node:http");
+    const { getFreePort } = await import("../scripts/lib/free-port.js");
+    const LIST_USD = 0.02, PREMIUM_USD = 0.5;
+    const seen = { preflights: 0, authorized: 0 };
+    const challenge = (usd) => Buffer.from(JSON.stringify({
+      x402Version: 2,
+      accepts: [{ scheme: "exact", network: "eip155:8453", amount: String(Math.round(usd * 1e6)), asset: "0xUSDC", payTo: "0xdead", extra: { name: "USD Coin" } }],
+    })).toString("base64");
+    const catalogRow = { slug: "chat", method: "POST", path: "/v1/chat/completions", price: `$${LIST_USD}`, description: "chat", category: "llm", computePayable: false };
+    const stub = createServer((req, res) => {
+      const send = (status, obj, headers = {}) => { res.writeHead(status, { "Content-Type": "application/json", ...headers }); res.end(JSON.stringify(obj)); };
+      if (req.url.startsWith("/api/pricing")) return send(200, { endpoints: [catalogRow], payment: { network: "base" } });
+      if (req.url.startsWith("/openapi.json")) return send(200, { paths: {} });
+      if (req.url.startsWith("/api/skill-packs.json")) return send(200, { packs: [] });
+      if (req.url.startsWith("/v1/chat/completions")) {
+        let body = "";
+        req.on("data", (c) => (body += c));
+        return req.on("end", () => {
+          // The quote is a function of the body: the dearer model costs more.
+          let model = ""; try { model = JSON.parse(body || "{}").model || ""; } catch { /* unparseable */ }
+          const usd = model === "premium-model" ? PREMIUM_USD : LIST_USD;
+          if (req.headers.authorization) { seen.authorized++; return send(200, { ok: true, model }); }
+          seen.preflights++;
+          return send(402, {}, { "PAYMENT-REQUIRED": challenge(usd) });
+        });
+      }
+      return send(404, {});
+    });
+    const stubPort = await getFreePort();
+    await new Promise((r) => stub.listen(stubPort, "127.0.0.1", r));
+    const STUB = `http://127.0.0.1:${stubPort}`;
+    const creditsKey = `a402_${"k".repeat(40)}`;
+    const connect = async (env) => {
+      const c = new Client({ name: "agent402-mcp-quotetest", version: "0.0.0" });
+      await c.connect(new StdioClientTransport({
+        command: process.execPath,
+        args: [join(ROOT, "mcp", "index.js")],
+        env: { ...process.env, AGENT402_URL: STUB, AGENT_KEY: "", SOLANA_AGENT_KEY: "", AGENT402_CREDITS_KEY: "", AGENT402_BUDGET: "", ...env },
+      }));
+      return c;
+    };
+    const call = (c, model) => c.callTool({ name: "catalog.call", arguments: { slug: "chat", params: { model, messages: [{ role: "user", content: "hi" }] } } });
+
+    // credits: a quote above the cap is refused, and the key is never spent
+    let credits = await connect({ AGENT402_CREDITS_KEY: creditsKey, AGENT402_MAX_PER_CALL: "0.10" });
+    try {
+      const refused = await call(credits, "premium-model");
+      const t = text(refused);
+      if (!refused.isError || !/Refused/.test(t)) fail(`an over-cap quote must be refused: ${t.slice(0, 300)}`);
+      if (!t.includes("$0.5") || !t.includes("0.1")) fail(`the refusal must name the quote and the cap: ${t.slice(0, 300)}`);
+      if (seen.authorized !== 0) fail("nothing may be paid for a refused call");
+      if (seen.preflights !== 1) fail(`expected exactly one unpaid preflight, saw ${seen.preflights}`);
+      console.log("a 402 quoting above the cap is refused without paying ✓");
+
+      // ...and a quote inside the cap still pays
+      const served = await call(credits, "mid-model");
+      if (served.isError) fail(`a quote inside the cap must still pay: ${text(served).slice(0, 300)}`);
+      if (seen.authorized !== 1) fail(`the under-cap call must be paid exactly once, saw ${seen.authorized}`);
+      console.log("a quote inside the cap still pays ✓");
+    } finally { await credits.close().catch(() => {}); }
+
+    // wallet: the same cap, refused before any signature (unfunded throwaway key)
+    const walletBefore = seen.authorized;
+    const wallet = await connect({ AGENT_KEY: "0x" + "11".repeat(32), AGENT402_MAX_PER_CALL: "0.10" });
+    try {
+      const refused = await call(wallet, "premium-model");
+      if (!refused.isError || !/Refused without paying/.test(text(refused))) {
+        fail(`the wallet path must refuse an over-cap quote before signing: ${text(refused).slice(0, 300)}`);
+      }
+      if (seen.authorized !== walletBefore) fail("the wallet path paid a call it had refused");
+      console.log("the wallet path reads the same quote and refuses before signing ✓");
+    } finally { await wallet.close().catch(() => {}); }
+    await new Promise((r) => stub.close(r));
+  }
+
   console.log("\nMCP e2e: all assertions passed");
 } finally {
   await client.close().catch(() => {});
