@@ -21,7 +21,8 @@
 // OpenAPI cannot close this: it has no place for an x402 quote. The 402 itself
 // is the source of truth, which is also why the router already reads a live 402
 // for payTo (payToFromLive402) before spending. This reads the same challenge
-// for price and networks.
+// for price, networks and the payTo per network, so the index knows where the
+// origin asks to be paid even when no manifest or registry row says so.
 //
 // Deliberately CONSERVATIVE about money: an amount we cannot price leaves the
 // price null and still records the networks, so the row becomes "payable over
@@ -125,10 +126,24 @@ export function quoteFromAccepts(accepts) {
     if (Number.isFinite(n) && n >= 0) price = n / 10 ** decimals;
   }
 
+  // Every accept's payTo, keyed by its network: the same shape
+  // paymentFieldsFromAccepts gives a manifest or registry row, so a row learned
+  // from a live 402 joins the Base leaderboard scan (allPayToOrigins) and the
+  // chain join on the origin's own address like any other. A 402 that names
+  // one network twice (two assets) keeps the preferred accept's payTo, then
+  // the first seen.
+  const payToByNetwork = {};
+  for (const a of [preferred, ...list]) {
+    if (typeof a.network === "string" && a.network && typeof a.payTo === "string" && a.payTo && !payToByNetwork[a.network]) {
+      payToByNetwork[a.network] = a.payTo;
+    }
+  }
+
   return {
     price,
     networks: [...new Set(list.map((a) => a.network).filter((n) => typeof n === "string" && n))],
     payTo: typeof preferred?.payTo === "string" ? preferred.payTo : null,
+    payToByNetwork,
     asset: typeof preferred?.asset === "string" ? preferred.asset : null,
     // Which entry priced it, so a surprising number can be traced to its source.
     network: typeof preferred?.network === "string" ? preferred.network : null,

@@ -411,5 +411,201 @@ const page = (results, extra = {}) =>
   check("an inferred row with no declared sibling is kept - the rule removes duplicates, not discoveries", normaliseManifestTools(lone, "https://seller.example").length === 1);
 }
 
+// --- the payTo a live 402 names is RECORDED (2026-09-22) ---------------------
+// A seller whose manifest publishes `resources` as bare URL STRINGS and its
+// wallet once, in a top-level payment block, was listed with an EMPTY
+// payToByNetwork: the live-402 probe read the price, the chains and the EIP-712
+// domain off the challenge and threw the payTo away, the carry-forward carried
+// everything but that, and the manifest reader only ever looked for a payTo on
+// a RESOURCE. allPayToOrigins builds the Base scan's wallet list from that one
+// field, so the wallet was never scanned, no settlement could be credited to
+// the origin, and such a seller could not clear the settlement floor however
+// many outside buyers paid it. Fixtures are the live shapes on a neutral origin.
+{
+  process.env.X402_INDEX_CRAWL = "off";
+  process.env.X402_SYNC_ON_START = "false";
+  const { quoteFromAccepts } = await import("../src/x402-live-quote.js");
+  const {
+    enrichLiveQuotes, carryForwardLearnedQuotes, normaliseManifestTools,
+    allPayToOrigins, sellerDetail, indexSnapshot, __testSeedCache, __testResetSubmitted,
+  } = await import("../src/x402-index.js");
+
+  const PAYTO = "0x3aEDB825B264e82676A42B1a6d12EA253c0Ce852";
+  const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+  const SOL_NET = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
+  const SOL_PAYTO = "J28Fii2VFnJcavvaeEfsKc628htk3mnrZKubD7WsGStW";
+  const accept = (over = {}) => ({ scheme: "exact", network: "eip155:8453", asset: USDC_BASE, payTo: PAYTO, amount: "32000", maxTimeoutSeconds: 300, extra: { name: "USD Coin", version: "2" }, ...over });
+
+  // 1. the reader keeps every accept's payTo, keyed by its network
+  {
+    const q = quoteFromAccepts([accept(), { network: SOL_NET, payTo: SOL_PAYTO, amount: "32000", asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" }]);
+    check(`a live 402's payTo rides out per network (got ${JSON.stringify(q?.payToByNetwork)})`,
+      q?.payToByNetwork?.["eip155:8453"] === PAYTO && q.payToByNetwork[SOL_NET] === SOL_PAYTO);
+    const twice = quoteFromAccepts([accept({ payTo: "0x0000000000000000000000000000000000000001", extra: { name: "WEIRD" } }), accept()]);
+    check("one network offered twice keeps the PREFERRED accept's payee, not the first row",
+      twice?.payToByNetwork?.["eip155:8453"] === PAYTO);
+  }
+
+  // 2. the probe writes it onto the row, and a v1-style network label is
+  //    normalised first - allPayToOrigins reads the eip155 key, so a payTo
+  //    filed under "base" is a payTo the Base scan never sees.
+  const ORIGIN = "https://example.com"; // resolves: assertPublicUrl runs before the (stubbed) fetch
+  const header = (accepts) => Buffer.from(JSON.stringify({ x402Version: 2, accepts })).toString("base64");
+  const stub = (rules) => async (url, init = {}) => {
+    const u = new URL(String(url));
+    const hit = rules[`${String(init.method || "GET").toUpperCase()} ${u.pathname}`];
+    if (!hit) return new Response("{}", { status: 404, headers: { "content-type": "application/json" } });
+    return new Response("{}", { status: 402, headers: { "payment-required": header(hit), "content-type": "application/json" } });
+  };
+  const origFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = stub({ "GET /x402/basic": [accept()] });
+    const rows = [{ seller: ORIGIN, route: "/x402/basic", method: "GET", slug: "basic", price: null, networks: [] }];
+    await enrichLiveQuotes(rows, ORIGIN, { ignoreBudget: true });
+    check(`the probed row carries the payTo its own 402 named (got ${JSON.stringify(rows[0].payToByNetwork)})`,
+      rows[0].payToByNetwork?.["eip155:8453"] === PAYTO);
+
+    globalThis.fetch = stub({ "GET /x402/v1": [accept({ network: "base" })] });
+    const v1 = [{ seller: ORIGIN, route: "/x402/v1", method: "GET", slug: "v1", price: null, networks: [] }];
+    await enrichLiveQuotes(v1, ORIGIN, { ignoreBudget: true });
+    check(`a 402 naming "base" files its payTo under eip155:8453 (got ${JSON.stringify(v1[0].payToByNetwork)})`,
+      v1[0].payToByNetwork?.["eip155:8453"] === PAYTO);
+
+    // the sibling branch: the stated GET does not answer, the declared POST
+    // sibling does, so the payTo belongs on the row that survives.
+    globalThis.fetch = stub({ "POST /x402/full": [accept()] });
+    const pair = [
+      { seller: ORIGIN, route: "/x402/full", method: "GET", slug: "full-get", price: null, networks: [] },
+      { seller: ORIGIN, route: "/x402/full", method: "POST", slug: "full-post", price: null, networks: [] },
+    ];
+    await enrichLiveQuotes(pair, ORIGIN, { ignoreBudget: true });
+    const survivor = pair.find((r) => r.method === "POST");
+    check(`the surviving sibling carries the payTo (got ${JSON.stringify(survivor?.payToByNetwork)}, rows ${pair.length})`,
+      pair.length === 1 && survivor?.payToByNetwork?.["eip155:8453"] === PAYTO);
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+
+  // 3. and it SURVIVES the next crawl, which rebuilds the row from a catalogue
+  //    that names no wallet - filling a gap only, never overriding an address
+  //    the origin's own document declared this crawl.
+  const learned = { tools: [{ route: "/x402/basic", method: "GET", price: 0.032, quoteSource: "live-402", networks: ["eip155:8453"], payToByNetwork: { "eip155:8453": PAYTO } }] };
+  const carried = carryForwardLearnedQuotes([{ route: "/x402/basic", method: "GET", slug: "basic" }], learned)[0];
+  check(`carry-forward keeps the learned payTo across the rebuild (got ${JSON.stringify(carried.payToByNetwork)})`,
+    carried.payToByNetwork?.["eip155:8453"] === PAYTO);
+  const declaredNow = carryForwardLearnedQuotes([{ route: "/x402/basic", method: "GET", payToByNetwork: { "eip155:8453": "0x0000000000000000000000000000000000000002" } }], learned)[0];
+  check("a payTo this crawl read from the origin is never overwritten by the remembered one",
+    declaredNow.payToByNetwork["eip155:8453"] === "0x0000000000000000000000000000000000000002");
+  const sharedSource = { "eip155:8453": "0x0000000000000000000000000000000000000003" };
+  carryForwardLearnedQuotes([{ route: "/a", method: "GET", payToByNetwork: sharedSource }],
+    { tools: [{ route: "/a", method: "GET", price: 1, quoteSource: "live-402", payToByNetwork: { [SOL_NET]: SOL_PAYTO } }] });
+  check("a manifest's shared payTo object is never written through (rows on one path would move together)",
+    sharedSource[SOL_NET] === undefined);
+
+  // 4. the manifest's own top-level wallet reaches a bare-string resource row
+  const manifest = {
+    spec: "x402", version: 2,
+    resources: ["https://seller.example/x402/basic", "https://seller.example/x402/full"],
+    payment: { x402: { version: 2, currency: "USDC", networks: ["base"], primaryNetwork: "base", payTo: PAYTO, nonCustodial: true } },
+  };
+  const bare = normaliseManifestTools(manifest, "https://seller.example");
+  check(`a bare-string resource inherits the service-wide payTo (got ${JSON.stringify(bare[0]?.payToByNetwork)})`,
+    bare.length === 2 && bare.every((r) => r.payToByNetwork?.["eip155:8453"] === PAYTO));
+  check(`and the declared chain with it (got ${JSON.stringify(bare[0]?.networks)})`, bare[0]?.networks?.[0] === "eip155:8453");
+  const mixed = normaliseManifestTools({ resources: ["https://seller.example/x"], payment: { x402: { networks: ["base", "solana"], payTo: PAYTO } } }, "https://seller.example");
+  check(`an EVM wallet is not filed under a Solana network (got ${JSON.stringify(mixed[0]?.payToByNetwork)})`,
+    mixed[0]?.payToByNetwork?.["eip155:8453"] === PAYTO && Object.keys(mixed[0].payToByNetwork).length === 1
+    && mixed[0].networks.length === 2);
+
+  // 5. end to end: the field the Base scan and the seller page actually read
+  __testResetSubmitted();
+  __testSeedCache([["https://seller.example", {
+    origin: "https://seller.example", fetchedAt: Date.now(), history: [1], originResponded: true,
+    manifest: { name: "Seller" },
+    tools: bare.map((r) => ({ ...r, price: 0.032, paid: true })),
+  }]]);
+  const detail = sellerDetail("seller.example");
+  check(`sellerDetail publishes the payTo (got ${JSON.stringify(detail?.payToByNetwork)})`,
+    detail?.payToByNetwork?.["eip155:8453"] === PAYTO && detail.payTosByNetwork["eip155:8453"][0] === PAYTO);
+  const snapRow = indexSnapshot({ baseUrl: "https://agent402.tools", catalog: {}, prices: {}, network: "base", toolCount: 0, walletName: "x" })
+    .sellers.find((x) => x.origin === "https://seller.example");
+  check(`the snapshot row carries it (got ${JSON.stringify(snapRow?.payToByNetwork)})`,
+    snapRow?.payToByNetwork?.["eip155:8453"] === PAYTO);
+  const scan = allPayToOrigins("eip155:8453");
+  check("allPayToOrigins offers the wallet to the Base scan, mapped to its origin",
+    scan.get(PAYTO.toLowerCase())?.has("https://seller.example") === true);
+  __testResetSubmitted();
+}
+
+// --- an ATOMIC amount is not dollars, in two more shapes (2026-09-22) --------
+// The 2026-09-15 fix taught the reader that an accept-shaped ENTRY states base
+// units. Two live shapes kept reading them as dollars because the context sits
+// one level in: a manifest `price` OBJECT carrying decimals/asset beside the
+// amount (listed a $0.003 route at $3000) and MPP's `x-payment-info`
+// {amount, currency, method, intent, offers} (listed a $0.005 route at $5000).
+// A listing a million times the seller's real price also puts the route over
+// every router tier cap, and the seller cannot see our index to report it.
+{
+  const { normaliseManifestTools, normaliseOpenapiTools, openapiOperationPayment, mergeOpenapiIntoBazaar, bazaarItemToTool, priceToMicroUsd } = await import("../src/x402-index.js");
+  const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+  const USDC_E = "0x20C000000000000000000000b9537d11c60E8b50"; // Tempo, six decimals
+  const PAYTO = "0x2880EdfFF13100677Bf97A3CBdF3Bc34771C4E5E";
+  const stack = (price) => normaliseManifestTools({
+    x402Version: 2,
+    payment: { protocol: "x402", scheme: "exact", network: "eip155:8453", asset: "USDC", asset_address: USDC_BASE, pay_to: PAYTO },
+    resources: [{ resource: "https://seller.example/stack", method: "POST", price, description: "Identify a site's stack." }],
+  }, "https://seller.example")[0];
+
+  const priced = (row, want, why) => check(`${why} -> ${want} (got ${row?.price})`, row?.price === want);
+  priced(stack({ amount: "3000", asset: USDC_BASE, decimals: 6, display: "$0.003" }), "$0.003",
+    "the seller's own display string wins over a figure we would have to convert");
+  priced(stack({ amount: "3000", asset: USDC_BASE, decimals: 6 }), "$0.003", "declared decimals size the amount");
+  priced(stack({ amount: "3000", asset: USDC_BASE }), "$0.003", "a token we know is six decimals needs no declaration");
+  priced(stack({ amount: "0.032", currency: "USDC", network: "eip155:8453" }), "$0.032",
+    "a bare currency beside a fractional amount is dollars, which is what catalogues publish");
+  priced(stack({ amount: "0.003", asset: USDC_BASE, decimals: 6 }), "$0.003",
+    "a fractional figure cannot be base units whatever sits beside it");
+  const unknown = stack({ amount: "3000", asset: "0x00000000000000000000000000000000000000ff" });
+  check(`a token we cannot size publishes NO price rather than a guess (got ${unknown?.price})`,
+    unknown?.price == null && !(Number(unknown?.originDeclaredPrice) > 0));
+  check(`the readable one anchors the drift guard (got ${stack({ amount: "3000", asset: USDC_BASE, decimals: 6, display: "$0.003" })?.originDeclaredPrice})`,
+    stack({ amount: "3000", asset: USDC_BASE, decimals: 6, display: "$0.003" })?.originDeclaredPrice === 0.003);
+
+  const mpp = { amount: "5000", currency: USDC_E, description: "Ask a question.", intent: "charge", method: "tempo" };
+  const doc = { openapi: "3.1.0", paths: { "/v1/query": { post: { operationId: "query", "x-payment-info": { ...mpp, offers: [{ ...mpp }] } } } } };
+  const mppRow = normaliseOpenapiTools(doc, "https://seller.example").find((t) => t.route === "/v1/query");
+  check(`MPP x-payment-info amount "5000" is $0.005, never $5000 (got ${mppRow?.price})`, mppRow?.price === "$0.005" && mppRow?.paid === true);
+  check("an offers-only declaration prices the same way",
+    openapiOperationPayment({ "x-payment-info": { intent: "charge", method: "tempo", offers: [{ ...mpp }] } }).price === "$0.005");
+  const stripeish = openapiOperationPayment({ "x-payment-info": { amount: "50", currency: "usd", intent: "charge", method: "stripe" } });
+  check(`a currency we cannot size is PAID with the price unknown, never $50 (got ${stripeish.price})`,
+    stripeish.paid === true && stripeish.price == null);
+
+  // GUARD, scoped to the FIGURE rather than to these two dialects: an
+  // origin-declared price that differs from the settlement-observed Bazaar
+  // price by 1000x or more is not a disagreement about value, it is a units
+  // bug. Whatever shape arrives next in base units lands here.
+  const thousandfold = (rows) => rows.filter((r) => {
+    const o = priceToMicroUsd(r?.priceObservations?.origin);
+    const b = priceToMicroUsd(r?.priceObservations?.bazaar);
+    if (!(o > 0) || !(b > 0)) return false;
+    return (o > b ? o / b : b / o) >= 1000;
+  });
+  const observed = (route, amount, method) => bazaarItemToTool({
+    resource: `https://seller.example${route}`, method,
+    accepts: [{ scheme: "exact", network: "eip155:8453", asset: USDC_BASE, payTo: PAYTO, amount, extra: { name: "USD Coin" } }],
+  }, "https://seller.example");
+  // control FIRST: the figure the old reader produced must be flagged, so a
+  // clean sweep below is only believed once the check has caught one.
+  const planted = mergeOpenapiIntoBazaar([{ ...stack({ amount: "3000", asset: USDC_BASE, decimals: 6 }), price: "$3000" }], [observed("/stack", "3000", "POST")]);
+  check(`control: a $3000 reading of a 3000-base-unit route is flagged (${thousandfold(planted).length})`, thousandfold(planted).length === 1);
+  const swept = [
+    ...mergeOpenapiIntoBazaar([stack({ amount: "3000", asset: USDC_BASE, decimals: 6, display: "$0.003" })], [observed("/stack", "3000", "POST")]),
+    ...mergeOpenapiIntoBazaar([mppRow], [observed("/v1/query", "5000", "POST")]),
+  ];
+  check(`no declared price is a thousandfold of what settled (${thousandfold(swept).length} flagged of ${swept.length})`,
+    swept.length === 2 && thousandfold(swept).length === 0);
+}
+
 console.log(`\ntest-index-tools-catalog: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
