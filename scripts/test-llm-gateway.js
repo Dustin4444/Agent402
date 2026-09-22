@@ -1441,5 +1441,87 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   ok(canonicalModel("claude-fable-5-1-20260724") === F && canonicalModel("gpt-6-astra") === A, "dated Anthropic id and bare OpenAI id resolve to the admitted ids");
 }
 
+// ---- price by model (2026-09-22) ------------------------------------------
+// A flat route asked for another flat tier's model used to answer 400 naming
+// that tier. Now the 402 quotes the model's HOME tier price (tierQuote) and a
+// request gated at that price is served under the home tier's whole config.
+// Every assertion that says "served as premium" is paired with the config
+// field that would differ had the ROUTE tier served it.
+{
+  const { flatTierQuoteUsd, servedTierFor, isFlatTier } = await import("../src/tools/llm-gateway-kit.js");
+  const byS = (s) => LLM_GATEWAY_TOOLS.find((t) => t.slug === s);
+  const base = byS("v1-chat"), nano = byS("v1-chat-nano"), premium = byS("v1-chat-premium");
+  const OPUS = "anthropic/claude-opus-5";
+  const m = msg1("hi");
+  // the quote: home tier price, else the route's own
+  ok(base.tierQuote({ model: OPUS, messages: m }) === TIERS["v1-chat-premium"].price, "base route + premium model quotes the premium price");
+  ok(base.tierQuote({ model: "openai/gpt-4o-mini", messages: m }) === TIERS["v1-chat"].price && base.tierQuote({ messages: m }) === TIERS["v1-chat"].price, "base route + base model (or the tier default) keeps the base price");
+  ok(base.tierQuote({ model: "not-a-real/model", messages: m }) === TIERS["v1-chat"].price, "an unknown model quotes the route price (the handler's 400 refuses it, uncharged)");
+  ok(nano.tierQuote({ model: OPUS, messages: m }) === TIERS["v1-chat-premium"].price, "nano route + premium model quotes the premium price");
+  ok(premium.tierQuote({ model: "gpt-5.6-luna", messages: m }) === TIERS["v1-chat-nano"].price, "premium route + a nano-home model quotes the nano price (served as nano)");
+  ok(base.tierQuote({ model: `${OPUS}:online`, messages: m }) === TIERS["v1-chat"].price, "a refused cost variant never crosses tiers (the route's 400 answers it)");
+  ok(flatTierQuoteUsd("v1-chat", "stealth/ox-alpha") === TIERS["v1-chat"].price, "the stealth tier is never a destination (its provider keeps prompts)");
+  ok(flatTierQuoteUsd("v1-chat-auto", OPUS) === TIERS["v1-chat-auto"].price && !isFlatTier("v1-chat-auto") && !isFlatTier("v1-chat-grounded") && !isFlatTier("v1-chat-metered") && !isFlatTier("v1-chat-ox"), "router, grounded, stealth and metered tiers are neither routes nor homes");
+  ok(["v1-chat-auto", "v1-chat-grounded", "v1-chat-ox", "v1-chat-metered"].every((s) => !byS(s) || typeof byS(s).tierQuote !== "function"), "only the four flat chat routes carry tierQuote");
+  ok(["v1-chat-nano", "v1-chat", "v1-chat-pro", "v1-chat-premium"].every((s) => typeof byS(s).tierQuote === "function" && typeof byS(s).quote !== "function"), "no flat route carries `quote` (route-execute, /api/pricing and the card gross-up key on it)");
+  ok(base.price === "$0.02" && premium.price === "$0.50" && nano.price === "$0.003", "static catalog prices are unchanged (/api/pricing, /openapi.json)");
+  // the serving decision: only a request GATED at the home price crosses
+  ok(servedTierFor("v1-chat", OPUS, { __meteredQuoteUsd: 0.5 }) === "v1-chat-premium", "gated at the premium price -> served as premium");
+  ok(servedTierFor("v1-chat", OPUS, { __meteredQuoteUsd: 0.02 }) === "v1-chat", "gated at the base price -> stays base (the 400)");
+  ok(servedTierFor("v1-chat", OPUS, undefined) === "v1-chat" && servedTierFor("v1-chat", OPUS, {}) === "v1-chat", "no request (route-execute) or no stashed price (FREE_MODE) -> stays on the route tier");
+  ok(servedTierFor("v1-chat", "openai/gpt-4o-mini", { __meteredQuoteUsd: 0.5 }) === "v1-chat", "a same-tier model is never moved, whatever the stash");
+
+  process.env.OPENROUTER_API_KEY = "test-key";
+  const realFetch = globalThis.fetch;
+  let seen = [];
+  const reply = (model) => ({ id: "gen-x", object: "chat.completion", model, choices: [{ index: 0, message: { role: "assistant", content: "ok" }, finish_reason: "stop" }], usage: { prompt_tokens: 5, completion_tokens: 1, total_tokens: 6, cost: 0.00002 } });
+  const okFetch = async (url, init) => { const b = JSON.parse(init.body); seen.push(b); return { ok: true, status: 200, text: async () => JSON.stringify(reply(b.model)), headers: { get: () => "application/json" } }; };
+  globalThis.fetch = okFetch;
+  const reqAt = (usd) => ({ header: () => undefined, headers: {}, ip: "127.0.0.1", ...(usd == null ? {} : { __meteredQuoteUsd: usd }) });
+  try {
+    // served as premium: premium max_price, premium output cap, premium reasoning default
+    seen = [];
+    const out = await base.handler({ model: OPUS, messages: m, max_tokens: 6000 }, reqAt(0.5));
+    const b = seen[0];
+    ok(b?.model === OPUS && JSON.stringify(b.provider?.max_price) === JSON.stringify(TIERS["v1-chat-premium"].maxPrice), `served with premium's provider.max_price (${JSON.stringify(b?.provider?.max_price)}), not base's ${JSON.stringify(TIERS["v1-chat"].maxPrice)}`);
+    ok(b?.max_tokens === 6000 && 6000 > TIERS["v1-chat"].maxTokens, `premium's output cap applies (${b?.max_tokens} tokens; base caps at ${TIERS["v1-chat"].maxTokens})`);
+    ok(b && b.reasoning === undefined, "premium's reasoning default applies (model default; base would inject a low effort)");
+    ok(out.agent402_tier?.served === "v1-chat-premium" && out.agent402_tier?.priceUsd === 0.5 && out.agent402_tier?.route === "/v1/chat/completions", `the answer names the served tier (${JSON.stringify(out.agent402_tier)})`);
+    ok(!out.agent402_metered || out.agent402_metered.youPaidUsd === 0.5, "the metered hint (when present) compares against the price actually paid");
+    const { _testEventsForTest } = await import("../src/posthog.js");
+    await new Promise((r) => setTimeout(r, 20));
+    const ev = _testEventsForTest().filter((e) => e.event === "gateway_usage").pop();
+    ok(ev?.properties.tier === "v1-chat-premium" && ev?.properties.routeTier === "v1-chat" && ev?.properties.priceUsd === 0.5, `telemetry records the served tier and the route (${ev?.properties.tier} via ${ev?.properties.routeTier}, $${ev?.properties.priceUsd})`);
+    // nano route: the served tier's chain, not nano's fallbacks or price sort
+    seen = [];
+    globalThis.fetch = async (url, init) => { const bb = JSON.parse(init.body); seen.push(bb); return { ok: false, status: 502, text: async () => "provider down", headers: { get: () => "text/plain" } }; };
+    let e1 = null; try { await nano.handler({ model: OPUS, messages: m }, reqAt(0.5)); } catch (x) { e1 = x; }
+    ok(e1?.statusCode === 502 && seen.length >= 1 && seen.every((x) => x.model === OPUS) && seen.every((x) => x.provider?.sort === undefined), `nano route served as premium walks premium's chain only, no nano fallbacks or price sort (tried ${seen.map((x) => x.model).join(",")})`);
+    globalThis.fetch = okFetch;
+    // not gated at the home price: the existing 400, before any upstream call
+    for (const [label, r] of [["gated at the base price", reqAt(0.02)], ["no request (route-execute)", undefined], ["no stashed price (FREE_MODE)", reqAt(null)]]) {
+      seen = [];
+      let e = null; try { await base.handler({ model: OPUS, messages: m }, r); } catch (x) { e = x; }
+      ok(e?.statusCode === 400 && /served by the v1-chat-premium tier/.test(e.message) && seen.length === 0, `${label}: 400 naming the home tier, nothing sent upstream`);
+    }
+    // unknown model: the existing allowlist 400 whatever the stash
+    {
+      seen = [];
+      let e = null; try { await base.handler({ model: "not-a-real/model", messages: m }, reqAt(0.5)); } catch (x) { e = x; }
+      ok(e?.statusCode === 400 && /not in the gateway allowlist/.test(e.message) && seen.length === 0, "an unknown model keeps the allowlist 400");
+    }
+    // same-tier model: unchanged config, no disclosure
+    seen = [];
+    const same = await base.handler({ model: "openai/gpt-4o-mini", messages: m }, reqAt(0.02));
+    ok(JSON.stringify(seen[0]?.provider?.max_price) === JSON.stringify(TIERS["v1-chat"].maxPrice) && same.agent402_tier === undefined, "base route + base model: base config, no agent402_tier");
+    // a crossed request is never written to the prompt cache (the pre-paywall read keys on the route tier)
+    const creq = reqAt(0.5);
+    await base.handler({ model: OPUS, messages: m, cache: true }, creq);
+    ok(creq.__deferredCache === undefined, "a request served as another tier is not queued for the prompt cache");
+    let keyErr = null; try { promptCacheKey("v1-chat", { model: OPUS, messages: m, cache: true }); } catch (x) { keyErr = x; }
+    ok(keyErr?.statusCode === 400, "the route-tier cache key still refuses the cross-tier body, so no free replay can bypass the 402");
+  } finally { globalThis.fetch = realFetch; delete process.env.OPENROUTER_API_KEY; }
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

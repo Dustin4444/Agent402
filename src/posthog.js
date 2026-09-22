@@ -675,7 +675,7 @@ export function capturePostHogCompositeUsage({ slug, upstreamUsd, ok, priceUsd, 
   } catch { /* never throw */ }
 }
 
-export function capturePostHogGatewayUsage({ tier, model, priceUsd, upstreamUsd, promptTokens, completionTokens, serviceTier, serverToolCalls, serverToolSearches, defaulted }) {
+export function capturePostHogGatewayUsage({ tier, routeTier, model, priceUsd, upstreamUsd, promptTokens, completionTokens, serviceTier, serverToolCalls, serverToolSearches, defaulted }) {
   // Server-side spend meter runs BEFORE the PostHog gate: cost must be
   // recorded even when telemetry is off (see recordUpstreamSpend's header).
   if (upstreamUsd != null) meterSpend("gateway", upstreamUsd);
@@ -683,7 +683,11 @@ export function capturePostHogGatewayUsage({ tier, model, priceUsd, upstreamUsd,
   const price = Number(priceUsd) || 0;
   const upstream = Number(upstreamUsd) || 0;
   capture("gateway_usage", {
+    // `tier` is the tier that SERVED (and was paid for); `routeTier` is the
+    // route the request arrived on. They differ only when a flat route was
+    // asked for another flat tier's model and priced at that tier.
     tier: String(tier || "unknown"),
+    routeTier: String(routeTier || tier || "unknown"),
     model: String(model || ""),
     // The caller named no model and the tier's default served (2026-08-28) -
     // the measure of whether defaulting recovers real calls or only probes.

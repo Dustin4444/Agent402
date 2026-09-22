@@ -67,16 +67,21 @@ const GATEWAY_METER_ON = String(process.env.GATEWAY_METERED_BILLING || "").toLow
 // quote from the parsed body. Every non-x402 gate (Tempo, Stripe, credits)
 // prices through here so a metered call is held/bound at its quote, never
 // at the catalog floor.
+// A flat chat route carries `tierQuote` instead (price by model: the home
+// tier's price when the body names another flat tier's model), priced here the
+// same way so the three gates hold/bind the price the handler will serve at.
+const priceFnOf = (def) => (typeof def?.quote === "function" ? def.quote : typeof def?.tierQuote === "function" ? def.tierQuote : null);
 function quotedPriceUsd(def, req) {
   const flat = Number(String(def?.price ?? "").replace(/[^0-9.]/g, "")) || 0;
-  if (typeof def?.quote !== "function" || !req) return flat;
+  const quoteFn = priceFnOf(def);
+  if (!quoteFn || !req) return flat;
   // Memoized on the request: payments.js stashes the quote when the x402
   // price function runs, and the gates/appenders reuse it (one tokenization
   // per request, never one per rail).
   if (Number.isFinite(req.__meteredQuoteUsd) && req.__meteredQuoteUsd > 0) return req.__meteredQuoteUsd;
   try {
     // Quote the object the handler will be SERVED, never the raw body.
-    const q = Number(def.quote(handlerInputOf(req, def)));
+    const q = Number(quoteFn(handlerInputOf(req, def)));
     if (Number.isFinite(q) && q > 0) { req.__meteredQuoteUsd = q; return q; }
     return flat;
   } catch { return flat; }
@@ -88,7 +93,7 @@ function settledPriceUsd(def, req, res) {
   const flat = Number(String(def?.price ?? "").replace(/[^0-9.]/g, "")) || 0;
   const metered = Number(res?.getHeader?.("X-Metered-Usd"));
   if (Number.isFinite(metered) && metered > 0) return metered;
-  if (typeof def?.quote === "function" && Number.isFinite(req?.__meteredQuoteUsd) && req.__meteredQuoteUsd > 0) return req.__meteredQuoteUsd;
+  if (priceFnOf(def) && Number.isFinite(req?.__meteredQuoteUsd) && req.__meteredQuoteUsd > 0) return req.__meteredQuoteUsd;
   return flat;
 }
 // Card price for a QUOTED route: the metered quote is worst-case upstream x 1.15,
@@ -7540,7 +7545,11 @@ app.use((req, res, next) => {
         // alone never means "charged" — a Robinhood settle rejection was
         // miscounted as charged-but-failed on 2026-07-16 (no USDG ever moved).
         const receipt = decodeSettleReceipt(settleReceipt);
-        const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
+        // The price THIS request was gated at (a per-request quote, or a flat
+        // route priced by the model's home tier), never the route's list
+        // price: a debt recorded below what the receipt took is a silent
+        // write-off of the difference.
+        const priceUsd = settledPriceUsd(def, req, res);
         const network = networkFromPaymentResponse(settleReceipt);
         const synthetic = isSyntheticRequest(req);
         const payer = payerFromRequest(req) || payerFromPaymentResponse(settleReceipt);

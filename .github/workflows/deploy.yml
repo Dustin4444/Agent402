@@ -3811,6 +3811,8 @@ jobs:
           t node scripts/test-head-paywall.js
           # Anthropic SDK base-URL alias (/v1/<tier>/v1/messages) + 1 MB body limit on the metered routes (boots a paid server, offline)
           t node scripts/test-messages-sdk-alias.js
+          # Price by model: a flat route's 402 quotes the named model's home tier (x402 + Tempo), and only that payment is served as that tier (boots a paid server, offline)
+          t node scripts/test-price-by-model.js
           # Real sample reports: fixtures are finished reports, pages indexable with own title/JSON-LD, /reports links them, sitemap carries them (boots FREE_MODE, offline)
           t node scripts/test-sample-reports.js
           # openFDA 404 = no matches, an empty result: recall-report must not 502 on it (offline)
