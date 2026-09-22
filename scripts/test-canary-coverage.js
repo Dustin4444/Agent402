@@ -332,5 +332,15 @@ if (sd) {
     "status.js carries the rail_supply-chain component and exposes recentOk for the rule");
 }
 
+// The daily Algorand leg signs the sweep's 1000-round window (2026-09-22): ten
+// rounds left ~20 s at our own validity guard and the leg flapped on latency.
+{
+  const psrc = readFileSync(new URL("../scripts/paid-canary.js", import.meta.url), "utf8");
+  const leg = psrc.slice(psrc.indexOf("ALGORAND_ALGOD_URL"), psrc.indexOf("ALGORAND_ALGOD_URL") + 1600);
+  ok(/setDefaultValidityWindow\(1000\)/.test(leg), "the daily Algorand leg signs a 1000-round validity window");
+  ok(/new ExactAvmScheme\(signer, \{ algorandClient \}\)/.test(leg), "...through the algokit client that carries it");
+  ok(/res\.status === 422[\s\S]{0,400}railFail\("algorand"/.test(psrc), "a 422 from our own validity guard pages instead of warning");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
