@@ -209,7 +209,7 @@ delete process.env.OPENROUTER_API_KEY;
   const reqAt = (usd) => ({ header: () => undefined, headers: {}, ip: "127.0.0.1", ...(usd == null ? {} : { __meteredQuoteUsd: usd }) });
   try {
     pbmSeen = [];
-    const out = await baseR.handler({ model: OPUS, input: "hi", max_output_tokens: 6000 }, reqAt(0.5));
+    const out = await baseR.handler({ model: OPUS, input: "hi", max_output_tokens: 6000 }, reqAt(0.5)).catch((e) => ({ threw: `${e?.statusCode} ${e?.message}` }));
     ok(JSON.stringify(pbmSeen[0]?.provider?.max_price) === JSON.stringify(T["v1-chat-premium"].maxPrice) && pbmSeen[0]?.max_output_tokens === 6000 && 6000 > T["v1-chat"].maxTokens && pbmSeen[0]?.reasoning === undefined, `served under premium's config (max_price ${JSON.stringify(pbmSeen[0]?.provider?.max_price)}, max_output_tokens ${pbmSeen[0]?.max_output_tokens}, no base reasoning default)`);
     ok(out.agent402_tier?.served === "v1-chat-premium" && out.agent402_tier?.route === "/v1/responses" && out.agent402_tier?.priceUsd === 0.5, `the answer names the served tier on this wire (${JSON.stringify(out.agent402_tier)})`);
     const { _testEventsForTest } = await import("../src/posthog.js");
@@ -221,7 +221,7 @@ delete process.env.OPENROUTER_API_KEY;
       ok(e?.statusCode === 400 && /\/v1\/premium\/responses/.test(e.message) && pbmSeen.length === 0, `${label}: the 400 naming the premium Responses path, nothing sent upstream`);
     }
     pbmSeen = [];
-    const same = await baseR.handler({ model: "openai/gpt-4o-mini", input: "hi" }, reqAt(0.02));
+    const same = await baseR.handler({ model: "openai/gpt-4o-mini", input: "hi" }, reqAt(0.02)).catch((e) => ({ threw: `${e?.statusCode} ${e?.message}` }));
     ok(JSON.stringify(pbmSeen[0]?.provider?.max_price) === JSON.stringify(T["v1-chat"].maxPrice) && same.agent402_tier === undefined, "a same-tier model keeps the base config and carries no agent402_tier");
   } finally { globalThis.fetch = pbmReal; }
 }

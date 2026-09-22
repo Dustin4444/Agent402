@@ -179,7 +179,7 @@ ok(chatToGemini({}, M).candidates[0].finishReason === "FINISH_REASON_UNSPECIFIED
   const reqAt = (usd) => ({ header: () => undefined, headers: {}, ip: "127.0.0.1", ...(usd == null ? {} : { __meteredQuoteUsd: usd }) });
   try {
     pbmSeen = [];
-    const out = await baseG.handler({ model: OPUS, contents }, reqAt(0.5));
+    const out = await baseG.handler({ model: OPUS, contents }, reqAt(0.5)).catch((e) => ({ threw: `${e?.statusCode} ${e?.message}` }));
     ok(JSON.stringify(pbmSeen[0]?.provider?.max_price) === JSON.stringify(TIERS["v1-chat-premium"].maxPrice) && out.agent402_tier?.served === "v1-chat-premium" && out.agent402_tier?.route === "/v1/gemini", `served as premium through the chat handler, disclosed on this wire (${JSON.stringify(out.agent402_tier)})`);
     pbmSeen = [];
     let e = null; try { await baseG.handler({ model: OPUS, contents }, reqAt(0.02)); } catch (x) { e = x; }

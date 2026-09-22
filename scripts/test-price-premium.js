@@ -103,7 +103,8 @@ await (async () => {
   const priceFor = async (item, body, network = "eip155:8453", scheme = "exact") => {
     const req = { body };
     const opt = acceptsForItem(item, rails).find((o) => o.network === network && o.scheme === scheme);
-    return { price: await opt.price({ adapter: { req, getBody: () => req.body } }), req };
+    // A static price (a route that lost its price function) is returned as is, so the checks below fail by name.
+    return { price: typeof opt.price === "function" ? await opt.price({ adapter: { req, getBody: () => req.body } }) : opt.price, req };
   };
   const opus = { model: "anthropic/claude-opus-5", messages: [{ role: "user", content: "hi" }] };
   const mini = { model: "openai/gpt-4o-mini", messages: [{ role: "user", content: "hi" }] };
@@ -112,7 +113,8 @@ await (async () => {
   const upUpto = await priceFor(base, opus, "eip155:8453", "upto");
   const upPremium = await priceFor(base, opus, "eip155:10");
   const nanoUp = await priceFor(nano, opus);
-  const junk = await acceptsForItem(base, rails).find((o) => o.network === "eip155:8453").price({ adapter: { req: {}, getBody: () => { throw new Error("no body"); } } });
+  const junkOpt = acceptsForItem(base, rails).find((o) => o.network === "eip155:8453");
+  const junk = typeof junkOpt.price === "function" ? await junkOpt.price({ adapter: { req: {}, getBody: () => { throw new Error("no body"); } } }) : junkOpt.price;
   check("tierQuote(): a flat route advertises a price FUNCTION on every option (exact + upto)", () => assert.ok(a.every((o) => typeof o.price === "function")));
   check("tierQuote(): base route + premium model resolves the premium price", () => assert.equal(up.price, "$0.5"));
   check("tierQuote(): the resolved price is stashed for the handler and the upto ceiling", () => assert.equal(up.req.__meteredQuoteUsd, TIERS["v1-chat-premium"].price));

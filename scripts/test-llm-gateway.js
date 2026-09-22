@@ -1481,7 +1481,7 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   try {
     // served as premium: premium max_price, premium output cap, premium reasoning default
     seen = [];
-    const out = await base.handler({ model: OPUS, messages: m, max_tokens: 6000 }, reqAt(0.5));
+    const out = await base.handler({ model: OPUS, messages: m, max_tokens: 6000 }, reqAt(0.5)).catch((e) => ({ threw: `${e?.statusCode} ${e?.message}` }));
     const b = seen[0];
     ok(b?.model === OPUS && JSON.stringify(b.provider?.max_price) === JSON.stringify(TIERS["v1-chat-premium"].maxPrice), `served with premium's provider.max_price (${JSON.stringify(b?.provider?.max_price)}), not base's ${JSON.stringify(TIERS["v1-chat"].maxPrice)}`);
     ok(b?.max_tokens === 6000 && 6000 > TIERS["v1-chat"].maxTokens, `premium's output cap applies (${b?.max_tokens} tokens; base caps at ${TIERS["v1-chat"].maxTokens})`);
@@ -1512,11 +1512,12 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
     }
     // same-tier model: unchanged config, no disclosure
     seen = [];
-    const same = await base.handler({ model: "openai/gpt-4o-mini", messages: m }, reqAt(0.02));
+    const same = await base.handler({ model: "openai/gpt-4o-mini", messages: m }, reqAt(0.02)).catch((e) => ({ threw: `${e?.statusCode} ${e?.message}` }));
     ok(JSON.stringify(seen[0]?.provider?.max_price) === JSON.stringify(TIERS["v1-chat"].maxPrice) && same.agent402_tier === undefined, "base route + base model: base config, no agent402_tier");
     // a crossed request is never written to the prompt cache (the pre-paywall read keys on the route tier)
     const creq = reqAt(0.5);
-    await base.handler({ model: OPUS, messages: m, cache: true }, creq);
+    const cached = await base.handler({ model: OPUS, messages: m, cache: true }, creq).catch((e) => ({ threw: `${e?.statusCode} ${e?.message}` }));
+    ok(!cached.threw, `the cache:true cross-tier call is served (${cached.threw || "ok"})`);
     ok(creq.__deferredCache === undefined, "a request served as another tier is not queued for the prompt cache");
     let keyErr = null; try { promptCacheKey("v1-chat", { model: OPUS, messages: m, cache: true }); } catch (x) { keyErr = x; }
     ok(keyErr?.statusCode === 400, "the route-tier cache key still refuses the cross-tier body, so no free replay can bypass the 402");
