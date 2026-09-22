@@ -15,6 +15,13 @@ Since v2.4.0 (2026-09-18).
   are now the ones the token-security probe serves (celo out, bsc in), and a
   source that does not answer refuses 502 or 503 rather than 422.
 - Remove the `/api/chain/proxy` verb with the tool it pointed at.
+- Add `search-lite` (`GET`/`POST /api/search-lite`, $0.008): up to 5 web results
+  (title, URL, snippet) from the same index as `search`, no freshness filter.
+  A generic SERP query still resolves to `search` on `/api/route` and
+  `/api/find`.
+- Publish a `GET` query parameter in `/openapi.json` with the type its schema
+  declares when that type is `integer` or `boolean`; both were published as
+  `string` beside a numeric or boolean example.
 
 ### 2026-09-21
 - Add `POST /v1/judge` ($0.001): typed judgments (a choice from a named set, a

@@ -147,7 +147,7 @@ Boots straight from the repo's `railway.toml` + `Dockerfile`. Optional plugins a
 | | Examples |
 |---|---|
 | **Browser & web** | `render` (headless Chromium, executes JS), `screenshot`, `extract` (article→markdown), `meta` |
-| **Live search & answers** | `search` (real web index), `answer` (web answer with citations), `search-news`/`search-images`/`search-videos` variants, `search-suggest`, `multi-search` |
+| **Live search & answers** | `search` (real web index), `search-lite` (a quick 5-result sample), `answer` (web answer with citations), `search-news`/`search-images`/`search-videos` variants, `search-suggest`, `multi-search` |
 | **PDFs & media** | `pdf-to-markdown`, `pdf-merge`, `pdf-extract-pages`, `pdf-rotate`, `images-to-pdf`, `audio-convert`, `audio-normalize` (EBU R128, real ffmpeg) |
 | **Images** | `image-resize`, `image-convert`, `image-thumbnail`, `barcode-decode` (jimp/zxing, pure-CPU) |
 | **OCR** | `image-ocr` (text out of any image - pure-CPU, no model) |

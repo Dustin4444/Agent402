@@ -542,6 +542,14 @@ ${ledgerFooterCompact()}`;
   });
 }
 
+// Scalar types a GET query parameter is published with as declared. Everything
+// else (object, array) is documented as a string, because that is what a query
+// string carries. Only "number" passed through before, so an input schema
+// declaring "integer" or "boolean" was published as a string beside a numeric
+// or boolean `example` - an example that does not validate against the type the
+// same operation declares, on the surface a code generator reads.
+const QUERY_PARAM_TYPES = new Set(["number", "integer", "boolean"]);
+
 export function openapiSpec(baseUrl, catalog) {
   const paths = {};
   for (const tool of toolList(catalog)) {
@@ -662,7 +670,7 @@ export function openapiSpec(baseUrl, catalog) {
           in: "query",
           required: required.includes(name),
           description: schema.description,
-          schema: { type: schema.type === "number" ? "number" : "string" },
+          schema: { type: QUERY_PARAM_TYPES.has(schema.type) ? schema.type : "string" },
           ...(discovery?.input?.[name] !== undefined ? { example: discovery.input[name] } : {}),
         })),
         ...headerParams,

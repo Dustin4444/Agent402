@@ -18,7 +18,7 @@ const TARGET = process.env.TARGET_URL || "http://127.0.0.1:3000";
 // exercised by this sweep — search-kit shape/validation is covered by
 // scripts/test-search-kit.js and post-deploy by scripts/paid-canary.js.
 const BRAVE_ROUTES = new Set([
-  "/api/search", "/api/search-news", "/api/search-images", "/api/search-videos", "/api/search-suggest", "/api/answer",
+  "/api/search", "/api/search-lite", "/api/search-news", "/api/search-images", "/api/search-videos", "/api/search-suggest", "/api/answer",
   "/api/multi-search",
   // Skill packs whose EXECUTABLE steps invoke Brave-backed handlers in-process
   // (skill-runner bypasses the HTTP route, so the direct-route skip above never
@@ -90,7 +90,7 @@ const NETWORK = new Set([
   "/api/hunter-domain-search", "/api/hunter-email-finder", "/api/hunter-email-verify", "/api/hunter-company", "/api/apollo-people-search", "/api/apollo-org-enrich", "/api/apollo-person-match",
   "/api/extract", "/api/meta", "/api/dns", "/api/render", "/api/screenshot", "/api/pdf",
   "/api/http-check", "/api/tls-cert", "/api/whois", "/api/robots-check", "/api/sitemap",
-  "/api/email-validate", "/api/ip-info", "/api/search", "/api/search-news", "/api/search-images", "/api/search-videos", "/api/search-suggest", "/api/answer", "/api/multi-search",
+  "/api/email-validate", "/api/ip-info", "/api/search", "/api/search-lite", "/api/search-news", "/api/search-images", "/api/search-videos", "/api/search-suggest", "/api/answer", "/api/multi-search",
   "/api/llm-context",  // llm-context-kit.js (Brave grounding context - live egress, skipped by BRAVE_ROUTES)
   // Web-content kit: archive.org (archive-snapshot), caller feed URLs
   // (feed-parse), caller redirect chains (unshorten-url) — all live egress.

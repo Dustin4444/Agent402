@@ -5,9 +5,9 @@
 //
 // Notes:
 // - The validation block always runs — no key, no network required.
-// - Live calls are OPT-IN via BRAVE_LIVE_TEST=1. Every `[test]` CI run firing
-//   four Brave calls (4 routes × ~200 [test] commits/month) burns the Brave
-//   subscription with traffic the daily paid-canary already covers post-deploy.
+// - Live calls are OPT-IN via BRAVE_LIVE_TEST=1. A `[test]` CI run firing one
+//   live call per route in the block would burn the search subscription on
+//   every commit, for coverage the daily paid-canary already has post-deploy.
 //   Local devs and special verification runs can still set BRAVE_LIVE_TEST=1
 //   alongside BRAVE_API_KEY to exercise the real integration.
 import { SEARCH_TOOLS } from "../src/tools/search.js";
@@ -23,6 +23,8 @@ const ok = (c, m) => { if (c) console.log(`ok - ${m}`); else { assertFail++; con
 for (const [slug, args, label] of [
   ["search", {}, "search rejects missing q"],
   ["search", { q: "   " }, "search rejects empty q (whitespace)"],
+  ["search-lite", {}, "search-lite rejects missing q"],
+  ["search-lite", { q: "x402", count: 6 }, "search-lite rejects a count above 5"],
   ["search-news", {}, "search-news rejects missing q"],
   ["search-news", { q: "" }, "search-news rejects empty q"],
   ["search-images", {}, "search-images rejects missing q"],
@@ -46,9 +48,10 @@ async function live(slug, args, check, label) {
   }
 }
 
-// Live calls are opt-in. Every [test] CI run otherwise burns 5 Brave calls;
-// the daily paid-canary (scripts/paid-canary.js) already exercises the real
-// integration post-deploy and is the system-of-record for "Brave still works".
+// Live calls are opt-in: without the flag this block spends nothing, which is
+// why a route may be added here freely. The daily paid-canary
+// (scripts/paid-canary.js) already exercises the real integration post-deploy
+// and is the system-of-record for "the search upstream still works".
 if (process.env.BRAVE_LIVE_TEST === "1") {
   // "agent402" is a high-uniqueness brand string that should hit our own site as
   // one of the top results — a useful smoke that Brave's index is fresh and
@@ -56,6 +59,16 @@ if (process.env.BRAVE_LIVE_TEST === "1") {
   await live("search", { q: "agent402.tools", count: 3 },
     (r) => r.query === "agent402.tools" && Array.isArray(r.results) && r.results.length > 0 && typeof r.results[0].title === "string" && typeof r.results[0].url === "string",
     "search agent402.tools count=3");
+
+  // search-lite reads the same /web/search body as `search` and keeps three
+  // fields of it. Only a live call proves that parse against the real body:
+  // everything else covering this tool is stubbed. It must honour an explicit
+  // count and carry no `age`, which is the difference a buyer pays less for.
+  await live("search-lite", { q: "x402 payment protocol", count: 2 },
+    (r) => r.query === "x402 payment protocol" && Array.isArray(r.results) && r.results.length > 0 && r.results.length <= 2
+      && r.count === r.results.length && r.untrustedContent === true
+      && r.results.every((x) => typeof x.url === "string" && !("age" in x)),
+    "search-lite x402 payment protocol count=2");
 
   // Freshness filter exercises the optional knob. "Federal Reserve" is a
   // near-guaranteed news producer; pw (past week) should always return hits.
