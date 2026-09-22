@@ -128,8 +128,11 @@ jobs:
           BATCH_COUNT: ${{ inputs.batches || '4' }}
           BATCH_INDEX: ${{ matrix.batch }}
           BURNER_KEY: ${{ secrets.BURNER_KEY }}
+          # Signs X-Heartbeat-Token so these self-buys are booked as ours.
+          POW_SECRET: ${{ secrets.POW_SECRET }}
         run: |
           [ -n "$BURNER_KEY" ] || { echo "::error::BURNER_KEY is not set - the keep-alive cannot pay, and listings will age out in 30 days"; exit 1; }
+          [ -n "$POW_SECRET" ] && echo "::add-mask::$POW_SECRET"
           echo "::add-mask::$BURNER_KEY"
           node scripts/refresh-bazaar.js
 

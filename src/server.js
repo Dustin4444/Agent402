@@ -7466,10 +7466,12 @@ app.use((req, res, next) => {
           // it IS MPP's own native method, just a distinct wire from the
           // evm-translated one.
           method === "usdc" && (req.tempoSettled || req.stripeSettled || req.mppCredential) ? "mpp" : null,
-          // A paid call from our own wallets (signed heartbeat token on a
-          // settled request: daily canary, Tempo volume runner) is booked as
-          // internal, never as external paid demand - see stats.recordCall.
-          { internal: method === "usdc" && isSyntheticRequest(req) }
+          // A paid call from our own wallets is booked as internal, never as
+          // external paid demand - see stats.recordCall. The signed heartbeat
+          // token marks the canary and Tempo volume; the payer check catches
+          // our jobs that pay without one (the Bazaar keep-alive, seller
+          // sweeps), which /api/stats used to count as outside buyers.
+          { internal: method === "usdc" && (isSyntheticRequest(req) || isOwnWallet(payerFromRequest(req))) }
         );
         // Funnel stage 3 — the gate accepted payment and the tool answered.
         // Mirrors the stats attribution above. Skipped in FREE_MODE — nothing

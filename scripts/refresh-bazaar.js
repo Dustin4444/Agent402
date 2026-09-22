@@ -51,6 +51,16 @@
 // for (spend/price cap, batch stride) · 2 = misconfigured.
 
 import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
+import { createHmac } from "node:crypto";
+// The keep-alive pays production from our own burner. It sends the signed
+// X-Heartbeat-Token (when the job holds POW_SECRET) so every accounting
+// surface books these settlements as ours, not as outside demand.
+const heartbeatHeaders = () => {
+  const secret = (process.env.POW_SECRET || "").trim();
+  if (!secret) return {};
+  const minute = Math.floor(Date.now() / 60_000);
+  return { "X-Heartbeat-Token": createHmac("sha256", secret).update(`heartbeat:${minute}`).digest("base64url").slice(0, 32) };
+};
 import { readFileSync, existsSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 // viem + @x402/* are loaded lazily so DRY_RUN works without them installed.
@@ -331,7 +341,7 @@ async function runMissingMode({ sweep = false } = {}) {
       try {
         const res = await payFetch(url, {
           method: t.method,
-          headers: isGet ? {} : { "Content-Type": "application/json" },
+          headers: { ...heartbeatHeaders(), ...(isGet ? {} : { "Content-Type": "application/json" }) },
           body: isGet ? undefined : JSON.stringify(example),
         });
         lastStatus = res.status;
@@ -534,7 +544,7 @@ async function main() {
       try {
         const res = await payFetch(url, {
           method,
-          headers: isGet ? {} : { "Content-Type": "application/json" },
+          headers: { ...heartbeatHeaders(), ...(isGet ? {} : { "Content-Type": "application/json" }) },
           body: isGet ? undefined : JSON.stringify(meta.example),
         });
         lastStatus = res.status;
