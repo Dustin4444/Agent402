@@ -1590,16 +1590,41 @@ const SIX_DECIMAL_ASSETS = new Set([
   "0x20c0000000000000000000000000000000000000", // Tempo PathUSD
   "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // Solana USDC mint
 ].map((a) => a.toLowerCase()));
-function tokenDecimalsOf(obj) {
-  const d = obj?.decimals;
-  if (typeof d === "number" && Number.isInteger(d) && d >= 0 && d <= 36) return d;
-  if (typeof d === "string" && /^\s*\d{1,2}\s*$/.test(d) && Number(d) <= 36) return Number(d);
+/** Six, when this object names a token we RECOGNISE as dollar-pegged. Null
+ *  otherwise, which is the whole gate: sizing an amount by decimals only turns
+ *  base units into DOLLARS if the token is a dollar. */
+function dollarPeggedDecimalsOf(obj) {
   for (const id of [obj?.asset, obj?.currency, obj?.asset_address, obj?.assetAddress, obj?.symbol, obj?.extra?.name]) {
     if (typeof id !== "string" || !id.trim()) continue;
     const v = id.trim();
     if (SIX_DECIMAL_TICKER.test(v) || SIX_DECIMAL_ASSETS.has(v.toLowerCase())) return 6;
   }
   return null;
+}
+function declaredDecimalsOf(obj) {
+  const d = obj?.decimals;
+  if (typeof d === "number" && Number.isInteger(d) && d >= 0 && d <= 36) return d;
+  if (typeof d === "string" && /^\s*\d{1,2}\s*$/.test(d) && Number(d) <= 36) return Number(d);
+  return null;
+}
+/** Decimals to divide an amount by, or null to publish no price at all.
+ *
+ *  A DECLARED `decimals` used to be enough on its own, which made the seller's
+ *  own field the whole rule for ANY asset: `{ amount: "5000", decimals: 18,
+ *  asset: <some token> }` published 0.000000000000005 as a DOLLAR price of a
+ *  token that is not a dollar, and the same field set to 2 would have published
+ *  $50. Decimals say how to READ an amount, never what it is worth, so the
+ *  token has to be one we recognise as dollar-pegged first; anything else is a
+ *  price the live-402 probe learns rather than one we invent.
+ *
+ *  A declaration that CONTRADICTS the chain (USDC is six decimals on every rail
+ *  we settle) is not a tie we get to break: publish nothing. */
+function tokenDecimalsOf(obj) {
+  const pegged = dollarPeggedDecimalsOf(obj);
+  if (pegged == null) return null;
+  const declared = declaredDecimalsOf(obj);
+  if (declared != null && declared !== pegged) return null;
+  return pegged;
 }
 function atomicContext(obj) {
   if (!obj || typeof obj !== "object" || Array.isArray(obj)) return false;
@@ -1621,7 +1646,14 @@ function atomicAmountToDollars(obj, amount) {
   }
   const decimals = tokenDecimalsOf(obj);
   if (decimals == null) return null;
-  return Number(String(amount).trim()) / 10 ** decimals;
+  const usd = Number(String(amount).trim()) / 10 ** decimals;
+  // Only a figure that writes out as a plain decimal. JS renders anything from
+  // 1e21 up (and below 1e-6) in exponent notation, and every price reader
+  // downstream takes a STRING: "$1e+21" parses to null in our own reader and to
+  // some unrelated number in any reader that strips punctuation. A price we
+  // cannot write down is a price we do not publish.
+  if (!Number.isFinite(usd) || /e/i.test(String(usd))) return null;
+  return usd;
 }
 /** An explicit DOLLAR label (`display`, `amountLabel`) the seller wrote for
  *  humans: preferred over any figure we would have to convert. Taken only when

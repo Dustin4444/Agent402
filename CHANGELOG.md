@@ -9,6 +9,10 @@ carries its own version on npm.
 Since v2.4.0 (2026-09-18).
 
 ### 2026-09-22
+- Read a base-unit `amount` in an index listing as dollars only when the token
+  is one we recognise as dollar-pegged: a declared `decimals` no longer sizes an
+  arbitrary asset, a declaration that contradicts the chain publishes no price,
+  and a figure that cannot be written as a plain decimal is refused.
 - Retire contract-inspect, address-profile, token-info, token-holders and
   tx-inspect; the routes answer 410, naming a replacement where one exists.
 - Read every `token-risk` token fact from keyless probes; the advertised chains

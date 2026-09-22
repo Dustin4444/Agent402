@@ -573,6 +573,33 @@ const page = (results, extra = {}) =>
     unknown?.price == null && !(Number(unknown?.originDeclaredPrice) > 0));
   priced(stack({ amount: "3000", asset: "0x00000000000000000000000000000000000000ff", display: "$0.003" }), "$0.003",
     "and the seller's own label rescues exactly that row, which is what reading it first is for");
+
+  // DECIMALS SAY HOW TO READ AN AMOUNT, NEVER WHAT IT IS WORTH. The first cut
+  // let a declared `decimals` size ANY asset, so the seller's own field was the
+  // whole rule: the same row at decimals 18 publishes 0.000000000000005 and at
+  // decimals 2 publishes $50, neither of them a dollar figure of a dollar.
+  // decimals 2, deliberately: at 18 the figure is unwritable and the plain-
+  // decimal guard below would refuse it anyway, so the case would pass with the
+  // peg rule deleted. At 2 the old reader publishes a confident $50.
+  const declaredOnUnknown = stack({ amount: "5000", asset: "0x00000000000000000000000000000000000000ff", decimals: 2 });
+  check(`a declared decimals does NOT size a token we cannot recognise as a dollar - $50 of an unknown token is not $50 (got ${declaredOnUnknown?.price})`,
+    declaredOnUnknown?.price == null && !(Number(declaredOnUnknown?.originDeclaredPrice) > 0));
+  const contradiction = stack({ amount: "3000", asset: USDC_BASE, decimals: 18 });
+  check(`a declaration contradicting the chain (USDC is six) publishes nothing rather than picking a side (got ${contradiction?.price})`,
+    contradiction?.price == null);
+  const huge = stack({ amount: "1" + "0".repeat(27), asset: USDC_BASE });
+  check(`an amount whose dollar figure cannot be written as a plain decimal publishes nothing, never "$1e+21" (got ${huge?.price})`,
+    huge?.price == null);
+
+  // THE MUTATION THIS SECTION COULD NOT KILL: every bare-currency assertion
+  // above used a FRACTIONAL amount, which takes the fractional path whatever
+  // atomicContext says - so deleting the `method`/`intent` clause from it left
+  // the suite green while every catalogue row of this shape got divided by a
+  // million. A WHOLE amount beside a bare currency is the case that separates
+  // them: dollars, because that is what catalogues publish, and $0.000032 only
+  // if a bare ticker is wrongly read as payment context.
+  priced(stack({ amount: "32", currency: "USDC", network: "eip155:8453" }), "$32",
+    "a WHOLE amount beside a bare currency is still dollars: a ticker alone is not payment context");
   check(`the readable one anchors the drift guard (got ${stack({ amount: "3000", asset: USDC_BASE, decimals: 6, display: "$0.003" })?.originDeclaredPrice})`,
     stack({ amount: "3000", asset: USDC_BASE, decimals: 6, display: "$0.003" })?.originDeclaredPrice === 0.003);
 
