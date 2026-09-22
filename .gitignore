@@ -89,3 +89,6 @@ RESIDUAL_RISK.md
 # repository once already (2026-08-29). Stage explicit paths.
 private/
 scratchpad/
+
+# Local research notes and screenshots (never committed)
+research/

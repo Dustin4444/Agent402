@@ -1,5 +1,6 @@
 import "./boot-profile.js"; // diagnostic boot CPU profile - must stay the FIRST import (see the file)
 import { retiredEntryFor, assertRetiredRegistryConsistent } from "./retired-tools.js";
+import { createTrafficStore, trafficMiddleware } from "./traffic-classifier.js";
 import { RAILS_OR, RAILS_SHORT, RAILS } from "./rails.js";
 // Railway's egress has NO working IPv6 (every AAAA is ENETUNREACH). Node's
 // happy-eyeballs races the IPv6 address on dual-stack upstreams and fails ~15% of
@@ -1828,6 +1829,13 @@ app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS) || 1);
 // Only OUR www: the target is the configured canonical host, never whatever
 // the Host header said (an attacker-chosen Host would otherwise make us a
 // 301 open redirect - review 2026-08-28).
+// Who hits us: every response is classed as it finishes (paid / pow /
+// challenge-only / payment-refused / known-indexer / crawler / repeat-buyer /
+// human) and rolled up per UTC day, hashed, bounded, persisted under
+// DATA_DIR/traffic; read at /__operator/traffic.json (src/traffic-classifier.js).
+const TRAFFIC = createTrafficStore();
+TRAFFIC.load();
+app.use(trafficMiddleware(TRAFFIC, { payerOf: (req, res) => payerFromRequest(req) || payerFromPaymentResponse(String(res.getHeader("payment-response") || "")) }));
 const CANONICAL_HOST = (() => { try { return new URL(BASE_URL).host.toLowerCase(); } catch { return ""; } })();
 app.use((req, res, next) => {
   const host = String(req.hostname || "").toLowerCase();
@@ -4169,6 +4177,11 @@ function operatorHeavyLimited(req, res) {
 
 const LEDGER_SYNC_TTL_MS = 15_000;
 let ledgerSyncCache = { at: 0, value: null };
+app.get("/__operator/traffic.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  // In-memory rollups (hashed ips, hashed payers, top-N per class) - cheap read.
+  res.set("Cache-Control", "no-store").json(TRAFFIC.report({ days: Math.min(14, parseInt(req.query.days, 10) || 2), top: Math.min(100, parseInt(req.query.top, 10) || 15) }));
+});
 app.get("/__operator/egress.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   // Cheap read of an in-memory counter - no upstream, so no heavy-route limiter.

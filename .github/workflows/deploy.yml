@@ -3828,6 +3828,8 @@ jobs:
           t node scripts/test-shortlinks.js
           # Retired catalog routes answer 410 with the replacement, never the guessed-slug 404 (boots a free server)
           t node scripts/test-retired-routes.js
+          # Who hits us: per-request classes, the crawler rule, repeat-buyer memory, the operator read (boots a free server)
+          t node scripts/test-traffic-classifier.js
           # A rejected payment is answered in the buyer's terms (balance vs stale authorization) on the 402 (offline)
           t node scripts/test-verify-hint.js
           t node scripts/test-verify-hint-live.js
