@@ -1,7 +1,7 @@
 import "./boot-profile.js"; // diagnostic boot CPU profile - must stay the FIRST import (see the file)
 import { retiredEntryFor, assertRetiredRegistryConsistent } from "./retired-tools.js";
 import { createTrafficStore, trafficMiddleware } from "./traffic-classifier.js";
-import { createUnpaidQuoteBudget, unpaidQuoteBudgetPerHour } from "./unpaid-quote-budget.js";
+import { createUnpaidQuoteBudget, looksLikePayment, unpaidQuoteBudgetPerHour } from "./unpaid-quote-budget.js";
 import { RAILS_OR, RAILS_SHORT, RAILS } from "./rails.js";
 // Railway's egress has NO working IPv6 (every AAAA is ENETUNREACH). Node's
 // happy-eyeballs races the IPv6 address on dual-stack upstreams and fails ~15% of
@@ -2357,17 +2357,10 @@ app.use("/v1/metered", (req, res, next) => {
   // 2026-08-28, `Authorization: Bearer garbage` took 80 of 80 requests past
   // this limiter while the same 80 unauthenticated ones were throttled at 44.
   // The gates still decide whether it is really valid; this only decides
-  // whether the request is worth a free tokenizer run.
-  const looksPaid = (h) => {
-    const a = String(req.headers.authorization || "");
-    if (/^Bearer\s+a402_[A-Za-z0-9_-]{8,}/.test(a) || /^Payment\s+\S{16,}/i.test(a)) return true;
-    for (const k of ["payment-signature", "x-payment"]) {
-      const v = req.headers[k];
-      if (typeof v === "string" && v.length >= 32) return true;
-    }
-    return false;
-  };
-  const paid = looksPaid();
+  // whether the request is worth a free tokenizer run. The shapes live in
+  // src/unpaid-quote-budget.js because the unpaid price-check budget has to
+  // read a credential exactly the same way, and two copies of this rule drift.
+  const paid = looksLikePayment(req.headers);
   if (!paid && meteredQuoteLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many unpaid quote requests from this address; send the paid retry, or slow down." });
   next();
 });
