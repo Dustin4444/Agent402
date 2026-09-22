@@ -1,9 +1,13 @@
 // Upstream-buyer balance status: the gateway-credits pattern (llm-gateway-kit
 // gatewayCreditsStatus) applied to the x402 SPENDING wallet on Base
 // (X402_UPSTREAM_BUYER_KEY). route-execute and seller-payability pay external
-// sellers from it and attest pays Base gas from it; when it runs dry those
-// paths refuse (buyers are never charged), so the heartbeat alarms on "low"
-// BEFORE that happens.
+// sellers in USDC from it; when that runs dry they refuse (buyers are never
+// charged), so the heartbeat alarms on "low" BEFORE that happens.
+//
+// attest signs from the same wallet but pays Base gas in ETH, which this reads
+// nothing about: a USDC-empty wallet does not stop it, and the ETH-empty wallet
+// that does is invisible here. attest bounds its own gas (ATTEST_MAX_GAS_USD)
+// and refuses 503 uncharged; do not read this status as covering it.
 // Bucketed status only: the balance number never leaves the server. 5-min
 // cache; public-RPC read with graceful "unknown" (an RPC flake must never page).
 const BASE_RPCS = ["https://mainnet.base.org", "https://base.drpc.org"];
@@ -25,10 +29,13 @@ export const BUYER_LOW_DEFAULT_USD = 6;
 
 // THIS WALLET SHOULD NEVER GO DOWN, so a fall is worth more than a floor.
 //
-// Everything that spends from it also settles INTO it: SELF_FUNDING_SLUGS sets
-// payTo to this address for exactly those tools (payments.js acceptsForItem),
-// and every execution tier charges more than it can spend. So barring a manual
-// withdrawal the balance is monotonically non-decreasing, and a SUSTAINED fall
+// The route-execute tiers that spend from it also settle INTO it:
+// SELF_FUNDING_SLUGS sets payTo to this address for exactly those tools
+// (payments.js acceptsForItem), and every execution tier charges more than it
+// can spend. seller-payability and attest are NOT in that set - they spend
+// without refilling - which is why the fall has a tolerance and has to persist
+// across reads rather than tripping on the first dip. So the trend a healthy
+// wallet shows is flat or rising, and a SUSTAINED fall past the tolerance
 // means something we do not understand is happening: the verify-then-fail-to-
 // settle drain, a spend whose revenue never arrived, or a withdrawal nobody
 // mentioned.

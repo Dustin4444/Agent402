@@ -2922,7 +2922,7 @@ jobs:
         run: bash scripts/test-heartbeat-probe.sh
 
       # Strict FREE_MODE sweep of paid tools that do NOT burn Brave/OpenAI/
-      # OpenRouter/E2B/Blockscout-buyer/FRED/Neynar/etc. Fails on 502/503/504
+      # OpenRouter/E2B/FRED/Neynar/etc. Fails on 502/503/504
       # (unlike test-all.js NETWORK leniency — that hole kept gov-data green
       # while dead; issue #730). Filter never calls metered routes; own-boot
       # strips keys too. Uses the shared FREE_MODE server when TARGET_URL is set.

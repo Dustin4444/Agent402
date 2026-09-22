@@ -153,10 +153,19 @@ export function chainNamespaceMap() {
  */
 export const VERBS_NOT_FOLDED = new Set([]);
 
-export function chainVerbAliasesByRoute() {
+/**
+ * Route -> the verbs folded into that tool's search aliases.
+ *
+ * `notFolded` is a parameter, not a closed-over constant, because the live set
+ * is empty: with no exception to exercise, the withholding branch below is
+ * reachable from no caller and a mutation deleting it passes every suite. The
+ * test hands in a fixture set to keep the mechanism pinned, so the day a verb
+ * needs withholding again the behaviour is already proven.
+ */
+export function chainVerbAliasesByRoute(notFolded = VERBS_NOT_FOLDED) {
   const out = new Map();
   for (const [verb, route] of CHAIN_VERB_ROUTES) {
-    if (VERBS_NOT_FOLDED.has(verb)) continue;
+    if (notFolded.has(verb)) continue;
     if (!out.has(route)) out.set(route, []);
     out.get(route).push(verb);
   }

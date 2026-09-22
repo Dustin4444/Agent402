@@ -372,7 +372,7 @@ jobs:
           OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
           if [ "$STATUS" = "low" ]; then
             if [ -z "$OPEN" ]; then
-              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "The x402 upstream spending wallet (X402_UPSTREAM_BUYER_KEY) is below the low-water mark (UPSTREAM_BUYER_LOW_USD). When it empties, route-execute external buys, seller-payability and attest refuse (buyers are never charged, but those paths go dark). Top up: send USDC on Base to the upstream buyer address (see CLAUDE.md env docs)."
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "The x402 upstream spending wallet (X402_UPSTREAM_BUYER_KEY) is below the low-water mark (UPSTREAM_BUYER_LOW_USD). When it empties, route-execute external buys and seller-payability refuse (buyers are never charged, but those paths go dark). attest signs from the same wallet but pays Base gas in ETH, which this alarm reads nothing about. Top up: send USDC on Base to the upstream buyer address (see CLAUDE.md env docs)."
             else
               gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "Still low at $(date -u +%FT%TZ)."
             fi
@@ -631,11 +631,12 @@ jobs:
             if [ -z "$OPEN" ]; then
               gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "The x402 upstream spending wallet has fallen below its high-water mark across several consecutive reads.
 
-          That wallet is SELF-FUNDING: every tool that spends from it also settles into it, and every execution tier charges more than it can spend (worst case +\$0.005 / +\$0.01 / +\$0.05 / +\$0.30 per call). Its balance should only rise. A sustained fall means one of:
+          The route-execute tiers are SELF-FUNDING: they settle into this wallet and each charges more than it can spend (worst case +\$0.005 / +\$0.01 / +\$0.05 / +\$0.30 per call), so their traffic can only raise the balance. A sustained fall means one of:
 
           1. A manual withdrawal - close this issue if that was you.
-          2. Upstream spend whose revenue never arrived: a buyer's payment verified and then failed to settle, which is the drain the per-payer ceiling in src/external-spend-guard.js bounds. Check /__operator/stats and the route-execute receipts.
-          3. Something we do not understand, which is why this alarm exists.
+          2. seller-payability or attest, which spend from this wallet without settling into it (seller-payability probes external sellers; attest pays Base gas in ETH). A slow trickle from those is expected and sits inside the tolerance; a sustained fall is not.
+          3. Upstream spend whose revenue never arrived: a buyer's payment verified and then failed to settle, which is the drain the per-payer ceiling in src/external-spend-guard.js bounds. Check /__operator/stats and the route-execute receipts.
+          4. Something we do not understand, which is why this alarm exists.
 
           Balances are deliberately not published on /api/gateway-status; read the wallet directly to see the number."
             else
