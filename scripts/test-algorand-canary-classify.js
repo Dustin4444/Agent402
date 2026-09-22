@@ -4,7 +4,8 @@
 // third-party/edge outage or our-own-burst throttle (reported, does not fail).
 // Getting this wrong is why #806 stayed open: a transient edge 502 or an
 // upstream vendor 5xx was booked as a broken tool on first sight.
-import { outcomeOf, isUpstreamOutage, isThrottle } from "./avm-canary-classify.js";
+import { readFileSync } from "node:fs";
+import { outcomeOf, isUpstreamOutage, isThrottle, isOurSettleBreaker } from "./avm-canary-classify.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log("ok -", m); } else { fail++; console.error("FAIL -", m); } };
@@ -56,6 +57,61 @@ ok(survivors.every((a) => outcomeOf(a) === "other" && isUpstreamOutage(a.status,
 // 502 for nft-holdings while it was 402ing fine seconds later.
 ok(isUpstreamOutage(502, "") === true && isUpstreamOutage(503, "") === true && isUpstreamOutage(504, "") === true, "a bare-probe 502/503/504 (no body) is an upstream/edge outage");
 ok(isUpstreamOutage(500, "") === false && isUpstreamOutage(404, "") === false && isUpstreamOutage(400, "") === false, "a bare-probe 500/404/400 is NOT auto-excused (a real problem still fails)");
+
+// ---- OUR OWN settle breaker is not a vendor throttle -----------------------
+//
+// From run 35604560799 (2026-09-21), verbatim. An upstream facilitator failed
+// 14 minutes into the sweep after 145 clean settlements; three settle failures
+// opened our per-wallet breaker, and 346 of the remaining attempts came back as
+// this and were reported as "upstream throttles (vendor refused us even after a
+// backoff)". Our own guard, described as somebody else's, at the top of the
+// only file anyone reads when the rail breaks.
+const BREAKER_BODY = '{"error":"Recent payments from this wallet failed to settle (3 in the last 15 min: they verified, the call was served, and settlement failed). Retry after the window clears."}';
+ok(isOurSettleBreaker(429, BREAKER_BODY) === true, "the live breaker body from run 35604560799 is recognised as ours");
+ok(outcomeOf(R(429, BREAKER_BODY)) === "breaker", "...and classifies as `breaker`, not `throttle`");
+ok(isThrottle(429, BREAKER_BODY) === false, "...and is NOT also counted as a vendor throttle - one refusal, one class");
+
+// The global half of the same guard, which pauses the paid catalog rather than
+// one wallet. Same conclusion for the sweep: nothing was measured.
+ok(outcomeOf(R(429, '{"error":"The paid catalog is paused for a moment."}')) === "breaker", "the GLOBAL pause is also ours, not a vendor");
+
+// CONTROL, in the other direction: a real vendor 429 must still read as a
+// throttle. A predicate that swallowed every 429 would hide the facilitator
+// rate-limiting our volume, which is the thing isThrottle was written for.
+ok(isOurSettleBreaker(429, "rate limit exceeded") === false, "a vendor 429 is NOT claimed as ours");
+ok(outcomeOf(R(429, "rate limit exceeded")) === "throttle", "...and still classifies as a vendor throttle");
+ok(isOurSettleBreaker(402, BREAKER_BODY) === false, "the text alone is not enough - it has to be a 429");
+
+// Ordering: `breaker` is decided before the 402 shapes and before isThrottle,
+// because it is the only outcome that says nothing at all about the tool.
+ok(outcomeOf({ status: 429, body: BREAKER_BODY, elapsedMs: 50 }) === "breaker", "a FAST breaker refusal is still a breaker, not a fast-402 or a throttle");
+
+// ---- and the SWEEP acts on it ---------------------------------------------
+//
+// Source pins, because the sweep self-runs on import and cannot be driven from
+// here. Each pins a decision the classifier alone cannot make: what the sweep
+// DOES once a refusal is known to be ours.
+{
+  const src = readFileSync(new URL("./algorand-rail-canary.js", import.meta.url), "utf8");
+
+  // CONTROL. A pin that matches nothing reports a clean run forever, so prove
+  // the file is being read and that a string known to be absent is absent.
+  ok(/ABORT_AFTER_CONSECUTIVE/.test(src), "control: the sweep source is readable and carries the abort knob");
+  ok(!/CANARY_THIS_DOES_NOT_EXIST/.test(src), "control: and a string that should not be there is not found");
+
+  ok(/out === "breaker" \? Math\.min\(a\.retryAfterMs/.test(src),
+     "a breaker refusal waits the Retry-After it carries, not the 8s burst backoff that cannot clear a 15-minute window");
+  ok(/report\.blocked\.push/.test(src) && !/out === "breaker"[\s\S]{0,400}report\.throttled\.push/.test(src),
+     "a breaker refusal goes in `blocked`, never in the vendor-throttle bucket");
+  ok(/consecutiveBlind \+\+|consecutiveBlind\+\+/.test(src) && /consecutiveBlind >= ABORT_AFTER_CONSECUTIVE/.test(src),
+     "consecutive unmeasurable outcomes abort the sweep instead of buying ~350 more attempts that observe nothing");
+  ok(/out === "ok"\) consecutiveBlind = 0/.test(src),
+     "...and a single success resets the run, so an isolated failure among successes never trips it - that failure is what this alarm is for");
+  ok(/bodyType \|\| ""\)\.toLowerCase\(\) === "form-data"[\s\S]{0,300}report\.skipped\.push/.test(src),
+     "a multipart route is SKIPPED, not driven with JSON and then booked as a handler defect - and it is read from the seller's own declaration, not a slug list");
+  ok(/report\.aborted && !bad[\s\S]{0,300}process\.exit\(1\)/.test(src),
+     "an aborted sweep FAILS the run even with no defect recorded - a partial sweep may not report a pass");
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

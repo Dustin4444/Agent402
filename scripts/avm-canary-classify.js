@@ -7,10 +7,28 @@
 // round trips measured 5s+): the AVM-specific shape of a throttle/burst reject.
 export const FAST_REJECT_MS = Number(process.env.CANARY_FAST_REJECT_MS || "1500");
 
+// OUR OWN settle-failure breaker, not a vendor. It answers 429 to a wallet
+// whose payments verified and then failed to settle, and the window is
+// GATEWAY_SETTLE_BREAKER_WINDOW_MS (15 minutes by default), not seconds.
+//
+// This has to be its own class because the sweep is ONE wallet buying ~500
+// tools back to back: three settle failures in a window and every later
+// wallet-only tool is refused before its handler runs. On 2026-09-21 an
+// upstream facilitator failed at 13:31 after 145 clean settlements and 346 of
+// the remaining attempts came back as this - reported as "upstream throttles
+// (vendor refused us even after a backoff)", which is our own guard described
+// as somebody else's, and it points the next reader at the wrong system.
+//
+// Matched on OUR text rather than on 429 alone: a real vendor 429 is still a
+// vendor 429 and still belongs in isThrottle.
+export const isOurSettleBreaker = (status, body) =>
+  status === 429 && /failed to settle|settle breaker|paid catalog is paused/i.test(String(body || ""));
+
 // The facilitator is refusing THIS wallet's volume (429, or a 503 that says so),
 // not a rail defect - this sweep buys ~500 tools back to back.
 export const isThrottle = (status, body) =>
-  status === 429 || (status === 503 && /rate.?limit|throttl|too many|overload/i.test(String(body || "")));
+  !isOurSettleBreaker(status, body) &&
+  (status === 429 || (status === 503 && /rate.?limit|throttl|too many|overload/i.test(String(body || ""))));
 
 // A THIRD-PARTY or EDGE failure: a vendor 5xx, a router "Seller rejected the
 // paid retry", or Railway's edge returning 502 "upstream error" mid-deploy
@@ -32,10 +50,16 @@ export const isGateRefusal = (status, body) =>
   status === 402 && /"error"\s*:\s*"Payment rejected"/.test(String(body || "")) && /"reason"\s*:\s*"/.test(String(body || ""));
 
 // Terminal shape of one paid attempt:
-// "ok" | "empty" | "fast-402" | "throttle" | "slow-402" | "other".
+// "ok" | "empty" | "breaker" | "fast-402" | "throttle" | "slow-402" | "other".
+//
+// `breaker` is tested BEFORE the 402 shapes and before isThrottle, because it
+// is the one outcome that says nothing about the tool under test: the request
+// was refused before its handler ran, so the sweep measured nothing and must
+// not report a verdict either way.
 export const outcomeOf = (a) =>
   a.status === 200 && String(a.body || "").trim() ? "ok"
     : a.status === 200 ? "empty"
+      : isOurSettleBreaker(a.status, a.body) ? "breaker"
       : isGateRefusal(a.status, a.body) ? "slow-402"
       : a.status === 402 && a.elapsedMs < FAST_REJECT_MS ? "fast-402"
         : isThrottle(a.status, a.body) ? "throttle"
