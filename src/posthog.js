@@ -342,6 +342,13 @@ export function capturePostHogPaywall({ slug, priceUsd, powEligible, synthetic, 
     const key = `${slug}|${synthetic ? 1 : 0}|${att}|${rsn || "-"}|${shp || "-"}`;
     const cur = paywallCounts.get(key) || {
       slug: String(slug || "unknown"),
+      // The price the CALLER was quoted, which is no longer one number per
+      // route: a metered route quotes per request, and a flat chat route
+      // quotes the home tier of the model in the body. A rollup row can only
+      // carry one, so it carries the FIRST of the window for this key - a
+      // representative quote, never a route-wide price. It is deliberately not
+      // part of `key`: a continuously varying amount there would make the key
+      // space unbounded, which is the failure this rollup exists to prevent.
       priceUsd: Number(priceUsd) || 0,
       powEligible: !!powEligible,
       synthetic: !!synthetic,

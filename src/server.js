@@ -271,7 +271,7 @@ import { LLM_GEMINI_TOOLS, GEMINI_PATH_BY_TIER } from "./tools/llm-gemini-kit.js
 import { refusalReason } from "./refusal-reason.js";
 import { setKnownProductKeys } from "./posthog.js";
 import { LLM_RESPONSES_TOOLS } from "./tools/llm-responses-kit.js";
-import { LLM_GATEWAY_TOOLS, TIERS, modelsList, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, rerankCacheKey, RERANK_PATH, gatewayCreditsStatus, oxAlphaAvailable, probeOxAlphaAvailability, OX_ROUTE, oxUpstreamIsFree } from "./tools/llm-gateway-kit.js";
+import { LLM_GATEWAY_TOOLS, TIERS, PRICED_BY_MODEL_NOTE, modelsList, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, rerankCacheKey, RERANK_PATH, gatewayCreditsStatus, oxAlphaAvailable, probeOxAlphaAvailability, OX_ROUTE, oxUpstreamIsFree } from "./tools/llm-gateway-kit.js";
 // /v1/audio/speech stays behind OPENROUTER_TTS_ENABLED as a rollout gate:
 // @x402/express (v2.16) runs the handler first and settles only a <400
 // response, so a 502 is never charged — but an UNLISTED route returns no 402
@@ -6554,13 +6554,23 @@ app.get("/api/pricing", (_req, res) => {
       // under the quote, from $0.001. This string said "never token-metered"
       // for three weeks after the metered tier shipped (outside review, 2026-09-18).
       pricing: "flat per call on the named tiers; the /v1/metered/* routes are quoted per request from the body (quoted: true below, from $0.001) and settle actual usage under the quote",
+      // Third pricing shape, and the reason a flat row's number is not a
+      // ceiling: a flat chat route asked for a model another flat tier serves
+      // quotes and serves that tier. Rows that can do it carry
+      // pricedByModel: true, here and on `endpoints` above.
+      pricingByModel: PRICED_BY_MODEL_NOTE,
       // DERIVED from the catalog, never hand-listed: as a literal array this
       // drifted and omitted /v1/audio/speech, a live sellable tier. Deriving
       // also means an env-gated tier that is switched off is absent here rather
       // than advertised, and the price is always the price actually charged.
       // Notes stay editorial, keyed by path; a path with no note still lists.
       tiers: Object.entries(CATALOG)
-        .map(([route, def]) => ({ path: route.split(" ")[1], price: def.price, ...(typeof def.quote === "function" ? { quoted: true, fromUsd: Number(def.price.replace("$", "")) } : {}) }))
+        .map(([route, def]) => ({
+          path: route.split(" ")[1],
+          price: def.price,
+          ...(typeof def.quote === "function" ? { quoted: true, fromUsd: Number(def.price.replace("$", "")) } : {}),
+          ...(typeof def.tierQuote === "function" ? { pricedByModel: true } : {}),
+        }))
         .filter((t) => t.path.startsWith("/v1/"))
         .sort((a, b) => Number(a.price.replace("$", "")) - Number(b.price.replace("$", "")))
         .map((t) => ({ ...t, note: V1_TIER_NOTES[t.path] || undefined })),
@@ -6578,7 +6588,7 @@ app.get("/api/pricing", (_req, res) => {
     baseUrl: BASE_URL,
     openapi: `${BASE_URL}/openapi.json`,
     categories: Object.fromEntries(Object.entries(CATEGORIES).map(([k, v]) => [k, v.label])),
-    endpoints: Object.entries(CATALOG).map(([route, { name, price, description, category, slug }]) => {
+    endpoints: Object.entries(CATALOG).map(([route, { name, price, description, category, slug, tierQuote }]) => {
       const [method, path] = route.split(" ");
       return {
         method,
@@ -6590,6 +6600,12 @@ app.get("/api/pricing", (_req, res) => {
         description,
         docs: `${BASE_URL}/tools/${slug}`,
         computePayable: POW_SLUGS.has(slug),
+        // `price` is what this route charges for the models it serves; a body
+        // naming another flat tier's model is quoted at THAT tier's price. A
+        // consumer that budgets per route must be able to see that from the
+        // row rather than discover it in a 402 (llmGateway.pricingByModel says
+        // it in words). Absent, never false, on the routes it cannot happen to.
+        ...(typeof tierQuote === "function" ? { pricedByModel: true } : {}),
         // Published per row because the doc's own description says these are
         // marked: a consumer that wants only deterministic code should be able
         // to FILTER for it rather than take a sentence's word for it.
@@ -7089,7 +7105,12 @@ if (FREE_MODE) {
           const attempt = paidAttempt ? "usdc_failed" : powAttempt ? "pow_failed" : "none";
           capturePostHogPaywall({
             slug: def.slug,
-            priceUsd: Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0,
+            // The price the 402 actually quoted THIS request, not the route's
+            // list price: a per-request quote and a flat route priced by the
+            // model named in the body both differ from it, and a bounce logged
+            // at the catalog price hides which amount the buyer walked away
+            // from. The quote is memoized on the request, so this is a read.
+            priceUsd: quotedPriceUsd(def, req),
             powEligible: POW_SLUGS.has(def.slug),
             synthetic: isSyntheticRequest(req),
             attempt,

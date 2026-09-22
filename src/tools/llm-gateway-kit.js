@@ -763,6 +763,15 @@ export function servedTierFor(routeTier, model, req) {
   const gated = Number(req?.__meteredQuoteUsd);
   return Number.isFinite(gated) && gated + 1e-9 >= TIERS[home].price ? home : routeTier;
 }
+/** What a machine-readable surface must say about a flat chat route now that
+ *  its price depends on the body. The catalog price is still the price for the
+ *  models that tier serves, so the figure on /api/pricing and /openapi.json
+ *  stays exactly right - but a buyer budgeting from it would be surprised by a
+ *  dearer 402 on a cross-tier model, and a fixed number with no sentence beside
+ *  it reads as a promise. ONE copy, read by both surfaces: a price sentence
+ *  typed twice is a price sentence that drifts. */
+export const PRICED_BY_MODEL_NOTE = "Flat per call for the models this tier serves. A body naming another flat tier's model (nano, base, pro, premium) is quoted at that tier's price in the 402 and served under that tier; the answer names it in agent402_tier. The live 402 is always the price.";
+
 /** The additive `agent402_tier` field a cross-tier answer carries. */
 export function crossTierDisclosure(routeTier, servedTier) {
   return {

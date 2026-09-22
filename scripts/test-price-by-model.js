@@ -16,6 +16,7 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { Challenge } from "mppx";
 import { getFreePorts } from "./lib/free-port.js";
+import { PRICED_BY_MODEL_NOTE } from "../src/tools/llm-gateway-kit.js";
 
 const [PORT, FAC_PORT] = await getFreePorts(2);
 const B = `http://127.0.0.1:${PORT}`;
@@ -115,6 +116,55 @@ try {
   const openapi = await (await fetch(`${B}/openapi.json`)).json();
   const op = openapi?.paths?.["/v1/chat/completions"]?.post;
   ok(op?.["x-price"] === "$0.02", `/openapi.json keeps the base route's list price (x-price ${op?.["x-price"]})`);
+
+  // 2b. ...and every surface that publishes that fixed number SAYS the price
+  // depends on the model, or is a surface the change cannot make stale. A
+  // correct figure with no sentence beside it reads as a ceiling, and a buyer
+  // budgeting from /api/pricing meets the difference in a 402.
+  ok(baseRow?.pricedByModel === true, "/api/pricing marks the flat chat route pricedByModel");
+  ok(tiers.filter((t) => t.quoted).every((t) => t.pricedByModel === undefined),
+    "the metered routes are quoted, never pricedByModel - two different pricing shapes, never conflated");
+  ok(typeof pricing?.llmGateway?.pricingByModel === "string" && /agent402_tier/.test(pricing.llmGateway.pricingByModel),
+    "/api/pricing says in words what a flat chat route's price depends on, and how the answer discloses it");
+  ok(pricing.llmGateway.pricingByModel === PRICED_BY_MODEL_NOTE,
+    "that sentence is the kit's own constant, not a second copy that can drift");
+  const eps = pricing?.endpoints || [];
+  const chatEp = eps.find((e) => e.path === "/v1/chat/completions");
+  const hashEp = eps.find((e) => e.path === "/api/hash");
+  ok(chatEp?.pricedByModel === true && chatEp?.price === "$0.02", `the endpoints row carries the flag beside the list price (${chatEp?.price})`);
+  ok(hashEp && hashEp.pricedByModel === undefined, "a route whose price cannot move carries no flag at all (absent, never false)");
+  const byModelEps = eps.filter((e) => e.pricedByModel).map((e) => e.path);
+  ok(byModelEps.length > 0 && byModelEps.every((p) => p.startsWith("/v1/") && !p.startsWith("/v1/metered/")),
+    `only flat /v1 routes are flagged (${byModelEps.length}: ${byModelEps.slice(0, 4).join(", ")})`);
+  ok(op?.description?.includes(PRICED_BY_MODEL_NOTE), "/openapi.json says it in the operation description, beside the price");
+  const hashOp = openapi?.paths?.["/api/hash"]?.get || openapi?.paths?.["/api/hash"]?.post;
+  ok(hashOp && !hashOp.description?.includes(PRICED_BY_MODEL_NOTE), "an unaffected operation does not carry the note");
+
+  // /v1/models is the surface an agent PICKS a model from, and it stays exactly
+  // correct: each id is advertised at its home tier's route and that route's
+  // own price, which is what a buyer sending it there pays.
+  const models = await (await fetch(`${B}/v1/models`)).json();
+  const priceByPath = new Map(tiers.map((t) => [t.path, Number(String(t.price).replace(/[^0-9.]/g, ""))]));
+  const badModel = (models?.data || []).filter((m) => m?.x402?.endpoint && m.x402.priceUsd !== undefined
+    && priceByPath.has(m.x402.endpoint) && Math.abs(priceByPath.get(m.x402.endpoint) - m.x402.priceUsd) > 1e-9);
+  ok((models?.data || []).length > 0 && badModel.length === 0,
+    `every /v1/models row advertises its home route's own price${badModel.length ? ` - ${badModel.slice(0, 3).map((m) => m.id).join(", ")}` : ""}`);
+
+  // The x402 manifest publishes resources as bare URLs and ONE catalog-wide
+  // price range, so it carries no per-route number this can make stale - and
+  // the range already spans the tier prices a cross-tier quote can name.
+  const manifest = await (await fetch(`${B}/.well-known/x402`)).json();
+  ok((manifest?.resources || []).some((u) => u.endsWith("/v1/chat/completions")), "the manifest lists the flat chat route");
+  ok((manifest?.resources || []).every((r) => typeof r === "string"), "manifest resources are bare URLs, so there is no per-resource price there to go stale");
+  // One catalog-wide range, published as a display string ("$0.001-$3.3").
+  const range = String(manifest?.payment?.x402?.priceRange || "");
+  const rangeHi = Math.max(...range.split(/[^0-9.]+/).filter(Boolean).map(Number), 0);
+  ok(rangeHi >= 0.5, `the manifest's price range already spans the premium price a cross-tier quote can name (${range})`);
+
+  // The challenge itself: the only amount on it is accepts[].amount, which is
+  // the quote asserted above. The bazaar extension carries schemas, not prices.
+  const bazaar = up.pr?.extensions?.bazaar ?? up.pr?.extensions?.["x402/bazaar"];
+  ok(!JSON.stringify(bazaar ?? {}).includes('"amount"'), "the 402's discovery extension carries no amount of its own");
 
   // 3. paid at the premium price -> served under the premium config
   const v0 = verifies;
