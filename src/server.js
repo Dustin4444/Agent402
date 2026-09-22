@@ -1,4 +1,5 @@
 import "./boot-profile.js"; // diagnostic boot CPU profile - must stay the FIRST import (see the file)
+import { retiredEntryFor, assertRetiredRegistryConsistent } from "./retired-tools.js";
 import { RAILS_OR, RAILS_SHORT, RAILS } from "./rails.js";
 // Railway's egress has NO working IPv6 (every AAAA is ENETUNREACH). Node's
 // happy-eyeballs races the IPv6 address on dual-stack upstreams and fails ~15% of
@@ -1771,6 +1772,9 @@ for (const route of Object.keys(CATALOG)) {
     throw new Error(`Catalog route "${route}" matches the retired convert-*-to-* pattern and would be shadowed by the 410 handler`);
   }
 }
+// Boot-time guard: a retired slug that is live again would be shadowed by the
+// 410 answer, and a 410 that names a dead replacement is worse than none.
+assertRetiredRegistryConsistent(new Set(Object.values(CATALOG).map((d) => d.slug)));
 
 // Routes that accept proof-of-work in lieu of payment: the pure-CPU tools.
 // Map "METHOD /path" -> tool slug, for the gate and the challenge endpoint.
@@ -7988,6 +7992,20 @@ app.use((req, res) => {
       const slug = req.path.replace(/^\/api\/(skill\/)?/, "").split("/")[0].replace(/[-_]+/g, " ").slice(0, 80);
       let suggestions = [];
       try { suggestions = (findTools(CATALOG, slug, { k: 3, baseUrl: BASE_URL, powSlugs: POW_SLUGS }).results || []).map((r) => ({ slug: r.slug, route: r.route, price: r.price, name: r.name })); } catch { suggestions = []; }
+      // A route we RETIRED is gone on purpose: 410, dated, with the
+      // replacement (src/retired-tools.js). A 404 here read to outside probes
+      // as a broken seller rather than a retired route.
+      const gone = retiredEntryFor(req.path);
+      if (gone) {
+        const rep = gone.replacement ? Object.values(CATALOG).find((d) => d.slug === gone.replacement) : null;
+        const replacement = rep ? { slug: rep.slug, route: rep.route, url: `${BASE_URL}${rep.route.split(" ")[1] || rep.route}`, price: rep.price } : null;
+        try { capturePostHogToolGone({ route: req.path, replacement: replacement ? replacement.route : "GET /api/find" }); } catch { /* telemetry never breaks a response */ }
+        return res.status(410).json({
+          ok: false, error: "gone", slug: gone.slug, retiredAt: gone.retiredAt, replacement,
+          hint: `${gone.kind === "pack" ? "Skill pack" : "Tool"} ${gone.slug} was retired on ${gone.retiredAt}.${replacement ? ` Use ${replacement.route} instead.` : " There is no direct replacement; the closest live tools are listed, or ask /api/find?q=<task>."}`,
+          find: `${BASE_URL}/api/find?q=${encodeURIComponent(slug)}`, suggestions,
+        });
+      }
       try { capturePostHogToolGone({ route: req.path, replacement: "GET /api/find" }); } catch { /* telemetry never breaks a response */ }
       return res.status(404).json({ ok: false, error: "not-found", hint: `No tool lives at ${req.path}. It may have been retired; the closest live tools are listed, or ask /api/find?q=<task>.`, find: `${BASE_URL}/api/find?q=${encodeURIComponent(slug)}`, suggestions });
     }

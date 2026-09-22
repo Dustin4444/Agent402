@@ -54,7 +54,7 @@ Hosted at https://agent402.tools. Maintained by Havok Holdings LLC (the operatin
   outright. First cut: 40 tools + 29 skill packs (627 -> 558 catalog entries): `encoding-kit`, `math-kit`,
   `string-kit`, `color-kit` deleted; `date-time`/`validation`/`crypto-hash`/`util`/`text-analysis` kits kept only
   the tools a live pack or the test corpus depends on (timezone-convert, date-format, csv-lint, checksum,
-  geo-distance, readability-score). Measured before cutting: the figure used was "20 of 627 priced tools had ANY external use in 30
+  geo-distance, readability-score). **Retired routes answer 410 Gone with the replacement (2026-09-22, `src/retired-tools.js`, boot-guarded: a retired slug must not be live, a named replacement must be), because a 404 read to outside census probes as a broken seller; add every future retirement to that registry.** Measured before cutting: the figure used was "20 of 627 priced tools had ANY external use in 30
   days, 10 buyers" - BOTH WRONG, and corrected 2026-08-30: they were the lengths of LIMIT-20 and
   LIMIT-10 queries, so neither could ever report more (src/sales-ledger.js; guard
   scripts/test-capped-counts.js). The real window: 412 tools / 111 buyers, or 132 tools / 109 buyers
