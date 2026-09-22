@@ -963,6 +963,7 @@ export async function runLeaderboard(overrides = {}) {
     scannedBlocks: opts.spanBlocks,
     windowLabel,
     maxCallUsd: opts.maxCallUsd,
+    priceMatchMaxUsd: opts.priceMatchMaxUsd,
     scannedSellers: sellers.length,
     walletsQueried: wallets.length,
     bazaarTotal: total,

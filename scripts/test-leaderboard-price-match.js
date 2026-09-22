@@ -23,6 +23,7 @@
 //
 //   node scripts/test-leaderboard-price-match.js
 import { strict as assert } from "node:assert";
+import { readFileSync } from "node:fs";
 import { aggregateLeaderboard, priceMatches, advertisedMicroUsd, DEFAULTS } from "../src/leaderboard.js";
 
 let n = 0;
@@ -104,6 +105,19 @@ const row = (prices, transfers) => aggregateLeaderboard(transfers, seller(prices
   const wide = aggregateLeaderboard([t(1000, "0xg1")], seller([1_000_000_000]), { priceMatchMaxUsd: 5000 })[0];
   eq(wide.callsSettled, 1, "the bound is a parameter: raised, the same transfer counts");
   ok(DEFAULTS.priceMatchMaxUsd >= 1 && DEFAULTS.priceMatchMaxUsd <= 100, `the default bound (${DEFAULTS.priceMatchMaxUsd}) sits between a tool price and a gift card`);
+}
+
+// --- the served snapshot carries the ceiling it applied -----------------------
+//
+// The first cut stamped priceMatchMaxUsd on the EMPTY snapshot only; the real
+// result object omitted it, so the cap applied while /api/leaderboard and the
+// page sentence that prints it read nothing (measured live 2026-09-22 11:10Z).
+{
+  const src = readFileSync(new URL("../src/leaderboard.js", import.meta.url), "utf8");
+  const result = src.slice(src.indexOf("const ranked = finalizeLeaderboard(byWallet"), src.indexOf("const ranked = finalizeLeaderboard(byWallet") + 1500);
+  ok(/maxCallUsd: opts\.maxCallUsd,\s*\n\s*priceMatchMaxUsd: opts\.priceMatchMaxUsd,/.test(result), "the built snapshot carries priceMatchMaxUsd beside maxCallUsd");
+  const empty = src.slice(src.indexOf("const emptySnapshot"), src.indexOf("const emptySnapshot") + 600);
+  ok(/priceMatchMaxUsd: opts\.priceMatchMaxUsd/.test(empty), "...and so does the empty snapshot");
 }
 
 // --- reading a price off a listing ------------------------------------------
