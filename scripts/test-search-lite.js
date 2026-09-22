@@ -11,8 +11,10 @@
 //      plus the untrustedContent marker, and nothing else from Brave's body;
 //   5. the upstream error mapping is the one `search` uses (429 -> 503,
 //      5xx -> 502, transport failure -> 504);
-//   6. the call is metered under its own caller name.
+//   6. the call is metered under its own caller name;
+//   7. the tool is wallet-only: never reachable on the free PoW tier.
 import { SEARCH_TOOLS, braveCallMeter } from "../src/tools/search.js";
+import { isComputePayable } from "../src/pow.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
@@ -32,6 +34,14 @@ ok(JSON.stringify(tool?.discovery?.inputSchema?.required) === '["q"]', "only q i
   const price = Number(String(tool.price).replace("$", ""));
   ok(0.005 / price <= 0.7, `upstream $0.005 is ${(0.005 / price * 100).toFixed(1)}% of $${price}, within the 70% bound`);
   ok(0.005 / (price - 0.001) > 0.7, "and one step lower ($0.007) would not be, so $0.008 is the floor, not a guess");
+}
+
+// Every call spends the Brave subscription, so it must never be reachable on
+// the free proof-of-work tier. Pinned for the whole kit, not just this tool.
+ok(!isComputePayable(tool), "search-lite is wallet-only (in WALLET_ONLY_SLUGS, never PoW-eligible)");
+{
+  const free = SEARCH_TOOLS.filter((t) => isComputePayable(t)).map((t) => t.slug);
+  ok(free.length === 0, `no search-kit tool is PoW-eligible${free.length ? ` (found: ${free.join(", ")})` : ""}`);
 }
 
 const search = SEARCH_TOOLS.find((t) => t.slug === "search");
