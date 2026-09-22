@@ -494,7 +494,20 @@ export const BAZAAR_DESCRIPTION_MAX = 500;
 export const BAZAAR_SCHEMA_MAX_BYTES = Number(process.env.BAZAAR_SCHEMA_MAX_BYTES) || 500;
 
 export function bazaarCapDescription(s, max = BAZAAR_DESCRIPTION_MAX) {
-  if (!s || s.length <= max) return s;
+  if (!s) return s;
+  // A catalog description often ends in a query-parameter hint ("?bytes=1..1024
+  // returns hex; or ?min=&max= ..."), which is right for /api/find and reads as
+  // a fragment on a Bazaar card (measured 2026-09-22). Drop the
+  // hint tail here only; the catalog text is untouched.
+  const hint = s.search(/\s\??\(?\?[a-zA-Z_][a-zA-Z0-9_]*=/);
+  if (hint >= 12) {
+    let head = s.slice(0, hint).trim();
+    // "... Query params:" introduces the hint; drop that sentence with it.
+    if (/:$/.test(head)) { const cut = Math.max(head.lastIndexOf(". "), head.lastIndexOf("! "), head.lastIndexOf("? ")); if (cut >= 12) head = head.slice(0, cut + 1); }
+    s = head.replace(/[,;:\-(]+$/, "").trim().replace(/\s+(via|with|using|by|pass|passing|set|use|e\.g\.)$/i, "").replace(/[,;:\-(]+$/, "").trim();
+    if (!/[.!?)]$/.test(s)) s += ".";
+  }
+  if (s.length <= max) return s;
   const head = s.slice(0, max);
   const sentenceEnd = Math.max(head.lastIndexOf(". "), head.lastIndexOf("! "), head.lastIndexOf("? "), head.endsWith(".") ? head.length - 1 : -1);
   if (sentenceEnd >= Math.floor(max * 0.5)) return head.slice(0, sentenceEnd + 1).trim();
@@ -509,6 +522,25 @@ export function bazaarCapDescription(s, max = BAZAAR_DESCRIPTION_MAX) {
  *  /api/find) is untouched. scripts/test-bazaar-descriptions.js pins every
  *  key to a real slug and the cap. */
 export const BAZAAR_DESCRIPTIONS = Object.freeze({
+  // 2026-09-22: the slugs buyers pay for most had catalog fallbacks; these
+  // say what comes back and when to pick the tool.
+  "crypto-price": "Live spot price for one or many coins in any quote currency: last price, 24h change, 24h volume and market cap per coin, from a maintained market feed and answered in under a second. Use it when an agent needs a current crypto price to size, compare or display, or a cheap read to poll on a schedule.",
+  "bestsellers": "What agents actually pay for across a 500+ tool x402 catalog: the tools ranked by settled calls, distinct buyers and dollars over a window you choose, read from the seller's own sales ledger rather than the chain. Use it when an agent is deciding what to build, what to buy, or what paying demand on x402 looks like this week.",
+  "demand-radar": "What agents keep asking for that nobody serves yet: aggregated, qualified demand clusters from a live agent-demand board, with caller counts and how long each need has persisted. Use it when a seller or an agent is choosing what to build next and wants unmet demand with evidence instead of guesses.",
+  "stock-quote": "End-of-day US equity quote from a licensed feed: last close, day range, previous close and the change between them, consolidated across four venues. Use it when an agent needs a current price for a US stock without an exchange account; indices, FX and crypto are not covered here.",
+  "random": "Cryptographically secure randomness: N random bytes as hex, a uniform integer in a range, or a batch of up to 100 values in one call. Use it when an agent needs unpredictable values for nonces, sampling, shuffles or test data and cannot trust its own generator.",
+  "block-number": "The latest block number on Ethereum, Base, Polygon, Arbitrum or Optimism from keyless public nodes with fallback. Use it as the cheapest possible on-chain read: a liveness check for a chain, a timestamp anchor for a query, or the first paid call to prove an x402 client works end to end.",
+  "uuid": "UUIDs on demand: version 4 (random) or version 7 (time-ordered, sortable), up to 100 per call. Use it when an agent needs identifiers for records, requests or files, or a sub-cent call to test an x402 client end to end before buying anything larger.",
+  "polymarket-search": "Search active Polymarket prediction markets by keyword, matched exactly against each market's question, slug and description, with the market ids, outcome prices and volume a trading agent needs next. Use it when an agent wants the markets about a topic rather than a page of the highest-volume list.",
+  "v1-chat": "OpenAI-compatible chat completions paid per call in USDC: point any OpenAI SDK at this base URL and send a normal chat request, with the model chosen from a curated list and streaming supported. Use it when an agent needs a model answer without an API key or an account, one call at a time, with a receipt for each.",
+  "v1-images-pro": "Higher-fidelity text-to-image on the OpenAI images wire: a prompt in, one 1024x1024 image out as inline base64, served by a pro-grade diffusion model in about ten seconds. Use it when an agent needs a finished picture for a page, a post or a product and quality matters more than the cheapest draft.",
+  // 2026-09-22: the metered wires. The feed shows the last buyer's quote as
+  // if it were a fixed price, so the copy states the rule.
+  "v1-chat-metered": "OpenAI-compatible chat completions priced from the request itself: the 402 quotes this exact body at the chosen model's list price plus a small markup, from $0.001, and a buyer on the upto scheme settles the tokens actually used under that quote. Use it when an agent sends large or variable prompts and wants to pay for what it sends, not a flat tier.",
+  "v1-chat-metered-messages": "The Anthropic Messages wire priced from the request itself: the 402 quotes this exact body at the model's list price plus a small markup, from $0.001, with upto buyers settling actual usage under the quote. Use it when an agent built on the Anthropic SDK, or Claude Code, needs any supported model paid per call with no account.",
+  "v1-chat-metered-responses": "The OpenAI Responses wire priced from the request itself: each 402 quotes this exact body at the model's list price plus a small markup, from $0.001, and upto buyers settle actual usage under it. Use it when an agent built on the Responses API or the OpenAI Agents SDK wants per-call payment sized to what it sends.",
+  "v1-chat-metered-gemini": "Google's generateContent wire priced from the request itself: the 402 quotes this exact body at the model's list price plus a small markup, from $0.001, with upto buyers settling actual usage. Use it when an agent built on the Gemini SDK needs a supported model paid per call without an API key.",
+  "x402-trending": "Momentum across x402 sellers: which sellers are gaining settlements and buyers hour over hour on Base, graded for wash-trade resistance from the on-chain leaderboard. Use it when an agent is routing spend, researching the ecosystem, or deciding which sellers are worth a look this week.",
   // Market-data front door (/markets), 2026-08-27: every keyless market tool gets purpose-written copy.
   "perp-funding-screener": "Every listed perpetual ranked by current funding rate, the most positive and most negative N with open interest and 24h volume beside each, from a live venue feed. Use it when an agent is screening for carry, basis or crowded positioning across the whole perp market in one call instead of polling each contract.",
   "perp-open-interest": "Open interest for one perpetual in coins and USD notional with its share of the venue total, or the top N contracts ranked by open interest plus the venue total. Use it when an agent needs positioning size for a market or a leaderboard of where leverage is concentrated right now.",
