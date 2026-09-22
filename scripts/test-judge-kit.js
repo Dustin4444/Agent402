@@ -30,6 +30,10 @@ const PRICE = 0.001;
     `the admitted worst case stays inside the 70% margin bound (~${Math.round(worst)} tok = $${cost.toFixed(6)} against a $${PRICE} price)`);
   ok(LIMITS.stateChars <= 20_000 && LIMITS.questions <= 16,
     "the caps are set at all, so worst-case upstream is knowable before the call");
+  // A token can be ONE BYTE (CJK, emoji, base64), so the byte bound is the money
+  // bound and the character caps only bound the shape.
+  ok(LIMITS.bodyBytes * RATE_PER_TOKEN <= PRICE * 0.7,
+    `the byte bound holds at one token per byte ($${(LIMITS.bodyBytes * RATE_PER_TOKEN).toFixed(6)} against a $${PRICE} price)`);
 }
 
 // --- validation refuses BEFORE any upstream call ------------------------------
@@ -43,6 +47,7 @@ const rejects = (input, why) => {
 ok(validateJudgeRequest(base).questions.a.type === "noul", "control: a valid noul passes");
 rejects({ ...base, state: "" }, "empty state");
 rejects({ ...base, state: "x".repeat(LIMITS.stateChars + 1) }, "state past the cap");
+rejects({ ...base, state: "\u5b57".repeat(6_000) }, "a state under the character cap but over the byte bound");
 rejects({ state: "x", questions: {} }, "no questions");
 rejects({ state: "x", questions: Object.fromEntries(Array.from({ length: LIMITS.questions + 1 }, (_, i) => [i, { type: "noul", instructions: "q" }])) }, "too many questions");
 rejects({ state: "x", questions: { a: { type: "noul" } } }, "no instructions");
@@ -91,6 +96,15 @@ for (const [status, want, why] of [[401, 503, "a refused key is OUR problem, a 5
   e = null;
   try { await judge(base, { fetchImpl: async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ model: "jev-latest" }) }) }); } catch (err) { e = err; }
   ok(e?.statusCode === 502, "a 200 with no answers is a 502, never returned as a successful judgment");
+}
+{
+  let e = null;
+  try { await judge(base, { fetchImpl: async () => { throw new TypeError("fetch failed"); } }); } catch (err) { e = err; }
+  ok(e?.statusCode === 502, "an unreachable upstream is a 502 (theirs), not a bare 500 (ours)");
+  const t = new Error("The operation was aborted due to timeout"); t.name = "TimeoutError";
+  e = null;
+  try { await judge(base, { fetchImpl: async () => { throw t; } }); } catch (err) { e = err; }
+  ok(e?.statusCode === 504, "a timed-out upstream is a 504");
 }
 
 // --- the answer passes through intact -----------------------------------------
