@@ -5702,7 +5702,14 @@ app.get("/api/leaderboard", (req, res) => {
   // nobody choosing a seller needs rank 400. The operator token lifts it for
   // our own tooling.
   const topCeiling = operatorAuthed(req) ? 500 : 50;
-  const requestedTop = parseInt(req.query.top, 10) || 25;
+  // `?limit=` READ AS NOTHING until 2026-09-21. It is the obvious name to
+  // reach for, it looked accepted because the response is a valid 200, and it
+  // silently returned the default 25 - so a caller asking for 250 rows got 25
+  // and no indication they had asked for anything. Honoured as an alias rather
+  // than refused: the caller's intent is unambiguous and a working parameter
+  // beats a correct error.
+  const rawTop = req.query.top ?? req.query.limit;
+  const requestedTop = parseInt(rawTop, 10) || 25;
   const top = Math.min(Math.max(requestedTop, 1), topCeiling);
   const topTruncated = requestedTop > topCeiling; // say it, never clamp silently
   // DEFAULT EXTERNAL, because /sell commits in writing that "we publish how the
