@@ -25,7 +25,8 @@ ok(classify({ ...base, ua: "Mozilla/5.0 (compatible; x402scan/1.0)" , ipDistinct
 ok(classify({ ...base, path: "/docs", ua: "Mozilla/5.0 (Macintosh) Chrome/120", accept: "text/html,*/*" }) === "human", "a browser on an HTML page is human");
 ok(classify({ ...base, path: "/api/hash", ua: "Mozilla/5.0 (Macintosh) Chrome/120", accept: "text/html" }) === "other", "a browser on /api is not human");
 ok(classify({ ...base, ua: "Mozilla/5.0 (compatible; GPTBot/1.0)" }) === "known-indexer" && indexerFor("Mozilla/5.0 (compatible; GPTBot/1.0)").name === "ai-crawler", "AI crawlers are named");
-ok(CLASSES.length === 9, "nine classes");
+ok(classify({ ...base, status: 402, ua: "agent402-ci-sweep/1.0 (+https://agent402.tools/crawler)", ipDistinctPaths: 600 }) === "ours", "our own CI sweep is ours, not a crawler and not demand");
+ok(CLASSES.length === 10, "ten classes");
 
 // --- paths are templated and bounded ------------------------------------------------
 ok(templatePath("/api/hash?text=x") === "/api/hash", "query dropped");

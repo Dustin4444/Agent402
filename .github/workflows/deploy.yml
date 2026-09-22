@@ -1296,6 +1296,10 @@ jobs:
       # that grows the challenge is caught on the run AFTER the one that ships
       # it.
       - name: 402 challenge header stays payable (a buyer echoes it back)
+        env:
+          # Marks the sweep's ~600 prod 402s per run as synthetic (signed
+          # X-Heartbeat-Token), so they never read as outside demand.
+          POW_SECRET: ${{ secrets.POW_SECRET }}
         run: CHALLENGE_LOCAL_BOOT=1 TARGET_URL=https://agent402.tools node scripts/test-challenge-size.js
       - name: Router aliases + short-term token rule (offline)
         run: X402_INDEX_CRAWL=off node scripts/test-route-aliases.js

@@ -14,7 +14,10 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-export const CLASSES = Object.freeze(["repeat-buyer", "paid", "pow", "payment-refused", "known-indexer", "crawler", "challenge-only", "human", "other"]);
+export const CLASSES = Object.freeze(["ours", "repeat-buyer", "paid", "pow", "payment-refused", "known-indexer", "crawler", "challenge-only", "human", "other"]);
+// Our own probes and sweeps, by the names they send (the signed heartbeat
+// token is what marks them synthetic for money; this is only attribution).
+export const OWN_UA = /^(agent402-(heartbeat|status-probe|paid-canary|ci-sweep|rail-canary|keepalive)|Agent402\/1\.0|Mozilla\/5\.0 \(compatible; Agent402-Router)/i;
 
 // Indexers and bots we can name from the User-Agent. "wanted" says whether we
 // want them fed complete metadata (an index that sends buyers) rather than
@@ -73,6 +76,7 @@ export function templatePath(url) {
 /** Pure: one request's class from what the response knew. */
 export function classify({ status, path, ua, accept, hadPayment, hadPow, paidReceipt, priorPayerCount, ipDistinctPaths, crawlerDistinctPaths = DEFAULTS.crawlerDistinctPaths }) {
   const s = Number(status) || 0;
+  if (OWN_UA.test(String(ua || ""))) return "ours";
   if (indexerFor(ua)) return "known-indexer";
   if (s < 300 && paidReceipt) return priorPayerCount > 0 ? "repeat-buyer" : "paid";
   if (s < 300 && hadPow) return "pow";
