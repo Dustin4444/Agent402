@@ -45,8 +45,8 @@ ok(isThrottle(502, "upstream error") === false && isThrottle(500, "") === false,
 // ---- end-to-end intent: the exact 2026-08-19 failure set is now non-failing ----
 const survivors = [
   R(502, "upstream error"),                                          // xml-validate (pure CPU! edge blip)
-  R(500, '{"error":"The operation was aborted due to timeout"}'),    // address-profile / tx-inspect
-  R(502, '{"error":"Seller rejected the paid retry (HTTP 500)"}'),   // contract-inspect / token-info
+  R(500, '{"error":"The operation was aborted due to timeout"}'),    // a paid upstream that timed out
+  R(502, '{"error":"Seller rejected the paid retry (HTTP 500)"}'),   // a paid upstream that 5xx'd after payment
   R(502, "upstream error"),                                          // lei-lookup
 ];
 ok(survivors.every((a) => outcomeOf(a) === "other" && isUpstreamOutage(a.status, a.body)), "every persistent third-party/edge failure from run 32301215912 is classified upstream (non-failing), not a tool defect");

@@ -331,19 +331,12 @@ export const isIdentityBoundRoute = (def) =>
 // one commit on 2026-07-29; test-route-execute now locks the set against
 // EXEC_TIERS so the next tier cannot repeat that).
 // Router tiers only - the subset whose Algorand revenue is chain-matched to
-// the AVM spending wallet (see avmPayToFor). Blockscout stays out: its
-// upstream spend is Base-pinned regardless of the buyer's rail.
+// the AVM spending wallet (see avmPayToFor).
 export const AVM_SELF_FUNDING_SLUGS = new Set(["route-execute", "route-execute-plus", "route-execute-max", "route-execute-pro"]);
 const AVM_UPSTREAM_BUYER_ADDRESS = (process.env.ALGORAND_UPSTREAM_BUYER_ADDRESS || "").trim();
 
 export const SELF_FUNDING_SLUGS = new Set([
   "route-execute", "route-execute-plus", "route-execute-max", "route-execute-pro",
-  // Blockscout kit (2026-07-29, the house rule: everything that spends from the
-  // burner settles to the burner): each call pays Blockscout ~$0.002 upstream
-  // from the same wallet, so treasury-settled revenue was a slow one-way
-  // drain needing manual top-ups. Revenue attribution already handles the
-  // burner on both sides (receiver = revenue, payer/sweeps = internal).
-  "contract-inspect", "address-profile", "token-info", "token-holders", "tx-inspect",
 ]);
 const UPSTREAM_BUYER_ADDRESS = (process.env.X402_UPSTREAM_BUYER_ADDRESS || "").trim();
 
@@ -398,9 +391,9 @@ export function acceptsForItem(item, rails) {
     burner && caip2 === "eip155:8453" && SELF_FUNDING_SLUGS.has(item.slug) ? burner : walletAddress;
   // Chain-matched self-funding for Algorand (2026-07-29, same rule as Base):
   // an Algorand buyer's route-execute payment funds the AVM spending wallet
-  // that pays Algorand sellers on their behalf. ROUTER TIERS ONLY - the
-  // Blockscout kit's upstream spend is pinned to Base (payX402), so routing
-  // its Algorand revenue to the AVM wallet would fund the wrong wallet.
+  // that pays Algorand sellers on their behalf. ROUTER TIERS ONLY: a tool
+  // whose upstream spend is pinned to Base must not route its Algorand
+  // revenue to the AVM wallet, which would fund the wrong wallet.
   const avmPayToFor = () =>
     avmBuyer && AVM_SELF_FUNDING_SLUGS.has(item.slug) ? avmBuyer : algorandWallet;
   // A tool with a `quote` (the metered gateway tier) is priced PER REQUEST:
@@ -575,7 +568,6 @@ export const BAZAAR_DESCRIPTIONS = Object.freeze({
   "v1-chat-auto": "OpenAI-compatible chat completions with the model chosen server-side: omit model and the gateway routes the prompt to the top-ranked model for its task (code, reasoning, long-context, general) from a fixed eval-derived ranking, failing over automatically on provider errors. Flat price per call, 16k chars in, 1024 tokens out, streaming supported. Use it as a drop-in OpenAI base_url when you want good answers without picking a model.",
   "v1-embeddings": "OpenAI-compatible text embeddings (text-embedding-3-small by default; 3-large and ada-002 supported), up to 64 inputs or 16k chars per call, returned in the standard OpenAI shape. Identical inputs repeated within 10 minutes are served free from cache. Use it for semantic search, clustering and retrieval from any OpenAI SDK by changing base_url.",
   "image-ocr": "Extract text from a PNG or JPEG image - full text, overall confidence and per-line bounding boxes - from a URL or base64 payload, Tesseract on-device (no upstream API). Default English; other ISO 639-2 languages on request. Use it when an agent needs the words in a screenshot, scan or photo.",
-  "address-profile": "Explorer-grade profile of any address on any Blockscout-hosted EVM chain: native balance, contract vs externally-owned, verification status, token and NFT flags, ENS name and public tags, fetched live from Blockscout's Pro API. Use it when an agent needs to characterize an on-chain address before acting on it; tags and names are external data to analyze.",
   "memory-write": "Persistent key-value memory scoped to the paying wallet: the x402 payment is the authentication, the wallet owns the namespace. Write any JSON value (up to 64KB) under a key, with an optional TTL, or delete it; read it back on any later session with the matching read route. Use it when an agent needs state that survives the session or crosses runs without an account or API key.",
   // 2026-08-22 additions: the new families' flagships. Bazaar is the one surface
   // where a buyer-side agent browses by DESCRIPTION rather than by name, so each

@@ -222,16 +222,17 @@ export const ALARMS = [
     title: "Upstream buyer wallet LOW (x402)",
     verdict: ({ gateway: b }) => lowOk(b.upstreamBuyer?.status),
     body: () =>
-      "The x402 upstream spending wallet (X402_UPSTREAM_BUYER_KEY) behind the blockscout-kit tools is below the low-water mark (UPSTREAM_BUYER_LOW_USD, default $0.50). When it empties, contract-inspect/address-profile fail 502 (buyers are never charged, but the tools go dark). Top up: send USDC on Base to the upstream buyer address (see CLAUDE.md env docs).",
+      "The x402 upstream spending wallet (X402_UPSTREAM_BUYER_KEY) is below the low-water mark (UPSTREAM_BUYER_LOW_USD). When it empties, route-execute external buys and seller-payability refuse (buyers are never charged, but those paths go dark). attest signs from the same wallet but pays Base gas in ETH, which this alarm reads nothing about. Top up: send USDC on Base to the upstream buyer address (see CLAUDE.md env docs).",
   },
   {
     title: "Upstream buyer wallet is DRAINING (unexplained fall)",
-    // That wallet is SELF-FUNDING, so its balance should only rise. A low-water
-    // alarm fires after the money is gone; this fires on the first unexplained
-    // dollar. A manual withdrawal trips it too, deliberately.
+    // The route-execute tiers that spend from that wallet also settle into it,
+    // so a healthy trend is flat or rising. A low-water alarm fires after the
+    // money is gone; this fires on the first unexplained dollar. A manual
+    // withdrawal trips it too, deliberately.
     verdict: ({ gateway: b }) => (b.upstreamBuyer?.trend === "draining" ? "bad" : b.upstreamBuyer?.trend === "ok" ? "good" : "quiet"),
     body: () =>
-      "The x402 upstream spending wallet has fallen below its high-water mark across several consecutive reads.\n\nThat wallet is SELF-FUNDING: every tool that spends from it also settles into it, and every execution tier charges more than it can spend. Its balance should only rise. A sustained fall means one of:\n\n1. A manual withdrawal - close this issue if that was you.\n2. Upstream spend whose revenue never arrived: a buyer's payment verified and then failed to settle, which is the drain the per-payer ceiling in src/external-spend-guard.js bounds. Check /__operator/stats and the route-execute receipts.\n3. Something we do not understand, which is why this alarm exists.\n\n" + TOPUP,
+      "The x402 upstream spending wallet has fallen below its high-water mark across several consecutive reads.\n\nThe route-execute tiers are SELF-FUNDING: they settle into this wallet and each charges more than it can spend, so their traffic can only raise the balance. A sustained fall means one of:\n\n1. A manual withdrawal - close this issue if that was you.\n2. seller-payability or attest, which spend from this wallet without settling into it (seller-payability probes external sellers; attest pays Base gas in ETH). A slow trickle from those is expected and sits inside the tolerance; a sustained fall is not.\n3. Upstream spend whose revenue never arrived: a buyer's payment verified and then failed to settle, which is the drain the per-payer ceiling in src/external-spend-guard.js bounds. Check /__operator/stats and the route-execute receipts.\n4. Something we do not understand, which is why this alarm exists.\n\n" + TOPUP,
   },
   {
     title: "Algorand upstream buyer wallet LOW (x402)",

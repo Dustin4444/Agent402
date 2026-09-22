@@ -118,7 +118,7 @@ ok(applyInputAliases({ domain: "x" }, { discovery: {} }).length === 0, "a tool w
   const cases = [
     ["code", "barcode", "barcode-lookup"], ["code", "upc", "barcode-lookup"], ["code", "ean", "barcode-lookup"],
     ["coin", "symbol", "crypto-price"], ["coin", "ticker", "perp-funding"],
-    ["hash", "txid", "tx-status"], ["hash", "transaction", "tx-inspect"],
+    ["hash", "txid", "tx-status"], ["hash", "transaction", "tx-receipt"],
     ["mint", "token", "sol-token-safety"], ["mint", "address", "sol-token-report"],
     ["values", "series", "stats-summary"], ["json", "body", "json-format"],
     ["prompt", "description", "image-gen"], ["html", "markup", "html-table"],

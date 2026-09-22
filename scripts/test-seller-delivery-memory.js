@@ -186,7 +186,7 @@ const { dispatchEligibility, DISPATCH_REASONS, dispatchLegend } = await import("
 
   // (b2) THE DEFAULT ITSELF. Every case above passes the flag explicitly, so
   //      none of them can see the default flip from false to true - and the
-  //      default IS the control: blockscout-kit and any future caller reach
+  //      default IS the control: any caller other than the router reaches
   //      payX402 with no such option and must write nothing. Called with the
   //      bare option set the other callers use.
   __resetSellerDeliveryFailuresForTest();

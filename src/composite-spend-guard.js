@@ -33,8 +33,8 @@ let globalPausedUntil = 0;
 const usage = { runs: 0, ok: 0, failed: 0, upstreamUsd: 0, overCap: 0, lastOverCap: null, bySlug: {} };
 
 /** Slugs whose handlers run long, expensive upstream work before settlement.
- * Every composite that fans out to metered upstream (OpenRouter synthesis, and
- * for token-risk real Blockscout x402 buys) MUST be here, or its agent path is
+ * Every composite that fans out to metered upstream (OpenRouter synthesis and
+ * the probes that feed it) MUST be here, or its agent path is
  * an unguarded upstream-drain. `scripts/test-composite-guard.js` asserts the
  * full set so a new expensive product can't ship outside the guard. */
 export const EXPENSIVE_COMPOSITE_SLUGS = new Set([

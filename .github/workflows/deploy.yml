@@ -2832,9 +2832,8 @@ jobs:
           t node scripts/test-crypto-markets-kit.js
 
       - name: Previously-orphaned kit suites (offline, no upstream spend)
-        # These 31 suites existed but no workflow ran them. All verified offline
-        # and spend-free: test-blockscout-kit deletes X402_UPSTREAM_BUYER_KEY
-        # itself, test-enrich-kit gates live calls behind ENRICH_LIVE_TEST.
+        # These 30 suites existed but no workflow ran them. All verified offline
+        # and spend-free: test-enrich-kit gates live calls behind ENRICH_LIVE_TEST.
         # Listed one per line ON PURPOSE - a for-loop over a variable hides
         # which suites actually run, and test-ci-coverage.js requires the
         # literal path so the wiring stays greppable.
@@ -2871,7 +2870,6 @@ jobs:
           node scripts/test-weather-kit.js
           node scripts/test-web-kit.js
           node scripts/test-enrich-kit.js
-          node scripts/test-blockscout-kit.js
 
       - name: Rails-copy lock (rails.js ↔ payments.js + every key page renders every rail)
         run: TARGET_URL=http://127.0.0.1:3000 node scripts/test-rails.js
@@ -2924,7 +2922,7 @@ jobs:
         run: bash scripts/test-heartbeat-probe.sh
 
       # Strict FREE_MODE sweep of paid tools that do NOT burn Brave/OpenAI/
-      # OpenRouter/E2B/Blockscout-buyer/FRED/Neynar/etc. Fails on 502/503/504
+      # OpenRouter/E2B/FRED/Neynar/etc. Fails on 502/503/504
       # (unlike test-all.js NETWORK leniency — that hole kept gov-data green
       # while dead; issue #730). Filter never calls metered routes; own-boot
       # strips keys too. Uses the shared FREE_MODE server when TARGET_URL is set.

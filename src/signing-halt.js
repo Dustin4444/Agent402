@@ -1,8 +1,8 @@
 // ONE lever that stops every outbound signature.
 //
 // Before this, SOR_EXTERNAL_ENABLED gated route-execute alone while three other
-// paths signed without consulting it: the Blockscout supply-chain buys, the EAS
-// attest write, and MPP subscription renewals. So the switch an operator reaches
+// paths signed without consulting it: the paid explorer-data buys (retired
+// 2026-09-22), the EAS attest write, and MPP subscription renewals. So the switch an operator reaches
 // for during an incident did not stop spending, and would have looked like it
 // had. Every signing path now asks this first.
 //
