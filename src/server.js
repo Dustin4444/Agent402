@@ -5871,7 +5871,7 @@ app.get("/js/:file", (req, res) => {
 
 // Isolated eval sandbox for the SDK playground's "Run" button (2026-08-16,
 // found while converting /sdk-playground off inline scripts). A code
-// playground genuinely needs new Function()/eval to run what a visitor
+// playground genuinely needs the Function constructor and dynamic evaluation to run what a visitor
 // types, but the site-wide CSP's script-src intentionally carries no
 // 'unsafe-eval' anywhere - so before this fix, every click here threw a CSP
 // violation in production with zero test coverage to catch it. Serving this
