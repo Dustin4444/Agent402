@@ -51,6 +51,8 @@ eq(priceToMicroUsd({ amount: "0.032", currency: "USDC" }), 32000,
   "a bare currency beside a fractional amount is still dollars");
 eq(priceToMicroUsd({ amount: "3000", asset: "0x00000000000000000000000000000000000000ff" }), null,
   "a token we cannot size is null, never a guessed exponent");
+eq(priceToMicroUsd({ amount: "7500", asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" }), 7500,
+  "the Solana USDC mint is six decimals too (a mistyped id reads as unsizable and publishes nothing)");
 
 // absences and nonsense
 for (const v of [null, undefined, "", {}, [], -1, NaN, Infinity]) eq(priceToMicroUsd(v), null, `${JSON.stringify(v)} is null`);

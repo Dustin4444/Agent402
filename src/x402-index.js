@@ -1563,8 +1563,8 @@ function acceptShaped(raw) {
 /**
  * An AMOUNT beside PAYMENT CONTEXT is base units of a token, never dollars
  * (2026-09-22). Two live shapes still read atomic figures as dollars after the
- * 09-15 graded.sh fix, because that fix recognised the accept shape at the
- * ENTRY level only:
+ * 2026-09-15 fix, because that one recognised the accept shape at the ENTRY
+ * level only:
  *   - a manifest price OBJECT, `price: { amount: "3000", asset: <Base USDC>,
  *     decimals: 6, display: "$0.003" }`, was listed at $3000 (the object path
  *     took `amount` as dollars and never read `decimals`, `asset` or `display`);
@@ -1581,12 +1581,15 @@ function acceptShaped(raw) {
  * it), because a wrong exponent is the same million-fold error by another road.
  */
 const SIX_DECIMAL_TICKER = /^(usdc|usd coin|usdc\.e|pathusd)$/i;
+// Each id as its chain publishes it, lowercased HERE rather than by hand: the
+// first cut typed the Solana mint out in lower case and got one letter wrong,
+// which reads as "we cannot size this token" and publishes no price at all.
 const SIX_DECIMAL_ASSETS = new Set([
-  ...EVM_TOKEN_DOMAINS.filter((d) => d.symbol === "USDC").map((d) => d.asset.toLowerCase()),
-  "0x20c000000000000000000000b9537d11c60e8b50", // Tempo USDC.e
+  ...EVM_TOKEN_DOMAINS.filter((d) => d.symbol === "USDC").map((d) => d.asset),
+  "0x20C000000000000000000000b9537d11c60E8b50", // Tempo USDC.e
   "0x20c0000000000000000000000000000000000000", // Tempo PathUSD
-  "epjfwdd5aufqssqem2qn1xzybapc8g4wegghkzwytdt1v", // Solana USDC mint (compared lowercased)
-]);
+  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // Solana USDC mint
+].map((a) => a.toLowerCase()));
 function tokenDecimalsOf(obj) {
   const d = obj?.decimals;
   if (typeof d === "number" && Number.isInteger(d) && d >= 0 && d <= 36) return d;
