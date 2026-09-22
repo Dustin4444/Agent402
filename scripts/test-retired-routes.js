@@ -19,6 +19,14 @@ throws(() => assertRetiredRegistryConsistent(new Set([...live, "skill-market-ope
 throws(() => assertRetiredRegistryConsistent(new Set([...live].filter((s) => s !== "crypto-options-chain"))), /names replacement "crypto-options-chain", which is not a live/, "a replacement that is not live fails the boot");
 ok(Object.values(RETIRED_TOOLS).every((e) => /^\d{4}-\d{2}-\d{2}$/.test(e.retiredAt)) && Object.values(RETIRED_PACKS).every((e) => /^\d{4}-\d{2}-\d{2}$/.test(e.retiredAt)), "every entry carries a retirement date");
 
+// The boot guard is CALLED, against the real catalog, before any route is served.
+{
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+  ok(/assertRetiredRegistryConsistent\(new Set\(Object\.values\(CATALOG\)\.map\(\(d\) => d\.slug\)\)\)/.test(src), "server.js runs the registry guard over the catalog's own slugs at boot");
+  ok(src.indexOf("assertRetiredRegistryConsistent(new Set(") < src.indexOf("app.listen("), "...before the server listens");
+}
+
 // --- path resolution ------------------------------------------------------------
 ok(retiredEntryFor("/api/options-chain")?.replacement === "crypto-options-chain", "/api/<retired tool> resolves with its replacement");
 ok(retiredEntryFor("/api/options-chain/anything?x=1")?.slug === "options-chain", "a trailing segment does not hide a retired route");
