@@ -1635,8 +1635,16 @@ async function main() {
       // The client-side scheme builds the transaction group itself, so it
       // needs an algod URL — mainnet AlgoNode is free and keyless.
       const algodUrl = (process.env.ALGORAND_ALGOD_URL || "https://mainnet-api.algonode.cloud").trim();
+      // Sign a 1000-round validity window, never algokit's 10-round default:
+      // ten rounds is ~28 s, and by the time the payment reaches our own AVM
+      // validity guard (src/avm-validity.js, 20 s required) about 20 s remain,
+      // so the leg flapped on latency alone (HTTP 422 on run 35717613117,
+      // 2026-09-22, recorded as an Algorand outage on /status by a green run).
+      // The weekly sweep has signed 1000 rounds for this reason since July.
+      const { AlgorandClient } = await import("@algorandfoundation/algokit-utils/algorand-client");
+      const algorandClient = AlgorandClient.fromConfig({ algodConfig: { server: algodUrl, token: "" } }).setDefaultValidityWindow(1000);
       const avmClient = disableVendorSpendControls(new AvmX402Client());
-      avmClient.register("algorand:*", new ExactAvmScheme(signer, { algodUrl }));
+      avmClient.register("algorand:*", new ExactAvmScheme(signer, { algorandClient }));
       const avmPay = wrapAvm(synthFetch, avmClient);
       // QUOTA-AWARE ROUTE CHOICE (2026-09-22). The AVM facilitator sponsors the
       // fee on every settlement and gives our payTo 1,000 free sponsored
@@ -1693,6 +1701,10 @@ async function main() {
         noteRail("algorand", false, `did not settle (HTTP 402) — ${JSON.stringify(reason)}`);
         console.warn(`\nWARN  algorand leg did NOT settle (HTTP 402, payer ${address}) — facilitator reason: ${JSON.stringify(reason)} (unfunded or not-opted-in USDC burner, facilitator outage, or algorand missing from the live accepts)`);
         }
+      } else if (res.status === 422) {
+        // Our own AVM validity guard refusing our own canary is our defect
+        // (a too-short signed window), never the rail's: page on it.
+        railFail("algorand", `our AVM validity guard refused the canary's payment (HTTP 422): ${JSON.stringify(body).slice(0, 160)}`);
       } else {
         noteRail("algorand", false, `HTTP ${res.status}`);
         console.warn(`\nWARN  algorand leg: HTTP ${res.status} ${JSON.stringify(body).slice(0, 120)}`);
