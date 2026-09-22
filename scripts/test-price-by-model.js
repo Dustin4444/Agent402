@@ -136,6 +136,14 @@ try {
   ok(plain.status === 503 && /not configured/.test(plainBody.error || ""), `base model at the base price is served on the base tier as before (${plain.status})`);
 
   ok(settles === 0 && relayCalls === 0, `nothing settled and no relay was called (settles ${settles}, relay ${relayCalls})`);
+
+  // 6. from source: a charged-but-failed debt records the price THIS request was
+  // gated at, so a call priced at its model's home tier is owed at that price.
+  const { readFileSync } = await import("node:fs");
+  const serverSrc = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+  const debt = serverSrc.slice(serverSrc.indexOf("const receipt = decodeSettleReceipt(settleReceipt);"), serverSrc.indexOf("recordRefundOwed({"));
+  ok(/const priceUsd = settledPriceUsd\(def, req, res\);/.test(debt) && !/def\.price/.test(debt), "the charged-failure debt is priced by settledPriceUsd (the gated price), never the route's list price");
+  ok(/priceFnOf\(def\) && Number\.isFinite\(req\?\.__meteredQuoteUsd\)/.test(serverSrc), "settledPriceUsd honours a flat route's tierQuote stash, so the books record the home-tier price");
   console.log(`\nPASS - ${pass} checks (price by model, booted paid server)`);
   proc.kill("SIGKILL"); facilitator.close(); process.exit(0);
 } catch (e) { fail(e?.stack || String(e)); }
