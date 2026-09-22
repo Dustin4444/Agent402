@@ -1626,10 +1626,28 @@ function tokenDecimalsOf(obj) {
   if (declared != null && declared !== pegged) return null;
   return pegged;
 }
+/** An asset IDENTIFIER - an EVM address, a Solana mint, a CAIP-19 id - rather
+ *  than a ticker. Payment context is the identifier: a ticker is a word a
+ *  catalogue writes beside a dollar figure. */
+function looksLikeAssetIdentifier(v) {
+  if (typeof v !== "string") return false;
+  const id = v.trim();
+  if (/^0x[0-9a-fA-F]{40}$/.test(id) || /^0x[0-9a-fA-F]{64}$/.test(id)) return true;
+  if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(id)) return true; // base58 mint
+  return id.includes(":") && /[/:][^\s:/]{6,}$/.test(id);   // caip-19 and friends
+}
 function atomicContext(obj) {
   if (!obj || typeof obj !== "object" || Array.isArray(obj)) return false;
   if (obj.decimals != null) return true;
-  if (typeof obj.asset === "string" && obj.asset.trim()) return true;
+  // A TICKER IS NOT PAYMENT CONTEXT, in whichever field it is written. The rule
+  // was applied to `currency` and not to `asset`, so one declaration read three
+  // ways: `{ amount: 2, currency: "USDC" }` was $2, `{ amount: 2, symbol:
+  // "USDC" }` was $2, and `{ amount: 2, asset: "USDC" }` was $0.000002 - a
+  // millionfold under-quote on a seller's listing, arrived at from the same
+  // sentence. An asset field carrying a real identifier still states base
+  // units, which is what an x402 accept carries and what every case this
+  // machinery was built for looks like.
+  if (looksLikeAssetIdentifier(obj.asset)) return true;
   return typeof obj.currency === "string" && !!obj.currency.trim()
     && (typeof obj.method === "string" || typeof obj.intent === "string");
 }

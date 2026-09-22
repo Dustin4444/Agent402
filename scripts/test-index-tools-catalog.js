@@ -600,6 +600,20 @@ const page = (results, extra = {}) =>
   // if a bare ticker is wrongly read as payment context.
   priced(stack({ amount: "32", currency: "USDC", network: "eip155:8453" }), "$32",
     "a WHOLE amount beside a bare currency is still dollars: a ticker alone is not payment context");
+
+  // ONE DECLARATION, ONE READING. The ticker rule was applied to `currency` and
+  // not to `asset`, so the same sentence written three ways read $2, $2 and
+  // $0.000002 - a millionfold under-quote on a seller's listing, reached from
+  // an identical statement. An asset field carrying a real IDENTIFIER still
+  // states base units; that is the case this machinery was built for.
+  const ticker = ["currency", "asset", "symbol"].map((field) =>
+    stack({ amount: "2", [field]: "USDC", network: "eip155:8453" })?.price);
+  check(`a bare ticker reads the same in currency, asset and symbol (got ${JSON.stringify(ticker)})`,
+    ticker.every((v) => v === "$2"));
+  priced(stack({ amount: "3000", asset: USDC_BASE }), "$0.003",
+    "...while an asset IDENTIFIER beside the amount still states base units");
+  priced(stack({ amount: "5000", currency: USDC_E, method: "tempo", intent: "charge" }), "$0.005",
+    "...and so does an MPP declaration, whose currency IS the identifier");
   check(`the readable one anchors the drift guard (got ${stack({ amount: "3000", asset: USDC_BASE, decimals: 6, display: "$0.003" })?.originDeclaredPrice})`,
     stack({ amount: "3000", asset: USDC_BASE, decimals: 6, display: "$0.003" })?.originDeclaredPrice === 0.003);
 
