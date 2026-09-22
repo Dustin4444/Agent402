@@ -18,6 +18,7 @@
 // Exit codes: 0 = buying works (warnings allowed) · 1 = buying broken · 2 = misconfig
 //   · 3 = underfunded (settlement proven; burner empty) · 4 = green but burner low
 //   · 5 = partial-rail (tools settled; one or more chain rail legs failed)
+import { legRefusalVerdict } from "./canary-refusal-classify.js";
 import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
 import { readFileSync, existsSync, appendFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -814,9 +815,12 @@ function railFail(key, detail) {
 // array only feeds observability (POSTed to /api/status/probe by the
 // workflow's own separate step, same as the existing "settlement"
 // component), so a bug here can never change what pages Mike. Solana/
-// Algorand/Robinhood are WARN-only by design (their failures must never
-// page — see each leg's own comment), so they call noteRail() directly
-// instead of railFail(); a skipped leg (no burner key) records nothing,
+// Algorand/Robinhood WARN (noteRail only) when the facilitator's reason is the
+// shape of OUR burner being unfunded or not opted in - the failure that design
+// was about - and railFail() on any other reason, since 2026-09-21, when the AVM
+// facilitator refused sub-cent settlements on a quota all day and the WARN-only
+// leg let the run print "all rail legs settled" (canary-refusal-classify.js).
+// A skipped leg (no burner key) records nothing,
 // matching /status's "no observation is no data, never uptime" rule.
 const railStatus = [];
 function noteRail(key, ok, detail) {
@@ -1014,6 +1018,10 @@ async function main() {
         }
         console.log(`\nOK    solana     /api/skill/decode-blob  → settled $0.05 USDC on Solana (payer ${signer.address})${tx ? `\n      tx: https://solscan.io/tx/${tx}` : "\n      (no settle receipt header found — settlement claimed by 200 only)"}`);
         noteRail("solana", true);
+      } else if (res.status === 402 && legRefusalVerdict(settleRejectReason(res.headers)) === "page") {
+        // Same rule as the Algorand leg: WARN was only ever for OUR burner's
+        // funding state. A facilitator reason of any other shape pages.
+        railFail("solana", `did NOT settle (HTTP 402, payer ${signer.address}) — facilitator reason: ${JSON.stringify(settleRejectReason(res.headers))} (not a funding/opt-in shape)`);
       } else if (res.status === 402) {
         noteRail("solana", false, `did not settle (HTTP 402, payer ${signer.address})`);
         console.warn(`\nWARN  solana leg did NOT settle (HTTP 402, payer ${signer.address}) — decoding diagnostics:`);
@@ -1108,8 +1116,12 @@ async function main() {
         noteRail("robinhood", true);
       } else if (paid.status === 402) {
         const reason = settleRejectReason(paid.headers);
+        if (legRefusalVerdict(reason) === "page") {
+          railFail("robinhood", `did NOT settle (HTTP 402, payer ${account.address}) — facilitator reason: ${JSON.stringify(reason)} (not a funding/opt-in shape)`);
+        } else {
         noteRail("robinhood", false, `did not settle (HTTP 402) — ${JSON.stringify(reason)}`);
         console.warn(`\nWARN  robinhood leg did NOT settle (HTTP 402, payer ${account.address}) — facilitator reason: ${JSON.stringify(reason)} (unfunded USDG burner, facilitator outage, or EIP-712 domain drift)`);
+        }
       } else {
         noteRail("robinhood", false, `HTTP ${paid.status}`);
         console.warn(`\nWARN  robinhood leg: HTTP ${paid.status} ${JSON.stringify(body).slice(0, 120)}`);
@@ -1641,8 +1653,16 @@ async function main() {
         noteRail("algorand", true);
       } else if (res.status === 402) {
         const reason = settleRejectReason(res.headers);
+        // WARN only for the failure the design was about (our own burner
+        // unfunded or not opted in). A refusal for any other reason pages: on
+        // 2026-09-21 this leg WARNed on `subcent_quota_exceeded` while the run
+        // printed "all rail legs settled". See canary-refusal-classify.js.
+        if (legRefusalVerdict(reason) === "page") {
+          railFail("algorand", `did NOT settle (HTTP 402, payer ${address}) — facilitator reason: ${JSON.stringify(reason)} (not a funding/opt-in shape, so this is the facilitator's decision, not our wallet's)`);
+        } else {
         noteRail("algorand", false, `did not settle (HTTP 402) — ${JSON.stringify(reason)}`);
         console.warn(`\nWARN  algorand leg did NOT settle (HTTP 402, payer ${address}) — facilitator reason: ${JSON.stringify(reason)} (unfunded or not-opted-in USDC burner, facilitator outage, or algorand missing from the live accepts)`);
+        }
       } else {
         noteRail("algorand", false, `HTTP ${res.status}`);
         console.warn(`\nWARN  algorand leg: HTTP ${res.status} ${JSON.stringify(body).slice(0, 120)}`);

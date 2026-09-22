@@ -1551,6 +1551,7 @@ jobs:
           t node scripts/test-revenue-daily.js
           # New-tool coverage lock (The 500 slugs swept by test-all; canary leg prices honest — offline)
           t node scripts/test-canary-coverage.js
+          t node scripts/test-canary-refusal-classify.js
           # Self-listing exclusion (crawled agent402.tools origin never appears as an "external" seller — offline)
           t node scripts/test-self-listing-exclusion.js
           # OCR crash containment (A402-10 malformed image returns clean error, no uncaughtException — tesseract worker)
