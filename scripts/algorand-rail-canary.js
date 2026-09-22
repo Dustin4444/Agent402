@@ -55,7 +55,7 @@ import { createHmac } from "node:crypto";
 import { isIdentityBoundRoute } from "../src/payments.js";
 import { isLongRunningSlug } from "../src/composite-spend-guard.js";
 
-import { FAST_REJECT_MS, isThrottle, isUpstreamOutage, outcomeOf } from "./avm-canary-classify.js";
+import { FAST_REJECT_MS, isThrottle, isUpstreamOutage, isOurSettleBreaker, outcomeOf } from "./avm-canary-classify.js";
 
 const TARGET = (process.env.TARGET_URL || "https://agent402.tools").replace(/\/$/, "");
 const AVM_CAIP2_PREFIX = "algorand:";
@@ -88,6 +88,21 @@ const DELAY_MS = Number(process.env.CANARY_DELAY_MS || "1000");
 // skim. So a throttle gets ONE retry after a real pause, and only a throttle
 // that survives that is reported - as its own class, not as a broken tool.
 const THROTTLE_BACKOFF_MS = Number(process.env.CANARY_THROTTLE_BACKOFF_MS || "8000");
+// OUR OWN settle-failure breaker opens for GATEWAY_SETTLE_BREAKER_WINDOW_MS,
+// which is 15 minutes. An 8-second backoff cannot clear it, so before this the
+// sweep answered a 15-minute refusal with an 8-second pause, failed, and did it
+// again for every remaining tool. Honour the Retry-After the refusal carries,
+// bounded, and only then give up on that tool.
+const BREAKER_MAX_WAIT_MS = Number(process.env.CANARY_BREAKER_MAX_WAIT_MS || "120000");
+// ...and stop entirely once it is clear nothing more can be measured. On
+// 2026-09-21 an upstream facilitator failed 14 minutes in, after 145 clean
+// settlements, and the sweep spent a further 71 minutes and $1.20 of attempts
+// on tools it could not observe, reporting 346 of them as somebody else's
+// throttle. Consecutive is the right trigger rather than a total: an isolated
+// failure among successes is exactly what this alarm exists to catch, while an
+// unbroken run of them means the rail or the breaker is the only thing being
+// measured.
+const ABORT_AFTER_CONSECUTIVE = Number(process.env.CANARY_ABORT_AFTER_CONSECUTIVE || "12");
 // A genuine settlement rejection means the facilitator actually attempted (and
 // failed) an on-chain broadcast - real Algorand round trips through this
 // script measured 5s+. A 402 that comes back in under this window never
@@ -177,10 +192,15 @@ console.log(`catalog: ${tools.length} routes · dry=${DRY} · total cap $${MAX_U
 const report = {
   target: TARGET, payer: payerAddress, dry: DRY,
   ok: [], railFail: [], rateLimited: [], toolFail: [], throttled: [], upstreamFail: [], noAvm: [], skipped: [],
+  // Refused by OUR OWN breaker before the handler ran: nothing was measured
+  // about these tools, so they are neither a pass nor a failure.
+  blocked: [], aborted: null,
   spentUsd: 0, startedAt: new Date().toISOString(),
 };
 let processed = 0;
 let capped = false;
+// Runs of outcomes that observed nothing about the tool under test.
+let consecutiveBlind = 0;
 
 for (const t of tools) {
   if (processed >= LIMIT) break;
@@ -264,6 +284,24 @@ for (const t of tools) {
   // offered, which is a real regression. This sweep reported three media tiers
   // as exactly that on 2026-08-24: it was right to ask, and the answer lived in
   // a local const inside server.js that it could not reach.
+  // A MULTIPART ROUTE CANNOT BE DRIVEN FROM HERE, and pretending otherwise
+  // manufactures a defect. The two /v1/*/audio/transcriptions routes declare
+  // `bodyType: "form-data"` and a placeholder `file` part; this sweep posts
+  // JSON, so the handler correctly refuses with a self-explaining 400 and the
+  // sweep booked it as "settled path fine, handler did not deliver". The
+  // handler was right and the sweep was wrong. Read from the seller's own
+  // declaration in the challenge rather than a slug list, so a new multipart
+  // route is covered the day it ships.
+  //
+  // It does mean the rail goes unmeasured on those routes. That is the honest
+  // trade: an unmeasured route is recorded as skipped, where a fabricated
+  // failure would have to be explained away every week until someone stopped
+  // reading the report.
+  if (String(exampleInput.bodyType || "").toLowerCase() === "form-data") {
+    report.skipped.push({ key, slug: t.slug, reason: "multipart route (bodyType form-data): this sweep can only post JSON, so a 400 here would be ours" });
+    continue;
+  }
+
   const expectedNoAvm = isIdentityBoundRoute(t) || isLongRunningSlug(t.slug);
   if (!accepts.length) { report.noAvm.push({ key, slug: t.slug, expected: expectedNoAvm }); continue; }
 
@@ -330,7 +368,8 @@ for (const t of tools) {
     let tx = null;
     if (receiptHdr) { try { tx = JSON.parse(Buffer.from(receiptHdr, "base64").toString("utf8")).transaction; } catch { /* best-effort */ } }
     const body = await paid.text().catch(() => "");
-    return { status: paid.status, body, tx, elapsedMs };
+    const retryAfterS = Number(paid.headers.get("retry-after"));
+    return { status: paid.status, body, tx, elapsedMs, retryAfterMs: Number.isFinite(retryAfterS) && retryAfterS > 0 ? retryAfterS * 1000 : null };
   };
   try {
     let a = await attempt();
@@ -342,13 +381,18 @@ for (const t of tools) {
     // blip mid-sweep must not fail a weekly gate on first sight. Only a problem
     // that SURVIVES the retry is real.
     if (out !== "ok") {
-      const why = out === "fast-402" ? `HTTP 402 in ${a.elapsedMs}ms (too fast to be a settlement)`
+      const why = out === "breaker" ? `HTTP 429 from OUR OWN settle breaker (not the seller, not a vendor)`
+        : out === "fast-402" ? `HTTP 402 in ${a.elapsedMs}ms (too fast to be a settlement)`
         : out === "throttle" ? `HTTP ${a.status} (upstream throttle)`
           : out === "slow-402" ? `HTTP 402 after ${a.elapsedMs}ms`
             : out === "empty" ? "settled 200 with an empty body"
               : `HTTP ${a.status}: ${a.body.slice(0, 100)}`;
-      console.log(`WAIT ${key.padEnd(46)} ${why} - retrying in ${THROTTLE_BACKOFF_MS}ms`);
-      await sleep(THROTTLE_BACKOFF_MS);
+      // The breaker's window is minutes, so it gets the pause IT asks for
+      // rather than the burst pause. Bounded, because a long Retry-After on a
+      // ~500-tool sweep would otherwise run for hours.
+      const waitMs = out === "breaker" ? Math.min(a.retryAfterMs ?? BREAKER_MAX_WAIT_MS, BREAKER_MAX_WAIT_MS) : THROTTLE_BACKOFF_MS;
+      console.log(`WAIT ${key.padEnd(46)} ${why} - retrying in ${waitMs}ms`);
+      await sleep(waitMs);
       a = await attempt();
       out = outcomeOf(a);
       retried = true;
@@ -358,6 +402,13 @@ for (const t of tools) {
       report.ok.push({ key, slug: t.slug, usd, tx: a.tx || null, bytes: a.body.length, ...(retried ? { recovered: true } : {}) });
       report.spentUsd += usd;
       console.log(`OK   ${key.padEnd(46)} $${usd}${a.tx ? ` · tx ${a.tx.slice(0, 10)}…` : " · (no receipt header)"}${retried ? " · recovered on retry" : ""}  [${report.ok.length}]`);
+    } else if (out === "breaker") {
+      // NOT a verdict about this tool. Our own breaker refused the request
+      // before the handler ran, so the sweep observed nothing - recording it as
+      // a throttle blamed a vendor, and recording it as a failure would blame a
+      // handler that was never reached.
+      report.blocked.push({ key, slug: t.slug, reason: `refused by our own settle breaker: ${String(a.body).slice(0, 140)}` });
+      console.log(`BLOCKED ${key.padEnd(42)} our own settle breaker (nothing measured)`);
     } else if (out === "fast-402" || out === "throttle") {
       // Survived a real pause and is STILL the fast/throttle shape -> the
       // facilitator is rate-limiting THIS wallet's volume, not a rail defect.
@@ -384,9 +435,27 @@ for (const t of tools) {
       report.toolFail.push({ key, slug: t.slug, reason: `HTTP ${a.status}: ${a.body.slice(0, 160)} (twice)` });
       console.log(`FAIL ${key.padEnd(46)} HTTP ${a.status} (twice)`);
     }
+    // Consecutive unmeasurable outcomes: the rail is refusing everything, or
+    // our own breaker is, and either way the remaining tools tell us nothing.
+    // An `ok` anywhere resets it, so an isolated failure among successes - the
+    // thing this alarm exists to catch - never trips it.
+    if (out === "ok") consecutiveBlind = 0;
+    else if (out === "breaker" || out === "slow-402" || out === "fast-402") consecutiveBlind++;
+    else consecutiveBlind = 0;
   } catch (e) { report.toolFail.push({ key, slug: t.slug, reason: `pay: ${String(e.message).slice(0, 160)}` }); }
 
   processed++;
+  if (consecutiveBlind >= ABORT_AFTER_CONSECUTIVE) {
+    report.aborted = {
+      afterTools: processed,
+      unmeasured: tools.length - processed,
+      consecutive: consecutiveBlind,
+      why: "settlement or our own breaker refused every attempt in a row - the remaining tools could not be observed",
+    };
+    console.log(`\nABORTED after ${processed} tools: ${consecutiveBlind} consecutive attempts measured nothing.`);
+    console.log(`${report.aborted.unmeasured} tools were NOT tested. This is not a verdict about them.`);
+    break;
+  }
   await sleep(DELAY_MS);
 }
 
@@ -397,12 +466,23 @@ const unexpectedNoAvm = report.noAvm.filter((n) => !n.expected);
 console.log(`\n=== Algorand rail canary ===`);
 const recovered = report.ok.filter((o) => o.throttledFirst).length;
 console.log(`settled+payload: ${report.ok.length} · rail failures: ${report.railFail.length} · rate-limited: ${report.rateLimited.length} · tool failures: ${report.toolFail.length} · upstream throttles: ${report.throttled.length} · third-party outages: ${report.upstreamFail.length}${recovered ? ` (${recovered} recovered on retry)` : ""}`);
+if (report.blocked.length) console.log(`blocked by OUR OWN settle breaker (nothing measured, neither pass nor fail): ${report.blocked.length}`);
+if (report.aborted) console.log(`ABORTED: ${report.aborted.unmeasured} tools never tested (${report.aborted.why})`);
 console.log(`no AVM accept: ${report.noAvm.length} (${report.noAvm.length - unexpectedNoAvm.length} expected identity-bound or long-running, ${unexpectedNoAvm.length} unexpected) · skipped: ${report.skipped.length}`);
 console.log(`spent (recycles to our own payTo): $${report.spentUsd.toFixed(4)}${capped ? "  [TOTAL CAP REACHED]" : ""}`);
 
 if (report.railFail.length) {
   console.log(`\nRAIL FAILURES (Algorand settlement refused after a genuine, slow attempt):`);
   for (const f of report.railFail) console.log(`  ${f.key} — ${f.reason}`);
+}
+if (report.blocked.length) {
+  console.log(`\nBLOCKED BY OUR OWN SETTLE BREAKER (nothing was measured about these tools):`);
+  for (const f of report.blocked.slice(0, 15)) console.log(`  ${f.key}`);
+  if (report.blocked.length > 15) console.log(`  … ${report.blocked.length - 15} more (see the report artifact)`);
+  console.log(`  This is OUR gate, not a vendor and not the seller: a wallet whose payments`);
+  console.log(`  verified and then failed to settle is refused for GATEWAY_SETTLE_BREAKER_WINDOW_MS.`);
+  console.log(`  It FOLLOWS real settle failures, so read the rail failures above for the cause;`);
+  console.log(`  these rows are the consequence, and they are neither a pass nor a failure.`);
 }
 if (report.rateLimited.length) {
   console.log(`\nRATE-LIMITED (fast 402s that survived a backoff - likely the facilitator throttling this wallet's volume, not a rail defect):`);
@@ -451,5 +531,12 @@ if (OUT) { writeFileSync(OUT, JSON.stringify(report, null, 2)); console.log(`\nw
 // fault is a vendor or the edge, not our rail or handler - same doctrine as the
 // external buyer. They are printed above so a spike is still visible.
 const bad = report.railFail.length + report.toolFail.length + unexpectedNoAvm.length;
-if (bad) { console.error(`\nFAIL: ${bad} problem(s) on the Algorand rail.`); process.exit(1); }
+// A sweep that aborted measured only part of the catalog. Saying "pass" over a
+// partial sweep is the flattering failure this whole script exists to avoid, so
+// an abort fails the run whether or not it also recorded a defect.
+if (report.aborted && !bad) {
+  console.error(`\nFAIL: the sweep could not be completed - ${report.aborted.unmeasured} of ${tools.length} tools were never tested.`);
+  process.exit(1);
+}
+if (bad) { console.error(`\nFAIL: ${bad} problem(s) on the Algorand rail.${report.aborted ? ` Sweep ABORTED with ${report.aborted.unmeasured} tools never tested.` : ""}`); process.exit(1); }
 console.log(`\nPASS: every attempted tool settled on Algorand and returned a payload.`);

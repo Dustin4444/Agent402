@@ -481,7 +481,7 @@ export const X_DATA_TOOLS = [
     tags: [...SHARED_TAGS, "tweet", "status"],
     discovery: {
       bodyType: "json",
-      input: { id: "1800000000000000000" },
+      input: { id: "20" },
       inputSchema: {
         properties: {
           id: { type: "string", description: "Numeric tweet id (the trailing number of a status URL)." },
