@@ -235,4 +235,11 @@ assert(search.result?.structuredContent?.results, "catalog.search call returns s
   assert(!x402.result?.isError && Array.isArray(x402.result?.structuredContent?.results) && !x402.result?.structuredContent?.wire, "default wire (x402) is unchanged");
 }
 
+{
+  // A body that is not JSON is a JSON-RPC parse error, not the site's generic 400.
+  const res = await fetch(`${BASE}/mcp`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream" }, body: "{not json" });
+  const j = await res.json().catch(() => null);
+  assert(res.status === 400 && j?.jsonrpc === "2.0" && j?.error?.code === -32700 && j?.id === null, `malformed JSON answers -32700 (got ${res.status} ${JSON.stringify(j)?.slice(0, 120)})`);
+}
+
 console.log("\nremote MCP connector: all checks passed");

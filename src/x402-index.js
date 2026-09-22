@@ -4365,6 +4365,8 @@ function buildLocalEntry({ baseUrl, catalog, prices, network, toolCount, walletN
     category: t.category,
     tags: t.tags || [],
     price: prices?.[t.slug] ?? parsePrice(t.price),
+    // The same field every remote row carries, so one rule reads every row.
+    priceKnown: priceToMicroUsd(t.price) != null,
   }));
   return {
     origin: LOCAL_SELLER,
