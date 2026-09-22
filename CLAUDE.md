@@ -1275,8 +1275,10 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   unset. If a deploy fails at that step again: check `railway list` from a terminal before blaming the token.
 - **Deploy safety (live-buyer protection):** deploy job runs `scripts/deploy-quiet-gate.js`
   BEFORE the Railway variable upsert (the upsert itself can trigger a redeploy) — polls
-  `/api/stats` `recentCalls`, waits for 180s with no external USDC call (heartbeat/PoW never
-  block); fail-open on stats-down, sustained traffic past `QUIET_GATE_MAX_WAIT` (repo var,
+  `/api/stats` `recentCalls`, waits for 180s with no OUTSIDE call of any kind (paid, credits, PoW,
+  hosted-MCP calls; only our own `heartbeat` rows are ignored) AND with the feed, or an unbroken chain
+  of polls, reaching back that far (our own rows filling the 25-row feed must not hide an outside call;
+  `test-quiet-gate.js`); fail-open on stats-down or an unreadable feed, sustained traffic past `QUIET_GATE_MAX_WAIT` (repo var,
   default 1200s), or repo var `QUIET_GATE=off`. **Var-upsert race (measured 2026-08-05):**
   an upsert that introduces NEW variables makes Railway auto-redeploy the PREVIOUS build,
   which races the workflow's SHA-pinned deploy (lost by 56ms; the pinned deployment ended
