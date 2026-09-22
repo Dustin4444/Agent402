@@ -168,6 +168,13 @@ ok(got[0].properties.rail === "usdc" && got[0].properties.network === "eip155:84
 ok(got[1].properties.rail === "pow" && got[1].properties.network === null, "PoW settlement has no chain");
 ok(ourKeys(got[0].properties) === "network,paid,priceUsd,rail,slug,synthetic",
   "settlement properties are exactly {slug, rail, network, priceUsd, paid, synthetic} — no payer identity");
+// A settlement paid by one of OUR wallets says so, whatever headers it sent:
+// sweeps that send no token carried synthetic=false.
+capturePostHogSettlement({ slug: "hash", rail: "usdc", network: "eip155:8453", priceUsd: 0.001, synthetic: false, ownWallet: true });
+{
+  const own = take();
+  ok(own.length === 1 && own[0].properties.ownWallet === true && own[0].properties.synthetic === false, "an own-wallet settlement carries ownWallet:true beside synthetic");
+}
 
 // `paid` is the fix for a real misreading, so assert the distinction it draws
 // rather than just its presence. `synthetic` means OUR OWN traffic, NOT free:

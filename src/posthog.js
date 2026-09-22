@@ -453,9 +453,16 @@ function flushPowChallengeRollup() {
 // Zeroing it instead was considered and rejected: it would silently restate
 // history mid-series and delete the subsidy number, while fixing none of the
 // broken dashboards, which count events rather than summing price.
-export function capturePostHogSettlement({ slug, rail, network, priceUsd, synthetic, payer, clientUa, wire }) {
+export function capturePostHogSettlement({ slug, rail, network, priceUsd, synthetic, payer, clientUa, wire, ownWallet }) {
   if (!active()) return;
   capture("payment_settled", {
+    // `synthetic` stays the signed-token fact. `ownWallet` is the payer being
+    // one of our own wallets whatever headers it sent: own-wallet settlements
+    // from sweeps that send no token carried synthetic=false, so an
+    // "external" query that filtered on synthetic alone counted them as
+    // customers. Present only when true, so every other
+    // settlement's property set is unchanged.
+    ...(ownWallet ? { ownWallet: true } : {}),
     slug: String(slug || "unknown"),
     rail: String(rail || "unknown"),
     network: network ? String(network) : null,
