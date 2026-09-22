@@ -5100,6 +5100,10 @@ jobs:
           [ -n "$X_BEARER_TOKEN" ] && echo "::add-mask::$X_BEARER_TOKEN"
           [ -n "$BACKUP_S3_KEY_ID" ] && echo "::add-mask::$BACKUP_S3_KEY_ID"
           [ -n "$BACKUP_S3_SECRET" ] && echo "::add-mask::$BACKUP_S3_SECRET"
+          # Not credentials, but a bucket name and a project id narrow a target
+          # and have no reader in a public log.
+          [ -n "$BACKUP_S3_BUCKET" ] && echo "::add-mask::$BACKUP_S3_BUCKET"
+          [ -n "$RAILWAY_PROJECT_ID" ] && echo "::add-mask::$RAILWAY_PROJECT_ID"
           [ -n "$RAILWAY_API_TOKEN" ] || { echo "No Railway token provided"; exit 1; }
           [ -n "$WALLET_ADDRESS" ] || { echo "No wallet address provided"; exit 1; }
 
@@ -5206,9 +5210,14 @@ jobs:
           # domain, so harmless, but unbounded). Only a readable, well-formed
           # answer that says "none" may create one; an unreadable answer falls
           # through to the custom domain below, which is what the poll needs.
+          # Railway's `domains` query requires projectId since 2026-09-22 (the
+          # 02:31Z deploy was the first to fail the read); without it every
+          # read failed and the custom-domain step re-attempted a create on
+          # every run.
+          PROJECT_ID='${{ steps.project.outputs.project_id }}'
           queryDomain() {
-            jq -n --arg e "$ENV_ID" --arg s "$SERVICE_ID" \
-              '{query:"query($e:String!, $s:String!) { domains(environmentId: $e, serviceId: $s) { serviceDomains { domain } } }", variables:{e:$e,s:$s}}' | gql
+            jq -n --arg p "$PROJECT_ID" --arg e "$ENV_ID" --arg s "$SERVICE_ID" \
+              '{query:"query($p:String!, $e:String!, $s:String!) { domains(projectId: $p, environmentId: $e, serviceId: $s) { serviceDomains { domain } } }", variables:{p:$p,e:$e,s:$s}}' | gql
           }
           RAW=$(queryDomain || true)
           DOMAIN=""
@@ -5247,9 +5256,17 @@ jobs:
           }
           ENV_ID='${{ steps.project.outputs.env_id }}'
           SERVICE_ID='${{ steps.service.outputs.service_id }}'
-          EXISTING=$(jq -n --arg e "$ENV_ID" --arg s "$SERVICE_ID" \
-            '{query:"query($e:String!, $s:String!) { domains(environmentId: $e, serviceId: $s) { customDomains { domain } } }", variables:{e:$e,s:$s}}' | gql \
-            | jq -r '.data.domains.customDomains[]?.domain')
+          PROJECT_ID='${{ steps.project.outputs.project_id }}'
+          RAW=$(jq -n --arg p "$PROJECT_ID" --arg e "$ENV_ID" --arg s "$SERVICE_ID" \
+            '{query:"query($p:String!, $e:String!, $s:String!) { domains(projectId: $p, environmentId: $e, serviceId: $s) { customDomains { domain } } }", variables:{p:$p,e:$e,s:$s}}' | gql || true)
+          # Same rule as the public-domain step: only a READABLE list that lacks
+          # the domain may create it. An unreadable answer is a skip, not a
+          # create (every run was attempting one while the query was broken).
+          if ! printf '%s' "$RAW" | jq -e '.data.domains.customDomains | type == "array"' >/dev/null 2>&1; then
+            echo "::warning::could not read the custom domain list (not attaching): $(printf '%s' "$RAW" | head -c 300)"
+            exit 0
+          fi
+          EXISTING=$(printf '%s' "$RAW" | jq -r '.data.domains.customDomains[]?.domain')
           echo "existing custom domains: ${EXISTING:-none}"
           if ! echo "$EXISTING" | grep -qx "$CUSTOM_DOMAIN"; then
             RESP=$(jq -n --arg p '${{ steps.project.outputs.project_id }}' --arg e "$ENV_ID" --arg s "$SERVICE_ID" --arg d "$CUSTOM_DOMAIN" \
