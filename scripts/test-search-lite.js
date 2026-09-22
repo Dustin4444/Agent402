@@ -12,9 +12,20 @@
 //   5. the upstream error mapping is the one `search` uses (429 -> 503,
 //      5xx -> 502, transport failure -> 504);
 //   6. the call is metered under its own caller name;
-//   7. the tool is wallet-only: never reachable on the free PoW tier.
+//   7. the tool is wallet-only: never reachable on the free PoW tier;
+//   8. the published OpenAPI parameter carries the type the schema declares,
+//      so the example an agent copies validates against it;
+//   9. a generic SERP query still resolves to the full `search` tool on both
+//      resolvers - the cheaper sample must not take the generic intent.
+//
+// The crawler is switched off for the router import below. Static imports run
+// first, but none of them reads this variable and x402-index.js is imported
+// dynamically further down, after this line has run.
+process.env.X402_INDEX_CRAWL ??= "off";
 import { SEARCH_TOOLS, braveCallMeter } from "../src/tools/search.js";
 import { isComputePayable } from "../src/pow.js";
+import { openapiSpec } from "../src/pages.js";
+import { findTools } from "../src/find.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
@@ -46,6 +57,59 @@ ok(!isComputePayable(tool), "search-lite is wallet-only (in WALLET_ONLY_SLUGS, n
 
 const search = SEARCH_TOOLS.find((t) => t.slug === "search");
 ok(/search-lite/.test(search.description), "search's description points at search-lite for a quick sample");
+
+// --- what /openapi.json publishes for the input -----------------------------
+// The handler takes a whole number and the schema says so, but the spec is the
+// surface a code generator reads: a parameter published as a string beside a
+// numeric example is an example that does not validate against its own type.
+{
+  const spec = openapiSpec("https://agent402.test", Object.fromEntries(SEARCH_TOOLS.map((t) => [t.route, t])));
+  const params = spec.paths["/api/search-lite"]?.get?.parameters ?? [];
+  const count = params.find((p) => p.name === "count");
+  ok(count?.in === "query", "count is published as a query parameter");
+  ok(count?.schema?.type === "integer", `count is published as the type the schema declares (got ${count?.schema?.type})`);
+  ok(Number.isInteger(count?.example), `its example is an integer (got ${JSON.stringify(count?.example)})`);
+  const q = params.find((p) => p.name === "q");
+  ok(q?.schema?.type === "string" && q?.required === true, "q stays a required string");
+  // The rule, not just this row: every documented example must validate
+  // against the type published beside it, for every tool in the kit.
+  const mismatched = [];
+  for (const [path, ops] of Object.entries(spec.paths)) {
+    for (const op of Object.values(ops)) {
+      for (const p of op?.parameters ?? []) {
+        if (p.in !== "query" || p.example === undefined) continue;
+        const t = p.schema?.type;
+        const okType = t === "string" ? typeof p.example === "string"
+          : t === "integer" ? Number.isInteger(p.example)
+          : t === "number" ? typeof p.example === "number"
+          : t === "boolean" ? typeof p.example === "boolean" : false;
+        if (!okType) mismatched.push(`${path}?${p.name}: ${t} vs ${JSON.stringify(p.example)}`);
+      }
+    }
+  }
+  ok(mismatched.length === 0, `every published query example matches its declared type${mismatched.length ? ` - ${mismatched.join("; ")}` : ""}`);
+}
+
+// --- ranking: the generic intent stays on the full tool ----------------------
+// search-lite is cheaper and carries the same "serp" tag, so on a one-word
+// generic query the two tie on score and the price tie-break would hand the
+// intent to the 5-result sample. `search` carries a curated "serp" alias for
+// exactly that, and an alias scores like a slug. Pinned on both resolvers,
+// because /api/route and /api/find have disagreed before.
+{
+  const { routeQuery } = await import("../src/x402-index.js");
+  const catalog = Object.fromEntries(SEARCH_TOOLS.map((t) => [t.route, t]));
+  const route = (q) => routeQuery({ query: q, top: 5, include: "local", baseUrl: "https://agent402.test", catalog, toolCount: SEARCH_TOOLS.length }).results.map((r) => r.slug);
+  const find = (q) => findTools(catalog, q, { k: 5 }).results.map((r) => r.slug);
+  ok(search.aliases?.includes("serp"), "search carries the curated serp alias");
+  for (const q of ["serp", "web search", "search the web", "google search"]) {
+    ok(route(q)[0] === "search", `/api/route: ${JSON.stringify(q)} resolves to search (got ${route(q).slice(0, 3).join(", ")})`);
+    ok(find(q)[0] === "search", `/api/find: ${JSON.stringify(q)} resolves to search (got ${find(q).slice(0, 3).join(", ")})`);
+  }
+  // The sample is still findable - this is an ordering rule, not a hidden tool.
+  ok(route("serp").includes("search-lite") && find("serp").includes("search-lite"), "search-lite is still returned for the same query");
+  ok(route("quick web sample")[0] === "search-lite", `a query naming the sample resolves to it (got ${route("quick web sample").slice(0, 3).join(", ")})`);
+}
 
 // --- stubbed upstream --------------------------------------------------------
 const realFetch = globalThis.fetch;

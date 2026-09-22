@@ -11,6 +11,11 @@ Since v2.4.0 (2026-09-18).
 ### 2026-09-22
 - Add `search-lite` (`GET`/`POST /api/search-lite`, $0.008): up to 5 web results
   (title, URL, snippet) from the same index as `search`, no freshness filter.
+  A generic SERP query still resolves to `search` on `/api/route` and
+  `/api/find`.
+- Publish a `GET` query parameter in `/openapi.json` with the type its schema
+  declares when that type is `integer` or `boolean`; both were published as
+  `string` beside a numeric or boolean example.
 
 ### 2026-09-21
 - Add `POST /v1/judge` ($0.001): typed judgments (a choice from a named set, a

@@ -10,7 +10,9 @@
 // Pairs (all free surfaces, FREE_MODE boot or TARGET_URL):
 //   1. /health.toolCount == /api/pricing endpoints == priced /openapi.json ops
 //   2. /api/pricing <-> /openapi.json: same method+path, same x-price, the MPP
-//      offer amount is the price in micro-USD, and every priced op maps back
+//      offer amount is the price in micro-USD, and every priced op maps back;
+//      and each operation's own query example validates against the type it
+//      publishes beside it
 //   3. /api/pricing <-> /.well-known/x402 resources (one URL per paid route;
 //      a route absent from the manifest is named, with its reason, or fails)
 //   4. /api/wishes beacon <-> /api/demand-radar: qualifiedClusters, threshold
@@ -93,6 +95,27 @@ async function main() {
     ok(offerDrift.length === 0, `the MPP evm offer amount is the route price in micro-USD${offerDrift.length ? ` - ${offerDrift.slice(0, 5).join("; ")}` : ""}`);
     const orphanOps = pricedOps.filter((o) => !byKey.has(`${o.method} ${o.path}`)).map((o) => `${o.method} ${o.path}`);
     ok(orphanOps.length === 0, `every priced OpenAPI operation is a pricing endpoint${orphanOps.length ? ` - orphans: ${orphanOps.slice(0, 5).join(", ")}` : ""}`);
+
+    // ---- 2b. an operation's own example <-> the type it publishes beside it.
+    // One reader copies the example, another generates a client from the type,
+    // and a mismatch sends the two to different calls. Found on a GET route
+    // whose parameter declared a whole number and published "string" next to a
+    // numeric example, which had been true of several routes for months.
+    const exampleTypeDrift = [];
+    for (const [p, ops] of Object.entries(openapi.paths)) {
+      for (const [m, op] of Object.entries(ops)) {
+        for (const prm of op?.parameters ?? []) {
+          if (prm.in !== "query" || prm.example === undefined) continue;
+          const t = prm.schema?.type, ex = prm.example;
+          const typeOk = t === "string" ? typeof ex === "string"
+            : t === "integer" ? Number.isInteger(ex)
+            : t === "number" ? typeof ex === "number"
+            : t === "boolean" ? typeof ex === "boolean" : false;
+          if (!typeOk) exampleTypeDrift.push(`${m.toUpperCase()} ${p}?${prm.name}: ${t} vs ${JSON.stringify(ex)}`);
+        }
+      }
+    }
+    ok(exampleTypeDrift.length === 0, `every documented query example validates against its declared type${exampleTypeDrift.length ? ` - ${exampleTypeDrift.slice(0, 5).join("; ")}` : ""}`);
 
     // ---- 3. pricing <-> manifest
     const resources = (manifest.resources || []).map((r) => (typeof r === "string" ? r : r?.url || r?.resource || "")).map((u) => { try { return new URL(u).pathname; } catch { return String(u); } });
