@@ -1125,6 +1125,36 @@ function urlTemplateProjection(t) {
   };
 }
 
+/** Can we actually READ a price for this route?
+ *
+ *  `/api/route` has published `priceUsd` since long before this, computed by
+ *  parsePrice, which returns 0 for anything it cannot parse. So a route whose
+ *  price we failed to read is advertised at zero - "free" - and a consumer has
+ *  no way to tell that from a genuinely free route. Measured live 2026-09-21:
+ *  16 of 286 distinct external rows read priceUsd 0, and 14 of them carry
+ *  `price: null`, meaning we never read a price at all. The other two are
+ *  "$free" and really are free.
+ *
+ *  The file already knew. priceToMicroUsd's own comment, three lines below
+ *  parsePrice, says its null is deliberate and "never parsePrice's 0, which
+ *  would publish 'free' for 'we could not read it'". The right reader existed
+ *  and this surface kept calling the wrong one.
+ *
+ *  NOT FIXED BY CHANGING priceUsd. Someone is reading that field today and a
+ *  0 turning into null breaks them; publishing a wrong number is our mistake
+ *  to disclose, not theirs to absorb. So priceUsd keeps its meaning exactly,
+ *  on every surface, and this says whether to believe it. `priceKnown: false`
+ *  means we could not read a price and the 0 is our ignorance, not the
+ *  seller's price.
+ *
+ *  Uses priceToMicroUsd rather than a second parser, so "known" here means the
+ *  same thing the crawler means when it compares a declaration to a learned
+ *  quote - including the object shapes ({usd}, {amountMinor}) that parsePrice
+ *  reads as zero. */
+function priceKnownProjection(t) {
+  return { priceKnown: priceToMicroUsd(t?.price) != null };
+}
+
 function priceConflictProjection(t) {
   if (t?.priceConflict !== true || !t.priceObservations) return {};
   const bazaar = priceToMicroUsd(t.priceObservations.bazaar);
@@ -4708,7 +4738,8 @@ export function sellerDetail(originOrHost) {
         description: t.description || null,
         tags: Array.isArray(t.tags) && t.tags.length ? t.tags : undefined,
         price: t.price ?? null,
-        ...priceConflictProjection(t),
+        ...priceKnownProjection(t),
+      ...priceConflictProjection(t),
         ...urlTemplateProjection(t),
         ...(t.paid !== undefined ? { paid: t.paid } : {}),
         // What the seller's own OpenAPI guarantees on success. Omitted rather
@@ -5468,6 +5499,7 @@ export function routeQuery({ query, top, include, networkFilter, strictNetwork =
       ...urlTemplateProjection(t),
       price: t.price,
       priceUsd: parsePrice(t.price),
+      ...priceKnownProjection(t),
       ...priceConflictProjection(t),
       // "x402" = we have positive evidence this is payable in-protocol (a price,
       // or a registry accepts entry someone settled against). "unknown" = we
@@ -5897,7 +5929,8 @@ function flattenedThirdPartyTools(excludeOrigin = "") {
         // the next and could not tell it from "no price" - which is exactly how
         // a measurement taken during this audit came out wrong.
         price: t?.price ?? null,
-        ...priceConflictProjection(t),
+        ...priceKnownProjection(t),
+      ...priceConflictProjection(t),
         // The identifier a caller needs to actually invoke the tool. Present on
         // /api/route and /api/find, missing here, on the surface that lists all
         // 65k third-party rows.
