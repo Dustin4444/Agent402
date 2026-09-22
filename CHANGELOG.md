@@ -28,6 +28,10 @@ Since v2.4.0 (2026-09-18).
   stop `/leaderboard` printing the same figure twice; trim ~6 KB of repeated nav
   style from every page.
 - Fix the `x-tweet` documented example to a real tweet id.
+- Packages: agent402-mcp 0.13.3, agent402-client 0.8.7, agent402-anthropic-tools
+  0.1.8, agent402-langchain 0.2.7, agent402-llamaindex 0.1.8,
+  agent402-openai-agents 0.1.7, agent402-openai-tools 0.1.8, agent402-strands
+  0.1.8 (corrected READMEs, descriptions and the report price ladder on npm).
 
 ### 2026-09-18 to 2026-09-20
 - Add Google's native `generateContent` wire on every gateway tier.
