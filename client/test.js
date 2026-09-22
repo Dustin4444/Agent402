@@ -89,6 +89,18 @@ let pass = 0; const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); 
     ok(c.spendingSummary().dailyUsd === 0.01, "settled spend is recorded");
   }
 
+  // a refusal is something to branch on, not to regex out of the message
+  {
+    const c = new Agent402({
+      baseUrl: "https://seller.example", cache: false,
+      fetchImpl: async () => ({ ok: false, status: 402, json: async () => ({ error: "payment required" }), text: async () => "payment required", headers: new Map() }),
+    });
+    c._catalog = new Map([["cheap", { method: "POST", path: "/api/cheap", computePayable: false, price: "$0.01" }]]);
+    let e = null; try { await c.call("cheap"); } catch (err) { e = err; }
+    ok(e && e.status === 402 && e.slug === "cheap" && e.paid === false, "a wallet-only refusal with no payer carries status 402, the slug and paid:false on the Error");
+    ok(/wallet-only/.test(e?.message || ""), "...and the message still says what to construct");
+  }
+
   // daily cap sums across calls and blocks the one that would cross it
   {
     const { c, paid } = mk({ dailyLimitUsd: 0.025 });

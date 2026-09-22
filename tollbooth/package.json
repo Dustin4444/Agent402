@@ -44,7 +44,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node test.js && node edge.test.js && node features.test.js",
+    "test": "node test.js && node edge.test.js && node features.test.js && node tempo.test.js",
     "demo": "node demo.js",
     "example": "node example.js"
   },
