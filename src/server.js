@@ -353,7 +353,7 @@ import { setOgImageVersion, setNavIndexProvider, ledgerShell, ledgerFooterCompac
 import { ledgerHomePage } from "./ledger-home.js";
 import { ledgerCatalogPage } from "./ledger-catalog.js";
 import { ledgerPricingPage } from "./ledger-pricing.js";
-import { revenueSnapshot, revenuePage, stellarRail, stellarActivity, algorandRail, algorandActivity, evmActivity, solanaActivity, robinhoodActivity, baseActivityViaSql, EVM as EVM_CHAINS, rpcCall, getJsonAcross, ALGORAND_INDEXER_BASES } from "./revenue-live.js";
+import { revenueSnapshot, revenuePage, stellarRail, stellarActivity, algorandRail, algorandActivity, evmActivity, solanaActivity, robinhoodActivity, baseActivityViaSql, EVM as EVM_CHAINS, rpcCall, getJsonAcross, ALGORAND_INDEXER_BASES, OUR_EVM_WALLETS, OUR_SOLANA_WALLETS, OUR_STELLAR_WALLETS, OUR_ALGORAND_WALLETS } from "./revenue-live.js";
 import { stellarPage, stellarSellers } from "./stellar-page.js";
 import { algorandPage, algorandSellers } from "./algorand-page.js";
 import { CHAIN_PAGES, marketSellers, marketOperatorCount, marketPage, marketPanelHtml } from "./market-page.js";
@@ -4788,6 +4788,13 @@ function logToolError(slug, status, message, shape, synthetic, probe) {
 // Unspoofable: an external caller cannot mint a valid token without POW_SECRET.
 // Used to mark trusted internal traffic (CI canaries, heartbeat probes, operator
 // smoke tests) so the public dashboard can exclude it from real error rates.
+// A payer that is one of our own wallets on any rail (revenue-live's sets;
+// EVM lowercased, base58/Stellar/Algorand case-exact). Attribution only.
+function isOwnWallet(payer) {
+  if (!payer) return false;
+  const p = String(payer);
+  return OUR_EVM_WALLETS.has(p.toLowerCase()) || OUR_SOLANA_WALLETS.has(p) || OUR_STELLAR_WALLETS.has(p) || OUR_ALGORAND_WALLETS.has(p);
+}
 function isSyntheticRequest(req) {
   try { return !!(req && verifyHeartbeatToken(req.header("x-heartbeat-token"))); }
   catch { return false; }
@@ -6125,7 +6132,17 @@ const chainIndex = (_req, res) => {
   });
 };
 app.get("/api/chain", chainIndex);
-app.get("/openapi.json", (_req, res) => res.set("Cache-Control", "public, max-age=3600").json(openapiSpec(BASE_URL, CATALOG)));
+// Built ONCE: the catalog is fixed after boot and the document is ~1.8 MB,
+// and it was rebuilt and re-stringified on every fetch, which put its tail
+// latency in seconds under indexer bursts (measured 2026-09-22). An ETag
+// lets an indexer that re-reads it hourly get a 304 instead.
+const OPENAPI_JSON = JSON.stringify(openapiSpec(BASE_URL, CATALOG));
+const OPENAPI_ETAG = `"${createHash("sha256").update(OPENAPI_JSON).digest("hex").slice(0, 32)}"`;
+app.get("/openapi.json", (req, res) => {
+  res.set("Cache-Control", "public, max-age=3600").set("ETag", OPENAPI_ETAG);
+  if (String(req.headers["if-none-match"] || "").includes(OPENAPI_ETAG)) return res.status(304).end();
+  res.type("application/json").send(OPENAPI_JSON);
+});
 app.get("/tools", (_req, res) => htmlCache(res, 300, 900).send(ledgerCatalogPage(BASE_URL, CATALOG, SKILL_PACKS)));
 app.get("/shop", (_req, res) => htmlCache(res, 300, 900).send(shopPage(BASE_URL, CATALOG)));
 // The standalone economy dashboard folded into the marketplace's "The economy,
@@ -7484,6 +7501,7 @@ app.use((req, res, next) => {
           capturePostHogSettlement({
             slug: def.slug, rail, network, priceUsd, synthetic, payer, clientUa,
             wire: rail === "usdc" ? wireFor() : null,
+            ownWallet: isOwnWallet(payer),
           });
           // Sales ledger — the same sale, BY NAME, persisted on /data with the
           // verified payer + settle tx so "what do external wallets actually
@@ -7614,6 +7632,10 @@ app.get("/api/dns", async (req, res) => {
 });
 
 app.post("/api/render", async (req, res) => {
+  // Bespoke route (outside the generic binder): record the same tool_call the
+  // binder emits, so latency and errors exist for it (none did until 2026-09-22).
+  const _t0 = Date.now();
+  res.once("finish", () => { try { capturePostHogToolCall({ slug: "render", latencyMs: Date.now() - _t0, cached: false, errored: res.statusCode >= 500, status: res.statusCode, synthetic: isSyntheticRequest(req) }); } catch { /* telemetry never breaks a response */ } });
   const { url } = req.body ?? {};
   if (!url) return res.status(400).json({ error: 'Missing "url" in JSON body' });
   // Abort a QUEUED render if the client hangs up, so it can't hold a browser
@@ -7636,6 +7658,10 @@ app.post("/api/render", async (req, res) => {
 });
 
 app.get("/api/screenshot", async (req, res) => {
+  // Bespoke route (outside the generic binder): record the same tool_call the
+  // binder emits, so latency and errors exist for it (none did until 2026-09-22).
+  const _t0 = Date.now();
+  res.once("finish", () => { try { capturePostHogToolCall({ slug: "screenshot", latencyMs: Date.now() - _t0, cached: false, errored: res.statusCode >= 500, status: res.statusCode, synthetic: isSyntheticRequest(req) }); } catch { /* telemetry never breaks a response */ } });
   const { url, fullPage } = req.query;
   if (!url) return res.status(400).json({ error: 'Missing "url" query parameter' });
   const ac = new AbortController();
@@ -7651,6 +7677,10 @@ app.get("/api/screenshot", async (req, res) => {
 });
 
 app.post("/api/pdf", async (req, res) => {
+  // Bespoke route (outside the generic binder): record the same tool_call the
+  // binder emits, so latency and errors exist for it (none did until 2026-09-22).
+  const _t0 = Date.now();
+  res.once("finish", () => { try { capturePostHogToolCall({ slug: "pdf", latencyMs: Date.now() - _t0, cached: false, errored: res.statusCode >= 500, status: res.statusCode, synthetic: isSyntheticRequest(req) }); } catch { /* telemetry never breaks a response */ } });
   const { url } = req.body ?? {};
   if (!url) return res.status(400).json({ error: 'Missing "url" in JSON body' });
   try {
