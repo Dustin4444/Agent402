@@ -571,6 +571,8 @@ const page = (results, extra = {}) =>
   const unknown = stack({ amount: "3000", asset: "0x00000000000000000000000000000000000000ff" });
   check(`a token we cannot size publishes NO price rather than a guess (got ${unknown?.price})`,
     unknown?.price == null && !(Number(unknown?.originDeclaredPrice) > 0));
+  priced(stack({ amount: "3000", asset: "0x00000000000000000000000000000000000000ff", display: "$0.003" }), "$0.003",
+    "and the seller's own label rescues exactly that row, which is what reading it first is for");
   check(`the readable one anchors the drift guard (got ${stack({ amount: "3000", asset: USDC_BASE, decimals: 6, display: "$0.003" })?.originDeclaredPrice})`,
     stack({ amount: "3000", asset: USDC_BASE, decimals: 6, display: "$0.003" })?.originDeclaredPrice === 0.003);
 
