@@ -9,7 +9,7 @@ import { parseForm4 } from "../src/tools/insider-flow-kit.js";
 import { parse13fCover } from "../src/tools/edgar-kit.js";
 import { classifyFromSubmissions } from "../src/tools/ipo-report-kit.js";
 import { parse13GCover } from "../src/tools/ticker-pack-kit.js";
-import { shapeGoPlus, privilegedFunctions, makeTokenRiskHandler } from "../src/tools/token-risk-kit.js";
+import { shapeGoPlus, privilegedFunctions, makeTokenRiskHandler, probeGoPlus, CHAINS, GOPLUS_CHAIN_IDS, DEXSCREENER_CHAINS, TOKEN_RISK_TOOLS } from "../src/tools/token-risk-kit.js";
 import { auditCitations } from "../src/tools/research-deep-kit.js";
 let pass = 0, fail = 0;
 const ok = (c, m) => { c ? pass++ : fail++; console.log(`${c ? "ok" : "FAIL"} - ${m}`); };
@@ -197,6 +197,53 @@ const ok = (c, m) => { c ? pass++ : fail++; console.log(`${c ? "ok" : "FAIL"} - 
   ok(out.meta.top10_share_pct === 45.0748, `the top-10 share is rounded, not a float sum (got ${out.meta.top10_share_pct})`);
   ok(Object.keys(out.meta.probes).sort().join(",") === "abi,dexPairs,scan,source,tokenSecurity", "meta.probes lists exactly the legs that ran");
   ok(out.tables[0]?.name === "holders" && out.tables[0].rows.length === 3, "the holders appendix is built from the GoPlus list");
+
+  // An UPSTREAM that did not answer must not read as the buyer's mistake. The
+  // probe's own 422 ("no record", "chain not covered") is its answer about the
+  // token; every other failure is the source, and an our-4xx on a valid input
+  // is what the probe classifier files as a defect.
+  asked = 0;
+  const e3 = await refusal({ probeGoPlus: async () => { throw Object.assign(new Error("upstream HTTP 503"), { statusCode: 503 }); } });
+  ok(e3?.statusCode === 503 && /token-security source is unavailable/.test(e3.message) && /Not charged/.test(e3.message) && asked === 0,
+    "a rate-limited token-security source refuses 503, not a 422 blaming the address");
+  const e4 = await refusal({ probeGoPlus: async () => { throw Object.assign(new Error("upstream HTTP 500"), { statusCode: 502 }); } });
+  ok(e4?.statusCode === 502, "an upstream error from the token-security source refuses 502");
+  const e5 = await refusal({ probeGoPlus: async () => { throw new Error("The operation was aborted due to timeout"); } });
+  ok(e5?.statusCode === 503 && /unavailable/.test(e5.message), "a timeout with no status of its own refuses 503");
+  ok(asked === 0, "no synthesis is bought on any unavailable-source refusal");
+  ok(!/Confirm the address and chain/.test(`${e3?.message} ${e4?.message} ${e5?.message}`), "an unavailable source never tells the buyer to check a correct address");
+
+  // getJson's mapping is what decides the class above, so pin it at the probe:
+  // both sources answer 200 with an empty result for a token they do not hold,
+  // so no HTTP status from them means "your address is wrong".
+  const realFetch = globalThis.fetch;
+  const stubFetch = (status, body) => { globalThis.fetch = async () => new Response(JSON.stringify(body ?? {}), { status, headers: { "content-type": "application/json" } }); };
+  const probeStatus = async (status, body) => { stubFetch(status, body); try { await probeGoPlus({ chain: "base", address: ADDR }); return null; } catch (e) { return Number(e?.statusCode) || null; } };
+  try {
+    ok(await probeStatus(429) === 503, "a 429 from the token-security source is a 503, never a 422");
+    ok(await probeStatus(500) === 502, "a 5xx from the token-security source is a 502");
+    ok(await probeStatus(403) === 502, "a refusal aimed at us is a 502, not the buyer's 422");
+    ok(await probeStatus(200, { result: {} }) === 422, "a 200 holding no record for the token is the 422");
+  } finally { globalThis.fetch = realFetch; }
+}
+
+// ---- token-risk advertises only chains the token-security probe serves ------
+// The kit sells a chain in three places: the set the handler enforces, the
+// GoPlus id it probes with and the DexScreener slug it reads the market from.
+// They must be the same list, or an advertised chain refuses every call while
+// /openapi.json, the Bazaar listing and the catalog keep offering it.
+{
+  const advertised = [...CHAINS].sort().join(",");
+  ok(advertised === Object.keys(GOPLUS_CHAIN_IDS).sort().join(","), "every advertised chain has a token-security id, and no id is unadvertised");
+  ok(advertised === Object.keys(DEXSCREENER_CHAINS).sort().join(","), "every advertised chain has a market slug, and no slug is unadvertised");
+  ok(!CHAINS.has("celo") && !("celo" in GOPLUS_CHAIN_IDS), "celo is not advertised: the token-security source answers \"main chain is not supported\" for it");
+  for (const t of TOKEN_RISK_TOOLS) {
+    const desc = t.discovery.inputSchema.properties.chain.description;
+    ok([...CHAINS].every((c) => desc.includes(c)) && !/celo/.test(desc), `${t.slug}: the published chain list is the enforced one`);
+  }
+  const handler = TOKEN_RISK_TOOLS[0].handler;
+  const refused = await handler({ address: "0x4200000000000000000000000000000000000006", chain: "celo" }).then(() => null, (e) => e);
+  ok(refused?.statusCode === 400 && !/celo/.test(refused.message) && /gnosis/.test(refused.message), "an unadvertised chain is a 400 that names only the chains that work");
 }
 console.log(`${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -27,12 +27,25 @@ import { CONTRACT_TOOLS } from "./contract-kit.js";
 // pausable, blacklist, LP holders, DEX liquidity) and DexScreener pairs, plus
 // the Sourcify ABI (the privileged function names ARE the owner privileges).
 // Measured on BRETT/Base 2026-08-26: every field below answered.
-const GOPLUS_CHAIN_IDS = { base: 8453, ethereum: 1, polygon: 137, arbitrum: 42161, optimism: 10, bsc: 56, gnosis: 100, celo: 42220 };
-const DEXSCREENER_CHAINS = { base: "base", ethereum: "ethereum", polygon: "polygon", arbitrum: "arbitrum", optimism: "optimism", bsc: "bsc", gnosis: "gnosischain", celo: "celo" };
+// Celo (42220) is NOT here, and that is the whole list's rule: an advertised
+// chain must be one the token-security probe actually serves. GoPlus answers
+// code 2022 "The main chain is not supported" for it, and since that probe
+// became the only source of supply and holders every Celo call could only
+// refuse. It was advertised while the explorer legs carried it, and left with
+// them on 2026-09-22. bsc arrived the same day - it was never in the explorer
+// map and GoPlus serves it. The three maps below are pinned equal in
+// scripts/test-report-inputs.js so a chain can never be offered by one and
+// missing from another.
+export const GOPLUS_CHAIN_IDS = { base: 8453, ethereum: 1, polygon: 137, arbitrum: 42161, optimism: 10, bsc: 56, gnosis: 100 };
+export const DEXSCREENER_CHAINS = { base: "base", ethereum: "ethereum", polygon: "polygon", arbitrum: "arbitrum", optimism: "optimism", bsc: "bsc", gnosis: "gnosischain" };
 const KEYLESS_TIMEOUT_MS = 12_000;
+// A non-2xx from a keyless probe is a fact about the SOURCE, never about the
+// caller's token: both probes answer 200 with an empty result when they hold
+// no record, so there is no status here that means "your address is wrong".
+// 422 is reserved for that answer and minted only where it is read.
 async function getJson(url) {
   const res = await fetch(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(KEYLESS_TIMEOUT_MS) });
-  if (!res.ok) throw bad(`upstream HTTP ${res.status}`, res.status >= 500 ? 502 : 422);
+  if (!res.ok) throw bad(`upstream HTTP ${res.status}`, res.status === 429 ? 503 : 502);
   return res.json();
 }
 const flag = (v) => (v === "1" || v === 1 || v === true ? true : v === "0" || v === 0 || v === false ? false : null);
@@ -104,8 +117,12 @@ const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 const PROBE_TIMEOUT_MS = 22_000;
 const SEARCH_TIMEOUT_MS = 45_000;
 const SYNTH_TIMEOUT_MS = 120_000;
-// Chains covered by BOTH the token-security probe and Sourcify source verification.
-const CHAINS = new Set(["base", "ethereum", "polygon", "arbitrum", "optimism", "bsc", "gnosis", "celo"]);
+// Chains covered by BOTH the token-security probe and Sourcify source
+// verification. Advertised here, keyed in GOPLUS_CHAIN_IDS and DEXSCREENER_CHAINS,
+// and named by the 400 below: one list, three uses, so the contract a buyer
+// reads on /openapi.json is the one the handler enforces.
+export const CHAINS = new Set(["base", "ethereum", "polygon", "arbitrum", "optimism", "bsc", "gnosis"]);
+const CHAINS_PROSE = `${[...CHAINS].join(", ")} (default base)`;
 const fmtUsdLoose = (v) => (v == null || !Number.isFinite(Number(v)) ? "unknown" : Number(v) >= 1e6 ? `$${(Number(v) / 1e6).toFixed(2)}M` : Number(v) >= 1e3 ? `$${(Number(v) / 1e3).toFixed(1)}k` : `$${Number(v).toFixed(0)}`);
 
 function H(slug) {
@@ -120,12 +137,18 @@ async function chat(body, timeoutMs, user) {
 }
 const costOf = (d) => Number(d?.usage?.cost) || 0;
 const textOf = (d) => (d?.choices?.[0]?.message?.content || "").trim();
+// `status` rides back because a caller has to tell "the source answered and
+// held nothing" (422) from "the source did not answer" (502/503/504, or no
+// status at all for a timeout or a socket error). Those need opposite words.
 async function settle(p, timeoutMs) {
   try {
     const data = timeoutMs ? await Promise.race([p, new Promise((_, r) => setTimeout(() => r(bad("timeout", 504)), timeoutMs))]) : await p;
     return { ok: true, data };
-  } catch (e) { return { ok: false, error: e?.message || String(e) }; }
+  } catch (e) { return { ok: false, error: e?.message || String(e), status: Number(e?.statusCode) || null }; }
 }
+// The statuses that mean "not this buyer's fault"; anything else a probe
+// reports is normalised to 503 rather than relayed.
+const UNAVAILABLE_STATUS = new Set([502, 503, 504]);
 // Best-effort extraction of Solidity source text from contract-source output,
 // whatever shape it returns the files in.
 function extractSource(cs) {
@@ -161,7 +184,7 @@ function makeTokenRiskHandlerInner(tierSlug, deps = {}) {
     const address = String(input.address ?? input.token ?? "").trim();
     if (!ADDR_RE.test(address)) throw bad('"address" must be a token contract address (0x + 40 hex chars)');
     const chain = String(input.chain ?? "base").trim().toLowerCase();
-    if (!CHAINS.has(chain)) throw bad(`"chain" must be one of: ${[...CHAINS].join(", ")} (default base)`);
+    if (!CHAINS.has(chain)) throw bad(`"chain" must be one of: ${CHAINS_PROSE}`);
     const user = safeUser(req);
 
     // 1) ON-CHAIN PROBES (parallel, each non-fatal).
@@ -176,6 +199,18 @@ function makeTokenRiskHandlerInner(tierSlug, deps = {}) {
     const dex = dexR.ok ? dexR.data : null;
     const abiInfo = abiR.ok ? privilegedFunctions(abiR.data?.abi) : null;
     const holders = Array.isArray(gp?.topHolders) ? gp.topHolders : [];
+    // An OUTAGE IS NOT THE BUYER'S MISTAKE. The token-security probe is the
+    // only source of supply and holders, so when it fails there is no report to
+    // sell either way - but a rate limit, an upstream error or a timeout must
+    // say the source is down, not tell a buyer to check an address that is
+    // correct. 422 from the probe is its considered answer ("no record for this
+    // token", "chain not covered"); every other outcome is the source itself.
+    // Both are >= 400, so settlement is cancelled and nobody pays; what differs
+    // is the words and the class a monitor files it under.
+    if (!gp && gpR.status !== 422) {
+      throw bad(`The token-security source is unavailable (${gpR.error}), so the risk report for "${address}" on ${chain} could not be produced. Not charged; try again shortly.`,
+        UNAVAILABLE_STATUS.has(gpR.status) ? gpR.status : 503);
+    }
     // Minimum evidence: a RISK report needs on-chain token facts (supply) or the
     // holder distribution, and the token-security record is where both come
     // from. Verified source (Sourcify) or DEX pairs alone are not a risk
@@ -237,10 +272,11 @@ function makeTokenRiskHandlerInner(tierSlug, deps = {}) {
     const webBlock = web ? `WEB REPUTATION: ${web.answer || "(no answer)"}` : "";
     const yn = (v) => (v === true ? "YES" : v === false ? "no" : "unknown");
     const pctS = (v) => (v == null ? "unknown" : `${Number(v).toFixed(2)}%`);
+    // No "the token-security probe failed" arm here or in the liquidity block:
+    // past the refusal above `gp` is always present, and a branch that can
+    // never run is a claim nothing checks.
     const controlBlock = [
-      gp
-        ? `GoPlus token_security (keyless, checked): open source ${yn(gp.openSource)}; PROXY (upgradeable) ${yn(gp.proxy)}; MINTABLE ${yn(gp.mintable)}; HONEYPOT ${yn(gp.honeypot)}; owner ${gp.ownerAddress || "unknown"} (renounced ${yn(gp.ownerRenounced)}, owner holds ${pctS(gp.ownerPct)}); hidden owner ${yn(gp.hiddenOwner)}; can take back ownership ${yn(gp.canTakeBackOwnership)}; owner can change balances ${yn(gp.ownerChangeBalance)}; buy tax ${pctS(gp.buyTaxPct)}, sell tax ${pctS(gp.sellTaxPct)}; cannot sell all ${yn(gp.cannotSellAll)}; transfers pausable ${yn(gp.transferPausable)}; blacklist ${yn(gp.blacklist)}; whitelist ${yn(gp.whitelist)}; slippage modifiable ${yn(gp.slippageModifiable)}; trading cooldown ${yn(gp.tradingCooldown)}; anti-whale ${yn(gp.antiWhale)} (modifiable ${yn(gp.antiWhaleModifiable)}); selfdestruct ${yn(gp.selfdestruct)}; external calls ${yn(gp.externalCall)}; creator ${gp.creatorAddress || "unknown"} holds ${pctS(gp.creatorPct)}${gp.fakeToken?.value ? `; FLAGGED AS A FAKE of ${gp.fakeToken.trueTokenAddress || "another token"}` : ""}${gp.trustList ? "; on GoPlus trust list" : ""}.`
-        : `GoPlus token_security probe FAILED (${gpR.error}) - honeypot/proxy/mintable/owner-privilege flags were NOT checked; say so.`,
+      `GoPlus token_security (keyless, checked): open source ${yn(gp.openSource)}; PROXY (upgradeable) ${yn(gp.proxy)}; MINTABLE ${yn(gp.mintable)}; HONEYPOT ${yn(gp.honeypot)}; owner ${gp.ownerAddress || "unknown"} (renounced ${yn(gp.ownerRenounced)}, owner holds ${pctS(gp.ownerPct)}); hidden owner ${yn(gp.hiddenOwner)}; can take back ownership ${yn(gp.canTakeBackOwnership)}; owner can change balances ${yn(gp.ownerChangeBalance)}; buy tax ${pctS(gp.buyTaxPct)}, sell tax ${pctS(gp.sellTaxPct)}; cannot sell all ${yn(gp.cannotSellAll)}; transfers pausable ${yn(gp.transferPausable)}; blacklist ${yn(gp.blacklist)}; whitelist ${yn(gp.whitelist)}; slippage modifiable ${yn(gp.slippageModifiable)}; trading cooldown ${yn(gp.tradingCooldown)}; anti-whale ${yn(gp.antiWhale)} (modifiable ${yn(gp.antiWhaleModifiable)}); selfdestruct ${yn(gp.selfdestruct)}; external calls ${yn(gp.externalCall)}; creator ${gp.creatorAddress || "unknown"} holds ${pctS(gp.creatorPct)}${gp.fakeToken?.value ? `; FLAGGED AS A FAKE of ${gp.fakeToken.trueTokenAddress || "another token"}` : ""}${gp.trustList ? "; on GoPlus trust list" : ""}.`,
       abiInfo
         ? `ABI (Sourcify): ${abiInfo.total} functions, ${abiInfo.writable} state-changing; PRIVILEGED functions present: ${abiInfo.privileged.length ? abiInfo.privileged.join(", ") : "none of the known owner-privilege names"}. (A privileged function is a capability, not proof of use - who can call it is the owner question above.)`
         : `ABI probe ${abiR.ok ? "returned no ABI" : `FAILED (${abiR.error})`} - the contract's function surface was NOT inspected.`,
@@ -249,9 +285,7 @@ function makeTokenRiskHandlerInner(tierSlug, deps = {}) {
       dex
         ? `DexScreener: ${dex.totalPairs} pair(s), combined liquidity ${fmtUsdLoose(dex.liquidityUsd)}, 24h volume ${fmtUsdLoose(dex.volume24h)}, 24h transactions ${dex.txns24h}. Deepest pairs: ${dex.pairs.slice(0, 5).map((p) => `${p.dex} ${p.quote || "?"} pair ${p.pair} liquidity ${fmtUsdLoose(p.liquidityUsd)}, 24h vol ${fmtUsdLoose(p.volume24h)}, buys/sells 24h ${p.buys24h}/${p.sells24h}, 1h ${p.buys1h}/${p.sells1h}${p.createdAt ? `, created ${p.createdAt.slice(0, 10)}` : ""}${p.hasProfile ? ", profile yes" : ", profile NO"}`).join("; ") || "none"}.`
         : `DexScreener probe FAILED (${dexR.error}) - liquidity and trading activity were NOT checked; say so.`,
-      gp
-        ? `LP (GoPlus): ${gp.lpHolderCount ?? "unknown"} LP holders; LP locked ${pctS(gp.lpLockedPct)} of LP supply; top LP holders ${gp.lpTopHolders.map((h) => `${h.address}${h.tag ? ` (${h.tag})` : ""} ${h.percent}%${h.locked ? " LOCKED" : ""}`).join("; ") || "none listed"}; DEX liquidity per GoPlus ${gp.dexes.map((d) => `${d.name} ${fmtUsdLoose(d.liquidityUsd)}`).join(", ") || "none listed"}.`
-        : "",
+      `LP (GoPlus): ${gp.lpHolderCount ?? "unknown"} LP holders; LP locked ${pctS(gp.lpLockedPct)} of LP supply; top LP holders ${gp.lpTopHolders.map((h) => `${h.address}${h.tag ? ` (${h.tag})` : ""} ${h.percent}%${h.locked ? " LOCKED" : ""}`).join("; ") || "none listed"}; DEX liquidity per GoPlus ${gp.dexes.map((d) => `${d.name} ${fmtUsdLoose(d.liquidityUsd)}`).join(", ") || "none listed"}.`,
     ].filter(Boolean).join("\n");
 
     // 4) SYNTHESIZE - evidence-based, NEVER a definitive safe/scam verdict.
@@ -313,7 +347,7 @@ const SCHEMA = {
   required: ["address"],
   properties: {
     address: { type: "string", description: "Token contract address (0x + 40 hex)." },
-    chain: { type: "string", description: "Chain: base (default), ethereum, polygon, arbitrum, optimism, bsc, gnosis, or celo." },
+    chain: { type: "string", description: `Chain, one of: ${CHAINS_PROSE}.` },
     format: { type: "string", enum: ["markdown", "json"], description: "Response shape (default markdown report)." },
   },
 };
