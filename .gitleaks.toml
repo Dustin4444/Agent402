@@ -1,8 +1,11 @@
 # gitleaks config for Agent402. Extends the default ruleset (which catches
-# real high-signal secrets: OpenAI sk- keys, GitHub tokens, AWS keys, private
-# keys, mnemonics, etc.) plus a contextual EVM-private-key rule below, and
-# allowlists the structural false positives this repo carries by design, so CI
-# stays green until a GENUINELY new secret lands.
+# real high-signal secrets: OpenAI sk- keys, GitHub tokens, AWS keys, PEM
+# private keys, JWTs, Stripe keys, etc.) plus two repo rules below - a
+# contextual EVM-private-key rule and a contextual BIP39-mnemonic rule (the
+# default ruleset carries NO mnemonic rule; measured 2026-09-22 with a planted
+# 25-word phrase that no default version flagged) - and allowlists the
+# structural false positives this repo carries by design, so CI stays green
+# until a GENUINELY new secret lands.
 #
 # Coverage: secret-scan.yml now scans FULL GIT HISTORY (`--log-opts=--all`,
 # fetch-depth 0), not just the working tree. A redacted full-history scan
@@ -25,8 +28,19 @@ useDefault = true
 [[rules]]
 id = "evm-private-key-contextual"
 description = "EVM private key adjacent to key-ish context (not a bare tx hash/nonce)"
-regex = '''(?i)(private[_-]?key|burner[_-]?key|priv[_-]?key|secret[_-]?key|\bpk\b)['"` \t]{0,4}[:=]['"` \t]{0,4}(0x)?[0-9a-fA-F]{64}\b'''
-keywords = ["private", "burner", "privkey", "secretkey", "pk"]
+regex = '''(?i)(private[_-]?key|burner[_-]?key|priv[_-]?key|secret[_-]?key|buyer[_-]?key|wallet[_-]?key|payer[_-]?key|agent[_-]?key|evm[_-]?key|signing[_-]?key|\bpk\b)['"` \t]{0,4}[:=]['"` \t]{0,4}(0x)?[0-9a-fA-F]{64}\b'''
+keywords = ["private", "burner", "privkey", "secretkey", "buyer_key", "wallet_key", "payer_key", "agent_key", "evm_key", "signing_key", "pk"]
+
+# Contextual BIP39 mnemonic (2026-09-22). The default ruleset has no mnemonic
+# rule at all, and this repo handles four mnemonic-named variables (the AVM
+# spending wallet, the canary burner, the refund signer, an operator script).
+# Match 12-25 lowercase words assigned to a mnemonic-named variable; a bare
+# word run is not matched (prose would flood it).
+[[rules]]
+id = "mnemonic-contextual"
+description = "BIP39 mnemonic (12-25 words) assigned to a mnemonic-named variable"
+regex = '''(?i)mnemonic[a-z0-9_-]*['"` \t]{0,4}[:=]['"` \t]{0,4}(?:[a-z]{3,8}[ \n]+){11,24}[a-z]{3,8}'''
+keywords = ["mnemonic"]
 
 [allowlist]
 description = "Agent402 known false positives: on-chain addresses, demo JWTs, test fixtures"
@@ -105,10 +119,18 @@ regexes = [
   '''7140dibdnow9c7btw4xxxxx''',
   '''1800000000000000001''',
   '''1800000000000000002''',
+  # The fixture JWTs, allowlisted by their PAYLOADS (2026-09-22). This used to
+  # be a stopword on the HS256 header, which is the first segment of EVERY
+  # HS256 token: a planted Supabase-shaped service_role key was flagged by the
+  # default rules and hidden by this config. Each entry is the header plus the
+  # start of one fixture payload: {"sub":"agent402",...} (the decode-jwt worked
+  # example in kit.js / kit2.js / skills.js), {"sub":"1234567890",...} (the
+  # jwt.io demo token), {"sub":"x","exp":1...} (corpus cases) and
+  # {"sub":"webhook",...} (a retired skills.js fixture still in history).
+  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJzdWIiOiJhZ2VudDQwMiIs''',
+  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJzdWIiOiIxMjM0NTY3ODkw''',
+  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJzdWIiOiJ4IiwiZXhw''',
+  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJzdWIiOiJ3ZWJob29rIiwi''',
 ]
-# The standard demo JWT ({"alg":"HS256","typ":"JWT"} header) used as the
-# decode-jwt tool's worked example in kit.js / kit2.js / skills.js. Stopwords
-# match when the secret contains the substring.
-stopwords = [
-  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9''',
-]
+# No stopwords: the former HS256-header stopword hid every HS256 JWT (see the
+# fixture regexes above).

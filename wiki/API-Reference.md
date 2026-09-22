@@ -65,7 +65,7 @@ curl https://agent402.tools/api/pricing
 | `GET /.well-known/agent-registration.json` | Our ERC-8004 registration file: agent **94639** in the identity registry at `eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`, owned by the wallet our 402s name as payTo. Lists every way to reach us and declares `x402Support` |
 | `GET /api/reliability` | Uptime and health report |
 | `GET /api/stats` | Aggregate call counts, revenue, cache statistics |
-| `GET /api/leaderboard?top={n}&include={all\|external}&sort={usd\|calls}` | On-chain ranking of x402 sellers by Base USDC volume |
+| `GET /api/leaderboard?top={n}&include={all\|external}&sort={usd\|calls}` | On-chain ranking of x402 sellers by Base USDC volume (`limit` is an alias of `top`) |
 | `GET /health` | Liveness probe. The **public** body is only `{ "ok": true, "meta": { "toolCount": <n>, "build": "<short sha>" } }`. Process uptime and the operating-mode flags are **operator-only** and appear on the authenticated response, not here |
 
 ## Tool invocation

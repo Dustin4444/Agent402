@@ -934,7 +934,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   $0.005 ceiling of the first cut refused every call and the tool was repriced $0.010 -> $0.050; refused 503 before signing; `ATTEST_ETH_USD` default 5000 is a deliberately high ETH price, `L1_FEE_FACTOR` 1.5 covers the
   L1 data fee) and booked against the Base wallet's daily ceiling (`maySpend`/`noteSpend`/`adjustSpend` chain "base"); no digest
   -> 422, unknown tx -> 404, no key / no ETH / paused -> 503, all uncharged. **The spending wallet needs ETH on Base for this** (it
-  held 0 ETH when built; Mike funded 0.003 ETH 2026-09-03 17:00Z; the schema registered itself in
+  held 0 ETH when built; the operator funded 0.003 ETH 2026-09-03 17:00Z; the schema registered itself in
   0x76e7369481716a00a844596c48e3cd7b1fe0f2d2dee5e95d98b3fa6991e87046 and the estimate that followed hit a node behind that
   block ("execution reverted") - the registry is now re-read until visible and a reverted estimate retries once). Paid-canary leg `attest` attests the `/api/hash` leg's
   fresh sale (legs may now declare `body: (ctx) => ...`, `ctx.lastSettledTx` is the previous settled leg's receipt tx). Research that
@@ -990,7 +990,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `resolveExternalSeller({ wantModel })`, which reads the candidate's list (chat-shaped routes only: chat/completions,
   completions, messages, responses -> /models; cached 10 min per list URL; SSRF-guarded; 5 s) and SKIPS a seller whose
   READABLE list lacks the model, before the probe. Only "not-served" decides: no list, empty list, unparseable, non-chat
-  route or no model requested is "unknown" and changes nothing (openrelay answers gpt-4o-mini with MiniMax - mapping is
+  route or no model requested is "unknown" and changes nothing (one seller answers gpt-4o-mini with a different model - mapping is
   not a defect). Prefix-tolerant both ways (`openai/gpt-4o-mini` ~ `gpt-4o-mini`), never substring. Pinned in
   test-solana-router (95), test-sor-resolver-scope (14, call site from source), test-route-execute (64).
   **Base chain-truth refusal (2026-09-02, `src/evm-authorization-state.js`):** the Solana-only "refused payment -> read
@@ -1086,8 +1086,8 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   RPC's error text (stripped from public rows). `SOLANA_LEADERBOARD=off` disarms. The egress meter
   (`/__operator/egress.json`) is how the cost is read; its PLUMBING regex now skips the drain-aware and
   facilitator-diagnostics fetch wrappers (every host read as `drain-abort.js` within an hour of that wrapper shipping).
-  First live scan (14:56Z): 357 payTos, 80 active, ten past the cap (glim, Nansen, svm402, 0x, blockrun, Oblique, Laso 61
-  payers, Bitrefill 213 payers) - "Solana is one wallet" was a 15-hour reading; it is not. `scripts/test-solana-leaderboard.js`
+  First live scan (14:56Z): 357 payTos, 80 active, ten past the cap (the largest two with 61 and 213
+  distinct payers) - "Solana is one wallet" was a 15-hour reading; it is not. `scripts/test-solana-leaderboard.js`
   (29, offline stub RPC; incremental cost pinned per cycle; mutation-checked on the cursor + dedupe).
 - **SOR widened to dynamic-priced MPP sellers + Bazaar quality (2026-08-19, build #9):**
   `tempoCatalog` now admits `payment.dynamic` / non-integer-amount tempo/charge USDC.e endpoints
@@ -3500,7 +3500,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   and the container log with the verify reason had rolled off - the next burst is diagnosable from PostHog. What the 60-day buyer data
   said (2026-08-28): 250 external buyers, 92 one-call, 106 returned another day, 76 another week, 17 three+ weeks, median 2 settlements,
   $145 total; first buys are protocol test calls (random 42, stock-quote 25, compound-interest 13) and ~40% of those buyers return; the
-  402 volume (300-540k/week) is index/trust probers (x402pulse, mako-pulse, kkj-trust-index, x402-observer, scanners walking the
+  402 volume (300-540k/week) is index/trust probers (four named uptime and trust indexers, scanners walking the
   catalog), not agents leaving.
 - **Metered Responses wire (2026-08-28, `POST /v1/metered/responses`, slug `v1-chat-metered-responses`):** the metered tier on the
   OpenAI Responses wire (the one Codex CLI's `model_providers` and the OpenAI Agents SDK speak). `RESPONSES_PATH_BY_TIER["v1-chat-metered"]`
@@ -3563,19 +3563,19 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
 - **`/markets` front door (2026-08-27, `src/markets.js`):** one page, one curl (`crypto-market-pulse`, $0.004, keyless),
   then the 24 keyless market-data tools (pulse/news/indicators, 7 perp tools, 4 options tools, 10 DeFi/stablecoin tools)
   as cards with prices READ FROM `CATALOG` (never typed; `marketsTools(catalog)` drops retired slugs). Built because the
-  buyer-count leaders on x402scan are one-endpoint utilities (OneSource 1,802 buyers on 25 paths, glim 481 on 34) while
+  buyer-count leaders on the public indexes are one-endpoint utilities (hundreds to ~1,800 buyers on a few dozen paths each) while
   our 500+ tools convert to ~105 - the front door is one obvious call, not breadth. Wired: server mount, both sitemaps,
   llms.txt Optional list, mobile menu, footer "for agents", test-static-pages + test-single-main-landmark. Same commit:
   purpose-written `BAZAAR_DESCRIPTIONS` for the 20 market-data slugs that were still falling back to truncated catalog
-  text (derivatives/signals/defi), the first advertising the derivatives kit ever got (Kronos sells the same categories at
+  text (derivatives/signals/defi), the first advertising the derivatives kit ever got (a peer sells the same categories at
   $0.02-0.10 to 50 buyers; ours are $0.002-0.005).
 - **x-data-kit repriced to X's published rate card (2026-08-27):** X pay-per-use bills $0.005 per post READ and $0.010 per
   user read (docs.x.com pricing, read 2026-08-27; resources dedupe within a UTC day). Page cap 25 -> 10 posts
   (`X_MAX_POSTS_PER_CALL` default), users-lookup cap 100 -> 10; prices x-search-recent $0.006 -> $0.08, x-user-tweets
   $0.01 -> $0.08 (10 posts = $0.05 upstream, under the 70% rule), x-user $0.005 -> $0.015, x-tweet $0.005 -> $0.008,
   x-users-lookup $0.01 -> $0.15. The kit still lists only with `X_BEARER_TOKEN` on Railway (the operator's call; the bearer exists
-  only in Actions secrets). Market context: twit.sh (118 buyers of X data) stopped settling 2026-08-22; StableSocial sells
-  X at a flat $0.06 through Scrape Creators. Hunter/Apollo (b2b-enrich, $0.02-0.05) need signups - unchanged.
+  only in Actions secrets). Market context: one X-data seller (118 buyers) stopped settling 2026-08-22; another sells
+  X data at a flat $0.06 through a scraping vendor. Hunter/Apollo (b2b-enrich, $0.02-0.05) need signups - unchanged.
 - **Reports for humans: measurement + first fixes (2026-08-27 night; the operator's direction: "reports for humans, go"):** measured
   before building - 30d: ~470 homepage visitors (mostly direct, then Google/X/ChatGPT), 26 reached `/reports`, 13 `/monitors`,
   1 card sale, 0 active monitors, 0 credits keys; the 253 programmatic SEO pages had ZERO human pageviews and are not in

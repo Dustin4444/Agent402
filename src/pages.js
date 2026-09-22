@@ -230,22 +230,17 @@ export function toolPage(baseUrl, tool, related, { computePayable = false, powDi
 
   const methodColor = tool.method === "GET" ? "var(--green)" : "var(--accent)";
 
+  // The H1 clamp: tool names run from 3 chars ("hex") to 50+, and this H1's
+  // width shrinks continuously as the viewport narrows (single-column, no grid
+  // breakpoint to reserve a worst case against), so a fixed min-height would
+  // waste space at in-between widths or still miss the narrowest ones. A fixed
+  // 2-line box makes the height deterministic at every width; the few long
+  // names that truncate keep the full text in the title attribute and the
+  // page <title>. A JS comment, not a CSS one: the CSS block is served.
   const TOOL_PAGE_CSS = `
   .tp-wrap { max-width:1180px; margin:0 auto; padding:56px 30px; }
   .tp-crumb { font-family:var(--font-mono); font-size:13px; color:var(--faint); margin-bottom:18px; }
   .tp-crumb a { color:var(--accent); text-decoration:none; }
-  /* Tool names range from 3 chars ("hex") to 50+ ("EDGAR XBRL company-concept
-     (one tag, full history)") across 530 tools, and this H1's width shrinks
-     continuously as the viewport narrows (single-column layout, no grid
-     breakpoint to hook a "reserve the worst case" fix to like the per-chain
-     marketplace pages use) - so unlike those pages, a fixed min-height would
-     either waste a lot of space at in-between widths or still not cover the
-     true worst case at the narrowest ones. Capping to a fixed 2-line box
-     instead makes the height deterministic (max 2 lines) at EVERY viewport
-     width regardless of name length - only the small number of genuinely
-     long outlier names ever get visually truncated, and only at narrower
-     widths where 2 lines isn't enough; the full name is preserved via the
-     title attribute below and is always the actual page <title>. */
   .tp-h1 { font-family:var(--font-body); font-weight:800; font-size:38px; line-height:1; letter-spacing:-.02em; margin-bottom:10px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; text-overflow:ellipsis; }
   .tp-badge { display:inline-block; background:var(--surface); color:var(--on-dark); font-family:var(--font-mono); font-size:13px; padding:8px 16px; margin:8px 0 6px; }
   .tp-sub { color:var(--muted); font-size:16px; line-height:1.6; max-width:720px; }

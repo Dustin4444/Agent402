@@ -8020,6 +8020,11 @@ app.use((err, req, res, _next) => {
     console.error(`[unhandled-5xx] ${req.method} ${req.path} → ${status}: ${err?.message || err}`);
     if (err?.stack) console.error(String(err.stack).split("\n").slice(0, 6).join("\n"));
   }
+  // A JSON-RPC client that sent a body we cannot parse gets the spec's own
+  // shape (-32700), not the site's generic 400 (probed 2026-09-22).
+  if (status === 400 && err?.type === "entity.parse.failed" && req.path.startsWith("/mcp")) {
+    return res.status(400).json({ jsonrpc: "2.0", error: { code: -32700, message: "Parse error" }, id: null });
+  }
   const wantsJson = req.path.startsWith("/api") || req.path.startsWith("/v1") || req.path.startsWith("/mcp") || req.path.startsWith("/__operator") || req.accepts(["html", "json"]) === "json";
   if (wantsJson) {
     // A 413 on a flat LLM tier is an agent with a big prompt (one client hit

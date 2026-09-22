@@ -15,9 +15,8 @@
 // would publish 'free' for 'we could not read it'". The right reader existed
 // and this surface kept calling the wrong one.
 //
-// NOT FIXED BY CHANGING priceUsd (the operator, 2026-09-21: "dont break
-// people"). Someone reads that field today and a 0 turning into null breaks
-// them. Publishing a wrong number is our mistake to disclose, not theirs to
+// NOT FIXED BY CHANGING priceUsd (operator decision, 2026-09-21): someone
+// reads that field today and a 0 turning into null breaks them. Publishing a wrong number is our mistake to disclose, not theirs to
 // absorb. priceUsd keeps its meaning exactly; priceKnown says whether to
 // believe it.
 //

@@ -365,7 +365,7 @@ export class Agent402 {
         let settled = false;
         try {
           const r = await send({}, this.payFetch);
-          if (!r.ok) throw new Error(await this._failureDetail(slug, r));
+          if (!r.ok) throw this._fail(slug, r, await this._failureDetail(slug, r));
           this._spendSettle(reservation); // confirm the reservation as settled spend
           settled = true;
           return this._deliverResponse(slug, r, cacheKey, cache, validator, { maxResponseBytes, paid: true });
@@ -388,9 +388,9 @@ export class Agent402 {
           const r = await send({ Authorization: `Bearer ${this.creditsKey}` });
           if (r.status === 402) {
             const body = await r.json().catch(() => ({}));
-            throw new Error(`call "${slug}" refused by credits: ${body.error || "payment required"}${body.balanceUsd != null ? ` (balance $${body.balanceUsd})` : ""} - top up at ${body.topup || `${this.baseUrl}/credits`}`);
+            throw this._fail(slug, r, `call "${slug}" refused by credits: ${body.error || "payment required"}${body.balanceUsd != null ? ` (balance $${body.balanceUsd})` : ""} - top up at ${body.topup || `${this.baseUrl}/credits`}`);
           }
-          if (!r.ok) throw new Error(await this._failureDetail(slug, r));
+          if (!r.ok) throw this._fail(slug, r, await this._failureDetail(slug, r));
           this._spendSettle(reservation);
           settled = true;
           return this._deliverResponse(slug, r, cacheKey, cache, validator, { maxResponseBytes, paid: true });
@@ -398,7 +398,7 @@ export class Agent402 {
       }
       const r = await send(); // no wallet - succeeds only on a FREE_MODE instance
       if (r.ok) return this._deliverResponse(slug, r, cacheKey, cache, validator, { maxResponseBytes, paid: false });
-      throw new Error(`call "${slug}" failed: HTTP ${r.status} - wallet-only tool; construct with { fetch: payFetch } (an @x402/fetch-wrapped fetch) or { creditsKey } (prepaid card credits from ${this.baseUrl}/credits)`);
+      throw this._fail(slug, r, `call "${slug}" failed: HTTP ${r.status} - wallet-only tool; construct with { fetch: payFetch } (an @x402/fetch-wrapped fetch) or { creditsKey } (prepaid card credits from ${this.baseUrl}/credits)`);
     }
 
     // Free (compute-payable) tool: succeeds plainly on a FREE_MODE instance,
@@ -409,7 +409,7 @@ export class Agent402 {
       const chal = await this._powChallenge(slug);
       r = await send({ "X-Pow-Solution": Agent402.solvePow(chal) });
     }
-    if (!r.ok) throw new Error(await this._failureDetail(slug, r, " after proof-of-work"));
+    if (!r.ok) throw this._fail(slug, r, await this._failureDetail(slug, r, " after proof-of-work"));
     return this._deliverResponse(slug, r, cacheKey, cache, validator, { maxResponseBytes, paid: false });
   }
 
@@ -485,6 +485,13 @@ export class Agent402 {
    *  it is parsed (maxResponseBytes, 32 MB default), so a second cut here
    *  protected nothing and lost the part of the message an agent needs to
    *  act on. A body that is not JSON contributes nothing but its status. */
+  /** A refusal a caller can branch on: `status` (the HTTP status), `slug` and
+   *  `paid: false` ride on the Error, so a 402 is not something to regex out of
+   *  the message. Nothing was spent on any path that reaches this. */
+  _fail(slug, r, message) {
+    return Object.assign(new Error(message), { status: r?.status, slug, paid: false });
+  }
+
   async _failureDetail(slug, r, when = "") {
     let detail = "";
     try {

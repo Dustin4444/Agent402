@@ -72,7 +72,7 @@ let spentUsd = 0;
 
 const DEFAULT_CURATED = [
   // Flagship demand set — keep aligned with src/mcp-flagship.js FLAGSHIP_SLUGS.
-  // Search/answer is the front door; long tail stays behind search_tools/call_tool.
+  // Search/answer is the front door; long tail stays behind catalog.search/catalog.call.
   "search", "answer", "search-news", "render",
   "stock-quote", "transcribe", "memory-read", "memory-write",
 ];
@@ -812,14 +812,14 @@ try {
   // Don't hard-exit: starting with an empty catalog still lets the server
   // connect and answer introspection (tools/list) — required to pass directory
   // health checks (e.g. Glama) and more resilient if the catalog endpoint is
-  // briefly unreachable. search_tools/call_tool just return nothing until the
+  // briefly unreachable. catalog.search/catalog.call just return nothing until the
   // catalog is reachable again.
   log(`Could not load the catalog from ${BASE}: ${err.message} — starting with an empty catalog`);
 }
 const requested = (process.env.AGENT402_TOOLS || DEFAULT_CURATED.join(","))
   .split(",").map((s) => s.trim()).filter(Boolean);
 curated = requested.map((slug) => catalog.get(slug)).filter(Boolean);
-log(`catalog: ${catalog.size} tools from ${BASE}; ${curated.length} first-class, rest via search_tools/call_tool`);
+log(`catalog: ${catalog.size} tools from ${BASE}; ${curated.length} first-class, rest via catalog.search/catalog.call`);
 log(
   HAS_WALLET
     ? `payment: USDC via x402 (${[AGENT_KEY && "EVM", SOLANA_AGENT_KEY && "Solana"].filter(Boolean).join(" + ")} wallet configured; max/call ${MAX_PER_CALL === Infinity ? "unlimited" : `$${MAX_PER_CALL}`}, budget ${BUDGET === Infinity ? "unlimited" : `$${BUDGET}`})`

@@ -16,7 +16,11 @@
 //
 //   measured: a 1-noul judgment over a short string   ~380 tokens  $0.000016
 //             a 5-option choice with descriptions     ~658 tokens  $0.000028
-//   worst case admitted here                        ~6,000 tokens  $0.00025  (25% of price)
+//   worst case admitted here: 16,000 bytes, so at most 16,000 tokens  $0.00067  (67% of price)
+//
+// The character caps bound the SHAPE. The byte cap bounds the MONEY: a token
+// can be one byte (CJK, emoji, base64), so the outbound body's byte length is
+// the worst-case token count, and it is checked before anything is sent.
 //
 // RESALE. Offered on the operator's determination that redistribution is
 // permitted (2026-09-21). That is a commercial judgment, not a verified term,
@@ -35,6 +39,7 @@ export const LIMITS = {
   criteriaEntries: 12,          // choice options, or score levels (API caps score at 10)
   criteriaChars: 400,
   scoreLevels: 10,              // the API's own maximum
+  bodyBytes: Number(process.env.JUDGE_MAX_BODY_BYTES || 16_000),   // the money bound: one token per byte worst case
 };
 const MODELS = new Set(["jev-latest", "jev-preview"]);
 const TIMEOUT_MS = 25_000;
@@ -93,16 +98,31 @@ export function validateJudgeRequest(input = {}) {
     }
     out[id] = built;
   }
-  return { state: stateStr, model: String(model), questions: out };
+  const body = { state: stateStr, model: String(model), questions: out };
+  const bytes = Buffer.byteLength(JSON.stringify(body));
+  if (bytes > LIMITS.bodyBytes) {
+    throw bad(`This request is ${bytes} bytes; this endpoint accepts ${LIMITS.bodyBytes}. Shorten the state or the questions.`);
+  }
+  return body;
 }
 
 async function call(body, fetchImpl = fetch) {
-  const res = await fetchImpl(ENDPOINT, {
-    method: "POST",
-    headers: { authorization: `Bearer ${keyOf()}`, "content-type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
+  let res;
+  try {
+    res = await fetchImpl(ENDPOINT, {
+      method: "POST",
+      headers: { authorization: `Bearer ${keyOf()}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch (err) {
+    // Unreachable or slow upstream: theirs, not ours, and a >= 400 cancels
+    // settlement. A bare throw here reached the buyer as a 500.
+    const timedOut = err?.name === "TimeoutError" || err?.name === "AbortError";
+    const e = new Error(timedOut ? "Judgment upstream timed out." : "Judgment upstream is unreachable.");
+    e.statusCode = timedOut ? 504 : 502;
+    throw e;
+  }
   const text = await res.text();
   if (!res.ok) {
     // Relay the CLASS, never the body: it can echo the buyer's own state back.

@@ -11,7 +11,7 @@ claim below is served live; verify prices against `/api/pricing` before pasting.
   (`/v1`), durable wallet-keyed memory, 200+ pure-CPU utilities.
 - **Market and onchain intel (keyless, deterministic, per call):** live perpetuals
   (`perp-markets`, `perp-funding`, `perp-funding-screener`, `perp-basis`,
-  `perp-open-interest`, `perp-klines`, `perp-orderbook`, $0.002 to $0.003) and the
+  `perp-open-interest`, `perp-klines`, `perp-orderbook`, $0.001 to $0.003) and the
   options book (`options-summary`, `crypto-options-chain`, `options-ticker`,
   `options-volume`, $0.002 to $0.005); DeFi yields, TVL, fees, DEX volume and
   stablecoin supply with history siblings (`defi-*`, `stablecoins`, $0.002 to

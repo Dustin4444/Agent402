@@ -173,7 +173,9 @@ Returns an **object**, not a bare array. The matches are in `results`:
   seller, so a buyer can address the right seller directly. `url` is the full
   callable endpoint.
 - `price` is whatever the seller published (a number or a string); **`priceUsd`
-  is the normalized number** to compare on.
+  is the normalized number** to compare on, and **`priceKnown`** says whether
+  that number could actually be read from what the seller published. When it is
+  `false`, `priceUsd` is a placeholder and must not be compared.
 - `routerDispatchEligible` / `routerDispatchReason` say whether this host's
   router will pay the seller on your behalf right now and why not otherwise
   (`crawl_failed`, `network_unknown`, `no_supported_route`, `url_template`,

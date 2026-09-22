@@ -2,6 +2,31 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 
 const ENTRIES = [
   {
+    date: "2026-09-21",
+    title: "Typed judgments, a router that says who it is, and a leaderboard that reads the seller's own prices",
+    items: [
+      "POST /v1/judge ($0.001): a typed judgment over supplied state - a choice from your named options with a probability for each, a position on levels you describe, or a yes/no as a probability. Model-backed, declared as such, input bounded by bytes so the worst case is knowable before the call.",
+      "The router identifies itself on every paid call it makes on a buyer's behalf: User-Agent Mozilla/5.0 (compatible; Agent402-Router/1.0; +https://agent402.tools/crawler) and X-Agent402-Via: router; /crawler documents both.",
+      "A seller origin on a non-default port is accepted at x402 registration, MPP registration and MPP discovery, and the port is carried through every later fetch.",
+      "Seller leaderboard: a transfer that matches a price the seller publishes counts as a settlement above the flat $0.75 ceiling, up to a $25 price-match ceiling; rows carry settlementsAbovePerCallCeiling and transfersSkippedOverCeiling, and GET /api/leaderboard accepts ?limit= as an alias of ?top=.",
+      "priceKnown on every /api/index seller row, /api/route row and seller detail: whether the published price could be read as a number. priceUsd is unchanged.",
+      "unit-convert accepts the other spelling of a unit (plural or singular, British spellings, spaces, the statute- prefix); an unknown unit is still a 400.",
+      "Heading order fixed on /reports, /monitors, /quickstart and /transparency; /leaderboard no longer prints the same figure twice; about 6 KB of repeated nav style removed from every page.",
+    ],
+  },
+  {
+    date: "2026-09-20",
+    title: "Equities on a licensed feed, five tools and a pack retired, credits sales paused",
+    items: [
+      "stock-quote and stock-history read Databento DBEQ.BASIC (four venues, consolidated per session): volume is reported as venueVolume, stock-history takes up to 250 sessions, and the 52-week high/low fields are gone. options-chain, premarket-quote, stock-dividends, earnings-calendar, dividend-calendar and the market-open skill pack are removed.",
+      "Prepaid card credits are no longer sold; existing keys keep redeeming.",
+      "Google's native generateContent wire on every gateway tier; POST /v1/audio/transcriptions (OpenAI transcription wire, multipart); service_tier \"priority\" on the pro and premium tiers at 2x list.",
+      "New tools: perp-dexs, perp-dex-markets and perp-dex-limits (Hyperliquid HIP-3 dexs); kalshi-live-data and kalshi-weather-index; edgar-13f-datasets ($0.003) and edgar-13f-dataset-head ($0.005). sol-token-holders restored.",
+      "CORS on the machine surfaces (/api/, /v1/, /mcp, /.well-known/, /openapi.json, /llms.txt) with the payment headers exposed; an under-funded buyer's 402 points at what its balance covers; input aliases for 20 more required parameter names.",
+      "An A2A AgentCard at /.well-known/agent-card.json and the ERC-8004 registration file at /.well-known/agent-registration.json.",
+    ],
+  },
+  {
     date: "2026-09-18",
     title: "Settlement evidence read from the chain on every rail we pay on, an identity of our own, and a monthly view",
     items: [

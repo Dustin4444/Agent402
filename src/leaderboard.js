@@ -68,6 +68,10 @@ export const DEFAULTS = {
   // window into ranges no larger than this so it still scans cleanly.
   chunkBlocks: parseInt(process.env.CHUNK_BLOCKS || "9000", 10),
   maxCallUsd: parseFloat(process.env.MAX_CALL_USD || "0.75"),
+  // A transfer that matches a price the seller publishes is admitted above
+  // maxCallUsd, but only up to this: a published $1,000 gift card is still
+  // value moved, not a tool call, and the board sorts by dollars.
+  priceMatchMaxUsd: parseFloat(process.env.PRICE_MATCH_MAX_USD || "25"),
   // Public RPCs limit topic-filter array length; chunk the wallet list per call
   // so a corpus with thousands of unique payTo addresses still scans cleanly.
   walletChunk: parseInt(process.env.WALLET_CHUNK || "200", 10),
@@ -183,9 +187,13 @@ export function advertisedMicroUsd(item, chain = { caip2: BASE_MAINNET, token: U
  *
  *  So ask the seller instead. We already hold every price each wallet
  *  advertises, from the same feed and the same accept the wallet came from. A
- *  transfer that equals one of them is a purchase at a published price, at any
- *  size. A transfer that matches nothing is held to the old ceiling, which is
- *  the honest fallback for a wallet whose listings we cannot read.
+ *  transfer that equals one of them is a purchase at a published price, up to
+ *  priceMatchMaxUsd ($25 by default): that rescues the $0.79 tool the flat
+ *  ceiling hid and still refuses the $1,000 gift card whose price is published
+ *  just the same (measured the day this shipped: five such transfers supplied
+ *  ~$5,000 of one seller's $5,072 row). A transfer that matches nothing is
+ *  held to the old ceiling, which is the honest fallback for a wallet whose
+ *  listings we cannot read.
  *
  *  TOLERANCE. Premium chains quote slightly above list (NETWORK_PRICE_PREMIUMS)
  *  and a buyer may round up, so a payment AT or slightly ABOVE a published
@@ -404,9 +412,9 @@ export function canonicalHost(rawUrl) {
  * Returns ranked array. Ties on totalUsd break on callsSettled (more activity
  * wins), then alphabetical (purely deterministic — no informational signal).
  */
-export function aggregateLeaderboard(transfers, sellers, { maxCallUsd = DEFAULTS.maxCallUsd, ourWallets = OUR_EVM_WALLETS } = {}) {
+export function aggregateLeaderboard(transfers, sellers, { maxCallUsd = DEFAULTS.maxCallUsd, ourWallets = OUR_EVM_WALLETS, priceMatchMaxUsd = DEFAULTS.priceMatchMaxUsd } = {}) {
   const byWallet = initWalletAccumulator(sellers);
-  foldTransfers(byWallet, transfers, maxCallUsd, ourWallets);
+  foldTransfers(byWallet, transfers, maxCallUsd, ourWallets, priceMatchMaxUsd);
   return finalizeLeaderboard(byWallet, { maxCallUsd });
 }
 
@@ -465,7 +473,7 @@ export function initWalletAccumulator(sellers) {
  * caller passes OUR_EVM_WALLETS. Omitted, behaviour is byte-identical to
  * before, which keeps every existing test honest.
  */
-export function foldTransfers(byWallet, transfers, maxCallUsd = DEFAULTS.maxCallUsd, ourWallets = null) {
+export function foldTransfers(byWallet, transfers, maxCallUsd = DEFAULTS.maxCallUsd, ourWallets = null, priceMatchMaxUsd = DEFAULTS.priceMatchMaxUsd) {
   // ALWAYS normalize, including when a Set is passed. The first cut took a Set
   // as-is on the assumption it was already lowercase, which OUR_EVM_WALLETS is
   // - but that made the exclusion fail OPEN for any future caller holding
@@ -479,13 +487,13 @@ export function foldTransfers(byWallet, transfers, maxCallUsd = DEFAULTS.maxCall
     const row = byWallet.get(t.wallet);
     if (!row) continue;
     if (!(t.usd > 0)) continue;
-    // A transfer counts when the seller publishes that price, at any size;
-    // otherwise it falls back to the flat ceiling. `prices` is empty for a
+    // A transfer counts when the seller publishes that price, up to
+    // priceMatchMaxUsd; otherwise it falls back to the flat ceiling. `prices` is empty for a
     // wallet whose listings carry no readable amount, and then this is exactly
     // the old rule. See priceMatches for why the ceiling alone was hiding
     // whole sellers rather than ranking them low.
     const micro = Math.round(t.usd * 1e6);
-    const matched = priceMatches(micro, row.prices);
+    const matched = priceMatches(micro, row.prices) && t.usd <= priceMatchMaxUsd;
     if (!matched && t.usd > maxCallUsd) { row.overCeilingSkipped = (row.overCeilingSkipped || 0) + 1; continue; }
     if (matched && t.usd > maxCallUsd) row.abovePriceMatched = (row.abovePriceMatched || 0) + 1;
     // Skipped whole, not just as a payer: a settlement we paid for is not a
@@ -824,6 +832,7 @@ const emptySnapshot = (opts, reason) => ({
   scannedBlocks: opts.spanBlocks,
   windowLabel: windowLabelFromBlocks(opts.spanBlocks),
   maxCallUsd: opts.maxCallUsd,
+  priceMatchMaxUsd: opts.priceMatchMaxUsd,
   scannedSellers: 0,
   walletsQueried: 0,
   leaderboard: [],
@@ -926,7 +935,7 @@ export async function runLeaderboard(overrides = {}) {
             payer: payerFromLog(l),
             usd: Number(BigInt(l.data)) / 1e6,
           }));
-          foldTransfers(byWallet, chunkTransfers, opts.maxCallUsd, OUR_EVM_WALLETS);
+          foldTransfers(byWallet, chunkTransfers, opts.maxCallUsd, OUR_EVM_WALLETS, opts.priceMatchMaxUsd);
           transferCount += chunkTransfers.length;
         }
       } catch (e) {

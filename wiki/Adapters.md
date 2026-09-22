@@ -14,6 +14,8 @@ If your agent isn't an MCP client, there's a zero-dependency npm package that tu
 | elizaOS | [`elizaos-plugin-agent402`](https://www.npmjs.com/package/elizaos-plugin-agent402) | a `Plugin` with `AGENT402_FIND` / `AGENT402_CALL` / `AGENT402_ABOUT` actions and an `AGENT402` provider |
 | Coinbase AgentKit (CDP, Privy, ZeroDev, viem wallets) | [`agent402-agentkit`](https://www.npmjs.com/package/agent402-agentkit) | an `ActionProvider` for `AgentKit.from({ actionProviders })` |
 | Strands Agents (AWS Bedrock AgentCore) | [`agent402-strands`](https://www.npmjs.com/package/agent402-strands) | `StrandsTool[]` for `new Agent({ tools })` |
+| Google ADK (Agent Development Kit) | [`agent402-google-adk`](https://www.npmjs.com/package/agent402-google-adk) | `FunctionTool[]` |
+| OpenAI Agents SDK | [`agent402-openai-agents`](https://www.npmjs.com/package/agent402-openai-agents) | `tool()` instances for `new Agent({ tools })` |
 
 Sources live at [`adapters/`](https://github.com/MikeyPetrillo/Agent402/tree/main/adapters).
 

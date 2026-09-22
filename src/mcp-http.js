@@ -65,7 +65,10 @@ import {
   MAX_CALLS_PER_WINDOW,
 } from "./rate-limit.js";
 
-const VERSION = "0.3.0";
+// The connector is the server, so it reports the server's build rather than
+// a hand-typed number ("0.3.0" sat here unchanged from 2026-06-12 to
+// 2026-09-22 beside the stdio package's 0.13.x on the same serverInfo text).
+const VERSION = `build-${(process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || "dev").slice(0, 7)}`;
 
 // Mirrors server.js's FIND_WEAK_SCORE: an empty result set, or a top score
 // below this, reads as "the catalog probably doesn't have this" — the
