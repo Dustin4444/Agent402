@@ -71,7 +71,9 @@ export const OUR_EVM_WALLETS = new Set(
 // Default = the canary's Solana burner (public address; the key lives only
 // in CI secrets) — its daily $0.05 self-buys are internal, not revenue.
 export const OUR_SOLANA_WALLETS = new Set(
-  (process.env.OUR_SOLANA_WALLETS || "9EMAayAfBR32J5d3ApEAG3NdKArRBtAqN7LA8c2WRM5o,J7aN3PLJnTCF5qpEnvJHJsnCjcGuqC2rYtEM8Gv3xwg")
+  // The third entry is the Solana spending wallet (route-execute's upstream
+  // payer; its public address, derived from SOLANA_UPSTREAM_BUYER_KEY).
+  (process.env.OUR_SOLANA_WALLETS || "9EMAayAfBR32J5d3ApEAG3NdKArRBtAqN7LA8c2WRM5o,J7aN3PLJnTCF5qpEnvJHJsnCjcGuqC2rYtEM8Gv3xwg,8KqQG8MefNvQEQmp9gBjov39DXcWsUpSeqjL9pPCGKKE")
     .split(",").map((s) => s.trim()).filter(Boolean)
 );
 // Same convention for Stellar: the canary burner's public address is committed;
