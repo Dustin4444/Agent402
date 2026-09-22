@@ -72,7 +72,7 @@ export async function probeDexPairs({ chain, address }) {
   if (!c) throw bad(`DexScreener does not cover ${chain}`, 422);
   const arr = await getJson(`https://api.dexscreener.com/token-pairs/v1/${c}/${address}`);
   const pairs = (Array.isArray(arr) ? arr : []).map((p) => ({
-    dex: p.dexId || null, pair: p.pairAddress || null, quote: p.quoteToken?.symbol || null, priceUsd: p.priceUsd != null ? Number(p.priceUsd) : null,
+    dex: p.dexId || null, pair: p.pairAddress || null, baseAddress: p.baseToken?.address || null, quote: p.quoteToken?.symbol || null, priceUsd: p.priceUsd != null ? Number(p.priceUsd) : null,
     liquidityUsd: Number(p.liquidity?.usd) || 0, volume24h: Number(p.volume?.h24) || 0, volume1h: Number(p.volume?.h1) || 0,
     buys24h: Number(p.txns?.h24?.buys) || 0, sells24h: Number(p.txns?.h24?.sells) || 0, buys1h: Number(p.txns?.h1?.buys) || 0, sells1h: Number(p.txns?.h1?.sells) || 0,
     fdv: p.fdv != null ? Number(p.fdv) : null, marketCap: p.marketCap != null ? Number(p.marketCap) : null, createdAt: p.pairCreatedAt ? new Date(Number(p.pairCreatedAt)).toISOString() : null,
@@ -196,7 +196,7 @@ function makeTokenRiskHandlerInner(tierSlug, deps = {}) {
       share: h.percent,
     }));
     const top1 = ranked[0]?.share ?? null;
-    const top10 = ranked.slice(0, 10).reduce((a, r) => a + (r.share || 0), 0) || null;
+    const top10 = Math.round(ranked.slice(0, 10).reduce((a, r) => a + (r.share || 0), 0) * 1e4) / 1e4 || null;
     const verified = src ? !!src.verified : null;
 
     // 2) PRO: static scan of the verified source + one web reputation check.
@@ -216,11 +216,14 @@ function makeTokenRiskHandlerInner(tierSlug, deps = {}) {
     }
 
     // 3) GROUNDING BLOCKS.
-    const top = dex?.pairs?.[0] || null;
+    // A DexScreener pair's price, market cap and FDV describe its BASE token, so
+    // only a pair that lists this token as the base can supply them; the
+    // deepest pair for a stablecoin usually quotes it (AERO/USDC is AERO's price).
+    const top = dex?.pairs?.find((p) => String(p.baseAddress || "").toLowerCase() === address.toLowerCase()) || null;
     const infoBlock = `Name ${gp.tokenName || "?"} (${gp.tokenSymbol || "?"}). Total supply ${totalSupply ?? "unknown"} (whole tokens, per GoPlus). Holder count ${gp.holderCount ?? "unknown"}. ` +
       (top
-        ? `Market (deepest DEX pair): price ${top.priceUsd != null ? `$${top.priceUsd}` : "unknown"}, market cap ${fmtUsdLoose(top.marketCap)}, FDV ${fmtUsdLoose(top.fdv)}.`
-        : `Market price and cap were NOT checked (${dex ? "no DEX pair listed" : "the DexScreener probe failed"}).`);
+        ? `Market (deepest DEX pair with this token as base): price ${top.priceUsd != null ? `$${top.priceUsd}` : "unknown"}, market cap ${fmtUsdLoose(top.marketCap)}, FDV ${fmtUsdLoose(top.fdv)}.`
+        : `Market price and cap were NOT checked (${dex ? "no listed DEX pair has this token as its base" : "the DexScreener probe failed"}).`);
     const verifyBlock = src
       ? (verified ? `Source is VERIFIED (${src.match || "match"}) - compiler ${src.compiler?.version || "?"}, verified at ${src.verifiedAt || "?"}.` : "Source is NOT VERIFIED on Sourcify - the contract's code cannot be independently reviewed. This is a notable risk signal (though some legitimate contracts are unverified).")
       : `contract-source probe FAILED: ${srcR.error}`;

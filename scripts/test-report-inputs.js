@@ -170,7 +170,9 @@ const ok = (c, m) => { c ? pass++ : fail++; console.log(`${c ? "ok" : "FAIL"} - 
     if (slug === "contract-abi") return { abi: [{ type: "function", name: "transfer", stateMutability: "nonpayable" }] };
     throw new Error(`unexpected tool ${slug}`);
   };
-  const dex = async () => ({ totalPairs: 1, liquidityUsd: 5e6, volume24h: 1e6, txns24h: 900, pairs: [{ dex: "uniswap", pair: "0xp", quote: "USDC", priceUsd: 2500, liquidityUsd: 5e6, volume24h: 1e6, volume1h: 1e4, buys24h: 400, sells24h: 500, buys1h: 10, sells1h: 12, fdv: 6e8, marketCap: 6e8, createdAt: null, hasProfile: true, websites: [] }] });
+  // The deepest pair QUOTES the token (another token is its base, so its price
+  // is that token's price); the report must read the market from the second.
+  const dex = async () => ({ totalPairs: 2, liquidityUsd: 9e6, volume24h: 2e6, txns24h: 1800, pairs: [{ dex: "aerodrome", pair: "0xq", baseAddress: "0x940181a94A35A4569E4529A3CDfB74e38FD98631", quote: "WETH", priceUsd: 0.68, liquidityUsd: 4e6, volume24h: 1e6, volume1h: 1e4, buys24h: 400, sells24h: 500, buys1h: 10, sells1h: 12, fdv: 1e9, marketCap: 1e9, createdAt: null, hasProfile: true, websites: [] }, { dex: "uniswap", pair: "0xp", baseAddress: "0x4200000000000000000000000000000000000006", quote: "USDC", priceUsd: 2500, liquidityUsd: 5e6, volume24h: 1e6, volume1h: 1e4, buys24h: 400, sells24h: 500, buys1h: 10, sells1h: 12, fdv: 6e8, marketCap: 6e8, createdAt: null, hasProfile: true, websites: [] }] });
   const run = (deps) => makeTokenRiskHandler("token-risk", { tool, probeDexPairs: dex, chat, ...deps });
   const refusal = async (deps) => { try { await run(deps)({ address: ADDR, chain: "base" }); return null; } catch (e) { return e; } };
 
@@ -191,6 +193,8 @@ const ok = (c, m) => { c ? pass++ : fail++; console.log(`${c ? "ok" : "FAIL"} - 
   ok(!/blockscout/i.test(prompt) && !/token-info|token-holders|address-profile/.test(prompt), "the synthesis prompt names no retired source or tool");
   ok(/Top holders as listed by GoPlus/.test(prompt) && /31\.74%/.test(prompt) && /\[burn\/dead\]\s+LOCKED \(Burn\)/.test(prompt) && /price \$2500/.test(prompt),
     "the prompt carries the GoPlus holder shares, the burn label and the DEX market read");
+  ok(!/price \$0\.68/.test(prompt), "the market read never comes from a pair that only quotes the token (that price is the other token's)");
+  ok(out.meta.top10_share_pct === 45.0748, `the top-10 share is rounded, not a float sum (got ${out.meta.top10_share_pct})`);
   ok(Object.keys(out.meta.probes).sort().join(",") === "abi,dexPairs,scan,source,tokenSecurity", "meta.probes lists exactly the legs that ran");
   ok(out.tables[0]?.name === "holders" && out.tables[0].rows.length === 3, "the holders appendix is built from the GoPlus list");
 }
