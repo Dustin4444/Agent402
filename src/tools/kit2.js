@@ -3,7 +3,7 @@
 // scripts/test-kit2.js.
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
-import { convertAnyUnit } from "./convert-gen.js";
+import { convertAnyUnit, UNIT_CATEGORIES } from "./convert-gen.js";
 
 function bad(message) {
   const err = new Error(message);
@@ -1010,9 +1010,45 @@ export const UNIT_ALIASES = {
   mps: "meters-per-second", kph: "kilometers-per-hour", mph: "miles-per-hour", kn: "knots",
   c: "celsius", f: "fahrenheit", k: "kelvin", r: "rankine",
 };
+// Every unit id the table knows, so a guessed spelling can only ever resolve to
+// a unit that exists - never to something the buyer did not mean.
+const KNOWN_UNIT_IDS = new Set(Object.values(UNIT_CATEGORIES).flatMap((c) => Object.keys(c.units)));
+
+/** The obvious other spellings of a unit id, tried only when the exact id is
+ *  unknown. Measured 2026-09-21: one real buyer made ~18 calls and got a 400
+ *  on most of them for "kilopascal" (we list kilopascals), "bar" (bars),
+ *  "millilitres" (milliliters), "mechanical-horsepower" (horsepower),
+ *  "btu-per-hour" (btus-per-hour), "statute miles" (miles) - each a unit we
+ *  convert, one spelling away, refused with a message listing the spelling we
+ *  wanted. Same class as the input-aliases rule: accept the obvious other
+ *  name, never a wrong one. Every candidate is checked against
+ *  KNOWN_UNIT_IDS, so this can widen what we accept and cannot change what a
+ *  known id means; a name that resolves nowhere still gets the 400. */
+export function normalizeUnitId(raw) {
+  let u = String(raw ?? "").trim().toLowerCase().replace(/[\s_]+/g, "-").replace(/^statute-/, "");
+  if (KNOWN_UNIT_IDS.has(u)) return u;
+  // British spellings.
+  const british = u.replace(/litre/g, "liter").replace(/metre/g, "meter").replace(/gramme/g, "gram");
+  if (KNOWN_UNIT_IDS.has(british)) return british;
+  u = british;
+  // Named synonyms the table has no row for.
+  const SYNONYMS = { "mechanical-horsepower": "horsepower", "imperial-horsepower": "horsepower", "metric-ton": "tonnes", "metric-tons": "tonnes" };
+  if (SYNONYMS[u] && KNOWN_UNIT_IDS.has(SYNONYMS[u])) return SYNONYMS[u];
+  // Singular -> plural, including the first segment of "x-per-y" ("btu-per-hour" -> "btus-per-hour").
+  const IRREGULAR = { foot: "feet", inch: "inches" };
+  const plurals = (w) => [IRREGULAR[w], w + "s", w + "es"].filter(Boolean);
+  const per = u.indexOf("-per-");
+  const candidates = per > 0
+    ? plurals(u.slice(0, per)).map((head) => head + u.slice(per))
+    : plurals(u);
+  for (const c of candidates) if (KNOWN_UNIT_IDS.has(c)) return c;
+  return null;
+}
+
 function convertUnit(value, from, to) {
   const resolve = (u) => {
-    const a = UNIT_ALIASES[String(u).toLowerCase()] ?? String(u).toLowerCase();
+    const key = String(u).toLowerCase();
+    const a = UNIT_ALIASES[key] ?? (KNOWN_UNIT_IDS.has(key) ? key : normalizeUnitId(key) ?? key);
     return Array.isArray(a) ? a : [a, 1];
   };
   const [fromId, fromScale] = resolve(from);
