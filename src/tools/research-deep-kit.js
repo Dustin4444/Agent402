@@ -37,7 +37,7 @@ const M = {
 // tells the model to finish over reaching length. Caps held at a provider-safe
 // 8,000 (Claude's standard max output); the source list is appended in code, so
 // none of this budget is spent retyping URLs.
-// ALL tiers synthesize with Opus (synthPrem). A 10-query eval (fair Opus judge +
+// ALL tiers synthesize with Opus (synthPrem). A 10-query evaluation (fair Opus judge +
 // deterministic grounding audit) showed Opus beats Sonnet on every dimension for
 // this task - citation quality, depth, would-pay, and zero fabricated numbers -
 // and the fixed per-tier upstream cap keeps it well bounded, so the entry
