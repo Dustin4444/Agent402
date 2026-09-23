@@ -266,11 +266,18 @@ check("retention never case-folds a base58 address", () => {
 });
 
 check("retention excludes internal rows and reports an honest zero", () => {
+  const empty = ledgerBuyerRetention({ walletAddress: "0xnobody" });
+  const { scope, ...counts } = empty;
   assert.deepEqual(
-    ledgerBuyerRetention({ walletAddress: "0xnobody" }),
+    counts,
     { buyers: 0, oneDay: 0, oneDayOneCall: 0, returned: 0, oneDayPct: null, returnedPct: null },
     "a wallet with no external buyers reports zeros and NULL percentages, never 0% or 100%",
   );
+  // An empty result keeps its scope. A zero with no scope reads as "nobody has
+  // ever paid us" rather than "this source saw nobody", and the empty shape is
+  // exactly what a cold boot serves - see scripts/test-figure-scope.js.
+  assert.equal(scope?.since, null, "retention is all-time, so its scope carries a null start rather than an epoch");
+  assert.ok(Array.isArray(scope?.excludes) && scope.excludes.length > 0, "an empty retention result still says what its source cannot see");
   const before = ledgerBuyerRetention(wallets);
   give("2026-07-04", "0xinternal", { external: 0 });
   assert.equal(ledgerBuyerRetention(wallets).buyers, before.buyers, "an internal/canary payer is not a buyer");

@@ -182,7 +182,7 @@ import { findTools, findRelatedSellers } from "./find.js";
 import { recordWish, getWishesAggregate, annotateServed, WISH_SERVED_MIN_SCORE } from "./wish.js";
 import { setAlgorandCrawlSources } from "./algorand-sellers.js";
 import { priceToMicroUsd } from "./x402-index.js";
-import { allPayToOrigins, indexSnapshot, sellerDetail, sellerEntry, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories, bazaarQualityEntries, bazaarQualityFor, indexWarmStartInProgress, quoteIsStale, priceDisagreesWithOrigin, networksNeedLiveVerify, looksLikeListingInjection, crawlToolsByOrigin, listSuccessions, revokeSuccession } from "./x402-index.js";
+import { allPayToOrigins, indexSnapshot, sellerDetail, sellerEntry, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories, bazaarQualityEntries, bazaarQualityFor, indexWarmStartInProgress, indexReadiness, quoteIsStale, priceDisagreesWithOrigin, networksNeedLiveVerify, looksLikeListingInjection, crawlToolsByOrigin, listSuccessions, revokeSuccession } from "./x402-index.js";
 import { startMppCrawler, registerMppOrigin, validateOriginInput as validateMppOriginInput, mppIndexSnapshot } from "./mpp-index.js";
 import { startMppLeaderboard, mppLeaderboardSnapshot } from "./mpp-leaderboard.js";
 import { tempoSelfRecipient } from "./mpp-tempo.js";
@@ -370,6 +370,7 @@ import { x402EconomySnapshot, economySnapshotCached, warmEconomySnapshot } from 
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate, sharedPayToClaims } from "./settlement-proof.js";
 import { buildEvidenceBinding, baseLiveGate } from "./evidence-binding.js";
 import { dispatchEligibility, dispatchLegend } from "./dispatch-eligibility.js";
+import { pageSizeOf, pagingEnvelope, pagingNote } from "./index-paging.js";
 import { usdcDomainVerdict, usdcDomainMismatchDetail, unsignableByStockBuyer } from "./evm-usdc-domain.js";
 import { acceptsFromLive402 } from "./x402-live-quote.js";
 import { spend as sharedSpend, refund as sharedRefund, sharedLimitEnabled } from "./shared-limit.js";
@@ -1711,6 +1712,9 @@ let operatorDossier = null;
       return out;
     },
     helpers: { quoteIsStale, priceDisagreesWithOrigin, networksNeedLiveVerify, looksLikeListingInjection },
+    // So a $0.05 "we hold nothing about this seller" can never be a fact about
+    // our own boot rather than about the seller (see the refusal in the kit).
+    getIndexReadiness: () => indexReadiness(),
     sorThreshold: SOR_MIN_SETTLED_TX,
     sorPayers: SOR_MIN_DISTINCT_PAYERS,
     sorCap: EXEC_TIERS[0].underlyingMaxUsd,
@@ -1729,7 +1733,10 @@ let operatorDossier = null;
   // that nobody inside could actually verify. Deliberately the tool's own
   // handler rather than a second read of the same maps, so the operator answer
   // and the $0.05 product can never disagree.
-  operatorDossier = (origin) => tool.handler({ origin });
+  // Second argument, never a body field - see the handler's own note. The
+  // operator reads the record we hold, with the loading caveat as a field,
+  // rather than the 503 a paying buyer correctly gets.
+  operatorDossier = (origin) => tool.handler({ origin }, { operator: true });
 }
 
 // Seller payability check - the LIVE counterpart to the dossier above. The
@@ -2943,9 +2950,16 @@ app.get("/api/revenue", async (_req, res) => {
 // internal, per chain per day, straight from the settlement ledger.
 app.get("/api/revenue/daily", (_req, res) => {
   try {
+    // `withScope` because this is the one surface that PUBLISHES the series:
+    // it drops undateable rows, internal transfers over maxCallUsd, and
+    // everything before the chart epoch, and until 2026-09-22 said none of it -
+    // so its own sum disagreed with /api/revenue's allTime by $92.89 with
+    // nothing in either response to reconcile them.
+    const daily = ledgerDaily(revenueWallets(), mppTxHashes(), { withScope: true });
     res.set("Cache-Control", "public, max-age=300").json({
       asOf: new Date().toISOString(),
-      days: ledgerDaily(revenueWallets(), mppTxHashes()),
+      days: daily.days,
+      daysScope: daily.scope,
       // Distinct EXTERNAL buyers per day. Counts only, never addresses:
       // a per-day roster of who pays us is a customer list.
       buyers: ledgerBuyersDaily(revenueWallets()),
@@ -4734,6 +4748,17 @@ const computeFind = (q, k) => {
       }));
     }
   } catch { /* bridge is best-effort - find must answer regardless */ }
+  // The catalog half of this answer is always complete (it is in memory), but
+  // the seller bridge above reads the crawl cache, and `relatedSellers` is
+  // omitted rather than emptied when it finds nothing - so during a warm start
+  // "no seller by that name" and "we have not read the index yet" are the same
+  // silence. Say which, and skip the 60 s cache while it is the latter.
+  const readiness = indexReadiness();
+  if (!readiness.ready) {
+    result.indexing = true;
+    result.indexState = readiness.state;
+    result.indexingNote = `the CATALOG half of this answer is complete, but the seller index is still loading on this server (${readiness.state}), so relatedSellers may be missing - retry in ${readiness.retryAfterSeconds}s`;
+  }
   const topScore = result.results[0]?.score ?? 0;
   // `rarestTermCovered === false` means the top hit never mentions the word that
   // DEFINES the task, so a high score came from common words alone. Without it
@@ -4857,7 +4882,12 @@ async function serveCachedDiscovery(path, policy, input, computeFn, analyticsSlu
       noteCacheOutcome(cacheKey ? "miss" : "skip");
       res.setHeader("X-Cache", cacheKey ? "miss" : "skip");
     }
-    if (cacheKey && result && typeof result === "object" && !result.error) {
+    // `indexing` rides beside `error` here on purpose: an answer computed while
+    // the seller index is still loading is correct for the instant it was made
+    // and wrong a second later, and a 60 s TTL would outlive the loading window
+    // that produced it - serving "no seller offers this" from a cache long after
+    // the sellers arrived. Not cached, so the next call re-reads a warmer index.
+    if (cacheKey && result && typeof result === "object" && !result.error && !result.indexing) {
       cacheSet(cacheKey, result, policy.ttl || 60).catch(() => {});
     }
     res.json(result);
@@ -4874,12 +4904,16 @@ async function serveCachedDiscovery(path, policy, input, computeFn, analyticsSlu
 }
 app.get("/api/find", (req, res) => {
   const q = req.query.q ?? req.query.task ?? req.query.query;
-  const k = req.query.k;
+  // `top` as well as `k`: the sibling /api/route accepts BOTH, so a caller that
+  // learned one name there and reused it here was silently handed the 5-result
+  // default and told `count: 5`. Same defect as the index listing taking only
+  // `limit` while a consumer guessed `perPage` (2026-09-22).
+  const k = req.query.k ?? req.query.top;
   return serveCachedDiscovery(findCachePath, findCachePolicy, { q, task: q, query: q, k }, () => computeFind(q, k), "_find", req, res);
 });
 app.post("/api/find", (req, res) => {
   const q = req.body?.q ?? req.body?.task ?? req.body?.query;
-  const k = req.body?.k;
+  const k = req.body?.k ?? req.body?.top;
   return serveCachedDiscovery(findCachePath, findCachePolicy, { q, task: q, query: q, k }, () => computeFind(q, k), "_find", req, res);
 });
 
@@ -5442,8 +5476,26 @@ app.get("/api/index/tools", (req, res) => {
     excludeOrigin: BASE_URL,
     ourTools: ourToolsAsIndexRows(),
   });
-  res.set("Cache-Control", "public, max-age=300").json({
+  // The machine twin of the listing page, and partial in the same two ways its
+  // sibling /api/index was: `results` is one window of `matched`, and `matched`
+  // itself is only what has loaded. Both counts were already here and correct,
+  // which is exactly what makes a consumer that reads `results` alone confident
+  // it has seen everything. `complete` is the one boolean that settles it.
+  const ready = indexReadiness();
+  const shown = Array.isArray(data.results) ? data.results.length : 0;
+  const more = data.offset + shown < data.matched;
+  if (!ready.ready) res.set("Retry-After", String(ready.retryAfterSeconds));
+  res.set("X-Total-Count", String(data.matched));
+  res.set("Cache-Control", ready.ready ? "public, max-age=300" : "no-store").json({
     spec: "x402-index/tools/1",
+    complete: !more && ready.ready,
+    hasMore: more,
+    ...(more ? { nextOffset: data.offset + shown } : {}),
+    indexing: !ready.ready,
+    indexState: ready.state,
+    paging: `this response holds ${shown} of ${data.matched} matching rows starting at offset ${data.offset}`
+      + (more ? `; follow ?offset=${data.offset + shown}&limit=${data.limit} for the rest` : "")
+      + (ready.ready ? "" : ` (and the seller index is still ${ready.state} on this server, so ${data.matched} is not yet the whole index - retry in ${ready.retryAfterSeconds}s)`),
     note:
       "Third-party endpoints indexed from public x402 discovery. NOT operated, hosted or tested by Agent402. " +
       "Names, descriptions and tags are supplied by each seller and are unverified; prices are what they advertised " +
@@ -5535,8 +5587,12 @@ app.get("/sell", (_req, res) => {
   }
 });
 app.get("/api/index", (req, res) => {
-  // ?seller=<origin or host> — the per-seller drill-down (full tool list, paid
-  // flags) so a seller can self-diagnose exactly what we hold for them.
+  // ?seller=<origin or host> — the per-seller drill-down, so a seller can
+  // self-diagnose exactly what we hold for them: their crawl history, their
+  // paid flags, and their tool list up to SELLER_TOOLS_CAP, which the row
+  // declares with toolsReturned / toolsTruncated rather than cutting silently.
+  // This comment said "full tool list" while the list was capped at 500, which
+  // is the same quiet contract the cap itself was.
   if (req.query.seller) {
     // The host itself: never in the crawl cache, the submitted seeds or the
     // external pool (isSelfOrigin keeps it out), so answer the labelled
@@ -5546,7 +5602,36 @@ app.get("/api/index", (req, res) => {
       if (me) return res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300").json(me);
     }
     const detail = sellerDetail(String(req.query.seller));
-    if (!detail) return res.status(404).json({ error: "seller not found in the index", seller: String(req.query.seller).slice(0, 253) });
+    if (!detail) {
+      // A MISS IS NOT ALWAYS AN ABSENCE. This endpoint is the one the paging
+      // note above sends a confused checker to ("check one origin with
+      // ?seller=<host>, which pages nothing"), so it is the last place that may
+      // answer a false negative - and it did, in three states: while the
+      // incremental warm-start is still reading the cache off the volume (every
+      // boot, and every deploy is a boot), while a volume with no cache waits
+      // for its first crawl (deferred 30 s, minutes to complete), and when the
+      // crawler is switched off. The first two resolve on their own, so they
+      // are a 503 with Retry-After and `indexing: true` - "ask again", not "you
+      // are not listed". The third never resolves, so it stays a 404, and every
+      // 404 now carries how many origins this server actually holds, which is
+      // the number that turns "not found" from a verdict into a reading.
+      const r = indexReadiness();
+      const seller = String(req.query.seller).slice(0, 253);
+      if (!r.ready) {
+        return res.status(503)
+          .set("Retry-After", String(r.retryAfterSeconds))
+          .set("Cache-Control", "no-store")
+          .json({
+            error: `the seller index is still loading on this server (${r.state}), so this is not an answer about ${seller} - retry in ${r.retryAfterSeconds}s`,
+            seller, indexing: true, indexState: r.state, indexedOrigins: r.sellers, retryAfterSeconds: r.retryAfterSeconds,
+          });
+      }
+      return res.status(404).json({
+        error: "seller not found in the index",
+        seller, indexing: false, indexState: r.state, indexedOrigins: r.sellers,
+        ...(r.state === "disabled" ? { note: "this server holds no crawled index at all (the crawler is disabled here), so nothing can be found by this lookup" } : {}),
+      });
+    }
     return res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300").json({ ...withDispatchFields(detail), legend: dispatchLegend({ spendChains: spendChainsConfigured() }) });
   }
   // The full snapshot is ~1.4MB: every crawled origin with its health score,
@@ -5556,7 +5641,13 @@ app.get("/api/index", (req, res) => {
   // hands a competing router the crawl-and-score work for free.
   //
   // So: paginate, and keep history for the single-seller drill-down above (which
-  // is the surface a seller uses to self-diagnose). Totals and discovery sources
+  // is the surface a seller uses to self-diagnose). THIS SENTENCE WAS AN
+  // INTENTION, NOT A DESCRIPTION, UNTIL 2026-09-22: the drill-down never
+  // carried `history` either, so a field the wiki twice told operators to audit
+  // us with was on no public surface at all, and a reader who went looking
+  // could not tell "withheld" from "none recorded". sellerDetail returns it
+  // now, bounded to the health window and with a legend. Totals and discovery
+  // sources
   // stay whole - "the ecosystem is this big, come sell" is the point of the
   // index being public. The operator token returns the unpaginated snapshot for
   // our own tooling.
@@ -5565,7 +5656,12 @@ app.get("/api/index", (req, res) => {
     return res.set("Cache-Control", "no-store").json(snap);
   }
   const sellers = Array.isArray(snap.sellers) ? snap.sellers : [];
-  const perPage = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 250);
+  // `perPage` is honoured as an alias for `limit` because two consumers in a row
+  // guessed that name - our own scripts/seller-sweep.mjs and an outside seller's
+  // checker - and a guessed parameter that is silently ignored hands back the
+  // DEFAULT page while looking like it was obeyed. Reading both costs nothing
+  // and removes a way to be quietly wrong.
+  const perPage = pageSizeOf(req.query.limit, req.query.perPage);
   const page = Math.max(parseInt(req.query.page, 10) || 0, 0);
   const slice = sellers.slice(page * perPage, page * perPage + perPage).map(({ history, ...rest }) => (rest.local ? rest : withDispatchFields(rest)));
   // PAGE IS ZERO-BASED, and the envelope has to SAY so. It shipped saying
@@ -5578,10 +5674,36 @@ app.get("/api/index", (req, res) => {
   // consumer already passing page=0 correctly; what was missing was never the
   // behaviour, it was the contract. An out-of-range page now says what the
   // range is instead of answering an empty list that looks like the end.
-  const pages = Math.ceil(sellers.length / perPage);
-  const lastPage = Math.max(pages - 1, 0);
-  const range = `pages are ZERO-BASED: ?page=0 .. ?page=${lastPage}`;
-  res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300").json({
+  const { pages, lastPage, range, complete, link } = pagingEnvelope({ total: sellers.length, page, perPage });
+  // THE PARTIALNESS HAS TO REACH A MACHINE THAT READS NO PROSE. The envelope has
+  // carried page/pages/sellerCount and a note since the zero-based fix, and a
+  // seller's automated checker still reported their origin "missing from the
+  // current index" (2026-09-22): it fetched the default page, got 250 of 4,473,
+  // and searched THAT for their hostname. They were on page 15. Our own llms.txt
+  // had called this endpoint a complete snapshot of the seller index, which it
+  // never was, so the reading was ours to invite. (The retired wording is not
+  // reproduced here: test-copy-absolutes matches the SHAPE of that claim, and a
+  // comment quoting it verbatim would have to be exempted, which would stop
+  // this file being swept for the next one.)
+  //
+  // So the answer now says it is a page in the two places a machine looks before
+  // it looks at prose: RFC 8288 `Link` rels (the standard way to say "there is a
+  // next"), and one boolean, `complete`, that is false whenever a seller is
+  // absent from THIS response but present in the index. A consumer that reads
+  // neither is no worse off than before; nothing was removed.
+  // ...and one more way to be quietly partial, on the same response: a page can
+  // hold every row of an index that is itself still loading. `complete` is a
+  // claim about the INDEX, not about the slice, so while the cache is filling
+  // it must be false however few sellers a page happens to hold - otherwise the
+  // first seconds after every deploy answer "all 3 sellers in one page" and a
+  // checker reading `complete` believes it.
+  const ready = indexReadiness();
+  const wholeIndex = complete && ready.ready;
+  res.set("Link", link);
+  res.set("X-Total-Count", String(sellers.length));
+  if (!ready.ready) res.set("Retry-After", String(ready.retryAfterSeconds));
+  res.set("Cache-Control", ready.ready ? "public, max-age=60, stale-while-revalidate=300" : "no-store").json({
+    complete: wholeIndex,
     ...snap,
     sellers: slice,
     page,
@@ -5590,9 +5712,10 @@ app.get("/api/index", (req, res) => {
     pages,
     firstPage: 0,
     lastPage,
-    note: page > lastPage
-      ? `No sellers at page ${page}: ${range}. ${sellers.length} sellers total. Page 0 is the first page, not page 1.`
-      : `Paginated: ${slice.length} of ${sellers.length} sellers (${range}). Use ?page=N&limit=<=250, or ?seller=<host> for one origin with its full detail.`,
+    indexing: !ready.ready,
+    indexState: ready.state,
+    note: (ready.ready ? "" : `STILL LOADING: this server's seller index is ${ready.state}, so ${sellers.length} is what has loaded so far, not what is indexed - retry in ${ready.retryAfterSeconds}s. `)
+      + pagingNote({ total: sellers.length, page, perPage, shown: slice.length, pages, lastPage, complete: wholeIndex, range }),
     legend: dispatchLegend({ spendChains: spendChainsConfigured() }),
   });
 });
@@ -5691,6 +5814,19 @@ const computeRoute = (q, k, include, net) => {
   // finding: executeVia with no networks in the row read as "dispatchable").
   out.results = (out.results || []).map((r) => withDispatchFields(r, { local: r.seller === "self", rowLevel: true }));
   out.dispatchLegend = dispatchLegend({ spendChains: spendChainsConfigured() });
+  // "No seller offers this" is the strongest negative on the whole service, and
+  // it is drawn from the same crawl cache that can be mid-load. The rows we CAN
+  // answer are still worth serving, so this says what it is rather than
+  // refusing - and `error` here also keeps serveCachedDiscovery from writing a
+  // cold answer into the 60 s cache, which would outlive the loading window
+  // that produced it.
+  const ready = indexReadiness();
+  if (!ready.ready) {
+    out.indexing = true;
+    out.indexState = ready.state;
+    out.indexingNote = `the seller index is still loading on this server (${ready.state}), so an absence here is not a reading about the ecosystem - retry in ${ready.retryAfterSeconds}s`;
+    out.retryAfterSeconds = ready.retryAfterSeconds;
+  }
   return out;
 };
 const routeCachePath = "/api/route";
@@ -5719,8 +5855,10 @@ app.get("/api/route/external-debug", async (req, res) => {
   try { res.json(await diagnoseExternalSeller(String(task), { cap })); }
   catch (e) { res.status(500).json({ error: String(e?.message || e).slice(0, 200) }); }
 });
-// x402 Leaderboard — public on-chain ranking of every seller in the Coinbase
-// CDP Bazaar by settled USDC volume on Base. Free, like /api/find + /api/route:
+// x402 Leaderboard — public on-chain ranking of sellers in the Coinbase CDP
+// Bazaar (plus our own crawl) by settled USDC volume on Base, served as the
+// TOP N of that board and never the whole of it. Free, like /api/find +
+// /api/route:
 // discovery primitives shouldn't cost money. Snapshot is cached in memory and
 // refreshed hourly (see startLeaderboardRefresh below) — each request is a
 // sub-millisecond read, never a live Bazaar walk.
@@ -5786,7 +5924,19 @@ app.get("/api/leaderboard", (req, res) => {
     windowRequested,
     windowServed: snap.windowLabel || "24h",
     leaderboard: board.slice(0, top),
-    totalSellers: (snap.leaderboard || []).length,
+    // `totalSellers` counted the UNFILTERED board while `leaderboard` was the
+    // filtered one, so on the default include=external a consumer comparing
+    // "rows I got" against "rows there are" was comparing two populations and
+    // could not tell. It now counts the population these rows came from, with
+    // the unfiltered board named separately and the page size stated outright.
+    totalSellers: board.length,
+    totalSellersUnfiltered: (snap.leaderboard || []).length,
+    returned: Math.min(board.length, top),
+    // Distinct from `truncated` below, which means "your ?top was clamped":
+    // this says rows exist beyond the page you were served, which is true on
+    // the DEFAULT request and is the thing a checker looking for one seller
+    // has to know. One field cannot carry both meanings.
+    moreRowsAvailable: board.length > top,
     top,
     // Concentration is published with the counts, not instead of them: a row
     // can be large and be one wallet, and until 2026-09-13 nothing on this
@@ -7647,13 +7797,37 @@ app.use((req, res, next) => {
 });
 
 // Paid routes
+// SIX HAND-WRITTEN COPIES OF ONE ERROR RELAY. The URL-taking tools below
+// (extract, meta, dns, render, screenshot, pdf) are registered outside the
+// generic binder and each ended its catch with
+// `res.status(err.statusCode || 502).json({ error: err.message })` - which
+// drops `upstreamStatus`, `attribution` and `retryAfter`, the three fields
+// safeFetch puts on the throw to say WHOSE failure this is. So the binder
+// could be taught the difference between "your URL is wrong" and "the host is
+// throttling this server" and these six would still answer the old way, which
+// is the shape of every defect in this class: fixed at the instance, alive in
+// the copies. One helper, so there is one place to be right.
+function sendToolError(res, err, slug) {
+  const status = err?.statusCode || 502;
+  const upstreamStatus = Number.isInteger(err?.upstreamStatus) ? err.upstreamStatus : null;
+  const attribution = typeof err?.attribution === "string" ? err.attribution : upstreamStatus ? "upstream" : null;
+  if (Number.isInteger(err?.retryAfter)) res.set("Retry-After", String(err.retryAfter));
+  return res.status(status).json({
+    error: err?.message || "request failed",
+    ...(slug ? { tool: slug } : {}),
+    ...(upstreamStatus ? { upstreamStatus } : {}),
+    ...(attribution ? { attribution } : {}),
+    ...(Number.isInteger(err?.retryAfter) ? { retryAfterSeconds: err.retryAfter } : {}),
+  });
+}
+
 app.post("/api/extract", async (req, res) => {
   const { url } = req.body ?? {};
   if (!url) return res.status(400).json({ error: 'Missing "url" in JSON body' });
   try {
     res.json(await extractArticle(url));
   } catch (err) {
-    res.status(err.statusCode || 502).json({ error: err.message });
+    sendToolError(res, err, "extract");
   }
 });
 
@@ -7663,7 +7837,7 @@ app.get("/api/meta", async (req, res) => {
   try {
     res.json(await fetchPageMeta(url));
   } catch (err) {
-    res.status(err.statusCode || 502).json({ error: err.message });
+    sendToolError(res, err, "meta");
   }
 });
 
@@ -7673,7 +7847,7 @@ app.get("/api/dns", async (req, res) => {
   try {
     res.json(await dnsLookup(name, type));
   } catch (err) {
-    res.status(err.statusCode || 502).json({ error: err.message });
+    sendToolError(res, err, "dns");
   }
 });
 
@@ -7699,7 +7873,7 @@ app.post("/api/render", async (req, res) => {
       ? await runOnWorker("render", { url }, { signal: ac.signal })
       : await renderArticle(url, { signal: ac.signal }));
   } catch (err) {
-    if (!res.headersSent) res.status(err.statusCode || 502).json({ error: err.message });
+    if (!res.headersSent) sendToolError(res, err, "render");
   }
 });
 
@@ -7718,7 +7892,7 @@ app.get("/api/screenshot", async (req, res) => {
       : await screenshotPage(url, { fullPage: fullPage === "true", signal: ac.signal });
     res.type("png").send(png);
   } catch (err) {
-    if (!res.headersSent) res.status(err.statusCode || 502).json({ error: err.message });
+    if (!res.headersSent) sendToolError(res, err, "screenshot");
   }
 });
 
@@ -7732,7 +7906,7 @@ app.post("/api/pdf", async (req, res) => {
   try {
     res.json(await pdfToText(url));
   } catch (err) {
-    res.status(err.statusCode || 502).json({ error: err.message });
+    sendToolError(res, err, "pdf");
   }
 });
 
@@ -8006,20 +8180,42 @@ for (const tool of ALL_KIT) {
         probe = meaningfulKeys.length === 0 || (declared.length > 0 && !hitsDeclared);
       }
       logToolError(tool.slug, status, err.message, shape, synthetic, probe);
-      // Self-correction envelope: echo the tool's input schema + a working
-      // example back on 4xx so the LLM has everything it needs to fix the
-      // call without searching the catalog again. 5xx stays minimal — the
-      // caller did nothing wrong, no schema hint is useful there.
-      if (status >= 400 && status < 500) {
+      // WHOSE FAILURE IS THIS? Every 4xx carried the self-correction envelope -
+      // the tool's input schema, its required keys and a working example - which
+      // says one thing to a machine: your input was wrong, here is the shape.
+      // That is true of a missing parameter and false of the other 4xx a tool
+      // throws, where a third party refused US: safeFetch's 422 for a host that
+      // 403s this server's egress, a 422 for an upstream that answered 404 for a
+      // subject that exists. The error object already carried `upstreamStatus`
+      // on every one of those, and this envelope threw it away - the field
+      // existed, the contract was silent, and the caller was handed a schema to
+      // fix instead of the status that explains it.
+      //
+      // So: `upstreamStatus` and `attribution` ride out whenever the throw
+      // carried them, `Retry-After` is set when the upstream named one, and a
+      // failure attributed upstream does NOT get the schema hint, because
+      // re-reading the schema cannot fix a host that is throttling us.
+      const upstreamStatus = Number.isInteger(err?.upstreamStatus) ? err.upstreamStatus : null;
+      const attribution = typeof err?.attribution === "string" ? err.attribution
+        : upstreamStatus ? "upstream" : null;
+      const fromUpstream = attribution === "upstream" || attribution === "upstream-access";
+      if (Number.isInteger(err?.retryAfter)) res.set("Retry-After", String(err.retryAfter));
+      const provenance = {
+        ...(upstreamStatus ? { upstreamStatus } : {}),
+        ...(attribution ? { attribution } : {}),
+        ...(Number.isInteger(err?.retryAfter) ? { retryAfterSeconds: err.retryAfter } : {}),
+      };
+      if (status >= 400 && status < 500 && !fromUpstream) {
         res.status(status).json({
           error: err.message,
           tool: tool.slug,
+          ...provenance,
           expected: tool.discovery?.inputSchema?.properties || {},
           required: tool.discovery?.inputSchema?.required || [],
           example: tool.discovery?.input || {},
         });
       } else {
-        res.status(status).json({ error: err.message });
+        res.status(status).json({ error: err.message, tool: tool.slug, ...provenance });
       }
     } finally {
       const latencyMs = Date.now() - startedAt;

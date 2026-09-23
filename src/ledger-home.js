@@ -405,7 +405,7 @@ curl -X POST /api/hash \\
       <h2 class="hm-h2" style="color:var(--on-dark);">The open index for every seller.</h2>
       <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--dk-muted3);">hourly on-chain snapshot · Bazaar → eth_getLogs → aggregate by payTo</span>
     </div>
-    <p style="font-size:16px;line-height:1.6;color:var(--dk-muted2);max-width:700px;margin:0 0 30px;font-weight:300;">Every x402 seller we can crawl, ranked by <strong style="color:var(--on-dark);font-weight:500;">real Base USDC settled volume</strong> - not self-reported traffic. <span style="font-family:var(--font-mono);font-size:14px;color:var(--on-dark);">include=external</span> excludes us from our own ranking, because a neutral index has to be checkable.</p>
+    <p style="font-size:16px;line-height:1.6;color:var(--dk-muted2);max-width:700px;margin:0 0 30px;font-weight:300;">The x402 sellers we can crawl, ranked by <strong style="color:var(--on-dark);font-weight:500;">real Base USDC settled volume</strong> - not self-reported traffic. The rows below are the head of the board; the full ranking is at <a href="/leaderboard" style="color:var(--on-dark);">/leaderboard</a>. <span style="font-family:var(--font-mono);font-size:14px;color:var(--on-dark);">include=external</span> excludes us from our own ranking, because a neutral index has to be checkable.</p>
 
     <div style="border:1px solid var(--dark-border2);border-radius:14px;overflow:hidden;background:rgba(255,255,255,.025);">
       <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 18px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);">

@@ -3977,6 +3977,74 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `/__operator/traffic.json` carries `unpaidQuoteBudget`, counts only (a read in a new hour reports zero rather than the
   previous hour's, and the throttled-client count names its own 1,000 cap instead of reporting a capped number as one).
 
+- **A paginated answer read as the whole index, for the third time (2026-09-22, `src/index-paging.js`,
+  `scripts/test-index-paging-contract.js` 34 + the booted half in test-index-paging-and-find-bridge):** a seller
+  reported their origin "missing from the current Agent402 index". It was on page 15 of 18. Their checker fetched
+  `GET /api/index`, got 250 sellers of 4,473, searched THAT for their hostname and concluded absence - and our own
+  `llms.txt` had told them the endpoint was a "JSON snapshot of every seller indexed", which it has never been, so
+  the reading was one we invited. The envelope already carried page/pages/sellerCount/firstPage/lastPage and a prose
+  note from the 2026-09-13 zero-based fix, which was the SECOND instance of this class (three origins read as "not
+  indexed" while sitting on page 0). Prose in a payload does not reach a machine. Now the answer says it is a page
+  where a machine looks first: `complete` (one boolean, false whenever a seller is absent from THIS response but
+  present in the index), an RFC 8288 `Link` header carrying first/prev/next/last (relative URLs, like the report
+  viewers' existing `Link`, so no Host header is ever reflected into a published URL), `X-Total-Count`, and a note
+  that LEADS with PARTIAL and names `?seller=<host>`. `Link` and `X-Total-Count` joined `CORS_EXPOSE_HEADERS` or a
+  browser consumer could not read them. `perPage` is honoured as an alias for `limit` because two consumers guessed
+  that name - an outside checker and our own `scripts/seller-sweep.mjs`, which passed `perPage=100`, was silently
+  handed the 100 default and looped a hard 40 pages, so OUR OWN sweep had been missing every seller past 4,000.
+  **`complete` is a property of the RESPONSE, not of the index:** `page === 0 &&` is load-bearing, because without
+  it an out-of-range page on a one-page index returns zero rows and calls itself complete.
+  **The same defect sat one branch away in the same handler and is fixed with it:** `?seller=` cut the tool list at
+  500 with nothing saying so, on the surface our own code comment calls "the surface a seller uses to self-diagnose"
+  - measured the same day, an indexed origin declaring 3,638 tools got 500 back, so a seller auditing their catalogue
+  there would have reported 3,138 routes lost, and `toolCount` beside it was right the whole time, which is what
+  makes the silence convincing. It now publishes `toolsReturned`, `toolsTruncated` and `toolsCap`, all reading one
+  `SELLER_TOOLS_CAP` constant so the slice and the flag cannot drift.
+  **Why the arithmetic is a module:** a CI boot indexes exactly ONE seller, so `complete:false`, `rel="next"` and the
+  PARTIAL note are unreachable over HTTP in CI. The first cut of the guard put them behind `if (sellerCount > 1)` and
+  therefore proved nothing about the half that broke - a certificate for the half that never did. The pure function
+  is driven with the real numbers (4,473 sellers, 250 a page, a seller on page 15) and the handler's use of it is
+  pinned from source. Six mutations killed, one of which first SURVIVED: `pageSizeOf(undefined, "100")` returns 100
+  whether or not the alias exists, because 100 is also the default - the assertion uses 37 now. When a guard's
+  expected value equals the fallback, it is testing nothing.
+  **THE CLASS, SWEPT (same day, `src/partial-answer.js`, `scripts/test-figure-scope.js` 66 +
+  `scripts/test-negative-answer-honesty.js` 50, both in CI):** fixing the instance is what let this happen a second
+  and third time, so the rule is now one vocabulary every list answer speaks - `returned`, `matched` (rows that met
+  the filter BEFORE any cap), `complete`, `truncated`, plus `clampFields` for "you asked for more than this endpoint
+  gives" and `scanCoverage` for rows missing because we never LOOKED rather than because we cut the list (absence of
+  evidence published as evidence of absence is the worst version). **Prose in a `note` does not count** - that is
+  what failed twice. Existing field names keep their exact meaning and VALUES and the new ones ride alongside:
+  renaming a live field is a second, worse break. Corrected: `/api/route` (`sellers` was origins in ONE PAGE and read
+  as the sellers that can serve the task; the per-seller diversity cap deliberately suppresses higher-scoring rows,
+  so a seller can be routable, outrank what you got and be ABSENT - `diversityCapped` + `perSellerCap` say so),
+  `/api/find` (`count: 5` against a 600-row catalog read as "five tools exist"), `/api/revenue/daily`
+  (`daysScope`: the series drops undateable rows, internal transfers over `maxCallUsd` and everything before
+  `REVENUE_DAILY_START`, said none of it, and so disagreed with `/api/revenue`'s own allTime by $92.89 with 24 real
+  outside customers among the missing rows), `/api/index?seller=` (returns `history` + `healthWindow` + a legend -
+  the wiki had TWICE told operators to audit us with a field that was on no public surface), `/api/leaderboard`
+  (`totalSellers` counted the UNFILTERED board beside filtered rows), `/api/stats` (scope on
+  `chargedButFailedGenuine`, `topTools`, `recentCalls`, `estimatedRevenueUsd`), the host card (a ledger-scoped figure
+  labelled "all time"; the ledger starts three weeks after the service), both leaderboards (a capped scan says a
+  missing row is unmeasured, not inactive), MCP `catalog.search`/`catalog.find` (the HTTP caller learned the ranking
+  was cut and the agent did not), and the homepage band, which claimed the whole board over twelve rows.
+  **Negatives are facts about their SUBJECT:** a miss while the index is still loading says so and is not sold
+  (`readinessOf`, a pure function, because a CI boot is ALWAYS in one state); an upstream that rate-limited or
+  refused THIS SERVER is no longer relayed as the caller's bad URL (`attribution`, `upstreamStatus`, `Retry-After`,
+  and no schema hint - re-reading the schema cannot fix a host throttling us); a degraded trending board says it is
+  degraded; `demand-radar` REFUSES rather than repeat the hollow 200 it sold for six weeks. The seller dossier
+  refuses 503 while loading rather than sell "never crawled" - except to the operator, who pays nothing and gets the
+  record plus the caveat as a field, via a SECOND handler argument the HTTP dispatcher never passes, so a buyer
+  cannot set it from a body.
+  **Two genuine defects found by the sweep, not by a report:** `externalByNetwork` summed `COUNT(DISTINCT payer)`
+  across CAIP aliases of ONE rail, so a wallet paying under both "base" and "eip155:8453" was published as two
+  distinct buyers - the exact error we decline to publish about anybody else, and the reason `foldBazaarQuality`
+  folds payers with MAX; and `/api/route`'s cache key ignored `?network`, so two buyers on different chains shared
+  one 60 s entry and the second was served a list filtered for the first.
+  **The guard written after the last instance could not see the next one:** `test-capped-counts` matched only
+  backtick-quoted `db.prepare` and only `.all(...).length` with nothing in between, so eight LIMITed statements in
+  five files were invisible - among them the one feeding `chargedButFailedGenuine`, the figure `/api/stats`' own note
+  calls "the reliability number". It walks chains through `|| []`, `.filter`, `.map` and every quote style now.
+  Same lesson as the copy guards: scope a guard to the CLAIM, never to the spelling that drifted last.
 - **Every crawler we name was exempt from every private disallow (2026-09-22, `src/seo.js`,
   `scripts/test-robots-policy.js` 90):** a crawler obeys the one group that names it and no other (RFC 9309), and
   `robotsTxt()` gave each of the 19 named agents `Allow: /` plus three cost rules while the fourteen private disallows

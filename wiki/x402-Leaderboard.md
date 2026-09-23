@@ -2,8 +2,13 @@
 
 > **Payment wires:** every paid endpoint accepts **x402** and **MPP** (Machine Payments Protocol) on the same 402 - see [[Paying with x402]] and [[Paying with MPP]]. Agent402 is the applied layer of [[Agentic Finance]]: agents that pay and get paid on their own.
 
-`GET /api/leaderboard` is the **public, on-chain ranking of every x402 seller
-by Base USDC settled volume**. It's the third surface in Agent402's open x402
+`GET /api/leaderboard` is the **public, on-chain ranking of x402 sellers by
+Base USDC settled volume**. It answers with the **top N of that board and
+never the whole of it** - 25 rows by default, 50 the ceiling, with
+`totalSellers` in the response carrying how many are ranked in all, so a
+seller you cannot find in the rows you were served may simply rank below
+them. Only sellers that settled inside `windowServed` rank at all. It's the
+third surface in Agent402's open x402
 index - alongside [`/api/find`](https://agent402.tools/api/find) (resolve a
 task to a tool) and [`/api/route`](https://agent402.tools/api/route) (the
 neutral Smart Order Router across every seller).
@@ -11,8 +16,8 @@ neutral Smart Order Router across every seller).
 | Surface | Free | What it returns |
 |---|---|---|
 | `GET /api/find?q={task}` | ✅ | Best matching tools (route, price, schema, example) |
-| `POST /api/route {query, top, include}` | ✅ | Smart Order Router across every x402 seller, ranked by match → health → price |
-| `GET /api/leaderboard?top=N&include=all\|external` | ✅ | On-chain ranking of every x402 seller by Base USDC settled volume (`?limit=` is accepted as an alias of `?top=`) |
+| `POST /api/route {query, top, include}` | ✅ | Smart Order Router ranked over every x402 seller crawled (match → health → price); the response returns the top N and carries `matched` |
+| `GET /api/leaderboard?top=N&include=all\|external` | ✅ | Top N of the on-chain ranking of x402 sellers by Base USDC settled volume - 25 default, 50 ceiling, `totalSellers` for the full count (`?limit=` is accepted as an alias of `?top=`) |
 
 ## Why on-chain volume
 

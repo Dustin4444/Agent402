@@ -368,18 +368,44 @@ const qPayerByNetwork = db.prepare(`
 // for the per-rail host entry on the chain marketplace pages (2026-08-28).
 // Same PAYING_RAILS / internal=0 line the summary draws; CAIP-2 ids collapse
 // to the friendly rail key like everywhere else.
+//
+// A DISTINCT COUNT CANNOT BE SUMMED, and this grouped by the RAW network while
+// the answer is keyed by the CANONICAL rail. The same chain is recorded under
+// two spellings - "base" and "eip155:8453", "celo" and "eip155:42220" (the
+// reason canonRail exists at all: the MPP board once rendered Celo as two
+// rows) - so a wallet that paid under both spellings of ONE rail arrived as
+// two grouped rows and `buyers` added them. Reproduced 2026-09-22: one wallet,
+// one rail, two spellings, and the /base host card reports 2 distinct buyers
+// against a true 1. Exactly the shape we decline to publish about anybody
+// else: a third-party index summed a per-resource unique-payer metric across
+// our resources and reported 701 payers against our real 158, and
+// foldBazaarQuality folds payers with MAX for this reason, with the reason
+// written beside it.
+//
+// So the payers are counted, never added: one row per (rail, payer) and a set
+// per canonical rail. Row count is bounded by buyers x rails, and NULL payers
+// (SVM/Stellar rows carry none) are skipped exactly as COUNT(DISTINCT) did -
+// they still count toward settlements, never toward buyers.
 const qExternalByNetwork = db.prepare(`
-  SELECT network, COUNT(*) AS n, COUNT(DISTINCT payer) AS buyers
+  SELECT network, COUNT(*) AS n
   FROM sales WHERE internal = 0 AND rail IN ${PAYING_RAILS_SQL} AND ts >= ?
   GROUP BY network`);
+const qExternalByNetworkPayers = db.prepare(`
+  SELECT DISTINCT network, payer
+  FROM sales WHERE internal = 0 AND rail IN ${PAYING_RAILS_SQL} AND payer IS NOT NULL AND ts >= ?`);
 export function externalByNetwork({ days = 30 } = {}) {
   const since = Date.now() - days * 86_400_000;
   const out = {};
-  for (const r of qExternalByNetwork.all(since)) {
+  const row = (key) => out[key] || (out[key] = { settlements: 0, buyers: 0 });
+  for (const r of qExternalByNetwork.all(since)) row(canonRail(r.network)).settlements += r.n;
+  const payersByRail = new Map();
+  for (const r of qExternalByNetworkPayers.all(since)) {
     const key = canonRail(r.network);
-    const cur = out[key] || (out[key] = { settlements: 0, buyers: 0 });
-    cur.settlements += r.n; cur.buyers += r.buyers; // buyers summed only across CAIP aliases of ONE rail
+    let set = payersByRail.get(key);
+    if (!set) payersByRail.set(key, (set = new Set()));
+    set.add(r.payer);
   }
+  for (const [key, set] of payersByRail) row(key).buyers = set.size;
   return out;
 }
 const qPayerRecent = db.prepare(`

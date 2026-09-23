@@ -34,8 +34,8 @@ Operated by [Havok Holdings LLC](https://havok.holdings) · [Live](https://agent
 > ecosystem**:
 >
 > - **Find** - [`/api/find?q={task}`](https://agent402.tools/api/find) resolves a task description to the best-matching tools (route, price, schema, ready example).
-> - **Route** - [`POST /api/route`](https://agent402.tools/api/route) is the **neutral Smart Order Router**: rank tools across every x402 seller crawled (auto-discovered from the Coinbase CDP Bazaar), health-aware, with `include=external` to exclude us.
-> - **Leaderboard** - [`GET /api/leaderboard`](https://agent402.tools/api/leaderboard) is the **public on-chain ranking** of every x402 seller by **Base USDC settled volume** - calls served, totalUsd, unique buyers per seller. Pipeline: Bazaar → `eth_getLogs` → per-call ceiling → aggregate by `payTo`. Hourly snapshot.
+> - **Route** - [`POST /api/route`](https://agent402.tools/api/route) is the **neutral Smart Order Router**: rank tools across every x402 seller crawled (auto-discovered from the Coinbase CDP Bazaar), health-aware, with `include=external` to exclude us. The response returns the top N and carries `matched` for how many scored.
+> - **Leaderboard** - [`GET /api/leaderboard`](https://agent402.tools/api/leaderboard) is the **public on-chain ranking** of x402 sellers by **Base USDC settled volume** - calls served, totalUsd, unique buyers per seller. It returns the **top N, never the whole board** (25 by default, 50 the ceiling; `totalSellers` carries the full count). Pipeline: Bazaar → `eth_getLogs` → per-call ceiling → aggregate by `payTo`. Hourly snapshot.
 >
 > Plus the catalog - **500+ strong: search/answer as the MCP front door, then
 > 500+ tools and curated skill packs** (multi-tool workflows callable as MCP
@@ -305,9 +305,9 @@ refreshed hourly) and exposes them through three free surfaces - same logic as
 |---|---|
 | [`GET /api/find?q={task}`](https://agent402.tools/api/find) | Resolve a task to the best-matching tools (route, price, schema, ready example) |
 | [`POST /api/route`](https://agent402.tools/api/route) | Smart Order Router: `{ query, top, include }` → ranked tools across sellers (match score, then **health**, then price). `include=external` excludes Agent402 itself |
-| [`GET /api/leaderboard`](https://agent402.tools/api/leaderboard) | **On-chain ranking** of every x402 seller by Base USDC settled volume (callsSettled, totalUsd, uniqueBuyers per seller). Pipeline: Bazaar → `eth_getLogs` → per-call ceiling → aggregate. Hourly snapshot |
+| [`GET /api/leaderboard`](https://agent402.tools/api/leaderboard) | **On-chain ranking** of x402 sellers by Base USDC settled volume (callsSettled, totalUsd, uniqueBuyers per seller). **Top N only** - 25 default, 50 ceiling, `totalSellers` for the full count. Pipeline: Bazaar → `eth_getLogs` → per-call ceiling → aggregate. Hourly snapshot |
 | [`/marketplace`](https://agent402.tools/marketplace) | Public HTML dashboard: every seller, tool count, network, last-fetched, rolling health |
-| [`GET /api/index`](https://agent402.tools/api/index) | JSON snapshot of the same data (totals, per-seller health/routable flags) |
+| [`GET /api/index`](https://agent402.tools/api/index) | The seller index as JSON (totals, per-seller health/routable flags). **Paginated** - one page of 250 max, `complete: false` and a `Link` header with `rel="next"` while more remain, `sellerCount` for the total. One origin, unpaged and with its crawl history: `?seller=<host>` |
 | [`/stellar`](https://agent402.tools/stellar) · [`/algorand`](https://agent402.tools/algorand) | Per-chain marketplace pages: sellers and tools settling on that rail specifically |
 
 ```bash

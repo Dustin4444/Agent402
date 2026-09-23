@@ -9,6 +9,14 @@ carries its own version on npm.
 Since v2.4.0 (2026-09-18).
 
 ### 2026-09-22
+- Say, in fields a machine reads, that `GET /api/index` is one page: `complete`
+  (false whenever a seller is absent from this response but present in the
+  index), an RFC 8288 `Link` header with first/prev/next/last, `X-Total-Count`,
+  and a note that leads with PARTIAL. `perPage` is honoured as an alias for
+  `limit`. The seller detail (`?seller=`) now declares `toolsReturned`,
+  `toolsTruncated` and `toolsCap` instead of silently cutting the tool list at
+  500. `llms.txt` no longer calls the paginated listing a snapshot of every
+  seller indexed.
 - Read a base-unit `amount` in an index listing as dollars only when the token
   is one we recognise as dollar-pegged: a declared `decimals` no longer sizes an
   arbitrary asset, a declaration that contradicts the chain publishes no price,

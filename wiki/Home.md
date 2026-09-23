@@ -4,7 +4,7 @@
 
 > **Every entry earns its place** - tested against its own example on every CI run, priced to market, live-verified. CI holds a 400-entry catalog floor and verifies the “500+” claim against the running server (`scripts/sync-count.js --check`).
 
-It's also **the open x402 index**: a single integration gives a buyer three primitives over the whole ecosystem - **Find** ([`/api/find`](https://agent402.tools/api/find), resolve a task to a tool), **Route** ([`/api/route`](https://agent402.tools/api/route), the neutral [[x402 Index and Smart Order Router|x402-Index-and-Router]] across every seller crawled from the [Coinbase CDP Bazaar](https://docs.cdp.coinbase.com/x402/docs/bazaar)), and **Leaderboard** ([`/api/leaderboard`](https://agent402.tools/api/leaderboard), the [[x402 Leaderboard]] - public on-chain ranking of every seller by Base USDC settled volume). All three are free and unpaywalled - discovery primitives shouldn't cost money.
+It's also **the open x402 index**: a single integration gives a buyer three primitives over the whole ecosystem - **Find** ([`/api/find`](https://agent402.tools/api/find), resolve a task to a tool), **Route** ([`/api/route`](https://agent402.tools/api/route), the neutral [[x402 Index and Smart Order Router|x402-Index-and-Router]] across every seller crawled from the [Coinbase CDP Bazaar](https://docs.cdp.coinbase.com/x402/docs/bazaar)), and **Leaderboard** ([`/api/leaderboard`](https://agent402.tools/api/leaderboard), the [[x402 Leaderboard]] - public on-chain ranking of sellers by Base USDC settled volume, served top-N with `totalSellers` for the full count). All three are free and unpaywalled - discovery primitives shouldn't cost money.
 
 - **Run it yourself (free):** `git clone … && npm install && FREE_MODE=true npm start` - see [[Getting Started]]
 - **Live hosted demo:** https://agent402.tools · **MCP connector (paste into Claude):** `https://agent402.tools/mcp`
@@ -35,7 +35,7 @@ It's also **the open x402 index**: a single integration gives a buyer three prim
 | [[Tool Catalog]] | What the 500+ tools are and how agents discover them |
 | [[Skill-Packs]] | 70+ multi-tool workflows - `prompts/list` → `prompts/get`, ready-to-run plans |
 | [[x402-Index-and-Router]] | The cross-seller index + Smart Order Router (cheapest healthy tool across the ecosystem) |
-| [[x402-Leaderboard]] | Public on-chain ranking of every x402 seller by Base USDC settled volume |
+| [[x402-Leaderboard]] | Public on-chain ranking of x402 sellers by Base USDC settled volume, served as the top N |
 | [[LLM Gateway (OpenAI /v1)|LLM-Gateway]] | OpenAI-compatible chat, embeddings, rerank, images, video and speech at `/v1` (plus the Anthropic Messages and OpenAI Responses wires) - flat chat tiers from $0.003 per call, a metered tier whose 402 quotes each request from its body, embeddings and rerank from $0.002, model-optional auto-routing, streaming, response caching; any OpenAI SDK adopts it by changing `base_url` |
 | [[LLM Proxy Gateway|LLM-Proxy]] | Three tiers of OpenAI inference via x402 - GPT-4o-mini, GPT-4o/4.1, o3/o3-mini |
 | [[Image Generation Gateway|Image-Gen]] | Three tiers of GPT Image generation via x402 - text-to-image, no API key needed |

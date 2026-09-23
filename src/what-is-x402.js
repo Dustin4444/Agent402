@@ -305,7 +305,7 @@ Payment-Receipt: 0x8f2a&hellip;c41d
     <div style="position:absolute;right:26px;top:-36px;font-weight:900;font-size:220px;line-height:1;color:transparent;-webkit-text-stroke:2px #ffffff10;pointer-events:none;">402</div>
     <div style="position:relative;">
       <h2 style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0 0 16px;color:var(--on-dark);">Now put it to work.</h2>
-      <p style="font-size:16.5px;line-height:1.6;color:var(--dk-muted2);margin:0 0 28px;max-width:540px;">Agent402 is the applied layer for both protocols: an open index, a neutral router, and an on-chain ranking of every x402 seller. Free to list, free to browse.</p>
+      <p style="font-size:16.5px;line-height:1.6;color:var(--dk-muted2);margin:0 0 28px;max-width:540px;">Agent402 is the applied layer for both protocols: an open index, a neutral router, and an on-chain ranking of the x402 sellers that settle. Free to list, free to browse.</p>
       <div style="display:flex;gap:11px;flex-wrap:wrap;">
         <a href="/sell" style="background:var(--accent);color:var(--on-accent);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 24px;">List your API - free →</a>
         <a href="/" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 24px;">SEE THE INDEX</a>

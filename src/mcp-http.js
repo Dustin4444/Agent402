@@ -36,6 +36,7 @@ import {
 } from "./mcp-tasks.js";
 import { EXPENSIVE_COMPOSITE_SLUGS } from "./composite-spend-guard.js";
 import { findTools, findRelatedSellers, applyFrontDoorTerms } from "./find.js";
+import { partialFields, clampFields } from "./partial-answer.js";
 import { routableSellerSummaries } from "./x402-index.js";
 import { logSafe } from "./log-safe.js";
 import { recordWish } from "./wish.js";
@@ -248,8 +249,15 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
     return keys.length ? ` Returns { ${keys.join(", ")} }.` : "";
   };
 
-  // Returns { rows, topScore } — topScore feeds the "did this actually match
-  // anything useful" check for the request_tool hint (see search_tools below).
+  // Most rows one catalog.search answer carries. A ranking, so a ceiling is
+  // right; publishing it beside the rows is what stops the ceiling being read
+  // as the match count.
+  const SEARCH_LIMIT_MAX = 25;
+
+  // Returns { rows, topScore, matched } — topScore feeds the "did this actually
+  // match anything useful" check for the request_tool hint (see search_tools
+  // below), and `matched` is how many tools scored at all, which is the number
+  // the answer was silently withholding.
   function searchTools(query, limit = 10) {
     const q = String(query || "");
     const terms = q.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
@@ -269,14 +277,14 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
       if (score > 0) scored.push([score, def, free]);
     }
     scored.sort((a, b) => b[0] - a[0]);
-    const rows = scored.slice(0, Math.min(Number(limit) || 10, 25)).map(([, def, free]) => ({
+    const rows = scored.slice(0, Math.min(Number(limit) || 10, SEARCH_LIMIT_MAX)).map(([, def, free]) => ({
       slug: def.slug,
       price: def.price,
       access: free ? "free here (rate-limited)" : "paid (USDC via x402 / MPP, or prepaid card credits - agent402-mcp with AGENT_KEY or AGENT402_CREDITS_KEY)",
       description: def.description.length > 200 ? `${def.description.slice(0, 200)}…` : def.description,
       inputSchema: schemaOf(def),
     }));
-    return { rows, topScore: scored[0]?.[0] ?? 0 };
+    return { rows, topScore: scored[0]?.[0] ?? 0, matched: scored.length };
   }
 
   function walletRequiredText(def) {
@@ -668,7 +676,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           // surfaces emit in server.js; env-gated no-op without PostHog.
           capturePostHogDiscovery({ surface: "mcp:catalog.search" });
           const q = args.query ?? "";
-          const { rows: results, topScore } = searchTools(q, args.limit);
+          const { rows: results, topScore, matched } = searchTools(q, args.limit);
           // Multi-tool workflows that match the same query — surface them so an
           // agent asking "audit a domain" sees the whole security-audit pack
           // (callable in ONE payment via skill-<slug>, or step-by-step via
@@ -689,6 +697,17 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           }
           return mcpJsonResult({
             results,
+            // THE CEILING HAS TO ANNOUNCE ITSELF, and on this surface most of
+            // all: the consumer is an agent, which reads fields and not prose.
+            // `limit: 50` silently served 10 rows and the envelope carried
+            // nothing to separate "ten tools can do this" from "ten is our
+            // maximum" - the same silence that had a seller's checker read one
+            // page of /api/index as the whole index (2026-09-22). /api/find and
+            // /api/route grew topMax the same day; the two MCP tools serving
+            // the identical rankings to agents did not.
+            limitMax: SEARCH_LIMIT_MAX,
+            ...partialFields(matched, results.length),
+            ...clampFields(args.limit, SEARCH_LIMIT_MAX, "limit"),
             ...(workflows.length ? { workflows, workflowsUsage: "One call: catalog.call { slug: 'skill-' + workflows[i].slug, params: { …promptArgs } } (or POST workflows[i].route) runs every step for the single price in workflows[i].price. To orchestrate the steps yourself instead: prompts/get { name: workflows[i].promptName, arguments: { …promptArgs } } - that bills each underlying tool separately." } : {}),
             ...(weak ? { hint: WISH_HINT_TEXT } : {}),
             usage: 'catalog.call {"slug": …, "params": …}',
@@ -742,6 +761,19 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           return mcpJsonResult({
             task: r.query,
             results,
+            // findTools already computes and publishes these on /api/find; this
+            // envelope rebuilt itself row by row and dropped both, so the HTTP
+            // caller learned the ranking was cut and the agent did not. Passed
+            // through rather than recomputed, so the two surfaces cannot drift.
+            topMax: r.topMax,
+            truncated: !!r.truncated,
+            returned: results.length,
+            // Passed THROUGH from findTools, never recomputed here: recomputing
+            // is how the HTTP caller learned the ranking was cut and the agent
+            // did not. `matched` is the number an agent concluding "no tool
+            // exists for this" has to see.
+            matched: r.matched,
+            complete: r.complete,
             ...(r.packs?.length ? { workflows: r.packs, workflowsUsage: "One call: catalog.call { slug: 'skill-' + workflows[i].slug, params: { …promptArgs } } (or POST workflows[i].route) runs every step for the single price in workflows[i].price. To orchestrate the steps yourself instead: prompts/get { name: workflows[i].promptName, arguments: { …promptArgs } } - that bills each underlying tool separately." } : {}),
             ...(relatedSellers ? { relatedSellers } : {}),
             ...(weak && !relatedSellers ? { hint: WISH_HINT_TEXT } : {}),
@@ -1022,16 +1054,42 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           // always has enough information in the original tool description, but
           // it ignored it. Echo the expected shape + a working example back so
           // the next attempt can fix itself without another search_tools call.
+          //
+          // ...EXCEPT WHEN THE FAILURE WAS NOT THE INPUT. Every error took this
+          // branch, including an upstream that refused or throttled US, and to
+          // an agent "here is the expected shape, call again" reads as one
+          // instruction: reshape the input and retry. It would retry into a host
+          // that is rate-limiting us, and conclude its own input was wrong about
+          // a subject it got right. Same envelope, same defect, one surface over
+          // from the HTTP route binder - which is the reason to fix the class
+          // here rather than the instance there.
+          const upstreamStatus = Number.isInteger(handlerErr?.upstreamStatus) ? handlerErr.upstreamStatus : null;
+          const attribution = typeof handlerErr?.attribution === "string" ? handlerErr.attribution
+            : upstreamStatus ? "upstream" : null;
+          const fromUpstream = attribution === "upstream" || attribution === "upstream-access";
+          const status = handlerErr.statusCode || 500;
           const hint = {
             error: handlerErr.message,
             tool: entry.def.slug,
-            expected: entry.def.discovery?.inputSchema?.properties || {},
-            required: entry.def.discovery?.inputSchema?.required || [],
-            example: entry.def.discovery?.input || {},
-            callWith: {
-              name: META_MCP_NAMES.call_tool,
-              arguments: { slug: entry.def.slug, params: entry.def.discovery?.input || {} },
-            },
+            ...(upstreamStatus ? { upstreamStatus } : {}),
+            ...(attribution ? { attribution } : {}),
+            ...(Number.isInteger(handlerErr?.retryAfter) ? { retryAfterSeconds: handlerErr.retryAfter } : {}),
+            ...(fromUpstream || status >= 500
+              ? {
+                whoseFault: "not your input - a third party this tool depends on refused or failed our request, and you were not charged",
+                nextStep: attribution === "upstream"
+                  ? "retry the SAME call later; changing the input will not help"
+                  : "this resource is not reachable by this server; a different source may be, but the same call will keep failing",
+              }
+              : {
+                expected: entry.def.discovery?.inputSchema?.properties || {},
+                required: entry.def.discovery?.inputSchema?.required || [],
+                example: entry.def.discovery?.input || {},
+                callWith: {
+                  name: META_MCP_NAMES.call_tool,
+                  arguments: { slug: entry.def.slug, params: entry.def.discovery?.input || {} },
+                },
+              }),
           };
           return { content: [{ type: "text", text: JSON.stringify(hint, null, 2) }], isError: true };
         }

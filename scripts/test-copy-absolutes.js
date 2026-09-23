@@ -123,6 +123,52 @@ const FORBIDDEN = [
     re: /[Ee]very tool is deterministic/,
     why: "the /v1 tiers, the report products and the media tools are model-backed",
   },
+  {
+    // A COMPLETENESS CLAIM ABOUT A SURFACE THAT ANSWERS WITH A PAGE.
+    //
+    // Three live instances before this rule existed, all the same shape - the
+    // DATA was right and the CONTRACT was quiet, so a consumer read a partial
+    // answer as the whole set:
+    //
+    //   1. llms.txt called GET /api/index "a JSON snapshot of every seller
+    //      indexed". It returns 250 of 4,473. A seller's checker searched the
+    //      one page it was given, did not find them, and reported them missing
+    //      from the index; they were on page 15 of 18.
+    //   2. /api/index?seller= cut the tool list at 500 with nothing saying so,
+    //      on the surface we tell sellers to self-diagnose with.
+    //   3. /api/leaderboard was described on ten surfaces as "the on-chain
+    //      ranking of EVERY x402 seller". It answers with 25 rows, ceiling 50.
+    //
+    // The rule matches the SHAPE, not any one sentence, because the claim has
+    // as many phrasings as people who wrote it down: a totality word next to
+    // one of the paginated surfaces. It is satisfied - and must be - by saying
+    // which part you get, so the honest forms below all pass.
+    re: /\b(?:every|all|each|the whole|entire|complete|full)\b[^.|]{0,70}\b(?:seller|tool|row|origin|endpoint|histor(?:y|ies))s?\b[^.|]{0,90}\/api\/(?:index|leaderboard)|\/api\/(?:index|leaderboard)\b[^.|]{0,90}\b(?:every|all|the whole|entire|complete|full)\b[^.|]{0,40}\b(?:seller|tool|row|origin|endpoint|histor(?:y|ies))s?\b|\b(?:ranking|snapshot|list(?:ing)?|index)\b[^.|]{0,20}\bof every\b[^.|]{0,30}\b(?:seller|tool|origin)s?\b|\/api\/index\b[^.]{0,60}\bsnapshot\b|\bsnapshot\b[^.]{0,60}\/api\/index/i,
+    why: "/api/index and /api/leaderboard both answer with ONE PAGE (250 sellers max; 25 leaderboard rows, ceiling 50) - say which part the caller gets, and name the field carrying the total (sellerCount / totalSellers)",
+    // The totality word has to govern WHAT THE SURFACE RETURNS. Without this
+    // the rule also read four pieces of honest copy as the same claim: a
+    // JSON-LD list item NAMING the marketplace page, a legend saying which
+    // field a reason appears in ("on each row and on /api/index"), a dated
+    // comment about a bug that published network:null for every seller, and
+    // the README's dispatch-labelling guarantee. Each puts a totality word
+    // near the path while claiming nothing about completeness, and a guard
+    // that flags those gets suppressed by the next author.
+    // `\W{0,4}` between the noun and "of" is load-bearing: the claim ships in
+    // markdown tables as "**On-chain ranking** of every x402 seller", and a
+    // literal /ranking of/ misses it because of the emphasis markers. A
+    // mutation restoring that exact README row SURVIVED this rule until the
+    // tolerance was added - which is why the mutation is run, not assumed.
+    requires: /\b(?:returns?|answers?|serves?|exposes?|drill-down|is in|are in|is the (?:public|live|open))\b|\b(?:ranking|snapshot|listing|index)\W{0,4}of\b/i,
+    // True as written when the same sentence says it is a part. Naming the
+    // paging field counts: that is the contract a machine actually reads.
+    scopedBy: /\b(?:top[- ]?N|top \d|first \d|one page|a page|per page|paginat|page at a time|head of|slice|truncat|not the whole|never the whole|sellerCount|totalSellers|complete: false|rel="next"|\?seller=)\b/i,
+    scopeWindow: 0,
+    exempt: new Map([
+      ["src/changelog.js", "dated release notes are a historical record: each entry describes what shipped on its date"],
+      ["src/index-paging.js", "the module that implements the paging contract quotes the old claim to explain why it exists"],
+      ["scripts/test-copy-absolutes.js", "this rule's own comment and its MUST_FAIL table quote the claims verbatim"],
+    ]),
+  },
 ];
 
 function sweep(entries) {
@@ -295,7 +341,19 @@ ok(files.some((f) => /^scripts\/.*card.*\.js$/.test(f)),
     "// So we route ONLY to sellers with\n// proven settled volume: the leaderboard is real deliveries",
     // A chain named three lines EARLIER is prose, not a scope: still a failure.
     // (The window reads backward, so this is the side that pins scopeWindow 0.)
-    "We settle on Base.\nOne payment in, result out.\nPrices are flat.\nOnly sellers with proven settlement are routable."
+    "We settle on Base.\nOne payment in, result out.\nPrices are flat.\nOnly sellers with proven settlement are routable.",
+    // The completeness class. Every one of these was live copy.
+    "GET /api/index: a JSON snapshot of every seller indexed",
+    "`GET /api/leaderboard` returns the live on-chain ranking of every x402 seller by Base USDC settled volume",
+    "| `GET /api/index` | JSON snapshot of the same data: per-seller health, routable, rolling history, totals |",
+    // The real two-line shape this shipped in: the path on one line, the claim
+    // wrapped onto the next. A line-by-line match cannot see it.
+    "app.get(\"/api/index\", (req, res) => {\n  // the per-seller drill-down (full tool list, paid\n  // flags) so a seller can self-diagnose",
+    "GET /api/index exposes every seller's health, routable flag, and rolling history",
+    "The full history is in /api/index for anyone to verify",
+    "public on-chain ranking of every seller by Base USDC settled volume (/api/leaderboard)",
+    // Wrapped, the way a table row or a paragraph really wraps.
+    "the on-chain ranking of every x402 seller\nby Base USDC settled volume - see /api/leaderboard"
   ];
   const MUST_PASS = [
     "On Base we route ONLY to sellers with proven settled volume",
@@ -308,6 +366,17 @@ ok(files.some((f) => /^scripts\/.*card.*\.js$/.test(f)),
     // The no-model rule DOES read a small window: its honest uses open a
     // paragraph with the scope and qualify a clause a line or three below.
     "Agent-kit - the deterministic tools an agent needs most:\nexact token counting and chunking. All pure-CPU,\nno network,\nno LLM in the serving path.",
+    // The completeness class, said honestly. Each of these is a shipped fix:
+    // the claim survives, scoped to the part the caller is actually handed.
+    "GET /api/index: the seller index, PAGINATED - one page, 250 max, never the whole set. sellerCount carries the total",
+    "GET /api/leaderboard returns the top N of the ranking of x402 sellers; totalSellers carries the full count",
+    "| `GET /api/index` | The same data as JSON, one page at a time (250 max): per-seller health, routable, totals |",
+    "GET /api/index exposes each seller's health and routable flag, a page at a time; the rolling history is on ?seller=<host>",
+    "Top N of the on-chain ranking of sellers by Base USDC settled volume (25 default, 50 ceiling)",
+    // A totality claim about something that really is whole must keep passing,
+    // or the rule pushes authors into hedging true sentences.
+    "every route and price is in /openapi.json and /api/pricing",
+    "The catalog is capped - every tool here earns its place and answers its own example on every deploy",
   ];
   const hits = (t) => sweep([["<case>", t]]).length;
   const missed = MUST_FAIL.filter((t) => hits(t) === 0);
