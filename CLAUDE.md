@@ -3977,6 +3977,36 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `/__operator/traffic.json` carries `unpaidQuoteBudget`, counts only (a read in a new hour reports zero rather than the
   previous hour's, and the throttled-client count names its own 1,000 cap instead of reporting a capped number as one).
 
+- **A paginated answer read as the whole index, for the third time (2026-09-22, `src/index-paging.js`,
+  `scripts/test-index-paging-contract.js` 34 + the booted half in test-index-paging-and-find-bridge):** a seller
+  reported their origin "missing from the current Agent402 index". It was on page 15 of 18. Their checker fetched
+  `GET /api/index`, got 250 sellers of 4,473, searched THAT for their hostname and concluded absence - and our own
+  `llms.txt` had told them the endpoint was a "JSON snapshot of every seller indexed", which it has never been, so
+  the reading was one we invited. The envelope already carried page/pages/sellerCount/firstPage/lastPage and a prose
+  note from the 2026-09-13 zero-based fix, which was the SECOND instance of this class (three origins read as "not
+  indexed" while sitting on page 0). Prose in a payload does not reach a machine. Now the answer says it is a page
+  where a machine looks first: `complete` (one boolean, false whenever a seller is absent from THIS response but
+  present in the index), an RFC 8288 `Link` header carrying first/prev/next/last (relative URLs, like the report
+  viewers' existing `Link`, so no Host header is ever reflected into a published URL), `X-Total-Count`, and a note
+  that LEADS with PARTIAL and names `?seller=<host>`. `Link` and `X-Total-Count` joined `CORS_EXPOSE_HEADERS` or a
+  browser consumer could not read them. `perPage` is honoured as an alias for `limit` because two consumers guessed
+  that name - an outside checker and our own `scripts/seller-sweep.mjs`, which passed `perPage=100`, was silently
+  handed the 100 default and looped a hard 40 pages, so OUR OWN sweep had been missing every seller past 4,000.
+  **`complete` is a property of the RESPONSE, not of the index:** `page === 0 &&` is load-bearing, because without
+  it an out-of-range page on a one-page index returns zero rows and calls itself complete.
+  **The same defect sat one branch away in the same handler and is fixed with it:** `?seller=` cut the tool list at
+  500 with nothing saying so, on the surface our own code comment calls "the surface a seller uses to self-diagnose"
+  - measured the same day, an indexed origin declaring 3,638 tools got 500 back, so a seller auditing their catalogue
+  there would have reported 3,138 routes lost, and `toolCount` beside it was right the whole time, which is what
+  makes the silence convincing. It now publishes `toolsReturned`, `toolsTruncated` and `toolsCap`, all reading one
+  `SELLER_TOOLS_CAP` constant so the slice and the flag cannot drift.
+  **Why the arithmetic is a module:** a CI boot indexes exactly ONE seller, so `complete:false`, `rel="next"` and the
+  PARTIAL note are unreachable over HTTP in CI. The first cut of the guard put them behind `if (sellerCount > 1)` and
+  therefore proved nothing about the half that broke - a certificate for the half that never did. The pure function
+  is driven with the real numbers (4,473 sellers, 250 a page, a seller on page 15) and the handler's use of it is
+  pinned from source. Six mutations killed, one of which first SURVIVED: `pageSizeOf(undefined, "100")` returns 100
+  whether or not the alias exists, because 100 is also the default - the assertion uses 37 now. When a guard's
+  expected value equals the fallback, it is testing nothing.
 - **Every crawler we name was exempt from every private disallow (2026-09-22, `src/seo.js`,
   `scripts/test-robots-policy.js` 90):** a crawler obeys the one group that names it and no other (RFC 9309), and
   `robotsTxt()` gave each of the 19 named agents `Allow: /` plus three cost rules while the fourteen private disallows

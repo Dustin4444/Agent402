@@ -370,6 +370,7 @@ import { x402EconomySnapshot, economySnapshotCached, warmEconomySnapshot } from 
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate, sharedPayToClaims } from "./settlement-proof.js";
 import { buildEvidenceBinding, baseLiveGate } from "./evidence-binding.js";
 import { dispatchEligibility, dispatchLegend } from "./dispatch-eligibility.js";
+import { pageSizeOf, pagingEnvelope, pagingNote } from "./index-paging.js";
 import { usdcDomainVerdict, usdcDomainMismatchDetail, unsignableByStockBuyer } from "./evm-usdc-domain.js";
 import { acceptsFromLive402 } from "./x402-live-quote.js";
 import { spend as sharedSpend, refund as sharedRefund, sharedLimitEnabled } from "./shared-limit.js";
@@ -5565,7 +5566,12 @@ app.get("/api/index", (req, res) => {
     return res.set("Cache-Control", "no-store").json(snap);
   }
   const sellers = Array.isArray(snap.sellers) ? snap.sellers : [];
-  const perPage = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 250);
+  // `perPage` is honoured as an alias for `limit` because two consumers in a row
+  // guessed that name - our own scripts/seller-sweep.mjs and an outside seller's
+  // checker - and a guessed parameter that is silently ignored hands back the
+  // DEFAULT page while looking like it was obeyed. Reading both costs nothing
+  // and removes a way to be quietly wrong.
+  const perPage = pageSizeOf(req.query.limit, req.query.perPage);
   const page = Math.max(parseInt(req.query.page, 10) || 0, 0);
   const slice = sellers.slice(page * perPage, page * perPage + perPage).map(({ history, ...rest }) => (rest.local ? rest : withDispatchFields(rest)));
   // PAGE IS ZERO-BASED, and the envelope has to SAY so. It shipped saying
@@ -5578,10 +5584,24 @@ app.get("/api/index", (req, res) => {
   // consumer already passing page=0 correctly; what was missing was never the
   // behaviour, it was the contract. An out-of-range page now says what the
   // range is instead of answering an empty list that looks like the end.
-  const pages = Math.ceil(sellers.length / perPage);
-  const lastPage = Math.max(pages - 1, 0);
-  const range = `pages are ZERO-BASED: ?page=0 .. ?page=${lastPage}`;
+  const { pages, lastPage, range, complete, link } = pagingEnvelope({ total: sellers.length, page, perPage });
+  // THE PARTIALNESS HAS TO REACH A MACHINE THAT READS NO PROSE. The envelope has
+  // carried page/pages/sellerCount and a note since the zero-based fix, and a
+  // seller's automated checker still reported their origin "missing from the
+  // current index" (2026-09-22): it fetched the default page, got 250 of 4,473,
+  // and searched THAT for their hostname. They were on page 15. Our own llms.txt
+  // had told them the endpoint was a "snapshot of every seller indexed", which
+  // it never was, so the reading was ours to invite.
+  //
+  // So the answer now says it is a page in the two places a machine looks before
+  // it looks at prose: RFC 8288 `Link` rels (the standard way to say "there is a
+  // next"), and one boolean, `complete`, that is false whenever a seller is
+  // absent from THIS response but present in the index. A consumer that reads
+  // neither is no worse off than before; nothing was removed.
+  res.set("Link", link);
+  res.set("X-Total-Count", String(sellers.length));
   res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300").json({
+    complete,
     ...snap,
     sellers: slice,
     page,
@@ -5590,9 +5610,7 @@ app.get("/api/index", (req, res) => {
     pages,
     firstPage: 0,
     lastPage,
-    note: page > lastPage
-      ? `No sellers at page ${page}: ${range}. ${sellers.length} sellers total. Page 0 is the first page, not page 1.`
-      : `Paginated: ${slice.length} of ${sellers.length} sellers (${range}). Use ?page=N&limit=<=250, or ?seller=<host> for one origin with its full detail.`,
+    note: pagingNote({ total: sellers.length, page, perPage, shown: slice.length, pages, lastPage, complete, range }),
     legend: dispatchLegend({ spendChains: spendChainsConfigured() }),
   });
 });

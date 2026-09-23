@@ -4902,6 +4902,11 @@ export function allPayTosByNetwork(tools) {
   }, {});
 }
 
+// How many of a seller's tools one detail response carries. Bounded because a
+// single origin can publish thousands and this endpoint is free; the number is
+// published on the response so the bound is never mistaken for the catalogue.
+export const SELLER_TOOLS_CAP = 500;
+
 export function sellerDetail(originOrHost) {
   const q = String(originOrHost || "").trim().toLowerCase().slice(0, 253);
   if (!q) return null;
@@ -4962,7 +4967,19 @@ export function sellerDetail(originOrHost) {
       // network - the router label's evidence for usdc_domain_mismatch.
       evmDomainByNetwork: evmDomainUnion(v.tools),
       routable: isRoutable(v),
-      tools: (v.tools || []).slice(0, 500).map((t) => ({
+      // THE CAP HAS TO ANNOUNCE ITSELF. This list has been cut at 500 with
+      // nothing saying so, on the one surface we tell a seller to use to check
+      // what we hold for them ("?seller=<host> ... returns its full row").
+      // Measured 2026-09-22: one indexed origin declares 3,638 tools and got
+      // 500 back, so a seller auditing their own catalogue here would conclude
+      // we had lost 3,138 of their routes. Same defect as the listing page that
+      // read as the whole index, one branch away in the same handler, and the
+      // count beside it (toolCount) was right the whole time - which is exactly
+      // what makes the silence convincing.
+      toolsReturned: Math.min((v.tools || []).length, SELLER_TOOLS_CAP),
+      toolsTruncated: (v.tools || []).length > SELLER_TOOLS_CAP,
+      toolsCap: SELLER_TOOLS_CAP,
+      tools: (v.tools || []).slice(0, SELLER_TOOLS_CAP).map((t) => ({
         method: t.method || null,
         route: t.route || null,
         slug: t.slug || null,

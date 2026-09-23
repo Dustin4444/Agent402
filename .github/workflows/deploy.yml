@@ -1348,6 +1348,7 @@ jobs:
           t node scripts/test-seller-succession.js
           # Two surfaces that told a consumer something false (paging base, find-miss wish)
           t node scripts/test-index-paging-and-find-bridge.js
+          t node scripts/test-index-paging-contract.js
           # What the pack sweep excuses and what it must never excuse - both edges, because a classifier that excuses too much stops being able to fail
           t node scripts/test-pack-classifier.js
           # Sanctions screening: a MISS must never read as a clearance, and a list that failed to load must refuse rather than answer 'no match'
