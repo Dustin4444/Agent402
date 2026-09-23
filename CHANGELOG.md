@@ -9,6 +9,9 @@ carries its own version on npm.
 Since v2.4.0 (2026-09-18).
 
 ### 2026-09-23
+- The model gateway serves Meta's Muse Glimmer 30B (`meta/muse-glimmer-30b`)
+  on the base tier and on every route priced by model. "Contributor" listings
+  are refused by name.
 - A 402 lists the MPP tempo challenge first, so a client holding Tempo funds
   pays over Tempo; a client whose tempo credential was just refused gets the
   evm challenge first for 30 minutes (`MPP_TEMPO_DEMOTE_MS`).

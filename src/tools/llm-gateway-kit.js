@@ -346,6 +346,16 @@ export const TIERS = {
       "google/gemini-2.5-flash",
       "google/gemini-3.1-flash-lite", "google/gemini-3.5-flash-lite", // $0.25/$1.50, $0.30/$2.50
       "deepseek/", "meta-llama/", "mistralai/", "qwen/",
+      // Meta's Muse Glimmer 30B (live 2026-09-23): $0.30-0.35/$1.10-1.50,
+      // reasoning mandatory (see REASONING_MODELS). The "-contributor" listings
+      // are refused by name in refuseCostVariants: a buyer's prompt is never
+      // routed to a listing priced for the provider's use of the data.
+      // Muse Spark (meta/muse-spark-1.1/1.2/1.3, $1.25/$4.25, one provider) is
+      // NOT admitted yet: OpenRouter gates it behind an account-level 18+ age
+      // attestation ("Gate Endpoints with Attestations", 403) that our key has
+      // not completed, so every call would 502. Its MODEL_COST row is in place;
+      // add the ids here once the attestation is done and a live call answers.
+      "meta/muse-glimmer-30b",
     ],
   },
   "v1-chat-pro": {
@@ -704,6 +714,9 @@ export function tierAllows(tierSlug, model) {
   const tier = TIERS[tierSlug];
   if (!tier) return false;
   const id = canonicalModel(model).toLowerCase();
+  // Belt for refuseCostVariants: a "-contributor" listing is never admitted
+  // by a family prefix (meta/muse-spark admits meta/muse-spark-1.3-...).
+  if (/-contributor(?:$|:)/.test(id)) return false;
   return tier.prefixes.some((p) => (p.endsWith("/") ? id.startsWith(p) : id === p || id.startsWith(p + "-") || id.startsWith(p + ":")));
 }
 
@@ -915,6 +928,8 @@ export const MODEL_COST = [
   ["deepseek/deepseek-r1", { prompt: 0.8, completion: 2.5 }],
   ["deepseek/", { prompt: 0.6, completion: 2.5 }],
   ["meta-llama/", { prompt: 3.5, completion: 3.5 }],
+  ["meta/muse-spark", { prompt: 1.25, completion: 4.25 }], // one provider (Meta), live 2026-09-23
+  ["meta/muse-glimmer", { prompt: 0.35, completion: 1.5 }], // fireworks/together endpoints 0.35/1.5 (live 2026-09-23)
   ["mistralai/", { prompt: 2.2, completion: 7.5 }], // mistral-medium-3-5 $1.5/$7.5 (live 2026-08-19); mistral-large on mistral/eu 2.2/6.6 (live endpoints 2026-09-18)
   ["qwen/", { prompt: 2, completion: 6.4 }], // qwen3.8-max / -2.4t-a95b $2/$6 (live 2026-08-19)
   ["poolside/", { prompt: 0.15, completion: 0.3 }], // laguna xs/s: $0.06-0.09/$0.12-0.18
@@ -1387,6 +1402,7 @@ const PASSTHROUGH = [
 export function refuseCostVariants(model) {
   const variant = String(model || "").includes(":") ? String(model).slice(String(model).indexOf(":") + 1).toLowerCase() : "";
   if (variant === "online") throw bad(`Model variant ":online" is not offered - web search is billed per request on top of token pricing and is outside this tier's price. Use "${String(model).slice(0, String(model).indexOf(":"))}" instead (or POST /v1/grounded/chat/completions for grounded answers).`);
+  if (/-contributor(?:$|:)/i.test(String(model || ""))) throw bad(`Model "${String(model)}" is not offered - "contributor" listings are priced for the provider's use of the request data, and a buyer's prompt is never routed there. Use "${String(model).replace(/-contributor/i, "")}" instead.`);
   if (variant === "batch") throw bad(`Model variant ":batch" is not offered - batch ids are asynchronous (24h window) and not served on a synchronous path. Use "${String(model).slice(0, String(model).indexOf(":"))}" instead.`);
 }
 /** Which routes currently sell a given server tool - used so a refusal on the
@@ -1873,6 +1889,10 @@ export const REASONING_MODELS = [
   // (measured at 32 tokens). Supported efforts are exactly low/high/max - no
   // "minimal", no "medium" - so "lowest" resolves to "low".
   { id: "stealth/ox-alpha", efforts: ["low", "high", "max"] },
+  // Muse Glimmer 30B: reasoning.mandatory true, default_effort medium, efforts
+  // low/medium/high/xhigh (live catalog 2026-09-23). Without this row a small
+  // budget is spent reasoning at "medium" and comes back empty.
+  { prefix: "meta/muse-glimmer", efforts: ["low", "medium", "high", "xhigh"] },
 ];
 export function reasoningRowMatches(row, id) {
   const m = String(id || "").toLowerCase();
