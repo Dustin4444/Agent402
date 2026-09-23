@@ -8,6 +8,16 @@ carries its own version on npm.
 
 Since v2.4.0 (2026-09-18).
 
+### 2026-09-23
+- `/openapi.json` offers an MPP tempo payment only on routes whose 402 offers
+  one (not on wallet-identity or long-running routes), and per-request-priced
+  routes publish a dynamic price range with null offer amounts.
+- The hosted MCP connector declares the MPP methods it accepts in
+  `capabilities.experimental.payment`.
+- README: a three-line quickstart for paying over MPP and over x402.
+- CONTRIBUTING and the issue templates point sellers at
+  `POST /api/index/register` instead of a seed PR.
+
 ### 2026-09-22
 - Say, in fields a machine reads, that `GET /api/index` is one page: `complete`
   (false whenever a seller is absent from this response but present in the
