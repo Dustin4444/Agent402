@@ -42,7 +42,7 @@ import { fetchAllBazaarItems, isBazaarDiscoveryUrl } from "./bazaar-pager.js";
 import { RAILS, railKey, truncateCaip2 } from "./rails.js";
 import { CHAIN_PAGES, marketSellers } from "./market-page.js";
 import { WELL_KNOWN_PATH, discoveryNote } from "./discovery-note.js";
-import { acceptsFromLive402, quoteFromAccepts, probeMethodsFor, isQuoteResponse } from "./x402-live-quote.js";
+import { acceptsFromLive402, quoteFromAccepts, probeMethodsFor, probeTargetsFor, isQuoteResponse } from "./x402-live-quote.js";
 import { evmDomainsOfAccepts, EVM_TOKEN_DOMAINS } from "./evm-usdc-domain.js";
 import { queryTerms, isCjkTerm, splitTokens } from "./query-terms.js";
 import { summarize, fmtUsd, fmtPct } from "./economy.js";
@@ -3074,8 +3074,8 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
   const { assertPublicUrl, ssrfDispatcher } = await import("./tools/fetch-guard.js");
   const dropped = new Set();
   for (const tool of rotated) {
-    const target = `${originUrl}${tool.route}`;
     let learned = null;
+    probe: for (const target of probeTargetsFor(originUrl, tool))
     for (const method of probeMethodsFor(tool)) {
       try {
         // Crawled URLs are external data and could DNS-rebind between crawl and
@@ -3115,7 +3115,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
             delete tool.quoteCarriedForward;
             console.log(`[x402-index] live-200: ${originUrl}${tool.route} answered GET 200 with no paywall; retired the learned price ${was}`);
           }
-          break;
+          break probe;
         }
         if (!isQuoteResponse(res.status)) continue;   // 404 on GET is expected for a POST-only seller
         // The quote lives in the header for x402 v2 and in the body for several
@@ -3129,7 +3129,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
         const quote = quoteFromAccepts(Array.isArray(live)
           ? live.map((a) => (a && typeof a.network === "string" ? { ...a, network: normalizeNetwork(a.network) } : a))
           : live);
-        if (quote) { learned = { ...quote, method }; break; }
+        if (quote) { learned = { ...quote, method }; break probe; }
       } catch { /* unreachable, blocked, or malformed - try the next method */ }
     }
     noteProbeOutcome(originUrl, `quote:${tool.route}`, Boolean(learned));

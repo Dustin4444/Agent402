@@ -33,6 +33,7 @@
  *  price rather than guess - a wrong exponent is a 1000x pricing error. */
 const USDC_DECIMALS = 6;
 import { evmDomainsOfAccepts } from "./evm-usdc-domain.js";
+import { unpackRequestContract } from "./request-contract.js";
 const USDC_NAME = /^(usdc|usd coin)$/i;
 
 /**
@@ -176,6 +177,55 @@ export function probeMethodsFor(tool) {
   if (stated === "GET" && tool?.methodInferred !== true) return ["GET", "POST"];
   if (stated && stated !== "GET" && stated !== "POST") return [];
   return ["GET", "POST"];
+}
+
+// A route that REQUIRES a query parameter often validates it before the
+// paywall, so an unpaid probe of the bare path gets a 400/422 and never sees the
+// 402 - and with it the price and every chain the route takes. Measured
+// 2026-09-23: a seller's three `?url=` routes stayed Base-only in our index while
+// their live 402s offered Base and Solana; the same origin's parameter-free
+// routes were read fine. Across the index, 12,143 rows declare a required query
+// parameter (507 sellers).
+//
+// The values are OURS, never the seller's example: request-contract.js keeps
+// only parameter NAMES from a seller's OpenAPI on purpose (examples carry keys
+// and third-party text). A fixed placeholder per name shape is enough to get
+// past a presence check, and the call is still unpaid, so nothing runs that the
+// bare probe would not have reached.
+const QUERY_PLACEHOLDERS = [
+  [/^(url|uri|link|href|site|website|page|endpoint|target|source|src)(_?url)?$/i, "https://example.com"],
+  [/url$|uri$/i, "https://example.com"],
+  [/^(domain|host|hostname)$/i, "example.com"],
+  [/^(email|mail)$/i, "test@example.com"],
+  [/^(ip|ip_?address)$/i, "8.8.8.8"],
+  [/^(symbol|ticker|coin|asset|token)$/i, "BTC"],
+  [/^(chain|network)$/i, "base"],
+  [/^(limit|count|n|size|page|days|top)$/i, "1"],
+];
+export function queryPlaceholderFor(name) {
+  for (const [re, v] of QUERY_PLACEHOLDERS) if (re.test(name)) return v;
+  return "test";
+}
+
+/**
+ * The URLs an unpaid quote probe should try for one route, in order. A route
+ * whose seller declares required query parameters is tried WITH them first
+ * (placeholders, see above), then bare; every other route is tried bare only,
+ * exactly as before. A parameter the route already carries is left alone.
+ */
+export function probeTargetsFor(originUrl, tool) {
+  const bare = `${originUrl}${tool?.route || ""}`;
+  const names = unpackRequestContract(tool)?.required?.query || [];
+  if (!names.length) return [bare];
+  let u;
+  try { u = new URL(bare); } catch { return [bare]; }
+  let added = 0;
+  for (const n of names) {
+    if (u.searchParams.has(n)) continue;
+    u.searchParams.set(n, queryPlaceholderFor(n));
+    added++;
+  }
+  return added ? [u.toString(), bare] : [bare];
 }
 
 /** Is this response a usable x402 quote? 402 is the only healthy answer to an

@@ -2165,6 +2165,7 @@ jobs:
           # "Live 402 quote (a priceless row learns its price from the challenge; unpriceable never becomes $0; PUT/PATCH/DELETE never probed — offline)"
           t node scripts/test-x402-live-quote.js
           t node scripts/test-live-quote-method-refused.js
+          t node scripts/test-live-quote-query-params.js
           # A route that went free retires its learned price (issue #1365: re-register re-asks priced rows, GET 200 retires, carry-forward keeps it over the Bazaar snapshot - offline)
           t node scripts/test-quote-retired-on-free.js
           t node scripts/test-coingecko-rate.js
