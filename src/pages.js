@@ -563,7 +563,9 @@ export function openapiSpec(baseUrl, catalog) {
       // (it is what this route charges for the models it serves, and every
       // other surface agrees with it); the sentence is what keeps the number
       // from reading as a ceiling it is not.
-      description: `${tool.description}\n\nPrice: ${typeof tool.quote === "function" ? `quoted per request from the body, from ${tool.price}` : `${tool.price} per call`}, paid in ${RAILS_OR} via the x402 protocol${tool.identityBound || tool.longRunning ? ", or over MPP (Machine Payments Protocol) on Base" : ", or over MPP (Machine Payments Protocol) on Tempo or Base"}.${typeof tool.tierQuote === "function" ? ` ${PRICED_BY_MODEL_NOTE}` : ""} Unpaid requests receive HTTP 402 carrying both x402 payment requirements and MPP WWW-Authenticate challenges; any x402 v2 or MPP client can pay and retry automatically. Docs: ${baseUrl}/tools/${tool.slug}`,
+      // The 402 walkthrough lives ONCE in info.x-guidance; repeating it on
+      // every operation was ~20% of a 2 MB document for no new information.
+      description: `${tool.description}\n\nPrice: ${typeof tool.quote === "function" ? `quoted per request from the body, from ${tool.price}` : `${tool.price} per call`}, over x402 (${RAILS_OR}) or MPP (${tool.identityBound || tool.longRunning ? "Base" : "Tempo or Base"}).${typeof tool.tierQuote === "function" ? ` ${PRICED_BY_MODEL_NOTE}` : ""} Docs: ${baseUrl}/tools/${tool.slug}`,
       tags: [tool.category],
       responses: {
         200: {
@@ -633,7 +635,7 @@ export function openapiSpec(baseUrl, catalog) {
               method: "evm",
               amount: range ? null : String(Math.round(priceUsd * 1e6)),
               currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-              description: `${range ? `$${fmtUsd(range.minUsd)}-$${fmtUsd(range.maxUsd)}, quoted per request in the live 402,` : tool.price} in USDC on Base (eip155:8453) - MPP evm charge or x402 exact; more chains in the live 402`,
+              description: "USDC on Base",
             },
             ...(tempo
               ? [{
@@ -641,7 +643,7 @@ export function openapiSpec(baseUrl, catalog) {
                   method: "tempo",
                   amount: range ? null : String(Math.round(priceUsd * 10 ** tempo.decimals)),
                   currency: tempo.currency,
-                  description: `${range ? `$${fmtUsd(range.minUsd)}-$${fmtUsd(range.maxUsd)}, quoted per request in the live 402,` : tool.price} on Tempo (chain 4217) - MPP tempo/charge, settled via Tempo's own relay (not x402)`,
+                  description: "USDC.e on Tempo",
                 }]
               : []),
             ...(stripeOffered
@@ -650,7 +652,7 @@ export function openapiSpec(baseUrl, catalog) {
                   method: "stripe",
                   amount: range ? null : String(Math.round(priceUsd * 100)),
                   currency: "usd",
-                  description: `${range ? `$${fmtUsd(range.minUsd)}-$${fmtUsd(range.maxUsd)}, quoted per request in the live 402,` : tool.price} by card (Stripe Shared Payment Token) - MPP stripe/charge, settled to our Stripe balance; $0.50 card minimum`,
+                  description: "Card via Stripe",
                 }]
               : []),
           ],
@@ -668,14 +670,14 @@ export function openapiSpec(baseUrl, catalog) {
         name: "Idempotency-Key",
         in: "header",
         required: false,
-        description: "Optional client-supplied key. Replaying the same key with the same payment/PoW credential and request body returns the original result instead of charging again.",
+        description: "Same key + same credential + same body replays the paid result without charging again.",
         schema: { type: "string" },
       },
       ...(isComputePayable(tool) ? [{
         name: "X-Pow-Solution",
         in: "header",
         required: false,
-        description: `Free-tier alternative to x402 payment: "<token>:<nonce>" from a solved proof-of-work challenge (GET /api/pow/challenge). Omit when paying via x402.`,
+        description: "Free alternative to paying: <token>:<nonce> from GET /api/pow/challenge.",
         schema: { type: "string" },
       }] : []),
     ];
