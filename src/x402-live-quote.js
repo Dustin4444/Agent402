@@ -298,7 +298,10 @@ export function sameOriginRedirect(fromUrl, location) {
   try {
     const from = new URL(fromUrl);
     const to = new URL(location, from);
-    return to.origin === from.origin ? to.toString() : null;
+    if (to.origin !== from.origin) return null;
+    // Rebuilt from the URL we already fetched plus the redirect's PATH only, so
+    // no part of the host can come from the redirect header itself.
+    return `${from.origin}${to.pathname}${to.search}`;
   } catch {
     return null;
   }
