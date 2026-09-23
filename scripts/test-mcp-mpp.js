@@ -89,6 +89,7 @@ try {
   try {
     await plain.callTool({ name: "catalog.call", arguments: { slug: "memory-write", params: { key, value: { hello: "mpp" } } } });
   } catch (e) { asked = e; }
+  ok(/credits|agent402-mcp/.test(String(asked?.message || "")), "the -32042 message names the ways to pay without MPP, for hosts that only show the text");
   ok(asked && asked.code === MCP_PAYMENT_REQUIRED_CODE, `unpaid wallet-only tool -> JSON-RPC error -32042 (got code ${asked?.code}: ${String(asked?.message || "").slice(0, 80)})`);
   const challenges = asked?.data?.challenges;
   ok(Array.isArray(challenges) && challenges.length >= 1 && challenges.some((c) => c.method === "evm" && c.intent === "charge") && asked.data.httpStatus === 402, `error.data carries httpStatus 402 + challenges (${(challenges || []).map((c) => c.method).join(",")})`);

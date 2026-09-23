@@ -563,7 +563,10 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
         // credential's problem says why; a first ask carries only the
         // challenges. Price rides inside each challenge's request.amount.
         const presented = Boolean(credentialHeaderFromMeta(meta));
-        throw new McpError(presented ? MCP_PAYMENT_VERIFICATION_FAILED_CODE : MCP_PAYMENT_REQUIRED_CODE, problem?.detail || `Payment Required: ${entry.def.price} per call (pay with an MPP credential in _meta["org.paymentauth/credential"])`, { httpStatus: 402, challenges, ...(problem ? { problem } : {}) });
+        // The message is what a host that does not speak MPP shows its user,
+        // so a first ask carries every other way to pay, not only the MPP one.
+        // Code and data are unchanged: an MPP client reads those, never the text.
+        throw new McpError(presented ? MCP_PAYMENT_VERIFICATION_FAILED_CODE : MCP_PAYMENT_REQUIRED_CODE, problem?.detail || `Payment Required: ${walletRequiredText(entry.def)}`, { httpStatus: 402, challenges, ...(problem ? { problem } : {}) });
       }
       if (r.status >= 400) {
         onServed(entry.def.slug, { latencyMs: Date.now() - startedAt, errored: true, statusCode: r.status, errorMessage: String(r.json?.error || r.text || r.status).slice(0, 200), inputKeys: Object.keys(params || {}) });
