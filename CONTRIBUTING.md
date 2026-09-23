@@ -23,14 +23,25 @@ last commit. CI checks this on every PR.
 
 ## List your x402 seller
 
-Running your own x402 service? Get it into the index in one line:
+Running your own x402 service? Listing takes one request, no PR:
 
-1. Publish a service manifest at `/.well-known/x402` (identity + payment options).
-2. Add your origin to `DEFAULT_SEEDS` in
-   [`src/x402-index.js`](src/x402-index.js) - **stable HTTPS origins only** (no
-   ephemeral tunnels like `*.trycloudflare.com`; they flap to `STALE`).
-3. Open a PR. The index crawls and health-checks it automatically every few
-   minutes - a dead origin just shows `STALE`, so there's nothing to maintain.
+1. Publish a service manifest at `/.well-known/x402` (identity + payment options)
+   on a **stable HTTPS origin** (no ephemeral tunnels like `*.trycloudflare.com`;
+   they flap to `STALE`).
+2. Register it:
+
+   ```bash
+   curl -s -X POST https://agent402.tools/api/index/register \
+     -H 'content-type: application/json' \
+     -d '{"origin":"https://your-origin.example"}'
+   ```
+
+3. Check your listing at `https://agent402.tools/api/index?seller=<your origin>`.
+   The index re-crawls and health-checks it on every cycle, so manifest changes
+   show up there on their own. Full details: [agent402.tools/sell](https://agent402.tools/sell).
+
+`DEFAULT_SEEDS` in [`src/x402-index.js`](src/x402-index.js) is maintained by
+the project; a PR is not needed to get listed.
 
 ## Dev quickstart
 
