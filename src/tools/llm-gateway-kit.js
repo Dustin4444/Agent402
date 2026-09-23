@@ -346,15 +346,14 @@ export const TIERS = {
       "google/gemini-2.5-flash",
       "google/gemini-3.1-flash-lite", "google/gemini-3.5-flash-lite", // $0.25/$1.50, $0.30/$2.50
       "deepseek/", "meta-llama/", "mistralai/", "qwen/",
-      // Meta's Muse Glimmer 30B (live 2026-09-23): $0.30-0.35/$1.10-1.50,
+      // Meta's Muse models. Glimmer 30B (live 2026-09-23): $0.30-0.35/$1.10-1.50,
       // reasoning mandatory (see REASONING_MODELS). The "-contributor" listings
       // are refused by name in refuseCostVariants: a buyer's prompt is never
       // routed to a listing priced for the provider's use of the data.
-      // Muse Spark (meta/muse-spark-1.1/1.2/1.3, $1.25/$4.25, one provider) is
-      // NOT admitted yet: OpenRouter gates it behind an account-level 18+ age
-      // attestation ("Gate Endpoints with Attestations", 403) that our key has
-      // not completed, so every call would 502. Its MODEL_COST row is in place;
-      // add the ids here once the attestation is done and a live call answers.
+      // Muse Spark ($1.25/$4.25, one provider, 1M context): OpenRouter gates it
+      // behind an account-level 18+ age attestation, completed 2026-09-23; a
+      // live call answers. Reasoning is mandatory (see REASONING_MODELS).
+      "meta/muse-spark-1.3", "meta/muse-spark-1.2", "meta/muse-spark-1.1",
       "meta/muse-glimmer-30b",
     ],
   },
@@ -1893,6 +1892,11 @@ export const REASONING_MODELS = [
   // low/medium/high/xhigh (live catalog 2026-09-23). Without this row a small
   // budget is spent reasoning at "medium" and comes back empty.
   { prefix: "meta/muse-glimmer", efforts: ["low", "medium", "high", "xhigh"] },
+  // Muse Spark: reasoning mandatory ("cannot be disabled" on effort none), no
+  // reasoning block in the catalog, efforts minimal..xhigh accepted live
+  // 2026-09-23. At 120 max_tokens "low" spent every token reasoning and came
+  // back empty; "minimal" answered with 57 reasoning tokens.
+  { prefix: "meta/muse-spark", efforts: ["minimal", "low", "medium", "high", "xhigh"] },
 ];
 export function reasoningRowMatches(row, id) {
   const m = String(id || "").toLowerCase();

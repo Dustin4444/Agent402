@@ -1527,7 +1527,8 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
 // ---- Meta Muse (2026-09-23) -------------------------------------------------
 {
   const { refuseCostVariants, defaultReasoningFor } = await import("../src/tools/llm-gateway-kit.js");
-  ok(tierFor("meta/muse-glimmer-30b") === "v1-chat", "Muse Glimmer 30B is served on the base tier");
+  ok(tierFor("meta/muse-glimmer-30b") === "v1-chat" && tierFor("meta/muse-spark-1.3") === "v1-chat", "Muse Glimmer 30B and Muse Spark are served on the base tier");
+  ok(defaultReasoningFor("meta/muse-spark-1.3", "v1-chat")?.effort === "minimal", "Spark's mandatory reasoning gets minimal effort on the base tier");
   ok(tierFor("meta/muse-spark-1.3-contributor") === null && tierFor("meta/muse-glimmer-30b-contributor") === null, "a -contributor listing is never admitted by a family entry");
   let err = null; try { refuseCostVariants("meta/muse-spark-1.3-contributor"); } catch (e) { err = e; }
   ok(err?.statusCode === 400 && /never routed there/.test(err.message) && /"meta\/muse-spark-1\.3"/.test(err.message), "a -contributor listing is refused by name, naming the plain id");
