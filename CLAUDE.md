@@ -4007,6 +4007,44 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   pinned from source. Six mutations killed, one of which first SURVIVED: `pageSizeOf(undefined, "100")` returns 100
   whether or not the alias exists, because 100 is also the default - the assertion uses 37 now. When a guard's
   expected value equals the fallback, it is testing nothing.
+  **THE CLASS, SWEPT (same day, `src/partial-answer.js`, `scripts/test-figure-scope.js` 66 +
+  `scripts/test-negative-answer-honesty.js` 50, both in CI):** fixing the instance is what let this happen a second
+  and third time, so the rule is now one vocabulary every list answer speaks - `returned`, `matched` (rows that met
+  the filter BEFORE any cap), `complete`, `truncated`, plus `clampFields` for "you asked for more than this endpoint
+  gives" and `scanCoverage` for rows missing because we never LOOKED rather than because we cut the list (absence of
+  evidence published as evidence of absence is the worst version). **Prose in a `note` does not count** - that is
+  what failed twice. Existing field names keep their exact meaning and VALUES and the new ones ride alongside:
+  renaming a live field is a second, worse break. Corrected: `/api/route` (`sellers` was origins in ONE PAGE and read
+  as the sellers that can serve the task; the per-seller diversity cap deliberately suppresses higher-scoring rows,
+  so a seller can be routable, outrank what you got and be ABSENT - `diversityCapped` + `perSellerCap` say so),
+  `/api/find` (`count: 5` against a 600-row catalog read as "five tools exist"), `/api/revenue/daily`
+  (`daysScope`: the series drops undateable rows, internal transfers over `maxCallUsd` and everything before
+  `REVENUE_DAILY_START`, said none of it, and so disagreed with `/api/revenue`'s own allTime by $92.89 with 24 real
+  outside customers among the missing rows), `/api/index?seller=` (returns `history` + `healthWindow` + a legend -
+  the wiki had TWICE told operators to audit us with a field that was on no public surface), `/api/leaderboard`
+  (`totalSellers` counted the UNFILTERED board beside filtered rows), `/api/stats` (scope on
+  `chargedButFailedGenuine`, `topTools`, `recentCalls`, `estimatedRevenueUsd`), the host card (a ledger-scoped figure
+  labelled "all time"; the ledger starts three weeks after the service), both leaderboards (a capped scan says a
+  missing row is unmeasured, not inactive), MCP `catalog.search`/`catalog.find` (the HTTP caller learned the ranking
+  was cut and the agent did not), and the homepage band, which claimed the whole board over twelve rows.
+  **Negatives are facts about their SUBJECT:** a miss while the index is still loading says so and is not sold
+  (`readinessOf`, a pure function, because a CI boot is ALWAYS in one state); an upstream that rate-limited or
+  refused THIS SERVER is no longer relayed as the caller's bad URL (`attribution`, `upstreamStatus`, `Retry-After`,
+  and no schema hint - re-reading the schema cannot fix a host throttling us); a degraded trending board says it is
+  degraded; `demand-radar` REFUSES rather than repeat the hollow 200 it sold for six weeks. The seller dossier
+  refuses 503 while loading rather than sell "never crawled" - except to the operator, who pays nothing and gets the
+  record plus the caveat as a field, via a SECOND handler argument the HTTP dispatcher never passes, so a buyer
+  cannot set it from a body.
+  **Two genuine defects found by the sweep, not by a report:** `externalByNetwork` summed `COUNT(DISTINCT payer)`
+  across CAIP aliases of ONE rail, so a wallet paying under both "base" and "eip155:8453" was published as two
+  distinct buyers - the exact error we decline to publish about anybody else, and the reason `foldBazaarQuality`
+  folds payers with MAX; and `/api/route`'s cache key ignored `?network`, so two buyers on different chains shared
+  one 60 s entry and the second was served a list filtered for the first.
+  **The guard written after the last instance could not see the next one:** `test-capped-counts` matched only
+  backtick-quoted `db.prepare` and only `.all(...).length` with nothing in between, so eight LIMITed statements in
+  five files were invisible - among them the one feeding `chargedButFailedGenuine`, the figure `/api/stats`' own note
+  calls "the reliability number". It walks chains through `|| []`, `.filter`, `.map` and every quote style now.
+  Same lesson as the copy guards: scope a guard to the CLAIM, never to the spelling that drifted last.
 - **Every crawler we name was exempt from every private disallow (2026-09-22, `src/seo.js`,
   `scripts/test-robots-policy.js` 90):** a crawler obeys the one group that names it and no other (RFC 9309), and
   `robotsTxt()` gave each of the 19 named agents `Allow: /` plus three cost rules while the fourteen private disallows
