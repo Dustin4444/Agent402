@@ -31,6 +31,9 @@ try {
   ok(sameOriginRedirect("https://example.com/a", "/a/") === "https://example.com/a/", "relative same-origin redirect resolved");
   ok(sameOriginRedirect("https://example.com/a", "https://other.test/a") === null, "cross-origin redirect refused");
   ok(sameOriginRedirect("https://example.com/a", "http://example.com/a") === null, "a scheme change is a different origin");
+  ok(sameOriginRedirect("https://example.com/a/", "/a") === "https://example.com/a", "a removed trailing slash is followed too");
+  ok(sameOriginRedirect("https://example.com/a", "/login") === null, "a redirect to another path is not followed");
+  ok(sameOriginRedirect("https://example.com/a?x=1", "/a/?x=1") === "https://example.com/a/?x=1", "the query rides along unchanged");
   eq(acceptsFromLive402({ body: JSON.stringify({ x402Version: 1, paymentRequirements: [accept] }) }), [accept], "paymentRequirements read as accepts");
   eq(acceptsFromLive402({ body: JSON.stringify({ error: { accepts: [accept] } }) }), [accept], "accepts nested under error read");
 

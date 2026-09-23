@@ -290,18 +290,20 @@ export function probeAttemptsFor(originUrl, tool) {
   return out;
 }
 
-/** A redirect the probe may follow: same scheme, host and port as the URL it
- *  was answering, so an origin that adds a trailing slash or rewrites a path
- *  is read, and nothing ever sends our probe to a host we did not index. */
+/** A redirect the probe may follow. The only one accepted is the same URL
+ *  with its trailing slash added or removed, the common shape (a framework's
+ *  slash rule). The next URL is BUILT from the URL we already fetched; the
+ *  Location header is only compared against it, so nothing from the header
+ *  ever becomes part of a request, and any other redirect is left alone. */
 export function sameOriginRedirect(fromUrl, location) {
   if (!location) return null;
   try {
     const from = new URL(fromUrl);
     const to = new URL(location, from);
-    if (to.origin !== from.origin) return null;
-    // Rebuilt from the URL we already fetched plus the redirect's PATH only, so
-    // no part of the host can come from the redirect header itself.
-    return `${from.origin}${to.pathname}${to.search}`;
+    const flipped = new URL(from.toString());
+    flipped.pathname = from.pathname.endsWith("/") ? from.pathname.replace(/\/+$/, "") || "/" : `${from.pathname}/`;
+    const same = to.origin === from.origin && to.pathname === flipped.pathname && to.search === from.search;
+    return same ? flipped.toString() : null;
   } catch {
     return null;
   }

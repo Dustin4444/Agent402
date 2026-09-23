@@ -3148,9 +3148,9 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
       try {
         // Crawled URLs are external data and could DNS-rebind between crawl and
         // now: validate then pin, exactly as probePaywall does. A redirect is
-        // followed only when it stays on the same origin (a trailing slash, a
-        // path rewrite: ~10% of misses before 2026-09-23), at most twice, and
-        // every hop is validated and pinned the same way.
+        // followed only when it is the same URL with its trailing slash added or
+        // removed (redirects were ~10% of misses before 2026-09-23), at most
+        // twice, and every hop is validated and pinned the same way.
         let url = target;
         let res;
         for (let hop = 0; ; hop++) {
