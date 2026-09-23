@@ -155,6 +155,10 @@ export const TOOLS = [
     path: "/api/x-tweet",
     method: "POST",
     body: { id: "20" },
+    // Weekly since 2026-09-23 (operator's call): the leg never failed in its
+    // first 17 days and each read is paid from the same prepaid X balance the
+    // announce posts use. Wednesdays, away from Monday's Algorand sweep.
+    weekday: 3,
     priceUsd: 0.008,
     check: (r) => (r?.tweet?.id === "20" && /twttr/.test(String(r?.tweet?.text)) && r?.tweet?.author?.username === "jack") || `expected tweet 20 by jack, got ${JSON.stringify(r).slice(0, 100)}`,
   },
@@ -898,6 +902,12 @@ async function main() {
   // attests the settlement tx of the leg before it).
   const ctx = { lastSettledTx: null, lastSettledPath: null };
   for (const t of TOOLS) {
+    // A leg with `weekday` (0 = Sunday, UTC) buys only on that day, unless the
+    // run asks for every leg (CANARY_ALL_LEGS=1, e.g. a manual dispatch).
+    if (Number.isInteger(t.weekday) && new Date().getUTCDay() !== t.weekday && process.env.CANARY_ALL_LEGS !== "1") {
+      console.log(`SKIP  ${t.kit.padEnd(10)} ${t.path}  (weekly leg, runs on UTC weekday ${t.weekday})`);
+      continue;
+    }
     const url = `${TARGET}${t.path}`;
     const init = { method: t.method };
     const body = typeof t.body === "function" ? t.body(ctx) : t.body;
