@@ -131,7 +131,7 @@ In your `wrangler.jsonc` (or equivalent config):
 The MCP surface handles discovery and invocation - `catalog.call` solves
 proof-of-work automatically for free-tier tools. Wallet-only tools (search,
 browser, PDF, memory) are payable on the connector over MPP: the call answers
-JSON-RPC error `-32042` carrying the challenges, and an MCP client wrapped with
+with a tool result carrying the challenges in `_meta`, and an MCP client wrapped with
 `mppx`'s `McpClient.wrap()` pays (USDC on Base/Celo, or natively on Tempo) and
 retries, receipt in `_meta`. To pay over x402 instead, run the `agent402-mcp`
 npm package with a wallet key (or a prepaid card-credits key).
