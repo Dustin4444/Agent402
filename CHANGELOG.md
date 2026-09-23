@@ -9,6 +9,12 @@ carries its own version on npm.
 Since v2.4.0 (2026-09-18).
 
 ### 2026-09-23
+- The model gateway serves Meta's Muse Spark (`meta/muse-spark-1.3`, `-1.2`,
+  `-1.1`) and Muse Glimmer 30B (`meta/muse-glimmer-30b`) on the base tier and
+  on every route priced by model. "Contributor" listings
+  are refused by name.
+- /guides/agent-hosts covers Muse Code (MCP over Streamable HTTP or stdio);
+  `/muse` links to it.
 - A 402 lists the MPP tempo challenge first, so a client holding Tempo funds
   pays over Tempo; a client whose tempo credential was just refused gets the
   evm challenge first for 30 minutes (`MPP_TEMPO_DEMOTE_MS`).

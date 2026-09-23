@@ -1048,7 +1048,7 @@ its normal schedule.
   },
   {
     slug: "agent-hosts",
-    title: "Use Agent402 from Claude Code, Cursor, VS Code, Windsurf, Cline, Roo Code, Codex CLI, Gemini CLI, Continue, ElizaOS, AgentCore and any OpenAI SDK",
+    title: "Use Agent402 from Claude Code, Cursor, VS Code, Windsurf, Cline, Roo Code, Codex CLI, Gemini CLI, Muse Code, Continue, ElizaOS, AgentCore and any OpenAI SDK",
     description:
       "Two doors into Agent402 from the agent host you already run: models through an OpenAI-compatible base URL with a prepaid credits key (metered, from $" + TIERS["v1-chat-metered"].price + " a call), and 500+ tools through MCP. Copy the block for your host.",
     md: `
@@ -1419,6 +1419,39 @@ Or in \`~/.gemini/settings.json\` (\`httpUrl\` is the Streamable HTTP key;
   }
 }
 \`\`\`
+
+## Muse Code
+
+Meta's Muse Code CLI reads MCP servers from the \`mcp_servers\` block of
+\`~/.config/muse/settings.json\` (the file must carry \`"schema_version": 1\`).
+The hosted connector over Streamable HTTP for the free tier, and the stdio
+server for paid tools by card:
+
+\`\`\`json
+{
+  "schema_version": 1,
+  "mcp_servers": {
+    "agent402": {
+      "transport": "streamable_http",
+      "url": "https://agent402.tools/mcp",
+      "enabled": true,
+      "mode": "optional"
+    },
+    "agent402-paid": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "agent402-mcp"],
+      "env": { "AGENT402_CREDITS_KEY": "\${AGENT402_CREDITS_KEY}" },
+      "enabled": true,
+      "mode": "optional"
+    }
+  }
+}
+\`\`\`
+
+\`mode: "optional"\` lets a session start even if a server is unreachable.
+Muse Code has no custom model provider setting, so it uses Agent402 for tools,
+not as its model host.
 
 ## What the same key buys
 
