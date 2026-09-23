@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 // Three live-402 probe gaps measured on prod 2026-09-23 (first hour of the
 // outcome counters): input errors on POST routes that validate a required body
-// before the paywall (~25% of misses), redirects we never followed (~10%), and
-// 402s whose accepts array sat under a name we did not read. Offline: fetch is
+// before the paywall (~25% of misses), and 402s whose accepts array sat under a
+// name we did not read. Offline: fetch is
 // stubbed; example.com resolves publicly so the SSRF guard is happy.
 import assert from "node:assert/strict";
 process.env.X402_INDEX_CRAWL = "off";
 const { enrichLiveQuotes, quoteProbeStatsSnapshot } = await import("../src/x402-index.js");
-const { probeBodyFor, probeAttemptsFor, sameOriginRedirect, acceptsFromLive402 } = await import("../src/x402-live-quote.js");
+const { probeBodyFor, probeAttemptsFor, acceptsFromLive402 } = await import("../src/x402-live-quote.js");
 
 let n = 0;
 const ok = (c, m) => { n++; assert.ok(c, m); };
@@ -28,12 +28,6 @@ try {
   ok(probeBodyFor(row("/x", "POST")) === null, "no contract, no body");
   eq(probeAttemptsFor(ORIGIN, row("/plain", "GET")).map((a) => `${a.method} ${a.body}`), ["GET null", "POST {}"], "a route that declares nothing makes exactly the old two requests");
   eq(probeAttemptsFor(ORIGIN, row("/b", "POST", { body: ["url"] })).map((a) => a.body), ['{"url":"https://example.com"}', "{}"], "filled body first, then {}");
-  ok(sameOriginRedirect("https://example.com/a", "/a/") === "https://example.com/a/", "relative same-origin redirect resolved");
-  ok(sameOriginRedirect("https://example.com/a", "https://other.test/a") === null, "cross-origin redirect refused");
-  ok(sameOriginRedirect("https://example.com/a", "http://example.com/a") === null, "a scheme change is a different origin");
-  ok(sameOriginRedirect("https://example.com/a/", "/a") === "https://example.com/a", "a removed trailing slash is followed too");
-  ok(sameOriginRedirect("https://example.com/a", "/login") === null, "a redirect to another path is not followed");
-  ok(sameOriginRedirect("https://example.com/a?x=1", "/a/?x=1") === "https://example.com/a/?x=1", "the query rides along unchanged");
   eq(acceptsFromLive402({ body: JSON.stringify({ x402Version: 1, paymentRequirements: [accept] }) }), [accept], "paymentRequirements read as accepts");
   eq(acceptsFromLive402({ body: JSON.stringify({ error: { accepts: [accept] } }) }), [accept], "accepts nested under error read");
 
@@ -47,21 +41,6 @@ try {
   await enrichLiveQuotes(post, ORIGIN, { ignoreBudget: true });
   ok(post[0].price === 0.002, `the body placeholder gets past validation to the 402 (got ${post[0].price})`);
   ok(seen[0] === 'POST /extract {"url":"https://example.com"}', `placeholder body sent first (got ${seen[0]})`);
-
-  // --- same-origin redirect followed, cross-origin not
-  seen.length = 0;
-  globalThis.fetch = async (url, init = {}) => {
-    const u = new URL(String(url)); seen.push(`${init.method} ${u.host}${u.pathname}`);
-    if (u.pathname === "/slash") return new Response("", { status: 301, headers: { location: "/slash/" } });
-    if (u.pathname === "/slash/") return quote402();
-    if (u.pathname === "/away") return new Response("", { status: 302, headers: { location: "https://other.test/away" } });
-    return new Response("", { status: 404 });
-  };
-  const redir = [row("/slash", "GET"), row("/away", "GET")];
-  await enrichLiveQuotes(redir, ORIGIN, { ignoreBudget: true });
-  ok(redir[0].price === 0.002, "a trailing-slash redirect on the same origin is followed to the 402");
-  ok(!seen.some((s) => s.includes("other.test")), "a redirect to another host is never followed");
-  ok(redir[1].price === null, "and that route stays unpriced");
 
   // --- MPP-only 402 counted apart from a parser gap
   const before = quoteProbeStatsSnapshot();

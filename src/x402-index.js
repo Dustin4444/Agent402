@@ -42,7 +42,7 @@ import { fetchAllBazaarItems, isBazaarDiscoveryUrl } from "./bazaar-pager.js";
 import { RAILS, railKey, truncateCaip2 } from "./rails.js";
 import { CHAIN_PAGES, marketSellers } from "./market-page.js";
 import { WELL_KNOWN_PATH, discoveryNote } from "./discovery-note.js";
-import { acceptsFromLive402, quoteFromAccepts, probeMethodsFor, probeAttemptsFor, sameOriginRedirect, isQuoteResponse } from "./x402-live-quote.js";
+import { acceptsFromLive402, quoteFromAccepts, probeMethodsFor, probeAttemptsFor, isQuoteResponse } from "./x402-live-quote.js";
 import { evmDomainsOfAccepts, EVM_TOKEN_DOMAINS } from "./evm-usdc-domain.js";
 import { queryTerms, isCjkTerm, splitTokens } from "./query-terms.js";
 import { summarize, fmtUsd, fmtPct } from "./economy.js";
@@ -3147,28 +3147,16 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
     probe: for (const { target, method, body: reqBody } of probeAttemptsFor(originUrl, tool)) {
       try {
         // Crawled URLs are external data and could DNS-rebind between crawl and
-        // now: validate then pin, exactly as probePaywall does. A redirect is
-        // followed only when it is the same URL with its trailing slash added or
-        // removed (redirects were ~10% of misses before 2026-09-23), at most
-        // twice, and every hop is validated and pinned the same way.
-        let url = target;
-        let res;
-        for (let hop = 0; ; hop++) {
-          await assertPublicUrl(url);
-          res = await fetch(url, {
-            method,
-            headers: { Accept: "application/json", ...(method === "POST" ? { "Content-Type": "application/json" } : {}) },
-            ...(method === "POST" ? { body: reqBody } : {}),
-            dispatcher: ssrfDispatcher,
-            redirect: "manual",
-            signal: AbortSignal.timeout(8000),
-          });
-          const next = [301, 302, 303, 307, 308].includes(res.status) && hop < 2
-            ? sameOriginRedirect(url, res.headers.get("location")) : null;
-          if (!next) break;
-          note(method, `${res.status}-followed`);
-          url = next;
-        }
+        // now: validate then pin, exactly as probePaywall does.
+        await assertPublicUrl(target);
+        const res = await fetch(target, {
+          method,
+          headers: { Accept: "application/json", ...(method === "POST" ? { "Content-Type": "application/json" } : {}) },
+          ...(method === "POST" ? { body: reqBody } : {}),
+          dispatcher: ssrfDispatcher,
+          redirect: "manual",
+          signal: AbortSignal.timeout(8000),
+        });
         // A GET that returns 200 has ANSWERED: the route is not paywalled, and
         // there is nothing a POST can add. Following it with an unpaid POST is
         // a second request to somebody else's endpoint on the exact shape most

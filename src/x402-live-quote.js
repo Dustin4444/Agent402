@@ -290,25 +290,6 @@ export function probeAttemptsFor(originUrl, tool) {
   return out;
 }
 
-/** A redirect the probe may follow. The only one accepted is the same URL
- *  with its trailing slash added or removed, the common shape (a framework's
- *  slash rule). The next URL is BUILT from the URL we already fetched; the
- *  Location header is only compared against it, so nothing from the header
- *  ever becomes part of a request, and any other redirect is left alone. */
-export function sameOriginRedirect(fromUrl, location) {
-  if (!location) return null;
-  try {
-    const from = new URL(fromUrl);
-    const to = new URL(location, from);
-    const flipped = new URL(from.toString());
-    flipped.pathname = from.pathname.endsWith("/") ? from.pathname.replace(/\/+$/, "") || "/" : `${from.pathname}/`;
-    const same = to.origin === from.origin && to.pathname === flipped.pathname && to.search === from.search;
-    return same ? flipped.toString() : null;
-  } catch {
-    return null;
-  }
-}
-
 /** Is this response a usable x402 quote? 402 is the only healthy answer to an
  *  unpaid call; a 200 means the route is not paywalled at all. */
 export function isQuoteResponse(status) {
