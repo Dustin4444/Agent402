@@ -31,7 +31,7 @@ The fastest path for the free tier. Agent402 exposes a hosted [MCP](https://mode
 1. **Gateway target:** in AgentCore Gateway, add an MCP target with URL `https://agent402.tools/mcp` (auth: none).
 2. **Done.** Your agent sees Agent402's flagship-first MCP surface (~15 tools): `web.search` / `web.answer` as the front door, plus news/render/stock/transcribe/memory, meta tools (`catalog.search`, `catalog.find`, `catalog.call`, `server.describe`, …), and via `catalog.call` the full 500+ tool catalog. Free tools pay automatically via proof-of-work in the request path - no wallet anywhere.
 
-For **wallet-only (paid) tools**, remember the Gateway cannot settle a 402 on the Gateway→target hop: pay agent-side with the Payments plugin (sample above). MPP-speaking clients can also pay wallet-only tools directly on the connector - `/mcp` serves native MPP challenges (JSON-RPC error `-32042`) - see [[Paying with MPP]].
+For **wallet-only (paid) tools**, remember the Gateway cannot settle a 402 on the Gateway→target hop: pay agent-side with the Payments plugin (sample above). MPP-speaking clients can also pay wallet-only tools directly on the connector - `/mcp` serves native MPP challenges (in `_meta["org.paymentauth/payment-required"]`) - see [[Paying with MPP]].
 
 > Want to host the catalog yourself instead? Run Agent402 anywhere (`FREE_MODE=false` with `WALLET_ADDRESS` + CDP keys), and point Gateway at `https://your-host/mcp` the same way.
 

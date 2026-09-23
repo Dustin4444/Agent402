@@ -9,6 +9,16 @@ carries its own version on npm.
 Since v2.4.0 (2026-09-18).
 
 ### 2026-09-23
+- A 402 lists the MPP tempo challenge first, so a client holding Tempo funds
+  pays over Tempo; a client whose tempo credential was just refused gets the
+  evm challenge first for 30 minutes (`MPP_TEMPO_DEMOTE_MS`).
+- The hosted MCP connector answers an unpaid paid-tool call with a readable
+  tool result whose text names every way to pay and whose
+  `_meta["org.paymentauth/payment-required"]` carries the challenges, instead
+  of a bare JSON-RPC `-32042`; mppx clients pay it the same way. Refused
+  credentials still answer `-32043`, and the tasks path keeps `-32042`.
+- `/openapi.json` drops repeated per-operation boilerplate (the 402 walkthrough
+  lives once in `info.x-guidance`).
 - `/openapi.json` offers an MPP tempo payment only on routes whose 402 offers
   one (not on wallet-identity or long-running routes), and per-request-priced
   routes publish a dynamic price range with null offer amounts.

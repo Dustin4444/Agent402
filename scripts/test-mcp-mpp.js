@@ -85,14 +85,14 @@ try {
   const pay = plain.getServerCapabilities()?.experimental?.payment;
   ok(pay?.methods?.evm?.intents?.includes("charge"), `initialize advertises experimental.payment with evm charge (${JSON.stringify(pay)})`);
   const key = `mcp-mpp-${Date.now()}`;
-  let asked = null;
-  try {
-    await plain.callTool({ name: "catalog.call", arguments: { slug: "memory-write", params: { key, value: { hello: "mpp" } } } });
-  } catch (e) { asked = e; }
-  ok(/credits|agent402-mcp/.test(String(asked?.message || "")), "the -32042 message names the ways to pay without MPP, for hosts that only show the text");
-  ok(asked && asked.code === MCP_PAYMENT_REQUIRED_CODE, `unpaid wallet-only tool -> JSON-RPC error -32042 (got code ${asked?.code}: ${String(asked?.message || "").slice(0, 80)})`);
-  const challenges = asked?.data?.challenges;
-  ok(Array.isArray(challenges) && challenges.length >= 1 && challenges.some((c) => c.method === "evm" && c.intent === "charge") && asked.data.httpStatus === 402, `error.data carries httpStatus 402 + challenges (${(challenges || []).map((c) => c.method).join(",")})`);
+  // 1. A first ask gets a readable tool result
+  //     (hosts that do not speak MPP show a bare error for -32042) carrying the
+  //     challenges in _meta, which mppx's McpClient pays as well.
+  const soft = await plain.callTool({ name: "catalog.call", arguments: { slug: "memory-write", params: { key, value: { hello: "mpp" } } } });
+  const softText = JSON.stringify(soft.content || "");
+  ok(soft.isError === true && /credits|agent402-mcp/.test(softText), "a first ask gets an isError result whose text names the ways to pay (not a bare -32042)");
+  const challenges = soft._meta?.["org.paymentauth/payment-required"]?.challenges;
+  ok(Array.isArray(challenges) && challenges.length >= 1 && challenges.some((c) => c.method === "evm" && c.intent === "charge") && soft._meta["org.paymentauth/payment-required"].httpStatus === 402, `the result carries _meta payment-required with httpStatus 402 + challenges (${(challenges || []).map((c) => c.method).join(",")})`);
   ok(challenges.every((c) => typeof c.id === "string" && c.realm && c.request?.amount), "each challenge is a full MPP challenge object (id, realm, request.amount)");
 
   // 4. Free tool untouched

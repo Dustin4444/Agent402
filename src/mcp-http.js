@@ -28,7 +28,7 @@ import {
   McpError,
 } from "@modelcontextprotocol/sdk/types.js";
 import {
-  MCP_PAYMENT_REQUIRED_CODE, MCP_PAYMENT_VERIFICATION_FAILED_CODE, MCP_RECEIPT_META, credentialHeaderFromMeta, challengesFromHeader, receiptFromHeader, challengeIdFromMeta,
+  MCP_PAYMENT_REQUIRED_CODE, MCP_PAYMENT_VERIFICATION_FAILED_CODE, MCP_RECEIPT_META, MCP_PAYMENT_REQUIRED_META, credentialHeaderFromMeta, challengesFromHeader, receiptFromHeader, challengeIdFromMeta,
 } from "./mcp-mpp.js";
 import {
   TASKS_EXTENSION, TASK_INVALID_PARAMS, TASK_MISSING_CAPABILITY, TASK_INTERNAL_ERROR,
@@ -547,7 +547,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
      *  blocking path and the task path, so a task result is byte-identical to
      *  what the blocking call would have returned (an ext-tasks MUST). Throws
      *  McpError(-32042) for a payment ask. */
-    function translateMppResponse(entry, meta, params, startedAt, isNamed, r) {
+    function translateMppResponse(entry, meta, params, startedAt, isNamed, r, { softAsk = true } = {}) {
       if (r.status === 402) {
         const challenges = challengesFromHeader(r.headers.get("www-authenticate"));
         if (!challenges.length) {
@@ -563,6 +563,22 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
         // credential's problem says why; a first ask carries only the
         // challenges. Price rides inside each challenge's request.amount.
         const presented = Boolean(credentialHeaderFromMeta(meta));
+        // A FIRST ask is answered as a tool result, not a JSON-RPC error:
+        // MCP hosts that do not speak MPP show -32042 as a bare "Error occurred
+        // during tool execution". The result carries readable instructions, and
+        // the same challenges ride in _meta["org.paymentauth/payment-required"],
+        // which mppx's McpClient (0.8+) pays exactly like the error. The
+        // connector is stateless, so a capability declared at initialize cannot
+        // be consulted here. A REFUSED credential keeps -32043, and a caller
+        // on the tasks path (which declares that extension per request) keeps
+        // -32042, which is how a task records a payment ask.
+        if (!presented && softAsk) {
+          return {
+            content: [{ type: "text", text: walletRequiredText(entry.def) }],
+            isError: true,
+            _meta: { [MCP_PAYMENT_REQUIRED_META]: { httpStatus: 402, challenges, ...(problem ? { problem } : {}) } },
+          };
+        }
         // The message is what a host that does not speak MPP shows its user,
         // so a first ask carries every other way to pay, not only the MPP one.
         // Code and data are unchanged: an MPP client reads those, never the text.
@@ -638,7 +654,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
         // Finished inside the window. Hand the outcome back to the blocking path
         // rather than making the client poll for something already done.
         if (gate.e) throw gate.e;
-        return translateMppResponse(entry, meta, params, startedAt, isNamed, gate.r);
+        return translateMppResponse(entry, meta, params, startedAt, isNamed, gate.r, { softAsk: false });
       }
 
       const rec = tasks.create({ slug: entry.def.slug, controller });
@@ -664,7 +680,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
         }
         let out;
         try {
-          out = translateMppResponse(entry, meta, params, startedAt, isNamed, r);
+          out = translateMppResponse(entry, meta, params, startedAt, isNamed, r, { softAsk: false });
         } catch (err) {
           // A 402 decided after the gate window (a slow verify). It is a
           // JSON-RPC error on the underlying request, so the task FAILED - and
