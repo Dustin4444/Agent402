@@ -3023,6 +3023,19 @@ function applyLivePayTo(row, payToByNetwork) {
   row.payToByNetwork = { ...(row.payToByNetwork || {}), ...Object.fromEntries(live) };
 }
 
+/** Write a live-402 price onto a row: fills a gap, and replaces a held price
+ *  that differs (logged with both figures, so a correction is never silent). */
+export function adoptLivePrice(row, livePrice, originUrl = "") {
+  if (!row || livePrice == null) return;
+  const live = priceToMicroUsd(livePrice);
+  if (!(live > 0)) return;
+  const held = priceToMicroUsd(row.price);
+  if (held === live) return;
+  if (held > 0) console.log(`[x402-index] live-402 price: ${originUrl}${row.route} ${microUsdToPrice(held)} -> ${microUsdToPrice(live)} (the route's own 402)`);
+  row.price = livePrice;
+  delete row.quoteCarriedForward;
+}
+
 export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false } = {}) {
   if (!Array.isArray(tools) || !tools.length) return tools;
   const candidates = tools.filter(
@@ -3046,7 +3059,13 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
         // (2026-09-15): a seller made a route free, re-registered, and the
         // 0.001 learned two weeks earlier stood because a priced row was never
         // a candidate until its 7-day clock ran out.
-        || (ignoreBudget && Number(t.price) > 0 && !(Number(t.originDeclaredPrice) > 0)))
+        || (ignoreBudget && Number(t.price) > 0 && !(Number(t.originDeclaredPrice) > 0))
+        // ...and every route whose held price differs from the origin's own
+        // declaration AT ALL. The automatic crawl waits for a 2x drift
+        // (QUOTE_DRIFT_FACTOR) to stay polite; a seller who re-registers is
+        // asking us to look now, and a 1.67x gap is still a wrong price.
+        || (ignoreBudget && Number(t.price) > 0 && Number(t.originDeclaredPrice) > 0
+          && priceToMicroUsd(t.price) !== priceToMicroUsd(t.originDeclaredPrice)))
       && probeMethodsFor(t).length                       // never PUT/PATCH/DELETE
       && probeDue(originUrl, `quote:${t.route}`),
   );
@@ -3137,7 +3156,14 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
     // Price may be null for an asset we refuse to guess at; the networks alone
     // still move the row from payable:"unknown" to payable:"x402", which is the
     // honest and useful half of the answer.
-    if (learned.price != null && !(Number(tool.price) > 0)) tool.price = learned.price;
+    // The live 402 is what a buyer is actually asked to pay, so it is the
+    // current word on the price as well as the chains. This used to fill an
+    // EMPTY price only, which made every re-probe of a priced row - a drift
+    // against the origin's declaration, a stale learned quote, an explicit
+    // re-registration - read the right amount and keep the old one (issue
+    // #1460, 2026-09-23: a seller re-registered at $0.005 and seven routes
+    // still showed the $0.003 learned earlier).
+    adoptLivePrice(tool, learned.price, originUrl);
     if (learned.networks?.length) tool.networks = [...new Set([...(tool.networks || []), ...learned.networks])];
     // The live 402 is the current word on which EIP-712 domain each EVM
     // accept advertises: it replaces any older observation on the row.
@@ -3164,7 +3190,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
       const stated = String(tool.method || "GET").toUpperCase();
       const sibling = tools.find((o) => o !== tool && o.route === tool.route && String(o.method || "").toUpperCase() === learned.method);
       if (sibling) {
-        if (learned.price != null && !(Number(sibling.price) > 0)) sibling.price = learned.price;
+        adoptLivePrice(sibling, learned.price, originUrl);
         if (learned.networks?.length) sibling.networks = [...new Set([...(sibling.networks || []), ...learned.networks])];
         if (learned.evmDomainByNetwork) sibling.evmDomainByNetwork = { ...learned.evmDomainByNetwork };
         applyLivePayTo(sibling, learned.payToByNetwork);
