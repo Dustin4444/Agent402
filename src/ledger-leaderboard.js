@@ -179,7 +179,7 @@ export function ledgerLeaderboardPage(baseUrl, snapshot, { stats, walletAddress,
       <div class="lb-2col" style="display:grid;grid-template-columns:1.15fr .85fr;gap:50px;align-items:start;">
         <div>
           <h1 class="lb-h1" style="font-weight:800;font-size:60px;line-height:.95;letter-spacing:-.035em;margin:0 0 22px;color:var(--ink);">Who is actually<br>settling <span style="color:var(--accent);">x402</span>?</h1>
-          <p style="font-size:18px;line-height:1.5;color:var(--muted);margin:0 0 18px;">Every x402 seller we can crawl, ranked by <strong style="color:var(--ink);font-weight:700;">real Base USDC settled on chain</strong> - not self-reported traffic, not a press release. Read from event logs, refreshed hourly, and free to query.</p>
+          <p style="font-size:18px;line-height:1.5;color:var(--muted);margin:0 0 18px;">The x402 sellers we can crawl, ranked by <strong style="color:var(--ink);font-weight:700;">real Base USDC settled on chain</strong> - not self-reported traffic, not a press release. Read from event logs, refreshed hourly, and free to query. The table below is the head of the board, and says how many rows of how many it is showing.</p>
           <p style="font-size:15.5px;line-height:1.6;color:var(--faint);margin:0 0 24px;">Agent402 is excluded from this ranking by default. An index that puts itself first is not evidence of anything, so our own figure is published separately below.</p>
           ${partialNote ? `<p style="font-size:13px;font-family:var(--font-mono);color:var(--accent);max-width:620px;margin:0 0 20px;">${esc(partialNote)}</p>` : ""}
           <div style="display:flex;flex-wrap:wrap;gap:11px;">
@@ -274,7 +274,7 @@ ${standingBand(standing || {})}
   const canonical = `${baseUrl}/leaderboard`;
   const title = "x402 seller leaderboard - ranked by real on-chain USDC settled";
   const description =
-    "The public on-chain ranking of every x402 seller by Base USDC settled volume: calls settled, total USD and unique buyers per seller. Hourly snapshot, built from the Coinbase CDP Bazaar and eth_getLogs. Agent402 excluded from its own ranking.";
+    "The public on-chain ranking of x402 sellers by Base USDC settled volume: calls settled, total USD and unique buyers per seller. Hourly snapshot, built from the Coinbase CDP Bazaar and eth_getLogs. This page shows the head of the board; the free JSON carries the rest. Agent402 excluded from its own ranking.";
 
   const orgLd = { "@type": "Organization", "@id": `${baseUrl}/#organization`, name: "Agent402", url: baseUrl, logo: { "@type": "ImageObject", url: `${baseUrl}/logo.png` }, sameAs: [REPO_URL, "https://x.com/Agent402Tools"] };
   const breadcrumbLd = { "@type": "BreadcrumbList", itemListElement: [

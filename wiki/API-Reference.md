@@ -38,7 +38,7 @@ can point at a whole workflow instead of one tool.
 
 ### `POST /api/route`
 
-Cross-seller Smart Order Router. Finds the cheapest healthy tool for a task across Agent402 and every x402 seller crawled from the Coinbase CDP Bazaar.
+Cross-seller Smart Order Router. Finds the cheapest healthy tool for a task across Agent402 and every x402 seller crawled from the Coinbase CDP Bazaar. The response returns the top N and carries `matched` for how many scored.
 
 ```bash
 curl -X POST https://agent402.tools/api/route \

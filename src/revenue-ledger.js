@@ -715,7 +715,26 @@ let loopStarted = false;
 // an x402 one, so the wire cannot be derived here). When supplied, each bucket
 // also carries its MPP subset, letting the chart filter by wire. Absent or
 // empty, the extra fields are all zero and the series behaves exactly as before.
-export function ledgerDaily(wallets, mppTx = null) {
+// `withScope` returns { days, scope } instead of the bare array. Opt-in, so
+// every existing caller keeps the array it has always been handed and only
+// /api/revenue/daily - the one surface that PUBLISHES this series - has to
+// carry the disclosure.
+//
+// THREE FILTERS, NONE OF THEM DISCLOSED, until 2026-09-22. This series drops
+// undateable rows, internal transfers over MAX_CALL_USD, and everything before
+// REVENUE_DAILY_START - and then /revenue headlines it as "every settled
+// on-chain transaction, ours included". Measured on prod that day: the days
+// sum to 42,951 transactions / $571.82 against /api/revenue's own allTime of
+// 43,665 / $664.70, and 24 of the missing rows are real outside customers who
+// paid before the chart's epoch. Both sibling series (/api/calls/daily,
+// /api/sales) carry recordingSince; this one was the odd one out, so anyone
+// reconciling us found two of our own numbers disagreeing by $92.89 with
+// nothing in either response to explain it.
+export function ledgerDaily(wallets, mppTx = null, { withScope = false } = {}) {
+  // Counted while filtering, never re-derived: a disclosure computed from a
+  // second pass can drift from the filter it describes.
+  let droppedUndateable = 0;
+  const droppedOverCap = { transactions: 0, usd: 0 };
   const isMpp = (h) => {
     if (!mppTx || !mppTx.size || !h) return false;
     return mppTx.has(h) || (/^0x[0-9a-fA-F]+$/.test(h) && mppTx.has(h.toLowerCase()));
@@ -741,7 +760,7 @@ export function ledgerDaily(wallets, mppTx = null) {
       if (t.chain !== chain) continue;
       let ms = t.when_ts ? t.when_ts * 1000 : null;
       if (ms == null && t.block != null && anchorBlock != null) ms = anchorMs - (anchorBlock - t.block) * cadence;
-      if (ms == null) continue; // undateable row — skip rather than guess
+      if (ms == null) { droppedUndateable++; continue; } // undateable row — skip rather than guess
       const day = new Date(ms).toISOString().slice(0, 10);
       const key = `${day}|${chain}`;
       const b = byDay.get(key) || {
@@ -759,6 +778,11 @@ export function ledgerDaily(wallets, mppTx = null) {
         b.intUsd += t.usd; b.intTx += 1;
         if (mpp) { b.intMppUsd += t.usd; b.intMppTx += 1; }
         if (sor) { b.intSorUsd += t.usd; b.intSorTx += 1; }
+      } else {
+        // An internal transfer larger than a call: treasury funding, not
+        // traffic. Correctly excluded from a per-call series, and correctly
+        // NAMED rather than silently missing from the totals.
+        droppedOverCap.transactions += 1; droppedOverCap.usd += t.usd;
       }
       byDay.set(key, b);
     }
@@ -767,7 +791,19 @@ export function ledgerDaily(wallets, mppTx = null) {
   // adds a flat run of near-zero bars — start the series at June 15 unless
   // the operator overrides.
   const start = process.env.REVENUE_DAILY_START || "2026-06-15";
-  return [...byDay.values()]
+  const all = [...byDay.values()];
+  // The ledger's own earliest dated day, before the epoch cuts it - so the
+  // response can say what it is NOT showing rather than only where it starts.
+  let firstDay = null;
+  const droppedPreEpoch = { transactions: 0, usd: 0 };
+  for (const b of all) {
+    if (firstDay === null || b.day < firstDay) firstDay = b.day;
+    if (b.day < start) {
+      droppedPreEpoch.transactions += b.extTx + b.intTx;
+      droppedPreEpoch.usd += b.extUsd + b.intUsd;
+    }
+  }
+  const days = all
     .filter((b) => b.day >= start)
     .map((b) => ({
       ...b,
@@ -775,6 +811,30 @@ export function ledgerDaily(wallets, mppTx = null) {
       extMppUsd: Number(b.extMppUsd.toFixed(6)), intMppUsd: Number(b.intMppUsd.toFixed(6)),
     }))
     .sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : a.chain.localeCompare(b.chain)));
+  if (!withScope) return days;
+  const usd = (n) => Number(Number(n).toFixed(6));
+  const excluded = {
+    beforeSeriesStart: { transactions: droppedPreEpoch.transactions, usd: usd(droppedPreEpoch.usd) },
+    internalOverMaxCallUsd: { transactions: droppedOverCap.transactions, usd: usd(droppedOverCap.usd), maxCallUsd: MAX_CALL_USD },
+    undateable: { transactions: droppedUndateable },
+  };
+  // Derived from the counters, never asserted: an empty ledger is complete, and
+  // one dropped row is not.
+  const complete = excluded.beforeSeriesStart.transactions === 0
+    && excluded.internalOverMaxCallUsd.transactions === 0
+    && excluded.undateable.transactions === 0;
+  return {
+    days,
+    scope: {
+      recordingSince: firstDay,
+      seriesStart: start,
+      complete,
+      excluded,
+      note: complete
+        ? `This series covers every dated transfer in the ledger from ${start}.`
+        : `This series starts ${start} and is NOT the whole ledger: ${excluded.beforeSeriesStart.transactions} transactions ($${excluded.beforeSeriesStart.usd}) settled before it, ${excluded.internalOverMaxCallUsd.transactions} internal transfers over $${MAX_CALL_USD} are excluded as treasury funding rather than calls, and ${excluded.undateable.transactions} rows carry no usable date. /api/revenue allTime is the unfiltered total; the two will not reconcile without this object.`,
+    },
+  };
 }
 
 /**
@@ -995,6 +1055,39 @@ export function ledgerBuyersMonthly(wallets) {
  * expensive call would otherwise masquerade as concentration. Counts and
  * percentages only, never addresses.
  */
+// TWO "buyers" FIELDS, TWO POPULATIONS, ONE RESPONSE.
+//
+// /api/revenue/daily serves `concentration.buyers` and `retention.buyers` side
+// by side. Measured on prod 2026-09-22 they read 495 and 496 - one apart,
+// identically named, and neither said why: concentration starts at
+// REVENUE_DAILY_START (2026-06-15) while retention is deliberately all-time,
+// so the extra buyer is simply someone who paid before the chart's epoch. A
+// third figure, the host entry's own `allTime.buyers`, read 443 on the same
+// day over a different source again (the sales ledger, from 2026-07-03, card
+// and credits included). Three true numbers, three scopes, none stated.
+//
+// Both figures here also read ONLY the on-chain transfers ledger, so they are
+// blind to card and prepaid-credits buyers by construction, and they skip a
+// transfer whose payer the chain does not expose (SVM and Stellar rows carry
+// none) or whose date cannot be established. Every one of those is a reason
+// the number is a floor rather than a total, and a consumer cannot infer any
+// of it from `buyers: 495`. /revenue renders it as "distinct agents have paid
+// us", which is the reading this scope object exists to correct.
+const BUYER_SCOPE = ({ since }) => ({
+  scope: {
+    since: since || null,
+    source: "on-chain inbound transfers to our own wallets, external rows only",
+    excludes: [
+      "card and prepaid-credits buyers (they settle no on-chain transfer to us)",
+      "settlements whose payer the chain does not expose (Solana, Stellar)",
+      "transfers whose date could not be established",
+    ],
+    note: since
+      ? `Distinct wallets counted from ${since}; a floor, not a lifetime total of everyone who has paid us.`
+      : "Distinct wallets over the whole scanned ledger; a floor, not a total of everyone who has paid us.",
+  },
+});
+
 export function ledgerBuyerConcentration(wallets) {
   const rows = db.prepare("SELECT chain, wallet, block, when_ts, external, payer FROM transfers WHERE wallet = ?");
   const chains = walletPairs(wallets);
@@ -1018,7 +1111,7 @@ export function ledgerBuyerConcentration(wallets) {
       payments++;
     }
   }
-  if (!payments) return { buyers: 0, payments: 0, topSharePct: null, top5SharePct: null };
+  if (!payments) return { buyers: 0, payments: 0, topSharePct: null, top5SharePct: null, ...BUYER_SCOPE({ since: start }) };
   const sorted = [...counts.values()].sort((a, b) => b - a);
   const pct = (n) => Math.round((n / payments) * 1000) / 10;
   return {
@@ -1026,6 +1119,9 @@ export function ledgerBuyerConcentration(wallets) {
     payments,
     topSharePct: pct(sorted[0]),
     top5SharePct: pct(sorted.slice(0, 5).reduce((a, b) => a + b, 0)),
+    // The window and the exclusions, beside the number rather than in a
+    // comment - see BUYER_SCOPE.
+    ...BUYER_SCOPE({ since: start }),
   };
 }
 
@@ -1081,7 +1177,7 @@ export function ledgerBuyerRetention(wallets) {
     }
   }
   const buyers = days.size;
-  if (!buyers) return { buyers: 0, oneDay: 0, oneDayOneCall: 0, returned: 0, oneDayPct: null, returnedPct: null };
+  if (!buyers) return { buyers: 0, oneDay: 0, oneDayOneCall: 0, returned: 0, oneDayPct: null, returnedPct: null, ...BUYER_SCOPE({ since: null }) };
   let oneDay = 0, oneDayOneCall = 0;
   for (const [payer, set] of days) {
     if (set.size > 1) continue;
@@ -1096,6 +1192,9 @@ export function ledgerBuyerRetention(wallets) {
     returned: buyers - oneDay,
     oneDayPct: pct(oneDay),
     returnedPct: pct(buyers - oneDay),
+    // All-time here, windowed in concentration: the same field name over two
+    // different populations is why both now carry their own scope.
+    ...BUYER_SCOPE({ since: null }),
   };
 }
 

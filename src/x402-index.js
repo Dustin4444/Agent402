@@ -33,6 +33,7 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 const safeHref = (u) => (/^https?:\/\//i.test(String(u || "")) ? esc(u) : "#");
 import { safeFetch } from "./tools/fetch-guard.js";
 import { parseRobots, robotsAllows } from "./tools/kit.js";
+import { partialFields, clampFields } from "./partial-answer.js";
 import { responseContractOf, packResponseContract, responseContractProjection } from "./response-contract.js";
 import { deliveryProjection } from "./response-observation.js";
 import { requestContractOf, packRequestContract, requestContractProjection } from "./request-contract.js";
@@ -4020,6 +4021,11 @@ let crawlerTimer = null;
 let firstCrawlTimer = null;
 let discoveryTimer = null;
 let crawlInFlight = false;
+// How many crawl cycles have RUN TO COMPLETION. Read only by indexReadiness()
+// below, to tell "we hold no row for that seller" apart from "we have not
+// finished reading the index yet" - two answers a lookup used to give with the
+// same 404.
+let crawlsCompleted = 0;
 
 // Bounded worker pool. With thousands of discovered sellers we can't fan out
 // every crawl in parallel — the unbounded `Promise.allSettled(seeds.map(...))`
@@ -4136,6 +4142,7 @@ async function runCrawl() {
     releaseDeadSubmissions(cycleOkFraction(due));
   } finally {
     crawlInFlight = false;
+    crawlsCompleted += 1;
   }
 }
 
@@ -4314,6 +4321,49 @@ export const INDEX_CACHE_NDJSON_FILE = process.env.INDEX_CACHE_NDJSON_FILE || IN
 // cache a half-loaded ecosystem for half a minute.
 let warmStartInProgress = false;
 export function indexWarmStartInProgress() { return warmStartInProgress; }
+
+/** Is the index in a state where "we hold no row for that origin" is a FACT
+ *  about the origin, or only a fact about this process?
+ *
+ *  There are three ways to hold no row for a seller who is perfectly well
+ *  indexed, and until 2026-09-22 all three answered `404 seller not found in
+ *  the index` - the same sentence as a genuine absence:
+ *    - the incremental warm-start is still reading the NDJSON off the volume
+ *      (~2 s after every boot, and every deploy is a fresh boot);
+ *    - the volume carries no cache at all (first deploy of a new volume, an
+ *      unreadable file), so the cache is empty until the first crawl lands -
+ *      the first cycle is deferred 30 s and a full pass takes minutes;
+ *    - the crawler is switched off entirely (X402_INDEX_CRAWL=off: CI, and any
+ *      test that needs to attribute outbound traffic).
+ *  The consumer is a seller's automated checker, which reads "not found" as
+ *  "we are not listed" - the same misreading the paging fix of the same day was
+ *  written for, one branch away in the same handler.
+ *
+ *  `state`: "ready" | "warm-start" | "first-crawl" | "disabled".
+ *  `ready` is false for the two states where the answer will change on its own. */
+export function indexReadiness() {
+  return readinessOf({ warmStarting: warmStartInProgress, sellers: cache.size, crawlsCompleted, crawlerRunning: !!crawlerTimer });
+}
+
+/** The decision above, as a pure function, for the same reason src/index-paging.js
+ *  exists: a CI boot is ALWAYS in one state (crawler off, cache empty), so every
+ *  branch that matters here - the two that answer "ask again" - is unreachable
+ *  from a booted test, and a guard that can only exercise the reachable branch
+ *  is a certificate for the half that never broke. */
+export function readinessOf({ warmStarting = false, sellers = 0, crawlsCompleted: crawls = 0, crawlerRunning = false } = {}) {
+  if (warmStarting) return { ready: false, state: "warm-start", sellers, crawlsCompleted: crawls, retryAfterSeconds: 5 };
+  if (sellers === 0 && crawls === 0) {
+    // Nothing loaded and nothing crawled. Whether that resolves on its own is
+    // the difference between "ask again" and "this server holds no index": with
+    // the crawler running it is the deferred first cycle (30 s, minutes to
+    // complete) and waiting fixes it; with the crawler off nothing will ever
+    // arrive, so a caller must be told that rather than told to retry forever.
+    return crawlerRunning
+      ? { ready: false, state: "first-crawl", sellers: 0, crawlsCompleted: crawls, retryAfterSeconds: 60 }
+      : { ready: true, state: "disabled", sellers: 0, crawlsCompleted: crawls, retryAfterSeconds: 0 };
+  }
+  return { ready: true, state: "ready", sellers, crawlsCompleted: crawls, retryAfterSeconds: 0 };
+}
 
 /** Best-effort persist of the crawl cache. No-op without a /data volume. */
 // WHAT THE PERSISTED CACHE KEEPS, AND WHY IT IS SLIM (2026-08-25). The file
@@ -4967,6 +5017,25 @@ export function sellerDetail(originOrHost) {
       // network - the router label's evidence for usdc_domain_mismatch.
       evmDomainByNetwork: evmDomainUnion(v.tools),
       routable: isRoutable(v),
+      // THE AUDIT TRAIL, on the one surface that promised it. The listing page
+      // strips `history` on purpose (the bulk snapshot is the crawl-and-score
+      // work, and shipping every origin's in one unauthenticated GET gives a
+      // competing router it for free), and server.js's own comment says the
+      // field is "kept for the single-seller drill-down" - it never was. So
+      // three published claims were false in the most expensive direction:
+      // the wiki told an operator that the bulk listing published each
+      // seller's rolling history for auditing, and that the history behind our
+      // health scores was there for anyone to verify. Neither was true on any
+      // public surface, and a seller who went looking for it found nothing and
+      // could not tell "withheld" from "we
+      // hold none". One origin's own five crawl outcomes are not the bulk this
+      // was ever protecting: it is their result, about their origin, on the
+      // surface we tell them to self-diagnose with. `healthWindow` rides with
+      // it because a bare [1,0,1] is its own quiet contract - a reader cannot
+      // otherwise tell a short history from a truncated one.
+      history: Array.isArray(v.history) ? v.history.slice(-HEALTH_WINDOW) : [],
+      healthWindow: HEALTH_WINDOW,
+      historyLegend: `the last ${HEALTH_WINDOW} crawl outcomes, oldest first: 1 = the manifest parsed, 0 = it did not. Fewer than ${HEALTH_WINDOW} entries means we have crawled this origin that many times, not that entries were dropped. Paywall liveness is measured separately and reported as \`paywall\`.`,
       // THE CAP HAS TO ANNOUNCE ITSELF. This list has been cut at 500 with
       // nothing saying so, on the one surface we tell a seller to use to check
       // what we hold for them ("?seller=<host> ... returns its full row").
@@ -5488,20 +5557,32 @@ function localPoolFor(args) {
   return built;
 }
 
+// Most rows one /api/route answer carries. A ranking, so a ceiling is right;
+// publishing it beside the rows is what stops the ceiling reading as the count.
+export const ROUTE_TOP_MAX = 25;
+
 export function routeQuery({ query, top, include, networkFilter, strictNetwork = false, baseUrl, catalog, prices, network, toolCount, walletName }) {
   const q = String(query || "").slice(0, 500);
   // Unicode-aware (src/query-terms.js): a CJK query used to tokenize to
   // nothing and answer zero rows (reported from outside 2026-09-10).
   const terms = queryTerms(q, { max: 32 });
   const termSet = new Set(terms);
-  const k = Math.min(Math.max(parseInt(top, 10) || 5, 1), 25);
+  // The ceiling has to announce itself. ?top=100 returned 25 rows with
+  // `count: 25` and nothing else, so a caller reads "25 matched" where the truth
+  // is "25 is our maximum" - the same silence that let a seller read one page of
+  // /api/index as the whole index (2026-09-22). The leaderboard learned this on
+  // 2026-08-28 (?top=1000 quietly served 50) and grew `truncated` +
+  // `topRequested`; this surface never got the same treatment.
+  const k = Math.min(Math.max(parseInt(top, 10) || 5, 1), ROUTE_TOP_MAX);
   const inc = VALID_INCLUDE.has(include) ? include : "all";
   // ?network=robinhood (or a raw CAIP-2) keeps only tools whose crawled 402
   // advertises that chain. Positive-signal filter: local tools and sellers
   // whose crawl source carries no accepts (networks unknown) are kept — the
   // filter is "exclude sellers known NOT to settle there", not a guarantee.
   const wantNet = networkFilter ? (ROUTE_NETWORKS[String(networkFilter).trim().toLowerCase()] || String(networkFilter).trim()) : null;
-  if (!terms.length) return { query: q, count: 0, results: [], sellers: 0, include: inc, ...(wantNet ? { network: wantNet } : {}) };
+  // The same envelope on the empty answer: a consumer must not have to learn
+  // one shape for a hit and another for a miss.
+  if (!terms.length) return { query: q, count: 0, results: [], sellers: 0, sellersMatched: 0, include: inc, topMax: ROUTE_TOP_MAX, truncated: false, ...partialFields(0, 0), ...(wantNet ? { network: wantNet } : {}) };
 
   // Always include the local catalog (we trust ourselves), plus every crawled
   // seller's tools — but only from sellers whose last crawl succeeded. A buyer
@@ -5728,6 +5809,18 @@ export function routeQuery({ query, top, include, networkFilter, strictNetwork =
     picked.push(entry);
   }
 
+  // WHO MATCHED, not who survived the cut. `sellersSeen` counts origins present
+  // in THIS page and was the only seller number in the answer, so a caller
+  // reading `sellers: 16` beside `count: 25` took 16 for the sellers that can
+  // serve the task. The same misreading as the 250-of-4,473 index page, one
+  // field over.
+  const sellersScored = new Set(scored.map((e) => e[1].seller));
+  // The diversity cap SUPPRESSES higher-scoring rows on purpose (a single
+  // domain owned 77.5% of a real registry's results, which is why it exists).
+  // That is a reordering the caller cannot see and would not expect from a
+  // ranking, so it has to be stated: `leftover` is non-empty exactly when a row
+  // was pushed down for its seller rather than for its score.
+  const diversityCapped = capApplies && leftover.length > 0;
   const sellersSeen = new Set();
   let anyExternal = false;
   const results = picked.map(([score, t, matched]) => {
@@ -5821,6 +5914,21 @@ export function routeQuery({ query, top, include, networkFilter, strictNetwork =
   });
   return {
     query: q, include: inc, count: results.length, sellers: sellersSeen.size, results,
+    // `count` and `sellers` keep their exact meaning and their exact values -
+    // renaming a live field is a second, worse break. These ride alongside.
+    ...partialFields(scored.length, results.length),
+    ...clampFields(top, ROUTE_TOP_MAX, "top"),
+    sellersMatched: sellersScored.size,
+    ...(diversityCapped ? {
+      diversityCapped: true,
+      perSellerCap,
+      diversityNote: `at most ${perSellerCap} rows per seller in the first pass, so a higher-scoring row from a seller already at the cap can rank below a lower-scoring row from another seller - raise ?top to raise the cap`,
+    } : {}),
+    // `count` is what THIS answer carries, never what matched. A caller that
+    // asked for more than the ceiling must be able to tell the two apart:
+    // topMax is the ceiling, truncated says the ranking was cut by it.
+    topMax: ROUTE_TOP_MAX,
+    truncated: picked.length >= k && scored.length > picked.length,
     // We run this index and we also sell on it. Rather than assert neutrality,
     // publish the parts that are literally true and the parts where the host
     // has an edge, so anyone can check both against the source.

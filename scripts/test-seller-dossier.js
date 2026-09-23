@@ -342,5 +342,73 @@ check("hostOf is linear on a pathological input", () => {
   assert.ok(ms < 250, `200k slashes took ${ms}ms`);
 });
 
+// A LOADING INDEX IS A FACT ABOUT US, NOT ABOUT THE SELLER.
+//
+// The no-detail branch answers "not in our index - never crawled, so we hold
+// no evidence either way", which is a strong claim about a third party. The
+// cache it reads can simply be mid-load: the warm start reads the volume for
+// seconds after every boot, and a cold volume waits minutes for its first
+// crawl. Sold at $0.05 that is a wrong answer about a seller we crawl every
+// thirty minutes. A >= 400 cancels settlement, so the refusal is free to the
+// buyer - and it is exactly what a mutation removing it must fail.
+check("a still-loading index refuses the PAID path instead of selling never-crawled", () => {
+  const t = build({ getIndexReadiness: () => ({ ready: false, state: "first-crawl", retryAfterSeconds: 60 }) });
+  let err = null;
+  try { t.handler({ origin: "unknown.example" }); } catch (e) { err = e; }
+  assert.ok(err, "the paid path refuses while the index is loading");
+  assert.equal(err.statusCode, 503);
+  assert.equal(err.retryAfter, 60);
+  assert.match(String(err.message), /still loading/i);
+  // Never charged, and never a claim about the seller.
+  assert.ok(!/never crawled/i.test(String(err.message)));
+});
+
+check("a seller we DO hold is answered normally while the index loads", () => {
+  // The refusal is scoped to the absence, not to the request: withholding a
+  // record we already have would be its own overreach.
+  const t = build({ getIndexReadiness: () => ({ ready: false, state: "warm-start", retryAfterSeconds: 5 }) });
+  const r = t.handler({ origin: "seller.example" });
+  assert.equal(r.listed, true);
+});
+
+check("the operator gets the record plus the caveat as a field, never the 503", () => {
+  const t = build({ getIndexReadiness: () => ({ ready: false, state: "first-crawl", retryAfterSeconds: 60 }) });
+  const r = t.handler({ origin: "unknown.example" }, { operator: true });
+  assert.equal(r.listed, false);
+  assert.equal(r.indexLoading, true);
+  assert.equal(r.indexState, "first-crawl");
+  assert.equal(r.retryAfterSeconds, 60);
+  assert.match(String(r.indexLoadingNote), /fact about this boot/i);
+  // The reason must NOT claim never-crawled while we are still looking.
+  assert.match(String(r.reason), /\byet\b/i);
+  assert.ok(!/never crawled/i.test(String(r.reason)));
+});
+
+check("the operator flag is NOT reachable from the request body", () => {
+  // If a buyer could set it they would pay $0.05 for the hollow answer this
+  // refusal exists to stop them being sold.
+  const t = build({ getIndexReadiness: () => ({ ready: false, state: "first-crawl", retryAfterSeconds: 60 }) });
+  let err = null;
+  try { t.handler({ origin: "unknown.example", __operator: true, operator: true }); } catch (e) { err = e; }
+  assert.ok(err, "a body flag does not buy the operator path");
+  assert.equal(err.statusCode, 503);
+});
+
+check("a ready index still says never-crawled, so the refusal did not replace the answer", () => {
+  const t = build({ getIndexReadiness: () => ({ ready: true, state: "ready", retryAfterSeconds: 0 }) });
+  const r = t.handler({ origin: "unknown.example" });
+  assert.equal(r.listed, false);
+  assert.match(String(r.reason), /not in our index/i);
+  assert.ok(!r.indexLoading);
+});
+
+// No readiness source injected at all (an older wiring): the tool must answer
+// exactly as it always did rather than refusing everything.
+check("with no readiness source the tool answers as before", () => {
+  const r = build().handler({ origin: "unknown.example" });
+  assert.equal(r.listed, false);
+  assert.match(String(r.reason), /not in our index/i);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

@@ -75,7 +75,7 @@ const TOOL_ROWS_MAX = 50;
 export function composeSellerDossier(a) {
   const {
     host, detail, entry, dispatch, evidenceBinding, leaderboardRow, bazaar, solana, mpp,
-    refusals = [], deliveryFailures = [], registration, deliveries, sharedClaims, helpers = {}, thresholds = {}, self = false, now = Date.now(),
+    refusals = [], deliveryFailures = [], registration, deliveries, sharedClaims, helpers = {}, thresholds = {}, self = false, loading = null, now = Date.now(),
   } = a;
   const generatedAt = new Date(now).toISOString();
   const origin = detail?.origin || `https://${host}`;
@@ -91,7 +91,14 @@ export function composeSellerDossier(a) {
       origin,
       listed: false,
       ...(self ? { self: true, note: "this is the local catalog - our router never routes to itself; the host's own external figures are at /api/index?seller=<host>" } : {}),
-      reason: self ? "the local catalog is not a crawled seller; call its tools directly" : "not in our index - never crawled, so we hold no evidence either way",
+      // `loading` overrides the reason outright: "never crawled" is a claim
+      // about the seller and would be false while this boot is still reading.
+      ...(loading || {}),
+      reason: self
+        ? "the local catalog is not a crawled seller; call its tools directly"
+        : loading
+          ? `not in this server's index YET - it is still ${loading.indexState}, so this is not a finding about ${host}`
+          : "not in our index - never crawled, so we hold no evidence either way",
       settlementEvidence: {
         base: leaderboardRow
           ? { source: "on-chain leaderboard", callsSettled: leaderboardRow.callsSettled ?? 0, uniqueBuyers: leaderboardRow.uniqueBuyers ?? 0 }
@@ -412,6 +419,7 @@ export const NOTICE = Object.freeze({
 export function buildSellerDossierTool({
   getSellerDetail, getSellerEntry, getDispatchRow, getEvidenceBinding, getLeaderboardRow, getBazaarQuality,
   getSolanaEvidence, getMpp, getRefusals, getDeliveryFailures, getRegistration, getDelivery, getSharedClaims, helpers = {},
+  getIndexReadiness = null,
   sorThreshold = 50, sorPayers = 3, sorCap = 0.005, selfHost = "", now = () => Date.now(),
 }) {
   return {
@@ -454,13 +462,42 @@ export function buildSellerDossierTool({
         },
       },
     },
-    handler(input) {
+    // `ctx` is a SECOND argument, which the HTTP dispatcher never passes: the
+    // operator flag must not be reachable from a request body, or a buyer
+    // could set it and pay $0.05 for the hollow answer this refusal exists to
+    // stop them being sold. Only an in-process caller can set it.
+    handler(input, ctx = {}) {
+      const operator = ctx?.operator === true;
       const raw = String(input?.origin || input?.host || input?.seller || "").trim();
       if (!raw) { const e = new Error("`origin` is required - pass a seller origin or bare host, e.g. example.com"); e.statusCode = 400; throw e; }
       const host = hostOf(raw);
       if (!host.includes(".")) { const e = new Error("`origin` must be a public host, e.g. example.com"); e.statusCode = 400; throw e; }
       const t = now();
       const detail = getSellerDetail(host) || null;
+      // "WE HOLD NOTHING" IS ONLY WORTH $0.05 IF IT IS A FACT ABOUT THE SELLER.
+      // The no-detail branch below says "not in our index - never crawled, so we
+      // hold no evidence either way", which is a strong claim about a third
+      // party, and it was made from a cache that can simply be mid-load: the
+      // warm-start reads the volume for ~2 s after every boot, and a volume with
+      // no cache waits minutes for its first crawl. A buyer paying for the
+      // assembled record would have been sold "never crawled" about a seller we
+      // crawl every 30 minutes. A >= 400 cancels settlement, so refusing here
+      // costs the buyer nothing and is the only honest answer while loading.
+      //
+      // THE OPERATOR IS NOT A BUYER. /__operator/seller-evidence.json shares
+      // this handler, pays nothing, and is the surface used to diagnose a
+      // seller DURING the minutes a boot is still crawling - refusing it takes
+      // the tool away exactly when it is wanted. So the operator gets the
+      // record we hold plus the caveat as a FIELD (`indexLoading`), which is
+      // what this whole class asks for: state the scope, do not withhold the
+      // answer. Only the paid path refuses, because only the paid path charges.
+      const readiness = !detail && typeof getIndexReadiness === "function" ? (getIndexReadiness() || {}) : {};
+      if (readiness.ready === false && !operator) {
+        const e = new Error(`the seller index is still loading on this server (${readiness.state || "loading"}), so "we hold nothing for ${host}" would be a fact about us, not about that seller - not charged, retry in ${readiness.retryAfterSeconds || 30}s`);
+        e.statusCode = 503;
+        e.retryAfter = Number(readiness.retryAfterSeconds) || 30;
+        throw e;
+      }
       const origin = detail?.origin || `https://${host}`;
       const self = Boolean(selfHost) && host === String(selfHost).toLowerCase();
       const entry = detail && typeof getSellerEntry === "function" ? (getSellerEntry(host) || null) : null;
@@ -474,7 +511,12 @@ export function buildSellerDossierTool({
           if (d) deliveries.set(key, d);
         }
       }
+      const loading = readiness.ready === false
+        ? { indexLoading: true, indexState: readiness.state || "loading", retryAfterSeconds: Number(readiness.retryAfterSeconds) || 30,
+            indexLoadingNote: `the seller index is still loading on this server (${readiness.state || "loading"}), so an absence below is a fact about this boot, not about ${host}` }
+        : null;
       return composeSellerDossier({
+        loading,
         host, detail, entry, dispatch,
         evidenceBinding: typeof getEvidenceBinding === "function" ? getEvidenceBinding(origin) : null,
         leaderboardRow: typeof getLeaderboardRow === "function" ? getLeaderboardRow(origin, host) : null,

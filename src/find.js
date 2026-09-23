@@ -4,6 +4,7 @@
 // to call them directly: route, price, input schema, and a ready example.
 // Deterministic lexical ranking (no LLM, no tokens), consistent with the MCP
 // connector's search_tools weighting.
+import { partialFields, clampFields } from "./partial-answer.js";
 import { toolList } from "./pages.js";
 import { queryTerms } from "./query-terms.js";
 import { rankSkillPacks } from "./skills.js";
@@ -87,6 +88,11 @@ export function applyFrontDoorTerms(terms, q) {
  * @param {Set<string>} [opts.powSlugs] compute-payable slugs (for the free flag)
  * @returns {{query:string, count:number, results:Array}}
  */
+// Most rows one /api/find answer carries, and the default when none is asked
+// for. Published on every answer so the ceiling is never read as the match count.
+export const FIND_TOP_MAX = 25;
+export const FIND_TOP_DEFAULT = 5;
+
 export function findTools(catalog, query, { k = 5, baseUrl = "", powSlugs } = {}) {
   // Cap the query length so a pathological input can't drive unbounded work.
   const q = String(query || "").slice(0, 500);
@@ -125,8 +131,14 @@ export function findTools(catalog, query, { k = 5, baseUrl = "", powSlugs } = {}
   // ("search" inside "search tools catalog", bare "question") do not hijack
   // unrelated tasks. Tags appended are curated on search / answer / search-news.
   applyFrontDoorTerms(terms, q);
-  const limit = Math.min(Math.max(parseInt(k, 10) || 5, 1), 25);
-  if (!terms.length) return { query: q, count: 0, results: [] };
+  // The default is FIVE and the ceiling is 25, and `count` below reports what
+  // this answer carries - so a caller reading `count: 5` for a broad query was
+  // being told five tools match when five is simply what we return. Publish the
+  // ceiling and whether the ranking was cut by it, the same disclosure
+  // /api/route and /api/index now carry (2026-09-22).
+  const limit = Math.min(Math.max(parseInt(k, 10) || 5, 1), FIND_TOP_MAX);
+  // The miss carries the same envelope as the hit: one shape to learn.
+  if (!terms.length) return { query: q, count: 0, topMax: FIND_TOP_MAX, truncated: false, ...partialFields(0, 0), results: [] };
 
   // Directional alignment: how many adjacent (q[i], q[i+1]) query-term pairs
   // appear in the slug *in the same order*. Historically this broke the tie
@@ -315,7 +327,15 @@ export function findTools(catalog, query, { k = 5, baseUrl = "", powSlugs } = {}
 
   return {
     query: String(query),
+    // `count` is what this answer CARRIES. It read as "this is how many tools
+    // can do that" - `count: 5` against a 600-row catalog is the same silence
+    // that had one page of /api/index read as the whole index. `matched` is the
+    // number a caller concluding "there is no tool for this" actually needs.
     count: results.length,
+    topMax: FIND_TOP_MAX,
+    ...partialFields(scored.length, results.length),
+    ...clampFields(k, FIND_TOP_MAX, "k"),
+    truncated: results.length >= limit && scored.length > results.length,
     results,
     packs,
     rarestTerm,

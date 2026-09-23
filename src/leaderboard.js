@@ -884,7 +884,13 @@ export async function runLeaderboard(overrides = {}) {
   if (!sellers.length) return emptySnapshot(opts, "no Base-mainnet payTo wallets found in Bazaar");
 
   // Optional cap: keep the on-chain scan tight by ranking by listing count first.
+  // A capped scan is a SAMPLE, and the snapshot has to say so: `scannedSellers`
+  // alone reads as "every seller we know", and a seller outside the cut would
+  // be reported with zero settlements rather than as unmeasured - the reading
+  // that turns a partial answer into a false negative.
+  let walletCap = null;
   if (opts.maxWalletsScan > 0 && sellers.length > opts.maxWalletsScan) {
+    walletCap = { limit: opts.maxWalletsScan, eligible: sellers.length, rankedBy: "listing count" };
     sellers = sellers.slice().sort((a, b) => b.endpoints - a.endpoints).slice(0, opts.maxWalletsScan);
     onProgress(`      capping scan to top ${opts.maxWalletsScan} wallets by listing count`);
   }
@@ -975,6 +981,12 @@ export async function runLeaderboard(overrides = {}) {
     ...(partial ? {
       partial: true,
       windowNote: `${windowLabel} scan, partial: ${failedChunks} of ${callCount} ranges unavailable`,
+    } : {}),
+    // A wallet cap makes the board a sample of known sellers, not all of them.
+    ...(walletCap ? {
+      sellersSampled: true,
+      sellerSampleNote: `scan capped to the top ${walletCap.limit} of ${walletCap.eligible} known seller wallets by ${walletCap.rankedBy}; sellers outside the cut are unmeasured, not zero`,
+      sellersEligible: walletCap.eligible,
     } : {}),
   };
 }
@@ -1299,7 +1311,7 @@ export function leaderboardPage(snapshot, { baseUrl, sort }) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>x402 Leaderboard - Agent402</title>
-<meta name="description" content="Public on-chain ranking of every x402 seller by Base USDC settled volume - callsSettled, totalUsd, uniqueBuyers per seller.">
+<meta name="description" content="Public on-chain ranking of x402 sellers by Base USDC settled volume in the scan window - callsSettled, totalUsd, uniqueBuyers per seller.">
 ${CHROME_HEAD_LINKS}
 <style>
   :root { --bg:#0b0e14; --fg:#e6e9f0; --muted:#8b93a7; --accent:#4ade80; --line:#1e2638; --card:#0f1320; --warn:#f97316; }
@@ -1341,7 +1353,7 @@ ${renderHeader("/leaderboard")}
 <div class="wrap">
 
 <h1>x402 Leaderboard</h1>
-<p class="sub">Public on-chain ranking of every x402 seller listed on the Coinbase CDP Bazaar, ranked by ${sortMode === "calls" ? "raw call volume" : "settled USDC volume"} on Base. Window: <b>${esc(windowHuman)}</b>. Snapshot is cached and refreshed hourly.</p>
+<p class="sub">Public on-chain ranking of the x402 sellers we can see: discovered from the Coinbase CDP Bazaar plus our own crawl, and ranked by ${sortMode === "calls" ? "raw call volume" : "settled USDC volume"} on Base. A seller ranks here only once it settles inside the window, so this is not a roster of everyone listed - the card below reports how many ranked out of how many were scanned. Window: <b>${esc(windowHuman)}</b>. Snapshot is cached and refreshed hourly.</p>
 
 ${sortToggle}
 

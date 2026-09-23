@@ -81,11 +81,21 @@ const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail+
 {
   const src = await (await import("node:fs")).promises.readFile(new URL("../src/server.js", import.meta.url), "utf8");
   ok(/from "\.\/index-paging\.js"/.test(src), "server.js imports the paging contract");
-  const h = src.slice(src.indexOf('app.get("/api/index"'), src.indexOf(`app.get("/api/index"`) + 6000);
+  // Window the HANDLER, never a byte count: a fixed slice silently stops
+  // covering its own assertions the moment anything above grows, and then the
+  // guard reports green for code it can no longer see.
+  const hStart = src.indexOf('app.get("/api/index"');
+  const h = src.slice(hStart, src.indexOf("app.get(", src.indexOf("});", src.indexOf("legend: dispatchLegend", hStart))));
   ok(/pagingEnvelope\(\{ total: sellers\.length/.test(h), "the handler builds its envelope from it");
   ok(/res\.set\("Link", link\)/.test(h), "...sets the Link header from it");
   ok(/X-Total-Count/.test(h), "...and publishes the total as a header");
-  ok(/note: pagingNote\(/.test(h), "...and takes its note from the same place, so note and fields cannot drift");
+  // Matches the CALL, not the assignment: the note gained a readiness sentence
+  // prepended to it, and a rule anchored on `note: pagingNote(` went red for a
+  // change that kept the very property it exists to protect. What matters is
+  // that the prose is BUILT by the module and fed the same numbers as the
+  // fields, so nothing can drift; where the string is concatenated is not.
+  ok(/pagingNote\(\{ total: sellers\.length, page, perPage/.test(h),
+    "...and takes its note from the same place, so note and fields cannot drift");
 }
 
 // The SAME defect one branch away: the seller detail cuts the tool list at 500
@@ -96,13 +106,45 @@ const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail+
 {
   const src = await (await import("node:fs")).promises.readFile(new URL("../src/x402-index.js", import.meta.url), "utf8");
   ok(/export const SELLER_TOOLS_CAP = 500;/.test(src), "the tool cap is a named constant, not a magic number in a slice");
-  const d = src.slice(src.indexOf("export function sellerDetail"), src.indexOf("export function sellerDetail") + 6000);
+  const dStart = src.indexOf("export function sellerDetail");
+  const dEnd = src.indexOf("\nexport ", dStart + 10);
+  const d = src.slice(dStart, dEnd > dStart ? dEnd : src.length);
   ok(/toolsTruncated: \(v\.tools \|\| \[\]\)\.length > SELLER_TOOLS_CAP/.test(d),
      "the detail says when its tool list was cut");
   ok(/toolsReturned:/.test(d) && /toolsCap: SELLER_TOOLS_CAP/.test(d),
      "...and publishes how many it returned against the cap, so the gap is arithmetic rather than a guess");
   ok(/slice\(0, SELLER_TOOLS_CAP\)/.test(d),
      "the slice and the flag read the SAME constant, so they cannot drift apart");
+}
+
+// The two RANKING surfaces, same class: a ceiling reported as a count. Found by
+// using them against prod, not by reading them: ?top=100 on /api/route returned
+// 25 with count:25, and /api/find ignored `top` entirely (it took only `k`),
+// always returned 5 and called that the count. A caller asking "how many tools
+// do you have for data" was told five.
+{
+  const { ROUTE_TOP_MAX } = await import("../src/x402-index.js");
+  const { FIND_TOP_MAX, FIND_TOP_DEFAULT, findTools } = await import("../src/find.js");
+  ok(ROUTE_TOP_MAX === 25 && FIND_TOP_MAX === 25, "both ranking ceilings are named constants, not magic numbers");
+  ok(FIND_TOP_DEFAULT === 5, "...and the find default is named too, since it is the number that was being read as a match count");
+
+  // A catalog big enough to be cut, so `truncated` is exercised rather than
+  // asserted against an empty ranking - the trap that made the first paging
+  // guard prove nothing.
+  const catalog = {};
+  for (let i = 0; i < 40; i++) catalog[`/api/data-${i}`] = { slug: `data-${i}`, name: `data tool ${i}`, description: "data data data", price: "$0.001", category: "data", tags: ["data"] };
+  const cut = findTools(catalog, "data", { k: 5 });
+  ok(cut.count === 5 && cut.truncated === true, "a ranking cut by the limit says truncated");
+  ok(cut.topMax === FIND_TOP_MAX, "...and publishes the ceiling beside the count");
+  const whole = findTools(catalog, "data", { k: 25 });
+  ok(whole.truncated === true, "40 matches at the 25 ceiling is still truncated");
+  catalog["/api/zephyr"] = { slug: "zephyr", name: "zephyr", description: "zephyr", price: "$0.001", category: "misc", tags: ["zephyr"] };
+  const narrow = findTools(catalog, "zephyr", { k: 25 });
+  ok(narrow.truncated === false, "a ranking that fits is NOT truncated - the flag tracks the cut, not the query");
+
+  const src = await (await import("node:fs")).promises.readFile(new URL("../src/server.js", import.meta.url), "utf8");
+  ok(/const k = req\.query\.k \?\? req\.query\.top;/.test(src),
+     "/api/find accepts `top`, the name its sibling /api/route takes, instead of silently serving the default");
 }
 
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);

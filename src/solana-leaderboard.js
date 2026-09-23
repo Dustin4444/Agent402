@@ -25,6 +25,7 @@
 // collapses to 1 for a real seller (the gate's own comment). Funders are
 // still counted and shown. Never a per-transaction feed on the public surface.
 import { readFileSync, writeFileSync, renameSync } from "node:fs";
+import { scanCoverage } from "./partial-answer.js";
 
 export const SOLANA_LB_CACHE_FILE = process.env.SOLANA_LB_CACHE_FILE || "/data/solana-leaderboard.json";
 const REFRESH_MS = Number(process.env.SOLANA_LB_REFRESH_MS) || 2 * 60 * 60_000;
@@ -42,7 +43,7 @@ let inFlight = null;
 let timer = null, kick = null, kick2 = null;
 
 function emptyBoard() {
-  return { at: 0, rows: [], scanned: 0, errors: 0, windowHours: null, durationMs: 0, warm: false, rpcCalls: 0, state: {} };
+  return { at: 0, rows: [], scanned: 0, candidates: 0, errors: 0, windowHours: null, durationMs: 0, warm: false, rpcCalls: 0, state: {} };
 }
 
 export function solanaLeaderboardEnabled() {
@@ -118,7 +119,11 @@ export async function readPayToIncremental(payTo, st, { rpc, creditFromTx, windo
  */
 export async function scanSolanaSellers(payTos, { readFn, concurrency = CONCURRENCY, now = Date.now(), previous = current.rows, maxPayTos = MAX_PAYTOS, windowHours = null, retryPauseMs = RETRY_PAUSE_MS } = {}) {
   const prevBy = new Map((previous || []).map((r) => [r.payTo, r]));
-  const list = [...payTos.entries()].slice(0, maxPayTos);
+  const all = [...payTos.entries()];
+  // How many there WERE to scan, kept beside how many we read. Without it the
+  // board can only say "600 scanned", which a reader takes for the population.
+  const candidates = all.length;
+  const list = all.slice(0, maxPayTos);
   const rows = [];
   let errors = 0, cursor = 0, rpcCalls = 0;
   const started = now;
@@ -151,7 +156,7 @@ export async function scanSolanaSellers(payTos, { readFn, concurrency = CONCURRE
     }
   };
   await Promise.all(Array.from({ length: Math.max(1, concurrency) }, worker));
-  return { at: Date.now(), rows, scanned: list.length, errors, windowHours, durationMs: Date.now() - started, warm: false, rpcCalls };
+  return { at: Date.now(), rows, scanned: list.length, candidates, scanCap: maxPayTos, errors, windowHours, durationMs: Date.now() - started, warm: false, rpcCalls };
 }
 
 /** Evidence maps for the router: origin -> credits / payers (max across a seller's payTos). */
@@ -181,6 +186,15 @@ export function getSolanaLeaderboardSnapshot({ self = null, now = Date.now() } =
     stale: !current.at || now - current.at > STALE_MS,
     warmStarted: !!current.warm,
     sellers: current.scanned,
+    // ABSENCE HERE IS NOT EVIDENCE OF ABSENCE. The scan reads at most
+    // MAX_PAYTOS payTos per cycle, so a seller past the cap is missing because
+    // we never looked, not because nothing settled to them - and this board
+    // PRIMES the router's proven-seller gate, so "not on the board" is the
+    // reading that costs a seller routed volume. `sellers` is the scanned
+    // count and was the only number here, which reads as the population. Same
+    // shape as the 250-of-4,473 index page: the rows were right and the
+    // contract was quiet.
+    ...scanCoverage(current.candidates ?? current.scanned, current.scanned, current.scanCap ?? MAX_PAYTOS, "seller payTos"),
     errors: current.errors,
     rpcCallsLastScan: current.rpcCalls || 0,
     active: rows.filter((r) => r.credits > 0).length,

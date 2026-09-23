@@ -197,7 +197,9 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
       reliability: `${baseUrl}/api/reliability`,
       // Resolve a task to the right tool in one call (skip the exploration step).
       findTool: `${baseUrl}/api/find?q={task}`,
-      // Public on-chain ranking of every x402 seller by Base USDC settled volume.
+      // Public on-chain ranking of x402 sellers by Base USDC settled volume.
+      // A top-N slice per request (25 default, 50 ceiling unauthenticated);
+      // `totalSellers` in the response carries how many are ranked in all.
       leaderboard: `${baseUrl}/api/leaderboard`,
     },
     // Neutral cross-seller discovery surface - same router we use ourselves,
@@ -210,9 +212,10 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
       neutralRouter: `${baseUrl}/api/route`,
       sellerIndex: `${baseUrl}/api/index`,
       sellerIndexHtml: `${baseUrl}/marketplace`,
-      // On-chain ranking of every seller in the Bazaar by Base USDC settled
-      // volume. Same router, different sort key - closes the loop on
-      // discovery: find a tool, route to a seller, see who's most used.
+      // On-chain ranking of Bazaar sellers by Base USDC settled volume, head
+      // of the board first - a ranked page, never the whole board in one GET.
+      // Same router, different sort key - closes the loop on discovery: find a
+      // tool, route to a seller, see who's most used.
       leaderboard: `${baseUrl}/api/leaderboard`,
       leaderboardHtml: `${baseUrl}/leaderboard`,
       // The MPP side of the same primitives: a live-verified index of sellers

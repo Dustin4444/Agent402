@@ -590,6 +590,7 @@ export const X402_TOOLS = [
             organicScore: 0.1135, avgTicketUsd: 0.011635,
           }],
           wow: { available: false, note: "no persisted snapshot ~7 days old yet - week-over-week deltas activate automatically as history accrues" },
+          freshness: { asOf: "2026-07-14T00:00:00.000Z", stale: false, staleFromDisk: false, refreshFailing: false, lastRefreshAt: "2026-07-14T00:00:00.000Z", note: "measured by the scan named in asOf" },
           snapshotAsOf: "2026-07-14T00:00:00.000Z", generatedAt: "2026-07-14T00:00:05.000Z",
         },
       },
@@ -799,6 +800,34 @@ export function computeTrending(snap, input = {}, { selfWallet = "", history = [
     snapshotAsOf: snap?.asOf || null,
     generatedAt: new Date().toISOString(),
     ...(snap?.warming ? { warming: true } : {}),
+    // A DEGRADED BOARD WAS SOLD AS THE LIVE WINDOW. `warming` has always ridden
+    // out (the board has no rows yet), but the two states where the board has
+    // rows that are not current did not: `staleFromDisk`, set when boot serves
+    // the persisted snapshot rather than a scan, and `cache.lastError`, set when
+    // a refresh failed and the previous snapshot keeps serving. Both fields
+    // existed on the snapshot this function reads and both were dropped here, so
+    // a buyer paying for a "momentum radar" got hours-old rows labelled with the
+    // live window and nothing to tell them apart from a fresh read. The rows are
+    // still worth serving - refusing would be worse - but the answer has to say
+    // what it is, in a field, not in the description.
+    freshness: {
+      asOf: snap?.asOf || null,
+      // Rows exist but are not from a current scan.
+      stale: !!(snap?.staleFromDisk || snap?.cache?.lastError),
+      staleFromDisk: !!snap?.staleFromDisk,
+      // Whether the last refresh ATTEMPT failed, not what it said: the error
+      // text is a third party's words about our infrastructure and the public
+      // leaderboard already redacts it for that reason.
+      refreshFailing: !!snap?.cache?.lastError,
+      lastRefreshAt: snap?.cache?.lastTriedAt ?? null,
+      note: snap?.warming
+        ? "the on-chain board has not finished its first scan on this server, so an empty list here is not a reading about the ecosystem"
+        : snap?.staleFromDisk
+          ? "these rows were restored from the last persisted scan at boot, not measured in this window - treat asOf as their age"
+          : snap?.cache?.lastError
+            ? "the last refresh of the on-chain board failed, so these rows are the previous successful scan - treat asOf as their age"
+            : "measured by the scan named in asOf",
+    },
   };
 }
 
@@ -888,6 +917,26 @@ export function computeDemandRadar(agg, input = {}) {
       };
     })
     .filter((r) => r.count >= minCount && (!qualifiedOnly || r.qualified));
+
+  // THE HOLLOW ANSWER REFUSES NOW, instead of being sold. From 2026-07-21 to
+  // 2026-09-06 this tool answered HTTP 200 with real totals and `radar: []` to
+  // 193 settlements from 17 wallets, because the handler asked the wish board
+  // for the beacon envelope (no cluster rows) while the envelope's counts came
+  // from the board itself. Every guard passed: the keys were all present, and
+  // an empty radar is excused as "cold boot" on a CI boot that really is cold.
+  //
+  // The shape is decidable here, with no knowledge of why: a cluster's count is
+  // always at least 1, so at DEFAULT filters the row count equals the cluster
+  // count. Reporting N clusters and returning none is therefore never an answer
+  // about demand - it is this function being handed a board it cannot see. A
+  // >= 400 cancels settlement, so refusing costs the buyer nothing and surfaces
+  // the defect in hours rather than six weeks.
+  if (!rows.length && Number(agg?.distinctClusters) > 0 && minCount <= 1 && !qualifiedOnly) {
+    throw Object.assign(
+      new Error(`the demand board reports ${Number(agg.distinctClusters)} clusters but returned no rows to rank, so this answer would be empty for a reason that is ours, not a reading about demand - not charged, please retry`),
+      { statusCode: 502 }
+    );
+  }
 
   const lastMs = (r) => Date.parse(r.lastSeen || "") || 0;
   rows.sort(
