@@ -47,12 +47,24 @@ const USDC_NAME = /^(usdc|usd coin)$/i;
 export function acceptsFromLive402({ header, body } = {}) {
   const dig = (obj) => {
     if (!obj || typeof obj !== "object") return null;
-    if (Array.isArray(obj.accepts) && obj.accepts.length) return obj.accepts;
+    // `accepts` is the spec's name; a few sellers publish the same array as
+    // `paymentRequirements` (the v1 SDK's type name) or `requirements`, which
+    // read as "402 we cannot parse" until 2026-09-23 (73 such reads in the
+    // first hour of counting).
+    const arrayOf = (o) => {
+      for (const k of ["accepts", "paymentRequirements", "payment_requirements", "requirements"]) {
+        if (Array.isArray(o?.[k]) && o[k].length) return o[k];
+      }
+      return null;
+    };
+    const top = arrayOf(obj);
+    if (top) return top;
     // Sellers wrap the envelope: { payment: { accepts } }, { x402: { accepts } }.
-    for (const k of ["payment", "x402", "paymentRequired", "payment_required", "data"]) {
+    for (const k of ["payment", "x402", "paymentRequired", "payment_required", "data", "error"]) {
       const nested = obj[k];
-      if (nested && typeof nested === "object" && Array.isArray(nested.accepts) && nested.accepts.length) {
-        return nested.accepts;
+      if (nested && typeof nested === "object") {
+        const hit = arrayOf(nested);
+        if (hit) return hit;
       }
     }
     return null;
@@ -226,6 +238,56 @@ export function probeTargetsFor(originUrl, tool) {
     added++;
   }
   return added ? [u.toString(), bare] : [bare];
+}
+
+// The POST twin of the query placeholders: a route whose OpenAPI declares
+// required JSON body fields often validates them before its paywall, so the
+// bare `{}` probe got a 400/422 and never saw the 402. 25% of misses in the
+// first hour of counting (2026-09-23) were such input errors. Names come from
+// request-contract.js (dotted paths, names only); every leaf gets the same
+// name-shaped placeholder the query side uses. Types are unknown, so a field
+// that wants a number may still refuse - the bare `{}` follows as before.
+export function probeBodyFor(tool) {
+  const paths = unpackRequestContract(tool)?.required?.body || [];
+  if (!paths.length) return null;
+  const root = {};
+  for (const path of paths) {
+    const segs = String(path).split(".");
+    let node = root;
+    segs.forEach((seg, i) => {
+      if (i === segs.length - 1) {
+        if (!(seg in node)) node[seg] = queryPlaceholderFor(seg);
+      } else {
+        if (typeof node[seg] !== "object" || node[seg] === null) node[seg] = {};
+        node = node[seg];
+      }
+    });
+  }
+  return JSON.stringify(root);
+}
+
+/**
+ * Every unpaid request one quote probe may make for a route, in order: each
+ * target (placeholder query first, then bare) by each allowed verb, and for a
+ * POST the placeholder body before `{}`. Duplicates are dropped, so a route
+ * that declares nothing makes exactly the requests it always did.
+ */
+export function probeAttemptsFor(originUrl, tool) {
+  const filled = probeBodyFor(tool);
+  const out = [];
+  const seen = new Set();
+  for (const target of probeTargetsFor(originUrl, tool)) {
+    for (const method of probeMethodsFor(tool)) {
+      const bodies = method === "POST" ? [filled, "{}"].filter(Boolean) : [null];
+      for (const body of bodies) {
+        const k = `${method} ${target} ${body}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        out.push({ target, method, body });
+      }
+    }
+  }
+  return out;
 }
 
 /** Is this response a usable x402 quote? 402 is the only healthy answer to an
