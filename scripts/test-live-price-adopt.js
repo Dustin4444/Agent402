@@ -8,7 +8,7 @@
 //      a 2x drift.
 import assert from "node:assert/strict";
 process.env.X402_INDEX_CRAWL = "off";
-const { enrichLiveQuotes, adoptLivePrice } = await import("../src/x402-index.js");
+const { enrichLiveQuotes, adoptLivePrice, quoteProbeStatsSnapshot, probeFailureCode } = await import("../src/x402-index.js");
 
 let n = 0;
 const ok = (c, m) => { n++; assert.ok(c, m); };
@@ -59,6 +59,20 @@ try {
   const stale = [row({ quoteObservedAt: Date.now() - 8 * 24 * 3600_000 })];
   await enrichLiveQuotes(stale, ORIGIN);
   ok(seen.length > 0 && stale[0].price === 0.005, `a stale quote is re-read AND corrected (got ${stale[0].price})`);
+
+  // --- 4. probe outcomes are counted: a miss is filed under its first attempt
+  const before = quoteProbeStatsSnapshot();
+  globalThis.fetch = async () => new Response("bad input", { status: 422 });
+  const miss = [row({ route: "/needs-body", price: null, quoteSource: undefined })];
+  await enrichLiveQuotes(miss, ORIGIN, { ignoreBudget: true });
+  const after = quoteProbeStatsSnapshot();
+  ok(after.missed === before.missed + 1, "the miss is counted");
+  ok((after.missByFirst["POST 422"] || 0) === (before.missByFirst["POST 422"] || 0) + 1, `filed under its first attempt (got ${JSON.stringify(after.missByFirst)})`);
+  ok(after.learned >= 2, "learned reads are counted too");
+  const te = new Error("x"); te.name = "TimeoutError";
+  ok(probeFailureCode(te) === "timeout", "timeout classified");
+  const re = new Error("fetch failed"); re.cause = { code: "ECONNRESET" };
+  ok(probeFailureCode(re) === "reset", "connection reset classified");
 } finally {
   globalThis.fetch = orig; console.log = origLog;
 }
