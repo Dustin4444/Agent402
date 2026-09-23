@@ -420,6 +420,15 @@ export function __testResetMethodCache() {
  *  the route's price via `priceFor` (server.js supplies a CATALOG lookup) —
  *  never invents a price, and mints nothing for a route it can't price.
  *  Returns null (mount nothing) when tempoEnabled() is false. */
+/** Whether a route is offered a tempo challenge at all. ONE predicate, read by
+ *  the 402 appender below and by the /openapi.json discovery offers, so the
+ *  document never promises a method the live 402 withholds. Identity-bound
+ *  routes are paid with the payer AS the identity and a tempo credential
+ *  carries no verified payer; long-running routes outlive a pull credential. */
+export function tempoOfferedFor(item) {
+  return !!item && !item.identityBound && !item.longRunning;
+}
+
 export function createTempoChallengeAppender({ realm, secretKey, priceFor }) {
   if (!tempoEnabled()) return null;
   return function tempoChallengeAppender(req, res, next) {
@@ -435,7 +444,7 @@ export function createTempoChallengeAppender({ realm, secretKey, priceFor }) {
           // Identity-bound routes (wallet-keyed memory, my-usage) are paid
           // with the payer AS the identity; a tempo credential carries no
           // verified payer, so no tempo challenge is offered for them.
-          if (item && !item.identityBound && !item.longRunning) {
+          if (tempoOfferedFor(item)) {
             const header = mintTempoChallenge({
               priceUsd: item.priceUsd,
               description: item.description,

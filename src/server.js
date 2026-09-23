@@ -137,6 +137,7 @@ import { databasesStatus } from "./db-status.js";
 import { initWithRetry } from "./db-init-retry.js";
 import { baseNotificationsEnabled } from "./base-notifications.js";
 import { initSentry, captureToolError, sentryEnabled } from "./sentry.js";
+import { railOf } from "./payment-rail.js";
 import { initPostHog, capturePostHogWrongMethod, capturePostHogToolError, capturePostHogToolCall, capturePostHogDiscovery, capturePostHogPaywall, capturePostHogPowChallenge, capturePostHogSettlement, capturePostHogChargedFailure, capturePostHogSettleFailed, capturePostHogToolGone, capturePostHogHumanFunnel, shutdownPostHog, posthogEnabled } from "./posthog.js";
 import { analyticsPage } from "./analytics-page.js";
 import { operatorPage, operatorLoginPage } from "./operator.js";
@@ -272,7 +273,7 @@ import { LLM_GEMINI_TOOLS, GEMINI_PATH_BY_TIER } from "./tools/llm-gemini-kit.js
 import { refusalReason } from "./refusal-reason.js";
 import { setKnownProductKeys } from "./posthog.js";
 import { LLM_RESPONSES_TOOLS } from "./tools/llm-responses-kit.js";
-import { LLM_GATEWAY_TOOLS, TIERS, PRICED_BY_MODEL_NOTE, modelsList, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, rerankCacheKey, RERANK_PATH, gatewayCreditsStatus, oxAlphaAvailable, probeOxAlphaAvailability, OX_ROUTE, oxUpstreamIsFree } from "./tools/llm-gateway-kit.js";
+import { LLM_GATEWAY_TOOLS, TIERS, PRICED_BY_MODEL_NOTE, modelsList, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, rerankCacheKey, RERANK_PATH, gatewayCreditsStatus, oxAlphaAvailable, probeOxAlphaAvailability, OX_ROUTE, oxUpstreamIsFree, isFlatTier, METERED_MAX_QUOTE_USD } from "./tools/llm-gateway-kit.js";
 // /v1/audio/speech stays behind OPENROUTER_TTS_ENABLED as a rollout gate:
 // @x402/express (v2.16) runs the handler first and settles only a <400
 // response, so a 502 is never charged — but an UNLISTED route returns no 402
@@ -1770,6 +1771,17 @@ for (const def of Object.values(CATALOG)) {
   // Long-running composites settle AFTER a 2-4 min handler: EVM exact only
   // (see acceptsForItem) and no Tempo challenge (see mpp-tempo).
   if (isLongRunningSlug(def.slug)) def.longRunning = true;
+}
+// Routes priced per request publish a RANGE in /openapi.json (price.mode
+// "dynamic", offer amount null), never the catalog floor as if it were the
+// price. A metered route quotes from its body between the settlement floor
+// and the metered cap; a priced-by-model flat route quotes between its own
+// price and the dearest flat tier a model can be served under.
+const FLAT_TIER_MAX_USD = Math.max(0, ...Object.keys(TIERS).filter(isFlatTier).map((k) => Number(TIERS[k].price) || 0));
+for (const def of Object.values(CATALOG)) {
+  const floor = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
+  if (typeof def.quote === "function") def.quoteRange = { minUsd: floor, maxUsd: METERED_MAX_QUOTE_USD };
+  else if (typeof def.tierQuote === "function") def.quoteRange = { minUsd: floor, maxUsd: Math.max(floor, FLAT_TIER_MAX_USD) };
 }
 // The attest tool refuses to attest a sale of an identity-bound route (a
 // memory read or a usage report is the buyer's own business, and an
@@ -8221,7 +8233,7 @@ for (const tool of ALL_KIT) {
       const latencyMs = Date.now() - startedAt;
       // Fire-and-forget. Analytics outages must NEVER affect agents.
       recordToolCall({ slug: tool.slug, latencyMs, cached, errored, status, synthetic, probe }).catch(() => {});
-      capturePostHogToolCall({ slug: tool.slug, latencyMs, cached, errored, status, synthetic, probe, payer, refusalReason: refusalClass });
+      capturePostHogToolCall({ slug: tool.slug, latencyMs, cached, errored, status, synthetic, probe, payer, refusalReason: refusalClass, rail: railOf(req) });
     }
   });
 }

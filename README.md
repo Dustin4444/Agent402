@@ -137,6 +137,28 @@ curl -s -X POST localhost:3000/api/hash -H 'content-type: application/json' \
 
 Boots straight from the repo's `railway.toml` + `Dockerfile`. Optional plugins are auto-detected via env: add **Redis** → `REDIS_URL` enables the upstream response cache (`X-Cache: hit|miss`), add **Postgres** → `DATABASE_URL` enables the public `/api/analytics` dashboard and the tollbooth waitlist. No env vars required to boot in free mode.
 
+## Pay per call from a wallet
+
+Every paid route answers `402` with both an x402 offer and MPP challenges, so either client pays it. No API key, no signup: the wallet is the account.
+
+**MPP** (USDC.e on Tempo, or USDC on Base) with [`mppx`](https://www.npmjs.com/package/mppx):
+
+```js
+import { Mppx, tempo, evm } from "mppx/client";
+const account = (await import("viem/accounts")).privateKeyToAccount(process.env.AGENT_KEY);
+const res = await Mppx.create({ methods: [tempo.charge({ account }), evm.charge({ account })] }).fetch("https://agent402.tools/api/uuid");
+```
+
+**x402** (USDC on Base and other chains) with [`@x402/fetch`](https://www.npmjs.com/package/@x402/fetch):
+
+```js
+import { wrapFetchWithPayment } from "@x402/fetch"; import { x402Client } from "@x402/core/client"; import { registerExactEvmScheme } from "@x402/evm/exact/client";
+const client = new x402Client(); registerExactEvmScheme(client, { signer: (await import("viem/accounts")).privateKeyToAccount(process.env.AGENT_KEY) });
+const res = await wrapFetchWithPayment(fetch, client)("https://agent402.tools/api/uuid");
+```
+
+More: [Paying with MPP](https://github.com/MikeyPetrillo/Agent402/wiki/Paying-with-MPP) · [Paying with x402](https://github.com/MikeyPetrillo/Agent402/wiki/Paying-with-x402).
+
 ## What's in the catalog (500+ tools)
 
 > **Every tool earns its place: deterministic, tested against its own example on every CI

@@ -70,6 +70,33 @@ ok(again.record({ ip: "192.0.2.9", ua: "curl", path: "/api/hash", method: "POST"
 }
 ok(typeof store.summaryLine("2026-09-22") === "string" && /total=13/.test(store.summaryLine("2026-09-22")), "the daily summary line reads the rollup");
 
+// --- the payment rail ----------------------------------------------------------------------
+{
+  const { railOf } = await import("../src/payment-rail.js");
+  ok(railOf({ mppTempoCredential: true, headers: { "payment-signature": "x" } }) === "mpp-tempo", "a tempo credential is mpp-tempo even beside an x402 header");
+  ok(railOf({ mppCredential: true, headers: { "payment-signature": "x" } }) === "mpp-evm", "an MPP evm credential translated to PAYMENT-SIGNATURE is still mpp-evm, not x402");
+  ok(railOf({ mppStripeCredential: true, headers: {} }) === "mpp-stripe", "a stripe credential is mpp-stripe");
+  ok(railOf({ creditsSettling: true, headers: {} }) === "credits", "a credits key is credits");
+  ok(railOf({ headers: { "payment-signature": "x" } }) === "x402", "a bare PAYMENT-SIGNATURE is x402");
+  ok(railOf({ headers: { authorization: "Payment abc" } }) === "mpp", "an unrecognised Payment credential is mpp");
+  ok(railOf({ headers: { "x-pow-solution": "t:1" } }) === "pow", "a proof-of-work solution is pow");
+  ok(railOf({ headers: {} }) === null, "an unpaid request has no rail");
+  const rs = createTrafficStore({ dir: mkdtempSync(join(tmpdir(), "a402-rail-")) });
+  const at = Date.parse("2026-09-22T12:00:00Z");
+  rs.record({ ip: "1.1.1.1", ua: "node", path: "/api/uuid", method: "GET", status: 200, hadPayment: true, paidReceipt: true, payer: "0xa", rail: "mpp-tempo", now: at });
+  rs.record({ ip: "1.1.1.1", ua: "node", path: "/api/uuid", method: "GET", status: 200, hadPayment: true, paidReceipt: true, payer: "0xa", rail: "mpp-tempo", now: at });
+  rs.record({ ip: "1.1.1.2", ua: "node", path: "/api/uuid", method: "GET", status: 402, hadPayment: true, paidReceipt: false, rail: "mpp-tempo", now: at });
+  rs.record({ ip: "1.1.1.3", ua: "node", path: "/api/hash", method: "POST", status: 502, hadPayment: true, paidReceipt: false, rail: "x402", now: at });
+  rs.record({ ip: "1.1.1.4", ua: "node", path: "/api/hash", method: "POST", status: 200, hadPow: true, paidReceipt: false, rail: "pow", powAccepted: true, now: at });
+  const rr = rs.report({ days: 1 }).days[0].rails;
+  ok(rr["mpp-tempo"].attempts === 3 && rr["mpp-tempo"].paid === 2 && rr["mpp-tempo"].refused === 1, `per-rail attempts/paid/refused (${JSON.stringify(rr["mpp-tempo"])})`);
+  ok(rr["mpp-tempo"].distinctPayers === 1 && rr["mpp-tempo"].paidPerPayer === 2, "distinct payers and paid calls per payer");
+  ok(rr.x402.errored === 1 && rr.x402.paid === 0, "a 5xx on a paid attempt is errored, not paid");
+  ok(rr.pow.paid === 1, "an accepted proof-of-work counts as paid on the pow rail");
+  ok(!JSON.stringify(rr).includes("payers\":{"), "the rail summary carries no payer hashes");
+  ok(/rail\.mpp-tempo=2\/3paid,1payers/.test(rs.summaryLine("2026-09-22")), "the daily summary line carries each rail");
+}
+
 // --- the wire: a free boot, a walk, the operator read -------------------------------------
 const port = await getFreePort();
 const base2 = `http://127.0.0.1:${port}`;

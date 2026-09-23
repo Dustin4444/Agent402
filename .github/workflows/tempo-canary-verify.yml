@@ -14,6 +14,11 @@ permissions:
 
 on:
   workflow_dispatch:
+    inputs:
+      calls:
+        description: 'Optional JSON array of {"method","path","body"} to buy (1-10); default is one GET /api/uuid'
+        required: false
+        default: ""
 
 jobs:
   buy:
@@ -30,4 +35,5 @@ jobs:
         env:
           BURNER_KEY: ${{ secrets.BURNER_KEY }}
           POW_SECRET: ${{ secrets.POW_SECRET }}
+          CANARY_CALLS: ${{ inputs.calls }}
         run: node scripts/tempo-canary-verify.js

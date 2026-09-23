@@ -35,6 +35,8 @@ import {
   mcpTasksEnabled, clientDeclaresTasks, createTaskStore, createTaskResult, detailedTask, taskAck, isTaskMethod,
 } from "./mcp-tasks.js";
 import { EXPENSIVE_COMPOSITE_SLUGS } from "./composite-spend-guard.js";
+import { tempoEnabled } from "./mpp-tempo.js";
+import { stripeEnabled } from "./mpp-stripe.js";
 import { findTools, findRelatedSellers, applyFrontDoorTerms } from "./find.js";
 import { partialFields, clampFields } from "./partial-answer.js";
 import { routableSellerSummaries } from "./x402-index.js";
@@ -130,6 +132,15 @@ let mcpInFlight = 0;
 let sharedTaskStore = null;
 /** Test seam: how many task stores this process holds (must be at most one). */
 export function _sharedTaskStoreForTest() { return sharedTaskStore; }
+/** The MPP methods the hosted connector can settle a paid tool call with. */
+export function mcpPaymentMethods() {
+  return {
+    evm: { intents: ["charge"] },
+    ...(tempoEnabled() ? { tempo: { intents: ["charge"] } } : {}),
+    ...(stripeEnabled() ? { stripe: { intents: ["charge"] } } : {}),
+  };
+}
+
 export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = () => {}, getLeaderboard = null, getMppLeaderboard = null, mppLoopback = null, taskStore = null, taskStoreDir = null, path = "/mcp", profile = null }) {
   const scoped = profile?.metaTools === false;
   const HIDDEN_WHEN_SCOPED = new Set([META_MCP_NAMES.search_tools, META_MCP_NAMES.find_tool, META_MCP_NAMES.call_tool, META_MCP_NAMES.request_tool, META_MCP_NAMES.list_top_sellers]);
@@ -317,6 +328,11 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           // advertised when the extension is armed AND paid calls are actually
           // possible here - a task only exists to carry a PAID composite run.
           ...(tasks ? { extensions: { [TASKS_EXTENSION]: {} } } : {}),
+          // MPP transport-mcp "MCP Capability Advertisement": the methods a
+          // paid tool call here can be settled with, read from the gates that
+          // are actually live. Only when the MPP loopback exists - without it a
+          // paid call here cannot be settled at all.
+          ...(mppLoopback ? { experimental: { payment: { methods: mcpPaymentMethods() } } } : {}),
         },
         instructions: profile?.instructions || mcpInitializeInstructions(baseUrl),
       },
@@ -547,7 +563,10 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
         // credential's problem says why; a first ask carries only the
         // challenges. Price rides inside each challenge's request.amount.
         const presented = Boolean(credentialHeaderFromMeta(meta));
-        throw new McpError(presented ? MCP_PAYMENT_VERIFICATION_FAILED_CODE : MCP_PAYMENT_REQUIRED_CODE, problem?.detail || `Payment Required: ${entry.def.price} per call (pay with an MPP credential in _meta["org.paymentauth/credential"])`, { httpStatus: 402, challenges, ...(problem ? { problem } : {}) });
+        // The message is what a host that does not speak MPP shows its user,
+        // so a first ask carries every other way to pay, not only the MPP one.
+        // Code and data are unchanged: an MPP client reads those, never the text.
+        throw new McpError(presented ? MCP_PAYMENT_VERIFICATION_FAILED_CODE : MCP_PAYMENT_REQUIRED_CODE, problem?.detail || `Payment Required: ${walletRequiredText(entry.def)}`, { httpStatus: 402, challenges, ...(problem ? { problem } : {}) });
       }
       if (r.status >= 400) {
         onServed(entry.def.slug, { latencyMs: Date.now() - startedAt, errored: true, statusCode: r.status, errorMessage: String(r.json?.error || r.text || r.status).slice(0, 200), inputKeys: Object.keys(params || {}) });

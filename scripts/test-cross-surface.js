@@ -88,11 +88,18 @@ async function main() {
       const info = op["x-payment-info"];
       if (info?.price?.amount !== undefined && !near(info.price.amount, priceNum(e.price))) priceDrift.push(`${e.path}: x-payment-info ${info.price.amount} vs ${e.price}`);
       const offer = info?.offers?.find((o) => o.method === "evm");
-      if (offer && !near(Number(offer.amount) / 1e6, priceNum(e.price))) offerDrift.push(`${e.path}: MPP offer ${offer.amount} micro vs ${e.price}`);
+      // A route priced per request publishes a range (price.mode "dynamic")
+      // whose floor is the list price, and every offer amount is null - the
+      // live 402 quotes the body. A fixed route's offer is its price.
+      if (info?.price?.mode === "dynamic") {
+        if (!near(info.price.min, priceNum(e.price))) priceDrift.push(`${e.path}: dynamic min ${info.price.min} vs ${e.price}`);
+        if (!(Number(info.price.max) >= Number(info.price.min))) priceDrift.push(`${e.path}: dynamic max ${info.price.max} under min ${info.price.min}`);
+        for (const o of info.offers || []) if (o.amount !== null) offerDrift.push(`${e.path}: dynamic route carries a fixed ${o.method} offer ${o.amount}`);
+      } else if (offer && !near(Number(offer.amount) / 1e6, priceNum(e.price))) offerDrift.push(`${e.path}: MPP offer ${offer.amount} micro vs ${e.price}`);
     }
     ok(missingOp.length === 0, `every pricing endpoint is an OpenAPI operation${missingOp.length ? ` - missing: ${missingOp.slice(0, 5).join(", ")}` : ""}`);
     ok(priceDrift.length === 0, `x-price / x-payment-info agree with /api/pricing on every route${priceDrift.length ? ` - ${priceDrift.slice(0, 5).join("; ")}` : ""}`);
-    ok(offerDrift.length === 0, `the MPP evm offer amount is the route price in micro-USD${offerDrift.length ? ` - ${offerDrift.slice(0, 5).join("; ")}` : ""}`);
+    ok(offerDrift.length === 0, `the MPP evm offer amount is the route price in micro-USD (null on a dynamic route)${offerDrift.length ? ` - ${offerDrift.slice(0, 5).join("; ")}` : ""}`);
     const orphanOps = pricedOps.filter((o) => !byKey.has(`${o.method} ${o.path}`)).map((o) => `${o.method} ${o.path}`);
     ok(orphanOps.length === 0, `every priced OpenAPI operation is a pricing endpoint${orphanOps.length ? ` - orphans: ${orphanOps.slice(0, 5).join(", ")}` : ""}`);
 
