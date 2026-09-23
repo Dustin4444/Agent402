@@ -3023,6 +3023,51 @@ function applyLivePayTo(row, payToByNetwork) {
   row.payToByNetwork = { ...(row.payToByNetwork || {}), ...Object.fromEntries(live) };
 }
 
+// WHY a live-402 read learned nothing, counted. Across the index about half of
+// all rows miss a chain the seller offers and ~30% have no price (measured
+// 2026-09-23); the required-query-parameter case explained only part of it, and
+// nothing recorded why the rest fail. Each missed route is filed under the
+// outcome of its FIRST attempt (the primary target and verb), and every attempt
+// is counted by verb and status, so the dominant cause can be read off prod
+// instead of guessed. Counts only: no URL, no origin, no body.
+const quoteProbeStats = { since: Date.now(), probed: 0, learned: 0, missed: 0, missByFirst: {}, attempts: {} };
+function bump(map, key) { map[key] = (map[key] || 0) + 1; }
+export function probeFailureCode(err) {
+  const name = String(err?.name || "");
+  const code = String(err?.cause?.code || err?.code || "");
+  if (name === "TimeoutError" || name === "AbortError" || /TIMEOUT/.test(code)) return "timeout";
+  if (/ENOTFOUND|EAI_AGAIN/.test(code)) return "dns";
+  if (/ECONNRESET|UND_ERR_SOCKET/.test(code)) return "reset";
+  if (/ECONNREFUSED/.test(code)) return "refused";
+  if (/CERT|SSL|TLS|ERR_TLS/i.test(code + " " + String(err?.message || ""))) return "tls";
+  if (Number(err?.statusCode) === 400 || /private|public|blocked|not allowed/i.test(String(err?.message || ""))) return "ssrf-blocked";
+  return "error";
+}
+export function quoteProbeStatsSnapshot() {
+  const top = (m) => Object.fromEntries(Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 25));
+  return { since: new Date(quoteProbeStats.since).toISOString(), probed: quoteProbeStats.probed, learned: quoteProbeStats.learned, missed: quoteProbeStats.missed, missByFirst: top(quoteProbeStats.missByFirst), attempts: top(quoteProbeStats.attempts) };
+}
+let quoteProbeSummaryAt = Date.now();
+function maybeLogQuoteProbeSummary(now = Date.now()) {
+  if (now - quoteProbeSummaryAt < 60 * 60_000) return;
+  quoteProbeSummaryAt = now;
+  const s = quoteProbeStatsSnapshot();
+  console.log(`[x402-index] live-402 probe outcomes since ${s.since}: probed ${s.probed}, learned ${s.learned}, missed ${s.missed}; misses by first attempt ${JSON.stringify(s.missByFirst)}`);
+}
+
+/** Write a live-402 price onto a row: fills a gap, and replaces a held price
+ *  that differs (logged with both figures, so a correction is never silent). */
+export function adoptLivePrice(row, livePrice, originUrl = "") {
+  if (!row || livePrice == null) return;
+  const live = priceToMicroUsd(livePrice);
+  if (!(live > 0)) return;
+  const held = priceToMicroUsd(row.price);
+  if (held === live) return;
+  if (held > 0) console.log(`[x402-index] live-402 price: ${originUrl}${row.route} ${microUsdToPrice(held)} -> ${microUsdToPrice(live)} (the route's own 402)`);
+  row.price = livePrice;
+  delete row.quoteCarriedForward;
+}
+
 export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false } = {}) {
   if (!Array.isArray(tools) || !tools.length) return tools;
   const candidates = tools.filter(
@@ -3046,7 +3091,13 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
         // (2026-09-15): a seller made a route free, re-registered, and the
         // 0.001 learned two weeks earlier stood because a priced row was never
         // a candidate until its 7-day clock ran out.
-        || (ignoreBudget && Number(t.price) > 0 && !(Number(t.originDeclaredPrice) > 0)))
+        || (ignoreBudget && Number(t.price) > 0 && !(Number(t.originDeclaredPrice) > 0))
+        // ...and every route whose held price differs from the origin's own
+        // declaration AT ALL. The automatic crawl waits for a 2x drift
+        // (QUOTE_DRIFT_FACTOR) to stay polite; a seller who re-registers is
+        // asking us to look now, and a 1.67x gap is still a wrong price.
+        || (ignoreBudget && Number(t.price) > 0 && Number(t.originDeclaredPrice) > 0
+          && priceToMicroUsd(t.price) !== priceToMicroUsd(t.originDeclaredPrice)))
       && probeMethodsFor(t).length                       // never PUT/PATCH/DELETE
       && probeDue(originUrl, `quote:${t.route}`),
   );
@@ -3075,6 +3126,12 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
   const dropped = new Set();
   for (const tool of rotated) {
     let learned = null;
+    let firstOutcome = null;
+    const note = (method, outcome) => {
+      const k = `${method} ${outcome}`;
+      bump(quoteProbeStats.attempts, k);
+      if (!firstOutcome) firstOutcome = k;
+    };
     probe: for (const target of probeTargetsFor(originUrl, tool))
     for (const method of probeMethodsFor(tool)) {
       try {
@@ -3098,6 +3155,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
         // Every other status still falls through to POST, because that is what
         // discovers a POST-only seller: a 404 or 405 on GET is expected there
         // and is the whole reason the second method is tried.
+        note(method, String(res.status));
         if (method === "GET" && res.status === 200) {
           // The route answered WITHOUT a paywall. If the price we hold was
           // learned (a past 402, or a Bazaar settlement snapshot) rather than
@@ -3130,14 +3188,25 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
           ? live.map((a) => (a && typeof a.network === "string" ? { ...a, network: normalizeNetwork(a.network) } : a))
           : live);
         if (quote) { learned = { ...quote, method }; break probe; }
-      } catch { /* unreachable, blocked, or malformed - try the next method */ }
+        note(method, "402-unreadable");   // a 402 whose accepts we could not turn into a quote
+      } catch (err) { note(method, probeFailureCode(err)); /* unreachable, blocked, or malformed - try the next method */ }
     }
     noteProbeOutcome(originUrl, `quote:${tool.route}`, Boolean(learned));
+    quoteProbeStats.probed++;
+    if (learned) quoteProbeStats.learned++;
+    else { quoteProbeStats.missed++; bump(quoteProbeStats.missByFirst, firstOutcome || "none"); }
     if (!learned) continue;
     // Price may be null for an asset we refuse to guess at; the networks alone
     // still move the row from payable:"unknown" to payable:"x402", which is the
     // honest and useful half of the answer.
-    if (learned.price != null && !(Number(tool.price) > 0)) tool.price = learned.price;
+    // The live 402 is what a buyer is actually asked to pay, so it is the
+    // current word on the price as well as the chains. This used to fill an
+    // EMPTY price only, which made every re-probe of a priced row - a drift
+    // against the origin's declaration, a stale learned quote, an explicit
+    // re-registration - read the right amount and keep the old one (issue
+    // #1460, 2026-09-23: a seller re-registered at $0.005 and seven routes
+    // still showed the $0.003 learned earlier).
+    adoptLivePrice(tool, learned.price, originUrl);
     if (learned.networks?.length) tool.networks = [...new Set([...(tool.networks || []), ...learned.networks])];
     // The live 402 is the current word on which EIP-712 domain each EVM
     // accept advertises: it replaces any older observation on the row.
@@ -3164,7 +3233,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
       const stated = String(tool.method || "GET").toUpperCase();
       const sibling = tools.find((o) => o !== tool && o.route === tool.route && String(o.method || "").toUpperCase() === learned.method);
       if (sibling) {
-        if (learned.price != null && !(Number(sibling.price) > 0)) sibling.price = learned.price;
+        adoptLivePrice(sibling, learned.price, originUrl);
         if (learned.networks?.length) sibling.networks = [...new Set([...(sibling.networks || []), ...learned.networks])];
         if (learned.evmDomainByNetwork) sibling.evmDomainByNetwork = { ...learned.evmDomainByNetwork };
         applyLivePayTo(sibling, learned.payToByNetwork);
@@ -3195,6 +3264,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
   // Two call sites ignore the return value and read the array they passed, so
   // a dropped row must leave the array itself, not just the returned copy.
   if (dropped.size) for (let i = tools.length - 1; i >= 0; i--) if (dropped.has(tools[i])) tools.splice(i, 1);
+  maybeLogQuoteProbeSummary();
   return tools;
 }
 
