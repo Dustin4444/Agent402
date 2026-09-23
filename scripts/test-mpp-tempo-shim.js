@@ -101,6 +101,9 @@ try {
   ok(Date.parse(tempoCh.expires) > Date.now(), "tempo challenge carries a future expires");
   const evmCh = challenges.find((c) => c.method === "evm" && c.intent === "charge");
   ok(!!evmCh, "the evm challenge is STILL offered (Tempo is additive, no regression)");
+  // Order: mppx pays the FIRST challenge it has a method for and never falls
+  // back, so a buyer holding Tempo funds and a Base wallet pays over Tempo.
+  ok(challenges[0]?.method === "tempo", `the tempo challenge leads the header (order: ${challenges.map((c) => c.method).join(",")})`);
 } finally {
   proc.kill("SIGKILL");
 }
@@ -527,3 +530,22 @@ function isDeepOrderOk(actual, expected) {
 
 facilitator.close();
 console.log(`\n${pass} passed, 0 failed`);
+
+// ---- tempo refusal demotes the tempo challenge for that client -------------
+{
+  const { noteTempoRefusal, tempoLeads, _resetTempoDemotion } = await import("../src/mpp-tempo.js");
+  _resetTempoDemotion();
+  const a = { ip: "203.0.113.5", headers: { "user-agent": "agent/1.0" } };
+  const other = { ip: "203.0.113.6", headers: { "user-agent": "agent/1.0" } };
+  ok(tempoLeads(a) === true, "tempo leads for a client with no refusal");
+  ok(noteTempoRefusal(a) === true, "a refusal is recorded for a keyed client");
+  ok(tempoLeads(a) === false, "after a tempo refusal that client gets evm first");
+  ok(tempoLeads(other) === true, "another client is unaffected");
+  ok(tempoLeads(a, Date.now() + 31 * 60 * 1000) === true, "the demotion lapses after its window");
+  ok(noteTempoRefusal({ ip: "203.0.113.7", headers: {} }) === false, "a client with no User-Agent is never keyed");
+  const src = (await import("node:fs")).readFileSync(new URL("../src/mpp-tempo.js", import.meta.url), "utf8");
+  ok(/rejected by validate\(\)[\s\S]{0,200}noteTempoRefusal\(req\)/.test(src), "the validate-rejection branch records the refusal");
+  ok(/tempoLeads\(req\) \? `\$\{header\}, \$\{existing\}`/.test(src), "the appender puts tempo first unless demoted");
+  _resetTempoDemotion();
+  console.log(`${pass} passed (with demotion)`);
+}

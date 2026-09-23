@@ -24,7 +24,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { mppProblem, markMppProblem, sendMppProblem } from "./mpp-problem.js";
 import { Challenge, Credential, Method, Receipt } from "mppx";
 import { tempo } from "mppx/server";
-import { mppChallengesSuppressed } from "./mpp-fallback.js";
+import { mppChallengesSuppressed, clientFingerprint } from "./mpp-fallback.js";
 
 const DEFAULT_DECIMALS = 6; // matches every other stablecoin rail this repo settles (unconfirmed specifically for pathUSD — decimals() unread, this is the USDC-family convention, not a live lookup)
 
@@ -429,6 +429,40 @@ export function tempoOfferedFor(item) {
   return !!item && !item.identityBound && !item.longRunning;
 }
 
+// Challenge ORDER. mppx picks the first challenge it has a method for (ties on
+// its own preference weights break on header order) and never falls back to
+// the next one when a credential is refused. So the tempo challenge leads the
+// header - an agent holding Tempo funds and a Base wallet pays over Tempo -
+// EXCEPT for a client whose tempo credential the relay just refused (an empty
+// Tempo balance is the common case): that client would pick tempo again on
+// every retry and never reach the Base challenge it can pay. For a while after
+// such a refusal it gets the old order, evm first. Keyed like the wrong-domain
+// steering (ip + User-Agent); an empty User-Agent is never keyed.
+const TEMPO_DEMOTE_MS = Number(process.env.MPP_TEMPO_DEMOTE_MS || 30 * 60 * 1000);
+const TEMPO_DEMOTE_MAX = 2000;
+const tempoDemoted = new Map(); // fingerprint -> expiresAt
+export function noteTempoRefusal(req, now = Date.now()) {
+  const key = clientFingerprint(req);
+  if (!key) return false;
+  if (tempoDemoted.size >= TEMPO_DEMOTE_MAX) {
+    for (const [k, exp] of tempoDemoted) if (exp <= now) tempoDemoted.delete(k);
+    if (tempoDemoted.size >= TEMPO_DEMOTE_MAX) tempoDemoted.delete(tempoDemoted.keys().next().value);
+  }
+  tempoDemoted.set(key, now + TEMPO_DEMOTE_MS);
+  return true;
+}
+export function tempoLeads(req, now = Date.now()) {
+  const key = clientFingerprint(req);
+  if (!key) return true;
+  const exp = tempoDemoted.get(key);
+  if (!exp) return true;
+  if (exp <= now) { tempoDemoted.delete(key); return true; }
+  return false;
+}
+/** Test seam only. */
+export function _resetTempoDemotion() { tempoDemoted.clear(); }
+export function tempoDemotionStatus() { return { demotedClients: tempoDemoted.size, ttlMs: TEMPO_DEMOTE_MS }; }
+
 export function createTempoChallengeAppender({ realm, secretKey, priceFor }) {
   if (!tempoEnabled()) return null;
   return function tempoChallengeAppender(req, res, next) {
@@ -453,7 +487,7 @@ export function createTempoChallengeAppender({ realm, secretKey, priceFor }) {
             });
             if (header) {
               const existing = res.getHeader("WWW-Authenticate");
-              res.setHeader("WWW-Authenticate", existing ? `${existing}, ${header}` : header);
+              res.setHeader("WWW-Authenticate", !existing ? header : tempoLeads(req) ? `${header}, ${existing}` : `${existing}, ${header}`);
             }
           }
         }
@@ -529,6 +563,8 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
         // v.error is already truncated to 300 chars by validateTempoCredential
         // and is the relay/mppx SDK's own message, never a secret we hold.
         console.warn(`[mpp-tempo] credential rejected by validate(): ${v.error || "(no error detail)"}`);
+        // This client's next 402 lists the evm challenge first (see tempoLeads).
+        noteTempoRefusal(req);
         // Fall through to a fresh 402 (same as an invalid evm credential) -
         // whose body now says verification-failed with the relay's reason.
         markMppProblem(req, res, mppProblem("verification-failed", `Payment verification failed: ${String(v.reason || "the Tempo relay rejected the credential").slice(0, 160)}`));
