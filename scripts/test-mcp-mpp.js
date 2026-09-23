@@ -82,6 +82,8 @@ try {
 
   // 1. Unpaid call to a wallet-only tool -> -32042 with our challenges
   const plain = await connect();
+  const pay = plain.getServerCapabilities()?.experimental?.payment;
+  ok(pay?.methods?.evm?.intents?.includes("charge"), `initialize advertises experimental.payment with evm charge (${JSON.stringify(pay)})`);
   const key = `mcp-mpp-${Date.now()}`;
   let asked = null;
   try {

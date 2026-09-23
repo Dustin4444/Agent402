@@ -9,7 +9,7 @@ import { SKILL_PACKS, PACK_PRICE_RANGE } from "./skills.js";
 import { agentReportPriceRange, cardReportPriceRange } from "./report-tiers.js";
 import { HUMAN_PRODUCTS } from "./human-checkout.js";
 import { RAILS_AMP, RAILS_OR, RAILS_PAREN, RAILS_SHORT } from "./rails.js";
-import { tempoDiscoveryInfo } from "./mpp-tempo.js";
+import { tempoDiscoveryInfo, tempoOfferedFor } from "./mpp-tempo.js";
 import { stripeDiscoveryInfo } from "./mpp-stripe.js";
 import { PRICED_BY_MODEL_NOTE } from "./tools/llm-gateway-kit.js";
 
@@ -557,13 +557,13 @@ export function openapiSpec(baseUrl, catalog) {
     const { method, path, discovery } = tool;
     const op = {
       operationId: `${tool.slug}${method === "GET" ? "Get" : ""}`,
-      summary: `${tool.name} (${tool.price}/call via x402)`,
+      summary: `${tool.name} (${tool.quoteRange ? `from ${tool.price}` : tool.price}/call via x402 or MPP)`,
       // A route that can quote MORE than its list price for some bodies says so
       // here, in the same breath as the number. `x-price` stays the list price
       // (it is what this route charges for the models it serves, and every
       // other surface agrees with it); the sentence is what keeps the number
       // from reading as a ceiling it is not.
-      description: `${tool.description}\n\nPrice: ${tool.price} per call, paid in ${RAILS_OR} via the x402 protocol.${typeof tool.tierQuote === "function" ? ` ${PRICED_BY_MODEL_NOTE}` : ""} Unpaid requests receive HTTP 402 with payment requirements; any x402 v2 client can pay and retry automatically. Docs: ${baseUrl}/tools/${tool.slug}`,
+      description: `${tool.description}\n\nPrice: ${typeof tool.quote === "function" ? `quoted per request from the body, from ${tool.price}` : `${tool.price} per call`}, paid in ${RAILS_OR} via the x402 protocol${tool.identityBound || tool.longRunning ? ", or over MPP (Machine Payments Protocol) on Base" : ", or over MPP (Machine Payments Protocol) on Tempo or Base"}.${typeof tool.tierQuote === "function" ? ` ${PRICED_BY_MODEL_NOTE}` : ""} Unpaid requests receive HTTP 402 carrying both x402 payment requirements and MPP WWW-Authenticate challenges; any x402 v2 or MPP client can pay and retry automatically. Docs: ${baseUrl}/tools/${tool.slug}`,
       tags: [tool.category],
       responses: {
         200: {
@@ -575,7 +575,7 @@ export function openapiSpec(baseUrl, catalog) {
                 : { schema: responseSchemaFor(path, discovery?.output?.example), example: discovery?.output?.example ?? {} },
           },
         },
-        402: { description: "Payment Required - x402 payment requirements in the response body/headers" },
+        402: { description: "Payment Required - x402 payment requirements (PAYMENT-REQUIRED header) and MPP challenges (WWW-Authenticate: Payment)" },
         400: { description: "Invalid input" },
       },
       "x-price": tool.price,
@@ -596,13 +596,21 @@ export function openapiSpec(baseUrl, catalog) {
         // via Tempo's own relay, not x402-settled) — advertised here only
         // when actually enabled, same "never advertise what we can't settle"
         // rule mintTempoChallenge() itself enforces.
-        const tempo = tempoDiscoveryInfo();
+        // The live 402 withholds tempo on identity-bound routes (a tempo
+        // credential carries no verified payer) and on long-running ones (a
+        // pull credential expires before the handler finishes), so the
+        // discovery doc must too - see createTempoChallengeAppender.
+        const tempo = tempoOfferedFor(tool) ? tempoDiscoveryInfo() : null;
+        // Per-request-priced routes (metered, priced by model) publish their
+        // range, never the catalog floor as if it were the price.
+        const range = tool.quoteRange || null;
+        const fmtUsd = (n) => String(Number(n.toFixed(6)));
         // Stripe cards-over-MPP (stripe/charge via SPT): a THIRD MPP method,
         // advertised ONLY when the gate is live AND the route clears the $0.50
         // SPT card minimum — same "never advertise what we can't settle" rule.
         // Dormant (no keys) -> null -> no stripe offer on any operation.
         const stripe = stripeDiscoveryInfo();
-        const stripeOffered = stripe && priceUsd >= stripe.minUsd;
+        const stripeOffered = stripe && !tool.identityBound && priceUsd >= stripe.minUsd;
         return {
           // STRUCTURED protocol objects, not bare strings: @agentcash/discovery
           // (MPPScan's crawler, whose L3 output x402scan consumes) parses
@@ -616,31 +624,33 @@ export function openapiSpec(baseUrl, catalog) {
             ...(tempo ? [{ mpp: { method: "tempo", intent: "charge", currency: tempo.currency } }] : []),
             ...(stripeOffered ? [{ mpp: { method: "stripe", intent: "charge", currency: "usd" } }] : []),
           ],
-          price: { mode: "fixed", currency: "USD", amount: String(tool.price ?? "").replace(/[^0-9.]/g, "") || "0" },
+          price: range
+            ? { mode: "dynamic", currency: "USD", min: fmtUsd(range.minUsd), max: fmtUsd(range.maxUsd) }
+            : { mode: "fixed", currency: "USD", amount: String(tool.price ?? "").replace(/[^0-9.]/g, "") || "0" },
           offers: [
             {
               intent: "charge",
               method: "evm",
-              amount: String(Math.round(priceUsd * 1e6)),
+              amount: range ? null : String(Math.round(priceUsd * 1e6)),
               currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-              description: `${tool.price} in USDC on Base (eip155:8453) - MPP evm charge or x402 exact; more chains in the live 402`,
+              description: `${range ? `$${fmtUsd(range.minUsd)}-$${fmtUsd(range.maxUsd)}, quoted per request in the live 402,` : tool.price} in USDC on Base (eip155:8453) - MPP evm charge or x402 exact; more chains in the live 402`,
             },
             ...(tempo
               ? [{
                   intent: "charge",
                   method: "tempo",
-                  amount: String(Math.round(priceUsd * 10 ** tempo.decimals)),
+                  amount: range ? null : String(Math.round(priceUsd * 10 ** tempo.decimals)),
                   currency: tempo.currency,
-                  description: `${tool.price} on Tempo (chain 4217) - MPP tempo/charge, settled via Tempo's own relay (not x402)`,
+                  description: `${range ? `$${fmtUsd(range.minUsd)}-$${fmtUsd(range.maxUsd)}, quoted per request in the live 402,` : tool.price} on Tempo (chain 4217) - MPP tempo/charge, settled via Tempo's own relay (not x402)`,
                 }]
               : []),
             ...(stripeOffered
               ? [{
                   intent: "charge",
                   method: "stripe",
-                  amount: String(Math.round(priceUsd * 100)),
+                  amount: range ? null : String(Math.round(priceUsd * 100)),
                   currency: "usd",
-                  description: `${tool.price} by card (Stripe Shared Payment Token) - MPP stripe/charge, settled to our Stripe balance; $0.50 card minimum`,
+                  description: `${range ? `$${fmtUsd(range.minUsd)}-$${fmtUsd(range.maxUsd)}, quoted per request in the live 402,` : tool.price} by card (Stripe Shared Payment Token) - MPP stripe/charge, settled to our Stripe balance; $0.50 card minimum`,
                 }]
               : []),
           ],

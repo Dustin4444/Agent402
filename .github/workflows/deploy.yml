@@ -2589,6 +2589,8 @@ jobs:
           t node scripts/test-corpus.js --tier 0 --concurrency 6
           # Cross-surface pairs: pricing/openapi/manifest/models/route/find/wishes/radar must agree (self-booted FREE_MODE)
           t node scripts/test-cross-surface.js
+          # MPP discovery offers and the live 402 tempo challenge share one predicate (offline)
+          t node scripts/test-mpp-discovery-agreement.js
           # Util-kit tests (jwt-sign, uuid-v5, group-by, json-to-xml, geo-distance, color-contrast)
           t node scripts/test-util-kit.js
           # x-data kit (offline)
