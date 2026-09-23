@@ -13,6 +13,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { railOf } from "./payment-rail.js";
 
 export const CLASSES = Object.freeze(["ours", "repeat-buyer", "paid", "pow", "payment-refused", "known-indexer", "crawler", "challenge-only", "human", "other"]);
 // Our own probes and sweeps, by the names they send (the signed heartbeat
@@ -130,7 +131,7 @@ export function createTrafficStore(opts = {}) {
     } catch { return false; }
   }
 
-  function record({ ip, ua, path, method, status, accept, hadPayment, hadPow, paidReceipt, payer, now = Date.now() }) {
+  function record({ ip, ua, path, method, status, accept, hadPayment, hadPow, paidReceipt, payer, rail = null, powAccepted = false, now = Date.now() }) {
     const day = dayOf(now);
     const r = rollup(day);
     const ipHash = h12(ip || "-", o.salt);
@@ -150,6 +151,17 @@ export function createTrafficStore(opts = {}) {
     const payerHash = payer ? h12(String(payer), o.salt) : null;
     if (paidReceipt && payerHash) { priorPayerCount = payers.get(payerHash) || 0; if (payers.size < o.payerCap || payers.has(payerHash)) payers.set(payerHash, priorPayerCount + 1); }
     const cls = classify({ status, path: tpath, ua, accept, hadPayment, hadPow, paidReceipt, priorPayerCount, ipDistinctPaths: w.paths.size, crawlerDistinctPaths: o.crawlerDistinctPaths });
+    // Per-rail outcome of every request that PRESENTED a payment credential:
+    // attempts, paid, refused (402 again), errored (>= 500). Distinct payers
+    // are salted hashes, never addresses; the set is capped per rail per day.
+    if (rail) {
+      const rails = r.rails || (r.rails = {});
+      const x = rails[rail] || (rails[rail] = { attempts: 0, paid: 0, refused: 0, errored: 0, payers: {} });
+      x.attempts += 1;
+      if (paidReceipt || (rail === "pow" && powAccepted)) { x.paid += 1; if (payerHash && Object.keys(x.payers).length < 5000) x.payers[payerHash] = (x.payers[payerHash] || 0) + 1; }
+      else if (status === 402) x.refused += 1;
+      else if (status >= 500) x.errored += 1;
+    }
     r.total += 1; r.classes[cls] += 1;
     const b = r.byClass[cls];
     bump(b.paths, `${method} ${tpath}`, o.keyCap); bump(b.uas, uaToken(ua), o.keyCap); bump(b.ips, ipHash, o.keyCap);
@@ -184,14 +196,26 @@ export function createTrafficStore(opts = {}) {
           day: r.day, total: r.total, distinctIps: r.distinctIps, classes: r.classes,
           shares: Object.fromEntries(Object.entries(r.classes).map(([c, v]) => [c, r.total ? Number((v / r.total).toFixed(3)) : 0])),
           discovery: topN(r.discovery, top), indexers: topN(r.indexers, top),
+          rails: railSummary(r.rails),
           byClass: Object.fromEntries(Object.entries(r.byClass).map(([c, b]) => [c, { paths: topN(b.paths, top), uas: topN(b.uas, top), ips: topN(b.ips, top) }])),
           crawlers,
         };
       }),
     };
   }
-  const summaryLine = (day = dayOf(Date.now() - 864e5)) => { const r = days.get(day); return r ? `[traffic] ${day} total=${r.total} ` + CLASSES.map((c) => `${c}=${r.classes[c]}`).join(" ") + ` distinctIps=${r.distinctIps} crawlers=${Object.keys(r.crawlers).length}` : null; };
+  const summaryLine = (day = dayOf(Date.now() - 864e5)) => { const r = days.get(day); if (!r) return null; const rails = railSummary(r.rails); return `[traffic] ${day} total=${r.total} ` + CLASSES.map((c) => `${c}=${r.classes[c]}`).join(" ") + ` distinctIps=${r.distinctIps} crawlers=${Object.keys(r.crawlers).length}` + Object.entries(rails).map(([k, v]) => ` rail.${k}=${v.paid}/${v.attempts}paid,${v.distinctPayers}payers`).join(""); };
   return { record, report, persist, load, summaryLine, _days: days, _payers: payers };
+}
+
+/** Counts only: attempts, paid, refused, errored, distinct payers and paid
+ *  calls per payer, per rail. Never the payer hashes themselves. */
+export function railSummary(rails) {
+  const out = {};
+  for (const [k, v] of Object.entries(rails || {})) {
+    const distinctPayers = Object.keys(v.payers || {}).length;
+    out[k] = { attempts: v.attempts, paid: v.paid, refused: v.refused, errored: v.errored, distinctPayers, paidPerPayer: distinctPayers ? Number((v.paid / distinctPayers).toFixed(2)) : null, paidRate: v.attempts ? Number((v.paid / v.attempts).toFixed(3)) : null };
+  }
+  return out;
 }
 
 /** Express middleware: classes every response as it finishes. `payerOf(req, res)`
@@ -209,9 +233,9 @@ export function trafficMiddleware(store, { payerOf = () => null, log = console.l
       try {
         const hadPayment = !!(req.headers["payment-signature"] || req.headers["x-payment"] || /^(Payment|Bearer a402_)/i.test(String(req.headers.authorization || "")));
         const hadPow = !!req.headers["x-pow-solution"];
-        const paidReceipt = res.statusCode < 300 && !!(res.getHeader("payment-response") || res.getHeader("payment-receipt") || res.getHeader("x-credits-balance") || req.creditsSettled || req.mppTempoCredential);
+        const paidReceipt = res.statusCode < 300 && !!(res.getHeader("payment-response") || res.getHeader("payment-receipt") || res.getHeader("x-credits-balance") || req.creditsSettled || req.mppTempoCredential || req.stripeSettled);
         let payer = null; try { payer = paidReceipt ? payerOf(req, res) : null; } catch { payer = null; }
-        store.record({ ip: req.ip, ua: req.headers["user-agent"], path: req.originalUrl || req.url, method: req.method, status: res.statusCode, accept: req.headers.accept, hadPayment, hadPow, paidReceipt, payer });
+        store.record({ ip: req.ip, ua: req.headers["user-agent"], path: req.originalUrl || req.url, method: req.method, status: res.statusCode, accept: req.headers.accept, hadPayment, hadPow, paidReceipt, payer, rail: railOf(req), powAccepted: res.getHeader("x-pow-accepted") === "true" });
       } catch { /* classification never breaks a response */ }
     });
     next();

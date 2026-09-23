@@ -15,6 +15,10 @@ Since v2.4.0 (2026-09-18).
 - The hosted MCP connector declares the MPP methods it accepts in
   `capabilities.experimental.payment`.
 - README: a three-line quickstart for paying over MPP and over x402.
+- Telemetry records the payment rail each call presented (x402, MPP evm,
+  MPP tempo, MPP stripe, credits, proof-of-work); the operator traffic report
+  and its daily summary line carry per-rail attempts, paid, refused, errored
+  and distinct payers.
 - CONTRIBUTING and the issue templates point sellers at
   `POST /api/index/register` instead of a seed PR.
 

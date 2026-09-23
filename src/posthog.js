@@ -175,7 +175,7 @@ export function capturePostHogToolError({ slug, status, message, shape, syntheti
 const ROLLED_UP_SLUG_RE = /^_/;
 let discoveryCallCounts = new Map(); // "slug|synthetic|cached|errored|status" -> { ..., count, latencySum }
 
-export function capturePostHogToolCall({ slug, latencyMs, cached, errored, status, synthetic, probe, payer, refusalReason }) {
+export function capturePostHogToolCall({ slug, latencyMs, cached, errored, status, synthetic, probe, payer, refusalReason, rail }) {
   if (!active()) return;
   if (ROLLED_UP_SLUG_RE.test(String(slug || ""))) {
     try {
@@ -203,6 +203,9 @@ export function capturePostHogToolCall({ slug, latencyMs, cached, errored, statu
     // is groupable; the caller's message and values never leave the process.
     ...(refusalReason ? { refusalReason } : {}),
     ...(payer ? { payer } : {}),
+    // The payment rail the request presented (src/payment-rail.js), so error
+    // rate and latency split by x402 / MPP / credits / proof-of-work.
+    ...(rail ? { rail } : {}),
   });
 }
 
