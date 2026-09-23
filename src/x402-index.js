@@ -42,7 +42,7 @@ import { fetchAllBazaarItems, isBazaarDiscoveryUrl } from "./bazaar-pager.js";
 import { RAILS, railKey, truncateCaip2 } from "./rails.js";
 import { CHAIN_PAGES, marketSellers } from "./market-page.js";
 import { WELL_KNOWN_PATH, discoveryNote } from "./discovery-note.js";
-import { acceptsFromLive402, quoteFromAccepts, probeMethodsFor, probeTargetsFor, isQuoteResponse } from "./x402-live-quote.js";
+import { acceptsFromLive402, quoteFromAccepts, probeMethodsFor, probeAttemptsFor, sameOriginRedirect, isQuoteResponse } from "./x402-live-quote.js";
 import { evmDomainsOfAccepts, EVM_TOKEN_DOMAINS } from "./evm-usdc-domain.js";
 import { queryTerms, isCjkTerm, splitTokens } from "./query-terms.js";
 import { summarize, fmtUsd, fmtPct } from "./economy.js";
@@ -3043,9 +3043,21 @@ export function probeFailureCode(err) {
   if (Number(err?.statusCode) === 400 || /private|public|blocked|not allowed/i.test(String(err?.message || ""))) return "ssrf-blocked";
   return "error";
 }
+// Up to 20 unreadable-402 shapes, newest kept: host + route + the key names
+// of the decoded header and body and the first 160 characters of the body.
+// Operator surface only; it exists to name the next format we fail to read.
+const unreadable402Samples = [];
+function sampleUnreadable402(originUrl, route, header, body) {
+  const keysOf = (txt, b64) => {
+    try { const o = JSON.parse(b64 ? Buffer.from(String(txt).trim(), "base64").toString("utf8") : String(txt)); return o && typeof o === "object" ? Object.keys(o).slice(0, 12) : typeof o; } catch { return txt ? "unparseable" : null; }
+  };
+  let host = ""; try { host = new URL(originUrl).host; } catch { /* keep blank */ }
+  unreadable402Samples.push({ host, route: String(route).slice(0, 120), headerKeys: header ? keysOf(header, true) : null, bodyKeys: keysOf(body, false), body: String(body || "").slice(0, 160) });
+  if (unreadable402Samples.length > 20) unreadable402Samples.shift();
+}
 export function quoteProbeStatsSnapshot() {
   const top = (m) => Object.fromEntries(Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 25));
-  return { since: new Date(quoteProbeStats.since).toISOString(), probed: quoteProbeStats.probed, learned: quoteProbeStats.learned, missed: quoteProbeStats.missed, missByFirst: top(quoteProbeStats.missByFirst), attempts: top(quoteProbeStats.attempts) };
+  return { since: new Date(quoteProbeStats.since).toISOString(), probed: quoteProbeStats.probed, learned: quoteProbeStats.learned, missed: quoteProbeStats.missed, missByFirst: top(quoteProbeStats.missByFirst), attempts: top(quoteProbeStats.attempts), unreadable402Samples: [...unreadable402Samples] };
 }
 let quoteProbeSummaryAt = Date.now();
 function maybeLogQuoteProbeSummary(now = Date.now()) {
@@ -3132,20 +3144,31 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
       bump(quoteProbeStats.attempts, k);
       if (!firstOutcome) firstOutcome = k;
     };
-    probe: for (const target of probeTargetsFor(originUrl, tool))
-    for (const method of probeMethodsFor(tool)) {
+    probe: for (const { target, method, body: reqBody } of probeAttemptsFor(originUrl, tool)) {
       try {
         // Crawled URLs are external data and could DNS-rebind between crawl and
-        // now: validate then pin, exactly as probePaywall does.
-        await assertPublicUrl(target);
-        const res = await fetch(target, {
-          method,
-          headers: { Accept: "application/json", ...(method === "POST" ? { "Content-Type": "application/json" } : {}) },
-          ...(method === "POST" ? { body: "{}" } : {}),
-          dispatcher: ssrfDispatcher,
-          redirect: "manual",
-          signal: AbortSignal.timeout(8000),
-        });
+        // now: validate then pin, exactly as probePaywall does. A redirect is
+        // followed only when it stays on the same origin (a trailing slash, a
+        // path rewrite: ~10% of misses before 2026-09-23), at most twice, and
+        // every hop is validated and pinned the same way.
+        let url = target;
+        let res;
+        for (let hop = 0; ; hop++) {
+          await assertPublicUrl(url);
+          res = await fetch(url, {
+            method,
+            headers: { Accept: "application/json", ...(method === "POST" ? { "Content-Type": "application/json" } : {}) },
+            ...(method === "POST" ? { body: reqBody } : {}),
+            dispatcher: ssrfDispatcher,
+            redirect: "manual",
+            signal: AbortSignal.timeout(8000),
+          });
+          const next = [301, 302, 303, 307, 308].includes(res.status) && hop < 2
+            ? sameOriginRedirect(url, res.headers.get("location")) : null;
+          if (!next) break;
+          note(method, `${res.status}-followed`);
+          url = next;
+        }
         // A GET that returns 200 has ANSWERED: the route is not paywalled, and
         // there is nothing a POST can add. Following it with an unpaid POST is
         // a second request to somebody else's endpoint on the exact shape most
@@ -3188,7 +3211,13 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
           ? live.map((a) => (a && typeof a.network === "string" ? { ...a, network: normalizeNetwork(a.network) } : a))
           : live);
         if (quote) { learned = { ...quote, method }; break probe; }
-        note(method, "402-unreadable");   // a 402 whose accepts we could not turn into a quote
+        // A 402 whose accepts we could not turn into a quote. An MPP-only
+        // seller answers with a Payment challenge and no x402 accepts at all:
+        // counted apart, because it is not a parser gap. The rest are sampled
+        // (shape only) so the next format we fail to read can be named.
+        const mppOnly = /^Payment\b/i.test(String(res.headers.get("www-authenticate") || "").trim());
+        note(method, mppOnly ? "402-mpp-only" : "402-unreadable");
+        if (!mppOnly) sampleUnreadable402(originUrl, tool.route, res.headers.get("payment-required"), body);
       } catch (err) { note(method, probeFailureCode(err)); /* unreachable, blocked, or malformed - try the next method */ }
     }
     noteProbeOutcome(originUrl, `quote:${tool.route}`, Boolean(learned));
