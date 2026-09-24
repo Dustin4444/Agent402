@@ -250,20 +250,25 @@ export function probeTargetsFor(originUrl, tool) {
 export function probeBodyFor(tool) {
   const paths = unpackRequestContract(tool)?.required?.body || [];
   if (!paths.length) return null;
-  const root = {};
+  // Seller-supplied names walked into an object: null-prototype nodes, own-key
+  // checks only, and the prototype-addressing names refused outright, so no
+  // path can reach Object.prototype whatever request-contract lets through.
+  const RESERVED = new Set(["__proto__", "constructor", "prototype"]);
+  const root = Object.create(null);
   for (const path of paths) {
     const segs = String(path).split(".");
+    if (segs.some((seg) => RESERVED.has(seg) || !seg)) continue;
     let node = root;
     segs.forEach((seg, i) => {
       if (i === segs.length - 1) {
-        if (!(seg in node)) node[seg] = queryPlaceholderFor(seg);
+        if (!Object.hasOwn(node, seg)) node[seg] = queryPlaceholderFor(seg);
       } else {
-        if (typeof node[seg] !== "object" || node[seg] === null) node[seg] = {};
+        if (!Object.hasOwn(node, seg) || typeof node[seg] !== "object" || node[seg] === null) node[seg] = Object.create(null);
         node = node[seg];
       }
     });
   }
-  return JSON.stringify(root);
+  return Object.keys(root).length ? JSON.stringify(root) : null;
 }
 
 /**

@@ -133,7 +133,8 @@ const GATE = { secretKey: SECRET, realm: REALM, priceFor };
 {
   const { readFileSync } = await import("node:fs");
   const src = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
-  ok(/req\.tempoSettling\s*\|\|\s*req\.stripeSettling/.test(src) || /req\.stripeSettling\s*\|\|\s*req\.tempoSettling/.test(src), "wiring: server.js bypasses the x402 paywall for req.stripeSettling (like req.tempoSettling)");
+  // Own-property checks since 2026-09-24 (a polluted prototype made every request look settled).
+  ok(/ownTrue\(req, "tempoSettling"\)\s*\|\|\s*ownTrue\(req, "stripeSettling"\)/.test(src), "wiring: server.js bypasses the x402 paywall for an own req.stripeSettling (like req.tempoSettling)");
 }
 
 // ---- the REAL pre-handler validate, unstubbed (2026-08-26 live finding) ----
