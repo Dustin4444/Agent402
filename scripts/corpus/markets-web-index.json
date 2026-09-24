@@ -96,6 +96,20 @@
       }
     },
     {
+      "slug": "kalshi-event",
+      "name": "a long-running event carries top-of-book sizes",
+      "input": {
+        "eventTicker": "KXELONMARS-99"
+      },
+      "expect": {
+        "populated": [
+          "markets[0].ticker",
+          "markets[0].yesBidSize",
+          "markets[0].yesAskSize"
+        ]
+      }
+    },
+    {
       "slug": "pdf-info",
       "name": "a small government pdf",
       "input": {
