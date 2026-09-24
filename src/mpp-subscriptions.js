@@ -277,11 +277,8 @@ function envCurrency() {
  *
  * 6,000,000 is deliberately generous rather than tuned, because the gas ceiling
  * is NOT the money bound here - `maxTotalFee` is. Fees settle in USDC.e (the
- * receipt's `feeToken`), and gas*price converts to token units at ~1e12: the
- * measured charge tx paid 28 units, i.e. $0.000028. At the live 0.6 gwei basefee
- * this ceiling is worth $0.0036 per transaction, while mppx's untouched
- * `maxTotalFee` still refuses anything over $0.05 however far the gas price
- * moves. Against a $5/mo subscription both are noise.
+ * receipt's `feeToken`), and mppx's untouched `maxTotalFee` still refuses an
+ * outsized fee however far the gas price moves.
  *
  * The ~4M figure for an access-key install is an UNVERIFIED note carried in
  * project docs, not something measured here, which is the other reason to leave

@@ -2,13 +2,11 @@
 //
 // WHY THIS EXISTS. Nine upstreams had a balance or spend alarm and seven did
 // not, and the seven were not the unimportant ones:
-//   - BRAVE powers `search`, our single best-selling tool - 510 external sales
-//     and $10.20 of a ~$50 month, about a fifth of all external revenue. If the
-//     subscription lapses, our top product 503s and the first to know is a
+//   - BRAVE powers `search`, one of our best-selling tools. If the
+//     subscription lapses, a top product 503s and the first to know is a
 //     buyer.
-//   - ALCHEMY is pay-as-you-go with no ceiling. It is the inverse risk: $0 of
-//     attributable revenue in 30 days and 1,317 calls in one day, so it can
-//     bill without earning. A runaway loop costs money silently.
+//   - ALCHEMY is pay-as-you-go with no ceiling, so it can bill without
+//     earning. A runaway loop costs money silently.
 //   - COINGECKO is a hard 10,000/month Demo quota that HAS already been
 //     exhausted once (2026-09-07, by CI rather than customers), after which
 //     production's CoinGecko tools would have 429'd for the rest of the month.

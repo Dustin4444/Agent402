@@ -5,7 +5,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 // stays reusable), a payer can present a verify-passing authorization, make us
 // run costly OpenRouter/search work, then dodge settlement (e.g. move the funds
 // out during the 90s window so settle fails), repeatedly, at ~zero cost to them.
-// Each iteration burns ~$0.45-0.70 of OUR upstream with no revenue.
+// Each iteration burns real upstream spend with no revenue.
 //
 // This tracks per-payer "spent-then-failed-to-settle" events and blocks a payer
 // who crosses the threshold BEFORE the next expensive run. A genuine paid 200
@@ -48,7 +48,7 @@ export const EXPENSIVE_COMPOSITE_SLUGS = new Set([
   "filing-report",
   // linkedin-article = the research pipeline + synthesis + image generation.
   "linkedin-article",
-  // Media tiers: one upstream call each, but a flat $0.014-$0.12 is spent BEFORE
+  // Media tiers: one upstream call each, but a flat per-call cost is spent BEFORE
   // settlement, so an unsettled repeat is free to the caller and real to us.
   // Being in this set also marks them longRunning (EVM exact only) - a 40-240 s
   // run outlives an SVM blockhash, the AVM default window and a Tempo credential.
@@ -141,7 +141,7 @@ export function recordCompositeSpendSuccess(payer) {
 // The RAIL a report was sold on, and the price it actually sold for. Kits
 // call recordCompositeUsage with the AGENT price (their tier), which is also
 // what a card or monitor run reported until 2026-08-27 - so the composite
-// margin telemetry priced a $5 card report as $2 and could not say which door
+// margin telemetry priced a card report at the agent price and could not say which door
 // it came through at all. The card door and the monitor scheduler run the
 // same handler, so the door sets a context around the call instead of every
 // kit learning about doors. Async-local: a context set around `await h()`
