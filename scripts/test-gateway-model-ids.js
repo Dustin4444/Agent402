@@ -16,7 +16,9 @@
 import { readFileSync } from "node:fs";
 import {
   TIERS, AUTO_RANKINGS, SPEECH_MODELS, RETIRING_MODELS, MODEL_COST, FLEX_MODELS, REASONING_MODELS, reasoningRowMatches, costFor, tierFor, tierAllows, STEALTH_MODEL_IDS, modelsList, PRIORITY_PRICE_FACTOR,
+  IMAGES_MODEL,
 } from "../src/tools/llm-gateway-kit.js";
+import { IMAGE_TIERS } from "../src/tools/llm-images-fast-kit.js";
 import { PRIMARY_PREFERENCE } from "../openclaw/models.js";
 
 // STEALTH listings (stealth/ox-alpha) are the ONE id class this guard must not
@@ -43,11 +45,12 @@ async function catalog(url, minEntries) {
   if (!Array.isArray(j?.data) || j.data.length < minEntries) throw new Error(`${url} -> implausible catalog (${j?.data?.length} entries)`);
   return j.data;
 }
-let models, speech;
+let models, speech, imageModels;
 try {
-  [models, speech] = await Promise.all([
+  [models, speech, imageModels] = await Promise.all([
     catalog("https://openrouter.ai/api/v1/models", 100),
     catalog("https://openrouter.ai/api/v1/models?output_modalities=speech", 5),
+    catalog("https://openrouter.ai/api/v1/images/models", 10),
   ]);
 } catch (e) {
   console.error(`FAIL - could not read the live OpenRouter catalog (${e.message}); refusing to report green`);
@@ -55,6 +58,7 @@ try {
 }
 const ids = new Set(models.map((m) => m.id));
 const speechIds = new Set(speech.map((m) => m.id));
+const imageIds = new Set(imageModels.map((m) => m.id));
 console.log(`live catalog: ${ids.size} models, ${speechIds.size} speech models`);
 
 // 1. Every advertised concrete prefix resolves to at least one live id under
@@ -82,10 +86,20 @@ for (const [slug, tier] of Object.entries(TIERS)) {
 {
   // Exempt: family wildcards, the TTS chain (speech catalog), and the OpenAI-
   // direct embeddings ids (no "/": not OpenRouter ids at all).
-  const listed = modelsList().data.map((m) => m.id).filter((id) => !id.endsWith("*") && id.includes("/") && !speechIds.has(id));
+  // Image ids (the /v1/images/generations link) live in the IMAGE catalog, not
+  // the chat list; they are graded against it just below.
+  const listed = modelsList().data.map((m) => m.id).filter((id) => !id.endsWith("*") && id.includes("/") && !speechIds.has(id) && !imageIds.has(id));
   const notExact = listed.filter((id) => !ids.has(id) && !isStealth(id));
   ok(notExact.length === 0, `every id on /v1/models is an exact live upstream id${notExact.length ? ` (not ids: ${notExact.join(", ")})` : ""}`);
 }
+// 1c. Every image link (/v1/images/generations, /fast, /pro) is live in the
+//     image catalog, and the model /v1/models advertises for the images route
+//     is the first link.
+for (const [slug, t] of Object.entries(IMAGE_TIERS)) {
+  const dead = t.chain.filter((l) => !imageIds.has(l.model)).map((l) => l.model);
+  ok(dead.length === 0, `${slug}: every image link is live in the image catalog${dead.length ? ` (dead: ${dead.join(", ")})` : ""}`);
+}
+ok(IMAGE_TIERS["v1-images"]?.chain[0]?.model === IMAGES_MODEL, `/v1/models advertises the images route's first link (${IMAGES_MODEL})`);
 // 2. Auto-router rankings are exact ids and must all be live.
 for (const [q, byCat] of Object.entries(AUTO_RANKINGS)) {
   for (const [cat, list] of Object.entries(byCat)) {
@@ -147,7 +161,11 @@ for (const link of SPEECH_MODELS) ok(speechIds.has(link.id), `speech chain link 
     .map((f) => readFileSync(new URL(`../src/tools/${f}`, import.meta.url), "utf8"));
   const all = wires.concat(readFileSync(new URL("../src/tools/llm-images-fast-kit.js", import.meta.url), "utf8")).join("\n");
   ok(wires.every((src) => /service_tier:\s*serviceTierFor\(/.test(src) && /validateServiceTier\(input, tier\)/.test(src)), "every chat/messages/responses wire sets its outbound service_tier through serviceTierFor() and validates the buyer's through validateServiceTier()");
-  ok(!/service_tier:\s*["'`]priority["'`]/.test(all.replace(/^\s*\/\/.*$/gm, "")) && /service_tier:\s*["']flex["']/.test(all), 'no wire spells service_tier "priority" outside the helper (the images route\'s flex literal is the control)');
+  // Control: the comment-stripped scan still sees the wires' own service_tier
+  // fields (the images route's flex literal was the control until that route
+  // moved to the Image API on 2026-09-24).
+  const code = all.replace(/^\s*\/\/.*$/gm, "");
+  ok(!/service_tier:\s*["'`]priority["'`]/.test(code) && (code.match(/service_tier:\s*serviceTierFor\(/g) || []).length >= 3, 'no wire spells service_tier "priority" outside the helper (control: the scan sees every wire\'s serviceTierFor field)');
   const kit = wires[0];
   ok(/if \(\/:nitro\$\/i\.test\(String\(model \|\| ""\)\)\) return "default";/.test(kit) && /body\?\.service_tier === "priority"\) return "priority"/.test(kit), 'serviceTierFor: an explicit "default" on :nitro, "priority" only from a validated body');
   ok(JSON.stringify(Object.entries(TIERS).filter(([, t]) => t.priority === true).map(([s]) => s)) === '["v1-chat-pro","v1-chat-premium"]', "priority is offered on pro and premium only (the tiers rule 4 checks priority endpoints for)");

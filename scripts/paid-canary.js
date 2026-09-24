@@ -386,9 +386,9 @@ export const TOOLS = [
       `expected Cohere-wire results ranking the French capital first with usage.search_units 1 and no cost, got ${JSON.stringify(r).slice(0, 120)}`,
   },
   {
-    // Image generation tier — OpenAI images wire over OpenRouter (Gemini
-    // flash-image). A real base64 payload of plausible image size proves the
-    // modalities translation, the price-capped provider call, and settlement.
+    // Image generation tier - OpenAI images wire over OpenRouter's Image API
+    // (FLUX.2 Pro first). A real base64 payload of plausible image size proves the
+    // wire translation, the provider-pinned bounded call, and settlement.
     kit: "llm-image",
     path: "/v1/images/generations",
     method: "POST",

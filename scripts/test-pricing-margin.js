@@ -32,8 +32,6 @@ const {
   embeddingsUpstreamCost,
   EMBEDDINGS_PRICE,
   IMAGES_PRICE,
-  IMAGES_MAX_TOKENS,
-  IMAGES_MAX_PRICE,
   IMAGES_MAX_PROMPT_CHARS,
   meteredQuoteUsd,
 } = await import("../src/tools/llm-gateway-kit.js");
@@ -217,22 +215,20 @@ console.log("\n# /v1/embeddings — token-density margin clamp");
 }
 
 // ---------------------------------------------------------------------------
-// 4. /v1/images/generations — server-owned bounds must sum below the price.
-//    Output is IMAGES_MAX_TOKENS at the completion bound (image output is
-//    token-metered; the `image` max_price dimension prices INPUT images,
-//    which this route does not accept), plus the prompt at its bound, plus
-//    the per-request fee allowance — which is the regression this test locks
-//    tight (a generous allowance once inverted the sum).
-console.log("\n# /v1/images/generations — provider-bound arithmetic");
+// 4. /v1/images/generations - served by flat per-image links on OpenRouter's
+//    Image API (IMAGE_TIERS["v1-images"]), each pinned to one provider with a
+//    fixed bound and a live-listing re-check. Every link's bound must sit
+//    within MARGIN x the route price, like the fast/pro image tiers.
+console.log("\n# /v1/images/generations - per-link bounds");
 {
-  const promptTokens = Math.ceil(countTokens(denseText(IMAGES_MAX_PROMPT_CHARS)) * 1.15);
-  const worst =
-    (promptTokens / 1e6) * IMAGES_MAX_PRICE.prompt +
-    (IMAGES_MAX_TOKENS / 1e6) * IMAGES_MAX_PRICE.completion +
-    IMAGES_MAX_PRICE.request;
-  ok(worst < IMAGES_PRICE, `images worst-case < price $${IMAGES_PRICE} (dense prompt ${promptTokens} tok + ${IMAGES_MAX_TOKENS} out + request fee bound)`);
-  ok(IMAGES_MAX_PRICE.request <= 0.005, `per-request fee allowance stays tight (a generous one once inverted the sum)`);
-  table.push({ tier: "v1-images", price: IMAGES_PRICE, worst, model: "google/gemini-2.5-flash-image" });
+  const { IMAGE_TIERS, withinMargin } = await import("../src/tools/llm-images-fast-kit.js");
+  const tier = IMAGE_TIERS["v1-images"];
+  ok(tier && tier.price === IMAGES_PRICE && tier.chain.length >= 1, `images route price comes from the gateway constant ($${IMAGES_PRICE})`);
+  for (const link of tier.chain) {
+    ok(withinMargin(IMAGES_PRICE, link.worstCaseUsd) && link.listed?.maxCostUsd > 0 && link.provider, `images link ${link.model}: bound $${link.worstCaseUsd} within ${MARGIN} x $${IMAGES_PRICE}, provider-pinned, live price re-checked`);
+  }
+  const worst = Math.max(...tier.chain.map((l) => l.worstCaseUsd));
+  table.push({ tier: "v1-images", price: IMAGES_PRICE, worst, model: tier.chain[0].model });
 
   // Cap-before-spend: over-cap prompt throws with zero fetches.
   const realFetch = globalThis.fetch;

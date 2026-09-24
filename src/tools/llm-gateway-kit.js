@@ -1695,10 +1695,10 @@ export function validateRequest(input, tierSlug, { clamp = true } = {}) {
 // endpoint tag; gpt-4o(-mini)/4.1/o3 did not (flex on those would 404 and
 // cost a round-trip). scripts/test-gateway-model-ids.js checks every entry
 // against /models/{id}/endpoints, so a model that loses flex fails CI instead
-// of burning a failed attempt per call. The image model carries flex
-// endpoints too. OPENROUTER_FLEX=off is the escape hatch.
+// of burning a failed attempt per call. (The images route left this table on
+// 2026-09-24 with its Gemini model.) OPENROUTER_FLEX=off is the escape hatch.
 export const FLEX_MODELS = [
-  "google/gemini-2.5-flash-image", "google/gemini-2.5-flash-lite", "google/gemini-2.5-flash", "google/gemini-2.5-pro",
+  "google/gemini-2.5-flash-lite", "google/gemini-2.5-flash", "google/gemini-2.5-pro",
   "google/gemini-3.1-flash-lite", "google/gemini-3.5-flash-lite", "google/gemini-3.5-flash", "google/gemini-3.6-flash",
   "openai/gpt-5-nano", "openai/gpt-5.6-luna", "openai/gpt-5.6-sol", "openai/gpt-5.6-terra",
   // Both carry an "openai/flex" endpoint tag (live endpoints 2026-09-24).
@@ -2597,33 +2597,23 @@ async function rerankHandler(input, req) {
 
 // ---------------------------------------------------------------------------
 // /v1/images/generations — OpenAI wire-path image generation over OpenRouter.
-// OpenRouter serves image models through chat/completions with
-// modalities: ["image","text"]; this route translates the OpenAI images API
-// to that shape and back, so any OpenAI SDK's images.generate() works by
-// changing base_url. The model is locked and n is locked to 1 — image output
-// is metered upstream, so every knob that multiplies cost is server-owned
-// (same discipline as image-gen's locked size/quality). Sampling is
-// non-deterministic → never cached; no streaming.
-//
-// Margin (two layers, same scheme as the chat tiers): flash-image output is
-// ~1300 completion tokens per image; IMAGES_MAX_TOKENS bounds the response and
-// IMAGES_MAX_PRICE rides upstream as provider.max_price so a repriced or
-// hijacked provider is refused instead of quietly eating the margin. Usage
-// accounting reports the exact bill to PostHog on every call.
+// The flagship images route. It speaks the OpenAI images wire (prompt in,
+// data[0].b64_json out, n locked to 1, response_format b64_json only) and is
+// served through OpenRouter's dedicated Image API by the same link code the
+// /v1/images/fast and /v1/images/pro tiers use (IMAGE_TIERS["v1-images"] and
+// imageTierHandler in llm-images-fast-kit.js): each link is pinned to one
+// provider at a flat per-image bound under MARGIN x price, and a live-listing
+// re-check skips a link whose provider repriced above its bound (an end-to-end
+// reprice answers 503, not charged). Until 2026-09-24 this route rode
+// google/gemini-2.5-flash-image over chat modalities; Google shuts that model
+// down on 2026-10-02. Output stays PNG 1024x1024, decodable by Jimp.
 export const IMAGES_PATH = "/v1/images/generations";
-const IMAGES_MODEL = "google/gemini-2.5-flash-image";
+export const IMAGES_MODEL = "black-forest-labs/flux.2-pro"; // first link; pinned against IMAGE_TIERS in test-images-fast-kit
 export const IMAGES_PRICE = 0.08;
 export const IMAGES_MAX_PROMPT_CHARS = 4_000;
-export const IMAGES_MAX_TOKENS = 1_600; // one image (~1300 tok) + a little text headroom
-// Worst case at these bounds stays within MARGIN x price (pinned in the
-// pricing-margin CI test).
-// `request` is deliberately near-zero: the locked model's providers charge no
-// per-request fee (OpenRouter lists prompt/completion/image-output pricing
-// only), so this bound never rejects a real provider — but a generous value
-// here would be a standing ALLOWANCE for a fee-charging provider to stack
-// a per-request fee on top of the token bill. Exported
-// (with the caps above) for the pricing-margin CI test.
-export const IMAGES_MAX_PRICE = { prompt: 1, completion: 35, image: 0.05, request: 0.005 };
+// Ids a caller may send in `model`: the two links, plus the retired Gemini id
+// so an existing client keeps working (the response names the model served).
+export const IMAGES_ACCEPTED_MODELS = Object.freeze(["black-forest-labs/flux.2-pro", "openai/gpt-5-image-mini", "google/gemini-2.5-flash-image"]);
 
 export function validateImagesRequest(input) {
   if (input == null || typeof input !== "object") throw bad("Request body must be a JSON object");
@@ -2632,7 +2622,7 @@ export function validateImagesRequest(input) {
   if (prompt.length > IMAGES_MAX_PROMPT_CHARS) throw bad(`Prompt too long (${prompt.length} chars). Maximum is ${IMAGES_MAX_PROMPT_CHARS}`);
   if (input.model !== undefined) {
     const m = canonicalModel(input.model);
-    if (m !== IMAGES_MODEL) throw bad(`"model" is fixed to ${IMAGES_MODEL} on this endpoint (omit it, or send that id)`);
+    if (!IMAGES_ACCEPTED_MODELS.includes(m)) throw bad(`"model" is fixed to ${IMAGES_MODEL} on this endpoint (omit it, or send that id)`);
   }
   if (input.n !== undefined && parseInt(input.n, 10) !== 1) {
     throw bad('"n" is locked to 1 - the flat price is per image; call again for more');
@@ -2640,8 +2630,9 @@ export function validateImagesRequest(input) {
   if (input.response_format !== undefined && input.response_format !== "b64_json") {
     throw bad('"response_format" must be "b64_json" - generated images are returned inline, not hosted');
   }
-  // size/quality/style have no upstream meaning for this model and no cost
-  // impact — ignored for drop-in friendliness rather than rejected.
+  // size/quality/style have no upstream meaning here (output is locked to the
+  // size the bound was measured at) and no cost impact - ignored for drop-in
+  // friendliness rather than rejected.
   const body = { prompt };
   if (input.zdr === true || input.provider?.zdr === true) body.zdr = true;
   return body;
@@ -2650,80 +2641,10 @@ export function validateImagesRequest(input) {
 async function imagesHandler(input, req) {
   gatewaySettleBreakerCheck(req);
   const { prompt, zdr } = validateImagesRequest(input);
-  const user = upstreamUserId(req);
-  const upstreamBody = {
-    model: IMAGES_MODEL,
-    messages: [{ role: "user", content: prompt }],
-    modalities: ["image", "text"],
-    max_tokens: IMAGES_MAX_TOKENS,
-    provider: { max_price: IMAGES_MAX_PRICE, ...(zdr ? { zdr: true } : {}) },
-    // OpenRouter documents `usage.include` as a no-op now (full usage is always
-    // returned). KEPT anyway: our margin telemetry and the metered meter read
-    // `usage.cost`, and dropping the field on the strength of a docs line would
-    // fail silently if the always-on behaviour is partial. Harmless if ignored.
-    usage: { include: true },
-
-    ...(user ? { user } : {}),
-  };
-  // Flex first (half price on this model's endpoints, live-verified), default
-  // second: flex never falls back on its own, and an imageless or failed flex
-  // answer must not become the buyer's 502 while the default tier would serve.
-  let data = null, servedTier = "default", lastErr = null;
-  for (const flex of flexEligible(IMAGES_MODEL) ? [true, false] : [false]) {
-    try {
-      const res = await fetchOpenRouter({ ...upstreamBody, ...(flex ? { service_tier: "flex" } : {}) }, { timeoutMs: 120_000 });
-      if (!res.ok) await throwUpstreamError(res);
-      const text = await res.text();
-      let parsed;
-      try { parsed = JSON.parse(text); } catch { throw bad("Upstream returned non-JSON", 502); }
-      assertUpstreamBody(parsed);
-      const imgs = parsed?.choices?.[0]?.message?.images;
-      if (!Array.isArray(imgs) || imgs.length === 0) throw bad("Upstream returned no image - retry, or rephrase the prompt", 502);
-      data = parsed; servedTier = parsed.service_tier || (flex ? "flex" : "default");
-      break;
-    } catch (e) {
-      if (![502, 503, 504].includes(e?.statusCode)) throw e;
-      lastErr = e;
-    }
-  }
-  if (!data) throw lastErr;
-  const images = data.choices[0].message.images;
-
-  // Exact upstream bill → operator telemetry, stripped before the response.
-  const usage = data.usage && typeof data.usage === "object" ? data.usage : null;
-  if (usage) {
-    const upstreamUsd = typeof usage.cost === "number" ? usage.cost : null;
-    delete usage.cost;
-    delete usage.cost_details;
-    delete usage.is_byok;
-    delete usage.cache_discount;
-    try {
-      const { capturePostHogGatewayUsage } = await import("../posthog.js");
-      capturePostHogGatewayUsage({
-        tier: "v1-images",
-        model: data.model || IMAGES_MODEL,
-        priceUsd: IMAGES_PRICE,
-        upstreamUsd,
-        promptTokens: usage.prompt_tokens,
-        completionTokens: usage.completion_tokens,
-        serviceTier: servedTier,
-      });
-    } catch { /* telemetry must never fail a served response */ }
-  }
-
-  // Translate back to the OpenAI images wire: data URI → b64_json.
-  const out = images.map((im) => {
-    const url = typeof im?.image_url?.url === "string" ? im.image_url.url : "";
-    const m = /^data:(image\/[\w.+-]+);base64,(.+)$/s.exec(url);
-    if (!m) throw bad("Upstream returned an image in an unexpected format", 502);
-    return { b64_json: m[2], media_type: m[1] };
-  });
-  return {
-    created: Math.floor(Date.now() / 1000),
-    model: data.model || IMAGES_MODEL,
-    data: out,
-    ...(usage ? { usage } : {}),
-  };
+  // Loaded at call time: the images kit imports this module, so a static
+  // import here would be a cycle.
+  const { imageTierHandler } = await import("./llm-images-fast-kit.js");
+  return imageTierHandler("v1-images", { prompt }, req, { zdr: zdr === true });
 }
 
 // ---------------------------------------------------------------------------
@@ -3511,8 +3432,8 @@ export const LLM_GATEWAY_TOOLS = [
     category: "llm",
     price: "$0.080",
     description:
-      "OpenAI-compatible image generation over x402 - point any OpenAI SDK's images.generate() at base_url https://agent402.tools/v1 and pay $0.08 per image in USDC, no API key, no signup. Served by Gemini 2.5 Flash Image (nano banana); prompt in (up to 4k chars), inline base64 image out (response_format b64_json). One image per call (n locked to 1). Optional zdr:true routes only to zero-data-retention providers.",
-    tags: ["image-generation", "images", "text-to-image", "nano-banana", "gemini", ...SHARED_TAGS],
+      "OpenAI-compatible image generation over x402 - point any OpenAI SDK's images.generate() at base_url https://agent402.tools/v1 and pay $0.08 per image in USDC, no API key, no signup. Served by FLUX.2 Pro with GPT-5 Image Mini as the failover; prompt in (up to 4k chars), one 1024x1024 PNG out as inline base64 (response_format b64_json). One image per call (n locked to 1). Optional zdr:true routes only to zero-data-retention providers.",
+    tags: ["image-generation", "images", "text-to-image", "flux", "png", ...SHARED_TAGS],
     discovery: {
       bodyType: "json",
       input: { prompt: "A minimalist watercolor of a fox reading a newspaper in a forest clearing" },
@@ -3523,7 +3444,7 @@ export const LLM_GATEWAY_TOOLS = [
         },
         required: ["prompt"],
       },
-      output: { example: { created: 1750000000, model: IMAGES_MODEL, data: [{ b64_json: "iVBORw0KGgoAAAANSUhEUgAA…", media_type: "image/png" }], usage: { prompt_tokens: 14, completion_tokens: 1290, total_tokens: 1304 } } },
+      output: { example: { created: 1750000000, model: IMAGES_MODEL, data: [{ b64_json: "iVBORw0KGgoAAAANSUhEUgAA…", media_type: "image/png" }], usage: { prompt_tokens: 14, completion_tokens: 4096, total_tokens: 4110 } } },
     },
     handler: imagesHandler,
   },
@@ -3665,7 +3586,7 @@ export function modelsList() {
   data.push({
     id: IMAGES_MODEL,
     object: "model",
-    owned_by: "google",
+    owned_by: IMAGES_MODEL.split("/")[0],
     x402: { tier: "v1-images", endpoint: IMAGES_PATH, priceUsd: IMAGES_PRICE, maxPromptChars: IMAGES_MAX_PROMPT_CHARS, imagesPerCall: 1 },
   });
   // The speech route is registered only under OPENROUTER_TTS_ENABLED=true
