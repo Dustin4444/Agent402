@@ -5,6 +5,8 @@ import { guideSlugs } from "./guides.js";
 import { skillSlugs, SKILL_PACKS, PACK_PRICES, PACK_PRICE_RANGE } from "./skills.js";
 import { BLOG_POSTS } from "./blog.js";
 import { ADAPTERS } from "./adapter-docs.js";
+import { integrationSlugs } from "./integration-pages.js";
+import { LEARN, learnSlugs } from "./learn.js";
 import { RAILS, RAILS_OR } from "./rails.js";
 import { CHAIN_PAGES } from "./market-page.js";
 import { EXEC_TIERS } from "./tools/route-execute.js";
@@ -219,6 +221,7 @@ export function sitemapXml(baseUrl, catalog) {
     { loc: `${baseUrl}/playground`, priority: "0.8" },
     ...BLOG_POSTS.map((p) => ({ loc: `${baseUrl}/blog/${p.slug}`, priority: "0.7" })),
     ...ADAPTERS.map((a) => ({ loc: `${baseUrl}/docs/adapters/${a.slug}`, priority: "0.7" })),
+    ...learnIntegrationUrls(baseUrl),
   ];
   const guideUrls = [
     { loc: `${baseUrl}/guides`, priority: "0.8" },
@@ -229,7 +232,7 @@ export function sitemapXml(baseUrl, catalog) {
     ...skillSlugs().map((s) => ({ loc: `${baseUrl}/skills/${s}`, priority: "0.8" })),
   ];
   const toolUrls = toolList(catalog).map((t) => ({ loc: `${baseUrl}/tools/${t.slug}`, priority: "0.8" }));
-  const entries = [...staticUrls, ...programmaticUrls(baseUrl), ...guideUrls, ...skillUrls, ...toolUrls]
+  const entries = [...staticUrls, ...programmaticUrls(baseUrl), ...guideUrls, ...skillUrls, ...categoryUrls(baseUrl, catalog), ...toolUrls]
     .map((u) => `  <url><loc>${u.loc}</loc><lastmod>${lastmod}</lastmod><changefreq>weekly</changefreq><priority>${u.priority}</priority></url>`)
     .join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -245,9 +248,17 @@ ${entries}
 function subSitemap(urls, lastmod) {
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map((u) => `  <url><loc>${u.loc}</loc><lastmod>${lastmod}</lastmod><changefreq>weekly</changefreq><priority>${u.priority}</priority></url>`).join("\n")}\n</urlset>`;
 }
+/** One /tools/category/<key> page per category the live catalog uses. */
+function categoryUrls(baseUrl, catalog) {
+  const used = new Set(toolList(catalog).map((t) => t.category));
+  return Object.keys(CATEGORIES).filter((k) => used.has(k) && k !== "convert").map((k) => ({ loc: `${baseUrl}/tools/category/${k}`, priority: "0.7" }));
+}
+export function sitemapCategories(baseUrl, catalog) {
+  return subSitemap(categoryUrls(baseUrl, catalog), BOOT_DATE);
+}
 export function sitemapIndex(baseUrl) {
   const lastmod = BOOT_DATE;
-  const subs = ["sitemap-pages.xml", "sitemap-reports.xml", "sitemap-tools.xml", "sitemap-guides.xml", "sitemap-skills.xml"];
+  const subs = ["sitemap-pages.xml", "sitemap-reports.xml", "sitemap-tools.xml", "sitemap-categories.xml", "sitemap-guides.xml", "sitemap-skills.xml", "sitemap-learn.xml"];
   const entries = subs.map((s) => `  <sitemap><loc>${baseUrl}/${s}</loc><lastmod>${lastmod}</lastmod></sitemap>`).join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${entries}\n</sitemapindex>`;
 }
@@ -324,6 +335,19 @@ export function sitemapReports(baseUrl) {
 export function sitemapGuides(baseUrl) {
   const lastmod = BOOT_DATE;
   return subSitemap([{ loc: `${baseUrl}/guides`, priority: "0.8" }, ...guideSlugs().map((s) => ({ loc: `${baseUrl}/guides/${s}`, priority: "0.8" }))], lastmod);
+}
+// /learn explainers and the per-package /integrations pages. One list feeds
+// both this sub-sitemap and the /sitemap.xml monolith (which is what
+// scripts/indexnow-submit.js reads), so the two cannot drift.
+export function learnIntegrationUrls(baseUrl) {
+  return [
+    { loc: `${baseUrl}/learn`, priority: "0.8" },
+    ...learnSlugs().map((s) => ({ loc: `${baseUrl}/learn/${s}`, priority: "0.8" })),
+    ...integrationSlugs().map((s) => ({ loc: `${baseUrl}/integrations/${s}`, priority: "0.7" })),
+  ];
+}
+export function sitemapLearn(baseUrl) {
+  return subSitemap(learnIntegrationUrls(baseUrl), BOOT_DATE);
 }
 export function sitemapSkills(baseUrl) {
   const lastmod = BOOT_DATE;
@@ -512,6 +536,35 @@ ${toolSections}
 - [x402 & MPP 101](${baseUrl}/101): the ten-minute walkthrough for people new to the space - plain language, speaker notes, and a live demo (402 quote decoded, pay with a puzzle, real receipts)
 - [Glossary](${baseUrl}/glossary): x402, MPP, HTTP 402, facilitator, EIP-3009, receipts, settlement, rails, dual-stack, PoW tier, SOR, tollbooth - every term defined once, with anchors
 - [What is x402?](${baseUrl}/what-is-x402) / [What is MPP?](${baseUrl}/what-is-mpp): the two payment wires explained
+- [Learn](${baseUrl}/learn): explainers with real headers - [x402](${baseUrl}/learn/x402), [HTTP 402](${baseUrl}/learn/http-402), [MPP](${baseUrl}/learn/mpp), [agent payments](${baseUrl}/learn/agent-payments), [pay-per-call APIs](${baseUrl}/learn/pay-per-call-api), [payments over MCP](${baseUrl}/learn/mcp-payments)
+- [Integrations](${baseUrl}/integrations): one page per published package (framework adapters, MCP server, buyer SDK, tollbooth, OpenClaw provider) with install line, example and payment modes
+- [llms-full.txt](${baseUrl}/llms-full.txt): this file plus every catalog route (slug, method, route, price, one-line description) and the learn summaries
 - [Maintainer](${REPO_URL}): Havok Holdings LLC, mike@agent402.tools
+`;
+}
+
+/** /llms-full.txt: /llms.txt plus the WHOLE catalog, one line per route
+ *  (slug, method + path, price, first sentence of the description), and the
+ *  /learn summaries. Generated from the live catalog on each request, so a new
+ *  or retired tool shows up or drops out with no edit here. */
+export function llmsFullTxt(baseUrl, catalog) {
+  const tools = toolList(catalog).slice().sort((a, b) => a.path.localeCompare(b.path) || a.method.localeCompare(b.method));
+  const firstSentence = (d) => {
+    const t = String(d || "").replace(/\s+/g, " ").trim();
+    const m = t.match(/^(.{20,240}?[.!?])(\s|$)/);
+    return m ? m[1] : t.slice(0, 240);
+  };
+  const catalogLines = tools.map((t) => `- ${t.slug} | ${t.method} ${t.path} | ${t.price || "see /api/pricing"} | ${firstSentence(t.description)}`).join("\n");
+  const learnLines = LEARN.map((l) => `- [${l.term}](${baseUrl}/learn/${l.slug}): ${l.summary}`).join("\n");
+  return `${llmsTxt(baseUrl, catalog)}
+## Learn (summaries)
+
+${learnLines}
+
+## Full catalog
+
+Every priced route on ${baseUrl}, one per line: slug | method and path | price per call | description. Input and output schemas for each are in ${baseUrl}/openapi.json; a call without payment answers HTTP 402 with the same price in its headers.
+
+${catalogLines}
 `;
 }

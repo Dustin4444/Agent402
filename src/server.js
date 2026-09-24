@@ -120,6 +120,8 @@ import { latest13fFiling, resolveManager as edgarResolveManager } from "./tools/
 import { resolveSpend as resolveExternalSpend } from "./external-spend-guard.js";
 import { registerWellKnown, removeWellKnown, getWellKnown, listWellKnown } from "./well-known-store.js";
 import { backupPlan, backupStatus, runBackup, startBackupScheduler } from "./backup.js";
+import { createSearchData } from "./search-data.js";
+import { operatorSearchPage } from "./operator-search.js";
 import { datasetStatus, datasetRecorded, runDatasetSnapshot, startDatasetScheduler } from "./dataset-snapshot.js";
 import { assertAvmValidityCovers } from "./avm-validity.js";
 import { paymentReplayKey, createReplayGuard } from "./replay-guard.js";
@@ -172,7 +174,9 @@ import { glossaryPage } from "./glossary.js";
 import { x402101Page } from "./x402-101.js";
 import { aifiCardSvg } from "./aifi-card.js";
 import { sectionCardSvg, ogSectionIds } from "./og-cards.js";
-import { robotsTxt, sitemapXml, llmsTxt, sitemapIndex, sitemapPages, sitemapTools, sitemapGuides, sitemapSkills, sitemapReports } from "./seo.js";
+import { robotsTxt, sitemapXml, llmsTxt, llmsFullTxt, sitemapIndex, sitemapPages, sitemapTools, sitemapGuides, sitemapSkills, sitemapReports, sitemapCategories, sitemapLearn } from "./seo.js";
+import { integrationPage } from "./integration-pages.js";
+import { learnPage, learnIndex } from "./learn.js";
 import { skillMd } from "./skill-md.js";
 import { createMcpMppLoopback } from "./mcp-mpp.js";
 import { serviceManifest, reliabilityReport } from "./discovery.js";
@@ -338,11 +342,11 @@ import { chainNamespaceMiddleware, chainNamespaceMap, chainVerbAliasesByRoute } 
 import { corsMiddleware } from "./cors.js";
 import { MODERATE_TOOLS } from "./tools/moderate-kit.js";
 import { CDP_TOOLS } from "./tools/cdp-kit.js";
-import { toolPage, toolsIndexPage, openapiSpec, toolList, CATEGORIES, faqPage, categoryPage } from "./pages.js";
+import { toolPage, toolsIndexPage, openapiSpec, toolList, CATEGORIES, faqPage, categoryPage, relatedTools } from "./pages.js";
 import { mountMcp } from "./mcp-http.js";
-import { guidesIndex, guidePage } from "./guides.js";
+import { guidesIndex, guidePage, guideTitles } from "./guides.js";
 import { skillsIndex, skillPackPage, skillPacksJson, SKILL_PACKS, buildPromptMessages } from "./skills.js";
-import { docsIndex, docsPage, docsApi } from "./docs.js";
+import { docsIndex, docsPage, docsApi, DOCS_SITE_ROUTES } from "./docs.js";
 import { shopPage } from "./shop.js";
 import { integrationsPage } from "./integrations.js";
 import { changelogPage, changelogRss } from "./changelog.js";
@@ -1903,6 +1907,20 @@ app.use((req, res, next) => {
   next();
 });
 
+// Trailing slash on a page URL: 301 to the slashless form, query kept. Pages
+// only (GET/HEAD); machine routes answer where they are called. A path that
+// starts with "//" is left alone so the Location can never be protocol-relative.
+const SLASH_REDIRECT_SKIP = /^\/(api|v1|mcp|e|__|\.well-known)(\/|$)/;
+app.use((req, res, next) => {
+  if (req.method !== "GET" && req.method !== "HEAD") return next();
+  const path = req.path;
+  if (path.length < 2 || !path.endsWith("/") || path.startsWith("//") || SLASH_REDIRECT_SKIP.test(path)) return next();
+  const clean = path.replace(/\/+$/, "");
+  if (!clean || !/^\/[A-Za-z0-9._~%!$&'()*+,;=:@/-]*$/.test(clean) || clean.startsWith("//")) return next();
+  const q = req.originalUrl.indexOf("?");
+  return res.redirect(301, new URL(clean + (q >= 0 ? req.originalUrl.slice(q) : ""), BASE_URL).href);
+});
+
 // PostHog reverse proxy: serve posthog-js AND ingest its events first-party
 // through agent402.tools/e, so the browser never talks to a third-party host.
 // This is what lets the cookieless client snippet (see ledger-chrome's head)
@@ -2451,6 +2469,7 @@ app.use(express.json({ limit: "100kb" }));
 // connector's search_tools/find_tool land here too (wired in mcp-http.js).
 const DISCOVERY_SURFACES = new Map([
   ["/llms.txt", "llms.txt"],
+  ["/llms-full.txt", "llms-full.txt"],
   ["/SKILL.md", "skill.md"],
   ["/skill.md", "skill.md"],
   ["/openapi.json", "openapi.json"],
@@ -2930,6 +2949,19 @@ app.get("/og/agentic-finance.png", async (_req, res) => {
 });
 app.get("/faq", (_req, res) => htmlCache(res, 300, 900).send(faqPage(BASE_URL)));
 app.get("/integrations", (_req, res) => htmlCache(res, 300, 900).send(ledgerIntegrationsPage(BASE_URL)));
+// One page per published package (src/integration-pages.js); tool links resolve against CATALOG.
+app.get("/integrations/:slug", (req, res) => {
+  const html = integrationPage(BASE_URL, String(req.params.slug || ""), CATALOG, guideTitles());
+  if (!html) return notFoundPage(res, { what: "Integration", href: "/integrations", label: "All integrations" });
+  htmlCache(res, 300, 900).send(html);
+});
+// Explainers for the core terms (src/learn.js); /glossary links each term here.
+app.get("/learn", (_req, res) => htmlCache(res, 300, 900).send(learnIndex(BASE_URL)));
+app.get("/learn/:slug", (req, res) => {
+  const html = learnPage(BASE_URL, String(req.params.slug || ""));
+  if (!html) return notFoundPage(res, { what: "Explainer", href: "/learn", label: "All explainers" });
+  htmlCache(res, 300, 900).send(html);
+});
 app.get("/pricing", (_req, res) => htmlCache(res, 300, 900).send(ledgerPricingPage(BASE_URL, CATALOG)));
 // Live consolidated revenue view — every rail's wallet on one page instead
 // of one explorer tab per chain. Server-side reads with a 60s module cache;
@@ -3717,6 +3749,14 @@ app.get("/changelog", (_req, res) => htmlCache(res, 300, 900).send(changelogPage
 app.get("/use-cases", (_req, res) => htmlCache(res, 300, 900).send(useCasesPage(BASE_URL)));
 app.get("/playground", (_req, res) => htmlCache(res, 300, 900).send(playgroundPage(BASE_URL, CATALOG)));
 app.get("/sdk-playground", (_req, res) => htmlCache(res, 300, 900).send(sdkPlaygroundPage(BASE_URL)));
+// Capitalised wiki URLs whose page the site serves at a lowercase route: 301
+// there (exact-case match; Express string routes are case-insensitive).
+const DOCS_REDIRECTS = { "/docs/Home": "/docs", ...Object.fromEntries(Object.entries(DOCS_SITE_ROUTES).map(([slug, href]) => [`/docs/${slug}`, href])) };
+app.get(/^\/docs\/[^/]+$/i, (req, res, next) => {
+  if (!Object.hasOwn(DOCS_REDIRECTS, req.path)) return next();
+  const q = req.originalUrl.indexOf("?");
+  res.redirect(301, DOCS_REDIRECTS[req.path] + (q >= 0 ? req.originalUrl.slice(q) : ""));
+});
 app.get("/docs/api/explorer", (_req, res) => htmlCache(res, 300, 900).send(apiExplorerPage(BASE_URL)));
 app.get("/blog", (_req, res) => htmlCache(res, 300, 900).send(blogIndex(BASE_URL)));
 // The catalog-milestone post was renamed 2026-08-18 (its old slug carried an
@@ -3745,7 +3785,9 @@ app.get("/sitemapindex.xml", (_req, res) => { res.setHeader("Cache-Control", "pu
 app.get("/sitemap-pages.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapPages(BASE_URL, CATALOG)); });
 app.get("/sitemap-reports.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapReports(BASE_URL)); });
 app.get("/sitemap-tools.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapTools(BASE_URL, CATALOG)); });
+app.get("/sitemap-categories.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapCategories(BASE_URL, CATALOG)); });
 app.get("/sitemap-guides.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapGuides(BASE_URL)); });
+app.get("/sitemap-learn.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapLearn(BASE_URL)); });
 app.get("/sitemap-skills.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapSkills(BASE_URL)); });
 // Status page. The availability history comes from externally-observed probes
 // (src/status-store.js); the live bucket reads are self-reported and labelled
@@ -4273,6 +4315,38 @@ app.get("/__operator/facilitators.json", async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: String(e?.message || e).slice(0, 200) });
   }
+});
+// Search-engine data (GSC + Bing). Operator only; no-op without credentials.
+const searchData = createSearchData();
+app.get("/__operator/search.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  searchData.summary().then(
+    (r) => res.set("Cache-Control", "no-store").json(r),
+    (e) => res.status(500).json({ error: String(e.message).slice(0, 200) })
+  );
+});
+app.get("/__operator/search", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).type("html").send("<p>Not found.</p>");
+  searchData.summary().then(
+    (r) => res.set("Cache-Control", "no-store").type("html").send(operatorSearchPage(BASE_URL, r)),
+    (e) => res.status(500).type("html").send(`<p>${String(e.message).slice(0, 200).replace(/[<>&]/g, "")}</p>`)
+  );
+});
+app.post("/__operator/search/run", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  if (operatorHeavyLimited(req, res)) return;
+  searchData.runOnce().then((r) => res.json(r), (e) => res.status(500).json({ error: String(e.message) }));
+});
+app.post("/__operator/search/inspect", express.json({ limit: "32kb" }), (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  if (operatorHeavyLimited(req, res)) return;
+  const urls = Array.isArray(req.body?.urls) ? req.body.urls : [];
+  searchData.inspectUrls(urls).then((r) => res.json(r), (e) => res.status(500).json({ error: String(e.message) }));
+});
+app.post("/__operator/search/sitemaps/submit", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  if (operatorHeavyLimited(req, res)) return;
+  searchData.submitSitemaps().then((r) => res.json(r), (e) => res.status(500).json({ error: String(e.message) }));
 });
 app.get("/__operator/backup.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
@@ -5245,6 +5319,7 @@ app.get("/algorand", async (req, res) => {
 // snapshot rather than through this map; do not invent external-seller
 // wallets here.
 const CHAIN_ACTIVITY_TTL_MS = 10 * 60_000;
+const PAGE_ACTIVITY_WAIT_MS = 5_000;
 const EVM_ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 const SOLANA_ADDR_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const chainActivityByWallet = new Map(); // "chainKey:wallet" -> { at, value, inFlight }
@@ -5326,7 +5401,7 @@ async function scanActivity(chainKey, wallet, prior = null) {
 // scan. Only the first-ever load of a wallet awaits — and on Base that's the
 // ~0.5s CDP SQL query, not a 10-page RPC walk. Concurrent cold calls share one
 // in-flight scan.
-async function getActivityForChain(chainKey, wallet) {
+async function getActivityForChain(chainKey, wallet, { maxWaitMs = 0 } = {}) {
   if (!walletShapeOkForChain(chainKey, wallet)) return null;
   const key = `${chainKey}:${wallet}`;
   // Evict the OLDEST entry, never the whole table. clear() at 500 meant that
@@ -5364,7 +5439,16 @@ async function getActivityForChain(chainKey, wallet) {
     })();
   }
   if (entry.value) return entry.value; // SWR: serve cached immediately (fresh or stale)
-  await entry.inFlight;                // cold: nothing cached yet — wait for the first scan
+  // Cold: wait for the first scan, but a page view waits at most maxWaitMs (a
+  // busy wallet's scan runs to its ~30 s budget); it keeps going and the next
+  // view is served from cache.
+  if (maxWaitMs > 0 && entry.inFlight) {
+    let timer;
+    await Promise.race([entry.inFlight, new Promise((r) => { timer = setTimeout(r, maxWaitMs); timer.unref?.(); })]);
+    clearTimeout(timer);
+  } else {
+    await entry.inFlight;
+  }
   return entry.value;
 }
 // /base, /solana, /polygon, /arbitrum, /robinhood — five more x402
@@ -5413,7 +5497,7 @@ for (const chainKey of Object.keys(SNAPSHOT_RAIL_LABEL)) {
       const { selectedSeller, scanWallet } = resolveMarketSeller(chainKey, snapshot, req.query.seller);
       const [revSnap, activity] = await Promise.all([
         revenueSnapshot(revenueWallets()),
-        scanWallet ? getActivityForChain(chainKey, scanWallet) : Promise.resolve(null),
+        scanWallet ? getActivityForChain(chainKey, scanWallet, { maxWaitMs: PAGE_ACTIVITY_WAIT_MS }) : Promise.resolve(null),
       ]);
       const rail = revSnap?.rails?.find((r) => r.rail === SNAPSHOT_RAIL_LABEL[chainKey]) || null;
       htmlCache(res, 120, 600).send(marketPage(chainKey, BASE_URL, { snapshot: withDispatchSnapshot(snapshot), rail, activity, selectedSeller, wallet: rail?.wallet || undefined, leaderboardSnap: getLeaderboardSnapshot(), all: req.query.all === "1" , host: hostEntryFigures(chainKey) }));
@@ -5432,7 +5516,7 @@ app.get("/api/market/:chain/panel", async (req, res) => {
     if (!SNAPSHOT_RAIL_LABEL[chainKey]) return res.status(404).json({ error: "unknown chain" });
     const snapshot = getIndexSnapshot();
     const { selectedSeller, scanWallet } = resolveMarketSeller(chainKey, snapshot, req.query.seller);
-    const activity = scanWallet ? await getActivityForChain(chainKey, scanWallet) : null;
+    const activity = scanWallet ? await getActivityForChain(chainKey, scanWallet, { maxWaitMs: PAGE_ACTIVITY_WAIT_MS }) : null;
     const html = marketPanelHtml(chainKey, { snapshot, activity, selectedSeller, leaderboardSnap: getLeaderboardSnapshot() });
     res.set("Cache-Control", "public, max-age=60").json({ html, seller: selectedSeller });
   } catch (e) {
@@ -6060,6 +6144,7 @@ if (process.env.INDEXNOW_KEY) {
 }
 app.get("/sitemap.xml", (_req, res) => res.type("application/xml").set("Cache-Control", "public, max-age=3600").send(sitemapXml(BASE_URL, CATALOG)));
 app.get("/llms.txt", (_req, res) => res.type("text/plain").set("Cache-Control", "public, max-age=3600").send(llmsTxt(BASE_URL, CATALOG)));
+app.get("/llms-full.txt", (_req, res) => res.type("text/plain").set("Cache-Control", "public, max-age=3600").send(llmsFullTxt(BASE_URL, CATALOG)));
 // /SKILL.md - agent-onboarding sheet ("Read <url>/SKILL.md and set up X" is
 // the prompt agent runtimes use for paid services). Lowercase alias too.
 const serveSkillMd = (_req, res) => res.type("text/markdown; charset=utf-8").set("Cache-Control", "public, max-age=3600").send(skillMd(BASE_URL, CATALOG));
@@ -6543,10 +6628,20 @@ app.get("/tools/:slug", (req, res) => {
   const tools = toolList(CATALOG);
   const tool = tools.find((t) => t.slug === req.params.slug);
   if (!tool) return notFoundPage(res, { what: "Tool", href: "/tools", label: "All tools" });
-  const related = tools.filter((t) => t.category === tool.category && t.slug !== tool.slug).slice(0, 3);
+  const related = relatedTools(tool, tools, 6);
   const cachePolicy = tool.method === "GET" ? CACHEABLE_ROUTES[tool.path] : null;
-  htmlCache(res, 300, 900).send(toolPage(BASE_URL, tool, related, { computePayable: POW_SLUGS.has(tool.slug), powDifficulty: POW_DIFFICULTY, cacheTtl: cachePolicy?.ttl ?? null }));
+  htmlCache(res, 300, 900).send(skillPackCanonical(tool.slug, toolPage(BASE_URL, tool, related, { computePayable: POW_SLUGS.has(tool.slug), powDifficulty: POW_DIFFICULTY, cacheTtl: cachePolicy?.ttl ?? null })));
 });
+// A skill pack's catalog page points its canonical at the pack page (/skills/<pack>).
+const SKILL_PACK_SLUGS = new Set(SKILL_PACKS.map((p) => p.slug));
+function skillPackCanonical(toolSlug, html) {
+  const pack = toolSlug.startsWith("skill-") ? toolSlug.slice(6) : null;
+  if (!pack || !SKILL_PACK_SLUGS.has(pack)) return html;
+  const from = `${BASE_URL}/tools/${toolSlug}`, to = `${BASE_URL}/skills/${pack}`;
+  return html
+    .replace(`<link rel="canonical" href="${from}">`, `<link rel="canonical" href="${to}">`)
+    .replace(`<meta property="og:url" content="${from}">`, `<meta property="og:url" content="${to}">`);
+}
 const toolCardCache = new Map();
 app.get("/tools/:slug/card.png", async (req, res) => {
   const tools = toolList(CATALOG);
@@ -8594,6 +8689,7 @@ const datasetSources = () => ({
   mppRows: () => mppLeaderboardSnapshot()?.rows || [],
 });
 bootStep("startBackupScheduler", () => startBackupScheduler());
+bootStep("searchData.start", () => searchData.start());
 // Warm the sanctions list at boot so the first buyer does not wait on a 5.7MB
 // download, and refresh on a timer - a stale list answering "no match" is the
 // failure mode this tool exists to avoid.

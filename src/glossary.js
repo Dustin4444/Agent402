@@ -10,8 +10,9 @@
 // the protocols' own homes.
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 import { routingProofSentence } from "./routing-proof.js";
+import { LEARN_BY_GLOSSARY_ID, learnBySlug } from "./learn.js";
 
-import { REPO_URL } from "./repo-link.js";
+import { REPO_URL, ORG_SAME_AS } from "./repo-link.js";
 // { id, name, alt?: [names], def, see: [[href, label]] } - keep `def` a single
 // plain-text paragraph: it is rendered verbatim AND emitted as the DefinedTerm
 // description in JSON-LD, so no markup.
@@ -93,7 +94,7 @@ export function glossaryPage(baseUrl) {
   const description =
     "Plain-English definitions of the vocabulary of Agentic Finance (AIFI): x402, MPP, HTTP 402, payment requirements and challenges, facilitators, EIP-3009, receipts, settlement, wallets as identity, rails, dual-stack, the proof-of-work free tier, the Smart Order Router, the tollbooth, and more. Each term links to the page that goes deep.";
 
-  const orgLd = { "@type": "Organization", "@id": `${baseUrl}/#organization`, name: "Agent402", url: baseUrl, logo: { "@type": "ImageObject", url: `${baseUrl}/logo.png` }, sameAs: [REPO_URL, "https://x.com/Agent402Tools"] };
+  const orgLd = { "@type": "Organization", "@id": `${baseUrl}/#organization`, name: "Agent402", url: baseUrl, logo: { "@type": "ImageObject", url: `${baseUrl}/logo.png` }, sameAs: ORG_SAME_AS };
   const breadcrumbLd = { "@type": "BreadcrumbList", itemListElement: [
     { "@type": "ListItem", position: 1, name: "Agent402", item: `${baseUrl}/` },
     { "@type": "ListItem", position: 2, name: "Agentic Finance (AIFI)", item: `${baseUrl}/agentic-finance` },
@@ -125,7 +126,9 @@ export function glossaryPage(baseUrl) {
 
   const termsHtml = GLOSSARY.map((t) => {
     const alt = t.alt?.length ? `<div style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin:0 0 12px;">also: ${t.alt.map(esc).join(" · ")}</div>` : "";
-    const see = t.see?.length ? `<div style="font-family:var(--font-mono);font-size:12.5px;margin-top:14px;">${t.see.map(([href, label]) => `<a href="${esc(href)}" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--accent);margin-right:16px;">${esc(label)} →</a>`).join("")}</div>` : "";
+    const learn = LEARN_BY_GLOSSARY_ID[t.id] ? learnBySlug(LEARN_BY_GLOSSARY_ID[t.id]) : null;
+    const seeList = [...(learn ? [[`/learn/${learn.slug}`, `${learn.term}, explained`]] : []), ...(t.see || [])];
+    const see = seeList.length ? `<div style="font-family:var(--font-mono);font-size:12.5px;margin-top:14px;">${seeList.map(([href, label]) => `<a href="${esc(href)}" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--accent);margin-right:16px;">${esc(label)} →</a>`).join("")}</div>` : "";
     return `<article id="${esc(t.id)}" class="gl-term gl-row" style="display:grid;grid-template-columns:300px 1fr;gap:28px;padding:26px 24px;border-bottom:1px solid var(--hairline);">
       <div><h2 style="font-weight:800;font-size:21px;line-height:1.15;margin:0 0 8px;color:var(--ink);"><dfn style="font-style:normal;">${esc(t.name)}</dfn></h2>${alt}<a href="#${esc(t.id)}" style="font-family:var(--font-mono);font-size:11px;color:var(--faint);text-decoration:none;">#${esc(t.id)}</a></div>
       <div><p style="font-size:16px;line-height:1.65;color:var(--muted);margin:0;">${esc(t.def)}</p>${see}</div>
@@ -142,7 +145,7 @@ export function glossaryPage(baseUrl) {
       <div>
         <h1 style="font-weight:800;font-size:52px;line-height:.96;letter-spacing:-.035em;margin:0 0 24px;color:var(--ink);">The <span style="color:var(--accent);">Agentic Finance</span> glossary</h1>
         <p style="font-size:19px;line-height:1.5;color:var(--on-dark2);margin:0 0 20px;"><strong style="color:var(--ink);font-weight:700;">Every term the agentic-finance stack uses, defined once.</strong> From the HTTP status code that started it to the facilitators, receipts and routers built on top. Each entry links to the page that goes deep, and each has its own anchor so any page can point at a definition instead of restating it.</p>
-        <p style="font-size:16px;line-height:1.6;color:var(--muted);margin:0;">Start with <a href="/agentic-finance" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--accent);">what Agentic Finance (AIFI) is</a>, then the two wires: <a href="/what-is-x402" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--accent);">x402</a> and <a href="/what-is-mpp" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--accent);">MPP</a>.</p>
+        <p style="font-size:16px;line-height:1.6;color:var(--muted);margin:0;">Start with <a href="/agentic-finance" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--accent);">what Agentic Finance (AIFI) is</a>, then the two wires: <a href="/what-is-x402" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--accent);">x402</a> and <a href="/what-is-mpp" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--accent);">MPP</a>. Longer explainers with real headers are in <a href="/learn" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--accent);">Learn</a>.</p>
       </div>
       <div style="border:1px solid var(--hairline);background:var(--card);padding:16px 18px 12px;">
         <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;color:var(--faint);margin-bottom:12px;">${GLOSSARY.length} TERMS</div>

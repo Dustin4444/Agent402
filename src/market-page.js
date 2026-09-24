@@ -847,7 +847,9 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
   const terminalRows = terminalPool.map((s) => {
     const st = sellerStat(s) || {};
     return {
-      host: s.local ? (host || "this host") : hostOf(s.homepage).toLowerCase(),
+      // `host` in scope is the host-card figures object, never a string.
+      host: s.local ? (hostOf(baseUrl) || "this host") : hostOf(s.homepage).toLowerCase(),
+      href: s.local ? `/${chainKey}#detail` : null,
       calls: st.calls || 0, usd: st.usd || 0, buyers: st.buyers || 0,
       tools: Number(s.toolCount) || (s.local ? tools.length : 0),
       routable: !!(s.local || s.routable),

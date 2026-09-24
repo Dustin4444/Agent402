@@ -799,6 +799,9 @@ export const ledgerFooterFull = () => ledgerFooterCompact();
 // Footer - compact single-row (sub-pages)
 // ---------------------------------------------------------------------------
 
+// Sitemap pages that no nav menu reaches; this row is their site-wide link.
+const FOOTER_MORE = [["/faq", "faq"], ["/compare", "compare"], ["/use-cases", "use cases"], ["/community", "community"], ["/digest", "weekly digest"], ["/shop", "shop"], ["/analytics", "analytics"], ["/badges", "badges"]];
+
 export function ledgerFooterCompact() {
   // Three rows, deliberately. The previous compact footer carried 31 links in
   // one undifferentiated wall, which is the same failure as labelling eight
@@ -826,7 +829,11 @@ export function ledgerFooterCompact() {
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:10px;">
       <span style="letter-spacing:.1em;text-transform:uppercase;">for agents</span>
-      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/llms.txt" style="color:var(--muted);text-decoration:none;">llms.txt</a><a href="/openapi.json" style="color:var(--muted);text-decoration:none;">openapi.json</a><a href="/.well-known/x402" style="color:var(--muted);text-decoration:none;">.well-known/x402</a><a href="/api/pricing" style="color:var(--muted);text-decoration:none;">/api/pricing</a><a href="/api/stats" style="color:var(--muted);text-decoration:none;">/api/stats</a><a href="/api/status" style="color:var(--muted);text-decoration:none;">/api/status</a><a href="/x402-test" style="color:var(--muted);text-decoration:none;">test your client</a><a href="/crawler" style="color:var(--muted);text-decoration:none;">our crawler</a></span>
+      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/llms.txt" style="color:var(--muted);text-decoration:none;">llms.txt</a><a href="/openapi.json" style="color:var(--muted);text-decoration:none;">openapi.json</a><a href="/.well-known/x402" style="color:var(--muted);text-decoration:none;">.well-known/x402</a><a href="/api/pricing" style="color:var(--muted);text-decoration:none;">/api/pricing</a><a href="/api/stats" style="color:var(--muted);text-decoration:none;">/api/stats</a><a href="/api/status" style="color:var(--muted);text-decoration:none;">/api/status</a><a href="/x402-test" style="color:var(--muted);text-decoration:none;">test your client</a><a href="/crawler" style="color:var(--muted);text-decoration:none;">our crawler</a><a href="/SKILL.md" style="color:var(--muted);text-decoration:none;">SKILL.md</a><a href="/docs/webhooks" style="color:var(--muted);text-decoration:none;">webhooks</a></span>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:10px;">
+      <span style="letter-spacing:.1em;text-transform:uppercase;">more</span>
+      <span style="display:flex;gap:16px;flex-wrap:wrap;">${FOOTER_MORE.map(([href, label]) => `<a href="${href}" style="color:var(--muted);text-decoration:none;">${label}</a>`).join("")}</span>
     </div>
   </div>
 </footer>`;
@@ -917,6 +924,15 @@ function posthogSnippet(baseUrl) {
   // text (CSP hardening, 2026-08-16).
   return jsonScriptTag("posthog-config", { key, cfg }) + '<script src="/js/posthog-loader.js"></script>';
 }
+/** BreadcrumbList JSON-LD from [name, path] pairs (path relative to baseUrl). */
+export function breadcrumbLd(baseUrl, crumbs) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: crumbs.map(([name, path], i) => ({ "@type": "ListItem", position: i + 1, name, item: `${baseUrl}${path}` })),
+  };
+}
+
 export function ledgerShell({ title: rawTitle, description: rawDescription, canonical, baseUrl, activePath = "", ogImage, jsonLd, extraCss = "", body, robots = "index, follow, max-image-preview:large" }) {
   // The snippet is derived here, once, for every page (see seo-meta.js): a
   // page author writes the paragraph, the shell serves what a search result
@@ -942,7 +958,9 @@ export function ledgerShell({ title: rawTitle, description: rawDescription, cano
     description: `x402 pay-per-call agent tools settling in ${RAILS_AMP}. Available as a Base MCP plugin (app ID 6a3dd86ca341d86b910769fb). Gas is sponsored on EVM chains - callers need only the stablecoin.`,
     url: baseUrl,
   };
-  const allLd = [baseEcosystemLd, ...(jsonLd ? (Array.isArray(jsonLd) ? jsonLd : [jsonLd]) : [])];
+  // Each block is its own script tag, so each needs its own @context.
+  const allLd = [baseEcosystemLd, ...(jsonLd ? (Array.isArray(jsonLd) ? jsonLd : [jsonLd]) : [])]
+    .map((j) => (j && typeof j === "object" && !j["@context"] ? { "@context": "https://schema.org", ...j } : j));
   // Every "<" is escaped as \u003c, exactly as jsonScriptTag does and for the
   // same reason: JSON.stringify never escapes it, so a string field carrying
   // the literal text "</script>" would close this tag early and let whatever

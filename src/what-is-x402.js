@@ -14,7 +14,7 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 import { RAILS } from "./rails.js";
 import { CAIP2_NAMES } from "./stats.js";
 
-import { REPO_URL } from "./repo-link.js";
+import { REPO_URL, ORG_SAME_AS } from "./repo-link.js";
 const fmtNum = (n) => Number(n || 0).toLocaleString("en-US");
 const fmtUsd = (n) =>
   `$${Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -104,7 +104,7 @@ export function whatIsX402Page(baseUrl, { stats, leaderboardSnapshot } = {}) {
   const boardSellers = Number.isFinite(leaderboardSnapshot?.totalSellers) ? fmtNum(leaderboardSnapshot.totalSellers) : null;
   const windowLabel = leaderboardSnapshot?.windowLabel || "7d";
 
-  const orgLd = { "@type": "Organization", "@id": `${baseUrl}/#organization`, name: "Agent402", url: baseUrl, logo: { "@type": "ImageObject", url: `${baseUrl}/logo.png` }, sameAs: [REPO_URL, "https://x.com/Agent402Tools"] };
+  const orgLd = { "@type": "Organization", "@id": `${baseUrl}/#organization`, name: "Agent402", url: baseUrl, logo: { "@type": "ImageObject", url: `${baseUrl}/logo.png` }, sameAs: ORG_SAME_AS };
   const breadcrumbLd = { "@type": "BreadcrumbList", itemListElement: [
     { "@type": "ListItem", position: 1, name: "Agent402", item: `${baseUrl}/` },
     { "@type": "ListItem", position: 2, name: "What is x402 and MPP", item: canonical },

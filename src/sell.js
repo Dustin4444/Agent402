@@ -18,7 +18,7 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 import { chainMark, CHAIN_ORDER } from "./chain-logos.js";
 import { RAILS, railKey } from "./rails.js";
 
-import { REPO_URL } from "./repo-link.js";
+import { REPO_URL, ORG_SAME_AS } from "./repo-link.js";
 const REPO = REPO_URL;
 
 const COSTS = [
@@ -109,7 +109,7 @@ export function sellPage(baseUrl) {
   const description =
     "List your API on the open x402 index and get paid in USDC per call, straight to your wallet. Free listing, no signup, nothing deducted from your price. Or tollbooth a site so AI crawlers pay per page. See what agents already pay for.";
 
-  const orgLd = { "@type": "Organization", "@id": `${baseUrl}/#organization`, name: "Agent402", url: baseUrl, logo: { "@type": "ImageObject", url: `${baseUrl}/logo.png` }, sameAs: [REPO, "https://x.com/Agent402Tools"] };
+  const orgLd = { "@type": "Organization", "@id": `${baseUrl}/#organization`, name: "Agent402", url: baseUrl, logo: { "@type": "ImageObject", url: `${baseUrl}/logo.png` }, sameAs: ORG_SAME_AS };
   const breadcrumbLd = { "@type": "BreadcrumbList", itemListElement: [
     { "@type": "ListItem", position: 1, name: "Agent402", item: `${baseUrl}/` },
     { "@type": "ListItem", position: 2, name: "Sell", item: canonical },

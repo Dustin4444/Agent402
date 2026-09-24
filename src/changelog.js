@@ -2,6 +2,16 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 
 const ENTRIES = [
   {
+    date: "2026-09-24",
+    title: "Integration and learn pages",
+    items: [
+      "New /integrations pages for every published package and /learn explainers for x402, HTTP 402, MPP and agent payments.",
+      "/llms-full.txt lists every catalog route with its price.",
+      "Tool pages now show parameters, example requests and responses, and related tools.",
+      "Fixed broken links on the FAQ and chain pages.",
+    ],
+  },
+  {
     date: "2026-09-22",
     title: "Five explorer-backed tools retired, and token-risk reads its facts from keyless probes",
     items: [

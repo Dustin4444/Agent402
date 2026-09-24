@@ -10,7 +10,9 @@ import { marked } from "marked";
 export const headingId = (text) => String(text || "").toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-");
 const tokenText = (tokens) => (tokens || []).map((t) => (t.tokens ? tokenText(t.tokens) : (t.text ?? ""))).join("");
 marked.use({ renderer: { heading({ tokens, depth }) { const html = this.parser.parseInline(tokens); return `<h${depth} id="${headingId(tokenText(tokens))}">${html}</h${depth}>\n`; } } });
-import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
+import { ledgerShell, ledgerFooterCompact, esc, breadcrumbLd } from "./ledger-chrome.js";
+import { fitTitle } from "./seo-meta.js";
+import { GUIDE_INTEGRATIONS, integrationBySlug } from "./integration-pages.js";
 import { RAILS_OR, RAILS_AMP } from "./rails.js";
 import { TIERS, METERED_MAX_QUOTE_USD, EMBEDDINGS_PRICE } from "./tools/llm-gateway-kit.js";
 // Derived at module load from the live tier table so the guide can never say a
@@ -124,6 +126,7 @@ at a [public wallet](https://agent402.tools/api/stats).
   {
     slug: "durable-memory-for-agents",
     title: "Durable memory for AI agents - no accounts, the wallet is the identity",
+    seoTitle: "Durable memory for AI agents, keyed to the wallet",
     description:
       "How autonomous agents persist state across sessions and share it across owners using wallet-keyed memory: writes, cross-wallet grants, tamper-evident audit logs, and semantic recall - authenticated by payment, not API keys.",
     md: `
@@ -195,6 +198,7 @@ for the full API.
   {
     slug: "sell-your-api-over-x402",
     title: "Sell your API to AI agents over x402 - no billing system required",
+    seoTitle: "Sell your API to AI agents over x402",
     description:
       `Put a per-call USDC paywall in front of any HTTP endpoint with the x402 protocol: quote over HTTP 402, settle on ${RAILS_AMP} through a facilitator, and get discovered by agents - no accounts, invoices, or payment forms.`,
     md: `
@@ -261,6 +265,7 @@ on-chain customer detector - is in
   {
     slug: "x402-payments-toolkit",
     title: "Let your agent pay anyone: the non-custodial x402 payments toolkit",
+    seoTitle: "The non-custodial x402 payments toolkit",
     description:
       "Discover a 402 quote, resolve an ENS recipient, check USDC balance and gas, build the EIP-3009 authorization your agent signs with its own key, and verify the settlement on-chain - across Base, Polygon, Arbitrum, Optimism, Ethereum, and Robinhood Chain. Agent402 never touches funds.",
     md: `
@@ -446,6 +451,7 @@ agent can verify its own settlement for a fraction of a cent without an RPC key.
   {
     slug: "create-agent-wallet",
     title: "Give your agent a wallet - non-custodial, from zero to first x402 payment",
+    seoTitle: "Give your agent a non-custodial wallet",
     description:
       "The secure way to create and fund a wallet for an AI agent: generate the key locally (it never touches any server, including ours), rehearse the full x402 payment loop with faucet USDC on Base Sepolia, then fund it for real with a card via a single-use Coinbase Onramp link.",
     md: `
@@ -646,6 +652,7 @@ Browse the live economy the router draws from at
   {
     slug: "x402-and-mpp",
     title: "x402 and MPP on the same paywall: one server, two payment protocols",
+    seoTitle: "x402 and MPP on the same paywall",
     description:
       "x402 is not the only HTTP payment scheme in flight. Agent402 serves both x402 and MPP's evm method from the exact same routes with identical settlement - plus a second, native MPP method (tempo) with its own separate settlement path.",
     md: `
@@ -821,6 +828,7 @@ routing everything through one chain regardless of what you sent.
   {
     slug: "pay-with-coinbase-agentic-wallet",
     title: "Pay Agent402 from Coinbase's own agent tooling: Agentic Wallet CLI, Agentic Wallet MCP, purl, and the CDP SDK",
+    seoTitle: "Pay Agent402 from Coinbase's agent tooling",
     description:
       "Already holding a Coinbase Agentic Wallet, the Agentic Wallet MCP tools, Stripe's purl, or a CDP-managed wallet in code? Every Agent402 endpoint is a plain x402 resource on Base, so those pay it unchanged - here are the exact commands, the spend caps to set, and the two extensions we honour (payment-identifier, bazaar).",
     md: `
@@ -933,6 +941,7 @@ carries a \`WWW-Authenticate: Payment\` challenge - see
   {
     slug: "coinbase-business-get-paid-by-agents",
     title: "Get paid by AI agents into your Coinbase Business account with agent402-tollbooth",
+    seoTitle: "Get paid by AI agents into Coinbase Business",
     description:
       "Coinbase Business accounts receive x402 payments from AI agents. agent402-tollbooth is the one-middleware way to put a USDC price on your API or site, settle through Coinbase's facilitator, and land every payment in that account. Three env vars, one command, one example server.",
     md: `
@@ -1046,6 +1055,7 @@ its normal schedule.
   {
     slug: "agent-hosts",
     title: "Use Agent402 from Claude Code, Cursor, VS Code, Windsurf, Cline, Roo Code, Codex CLI, Gemini CLI, Muse Code, Continue, ElizaOS, AgentCore and any OpenAI SDK",
+    seoTitle: "Use Agent402 from Claude Code, Cursor and more",
     description:
       "Two doors into Agent402 from the agent host you already run: models through an OpenAI-compatible base URL with a prepaid credits key (metered, from $" + TIERS["v1-chat-metered"].price + " a call), and 500+ tools through MCP. Copy the block for your host.",
     md: `
@@ -1463,6 +1473,7 @@ agent's behalf. Why pay here, with the proof links:
   {
     slug: "openclaw-model-provider",
     title: "Use Agent402 as your OpenClaw model provider - pay by card, no wallet",
+    seoTitle: "Agent402 as your OpenClaw model provider",
     description:
       "Point OpenClaw at Agent402's OpenAI-compatible gateway with a prepaid credits key: one config block, auto-routed models at a flat per-call price, paid by card. Or pay per call in USDC from a wallet over x402.",
     md: `
@@ -1684,7 +1695,7 @@ export function guidePage(baseUrl, slug) {
   const g = GUIDES.find((x) => x.slug === slug);
   if (!g) return null;
 
-  const title = `${g.title} - Agent402`;
+  const title = fitTitle([`${g.title} - Agent402`, g.seoTitle ? `${g.seoTitle} - Agent402` : "", g.seoTitle || g.title]);
   const canonical = `${baseUrl}/guides/${g.slug}`;
 
   const jsonLd = {
@@ -1704,11 +1715,22 @@ export function guidePage(baseUrl, slug) {
   <div class="gp-body">
     ${marked.parse(g.md)}
   </div>
+  ${integrationsBlock(g.slug)}
   <a href="/guides" class="gp-back">Back to guides</a>
 </div>
 ${ledgerFooterCompact()}`;
 
-  return ledgerShell({ title, description: g.description, canonical, baseUrl, activePath: "__none__", jsonLd, extraCss: GUIDE_PAGE_CSS, body });
+  const crumbs = breadcrumbLd(baseUrl, [["Agent402", "/"], ["Guides", "/guides"], [g.seoTitle || g.title, `/guides/${g.slug}`]]);
+  return ledgerShell({ title, description: g.description, canonical, baseUrl, activePath: "__none__", jsonLd: [jsonLd, crumbs], extraCss: GUIDE_PAGE_CSS, body });
 }
 
 export const guideSlugs = () => GUIDES.map((g) => g.slug);
+export const guideTitles = () => Object.fromEntries(GUIDES.map((g) => [g.slug, g.title]));
+
+// The packages a reader of this guide will install next, each linking to its
+// /integrations page (map derived in integration-pages.js).
+function integrationsBlock(slug) {
+  const list = (GUIDE_INTEGRATIONS[slug] || []).map(integrationBySlug).filter(Boolean);
+  if (!list.length) return "";
+  return `<div class="gp-body"><h2>Packages for this guide</h2><ul>${list.map((i) => `<li><a href="/integrations/${esc(i.slug)}">${esc(i.name)}</a> (<code>${esc(i.pkg)}</code>)</li>`).join("")}</ul></div>`;
+}
