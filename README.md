@@ -140,7 +140,7 @@ Boots straight from the repo's `railway.toml` + `Dockerfile`. Optional plugins a
 
 Every paid route answers `402` with both an x402 offer and MPP challenges, so either client pays it. No API key, no signup: the wallet is the account.
 
-**MPP** (USDC.e on Tempo, or USDC on Base) with [`mppx`](https://www.npmjs.com/package/mppx):
+**MPP** (USDC.e or PathUSD on Tempo, listed first in the 402, or USDC on Base or Celo) with [`mppx`](https://www.npmjs.com/package/mppx):
 
 ```js
 import { Mppx, tempo, evm } from "mppx/client";
