@@ -13,6 +13,7 @@ import { priceUsdFor } from "./report-tiers.js";
 // Shared by /reports, /r/:id, /m/:id and the monitors pages.
 export const REPORTS_CSS = `
   .wrap{max-width:940px;margin:0 auto;padding:0 26px}
+  @media screen{#app[data-api]{min-height:100vh}}
   .eyebrow{font-family:var(--font-mono);font-size:11.5px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--faint)}
   .btn{font-family:var(--font-body);font-size:15px;font-weight:500;border-radius:999px;border:1px solid transparent;cursor:pointer;padding:11px 18px;transition:transform .12s ease,border-color .15s ease;display:inline-flex;gap:8px;align-items:center;text-decoration:none;white-space:nowrap}
   .btn:hover{transform:translateY(-1px)}
@@ -246,6 +247,8 @@ ${ledgerFooterCompact()}
 // Delivery page: polls /api/r/:id (or `api`) and renders the report client-side.
 const sampleLink = (slug) => { const p = sampleLinkFor(slug); return p ? `<a href="${esc(p)}" style="margin-right:10px;">See a real sample →</a>` : ""; };
 
+// #app reserves a viewport of height while the report loads client-side, so
+// the blocks below it (alert form, note, footer) do not jump when it lands.
 export function reportDeliveryPage(sessionId, { api = "/api/r/", waitCopy = "Most reports take one to three minutes; the deepest take up to five. Keep this page open, it appears here automatically.", baseUrl = "https://agent402.tools", robots = "noindex, nofollow", title = "Your report - Agent402", description = "Your Agent402 report.", canonical = `${baseUrl}/reports`, note = "Your report is yours to keep - bookmark this page or use the link we emailed you.", jsonLd, extraHtml = "", extraScripts = "" } = {}) {
   const body = `
 <div class="wrap" style="padding-top:28px;">
