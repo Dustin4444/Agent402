@@ -71,6 +71,20 @@ const hangUp = (url, headers, abortAfterMs) => new Promise((resolve) => {
   server.close();
 }
 
+// Source pins for the two halves the booted test below cannot reach: credits
+// (a real key needs a card purchase) and the mount ORDER, which is what makes
+// every gate's captured res.end the hook's wrapper.
+{
+  const { readFileSync } = await import("node:fs");
+  const credits = readFileSync(new URL("../src/credits.js", import.meta.url), "utf8");
+  ok(/res\.on\("close",[^\n]*settle\([^\n]*req\.creditsChargedOnClose = c\.chargedUsd/.test(credits), "credits: a charge taken on close sets the flag the hook reads");
+  const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+  const hookAt = server.indexOf("app.use(createHangupSettlementHook(");
+  const firstGate = Math.min(...["app.use(tempoGate)", "app.use(mppShim)", "app.use(stripeGate)", "app.use(_credits.gate("].map((s) => server.indexOf(s)).filter((i) => i >= 0));
+  ok(hookAt > 0 && hookAt < firstGate, "server.js mounts the hang-up hook before every payment gate");
+  ok(/else if \(req\.creditsSettled && Number\(req\.creditsChargedOnClose\) > 0\)/.test(server), "the debt recorder books a credits charge taken on close");
+}
+
 // ---------------------------------------------------------------- part 2
 
 const [PORT, FAC_PORT] = [await getFreePort(), await getFreePort()];
