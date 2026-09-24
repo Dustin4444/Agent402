@@ -217,7 +217,7 @@ function polyList(raw) {
 // The depth a buyer can use is the top-of-book size above, which is a
 // different quantity (contracts at one price) and is never relabelled here.
 const KALSHI_LIQUIDITY_NOTE =
-  "Kalshi no longer publishes a liquidity figure (removed 2026-10-01); use yesBidSize/yesAskSize for resting contracts at the best price.";
+  "Kalshi publishes no usable liquidity figure (it reads 0 on live books and is retired 2026-10-01); use yesBidSize/yesAskSize for resting contracts at the best price.";
 function kalshiLiquidity(m) {
   const legacy = asNumber(m.liquidity_dollars);
   const book = [m.yes_bid_size_fp, m.yes_ask_size_fp].some((v) => (asNumber(v) || 0) > 0);
