@@ -26,6 +26,7 @@ import {
   CANARY_PRODUCT_KEY, CANARY_PRODUCT, CANARY_PERIOD_SECONDS, productDefFor, isCanaryProduct,
   subscriptionFeePayerPolicy, SUB_FEE_PAYER_MAX_GAS,
   isTransientChargeError, TRANSIENT_CHARGE_BACKOFF_MS, isSendPhaseAmbiguity, expectedRenewalMemo,
+  renewalValidForSeconds, withRenewalValidity, RENEWAL_VALID_FOR_DEFAULT_S, RENEWAL_VALID_FOR_MAX_S, SETTLEABLE_SLACK_MS,
 } from "../src/mpp-subscriptions.js";
 import { MONITOR_PRODUCTS } from "../src/stripe-subscriptions.js";
 
@@ -447,7 +448,10 @@ let liveSubId = null, liveHeader = null, liveToken = null, liveBuyer = null;
     const chargesA = a.calls.charge;
     a.setFind(({ periodIndex, sinceMs }) => (periodIndex === 1 && sinceMs < clock ? { found: true, tx: "0xlanded" } : { found: false }));
     a.setCharge(() => ({ reference: "0xMUST-NOT-HAPPEN" }));
-    advance(TRANSIENT_CHARGE_BACKOFF_MS + 1000);
+    ok(Date.parse(recA.unconfirmedCharge.settleableUntil) >= clock + RENEWAL_VALID_FOR_DEFAULT_S * 1000 + SETTLEABLE_SLACK_MS,
+      "the unconfirmed send records when it stops being settleable (validity window + slack)");
+    ok(Date.parse(recA.nextChargeAttemptAt) >= Date.parse(recA.unconfirmedCharge.settleableUntil), "and the next pull is not scheduled before that");
+    advance(Date.parse(recA.nextChargeAttemptAt) - clock + 1000);
     ok(await a.engine.refreshStatus(subA.subId) === "active", "the next pull asks the chain first and finds the transfer -> active");
     const afterA = a.engine.get(subA.subId);
     ok(afterA.lastChargedPeriod === 1 && afterA.lastChargeTx === "0xlanded" && !afterA.unconfirmedCharge, "the landed transaction is recorded as period 1's charge");
@@ -463,8 +467,16 @@ let liveSubId = null, liveHeader = null, liveToken = null, liveBuyer = null;
     advance(PERIOD);
     ok(await b.engine.refreshStatus(subB.subId) === "past_due", "(b) send-phase failure -> past_due");
     b.setFind({ found: false });
+    b.setCharge(() => ({ reference: "0xMUST-NOT-HAPPEN-YET" }));
+    // Not on chain while its validBefore may still be ahead: wait, never sign.
+    const chargesB = b.calls.charge;
+    const recB = await b.engine._readRec(subB.subId);
+    await b.engine._writeRec({ ...recB, nextChargeAttemptAt: null });
+    ok(await b.engine.refreshStatus(subB.subId) === "past_due" && b.calls.charge === chargesB,
+      "(b) nothing on chain but the timed-out transaction is still settleable -> waits, signs nothing");
+    ok(Date.parse(b.engine.get(subB.subId).nextChargeAttemptAt) === Date.parse(recB.unconfirmedCharge.settleableUntil), "(b) and retries when the window has closed");
     b.setCharge(() => ({ reference: "0xsecond-try" }));
-    advance(TRANSIENT_CHARGE_BACKOFF_MS + 1000);
+    advance(Date.parse(b.engine.get(subB.subId).nextChargeAttemptAt) - clock + 1000);
     ok(await b.engine.refreshStatus(subB.subId) === "active" && b.engine.get(subB.subId).lastChargeTx === "0xsecond-try" && !b.engine.get(subB.subId).unconfirmedCharge, "(b) the chain shows no transfer -> charged now, flag cleared");
 
     // (c) chain unreadable: wait, never sign.
@@ -755,6 +767,50 @@ let liveSubId = null, liveHeader = null, liveToken = null, liveBuyer = null;
     ok(subscriptionFeePayerPolicy().maxGas === SUB_FEE_PAYER_MAX_GAS, `a ${JSON.stringify(bad)} ceiling falls back to the default rather than widening or voiding the policy`);
   }
   if (prev === undefined) delete process.env.MPP_SUB_FEE_PAYER_MAX_GAS; else process.env.MPP_SUB_FEE_PAYER_MAX_GAS = prev;
+}
+
+// --- validity window on SERVER-SIGNED renewals ------------------------------
+{
+  ok(renewalValidForSeconds(undefined) === 120 && renewalValidForSeconds("") === 120, "renewal window defaults to 120 s");
+  ok(renewalValidForSeconds("180") === 180, "TEMPO_SUBSCRIPTION_VALID_FOR_S sets the window");
+  ok(renewalValidForSeconds("1000") === RENEWAL_VALID_FOR_MAX_S && RENEWAL_VALID_FOR_MAX_S === 240, "clamped to <= 240 s (under the 5-minute expiring-nonce cap)");
+  ok(renewalValidForSeconds("5") === 25, "never shorter than viem's own 25 s");
+  for (const bad of ["abc", "-3", "12.5", "0", "1e3", "NaN"]) ok(renewalValidForSeconds(bad) === 120, `malformed ${JSON.stringify(bad)} -> default`);
+
+  const { tempo: tempoChain } = await import("viem/tempo/chains");
+  const prep = async (chain, req) => chain.prepareTransactionRequest[0]({ calls: [], chainId: 4217, ...req }, { client: { chain }, phase: "beforeFillTransaction" });
+  const nowS = () => Math.floor(Date.now() / 1000);
+  const stock = await prep(tempoChain, { nonceKey: "expiring" });
+  ok(Math.abs(stock.validBefore - nowS() - 25) <= 2, "control: viem's stock Tempo chain stamps now + 25 s");
+  const ours = await prep(withRenewalValidity(tempoChain, 120), { nonceKey: "expiring" });
+  ok(Math.abs(ours.validBefore - nowS() - 120) <= 2, `the renewal chain stamps now + 120 s through viem's real hook (got +${ours.validBefore - nowS()})`);
+  const sponsored = await prep(withRenewalValidity(tempoChain, 200), { feePayer: true });
+  ok(Math.abs(sponsored.validBefore - nowS() - 200) <= 2, "a sponsored request (implicit expiring nonce) gets the window too");
+  const preset = await prep(withRenewalValidity(tempoChain, 200), { nonceKey: "expiring", validBefore: 1234 });
+  ok(preset.validBefore === 1234, "an explicit validBefore is never overwritten");
+  const seen = [];
+  const fake = { prepareTransactionRequest: [async (r) => { seen.push(r); return r; }, { runAt: ["beforeFillTransaction"] }] };
+  await withRenewalValidity(fake, 120).prepareTransactionRequest[0]({ nonceKey: 5n }, {});
+  ok(seen[0].validBefore === undefined, "a non-expiring nonce lane passes through untouched");
+
+  const { engine: eng } = makeEngine({ name: "renewal-window" });
+  const rc = await eng._renewalClient();
+  const bc = await eng._client();
+  ok(eng._renewalValidForS === 120, "the engine resolves the renewal window at construction");
+  const viaRenewal = await rc.chain.prepareTransactionRequest[0]({ calls: [], chainId: 4217, nonceKey: "expiring" }, { client: rc, phase: "beforeFillTransaction" });
+  const viaShared = await bc.chain.prepareTransactionRequest[0]({ calls: [], chainId: 4217, nonceKey: "expiring" }, { client: bc, phase: "beforeFillTransaction" });
+  ok(Math.abs(viaRenewal.validBefore - nowS() - 120) <= 2, "the renewal client carries the longer window");
+  ok(Math.abs(viaShared.validBefore - nowS() - 25) <= 2, "the activation client is unchanged (stock 25 s)");
+  ok(rc !== bc, "renewals use their own client");
+
+  const src = readFileSync(new URL("../src/mpp-subscriptions.js", import.meta.url), "utf8");
+  const renewCall = src.slice(src.indexOf("tempoServer.renewSubscription({"));
+  const renewArgs = renewCall.slice(0, renewCall.indexOf("});"));
+  ok(/getClient:\s*\(\)\s*=>\s*tempoRenewalClient\(\)/.test(renewArgs) && !/clientOverride\(\)/.test(renewArgs), "renewSubscription is handed the renewal client, not the shared one");
+  const methodStart = src.indexOf("tempoServer.subscription({");
+  const methodArgs = src.slice(methodStart, src.indexOf("resolve:", methodStart));
+  ok(methodStart > 0 && /clientOverride\(\)/.test(methodArgs) && !/tempoRenewalClient/.test(methodArgs), "activation keeps the shared client");
+  ok(!/withRenewalValidity|tempoRenewalClient/.test(readFileSync(new URL("../src/mpp-tempo.js", import.meta.url), "utf8")), "the buyer-side tempo/charge gate never touches the renewal window");
 }
 
 rmSync(tmp, { recursive: true, force: true });
