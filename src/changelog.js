@@ -8,6 +8,7 @@ const ENTRIES = [
       "New /integrations pages for every published package and /learn explainers for x402, HTTP 402, MPP and agent payments.",
       "/llms-full.txt lists every catalog route with its price.",
       "Tool pages now show parameters, example requests and responses, and related tools.",
+      "Model gateway: gpt-6-luna is the nano default and leads the auto router's fast band, gpt-6-sol is on the pro tier, Claude Opus 5.5, Grok 4.5 to 4.7 and qwen3.8-max-prime are served with their own settings, and four DeepSeek models the upstream removes on 2026-09-28 are refused by name with a successor named.",
       "Fixed broken links on the FAQ and chain pages.",
       "Seller index: a route that is not in the seller's own manifest or OpenAPI must answer a live 402 at least every 7 days and leaves the listing when it answers 404 or 405 twice at least an hour apart; a 410 removes any route; re-registering re-checks every route. /api/index?seller= shows each route's declared, source and lastVerifiedAt.",
       "Lower prices: web search, news search and render $0.01; fed-funds $0.005; gas-estimate, edgar-company-lookup, sol-price and polymarket-search $0.001. Skill packs that use them follow.",

@@ -1384,7 +1384,7 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
 // ---- a missing model is served as the tier default, never refused (2026-08-28) ----
 {
   const { validateRequest: vr, TIERS: T } = await import("../src/tools/llm-gateway-kit.js");
-  for (const [slug, expect] of [["v1-chat-nano", "openai/gpt-5.6-luna"], ["v1-chat", "openai/gpt-4o-mini"], ["v1-chat-pro", "openai/gpt-4o"], ["v1-chat-premium", "anthropic/claude-opus-5"], ["v1-chat-metered", "anthropic/claude-haiku-4.5"]]) {
+  for (const [slug, expect] of [["v1-chat-nano", "openai/gpt-6-luna"], ["v1-chat", "openai/gpt-4o-mini"], ["v1-chat-pro", "openai/gpt-4o"], ["v1-chat-premium", "anthropic/claude-opus-5"], ["v1-chat-metered", "anthropic/claude-haiku-4.5"]]) {
     const b = vr({ messages: [{ role: "user", content: "hi" }], max_tokens: 16 }, slug, { clamp: false });
     ok(b.model === expect && b.__defaultedModel === expect && !Object.keys(b).includes("__defaultedModel") && T[slug].defaultModel === expect, `${slug}: no model -> ${expect} (marker non-enumerable)`);
     ok(T[slug].prefixes.some((p) => expect === p || expect.startsWith(p.endsWith("/") ? p : p + "-") || expect === p), `${slug}: the default is inside the tier's own allowlist`);
@@ -1532,6 +1532,41 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   let err2 = null; try { refuseCostVariants("meta/muse-glimmer-30b"); } catch (e) { err2 = e; }
   ok(err2 === null, "the plain listing is not refused");
   ok(defaultReasoningFor("meta/muse-glimmer-30b", "v1-chat")?.effort === "low", "Glimmer's mandatory reasoning gets the lowest effort on the base tier");
+}
+
+// ---- 2026-09-24 upstream audit: new ids, rows and refusals ----
+{
+  const K = await import("../src/tools/llm-gateway-kit.js");
+  const { costFor: cf, reasoningProfile: rp, defaultReasoningFor: dr, flexEligible: fe, RETIRING_MODELS, retiringModel } = K;
+  // qwen3.8-max-prime: its own row, so the metered tier's provider.max_price is not under its only endpoint.
+  ok(cf("qwen/qwen3.8-max-prime").prompt === 4 && cf("qwen/qwen3.8-max-prime").completion === 12 && cf("qwen/qwen3.8-max-0902").prompt === 2, "qwen3.8-max-prime has its own row; the qwen/ family row still prices the rest");
+  ok(tierAllows("v1-chat-metered", "qwen/qwen3.8-max-prime") && JSON.stringify(dr("qwen/qwen3.8-max-prime", "v1-chat-metered")) === '{"effort":"minimal"}', "qwen3.8-max-prime is metered-admitted and gets the lowest effort there (mandatory, default xhigh upstream)");
+  // Retiring DeepSeek ids: refused by name everywhere, with the successor named.
+  for (const id of Object.keys(RETIRING_MODELS)) {
+    ok(!tierFor(id) && !tierAllows("v1-chat-metered", id) && retiringModel(id + ":nitro")?.id === id, `${id}: admitted by no tier (a :variant too)`);
+    let e = null; try { validateRequest({ model: id, messages: [{ role: "user", content: "hi" }] }, "v1-chat"); } catch (x) { e = x; }
+    ok(e?.statusCode === 400 && /removes it on 2026-09-28/.test(e.message) && e.message.includes(RETIRING_MODELS[id].use), `${id}: a self-explaining 400 naming the date and the successor`);
+  }
+  ok(!K.MODEL_COST.some(([p]) => Object.hasOwn(RETIRING_MODELS, p)), "no MODEL_COST row prices a retiring id");
+  ok(tierFor("deepseek/deepseek-chat") === "v1-chat-nano" && tierAllows("v1-chat", "deepseek/deepseek-v4-flash"), "the deepseek family is otherwise unchanged");
+  // Opus 5.5 and Grok 4.5-4.7: own rows / reasoning rows.
+  ok(tierFor("anthropic/claude-opus-5.5") === "v1-chat-premium" && cf("anthropic/claude-opus-5.5").prompt === 4.4 && cf("anthropic/claude-opus-5.5").completion === 22 && cf("anthropic/claude-opus-5").prompt === 5.5, "opus-5.5 homes on premium with its own row; opus-5 keeps its row");
+  ok(tokenizerFactor("anthropic/claude-opus-5.5") === NEW_TOKENIZER_FACTOR && rp("anthropic/claude-opus-5.5")?.id === "anthropic/claude-opus-5.5" && dr("anthropic/claude-opus-5.5", "v1-chat-premium") === null && JSON.stringify(dr("anthropic/claude-opus-5.5", "v1-chat-metered")) === '{"effort":"low"}', "opus-5.5: newer tokenizer, reasoning row (premium leaves the default, metered injects low)");
+  for (const g of ["x-ai/grok-4.5", "x-ai/grok-4.6", "x-ai/grok-4.7"]) {
+    ok(tierFor(g) === "v1-chat-pro" && rp(g)?.id === g && JSON.stringify(dr(g, "v1-chat-pro")) === '{"effort":"low"}', `${g}: pro tier injects low (reasoning mandatory upstream, default high)`);
+  }
+  // GPT-6 Luna (nano default, fast band lead) and Sol (pro).
+  ok(tierFor("openai/gpt-6-luna") === "v1-chat-nano" && tierFor("openai/gpt-6-luna-pro") === "v1-chat-nano" && TIERS["v1-chat-nano"].defaultModel === "openai/gpt-6-luna", "gpt-6-luna (and -pro) home on nano; luna is the nano default");
+  ok(tierFor("openai/gpt-6-sol") === "v1-chat-pro" && tierFor("openai/gpt-6-sol-pro") === "v1-chat-pro" && !tierAllows("v1-chat-premium", "openai/gpt-6-sol"), "gpt-6-sol (and -pro) home on pro");
+  ok(cf("openai/gpt-6-luna").prompt === 0.11 && cf("openai/gpt-6-luna").completion === 0.55 && cf("openai/gpt-6-sol").prompt === 2.2 && cf("openai/gpt-6-sol").completion === 11 && cf("openai/gpt-6-astra").prompt === 11, "gpt-6 luna and sol rows at the dearest default-tier endpoint; astra unchanged");
+  ok(cf("openai/gpt-6-luna").prompt <= TIERS["v1-chat-nano"].maxPrice.prompt && cf("openai/gpt-6-luna").completion <= TIERS["v1-chat-nano"].maxPrice.completion && cf("openai/gpt-6-sol").completion <= TIERS["v1-chat-pro"].maxPrice.completion, "both rows sit inside their tiers' max_price bounds");
+  ok(Object.values(AUTO_RANKINGS.fast).every((l) => l[0] === "openai/gpt-6-luna") && TIERS["v1-chat-auto"].prefixes.includes("openai/gpt-6-luna"), "gpt-6-luna leads every fast-band category and is admitted on auto");
+  ok(JSON.stringify(dr("openai/gpt-6-luna", "v1-chat-nano")) === '{"effort":"low"}' && JSON.stringify(dr("openai/gpt-6-sol", "v1-chat-pro")) === '{"effort":"low"}' && rp("openai/gpt-6-luna-pro")?.prefix === "openai/gpt-6-luna", "gpt-6 luna/sol: reasoning rows (budget tiers inject low, the -pro twins covered)");
+  ok(fe("openai/gpt-6-luna") && fe("openai/gpt-6-sol") && fe("openai/gpt-6-luna-pro"), "gpt-6 luna and sol are flex-first");
+  const nb = validateRequest({ messages: [{ role: "user", content: "hi" }], max_tokens: 64 }, "v1-chat-nano");
+  ok(nb.model === "openai/gpt-6-luna" && nb.max_tokens === 64, "nano with no model serves gpt-6-luna at the asked budget");
+  const sb = validateRequest({ model: "openai/gpt-6-sol", messages: [{ role: "user", content: "x".repeat(4000) }], max_tokens: 4096 }, "v1-chat-pro");
+  ok(sb.max_tokens >= 1000, `gpt-6-sol at the pro price leaves a usable output budget on a 4k-char prompt (${sb.max_tokens})`);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

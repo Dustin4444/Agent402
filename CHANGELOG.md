@@ -9,6 +9,14 @@ carries its own version on npm.
 Since v2.4.0 (2026-09-18).
 
 ### 2026-09-24
+- Model gateway: `openai/gpt-6-luna` is the nano default and leads the auto
+  router's fast band; `openai/gpt-6-sol` is served on the pro tier;
+  `anthropic/claude-opus-5.5`, the Grok 4.5 to 4.7 models and
+  `qwen/qwen3.8-max-prime` get their own cost and reasoning rows, so a small
+  budget is not spent entirely on reasoning and qwen3.8-max-prime is servable
+  on the metered route. Four DeepSeek ids the upstream removes on 2026-09-28
+  (`deepseek-v3.2`, `-v3.2-exp`, `-v3.1-terminus`, `-r1-distill-llama-70b`)
+  are refused by name with a successor named.
 - Seller index: a route that is not in the seller's own manifest or OpenAPI
   must answer a live 402 at least every 7 days and leaves the listing when it
   answers 404 or 405 twice at least an hour apart; a 410 removes any route;
