@@ -23,8 +23,8 @@ const RERANK_URL = "https://openrouter.ai/api/v1/rerank";
 // Models: all already in the gateway's live-catalog guard tables (gemini flex
 // table; claude reasoning table) so they can't silently die untested.
 const M = {
-  plan: "google/gemini-2.5-flash-lite",  // cheap planner
-  ground: "google/gemini-2.5-flash",     // grounded search + read
+  plan: "google/gemini-3.1-flash-lite",  // cheap planner (2.5-flash-lite expires upstream 2026-10-20)
+  ground: "google/gemini-3.6-flash",     // grounded search + read; reasons by default, so the call passes reasoning:low
   synthStd: "anthropic/claude-sonnet-5", // circuit-breaker downgrade only (see below)
   synthPrem: "anthropic/claude-opus-5",  // synthesis on ALL tiers
 };
@@ -203,6 +203,7 @@ function makeResearchHandlerInner(tierSlug) {
     const toRun = subQuestions.slice(0, t.searches);
     const searchBody = (q) => ({
       model: M.ground,
+      reasoning: { effort: "low" },
       // Pull CONCRETE facts (figures, dates, named examples) with citations, so
       // the synthesis step has real specifics to ground on and never needs to
       // invent them. Each fact must carry its source.

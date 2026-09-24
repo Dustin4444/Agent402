@@ -1157,7 +1157,14 @@ function urlTemplateProjection(t) {
  *  quote - including the object shapes ({usd}, {amountMinor}) that parsePrice
  *  reads as zero. */
 function priceKnownProjection(t) {
-  return { priceKnown: priceToMicroUsd(t?.price) != null };
+  // `freeObserved`: the route answered an unpaid GET with a 200 - no paywall on
+  // it when we last looked, which is a fact about the route, not ignorance.
+  // Additive and only present when true.
+  return { priceKnown: priceToMicroUsd(t?.price) != null, ...(isObservedFree(t) ? { freeObserved: true } : {}) };
+}
+function isObservedFree(t, now = Date.now()) {
+  const at = Number(t?.freeObservedAt || t?.quoteRetiredAt);
+  return t?.quoteSource === "live-200" && Number.isFinite(at) && at > 0 && now - at < QUOTE_MAX_AGE_MS;
 }
 
 function priceConflictProjection(t) {
@@ -2880,6 +2887,10 @@ export function carryForwardLearnedQuotes(tools, prev) {
       if (exact && !(Number(t.originDeclaredPrice) > 0) && Number(hit.quoteRetiredAt) > 0 && Date.now() - Number(hit.quoteRetiredAt) < QUOTE_MAX_AGE_MS) {
         t.price = null; t.paid = false;
         t.quoteSource = "live-200"; t.quoteRetiredAt = hit.quoteRetiredAt; t.quoteObservedAt = hit.quoteObservedAt;
+      } else if (exact && !(Number(t.originDeclaredPrice) > 0) && !(Number(t.price) > 0) && isObservedFree(hit)) {
+        // An observed-free route carries its observation across the rebuild.
+        t.paid = false;
+        t.quoteSource = "live-200"; t.freeObservedAt = hit.freeObservedAt; t.quoteObservedAt = hit.quoteObservedAt;
       }
       continue;
     }
@@ -3030,7 +3041,7 @@ function applyLivePayTo(row, payToByNetwork) {
 // outcome of its FIRST attempt (the primary target and verb), and every attempt
 // is counted by verb and status, so the dominant cause can be read off prod
 // instead of guessed. Counts only: no URL, no origin, no body.
-const quoteProbeStats = { since: Date.now(), probed: 0, learned: 0, missed: 0, missByFirst: {}, attempts: {} };
+const quoteProbeStats = { since: Date.now(), probed: 0, learned: 0, free: 0, missed: 0, missByFirst: {}, attempts: {} };
 function bump(map, key) { map[key] = (map[key] || 0) + 1; }
 export function probeFailureCode(err) {
   const name = String(err?.name || "");
@@ -3057,7 +3068,7 @@ function sampleUnreadable402(originUrl, route, header, body) {
 }
 export function quoteProbeStatsSnapshot() {
   const top = (m) => Object.fromEntries(Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 25));
-  return { since: new Date(quoteProbeStats.since).toISOString(), probed: quoteProbeStats.probed, learned: quoteProbeStats.learned, missed: quoteProbeStats.missed, missByFirst: top(quoteProbeStats.missByFirst), attempts: top(quoteProbeStats.attempts), unreadable402Samples: [...unreadable402Samples] };
+  return { since: new Date(quoteProbeStats.since).toISOString(), probed: quoteProbeStats.probed, learned: quoteProbeStats.learned, free: quoteProbeStats.free, missed: quoteProbeStats.missed, missByFirst: top(quoteProbeStats.missByFirst), attempts: top(quoteProbeStats.attempts), unreadable402Samples: [...unreadable402Samples] };
 }
 let quoteProbeSummaryAt = Date.now();
 function maybeLogQuoteProbeSummary(now = Date.now()) {
@@ -3110,6 +3121,9 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
         // asking us to look now, and a 1.67x gap is still a wrong price.
         || (ignoreBudget && Number(t.price) > 0 && Number(t.originDeclaredPrice) > 0
           && priceToMicroUsd(t.price) !== priceToMicroUsd(t.originDeclaredPrice)))
+      // A route observed free inside the quote window is left alone by the
+      // automatic crawl; an explicit re-registration still re-asks it.
+      && (ignoreBudget || !isObservedFree(t))
       && probeMethodsFor(t).length                       // never PUT/PATCH/DELETE
       && probeDue(originUrl, `quote:${t.route}`),
   );
@@ -3138,6 +3152,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
   const dropped = new Set();
   for (const tool of rotated) {
     let learned = null;
+    let freeObserved = false;
     let firstOutcome = null;
     const note = (method, outcome) => {
       const k = `${method} ${outcome}`;
@@ -3183,6 +3198,16 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
             tool.quoteSource = "live-200"; tool.quoteRetiredAt = Date.now(); tool.quoteObservedAt = Date.now();
             delete tool.quoteCarriedForward;
             console.log(`[x402-index] live-200: ${originUrl}${tool.route} answered GET 200 with no paywall; retired the learned price ${was}`);
+          } else if (String(tool.method || "GET").toUpperCase() === "GET" && !(Number(tool.price) > 0) && !(Number(tool.originDeclaredPrice) > 0)) {
+            // An UNPRICED row that answers 200 is a free route (health, docs,
+            // previews, free data: 36 of 36 in a 2026-09-23 sample). Until now
+            // it stayed "price unknown" and was re-probed every crawl - ~640
+            // probes an hour, 37% of all misses. Stamp it free; the automatic
+            // crawl leaves it alone for the quote window, a re-registration
+            // re-asks.
+            tool.paid = false;
+            tool.quoteSource = "live-200"; tool.freeObservedAt = Date.now(); tool.quoteObservedAt = Date.now();
+            freeObserved = true;
           }
           break probe;
         }
@@ -3211,6 +3236,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
     noteProbeOutcome(originUrl, `quote:${tool.route}`, Boolean(learned));
     quoteProbeStats.probed++;
     if (learned) quoteProbeStats.learned++;
+    else if (freeObserved) quoteProbeStats.free++;
     else { quoteProbeStats.missed++; bump(quoteProbeStats.missByFirst, firstOutcome || "none"); }
     if (!learned) continue;
     // Price may be null for an asset we refuse to guess at; the networks alone

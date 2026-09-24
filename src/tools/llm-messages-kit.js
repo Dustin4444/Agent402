@@ -490,7 +490,7 @@ function describe(tierSlug) {
 // where the tier serves Claude, the tier's cheapest chat example otherwise.
 const EXAMPLE_MODEL_BY_TIER = {
   "v1-chat-metered": "anthropic/claude-haiku-4.5",
-  "v1-chat-nano": "google/gemini-2.5-flash-lite",
+  "v1-chat-nano": "google/gemini-3.1-flash-lite",
   "v1-chat": "anthropic/claude-haiku-4.5",
   "v1-chat-pro": "anthropic/claude-sonnet-5",
   "v1-chat-premium": "anthropic/claude-opus-5",

@@ -200,9 +200,9 @@ export async function probeOxAlphaAvailability({ fetchImpl } = {}) {
 // inside the flat $0.01 price — a per-request price can't exist under x402's
 // fixed per-route quote, so quality trades latency/depth, never what the
 // buyer pays. Worst-case upstream at the auto caps (~4k tokens in / 1024
-// out): fast tops out at gemini-2.5-flash-lite (~$0.0008, 12x headroom),
-// balanced at deepseek-chat (~$0.0022, >4x), best at gemini-2.5-flash
-// (~$0.0038, ~2.6x) — the thinnest band is documented, deliberate, still >2x.
+// out): fast tops out at gemini-3.1-flash-lite (~$0.0036, ~2.8x headroom),
+// balanced at deepseek-chat (~$0.0022, >4x), best at gemini-3.5-flash-lite
+// (~$0.0046, ~2.2x) — the thinnest band is documented, deliberate, still >2x.
 //
 // 2026-08-04 refresh (live-verified against openrouter.ai/api/v1/models):
 // google/gemini-2.0-flash-001 and -lite are GONE from OpenRouter — the old
@@ -212,29 +212,36 @@ export async function probeOxAlphaAvailability({ fetchImpl } = {}) {
 // $0.10/$0.60 (July 2026 price cut) — frontier-lab efficiency at 4o-mini
 // prices, 1M context — and takes the balanced/best slots the dead model and
 // age had left weakest. Every list still ends in openai/gpt-4o-mini.
+//
+// 2026-09-23 refresh: google/gemini-2.5-flash and -flash-lite carry an
+// OpenRouter expiration date of 2026-10-20. The fast band now leads with
+// gemini-3.1-flash-lite ($0.25/$1.50; worst case at the auto caps ~$0.0036,
+// under the $0.007 bound), and the best band with
+// gemini-3.5-flash-lite (same $0.30/$2.50 as the model it replaces). Both were
+// live-verified to answer with no hidden reasoning at a 64-token budget.
 export const AUTO_QUALITIES = ["fast", "balanced", "best"];
 export const AUTO_RANKINGS = {
   // fast — cheapest/snappiest serving; right for high-frequency loop turns.
   fast: {
-    code: ["google/gemini-2.5-flash-lite", "qwen/qwen-2.5-coder-32b-instruct", "openai/gpt-4o-mini"],
-    reasoning: ["google/gemini-2.5-flash-lite", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
-    long: ["google/gemini-2.5-flash-lite", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
-    general: ["google/gemini-2.5-flash-lite", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
+    code: ["google/gemini-3.1-flash-lite", "qwen/qwen-2.5-coder-32b-instruct", "openai/gpt-4o-mini"],
+    reasoning: ["google/gemini-3.1-flash-lite", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
+    long: ["google/gemini-3.1-flash-lite", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
+    general: ["google/gemini-3.1-flash-lite", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
   },
   // balanced — the default band. deepseek-chat keeps the code head (proven,
   // cheap); gpt-5.6-luna leads the rest (1M ctx covers `long` natively).
   balanced: {
     code: ["deepseek/deepseek-chat", "openai/gpt-5.6-luna", "openai/gpt-4o-mini"],
     reasoning: ["openai/gpt-5.6-luna", "deepseek/deepseek-chat", "openai/gpt-4o-mini"],
-    long: ["openai/gpt-5.6-luna", "google/gemini-2.5-flash-lite", "openai/gpt-4o-mini"],
+    long: ["openai/gpt-5.6-luna", "google/gemini-3.1-flash-lite", "openai/gpt-4o-mini"],
     general: ["openai/gpt-5.6-luna", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
   },
   // best — strongest models that still clear the price with ≥2.5x headroom.
   best: {
     code: ["openai/gpt-5.6-luna", "deepseek/deepseek-chat", "openai/gpt-4o-mini"],
-    reasoning: ["google/gemini-2.5-flash", "openai/gpt-5.6-luna", "openai/gpt-4o-mini"],
-    long: ["google/gemini-2.5-flash", "openai/gpt-5.6-luna", "openai/gpt-4o-mini"],
-    general: ["google/gemini-2.5-flash", "openai/gpt-5.6-luna", "openai/gpt-4o-mini"],
+    reasoning: ["google/gemini-3.5-flash-lite", "openai/gpt-5.6-luna", "openai/gpt-4o-mini"],
+    long: ["google/gemini-3.5-flash-lite", "openai/gpt-5.6-luna", "openai/gpt-4o-mini"],
+    general: ["google/gemini-3.5-flash-lite", "openai/gpt-5.6-luna", "openai/gpt-4o-mini"],
   },
 };
 
@@ -310,7 +317,8 @@ export const TIERS = {
       "openai/gpt-5.6-luna",
       // gemini-2.0-flash-lite was removed here 2026-08-04: the model is gone
       // from OpenRouter entirely (verified against the live models list).
-      "google/gemini-2.5-flash-lite",
+      "google/gemini-2.5-flash-lite", // expires upstream 2026-10-20; ranked/default uses moved to 3.1-flash-lite
+      "google/gemini-3.1-flash-lite", // $0.25/$1.50, inside this tier's max_price
       "meta-llama/llama-3.2-1b-instruct", "meta-llama/llama-3.2-3b-instruct",
       // ministral-3b/8b were renamed upstream to the -2512 ids (the bare ids
       // 404 at OpenRouter; live-verified 2026-08-19). Listed with the live id so
@@ -471,7 +479,7 @@ export const TIERS = {
     price: 0.01,
     maxInputChars: 16_000,
     maxTokens: 1024,
-    maxPrice: { prompt: 0.6, completion: 3 }, // priciest ranked: gemini-2.5-flash ~$0.30/$2.50
+    maxPrice: { prompt: 0.6, completion: 3 }, // priciest ranked: gemini-3.5-flash-lite ~$0.30/$2.50
     router: true,
     priceSort: true, // budget router: cheapest provider under the cap
     fallbacks: ["openai/gpt-4o-mini"],

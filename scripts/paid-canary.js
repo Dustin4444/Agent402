@@ -348,7 +348,7 @@ export const TOOLS = [
     kit: "llm-messages",
     path: "/v1/nano/messages",
     method: "POST",
-    body: { model: "google/gemini-2.5-flash-lite", max_tokens: 32, messages: [{ role: "user", content: `Reply with exactly the word OK. (${EMBED_CANARY_INPUT.slice(-16)})` }] },
+    body: { model: "google/gemini-3.1-flash-lite", max_tokens: 32, messages: [{ role: "user", content: `Reply with exactly the word OK. (${EMBED_CANARY_INPUT.slice(-16)})` }] },
     priceUsd: 0.003,
     check: (r) =>
       (r.type === "message" && r.role === "assistant" && Array.isArray(r.content) && r.content.some((b) => b.type === "text" && typeof b.text === "string") &&

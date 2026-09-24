@@ -326,7 +326,7 @@ const EXAMPLE_IN = {
 const EXAMPLE_OUT = {
   candidates: [{ content: { role: "model", parts: [{ text: "x402 is an HTTP-native way for agents to pay per request with USDC." }] }, finishReason: "STOP", index: 0 }],
   usageMetadata: { promptTokenCount: 14, candidatesTokenCount: 18, totalTokenCount: 32 },
-  modelVersion: "google/gemini-2.5-flash",
+  modelVersion: "google/gemini-3.5-flash-lite",
 };
 const INPUT_SCHEMA = {
   type: "object",
