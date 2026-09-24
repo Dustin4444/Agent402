@@ -670,7 +670,7 @@ export async function registerOrigin(origin, { crawl, replaces = null } = {}) {
     // "register again" useless as a seller's lever: a catalog stuck unpriced
     // (and therefore unroutable) had no way to ask for pricing except waiting
     // for the shared cycle budget to reach its rotation slot - measured
-    // 2026-09-01, sol.blockrun's 128 routes across four attempts. Registering
+    // 2026-09-01, one seller's 128 routes across four attempts. Registering
     // is an explicit, rate-limited request (5/hour/IP), so it now re-runs the
     // live-402 quote enrichment for THIS origin, budget-exempt and bounded by
     // the same per-origin cap; probeDue backoffs still apply per route.
@@ -1553,7 +1553,7 @@ function mergeManifestToolRows(a, b) {
  * `amount` / `maxAmountRequired` on an ACCEPT-SHAPED entry are ATOMIC UNITS of
  * the asset, never dollars. Reading them as a scalar price published the
  * seller's own listing at a million times its real figure - measured live
- * 2026-09-15 on graded.sh, whose `/v1/topup` costs $0.10 and read **$100000**
+ * 2026-09-15 on one seller, whose $0.10 route read **$100000**
  * in the index (`resources: [{scheme, network, asset, amount: "100000", ...}]`,
  * six-decimal USDC). An entry that names a network, an asset or a scheme is
  * quoting the x402 accept shape and its amount goes through the accepts
@@ -1872,7 +1872,7 @@ export function normaliseManifestTools(manifest, originUrl) {
   if (!manifest || typeof manifest !== "object") return [];
   let origin;
   try { origin = new URL(originUrl); } catch { return []; }
-  // `resourceCatalog` is the same dialect one key over: CN Evidence publishes
+  // `resourceCatalog` is the same dialect one key over: one seller publishes
   // `resources` as bare URL strings (no price anywhere) and the real rows,
   // with prices, in `resourceCatalog`. Reading only the canonical array left
   // both of their rows unpriced and unanchored, which is how a $0.032 route
@@ -1961,7 +1961,7 @@ export function normaliseManifestTools(manifest, originUrl) {
           // A manifest entry that names no verb is published as GET, the wire
           // default - but SAY SO, so a later merge with rows that observed the
           // real verb (OpenAPI, a live 402) can correct it instead of trusting a
-          // default as a declaration. Until 2026-09-02 minia2a.uk's two entries
+          // default as a declaration. Until 2026-09-02 one seller's two entries
           // per path (ids x402_ip_geo_get / x402_ip_geo_post, no method) both
           // published as GET; a seller whose POST route rejects GET would have
           // been listed as GET, answered 405 to every buyer, and been recorded
@@ -2025,7 +2025,7 @@ export function normaliseManifestTools(manifest, originUrl) {
   // the same route. A bare `resources` string ("https://origin/x402/thing")
   // carries no verb, so it is inferred as GET; if a richer catalogue entry for
   // that same route states POST, keeping both publishes the endpoint twice and
-  // sends half the buyers to a verb the seller answers 405 to. CN Evidence
+  // sends half the buyers to a verb the seller answers 405 to. The seller
   // reported exactly this duplicate from their own compatibility array and
   // worked around it by deleting theirs - reading `resourceCatalog` would have
   // re-created it from a different key.
@@ -2351,7 +2351,7 @@ export function normaliseLlmsTxtTools(text, originUrl) {
 // descends one object level and normalises "$"); an ATOMIC amount
 // (`amountAtomic`, `x-x402-price-atomic`, or the accepts-shaped `amount`) is
 // read through `paymentFieldsFromAccepts`, i.e. divided by the asset's
-// decimals - the 2026-09-15 graded.sh lesson: an atomic "1000000" read as
+// decimals - the 2026-09-15 lesson: an atomic "1000000" read as
 // dollars is a thousand-fold overquote on the seller's own listing;
 // `priceMicros` is micro-dollars. `x-payment-required: true` marks the op
 // PAID with the price unknown so the live-402 probe learns the figure;
@@ -2859,7 +2859,7 @@ export function carryForwardLearnedQuotes(tools, prev) {
   // Keyed by METHOD + route, with a route-only fallback for the price and
   // networks. Until 2026-09-02 the map was keyed by route alone and the
   // remembered row's VERB was stamped onto every current row on that route,
-  // so a path with GET and POST (minia2a.uk: 86 such paths in the first 500
+  // so a path with GET and POST (one seller: 86 such paths in the first 500
   // rows) came out as two GETs - the POST operation mislabelled, and a seller
   // whose POST route rejects GET would answer 405 to every buyer we sent and
   // be recorded as broken by us. A remembered verb may only replace a verb
@@ -2936,7 +2936,7 @@ export function carryForwardLearnedQuotes(tools, prev) {
     // the row INFERRED its verb (named none), or the hit is a recorded
     // CORRECTION of this very verb (the probe saw it fail and the other answer).
     // A learned verb that simply answered on its own row is not evidence about
-    // a sibling verb - that reading is what mislabelled minia2a's POST rows.
+    // a sibling verb - that reading is what mislabelled one seller's POST rows.
     if (!exact && hit.method && hit.method !== t.method
         && (t.methodInferred === true || hit.methodCorrectedFrom === String(t.method || "GET").toUpperCase())) {
       if (hit.methodCorrectedFrom) t.methodCorrectedFrom = hit.methodCorrectedFrom;
@@ -2972,7 +2972,7 @@ export function quoteIsStale(t, now = Date.now()) {
 // A manifest-priced, manifest-networked row was never read live: the crawler
 // had nothing to LEARN (price and chains both present), so a seller who added
 // a rail to their 402 middleware and not to their manifest stayed listed
-// single-chain forever (angel.finereli.com, 2026-09-02: live 402 offers Base
+// single-chain forever (2026-09-02: live 402 offers Base
 // AND Algorand, manifest says Base, our row said Base; reported by the seller
 // on issue #1178). One live read, then a weekly one, unions what the 402
 // actually offers into the row. Learned quotes have their own clock
@@ -2998,7 +2998,7 @@ export function priceDisagreesWithOrigin(t) {
  * LIVE_QUOTE_PROBES_PER_CRAWL (5) - but an origin with ZERO priced tools is
  * wholly invisible to routing (the resolver only pays priced rows), and at 5
  * per 30-min cycle a new 128-route seller stays unroutable for half a day
- * (measured live 2026-09-01: sol.blockrun registered, proven on-chain, and
+ * (measured live 2026-09-01: a seller registered, proven on-chain, and
  * unroutable for hours while the rotation crept). A catalog with nothing
  * priced gets a one-time burst - the seller REGISTERED to be found, and a
  * single burst on a new listing is what they asked for - then drops to the
@@ -3008,7 +3008,7 @@ export function quoteProbeCapFor(tools) {
   const priced = list.filter((t) => Number(t?.price) > 0).length;
   const unpriced = list.length - priced;
   // "Zero priced" was the first predicate and it missed the live case: a
-  // registry merge had already priced a handful of sol.blockrun's 128 rows,
+  // registry merge had already priced a handful of one seller's 128 rows,
   // so the burst never fired and the catalog stayed 90% invisible. The state
   // that starves a seller is OVERWHELMINGLY unpriced, not perfectly unpriced:
   // burst while at least 20 rows are unpriced and priced rows are under a
@@ -3106,7 +3106,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
       // was && - both had to be missing - so a probe that learned networks
       // but could not price (the Solana isUsdc gap) LOCKED the row unpriced
       // for the 7-day staleness window: networks known, price null, never
-      // probed again (measured 2026-09-01, sol.blockrun).
+      // probed again (measured 2026-09-01).
       && ((!(Number(t.price) > 0) || !(Array.isArray(t.networks) && t.networks.length)) || priceDisagreesWithOrigin(t) || quoteIsStale(t) || networksNeedLiveVerify(t)
         // An explicit re-registration ("price my catalog NOW") also re-asks
         // every route whose price is NOT the origin's own declaration - a
@@ -3129,7 +3129,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
   );
   // NEVER-ATTEMPTED rows first. The first rotation attempt indexed a window
   // into a list that SHRINKS as rows price, so some rows landed in skipped
-  // windows on every pass (sol.blockrun's stock routes, three passes running,
+  // windows on every pass (one seller's stock routes, three passes running,
   // 50 of 114 priced around them). Rows a probe has already touched carry
   // quoteObservedAt - putting untouched rows ahead means each pass drains new
   // ground before re-visiting networks-only learns, and coverage completes in
@@ -3530,7 +3530,7 @@ export async function robotsForbids(originUrl, path, { fetchText, manifestPublis
   // (RFC 8615) a seller publishes for the sole purpose of being fetched by
   // payment-discovery clients. An API host's blanket Disallow: / - a common
   // default - otherwise permanently hides the very document the seller serves
-  // to be found: measured live 2026-09-01 on sol.blockrun.ai (manifest 200,
+  // to be found: measured live 2026-09-01 on one seller (manifest 200,
   // robots Disallow /, entry stuck as textless registry synthesis, invisible
   // to every route query). Everything else the crawler touches - llms.txt,
   // homepages, tool probes - stays robots-honoured.
@@ -3539,7 +3539,7 @@ export async function robotsForbids(originUrl, path, { fetchText, manifestPublis
   // /openapi.json at the same origin is read even under a BLANKET Disallow.
   // The manifest is the seller's opt-in to machine discovery, and the OpenAPI
   // is the document that NAMES the routes the manifest lists as bare
-  // "POST /api/v1/exa/search" strings. Without it, sol.blockrun.ai's 128
+  // "POST /api/v1/exa/search" strings. Without it, that seller's 128
   // routes carried their path as their name and could not match ordinary
   // task text ("web search" finds nothing in "/api/v1/search"), while the
   // seller's own OpenAPI called that route "Grok Live Search" with a
@@ -5294,7 +5294,7 @@ export function indexSnapshot({ baseUrl, catalog, prices, network, toolCount, wa
     evmDomainByNetwork: evmDomainUnion([...(bazaarToolsByOrigin.get(origin) || []), ...(v.tools || [])]),
   }));
   // Collapse http/https duplicates of the same host into one seller. A registry
-  // can list the same origin under both schemes (algo.netintel.dev appeared as
+  // can list the same origin under both schemes (one origin appeared as
   // both http:// and https://), which crawled as two cache entries and rendered
   // as two identical rows. Keep one per host: prefer https, then the routable /
   // higher-tool-count entry, and union networks + wallets so nothing is lost.
@@ -5436,8 +5436,8 @@ function decoratedRemoteTools(v) {
   // origin - the same union the /api/index seller row carries. A route the
   // seller documents in OpenAPI (priced, so a buy candidate) has no accepts
   // of its own until a probe reaches it, and until 2026-09-02 such a row
-  // ranked with `networks: []`: api.strale.io's /x402/v2/image-to-text
-  // (3,769 settled calls that month) read as network_unknown and the router
+  // ranked with `networks: []`: one seller's priced route
+  // (thousands of settled calls that month) read as network_unknown and the router
   // never dispatched to it, while the seller's manifest rows beside it said
   // Base. So a row with NO observed accepts inherits its seller's known
   // networks, flagged `networksInferred`; a row that observed its own keeps
@@ -6445,12 +6445,12 @@ export function indexedToolCategories(excludeOrigin = "") {
 }
 
 export function _resetFlatCacheForTest() { flatCache = { at: 0, rows: [], self: "" }; }
-// KNOWN ROUTER LIMITATION (found 2026-09-01, sol.blockrun): the resolver's
+// KNOWN ROUTER LIMITATION (found 2026-09-01): the resolver's
 // liveness probe sends an empty `{}` and treats only HTTP 402 as "live". A
 // seller that VALIDATES the request body BEFORE issuing its 402 (returning
 // 400/422 with no challenge on an empty body) therefore fails the probe and
 // is never routed to, even though it is a perfectly good paid endpoint - its
-// GET-shaped siblings resolve fine. sol.blockrun's /chat/completions is the
+// GET-shaped siblings resolve fine. One seller's /chat/completions is the
 // live example (400 on {}, no payment-required header to distinguish it from
 // a genuine bad request). Fixing this needs a probe that sends a
 // shape-plausible body per the tool's input schema, or a seller convention

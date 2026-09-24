@@ -3,26 +3,23 @@
 // $0.08 `/v1/images/generations` route rides.
 //
 // Why a second kit: the chat wire only reaches the Gemini/GPT image models
-// that are token-priced per image (~$0.02-$0.04 per picture, measured), while
+// that are token-priced per image, while
 // the dedicated Image API lists 40+ models with FLAT per-image / per-megapixel
 // prices and ALL-OR-NOTHING billing (a failed or cancelled generation is a
 // 502 and is not billed - their docs, "Billing and Cancellation"). Flat prices
 // make the worst-case upstream cost a constant per link, so the margin bound
-// (worst case <= 70% of the tier price, same MARGIN as the chat tiers) holds
-// with no token math. Every knob that multiplies cost is server-owned: n is
+// (same MARGIN as the chat tiers) holds with no token math. Every knob that multiplies cost is server-owned: n is
 // locked to 1, output size/quality are locked to the provider default (1024 x
 // 1024 measured on every link), reference images (image-to-image, billed
 // extra) are refused, and each link is pinned to the provider whose listed
 // price the bound was computed from (`provider.only`).
 //
-// Measured live 2026-08-22 (one call each, `usage.cost` as OpenRouter bills):
-//   flux.2-klein-4b        $0.0140   2.0 s  jpeg 1024x1024   ($0.014/megapixel)
-//   gpt-image-1-mini med.  $0.0085  14.1 s  png  1024x1024   ($8/M image tokens, 1056 tok)
-//   gpt-image-1-mini low   $0.0022  30.0 s  png  1024x1024   (272 tok)
-//   flux.2-pro             $0.0300   8.7 s  jpeg 1024x1024   ($0.03/megapixel)
-//   qwen-image-3           $0.0300  65.7 s  png  2048x2048   (flat, 1K and 2K both $0.03)
-//   riverflow-v2.5-fast    $0.0185  22.0 s  webp             (flat $0.019)
-//   veo-3.1-lite 4s 720p   $0.1200  40 s    mp4, no audio    ($0.03 per second, listed SKU)
+// Measured live 2026-08-22 (one call each), latency and output:
+//   flux.2-klein-4b        2.0 s  jpeg 1024x1024
+//   gpt-image-1-mini med. 14.1 s  png  1024x1024
+//   flux.2-pro             8.7 s  jpeg 1024x1024
+//   qwen-image-3          65.7 s  png  2048x2048
+//   veo-3.1-lite 4s 720p   40 s   mp4, no audio
 //
 // Repricing guard: the Image API has no documented `max_price`, so a silent
 // upstream reprice cannot be refused per request the way the chat tiers do.
@@ -36,7 +33,7 @@
 // Video (`/v1/videos/generations`): the Video API is asynchronous (submit ->
 // poll -> download); the handler does all three inside the request so the
 // buyer gets bytes back on the same paid call. Duration, resolution and audio
-// are LOCKED (4 s, 720p, no audio = $0.12 on the listed per-second SKU) so the
+// are LOCKED (4 s, 720p, no audio, on the listed per-second SKU) so the
 // price is a constant; aspect ratio (16:9 / 9:16) is free to choose. Measured
 // 40 s end to end; the handler waits up to VIDEOS_MAX_WAIT_MS and answers 504
 // past it (not charged on our side; the upstream job may still complete and
@@ -66,18 +63,17 @@ export const IMAGE_TIERS = {
     path: IMAGES_FAST_PATH,
     price: 0.02,
     chain: [
-      // $0.014/megapixel, locked 1024x1024 billed as 1 MP (measured $0.014).
+      // Per-megapixel pricing, locked 1024x1024 billed as 1 MP.
       { model: "black-forest-labs/flux.2-klein-4b", provider: "black-forest-labs", params: {}, worstCaseUsd: 0.014,
         listed: { unit: "megapixel", maxCostUsd: 0.014 } },
-      // $8/M image tokens x ~1568 (medium, measured) + $2.5/M text prompt tokens.
+      // Token-priced: ~1568 image tokens at medium plus text prompt tokens.
       // gpt-5-image-mini replaced gpt-image-1-mini here 2026-09-02, ahead of the
-      // latter's 2026-12-01 retirement: identical image_output pricing
-      // ($0.000008/token) and prompt pricing on OpenRouter's endpoint listing,
-      // read live that day; gpt-image-2 ($0.00003/token, ~$0.032 at medium) does
-      // not fit under this tier's bound. Verified LIVE in the IMAGE catalog
+      // latter's 2026-12-01 retirement: identical image_output and prompt
+      // pricing on OpenRouter's endpoint listing, read live that day;
+      // gpt-image-2 does not fit under this tier's bound. Verified LIVE in the IMAGE catalog
       // (/api/v1/images/models); absent from the chat-model list, which is not
       // the same thing.
-      { model: "openai/gpt-5-image-mini", provider: "openai", params: { quality: "medium" }, worstCaseUsd: 0.013, // measured live 2026-09-02: 1568 image tokens at medium = $0.0126
+      { model: "openai/gpt-5-image-mini", provider: "openai", params: { quality: "medium" }, worstCaseUsd: 0.013, // measured live 2026-09-02 at medium
         listed: { unit: "token", maxCostUsd: 0.000008 } },
     ],
   },
@@ -85,11 +81,11 @@ export const IMAGE_TIERS = {
     path: IMAGES_PRO_PATH,
     price: 0.05,
     chain: [
-      // $0.03/megapixel, locked 1024x1024 (measured $0.03).
+      // Per-megapixel pricing, locked 1024x1024.
       { model: "black-forest-labs/flux.2-pro", provider: "black-forest-labs", params: {}, worstCaseUsd: 0.03,
         listed: { unit: "megapixel", maxCostUsd: 0.03 } },
-      // Flat $0.03 per image at 1K (measured $0.03; 2K is the same price but
-      // 65 s and a 3 MB PNG, so the fallback pins 1K).
+      // Flat per image (2K is the same price but 65 s and a 3 MB PNG, so the
+      // fallback pins 1K).
       { model: "qwen/qwen-image-3", provider: "alibaba", params: { resolution: "1K" }, worstCaseUsd: 0.03,
         listed: { unit: "image", variant: "1k", maxCostUsd: 0.03 } },
     ],
@@ -102,7 +98,7 @@ export const VIDEOS_DURATION_SECONDS = 4;
 export const VIDEOS_RESOLUTION = "720p";
 export const VIDEOS_ASPECT_RATIOS = ["16:9", "9:16"];
 export const VIDEOS_MAX_PROMPT_CHARS = 2_000;
-// Listed SKU `duration_seconds_without_audio_720p` = $0.03/s x 4 s; measured $0.12.
+// Listed SKU `duration_seconds_without_audio_720p` x 4 s.
 export const VIDEOS_WORST_CASE_USD = 0.12;
 const VIDEOS_POLL_MS = () => Math.max(100, parseInt(process.env.VIDEOS_POLL_MS || "5000", 10) || 5000);
 const VIDEOS_MAX_WAIT_MS = () => Math.max(1_000, parseInt(process.env.VIDEOS_MAX_WAIT_MS || "180000", 10) || 180_000);
@@ -113,8 +109,8 @@ const VIDEOS_MAX_WAIT_MS = () => Math.max(1_000, parseInt(process.env.VIDEOS_MAX
 const IMAGE_LINK_TIMEOUT_MS = Math.max(5_000, parseInt(process.env.IMAGE_LINK_TIMEOUT_MS || "45000", 10) || 45_000);
 
 /** Margin table for the pricing-margin CI test: every link's bound against
- *  its tier price, plus the video tier. Integer micro-dollars, so 70% of
- *  $0.02 compares as 14000 >= 14000 rather than as a float near-miss. */
+ *  its tier price, plus the video tier. Integer micro-dollars, so an exact
+ *  boundary compares as equal rather than as a float near-miss. */
 export function mediaMarginTable() {
   const rows = [];
   for (const [tier, t] of Object.entries(IMAGE_TIERS)) {

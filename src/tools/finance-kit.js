@@ -75,8 +75,7 @@ export const FINANCE_TOOLS = [
       const symbol = assertSymbol(i.symbol);
       const end = await availableEnd();
       // A WEEK, not a year. Databento bills by bytes, and a 52-week lookback
-      // priced at $0.0034 against this tool's $0.001 - the cost guard refused
-      // it. Yahoo gave the 52-week range away inside one quote payload; here
+      // priced above this tool's price - the cost guard refused it. Yahoo gave the 52-week range away inside one quote payload; here
       // it is a separate, larger query, so the fields are gone rather than
       // sold at a loss or silently narrowed. stock-history serves a range.
       const start = new Date(new Date(end) - 10 * 864e5).toISOString().slice(0, 10);
@@ -155,11 +154,10 @@ export const FINANCE_TOOLS = [
       // year plus the partial week either side of them.
       const span = Math.ceil(days * 1.45) + 12;
       const start = new Date(new Date(end) - span * 864e5).toISOString().slice(0, 10);
-      // Bounded at 70% of this tool's own price, the standing margin rule.
-      // That bound, not a round number, is what sets MAX_DAYS: measured on
-      // AAPL, a query costs about $0.0000086 per calendar day of span, so
-      // 250 sessions (a 375-day span) lands near $0.0032 and the advertised
-      // maximum is one a buyer can actually spend. A flat 365 was advertised
+      // Bounded by the standing margin rule on this tool's own price. That
+      // bound, not a round number, is what sets MAX_DAYS: query cost scales
+      // with the calendar span, so the advertised maximum is one a buyer can
+      // actually spend. A flat 365 was advertised
       // and refused at 90.
       const bars = (await dailyBars({ symbol, start, end, maxUsd: MAX_QUERY_USD })).slice(-days);
       return {

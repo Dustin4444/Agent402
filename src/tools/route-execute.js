@@ -35,24 +35,21 @@ import { isIdentityBoundRoute } from "../payments.js";
 // SOR_EXTERNAL_ENABLED until a real external buy proves it.
 export const EXEC_TIERS = [
   { slug: "route-execute", execPriceUsd: 0.01, underlyingMaxUsd: 0.005 },
-  // Proportional middle tier (2026-07-29 leaderboard review): the curve had
-  // exactly two points - $0.01 covering <=$0.005 and $0.55 covering <=$0.50 -
-  // so a $0.02 flight search or a $0.01 Nansen call could only ride the max
-  // tier at a 27x markup. $0.05 covering <=$0.04 keeps the fee proportional
-  // (25% margin at the cap, more below it) and unlocks the mid-priced
-  // external inventory the seller review identified as routable demand.
+  // Proportional middle tier (2026-07-29): the curve had exactly two points,
+  // so a mid-priced external tool could only ride the max tier. This tier
+  // keeps the fee proportional and unlocks mid-priced external inventory.
   { slug: "route-execute-plus", execPriceUsd: 0.05, underlyingMaxUsd: 0.04 },
   { slug: "route-execute-max", execPriceUsd: 0.55, underlyingMaxUsd: 0.5 },
   // 2026-08-07: the $0.50 underlying ceiling excluded every indexed tool priced
   // above it, so the router could only answer those with a 409 pointing at the
-  // seller's own direct route. Same 10% spread as the max tier, so the fee
-  // curve stays proportional rather than punishing size.
+  // seller's own direct route. The fee curve stays proportional rather than
+  // punishing size.
   //
   // This tier is only safe because of the per-payer debt ceiling in
   // external-spend-guard.js. Settlement runs AFTER the handler, so raising the
   // cap raises exactly one exposure: what a buyer whose payment verifies and
   // then fails to settle can make us spend before we stop them. Keep
-  // EXTERNAL_MAX_UNSETTLED_USD sized against THIS number, not the old $0.50.
+  // EXTERNAL_MAX_UNSETTLED_USD sized against THIS tier's underlying cap.
   { slug: "route-execute-pro", execPriceUsd: 3.3, underlyingMaxUsd: 3.0 },
 ];
 const EXEC_SLUGS = new Set(EXEC_TIERS.map((t) => t.slug));
@@ -277,8 +274,8 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           // our settlement broadcasts AFTER the handler. An external buy that
           // outlives that window is work done and an upstream seller paid,
           // then a refused settle: the buyer sees 402 and we ate the seller's
-          // price (measured 2026-08-27: a 69s Firecrawl scrape, $0.002 gone,
-          // vs a 23s one that settled). So on Tempo the external leg runs
+          // price (measured 2026-08-27: a 69s external scrape was lost, a 23s
+          // one settled). So on Tempo the external leg runs
           // under a budget: refuse BEFORE spending when resolution ate it,
           // and hand the seller call a timeout that keeps the whole handler
           // inside the window. A 504 cancels settlement; the only loss is the
