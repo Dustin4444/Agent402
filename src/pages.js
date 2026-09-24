@@ -109,7 +109,7 @@ function head({ title: rawTitle, description: rawDescription, canonical, jsonLd,
   const description = metaDescription(rawDescription);
   const blocks = (Array.isArray(jsonLd) ? jsonLd : [jsonLd])
     .filter(Boolean)
-    .map((b) => `<script type="application/ld+json">${JSON.stringify(b)}</script>`)
+    .map((b) => `<script type="application/ld+json">${JSON.stringify(b).replace(/</g, "\\u003c")}</script>`)
     .join("\n");
   const social = image
     ? `<meta name="twitter:card" content="summary_large_image">

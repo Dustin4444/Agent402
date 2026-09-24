@@ -109,6 +109,54 @@ function cardPriceUsd(def, req) {
   if (typeof def?.quote !== "function" || !(q > 0)) return q;
   return Math.ceil(((q + CARD_FEE_FIXED_USD) / (1 - CARD_FEE_RATE)) * 100) / 100;
 }
+// A paid response the buyer never received because they hung up before any
+// byte was sent, after the rail had already settled it (src/hangup-settlement.js).
+// Records a refund-ledger debt on the same evidence rules as the finish-based
+// charged-failure path: an x402 receipt must PROVE the charge (success:true);
+// the Tempo/Stripe gates set their flag only after a real settlement; credits
+// set theirs only when the close converted the hold. Returns the row it wrote
+// (or null) so the test can see exactly what was booked.
+function recordHangupDebt(req, res) {
+  const def = CATALOG[`${req.method} ${req.path}`];
+  if (!def) return null;
+  const synthetic = isSyntheticRequest(req);
+  let row = null;
+  const settleReceipt = res.getHeader("PAYMENT-RESPONSE") || res.getHeader("X-PAYMENT-RESPONSE");
+  if (req.tempoSettled || req.stripeSettled) {
+    row = {
+      network: req.tempoSettled ? "tempo" : "stripe",
+      payer: req.mppTempoPayer || null,
+      tx: req.tempoSettled ? tempoTxFromReceiptHeader(res.getHeader("Payment-Receipt")) : stripeTxFromReceiptHeader(res.getHeader("Payment-Receipt")),
+      wire: req.tempoSettled ? "mpp-tempo" : "mpp-stripe",
+      priceUsd: settledPriceUsd(def, req, res),
+    };
+  } else if (settleReceipt) {
+    if (!receiptProvesCharge(decodeSettleReceipt(settleReceipt))) return null;
+    row = {
+      network: networkFromPaymentResponse(settleReceipt),
+      payer: payerFromRequest(req) || payerFromPaymentResponse(settleReceipt),
+      tx: txFromPaymentResponse(settleReceipt),
+      wire: req.mppCredential ? "mpp" : "x402",
+      priceUsd: settledPriceUsd(def, req, res),
+    };
+  } else if (req.creditsSettled && Number(req.creditsChargedOnClose) > 0) {
+    // A balance debit, not an on-chain payment: the refund executor holds
+    // this row as an unsupported network, so it is listed and repaid by hand
+    // (re-credit the key), never dropped. The evidence is unique per request
+    // because a credits debit carries no transaction id.
+    row = {
+      network: "credits",
+      payer: req.creditsKeyId || null,
+      tx: `credits-hangup:${randomUUID()}`,
+      wire: "credits",
+      priceUsd: Number(req.creditsChargedOnClose),
+    };
+  }
+  if (!row) return null;
+  const created = recordRefundOwed({ slug: def.slug, ...row, httpStatus: 499, synthetic });
+  console.warn(`[hangup] CHARGED-BUT-NOT-SERVED: client disconnected before the settled response was delivered (${req.method} ${req.path} rail=${row.wire} tx=${row.tx || "?"}) - ${created ? "recorded as owed in the refund ledger" : "already on the books"}`);
+  return row;
+}
 import { mppProblem, sendMppProblem } from "./mpp-problem.js";
 import { monitorsPage, monitorThanksPage } from "./monitors-page.js";
 import { insiderPage, fundPage, dossierPage, hubPage, loadTeaser, normalizeTicker, normalizeManagerSlug, isSeededTicker, seededManager } from "./programmatic-pages.js";
@@ -512,6 +560,7 @@ function trialClientKey(ip) {
 }
 const TRIAL_LIMITS_LABEL = `${TRIAL_PER_TOOL_HOUR} per tool per hour, ${TRIAL_IP_HOUR} per hour per client`;
 const OX_TRIAL_LIMITS_LABEL = `${OX_TRIAL_PER_HOUR} per hour, ${OX_TRIAL_PER_DAY} per day per client`;
+import { createHangupSettlementHook } from "./hangup-settlement.js";
 import { recordRefundOwed, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals, refundsCreatedBetween } from "./refund-ledger.js";
 import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent, getDailyCalls, dailyCallsRecordingSince, getDailyUpstreamCalls, getSellerRegistrations, getDailyUpstreamSpend } from "./stats.js";
 import { timingSafeEqual, createHash, randomUUID, randomBytes } from "node:crypto";
@@ -4734,7 +4783,23 @@ app.get("/api/skill-packs.json", (_req, res) => {
 });
 app.get("/api/skill-packs/:slug/prompt", (req, res) => {
   const pack = SKILL_PACKS.find((p) => p.slug === req.params.slug);
-  if (!pack) return res.status(404).json({ error: `Unknown skill pack "${req.params.slug}". List: /api/skill-packs.json` });
+  if (!pack) {
+    // A retired pack is gone on purpose (src/retired-tools.js): 410 with the
+    // replacement, never the unknown-pack 404 an outside index reads as broken.
+    const gone = retiredEntryFor(`/api/skill/${req.params.slug}`);
+    if (gone) {
+      const rep = gone.replacement ? Object.values(CATALOG).find((d) => d.slug === gone.replacement) : null;
+      const replacement = rep ? { slug: rep.slug, route: rep.route, url: `${BASE_URL}${rep.route.split(" ")[1] || rep.route}` } : null;
+      return res.status(410).json({ ok: false, error: "gone", slug: gone.slug, retiredAt: gone.retiredAt, replacement, list: `${BASE_URL}/api/skill-packs.json`, hint: `Skill pack ${gone.slug} was retired on ${gone.retiredAt}.${replacement ? ` Use ${replacement.route} instead.` : ""} Live packs: /api/skill-packs.json` });
+    }
+    // Indexes that read the documented template call it with the placeholder
+    // itself; say so rather than answering as if the route were missing.
+    if (/^[{:]/.test(req.params.slug)) {
+      const example = SKILL_PACKS[0]?.slug;
+      return res.status(400).json({ ok: false, error: "placeholder", hint: `Replace ${req.params.slug} with a pack slug from /api/skill-packs.json${example ? `, e.g. /api/skill-packs/${example}/prompt` : ""}.`, list: `${BASE_URL}/api/skill-packs.json` });
+    }
+    return res.status(404).json({ error: `Unknown skill pack "${req.params.slug}". List: /api/skill-packs.json` });
+  }
   // Pull args from the query string by promptArgs name. Anything not
   // declared is ignored (no surprise substitutions). Compute freeSlugs from
   // the live catalog so the access split in the rendered prompt is honest.
@@ -5121,7 +5186,7 @@ async function serveCachedDiscovery(path, policy, input, computeFn, analyticsSlu
     // and wrong a second later, and a 60 s TTL would outlive the loading window
     // that produced it - serving "no seller offers this" from a cache long after
     // the sellers arrived. Not cached, so the next call re-reads a warmer index.
-    if (cacheKey && result && typeof result === "object" && !result.error && !result.indexing) {
+    if (cacheKey && result && typeof result === "object" && !result.error && !result.indexing && !result.__noCache) {
       cacheSet(cacheKey, result, policy.ttl || 60).catch(() => {});
     }
     res.json(result);
@@ -6073,8 +6138,21 @@ const computeRoute = (q, k, include, net) => {
   }
   return out;
 };
+// Judged answers on the FREE /api/route are bounded per caller: each uncached
+// question costs one judgment-model call, so without this one client could
+// spend the day's judgment budget. Over the limit the lexical rows are served
+// with judged:{skipped:"rate"}; the free path also draws on only its share of
+// the daily ceiling (tool-judge.js pool "free"), holding the rest for the paid
+// route-execute path.
+const ROUTE_JUDGE_PER_IP_HOUR = (() => { const n = Number(process.env.ROUTE_JUDGE_PER_IP_HOUR); return process.env.ROUTE_JUDGE_PER_IP_HOUR != null && Number.isFinite(n) && n >= 0 ? Math.floor(n) : 60; })();
+const routeJudgeLimiter = createRateLimiter("route-judge", { perMin: Math.max(1, ROUTE_JUDGE_PER_IP_HOUR), perHour: Math.max(1, ROUTE_JUDGE_PER_IP_HOUR) });
+const routeJudgeAdmit = (ip) => () => ROUTE_JUDGE_PER_IP_HOUR > 0 && !routeJudgeLimiter.check(String(ip || "unknown")).limited;
+const ROUTE_JUDGE_SKIPPED_NOTE = {
+  rate: "no judgment model ran for this answer: this caller's hourly allowance of judged answers is spent; rows are in lexical order",
+  budget: "no judgment model ran for this answer: the free share of today's judgment budget is spent; rows are in lexical order",
+};
 // /api/route: a confident judged pick moves first; rows are never removed. 2 s limit.
-async function computeRouteJudged(q, k, include, net) {
+async function computeRouteJudged(q, k, include, net, ip = null) {
   const out = computeRoute(q, k, include, net);
   const rows = Array.isArray(out.results) ? out.results : [];
   if (out.indexing || rows.length < 1 || !q) return out;
@@ -6106,7 +6184,13 @@ async function computeRouteJudged(q, k, include, net) {
     const price = r.price != null && r.price !== "" ? ` (${typeof r.price === "number" ? `$${r.price}` : r.price})` : "";
     const clean = !looksLikeListingInjection(desc);
     return { name: `${r.seller === "self" ? "agent402" : hostOfSeller(r.seller)} ${r.slug || ""}${price}`.trim(), description: clean ? desc : "", tags: clean && Array.isArray(r.tags) ? r.tags : [] };
-  }, { timeoutMs: 2000 });
+  }, { timeoutMs: 2000, pool: "free", admit: routeJudgeAdmit(ip) });
+  if (ordered.skipped) {
+    out.judged = { skipped: ordered.skipped, note: ROUTE_JUDGE_SKIPPED_NOTE[ordered.skipped] || "no judgment model ran for this answer; rows are in lexical order" };
+    // Never cached: the next caller (or this one next hour) may get a judged answer.
+    Object.defineProperty(out, "__noCache", { value: true, enumerable: false });
+    return out;
+  }
   if (ordered.refused) out.judged = { noMatch: true, confidence: ordered.selection.confidence, note: "a judgment model found none of the shortlisted rows does this task; rows are unchanged" };
   else if (ordered.selection?.method === "judged" || ordered.selection?.method === "judged-tie") {
     const pick = ordered.items[0];
@@ -6129,7 +6213,7 @@ app.get("/api/route", (req, res) => {
   const top = req.query.top ?? req.query.k;
   const include = req.query.include;
   const net = req.query.network;
-  return serveCachedDiscovery(routeCachePath, routeCachePolicy, { q, task: q, query: q, top, k: top, include, network: net }, () => computeRouteJudged(q, top, include, net), "_route", req, res);
+  return serveCachedDiscovery(routeCachePath, routeCachePolicy, { q, task: q, query: q, top, k: top, include, network: net }, () => computeRouteJudged(q, top, include, net, clientIp(req)), "_route", req, res);
 });
 app.post("/api/route", (req, res) => {
   withRouteAnswerNote(req, res);
@@ -6137,7 +6221,7 @@ app.post("/api/route", (req, res) => {
   const top = req.body?.top ?? req.body?.k;
   const include = req.body?.include;
   const net = req.body?.network;
-  return serveCachedDiscovery(routeCachePath, routeCachePolicy, { q, task: q, query: q, top, k: top, include, network: net }, () => computeRouteJudged(q, top, include, net), "_route", req, res);
+  return serveCachedDiscovery(routeCachePath, routeCachePolicy, { q, task: q, query: q, top, k: top, include, network: net }, () => computeRouteJudged(q, top, include, net, clientIp(req)), "_route", req, res);
 });
 // Operator-only: why does the SOR external resolver keep/drop each candidate for
 // a task? Explains a prod "no external seller matched" 404 without a paid buy.
@@ -7135,6 +7219,14 @@ app.get("/api/cache-stats", (_req, res) => res.json(cacheCounters()));
 // stays solely with the paywall. Env-gated: no MPP_SECRET_KEY (or FREE_MODE)
 // → not mounted, server stays pure-x402.
 if (!FREE_MODE) {
+  // Charged-but-not-served on a hang-up (src/hangup-settlement.js). Mounted
+  // FIRST so every payment gate's captured res.end is this hook's wrapper:
+  // when a gate settles and then ends a response whose client already hung
+  // up, the debt is recorded here, because the "finish"-based charged-failure
+  // path below never runs on a destroyed socket. Every rail still settles a
+  // <400 regardless of the socket, so a hang-up is never a free run.
+  app.use(createHangupSettlementHook({ onUndelivered: recordHangupDebt }));
+
   // Tempo support for MPP (src/mpp-tempo.js) — a SECOND, independent
   // settlement path alongside the evm shim below: Tempo's TIP-1034/TIP-20
   // primitives aren't EIP-3009, so this never becomes an x402

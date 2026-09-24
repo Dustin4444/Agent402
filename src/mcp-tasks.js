@@ -35,9 +35,11 @@
 // PAYMENT (the part that must be right): settlement stays where it already is -
 // on the paid loopback request, AFTER the handler, only on a <400. Creating a
 // task does NOT settle anything. The loopback request simply outlives the MCP
-// HTTP response that returned the handle. So a task that fails, is cancelled, or
-// dies with the process produced a non-200 (or no response at all) on the paid
-// request, which CANCELS settlement: the buyer is not charged. Nothing here can
+// HTTP response that returned the handle. So a task that fails or dies with the
+// process produced a non-200 (or no response at all) on the paid request, which
+// CANCELS settlement: the buyer is not charged. A CANCELLED task only stops the
+// connector waiting; the paid request may still settle, and a charge that never
+// reached the buyer is recorded as owed (src/hangup-settlement.js). Nothing here can
 // charge for nothing. The one residual case - a 200 that settled but whose
 // result we then cannot retain - records a debt in the refund ledger, and only
 // on the positive proof the ledger demands (`receiptProvesCharge`).
@@ -310,9 +312,10 @@ export function createTaskStore({ dir, now = () => Date.now(), log = console.log
   const complete = (id, result, opts = {}) => settle(id, { status: "completed", result, ...opts });
   const fail = (id, error, statusMessage) => settle(id, { status: "failed", error, statusMessage });
 
-  /** tasks/cancel. Cooperative and eventually consistent (spec): we abort the
-   *  live run, which makes the paid request a non-200 and therefore CANCELS
-   *  settlement - a cancelled task never charges. */
+  /** tasks/cancel. Cooperative and eventually consistent (spec): we stop
+   *  waiting on the live run. The paid request itself keeps running
+   *  server-side and settles if its handler produces a <400; a charge the
+   *  buyer never received is then owed in the refund ledger. */
   function cancel(id) {
     const rec = read(id);
     if (!rec) return false;
@@ -321,7 +324,11 @@ export function createTaskStore({ dir, now = () => Date.now(), log = console.log
     runs.delete(id);
     if (isTerminal(rec.status)) return true;   // ack anyway; terminal states are immutable
     rec.status = "cancelled";
-    rec.statusMessage = "Cancelled at your request. You were not charged: payment settles only on a delivered result.";
+    // The paid request has already cleared the paywall and keeps running
+    // server-side after the connector stops waiting, so it may still settle;
+    // a charge whose result never reached the buyer is recorded as owed and
+    // refunded (src/hangup-settlement.js).
+    rec.statusMessage = "Cancelled at your request. The run may still have completed and been charged; if it was, the charge is recorded as owed and refunded automatically. Do not retry blindly: a retry is a new paid call.";
     write(rec);
     return true;
   }

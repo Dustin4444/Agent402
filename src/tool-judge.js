@@ -30,14 +30,22 @@ const jevDailyMaxTokens = () => {
   const n = Number(raw);
   return raw && Number.isFinite(n) && n >= 0 ? n : 24_000_000;
 };
-const spend = { day: "", tokens: 0, calls: 0, refused: 0, cacheHits: 0 };
+// The free /api/route answer may use at most this share of the daily ceiling
+// (ROUTE_JUDGE_FREE_SHARE, 0..1, default 0.5); the rest is held for the paid
+// route-execute path, so unpaid search traffic cannot spend the whole day's
+// budget and leave paying buyers on the lexical fallback.
+const freeShare = () => {
+  const n = Number(process.env.ROUTE_JUDGE_FREE_SHARE ?? 0.5);
+  return Number.isFinite(n) && n >= 0 && n <= 1 ? n : 0.5;
+};
+const spend = { day: "", tokens: 0, freeTokens: 0, calls: 0, refused: 0, cacheHits: 0 };
 const today = () => new Date().toISOString().slice(0, 10);
-function rollDay() { const d = today(); if (spend.day !== d) { spend.day = d; spend.tokens = 0; spend.calls = 0; spend.refused = 0; spend.cacheHits = 0; } }
+function rollDay() { const d = today(); if (spend.day !== d) { spend.day = d; spend.tokens = 0; spend.freeTokens = 0; spend.calls = 0; spend.refused = 0; spend.cacheHits = 0; } }
 /** Counts only. */
 export function jevSpendStatus() {
   rollDay();
   const cap = jevDailyMaxTokens();
-  return { day: spend.day, tokens: spend.tokens, capTokens: cap, calls: spend.calls, cacheHits: spend.cacheHits, refusedToday: spend.refused, status: cap > 0 && spend.tokens >= cap ? "capped" : "ok" };
+  return { day: spend.day, tokens: spend.tokens, capTokens: cap, freeTokens: spend.freeTokens, freeCapTokens: Math.floor(cap * freeShare()), calls: spend.calls, cacheHits: spend.cacheHits, refusedToday: spend.refused, status: cap > 0 && spend.tokens >= cap ? "capped" : "ok" };
 }
 export function _jevReset() { spend.day = ""; rollDay(); cache.clear(); }
 
@@ -55,16 +63,24 @@ function remember(key, value) {
   cache.set(key, { at: Date.now(), value });
 }
 
-/** One Jev call under the ceiling, or null. Never throws. */
-async function callJev(payload, fetchImpl, timeoutMs) {
+/** One Jev call under the ceiling, or null. Never throws. `pool: "free"`
+ *  books the call against the free share of the ceiling as well. `outcome`
+ *  (optional object) learns `skipped: "budget"` when a ceiling refused it. */
+async function callJev(payload, fetchImpl, timeoutMs, { pool = "paid", outcome = null } = {}) {
   if (!keyOf()) return null;
   const cap = jevDailyMaxTokens();
   if (!(cap > 0)) return null;
   const body = JSON.stringify(payload);
   const est = Buffer.byteLength(body) + OUTPUT_ALLOWANCE_TOKENS;
   rollDay();
-  if (spend.tokens + est > cap) { spend.refused++; return null; }
+  const free = pool === "free";
+  if (spend.tokens + est > cap || (free && spend.freeTokens + est > cap * freeShare())) {
+    spend.refused++;
+    if (outcome) outcome.skipped = "budget";
+    return null;
+  }
   spend.tokens += est; spend.calls++;
+  if (free) spend.freeTokens += est;
   try {
     const res = await fetchImpl(ENDPOINT, {
       method: "POST",
@@ -93,18 +109,21 @@ export function criteriaFor(candidates) {
   return criteria;
 }
 
-/** { choice, confidence } or null. Never throws. Cached per question. */
-export async function judgeTool(task, candidates, { fetchImpl = fetch, timeoutMs } = {}) {
+/** { choice, confidence } or null. Never throws. Cached per question.
+ *  `admit()` (optional) is consulted only when a model call would be made (a
+ *  cache miss): false skips the call and sets `outcome.skipped = "rate"`. */
+export async function judgeTool(task, candidates, { fetchImpl = fetch, timeoutMs, pool = "paid", admit = null, outcome = null } = {}) {
   if (!toolJudgeEnabled() || !Array.isArray(candidates) || !candidates.length) return null;
   // Keyed on the criteria text, not on slugs (orderByJudgment's are positional).
   const key = cacheKey("tool", [String(task).slice(0, 400).trim().toLowerCase(), criteriaFor(candidates)]);
   const c = cached(key);
   if (c.hit) return c.value;
+  if (typeof admit === "function" && !admit()) { if (outcome) outcome.skipped = "rate"; return null; }
   const out = await callJev({
     state: `An AI agent asked a tool router to run this task: "${String(task).slice(0, 400)}"`,
     model: MODEL,
     questions: { best: { type: "choice", instructions: "Which listed tool actually performs the job the agent asked for?", criteria: criteriaFor(candidates) } },
-  }, fetchImpl, timeoutMs);
+  }, fetchImpl, timeoutMs, { pool, outcome });
   const a = out?.answers?.best;
   const choice = typeof a?.choice === "string" ? a.choice : null;
   const confidence = typeof a?.confidence === "number" ? a.confidence : null;
@@ -200,11 +219,13 @@ export async function judgeFreeResponse(body, contentType, { fetchImpl = fetch }
 // ---------------------------------------------------------------------------
 // Outside sellers: orders candidates that already passed the settlement gate,
 // or stops the router on a confident "none of these". Never adds a seller.
-export async function orderByJudgment(task, items, textOf, { fetchImpl = fetch, timeoutMs } = {}) {
+export async function orderByJudgment(task, items, textOf, { fetchImpl = fetch, timeoutMs, pool = "paid", admit = null } = {}) {
   const list = Array.isArray(items) ? items : [];
   if (list.length < 1 || !toolJudgeEnabled()) return { items: list, refused: false, selection: null };
   const proxies = list.map((it, i) => ({ slug: `c${i}`, ...textOf(it), priceUsd: usdOf(it) }));
-  const decision = decide(proxies, await judgeTool(task, proxies, { fetchImpl, timeoutMs }));
+  const outcome = {};
+  const decision = decide(proxies, await judgeTool(task, proxies, { fetchImpl, timeoutMs, pool, admit, outcome }));
+  if (outcome.skipped) return { items: list, refused: false, selection: decision.selection, skipped: outcome.skipped };
   if (decision.action === "refuse") return { items: [], refused: true, selection: decision.selection };
   if (decision.selection.method !== "judged" && decision.selection.method !== "judged-tie") return { items: list, refused: false, selection: decision.selection };
   const idx = Number(decision.def.slug.slice(1));

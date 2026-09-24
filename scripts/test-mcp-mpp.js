@@ -29,6 +29,8 @@ const B = `http://127.0.0.1:${PORT}`;
 const SECRET = "test-mcp-mpp-secret";
 const TREASURY = "0x000000000000000000000000000000000000dEaD";
 const TX = `0x${"cd".repeat(32)}`;
+const OP = "test-mcp-mpp-operator-token-0123456789";
+const REFUND_DIR = (await import("node:fs")).mkdtempSync((await import("node:path")).join((await import("node:os")).tmpdir(), "mcp-mpp-refunds-"));
 
 let pass = 0;
 let proc = null;
@@ -40,6 +42,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // ---- pure helpers first (no server) ----
 ok(credentialHeaderFromMeta(null) === null && credentialHeaderFromMeta({}) === null && credentialHeaderFromMeta({ [MCP_CREDENTIAL_META]: { nope: 1 } }) === null, "credentialHeaderFromMeta: absent/unusable -> null (unpaid call)");
 ok(credentialHeaderFromMeta({ [MCP_CREDENTIAL_META]: "Payment abc" }) === "Payment abc" && credentialHeaderFromMeta({ [MCP_CREDENTIAL_META]: "abc" }) === "Payment abc", "credentialHeaderFromMeta: string forms normalise to an Authorization value");
+{
+  // Cut-off text: "nothing was charged" only when no credential rode along.
+  const { connectorCutoffText } = await import("../src/mcp-http.js");
+  const paid = connectorCutoffText({ label: "Agent402 (x)", seconds: 27, paid: true, route: "POST /v1/x" });
+  const unpaid = connectorCutoffText({ label: "Agent402 (x)", seconds: 27, paid: false, route: "POST /v1/x" });
+  const paidErr = connectorCutoffText({ label: "Agent402 (x)", seconds: 27, paid: true, error: "socket hang up" });
+  ok(/may still have completed and been charged/.test(paid) && /owed and refunded/.test(paid) && /Do not retry blindly/.test(paid) && !/nothing was charged|not charged/.test(paid), "paid cut-off text: may have been charged, owed back, do not retry blindly");
+  ok(/nothing was charged/.test(unpaid) && !/may still have/.test(unpaid) && /Retry/.test(unpaid), "unpaid cut-off text: nothing was charged, retry is fine");
+  ok(/could not be completed/.test(paidErr) && /may still have completed and been charged/.test(paidErr), "a paid loopback error is told the same money story");
+}
 ok(Array.isArray(challengesFromHeader(null)) && challengesFromHeader("garbage").length === 0 && receiptFromHeader("garbage") === null, "challenges/receipt parsers never throw on junk");
 {
   // The loopback forwards our own signed probe marker (so a synthetic check over
@@ -82,6 +94,7 @@ proc = spawn("node", ["src/server.js"], {
     AGENT402_MCP_MAX_PER_MIN: "999999", AGENT402_MCP_MAX_PER_HOUR: "9999999",
     // 6 s deadline -> the paid loopback is bounded at 3.5 s (case 6).
     AGENT402_MCP_REQ_DEADLINE_MS: "6000",
+    AGENT402_OPERATOR_TOKEN: OP, REFUND_DB_DIR: REFUND_DIR,
   },
   stdio: "ignore",
 });
@@ -150,7 +163,19 @@ try {
   catch (e) { slowErr = e; }
   slowVerifyMs = 0;
   ok(!slowErr, `a slow paid call is NOT a JSON-RPC error (got ${slowErr?.code} ${slowErr?.message || ""})`);
-  ok(slow?.isError === true && /did not finish within \d+s/.test(JSON.stringify(slow.content)) && /not charged/.test(JSON.stringify(slow.content)), `it is an isError tool result naming the timeout (${JSON.stringify(slow?.content || "").slice(0, 120)})`);
+  const slowText = JSON.stringify(slow?.content || "");
+  ok(slow?.isError === true && /did not finish within \d+s/.test(slowText), `it is an isError tool result naming the timeout (${slowText.slice(0, 120)})`);
+  // A credential was presented, so the server-side request may still settle
+  // after the connector stops waiting: "not charged" would be false.
+  ok(!/not charged|nothing was charged/i.test(slowText) && /may still have completed and been charged/.test(slowText) && /owed and refunded/.test(slowText) && /Do not retry blindly/.test(slowText),
+    `a PAID cut-off says it may have been charged, that a charge is owed back, and not to retry blindly (${slowText.slice(0, 200)})`);
+  // And it really was: the slow verify completes, the handler runs, settlement
+  // happens with nobody left to deliver to, and the charge is booked as owed.
+  await sleep(3_000);
+  const owed = await (await fetch(`${B}/__operator/refunds.json?status=all`, { headers: { Authorization: `Bearer ${OP}` } })).json();
+  const rows = (owed.refunds || []).filter((r) => r.slug === "memory-write");
+  ok(rows.length === 1 && rows[0].wire === "mpp" && rows[0].httpStatus === 499 && rows[0].status === "owed",
+    `the cut-off paid call that settled is recorded once as owed on the mpp wire (${JSON.stringify(rows)})`);
 
   // 7. The transport deadline itself, for a tools/call, is a result too. A
   //    second server whose deadline is shorter than the loopback bound makes
@@ -167,7 +192,7 @@ try {
       CDP_API_KEY_ID: "", CDP_API_KEY_SECRET: "", PAYMENT_NETWORKS: "base",
       X402_INDEX_CRAWL: "off", MPP_INDEX_CRAWL: "off",
       AGENT402_MCP_MAX_PER_MIN: "999999", AGENT402_MCP_MAX_PER_HOUR: "9999999",
-      AGENT402_MCP_REQ_DEADLINE_MS: "800",
+      AGENT402_MCP_REQ_DEADLINE_MS: "800", REFUND_DB_DIR: REFUND_DIR,
     },
     stdio: "ignore",
   });
@@ -183,11 +208,13 @@ try {
   slowVerifyMs = 0;
   ok(!dlErr, `the transport deadline on a tools/call is NOT a JSON-RPC error (got ${dlErr?.code} ${dlErr?.message || ""})`);
   ok(dl?.isError === true && /did not finish within \d+s on this connector/.test(JSON.stringify(dl.content)), `it is an isError tool result naming the deadline (${JSON.stringify(dl?.content || "").slice(0, 120)})`);
+  ok(/may still have completed and been charged/.test(JSON.stringify(dl.content)) && !/nothing was charged/.test(JSON.stringify(dl.content)), "the transport deadline on a PAID call also says it may have been charged");
   await sleep(3500);   // let the stopped call's slow verify drain before teardown
 
   console.log(`\nPASS - ${pass} checks (native MPP on /mcp)`);
   proc.kill("SIGKILL");
   facilitator.close();
+  (await import("node:fs")).rmSync(REFUND_DIR, { recursive: true, force: true });
   process.exit(0);
 } catch (e) {
   fail(`unexpected: ${e?.stack || e}`);

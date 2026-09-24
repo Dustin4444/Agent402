@@ -164,3 +164,39 @@ console.log(`test-tool-judge (with ties): ${n} assertions ok`);
   globalThis.fetch = o;
 }
 console.log(`test-tool-judge (with content-keyed cache): ${n} assertions ok`);
+
+// --- the free /api/route path draws on only its share of the daily ceiling,
+//     and a per-caller admission check runs only when a model call would be made
+{
+  const { orderByJudgment } = await import("../src/tool-judge.js");
+  const o = globalThis.fetch;
+  const text = (r) => ({ name: r.slug, description: r.slug });
+  let calls = 0;
+  globalThis.fetch = async () => { calls++; return new Response(JSON.stringify({ answers: { best: { choice: "c1", confidence: 0.95 } } }), { status: 200 }); };
+  // A small ceiling: each call books its body bytes + 300, so a 2,400-token
+  // day with a 50% free share fits one free call and more paid ones.
+  process.env.JEV_DAILY_MAX_TOKENS = "2400";
+  process.env.ROUTE_JUDGE_FREE_SHARE = "0.5";
+  _jevReset();
+  let r = await orderByJudgment("free task one", [{ slug: "a1" }, { slug: "b1" }], text, { pool: "free" });
+  ok(r.selection?.method === "judged" && calls === 1, `a free call inside the free share is judged (${JSON.stringify(jevSpendStatus())})`);
+  r = await orderByJudgment("free task two", [{ slug: "a2" }, { slug: "b2" }], text, { pool: "free" });
+  ok(r.skipped === "budget" && calls === 1 && r.items.length === 2, `past the free share the free path is skipped with rows intact (${r.skipped}, ${calls} calls)`);
+  const st = jevSpendStatus();
+  ok(st.freeTokens > 0 && st.freeTokens <= st.freeCapTokens && st.tokens < st.capTokens, `the free path never books past its share (${st.freeTokens}/${st.freeCapTokens} of ${st.capTokens})`);
+  r = await orderByJudgment("paid task", [{ slug: "a3" }, { slug: "b3" }], text);
+  ok(r.selection?.method === "judged" && calls === 2, "the paid path still has the rest of the ceiling");
+  delete process.env.JEV_DAILY_MAX_TOKENS; delete process.env.ROUTE_JUDGE_FREE_SHARE;
+
+  _jevReset(); calls = 0;
+  let admits = 0;
+  const deny = () => { admits++; return false; };
+  r = await orderByJudgment("rate task", [{ slug: "a4" }, { slug: "b4" }], text, { pool: "free", admit: deny });
+  ok(r.skipped === "rate" && calls === 0 && admits === 1 && r.items.length === 2, "a denied admission skips the model call and keeps the rows");
+  await orderByJudgment("cached task", [{ slug: "a5" }, { slug: "b5" }], text, { pool: "free", admit: () => true });
+  admits = 0;
+  r = await orderByJudgment("cached task", [{ slug: "a5" }, { slug: "b5" }], text, { pool: "free", admit: deny });
+  ok(r.selection?.method === "judged" && admits === 0, "a cached verdict is served without spending the caller's allowance");
+  globalThis.fetch = o;
+}
+console.log(`test-tool-judge (with free share + admission): ${n} assertions ok`);

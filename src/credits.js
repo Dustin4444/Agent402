@@ -276,7 +276,10 @@ export function createCredits({ stripe, baseUrl, storeDir, onDebit, onLoad, now 
       // Every other rail settles after the handler regardless of the socket;
       // credits now does the same, at the held amount (the quote ceiling on a
       // metered route, since no usage header exists for an aborted response).
-      res.on("close", () => { if (done) return; done = true; settle(a.hash, a.heldMicro, item.slug || req.path); });
+      // The buyer never received that response, so server.js's hang-up hook
+      // (src/hangup-settlement.js) reads this flag and records the charge as
+      // owed in the refund ledger, like every other rail.
+      res.on("close", () => { if (done) return; done = true; const c = settle(a.hash, a.heldMicro, item.slug || req.path); if (c) { req.creditsCharged = c.chargedUsd; req.creditsChargedOnClose = c.chargedUsd; } });
       return next();
     };
   }

@@ -31,7 +31,10 @@ export function readConfig(env = process.env) {
       const j = JSON.parse(raw);
       if (!j.client_email || !j.private_key) throw new Error("missing client_email or private_key");
       sa = { clientEmail: j.client_email, privateKey: j.private_key, keyId: j.private_key_id || null, tokenUri: j.token_uri || "https://oauth2.googleapis.com/token" };
-    } catch (e) { saError = `GSC_SERVICE_ACCOUNT_JSON unreadable: ${e.message}`; }
+    } catch (e) {
+      // A fixed message: JSON.parse errors can quote the start of the value.
+      saError = /missing client_email/.test(e.message) ? "GSC_SERVICE_ACCOUNT_JSON is missing client_email or private_key" : "GSC_SERVICE_ACCOUNT_JSON is not valid JSON";
+    }
   }
   const num = (v, d) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : d; };
   return {
