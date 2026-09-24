@@ -11,7 +11,7 @@ export function railOf(req) {
   if (req.mppTempoCredential) return "mpp-tempo";
   if (req.mppStripeCredential) return "mpp-stripe";
   if (req.mppCredential) return "mpp-evm";
-  if (req.creditsSettling || req.creditsSettled) return "credits";
+  if ((Object.hasOwn(req, "creditsSettling") && req.creditsSettling === true) || (Object.hasOwn(req, "creditsSettled") && req.creditsSettled === true)) return "credits";
   const h = req.headers || {};
   // A Payment credential no gate recognised (malformed, another realm's).
   if (/^Payment\s/i.test(String(h.authorization || ""))) return "mpp";

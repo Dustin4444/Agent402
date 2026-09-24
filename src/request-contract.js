@@ -42,8 +42,12 @@ const typesOf = (s) => new Set(Array.isArray(s?.type) ? s.type.map(String) : s?.
 /** A name we are willing to publish. Anything else is dropped rather than
  *  escaped or truncated: we are not obliged to relay every string a seller
  *  wrote, and a name that does not look like a name is not evidence. */
+// Names that address an object's prototype rather than a property on it. The
+// charset allowlist passes them, and a caller that walks these names into an
+// object (probeBodyFor did) writes onto Object.prototype for the whole process.
+const RESERVED_NAMES = new Set(["__proto__", "constructor", "prototype"]);
 export function safeName(n) {
-  return typeof n === "string" && SAFE_NAME.test(n) ? n : null;
+  return typeof n === "string" && SAFE_NAME.test(n) && !RESERVED_NAMES.has(n) ? n : null;
 }
 
 function hasUnsupported(node, state = { seen: 0 }, depth = 0) {

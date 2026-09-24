@@ -1928,6 +1928,7 @@ const CHECKOUT_RATE_PATHS = ["/api/buy", "/api/subscribe", "/api/credits/checkou
 // Stripe's rate limit. A legitimate report poll is ~20/min.
 const sessionReadLimiter = createRateLimiter("session-read", { perMin: 90, perHour: 1500 });
 const clientIp = (req) => (req.ip || req.socket?.remoteAddress || "?").trim();
+const ownTrue = (obj, key) => Object.hasOwn(obj, key) && obj[key] === true;
 // Recurring subscriptions engine. Initialized EARLY so the Stripe
 // webhook route can mount with a RAW body parser BEFORE the global express.json()
 // below - webhook signature verification needs the unparsed body.
@@ -7384,7 +7385,10 @@ if (FREE_MODE) {
     // validated the credential and own settlement for this request end to end.
     // Without the stripe bypass a validated card payment would be 402'd here
     // and never served (fails safe — no charge — but the feature is dead).
-    if (req.tempoSettling || req.stripeSettling || req.creditsSettling) return next();
+    // Own-property and strictly true: a gate flag must have been SET on this
+    // request by the gate that verified it, never inherited (a polluted
+    // Object.prototype once made every request look settled).
+    if (ownTrue(req, "tempoSettling") || ownTrue(req, "stripeSettling") || ownTrue(req, "creditsSettling")) return next();
     // Retired converters aren't catalog routes, so POW_ROUTES can't know them —
     // which briefly made them the only paid paths on the site with NO free
     // tier, while unit-convert (the identical work, same engine, same table)
