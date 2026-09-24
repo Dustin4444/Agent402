@@ -3,9 +3,12 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 const ENTRIES = [
   {
     date: "2026-09-24",
-    title: "Broken links fixed and pages easier to find",
+    title: "Integration and learn pages",
     items: [
-      "Fixed broken links on the FAQ and on the chain marketplace pages, and linked a handful of pages that no menu reached from the site footer.",
+      "New /integrations pages for every published package and /learn explainers for x402, HTTP 402, MPP and agent payments.",
+      "/llms-full.txt lists every catalog route with its price.",
+      "Tool pages now show parameters, example requests and responses, and related tools.",
+      "Fixed broken links on the FAQ and chain pages.",
     ],
   },
   {

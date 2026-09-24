@@ -1913,6 +1913,8 @@ jobs:
           t() { local s=$SECONDS; echo "::group::$*"; "$@" || { echo "::endgroup::"; echo "::error::failed: $*"; exit 1; }; echo "::endgroup::"; echo "ok  $* ($((SECONDS - s))s)"; }
           # Static page renders smoke (every HTML surface returns 200 with the right page-specific title)
           t node scripts/test-static-pages.js
+          # Integration + learn pages and /llms-full.txt: 200, unique title, one H1, canonical, BreadcrumbList, in both sitemaps; llms-full lists every catalog route (boots a real server, offline)
+          t node scripts/test-integration-learn-pages.js
           # Section Open Graph cards: every section page derives its own og:image, tool pages keep theirs, every card SVG well-formed (2026-09-14)
           t node scripts/test-og-cards.js
           # SEO meta ratchet: title <= 70, description <= 165, exactly one H1, canonical on every hand-written page (reader pass 2026-09-08)

@@ -12,6 +12,7 @@ const tokenText = (tokens) => (tokens || []).map((t) => (t.tokens ? tokenText(t.
 marked.use({ renderer: { heading({ tokens, depth }) { const html = this.parser.parseInline(tokens); return `<h${depth} id="${headingId(tokenText(tokens))}">${html}</h${depth}>\n`; } } });
 import { ledgerShell, ledgerFooterCompact, esc, breadcrumbLd } from "./ledger-chrome.js";
 import { fitTitle } from "./seo-meta.js";
+import { GUIDE_INTEGRATIONS, integrationBySlug } from "./integration-pages.js";
 import { RAILS_OR, RAILS_AMP } from "./rails.js";
 import { TIERS, METERED_MAX_QUOTE_USD, EMBEDDINGS_PRICE } from "./tools/llm-gateway-kit.js";
 // Derived at module load from the live tier table so the guide can never say a
@@ -1714,6 +1715,7 @@ export function guidePage(baseUrl, slug) {
   <div class="gp-body">
     ${marked.parse(g.md)}
   </div>
+  ${integrationsBlock(g.slug)}
   <a href="/guides" class="gp-back">Back to guides</a>
 </div>
 ${ledgerFooterCompact()}`;
@@ -1723,3 +1725,12 @@ ${ledgerFooterCompact()}`;
 }
 
 export const guideSlugs = () => GUIDES.map((g) => g.slug);
+export const guideTitles = () => Object.fromEntries(GUIDES.map((g) => [g.slug, g.title]));
+
+// The packages a reader of this guide will install next, each linking to its
+// /integrations page (map derived in integration-pages.js).
+function integrationsBlock(slug) {
+  const list = (GUIDE_INTEGRATIONS[slug] || []).map(integrationBySlug).filter(Boolean);
+  if (!list.length) return "";
+  return `<div class="gp-body"><h2>Packages for this guide</h2><ul>${list.map((i) => `<li><a href="/integrations/${esc(i.slug)}">${esc(i.name)}</a> (<code>${esc(i.pkg)}</code>)</li>`).join("")}</ul></div>`;
+}

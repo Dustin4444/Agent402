@@ -172,7 +172,9 @@ import { glossaryPage } from "./glossary.js";
 import { x402101Page } from "./x402-101.js";
 import { aifiCardSvg } from "./aifi-card.js";
 import { sectionCardSvg, ogSectionIds } from "./og-cards.js";
-import { robotsTxt, sitemapXml, llmsTxt, sitemapIndex, sitemapPages, sitemapTools, sitemapGuides, sitemapSkills, sitemapReports, sitemapCategories } from "./seo.js";
+import { robotsTxt, sitemapXml, llmsTxt, llmsFullTxt, sitemapIndex, sitemapPages, sitemapTools, sitemapGuides, sitemapSkills, sitemapReports, sitemapCategories, sitemapLearn } from "./seo.js";
+import { integrationPage } from "./integration-pages.js";
+import { learnPage, learnIndex } from "./learn.js";
 import { skillMd } from "./skill-md.js";
 import { createMcpMppLoopback } from "./mcp-mpp.js";
 import { serviceManifest, reliabilityReport } from "./discovery.js";
@@ -340,7 +342,7 @@ import { MODERATE_TOOLS } from "./tools/moderate-kit.js";
 import { CDP_TOOLS } from "./tools/cdp-kit.js";
 import { toolPage, toolsIndexPage, openapiSpec, toolList, CATEGORIES, faqPage, categoryPage, relatedTools } from "./pages.js";
 import { mountMcp } from "./mcp-http.js";
-import { guidesIndex, guidePage } from "./guides.js";
+import { guidesIndex, guidePage, guideTitles } from "./guides.js";
 import { skillsIndex, skillPackPage, skillPacksJson, SKILL_PACKS, buildPromptMessages } from "./skills.js";
 import { docsIndex, docsPage, docsApi, DOCS_SITE_ROUTES } from "./docs.js";
 import { shopPage } from "./shop.js";
@@ -2465,6 +2467,7 @@ app.use(express.json({ limit: "100kb" }));
 // connector's search_tools/find_tool land here too (wired in mcp-http.js).
 const DISCOVERY_SURFACES = new Map([
   ["/llms.txt", "llms.txt"],
+  ["/llms-full.txt", "llms-full.txt"],
   ["/SKILL.md", "skill.md"],
   ["/skill.md", "skill.md"],
   ["/openapi.json", "openapi.json"],
@@ -2944,6 +2947,19 @@ app.get("/og/agentic-finance.png", async (_req, res) => {
 });
 app.get("/faq", (_req, res) => htmlCache(res, 300, 900).send(faqPage(BASE_URL)));
 app.get("/integrations", (_req, res) => htmlCache(res, 300, 900).send(ledgerIntegrationsPage(BASE_URL)));
+// One page per published package (src/integration-pages.js); tool links resolve against CATALOG.
+app.get("/integrations/:slug", (req, res) => {
+  const html = integrationPage(BASE_URL, String(req.params.slug || ""), CATALOG, guideTitles());
+  if (!html) return notFoundPage(res, { what: "Integration", href: "/integrations", label: "All integrations" });
+  htmlCache(res, 300, 900).send(html);
+});
+// Explainers for the core terms (src/learn.js); /glossary links each term here.
+app.get("/learn", (_req, res) => htmlCache(res, 300, 900).send(learnIndex(BASE_URL)));
+app.get("/learn/:slug", (req, res) => {
+  const html = learnPage(BASE_URL, String(req.params.slug || ""));
+  if (!html) return notFoundPage(res, { what: "Explainer", href: "/learn", label: "All explainers" });
+  htmlCache(res, 300, 900).send(html);
+});
 app.get("/pricing", (_req, res) => htmlCache(res, 300, 900).send(ledgerPricingPage(BASE_URL, CATALOG)));
 // Live consolidated revenue view — every rail's wallet on one page instead
 // of one explorer tab per chain. Server-side reads with a 60s module cache;
@@ -3769,6 +3785,7 @@ app.get("/sitemap-reports.xml", (_req, res) => { res.setHeader("Cache-Control", 
 app.get("/sitemap-tools.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapTools(BASE_URL, CATALOG)); });
 app.get("/sitemap-categories.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapCategories(BASE_URL, CATALOG)); });
 app.get("/sitemap-guides.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapGuides(BASE_URL)); });
+app.get("/sitemap-learn.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapLearn(BASE_URL)); });
 app.get("/sitemap-skills.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapSkills(BASE_URL)); });
 // Status page. The availability history comes from externally-observed probes
 // (src/status-store.js); the live bucket reads are self-reported and labelled
@@ -6093,6 +6110,7 @@ if (process.env.INDEXNOW_KEY) {
 }
 app.get("/sitemap.xml", (_req, res) => res.type("application/xml").set("Cache-Control", "public, max-age=3600").send(sitemapXml(BASE_URL, CATALOG)));
 app.get("/llms.txt", (_req, res) => res.type("text/plain").set("Cache-Control", "public, max-age=3600").send(llmsTxt(BASE_URL, CATALOG)));
+app.get("/llms-full.txt", (_req, res) => res.type("text/plain").set("Cache-Control", "public, max-age=3600").send(llmsFullTxt(BASE_URL, CATALOG)));
 // /SKILL.md - agent-onboarding sheet ("Read <url>/SKILL.md and set up X" is
 // the prompt agent runtimes use for paid services). Lowercase alias too.
 const serveSkillMd = (_req, res) => res.type("text/markdown; charset=utf-8").set("Cache-Control", "public, max-age=3600").send(skillMd(BASE_URL, CATALOG));
