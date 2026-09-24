@@ -102,7 +102,7 @@ throws(() => validateRequest({ model: "gpt-4o-mini", messages: Array.from({ leng
 {
   const rej = (m) => { try { validateRequest({ model: m, messages: msg1() }, "v1-chat"); return null; } catch (e) { return e; } };
   const on = rej("openai/gpt-4o-mini:online");
-  ok(on?.statusCode === 400 && /:online/.test(on.message) && /web search/.test(on.message) && /openai\/gpt-4o-mini"/.test(on.message), `":online" refused with a self-explaining 400 naming the plain id (${on?.message})`);
+  ok(on?.statusCode === 400 && /:online/.test(on.message) && /grounded/.test(on.message) && !/billed/.test(on.message) && /openai\/gpt-4o-mini"/.test(on.message), `":online" refused with a self-explaining 400 naming the plain id (${on?.message})`);
   const ba = rej("openai/gpt-4o-mini:batch");
   ok(ba?.statusCode === 400 && /:batch/.test(ba.message) && /asynchronous/.test(ba.message), `":batch" refused with a self-explaining 400 (${ba?.message})`);
   ok(rej("openai/gpt-4o-mini:nitro") === null, "routing-only variant :nitro still admitted");
@@ -1127,7 +1127,7 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   // Advertised on /v1/models the way the loop limits are.
   const list = modelsList().data;
   const proRow = list.find((m) => m.x402.tier === "v1-chat-pro"), nanoRow = list.find((m) => m.id === "openai/gpt-5.6-luna" && m.x402.tier === "v1-chat-nano"), baseRow = list.find((m) => m.id === "openai/gpt-4o-mini" && m.x402.tier === "v1-chat");
-  ok(proRow?.x402.serviceTiers?.priority?.upstreamPriceFactor === PRIORITY_PRICE_FACTOR && JSON.stringify(proRow.x402.serviceTiers.priority.values) === '["priority","fast"]' && proRow.x402.serviceTiers.priority.param === "service_tier", "/v1/models: pro rows advertise the priority knob with its spellings and the upstream factor");
+  ok(proRow?.x402.serviceTiers?.priority && !("upstreamPriceFactor" in proRow.x402.serviceTiers.priority) && JSON.stringify(proRow.x402.serviceTiers.priority.values) === '["priority","fast"]' && proRow.x402.serviceTiers.priority.param === "service_tier", "/v1/models: pro rows advertise the priority knob with its spellings and no upstream price factor");
   ok(nanoRow?.x402.serviceTiers?.priority === false && nanoRow.x402.serviceTiers.flexFirst === true && baseRow?.x402.serviceTiers?.flexFirst === false, "/v1/models: nano says priority false and flexFirst true on luna; base says flexFirst false on gpt-4o-mini");
 }
 
@@ -1164,7 +1164,7 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
     ok(e?.statusCode === 400, `rerank ${label} -> 400 (${e?.message?.slice(0, 60)})`);
   }
   { let r4 = null; try { validateRerankRequest({ query: "q", documents: ["a"], model: "cohere/rerank-4-fast" }); } catch (x) { r4 = x; }
-    ok(r4?.statusCode === 400 && /rerank-4-fast bills \$0\.002 per search unit/.test(r4.message) && /the only rerank model served at \$0\.002/.test(r4.message), "rerank-4-fast refusal says why: it bills the whole $0.002 price per search unit (measured live 2026-09-18)"); }
+    ok(r4?.statusCode === 400 && /the only rerank model served/.test(r4.message) && !/\$/.test(r4.message), "rerank-4-fast refusal names the served model and quotes no upstream figure"); }
   ok(rerankCacheKey({ query: "q", documents: ["b", "a"] }) === rerankCacheKey({ documents: ["b", "a"], query: "q" }) && rerankCacheKey({ query: "q", documents: ["a", "b"] }) !== rerankCacheKey({ query: "q", documents: ["b", "a"] }) && rerankCacheKey({ query: "q", documents: ["a"], cache: false }) === null, "cache key: field order collapses, document order matters, cache:false opts out");
   process.env.OPENROUTER_API_KEY = "test-key";
   const realFetch = globalThis.fetch;
