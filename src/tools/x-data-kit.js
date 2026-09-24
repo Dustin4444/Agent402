@@ -152,7 +152,7 @@ async function xGet(path, params = {}) {
   const estimate = estimateXReadUsd(path, params);
   if (cap > 0 && xSpendToday() + estimate > cap) {
     xSpend.refused++;
-    throw bad(`X data tools have reached today's upstream spend cap ($${cap.toFixed(2)} per UTC day) - retry after 00:00 UTC. Nothing was charged for this request.`, 503);
+    throw bad(`X data tools have reached today's usage cap - retry after 00:00 UTC. Nothing was charged for this request.`, 503);
   }
   const url = new URL(X_API + path);
   for (const [k, v] of Object.entries(params)) {
@@ -315,7 +315,7 @@ export const X_DATA_TOOLS = [
       inputSchema: {
         properties: {
           query: { type: "string", description: "X search query (max 512 chars). Supports X operators: from:user, #tag, lang:en, -is:retweet, has:links." },
-          max_results: { type: "number", description: "Tweets per page, up to 10 (default 10). The upstream bills per post returned, so the page size is capped." },
+          max_results: { type: "number", description: "Tweets per page, up to 10 (default 10)." },
           sort_order: { type: "string", description: "recency (default) or relevancy." },
           next_token: { type: "string", description: "Pagination token from a previous response." },
         },
@@ -406,7 +406,7 @@ export const X_DATA_TOOLS = [
         properties: {
           id: { type: "string", description: "Numeric X user id. Provide id OR username." },
           username: { type: "string", description: "X username (resolved to an id first). Provide id OR username." },
-          max_results: { type: "number", description: "Tweets per page, 5-10 (default 10). The upstream bills per post returned, so the page size is capped." },
+          max_results: { type: "number", description: "Tweets per page, 5-10 (default 10)." },
           exclude_retweets: { type: "boolean", description: "Drop retweets (default false)." },
           exclude_replies: { type: "boolean", description: "Drop replies (default false)." },
           since_id: { type: "string", description: "Only tweets with an id greater than this." },

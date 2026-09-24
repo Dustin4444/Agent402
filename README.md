@@ -54,9 +54,8 @@ Operated by [Havok Holdings LLC](https://havok.holdings) · [Live](https://agent
 > that pays every tool by card (`Authorization: Bearer a402_…`, debited per
 > successful call; supported by `agent402-mcp` via `AGENT402_CREDITS_KEY` and
 > `agent402-client` via `{ creditsKey }`). The card price includes payment
-> processing: Stripe charges 2.9% + $0.30 per charge, so under about a dollar
-> the fee costs more than the report. An agent paying per call pays the lower
-> tool price for the same report.
+> processing. An agent paying per call pays the lower tool price for the same
+> report.
 >
 > **Two payment wires, one URL.** Every paid endpoint accepts **x402**
 > (`PAYMENT-SIGNATURE`, USDC on 12 chains) **and MPP** (Machine Payments
@@ -501,7 +500,7 @@ sha256 proof-of-work (sub-second; the MCP servers do it automatically). Details:
 
 Every claim links to the surface that proves it (the one-page version: [agent402.tools/why](https://agent402.tools/why)).
 
-1. **Pay for what the model used, with the ceiling quoted first.** The metered gateway (`POST /v1/metered/chat/completions`) quotes each 402 from the request's own body; a wallet paying `upto` settles actual usage under that ceiling, provider discounts such as prompt-cache reads pass through at cost, and every settled x402 or MPP response carries a receipt.
+1. **Pay for what the model used, with the ceiling quoted first.** The metered gateway (`POST /v1/metered/chat/completions`) quotes each 402 from the request's own body; a wallet paying `upto` settles actual usage under that ceiling, provider discounts such as prompt-cache reads pass through, and every settled x402 or MPP response carries a receipt.
 2. **A failed call is not charged, and the response proves it.** Settlement runs after the handler and an error status cancels it, so a response with no payment receipt, or a receipt marked `success:false`, moved no money; a retry carrying the same `Idempotency-Key` and the same payment credential replays the paid answer instead of paying again; the one residual case (a settled receipt on an error response) is detected by our own alarm and recorded as a debt in a refund ledger, never written off silently.
 3. **One key buys everything.** The same wallet or credits key pays for five LLM tiers on three wires (OpenAI chat, OpenAI Responses, Anthropic Messages), embeddings, rerank, images, video, speech, transcription, grounded answers with citations, 500+ tools, wallet-keyed memory and finished reports.
 4. **No wallet required.** [Prepaid credits by card](https://agent402.tools/credits), cards over MPP and card checkout for reports sit beside USDC or USDG on twelve chains and native MPP on Tempo.

@@ -236,7 +236,7 @@ All errors return a JSON body with an `error` string field.
 | `404` | Tool not found |
 | `409` | Conflict -- the request cannot be served as asked, and the body says how to fix it. Two cases: an execution tier too small for the resolved tool (retry on the rung named in the error, or call the tool directly), and external routing on a chain with no spending wallet (the error names the chains that are supported) |
 | `413` | Payload too large -- for the memory tools, the namespace quota is full: either the per-namespace key count (`MEMORY_MAX_NS_KEYS`, default 10,000) or the total-value byte budget (`MEMORY_MAX_NS_BYTES`, default 32 MB). Delete keys or shrink values |
-| `422` | Unprocessable -- the payment itself is structurally unusable. On Algorand, a signed transaction whose validity window cannot outlive the tool is rejected *before* the handler runs, so a dead transaction can never leave you refunded while our upstream spend is burned. Re-sign with a longer validity window |
+| `422` | Unprocessable -- the payment itself is structurally unusable. On Algorand, a signed transaction whose validity window cannot outlive the tool is rejected *before* the handler runs, so a dead transaction is never started. Re-sign with a longer validity window |
 | `429` | Rate limited -- retry after the `Retry-After` header value |
 | `500` | Internal server error |
 | `502` | Bad gateway -- upstream dependency failed |

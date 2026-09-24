@@ -1008,7 +1008,7 @@ export function cacheControlPref(input) {
   if (cc === false || cc === null) return null;
   if (!cc || typeof cc !== "object" || Array.isArray(cc)) throw bad('"cache_control" must be {type:"ephemeral"} (optional ttl:"5m"), or false to disable prompt caching');
   if (cc.type !== "ephemeral") throw bad('"cache_control.type" must be "ephemeral"');
-  if (cc.ttl !== undefined && cc.ttl !== "5m") throw bad('"cache_control.ttl" must be "5m" - the 1h tier doubles cache-write cost and is not offered at these flat prices');
+  if (cc.ttl !== undefined && cc.ttl !== "5m") throw bad('"cache_control.ttl" must be "5m" - the 1h tier is not offered at these flat prices');
   return { type: "ephemeral" };
 }
 
@@ -1408,7 +1408,7 @@ const PASSTHROUGH = [
  *  this and accepted "<model>:online" on nano (security review 2026-08-19). */
 export function refuseCostVariants(model) {
   const variant = String(model || "").includes(":") ? String(model).slice(String(model).indexOf(":") + 1).toLowerCase() : "";
-  if (variant === "online") throw bad(`Model variant ":online" is not offered - web search is billed per request on top of token pricing and is outside this tier's price. Use "${String(model).slice(0, String(model).indexOf(":"))}" instead (or POST /v1/grounded/chat/completions for grounded answers).`);
+  if (variant === "online") throw bad(`Model variant ":online" is not offered on this tier. Use "${String(model).slice(0, String(model).indexOf(":"))}" instead (or POST /v1/grounded/chat/completions for grounded answers).`);
   if (/-contributor(?:$|:)/i.test(String(model || ""))) throw bad(`Model "${String(model)}" is not offered - "contributor" listings are priced for the provider's use of the request data, and a buyer's prompt is never routed there. Use "${String(model).replace(/-contributor/i, "")}" instead.`);
   if (variant === "batch") throw bad(`Model variant ":batch" is not offered - batch ids are asynchronous (24h window) and not served on a synchronous path. Use "${String(model).slice(0, String(model).indexOf(":"))}" instead.`);
 }
@@ -1826,8 +1826,8 @@ export function validateServiceTier(input, tier) {
   if (tier.priority !== true) {
     const homes = tiersOfferingPriority();
     throw bad(
-      `The priority service tier is not offered on ${tier.route.split(" ")[1]} - the priority endpoint bills ${PRIORITY_PRICE_FACTOR}x the model's list price, which this tier's price does not cover. ` +
-      (homes.length ? `It is available at the same flat price on ${homes.join(" and ")} (the margin clamp sizes max_tokens for it).` : "It is not currently available on any tier.") +
+      `The priority service tier is not offered on ${tier.route.split(" ")[1]} - this tier's price does not cover it. ` +
+      (homes.length ? `It is available at the same flat price on ${homes.join(" and ")} (max_tokens may be sized down for it).` : "It is not currently available on any tier.") +
       ' Omit "service_tier"' + (speed === "fast" ? ' / send speed:"standard"' : "") + " to use the default tier here."
     );
   }
@@ -2551,7 +2551,7 @@ export function validateRerankRequest(input) {
   // bill $0.002 and $0.0025 per search unit - a live 4-fast call returned
   // usage.cost 0.002, i.e. 100% of this route's price against the 70% bound -
   // so neither is offered until the route is repriced. Refused by name.
-  if (input.model !== undefined && canonicalModel(input.model) !== RERANK_MODEL && String(input.model) !== "rerank-v3.5") throw bad(`"model" must be ${RERANK_MODEL} (the only rerank model served at $${RERANK_PRICE}; cohere/rerank-4-fast bills $0.002 per search unit upstream, the whole price, so it is not offered on this route)`);
+  if (input.model !== undefined && canonicalModel(input.model) !== RERANK_MODEL && String(input.model) !== "rerank-v3.5") throw bad(`"model" must be ${RERANK_MODEL} (the only rerank model served on this route)`);
   const query = input.query;
   if (typeof query !== "string" || !query.trim()) throw bad('"query" (string) is required');
   if (query.length > RERANK_MAX_QUERY_CHARS) throw bad(`"query" too long (${query.length} chars; max ${RERANK_MAX_QUERY_CHARS})`);
@@ -2575,7 +2575,7 @@ export function validateRerankRequest(input) {
   const qTok = Math.ceil(countTokensBounded(query) * 1.2);
   let chunks = 0;
   for (const d of documents) chunks += Math.max(1, Math.ceil((Math.ceil(countTokensBounded(d) * 1.2) + qTok) / RERANK_CHUNK_TOKENS));
-  if (chunks > RERANK_MAX_CHUNKS) throw bad(`documents + query tokenize to ~${chunks} rerank chunks (500 tokens each, query included); max ${RERANK_MAX_CHUNKS} per call (one search unit) - shorten the documents or split the set`);
+  if (chunks > RERANK_MAX_CHUNKS) throw bad(`documents + query tokenize to ~${chunks} rerank chunks (500 tokens each, query included); max ${RERANK_MAX_CHUNKS} per call - shorten the documents or split the set`);
   const body = { model: RERANK_MODEL, query, documents };
   if (input.top_n !== undefined) {
     const n = Number(input.top_n);
@@ -3348,7 +3348,7 @@ const AUTO_INPUT_SCHEMA = {
     messages: INPUT_SCHEMA.properties.messages,
     model: { type: "string", description: 'Optional - omit (or send "auto") for eval-ranked server-side routing. An explicit model from the auto ranking is honored at the auto caps.' },
     quality: { type: "string", description: 'Optional routing band when the gateway picks the model: "fast" (cheapest/snappiest), "balanced" (default), "best" (strongest under the flat price). Never changes the price.' },
-    service_tier: { type: "string", description: 'Optional. "priority" (alias "fast") asks for the model\'s priority endpoint on /v1/pro and /v1/premium at the same flat price; the margin clamp prices the call at the priority rate, so max_tokens may be sized down. Refused with the reason on the other tiers; "flex" is applied by the gateway automatically and not accepted as a request.' },
+    service_tier: { type: "string", description: 'Optional. "priority" (alias "fast") asks for the model\'s priority endpoint on /v1/pro and /v1/premium at the same flat price; max_tokens may be sized down. Refused with the reason on the other tiers; "flex" is applied by the gateway automatically and not accepted as a request.' },
     max_tokens: INPUT_SCHEMA.properties.max_tokens,
   },
   required: ["messages"],
@@ -3364,7 +3364,7 @@ export const LLM_GATEWAY_TOOLS = [
     // payments.js: a `quote` makes the x402 price a per-request function of the body.
     quote: (body) => meteredQuoteUsd(body).usd,
     description:
-      `OpenAI-compatible chat completions billed per request from what the call costs: the 402 quotes exact-BPE input plus your max_tokens at the model's list price, times ${METER_MARKUP}, from $${METER_MIN_SETTLE_USD} up to a $${METERED_MAX_QUOTE_USD} per-call cap. Any model from the flat tiers (GET /v1/models). Pay the quote over x402 exact, or authorize it as a ceiling over upto and settle actual usage. Set max_tokens to what you need: it is what you pay for.`,
+      `OpenAI-compatible chat completions billed per request from what the call costs: the 402 quotes exact-BPE input plus your max_tokens, from $${METER_MIN_SETTLE_USD} up to a $${METERED_MAX_QUOTE_USD} per-call cap. Any model from the flat tiers (GET /v1/models). Pay the quote over x402 exact, or authorize it as a ceiling over upto and settle actual usage. Set max_tokens to what you need: it is what you pay for.`,
     tags: [...["llm", "ai", "inference", "chat", "gateway", "openai-compatible", "openrouter"], "metered", "pay-per-token"],
     discovery: { bodyType: "json", input: { model: "openai/gpt-4o-mini", messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 5 }, inputSchema: INPUT_SCHEMA, output: { example: { ...EXAMPLE_OUT, model: "openai/gpt-4o-mini" } } },
     handler: makeHandler("v1-chat-metered"),
@@ -3405,7 +3405,7 @@ export const LLM_GATEWAY_TOOLS = [
     category: "llm",
     price: "$0.03",
     description:
-      'OpenAI-compatible chat completions GROUNDED in a live web search on every call: the gateway runs an Exa search (up to 5 results) for the prompt, hands the results to the model, and returns the answer with url_citation annotations - $0.03 per call in USDC, no API key, no signup. Model is chosen server-side like the auto tier (omit "model" or send "auto"; explicit ranked models accepted); the response adds agent402_router {category, quality, served}. The sanctioned way to get live-web answers from the gateway (":online" model variants are refused elsewhere because search is billed per request). Caps 16k chars in / 1024 tokens out. Streaming supported. Never cached - the web moves.',
+      'OpenAI-compatible chat completions GROUNDED in a live web search on every call: the gateway runs an Exa search (up to 5 results) for the prompt, hands the results to the model, and returns the answer with url_citation annotations - $0.03 per call in USDC, no API key, no signup. Model is chosen server-side like the auto tier (omit "model" or send "auto"; explicit ranked models accepted); the response adds agent402_router {category, quality, served}. The sanctioned way to get live-web answers from the gateway (":online" model variants are refused elsewhere). Caps 16k chars in / 1024 tokens out. Streaming supported. Never cached - the web moves.',
     tags: [...SHARED_TAGS, "router", "grounded", "web-search", "citations"],
     discovery: {
       bodyType: "json",
@@ -3670,7 +3670,7 @@ export function modelsList() {
             serviceTiers: {
               flexFirst: !p.endsWith("/") && flexEligible(PREFIX_CANONICAL[p.toLowerCase()] || p),
               priority: tier.priority === true
-                ? { param: "service_tier", values: [...PRIORITY_SERVICE_TIER_VALUES], upstreamPriceFactor: PRIORITY_PRICE_FACTOR, note: `Same $${tier.price} per call. The margin clamp prices the request at ${PRIORITY_PRICE_FACTOR}x the model's rate, so a long prompt gets a smaller max_tokens or a 400 before any spend. Models with no priority endpoint are served on the default tier.` }
+                ? { param: "service_tier", values: [...PRIORITY_SERVICE_TIER_VALUES], note: `Same $${tier.price} per call. A long prompt may get a smaller max_tokens or a 400 before the call. Models with no priority endpoint are served on the default tier.` }
                 : false,
             },
           } : {}),

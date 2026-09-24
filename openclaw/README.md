@@ -57,11 +57,11 @@ wallet. The key never leaves the machine.
 Two ways the wallet can pay a metered call:
 
 - **exact** (default): the 402 quotes the call from its body (input + your
-  `max_tokens` at the model's list price, x1.15) and the wallet pays that quote.
+  `max_tokens`) and the wallet pays that quote.
 - **upto, actual usage**: run `agent402-openclaw permit2-approve` once (one USDC
   approval transaction on Base; the wallet needs a little ETH for gas). From
   then on the proxy authorizes the quote as a CEILING and the gateway settles
-  what the call actually cost x1.15, so a short answer costs a fraction of the
+  what the call actually used, so a short answer costs a fraction of the
   quote. `agent402-openclaw doctor` says which mode the wallet is in.
 
 Card / credits buyers already pay actual usage on metered calls.
@@ -71,8 +71,8 @@ Card / credits buyers already pay actual usage on metered calls.
 `auto` (routed per prompt, flat $0.01/call) plus every id from
 `GET https://agent402.tools/v1/models`. Explicit models are **metered by default**:
 the proxy sends them to the gateway's metered route, where each request is quoted
-from its body (exact-BPE input plus your `max_tokens` at the model's list price,
-times 1.15, from $0.001, capped at $2 per call), so a short call costs a fraction
+from its body (input plus your `max_tokens`, from $0.001, capped at $2 per
+call), so a short call costs a fraction
 of a cent and a long one pays for what it asks. `--flat` (or
 `AGENT402_PRICING=flat`) keeps every model on its flat per-call tier instead.
 Either way OpenClaw's per-token cost fields stay zero; the price is per call. A model sent to another flat

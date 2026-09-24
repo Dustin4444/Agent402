@@ -277,7 +277,7 @@ export function validateVideosRequest(input) {
     throw bad('"size" must be 1280x720 or 720x1280 (720p, landscape or portrait)');
   }
   if (input.generate_audio === true) {
-    throw bad('"generate_audio" is not available on this endpoint - audio doubles the upstream bill; clips are silent');
+    throw bad('"generate_audio" is not available on this endpoint; clips are silent');
   }
   if (input.n !== undefined && parseInt(input.n, 10) !== 1) throw bad('"n" is locked to 1 - the flat price is per clip');
   if (input.frame_images !== undefined || input.input_references !== undefined || input.input_reference !== undefined) {

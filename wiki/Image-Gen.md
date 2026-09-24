@@ -89,16 +89,16 @@ curl -X POST https://agent402.tools/api/image-gen-premium \
 
 All three return `402` without a valid x402 payment header -- the same flow as every other paid tool. See [[Paying with x402]] for how to sign and attach payment.
 
-## Operator caps that protect margins
+## Per-tier caps
 
-The per-tier caps are set so that the worst-case upstream OpenAI cost stays comfortably below the x402 price charged to the caller:
+Each tier bounds what a single call can ask for:
 
 - **Prompt cap** (chars) limits how much text the caller can send, bounding input-token cost.
 - **Quality lock** per tier prevents a caller from requesting higher quality than the tier's price covers.
 - **Size lock** (1024x1024) prevents a caller from requesting larger images that cost more upstream.
 - **Model lock** per tier prevents a caller from requesting a more expensive model than the tier covers.
 
-These caps are enforced server-side before the upstream call is made -- a misconfigured client cannot cause the operator to lose money.
+These caps are enforced server-side before the upstream call is made.
 
 ## Environment gating
 

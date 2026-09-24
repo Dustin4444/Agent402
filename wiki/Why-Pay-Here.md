@@ -6,7 +6,7 @@ Seven things that are different about paying here. Every claim links to the surf
 
 ## 01 / Price - Pay for what the model used, with the ceiling quoted first.
 
-On the metered gateway every 402 quotes this exact request from its own body. A wallet that can pay upto settles the actual usage under that ceiling; provider discounts such as prompt-cache reads pass through at cost. Every settled x402 or MPP response carries a receipt.
+On the metered gateway every 402 quotes this exact request from its own body. A wallet that can pay upto settles the actual usage under that ceiling; provider discounts such as prompt-cache reads pass through. Every settled x402 or MPP response carries a receipt.
 
 - The metered tier: https://agent402.tools/tools/v1-chat-metered
 - OpenClaw setup: https://agent402.tools/guides/openclaw-model-provider
