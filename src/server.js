@@ -342,7 +342,7 @@ import { toolPage, toolsIndexPage, openapiSpec, toolList, CATEGORIES, faqPage, c
 import { mountMcp } from "./mcp-http.js";
 import { guidesIndex, guidePage } from "./guides.js";
 import { skillsIndex, skillPackPage, skillPacksJson, SKILL_PACKS, buildPromptMessages } from "./skills.js";
-import { docsIndex, docsPage, docsApi } from "./docs.js";
+import { docsIndex, docsPage, docsApi, DOCS_SITE_ROUTES } from "./docs.js";
 import { shopPage } from "./shop.js";
 import { integrationsPage } from "./integrations.js";
 import { changelogPage, changelogRss } from "./changelog.js";
@@ -1901,6 +1901,20 @@ app.use((req, res, next) => {
     return res.redirect(keepMethod ? 308 : 301, `${BASE_URL.replace(/\/$/, "")}${req.originalUrl}`);
   }
   next();
+});
+
+// Trailing slash on a page URL: 301 to the slashless form, query kept. Pages
+// only (GET/HEAD); machine routes answer where they are called. A path that
+// starts with "//" is left alone so the Location can never be protocol-relative.
+const SLASH_REDIRECT_SKIP = /^\/(api|v1|mcp|e|__|\.well-known)(\/|$)/;
+app.use((req, res, next) => {
+  if (req.method !== "GET" && req.method !== "HEAD") return next();
+  const path = req.path;
+  if (path.length < 2 || !path.endsWith("/") || path.startsWith("//") || SLASH_REDIRECT_SKIP.test(path)) return next();
+  const clean = path.replace(/\/+$/, "");
+  if (!clean || clean.startsWith("//")) return next();
+  const q = req.originalUrl.indexOf("?");
+  return res.redirect(301, clean + (q >= 0 ? req.originalUrl.slice(q) : ""));
 });
 
 // PostHog reverse proxy: serve posthog-js AND ingest its events first-party
@@ -3717,6 +3731,14 @@ app.get("/changelog", (_req, res) => htmlCache(res, 300, 900).send(changelogPage
 app.get("/use-cases", (_req, res) => htmlCache(res, 300, 900).send(useCasesPage(BASE_URL)));
 app.get("/playground", (_req, res) => htmlCache(res, 300, 900).send(playgroundPage(BASE_URL, CATALOG)));
 app.get("/sdk-playground", (_req, res) => htmlCache(res, 300, 900).send(sdkPlaygroundPage(BASE_URL)));
+// Capitalised wiki URLs whose page the site serves at a lowercase route: 301
+// there (exact-case match; Express string routes are case-insensitive).
+const DOCS_REDIRECTS = { "/docs/Home": "/docs", ...Object.fromEntries(Object.entries(DOCS_SITE_ROUTES).map(([slug, href]) => [`/docs/${slug}`, href])) };
+app.get(/^\/docs\/[^/]+$/, (req, res, next) => {
+  if (!Object.hasOwn(DOCS_REDIRECTS, req.path)) return next();
+  const q = req.originalUrl.indexOf("?");
+  res.redirect(301, DOCS_REDIRECTS[req.path] + (q >= 0 ? req.originalUrl.slice(q) : ""));
+});
 app.get("/docs/api/explorer", (_req, res) => htmlCache(res, 300, 900).send(apiExplorerPage(BASE_URL)));
 app.get("/blog", (_req, res) => htmlCache(res, 300, 900).send(blogIndex(BASE_URL)));
 // The catalog-milestone post was renamed 2026-08-18 (its old slug carried an

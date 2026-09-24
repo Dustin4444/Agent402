@@ -49,6 +49,11 @@ const WIKI = loadWikiFiles();
 const SIDEBAR_RAW = loadSidebarRaw();
 const VALID_SLUGS = new Set(Object.keys(WIKI));
 
+// Wiki pages the site renders natively at a lowercase route. The capitalised
+// URL 301s there, and every internal link points straight at it.
+export const DOCS_SITE_ROUTES = { Adapters: "/docs/adapters" };
+const docHref = (slug) => (slug === "Home" ? "/docs" : DOCS_SITE_ROUTES[slug] || `/docs/${slug}`);
+
 // Wikilink transform: `[[Display|Slug]]` and `[[Page Name]]`. GitHub-style
 // wikilinks use spaces in the rendered text but hyphens in the filename
 // (`Pay-per-crawl.md`). We mirror that here.
@@ -60,17 +65,17 @@ function transformWikilinks(md) {
   return md
     .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, (_m, display, target) => {
       const slug = target.trim();
-      return `[${display.trim()}](/docs/${slug})`;
+      return `[${display.trim()}](${docHref(slug)})`;
     })
     .replace(/\[\[([^\]]+)\]\]/g, (_m, name) => {
       const slug = slugFromPageName(name);
-      return `[${name.trim()}](/docs/${slug})`;
+      return `[${name.trim()}](${docHref(slug)})`;
     })
     // GitHub-wiki-style RELATIVE markdown links, `[text](Page-Slug)`: on the
     // wiki they resolve to the sibling page; served under /docs they resolved
     // to the site root and 404'd (five of them, found by the 2026-09-09 link
     // crawl). Only a slug that names a real wiki page is rewritten.
-    .replace(/\]\(([A-Za-z0-9][A-Za-z0-9-]*)\)/g, (m, slug) => (VALID_SLUGS.has(slug) ? `](/docs/${slug})` : m));
+    .replace(/\]\(([A-Za-z0-9][A-Za-z0-9-]*)\)/g, (m, slug) => (VALID_SLUGS.has(slug) ? `](${docHref(slug)})` : m));
 }
 
 // Parse the GitHub-flavored _Sidebar.md into a normalized structure we can
@@ -153,7 +158,7 @@ function flatDocEntries() {
   const entries = [{ slug: "Home", display: "Home", href: "/docs" }];
   for (const sec of SIDEBAR_SECTIONS) {
     for (const it of sec.items) {
-      if (it.kind === "doc" && it.slug !== "Home") entries.push({ slug: it.slug, display: it.display, href: `/docs/${it.slug}` });
+      if (it.kind === "doc" && it.slug !== "Home") entries.push({ slug: it.slug, display: it.display, href: docHref(it.slug) });
     }
   }
   return entries;
@@ -176,8 +181,8 @@ export function renderSidebar(currentSlug) {
     for (const it of sec.items) {
       if (it.kind === "doc") {
         const active = it.slug === currentSlug ? " active" : "";
-        // Home in the wiki sidebar links to /docs (the index), not /docs/Home.
-        const href = it.slug === "Home" ? "/docs" : `/docs/${it.slug}`;
+        // Home links to /docs (the index), not /docs/Home.
+        const href = docHref(it.slug);
         parts.push(`<li><a class="ml-docs-side-a${active}" href="${href}">${esc(it.display)}</a></li>`);
       } else {
         parts.push(`<li><a class="ml-docs-side-a" href="${esc(it.href)}" rel="noopener">${esc(it.display)} &#8599;</a></li>`);
@@ -325,6 +330,22 @@ function renderMarkdown(md) {
   return marked.parse(transformWikilinks(md));
 }
 
+/** Meta description from a page's first real prose paragraph: skips headings,
+ * blockquote banners, tables, lists, code and HTML, then strips markdown. */
+export function docDescription(md, title) {
+  const paras = String(md).replace(/```[\s\S]*?```/g, "").split(/\n\s*\n/);
+  for (const raw of paras) {
+    const t = raw.trim();
+    if (!t || /^(#|>|\||[-*+] |\d+\. |<|!\[|---|\*\*\*)/.test(t)) continue;
+    const text = t
+      .replace(/\[\[([^\]|]+)\|[^\]]+\]\]/g, "$1").replace(/\[\[([^\]]+)\]\]/g, "$1")
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, "").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+      .replace(/<[^>]+>/g, "").replace(/[*_`]+/g, "").replace(/\s+/g, " ").trim();
+    if (text.length >= 40) return text; // the shell trims to snippet length
+  }
+  return `Agent402 documentation: ${title}.`;
+}
+
 export function docsIndex(baseUrl) {
   const home = WIKI["Home"];
   if (!home) {
@@ -350,9 +371,8 @@ export function docsIndex(baseUrl) {
 export function docsPage(baseUrl, slug) {
   const md = Object.hasOwn(WIKI, slug) ? WIKI[slug] : null;
   if (!md) return null;
-  const title = slug.replace(/-/g, " ");
-  const firstPara = (md.replace(/^#.*$/m, "").match(/\n\n([^\n#][^\n]+)/) || [])[1] || `Agent402 documentation: ${title}.`;
-  const description = firstPara.replace(/\s+/g, " ").trim().slice(0, 200);
+  const title = slug === "API-Reference" ? "API Reference Guide" : slug.replace(/-/g, " ");
+  const description = docDescription(md, title);
   const crumbs = `<div class="ml-docs-crumbs"><a href="/docs">Docs</a> &rsaquo; ${esc(title)}</div>`;
   return shell(
     baseUrl,
