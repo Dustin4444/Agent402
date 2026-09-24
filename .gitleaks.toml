@@ -119,6 +119,11 @@ regexes = [
   '''7140dibdnow9c7btw4xxxxx''',
   '''1800000000000000001''',
   '''1800000000000000002''',
+  # 2026-09-24 test fixtures with no live counterpart (checked against the real
+  # keys): a placeholder FRED key in test-macro-kit.js, and the string
+  # test-mpp-tempo-shim.js proves is never relayed to a buyer.
+  '''0123456789abcdef0123456789abcdef''',
+  '''tempo-api-key-SECRET-123''',
   # The fixture JWTs, allowlisted by their PAYLOADS (2026-09-22). This used to
   # be a stopword on the HS256 header, which is the first segment of EVERY
   # HS256 token: a planted Supabase-shaped service_role key was flagged by the
