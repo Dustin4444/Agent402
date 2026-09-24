@@ -135,6 +135,10 @@ export function productDefFor(product) {
 }
 /** True for the canary product only. */
 export const isCanaryProduct = (product) => String(product ?? "") === CANARY_PRODUCT_KEY;
+/** A canary run lasts at most its workflow's 10-minute timeout (one period,
+ *  the renewal wait and the transient retry). A rail-canary record older than
+ *  this is one the run never closed. */
+export const CANARY_SWEEP_AFTER_MS = Number(process.env.MPP_CANARY_SWEEP_AFTER_MS) > 0 ? Number(process.env.MPP_CANARY_SWEEP_AFTER_MS) : 30 * 60 * 1000;
 // How long the standing authorization is good for. The buyer signs this, so it
 // is the hard ceiling on how long we could ever pull from them.
 export const SUBSCRIPTION_TERM_MS = 365 * 24 * 60 * 60 * 1000;
@@ -721,11 +725,21 @@ export function createMppSubscriptions({
       // lookup key and once by address, and the address entry's real prefix is
       // `<accessKeyPrefix>address:` - a hand-written prefix here would leave
       // live private-key material on disk while the sweep reported success.
-      for (const [k2, v2] of Object.entries(snap)) {
-        if (v2 && typeof v2 === "object" && v2.privateKey && String(v2.accessKeyAddress || "").toLowerCase() === addr) await kv.delete(k2);
-      }
+      await destroyAccessKey(addr, snap);
     }
     return open;
+  }
+  /** Delete OUR private half of one access key, by content match (see the
+   *  note in sweepOffers). With it gone the buyer's standing authorization for
+   *  that key can never be exercised by anyone. Returns how many records went. */
+  async function destroyAccessKey(address, snap = kv._snapshot()) {
+    const addr = String(address || "").toLowerCase();
+    if (!/^0x[0-9a-f]{40}$/.test(addr)) return 0;
+    let n = 0;
+    for (const [k2, v2] of Object.entries(snap)) {
+      if (v2 && typeof v2 === "object" && v2.privateKey && String(v2.accessKeyAddress || "").toLowerCase() === addr) { await kv.delete(k2); n++; }
+    }
+    return n;
   }
 
   // --- the offer -------------------------------------------------------------
@@ -1125,15 +1139,49 @@ export function createMppSubscriptions({
     if (rec.status === "canceled") return publicView(rec);
     const at = now();
     const endsAt = paidThroughAt(rec);
-    const stillPaid = at < endsAt && rec.status === "active";
+    // The rail canary's own subscription closes AT ONCE. Honouring the paid
+    // period is a promise to a subscriber; the canary is our own money on both
+    // ends, and nothing else ever refreshes a canary record (listActive skips
+    // its product, and only the canary's own ?refresh=1 pulls it), so "cancel
+    // at period end" left canary records reading `active` indefinitely.
+    const canaryRec = isCanaryProduct(rec.product);
+    const stillPaid = !canaryRec && at < endsAt && rec.status === "active";
     const next = {
       ...rec, cancelAtPeriodEnd: true,
       canceledAt: new Date(at).toISOString(), canceledReason: "requested",
       status: stillPaid ? "active" : "canceled",
     };
     await writeRec(next);
+    // A closed canary record's access key is never needed again; drop our
+    // private half so the burner's standing authorization is inert.
+    if (canaryRec) await destroyAccessKey(rec.accessKeyAddress);
     log(`[mpp-subs] canceled ${subId} (${stillPaid ? `active until ${new Date(endsAt).toISOString()}` : "immediately"})`);
     return publicView(next);
+  }
+
+  /** Close every rail-canary subscription a canary run failed to close itself
+   *  (a crashed run, a refused cancel, or a record from before cancel() closed
+   *  canary records at once). CANARY ONLY: the product is read from the STORED
+   *  record and must be the canary product; a real subscriber is never
+   *  touched, whatever its age or status. A record younger than `olderThanMs`
+   *  may belong to a run still in flight, so it is left alone. Writes status
+   *  only: no money moves and nothing is signed. Returns what it closed, with
+   *  each record's access key address so the burner can revoke it on-chain. */
+  async function sweepStaleCanaries({ olderThanMs = CANARY_SWEEP_AFTER_MS } = {}) {
+    const at = now();
+    const swept = [];
+    let skippedYoung = 0;
+    for (const rec of await allRecs()) {
+      if (!isCanaryProduct(rec.product)) continue;
+      if (rec.status === "canceled" || rec.status === "expired") continue;
+      const born = Date.parse(rec.createdAt || rec.billingAnchor || "");
+      if (Number.isFinite(born) && at - born < olderThanMs) { skippedYoung++; continue; }
+      await writeRec({ ...rec, status: "canceled", cancelAtPeriodEnd: true, canceledAt: rec.canceledAt || new Date(at).toISOString(), canceledReason: rec.canceledReason || "canary-sweep" });
+      const keysDestroyed = await destroyAccessKey(rec.accessKeyAddress);
+      swept.push({ subId: rec.subId, accessKeyAddress: rec.accessKeyAddress || null, keysDestroyed });
+    }
+    if (swept.length) log(`[mpp-subs] canary sweep closed ${swept.length} stale rail-canary subscription(s)`);
+    return { swept, skippedYoung };
   }
 
   // --- read surfaces ---------------------------------------------------------
@@ -1218,7 +1266,7 @@ export function createMppSubscriptions({
   }
 
   return {
-    offerInfo, mintOffer, activateFromCredential, refreshStatus, cancel, isCanarySub,
+    offerInfo, mintOffer, activateFromCredential, refreshStatus, cancel, isCanarySub, sweepStaleCanaries,
     listActive, get, isMine, status, warm, warmSync, manageToken, manageTokenOk, publicView,
     _store: kv, _subStore: subStore, _method: method,
     _feePayer: feePayer, _feePayerPolicy: feePayer ? subscriptionFeePayerPolicy() : null,

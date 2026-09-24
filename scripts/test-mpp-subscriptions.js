@@ -664,6 +664,52 @@ let liveSubId = null, liveHeader = null, liveToken = null, liveBuyer = null;
 }
 
 // ---------------------------------------------------------------------------
+// Group 9b: canary records close. 39 of 42 canary records read `active` in
+// production because cancel() honoured the paid period and nothing ever
+// refreshes a canary record afterwards. A canary cancel closes at once, and a
+// sweep closes the ones a run never cancelled - canary product ONLY.
+// ---------------------------------------------------------------------------
+{
+  const { engine } = makeEngine({ name: "canary-close" });
+  const privKeysFor = (addr) => Object.values(engine._store._snapshot()).filter((v) => v && typeof v === "object" && v.privateKey && String(v.accessKeyAddress || "").toLowerCase() === String(addr).toLowerCase()).length;
+  async function activateCanary(label) {
+    const offer = await engine.mintOffer({ product: CANARY_PRODUCT_KEY, target: label, canary: true });
+    const { header } = await signCredential(Challenge.deserialize(offer.header));
+    return engine.activateFromCredential(header);
+  }
+  async function activateReal() {
+    const offer = await engine.mintOffer({ product: "domain-monitor", target: "real-subscriber.example" });
+    const { header } = await signCredential(Challenge.deserialize(offer.header));
+    return engine.activateFromCredential(header);
+  }
+
+  const c1 = await activateCanary("canary-cancel");
+  const c1Rec = await engine._readRec(c1.subId);
+  ok(privKeysFor(c1Rec.accessKeyAddress) > 0, "control: an active canary subscription's access key is held (so the destroy assertion below can fail)");
+  const closed = await engine.cancel(c1.subId, c1.manageToken);
+  ok(closed.status === "canceled", "a canary cancel closes the record AT ONCE (the old answer was active-until-period-end, which nothing ever refreshed)");
+  ok(privKeysFor(c1Rec.accessKeyAddress) === 0, "and drops our private half of its access key, so the standing authorization is inert");
+
+  const real = await activateReal();
+  const realCancel = await engine.cancel(real.subId, real.manageToken);
+  ok(realCancel.status === "active" && realCancel.cancelAtPeriodEnd === true, "a REAL subscriber's cancel still honours the period already paid for");
+
+  const stale = await activateCanary("canary-stale");        // never cancelled (a crashed run)
+  const staleRec = await engine._readRec(stale.subId);
+  const realOpen = await activateReal();                     // a real subscriber, never cancelled
+  advance(60 * 60 * 1000);
+  const young = await activateCanary("canary-young");        // a run still in flight
+  const r = await engine.sweepStaleCanaries({ olderThanMs: 30 * 60 * 1000 });
+  ok(r.swept.length === 1 && r.swept[0].subId === stale.subId, `the sweep closes exactly the stale canary record (swept ${r.swept.length})`);
+  ok((await engine._readRec(stale.subId)).status === "canceled" && privKeysFor(staleRec.accessKeyAddress) === 0, "the swept record is canceled and its access key destroyed");
+  ok((await engine._readRec(young.subId)).status === "active" && r.skippedYoung === 1, "a canary record younger than the threshold is left for its run to finish");
+  ok((await engine._readRec(realOpen.subId)).status === "active", "a REAL subscriber is never swept, whatever its age");
+  ok((await engine._readRec(real.subId)).status === "active", "nor a real subscriber inside the paid period of a cancel");
+  const again = await engine.sweepStaleCanaries({ olderThanMs: 30 * 60 * 1000 });
+  ok(again.swept.length === 0, "the sweep is idempotent");
+}
+
+// ---------------------------------------------------------------------------
 // Group 10: the sponsored-gas policy. mppx caps maxGas at 2,000,000 by default
 // and an activation installs an access key on top of the transfer, so the
 // default is the wrong shape for this rail's heaviest leg.

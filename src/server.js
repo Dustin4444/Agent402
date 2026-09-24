@@ -2187,6 +2187,15 @@ try {
   }) : null;
   if (_mppSubs) console.log("MPP recurring subscriptions enabled (native tempo/subscription, pull billing)");
 } catch (e) { console.warn("[mpp-subs] init failed:", String(e?.message || e).slice(0, 200)); _mppSubs = null; }
+// Boot sweep: close rail-canary subscriptions a canary run left open (the
+// canary's own product only, never a real subscriber; see sweepStaleCanaries).
+// Deferred and unref'd so it never sits in the boot path.
+if (_mppSubs) {
+  const t = setTimeout(() => {
+    _mppSubs.sweepStaleCanaries().catch((e) => console.warn("[mpp-subs] canary sweep failed:", String(e?.message || e).slice(0, 200)));
+  }, 60_000);
+  t.unref?.();
+}
 // Prepaid card credits (src/credits.js): same rollout switch
 // as the human checkout. The GATE mounts inside the paywall block below
 // (before x402mw); the routes/pages mount with the other storefront routes.
@@ -3572,6 +3581,15 @@ app.get("/__operator/monitors.json", async (req, res) => {
   // (paid period, charge failures, next retry), so they get their own block.
   const mpp = _mppSubs ? await _mppSubs.status().catch((e) => ({ enabled: true, error: String(e?.message || e).slice(0, 200) })) : { enabled: false };
   res.set("Cache-Control", "no-store").json({ ...(_monitors ? _monitors.status() : { enabled: false }), mppSubscriptions: mpp });
+});
+// Close stale rail-canary subscriptions now (the boot sweep's lever). Canary
+// product only; a real subscriber is never touched. Status writes only.
+app.post("/__operator/mpp-subscriptions/sweep-canaries", async (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  if (!_mppSubs) return res.status(503).json({ error: "MPP subscriptions not enabled" });
+  const olderThanMs = Number(req.query.olderThanMs) > 0 ? Number(req.query.olderThanMs) : undefined;
+  try { res.set("Cache-Control", "no-store").json(await _mppSubs.sweepStaleCanaries(olderThanMs ? { olderThanMs } : {})); }
+  catch (e) { res.status(500).json({ error: String(e?.message || e).slice(0, 200) }); }
 });
 // Manual tick (all due subs, or ?sub=<id> with force): paid re-runs + email, so
 // it takes the heavy-route limiter like the other upstream-reaching operator
