@@ -58,6 +58,94 @@
       }
     },
     {
+      "slug": "search-lite",
+      "name": "numResults is read as count (6 is refused, not sent upstream)",
+      "input": {
+        "query": "federal reserve",
+        "numResults": 6
+      },
+      "expect": {
+        "status": 400,
+        "matches": {
+          "error": "count"
+        }
+      }
+    },
+    {
+      "slug": "search-lite",
+      "name": "max_results is read as count (9 is refused, not sent upstream)",
+      "input": {
+        "query": "federal reserve",
+        "max_results": 9
+      },
+      "expect": {
+        "status": 400,
+        "matches": {
+          "error": "count"
+        }
+      }
+    },
+    {
+      "slug": "search",
+      "name": "include_domains reaches the domain filter (a path is refused before any spend)",
+      "input": {
+        "query": "federal reserve",
+        "include_domains": [
+          "federalreserve.gov/newsevents"
+        ]
+      },
+      "expect": {
+        "status": 400,
+        "matches": {
+          "error": "not a hostname"
+        }
+      }
+    },
+    {
+      "slug": "search-news",
+      "name": "a domain in both lists is refused before any spend",
+      "input": {
+        "query": "federal reserve",
+        "includeDomains": [
+          "reuters.com"
+        ],
+        "exclude_domains": [
+          "reuters.com"
+        ]
+      },
+      "expect": {
+        "status": 400,
+        "matches": {
+          "error": "both"
+        }
+      }
+    },
+    {
+      "slug": "search",
+      "name": "a domain-filtered search names its filter",
+      "input": {
+        "query": "federal reserve",
+        "num_results": 3,
+        "include_domains": [
+          "federalreserve.gov"
+        ]
+      },
+      "requires": "BRAVE_API_KEY",
+      "expect": {
+        "equals": {
+          "domainFilter.includeDomains": [
+            "federalreserve.gov"
+          ]
+        },
+        "minCount": {
+          "results": 1
+        },
+        "populated": [
+          "results[0].url"
+        ]
+      }
+    },
+    {
       "slug": "search-news",
       "name": "past-day news",
       "input": {
