@@ -27,6 +27,9 @@ Since v2.4.0 (2026-09-18).
   liquidity figure on 2026-10-01 and it already reads zero on live books, so
   `liquidityUsd` is null with a `liquidityUsdNote` wherever Kalshi publishes
   no figure.
+- agent402-tollbooth 0.10.2: the Tempo settlement confirm used after a failed
+  relay broadcast requires the transfer's MPP memo to be bound to the
+  credential's own challenge.
 
 ### 2026-09-23
 - The model gateway serves Meta's Muse Spark (`meta/muse-spark-1.3`, `-1.2`,

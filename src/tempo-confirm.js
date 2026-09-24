@@ -23,10 +23,31 @@
 // a missing receipt, a reverted transaction, a transfer that does not match
 // the challenge — all return null and the original relay failure stands
 // (buyer answered 402, exactly as before this module existed).
+//
+// BOUND TO THIS CHALLENGE (2026-09-24). The hash binding says which
+// transaction the credential carries; the memo says which purchase it was
+// made for. Every mppx charge memo carries a nonce derived from its challenge
+// id (tempo/Attribution.js: TAG, version, server and client fingerprints,
+// keccak256(challengeId)[0..6]), so the transfer must be a TransferWithMemo
+// to our recipient whose memo is bound to the challenge this credential
+// presents. A transaction matches at most one challenge.
 import { Credential } from "mppx";
-import { keccak256, fromRlp } from "viem";
+import { keccak256, fromRlp, toBytes } from "viem";
 
-const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+// TIP-20 TransferWithMemo(address indexed from, address indexed to, uint256 amount, bytes32 indexed memo)
+export const TRANSFER_WITH_MEMO_TOPIC = keccak256(toBytes("TransferWithMemo(address,address,uint256,bytes32)"));
+const MPP_TAG = keccak256(toBytes("mpp")).slice(2, 10);
+
+/** Is this bytes32 memo an MPP attribution memo bound to `challengeId`?
+ *  Mirrors mppx tempo/Attribution.js verifyChallengeBinding: TAG (4 bytes),
+ *  version 0x01, and bytes 25..31 = keccak256(challengeId)[0..6]. */
+export function memoBoundToChallenge(memo, challengeId) {
+  const hex = String(memo || "").toLowerCase().replace(/^0x/, "");
+  if (hex.length !== 64 || typeof challengeId !== "string" || !challengeId) return false;
+  if (hex.slice(0, 8) !== MPP_TAG || hex.slice(8, 10) !== "01") return false;
+  const nonce = keccak256(toBytes(challengeId)).slice(2, 16);
+  return hex.slice(50, 64) === nonce;
+}
 
 /** The txids this signed transaction could have landed under: the submitted
  *  bytes, and (when the trailing byte is a recognisable v) the v-swapped
@@ -96,9 +117,10 @@ export async function confirmTempoSettlement(authorizationHeader, {
         if (!receipt || receipt.status !== "0x1") continue;
         for (const log of receipt.logs || []) {
           if (String(log.address || "").toLowerCase() !== currency) continue;
-          if ((log.topics || [])[0] !== TRANSFER_TOPIC) continue;
+          if ((log.topics || [])[0] !== TRANSFER_WITH_MEMO_TOPIC) continue;
           const to = `0x${String(log.topics[2] || "").slice(-40)}`.toLowerCase();
           if (to !== recipient) continue;
+          if (!memoBoundToChallenge(log.topics[3], ch.id)) continue;
           let value;
           try { value = BigInt(log.data); } catch { continue; }
           if (value >= minAmount) return { txId, amountAtomic: value };
