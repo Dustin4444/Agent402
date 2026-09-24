@@ -948,3 +948,90 @@ export function proofFeed({ slug = "v1-chat-metered" } = {}) {
   const week = meteredExternal({ days: 7, slug });
   return { slug, persistent: salesPersistent, external: { ...side(false), buyers7d: week.buyers, settlements7d: week.settlements }, internal: side(true), generatedAt: new Date().toISOString() };
 }
+
+// ---------------------------------------------------------------------------
+// Weekly OUTSIDE MPP agents (operator-only, counts only).
+//
+// Distinct external payers per UTC week (weeks start Monday 00:00 UTC) on the
+// MPP wires, split by method, beside the same series over every paying rail
+// for comparison. `internal` is this table's own classification (canary,
+// Tempo volume runner, burners, heartbeat), never recomputed here. A payer is
+// "new" in the week of its FIRST payment in that scope across ALL history,
+// not the charted window, so nobody is relabelled new when the window moves.
+// Payer strings are already normalized at record time (EVM lowercase), so one
+// wallet paying over Tempo and over the Base evm challenge is one agent.
+// Addresses never leave this function.
+const WEEK_MS = 7 * 86_400_000;
+const WEEK_EPOCH_MS = 4 * 86_400_000; // 1970-01-05, a Monday
+export const MPP_AGENT_METHODS = Object.freeze({
+  "mpp-tempo": "tempoCharge",
+  "mpp-tempo-subscription": "tempoSubscription",
+  "mpp": "evm",
+});
+const MPP_AGENT_WIRES_SQL = `(${Object.keys(MPP_AGENT_METHODS).map((w) => `'${w}'`).join(", ")})`;
+const qAgentRowsAll = db.prepare(`
+  SELECT CAST((ts - ${WEEK_EPOCH_MS}) / ${WEEK_MS} AS INTEGER) AS wk, payer, wire,
+         COUNT(*) AS n, SUM(price_usd) AS usd
+  FROM sales WHERE internal = 0 AND rail IN ${PAYING_RAILS_SQL} AND ts >= ?
+  GROUP BY wk, payer, wire`);
+const qAgentFirstAll = db.prepare(`
+  SELECT payer, MIN(ts) AS first_ts FROM sales
+  WHERE internal = 0 AND rail IN ${PAYING_RAILS_SQL} AND payer IS NOT NULL GROUP BY payer`);
+const qAgentFirstMpp = db.prepare(`
+  SELECT payer, MIN(ts) AS first_ts FROM sales
+  WHERE internal = 0 AND rail IN ${PAYING_RAILS_SQL} AND payer IS NOT NULL AND wire IN ${MPP_AGENT_WIRES_SQL} GROUP BY payer`);
+
+export function weekStartOf(ts) {
+  return Math.floor((ts - WEEK_EPOCH_MS) / WEEK_MS) * WEEK_MS + WEEK_EPOCH_MS;
+}
+
+export function mppAgentsWeekly({ weeks = 12, now = Date.now() } = {}) {
+  const n = Math.max(1, Math.min(104, Math.floor(Number(weeks)) || 12));
+  const currentWk = Math.floor((now - WEEK_EPOCH_MS) / WEEK_MS);
+  const firstWk = currentWk - n + 1;
+  const since = firstWk * WEEK_MS + WEEK_EPOCH_MS;
+  const firstAll = new Map(qAgentFirstAll.all().map((r) => [r.payer, r.first_ts]));
+  const firstMpp = new Map(qAgentFirstMpp.all().map((r) => [r.payer, r.first_ts]));
+  const blank = () => ({ agents: new Set(), payments: 0, usd: 0, unattributedPayments: 0 });
+  const buckets = new Map();
+  for (let wk = firstWk; wk <= currentWk; wk++) {
+    buckets.set(wk, { all: blank(), mpp: blank(), byMethod: Object.fromEntries(Object.values(MPP_AGENT_METHODS).map((m) => [m, blank()])) });
+  }
+  const add = (b, payer, cnt, usd) => {
+    b.payments += cnt; b.usd += usd;
+    if (payer) b.agents.add(payer); else b.unattributedPayments += cnt;
+  };
+  for (const r of qAgentRowsAll.all(since)) {
+    const b = buckets.get(r.wk);
+    if (!b) continue;
+    const cnt = Number(r.n) || 0, usd = Number(r.usd) || 0;
+    add(b.all, r.payer, cnt, usd);
+    const method = Object.hasOwn(MPP_AGENT_METHODS, r.wire || "") ? MPP_AGENT_METHODS[r.wire] : null;
+    if (method) { add(b.mpp, r.payer, cnt, usd); add(b.byMethod[method], r.payer, cnt, usd); }
+  }
+  const shape = (b, weekStart, firsts) => {
+    let newAgents = 0;
+    if (firsts) for (const p of b.agents) { const f = firsts.get(p); if (f !== undefined && f >= weekStart) newAgents++; }
+    const out = { distinctAgents: b.agents.size, payments: b.payments, usd: +b.usd.toFixed(6), unattributedPayments: b.unattributedPayments };
+    if (firsts) Object.assign(out, { newAgents, returningAgents: b.agents.size - newAgents });
+    return out;
+  };
+  const mpp = [], all = [];
+  for (const [wk, b] of buckets) {
+    const weekStart = wk * WEEK_MS + WEEK_EPOCH_MS;
+    const iso = new Date(weekStart).toISOString().slice(0, 10);
+    const row = { weekStart: iso, ...shape(b.mpp, weekStart, firstMpp), byMethod: {} };
+    for (const [m, mb] of Object.entries(b.byMethod)) row.byMethod[m] = shape(mb, weekStart, null);
+    mpp.push(row);
+    all.push({ weekStart: iso, ...shape(b.all, weekStart, firstAll) });
+  }
+  return {
+    weeks: mpp,
+    allRails: { weeks: all },
+    methods: { ...MPP_AGENT_METHODS },
+    window: { weeks: n, from: new Date(since).toISOString().slice(0, 10), weekStartsOn: "Monday 00:00 UTC", currentWeekPartial: true },
+    scope: "External payers only (the ledger's internal=0 on paying rails). newAgents = first payment in that scope across all history; an agent paying on several MPP methods counts once in the MPP total and once in each method row. unattributedPayments are payments with no recorded payer, counted in payments/usd but never as agents.",
+    persistent: salesPersistent,
+    generatedAt: new Date(now).toISOString(),
+  };
+}

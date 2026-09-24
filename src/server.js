@@ -384,7 +384,7 @@ import { pageSizeOf, pagingEnvelope, pagingNote } from "./index-paging.js";
 import { usdcDomainVerdict, usdcDomainMismatchDetail, unsignableByStockBuyer } from "./evm-usdc-domain.js";
 import { acceptsFromLive402 } from "./x402-live-quote.js";
 import { spend as sharedSpend, refund as sharedRefund, sharedLimitEnabled } from "./shared-limit.js";
-import { recordSale, salesSummary, externalByNetwork, mppSales, cardSales, mppTxHashes, txFromPaymentResponse, tempoDailyRevenue, tempoDailyRecordingSince, proofFeed, externalDailyRevenue, payerUsage, feedbackByTool, badFeedback, mppLedgerRows } from "./sales-ledger.js";
+import { recordSale, salesSummary, externalByNetwork, mppSales, cardSales, mppTxHashes, txFromPaymentResponse, tempoDailyRevenue, tempoDailyRecordingSince, proofFeed, externalDailyRevenue, payerUsage, feedbackByTool, badFeedback, mppLedgerRows, mppAgentsWeekly } from "./sales-ledger.js";
 import { recordShadowSettlement, startShadowLedger, shadowLedgerReport, shadowLedgerEnabled } from "./stripe-shadow-ledger.js";
 import { reconcileSettlements } from "./settlement-reconcile.js";
 import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
@@ -3645,7 +3645,23 @@ app.get("/__operator/sales.json", (req, res) => {
     // a bad verdict is a buyer reporting a fault and it must not need its own
     // habit to be seen. Counts for every tool, the actual complaints for the
     // bad ones (the words are operator-only and never published).
-    res.json({ ...salesSummary({ detailed: true }), feedback: { byTool: feedbackByTool({ days: 90 }), bad: badFeedback({ days: 30 }) } });
+    // Distinct outside MPP agents this UTC week (partial week), a count only;
+    // the series and method split live on /__operator/mpp-agents.json.
+    let mppAgentsThisWeek = null;
+    try { mppAgentsThisWeek = mppAgentsWeekly({ weeks: 1 }).weeks[0]?.distinctAgents ?? 0; } catch { /* count is optional */ }
+    res.json({ ...salesSummary({ detailed: true }), mppAgentsThisWeek, feedback: { byTool: feedbackByTool({ days: 90 }), bad: badFeedback({ days: 30 }) } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Weekly OUTSIDE MPP agents vs all rails (operator-only, counts only, never
+// payer addresses). See mppAgentsWeekly in sales-ledger.js.
+app.get("/__operator/mpp-agents.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  res.set("Cache-Control", "no-store");
+  try {
+    res.json(mppAgentsWeekly({ weeks: Number(req.query.weeks) || 12 }));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
