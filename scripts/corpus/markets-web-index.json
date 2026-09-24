@@ -2,56 +2,6 @@
   "about": "Prediction markets, PDFs, geocoding, barcodes, our own x402 index surfaces and keyless skill packs (tier 1).",
   "cases": [
     {
-      "slug": "polymarket-search",
-      "name": "active markets about bitcoin",
-      "input": {
-        "query": "bitcoin",
-        "limit": 3,
-        "activeOnly": true
-      },
-      "expect": {
-        "gte": {
-          "count": 1
-        },
-        "populated": [
-          "markets[0].question",
-          "source"
-        ]
-      }
-    },
-    {
-      "slug": "polymarket-search",
-      "name": "gibberish is an honest zero",
-      "input": {
-        "query": "zzqx-nothing-matches-this",
-        "limit": 3
-      },
-      "expect": {
-        "equals": {
-          "count": 0
-        },
-        "empty": [
-          "markets"
-        ]
-      }
-    },
-    {
-      "slug": "polymarket-price-history",
-      "name": "unknown token id is an honest zero with a note",
-      "input": {
-        "tokenId": "1",
-        "interval": "1d"
-      },
-      "expect": {
-        "equals": {
-          "count": 0
-        },
-        "populated": [
-          "note"
-        ]
-      }
-    },
-    {
       "slug": "kalshi-markets",
       "name": "open markets carry populated prices",
       "input": {

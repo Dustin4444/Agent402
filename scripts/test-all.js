@@ -211,12 +211,9 @@ const NETWORK = new Set([
   // Dex-kit: 3 Alchemy-backed (dex-pair / dex-pool / dex-quote) — 503 without
   // ALCHEMY_API_KEY, same as chain-kit. dex-top-pools hits DeFiLlama keylessly.
   "/api/dex-pair", "/api/dex-pool", "/api/dex-quote", "/api/dex-top-pools",
-  // Prediction-market-kit: keyless public upstreams (Polymarket Gamma + CLOB,
-  // Kalshi). Per-IP rate-limited; tolerate transient 429/502/503/504. The
-  // placeholder example inputs may also return 4xx (e.g. "election" keyword
-  // search returns 0 results out of cycle, or a fake tokenId yields 404).
-  "/api/polymarket-search", "/api/polymarket-market", "/api/polymarket-orderbook",
-  "/api/polymarket-price-history", "/api/kalshi-markets", "/api/kalshi-event", "/api/kalshi-live-data", "/api/kalshi-weather-index",
+  // Prediction-market-kit: Kalshi's keyless public API. Per-IP rate-limited;
+  // tolerate transient 429/502/503/504.
+  "/api/kalshi-markets", "/api/kalshi-event", "/api/kalshi-live-data", "/api/kalshi-weather-index",
   // MEV + L2 kit: Flashbots relay (keyless), DeFiLlama (keyless), and Alchemy
   // (503 without key). Tolerate transient upstream errors + 4xx from
   // placeholder example inputs (e.g. specific block-number lookups may miss).

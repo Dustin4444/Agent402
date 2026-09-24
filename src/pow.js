@@ -205,10 +205,8 @@ export const WALLET_ONLY_SLUGS = new Set([
   // shares the per-IP quota with defi-tvl). All wallet-only for the same
   // reasons as their underlying upstreams.
   "dex-pair", "dex-pool", "dex-quote", "dex-top-pools",
-  // Prediction-market-kit: Polymarket Gamma + CLOB + Kalshi. All keyless but
-  // all hit external HTTP; PoW would let one client farm the per-IP rate
-  // limits we share with everyone else.
-  "polymarket-search", "polymarket-market", "polymarket-orderbook", "polymarket-price-history",
+  // Prediction-market-kit: Kalshi. Keyless but external HTTP; PoW would let
+  // one client farm the per-IP rate limits we share with everyone else.
   "kalshi-markets", "kalshi-event", "kalshi-live-data", "kalshi-weather-index",
   // MEV + L2 kit: Flashbots relay (keyless, per-IP rate-limited), DeFiLlama
   // (per-IP shared with defi-tvl), and Alchemy (compute-unit quota shared with

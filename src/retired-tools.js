@@ -23,6 +23,12 @@
 
 /** Tools: /api/<slug>. `replacement` is a live catalog slug or null. */
 export const RETIRED_TOOLS = Object.freeze({
+  // 2026-09-24: the Polymarket tools. The nearest live question is a Kalshi
+  // read; a Kalshi market is a different venue, so each names the closest tool.
+  "polymarket-search": { retiredAt: "2026-09-24", replacement: "kalshi-markets" },
+  "polymarket-market": { retiredAt: "2026-09-24", replacement: "kalshi-event" },
+  "polymarket-orderbook": { retiredAt: "2026-09-24", replacement: "kalshi-markets" },
+  "polymarket-price-history": { retiredAt: "2026-09-24", replacement: "kalshi-live-data" },
   // 2026-09-22: the paid explorer upstream these five bought per call was
   // removed. Where another live tool answers the nearest question it is named;
   // no live EVM tool ranks a token's holders, so token-holders names none.

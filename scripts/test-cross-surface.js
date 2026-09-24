@@ -197,7 +197,10 @@ async function main() {
         const op = openapi.paths[e.path]?.[e.method.toLowerCase()];
         const docEx = op?.requestBody?.content?.["application/json"]?.example ?? Object.fromEntries((op?.parameters || []).filter((p) => p.example !== undefined).map((p) => [p.name, p.example]));
         const docReq = op?.requestBody?.content?.["application/json"]?.schema?.required ?? (op?.parameters || []).filter((p) => p.required).map((p) => p.name);
-        if (JSON.stringify(f.example ?? {}) !== JSON.stringify(docEx ?? {})) findDrift.push(`${e.slug}: find example differs from the OpenAPI example`);
+        // Key order is not a difference: a GET example is rebuilt from the
+        // parameter list, whose order need not match the tool's own input.
+        const canon = (v) => JSON.stringify(v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([x], [y]) => (x < y ? -1 : 1))) : v);
+        if (canon(f.example ?? {}) !== canon(docEx ?? {})) findDrift.push(`${e.slug}: find example differs from the OpenAPI example`);
         if (JSON.stringify(f.required ?? []) !== JSON.stringify(docReq ?? [])) findDrift.push(`${e.slug}: find required ${JSON.stringify(f.required)} vs openapi ${JSON.stringify(docReq)}`);
       }
     }
