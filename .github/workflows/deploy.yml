@@ -1344,6 +1344,8 @@ jobs:
           t node scripts/test-seller-verify.js
           # Seller succession: a seller moving to a permanent domain keeps their listing age, and the claim can never retire or edit the predecessor
           t node scripts/test-seller-succession.js
+          # Operator removal of one seller origin: exact match, persisted, every discovery write refuses it, register answers 410
+          t node scripts/test-seller-remove.js
           # Two surfaces that told a consumer something false (paging base, find-miss wish)
           t node scripts/test-index-paging-and-find-bridge.js
           t node scripts/test-index-paging-contract.js

@@ -168,6 +168,12 @@ export function recordSellerRegistrationSeen(origin, { settled = false, inheritF
   }
 }
 
+const deleteSellerRegistrationStmt = db.prepare("DELETE FROM seller_registrations WHERE origin = ?");
+/** Forget one origin's registration row (operator removal only). */
+export function deleteSellerRegistration(origin) {
+  try { return deleteSellerRegistrationStmt.run(String(origin || "")).changes > 0; } catch { return false; }
+}
+
 /** Every self-serve registration with its conversion/churn timestamps, newest first. */
 export function getSellerRegistrations() {
   try {
