@@ -41,6 +41,17 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 ok(credentialHeaderFromMeta(null) === null && credentialHeaderFromMeta({}) === null && credentialHeaderFromMeta({ [MCP_CREDENTIAL_META]: { nope: 1 } }) === null, "credentialHeaderFromMeta: absent/unusable -> null (unpaid call)");
 ok(credentialHeaderFromMeta({ [MCP_CREDENTIAL_META]: "Payment abc" }) === "Payment abc" && credentialHeaderFromMeta({ [MCP_CREDENTIAL_META]: "abc" }) === "Payment abc", "credentialHeaderFromMeta: string forms normalise to an Authorization value");
 ok(Array.isArray(challengesFromHeader(null)) && challengesFromHeader("garbage").length === 0 && receiptFromHeader("garbage") === null, "challenges/receipt parsers never throw on junk");
+{
+  // The loopback forwards our own signed probe marker (so a synthetic check over
+  // the connector is booked as internal) and nothing a caller could not send.
+  const { createMcpMppLoopback } = await import("../src/mcp-mpp.js");
+  let seen = null;
+  const loop = createMcpMppLoopback({ port: 1, fetchImpl: async (_u, init) => { seen = init.headers; return new Response("{}", { headers: { "content-type": "application/json" } }); } });
+  await loop({ def: { route: "GET /api/x" }, params: {}, heartbeatToken: "tok-123" });
+  ok(seen?.["X-Heartbeat-Token"] === "tok-123", "the loopback forwards the heartbeat token");
+  await loop({ def: { route: "GET /api/x" }, params: {}, heartbeatToken: "x".repeat(65) });
+  ok(!("X-Heartbeat-Token" in seen), "an oversized token is not forwarded");
+}
 
 // ---- stub facilitator ----
 const facCalls = { verify: 0, settle: 0 };

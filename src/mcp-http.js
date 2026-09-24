@@ -311,7 +311,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
     ].join(" ");
   }
 
-  function buildServer(ip, signal) {
+  function buildServer(ip, signal, heartbeatToken = null) {
     const server = new Server(
       {
         name: profile?.serverName || "agent402",
@@ -549,7 +549,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
       // caller gets a tool result naming what happened instead.
       let r;
       try {
-        r = await mppLoopback({ def: entry.def, params, credentialHeader, ip, signal, idempotencyKey, timeoutMs: PAID_LOOPBACK_TIMEOUT_MS });
+        r = await mppLoopback({ def: entry.def, params, credentialHeader, ip, signal, idempotencyKey, timeoutMs: PAID_LOOPBACK_TIMEOUT_MS, heartbeatToken });
       } catch (err) {
         const timedOut = err?.name === "TimeoutError" || err?.name === "AbortError";
         onServed(entry.def.slug, { latencyMs: Date.now() - startedAt, errored: true, statusCode: timedOut ? 504 : 502, errorMessage: timedOut ? "paid loopback timed out" : "paid loopback failed", inputKeys: Object.keys(params || {}) });
@@ -660,7 +660,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
       const controller = new AbortController();
       const run = mppLoopback({
         def: entry.def, params, credentialHeader, ip,
-        signal: controller.signal, idempotencyKey,
+        signal: controller.signal, idempotencyKey, heartbeatToken,
         timeoutMs: tasks.RUN_TIMEOUT_MS,
       });
       // Never leave an unhandled rejection while the gate window races.
@@ -1290,7 +1290,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
       // Client disconnect: abort in-flight handler work AND close the transport
       // (F14) — not just close the transport while the handler keeps running.
       res.on("close", () => { ac.abort(); try { transport.close(); } catch { /* already closing */ } });
-      await buildServer(ip, ac.signal).connect(transport);
+      await buildServer(ip, ac.signal, typeof req.headers["x-heartbeat-token"] === "string" ? req.headers["x-heartbeat-token"] : null).connect(transport);
       run = transport.handleRequest(req, res, req.body);
       // R-11/F14: per-request deadline. On fire, abort the handler and close the
       // transport so it settles, then (in finally) await that settle before the
