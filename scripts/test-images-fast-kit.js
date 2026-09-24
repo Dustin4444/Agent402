@@ -41,7 +41,7 @@ for (const [tier, t] of Object.entries(IMAGE_TIERS)) {
 const table = mediaMarginTable();
 ok(table.length === 5 && table.every((r) => withinMargin(r.price, r.worst)), `margin: every link's bound is within the margin share of its tier price (${table.map((r) => `${r.model}@$${r.price}`).join(", ")})`);
 ok(!withinMargin(0.02, 0.0141) && withinMargin(0.02, 0.014), "withinMargin compares in micro-dollars (an exact boundary is equal, not a float near-miss)");
-ok(Math.abs(VIDEOS_WORST_CASE_USD - 0.03 * VIDEOS_DURATION_SECONDS) < 1e-9 && VIDEOS_WORST_CASE_USD <= VIDEOS_PRICE * MARGIN + 1e-9, "video bound = listed per-second rate x locked 4 s, within the margin share of $0.20");
+ok(Math.abs(VIDEOS_WORST_CASE_USD - 0.03 * VIDEOS_DURATION_SECONDS) < 1e-9 && VIDEOS_WORST_CASE_USD <= VIDEOS_PRICE * MARGIN + 1e-9, "video worst case is fixed by the locked 4 s duration and stays within bound");
 
 // ---- image validation ----
 ok(validateImageTierRequest({ prompt: " a fox " }, "v1-images-fast").prompt === "a fox", "prompt trims and validates");
