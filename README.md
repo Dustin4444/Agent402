@@ -325,7 +325,7 @@ refreshed hourly) and exposes them through three free surfaces - same logic as
 | Surface | What |
 |---|---|
 | [`GET /api/find?q={task}`](https://agent402.tools/api/find) | Resolve a task to the best-matching tools (route, price, schema, ready example) |
-| [`POST /api/route`](https://agent402.tools/api/route) | Smart Order Router: `{ query, top, include }` → ranked tools across sellers (match score, then **health**, then price). `include=external` excludes Agent402 itself |
+| [`POST /api/route`](https://agent402.tools/api/route) | Smart Order Router: `{ query, top, include }` → ranked tools across sellers (match score, then **health**, then price; a judgment model then moves the listing that actually does the task to the top, cheapest among equally good ones, reported in `judged`). `include=external` excludes Agent402 itself |
 | [`GET /api/leaderboard`](https://agent402.tools/api/leaderboard) | **On-chain ranking** of x402 sellers by Base USDC settled volume (callsSettled, totalUsd, uniqueBuyers per seller). **Top N only** - 25 default, 50 ceiling, `totalSellers` for the full count. Pipeline: Bazaar → `eth_getLogs` → per-call ceiling → aggregate. Hourly snapshot |
 | [`/marketplace`](https://agent402.tools/marketplace) | Public HTML dashboard: every seller, tool count, network, last-fetched, rolling health |
 | [`GET /api/index`](https://agent402.tools/api/index) | The seller index as JSON (totals, per-seller health/routable flags). **Paginated** - one page of 250 max, `complete: false` and a `Link` header with `rel="next"` while more remain, `sellerCount` for the total. One origin, unpaged and with its crawl history: `?seller=<host>` |
@@ -354,6 +354,16 @@ its 402 actually offers reach the row even when the seller's manifest lags.
 router (a buyer routed to a dead seller wastes money). Healthier sellers also
 break ties at equal match score and price, so flaky-but-cheap sellers lose to
 reliable ones. Brand-new sellers (no history yet) get the benefit of the doubt.
+
+**Judged fit:** the lexical score rewards a listing whose name repeats the task's
+words, so one seller's twenty narrow routes could out-rank a general tool that
+does the job. A judgment model now reads a shortlist - at most two rows per
+seller, plus the best matches from the local catalog - and moves the listing that
+actually does the task to the top; when several do it equally well, the cheapest
+wins. It never adds a seller the settlement gate did not admit, it can say "none
+of these" (route-execute then refuses before anything is paid), and it fails open
+to the lexical order. The tools themselves still run no model; this is only how
+the router chooses.
 
 Operators get **3-rail attribution** on the dashboard ([`/api/stats`](https://agent402.tools/api/stats),
 `/__operator`, token-gated - it answers 404 without the operator token): USDC vs. proof-of-work vs.
