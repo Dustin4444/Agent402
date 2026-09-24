@@ -176,11 +176,12 @@ const okChatFixture = () => ({
     cost: 0.00123, cost_details: { upstream_inference_cost: 0.00123 }, is_byok: false,
   },
 });
+// /v1/images/generations rides OpenRouter's Image API since 2026-09-24.
 const okImagesFixture = () => ({
-  id: "gen-2", model: "google/gemini-2.5-flash-image",
-  choices: [{ message: { role: "assistant", images: [{ image_url: { url: "data:image/png;base64,QUJDRA==" } }] } }],
+  created: 1750000000,
+  data: [{ b64_json: "QUJDRA==", media_type: "image/png" }],
   usage: {
-    prompt_tokens: 14, completion_tokens: 1290, total_tokens: 1304,
+    prompt_tokens: 14, completion_tokens: 4096, total_tokens: 4110,
     cost: 0.041, cost_details: { upstream_inference_cost: 0.041 }, is_byok: true,
   },
 });

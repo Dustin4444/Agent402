@@ -943,70 +943,65 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   ok(nanoBody.max_tokens === 768, "nano-tier small input is untouched by the margin clamp");
 }
 
-// /v1/images/generations — OpenAI images wire over OpenRouter chat modalities.
-// Cost knobs are server-owned: model locked, n locked to 1, max_tokens and
-// provider.max_price bound the upstream bill.
+// /v1/images/generations - OpenAI images wire, served through OpenRouter's
+// Image API by the same provider-pinned links as /v1/images/pro (2026-09-24:
+// moved off google/gemini-2.5-flash-image, shut down upstream 2026-10-02).
 {
-  const { validateImagesRequest, IMAGES_PATH, LLM_GATEWAY_TOOLS: tools } = await import("../src/tools/llm-gateway-kit.js");
+  const { validateImagesRequest, IMAGES_PATH, IMAGES_MODEL, LLM_GATEWAY_TOOLS: tools, FLEX_MODELS } = await import("../src/tools/llm-gateway-kit.js");
+  const { OPENROUTER_IMAGES_URL, _resetListingCacheForTest } = await import("../src/tools/llm-images-fast-kit.js");
   ok(IMAGES_PATH === "/v1/images/generations", "images path constant");
   const imagesTool = tools.find((t) => t.slug === "v1-images");
   ok(imagesTool && imagesTool.route === "POST /v1/images/generations" && imagesTool.price === "$0.080", "images tool registered at the OpenAI wire path");
+  ok(!/gemini/i.test(imagesTool.description) && /1024x1024 PNG/.test(imagesTool.description), "the tool description names the served output, not the retired model");
+  ok(!FLEX_MODELS.includes("google/gemini-2.5-flash-image"), "the retired image model left the flex table");
 
   ok(validateImagesRequest({ prompt: "a fox" }).prompt === "a fox", "prompt-only request validates");
-  ok(validateImagesRequest({ prompt: "a fox", model: "gemini-2.5-flash-image" }).prompt === "a fox", "the locked model id is accepted (bare form canonicalized)");
+  ok(validateImagesRequest({ prompt: "a fox", model: IMAGES_MODEL }).prompt === "a fox" && validateImagesRequest({ prompt: "a fox", model: "gemini-2.5-flash-image" }).prompt === "a fox", "the served model id is accepted, and the retired Gemini id still validates for existing clients");
   throws(() => validateImagesRequest({}), '"prompt" is required', "missing prompt rejected");
   throws(() => validateImagesRequest({ prompt: "x".repeat(5000) }), "Prompt too long", "prompt cap enforced");
   throws(() => validateImagesRequest({ prompt: "a fox", model: "dall-e-3" }), "fixed to", "other models rejected with the locked id");
-  throws(() => validateImagesRequest({ prompt: "a fox", n: 2 }), "locked to 1", "n>1 rejected — output cost is metered");
+  throws(() => validateImagesRequest({ prompt: "a fox", n: 2 }), "locked to 1", "n>1 rejected - output cost is per image");
   throws(() => validateImagesRequest({ prompt: "a fox", response_format: "url" }), "b64_json", "url response_format rejected (images are inline)");
   ok(validateImagesRequest({ prompt: "a fox", size: "1024x1024", quality: "hd" }).prompt === "a fox", "cost-neutral OpenAI params (size/quality) are ignored, not rejected");
 
   process.env.OPENROUTER_API_KEY = "test-key";
+  _resetListingCacheForTest();
   const realFetch = globalThis.fetch;
   const PNG_B64 = Buffer.from("fake-png-bytes".repeat(4)).toString("base64");
-  let seen = null;
-  globalThis.fetch = async (url, init) => {
-    seen = JSON.parse(init.body);
-    return {
-      ok: true, status: 200,
-      text: async () => JSON.stringify({
-        id: "gen-i", model: seen.model,
-        choices: [{ index: 0, message: { role: "assistant", content: "", images: [{ type: "image_url", image_url: { url: `data:image/png;base64,${PNG_B64}` } }] }, finish_reason: "stop" }],
-        usage: { prompt_tokens: 14, completion_tokens: 1290, total_tokens: 1304, cost: 0.039, cost_details: {}, is_byok: false, cache_discount: 0 },
-      }),
-    };
+  let seen = [];
+  const listing = (u) => u.includes("flux.2-pro")
+    ? { data: { endpoints: [{ provider_tag: "black-forest-labs", pricing: [{ billable: "output_image", unit: "megapixel", cost_usd: 0.03 }] }] } }
+    : { data: { endpoints: [{ provider_tag: "openai", pricing: [{ billable: "output_image", unit: "token", cost_usd: 0.000008 }] }] } };
+  let reply = () => ({ status: 200, json: { created: 1, data: [{ b64_json: PNG_B64, media_type: "image/png" }], usage: { prompt_tokens: 14, completion_tokens: 4096, total_tokens: 4110, cost: 0.03, cost_details: {}, is_byok: false } } });
+  globalThis.fetch = async (url, init = {}) => {
+    const u = String(url);
+    if (!init.method || init.method === "GET") return { ok: true, status: 200, json: async () => listing(u), text: async () => JSON.stringify(listing(u)) };
+    const b = JSON.parse(init.body); seen.push({ url: u, body: b });
+    const r = reply(b);
+    return { ok: r.status < 400, status: r.status, json: async () => r.json, text: async () => JSON.stringify(r.json) };
   };
   const out = await imagesTool.handler({ prompt: "a fox", zdr: true });
-  ok(seen.model === "google/gemini-2.5-flash-image" && Array.isArray(seen.modalities) && seen.modalities.includes("image"), "upstream call is chat-shaped with image modality and the locked model");
-  ok(seen.service_tier === "flex", "images try the flex tier first (half price on this model's endpoints)");
-  ok(seen.max_tokens === 1600 && seen.provider?.max_price?.completion === 35, "upstream response is token- and price-bounded");
-  ok(seen.provider?.zdr === true, "zdr folds into the images provider prefs too");
-  ok(seen.usage?.include === true, "images calls request usage accounting");
-  ok(out.data[0].b64_json === PNG_B64 && out.data[0].media_type === "image/png" && typeof out.created === "number", "data URI translated to the OpenAI images shape");
-  ok(out.usage.cost === undefined && out.usage.cost_details === undefined && out.usage.is_byok === undefined && out.usage.cache_discount === undefined, "upstream cost (incl. is_byok + cache_discount) stripped from the images response");
+  const c = seen[0];
+  ok(c.url === OPENROUTER_IMAGES_URL && c.body.model === "black-forest-labs/flux.2-pro" && c.body.n === 1 && c.body.output_format === "png", "upstream call hits the Image API: flux.2-pro first, n locked to 1, PNG pinned");
+  ok(c.body.provider?.only?.[0] === "black-forest-labs" && c.body.provider?.zdr === true, "provider pinned to the priced provider; zdr folds into the provider prefs");
+  ok(c.body.modalities === undefined && c.body.size === undefined, "no chat modalities, no buyer size upstream");
+  ok(out.data[0].b64_json === PNG_B64 && out.data[0].media_type === "image/png" && typeof out.created === "number" && out.model === "black-forest-labs/flux.2-pro", "OpenAI images shape: created/model/data[b64_json, media_type]");
+  ok(out.usage.cost === undefined && out.usage.cost_details === undefined && out.usage.is_byok === undefined, "upstream cost stripped from the images response");
   const { _testEventsForTest } = await import("../src/posthog.js");
   const ev = _testEventsForTest().filter((e) => e.event === "gateway_usage").pop();
-  ok(ev?.properties.tier === "v1-images" && ev?.properties.upstreamUsd === 0.039 && ev?.properties.priceUsd === 0.08, "images margin telemetry captured");
-  ok(ev?.properties.serviceTier === "flex", "telemetry records which service tier served");
+  ok(ev?.properties.tier === "v1-images" && ev?.properties.upstreamUsd === 0.03 && ev?.properties.priceUsd === 0.08, "images margin telemetry captured");
 
-  // Flex has no capacity (or returns no image) → the SAME model is retried on
-  // the default tier before anyone sees a 502.
-  const tiersTried = [];
-  globalThis.fetch = async (url, init) => {
-    const b = JSON.parse(init.body); tiersTried.push(b.service_tier || "default");
-    if (b.service_tier === "flex") return { ok: false, status: 503, text: async () => "flex capacity" };
-    return { ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-i3", model: b.model, choices: [{ index: 0, message: { role: "assistant", content: "", images: [{ type: "image_url", image_url: { url: `data:image/png;base64,${PNG_B64}` } }] }, finish_reason: "stop" }], usage: { prompt_tokens: 14, completion_tokens: 1290, total_tokens: 1304, cost: 0.078 } }) };
-  };
+  // Primary down -> the failover link serves (PNG, provider-pinned).
+  seen = []; reply = (b) => b.model === "black-forest-labs/flux.2-pro" ? { status: 502, json: { error: { message: "down" } } } : { status: 200, json: { data: [{ b64_json: PNG_B64, media_type: "image/png" }], usage: { cost: 0.012 } } };
   const out2 = await imagesTool.handler({ prompt: "a fox" });
-  ok(tiersTried.join(",") === "flex,default" && out2.data.length === 1, `flex capacity error → default-tier retry on the same model (tried ${tiersTried.join(",")})`);
-  const ev2 = _testEventsForTest().filter((e) => e.event === "gateway_usage").pop();
-  ok(ev2?.properties.serviceTier === "default", "telemetry records the default tier when flex was unavailable");
+  ok(seen.length === 2 && seen[1].body.model === "openai/gpt-5-image-mini" && seen[1].body.quality === "medium" && seen[1].body.provider.only[0] === "openai" && out2.model === "openai/gpt-5-image-mini", "flux.2-pro 502 walks to gpt-5-image-mini at its locked quality");
 
-  globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-i2", model: "x", choices: [{ index: 0, message: { role: "assistant", content: "no can do" }, finish_reason: "stop" }] }) });
+  seen = []; reply = () => ({ status: 200, json: { data: [] } });
   await imagesTool.handler({ prompt: "a fox" }).then(
     () => ok(false, "an imageless upstream response must not serve"),
-    (e) => ok(e.statusCode === 502 && /no image/i.test(e.message), "imageless upstream response (both tiers) → 502")
+    (e) => ok(e.statusCode === 502 && /no image/i.test(e.message) && seen.length === 2, "imageless upstream on both links -> 502 (not charged)")
   );
+  _resetListingCacheForTest();
   globalThis.fetch = realFetch;
   delete process.env.OPENROUTER_API_KEY;
 }

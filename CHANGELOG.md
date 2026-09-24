@@ -17,6 +17,9 @@ Since v2.4.0 (2026-09-18).
   on the metered route. Four DeepSeek ids the upstream removes on 2026-09-28
   (`deepseek-v3.2`, `-v3.2-exp`, `-v3.1-terminus`, `-r1-distill-llama-70b`)
   are refused by name with a successor named.
+- `/v1/images/generations` is served by FLUX.2 Pro (GPT-5 Image Mini as the
+  failover) ahead of Gemini 2.5 Flash Image's shutdown on 2026-10-02. The wire
+  is unchanged: one 1024x1024 PNG per call as inline base64.
 - Seller index: a route that is not in the seller's own manifest or OpenAPI
   must answer a live 402 at least every 7 days and leaves the listing when it
   answers 404 or 405 twice at least an hour apart; a 410 removes any route;
