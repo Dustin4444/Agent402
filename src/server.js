@@ -4734,7 +4734,23 @@ app.get("/api/skill-packs.json", (_req, res) => {
 });
 app.get("/api/skill-packs/:slug/prompt", (req, res) => {
   const pack = SKILL_PACKS.find((p) => p.slug === req.params.slug);
-  if (!pack) return res.status(404).json({ error: `Unknown skill pack "${req.params.slug}". List: /api/skill-packs.json` });
+  if (!pack) {
+    // A retired pack is gone on purpose (src/retired-tools.js): 410 with the
+    // replacement, never the unknown-pack 404 an outside index reads as broken.
+    const gone = retiredEntryFor(`/api/skill/${req.params.slug}`);
+    if (gone) {
+      const rep = gone.replacement ? Object.values(CATALOG).find((d) => d.slug === gone.replacement) : null;
+      const replacement = rep ? { slug: rep.slug, route: rep.route, url: `${BASE_URL}${rep.route.split(" ")[1] || rep.route}` } : null;
+      return res.status(410).json({ ok: false, error: "gone", slug: gone.slug, retiredAt: gone.retiredAt, replacement, list: `${BASE_URL}/api/skill-packs.json`, hint: `Skill pack ${gone.slug} was retired on ${gone.retiredAt}.${replacement ? ` Use ${replacement.route} instead.` : ""} Live packs: /api/skill-packs.json` });
+    }
+    // Indexes that read the documented template call it with the placeholder
+    // itself; say so rather than answering as if the route were missing.
+    if (/^[{:]/.test(req.params.slug)) {
+      const example = SKILL_PACKS[0]?.slug;
+      return res.status(400).json({ ok: false, error: "placeholder", hint: `Replace ${req.params.slug} with a pack slug from /api/skill-packs.json${example ? `, e.g. /api/skill-packs/${example}/prompt` : ""}.`, list: `${BASE_URL}/api/skill-packs.json` });
+    }
+    return res.status(404).json({ error: `Unknown skill pack "${req.params.slug}". List: /api/skill-packs.json` });
+  }
   // Pull args from the query string by promptArgs name. Anything not
   // declared is ignored (no surprise substitutions). Compute freeSlugs from
   // the live catalog so the access split in the rendered prompt is honest.

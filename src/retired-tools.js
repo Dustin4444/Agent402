@@ -32,6 +32,13 @@ export const RETIRED_TOOLS = Object.freeze({
   "stock-dividends": { retiredAt: "2026-09-20", replacement: null },
   "earnings-calendar": { retiredAt: "2026-09-20", replacement: null },
   "dividend-calendar": { retiredAt: "2026-09-20", replacement: null },
+  // 2026-09-11: a composite that never sold; the company-dossier pack runs the
+  // same five calls.
+  "research-company": { retiredAt: "2026-09-11", replacement: "skill-company-dossier" },
+  // 2026-09-03: outbound messaging, withdrawn the day it shipped.
+  "email-send": { retiredAt: "2026-09-03", replacement: null },
+  "sms-send": { retiredAt: "2026-09-03", replacement: null },
+  "voice-call": { retiredAt: "2026-09-03", replacement: null },
   // 2026-08-26: the upstream went key-only.
   "price-pyth": { retiredAt: "2026-08-26", replacement: "price-coingecko" },
   // 2026-08-25: the free-tier retirement (zero external use in 30 days).
@@ -47,18 +54,45 @@ export const RETIRED_TOOLS = Object.freeze({
   "word-frequency": { retiredAt: "2026-08-25", replacement: null },
   "word-wrap": { retiredAt: "2026-08-25", replacement: null },
   "workday-count": { retiredAt: "2026-08-25", replacement: "business-days" },
+  // The same cut emptied the encoding, math, string and color kits.
+  "color-convert": { retiredAt: "2026-08-25", replacement: "color" },
+  "xml-validate": { retiredAt: "2026-08-25", replacement: "xml-to-json" },
+  ...Object.fromEntries([
+    "base-detect", "binary-text", "braille-convert", "color-blindness", "color-contrast", "color-name",
+    "color-palette", "combinatorics", "constant-compare", "gcd-lcm", "group-by", "hkdf-expand", "ipv6-expand",
+    "json-to-xml", "matrix-multiply", "mod-arithmetic", "nato-phonetic", "pbkdf2", "phone-format",
+    "prime-factorize", "punycode-convert", "scrypt-derive", "soundex", "uuid-v5",
+  ].map((s) => [s, { retiredAt: "2026-08-25", replacement: null }])),
   // 2026-08-19: the upstream removed the endpoint.
   "nft-sales": { retiredAt: "2026-08-19", replacement: null },
+  // 2026-06-12: the spreadsheet parser dependency was removed.
+  "xlsx-to-csv": { retiredAt: "2026-06-12", replacement: null },
+  "xlsx-to-json": { retiredAt: "2026-06-12", replacement: null },
 });
 
 /** Skill packs: /api/skill/<slug>. The catalog slug is `skill-<slug>`. */
 export const RETIRED_PACKS = Object.freeze({
   "market-open": { retiredAt: "2026-09-20", replacement: null },
+  "agent-outreach": { retiredAt: "2026-09-03", replacement: null },
   ...Object.fromEntries([
     "a11y-audit", "content-clean", "content-quality", "csv-profile", "data-convert", "data-interchange",
     "finance-calc", "identity-mint", "investment-decision", "jwt-forensics", "meeting-scheduler", "rag-prep",
     "regex-test", "retirement-planning", "savings-goal", "validator-suite", "webhook-debug", "xml-json",
   ].map((s) => [s, { retiredAt: "2026-08-25", replacement: null }])),
+  // 2026-07-06: packs that wrapped one tool, withdrawn two days after launch.
+  // Where that one tool is live it is named.
+  "checksum-suite": { retiredAt: "2026-07-06", replacement: "checksum" },
+  "hash-verify": { retiredAt: "2026-07-06", replacement: "checksum" },
+  "lorem-gen": { retiredAt: "2026-07-06", replacement: "lorem" },
+  "password-audit": { retiredAt: "2026-07-06", replacement: "password-strength" },
+  "qr-gen": { retiredAt: "2026-07-06", replacement: "qr" },
+  "semver-check": { retiredAt: "2026-07-06", replacement: "semver" },
+  "text-transform": { retiredAt: "2026-07-06", replacement: "case" },
+  "uuid-suite": { retiredAt: "2026-07-06", replacement: "uuid" },
+  "color-palette": { retiredAt: "2026-07-06", replacement: null },
+  "date-math": { retiredAt: "2026-07-06", replacement: null },
+  "encoding-suite": { retiredAt: "2026-07-06", replacement: null },
+  "math-suite": { retiredAt: "2026-07-06", replacement: null },
 });
 
 /** The retired entry a request path names, or null. Reads the first path
