@@ -10,6 +10,7 @@ import { agentReportPriceRange, cardReportPriceRange } from "./report-tiers.js";
 import { HUMAN_PRODUCTS } from "./human-checkout.js";
 import { RAILS_AMP, RAILS_OR, RAILS_PAREN, RAILS_SHORT } from "./rails.js";
 import { mppOffersFor } from "./mpp-offers.js";
+import { mppFlagshipRows } from "./mpp-flagship.js";
 import { PRICED_BY_MODEL_NOTE } from "./tools/llm-gateway-kit.js";
 import { PARAM_ALIASES } from "./input-aliases.js";
 import { metaTitle, metaDescription } from "./seo-meta.js";
@@ -781,6 +782,10 @@ const QUERY_PARAM_TYPES = new Set(["number", "integer", "boolean"]);
 
 export function openapiSpec(baseUrl, catalog) {
   const paths = {};
+  // MPP start-here set (src/mpp-flagship.js), already filtered to routes the
+  // 402 offers tempo on. Marked per operation and indexed at the top level.
+  const mppFlagship = mppFlagshipRows(catalog);
+  const mppFlagshipBySlug = new Map(mppFlagship.map((r) => [r.slug, r]));
   for (const tool of toolList(catalog)) {
     const { method, path, discovery } = tool;
     const op = {
@@ -809,6 +814,7 @@ export function openapiSpec(baseUrl, catalog) {
         400: { description: "Invalid input" },
       },
       "x-price": tool.price,
+      ...(mppFlagshipBySlug.has(tool.slug) ? { "x-mpp-flagship": { order: mppFlagshipBySlug.get(tool.slug).order, why: mppFlagshipBySlug.get(tool.slug).why } } : {}),
       "x-payment-protocol": "x402",
       // ONE x-payment-info object serves two advisory readers, each keyed on
       // its own fields (extra keys are tolerated by both):
@@ -1015,6 +1021,9 @@ export function openapiSpec(baseUrl, catalog) {
     paths,
     // Top-level extension so OpenAPI consumers can enumerate workflows without
     // scanning paths. Same `promptName == slug` contract as the other surfaces.
+    // MPP start here: fast, low-priced routes that offer the tempo challenge,
+    // in the order a new MPP client might try them.
+    "x-mpp-flagship": mppFlagship.map((r) => ({ order: r.order, slug: r.slug, method: r.method, path: r.path, price: r.price, why: r.why })),
     "x-skill-packs": SKILL_PACKS.map((p) => ({
       slug: p.slug,
       title: p.title,

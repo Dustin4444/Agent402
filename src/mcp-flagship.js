@@ -193,6 +193,7 @@ export const META_OUTPUT_SCHEMAS = {
       pay: { type: "object", additionalProperties: true },
       spendControls: { additionalProperties: true },
       balanceAndHistory: { type: "object", additionalProperties: true },
+      mppStartHere: { type: "object", description: "MPP start-here routes (slug, method, path, url, price, why)", additionalProperties: true },
       service: { type: "string" },
       mode: { type: "string" },
       wallet: { description: "EVM address when a key is configured" },

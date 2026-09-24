@@ -2869,7 +2869,7 @@ app.get("/what-is-x402", (_req, res) => htmlCache(res, 300, 900).send(whatIsX402
   stats: getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }),
   leaderboardSnapshot: getLeaderboardSnapshot(),
 })));
-app.get("/what-is-mpp", (_req, res) => htmlCache(res, 300, 900).send(whatIsMppPage(BASE_URL)));
+app.get("/what-is-mpp", (_req, res) => htmlCache(res, 300, 900).send(whatIsMppPage(BASE_URL, CATALOG)));
 // The category page: Agentic Finance - the moniker the whole surface
 // positions under; DefinedTerm + Article + FAQPage structured data.
 app.get("/agentic-finance", (_req, res) => htmlCache(res, 300, 900).send(agenticFinancePage(BASE_URL)));
