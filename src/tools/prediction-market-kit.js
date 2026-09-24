@@ -209,6 +209,22 @@ function polyList(raw) {
   return Array.isArray(raw?.markets) ? raw.markets : [];
 }
 
+// Kalshi retires `liquidity_dollars` on 2026-10-01 (docs.kalshi.com/changelog)
+// and it already reads "0.0000" on markets with a live book (measured
+// 2026-09-24: 0 of 1,721 open markets nonzero while 1,672 had resting size).
+// So `liquidityUsd` is Kalshi's own figure only when it carries one; a zero
+// beside a live book, or an absent field, is null with the reason in a field.
+// The depth a buyer can use is the top-of-book size above, which is a
+// different quantity (contracts at one price) and is never relabelled here.
+const KALSHI_LIQUIDITY_NOTE =
+  "Kalshi no longer publishes a liquidity figure (removed 2026-10-01); use yesBidSize/yesAskSize for resting contracts at the best price.";
+function kalshiLiquidity(m) {
+  const legacy = asNumber(m.liquidity_dollars);
+  const book = [m.yes_bid_size_fp, m.yes_ask_size_fp].some((v) => (asNumber(v) || 0) > 0);
+  if (legacy !== null && (legacy > 0 || !book)) return { liquidityUsd: legacy };
+  return { liquidityUsd: null, liquidityUsdNote: KALSHI_LIQUIDITY_NOTE };
+}
+
 function shapeKalshiMarket(m) {
   const yesBid = centsFrom(m.yes_bid_dollars, m.yes_bid);
   const yesAsk = centsFrom(m.yes_ask_dollars, m.yes_ask);
@@ -233,7 +249,14 @@ function shapeKalshiMarket(m) {
     lastPriceUsd: asNumber(m.last_price_dollars, lastPrice === null ? null : lastPrice / 100),
     volume: asNumber(m.volume_fp, asNumber(m.volume)),
     openInterest: asNumber(m.open_interest_fp, asNumber(m.open_interest)),
-    liquidityUsd: asNumber(m.liquidity_dollars),
+    // Resting size at the best price, in CONTRACTS (Kalshi's `*_size_fp`).
+    // A "no" bid is the other side of a "yes" ask, so Kalshi publishes only
+    // the yes-side sizes; the no-side names are read too in case they appear.
+    yesBidSize: asNumber(m.yes_bid_size_fp),
+    yesAskSize: asNumber(m.yes_ask_size_fp),
+    noBidSize: asNumber(m.no_bid_size_fp),
+    noAskSize: asNumber(m.no_ask_size_fp),
+    ...kalshiLiquidity(m),
     venue: "kalshi",
     venueUrl: m.ticker ? `https://kalshi.com/markets/${m.ticker.toLowerCase()}` : null,
   };
@@ -951,7 +974,7 @@ export const PREDICTION_MARKET_TOOLS = [
     category: "crypto",
     price: "$0.002",
     description:
-      "List Kalshi markets (CFTC-regulated US event contracts). Filter by status (open/closed/settled/unopened) or by event ticker. Returns yes/no bid/ask, last price, volume, open interest. Complement to Polymarket for US-regulated markets and Kalshi-only categories (weather, economic data).",
+      "List Kalshi markets (CFTC-regulated US event contracts). Filter by status (open/closed/settled/unopened) or by event ticker. Returns yes/no bid/ask, last price, volume, open interest, and the resting contract size at the best yes bid and ask (yesBidSize/yesAskSize). Complement to Polymarket for US-regulated markets and Kalshi-only categories (weather, economic data).",
     tags: ["kalshi", "prediction-market", "regulated", "event-contracts", "cftc"],
     discovery: {
       bodyType: "json",
@@ -983,6 +1006,8 @@ export const PREDICTION_MARKET_TOOLS = [
             lastPrice: 0.46,
             volume: 12345,
             openInterest: 5678,
+            yesBidSize: 471.53,
+            yesAskSize: 323.1,
             venue: "kalshi",
             venueUrl: "https://kalshi.com/markets/pres-24-dem",
           }],
@@ -1032,6 +1057,8 @@ export const PREDICTION_MARKET_TOOLS = [
             lastPrice: 0.46,
             volume: 12345,
             openInterest: 5678,
+            yesBidSize: 471.53,
+            yesAskSize: 323.1,
             venue: "kalshi",
             venueUrl: "https://kalshi.com/markets/pres-24-dem",
           }],
