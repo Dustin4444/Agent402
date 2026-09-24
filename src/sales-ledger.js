@@ -239,7 +239,7 @@ const qIntRecent = db.prepare(`
 // canary's Base+Celo native-wire legs.
 const qMppRecent = db.prepare(`
   SELECT ts, slug, price_usd, rail, network, payer, tx, internal
-  FROM sales WHERE wire IN ('mpp', 'mpp-tempo', 'mpp-stripe')
+  FROM sales WHERE wire IN ('mpp', 'mpp-tempo', 'mpp-stripe', 'mpp-tempo-subscription')
   ORDER BY ts DESC LIMIT ?`);
 // PUBLIC aggregate sources (cost audit 2026-08-19): the public view used to be
 // derived from the 30 NEWEST rows, so once the Tempo volume runner started
@@ -261,10 +261,10 @@ const canonRail = (network) => CAIP_TO_RAIL[String(network || "").toLowerCase()]
 
 const qMppTotals = db.prepare(`
   SELECT network, internal, COUNT(*) AS n, MIN(ts) AS first_ts, MAX(ts) AS last_ts
-  FROM sales WHERE wire IN ('mpp', 'mpp-tempo', 'mpp-stripe')
+  FROM sales WHERE wire IN ('mpp', 'mpp-tempo', 'mpp-stripe', 'mpp-tempo-subscription')
   GROUP BY network, internal`);
 const qMppRecentExternal = db.prepare(`
-  SELECT ts, network, tx FROM sales WHERE wire IN ('mpp', 'mpp-tempo', 'mpp-stripe') AND internal = 0
+  SELECT ts, network, tx FROM sales WHERE wire IN ('mpp', 'mpp-tempo', 'mpp-stripe', 'mpp-tempo-subscription') AND internal = 0
   ORDER BY ts DESC LIMIT ?`);
 // Every MPP tx hash, for joining the wire onto the on-chain revenue ledger
 // (separate db) so the chart can filter by wire. Unbounded by design: the
@@ -841,7 +841,7 @@ export function salesSummary({ days = 30, detailed = false } = {}) {
   };
 }
 
-// Day-bucketed Tempo settlements (wire = 'mpp-tempo'), UTC, straight from
+// Day-bucketed Tempo settlements (wire 'mpp-tempo', plus tempo/subscription charges), UTC, straight from
 // this table — NOT the on-chain wallet scan /api/revenue/daily reads. Tempo
 // is deliberately excluded from RAILS (not x402-settleable), so no scan
 // ever sees it; this is the ONLY place Tempo revenue is visible day-by-day,
@@ -855,7 +855,7 @@ const qTempoDaily = db.prepare(`
     SUM(CASE WHEN internal = 0 THEN 1 ELSE 0 END) AS extTx,
     SUM(CASE WHEN internal = 1 THEN price_usd ELSE 0 END) AS intUsd,
     SUM(CASE WHEN internal = 1 THEN 1 ELSE 0 END) AS intTx
-  FROM sales WHERE wire = 'mpp-tempo'
+  FROM sales WHERE wire IN ('mpp-tempo', 'mpp-tempo-subscription')
   GROUP BY day ORDER BY day`);
 
 /** [{day, extUsd, extTx, intUsd, intTx}], oldest first. */
