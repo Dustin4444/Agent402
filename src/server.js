@@ -5267,6 +5267,7 @@ app.get("/algorand", async (req, res) => {
 // snapshot rather than through this map; do not invent external-seller
 // wallets here.
 const CHAIN_ACTIVITY_TTL_MS = 10 * 60_000;
+const PAGE_ACTIVITY_WAIT_MS = 5_000;
 const EVM_ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 const SOLANA_ADDR_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const chainActivityByWallet = new Map(); // "chainKey:wallet" -> { at, value, inFlight }
@@ -5348,7 +5349,7 @@ async function scanActivity(chainKey, wallet, prior = null) {
 // scan. Only the first-ever load of a wallet awaits — and on Base that's the
 // ~0.5s CDP SQL query, not a 10-page RPC walk. Concurrent cold calls share one
 // in-flight scan.
-async function getActivityForChain(chainKey, wallet) {
+async function getActivityForChain(chainKey, wallet, { maxWaitMs = 0 } = {}) {
   if (!walletShapeOkForChain(chainKey, wallet)) return null;
   const key = `${chainKey}:${wallet}`;
   // Evict the OLDEST entry, never the whole table. clear() at 500 meant that
@@ -5386,7 +5387,16 @@ async function getActivityForChain(chainKey, wallet) {
     })();
   }
   if (entry.value) return entry.value; // SWR: serve cached immediately (fresh or stale)
-  await entry.inFlight;                // cold: nothing cached yet — wait for the first scan
+  // Cold: wait for the first scan, but a page view waits at most maxWaitMs (a
+  // busy wallet's scan runs to its ~30 s budget); it keeps going and the next
+  // view is served from cache.
+  if (maxWaitMs > 0 && entry.inFlight) {
+    let timer;
+    await Promise.race([entry.inFlight, new Promise((r) => { timer = setTimeout(r, maxWaitMs); timer.unref?.(); })]);
+    clearTimeout(timer);
+  } else {
+    await entry.inFlight;
+  }
   return entry.value;
 }
 // /base, /solana, /polygon, /arbitrum, /robinhood — five more x402
@@ -5435,7 +5445,7 @@ for (const chainKey of Object.keys(SNAPSHOT_RAIL_LABEL)) {
       const { selectedSeller, scanWallet } = resolveMarketSeller(chainKey, snapshot, req.query.seller);
       const [revSnap, activity] = await Promise.all([
         revenueSnapshot(revenueWallets()),
-        scanWallet ? getActivityForChain(chainKey, scanWallet) : Promise.resolve(null),
+        scanWallet ? getActivityForChain(chainKey, scanWallet, { maxWaitMs: PAGE_ACTIVITY_WAIT_MS }) : Promise.resolve(null),
       ]);
       const rail = revSnap?.rails?.find((r) => r.rail === SNAPSHOT_RAIL_LABEL[chainKey]) || null;
       htmlCache(res, 120, 600).send(marketPage(chainKey, BASE_URL, { snapshot: withDispatchSnapshot(snapshot), rail, activity, selectedSeller, wallet: rail?.wallet || undefined, leaderboardSnap: getLeaderboardSnapshot(), all: req.query.all === "1" , host: hostEntryFigures(chainKey) }));
@@ -5454,7 +5464,7 @@ app.get("/api/market/:chain/panel", async (req, res) => {
     if (!SNAPSHOT_RAIL_LABEL[chainKey]) return res.status(404).json({ error: "unknown chain" });
     const snapshot = getIndexSnapshot();
     const { selectedSeller, scanWallet } = resolveMarketSeller(chainKey, snapshot, req.query.seller);
-    const activity = scanWallet ? await getActivityForChain(chainKey, scanWallet) : null;
+    const activity = scanWallet ? await getActivityForChain(chainKey, scanWallet, { maxWaitMs: PAGE_ACTIVITY_WAIT_MS }) : null;
     const html = marketPanelHtml(chainKey, { snapshot, activity, selectedSeller, leaderboardSnap: getLeaderboardSnapshot() });
     res.set("Cache-Control", "public, max-age=60").json({ html, seller: selectedSeller });
   } catch (e) {
