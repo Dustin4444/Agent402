@@ -1454,7 +1454,7 @@ const netName = (n) => NET_ALIAS[n] || n;
 const MPP_RAIL_META = {
   base: { label: "Base", asset: "USDC", how: "evm/charge via the shim → x402 settle", explorer: "https://basescan.org/address/" },
   celo: { label: "Celo", asset: "USDC", how: "evm/charge via the shim → x402 settle", explorer: "https://celoscan.io/address/" },
-  tempo: { label: "Tempo", asset: "PathUSD", how: "native tempo/charge via Tempo's relay", explorer: "https://explore.tempo.xyz/address/" },
+  tempo: { label: "Tempo", asset: "USDC.e / PathUSD", how: "native tempo/charge via Tempo's relay", explorer: "https://explore.tempo.xyz/address/" },
 };
 const mppRailLabel = (n) => MPP_RAIL_META[n]?.label || netName(n) || n;
 

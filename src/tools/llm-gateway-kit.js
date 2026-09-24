@@ -3242,7 +3242,9 @@ const INPUT_SCHEMA = {
     max_completion_tokens: { type: "integer", description: "Optional - alias of max_tokens (newer OpenAI SDKs send this)." },
     tools: { type: "array", description: 'Optional - OpenAI function tools {type:"function", function:{...}}, or a tool namespace {type:"namespace", name, tools:[...]} (flattened into its functions). The pro and premium routes also accept the bounded server tools openrouter:web_search, openrouter:web_fetch and openrouter:datetime with server-owned limits (GET /v1/models lists them); stop_server_tools_when and max_tool_calls are refused. A request with a server tool is never served from the prompt cache.' },
   },
-  required: ["model", "messages"],
+  // model is optional: every tier using this schema serves its defaultModel
+  // when none is named, so listing it as required mis-described a body we serve.
+  required: ["messages"],
 };
 
 const AUTO_INPUT_SCHEMA = {
@@ -3280,7 +3282,7 @@ export const LLM_GATEWAY_TOOLS = [
     description:
       "OpenAI-compatible chat completions, nano tier: gpt-5.6-luna, gpt-5-nano, gemini flash-lite, small llama/ministral/qwen, deepseek-chat - $0.003 per call in USDC over x402, priced for high-frequency agent loops. Same wire format as /v1/chat/completions with loop-sized caps (12k chars in, 768 tokens out). Streaming supported (stream: true). No API key, no signup.",
     tags: SHARED_TAGS,
-    discovery: { bodyType: "json", input: { ...EXAMPLE, model: "openai/gpt-5.6-luna" }, inputSchema: INPUT_SCHEMA, output: { example: { ...EXAMPLE_OUT, model: "openai/gpt-4.1-nano" } } },
+    discovery: { bodyType: "json", input: { ...EXAMPLE, model: "openai/gpt-5.6-luna" }, inputSchema: INPUT_SCHEMA, output: { example: { ...EXAMPLE_OUT, model: "openai/gpt-5.6-luna" } } },
     handler: makeHandler("v1-chat-nano"),
   },
   {
@@ -3362,7 +3364,7 @@ export const LLM_GATEWAY_TOOLS = [
     category: "llm",
     price: "$0.02",
     description:
-      "OpenAI-compatible chat completions over x402 - point any OpenAI SDK at base_url https://agent402.tools/v1 and pay per call in USDC (Base, Solana, Polygon, Arbitrum, Stellar), no API key, no signup. Budget/mid models: gpt-4o-mini, claude haiku, gemini flash, deepseek, llama, mistral, qwen. Full wire compatibility incl. tools/function-calling and response_format. GET /v1/models lists every model. Streaming supported (stream: true).",
+      "OpenAI-compatible chat completions, base tier: point any OpenAI SDK at base_url https://agent402.tools/v1 and pay per call over x402 or MPP (the 402 lists every accepted rail), no API key, no signup. Returns the standard chat.completion object (choices[].message.content, usage). Budget/mid models: gpt-4o-mini (the default when model is omitted), claude haiku, gemini flash, deepseek, llama, mistral, qwen. Full wire compatibility incl. tools/function-calling and response_format. GET /v1/models lists every model. Streaming supported (stream: true). One flat price per call up to the tier caps; /v1/metered/chat/completions quotes each call from its own size instead. Model-backed.",
     tags: SHARED_TAGS,
     discovery: { bodyType: "json", input: EXAMPLE, inputSchema: INPUT_SCHEMA, output: { example: EXAMPLE_OUT } },
     handler: makeHandler("v1-chat"),
@@ -3615,5 +3617,5 @@ export function modelsList() {
       x402: { tier: "v1-audio-speech", endpoint: SPEECH_PATH, priceUsd: SPEECH_PRICE, maxInputChars: SPEECH_MAX_CHARS, voices: [...m.voices] },
     });
   }
-  return { object: "list", data, terms_of_service: "https://agent402.tools/terms", note: "Prefixes ending in /* allow the whole vendor family. Pay per call via x402 (USDC on Base, Solana, Polygon, Arbitrum, Stellar) - no API key. Bare OpenAI-style names (gpt-4o-mini) are accepted and mapped. Use constitutes acceptance of the terms_of_service (acceptable-use policy included)." };
+  return { object: "list", data, terms_of_service: "https://agent402.tools/terms", note: "Prefixes ending in /* allow the whole vendor family. Pay per call over x402 or MPP (every 402 lists the accepted rails) - no API key. Bare OpenAI-style names (gpt-4o-mini) are accepted and mapped. Use constitutes acceptance of the terms_of_service (acceptable-use policy included)." };
 }

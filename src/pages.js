@@ -9,8 +9,7 @@ import { SKILL_PACKS, PACK_PRICE_RANGE } from "./skills.js";
 import { agentReportPriceRange, cardReportPriceRange } from "./report-tiers.js";
 import { HUMAN_PRODUCTS } from "./human-checkout.js";
 import { RAILS_AMP, RAILS_OR, RAILS_PAREN, RAILS_SHORT } from "./rails.js";
-import { tempoDiscoveryInfo, tempoOfferedFor } from "./mpp-tempo.js";
-import { stripeDiscoveryInfo } from "./mpp-stripe.js";
+import { mppOffersFor } from "./mpp-offers.js";
 import { PRICED_BY_MODEL_NOTE } from "./tools/llm-gateway-kit.js";
 import { PARAM_ALIASES } from "./input-aliases.js";
 import { metaTitle, metaDescription } from "./seo-meta.js";
@@ -823,68 +822,41 @@ export function openapiSpec(baseUrl, catalog) {
       //     the tempo one.
       "x-payment-info": (() => {
         const priceUsd = Number(String(tool.price ?? "").replace(/[^0-9.]/g, "")) || 0;
-        // Tempo is a SECOND, independent MPP method (native TIP-1034/TIP-20
-        // via Tempo's own relay, not x402-settled) — advertised here only
-        // when actually enabled, same "never advertise what we can't settle"
-        // rule mintTempoChallenge() itself enforces.
-        // The live 402 withholds tempo on identity-bound routes (a tempo
-        // credential carries no verified payer) and on long-running ones (a
-        // pull credential expires before the handler finishes), so the
-        // discovery doc must too - see createTempoChallengeAppender.
-        const tempo = tempoOfferedFor(tool) ? tempoDiscoveryInfo() : null;
         // Per-request-priced routes (metered, priced by model) publish their
         // range, never the catalog floor as if it were the price.
         const range = tool.quoteRange || null;
         const fmtUsd = (n) => String(Number(n.toFixed(6)));
-        // Stripe cards-over-MPP (stripe/charge via SPT): a THIRD MPP method,
-        // advertised ONLY when the gate is live AND the route clears the $0.50
-        // SPT card minimum — same "never advertise what we can't settle" rule.
-        // Dormant (no keys) -> null -> no stripe offer on any operation.
-        const stripe = stripeDiscoveryInfo();
-        const stripeOffered = stripe && !tool.identityBound && priceUsd >= stripe.minUsd;
+        // Every MPP offer the live 402 makes on this route, in the order it
+        // lists them (tempo per currency, evm per chain, stripe) - read from
+        // the same predicates and env the 402 middlewares read, so the
+        // document never promises a method the 402 withholds (identity-bound
+        // and long-running routes get no tempo; stripe only at or above the
+        // card minimum; nothing when a method is switched off).
+        const mpp = mppOffersFor({ priceUsd, identityBound: tool.identityBound, longRunning: tool.longRunning });
+        const firstOf = (m) => mpp.find((o) => o.method === m);
         return {
           // STRUCTURED protocol objects, not bare strings: @agentcash/discovery
           // (MPPScan's crawler, whose L3 output x402scan consumes) parses
           // structured x-payment-info with zod — an object `price` next to
           // string protocols fails the structured schema AND the legacy
           // fallback, losing both price and protocols. Each mpp entry
-          // requires non-empty method/intent/currency.
+          // requires non-empty method/intent/currency. One entry per METHOD
+          // (its preferred currency); `offers` below carries every currency.
           protocols: [
             { x402: {} },
-            { mpp: { method: "evm", intent: "charge", currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" } },
-            ...(tempo ? [{ mpp: { method: "tempo", intent: "charge", currency: tempo.currency } }] : []),
-            ...(stripeOffered ? [{ mpp: { method: "stripe", intent: "charge", currency: "usd" } }] : []),
+            ...["tempo", "evm", "stripe"].filter(firstOf).map((m) => ({ mpp: { method: m, intent: "charge", currency: firstOf(m).currency } })),
           ],
           price: range
             ? { mode: "dynamic", currency: "USD", min: fmtUsd(range.minUsd), max: fmtUsd(range.maxUsd) }
             : { mode: "fixed", currency: "USD", amount: String(tool.price ?? "").replace(/[^0-9.]/g, "") || "0" },
-          offers: [
-            {
-              intent: "charge",
-              method: "evm",
-              amount: range ? null : String(Math.round(priceUsd * 1e6)),
-              currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-              description: "USDC on Base",
-            },
-            ...(tempo
-              ? [{
-                  intent: "charge",
-                  method: "tempo",
-                  amount: range ? null : String(Math.round(priceUsd * 10 ** tempo.decimals)),
-                  currency: tempo.currency,
-                  description: "USDC.e on Tempo",
-                }]
-              : []),
-            ...(stripeOffered
-              ? [{
-                  intent: "charge",
-                  method: "stripe",
-                  amount: range ? null : String(Math.round(priceUsd * 100)),
-                  currency: "usd",
-                  description: "Card via Stripe",
-                }]
-              : []),
-          ],
+          offers: mpp.map((o) => ({
+            intent: o.intent,
+            method: o.method,
+            amount: range ? null : String(Math.round(priceUsd * 10 ** o.decimals)),
+            currency: o.currency,
+            ...(o.chainId ? { chainId: o.chainId } : {}),
+            description: o.description,
+          })),
         };
       })(),
     };

@@ -227,7 +227,7 @@ export const TTS_TOOLS = [
     category: "ai",
     price: "$0.050",
     description:
-      "Convert text to speech using OpenAI TTS-1. Returns base64-encoded audio (mp3/opus/aac/flac/wav/pcm). 10 voices available. No API key needed; pay per call via x402. Text capped at 2000 chars. For high-volume speech where timbre matters less, /api/tts-lite is the same interface on Kokoro-82M at $0.005.",
+      "Convert text to speech using OpenAI TTS-1: returns audio (the base64-encoded file in the format asked for: mp3, opus, aac, flac, wav or pcm) with model, voice, format and chars (the characters spoken). 10 voices available. No API key needed; pay per call over x402 or MPP. Text capped at 2000 chars. Model-backed. For high-volume speech where timbre matters less, /api/tts-lite is the same interface on Kokoro-82M at $0.005.",
     tags: [...SHARED_TAGS, "tts-1"],
     discovery: {
       bodyType: "json",

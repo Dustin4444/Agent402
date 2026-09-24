@@ -17,8 +17,10 @@ const tempoSrc = readFileSync(new URL("../src/mpp-tempo.js", import.meta.url), "
 const pagesSrc = readFileSync(new URL("../src/pages.js", import.meta.url), "utf8");
 const serverSrc = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
 ok(/if \(tempoOfferedFor\(item\)\)/.test(tempoSrc), "the 402 appender decides with tempoOfferedFor");
-ok(/tempoOfferedFor\(tool\) \? tempoDiscoveryInfo\(\)/.test(pagesSrc), "the discovery offers decide with tempoOfferedFor");
-ok(/stripeOffered = stripe && !tool\.identityBound/.test(pagesSrc), "the discovery stripe offer is withheld on identity-bound routes, like the 402");
+const offersSrc = readFileSync(new URL("../src/mpp-offers.js", import.meta.url), "utf8");
+ok(/mppOffersFor\(\{[^}]*identityBound: tool\.identityBound[^}]*longRunning: tool\.longRunning/.test(pagesSrc), "the discovery offers come from mppOffersFor with the route's own flags");
+ok(/tempoOfferedFor\(item\) \? tempoDiscoveryInfo\(\)/.test(offersSrc), "the discovery offers decide with tempoOfferedFor");
+ok(/stripe && !item\.identityBound/.test(offersSrc), "the discovery stripe offer is withheld on identity-bound routes, like the 402");
 ok(/def\.quoteRange = \{ minUsd: floor, maxUsd: METERED_MAX_QUOTE_USD \}/.test(serverSrc), "metered routes publish a range up to the metered cap");
 ok(/typeof def\.tierQuote === "function"\) def\.quoteRange/.test(serverSrc), "priced-by-model routes publish a range");
 ok(/amount: range \? null/.test(pagesSrc), "a ranged route's offers carry a null amount");

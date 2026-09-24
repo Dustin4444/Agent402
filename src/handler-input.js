@@ -57,3 +57,32 @@ function aliasInto(req, input, def) {
     Object.defineProperty(req, "__aliasedParams", { value: [...new Set([...prev, ...filled])], enumerable: false, writable: true, configurable: true });
   } catch { /* frozen req in a test */ }
 }
+
+/** Cheap input check a paid gate can run BEFORE its payment round trip.
+ *  Returns null when the input may proceed, else `{status: 400, body}` with the
+ *  same self-correcting envelope the dispatcher's 400 carries (error, tool,
+ *  expected, required, example). Two checks only, both of which the handler
+ *  makes anyway:
+ *    - every key the tool's published inputSchema marks `required` is present
+ *      (after the accepted input aliases are filled; null/undefined = absent);
+ *    - the tool's own pure `validateInput(input)`, when it declares one, does
+ *      not throw a 4xx.
+ *  Types, ranges and upstream facts stay the handler's call. A throw that is
+ *  not a 4xx is ignored here and left to the handler. */
+export function preValidateInput(def, req) {
+  if (!def || !req) return null;
+  const input = handlerInputOf(req, def);
+  const schema = def.discovery?.inputSchema || {};
+  const required = Array.isArray(schema.required) ? schema.required : [];
+  const missing = required.filter((k) => input[k] === undefined || input[k] === null);
+  let message = missing.length ? `Missing required parameter${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}` : null;
+  if (!message && typeof def.validateInput === "function") {
+    try { def.validateInput(input); }
+    catch (e) { const s = Number(e?.statusCode); if (s >= 400 && s < 500) message = String(e?.message || "Invalid input"); }
+  }
+  if (!message) return null;
+  return {
+    status: 400,
+    body: { error: message, tool: def.slug, expected: schema.properties || {}, required, example: def.discovery?.input || {} },
+  };
+}

@@ -121,6 +121,10 @@ for (const [status, want, why] of [[401, 503, "a refused key is OUR problem, a 5
   ok(ex.answers.severity.confidence !== undefined && ex.answers.is_reproducible.noul !== undefined,
     "the published example shows a score WITH confidence and a noul WITHOUT, matching the real wire");
   ok(ex.answers.is_reproducible.confidence === undefined, "and never invents a confidence on the noul");
+  const sev = ex.answers.severity;
+  ok(sev.probabilities && !Array.isArray(sev.probabilities) && typeof sev.probabilities === "object"
+    && Object.keys(sev.probabilities).length === 3 && sev.legend && Object.keys(sev.legend).length === 3,
+    "score probabilities are keyed by level index with a legend beside them, as the real wire returns (the typed schema is derived from this example)");
 }
 
 // --- registration: a model-backed tool must be DECLARED so ---------------------

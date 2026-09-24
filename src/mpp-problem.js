@@ -36,16 +36,22 @@ export const MPP_PROBLEM_KINDS = Object.freeze({
   "payment-insufficient": { title: "Payment Insufficient" },
   "method-unsupported": { title: "Method Unsupported", hint: WALLET_HINT },
   "invalid-payload": { title: "Invalid Payload" },
+  // mppx's InternalPaymentError type. Used with status 503 when the payment
+  // relay could not be reached BEFORE anything was validated: nothing was
+  // charged and the same request can simply be retried.
+  "internal-payment-error": { title: "Internal Payment Error" },
 });
 
 /** Build a problem document. `detail` is shown to the buyer - keep it about
- *  the credential, never about our internals (no secrets, no stack). */
-export function mppProblem(kind, detail, { status = 402, details } = {}) {
+ *  the credential, never about our internals (no secrets, no stack). `hint`
+ *  overrides the kind's default hint with a specific next step. */
+export function mppProblem(kind, detail, { status = 402, details, hint } = {}) {
   const k = MPP_PROBLEM_KINDS[kind];
   if (!k) throw new Error(`unknown MPP problem kind ${kind}`);
   const doc = { type: `${BASE}${kind}`, title: k.title, status, detail: String(detail || k.title) };
   if (details && typeof details === "object" && Object.keys(details).length) doc.details = details;
-  if (k.hint) doc.hint = k.hint;
+  const h = typeof hint === "string" && hint ? hint : k.hint;
+  if (h) doc.hint = h;
   return doc;
 }
 

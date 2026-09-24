@@ -35,14 +35,17 @@ const RAW_402 = `$ curl -i -X POST https://agent402.tools/api/hash \\
 HTTP/1.1 402 Payment Required
 Content-Type: application/json; charset=utf-8
 PAYMENT-REQUIRED: eyJ4NDAyVmVyc2lvbiI6MiwiZXJyb3IiOiJQYXltZW50IHJlcXVpcmVkIi...
-WWW-Authenticate: Payment id="8w5V62E3...", realm="agent402.tools", method="evm",
+WWW-Authenticate: Payment id="Hq2dT0mB...", realm="agent402.tools", method="tempo",
+  intent="charge", request="eyJhbW91bnQiOiIxMDAwIi...", expires="2026-09-24T12:41:07.520Z",
+  Payment id="8w5V62E3...", realm="agent402.tools", method="evm",
   intent="charge", request="eyJhbW91bnQiOiIxMDAwIi...", expires="2026-09-24T12:41:07.520Z",
   opaque="eyJ4NDAyIjoie1wic2NoZW1l..."
+  (one challenge per currency and chain: USDC.e then PathUSD on Tempo, USDC on Base then Celo)
 X-Pow-Challenge: https://agent402.tools/api/pow/challenge?slug=hash
 
 {"altPayment":{"protocol":"proof-of-work", ...}}`;
 
-const MPP_REQUEST = `// base64url-decoded "request" parameter of the challenge above
+const MPP_REQUEST = `// base64url-decoded "request" parameter of the evm challenge above
 {
   "amount": "1000",
   "currency": "${BASE_USDC}",
@@ -160,7 +163,7 @@ export const LEARN = [
       ["What a 402 from this server contains", [
         P(`Every paid route answers an unpaid request with a 402 that carries both offers at once, plus a free path where one exists:`),
         { code: RAW_402 },
-        `<ul><li>${C("PAYMENT-REQUIRED")}: the x402 offer, base64 JSON with one entry per accepted chain.</li><li>${C("WWW-Authenticate: Payment")}: the MPP challenge for the same price, bound to this server by a signed id and an expiry.</li><li>${C("X-Pow-Challenge")}: on tools that accept proof-of-work, where to get a puzzle instead of paying money.</li></ul>`,
+        `<ul><li>${C("PAYMENT-REQUIRED")}: the x402 offer, base64 JSON with one entry per accepted chain.</li><li>${C("WWW-Authenticate: Payment")}: the MPP challenges for the same price, one per method and currency (Tempo first, then Base and Celo), each bound to this server by a signed id and an expiry.</li><li>${C("X-Pow-Challenge")}: on tools that accept proof-of-work, where to get a puzzle instead of paying money.</li></ul>`,
         P(`A client that speaks only one of the two protocols should look for the header it understands. An unfamiliar ${C("WWW-Authenticate")} scheme does not mean there is no way to pay.`),
       ]],
       ["A 402 costs nothing", [

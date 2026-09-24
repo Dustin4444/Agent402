@@ -304,7 +304,8 @@ export async function retryTransient(fn, { retries = 1, backoffMs = 300 } = {}) 
       // worse. Excluded by upstream status, not by our own, so the rest of the
       // 503 family keeps its retry.
       const throttled = e?.upstreamStatus === 429;
-      if (attempt < retries && !throttled && (sc === 504 || sc === 502 || sc === 503)) {
+      // noRetry: a deterministic refusal wearing a 503 (e.g. our own key rejected).
+      if (attempt < retries && !throttled && !e?.noRetry && (sc === 504 || sc === 502 || sc === 503)) {
         await new Promise((r) => setTimeout(r, backoffMs));
         continue;
       }
