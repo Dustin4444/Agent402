@@ -169,7 +169,7 @@ export const EDGAR_TOOLS = [
     name: "EDGAR company lookup (ticker → CIK)",
     slug: "edgar-company-lookup",
     category: "data",
-    price: "$0.002",
+    price: "$0.001",
     description:
       "Resolve a US stock ticker (e.g. AAPL) to its SEC CIK number, the primitive every other EDGAR call needs. Returns ticker, cik (zero-padded, 0000320193), cikInt (320193) and the registered company name. Backed by SEC's company_tickers.json (public domain). A company name sent where the ticker goes is answered with a 404 that names the likely tickers (\"Tesla\" -> TSLA). ?ticker=AAPL",
     tags: ["edgar", "sec", "cik", "ticker", "lookup", "company", "stocks", "filings"],

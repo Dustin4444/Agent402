@@ -22,22 +22,22 @@ export const PACK_PRICES = {
   // advertised tools' prices minus the 10% bundle discount, rounded up to $0.001,
   // never below $0.001. CI recomputes it (pack-prices.js in check mode) and fails
   // on drift, so do not hand-edit a number here - reprice the tool, then --write.
-  "earnings-deep-dive": 0.042, // 4 tools, parts $0.046
-  "options-analytics": 0.026, // 4 tools, parts $0.028
+  "earnings-deep-dive": 0.033, // 4 tools, parts $0.036
+  "options-analytics": 0.017, // 4 tools, parts $0.018
   "fixed-income-desk": 0.017, // 5 tools, parts $0.018
-  "defi-protocol-scanner": 0.034, // 4 tools, parts $0.037
+  "defi-protocol-scanner": 0.025, // 4 tools, parts $0.027
   "security-audit": 0.017, // 7 tools, parts $0.018
   "email-deliverability": 0.009, // 6 tools, parts $0.009
   "market-brief": 0.009, // 3 tools, parts $0.01
   "financial-analysis": 0.024, // 3 tools, parts $0.026
   "financial-research": 0.024, // 6 tools, parts $0.026
-  "macro-economics": 0.036, // 7 tools, parts $0.04
-  "macro-dashboard": 0.071, // 14 tools, parts $0.078
+  "macro-economics": 0.032, // 7 tools, parts $0.035
+  "macro-dashboard": 0.065, // 14 tools, parts $0.072
   "dns-network-ops": 0.011, // 6 tools, parts $0.012
-  "crypto-research": 0.063, // 7 tools, parts $0.07
-  "content-extraction": 0.044, // 6 tools, parts $0.048
-  "sec-filings-deep-dive": 0.029, // 7 tools, parts $0.032
-  "structured-scrape": 0.032, // 7 tools, parts $0.035
+  "crypto-research": 0.054, // 7 tools, parts $0.06
+  "content-extraction": 0.035, // 6 tools, parts $0.038
+  "sec-filings-deep-dive": 0.028, // 7 tools, parts $0.031
+  "structured-scrape": 0.023, // 7 tools, parts $0.025
   "decode-blob": 0.007, // 7 tools, parts $0.007
   "trend-analysis": 0.015, // 8 tools, parts $0.016
   "forecasting-bake-off": 0.014, // 7 tools, parts $0.015
@@ -48,9 +48,9 @@ export const PACK_PRICES = {
   "location-intel": 0.008, // 6 tools, parts $0.008
   "user-onboarding": 0.008, // 7 tools, parts $0.008
   "trip-planner": 0.006, // 6 tools, parts $0.006
-  "macro-context": 0.041, // 8 tools, parts $0.045
+  "macro-context": 0.036, // 8 tools, parts $0.04
   "regulatory-watch": 0.023, // 5 tools, parts $0.025
-  "search-and-cite": 0.119, // 5 tools, parts $0.132
+  "search-and-cite": 0.101, // 5 tools, parts $0.112
   "media-pipeline": 0.03, // 6 tools, parts $0.033
   "schema-evolution": 0.008, // 6 tools, parts $0.008
   "link-preview": 0.015, // 5 tools, parts $0.016
@@ -61,26 +61,26 @@ export const PACK_PRICES = {
   "wallet-readiness": 0.008, // 3 tools, parts $0.008
   "onchain-analyst": 0.021, // 3 tools, parts $0.023
   "seo-audit": 0.009, // 6 tools, parts $0.01
-  "cheapest-rail": 0.009, // 4 tools, parts $0.01
-  "company-dossier": 0.046, // 5 tools, parts $0.051
+  "cheapest-rail": 0.009, // 4 tools, parts $0.009
+  "company-dossier": 0.037, // 5 tools, parts $0.041
   "domain-intel": 0.016, // 6 tools, parts $0.017
-  "crypto-dossier": 0.05, // 6 tools, parts $0.055
-  "earnings-watch": 0.024, // 3 tools, parts $0.026
+  "crypto-dossier": 0.041, // 6 tools, parts $0.045
+  "earnings-watch": 0.015, // 3 tools, parts $0.016
   "insider-alert": 0.01, // 3 tools, parts $0.011
-  "ipo-watch": 0.041, // 3 tools, parts $0.045
+  "ipo-watch": 0.023, // 3 tools, parts $0.025
   "yield-dashboard": 0.014, // 3 tools, parts $0.015
-  "inflation-check": 0.023, // 4 tools, parts $0.025
+  "inflation-check": 0.018, // 4 tools, parts $0.02
   "fx-monitor": 0.009, // 3 tools, parts $0.009
   "defi-dashboard": 0.014, // 4 tools, parts $0.015
   "nft-portfolio": 0.005, // 3 tools, parts $0.005
   "wallet-audit": 0.005, // 3 tools, parts $0.005
-  "gas-optimizer": 0.008, // 3 tools, parts $0.008
+  "gas-optimizer": 0.007, // 3 tools, parts $0.007
   "ssl-audit": 0.006, // 3 tools, parts $0.006
   "email-security": 0.006, // 4 tools, parts $0.006
-  "brand-protection": 0.027, // 4 tools, parts $0.03
+  "brand-protection": 0.018, // 4 tools, parts $0.02
   "competitor-scan": 0.014, // 4 tools, parts $0.015
   "page-audit": 0.017, // 5 tools, parts $0.018
-  "article-digest": 0.108, // 3 tools, parts $0.12
+  "article-digest": 0.09, // 3 tools, parts $0.1
   "pdf-pipeline": 0.007, // 3 tools, parts $0.007
   "url-inspector": 0.004, // 3 tools, parts $0.004
   "content-grade": 0.012, // 3 tools, parts $0.013
@@ -91,7 +91,7 @@ export const PACK_PRICES = {
   "domain-age": 0.008, // 3 tools, parts $0.008
   "contract-audit": 0.022, // 5 tools, parts $0.024
   "tx-forensics": 0.011, // 5 tools, parts $0.012
-  "entity-enrich": 0.023, // 6 tools, parts $0.025
+  "entity-enrich": 0.022, // 6 tools, parts $0.024
   "feed-watch": 0.016, // 4 tools, parts $0.017
   "subtitle-pipeline": 0.03, // 3 tools, parts $0.033
   "locale-brief": 0.004, // 4 tools, parts $0.004

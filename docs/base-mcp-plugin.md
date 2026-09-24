@@ -311,7 +311,7 @@ Then call `complete_x402_request` with the returned `requestId` to get the resul
 **Prompt:** "Search the web for recent news about Base blockchain"
 
 1. Discover: `GET https://agent402.tools/api/find?q=web%20search%20news`
-2. Top result is `search-news` (GET /api/search-news, $0.02/call)
+2. Top result is `search-news` (GET /api/search-news, $0.01/call)
 3. Call `initiate_x402_request` with url `https://agent402.tools/api/search-news?q=Base%20blockchain`, method GET, maxPayment `"0.03"`
 4. User approves the ~$0.02 USDC payment
 5. Call `complete_x402_request` to get the search results

@@ -392,7 +392,7 @@ export const X402_TOOLS = [
     },
   },
   {
-    route: "GET /api/gas-estimate", name: "Gas price", slug: "gas-estimate", category: "payments", price: "$0.002",
+    route: "GET /api/gas-estimate", name: "Gas price", slug: "gas-estimate", category: "payments", price: "$0.001",
     description:
       "Current gas price on Base, Polygon, Arbitrum, Optimism, Ethereum, Monad, Celo, Avalanche, Sei, or Robinhood Chain - for an agent budgeting a transaction: returns network, gasPriceGwei and gasPriceWei (decimal strings) from the chain's own eth_gasPrice, the node's suggested all-in price per gas unit. Multiply by the gas a transaction uses (21000 for a plain transfer) for its fee. Read-only. ?network=base",
     tags: ["gas", "gas-price", "fees", "gwei", "multichain", "robinhood", "usdg"],

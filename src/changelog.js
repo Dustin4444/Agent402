@@ -9,6 +9,7 @@ const ENTRIES = [
       "/llms-full.txt lists every catalog route with its price.",
       "Tool pages now show parameters, example requests and responses, and related tools.",
       "Fixed broken links on the FAQ and chain pages.",
+      "Lower prices: web search, news search and render $0.01; fed-funds $0.005; gas-estimate, edgar-company-lookup, sol-price and polymarket-search $0.001. Skill packs that use them follow.",
     ],
   },
   {
