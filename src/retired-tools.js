@@ -15,6 +15,11 @@
 // listed here must NOT be live in the catalog (a restored tool must leave
 // this list, or its route would be shadowed), and a named replacement MUST be
 // live (a 410 that points at another 404 is worse than no pointer).
+//
+// A third rule is checked in CI (scripts/test-retired-routes.js against
+// scripts/published-slugs.json): every route we ever published is live,
+// listed only with a key, or listed here. Retiring a route without an entry
+// here fails that test.
 
 /** Tools: /api/<slug>. `replacement` is a live catalog slug or null. */
 export const RETIRED_TOOLS = Object.freeze({

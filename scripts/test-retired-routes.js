@@ -9,7 +9,8 @@ import { RETIRED_TOOLS, RETIRED_PACKS, retiredEntryFor, assertRetiredRegistryCon
 import { loadSnapshot, envGatedSegments, segmentsOf, accountFor } from "./published-slugs.js";
 
 let pass = 0;
-const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { console.error(`FAIL: ${m}`); process.exit(1); } };
+let proc = null; // the booted server, stopped on a failure so it never outlives the test
+const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { console.error(`FAIL: ${m}`); proc?.kill("SIGTERM"); process.exit(1); } };
 const throws = (fn, re, m) => { let e = null; try { fn(); } catch (err) { e = err; } ok(e && re.test(e.message), `${m} (${e ? e.message.slice(0, 80) : "did not throw"})`); };
 
 // --- the registry rules ---------------------------------------------------------
@@ -63,7 +64,7 @@ const gated = await envGatedSegments();
 // --- the wire, on a free boot ------------------------------------------------------
 const port = await getFreePort();
 const base = `http://127.0.0.1:${port}`;
-const proc = spawn(process.execPath, ["src/server.js"], { env: { ...process.env, FREE_MODE: "true", PORT: String(port), BASE_URL: "http://agent402.test", X402_INDEX_CRAWL: "off", X402_SYNC_ON_START: "false", MPP_INDEX_CRAWL: "off", MONITOR_SCHEDULER: "off", FREE_ALERTS: "off", FOLLOWUPS: "off", WALLET_DIGEST: "off" }, stdio: ["ignore", "ignore", "inherit"] });
+proc = spawn(process.execPath, ["src/server.js"], { env: { ...process.env, FREE_MODE: "true", PORT: String(port), BASE_URL: "http://agent402.test", X402_INDEX_CRAWL: "off", X402_SYNC_ON_START: "false", MPP_INDEX_CRAWL: "off", MONITOR_SCHEDULER: "off", FREE_ALERTS: "off", FOLLOWUPS: "off", WALLET_DIGEST: "off" }, stdio: ["ignore", "ignore", "inherit"] });
 try {
   let up = false;
   for (let i = 0; i < 180 && !up; i++) { try { up = (await fetch(`${base}/health`)).ok; } catch { await new Promise((r) => setTimeout(r, 500)); } }

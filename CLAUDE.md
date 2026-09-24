@@ -61,6 +61,9 @@ LLC: credit the entity, never a personal name.
 - Catalog floor: 400 entries, CI-checked by `node scripts/sync-count.js --check`. Marketing and
   static surfaces say **"500+ tools"**, never an exact number; runtime surfaces derive exact counts.
 - Retired routes answer 410 with a replacement: add every retirement to `src/retired-tools.js`.
+  `scripts/published-slugs.json` records every route ever published; after adding a tool or
+  pack run `node scripts/published-slugs.js --write` (`test-retired-routes.js` fails otherwise,
+  and fails when a published route is neither live, key-gated nor retired).
 - Prices quoted in prose are derived from the catalog, never typed
   (`scripts/test-price-prose.js`). Skill-pack prices are generated
   (`node scripts/pack-prices.js --write`).
