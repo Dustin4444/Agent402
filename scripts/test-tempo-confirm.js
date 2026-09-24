@@ -57,23 +57,38 @@ const TREASURY = "0xAbF4FABd7C416fb67202e5F9002389fc75E2a9d0";
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 const pad32 = (addr) => "0x" + addr.slice(2).toLowerCase().padStart(64, "0");
 
+// The challenge id of the most recent buildCredential(): arguments evaluate
+// left to right, so a receiptFor() written after buildCredential() in the same
+// call is bound to that credential's challenge.
+let lastChallengeId = null;
+const { encode: encodeMemo } = await import("../node_modules/mppx/dist/tempo/Attribution.js");
+const memoFor = (challengeId) => encodeMemo({ challengeId, serverId: "agent402.tools", clientId: "buyer" });
+const TRANSFER_WITH_MEMO_TOPIC = "0x57bc7354aa85aed339e000bccffabbc529466af35f0772c8f8ee1145927de7f0";
 function buildCredential(o = {}) {
   const challenge = Challenge.from({
     realm: o.realm ?? "agent402.tools",
     method: "tempo",
     intent: "charge",
-    expires: new Date(Date.now() + 60_000),
+    expires: new Date(Date.now() + (o.ttlMs ?? 60_000)),
     request: { amount: o.amount ?? "1000", currency: o.currency ?? CURRENCY, decimals: 6, recipient: o.recipient ?? TREASURY, methodDetails: { chainId: 4217 } },
     secretKey: SECRET,
   });
+  lastChallengeId = challenge.id;
   return Credential.serialize({ challenge, payload: o.payload ?? { type: "transaction", signature: SUBMITTED } });
 }
 
-function receiptFor(txId, { status = "0x1", token = CURRENCY, to = TREASURY, amount = 1000n } = {}) {
+// A TIP-20 transferWithMemo emits Transfer and TransferWithMemo; the confirm
+// reads the memo event. `memo` defaults to one bound to the last credential.
+function receiptFor(txId, { status = "0x1", token = CURRENCY, to = TREASURY, amount = 1000n, memo = memoFor(lastChallengeId), withMemoEvent = true } = {}) {
+  const from = pad32("0x24E6A249111aE0CC8ea09f487A114f7e7Ef15e12");
+  const data = "0x" + amount.toString(16).padStart(64, "0");
   return {
     status,
     transactionHash: txId,
-    logs: [{ address: token, topics: [TRANSFER_TOPIC, pad32("0x24E6A249111aE0CC8ea09f487A114f7e7Ef15e12"), pad32(to)], data: "0x" + amount.toString(16).padStart(64, "0") }],
+    logs: [
+      { address: token, topics: [TRANSFER_TOPIC, from, pad32(to)], data },
+      ...(withMemoEvent ? [{ address: token, topics: [TRANSFER_WITH_MEMO_TOPIC, from, pad32(to), memo], data }] : []),
+    ],
   };
 }
 
@@ -107,6 +122,16 @@ function stubFetch(receipts, log = []) {
 
   const underpaid = await confirmTempoSettlement(buildCredential({ amount: "5000" }), { fetchImpl: stubFetch({ [REAL_TXID]: receiptFor(REAL_TXID, { amount: 1000n }) }), attempts: 1 });
   ok(underpaid === null, "confirm: an on-chain amount below the challenge amount never confirms");
+
+  // Bound to THIS challenge: a settled transfer made for another purchase
+  // must not vouch for a fresh challenge (its bytes can be re-attached).
+  const otherCred = buildCredential({ ttlMs: 120_000 }); const otherMemo = memoFor(lastChallengeId);
+  const stolen = await confirmTempoSettlement(buildCredential(), { fetchImpl: stubFetch({ [REAL_TXID]: receiptFor(REAL_TXID, { memo: otherMemo }) }), attempts: 1 });
+  ok(otherCred && stolen === null, "confirm: a settled transfer whose memo is bound to a DIFFERENT challenge never confirms");
+  const noMemo = await confirmTempoSettlement(buildCredential(), { fetchImpl: stubFetch({ [REAL_TXID]: receiptFor(REAL_TXID, { withMemoEvent: false }) }), attempts: 1 });
+  ok(noMemo === null, "confirm: a plain Transfer with no MPP memo never confirms");
+  const untagged = await confirmTempoSettlement(buildCredential(), { fetchImpl: stubFetch({ [REAL_TXID]: receiptFor(REAL_TXID, { memo: "0x" + "00".repeat(25) + memoFor(lastChallengeId).slice(-14) }) }), attempts: 1 });
+  ok(untagged === null, "confirm: a memo carrying the right nonce but no MPP tag never confirms");
 
   const rpcDown = await confirmTempoSettlement(buildCredential(), { fetchImpl: async () => ({ ok: false, status: 503, json: async () => ({}) }), attempts: 1 });
   ok(rpcDown === null, "confirm: RPC failure -> null, fails closed, never throws");

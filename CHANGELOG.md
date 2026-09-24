@@ -14,6 +14,9 @@ Since v2.4.0 (2026-09-18).
   answers 404 or 405 twice at least an hour apart; a 410 removes any route;
   re-registering re-checks every route. `/api/index?seller=` shows
   each route's `declared`, `source` and `lastVerifiedAt`.
+- agent402-tollbooth 0.10.2: the Tempo settlement confirm used after a failed
+  relay broadcast requires the transfer's MPP memo to be bound to the
+  credential's own challenge.
 
 ### 2026-09-23
 - The model gateway serves Meta's Muse Spark (`meta/muse-spark-1.3`, `-1.2`,
