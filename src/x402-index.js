@@ -314,6 +314,9 @@ function persistSuccessions() {
 //     404, 405 or 410;
 //   - a 410 on the row's own verb drops even a declared route: the seller is
 //     saying it is gone.
+// A 404/405 must be seen twice, at least MISS_CONFIRM_MS apart, before the
+// route is dropped: one reading taken mid-deploy is not a retirement. A
+// seller who re-registers clears every mark on their origin.
 // A dropped route is remembered so the next crawl's merge cannot restore it.
 // A "miss" mark hides only undeclared rows, so a route the seller declares
 // again is listed again at once; a "410" mark hides the route either way. Both
@@ -321,7 +324,8 @@ function persistSuccessions() {
 export const GONE_ROUTES_FILE = "/data/x402-gone-routes.json";
 export const GONE_ROUTE_TTL_MS = 30 * 24 * 3600 * 1000;
 const GONE_ROUTES_MAX = 20_000;
-const goneRoutes = new Map(); // "origin METHOD /route" -> { at, kind: "410" | "miss" }
+const goneRoutes = new Map(); // "origin METHOD /route" -> { at, kind: "410" | "miss" | "pending" }
+export const MISS_CONFIRM_MS = 3600 * 1000;
 export const LIVE_PROOF_MAX_AGE_MS = 7 * 24 * 3600 * 1000;
 const goneKey = (origin, method, route) => `${origin} ${String(method || "GET").toUpperCase()} ${route}`;
 
@@ -330,7 +334,7 @@ export function loadGoneRoutes() {
     const obj = JSON.parse(readFileSync(GONE_ROUTES_FILE, "utf8"));
     for (const [k, v] of Object.entries(obj || {})) {
       if (goneRoutes.size >= GONE_ROUTES_MAX) break;
-      if (typeof k === "string" && v && Number(v.at) > 0) goneRoutes.set(k, { at: Number(v.at), kind: v.kind === "410" ? "410" : "miss" });
+      if (typeof k === "string" && v && Number(v.at) > 0) goneRoutes.set(k, { at: Number(v.at), kind: ["410", "miss", "pending"].includes(v.kind) ? v.kind : "miss" });
     }
   } catch { /* absent file / no volume - in-memory only */ }
 }
@@ -347,8 +351,21 @@ export function markRouteGone(origin, method, route, { at = Date.now(), kind = "
   const k = goneKey(origin, method, route);
   goneRoutes.delete(k);
   while (goneRoutes.size >= GONE_ROUTES_MAX) goneRoutes.delete(goneRoutes.keys().next().value);
-  goneRoutes.set(k, { at, kind: kind === "410" ? "410" : "miss" });
+  goneRoutes.set(k, { at, kind: ["410", "miss", "pending"].includes(kind) ? kind : "miss" });
   persistGoneRoutes();
+}
+
+function clearGoneMark(origin, method, route) {
+  if (goneRoutes.delete(goneKey(origin, method, route))) persistGoneRoutes();
+}
+
+/** Clear every mark on an origin (a re-registration). Returns how many. */
+export function clearGoneMarks(origin) {
+  const prefix = `${origin} `;
+  let n = 0;
+  for (const k of [...goneRoutes.keys()]) if (k.startsWith(prefix)) { goneRoutes.delete(k); n++; }
+  if (n) persistGoneRoutes();
+  return n;
 }
 
 /** The live mark for a route, or null. Expired marks are removed. */
@@ -359,7 +376,10 @@ export function goneMark(origin, method, route, now = Date.now()) {
   if (now - m.at > GONE_ROUTE_TTL_MS) { goneRoutes.delete(k); return null; }
   return m;
 }
-export function isRouteGone(origin, method, route, now = Date.now()) { return goneMark(origin, method, route, now) != null; }
+export function isRouteGone(origin, method, route, now = Date.now()) {
+  const m = goneMark(origin, method, route, now);
+  return m != null && m.kind !== "pending";
+}
 
 // Removes rows marked gone from `tools` IN PLACE (callers read the array they
 // passed). A "miss" mark hides only a row the seller does not declare.
@@ -371,7 +391,7 @@ export function dropGoneRoutes(tools, origin, now = Date.now()) {
     const t = tools[i];
     if (!t || typeof t.route !== "string") continue;
     const m = goneMark(origin, t.method, t.route, now);
-    if (m && (m.kind === "410" || t.declared === false)) { tools.splice(i, 1); n++; }
+    if (m && (m.kind === "410" || (m.kind === "miss" && t.declared === false))) { tools.splice(i, 1); n++; }
   }
   return n;
 }
@@ -953,6 +973,9 @@ export async function registerOrigin(origin, { crawl, replaces = null } = {}) {
       // A re-registration inside the window still re-prices (the lever's
       // original job, and free of third-party fetches beyond the seller's own
       // 402s) and still answers listed - it simply does not re-read documents.
+      // A re-registration is the seller asking us to look again: every route
+      // this origin had dropped or was about to drop is re-checked from scratch.
+      clearGoneMarks(origin);
       if (forcedCrawlDue(origin)) {
         noteForcedCrawl(origin);
         clearOriginProbeState(origin);
@@ -3515,7 +3538,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
       console.log(`[x402-index] live-410: ${originUrl}${tool.route} answered ${own} 410 Gone; dropped the row`);
       continue;
     }
-    if (learned || freeObserved) tool.liveProvenAt = Date.now();
+    if (learned || freeObserved) { tool.liveProvenAt = Date.now(); clearGoneMark(originUrl, own, tool.route); }
     // An undeclared route whose own verb answered "no such route" is not for
     // sale. Only a definitive answer counts: a timeout, 5xx, 429, 401/403 or a
     // 400 on our probe body says nothing. A row whose verb was inferred must
@@ -3535,6 +3558,16 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
     }
     if (missCandidate
         && (!tool.methodInferred || Object.values(statusByMethod).every((st) => MISS.has(st)))) {
+      // First sighting: remember it and keep the row. Confirmed only by a
+      // second miss at least MISS_CONFIRM_MS later.
+      const prior = goneMark(originUrl, own, tool.route);
+      if (!prior || prior.kind !== "pending" || Date.now() - prior.at < MISS_CONFIRM_MS) {
+        if (!prior || prior.kind !== "pending") markRouteGone(originUrl, own, tool.route, { kind: "pending" });
+        noteProbeOutcome(originUrl, `quote:${tool.route}`, false);
+        quoteProbeStats.probed++;
+        console.log(`[x402-index] live-miss (first): ${originUrl}${tool.route} answered ${own} ${statusByMethod[own]}; kept until a second miss`);
+        continue;
+      }
       markRouteGone(originUrl, own, tool.route, { kind: "miss" });
       dropped.add(tool);
       quoteProbeStats.probed++;

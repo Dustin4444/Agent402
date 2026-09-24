@@ -6,8 +6,10 @@
 //   1. stampDeclared marks routes the seller's documents name (exact, template);
 //   2. a 410 on the row's own verb drops any row, declared or not, and the mark
 //      keeps the next crawl's merge from restoring it;
-//   3. an UNDECLARED row whose own verb answers 404/405 is dropped; the mark
-//      hides only undeclared rows, so a route the seller declares again returns;
+//   3. an UNDECLARED row whose own verb answers 404/405 twice, at least
+//      MISS_CONFIRM_MS apart, is dropped (one reading mid-deploy is not); the
+//      mark hides only undeclared rows, so a route the seller declares again
+//      returns; a live answer clears a pending miss; re-registering clears all;
 //   4. an undeclared row that answers a live 402 is kept and stamped;
 //   5. nothing non-definitive drops a row (5xx, 429, 400, a thrown fetch), a
 //      declared row survives a 404, a URL template is never judged, and an
@@ -20,7 +22,7 @@ process.env.X402_INDEX_CRAWL = "off";
 const {
   enrichLiveQuotes, dropGoneRoutes, isRouteGone, markRouteGone, _resetGoneRoutes, GONE_ROUTE_TTL_MS,
   stampDeclared, needsLiveProof, LIVE_PROOF_MAX_AGE_MS, carryForwardLearnedQuotes, listingBasisProjection,
-  quoteIsStale, networksNeedLiveVerify,
+  quoteIsStale, networksNeedLiveVerify, MISS_CONFIRM_MS, clearGoneMarks, goneMark,
 } = await import("../src/x402-index.js");
 
 let n = 0;
@@ -68,9 +70,18 @@ try {
 
   // --- 3. an undeclared row that answers 404 on its own verb leaves; declaring it again brings it back
   globalThis.fetch = stub({ "POST /v1/old": 404, "POST /v1/gone405": 405 });
+  const first = [row("/v1/old", "POST", { declared: false }), row("/v1/gone405", "POST", { declared: false })];
+  await enrichLiveQuotes(first, ORIGIN, { ignoreBudget: true });
+  ok(first.length === 2, "one 404/405 reading keeps the row (a deploy blip is not a retirement)");
+  ok(goneMark(ORIGIN, "POST", "/v1/old")?.kind === "pending" && !isRouteGone(ORIGIN, "POST", "/v1/old"), "and records a pending miss");
+  await enrichLiveQuotes(first, ORIGIN, { ignoreBudget: true });
+  ok(first.length === 2, "a second miss inside the confirm window still keeps it");
+  const backdate = Date.now() - MISS_CONFIRM_MS - 60_000;
+  markRouteGone(ORIGIN, "POST", "/v1/old", { at: backdate, kind: "pending" });
+  markRouteGone(ORIGIN, "POST", "/v1/gone405", { at: backdate, kind: "pending" });
   const miss = [row("/v1/old", "POST", { declared: false }), row("/v1/gone405", "POST", { declared: false })];
-  await enrichLiveQuotes(miss, ORIGIN);
-  ok(miss.length === 0, `undeclared rows answering 404/405 are dropped by the automatic crawl (left ${routes(miss)})`);
+  await enrichLiveQuotes(miss, ORIGIN, { ignoreBudget: true });
+  ok(miss.length === 0, `a miss confirmed after the window drops the rows (left ${routes(miss)})`);
   ok(logs.some((l) => /live-miss: .*\/v1\/old is not in the seller's documents and answered POST 404/.test(l)), "and logged as a miss");
   globalThis.fetch = async () => { throw new Error("must not probe"); };
   const again = [row("/v1/old", "POST", { declared: false })];
@@ -79,6 +90,11 @@ try {
   const declaredAgain = [row("/v1/old", "POST", { declared: true, quoteSource: "live-402", quoteObservedAt: Date.now() })];
   dropGoneRoutes(declaredAgain, ORIGIN);
   ok(declaredAgain.length === 1, "a missed route the seller now declares is listed again");
+  ok(clearGoneMarks(ORIGIN) >= 2 && !isRouteGone(ORIGIN, "POST", "/v1/old") && !isRouteGone(ORIGIN, "POST", "/v1/jobs"), "re-registering clears every mark on the origin");
+  markRouteGone(ORIGIN, "POST", "/v1/blip", { kind: "pending" });
+  globalThis.fetch = stub({ "POST /v1/blip": 402 });
+  await enrichLiveQuotes([row("/v1/blip", "POST", { declared: false })], ORIGIN, { ignoreBudget: true });
+  ok(goneMark(ORIGIN, "POST", "/v1/blip") == null, "a live 402 clears a pending miss");
 
   // --- 4. an undeclared row answering a live 402 is kept and stamped
   globalThis.fetch = stub({ "POST /v1/live": 402 });
@@ -102,6 +118,7 @@ try {
     row("/v1/inf2", "POST", { declared: false, methodInferred: true }),
     row("/v1/inf3", "POST", { declared: false, methodInferred: true }),
   ];
+  for (const r of ["/v1/inf2", "/v1/inf3"]) markRouteGone(ORIGIN, "POST", r, { at: Date.now() - MISS_CONFIRM_MS - 60_000, kind: "pending" });
   await enrichLiveQuotes(inferred, ORIGIN, { ignoreBudget: true });
   ok(routes(inferred) === "/v1/inf1,/v1/inf3", `an inferred verb is dropped only when every verb misses (left ${routes(inferred)})`);
   ok(!isRouteGone(ORIGIN, "POST", "/v1/inf1") && !isRouteGone(ORIGIN, "POST", "/v1/inf3") && isRouteGone(ORIGIN, "POST", "/v1/inf2"), "only the route that missed on every verb is marked");
@@ -138,6 +155,11 @@ try {
   ok(dropGoneRoutes(back, ORIGIN) === 0 && back.length === 1, "a mark older than the TTL no longer hides the route");
   markRouteGone(ORIGIN, "POST", "/v1/lapsed", { kind: "410" });
   ok(dropGoneRoutes(back, ORIGIN) === 1 && back.length === 0, "a fresh mark does");
+  // The re-registration path clears the origin's marks before it re-reads.
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/x402-index.js", import.meta.url), "utf8");
+  const reg = src.indexOf("clearGoneMarks(origin);");
+  ok(reg > 0 && reg < src.indexOf("if (forcedCrawlDue(origin))", reg) && src.indexOf("if (forcedCrawlDue(origin))", reg) - reg < 400, "re-registration calls clearGoneMarks before its forced crawl");
 } finally {
   globalThis.fetch = orig;
   console.log = origLog;
