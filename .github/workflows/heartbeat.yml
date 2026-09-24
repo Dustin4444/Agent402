@@ -616,9 +616,9 @@ jobs:
             ROWS=""
             if [ -n "$OP_TOKEN" ]; then
               ROWS=$(curl -s --max-time 20 -H "Authorization: Bearer $OP_TOKEN" "$PROD/__operator/mpp-reconcile.json" \
-                | jq -r '[.day.mismatches[]? | select(.category != "charged_failed")] | .[0:15][] | "- \(.category): tx \(.tx // "none") slug \(.slug // "-") $\(.amountUsd // "-") (\(.side))"' 2>/dev/null || echo "")
+                | jq -r '[.day.mismatches[]? | select(.category != "charged_failed") | .category] | group_by(.) | map("- \(.[0]): \(length)") | .[]' 2>/dev/null || echo "")
             fi
-            BODY=$(printf 'The daily MPP reconciliation for %s found records that disagree (categories: %s). Each category is defined in src/mpp-reconcile.js: served_unpaid = booked as settled over Tempo with no transfer on chain; paid_unrecorded = a transfer to our recipient with no sales row; amount_mismatch / wrong_currency / duplicate_tx / missing_tx / evm_unverified / stripe_mismatch as named.\n\n%s\n\nFull detail: GET /__operator/mpp-reconcile.json (operator token). Re-run a day: POST /__operator/mpp-reconcile/run?day=YYYY-MM-DD. Closes when a reconciliation reads ok.' "$DAY" "${CATS:-see the operator route}" "${ROWS:-(itemized rows need the operator token)}")
+            BODY=$(printf 'The daily MPP reconciliation for %s found records that disagree (categories: %s). Each category is defined in src/mpp-reconcile.js: served_unpaid = booked as settled over Tempo with no transfer on chain; paid_unrecorded = a transfer to our recipient with no sales row; amount_mismatch / wrong_currency / duplicate_tx / missing_tx / evm_unverified / stripe_mismatch as named.\n\n%s\n\nFull detail: GET /__operator/mpp-reconcile.json (operator token). Re-run a day: POST /__operator/mpp-reconcile/run?day=YYYY-MM-DD. Closes when a reconciliation reads ok.' "$DAY" "${CATS:-see the operator route}" "${ROWS:-(counts need the operator token)}")
             if [ -z "$OPEN" ]; then
               gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY"
             else

@@ -41,7 +41,9 @@ const jsonRes = (obj, status = 200) => new Response(JSON.stringify(obj), { statu
   const nodb = createSearchData({ env: { BING_WEBMASTER_API_KEY: "k" }, store: null, log: () => {} });
   ok(nodb.start() === null && (await nodb.runOnce()).reason === "no-db", "no database: not started, runOnce refuses");
   const bad = readConfig({ GSC_SERVICE_ACCOUNT_JSON: "{not json" });
-  ok(!bad.google && /unreadable/.test(bad.googleError), "malformed service account JSON is reported, not thrown");
+  ok(!bad.google && /not valid JSON/.test(bad.googleError), "malformed service account JSON is reported, not thrown");
+  const leaky = readConfig({ GSC_SERVICE_ACCOUNT_JSON: '"private_key_SECRETPART' });
+  ok(!/SECRETPART|private_key/.test(leaky.googleError || ""), "the error never quotes the value");
 }
 
 // ---------- JWT assertion ----------
