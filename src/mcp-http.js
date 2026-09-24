@@ -109,6 +109,9 @@ const MCP_REQ_DEADLINE_MS = Number(process.env.AGENT402_MCP_REQ_DEADLINE_MS) || 
 // terminate before releasing its in-flight slot (audit F14). Bounds a wedged
 // handler so it can't hold a slot forever.
 const MCP_DRAIN_MS = Number(process.env.AGENT402_MCP_DRAIN_MS) || 5_000;
+// A blocking paid call's loopback ends this long before the request deadline,
+// so the tool result (not a transport error) is what the caller sees.
+const PAID_LOOPBACK_TIMEOUT_MS = Math.max(1_000, MCP_REQ_DEADLINE_MS - 2_500);
 // How long a task-eligible composite may run before we answer with a task
 // handle instead of blocking. Sized well under MCP_REQ_DEADLINE_MS so the
 // synchronous answer always fits, and well over the time a paywall needs to
@@ -539,7 +542,25 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
         // so answer synchronously exactly as a blocking call would.
       }
 
-      const r = await mppLoopback({ def: entry.def, params, credentialHeader, ip, signal, idempotencyKey });
+      // The paid loopback must end BEFORE this connector's own request
+      // deadline. When the deadline won, the transport answered a JSON-RPC
+      // -32603 that MCP hosts render as a bare "Error occurred during tool
+      // execution", and the loopback was cut mid-flight. Bounded here, the
+      // caller gets a tool result naming what happened instead.
+      let r;
+      try {
+        r = await mppLoopback({ def: entry.def, params, credentialHeader, ip, signal, idempotencyKey, timeoutMs: PAID_LOOPBACK_TIMEOUT_MS });
+      } catch (err) {
+        const timedOut = err?.name === "TimeoutError" || err?.name === "AbortError";
+        onServed(entry.def.slug, { latencyMs: Date.now() - startedAt, errored: true, statusCode: timedOut ? 504 : 502, errorMessage: timedOut ? "paid loopback timed out" : "paid loopback failed", inputKeys: Object.keys(params || {}) });
+        console.warn(`[mcp] tools/call failed class=${timedOut ? "paid-timeout" : "paid-loopback-error"} tool=${entry.def.slug} after=${Date.now() - startedAt}ms`);
+        return {
+          content: [{ type: "text", text: timedOut
+            ? `Agent402 (${entry.def.slug}): the paid call did not finish within ${Math.round(PAID_LOOPBACK_TIMEOUT_MS / 1000)}s on this connector and was stopped. A paid call settles only after its result is delivered, so a call stopped before settlement is not charged. Retry, or call ${entry.def.route} over HTTP, which has no connector deadline.`
+            : `Agent402 (${entry.def.slug}): the paid call could not be completed (${String(err?.message || err).slice(0, 120)}). It was not charged. Retry shortly.` }],
+          isError: true,
+        };
+      }
       return translateMppResponse(entry, meta, params, startedAt, isNamed, r);
     }
 
@@ -1284,7 +1305,23 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
       await Promise.race([run, deadline]);
     } catch (err) {
       if (!res.headersSent) {
-        res.status(err.__deadline ? 504 : 500).json({ jsonrpc: "2.0", error: { code: -32603, message: err.message }, id: req.body?.id ?? null });
+        // A tools/call that fails at the TRANSPORT used to be a JSON-RPC
+        // -32603 ("mcp request deadline exceeded"), which MCP hosts show as a
+        // bare "Error occurred during tool execution" with no reason. For a
+        // tool call the answer is a tool RESULT that says what happened; other
+        // methods keep the JSON-RPC error. Every such failure is logged.
+        const method = String(req.body?.method || "?");
+        const tool = logSafe(String(req.body?.params?.name || ""), 60);
+        const cls = err.__deadline ? "deadline" : "internal";
+        console.warn(`[mcp] ${logSafe(method, 40)} failed class=${cls}${tool ? ` tool=${tool}` : ""}`);
+        if (method === "tools/call" && req.body?.id != null) {
+          const text = err.__deadline
+            ? `Agent402${tool ? ` (${tool})` : ""}: the call did not finish within ${Math.round(MCP_REQ_DEADLINE_MS / 1000)}s on this connector and was stopped. A paid call settles only after its result is delivered, so a call stopped before settlement is not charged. Retry, or call the tool's HTTP route directly, which has no connector deadline.`
+            : `Agent402${tool ? ` (${tool})` : ""}: the connector hit an internal error handling this call (${String(err?.message || err).slice(0, 120)}). It was not charged. Retry shortly.`;
+          res.status(200).json({ jsonrpc: "2.0", id: req.body.id, result: { content: [{ type: "text", text }], isError: true } });
+        } else {
+          res.status(err.__deadline ? 504 : 500).json({ jsonrpc: "2.0", error: { code: -32603, message: err.message }, id: req.body?.id ?? null });
+        }
       }
     } finally {
       if (deadlineTimer) clearTimeout(deadlineTimer);
