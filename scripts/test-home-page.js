@@ -177,5 +177,39 @@ const catalog = {
   ok(!/\bcalls\b/.test(heroSeg), "the chain-derived hero figure is never called a call count");
 }
 
+// --- Tempo on the homepage ---------------------------------------------------
+// Tempo settles over MPP's own relay, so it is not in RAILS (accepts, the
+// on-chain scan). The per-rail section still owes it a row, fed by the same
+// viaUSDCByNetwork counter under its "tempo" key, and the rail count in the
+// prose has to include it. The hero counter already includes Tempo through
+// settledOnChainCount(), which must be the /revenue hero's own arithmetic.
+{
+  const { railsByVolume } = await import("../src/ledger-home.js");
+  const { RAILS } = await import("../src/rails.js");
+  const stats = { toolCallsServed: { viaUSDC: 900, viaUSDCByNetwork: { base: 500, tempo: 321 } } };
+  const rows = railsByVolume(stats, { tempo: false });
+  const t = rows.find((r) => r.name === "Tempo");
+  ok(t && t.n === 321 && t.href === "/what-is-mpp", "a Tempo row appears when Tempo has settled traffic, linked to the MPP page");
+  ok(rows.length === RAILS.length + 1, "Tempo is added beside the x402 rails, not in place of one");
+  ok(!railsByVolume({ toolCallsServed: { viaUSDCByNetwork: { base: 1 } } }, { tempo: false }).some((r) => r.name === "Tempo"),
+    "no Tempo row on a server where Tempo is off and never settled");
+  ok(railsByVolume({}, { tempo: true }).some((r) => r.name === "Tempo"), "an enabled Tempo rail shows even before its first settle");
+  ok(!RAILS.some((r) => /tempo/i.test(r.name)), "Tempo stays out of RAILS itself");
+
+  const html = ledgerHomePage(BASE_URL, catalog, stats, { leaderboard: [] }, []);
+  ok(html.includes("321") && html.includes(">Tempo<"), "the per-rail grid renders the Tempo row");
+  ok(html.includes(`All ${RAILS.length + 1} rails (${RAILS.length} x402 chains plus Tempo over MPP) carry real settled traffic`),
+    "the rail count in the prose includes Tempo");
+  ok(html.includes(`${RAILS.length + 1} rails live`), "the hero rail count includes Tempo");
+  ok(html.includes("821") && html.includes("paid calls carry a per-rail tag"), "the attributed total counts Tempo's tagged calls");
+
+  const { readFile } = await import("node:fs/promises");
+  const srv = await readFile(new URL("../src/server.js", import.meta.url), "utf8");
+  const fn = srv.slice(srv.indexOf("function settledOnChainCount()"), srv.indexOf("function settledOnChainCount()") + 700);
+  ok(/railThroughput\(\{ allTime: ledgerSummary\(/.test(fn), "the homepage hero counter uses the /revenue throughput arithmetic (Tempo once, Base/Celo MPP never twice)");
+  const hero = await readFile(new URL("../assets/js/home-hero.js", import.meta.url), "utf8");
+  ok(/j\.settledOnChain/.test(hero), "the live poll reads the same settledOnChain figure the server renders");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

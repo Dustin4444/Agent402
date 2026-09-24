@@ -369,7 +369,7 @@ import { setOgImageVersion, setNavIndexProvider, ledgerShell, ledgerFooterCompac
 import { ledgerHomePage } from "./ledger-home.js";
 import { ledgerCatalogPage } from "./ledger-catalog.js";
 import { ledgerPricingPage } from "./ledger-pricing.js";
-import { revenueSnapshot, revenuePage, stellarRail, stellarActivity, algorandRail, algorandActivity, evmActivity, solanaActivity, robinhoodActivity, baseActivityViaSql, EVM as EVM_CHAINS, rpcCall, getJsonAcross, ALGORAND_INDEXER_BASES, OUR_EVM_WALLETS, OUR_SOLANA_WALLETS, OUR_STELLAR_WALLETS, OUR_ALGORAND_WALLETS } from "./revenue-live.js";
+import { revenueSnapshot, revenuePage, railThroughput, stellarRail, stellarActivity, algorandRail, algorandActivity, evmActivity, solanaActivity, robinhoodActivity, baseActivityViaSql, EVM as EVM_CHAINS, rpcCall, getJsonAcross, ALGORAND_INDEXER_BASES, OUR_EVM_WALLETS, OUR_SOLANA_WALLETS, OUR_STELLAR_WALLETS, OUR_ALGORAND_WALLETS } from "./revenue-live.js";
 import { stellarPage, stellarSellers } from "./stellar-page.js";
 import { algorandPage, algorandSellers } from "./algorand-page.js";
 import { CHAIN_PAGES, marketSellers, marketOperatorCount, marketPage, marketPanelHtml } from "./market-page.js";
@@ -6819,8 +6819,9 @@ let __settledMemo = { at: 0, n: 0 };
 function settledOnChainCount() {
   if (Date.now() - __settledMemo.at < 60_000) return __settledMemo.n;
   try {
-    const n = Number(ledgerSummary(revenueWallets())?.allTimeInboundCount || 0)
-      + Number(mppSales({ detailed: false })?.rails?.tempo?.count || 0);
+    // railThroughput is the /revenue hero's own arithmetic: on-chain inbound
+    // plus Tempo MPP once, never Base/Celo MPP (already on-chain).
+    const n = railThroughput({ allTime: ledgerSummary(revenueWallets()), mpp: mppSales({ detailed: false }) }).total;
     if (n > 0) __settledMemo = { at: Date.now(), n };
   } catch { /* keep serving the last good count */ }
   return __settledMemo.n;

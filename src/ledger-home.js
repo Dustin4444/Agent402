@@ -64,13 +64,20 @@ const DEMAND_LANES = [
 
 /** Real per-rail settlement counts, sorted by volume. Same CAIP2_NAMES join
  * as /what-is-x402's rails table - single source of truth, can't drift. */
-function railsByVolume(stats) {
+export function railsByVolume(stats, { tempo = tempoEnabled() } = {}) {
   const byNet = stats?.toolCallsServed?.viaUSDCByNetwork || {};
-  return RAILS.map((r) => {
+  const rows = RAILS.map((r) => {
     const key = CAIP2_NAMES[r.caip2] || r.name.toLowerCase();
     const n = Number(byNet[key]) || 0;
-    return { name: r.name, asset: r.asset, slug: railKey(r), n, calls: n ? fmtNum(n) : "·" };
-  }).sort((a, b) => b.n - a.n);
+    return { name: r.name, asset: r.asset, slug: railKey(r), href: `/${railKey(r)}`, title: `${r.name} x402 marketplace`, n, calls: n ? fmtNum(n) : "·" };
+  });
+  // Tempo settles over its own MPP relay, not an x402 facilitator, so it is
+  // not in RAILS (which drives accepts and the on-chain scan). Its per-call
+  // settlements are still tallied under the "tempo" key of the same counter,
+  // so it gets a row here whenever it is enabled or has settled traffic.
+  const tempoN = Number(byNet.tempo) || 0;
+  if (tempo || tempoN) rows.push({ name: "Tempo", asset: "USDC.e", slug: "tempo", href: "/what-is-mpp", title: "Tempo native MPP settlement", n: tempoN, calls: tempoN ? fmtNum(tempoN) : "·" });
+  return rows.sort((a, b) => b.n - a.n);
 }
 
 /** Live leaderboard top rows, excluding Agent402's own row (best-effort name
@@ -203,7 +210,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
     : "";
 
   const railRowsHtml = rails.map((r) =>
-    `<a href="/${r.slug}" title="${esc(r.name)} x402 marketplace" style="display:flex;flex-direction:column;gap:9px;padding:15px 16px;text-decoration:none;color:var(--on-dark2);border-right:1px solid var(--dark-border);border-bottom:1px solid var(--dark-border);"><span style="display:flex;align-items:center;gap:9px;">${chainMark(r.slug, 19)}<span style="font-weight:500;font-size:14.5px;color:var(--on-dark);">${esc(r.name)}</span></span><span style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;font-family:var(--font-mono);"><span style="font-weight:500;font-size:17px;color:var(--on-dark);font-variant-numeric:tabular-nums;">${esc(r.calls)}</span><span style="font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--dk-muted3);">${esc(r.asset)}</span></span></a>`
+    `<a href="${esc(r.href)}" title="${esc(r.title)}" style="display:flex;flex-direction:column;gap:9px;padding:15px 16px;text-decoration:none;color:var(--on-dark2);border-right:1px solid var(--dark-border);border-bottom:1px solid var(--dark-border);"><span style="display:flex;align-items:center;gap:9px;">${chainMark(r.slug, 19)}<span style="font-weight:500;font-size:14.5px;color:var(--on-dark);">${esc(r.name)}</span></span><span style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;font-family:var(--font-mono);"><span style="font-weight:500;font-size:17px;color:var(--on-dark);font-variant-numeric:tabular-nums;">${esc(r.calls)}</span><span style="font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--dk-muted3);">${esc(r.asset)}</span></span></a>`
   ).join("");
 
   const leaderboardRowsHtml = board.length
@@ -233,7 +240,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
           <a href="/guides/agent-hosts" style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);text-decoration:none;border-bottom:1px solid var(--hairline);">or Cursor, VS Code, Windsurf, Cline, Codex, Gemini CLI →</a>
         </div>
         <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;font-family:var(--font-mono);font-size:12.5px;color:var(--muted);">
-          <span class="ml-dot"></span><span>${RAILS.length} rails live</span>
+          <span class="ml-dot"></span><span>${rails.length} rails live</span>
           <a href="/status" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--dash);">status</a>
           <a href="/api/reliability" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--dash);">reliability</a>
           <a href="${REPO_URL}" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--dash);">AGPL-3.0 source</a>
@@ -306,7 +313,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   <div class="hm-proof" style="padding:26px 0;border-top:1px solid var(--hairline);border-bottom:1px solid var(--hairline);">
     <div style="display:flex;flex-direction:column;gap:4px;"><span style="font-family:var(--font-mono);font-size:26px;letter-spacing:-.02em;color:var(--ink);font-variant-numeric:tabular-nums;">${heroCount ? fmtNum(heroCount) : "·"}</span><span style="font-size:13px;color:var(--faint);">${heroLabel}</span></div>
     <div style="display:flex;flex-direction:column;gap:4px;"><span style="font-family:var(--font-mono);font-size:26px;letter-spacing:-.02em;color:var(--ink);font-variant-numeric:tabular-nums;">${fmtNum(count)}</span><span style="font-size:13px;color:var(--faint);">tools · ${packCount}+ skill packs</span></div>
-    <div style="display:flex;flex-direction:column;gap:4px;"><span style="font-family:var(--font-mono);font-size:26px;letter-spacing:-.02em;color:var(--ink);font-variant-numeric:tabular-nums;">${RAILS.length}</span><span style="font-size:13px;color:var(--faint);">settlement rails · x402 + MPP</span></div>
+    <div style="display:flex;flex-direction:column;gap:4px;"><span style="font-family:var(--font-mono);font-size:26px;letter-spacing:-.02em;color:var(--ink);font-variant-numeric:tabular-nums;">${rails.length}</span><span style="font-size:13px;color:var(--faint);">settlement rails · x402 + MPP</span></div>
     <div style="display:flex;flex-direction:column;gap:4px;"><span style="font-family:var(--font-mono);font-size:26px;letter-spacing:-.02em;color:var(--accent);">0%</span><span style="font-size:13px;color:var(--faint);">deducted from sellers · open source</span></div>
   </div>
 </section>
@@ -430,7 +437,7 @@ curl -X POST /api/hash \\
         <h3 style="font-weight:500;font-size:22px;margin:0;color:var(--on-dark);letter-spacing:-.02em;">Settled on every rail, not just Base.</h3>
         <span style="font-family:var(--font-mono);font-size:12px;color:var(--dk-muted3);">calls settled per rail · live from /api/stats</span>
       </div>
-      <p style="font-size:15px;line-height:1.6;color:var(--dk-muted2);max-width:700px;margin:0 0 20px;font-weight:300;">All ${RAILS.length} rails carry real settled traffic, not just the headline one. Buyers pay on the chain they already hold stablecoins on, gas is sponsored on EVM, and the router pays external sellers on that same chain.</p>
+      <p style="font-size:15px;line-height:1.6;color:var(--dk-muted2);max-width:700px;margin:0 0 20px;font-weight:300;">All ${rails.length} rails${rails.length > RAILS.length ? ` (${RAILS.length} x402 chains plus Tempo over MPP)` : ""} carry real settled traffic, not just the headline one. Buyers pay on the chain they already hold stablecoins on, gas is sponsored on EVM, and the router pays external sellers on that same chain.</p>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:0;border:1px solid var(--dark-border2);border-radius:12px;overflow:hidden;">${railRowsHtml}</div>
       <div style="display:flex;flex-wrap:wrap;gap:10px 26px;margin-top:16px;font-family:var(--font-mono);font-size:12.5px;color:var(--dk-muted3);">
         <span><strong style="color:var(--on-dark);font-weight:500;">${fmtNum(attributed)}</strong> of ${fmtNum(viaUsdc)} paid calls carry a per-rail tag</span>
