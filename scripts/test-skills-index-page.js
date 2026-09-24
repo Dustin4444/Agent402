@@ -84,7 +84,7 @@ ok(html.includes('"@type":"ItemList"'), "ItemList JSON-LD present for the 6 flag
   // @graph array), so isolate the ItemList block specifically before
   // counting - a naive split on the shared "#packs" @id string would first
   // match CollectionPage's mainEntity reference to it instead.
-  const itemListBlock = html.match(/<script type="application\/ld\+json">\{"@type":"ItemList"[\s\S]*?<\/script>/);
+  const itemListBlock = html.match(/<script type="application\/ld\+json">\{(?:"@context":"https:\/\/schema.org",)?"@type":"ItemList"[\s\S]*?<\/script>/);
   const itemListMatches = itemListBlock ? (itemListBlock[0].match(/"@type":"ListItem"/g) || []) : [];
   ok(itemListMatches.length === 6, `ItemList JSON-LD carries exactly 6 flagship entries (got ${itemListMatches.length})`);
 }

@@ -4,7 +4,7 @@ import { REPO_URL } from "./repo-link.js";
 import { isComputePayable } from "./pow.js";
 import { responseSchemaFor } from "./openapi-schema.js";
 import { CHROME_HEAD_LINKS, CHROME_CSS, renderHeader, renderFooter } from "./chrome.js";
-import { ledgerShell, ledgerFooterCompact, esc as ledgerEsc } from "./ledger-chrome.js";
+import { ledgerShell, ledgerFooterCompact, esc as ledgerEsc, breadcrumbLd } from "./ledger-chrome.js";
 import { SKILL_PACKS, PACK_PRICE_RANGE } from "./skills.js";
 import { agentReportPriceRange, cardReportPriceRange } from "./report-tiers.js";
 import { HUMAN_PRODUCTS } from "./human-checkout.js";
@@ -452,7 +452,7 @@ ${ledgerFooterCompact()}`;
     canonical,
     baseUrl,
     activePath: "/tools",
-    jsonLd,
+    jsonLd: [jsonLd, breadcrumbLd(baseUrl, [["Agent402", "/"], ["Tools", "/tools"], [cat.label, `/tools/category/${catKey}`]])],
     extraCss: CAT_CSS,
     body,
   });

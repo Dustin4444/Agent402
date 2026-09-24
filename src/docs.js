@@ -12,7 +12,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { marked } from "marked";
-import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
+import { ledgerShell, ledgerFooterCompact, esc, breadcrumbLd } from "./ledger-chrome.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WIKI_DIR = join(__dirname, "..", "wiki");
@@ -307,6 +307,7 @@ export const DOCS_SEARCH_SCRIPT = `<script src="/js/docs-sidebar.js"></script>`;
 
 function shell(baseUrl, title, description, path, body, currentSlug) {
   const extraCss = DOCS_LAYOUT_CSS;
+  const crumbs = [["Agent402", "/"], ["Docs", "/docs"], ...(path === "/docs" ? [] : [[title, path]])];
 
   const pageBody = `
   <div style="max-width:1180px;margin:0 auto;padding:50px 30px 64px;">
@@ -322,6 +323,7 @@ function shell(baseUrl, title, description, path, body, currentSlug) {
     baseUrl,
     activePath: "/docs",
     extraCss,
+    jsonLd: breadcrumbLd(baseUrl, crumbs),
     body: pageBody,
   });
 }

@@ -11,6 +11,9 @@
 import { metaDescription, metaTitle, fitTitle, trimWords, META_DESCRIPTION_MAX, META_TITLE_MAX, SERP_TITLE_MAX } from "../src/seo-meta.js";
 import { guidePage, guideSlugs } from "../src/guides.js";
 import { sampleMeta, SAMPLES } from "../src/sample-reports.js";
+import { categoryPage, CATEGORIES } from "../src/pages.js";
+import { docsPage } from "../src/docs.js";
+import { ORG_SAME_AS } from "../src/repo-link.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
@@ -49,6 +52,23 @@ for (const slug of guideSlugs()) {
 for (const product of Object.keys(SAMPLES)) {
   const t2 = sampleMeta(product, "https://agent402.tools").title;
   ok(t2.length <= SERP_TITLE_MAX && t2.endsWith("(free sample)"), `sample ${product}: title <= ${SERP_TITLE_MAX} (${t2.length})`);
+}
+
+// --- structured data: breadcrumbs, @context on every block, brand profiles ------
+const ldBlocks = (html) => [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map((m) => JSON.parse(m[1]));
+const crumbOf = (html) => ldBlocks(html).find((j) => j["@type"] === "BreadcrumbList");
+{
+  const guideHtml = guidePage("https://agent402.tools", guideSlugs()[0]);
+  const docHtml = docsPage("https://agent402.tools", "Getting-Started");
+  const catKey = Object.keys(CATEGORIES)[0];
+  const catalog = { "POST /api/x": { name: "X", slug: "x", category: catKey, price: "$0.001", description: "x", tags: [] } };
+  const catHtml = categoryPage("https://agent402.tools", catalog, catKey);
+  for (const [label, html, n] of [["guide", guideHtml, 3], ["docs page", docHtml, 3], ["category page", catHtml, 3]]) {
+    const b = crumbOf(html);
+    ok(b && b.itemListElement.length === n && b.itemListElement.every((it, i) => it.position === i + 1 && /^https:\/\/agent402\.tools\//.test(it.item)), `${label}: BreadcrumbList with ${n} absolute items`);
+    ok(ldBlocks(html).every((j) => j["@context"] === "https://schema.org"), `${label}: every JSON-LD block carries @context`);
+  }
+  ok(ORG_SAME_AS.includes("https://www.npmjs.com/package/agent402-mcp") && ORG_SAME_AS.includes("https://x.com/Agent402Tools") && ORG_SAME_AS.some((u) => /github\.com\//.test(u)), "Organization sameAs names the repo, the npm package and X");
 }
 
 // --- booted sweep ---------------------------------------------------------------

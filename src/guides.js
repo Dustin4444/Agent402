@@ -10,7 +10,7 @@ import { marked } from "marked";
 export const headingId = (text) => String(text || "").toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-");
 const tokenText = (tokens) => (tokens || []).map((t) => (t.tokens ? tokenText(t.tokens) : (t.text ?? ""))).join("");
 marked.use({ renderer: { heading({ tokens, depth }) { const html = this.parser.parseInline(tokens); return `<h${depth} id="${headingId(tokenText(tokens))}">${html}</h${depth}>\n`; } } });
-import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
+import { ledgerShell, ledgerFooterCompact, esc, breadcrumbLd } from "./ledger-chrome.js";
 import { fitTitle } from "./seo-meta.js";
 import { RAILS_OR, RAILS_AMP } from "./rails.js";
 import { TIERS, METERED_MAX_QUOTE_USD, EMBEDDINGS_PRICE } from "./tools/llm-gateway-kit.js";
@@ -1718,7 +1718,8 @@ export function guidePage(baseUrl, slug) {
 </div>
 ${ledgerFooterCompact()}`;
 
-  return ledgerShell({ title, description: g.description, canonical, baseUrl, activePath: "__none__", jsonLd, extraCss: GUIDE_PAGE_CSS, body });
+  const crumbs = breadcrumbLd(baseUrl, [["Agent402", "/"], ["Guides", "/guides"], [g.seoTitle || g.title, `/guides/${g.slug}`]]);
+  return ledgerShell({ title, description: g.description, canonical, baseUrl, activePath: "__none__", jsonLd: [jsonLd, crumbs], extraCss: GUIDE_PAGE_CSS, body });
 }
 
 export const guideSlugs = () => GUIDES.map((g) => g.slug);

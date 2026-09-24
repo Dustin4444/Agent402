@@ -6,7 +6,7 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 import { HUMAN_PRODUCTS } from "./human-checkout.js";
 import { MONITOR_PRODUCTS } from "./stripe-subscriptions.js";
 
-import { REPO_URL } from "./repo-link.js";
+import { REPO_URL, ORG_SAME_AS } from "./repo-link.js";
 const usd0 = (cents) => `$${(cents / 100).toFixed(0)}`;
 
 export function companyPage(baseUrl) {
@@ -63,7 +63,7 @@ ${ledgerFooterCompact()}`;
 .co-submit{background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;border:none;padding:12px 24px;cursor:pointer}
 .co-submit:hover{opacity:.85}`;
   const jsonLd = [
-    { "@type": "Organization", "@id": `${baseUrl}/#org`, name: "Havok Holdings LLC", legalName: "Havok Holdings LLC", duns: "142233542", foundingLocation: { "@type": "Place", address: { "@type": "PostalAddress", addressRegion: "NC", addressCountry: "US" } }, url: "https://havok.holdings", sameAs: ["https://havok.holdings", REPO_URL, "https://x.com/Agent402Tools"], brand: { "@type": "Brand", name: "Agent402.Tools" }, contactPoint: [{ "@type": "ContactPoint", contactType: "customer support", email: "mike@agent402.tools" }, { "@type": "ContactPoint", contactType: "security", email: "mike@agent402.tools" }, { "@type": "ContactPoint", contactType: "investor relations", email: "hello@havok.holdings" }] },
+    { "@type": "Organization", "@id": `${baseUrl}/#org`, name: "Havok Holdings LLC", legalName: "Havok Holdings LLC", duns: "142233542", foundingLocation: { "@type": "Place", address: { "@type": "PostalAddress", addressRegion: "NC", addressCountry: "US" } }, url: "https://havok.holdings", sameAs: ["https://havok.holdings", ...ORG_SAME_AS], brand: { "@type": "Brand", name: "Agent402", alternateName: "Agent402.Tools", url: baseUrl }, contactPoint: [{ "@type": "ContactPoint", contactType: "customer support", email: "mike@agent402.tools" }, { "@type": "ContactPoint", contactType: "security", email: "mike@agent402.tools" }, { "@type": "ContactPoint", contactType: "investor relations", email: "hello@havok.holdings" }] },
     { "@type": "BreadcrumbList", itemListElement: [{ "@type": "ListItem", position: 1, name: "Agent402", item: `${baseUrl}/` }, { "@type": "ListItem", position: 2, name: "Company", item: canonical }] },
   ];
   return ledgerShell({ title, description, canonical, baseUrl, activePath: "/company", extraCss, jsonLd, body });
