@@ -45,9 +45,11 @@ eq(ATTEST_SCHEMA.split(",").length, 7, "seven fields");
   eq(createHash("sha256").update(bytes).digest("hex"), responseDigest(body), "sha256(JSON.stringify(result)) equals sha256 of the bytes res.json sent");
   const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
   ok(!/app\.set\(\s*["']json (replacer|spaces|escape)["']/.test(server), "server.js sets no json replacer/spaces/escape (the digest assumes Express defaults)");
-  ok(server.includes('req.__responseSha256 = createHash("sha256").update(JSON.stringify(result), "utf8").digest("hex")'), "dispatcher stashes the digest of JSON.stringify(result)");
+  // `body` is the object actually sent: the handler's result, plus
+  // `ignoredParams` when the request carried shape fields the tool did not apply.
+  ok(server.includes('req.__responseSha256 = createHash("sha256").update(JSON.stringify(body), "utf8").digest("hex")'), "dispatcher stashes the digest of JSON.stringify(body), the object it sends");
   ok(server.includes("responseSha256: req.__responseSha256 || null,"), "finish hook hands the digest to recordSale");
-  ok(server.indexOf('req.__responseSha256 = createHash') < server.indexOf("res.json(result);", server.indexOf('req.__responseSha256 = createHash')), "digest is computed before res.json(result)");
+  ok(server.indexOf('req.__responseSha256 = createHash') < server.indexOf("res.json(body);", server.indexOf('req.__responseSha256 = createHash')), "digest is computed before res.json(body), from the same object");
 }
 
 // --- 3. ledger: digest recorded, lookup by tx, write-once attestation

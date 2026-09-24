@@ -1,4 +1,4 @@
-import { applyInputAliases } from "./input-aliases.js";
+import { applyInputAliases, applyShapeAliases, ignoredShapeParams, shapeRefusal } from "./input-aliases.js";
 // The ONE construction of the object a tool handler is served, shared by the
 // dispatcher and by every place that PRICES a request from its body.
 //
@@ -50,7 +50,14 @@ export function handlerInputOf(req, def) {
 // idempotent against an earlier one made without it.
 function aliasInto(req, input, def) {
   if (!def) return;
-  const filled = applyInputAliases(input, def);
+  const filled = [...applyInputAliases(input, def), ...applyShapeAliases(input, def)];
+  // Recognised request-shape fields this tool does not apply, named back to the
+  // caller in the answer's `ignoredParams` (never silently dropped). Recomputed
+  // on every call, so it always describes the object the handler is served.
+  const ignored = ignoredShapeParams(input, def);
+  try {
+    if (ignored.length || req.__ignoredParams) Object.defineProperty(req, "__ignoredParams", { value: ignored, enumerable: false, writable: true, configurable: true });
+  } catch { /* frozen req in a test */ }
   if (!filled.length) return;
   try {
     const prev = req.__aliasedParams || [];
@@ -75,7 +82,8 @@ export function preValidateInput(def, req) {
   const schema = def.discovery?.inputSchema || {};
   const required = Array.isArray(schema.required) ? schema.required : [];
   const missing = required.filter((k) => input[k] === undefined || input[k] === null);
-  let message = missing.length ? `Missing required parameter${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}` : null;
+  let message = shapeRefusal(input, def)
+    || (missing.length ? `Missing required parameter${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}` : null);
   if (!message && typeof def.validateInput === "function") {
     try { def.validateInput(input); }
     catch (e) { const s = Number(e?.statusCode); if (s >= 400 && s < 500) message = String(e?.message || "Invalid input"); }
@@ -85,4 +93,16 @@ export function preValidateInput(def, req) {
     status: 400,
     body: { error: message, tool: def.slug, expected: schema.properties || {}, required, example: def.discovery?.input || {} },
   };
+}
+
+/** Merge `ignoredParams` into a JSON object answer when the request carried
+ *  recognised request-shape fields the tool did not apply. Returns a NEW object
+ *  (the handler's result may be cached and served to another caller) or the
+ *  result unchanged. Arrays, binaries, streams and non-objects pass through. */
+export function withIgnoredParams(result, req) {
+  const ignored = req?.__ignoredParams;
+  if (!Array.isArray(ignored) || !ignored.length) return result;
+  if (!result || typeof result !== "object" || Array.isArray(result) || Buffer.isBuffer(result)) return result;
+  if (result.__binary || typeof result.__sse === "function") return result;
+  return { ...result, ignoredParams: ignored };
 }

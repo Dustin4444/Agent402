@@ -36,6 +36,7 @@ import {
 } from "./mcp-tasks.js";
 import { EXPENSIVE_COMPOSITE_SLUGS } from "./composite-spend-guard.js";
 import { tempoEnabled } from "./mpp-tempo.js";
+import { mppFlagshipRows, mppFlagshipOffersPhrase } from "./mpp-flagship.js";
 import { stripeEnabled } from "./mpp-stripe.js";
 import { findTools, findRelatedSellers, applyFrontDoorTerms } from "./find.js";
 import { partialFields, clampFields } from "./partial-answer.js";
@@ -157,6 +158,9 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
     if (Number.isFinite(n) && def?.slug) packPriceIndex.set(String(def.slug).toLowerCase(), n);
   }
   const toolPriceUsd = (slug) => packPriceIndex.get(String(slug).toLowerCase()) ?? null;
+  // MPP start-here set (src/mpp-flagship.js) as served by this connector's
+  // catalog, prices read from it. Surfaced in payment.info.
+  const mppStartHere = mppFlagshipRows(catalog).map((r) => ({ slug: r.slug, method: r.method, path: r.path, url: `${baseUrl}${r.path}`, price: r.price, why: r.why }));
   const tools = new Map(); // slug -> { def, free }
   for (const def of Object.values(catalog)) {
     tools.set(def.slug, { def, free: isComputePayable(def) });
@@ -1012,6 +1016,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
               prices: `most tools $0.001–$0.02 per call, LLM gateway tiers $0.002–$0.50 (the metered tier is quoted per request), multi-tool skill packs ${PACK_PRICE_RANGE.text}, report products ${agentReportPriceRange()?.text || "priced per product"} - see each tool's exact price in catalog.search results`,
               llmGateway: `the /v1 OpenAI-compatible endpoints (chat nano $0.003, auto $0.01, embeddings $0.002) settle the same way - point any OpenAI SDK at ${baseUrl}/v1 through an x402-paying fetch; no API key, the wallet is the account`,
             },
+            ...(mppStartHere.length ? { mppStartHere: { what: `fast, low-priced routes that ${mppFlagshipOffersPhrase()}: a good first call for a new MPP client (call by slug with catalog.call, or pay the HTTP route with mppx)`, routes: mppStartHere, more: `${baseUrl}/what-is-mpp#start-here` } } : {}),
             spendControls: { perCall: "AGENT402_MAX_PER_CALL caps any single call", totalBudget: "AGENT402_BUDGET caps cumulative spend for the session" },
             balanceAndHistory: {
               balance: "check a wallet's USDC balance via catalog.call with slug wallet-balances (multi-chain) or wallet-balance (single)",

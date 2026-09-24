@@ -70,6 +70,55 @@ function takeQuery(raw) {
   return q;
 }
 
+// Domain allow/deny lists, accepted in the field names common search APIs use
+// (src/input-aliases.js maps the spellings onto includeDomains/excludeDomains).
+// Not in any schema: the advertised contract stays `q`/`count`/`freshness`.
+// Applied as site: operators on the query, which the index honours, so the
+// filter changes WHICH pages come back exactly as the caller asked; nothing is
+// approximated. Values are hostnames (a scheme or a trailing slash is
+// stripped); a path, a malformed host, more than 10 per list, or a query that
+// no longer fits 400 characters is a 400 naming the reason, before any spend.
+// A list may arrive as an array, a JSON array string (a GET query string) or a
+// comma-separated string.
+const MAX_DOMAINS = 10;
+const HOST_RE = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,62}$/;
+function domainList(raw, field) {
+  if (raw === undefined || raw === null || raw === "") return [];
+  let list = raw;
+  if (typeof raw === "string") {
+    const t = raw.trim();
+    if (t.startsWith("[")) {
+      try { list = JSON.parse(t); } catch { throw bad(`"${field}" must be a list of hostnames`); }
+    } else list = t.split(",");
+  }
+  if (!Array.isArray(list)) throw bad(`"${field}" must be a list of hostnames`);
+  const out = [];
+  for (const v of list) {
+    if (typeof v !== "string") throw bad(`"${field}" must be a list of hostnames`);
+    const h = v.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^\*\./, "").replace(/\/+$/, "");
+    if (!h) continue;
+    if (!HOST_RE.test(h)) throw bad(`"${field}" entry ${JSON.stringify(v.slice(0, 80))} is not a hostname (send e.g. "example.com"; paths are not supported)`);
+    if (!out.includes(h)) out.push(h);
+  }
+  if (out.length > MAX_DOMAINS) throw bad(`"${field}" takes at most ${MAX_DOMAINS} hostnames`);
+  return out;
+}
+/** q plus site: operators for the domain lists. Returns { q, domainFilter }
+ *  where domainFilter is null when neither list was sent. Exported for the
+ *  offline test. */
+export function withDomainFilter(q, i) {
+  const include = domainList(i?.includeDomains, "includeDomains");
+  const exclude = domainList(i?.excludeDomains, "excludeDomains");
+  if (!include.length && !exclude.length) return { q, domainFilter: null };
+  const both = include.filter((h) => exclude.includes(h));
+  if (both.length) throw bad(`"${both[0]}" is in both includeDomains and excludeDomains`);
+  const inc = include.length === 1 ? `site:${include[0]}` : include.length ? `(${include.map((h) => `site:${h}`).join(" OR ")})` : "";
+  const exc = exclude.map((h) => `-site:${h}`).join(" ");
+  const full = [q, inc, exc].filter(Boolean).join(" ");
+  if (full.length > 400) throw bad("The query plus its domain filters exceeds 400 characters; shorten the query or send fewer domains");
+  return { q: full, domainFilter: { includeDomains: include, excludeDomains: exclude } };
+}
+
 // Answers is a different shape: POST to an OpenAI-compatible /chat/completions
 // endpoint, streamed SSE, with citations embedded as <citation>...</citation>
 // tags inside the assistant content. We accumulate the stream, then parse out
@@ -310,8 +359,9 @@ export const SEARCH_TOOLS = [
     handler: async (i) => {
       const q = takeQuery(i.q);
       const count = Math.min(Math.max(parseInt(i.count, 10) || 10, 1), 20);
+      const filtered = withDomainFilter(q, i);
       const data = await braveGet("/web/search", {
-        q, count,
+        q: filtered.q, count,
         freshness: FRESHNESS.has(i.freshness) ? i.freshness : undefined,
       }, undefined, "search");
       const results = (data.web?.results ?? []).slice(0, count).map((r) => ({
@@ -321,7 +371,7 @@ export const SEARCH_TOOLS = [
         age: r.age ?? null,
         publishedAt: publishedAtOf(r),
       }));
-      return markUntrusted({ query: q, count: results.length, results });
+      return markUntrusted({ query: q, count: results.length, results, ...(filtered.domainFilter ? { domainFilter: filtered.domainFilter } : {}) });
     },
   },
 
@@ -374,13 +424,14 @@ export const SEARCH_TOOLS = [
         }
         count = n;
       }
-      const data = await braveGet("/web/search", { q, count }, undefined, "search-lite");
+      const filtered = withDomainFilter(q, i);
+      const data = await braveGet("/web/search", { q: filtered.q, count }, undefined, "search-lite");
       const results = (Array.isArray(data?.web?.results) ? data.web.results : []).slice(0, count).map((r) => ({
         title: cleanSnippet(r?.title),
         url: r?.url ?? null,
         description: cleanSnippet(r?.description),
       }));
-      return markUntrusted({ query: q, count: results.length, results });
+      return markUntrusted({ query: q, count: results.length, results, ...(filtered.domainFilter ? { domainFilter: filtered.domainFilter } : {}) });
     },
   },
 
@@ -419,8 +470,9 @@ export const SEARCH_TOOLS = [
       const q = takeQuery(i.q);
       const count = Math.min(Math.max(parseInt(i.count, 10) || 10, 1), 50);
       const country = typeof i.country === "string" && /^[A-Za-z]{2}$/.test(i.country) ? i.country.toUpperCase() : undefined;
+      const filtered = withDomainFilter(q, i);
       const data = await braveGet("/news/search", {
-        q, count, country,
+        q: filtered.q, count, country,
         freshness: FRESHNESS.has(i.freshness) ? i.freshness : undefined,
       }, undefined, "search-news");
       const results = (data.results ?? []).slice(0, count).map((r) => ({
@@ -432,7 +484,7 @@ export const SEARCH_TOOLS = [
         source: r.meta_url?.hostname ?? null,
         breaking: r.breaking === true,
       }));
-      return markUntrusted({ query: q, count: results.length, results });
+      return markUntrusted({ query: q, count: results.length, results, ...(filtered.domainFilter ? { domainFilter: filtered.domainFilter } : {}) });
     },
   },
 

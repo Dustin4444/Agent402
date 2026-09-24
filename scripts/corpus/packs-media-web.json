@@ -344,6 +344,22 @@
       }
     },
     {
+      "slug": "site-map",
+      "name": "a one-element urls list is the start url",
+      "input": {
+        "urls": [
+          "https://www.iana.org"
+        ],
+        "limit": 10
+      },
+      "expect": {
+        "populated": [
+          "urls",
+          "host"
+        ]
+      }
+    },
+    {
       "slug": "unshorten-url",
       "name": "a t.co style hop chain via github",
       "input": {

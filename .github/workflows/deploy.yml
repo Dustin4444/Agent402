@@ -2524,6 +2524,8 @@ jobs:
           t node scripts/test-safe-regex.js
           # Sales ledger unit tests (named sales, internal/external classification, revenue math — offline)
           t node scripts/test-sales-ledger.js
+          # Weekly outside MPP agents: counts only, internal excluded, new vs returning over all history, operator-only route
+          t node scripts/test-mpp-agents-weekly.js
           t node scripts/test-attest-kit.js
           # Repo-wide: no count-named field is the length of a LIMITed query result (source scan, offline)
           t node scripts/test-capped-counts.js
@@ -4124,6 +4126,8 @@ jobs:
           t node scripts/test-mpp-tempo-shim.js
           # MPP discovery parity: every paid route's 402 challenges == its /openapi.json offers; /llms.txt + /.well-known/x402 agree (boots paid mode, offline)
           t node scripts/test-mpp-discovery-parity.js
+          # MPP start-here set: every slug offers tempo, and /what-is-mpp, /llms.txt, /openapi.json and MCP payment.info derive from src/mpp-flagship.js at catalog prices (boots FREE_MODE, offline)
+          t node scripts/test-mpp-flagship.js
 
   publish-gate:
     # Every per-package gate that used to run INSIDE the publish job. It is a

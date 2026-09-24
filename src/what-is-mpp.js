@@ -10,6 +10,7 @@
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 
 import { REPO_URL, ORG_SAME_AS } from "./repo-link.js";
+import { mppFlagshipRows, mppFlagshipSnippet, mppFlagshipOffersPhrase, MPP_FLAGSHIP_SNIPPET_SLUG } from "./mpp-flagship.js";
 const STEPS = [
   ["01", "The client requests a paid resource", "A plain HTTP request, no credentials attached. The server answers 402 Payment Required with a WWW-Authenticate: Payment challenge naming the price, the asset, the chain, and a one-time challenge id."],
   ["02", "The client signs and retries", "It signs a payment authorization for exactly that amount with its own wallet key and repeats the identical request, carrying the signed credential in an Authorization: Payment header. The key never leaves the client."],
@@ -37,11 +38,42 @@ const TOC = [
   ["#how", "How one payment works"],
   ["#compare", "MPP vs x402, side by side"],
   ["#live", "Where it settles today"],
+  ["#start-here", "Start here: routes to try first"],
   ["#start", "Accept it on your own API"],
   ["#faq", "Questions"],
 ];
 
-export function whatIsMppPage(baseUrl) {
+// "Start here" block: the MPP start-here set from src/mpp-flagship.js, with
+// method, path and price read from the catalog passed in (never typed). No
+// catalog, no block.
+function startHereSection(baseUrl, catalog) {
+  const rows = catalog ? mppFlagshipRows(catalog) : [];
+  if (!rows.length) return "";
+  const snipRow = rows.find((r) => r.slug === MPP_FLAGSHIP_SNIPPET_SLUG) || rows[0];
+  const snipQuery = snipRow.slug === "crypto-price" ? "?coins=BTC,ETH&currency=usd" : "";
+  const rowHtml = rows.map((r) =>
+    `<tr style="border-bottom:1px solid var(--hairline);"><td style="padding:11px 16px;font-family:var(--font-mono);font-size:13px;white-space:nowrap;"><a href="/tools/${esc(r.slug)}" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--accent);">${esc(r.method)} ${esc(r.path)}</a></td><td style="padding:11px 16px;font-family:var(--font-mono);font-size:13px;color:var(--accent);white-space:nowrap;" data-mpp-price="${esc(r.slug)}">${esc(r.price)}</td><td style="padding:11px 16px;color:var(--muted);">${esc(r.why)}</td></tr>`
+  ).join("");
+  return `
+<section id="start-here" style="max-width:1180px;margin:0 auto;padding:64px 30px 0;">
+  <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">04 / START HERE</div>
+  <h2 style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0 0 20px;color:var(--ink);">New to MPP? Try these routes first.</h2>
+  <p style="font-size:17px;line-height:1.65;color:var(--muted);max-width:820px;margin:0 0 26px;">${rows.length} fast, low-priced routes across web search, crypto and market data, macro and SEC filings, DNS and network, weather and utilities. Every one answers in one call, returns JSON, and the routes ${esc(mppFlagshipOffersPhrase())}. The same list is in <a href="/llms.txt" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--accent);">/llms.txt</a> and marked <span style="font-family:var(--font-mono);font-size:15px;color:var(--ink);">x-mpp-flagship</span> in <a href="/openapi.json" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--accent);">/openapi.json</a>.</p>
+  <div class="wm-scroll">
+    <table style="font-size:14.5px;border:1px solid var(--hairline);background:var(--card);">
+      <thead><tr style="border-bottom:1px solid var(--hairline);font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);"><th scope="col" style="text-align:left;font-weight:700;padding:13px 16px;">Route</th><th scope="col" style="text-align:left;font-weight:700;padding:13px 16px;">Price</th><th scope="col" style="text-align:left;font-weight:700;padding:13px 16px;">What it returns</th></tr></thead>
+      <tbody>${rowHtml}</tbody>
+    </table>
+  </div>
+  <div style="margin-top:22px;border:1px solid var(--hairline);background:var(--surface);">
+    <div style="padding:12px 18px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;letter-spacing:.06em;color:var(--dk-muted);">pay ${esc(snipRow.method)} ${esc(snipRow.path)} with mppx</div>
+    <pre style="margin:0;padding:18px;font-family:var(--font-mono);font-size:12.5px;line-height:1.7;color:var(--on-dark);white-space:pre-wrap;word-break:break-word;">${esc(mppFlagshipSnippet(snipRow, baseUrl, snipQuery))}</pre>
+  </div>
+</section>`;
+}
+
+export function whatIsMppPage(baseUrl, catalog = null) {
+  const startHere = startHereSection(baseUrl, catalog);
   const canonical = `${baseUrl}/what-is-mpp`;
   const title = "What is MPP? The Machine Payments Protocol, explained";
   const description =
@@ -62,7 +94,7 @@ table{border-collapse:collapse;width:100%}
 @media (max-width:900px){.wm-2col{grid-template-columns:minmax(0,1fr)!important}}
 `;
 
-  const tocHtml = TOC.map(([href, label]) =>
+  const tocHtml = TOC.filter(([href]) => href !== "#start-here" || startHere).map(([href, label]) =>
     `<a href="${href}" style="padding:11px 18px;border-bottom:1px solid var(--dark-border);text-decoration:none;color:var(--on-dark2);font-size:14px;">${esc(label)}</a>`
   ).join("");
 
@@ -149,8 +181,9 @@ Payment-Receipt: 0x8f2a&hellip;c41d
   </div>
 </section>
 
+${startHere}
 <section id="start" style="max-width:1180px;margin:0 auto;padding:64px 30px 0;">
-  <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">04 / ACCEPT IT</div>
+  <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">${startHere ? "05" : "04"} / ACCEPT IT</div>
   <h2 style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0 0 20px;color:var(--ink);">How do I accept MPP payments on my own API?</h2>
   <p style="font-size:17px;line-height:1.65;color:var(--muted);max-width:820px;margin:0 0 30px;">If you already speak x402, a translation layer can add MPP without touching settlement: answer 402s with an additional <span style="font-family:var(--font-mono);font-size:15px;color:var(--ink);">WWW-Authenticate: Payment</span> challenge derived from your existing offer, and re-encode inbound <span style="font-family:var(--font-mono);font-size:15px;color:var(--ink);">Authorization: Payment</span> credentials into your existing verification path. Agent402's implementation of exactly that pattern is open source (AGPL) in its server repository, and the mppx tooling in tempoxyz/mpp provides the client and codec primitives.</p>
   <div class="wm-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--hairline);">
@@ -170,7 +203,7 @@ Payment-Receipt: 0x8f2a&hellip;c41d
 </section>
 
 <section id="faq" style="max-width:900px;margin:0 auto;padding:64px 30px 0;">
-  <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">05 / QUESTIONS</div>
+  <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">${startHere ? "06" : "05"} / QUESTIONS</div>
   <h2 style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0 0 30px;color:var(--ink);">Questions people and agents ask.</h2>
   <div style="display:flex;flex-direction:column;gap:0;border-top:1px solid var(--hairline);">${faqHtml}</div>
 </section>
