@@ -57,7 +57,8 @@ import { stellarFacilitatorStatus } from "./stellar-facilitator-status.js";
 import { backfillBrokenPackRefunds } from "./refund-backfill.js";
 import { mppFallbackStatus } from "./mpp-fallback.js";
 import { meteredUsd, isMeterable, applyMeteredSettlement } from "./gateway-meter.js";
-import { handlerInputOf, preValidateInput } from "./handler-input.js";
+import { handlerInputOf, preValidateInput, withIgnoredParams } from "./handler-input.js";
+import { shapeRefusal } from "./input-aliases.js";
 import { setSettlementOverrides } from "@x402/express";
 // Metered settlement ships DARK, like the upto scheme it rides on: it changes
 // what a buyer is charged, so it turns on deliberately and can be turned off
@@ -8156,11 +8157,24 @@ function sendToolError(res, err, slug) {
   });
 }
 
+// The two bespoke contents routes read the same input object the generic
+// dispatcher does, so the accepted request shapes (a one-element `urls` list,
+// `link` for `url`, MCP-style envelopes) reach them too. Returns the url, or
+// sends the self-explaining 400 and returns null.
+function contentsUrlOf(req, res, slug) {
+  const def = CATALOG[`POST /api/${slug}`];
+  const input = handlerInputOf(req, def);
+  const refused = shapeRefusal(input, def);
+  if (refused) { res.status(400).json({ error: refused, tool: slug }); return null; }
+  if (!input.url) { res.status(400).json({ error: 'Missing "url" in JSON body' }); return null; }
+  return input.url;
+}
+
 app.post("/api/extract", async (req, res) => {
-  const { url } = req.body ?? {};
-  if (!url) return res.status(400).json({ error: 'Missing "url" in JSON body' });
+  const url = contentsUrlOf(req, res, "extract");
+  if (!url) return;
   try {
-    res.json(await extractArticle(url));
+    res.json(withIgnoredParams(await extractArticle(url), req));
   } catch (err) {
     sendToolError(res, err, "extract");
   }
@@ -8191,8 +8205,8 @@ app.post("/api/render", async (req, res) => {
   // binder emits, so latency and errors exist for it (none did until 2026-09-22).
   const _t0 = Date.now();
   res.once("finish", () => { try { capturePostHogToolCall({ slug: "render", latencyMs: Date.now() - _t0, cached: false, errored: res.statusCode >= 500, status: res.statusCode, synthetic: isSyntheticRequest(req) }); } catch { /* telemetry never breaks a response */ } });
-  const { url } = req.body ?? {};
-  if (!url) return res.status(400).json({ error: 'Missing "url" in JSON body' });
+  const url = contentsUrlOf(req, res, "render");
+  if (!url) return;
   // Abort a QUEUED render if the client hangs up, so it can't hold a browser
   // slot for work no one is waiting on (security audit A402-08). res 'close'
   // fires on disconnect OR normal completion — the writableEnded guard aborts
@@ -8204,9 +8218,9 @@ app.post("/api/render", async (req, res) => {
     // F02/F04: when a secretless browser worker is configured, render there so a
     // Chromium compromise never sits next to this process's secrets. Default
     // (unset) runs in-process, unchanged.
-    res.json(workerEnabled()
+    res.json(withIgnoredParams(workerEnabled()
       ? await runOnWorker("render", { url }, { signal: ac.signal })
-      : await renderArticle(url, { signal: ac.signal }));
+      : await renderArticle(url, { signal: ac.signal }), req));
   } catch (err) {
     if (!res.headersSent) sendToolError(res, err, "render");
   }
@@ -8338,6 +8352,10 @@ for (const tool of ALL_KIT) {
       // so every tool accepts the flat AND the wrapped shape and a metered
       // price can never be computed from a different body than is served.
       const input = { ...handlerInputOf(req, tool) };
+      // A request shape we recognise and refuse rather than half-serve (several
+      // URLs to a one-URL tool): a self-explaining 400, never charged.
+      const shapeRefused = shapeRefusal(input, tool);
+      if (shapeRefused) throw Object.assign(new Error(shapeRefused), { statusCode: 400 });
 
       // Composite-abuse guard: research/dossier run ~90s of expensive upstream
       // work BEFORE settlement, and a non-200 releases the (reusable) EIP-3009
@@ -8390,7 +8408,7 @@ for (const tool of ALL_KIT) {
           cached = true;
           noteCacheOutcome("hit");
           res.setHeader("X-Cache", "hit");
-          return res.json(hit);
+          return res.json(withIgnoredParams(hit, req));
         }
       }
 
@@ -8482,8 +8500,11 @@ for (const tool of ALL_KIT) {
       // "json replacer" / "json spaces" / "json escape" (pinned by
       // test-attest-kit from source), so this string IS the body. Recorded on
       // the sale row at finish; never on streamed or binary responses.
-      try { if (result && typeof result === "object") req.__responseSha256 = createHash("sha256").update(JSON.stringify(result), "utf8").digest("hex"); } catch { /* digest is best-effort */ }
-      res.json(result);
+      // Recognised request-shape fields the tool did not apply ride out as
+      // `ignoredParams` on a copy; the cached `result` above stays caller-neutral.
+      const body = withIgnoredParams(result, req);
+      try { if (body && typeof body === "object") req.__responseSha256 = createHash("sha256").update(JSON.stringify(body), "utf8").digest("hex"); } catch { /* digest is best-effort */ }
+      res.json(body);
     } catch (err) {
       errored = true;
       status = err.statusCode || 500;

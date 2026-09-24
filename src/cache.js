@@ -124,7 +124,8 @@ export const CACHEABLE_ROUTES = {
 
   // Search — shift over time, but for agent batch tasks the same query
   // repeated within a minute is wasted spend. 5min is a fair middle.
-  "/api/search":   { ttl: 300, keyFields: ["q", "count", "freshness"] },
+  // The domain lists change which pages come back, so they are part of the key.
+  "/api/search":   { ttl: 300, keyFields: ["q", "count", "freshness", "includeDomains", "excludeDomains"] },
   "/api/gov-data": { ttl: 3600, keyFields: ["q", "rows"] },
 
   // Discovery primitives — every agent hits /api/find and /api/route on the
