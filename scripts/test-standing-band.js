@@ -65,6 +65,10 @@ ok(standingBand({ sellers: 50 }) !== "", "at the floor it speaks");
   const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
   ok(/function standingFigures\(\)/.test(server), "one derivation feeds all three");
   ok(/getIndexSnapshot\(\)\?\.totals/.test(server), "...read from the index totals, not typed into the copy");
+  // The settled figure beside the rail count includes Tempo, so the rail
+  // count must include it too, on every page the band renders.
+  ok(/function settlementRailCount\(\) \{\s*return RAILS\.length \+ \(tempoEnabled\(\) \? 1 : 0\);/.test(server), "the rail count adds Tempo when its relay is on");
+  ok(!/rails: RAILS\.length/.test(server), "no band is fed the x402-only rail count");
 }
 
 console.log(`\ntest-standing-band: ${n} assertions OK`);
