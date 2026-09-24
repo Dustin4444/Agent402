@@ -98,10 +98,8 @@ for (const link of SPEECH_MODELS) ok(speechIds.has(link.id), `speech chain link 
 // 1b. Every speech row's costPerChar is at or above the DEAREST live endpoint
 //     for that model, not the catalog headline. TTS bills per INPUT char, so
 //     this row IS the worst-case bound the $0.06 chain and the $0.005 lite tier
-//     are priced under, and the headline can be any one endpoint: Kokoro's
-//     headline read 0.000004 (Together) while DeepInfra served at 0.00000062,
-//     and Voxtral's headline read 0.000016 while one Mistral endpoint bills
-//     0.0000176. Provider pinning is not honoured on /audio/speech (measured
+//     are priced under, and the headline can be any one endpoint, not the
+//     dearest. Provider pinning is not honoured on /audio/speech (measured
 //     2026-09-18), so the max is the only honest bound. Nothing here noticed
 //     until an audit did (tts-lite was loss-making at its old cap).
 {
