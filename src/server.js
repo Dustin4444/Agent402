@@ -57,7 +57,7 @@ import { stellarFacilitatorStatus } from "./stellar-facilitator-status.js";
 import { backfillBrokenPackRefunds } from "./refund-backfill.js";
 import { mppFallbackStatus } from "./mpp-fallback.js";
 import { meteredUsd, isMeterable, applyMeteredSettlement } from "./gateway-meter.js";
-import { handlerInputOf } from "./handler-input.js";
+import { handlerInputOf, preValidateInput } from "./handler-input.js";
 import { setSettlementOverrides } from "@x402/express";
 // Metered settlement ships DARK, like the upto scheme it rides on: it changes
 // what a buyer is charged, so it turns on deliberately and can be turned off
@@ -7198,6 +7198,9 @@ if (!FREE_MODE) {
       const priceUsd = quotedPriceUsd(def, req);
       return priceUsd ? { priceUsd, identityBound: isIdentityBoundRoute(def) } : null;
     },
+    // Input check before the relay round trip (see createTempoGate). Same
+    // envelope the dispatcher's 400 carries, so the caller corrects itself.
+    preValidate: (req) => preValidateInput(CATALOG[`${req.method} ${req.path}`], req),
   });
   if (tempoGate) {
     app.use(tempoGate);

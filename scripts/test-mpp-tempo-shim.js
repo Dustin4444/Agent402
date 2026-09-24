@@ -528,6 +528,148 @@ function isDeepOrderOk(actual, expected) {
   server.close();
 }
 
+// ---------------------------------------------------------------------------
+// First-session findings (2026-09-24): every refusal says WHY in a class the
+// buyer can act on, every refusal is logged, a relay outage is a 503, a bad
+// body is refused before the relay, and a client that hung up is not charged.
+// ---------------------------------------------------------------------------
+const { classifyTempoRefusal, TEMPO_REFUSAL_CLASSES, bindingRefusal } = await import("../src/mpp-tempo.js");
+async function withWarnings(fn) {
+  const warned = [];
+  const orig = console.warn;
+  console.warn = (...a) => { warned.push(a.join(" ")); };
+  try { return { value: await fn(), warned }; } finally { console.warn = orig; }
+}
+
+// Case L: classification of the relay's REAL verdict shapes. The memo line is
+// the exact 2026-09-20 relay body; the class is read from it, never copied out.
+{
+  const traced = (relayError, extra = {}) => Object.assign(new Error("Payment verification failed."), { __relayTrace: { relayError, ...extra } });
+  const memo = traced('relay /v1/mpp/validate HTTP 200 {"error":{"code":"unknown","message":"Payment verification failed: memo is not bound to this challenge."},"success":false}');
+  ok(classifyTempoRefusal(memo) === "memo-unbound", "case L: the live 'memo is not bound' relay body classifies as memo-unbound");
+  ok(classifyTempoRefusal(traced('relay /v1/mpp/validate HTTP 200 {"error":{"code":"unknown","message":"Invalid transaction: no matching payment call found - amount: 1000"}}')) === "transfer-mismatch", "case L: 'no matching payment call' is transfer-mismatch (amount/currency/recipient)");
+  ok(classifyTempoRefusal(traced("relay /v1/mpp/validate NETWORK ERROR after 10321ms: UND_ERR_CONNECT_TIMEOUT (attempts 2)", { networkError: true })) === "relay-unreachable", "case L: a connect timeout is relay-unreachable");
+  ok(classifyTempoRefusal(traced('relay /v1/mpp/validate HTTP 403 {"error":{"code":"api_key_scope_missing"}}', { relayUnavailable: 403 })) === "relay-unavailable", "case L: a relay 401/403/5xx (our key or their outage) is relay-unavailable, never blamed on the buyer");
+  ok(classifyTempoRefusal(Object.assign(new Error("Payment verification failed."), { details: { code: "expired" } })) === "expired", "case L: relay code expired -> expired");
+  ok(classifyTempoRefusal(Object.assign(new Error("Payment verification failed."), { details: { code: "insufficient_funds" } })) === "insufficient-funds", "case L: relay code insufficient_funds -> insufficient-funds");
+  ok(classifyTempoRefusal(Object.assign(new Error("Transaction hash has already been used"), {})) === "replay", "case L: an already-used hash is replay");
+  const secretish = "tempo-api-key-SECRET-123";
+  const leaky = traced(`relay /v1/mpp/validate HTTP 200 {"error":{"message":"memo is not bound to this challenge (key ${secretish})"}}`);
+  const cls = classifyTempoRefusal(leaky);
+  const doc = JSON.stringify({ ...TEMPO_REFUSAL_CLASSES[cls] });
+  ok(cls === "memo-unbound" && !doc.includes(secretish), "case L: the buyer-facing words are a fixed table: nothing from the relay body is relayed");
+  for (const [name, c] of Object.entries(TEMPO_REFUSAL_CLASSES)) {
+    ok(typeof c.detail === "string" && c.detail.length > 20 && typeof c.hint === "string" && c.hint.length > 20, `case L: class ${name} carries a specific detail and hint`);
+  }
+  const b = bindingRefusal("challenge expired");
+  ok(b.cls === "expired" && b.kind === "payment-expired" && /fresh challenge/.test(b.hint || ""), "case L: a binding refusal has a class, a spec type and a next step");
+}
+
+// Case M: the memo refusal reaches the buyer as a specific problem, and the
+// refusal is logged with class, route, amount and timing - no payer address.
+{
+  const payer = "0x1111111111111111111111111111111111111111";
+  const app = express();
+  app.use(createTempoGate({ ...GATE, validate: async () => ({ ok: false, cls: "memo-unbound", reason: "Payment verification failed.", error: `Payment verification failed. relay /v1/mpp/validate HTTP 200 {"source":"did:pkh:eip155:4217:${payer}","message":"memo is not bound to this challenge."}` }), broadcast: async () => ({ ok: true, receipt: {} }) }));
+  app.use(paywallStub);
+  app.get("/paid", (req, res) => res.json({ served: true }));
+  const { server, url } = await listen(app);
+  const { value: res, warned } = await withWarnings(async () => { const r = await fetch(`${url}/paid`, { headers: { Authorization: buildTempoCredential() } }); return { status: r.status, body: await r.json() }; });
+  ok(res.status === 402 && /memo is not bound/.test(res.body.detail) && /agent402\.tools/.test(res.body.hint || "") && res.body.details?.reason === "memo-unbound", `case M: the memo refusal names the cause and the fix (${res.body.detail})`);
+  const line = warned.find((w) => w.includes("[mpp-tempo] refused"));
+  ok(!!line && /class=memo-unbound/.test(line) && /route="GET \/paid"/.test(line) && /amount=50000/.test(line) && /validate=\d+ms/.test(line), `case M: one refusal line with class, route, amount and timing (${line})`);
+  ok(!!line && !line.toLowerCase().includes(payer.slice(2)) && !/did:pkh:eip155/.test(line), "case M: the log line masks the payer address and the did:pkh source");
+  server.close();
+}
+
+// Case N: the relay is unreachable BEFORE validation -> 503 + Retry-After,
+// nothing validated or broadcast, the handler never runs, no demotion.
+{
+  let handlerRan = false, broadcastCalled = false;
+  const { _resetTempoDemotion, tempoLeads } = await import("../src/mpp-tempo.js");
+  _resetTempoDemotion();
+  const app = express();
+  app.use(createTempoGate({ ...GATE, validate: async () => ({ ok: false, cls: "relay-unreachable", reason: "Payment verification failed.", error: "relay /v1/mpp/validate NETWORK ERROR after 10000ms: UND_ERR_CONNECT_TIMEOUT (attempts 2)" }), broadcast: async () => { broadcastCalled = true; return { ok: true, receipt: {} }; } }));
+  app.use(paywallStub);
+  app.get("/paid", (req, res) => { handlerRan = true; res.json({ served: true }); });
+  const { server, url } = await listen(app);
+  const { value: r, warned } = await withWarnings(async () => { const x = await fetch(`${url}/paid`, { headers: { Authorization: buildTempoCredential(), "User-Agent": "agent/9" } }); return { status: x.status, retry: x.headers.get("retry-after"), body: await x.json() }; });
+  ok(r.status === 503 && Number(r.retry) > 0, `case N: an unreachable relay answers 503 with Retry-After (got ${r.status}, Retry-After ${r.retry})`);
+  ok(r.body.type === "https://paymentauth.org/problems/internal-payment-error" && r.body.details?.charged === false && /nothing was charged/i.test(r.body.detail), "case N: the problem says the relay was unreachable and nothing was charged");
+  ok(!handlerRan && !broadcastCalled, "case N: no handler run, no broadcast");
+  ok(tempoLeads({ ip: "127.0.0.1", headers: { "user-agent": "agent/9" } }) === true, "case N: our relay outage does not demote the buyer's tempo challenge");
+  ok(warned.some((w) => /class=relay-unreachable/.test(w)), "case N: the refusal is logged");
+  server.close();
+}
+
+// Case O: a paid credential with a body the handler would refuse is answered
+// 400 BEFORE the relay round trip; an unpaid request still gets its 402.
+{
+  let validateCalls = 0;
+  const { preValidateInput } = await import("../src/handler-input.js");
+  const def = { slug: "paid-tool", discovery: { inputSchema: { required: ["text"], properties: { text: { type: "string" } } }, input: { text: "hello" } } };
+  const app = express();
+  app.use(express.json());
+  app.use(createTempoGate({ ...GATE, preValidate: (req) => preValidateInput(def, req), validate: async () => { validateCalls++; return { ok: true, validation: {} }; }, broadcast: async () => ({ ok: true, receipt: { method: "tempo", status: "success", reference: "0x01", timestamp: new Date().toISOString() } }) }));
+  app.use(paywallStub);
+  app.post("/paid", (req, res) => res.json({ echoed: req.body.text }));
+  const { server, url } = await listen(app);
+  const unpaid = await fetch(`${url}/paid`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  ok(unpaid.status === 402, "case O: an UNPAID bad body still gets the 402 first (same order as x402)");
+  const { value: bad, warned } = await withWarnings(async () => { const r = await fetch(`${url}/paid`, { method: "POST", headers: { "content-type": "application/json", Authorization: buildTempoCredential() }, body: "{}" }); return { status: r.status, body: await r.json() }; });
+  ok(bad.status === 400 && validateCalls === 0, `case O: a paid bad body is refused 400 before any relay call (status ${bad.status}, validate calls ${validateCalls})`);
+  ok(/Missing required parameter: text/.test(bad.body.error) && bad.body.tool === "paid-tool" && Array.isArray(bad.body.required) && bad.body.example?.text === "hello" && bad.body.charged === false, "case O: the 400 carries the self-correcting envelope and says nothing was charged");
+  ok(warned.some((w) => /class=input-invalid/.test(w)), "case O: the pre-validation refusal is logged");
+  const good = await fetch(`${url}/paid`, { method: "POST", headers: { "content-type": "application/json", Authorization: buildTempoCredential() }, body: JSON.stringify({ text: "x" }) });
+  ok(good.status === 200 && validateCalls === 1, "case O: a good body proceeds to validation and settles");
+  // A tool's own pure validator is honoured, and only its 4xx.
+  const judgeLike = { slug: "j", discovery: { inputSchema: { required: ["state"] } }, validateInput: (i) => { if (typeof i.questions !== "object") { const e = new Error('"questions" must be a map'); e.statusCode = 400; throw e; } } };
+  ok(/questions/.test(preValidateInput(judgeLike, { body: { state: "s" }, query: {} })?.body?.error || ""), "case O: a tool's validateInput 400 is used before the relay");
+  const crashy = { slug: "c", discovery: { inputSchema: {} }, validateInput: () => { throw new Error("boom"); } };
+  ok(preValidateInput(crashy, { body: {}, query: {} }) === null, "case O: a non-4xx throw from validateInput is left to the handler");
+  server.close();
+}
+
+// Case P: every refusal path leaves a line - binding, replay, malformed.
+{
+  const app = express();
+  app.use(createTempoGate({ ...GATE, replayGuard: createReplayGuard(), validate: async () => ({ ok: true, validation: {} }), broadcast: async () => { await sleep(150); return { ok: true, receipt: { method: "tempo", status: "success", reference: "0x02", timestamp: new Date().toISOString() } }; } }));
+  app.use(paywallStub);
+  app.get("/paid", (req, res) => res.json({ ok: 1 }));
+  const { server, url } = await listen(app);
+  const { warned, value } = await withWarnings(async () => {
+    const expired = await fetch(`${url}/paid`, { headers: { Authorization: buildTempoCredential({ expires: new Date(Date.now() - 1000) }) } });
+    const eb = await expired.json();
+    const cred = buildTempoCredential();
+    await Promise.all([fetch(`${url}/paid`, { headers: { Authorization: cred } }), sleep(20).then(() => fetch(`${url}/paid`, { headers: { Authorization: cred } }))]);
+    await fetch(`${url}/paid`, { headers: { Authorization: "Payment not-a-credential" } });
+    return eb;
+  });
+  ok(value.type === "https://paymentauth.org/problems/payment-expired" && value.details?.reason === "expired" && typeof value.hint === "string", `case P: an expired challenge is a payment-expired problem with a hint (${value.type})`);
+  ok(warned.some((w) => /refused class=expired/.test(w)), "case P: the binding refusal is logged with its class");
+  ok(warned.some((w) => /refused class=replay/.test(w)), "case P: a replayed credential is logged (it used to leave no line)");
+  ok(warned.some((w) => /refused class=malformed/.test(w)), "case P: an undecodable Payment credential is logged");
+  server.close();
+}
+
+// Case Q: a client that disconnects while the handler runs is NOT broadcast
+// (charged-but-not-served otherwise; the MCP loopback deadline hits this).
+{
+  let broadcastCalled = false;
+  const app = express();
+  app.use(createTempoGate({ ...GATE, validate: async () => ({ ok: true, validation: {} }), broadcast: async () => { broadcastCalled = true; return { ok: true, receipt: {} }; } }));
+  app.use(paywallStub);
+  app.get("/paid", (req, res) => { setTimeout(() => res.json({ late: true }), 400); });
+  const { server, url } = await listen(app);
+  const { warned } = await withWarnings(async () => {
+    await fetch(`${url}/paid`, { headers: { Authorization: buildTempoCredential() }, signal: AbortSignal.timeout(100) }).catch(() => null);
+    await sleep(700);
+  });
+  ok(broadcastCalled === false, "case Q: the credential of a client that hung up before settlement is never broadcast");
+  ok(warned.some((w) => /refused class=client-gone/.test(w)), "case Q: and the decision is logged");
+  server.close();
+}
+
 facilitator.close();
 console.log(`\n${pass} passed, 0 failed`);
 
@@ -544,7 +686,7 @@ console.log(`\n${pass} passed, 0 failed`);
   ok(tempoLeads(a, Date.now() + 31 * 60 * 1000) === true, "the demotion lapses after its window");
   ok(noteTempoRefusal({ ip: "203.0.113.7", headers: {} }) === false, "a client with no User-Agent is never keyed");
   const src = (await import("node:fs")).readFileSync(new URL("../src/mpp-tempo.js", import.meta.url), "utf8");
-  ok(/rejected by validate\(\)[\s\S]{0,200}noteTempoRefusal\(req\)/.test(src), "the validate-rejection branch records the refusal");
+  ok(/if \(!v\.ok\) \{[\s\S]{0,1800}noteTempoRefusal\(req\)/.test(src), "the validate-rejection branch records the refusal");
   ok(/tempoLeads\(req\) \? `\$\{header\}, \$\{existing\}`/.test(src), "the appender puts tempo first unless demoted");
   _resetTempoDemotion();
   console.log(`${pass} passed (with demotion)`);

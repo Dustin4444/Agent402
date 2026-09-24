@@ -178,5 +178,9 @@ export const JUDGE_TOOLS = [{
       note: "Typed judgment. choice/score answers carry `probabilities` and `confidence`; a noul carries `noul`, a probability from 0 to 1, and no confidence. Gate on confidence for choice/score and on distance from 0.5 for a noul.",
     },
   },
+  // Pure, synchronous input check the paid gates can run BEFORE a payment
+  // round trip (the Tempo gate's pre-validation): a body the handler would
+  // refuse is refused in milliseconds instead of after relay validation.
+  validateInput: (input) => { validateJudgeRequest(input); },
   handler: (input) => judge(input),
 }];
