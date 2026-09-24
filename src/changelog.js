@@ -2,6 +2,13 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 
 const ENTRIES = [
   {
+    date: "2026-09-24",
+    title: "Broken links fixed and pages easier to find",
+    items: [
+      "Fixed broken links on the FAQ and on the chain marketplace pages, and linked a handful of pages that no menu reached from the site footer.",
+    ],
+  },
+  {
     date: "2026-09-22",
     title: "Five explorer-backed tools retired, and token-risk reads its facts from keyless probes",
     items: [
