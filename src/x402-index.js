@@ -302,6 +302,67 @@ function persistSuccessions() {
   } catch { /* best-effort - no volume in local/dev */ }
 }
 
+// Routes an origin answered 410 Gone. A registry row is minted by a settled
+// payment and the registry never retires it, so a seller who removes a route
+// keeps it in our index through the Bazaar merge, and re-registering cannot
+// clear it. A 410 on the row's own verb is the seller saying the route is gone:
+// the row is dropped and the mark keeps the next crawl's merge from restoring
+// it. The mark lapses after GONE_ROUTE_TTL_MS, so a route that comes back is
+// probed and listed again.
+export const GONE_ROUTES_FILE = "/data/x402-gone-routes.json";
+export const GONE_ROUTE_TTL_MS = 30 * 24 * 3600 * 1000;
+const GONE_ROUTES_MAX = 20_000;
+const goneRoutes = new Map(); // "origin METHOD /route" -> observedAt
+const goneKey = (origin, method, route) => `${origin} ${String(method || "GET").toUpperCase()} ${route}`;
+
+export function loadGoneRoutes() {
+  try {
+    const obj = JSON.parse(readFileSync(GONE_ROUTES_FILE, "utf8"));
+    for (const [k, at] of Object.entries(obj || {})) {
+      if (goneRoutes.size >= GONE_ROUTES_MAX) break;
+      if (typeof k === "string" && Number(at) > 0) goneRoutes.set(k, Number(at));
+    }
+  } catch { /* absent file / no volume - in-memory only */ }
+}
+
+function persistGoneRoutes() {
+  try {
+    const tmp = `${GONE_ROUTES_FILE}.tmp`;
+    writeFileSync(tmp, JSON.stringify(Object.fromEntries(goneRoutes)));
+    renameSync(tmp, GONE_ROUTES_FILE);
+  } catch { /* best-effort - no volume in local/dev */ }
+}
+
+export function markRouteGone(origin, method, route, at = Date.now()) {
+  const k = goneKey(origin, method, route);
+  goneRoutes.delete(k);
+  while (goneRoutes.size >= GONE_ROUTES_MAX) goneRoutes.delete(goneRoutes.keys().next().value);
+  goneRoutes.set(k, at);
+  persistGoneRoutes();
+}
+
+export function isRouteGone(origin, method, route, now = Date.now()) {
+  const k = goneKey(origin, method, route);
+  const at = goneRoutes.get(k);
+  if (!at) return false;
+  if (now - at > GONE_ROUTE_TTL_MS) { goneRoutes.delete(k); return false; }
+  return true;
+}
+
+// Removes rows marked gone from `tools` IN PLACE (callers read the array they
+// passed). Returns how many were removed.
+export function dropGoneRoutes(tools, origin, now = Date.now()) {
+  if (!Array.isArray(tools) || !goneRoutes.size) return 0;
+  let n = 0;
+  for (let i = tools.length - 1; i >= 0; i--) {
+    const t = tools[i];
+    if (t && typeof t.route === "string" && isRouteGone(origin, t.method, t.route, now)) { tools.splice(i, 1); n++; }
+  }
+  return n;
+}
+
+export function _resetGoneRoutes() { goneRoutes.clear(); }
+
 /**
  * Record a VERIFIED succession. Refuses the two shapes that would hide a
  * seller entirely rather than deduplicate one:
@@ -3229,6 +3290,8 @@ export function adoptLivePrice(row, livePrice, originUrl = "") {
 
 export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false } = {}) {
   if (!Array.isArray(tools) || !tools.length) return tools;
+  dropGoneRoutes(tools, originUrl);
+  if (!tools.length) return tools;
   const candidates = tools.filter(
     (t) => t
       && typeof t.route === "string" && t.route.startsWith("/")
@@ -3289,6 +3352,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
   for (const tool of rotated) {
     let learned = null;
     let freeObserved = false;
+    let gone = false;
     let firstOutcome = null;
     const note = (method, outcome) => {
       const k = `${method} ${outcome}`;
@@ -3355,6 +3419,8 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
           }
           break probe;
         }
+        // 410 on the row's own verb: the seller retired this route.
+        if (res.status === 410 && method === String(tool.method || "GET").toUpperCase()) { gone = true; break probe; }
         if (!isQuoteResponse(res.status)) continue;   // 404 on GET is expected for a POST-only seller
         // The quote lives in the header for x402 v2 and in the body for several
         // real sellers; read a bounded slice of both and let the parser decide.
@@ -3376,6 +3442,13 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
         note(method, mppOnly ? "402-mpp-only" : "402-unreadable");
         if (!mppOnly) sampleUnreadable402(originUrl, tool.route, res.headers.get("payment-required"), body);
       } catch (err) { note(method, probeFailureCode(err)); /* unreachable, blocked, or malformed - try the next method */ }
+    }
+    if (gone) {
+      markRouteGone(originUrl, tool.method, tool.route);
+      dropped.add(tool);
+      quoteProbeStats.probed++;
+      console.log(`[x402-index] live-410: ${originUrl}${tool.route} answered ${String(tool.method || "GET").toUpperCase()} 410 Gone; dropped the row`);
+      continue;
     }
     noteProbeOutcome(originUrl, `quote:${tool.route}`, Boolean(learned));
     quoteProbeStats.probed++;
@@ -4827,6 +4900,7 @@ export function startCrawler(opts = {}) {
   // Successions survive a restart or they stop hiding the duplicate they were
   // recorded to hide, and the seller is listed twice again on the next boot.
   loadSuccessions();
+  loadGoneRoutes();
   // Warm start: the NDJSON twin incrementally when it exists (its own log
   // line says how long and the longest turn), else the legacy JSON in one
   // synchronous parse. The first crawl is deferred below, so the fill has
