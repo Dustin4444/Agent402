@@ -114,9 +114,13 @@ try {
   for (const p of ["/.well-known/x402.json", "/.well-known/x402-services.json"]) { const r = await fetch(`${base}${p}`); const j = await r.json(); ok(r.status === 200 && j && typeof j === "object" && Object.keys(j).length > 3, `${p} serves the x402 manifest`); }
   for (const p of ["/swagger.json", "/api-docs/openapi.json"]) { const r = await fetch(`${base}${p}`, { redirect: "manual" }); ok(r.status === 301 && r.headers.get("location") === "/openapi.json", `${p} -> /openapi.json`); }
   for (const p of ["/v1", "/v1/info", "/v1/metered"]) { const r = await fetch(`${base}${p}`); const j = await r.json(); ok(r.status === 200 && j.ok === true && /\/v1\/models$/.test(j.models) && /\/v1\/metered\/chat\/completions$/.test(j.metered?.chat), `GET ${p} answers the gateway index`); }
-  const gone = await fetch(`${base}/api/soundex`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  // soundex was a real tool, retired 2026-08-25: it answers 410 (src/retired-tools.js).
+  // A path that was never a tool keeps the helpful 404.
+  const retired = await fetch(`${base}/api/soundex`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  ok(retired.status === 410 && (await retired.json()).slug === "soundex", `a retired tool answers 410 (got ${retired.status})`);
+  const gone = await fetch(`${base}/api/phonetic-hash`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
   const goneBody = await gone.json();
-  ok(gone.status === 404 && goneBody.error === "not-found" && /retired|closest live tools/.test(goneBody.hint) && /\/api\/find\?q=soundex/.test(goneBody.find) && Array.isArray(goneBody.suggestions), `an unknown /api path answers a helpful 404 with find + suggestions (got ${gone.status})`);
+  ok(gone.status === 404 && goneBody.error === "not-found" && /retired|closest live tools/.test(goneBody.hint) && /\/api\/find\?q=phonetic%20hash/.test(goneBody.find) && Array.isArray(goneBody.suggestions), `an unknown /api path answers a helpful 404 with find + suggestions (got ${gone.status})`);
   const big = await fetch(`${base}/v1/chat/completions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: "openai/gpt-4o-mini", messages: [{ role: "user", content: "x".repeat(150_000) }] }) });
   const bigBody = await big.json();
   ok(big.status === 413 && /metered/.test(bigBody.hint) && /\/v1\/metered\/chat\/completions$/.test(bigBody.metered), `a 413 on a flat LLM tier points at the metered tier (got ${big.status})`);
