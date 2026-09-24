@@ -2960,7 +2960,8 @@ ${ledgerFooterCompact()}`;
 
   return ledgerShell({
     title: `${pack.title} -- Agent402 skill pack`,
-    description: pack.tagline,
+    // Leads with the pack name so it differs from the /tools/skill-<pack> copy.
+    description: `${pack.title} skill pack, ${pack.toolSlugs.length} tools in one call: ${pack.tagline}`,
     canonical: `${baseUrl}/skills/${pack.slug}`,
     baseUrl,
     activePath: "/skills",

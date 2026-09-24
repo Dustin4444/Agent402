@@ -6567,8 +6567,18 @@ app.get("/tools/:slug", (req, res) => {
   if (!tool) return notFoundPage(res, { what: "Tool", href: "/tools", label: "All tools" });
   const related = tools.filter((t) => t.category === tool.category && t.slug !== tool.slug).slice(0, 3);
   const cachePolicy = tool.method === "GET" ? CACHEABLE_ROUTES[tool.path] : null;
-  htmlCache(res, 300, 900).send(toolPage(BASE_URL, tool, related, { computePayable: POW_SLUGS.has(tool.slug), powDifficulty: POW_DIFFICULTY, cacheTtl: cachePolicy?.ttl ?? null }));
+  htmlCache(res, 300, 900).send(skillPackCanonical(tool.slug, toolPage(BASE_URL, tool, related, { computePayable: POW_SLUGS.has(tool.slug), powDifficulty: POW_DIFFICULTY, cacheTtl: cachePolicy?.ttl ?? null })));
 });
+// A skill pack's catalog page points its canonical at the pack page (/skills/<pack>).
+const SKILL_PACK_SLUGS = new Set(SKILL_PACKS.map((p) => p.slug));
+function skillPackCanonical(toolSlug, html) {
+  const pack = toolSlug.startsWith("skill-") ? toolSlug.slice(6) : null;
+  if (!pack || !SKILL_PACK_SLUGS.has(pack)) return html;
+  const from = `${BASE_URL}/tools/${toolSlug}`, to = `${BASE_URL}/skills/${pack}`;
+  return html
+    .replace(`<link rel="canonical" href="${from}">`, `<link rel="canonical" href="${to}">`)
+    .replace(`<meta property="og:url" content="${from}">`, `<meta property="og:url" content="${to}">`);
+}
 const toolCardCache = new Map();
 app.get("/tools/:slug/card.png", async (req, res) => {
   const tools = toolList(CATALOG);

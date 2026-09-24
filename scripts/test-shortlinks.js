@@ -144,6 +144,24 @@ try {
     const g = await fetch(`${base}/docs/Getting-Started`, { redirect: "manual" });
     ok(g.status === 200, "other wiki pages still render");
   }
+  // A skill pack's /tools/skill-<pack> page canonicalises to /skills/<pack>,
+  // and the two carry different descriptions.
+  {
+    const { SKILL_PACKS } = await import("../src/skills.js");
+    const canon = (h) => (h.match(/<link rel="canonical" href="([^"]+)"/) || [])[1];
+    const desc = (h) => (h.match(/<meta name="description" content="([^"]*)"/) || [])[1];
+    let same = 0, wrong = 0;
+    for (const p of SKILL_PACKS) {
+      const t = await (await fetch(`${base}/tools/skill-${p.slug}`)).text();
+      const k = await (await fetch(`${base}/skills/${p.slug}`)).text();
+      if (canon(t) !== `http://agent402.test/skills/${p.slug}` || canon(k) !== `http://agent402.test/skills/${p.slug}`) wrong++;
+      if (desc(t) === desc(k)) same++;
+    }
+    ok(wrong === 0, `every /tools/skill-<pack> page canonicalises to /skills/<pack> (${wrong} wrong of ${SKILL_PACKS.length})`);
+    ok(same === 0, `skill pack pages carry a different description from their catalog page (${same} identical)`);
+    const hash = await (await fetch(`${base}/tools/hash`)).text();
+    ok(canon(hash) === "http://agent402.test/tools/hash", "an ordinary tool page keeps its own canonical");
+  }
   const alias = await fetch(`${base}/install.sh`, { redirect: "manual" });
   ok(alias.status === 302 && alias.headers.get("location") === "/install", "/install.sh redirects to /install");
   ok(/^MCP_URL="https:\/\/x\.test\/mcp"$/m.test(installScript("https://x.test/")) && !/x\.test\/\//.test(installScript("https://x.test/")), "base URL trailing slash handled");
