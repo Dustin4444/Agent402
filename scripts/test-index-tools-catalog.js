@@ -239,8 +239,8 @@ const page = (results, extra = {}) =>
   check("a FEW priced rows do not end the burst - the live miss: a registry merge priced 8 of 128 and the burst never fired",
     quoteProbeCapFor([...Array.from({ length: 8 }, (_, i) => ({ route: `/p${i}`, price: 0.001 })), ...unpriced]) >= 60);
   check("a mostly-priced catalog is back on the polite cap",
-    quoteProbeCapFor([...Array.from({ length: 90 }, (_, i) => ({ route: `/p${i}`, price: 0.001 })), ...Array.from({ length: 10 }, (_, i) => ({ route: `/u${i}`, price: null }))]) === 5);
-  check("an empty list never returns a smaller cap than the steady state", quoteProbeCapFor([]) >= 5);
+    quoteProbeCapFor([...Array.from({ length: 90 }, (_, i) => ({ route: `/p${i}`, price: 0.001 })), ...Array.from({ length: 10 }, (_, i) => ({ route: `/u${i}`, price: null }))]) === 15);
+  check("an empty list never returns a smaller cap than the steady state", quoteProbeCapFor([]) >= 15);
 }
 
 // ── One reader for every payment annotation dialect (2026-09-18) ────────────

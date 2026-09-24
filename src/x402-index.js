@@ -2797,7 +2797,7 @@ function paywallProbeDue() {
 // stranger's server". A route that gets priced is never probed again (it has a
 // price); one that cannot be priced backs off through probeDue like every
 // other path. See the #645 note below on why per-PATH backoff matters.
-const LIVE_QUOTE_PROBES_PER_CRAWL = 5;
+const LIVE_QUOTE_PROBES_PER_CRAWL = Number(process.env.LIVE_QUOTE_PROBES_PER_CRAWL || 15);
 // GLOBAL ceiling per crawl CYCLE, not just per seller. Three per seller sounds
 // gentle until you multiply: roughly a third of indexed rows carry no price, so
 // a per-seller-only limit fires thousands of outbound requests every cycle
@@ -2820,10 +2820,10 @@ const LIVE_QUOTE_PROBES_PER_CRAWL = 5;
 // budget was consumed by whoever came first, a full rotation took hours, and a
 // seller with a few dozen routes would have waited most of a day to be priced.
 // At 4000 every unpriced seller is reached every cycle, so a 30-route seller is
-// fully priced in about half an hour, and each of them still sees at most five
-// requests per cycle. The env override remains for throttling if a real cost
+// fully priced in about half an hour, and each of them still sees at most
+// LIVE_QUOTE_PROBES_PER_CRAWL requests per cycle. The env override remains for throttling if a real cost
 // ever shows up.
-const LIVE_QUOTE_PROBES_PER_CYCLE = Number(process.env.LIVE_QUOTE_PROBES_PER_CYCLE || 4000);
+const LIVE_QUOTE_PROBES_PER_CYCLE = Number(process.env.LIVE_QUOTE_PROBES_PER_CYCLE || 10000);
 let liveQuoteBudget = LIVE_QUOTE_PROBES_PER_CYCLE;
 let crawlCycle = 0;   // rotates the per-cycle visiting order so the budget is fair
 
@@ -2996,7 +2996,7 @@ export function priceDisagreesWithOrigin(t) {
 }
 
 /** Per-crawl quote-probe cap for one origin. The polite steady-state is
- * LIVE_QUOTE_PROBES_PER_CRAWL (5) - but an origin with ZERO priced tools is
+ * LIVE_QUOTE_PROBES_PER_CRAWL - but an origin with ZERO priced tools is
  * wholly invisible to routing (the resolver only pays priced rows), and at 5
  * per 30-min cycle a new 128-route seller stays unroutable for half a day
  * (measured live 2026-09-01: a seller registered, proven on-chain, and
