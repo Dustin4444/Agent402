@@ -6,7 +6,7 @@ export const INDEXNOW_ENDPOINT = "https://api.indexnow.org/indexnow";
 export const INDEXNOW_MAX_URLS = 10_000; // protocol cap per POST
 
 const LOC_RE = /<loc>\s*([^<\s]+)\s*<\/loc>/g;
-const decode = (s) => s.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+const decode = (s) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
 
 // Parse one sitemap document: { kind: "index"|"urlset", entries: [{loc, lastmod}] }.
 export function parseSitemap(xml) {

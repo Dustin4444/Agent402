@@ -123,15 +123,21 @@ try {
   // Trailing-slash page URLs 301 to the slashless form; machine routes do not.
   {
     const r1 = await fetch(`${base}/docs/`, { redirect: "manual" });
-    ok(r1.status === 301 && r1.headers.get("location") === "/docs", `/docs/ -> /docs (got ${r1.status} ${r1.headers.get("location")})`);
+    ok(r1.status === 301 && new URL(r1.headers.get("location") || "", base).pathname === "/docs", `/docs/ -> /docs (got ${r1.status} ${r1.headers.get("location")})`);
     const r2 = await fetch(`${base}/tools/hash/?a=1&b=2`, { redirect: "manual" });
-    ok(r2.status === 301 && r2.headers.get("location") === "/tools/hash?a=1&b=2", "trailing slash redirect keeps the query string");
+    ok(r2.status === 301 && (r2.headers.get("location") || "").endsWith("/tools/hash?a=1&b=2"), "trailing slash redirect keeps the query string");
     const r3 = await fetch(`${base}/`, { redirect: "manual" });
     ok(r3.status === 200, "/ itself is not redirected");
     const r4 = await rawGet("/api/pricing/", { Host: "agent402.test" });
     ok(r4.status !== 301, `/api/ paths are not slash-redirected (got ${r4.status})`);
     const r5 = await rawGet("//evil.example/", { Host: "agent402.test" });
     ok(!(r5.location || "").startsWith("//"), `a //host/ path never yields a protocol-relative Location (got ${r5.location})`);
+    const r6 = await rawGet("/%5Cevil.example/", { Host: "agent402.test" });
+    const r7 = await rawGet("/\\evil.example/", { Host: "agent402.test" });
+    for (const r of [r6, r7]) {
+      const loc = r.location || "";
+      ok(!loc || !/evil/.test(new URL(loc, base).hostname), `a backslash path never redirects off-site (got ${r.status} ${loc})`);
+    }
   }
   // Capitalised wiki URLs with a native lowercase page 301 there, exact case only.
   {

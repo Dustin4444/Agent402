@@ -68,7 +68,8 @@ const crumbOf = (html) => ldBlocks(html).find((j) => j["@type"] === "BreadcrumbL
     ok(b && b.itemListElement.length === n && b.itemListElement.every((it, i) => it.position === i + 1 && /^https:\/\/agent402\.tools\//.test(it.item)), `${label}: BreadcrumbList with ${n} absolute items`);
     ok(ldBlocks(html).every((j) => j["@context"] === "https://schema.org"), `${label}: every JSON-LD block carries @context`);
   }
-  ok(ORG_SAME_AS.includes("https://www.npmjs.com/package/agent402-mcp") && ORG_SAME_AS.includes("https://x.com/Agent402Tools") && ORG_SAME_AS.some((u) => /github\.com\//.test(u)), "Organization sameAs names the repo, the npm package and X");
+  const sameAs = new Set(ORG_SAME_AS);
+  ok(sameAs.has("https://www.npmjs.com/package/agent402-mcp") && sameAs.has("https://x.com/Agent402Tools") && ORG_SAME_AS.some((u) => new URL(u).hostname === "github.com"), "Organization sameAs names the repo, the npm package and X");
 }
 
 // --- booted sweep ---------------------------------------------------------------

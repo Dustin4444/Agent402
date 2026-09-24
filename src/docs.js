@@ -342,7 +342,7 @@ export function docDescription(md, title) {
     const text = t
       .replace(/\[\[([^\]|]+)\|[^\]]+\]\]/g, "$1").replace(/\[\[([^\]]+)\]\]/g, "$1")
       .replace(/!\[[^\]]*\]\([^)]*\)/g, "").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-      .replace(/<[^>]+>/g, "").replace(/[*_`]+/g, "").replace(/\s+/g, " ").trim();
+      .replace(/<[^>]+>/g, "").replace(/[<>]/g, "").replace(/[*_`]+/g, "").replace(/\s+/g, " ").trim();
     if (text.length >= 40) return text; // the shell trims to snippet length
   }
   return `Agent402 documentation: ${title}.`;

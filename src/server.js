@@ -1916,9 +1916,9 @@ app.use((req, res, next) => {
   const path = req.path;
   if (path.length < 2 || !path.endsWith("/") || path.startsWith("//") || SLASH_REDIRECT_SKIP.test(path)) return next();
   const clean = path.replace(/\/+$/, "");
-  if (!clean || clean.startsWith("//")) return next();
+  if (!clean || !/^\/[A-Za-z0-9._~%!$&'()*+,;=:@/-]*$/.test(clean) || clean.startsWith("//")) return next();
   const q = req.originalUrl.indexOf("?");
-  return res.redirect(301, clean + (q >= 0 ? req.originalUrl.slice(q) : ""));
+  return res.redirect(301, new URL(clean + (q >= 0 ? req.originalUrl.slice(q) : ""), BASE_URL).href);
 });
 
 // PostHog reverse proxy: serve posthog-js AND ingest its events first-party
@@ -3752,7 +3752,7 @@ app.get("/sdk-playground", (_req, res) => htmlCache(res, 300, 900).send(sdkPlayg
 // Capitalised wiki URLs whose page the site serves at a lowercase route: 301
 // there (exact-case match; Express string routes are case-insensitive).
 const DOCS_REDIRECTS = { "/docs/Home": "/docs", ...Object.fromEntries(Object.entries(DOCS_SITE_ROUTES).map(([slug, href]) => [`/docs/${slug}`, href])) };
-app.get(/^\/docs\/[^/]+$/, (req, res, next) => {
+app.get(/^\/docs\/[^/]+$/i, (req, res, next) => {
   if (!Object.hasOwn(DOCS_REDIRECTS, req.path)) return next();
   const q = req.originalUrl.indexOf("?");
   res.redirect(301, DOCS_REDIRECTS[req.path] + (q >= 0 ? req.originalUrl.slice(q) : ""));
