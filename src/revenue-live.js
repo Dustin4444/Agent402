@@ -60,7 +60,7 @@ export const OUR_EVM_WALLETS = new Set(
   // burner. 0x77065d81… is the Base x402 SPENDING wallet (X402_UPSTREAM_BUYER_ADDRESS
   // on Railway) — its sweeps to the treasury are internal moves, never revenue.
   // All listed so historical AND ongoing self-flows stay internal.
-  // 0x24e6a249… is Mike's AgentCore/Privy embedded TEST wallet (confirmed
+  // 0x24e6a249… is the operator's AgentCore/Privy embedded TEST wallet (confirmed
   // 2026-08-20) — the buyer in the AgentCore Payments validation runs. Its
   // buys are self-funded test traffic on every chain it pays from, never
   // revenue (its first Tempo MPP buy classified external for a day because

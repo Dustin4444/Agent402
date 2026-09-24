@@ -122,7 +122,7 @@ ok(!!tr && tr.priceUsd === 0.03 && tr.body?.url === trExample, `transcribe leg e
 // answers 503 "no longer served" and drops from /v1/models), so the canary
 // carries NO leg for it any more - a leg that can only warn is noise, and
 // its 2026-08-27 warning was one of five nobody read. Retiring the route
-// itself (OX_ALPHA_ENABLED=off) is a Railway variable, Mike's call.
+// itself (OX_ALPHA_ENABLED=off) is a Railway variable, the operator's call.
 ok(!legFor("/v1/ox/chat/completions"), "no Ox Alpha leg while the stealth model is gone upstream");
 
 // The render leg is the only one that exercises the secretless browser/media

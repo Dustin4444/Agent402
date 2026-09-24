@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Strict FREE_MODE sweep of paid catalog tools that do NOT burn Mike's metered
+// Strict FREE_MODE sweep of paid catalog tools that do NOT burn the operator's metered
 // third-party keys. Unlike scripts/test-all.js NETWORK leniency (which treats
 // 502/503/504 as green), this suite FAILS on those statuses — that hole is how
 // gov-data stayed green while its upstream was permanently dead (issue #730).
@@ -127,7 +127,7 @@ const ok = (cond, msg) => {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ── Metered upstream exclusion oracle ──────────────────────────────────────
-// Tools whose example answers burn Mike's third-party budget / buyer wallet /
+// Tools whose example answers burn the operator's third-party budget / buyer wallet /
 // identity surface. Keep in sync with the class of spend — adding a new keyed
 // upstream means listing its slugs here (and skill packs resolve transitively).
 export const METERED_SLUGS = new Set([

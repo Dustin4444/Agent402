@@ -135,7 +135,7 @@ async function checkOne(def, timeoutMs) {
 // retried ONCE after a short backoff before being reported failed, so a single
 // transient upstream blip can't page us — only a tool that
 // fails twice in a row is real.
-// Keyed checks hit PAID upstreams (Brave web search bills ~$0.005/call), and
+// Keyed checks hit PAID upstreams (Brave web search bills per call), and
 // they exist to catch KEY EXPIRY — an hours-scale event. The route's 5-min
 // cache is right for the keyless checks but let monitoring (tool-alert polls
 // every 30 min) plus any stranger hitting the free endpoint burn ~48 real

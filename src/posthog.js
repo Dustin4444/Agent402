@@ -212,7 +212,7 @@ export function capturePostHogToolCall({ slug, latencyMs, cached, errored, statu
 // Capture one internal skill-pack step — a tool handler invoked in-process by
 // the skill runner. These calls NEVER appear in the tool_call stream (the
 // runner bypasses the HTTP route), which made pack-driven upstream spend
-// (Brave answer at ~$0.061/call, measured 2026-07-22) invisible to the
+// (Brave answer, measured 2026-07-22) invisible to the
 // PostHog-vs-provider cost reconciliations. Volume/ok/latency only, no inputs.
 export function capturePostHogPackStep({ pack, slug, ok, ms }) {
   if (!active()) return;
@@ -702,7 +702,7 @@ export function capturePostHogGatewayUsage({ tier, routeTier, model, priceUsd, u
     // The caller named no model and the tier's default served (2026-08-28) -
     // the measure of whether defaulting recovers real calls or only probes.
     defaulted: !!defaulted,
-    // Which OpenRouter service tier actually served ("flex" = the 50% tier,
+    // Which OpenRouter service tier actually served ("flex" = the discounted tier,
     // "default" otherwise) - the measurement behind the flex-first policy.
     serviceTier: String(serviceTier || "default"),
     priceUsd: price,

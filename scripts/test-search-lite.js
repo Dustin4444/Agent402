@@ -39,12 +39,11 @@ ok(/untrusted/i.test(tool?.description || ""), "description documents the untrus
 ok(tool?.discovery?.output?.example?.untrustedContent === true, "output example carries untrustedContent");
 ok(JSON.stringify(tool?.discovery?.inputSchema?.required) === '["q"]', "only q is required");
 
-// The price must clear the 70% upstream bound against the per-request rate
-// search.js states for the web plan ($0.005).
+// The price must clear the margin bound against the web plan's per-request rate.
 {
   const price = Number(String(tool.price).replace("$", ""));
-  ok(0.005 / price <= 0.7, `upstream $0.005 is ${(0.005 / price * 100).toFixed(1)}% of $${price}, within the 70% bound`);
-  ok(0.005 / (price - 0.001) > 0.7, "and one step lower ($0.007) would not be, so $0.008 is the floor, not a guess");
+  ok(0.005 / price <= 0.7, `upstream per-request rate is within the margin bound of $${price}`);
+  ok(0.005 / (price - 0.001) > 0.7, "and one settlement step lower would not be, so the price is the floor, not a guess");
 }
 
 // Every call spends the Brave subscription, so it must never be reachable on

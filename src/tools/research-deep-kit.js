@@ -61,8 +61,7 @@ const MAX_QUERY_CHARS = 2000;
 // snippets and was told to treat them as its only knowledge, so "the source
 // is silent" meant "the excerpt is silent". extractArticle is the existing
 // SSRF-guarded, size-capped reader; bodies are capped so the added synthesis
-// input stays ~1.5k tokens per source (measured avg synthesis $0.107 vs caps
-// of $0.35+, so +$0.04-0.08 fits every tier).
+// input stays ~1.5k tokens per source, which fits every tier's cap.
 const BODY_CHARS = 6_000;
 const BODY_TIMEOUT_MS = 15_000;
 const BODY_CONCURRENCY = 3;

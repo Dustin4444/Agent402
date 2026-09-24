@@ -97,9 +97,9 @@ function settledPriceUsd(def, req, res) {
   if (priceFnOf(def) && Number.isFinite(req?.__meteredQuoteUsd) && req.__meteredQuoteUsd > 0) return req.__meteredQuoteUsd;
   return flat;
 }
-// Card price for a QUOTED route: the metered quote is worst-case upstream x 1.15,
-// which Stripe's 2.9% + $0.30 would turn into a loss on every card charge under
-// ~$3 (audit 2026-08-26), so the stripe/charge challenge on a quoted route
+// Card price for a QUOTED route: the metered quote tracks upstream closely, so
+// the card processor's fee would turn small card charges into a loss (audit
+// 2026-08-26); the stripe/charge challenge on a quoted route
 // carries the fee grossed up (ceil to a cent), the same way per-chain premiums
 // price fee-charging rails. Flat routes keep their listed price.
 const CARD_FEE_RATE = 0.029, CARD_FEE_FIXED_USD = 0.30;
@@ -5235,11 +5235,10 @@ function walletShapeOkForChain(chainKey, wallet) {
 // breaks. Other chains use their existing scanners.
 // A hard daily ceiling on PAID on-chain scans.
 //
-// Base activity uses CDP SQL, which is billed per query at $0.0083 - and the
+// Base activity uses CDP SQL, which is billed per query - and the
 // route that triggers it, `/<chain>?seller=<host>`, is public and takes an
 // arbitrary seller from a roster of ~2,300. One crawler walking that roster
-// costs ~4,600 billed queries. July 2026: 29,589 SQL queries, $245.59, against
-// roughly $50 of revenue that month. robots.txt now disallows the seller-scoped
+// runs thousands of billed queries. robots.txt now disallows the seller-scoped
 // URLs, but robots.txt is a request, not a control, and the next crawler that
 // ignores it must not be able to spend money.
 //
@@ -5248,22 +5247,15 @@ function walletShapeOkForChain(chainKey, wallet) {
 // before CDP SQL existed and is already wired as the error path below. Past
 // the ceiling the panel still renders, just via RPC instead of SQL.
 //
-// Sized deliberately: the economy snapshot needs ~144 queries/day on its own
-// 30-minute cache and is NOT counted here, because /marketplace breaks without
-// it. 120 wallet scans/day is ~240 queries, so the two together stay near
-// $95/month at list price instead of $245.
+// The economy snapshot's queries run on its own 30-minute cache and are NOT
+// counted here, because /marketplace breaks without them.
 // DEFAULT 0 - the paid scanner is OFF unless someone turns it on.
 //
-// The honest arithmetic: these queries power an activity chart on a free
-// seller page. No paid tool handler calls this path, so not one of them is
-// attached to revenue. At 120 scans/day they cost ~$60/month against roughly
-// $50/month of total external revenue - we would be paying more for the chart
-// than the whole business earns.
-//
-// evmActivity produces the same chart from public RPC for nothing. It is
-// slower and its 10k-block scan cap can report a floor ("1,234+") instead of
-// an exact count on the busiest wallets. That is the entire loss, on a free
-// page, and it is worth $60/month several times over.
+// These queries power an activity chart on a free seller page; no paid tool
+// handler calls this path. evmActivity produces the same chart from public
+// RPC. It is slower and its 10k-block scan cap can report a floor ("1,234+")
+// instead of an exact count on the busiest wallets. That is the entire loss,
+// on a free page.
 //
 // Set SQL_SCAN_DAILY_BUDGET to a positive number to buy exactness back; the
 // budget then behaves exactly as before. Kept rather than deleted because the

@@ -482,7 +482,7 @@ export async function passesSolanaResolveGate({ header, body, inboundFn = cached
 //   bare(ssrf) + ~20-read proven-gate + sign cannot satisfy that ordering.
 //
 // The DIRECT buy path is unaffected and settled on-chain earlier tonight
-//   (tx 2jXgRZRQ568...ymFE6, $0.001 to sol.blockrun's proven payTo): it uses
+//   (tx 2jXgRZRQ568...ymFE6, to a proven seller's payTo): it uses
 //   the manual getUpstreamBuyerSvm + createPaymentPayload flow with plain
 //   fetches and no dispatcher chain. So the RAIL works; only the composed
 //   route-execute path hits this.

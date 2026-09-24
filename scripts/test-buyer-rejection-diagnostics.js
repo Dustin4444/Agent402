@@ -1,7 +1,7 @@
 // When a seller we PAID rejects the paid retry, the reason must be logged, and
 // none of it may reach our buyer.
 //
-// Measured 2026-08-30: an upstream we pay ($0.002/call over x402) returned HTTP
+// Measured 2026-08-30: an upstream we pay per call over x402 returned HTTP
 // 500 on every paid retry for two days, and the only evidence anything kept was
 // the number 500 - so "their backend is broken" and "they refused our payment"
 // were indistinguishable, and those need opposite responses. Same shape as the

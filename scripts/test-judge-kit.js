@@ -1,10 +1,9 @@
 // Typed judgment as a paid tool. The assertions that matter are the ones about
 // MONEY and CLAIMS, because both are load-bearing here:
 //
-//   Margin is the input bound. Upstream is $0.042 per 1M tokens, so at the
-//   $0.001 price the 70% rule permits ~16,600 tokens and a call past ~24,000
-//   LOSES money. Nothing downstream can fix that after the call, so the caps are
-//   the guard - the same shape as stt-kit's duration cap.
+//   Margin is the input bound. Upstream bills per token, so the margin rule
+//   permits a bounded number of tokens per call at the tool's price. Nothing
+//   downstream can fix that after the call, so the caps are the guard - the same shape as stt-kit's duration cap.
 //
 //   It is model-backed and must say so. /api/pricing publishes `modelBacked` on
 //   every row and the x402 manifest names what is excluded from the determinism
@@ -27,13 +26,13 @@ const PRICE = 0.001;
   const worst = worstStateTokens + worstQuestionTokens;
   const cost = worst * RATE_PER_TOKEN;
   ok(cost <= PRICE * 0.7,
-    `the admitted worst case stays inside the 70% margin bound (~${Math.round(worst)} tok = $${cost.toFixed(6)} against a $${PRICE} price)`);
+    `the admitted worst case (~${Math.round(worst)} tok) stays inside the margin bound of the $${PRICE} price`);
   ok(LIMITS.stateChars <= 20_000 && LIMITS.questions <= 16,
     "the caps are set at all, so worst-case upstream is knowable before the call");
   // A token can be ONE BYTE (CJK, emoji, base64), so the byte bound is the money
   // bound and the character caps only bound the shape.
   ok(LIMITS.bodyBytes * RATE_PER_TOKEN <= PRICE * 0.7,
-    `the byte bound holds at one token per byte ($${(LIMITS.bodyBytes * RATE_PER_TOKEN).toFixed(6)} against a $${PRICE} price)`);
+    `the byte bound holds at one token per byte against the $${PRICE} price`);
 }
 
 // --- validation refuses BEFORE any upstream call ------------------------------

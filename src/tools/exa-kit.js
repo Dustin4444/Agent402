@@ -14,14 +14,10 @@
 // tool reaches the network and is WALLET-ONLY (metered upstream quota; never
 // PoW-eligible).
 //
-// Pricing verified against exa.ai/pricing on 2026-09-13: search $7/1k
-// requests (base, up to 10 results; +$1/1k per result beyond 10), answer
-// $5/1k, contents $1/1k pages PER CONTENT TYPE. The free tier carries $10 of
-// credits (observed on a real account 2026-09-13 - exa.ai/pricing also
-// advertises a $20 signup bonus, which did NOT appear, so budget on the $10),
-// which is why this can ship and be measured before anyone spends anything.
-// At $10 the daily cap matters: the default $1/day would exhaust the balance
-// in ten days, so set EXA_DAILY_MAX_USD lower on a free account.
+// Pricing verified against exa.ai/pricing on 2026-09-13: search is billed per
+// request (base covers up to 10 results, a surcharge per result beyond),
+// answer per request, contents per page PER CONTENT TYPE. On a small free
+// credit balance, set EXA_DAILY_MAX_USD lower than the default.
 // Result counts are capped at 10 so a call cannot silently cross into the
 // per-result surcharge band.
 //
@@ -37,9 +33,9 @@
 //   2. Set EXA_CREDITS_USD on Railway to the NEW funded total. That is what
 //      `exaAllowance` measures remaining against; leaving it stale is how the
 //      alarm goes quiet while the account empties.
-//   3. Optionally raise EXA_DAILY_MAX_USD - the default $1/day is a brake, and
-//      since every call nets about half a cent, a cap that fires under real
-//      demand is costing revenue rather than saving money.
+//   3. Optionally raise EXA_DAILY_MAX_USD - the default is a brake, and a cap
+//      that fires under real demand is costing revenue rather than saving
+//      money.
 // The spend counter lives in memory and resets on deploy, so `remainingUsd` is
 // an UPPER bound. Top up on "low"; never wait for it to reach zero.
 //
@@ -53,7 +49,7 @@ const USER_AGENT = "agent402-exa/1";
 const SHARED_TAGS = ["web", "search", "exa"];
 
 // Result/page caps. These are the COST lever, not a UX nicety: Exa's base
-// price covers 10 results, and every result past that bills $1/1k on top, so
+// price covers 10 results, and every result past that bills a surcharge, so
 // an uncapped numResults turns a fixed-price tool into an open tab.
 const MAX_RESULTS = 10;
 const MAX_URLS = 10;

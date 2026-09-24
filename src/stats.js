@@ -549,7 +549,7 @@ export function recordUpstreamCall(upstream, caller = "unknown") {
  * measured cost, an x402 buy's settled quote), day-bucketed in UTC. Integer
  * micro-dollars so sums stay exact. Best-effort - metering must never break
  * serving - and recorded server-side on purpose: PostHog-only cost telemetry
- * is how an $11 OpenRouter day once read as $0.03 (a keyless local boot has
+ * is how a real OpenRouter day once read as near zero (a keyless local boot has
  * no PostHog; this table records whenever the process serves).
  */
 export function recordUpstreamSpend(source, usd) {

@@ -106,7 +106,7 @@ try { db.exec("CREATE INDEX IF NOT EXISTS idx_sales_tx ON sales (tx)"); } catch 
 // time, so a wallet that JOINS the burner/test set later leaves stale
 // external rows behind. Idempotent sweep: any row whose recorded payer is in
 // today's burner set is ours. Plus a small tx-hash allowlist for payer-less
-// rows the sweep can't reach: AgentCore/Privy validation buys from Mike's
+// rows the sweep can't reach: AgentCore/Privy validation buys from the operator's
 // test wallet 0x24e6a249… made BEFORE the same-day mppTempoPayer fix, when
 // tempo settles recorded payer NULL (04:11 and 12:58 UTC self-buys — the
 // wallet is in OUR_EVM_WALLETS, so every buy AFTER the fix classifies

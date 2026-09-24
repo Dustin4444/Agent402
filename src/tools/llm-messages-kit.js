@@ -290,8 +290,8 @@ export function validateMessagesRequest(input, tierSlug) {
     body.effort = effort;
   }
   // `speed: "fast"` (Anthropic's spelling) and `service_tier: "priority"` /
-  // "fast" both request the priority endpoint (anthropic/fast bills 2x the
-  // headline: $10/$50 on opus-5, live endpoints 2026-09-18). Offered on the
+  // "fast" both request the priority endpoint (billed above the headline,
+  // live endpoints 2026-09-18). Offered on the
   // tiers flagged `priority` at the same flat price - the clamp prices the
   // probe at PRIORITY_PRICE_FACTOR - and refused with the reason elsewhere,
   // never dropped. Sent upstream as service_tier (one spelling); OpenRouter

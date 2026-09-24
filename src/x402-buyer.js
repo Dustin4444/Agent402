@@ -416,16 +416,16 @@ export function __resetSellerDeliveryFailuresForTest() { deliveryFailures.clear(
 // Resolve-time "does this seller serve the requested model" check. An LLM
 // task carries a model id in its params, and the model namespace is
 // seller-specific: on Solana, "chat completions" with model gpt-4o-mini
-// resolved to api.xfuel.app, which settled the $0.01 and then answered 400
+// resolved to a seller that settled the payment and then answered 400
 // model_not_found - and keeps the money on a 400 (measured 2026-09-02; our
-// chain check saw the debit and correctly did not fall through). blockrun and
-// netintel serve that id, xfuel and openrelay do not, and every OpenAI-shaped
+// chain check saw the debit and correctly did not fall through). Some sellers
+// serve that id and some do not, and every OpenAI-shaped
 // seller on the list publishes GET .../models for free. So before a candidate
 // is probed or paid, read its model list once (cached 10 min per list URL,
 // SSRF-guarded, bounded) and SKIP a seller whose list is readable and does
 // not carry the model. Fail OPEN on anything else: no list, an empty list, a
 // non-chat route, or no model requested is "unknown" and changes nothing,
-// because a seller that maps or ignores the model id (openrelay answered
+// because a seller that maps or ignores the model id (one answered
 // gpt-4o-mini with MiniMax) is not a defect to refuse on.
 const CHAT_ROUTE_RE = /\/(chat\/completions|completions|messages|responses)\/?$/i;
 const MODEL_LIST_TTL_MS = 10 * 60 * 1000;
@@ -790,7 +790,7 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
     try {
       paid = await fetch(url, { ...reqInit, dispatcher: paidDispatcher, signal: AbortSignal.timeout(timeoutMs), headers: paidHeaders });
     } catch (fetchErr) {
-      // SELLER-EDGE COMPAT (measured live 2026-09-01, sol.blockrun.ai): their
+      // SELLER-EDGE COMPAT (measured live 2026-09-01 on one seller): their
       // edge emits response framing that undici's fetch() path rejects as
       // "invalid content-length header" through ANY explicit dispatcher, while
       // undici.request() on the SAME pinned agent reads it fine - and a plain

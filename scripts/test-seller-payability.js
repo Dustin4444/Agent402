@@ -55,7 +55,7 @@ function toolWith({ bare, pay, spendOk = true } = {}) {
 // --- the money bound -------------------------------------------------------
 {
   const price = Number("0.10");
-  ok(MAX_SPEND_USD <= price * 0.7, `the hard spend ceiling $${MAX_SPEND_USD} is inside 70% of the $${price} price (the margin rule)`);
+  ok(MAX_SPEND_USD <= price * 0.7, `the hard spend ceiling is inside the margin rule on the $${price} price`);
   const { tool, spent } = toolWith();
   await tool.handler({ url: "https://s.example" }, {});
   ok(spent.may[0]?.chain === "base" && spent.may[0].usd === 0.01, "every check asks the Base wallet's daily ceiling BEFORE any call, for the cap");

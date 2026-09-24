@@ -8,8 +8,8 @@
 // reader's own ticker/domain/question. A fixture is the exact bundle the
 // checkout would store: { kind, slug, input, title, report, sources, tables }.
 //
-// Why fixtures and not live generation: a free public page that costs $0.10-
-// $0.30 of upstream per render is a spend hole; a fixture costs nothing to
+// Why fixtures and not live generation: a free public page that spends
+// upstream on every render is a spend hole; a fixture costs nothing to
 // serve, is byte-stable for the index, and says when it was generated.
 import { readdirSync, readFileSync } from "node:fs";
 import { metaTitle, META_TITLE_MAX } from "./seo-meta.js";

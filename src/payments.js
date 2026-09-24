@@ -60,9 +60,8 @@ const EVM_NETWORKS = {
   // but absent from @x402/evm's registry, so it rides the TIER1_USDC parser.
   // Settlement routes to Solvador (the keyed client wired below) — the ONLY
   // facilitator we have that settles eip155:10; CDP/PayAI do not. Solvador
-  // charges $0.001/settlement past 1,000/month, so this chain carries a
-  // NETWORK_PRICE_PREMIUMS entry (eip155:10=0.001) per the fee-charging-
-  // primary pricing rule. OPT-IN via PAYMENT_NETWORKS.
+  // charges per settlement past a free tier, so this chain carries a
+  // NETWORK_PRICE_PREMIUMS entry per the fee-charging-primary pricing rule. OPT-IN via PAYMENT_NETWORKS.
   optimism: "eip155:10",
   "base-sepolia": "eip155:84532",
   // Robinhood Chain (Arbitrum Orbit L2, EVM-equivalent, AI-native RWA chain).
@@ -343,10 +342,10 @@ const UPSTREAM_BUYER_ADDRESS = (process.env.X402_UPSTREAM_BUYER_ADDRESS || "").t
 // ---------------------------------------------------------------------------
 // Per-chain price premiums (Phase B pricing engine, 2026-07-27)
 // ---------------------------------------------------------------------------
-// Mike's binding rule: anything settled through a fee-charging facilitator must
-// be priced to cover the fee — structurally, not by memory. Each 402 accepts
-// entry carries its own price, so a chain whose facilitator charges us (e.g.
-// Solvador at $0.001/settlement as a PRIMARY) quotes tool price + premium
+// The operator's binding rule: anything settled through a fee-charging
+// facilitator must be priced to cover the fee — structurally, not by memory.
+// Each 402 accepts entry carries its own price, so a chain whose facilitator
+// charges per settlement (e.g. Solvador as a PRIMARY) quotes tool price + premium
 // while fee-free rails (CDP on Base) stay at list. Buyers on cheap rails never
 // subsidise expensive ones, and the fee is visible in the quote.
 //
@@ -813,7 +812,7 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   // unfiltered client would contend for primary routes. Its fallback value is
   // redundancy: the only second facilitator that can settle Celo, Monad and
   // Robinhood. Env-gated on SOLVADOR_KEY (dashboard.solvador.com,
-  // pay-as-you-go: first 1,000 settlements/month free, then $0.001). Used by
+  // pay-as-you-go past a free tier). Used by
   // registerFacilitatorFailureHooks below when PAYMENT_SETTLE_FALLBACK is on.
   let solvadorClient = null;
   if (process.env.SOLVADOR_KEY) {
@@ -831,7 +830,7 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   // without SOLVADOR_KEY drops it from the offer with a loud warning, because
   // an offered accept no facilitator can settle would 500 every 402.
   // Fee-charging-primary rule: every chain routed here must carry a
-  // NETWORK_PRICE_PREMIUMS entry so the $0.001 settlement fee is priced into
+  // NETWORK_PRICE_PREMIUMS entry so the settlement fee is priced into
   // that chain's accepts quote, never eaten silently.
   const SOLVADOR_PRIMARY_CAIP2 = ["eip155:10"];
   class NetworkFilteredFacilitatorClient extends HTTPFacilitatorClient {
@@ -1516,10 +1515,8 @@ function registerWalletBlocklistHook(server) {
  * gate). Never on a timeout/5xx, where the settler may already have broadcast;
  * that rule applies between fallbacks too, so a Solvador timeout stops the
  * chain rather than risking a double-charge via PayAI. Order decided
- * 2026-09-18: PayAI bills gas x 1.3 in prepaid credits per settlement
- * (Base 2.12 credits = $0.002, Polygon 3.98, Arbitrum 6.08) while Solvador's
- * tier is 1,000 settlements a month free, then $0.001 - so the fallback that
- * runs first is the cheaper one. A facilitator is still skipped on a network it
+ * 2026-09-18 on each facilitator's published settlement pricing, so the
+ * fallback that runs first is the cheaper one. A facilitator is still skipped on a network it
  * cannot settle (Celo/Monad/Robinhood reach Solvador only). Left off by
  * default so Base stays purely on CDP (Bazaar discovery + fee-free settlement)
  * unless the operator opts into never-miss-a-sale behavior.
@@ -1712,7 +1709,7 @@ export function registerFacilitatorFailureHooks(server, payAiClient, solvadorCli
     // deterministic lookup), and settle has no transport-error fallback BY
     // DESIGN, because retrying a possibly-broadcast settlement elsewhere is how
     // you double-settle. So a rescued verify on a metered route runs the handler,
-    // spends real upstream money (up to $0.65 on a report tier), then 402s at
+    // spends real upstream money (up to a report tier's cap), then 402s at
     // settle: buyer not charged, gets nothing, retries, and each retry spends
     // again. Before this feature that request 402'd BEFORE the handler, free.
     //
@@ -1931,10 +1928,9 @@ async function resolvePayAIFacilitatorConfig() {
     console.log("Facilitator (Solana): PayAI (authenticated)");
     return createFacilitatorConfig(process.env.PAYAI_API_KEY_ID, process.env.PAYAI_API_KEY_SECRET);
   }
-  // PayAI keyless: from 2026-09-21 the free allowance is 1,000 credits per
-  // receiving wallet, LIFETIME, and a settlement costs the chain's gas x 1.3 in
-  // credits (Avalanche 0.09, Sei 0.43, Base 2.12, Polygon 3.98, Arbitrum 6.08 at
-  // $0.001/credit; docs read 2026-09-18). Past it /settle answers 403
+  // PayAI keyless: from 2026-09-21 the free allowance is a LIFETIME credit
+  // grant per receiving wallet, and each settlement draws credits by chain
+  // (docs read 2026-09-18). Past it /settle answers 403
   // free_tier_exhausted. The keyed branch above bills prepaid credits instead;
   // heartbeat.yml's credit watch counts the draw-down either way.
   const { facilitator } = await import("@payai/facilitator");
