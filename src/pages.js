@@ -12,6 +12,8 @@ import { RAILS_AMP, RAILS_OR, RAILS_PAREN, RAILS_SHORT } from "./rails.js";
 import { tempoDiscoveryInfo, tempoOfferedFor } from "./mpp-tempo.js";
 import { stripeDiscoveryInfo } from "./mpp-stripe.js";
 import { PRICED_BY_MODEL_NOTE } from "./tools/llm-gateway-kit.js";
+import { PARAM_ALIASES } from "./input-aliases.js";
+import { metaTitle, metaDescription } from "./seo-meta.js";
 
 export const CATEGORIES = {
   web: { label: "Web & documents", blurb: "Read the live web: browser rendering, screenshots, article extraction, PDFs, metadata." },
@@ -172,11 +174,159 @@ function fmtTtl(seconds) {
   return `${Math.round(s / 86400)}d`;
 }
 
+const TOOL_TITLE_MAX = 60;
+
+/** The price as a buyer meets it: a flat "$0.001" or, for a route that quotes
+ *  each request from its body, the floor it starts at. */
+function priceWords(tool) {
+  if (tool.quoteRange && Number.isFinite(tool.quoteRange.maxUsd) && tool.quoteRange.maxUsd > tool.quoteRange.minUsd) {
+    return { short: `from ${tool.price}`, long: `quoted per request from ${tool.price}` };
+  }
+  return { short: tool.price, long: `${tool.price} per call` };
+}
+
+/** Name for a title: parentheticals dropped first, then cut at a word. */
+function titleName(name, room) {
+  let n = String(name).trim();
+  if (n.length <= room) return n;
+  const noParen = n.replace(/\s*\([^)]*\)\s*/g, " ").replace(/\s+/g, " ").trim();
+  if (noParen.length && noParen.length <= room) return noParen;
+  n = noParen || n;
+  const cut = n.slice(0, room + 1);
+  const ws = cut.lastIndexOf(" ");
+  return (ws > room * 0.5 ? cut.slice(0, ws) : n.slice(0, room)).replace(/[\s,;:+&\-]+$/g, "");
+}
+
+/** Page title, at most 60 characters: "<Name> API - $0.001/call | Agent402",
+ *  shedding the brand, then the parenthetical, then words, never the price. */
+export function toolTitle(tool) {
+  const p = priceWords(tool).short;
+  const tail = ` API - ${p}/call`;
+  const brand = " | Agent402";
+  const full = `${tool.name}${tail}${brand}`;
+  if (full.length <= TOOL_TITLE_MAX) return full;
+  const withBrand = `${titleName(tool.name, TOOL_TITLE_MAX - tail.length - brand.length)}${tail}${brand}`;
+  const noBrand = `${titleName(tool.name, TOOL_TITLE_MAX - tail.length)}${tail}`;
+  // Keep the brand when the name survives it intact, otherwise spend the room on the name.
+  const nameIntactWithBrand = titleName(tool.name, TOOL_TITLE_MAX - tail.length - brand.length) === tool.name;
+  return nameIntactWithBrand ? withBrand : noBrand;
+}
+
+/** First sentence of a description (a period followed by a capital or the end). */
+function firstSentence(text) {
+  const s = String(text || "").replace(/\s+/g, " ").trim();
+  const m = s.match(/^(.+?[.!?])(?=\s+[A-Z(`"]|$)/);
+  const out = m ? m[1] : s;
+  return /[.!?]$/.test(out) ? out : `${out}.`;
+}
+
+function cutAtWord(text, max) {
+  const s = String(text).trim();
+  if (s.length <= max) return s;
+  const head = s.slice(0, max + 1);
+  let cut = -1;
+  for (const m of head.matchAll(/[.!?](?=\s)/g)) cut = m.index + 1;
+  if (cut >= max * 0.5) return head.slice(0, cut).trim();
+  const ws = head.lastIndexOf(" ");
+  let words = (ws > 0 ? head.slice(0, ws) : head.slice(0, max)).replace(/[\s,;:\-(]+$/g, "").trim().split(" ");
+  // A cut that ends on a connecting word ("... by hash on") reads as broken.
+  while (words.length > 3 && /^(a|an|the|of|on|in|to|for|by|and|or|with|from|at|as|via|into|its)$/i.test(words.at(-1))) words.pop();
+  return words.join(" ").replace(/[\s,;:\-(]+$/g, "") + ".";
+}
+
+/** Meta description, 120-155 characters, built from the tool's own sentence
+ *  plus the price and how it is paid - different on every page because the
+ *  description, price and route are. */
+export function toolMetaDescription(tool, { computePayable = false } = {}) {
+  const MAX = 155, MIN = 120;
+  const p = priceWords(tool).long;
+  const pay = computePayable ? `${p} over x402, or free with proof-of-work.` : `${p} over x402 or MPP.`;
+  const room = MAX - pay.length - 2;
+  let lead = String(tool.description || tool.name).replace(/\s+/g, " ").trim();
+  lead = cutAtWord(lead, room);
+  if (!/[.!?]$/.test(lead)) lead += ".";
+  let out = `${lead} ${pay}`;
+  const fillers = [
+    ` ${tool.method} ${tool.path}.`,
+    " No API key or signup.",
+    (tool.tags || []).length ? ` Tags: ${(tool.tags || []).slice(0, 4).join(", ")}.` : "",
+    ` Category: ${CATEGORIES[tool.category]?.label ?? tool.category}.`,
+  ];
+  for (const f of fillers) {
+    if (out.length >= MIN) break;
+    if (f && out.length + f.length <= MAX) out += f;
+  }
+  return out.length > MAX ? out.slice(0, MAX) : out;
+}
+
+/** Related tools: same category and shared tags score highest; skill packs
+ *  only relate to other packs. Deterministic for a given catalog. */
+export function relatedTools(tool, tools, limit = 6) {
+  const tags = new Set((tool.tags || []).map((t) => String(t).toLowerCase()));
+  const isPack = tool.category === "skill-pack";
+  return tools
+    .filter((t) => t.slug !== tool.slug && (t.category === "skill-pack") === isPack)
+    .map((t) => {
+      const shared = (t.tags || []).filter((x) => tags.has(String(x).toLowerCase())).length;
+      return { t, score: (t.category === tool.category ? 3 : 0) + shared * 2 };
+    })
+    .filter((r) => r.score > 0)
+    .sort((a, b) => b.score - a.score || a.t.slug.localeCompare(b.t.slug))
+    .slice(0, limit)
+    .map((r) => r.t);
+}
+
+/** "string", "integer (1-64)", "one of: sha256, sha512" ... from a JSON Schema property. */
+function schemaType(v = {}) {
+  let t = Array.isArray(v.type) ? v.type.join(" | ") : (v.type || (v.enum ? "string" : "any"));
+  if (t === "array" && v.items?.type) t = `array of ${v.items.type}`;
+  const bits = [];
+  if (Array.isArray(v.enum) && v.enum.length) bits.push(`one of: ${v.enum.slice(0, 12).map(String).join(", ")}${v.enum.length > 12 ? ", ..." : ""}`);
+  if (Number.isFinite(v.minimum) || Number.isFinite(v.maximum)) bits.push(`${Number.isFinite(v.minimum) ? v.minimum : ""}-${Number.isFinite(v.maximum) ? v.maximum : ""}`);
+  if (v.format) bits.push(v.format);
+  if (v.default !== undefined) bits.push(`default ${typeof v.default === "string" ? v.default : JSON.stringify(v.default)}`);
+  return bits.length ? `${t} (${bits.join("; ")})` : t;
+}
+
+function exampleValueType(v) {
+  if (v === null) return "null";
+  if (Array.isArray(v)) return v.length && typeof v[0] === "object" && v[0] !== null ? "array of objects" : v.length ? `array of ${typeof v[0]}` : "array";
+  return typeof v;
+}
+
+function codeList(names, max = 4) {
+  const shown = names.slice(0, max).map((n) => `<code>${ledgerEsc(n)}</code>`);
+  const more = names.length > max ? ` and ${names.length - max} more` : "";
+  if (shown.length <= 1) return shown.join("") + more;
+  return more ? `${shown.join(", ")}${more}` : `${shown.slice(0, -1).join(", ")} and ${shown.at(-1)}`;
+}
+
+function curlExample(baseUrl, tool) {
+  const input = tool.discovery?.input ?? {};
+  if (tool.method === "GET") {
+    const qs = new URLSearchParams(Object.entries(input).map(([k, v]) => [k, typeof v === "string" ? v : JSON.stringify(v)])).toString();
+    return `curl -i "${baseUrl}${tool.path}${qs ? `?${qs}` : ""}"`;
+  }
+  const body = JSON.stringify(input).replace(/'/g, "'\\''");
+  return `curl -i -X ${tool.method} ${baseUrl}${tool.path} \\\n  -H "Content-Type: application/json" \\\n  -d '${body}'`;
+}
+
 export function toolPage(baseUrl, tool, related, { computePayable = false, powDifficulty = 0, cacheTtl = null } = {}) {
   const e = ledgerEsc;
-  const title = `${tool.name} API for AI agents - ${tool.price} per call | Agent402`;
+  const title = toolTitle(tool);
   const canonical = `${baseUrl}/tools/${tool.slug}`;
   const catLabel = CATEGORIES[tool.category]?.label ?? tool.category;
+  const catHref = `/tools/category/${tool.category}`;
+  const pw = priceWords(tool);
+  const schema = tool.discovery?.inputSchema || {};
+  const props = schema.properties || {};
+  const required = Array.isArray(schema.required) ? schema.required : [];
+  const example = tool.discovery?.output?.example;
+  const input = tool.discovery?.input ?? {};
+  const evmOnly = !!(tool.identityBound || tool.longRunning);
+  const isPack = tool.category === "skill-pack";
+  const packSlug = isPack ? tool.slug.replace(/^skill-/, "") : null;
+
   const jsonLd = [
     {
       "@context": "https://schema.org",
@@ -184,48 +334,113 @@ export function toolPage(baseUrl, tool, related, { computePayable = false, powDi
       name: `Agent402 ${tool.name}`,
       url: canonical,
       description: tool.description,
-      documentation: `${baseUrl}/llms.txt`,
+      documentation: `${baseUrl}/openapi.json`,
       provider: { "@type": "Organization", name: "Agent402.Tools", url: baseUrl },
       offers: {
         "@type": "Offer",
         price: tool.price.replace("$", ""),
         priceCurrency: "USD",
-        description: `${tool.price} per call, paid in ${RAILS_OR} via the x402 protocol. No signup, no API key.${computePayable ? " Or free with proof-of-work (no wallet)." : ""}`,
+        description: `${pw.long}, paid over x402${evmOnly ? " (USDC on EVM chains)" : ` in ${RAILS_OR}`} or MPP. No signup, no API key.${computePayable ? " Or free with proof-of-work (no wallet)." : ""}`,
       },
     },
     {
       "@context": "https://schema.org",
       "@type": "BreadcrumbList",
       itemListElement: [
-        { "@type": "ListItem", position: 1, name: "Agent402.Tools", item: baseUrl },
+        { "@type": "ListItem", position: 1, name: "Home", item: baseUrl },
         { "@type": "ListItem", position: 2, name: "Tools", item: `${baseUrl}/tools` },
-        { "@type": "ListItem", position: 3, name: catLabel, item: `${baseUrl}/tools#${tool.category}` },
+        { "@type": "ListItem", position: 3, name: catLabel, item: `${baseUrl}${catHref}` },
         { "@type": "ListItem", position: 4, name: tool.name, item: canonical },
       ],
     },
   ];
-  const schemaRows = Object.entries(tool.discovery?.inputSchema?.properties ?? {})
-    .map(([k, v]) => {
-      const required = (tool.discovery?.inputSchema?.required ?? []).includes(k);
-      return `<tr><td><code>${e(k)}</code>${required ? " <b>*</b>" : ""}</td><td>${e(v.type ?? "any")}</td><td>${e(v.description ?? "")}</td></tr>`;
-    })
-    .join("\n");
+
+  // --- Answer-first summary: what it does, what it costs, how to pay, where it lives.
+  const payHow = computePayable
+    ? `pay ${pw.long} over x402 or MPP, or call it free by solving a proof-of-work challenge`
+    : evmOnly
+      ? `pay ${pw.long} over x402 with USDC on an EVM chain${tool.identityBound ? " (the paying wallet is the identity)" : ""}`
+      : `pay ${pw.long} over x402 or MPP (there is no free tier)`;
+  const reqPhrase = required.length
+    ? `${required.length === 1 ? "the required field" : "the required fields"} ${codeList(required)}`
+    : Object.keys(props).length ? `no required fields (${Object.keys(props).length} optional)` : "no input";
+  const outKeys = example && typeof example === "object" && !Array.isArray(example) ? Object.keys(example) : [];
+  const outPhrase = outKeys.length ? `a JSON object with ${codeList(outKeys, 5)}` : Array.isArray(example) ? "a JSON array" : "the result";
+  const summary = `${e(firstSentence(tool.description))} Send <code>${e(tool.method)} ${e(tool.path)}</code> with ${reqPhrase} and ${e(payHow)}. It returns ${outPhrase}.`;
+  const restOfDescription = String(tool.description).replace(/\s+/g, " ").trim().slice(firstSentence(tool.description).length).trim();
+
+  // --- Parameters table from the input schema, plus accepted alternative names.
+  const aliasFor = (name) => {
+    const alts = PARAM_ALIASES[name];
+    if (!alts || !required.includes(name)) return [];
+    return alts.filter((a) => !(a in props));
+  };
+  const paramRows = Object.entries(props).map(([k, v]) => {
+    const req = required.includes(k);
+    const alts = aliasFor(k);
+    const altNote = alts.length ? ` <span style="color:var(--faint);">Also accepted as ${alts.map((a) => `<code>${e(a)}</code>`).join(", ")}.</span>` : "";
+    return `<tr><td><code>${e(k)}</code></td><td>${e(schemaType(v))}</td><td>${req ? "yes" : "no"}</td><td>${e(v.description ?? "")}${altNote}</td></tr>`;
+  }).join("\n");
+
+  // --- Response fields from the documented example (same derivation as /openapi.json).
+  const respSchema = responseSchemaFor(tool.path, example);
+  const respRequired = new Set(respSchema.required || []);
+  const respRows = outKeys.map((k) => {
+    const v = example[k];
+    let sample = typeof v === "string" ? v : v === null || typeof v !== "object" ? JSON.stringify(v) : Array.isArray(v) ? `${v.length} item${v.length === 1 ? "" : "s"} in the example` : `${Object.keys(v).length} field${Object.keys(v).length === 1 ? "" : "s"}: ${Object.keys(v).slice(0, 6).join(", ")}`;
+    if (sample && sample.length > 80) sample = sample.slice(0, 77) + "...";
+    return `<tr><td><code>${e(k)}</code></td><td>${e(exampleValueType(v))}</td><td>${respRequired.has(k) ? "yes" : "no"}</td><td>${e(sample ?? "")}</td></tr>`;
+  }).join("\n");
+
+  // --- Errors and behavior: only statements that hold for this tool.
+  const facts = [];
+  const inputErrorBody = "<code>error</code>, <code>tool</code>, <code>expected</code>, <code>required</code> and <code>example</code>";
+  if (isPack) {
+    facts.push(`Arguments left out fall back to the pack's own defaults. Each step reports on its own; the call succeeds when at least one step does, and a run where every step fails is refused (400 when the input caused it, 502 otherwise).`);
+  } else if (required.length) {
+    facts.push(`${codeList(required, 6)} ${required.length === 1 ? "is" : "are"} required. An input the tool rejects returns an HTTP 4xx whose body carries ${inputErrorBody}, so the caller can correct it.`);
+  } else if (Object.keys(props).length) {
+    facts.push(`Every field is optional. An input the tool rejects returns an HTTP 4xx whose body carries ${inputErrorBody}.`);
+  } else {
+    facts.push(`There is no input to get wrong: any request to ${e(tool.path)} runs the tool.`);
+  }
+  facts.push(`A paid call that ends in any status of 400 or above is not charged: settlement is cancelled when the tool fails.`);
+  if (computePayable) facts.push(`Free tier: this is pure computation, so proof-of-work (${e(String(powDifficulty))} leading zero bits of sha256) pays for it and no network call leaves the server.`);
+  else facts.push(`Wallet-only: this tool ${tool.modelBacked ? "runs a model" : "reaches the network or stored state"}, so it has no proof-of-work tier.${tool.identityBound ? "" : " A prepaid card-credits key (<code>Authorization: Bearer a402_...</code>) also pays it."}`);
+  if (tool.modelBacked) facts.push(`Model-backed: the answer is generated by a model, so the same input can produce different wording.`);
+  if (tool.identityBound) facts.push(`Identity-bound: results are keyed to the wallet that signed the payment, so only EVM x402 payments are accepted; credits keys and Tempo are refused.`);
+  else if (tool.longRunning) facts.push(`Long-running: payment settles after the work finishes, so only EVM exact payments are offered.`);
+  if (tool.quoteRange) facts.push(`Priced per request: the 402 quotes this body, between ${e(tool.price)} and $${e(String(tool.quoteRange.maxUsd))}.`);
+  if (typeof tool.tierQuote === "function") facts.push(e(PRICED_BY_MODEL_NOTE));
+  if (cacheTtl) facts.push(`Cached: an identical request within ${e(fmtTtl(cacheTtl))} is answered from cache with <code>X-Cache: hit</code>.`);
+  facts.push(tool.method === "GET"
+    ? `A <code>POST</code> with a JSON body to ${e(tool.path)} is served as this GET, with the body as the input.`
+    : `A <code>GET</code> or <code>HEAD</code> to ${e(tool.path)} returns the same 402 quote, so the price can be read without a body.`);
+  facts.push(`An <code>Idempotency-Key</code> header makes a retried paid call replay the first 200 instead of charging again${String(tool.path).startsWith("/v1/") ? " (streamed responses are not replayed)" : ""}.`);
+
+  // --- MCP usage.
+  const mcpArgs = JSON.stringify({ slug: tool.slug, params: input }, null, 2);
+  const mcpNote = computePayable
+    ? `On the hosted connector at <code>${e(baseUrl)}/mcp</code>, <code>catalog.call</code> runs ${e(tool.slug)} free (rate-limited, no wallet).`
+    : `The hosted connector at <code>${e(baseUrl)}/mcp</code> needs a payment for ${e(tool.slug)}; the stdio package pays it from a wallet or from <code>AGENT402_CREDITS_KEY</code>${tool.identityBound ? " (wallet only for this tool)" : ""}.`;
+
+  const aliases = (Array.isArray(tool.aliases) ? tool.aliases : []).filter((a) => a && a !== tool.slug);
+  const tagsLine = (tool.tags || []).length ? (tool.tags || []).slice(0, 8).map((t) => `<code>${e(t)}</code>`).join(" ") : "";
 
   const relatedCards = related.map((t) => {
-    const desc = t.description.length > 120 ? t.description.slice(0, 120) + "\u2026" : t.description;
-    return `<div style="background:var(--card);border:1px solid var(--hairline);padding:18px 20px;display:flex;flex-direction:column;gap:8px;">
+    const desc = t.description.length > 120 ? t.description.slice(0, 120) + "…" : t.description;
+    return `<div class="tp-card">
   <h3 style="font-size:15px;margin:0;"><a href="/tools/${e(t.slug)}" style="text-decoration:none;color:var(--ink);">${e(t.name)}</a></h3>
-  <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);">${ledgerPriceLine(t)} · <code style="background:transparent;color:var(--faint);font-size:12px;">${t.method} ${e(t.path)}</code></div>
+  <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);">${ledgerPriceLine(t)} · <code style="background:transparent;color:var(--faint);font-size:12px;">${e(t.method)} ${e(t.path)}</code></div>
   <p style="color:var(--muted);font-size:13px;margin:0;line-height:1.5;flex:1;">${e(desc)}</p>
-  <a href="/playground?slug=${e(t.slug)}" style="font-family:var(--font-mono);font-size:12px;color:var(--accent);text-decoration:none;font-weight:700;">try in playground →</a>
 </div>`;
   }).join("\n");
 
   // Surface which curated multi-tool workflows include this tool.
   const inPacks = SKILL_PACKS.filter((p) => (p.toolSlugs || []).includes(tool.slug));
   const packsHtml = inPacks.length
-    ? `<h2 style="font-weight:800;font-size:22px;margin:40px 0 10px;">Part of these workflows</h2>
-  <p style="color:var(--muted);font-size:15px;margin-bottom:12px;">This tool is one step in ${inPacks.length === 1 ? "a curated multi-tool workflow" : `${inPacks.length} curated multi-tool workflows`} - agents can fetch the whole sequence as an MCP prompt or call <code style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);padding:2px 6px;font-size:13px;">${e(baseUrl)}/api/skill-packs/{slug}/prompt</code>.</p>
+    ? `<h2 class="tp-h2">Part of these workflows</h2>
+  <p class="tp-sub">${e(tool.name)} is one step in ${inPacks.length === 1 ? "this skill pack" : `these ${inPacks.length} skill packs`}, each sold as a single call:</p>
   <ul style="padding-left:20px;">${inPacks.map((p) => `<li style="margin-bottom:6px;"><a href="/skills/${e(p.slug)}" style="color:var(--accent);font-weight:700;">${e(p.title)}</a> - <span style="color:var(--muted);">${e(p.tagline)}</span></li>`).join("")}</ul>`
     : "";
 
@@ -244,79 +459,93 @@ export function toolPage(baseUrl, tool, related, { computePayable = false, powDi
   .tp-crumb a { color:var(--accent); text-decoration:none; }
   .tp-h1 { font-family:var(--font-body); font-weight:800; font-size:38px; line-height:1; letter-spacing:-.02em; margin-bottom:10px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; text-overflow:ellipsis; }
   .tp-badge { display:inline-block; background:var(--surface); color:var(--on-dark); font-family:var(--font-mono); font-size:13px; padding:8px 16px; margin:8px 0 6px; }
-  .tp-sub { color:var(--muted); font-size:16px; line-height:1.6; max-width:720px; }
+  .tp-sub { color:var(--muted); font-size:16px; line-height:1.6; max-width:760px; }
+  .tp-lead { color:var(--ink); font-size:17px; line-height:1.6; max-width:760px; margin:14px 0 6px; }
+  .tp-sub code, .tp-lead code, .tp-facts code { background:var(--card); border:1px solid var(--hairline); font-family:var(--font-mono); padding:1px 5px; font-size:.86em; }
   .tp-h2 { font-weight:800; font-size:22px; margin:40px 0 10px; letter-spacing:-.01em; }
   .tp-table { border-collapse:collapse; width:100%; font-size:14px; }
   .tp-table td, .tp-table th { border:1px solid var(--hairline); padding:10px 12px; text-align:left; vertical-align:top; }
   .tp-table th { background:var(--card); font-weight:700; }
-  .tp-pre { background:var(--surface); color:var(--on-dark); font-family:var(--font-mono); font-size:13px; line-height:1.6; padding:18px 20px; overflow-x:auto; border:none; }
+  .tp-tw { overflow-x:auto; }
+  .tp-pre { background:var(--surface); color:var(--on-dark); font-family:var(--font-mono); font-size:13px; line-height:1.6; padding:18px 20px; overflow-x:auto; border:none; white-space:pre; }
   .tp-grid { display:grid; gap:14px; margin:20px 0; }
   @media (min-width:640px){ .tp-grid { grid-template-columns:repeat(3,1fr); } }
+  .tp-card { background:var(--card); border:1px solid var(--hairline); padding:18px 20px; display:flex; flex-direction:column; gap:8px; }
   .tp-free { display:inline-block; background:var(--green); color:#08130b; font-weight:700; font-size:11px; letter-spacing:.02em; padding:2px 8px; font-family:var(--font-mono); vertical-align:middle; }
-  .tp-callout { background:var(--card); border:1px solid var(--hairline); padding:16px 20px; margin:18px 0; font-size:15px; }
-  .tp-callout b { color:var(--accent); }
+  .tp-facts { color:var(--muted); font-size:15px; line-height:1.65; max-width:820px; padding-left:20px; }
+  .tp-facts li { margin-bottom:6px; }
+  .tp-meta { color:var(--faint); font-size:13px; font-family:var(--font-mono); margin-top:10px; }
   `;
 
   const body = `<div class="tp-wrap">
-  <div class="tp-crumb"><a href="/">Agent402</a> / <a href="/tools">tools</a> / ${e(tool.slug)}</div>
+  <nav class="tp-crumb" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/tools">Tools</a> / <a href="${e(catHref)}">${e(catLabel)}</a> / ${e(tool.name)}</nav>
   <h1 class="tp-h1" title="${e(tool.name)}">${e(tool.name)}</h1>
   <div class="tp-badge">${
     computePayable
-      ? `<span class="tp-free">FREE</span> <span style="color:var(--dk-muted);">with proof-of-work</span> · <span style="color:var(--dk-muted2);">or ${tool.price} in USDC</span>`
-      : `<span style="color:var(--on-dark);">${tool.price} per call</span> · <span style="color:var(--dk-muted);">USDC via x402</span>`
-  } · <code style="color:${methodColor};background:transparent;font-size:13px;">${tool.method}</code> <code style="color:var(--dk-muted2);background:transparent;font-size:13px;">${e(tool.path)}</code>${
-    cacheTtl ? ` · <span style="color:var(--dk-muted);" title="Server caches identical responses for ${e(fmtTtl(cacheTtl))}. Repeated calls return X-Cache: hit and don't re-hit the upstream.">Cached ${e(fmtTtl(cacheTtl))}</span>` : ""
+      ? `<span class="tp-free">FREE</span> <span style="color:var(--dk-muted);">with proof-of-work</span> · <span style="color:var(--dk-muted2);">or ${e(tool.price)} in USDC</span>`
+      : `<span style="color:var(--on-dark);">${e(pw.long)}</span> · <span style="color:var(--dk-muted);">USDC via x402</span>`
+  } · <code style="color:${methodColor};background:transparent;font-size:13px;">${e(tool.method)}</code> <code style="color:var(--dk-muted2);background:transparent;font-size:13px;">${e(tool.path)}</code>${
+    cacheTtl ? ` · <span style="color:var(--dk-muted);" title="Server caches identical responses for ${e(fmtTtl(cacheTtl))}.">Cached ${e(fmtTtl(cacheTtl))}</span>` : ""
   }</div>
-  <p class="tp-sub">${e(tool.description)}</p>
+  <p class="tp-lead">${summary}</p>
+  ${restOfDescription ? `<p class="tp-sub">${e(restOfDescription)}</p>` : ""}
+  <p class="tp-meta">Category: <a href="${e(catHref)}" style="color:var(--accent);">${e(catLabel)}</a>${tagsLine ? ` · Tags: ${tagsLine}` : ""}${aliases.length ? ` · Also found as: ${aliases.slice(0, 6).map((a) => `<code>${e(a)}</code>`).join(" ")}` : ""}${isPack ? ` · <a href="/skills/${e(packSlug)}" style="color:var(--accent);">Pack overview</a>` : ""}</p>
   <p style="margin:16px 0 0;"><a class="ml-cta" href="/playground?slug=${e(tool.slug)}" style="display:inline-block;background:var(--accent);color:var(--on-accent);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:11px 16px;">TRY IN PLAYGROUND →</a></p>
 
-  <h2 class="tp-h2">Input</h2>
-  ${schemaRows ? `<table class="tp-table"><tr><th>Field</th><th>Type</th><th>Description</th></tr>${schemaRows}</table>` : `<p class="tp-sub">No parameters.</p>`}
+  <h2 class="tp-h2">Parameters</h2>
+  ${paramRows ? `<div class="tp-tw"><table class="tp-table"><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr>${paramRows}</table></div>` : `<p class="tp-sub">${e(tool.name)} takes no parameters.</p>`}
 
-  <h2 class="tp-h2">Example output</h2>
-  <pre class="tp-pre">${e(JSON.stringify(tool.discovery?.output?.example ?? {}, null, 2))}</pre>
+  <h2 class="tp-h2">Example request</h2>
+  <pre class="tp-pre">${e(curlExample(baseUrl, tool))}</pre>
+  <p class="tp-sub">Without payment this returns <code>HTTP 402 Payment Required</code> with the exact price for ${e(tool.slug)}; any x402 v2 or MPP client pays it and retries.</p>
 
-  <h2 class="tp-h2">Try it - see the 402 challenge (free)</h2>
-  <pre class="tp-pre">${e(exampleCall(baseUrl, tool))}</pre>
-  <p class="tp-sub">The response is <code style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);padding:2px 6px;font-size:13px;">HTTP 402 Payment Required</code> with exact payment requirements. Any x402 v2 client pays automatically and retries:</p>
+  <h2 class="tp-h2">Example response</h2>
+  <pre class="tp-pre">${e(JSON.stringify(example ?? {}, null, 2))}</pre>
+  ${respRows ? `<div class="tp-tw"><table class="tp-table"><tr><th>Field</th><th>Type</th><th>Always present</th><th>In the example</th></tr>${respRows}</table></div>` : ""}
+
+  <h2 class="tp-h2">From an MCP client</h2>
+  <pre class="tp-pre">catalog.call ${e(mcpArgs)}</pre>
+  <p class="tp-sub">${mcpNote} Local install: <code>npx -y agent402-mcp</code>.</p>
+
+  <h2 class="tp-h2">Errors and behavior</h2>
+  <ul class="tp-facts">${facts.map((f) => `<li>${f}</li>`).join("\n")}</ul>
 
   <h2 class="tp-h2">Paid call (JavaScript agent)</h2>
-  <pre class="tp-pre">import { wrapFetchWithPayment } from "@x402/fetch";
+  <pre class="tp-pre">${e(`import { wrapFetchWithPayment } from "@x402/fetch";
 import { x402Client } from "@x402/core/client";
 import { registerExactEvmScheme } from "@x402/evm/exact/client";
 import { privateKeyToAccount } from "viem/accounts";
-import { metaTitle, metaDescription } from "./seo-meta.js";
 
 const client = new x402Client();
-client.setSpendControls?.(false); // @x402/core 2.23+ refuses anything over $1 or off the pegged-asset list by default; keep your own ceiling in code instead
+client.setSpendControls?.(false); // keep your own spending ceiling in code
 registerExactEvmScheme(client, { signer: privateKeyToAccount(KEY) });
 const payFetch = wrapFetchWithPayment(fetch, client);
 
-${e(payExample(baseUrl, tool))}</pre>
+${payExample(baseUrl, tool)}`)}</pre>
 
   ${
     computePayable
       ? `<h2 class="tp-h2">No wallet? Pay with compute</h2>
-  <p class="tp-sub">This is a pure-CPU tool, so an agent without a wallet can pay with <a href="/api/pow" style="color:var(--accent);">proof-of-work</a> instead of USDC: fetch a challenge, solve the sha256 puzzle (${powDifficulty} leading zero bits - a fraction of a second of CPU, no money, no AI tokens), and resend with the <code style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);padding:2px 6px;font-size:13px;">X-Pow-Solution</code> header.</p>
-  <pre class="tp-pre">import { createHash } from "node:crypto";
-const lz = (b) =&gt; { let t = 0; for (const x of b) { if (!x) { t += 8; continue; } t += Math.clz32(x) - 24; break; } return t; };
-const c = await (await fetch("${baseUrl}/api/pow/challenge?slug=${e(tool.slug)}")).json();
+  <p class="tp-sub">Fetch a challenge, solve the sha256 puzzle (${e(String(powDifficulty))} leading zero bits, a fraction of a second of CPU), and resend with the <code>X-Pow-Solution</code> header:</p>
+  <pre class="tp-pre">${e(`import { createHash } from "node:crypto";
+const lz = (b) => { let t = 0; for (const x of b) { if (!x) { t += 8; continue; } t += Math.clz32(x) - 24; break; } return t; };
+const c = await (await fetch("${baseUrl}/api/pow/challenge?slug=${tool.slug}")).json();
 let n = 0;
-while (lz(createHash("sha256").update(c.challenge + ":" + n).digest()) &lt; c.difficulty) n++;
-await fetch("${baseUrl}${tool.path}", { method: "${tool.method}", headers: { "X-Pow-Solution": c.token + ":" + n${tool.method === "POST" ? ', "Content-Type": "application/json"' : ""} }${tool.method === "POST" ? `, body: JSON.stringify(${JSON.stringify(tool.discovery?.input ?? {})})` : ""} });</pre>`
-      : `<div class="tp-callout" style="margin-top:24px"><b>Wallet-only.</b> This tool reaches the network/browser/storage, so it is paid in USDC via x402 (no proof-of-work tier).</div>`
+while (lz(createHash("sha256").update(c.challenge + ":" + n).digest()) < c.difficulty) n++;
+await fetch("${baseUrl}${tool.path}", { method: "${tool.method}", headers: { "X-Pow-Solution": c.token + ":" + n${tool.method === "POST" ? ', "Content-Type": "application/json"' : ""} }${tool.method === "POST" ? `, body: JSON.stringify(${JSON.stringify(input)})` : ""} });`)}</pre>`
+      : ""
   }
 
   ${packsHtml}
 
-  <h2 class="tp-h2">Related tools</h2>
-  <div class="tp-grid">${relatedCards}</div>
+  ${relatedCards ? `<h2 class="tp-h2">Related tools</h2>
+  <div class="tp-grid">${relatedCards}</div>` : ""}
 </div>
 ${ledgerFooterCompact()}`;
 
   return ledgerShell({
     title,
-    description: `${tool.description} ${tool.price} per call via x402 - no API key, no signup.`,
+    description: toolMetaDescription(tool, { computePayable }),
     canonical,
     baseUrl,
     activePath: "/tools",

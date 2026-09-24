@@ -338,7 +338,7 @@ import { chainNamespaceMiddleware, chainNamespaceMap, chainVerbAliasesByRoute } 
 import { corsMiddleware } from "./cors.js";
 import { MODERATE_TOOLS } from "./tools/moderate-kit.js";
 import { CDP_TOOLS } from "./tools/cdp-kit.js";
-import { toolPage, toolsIndexPage, openapiSpec, toolList, CATEGORIES, faqPage, categoryPage } from "./pages.js";
+import { toolPage, toolsIndexPage, openapiSpec, toolList, CATEGORIES, faqPage, categoryPage, relatedTools } from "./pages.js";
 import { mountMcp } from "./mcp-http.js";
 import { guidesIndex, guidePage } from "./guides.js";
 import { skillsIndex, skillPackPage, skillPacksJson, SKILL_PACKS, buildPromptMessages } from "./skills.js";
@@ -6576,7 +6576,7 @@ app.get("/tools/:slug", (req, res) => {
   const tools = toolList(CATALOG);
   const tool = tools.find((t) => t.slug === req.params.slug);
   if (!tool) return notFoundPage(res, { what: "Tool", href: "/tools", label: "All tools" });
-  const related = tools.filter((t) => t.category === tool.category && t.slug !== tool.slug).slice(0, 3);
+  const related = relatedTools(tool, tools, 6);
   const cachePolicy = tool.method === "GET" ? CACHEABLE_ROUTES[tool.path] : null;
   htmlCache(res, 300, 900).send(skillPackCanonical(tool.slug, toolPage(BASE_URL, tool, related, { computePayable: POW_SLUGS.has(tool.slug), powDifficulty: POW_DIFFICULTY, cacheTtl: cachePolicy?.ttl ?? null })));
 });
