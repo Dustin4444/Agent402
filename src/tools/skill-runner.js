@@ -2671,11 +2671,13 @@ export function buildSkillTools({ getCatalog, inlineHandlers = {} }) {
       slug: `skill-${slug}`,
       category: "skill-pack",
       price: `$${price.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}` /* whole milli-dollars: the derived pack price is charged as derived, never rounded to a cent */,
+      // Lead with what the pack does.
       description:
-        `Bundled execution of the ${pack.title} workflow - ${pack.tagline} ` +
-        `One x402 payment runs ${pack.toolSlugs.length} underlying tools (${pack.toolSlugs.join(", ")}); ` +
+        `${pack.tagline} ${pack.title} skill pack: one x402 payment runs ` +
+        `${pack.toolSlugs.length} underlying tools (${pack.toolSlugs.join(", ")}); ` +
         `partial-success per step.`,
-      tags: ["skill-pack", "workflow", slug],
+      // Optional curated search words (`searchTags`).
+      tags: ["skill-pack", "workflow", slug, ...(Array.isArray(pack.searchTags) ? pack.searchTags : [])],
       discovery: {
         bodyType: "json",
         input: exampleArgs,

@@ -7,15 +7,8 @@
 // scale, or a probability. That is the shape an agent buying tools actually
 // needs, and the /v1 gateway cannot produce it.
 //
-// MARGIN IS THE INPUT BOUND, not a clamp. Upstream bills per token, so the
-// margin rule permits a bounded number of tokens per call at the catalog
-// price. Nothing downstream can reduce that after the fact, so the caps below
-// are what keep the price honest: they make worst-case upstream deterministic
-// BEFORE the call, exactly as stt-kit's duration cap does.
-//
-//   measured: a 1-noul judgment over a short string   ~380 tokens
-//             a 5-option choice with descriptions     ~658 tokens
-//   worst case admitted here: 16,000 bytes, so at most 16,000 tokens
+// MARGIN IS THE INPUT BOUND, not a clamp: the caps below fix the worst-case
+// upstream size before the call, like stt-kit's duration cap.
 //
 // The character caps bound the SHAPE. The byte cap bounds the MONEY: a token
 // can be one byte (CJK, emoji, base64), so the outbound body's byte length is
