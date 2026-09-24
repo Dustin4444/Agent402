@@ -14,6 +14,11 @@ Since v2.4.0 (2026-09-18).
   answers 404 or 405 twice at least an hour apart; a 410 removes any route;
   re-registering re-checks every route. `/api/index?seller=` shows
   each route's `declared`, `source` and `lastVerifiedAt`.
+- `kalshi-markets` and `kalshi-event` return `yesBidSize` and `yesAskSize`,
+  the resting contracts at the best yes bid and ask. Kalshi retires its
+  liquidity figure on 2026-10-01 and it already reads zero on live books, so
+  `liquidityUsd` is null with a `liquidityUsdNote` wherever Kalshi publishes
+  no figure.
 
 ### 2026-09-23
 - The model gateway serves Meta's Muse Spark (`meta/muse-spark-1.3`, `-1.2`,

@@ -11,6 +11,7 @@ const ENTRIES = [
       "Fixed broken links on the FAQ and chain pages.",
       "Seller index: a route that is not in the seller's own manifest or OpenAPI must answer a live 402 at least every 7 days and leaves the listing when it answers 404 or 405 twice at least an hour apart; a 410 removes any route; re-registering re-checks every route. /api/index?seller= shows each route's declared, source and lastVerifiedAt.",
       "Lower prices: web search, news search and render $0.01; fed-funds $0.005; gas-estimate, edgar-company-lookup, sol-price and polymarket-search $0.001. Skill packs that use them follow.",
+      "kalshi-markets and kalshi-event return yesBidSize and yesAskSize, the resting contracts at the best yes bid and ask. Kalshi retires its liquidity figure on 2026-10-01 and it already reads zero on markets with a live book, so liquidityUsd is now null with a note saying why wherever Kalshi does not publish one.",
     ],
   },
   {
