@@ -875,6 +875,25 @@ export function tempoDailyRecordingSince() {
   return rows.length ? rows[0].day : null;
 }
 
+// External Tempo payments (per-call tempo/charge and tempo/subscription
+// charges), for the revenue ledger's buyer figures. Tempo is not one of the
+// chains the on-chain transfer scan reads, so without this the buyer counts
+// on /revenue could not see a Tempo buyer at all, and the external payment
+// headline could not see a Tempo payment. `internal` is this table's
+// own classification and is never re-derived by the reader. Uncapped on
+// purpose: these rows feed distinct counts.
+const qTempoExternalPayments = db.prepare(`
+  SELECT ts, payer, tx, price_usd FROM sales
+  WHERE internal = 0 AND rail IN ${PAYING_RAILS_SQL} AND wire IN ('mpp-tempo', 'mpp-tempo-subscription')
+  ORDER BY ts`);
+
+/** [{ts, payer, tx, usd}] for every external Tempo settlement, oldest first. */
+export function externalTempoPayments() {
+  try {
+    return qTempoExternalPayments.all().map((r) => ({ ts: r.ts, payer: r.payer || null, tx: r.tx || null, usd: Number(r.price_usd) || 0 }));
+  } catch { return []; }
+}
+
 // ---------------------------------------------------------------------------
 // Public receipts for the metered tier (GET /api/proof, /proof).
 //

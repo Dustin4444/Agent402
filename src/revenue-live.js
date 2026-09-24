@@ -1467,7 +1467,7 @@ const mppRailLabel = (n) => MPP_RAIL_META[n]?.label || netName(n) || n;
 // Summing all of mppSales().count over the inbound count would double-count
 // every Base/Celo MPP settlement — the inflation the adoption framing exists
 // to avoid. tempo key confirmed against /api/revenue/mpp.
-function railThroughput(snap) {
+export function railThroughput(snap) {
   const onchain = Number(snap.allTime?.allTimeInboundCount || 0);
   const tempoMpp = Number(snap.mpp?.rails?.tempo?.count || 0);
   return { onchain, tempoMpp, total: onchain + tempoMpp };
@@ -1649,8 +1649,11 @@ export function revenuePage(baseUrl, snap) {
   // snapshot the rest of the page renders, plus the index totals server.js
   // hands in - never typed, or the framing sentence goes stale first.
   const standing = standingBand({ ...(snap.standing || {}), settled: railThroughput(snap).total });
-  const extCount = Number(at.allTimeExternalCount || 0);
-  const extUsd = Number(at.allTimeExternalUsd || 0);
+  // External payments across the scanned on-chain rails PLUS Tempo MPP
+  // settlements (Tempo is not a scanned chain; ledgerSummary folds it in from
+  // the sales ledger). Falls back to the on-chain pair for an older snapshot.
+  const extCount = Number(at.allTimeExternalWithTempoCount ?? at.allTimeExternalCount ?? 0);
+  const extUsd = Number(at.allTimeExternalWithTempoUsd ?? at.allTimeExternalUsd ?? 0);
   const agents = Number(snap.agents?.buyers || 0);
   const big = (n, label, sub) => `
     <div style="min-width:0;">
@@ -1663,7 +1666,7 @@ export function revenuePage(baseUrl, snap) {
       ${big(throughput, "settled transactions, all-time", `x402 + MPP, ours included${at.syncing ? " · ledger still backfilling" : ""}`)}
       ${agents ? big(agents, `distinct agent${agents === 1 ? "" : "s"} have paid us on-chain`, `unique outside wallets${snap.agents?.scope?.since ? `, since ${esc(snap.agents.scope.since)}` : ""}${snap.agents?.top5SharePct != null ? ` · top 5 = ${snap.agents.top5SharePct}% of their payments` : ""}`) : ""}
     </div>
-    <p style="font-family:var(--font-mono);font-size:13px;color:var(--ink);margin:0 0 4px;"><strong>${extCount.toLocaleString()}</strong> external payment${extCount === 1 ? "" : "s"} · <strong>$${extUsd.toFixed(2)}</strong> revenue, settled on-chain${snap.card?.allTimeCount ? ` · <strong>${Number(snap.card.allTimeCount).toLocaleString()}</strong> card purchase${snap.card.allTimeCount === 1 ? "" : "s"} (${Number(snap.card.allTimeUsd).toFixed(2)}) <span style="color:var(--muted);font-weight:400;">by card, not on-chain</span>` : ""}</p>` : "";
+    <p style="font-family:var(--font-mono);font-size:13px;color:var(--ink);margin:0 0 4px;"><strong>${extCount.toLocaleString()}</strong> external payment${extCount === 1 ? "" : "s"} · <strong>$${extUsd.toFixed(2)}</strong> revenue, settled on-chain (x402 rails + Tempo MPP)${snap.card?.allTimeCount ? ` · <strong>${Number(snap.card.allTimeCount).toLocaleString()}</strong> card purchase${snap.card.allTimeCount === 1 ? "" : "s"} (${Number(snap.card.allTimeUsd).toFixed(2)}) <span style="color:var(--muted);font-weight:400;">by card, not on-chain</span>` : ""}</p>` : "";
 
   const body = `
   <div style="max-width:1100px;margin:0 auto;padding:56px 30px;">
@@ -1675,7 +1678,7 @@ export function revenuePage(baseUrl, snap) {
     </p>
     ${standing}
     ${hero}
-    <p style="font-size:12px;line-height:1.55;color:var(--muted);margin:2px 0 14px;max-width:72ch;">${agents ? `The wallet count is read from on-chain transfers${snap.agents?.scope?.since ? ` from ${esc(snap.agents.scope.since)}` : ""}: it is a floor, not a lifetime total, and it cannot see card or prepaid-credits buyers, or a settlement whose payer the chain does not expose. ` : ""}Published so these rails can be checked against the chain. Operating history for a payments service, stated for transparency: information only, not an offer, a solicitation, a recommendation or investment advice, and not a projection. <a href="/transparency#revenue-figures">How each figure is derived</a>.</p>
+    <p style="font-size:12px;line-height:1.55;color:var(--muted);margin:2px 0 14px;max-width:72ch;">${agents ? `The wallet count is read from on-chain transfers plus Tempo MPP settlements${snap.agents?.scope?.since ? ` from ${esc(snap.agents.scope.since)}` : ""}, one wallet counted once across rails: it is a floor, not a lifetime total, and it cannot see card or prepaid-credits buyers, or a settlement whose payer is not exposed. ` : ""}Published so these rails can be checked against the chain. Operating history for a payments service, stated for transparency: information only, not an offer, a solicitation, a recommendation or investment advice, and not a projection. <a href="/transparency#revenue-figures">How each figure is derived</a>.</p>
     <p style="font-family:var(--font-mono);font-size:12px;color:var(--muted);margin:0 0 28px;">as of ${esc(snap.asOf)} · 60s cache · <a href="/api/revenue">/api/revenue</a> · <a href="/api/revenue/mpp">/api/revenue/mpp</a> · <a href="/api/revenue/daily">/api/revenue/daily</a></p>
     </section>
     <section>

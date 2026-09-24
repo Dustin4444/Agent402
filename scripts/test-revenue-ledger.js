@@ -10,6 +10,8 @@ import { join } from "node:path";
 
 const dir = mkdtempSync(join(tmpdir(), "a402-ledger-"));
 process.env.REVENUE_LEDGER_DB = join(dir, "test-revenue.db");
+// The ledger folds Tempo settlements in from the sales ledger; isolate it.
+process.env.SALES_LEDGER_DB = join(dir, "test-sales.db");
 
 const { recordTransfer, ledgerSummary, startRevenueLedger, ledgerDaily } = await import("../src/revenue-ledger.js");
 
