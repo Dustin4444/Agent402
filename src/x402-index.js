@@ -49,7 +49,7 @@ import { queryTerms, isCjkTerm, splitTokens } from "./query-terms.js";
 import { summarize, fmtUsd, fmtPct } from "./economy.js";
 import { rankBy, canonicalHost, getLeaderboardSnapshot } from "./leaderboard.js";
 import { routeExecuteHint } from "./tools/route-execute.js";
-import { sellerRegistrationFirstSeen, recordSellerRegistrationSeen, getSellerRegistrations } from "./stats.js";
+import { sellerRegistrationFirstSeen, recordSellerRegistrationSeen, getSellerRegistrations, deleteSellerRegistration } from "./stats.js";
 
 import { REPO_URL } from "./repo-link.js";
 // RAILS caip2 -> CHAIN_PAGES key, same join the homepage's by-chain strip uses
@@ -149,15 +149,43 @@ const HEALTH_WINDOW = 5; // last N crawl outcomes per seller — drives health-a
 // one stale, a delete marks stale, a clear resets. Entries are replaced,
 // never mutated, so identity is the whole invalidation rule here as it is
 // for the per-entry memos.
+// REMOVED ORIGINS (operator lever, see removeOrigin below). Declared ahead of
+// the stores it guards so every write path can consult it: the cache, both
+// seed sets and the Bazaar maps refuse a removed origin at the write itself,
+// which covers every discovery source at once instead of one check per source.
+const removedOrigins = new Map(); // origin key -> { origin, removedAt, note }
+function removalKeyOf(raw) {
+  try {
+    const u = new URL(String(raw || "").trim());
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    return `${u.protocol}//${u.host.toLowerCase()}`;
+  } catch { return null; }
+}
+/** Has the operator removed this origin from the index? Exact origin (scheme + host + port). */
+export function isRemovedOrigin(origin) {
+  if (removedOrigins.size === 0) return false;
+  const k = removalKeyOf(origin);
+  return k ? removedOrigins.has(k) : false;
+}
+class GuardedSet extends Set {
+  add(v) { return isRemovedOrigin(v) ? this : super.add(v); }
+}
+class GuardedMap extends Map {
+  set(k, v) { return isRemovedOrigin(k) ? this : super.set(k, v); }
+}
+
 class IndexCache extends Map {
-  set(origin, v) { routeIndexNoteSet(origin, super.get(origin), v); return super.set(origin, v); }
+  set(origin, v) {
+    if (isRemovedOrigin(origin)) { this.delete(origin); return this; }
+    routeIndexNoteSet(origin, super.get(origin), v); return super.set(origin, v);
+  }
   delete(origin) { if (super.has(origin)) routeIndexNoteSet(origin, super.get(origin), null); return super.delete(origin); }
   clear() { super.clear(); routeIndexReset(); }
 }
 const cache = new IndexCache();
 // Set of origins auto-discovered from public x402 registries (distinct from
 // the env-configured seed list so we can show provenance separately on /index).
-const discoveredSeeds = new Set();
+const discoveredSeeds = new GuardedSet();
 
 // --- self-serve listing (POST /api/index/register) ---------------------------
 // Origins submitted through the public register endpoint. Persisted to /data
@@ -165,7 +193,7 @@ const discoveredSeeds = new Set();
 // volume (same posture as stats). All probing goes through crawlSeller() —
 // this module never fetches a submitted origin directly.
 export const SUBMITTED_SEEDS_FILE = "/data/submitted-seeds.json";
-const submittedSeeds = new Set();
+const submittedSeeds = new GuardedSet();
 
 // Manual-submission ceiling — a fetch-amplifier guard: every successful probe
 // is re-crawled on every cycle forever, so unbounded submissions become
@@ -283,6 +311,7 @@ function persistSuccessions() {
 export function recordSuccession(oldOrigin, newOrigin) {
   const a = String(oldOrigin || ""), b = String(newOrigin || "");
   if (!a || !b) return false;
+  if (isRemovedOrigin(a) || isRemovedOrigin(b)) return false;
   // Walk the chain from the claimant: if it leads back to the predecessor,
   // this would close a loop and both origins would drop out of every listing.
   // The walk starts AT the claimant, so hop zero is the self-succession case
@@ -331,6 +360,111 @@ export function revokeSuccession(oldOrigin) {
 /** Every recorded succession, for an operator surface. Counts and origins only. */
 export function listSuccessions() {
   return [...successions.entries()].map(([from, r]) => ({ from, to: r.to, recordedAt: r.at || null }));
+}
+
+// ---------------------------------------------------------------------------
+// REMOVAL: an operator lever that takes ONE origin out of the index and the
+// router for good. Every other exit from the index is automatic and reversible
+// by the seller (a release after 30 dark days, a succession the marker backs);
+// this one is deliberate, keyed on an exact origin, persisted, and consulted
+// at every write path (see GuardedSet / GuardedMap / IndexCache above), so no
+// registry, Bazaar row, warm start or re-crawl can bring the origin back.
+// Undo is restoreOrigin, which only lifts the block: the owner re-registers.
+export const REMOVED_ORIGINS_FILE = "/data/removed-origins.json";
+export const REMOVED_ORIGIN_ERROR = "origin removed at the owner's request";
+const REMOVED_ORIGINS_MAX = 5_000;
+const removedFile = () => process.env.REMOVED_ORIGINS_FILE || REMOVED_ORIGINS_FILE;
+
+/**
+ * Strict form for the operator route: a bare http(s) origin, nothing else.
+ * No name matching, no wildcards, no path. Returns the key or null.
+ */
+export function strictOriginKey(raw) {
+  const str = String(raw || "").trim();
+  if (!str || str.length > 300 || /[*\s]/.test(str)) return null;
+  let u;
+  try { u = new URL(str); } catch { return null; }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+  if (u.username || u.password) return null;
+  if ((u.pathname && u.pathname !== "/") || u.search || u.hash) return null;
+  if (!u.hostname.includes(".")) return null;
+  return `${u.protocol}//${u.host.toLowerCase()}`;
+}
+
+export function loadRemovedOrigins() {
+  try {
+    const arr = JSON.parse(readFileSync(removedFile(), "utf8"));
+    for (const r of Array.isArray(arr) ? arr : []) {
+      if (removedOrigins.size >= REMOVED_ORIGINS_MAX) break;
+      const k = strictOriginKey(r?.origin);
+      if (!k) continue;
+      removedOrigins.set(k, { origin: k, removedAt: Number(r.removedAt) || 0, note: typeof r.note === "string" ? r.note.slice(0, 500) : "" });
+    }
+  } catch { /* absent file / no volume - in-memory only */ }
+  // A removal loaded after the stores were filled (a hand edit, a test) must
+  // still take effect: purge whatever is already held.
+  for (const k of removedOrigins.keys()) purgeOrigin(k);
+  return removedOrigins.size;
+}
+
+function persistRemovedOrigins() {
+  // tmp+rename: a truncated file here reads as "nothing removed", which would
+  // quietly bring every removed origin back on the next boot.
+  try {
+    const f = removedFile();
+    const tmp = `${f}.tmp`;
+    writeFileSync(tmp, JSON.stringify([...removedOrigins.values()], null, 2));
+    renameSync(tmp, f);
+  } catch { /* best-effort - no volume in local/dev */ }
+}
+
+// Drop every piece of state keyed on this origin. Returns what was held.
+function purgeOrigin(key) {
+  const held = { cache: false, submitted: false, discovered: false, successions: 0 };
+  const match = (o) => removalKeyOf(o) === key;
+  for (const o of [...submittedSeeds]) if (match(o)) { submittedSeeds.delete(o); held.submitted = true; }
+  for (const o of [...discoveredSeeds]) if (match(o)) { discoveredSeeds.delete(o); held.discovered = true; }
+  for (const o of [...cache.keys()]) if (match(o)) { cache.delete(o); held.cache = true; }
+  for (const o of [...bazaarToolsByOrigin.keys()]) if (match(o)) bazaarToolsByOrigin.delete(o);
+  for (const o of [...bazaarQualityByOrigin.keys()]) if (match(o)) bazaarQualityByOrigin.delete(o);
+  for (const [from, r] of [...successions]) if (match(from) || match(r.to)) { successions.delete(from); held.successions++; }
+  for (const o of [...successionScanAt.keys()]) if (match(o)) successionScanAt.delete(o);
+  for (const k of [...forcedCrawlAt.keys()]) if (match(k)) forcedCrawlAt.delete(k);
+  try { clearOriginProbeState(key); } catch { /* best-effort */ }
+  try { deleteSellerRegistration(key); } catch { /* best-effort */ }
+  return held;
+}
+
+/**
+ * Remove one origin from the index and the router, permanently.
+ * Returns { removed, origin, removedAt, held } or { error }.
+ */
+export function removeOrigin(raw, { note = "" } = {}) {
+  const key = strictOriginKey(raw);
+  if (!key) return { error: "pass an exact origin such as https://seller.example (scheme and host, optional port, no path, no wildcard)" };
+  if (!removedOrigins.has(key) && removedOrigins.size >= REMOVED_ORIGINS_MAX) return { error: `removed list is full (${REMOVED_ORIGINS_MAX})` };
+  const rec = removedOrigins.get(key) || { origin: key, removedAt: Date.now(), note: String(note || "").slice(0, 500) };
+  removedOrigins.set(key, rec);
+  persistRemovedOrigins();
+  const held = purgeOrigin(key);
+  persistSubmittedSeeds();
+  if (held.successions) persistSuccessions();
+  console.log(`[x402-index] origin removed by operator: ${key}`);
+  return { removed: true, origin: key, removedAt: rec.removedAt, held };
+}
+
+/** Lift a removal. Seeds are NOT re-added; the owner can register again. */
+export function restoreOrigin(raw) {
+  const key = strictOriginKey(raw);
+  if (!key) return { error: "pass an exact origin" };
+  if (!removedOrigins.delete(key)) return { restored: false, origin: key };
+  persistRemovedOrigins();
+  return { restored: true, origin: key };
+}
+
+/** Every removed origin, newest first, for the operator surface. */
+export function listRemovedOrigins() {
+  return [...removedOrigins.values()].sort((a, b) => (b.removedAt || 0) - (a.removedAt || 0));
 }
 
 /**
@@ -465,7 +599,7 @@ export function supersededOrigins(cacheMap = cache) {
 }
 
 /** Test hook: clear submitted-seed state between test cases. */
-export function __testResetSubmitted() { submittedSeeds.clear(); successions.clear(); successionScanAt.clear(); cache.clear(); }
+export function __testResetSubmitted() { submittedSeeds.clear(); successions.clear(); successionScanAt.clear(); cache.clear(); removedOrigins.clear(); }
 
 /** Test hook: put entries in the crawl cache so cache-dependent paths can be driven. */
 export function __testSeedCache(entries = []) { for (const [o, e] of entries) cache.set(o, e); }
@@ -641,6 +775,7 @@ export async function succeedsOrigin(claimant, predecessor, { fetchImpl } = {}) 
 }
 
 export async function registerOrigin(origin, { crawl, replaces = null } = {}) {
+  if (isRemovedOrigin(origin) || (replaces && isRemovedOrigin(replaces))) return { listed: false, origin, removed: true, error: REMOVED_ORIGIN_ERROR };
   // Evaluated lazily: the claimant has to be in the cache before its payTo can
   // be compared, so this is re-read at each record site rather than up front.
   const checkSuccession = async () => {
@@ -780,7 +915,7 @@ const discoveryStatus = new Map(); // name -> { url, fetchedAt, resources, origi
 // entries. Used as a fallback for sellers whose /.well-known/x402 endpoint
 // 404s (the bulk of the unhealthy cohort — they only ever published settled
 // resources, never a manifest). Map<origin, Array<tool>>.
-const bazaarToolsByOrigin = new Map();
+const bazaarToolsByOrigin = new GuardedMap();
 // Per-origin Bazaar `quality` (Coinbase-measured 30-day calls + unique payers,
 // last call time), aggregated from the discovery feed's per-resource objects:
 // calls summed, unique payers MAX across resources (a seller-level unique
@@ -789,7 +924,7 @@ const bazaarToolsByOrigin = new Map();
 // evidence source next to our own on-chain scan: a Base seller Coinbase has
 // watched being paid by N distinct wallets this month is proven for the SOR
 // gate whether or not our scan has caught up, and /api/find can rank on it.
-const bazaarQualityByOrigin = new Map();
+const bazaarQualityByOrigin = new GuardedMap();
 export function bazaarQualityFor(origin) {
   return bazaarQualityByOrigin.get(String(origin || "").replace(/\/$/, "")) || null;
 }
@@ -881,7 +1016,7 @@ export const seedList = () => {
     .map((s) => s.trim().replace(/\/+$/, ""))
     .filter((s) => /^https?:\/\//i.test(s));
   // committed defaults + env seeds (both operator-curated), then auto-discovered.
-  return [...new Set([...DEFAULT_SEEDS, ...envSeeds, ...discoveredSeeds])];
+  return [...new Set([...DEFAULT_SEEDS, ...envSeeds, ...discoveredSeeds])].filter((o) => !isRemovedOrigin(o));
 };
 
 function extractOrigin(rawUrl) {
@@ -4685,6 +4820,9 @@ function _loadPersistedIndexCache(file = INDEX_CACHE_FILE) {
 const ROUTE_INDEX_WARM_DELAY_MS = Number(process.env.ROUTE_INDEX_WARM_DELAY_MS || 30_000);
 export function startCrawler(opts = {}) {
   if (crawlerTimer) return;
+  // Removals load FIRST, so no seed, warm-started entry or first crawl can
+  // bring a removed origin back before the block is in place.
+  loadRemovedOrigins();
   loadSubmittedSeeds();
   // Successions survive a restart or they stop hiding the duplicate they were
   // recorded to hide, and the seller is listed twice again on the next boot.

@@ -187,7 +187,7 @@ import { findTools, findRelatedSellers } from "./find.js";
 import { recordWish, getWishesAggregate, annotateServed, WISH_SERVED_MIN_SCORE } from "./wish.js";
 import { setAlgorandCrawlSources } from "./algorand-sellers.js";
 import { priceToMicroUsd } from "./x402-index.js";
-import { allPayToOrigins, indexSnapshot, sellerDetail, sellerEntry, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories, bazaarQualityEntries, bazaarQualityFor, indexWarmStartInProgress, indexReadiness, quoteIsStale, priceDisagreesWithOrigin, networksNeedLiveVerify, looksLikeListingInjection, crawlToolsByOrigin, listSuccessions, revokeSuccession, quoteProbeStatsSnapshot } from "./x402-index.js";
+import { allPayToOrigins, indexSnapshot, sellerDetail, sellerEntry, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories, bazaarQualityEntries, bazaarQualityFor, indexWarmStartInProgress, indexReadiness, quoteIsStale, priceDisagreesWithOrigin, networksNeedLiveVerify, looksLikeListingInjection, crawlToolsByOrigin, listSuccessions, revokeSuccession, quoteProbeStatsSnapshot, removeOrigin, restoreOrigin, listRemovedOrigins, isRemovedOrigin, REMOVED_ORIGIN_ERROR } from "./x402-index.js";
 import { startMppCrawler, registerMppOrigin, validateOriginInput as validateMppOriginInput, mppIndexSnapshot } from "./mpp-index.js";
 import { startMppLeaderboard, mppLeaderboardSnapshot } from "./mpp-leaderboard.js";
 import { tempoSelfRecipient } from "./mpp-tempo.js";
@@ -4484,6 +4484,29 @@ app.post("/__operator/successions/revoke", express.json(), (req, res) => {
   const revoked = revokeSuccession(from);
   res.set("Cache-Control", "no-store").json({ revoked, from, note: revoked ? "the origin is listed again from the next read" : "no succession was recorded for that origin" });
 });
+// Remove ONE seller origin from the index and the router, permanently (until
+// restored). Exact origin only - no name matching, no wildcards - so a typo
+// cannot take out a neighbour. Restore only lifts the block; the owner can
+// then register again.
+app.post("/__operator/sellers/remove", express.json(), (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  if (operatorHeavyLimited(req, res)) return;
+  const r = removeOrigin(req.body?.origin, { note: typeof req.body?.note === "string" ? req.body.note : "" });
+  if (r.error) return res.status(400).json({ error: r.error });
+  res.set("Cache-Control", "no-store").json({ removed: true, origin: r.origin, removedAt: r.removedAt });
+});
+app.get("/__operator/sellers/removed.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  const rows = listRemovedOrigins();
+  res.set("Cache-Control", "no-store").json({ total: rows.length, removed: rows });
+});
+app.post("/__operator/sellers/restore", express.json(), (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  if (operatorHeavyLimited(req, res)) return;
+  const r = restoreOrigin(req.body?.origin);
+  if (r.error) return res.status(400).json({ error: r.error });
+  res.set("Cache-Control", "no-store").json({ ...r, note: r.restored ? "the owner can register the origin again" : "that origin was not removed" });
+});
 // What settlement evidence do we hold for ONE origin, per source, free.
 // Runs the seller-dossier tool's own handler so the operator answer and the
 // paid product read the same maps and can never disagree. Not on the CORS
@@ -5868,6 +5891,7 @@ app.post("/api/index/register", async (req, res) => {
   if (mine.length >= 5) return res.status(429).json({ error: "rate limit: 5 submissions per hour per IP" });
   const v = validateOriginInput(req.body?.origin, { selfOrigin: BASE_URL });
   if (v.error) return res.status(400).json({ error: v.error });
+  if (isRemovedOrigin(v.origin)) return res.status(410).json({ error: REMOVED_ORIGIN_ERROR });
   regGlobal = regGlobal.filter((t) => now - t < REG_WINDOW_MS);
   if (regGlobal.length >= REG_GLOBAL_MAX) {
     // A global cap is a backstop, not the fairness mechanism - the per-IP cap
@@ -5895,6 +5919,7 @@ app.post("/api/index/register", async (req, res) => {
     const rv = validateOriginInput(req.body.replaces, { selfOrigin: BASE_URL });
     if (rv.error) return res.status(400).json({ error: `replaces: ${rv.error}` });
     if (rv.origin === v.origin) return res.status(400).json({ error: "replaces must be a different origin" });
+    if (isRemovedOrigin(rv.origin)) return res.status(410).json({ error: REMOVED_ORIGIN_ERROR });
     replaces = rv.origin;
   }
   const result = await registerOrigin(v.origin, { replaces });
