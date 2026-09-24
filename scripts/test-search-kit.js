@@ -10,7 +10,7 @@
 //   every commit, for coverage the daily paid-canary already has post-deploy.
 //   Local devs and special verification runs can still set BRAVE_LIVE_TEST=1
 //   alongside BRAVE_API_KEY to exercise the real integration.
-import { SEARCH_TOOLS } from "../src/tools/search.js";
+import { SEARCH_TOOLS, cleanSnippet } from "../src/tools/search.js";
 
 const h = (slug) => SEARCH_TOOLS.find((t) => t.slug === slug).handler;
 let assertFail = 0, liveOk = 0, liveErr = 0;
@@ -128,6 +128,11 @@ console.log(`\nvalidation asserts failed: ${assertFail} | live ok: ${liveOk} | l
 // Soft-fail mode: validation asserts are the always-on gate. Live calls only
 // fail the suite when BRAVE_LIVE_TEST=1 was explicitly requested AND the key is
 // set AND every live call failed — that combination genuinely means a broken
+// Snippets are decoded before tags are stripped, so an escaped tag never comes back out as markup.
+for (const [input, want] of [["a <strong>b</strong> &amp; c", "a b & c"], ["&lt;iframe src=x&gt;&lt;/iframe&gt;hi", "hi"], ["2 < 3 and 5 > 4", "2 < 3 and 5 > 4"], ["<<b>script>x", "x"]]) {
+  const got = cleanSnippet(input);
+  if (got !== want) { assertFail++; console.error(`FAIL cleanSnippet(${JSON.stringify(input)}) = ${JSON.stringify(got)}, want ${JSON.stringify(want)}`); }
+}
 // integration. Without the opt-in we trust the paid-canary's daily live check.
 const liveOptIn = process.env.BRAVE_LIVE_TEST === "1";
 const keyConfigured = !!process.env.BRAVE_API_KEY;

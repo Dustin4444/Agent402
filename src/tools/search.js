@@ -247,16 +247,16 @@ const FRESHNESS = new Set(["pd", "pw", "pm", "py"]);
 // ampersands as entities, and those reached buyers verbatim inside what the
 // descriptions call clean JSON (measured 2026-09-24: 3 of 5 web snippets for
 // the tool's own example carried <strong>). Only the inline highlight tags are
-// removed, then the handful of entities the index emits are decoded; nothing
+// decoded first, then anything tag-shaped is removed; nothing
 // else about the text changes. Exported for the offline test.
 const SNIPPET_ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", "#39": "'", "#x27": "'" };
 export function cleanSnippet(v) {
   if (typeof v !== "string") return v ?? null;
-  return v
-    .replace(/<\/?(?:strong|b|em|i|mark)\b[^>]*>/gi, "")
-    .replace(/&(#39|#x27|amp|lt|gt|quot|apos|nbsp);/g, (_m, e) => SNIPPET_ENTITIES[e])
-    .replace(/\s+/g, " ")
-    .trim();
+  // Decode first, then strip anything tag-shaped until none is left, so an
+  // escaped tag in a snippet can never come back out as markup.
+  let t = v.replace(/&(#39|#x27|amp|lt|gt|quot|apos|nbsp);/g, (_m, e) => SNIPPET_ENTITIES[e]);
+  for (let prev = ""; prev !== t; ) { prev = t; t = t.replace(/<\/?[a-z][^<>]*>/gi, ""); }
+  return t.replace(/\s+/g, " ").trim();
 }
 
 // page_age is the index's own ISO timestamp for the page (published or last
