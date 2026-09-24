@@ -199,6 +199,16 @@ delete process.env.MPP_RECONCILE;
   ok(!bad.complete && /unreadable/.test(bad.error), "RPC failure is incomplete, never a clean empty read");
 }
 
+// --- source pins: the debts the reconciler counts must actually be recorded --
+{
+  const src = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+  const branch = src.slice(src.indexOf("} else if ((req.tempoSettled || req.stripeSettled) && res.statusCode >= 400) {"));
+  ok(branch.length > 0 && /recordRefundOwed\(\{[\s\S]{0,600}wire: req\.tempoSettled \? "mpp-tempo" : "mpp-stripe"/.test(branch.slice(0, 1500)),
+    "server.js records a refund debt (wire mpp-tempo / mpp-stripe) when a Tempo/Stripe settle is followed by a >= 400");
+  ok(/wire: req\.mppCredential \? "mpp" : "x402"/.test(src), "server.js tags x402-path debts with the wire, so MPP evm charged-failures are countable");
+  ok(/mppReconcile: await mppReconciler\.status\(\{ full \}\)/.test(src), "gateway-status passes the operator flag (public view is words only)");
+}
+
 // --- booted server: operator auth + the public view -------------------------
 {
   const PORT = await getFreePort();
