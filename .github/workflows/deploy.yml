@@ -3438,6 +3438,10 @@ jobs:
             X402_SYNC_ON_START=false FREE_MODE=true X402_PAYWALL_PROBES_PER_CYCLE=0 PORT=3000 node src/server.js &
           for i in $(seq 1 20); do curl -s localhost:3000/health >/dev/null && break; sleep 1; done
       - name: Crypto-kit tests (CoinGecko price/market/history/trending/global — keyless live API)
+        # Keyless on purpose: the job-scope key is for the sampled sweep only,
+        # and these live calls ran against the monthly Demo quota on every push.
+        env:
+          COINGECKO_API_KEY: ""
         run: node scripts/test-crypto-kit.js
 
       # The strict sweep runs FIRST so its sampled CoinGecko calls land before
