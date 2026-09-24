@@ -81,7 +81,7 @@ export const RAIL_COMPONENTS = [
   {
     key: "rail_mpp-tempo",
     label: "Tempo (native MPP)",
-    blurb: "Real PathUSD settlement over Tempo's own MPP relay, proven daily by the paid canary.",
+    blurb: "Real USDC.e settlement over Tempo's own MPP relay, proven daily by the paid canary.",
     staleAfterMs: DAILY,
   },
 ];
