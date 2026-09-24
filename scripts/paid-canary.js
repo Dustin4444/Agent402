@@ -148,8 +148,8 @@ export const TOOLS = [
   {
     // X data (2026-09-06): the app-only bearer is minted in Actions and the
     // app is pay-per-use on a PREPAID balance, so a dead bearer or an empty
-    // balance is an uncharged 503 nobody sees. One post read a day
-    // ($0.005 of X credit) keeps the rail proven on prod, not on the first
+    // balance is an uncharged 503 nobody sees. One post read a day keeps the
+    // rail proven on prod, not on the first
     // outside buyer. Post 20 is Jack's first tweet - stable forever.
     kit: "x-data",
     path: "/api/x-tweet",
@@ -705,10 +705,10 @@ export const CHAIN_FUNDING = [
   { key: "sei", label: "Sei", token: "0xe15fc38f6d8c56af07bbcbe3baf5708a2bf42392", rpcs: ["https://evm-rpc.sei-apis.com", "https://sei-evm-rpc.publicnode.com"] },
   { key: "optimism", label: "Optimism", token: "0x0b2c639c533813f4aa9d7837caf62653d097ff85", rpcs: ["https://mainnet.optimism.io", "https://optimism-rpc.publicnode.com"] },
   { key: "robinhood", label: "Robinhood Chain (USDG)", token: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", rpcs: ["https://rpc.mainnet.chain.robinhood.com"] },
-  // Tempo: the 2-hourly tempo-volume.yml buys ~1,000 x $0.001 a day from this
-  // burner (~$1/day), so low-water is $5 (5 days), not the $0.05 the one-buy
-  // legs use. Funded in USDC.e since 2026-08-19 (25 USDC.e; pays USDC.e-first
-  // challenges natively, no swap). PathUSD is the swap-backed reserve (1.99).
+  // Tempo: the 2-hourly tempo-volume.yml buys from this burner every day, so
+  // its low-water is higher than the one-buy legs use. Funded in USDC.e since
+  // 2026-08-19 (pays USDC.e-first challenges natively, no swap); PathUSD is the
+  // swap-backed reserve.
   { key: "tempo-usdce", label: "Tempo (USDC.e)", token: "0x20C000000000000000000000b9537d11c60E8b50", rpcs: ["https://rpc.tempo.xyz"], lowWater: 5 },
   { key: "tempo-pathusd", label: "Tempo (PathUSD)", token: "0x20c0000000000000000000000000000000000000", rpcs: ["https://rpc.tempo.xyz"], lowWater: 0 },
 ];
@@ -788,7 +788,7 @@ function railFail(key, detail) {
 // from railFailures above, which drives partial-rail paging (exit 5). This
 // array only feeds observability (POSTed to /api/status/probe by the
 // workflow's own separate step, same as the existing "settlement"
-// component), so a bug here can never change what pages Mike. Solana/
+// component), so a bug here can never change what pages the operator. Solana/
 // Algorand/Robinhood WARN (noteRail only) when the facilitator's reason is the
 // shape of OUR burner being unfunded or not opted in - the failure that design
 // was about - and railFail() on any other reason, since 2026-09-21, when the AVM
@@ -1097,7 +1097,7 @@ async function main() {
   //
   // MPP_CANARY_ROUNDS: runs both legs this many times per canary invocation
   // (sequential, awaited - never concurrent, so the same burner's nonce
-  // advances normally between buys). Mike's call 2026-08-13 to raise real
+  // advances normally between buys). The operator's call 2026-08-13 to raise real
   // MPP-wire settlement volume once we joined mppscan.com's directory -
   // doubling this doubles ONLY the mpp/mpp-celo legs' spend and transaction
   // count, leaving the other 30 legs' cadence and cost untouched. Each round
@@ -1368,7 +1368,7 @@ async function main() {
           // never fail the rail verdict (that was the first settle); a low
           // success rate is printed loudly so a relay/burner problem is seen.
           // Default 1: the graded settle above IS the rail proof; the ~1,000/day of
-          // Tempo volume Mike asked for rides the 2-hourly tempo-volume.yml
+          // Tempo volume the operator asked for rides the 2-hourly tempo-volume.yml
           // (scripts/tempo-volume.js, 12 x 84) so one wallet never signs hundreds
           // of credentials inside the canary's timeout. Raise here only ad hoc.
           const volumeTarget = Math.max(1, Math.min(1000, Number(process.env.TEMPO_CANARY_TX_COUNT || 1)));

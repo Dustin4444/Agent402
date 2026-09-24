@@ -77,7 +77,7 @@ ok(hi === si, "hosted and stdio initialize instructions are byte-identical");
 ok(/positioning: `Agent402 is the applied layer of Agentic Finance/.test(read("src/mcp-http.js")), "hosted describe_server carries a positioning field naming Agentic Finance");
 ok((read("mcp/index.js").match(/positioning: `[^`]*Agentic Finance[^`]*MPP/g) || []).length >= 2, "stdio describe payloads (both aliases) carry Agentic Finance + MPP positioning");
 
-// --- prominence (2026-08-18, Mike): the BRAND leads; the AIFI acronym lives only on the
+// --- prominence (2026-08-18, the operator): the BRAND leads; the AIFI acronym lives only on the
 // definitional pages (/agentic-finance, /glossary, the post, the card), never in a
 // <title>, OpenAPI title, serverInfo/package/manifest description or the homepage hero.
 {

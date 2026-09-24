@@ -1,6 +1,6 @@
 // /101 - "x402 & MPP 101": a presenter-mode walkthrough for people who know
 // nothing about this space, built to be TALKED THROUGH with a prospect on a
-// call or a screen share (Mike, 2026-08-18: "I need an x402 101 section so I
+// call or a screen share (the operator, 2026-08-18: "I need an x402 101 section so I
 // can walk it through potential customers"). Plain language, one idea per
 // slide, an analogy that holds from start to finish (a vending machine: the
 // price is on the glass, you put a coin in, you get the item and a receipt,
