@@ -73,6 +73,25 @@ try {
   ok(probeFailureCode(te) === "timeout", "timeout classified");
   const re = new Error("fetch failed"); re.cause = { code: "ECONNRESET" };
   ok(probeFailureCode(re) === "reset", "connection reset classified");
+
+  // --- 5. an UNPRICED GET route answering 200 is recorded free, and left alone
+  const s0 = quoteProbeStatsSnapshot();
+  seen.length = 0;
+  globalThis.fetch = async (url, init = {}) => { seen.push(`${init.method || "GET"} ${new URL(String(url)).pathname}`); return new Response("{\"status\":\"ok\"}", { status: 200 }); };
+  const free = [{ seller: "example.com", route: "/health", method: "GET", slug: "health", price: null, networks: [] }];
+  await enrichLiveQuotes(free, ORIGIN, { ignoreBudget: true });
+  ok(free[0].quoteSource === "live-200" && free[0].freeObservedAt > 0 && free[0].paid === false && free[0].price === null, "an unpriced GET 200 is stamped observed-free (price stays null, not 0)");
+  const s1 = quoteProbeStatsSnapshot();
+  ok(s1.free === s0.free + 1 && s1.missed === s0.missed, "counted as free, not as a miss");
+  ok(!seen.includes("POST /health"), "no POST after a GET 200");
+  seen.length = 0;
+  await enrichLiveQuotes(free, ORIGIN);
+  ok(seen.length === 0, "the automatic crawl leaves an observed-free route alone");
+  await enrichLiveQuotes(free, ORIGIN, { ignoreBudget: true });
+  ok(seen.length > 0, "a re-registration re-asks it");
+  const { carryForwardLearnedQuotes } = await import("../src/x402-index.js");
+  const carried = carryForwardLearnedQuotes([{ route: "/health", method: "GET", slug: "health", price: null }], { tools: free })[0];
+  ok(carried.quoteSource === "live-200" && carried.freeObservedAt === free[0].freeObservedAt, "the observation survives the next crawl's rebuild");
 } finally {
   globalThis.fetch = orig; console.log = origLog;
 }
