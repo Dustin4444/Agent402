@@ -729,3 +729,22 @@ export async function shutdownPostHog() {
     await client.shutdown();
   } catch { /* swallow */ }
 }
+
+// Did a judged /api/route answer lead to a purchase? (src/route-conversion.js)
+// Counts only: never a query, an ip or a payer.
+export function capturePostHogRouteConversion({ judged, topOurs, boughtTop, viaRouteExecute, slug, minutes }) {
+  if (!active()) return;
+  capture("route_conversion", {
+    judged: String(judged || "none"),
+    topOurs: !!topOurs,
+    boughtTop: !!boughtTop,
+    viaRouteExecute: !!viaRouteExecute,
+    slug: String(slug || "unknown").slice(0, 80),
+    minutes: Number(minutes) || 0,
+  });
+}
+// One event per flush window per judged-kind, carrying `count` (sum it).
+export function capturePostHogRouteAnswers({ judged, topOurs, count }) {
+  if (!active()) return;
+  capture("route_answers", { judged: String(judged || "none"), topOurs: !!topOurs, count: Number(count) || 0 });
+}
