@@ -816,7 +816,7 @@ export const SOLANA_INTEL_TOOLS = [
     name: "Solana token prices (Jupiter)",
     slug: "sol-price",
     category: "crypto",
-    price: "$0.002",
+    price: "$0.001",
     description:
       "USD price for up to 50 Solana token mints in one call from Jupiter's price API v3: price, 24h change, liquidity, decimals and the block the price was read at. Mints Jupiter does not price come back listed under missing rather than erroring the batch. Pass mint addresses, not tickers (resolve tickers with sol-token-search or sol-token-lookup). Keyless.",
     tags: ["solana", "price", "jupiter", "token", "spl", "batch"],

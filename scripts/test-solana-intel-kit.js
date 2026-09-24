@@ -140,7 +140,7 @@ try {
     ok(t.route === `POST /api/${t.slug}`, `${t.slug}: route POST /api/${t.slug}`);
     ok(t.category === "crypto", `${t.slug}: category crypto`);
     const usd = Number(String(t.price).replace("$", ""));
-    ok(usd >= 0.002 && usd <= 0.01, `${t.slug}: price ${t.price} within $0.002-$0.01`);
+    ok(usd >= 0.001 && usd <= 0.01, `${t.slug}: price ${t.price} within $0.001-$0.01`);
     ok(typeof t.handler === "function", `${t.slug}: has handler`);
     ok(t.discovery && t.discovery.input && t.discovery.inputSchema && t.discovery.output?.example, `${t.slug}: discovery envelope (input, inputSchema, output.example)`);
     ok(!/\u2014|\u2013/.test(t.description + t.name), `${t.slug}: no em/en dashes in copy`);

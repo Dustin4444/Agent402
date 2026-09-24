@@ -961,7 +961,7 @@ MACRO_TOOLS.push(
     },
   },
   {
-    route: "GET /api/fed-funds", name: "Effective federal funds rate", slug: "fed-funds", aliases: ["effective-federal-funds-rate", "federal-funds-rate", "fed-funds-rate"], category: "data", price: "$0.010",
+    route: "GET /api/fed-funds", name: "Effective federal funds rate", slug: "fed-funds", aliases: ["effective-federal-funds-rate", "federal-funds-rate", "fed-funds-rate"], category: "data", price: "$0.005",
     description:
       "Current effective federal funds rate (current, as of date, in percent) plus a trailing N-day history of {date, value}. Source: FRED DFF (Board of Governors), a daily series that includes weekends. ?days=30 (1-365, default 30). This product uses the FRED(R) API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.",
     tags: ["fed-funds", "interest-rates", "monetary-policy", "fomc", "fed", "macro", "fred"],

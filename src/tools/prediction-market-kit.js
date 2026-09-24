@@ -779,7 +779,7 @@ export const PREDICTION_MARKET_TOOLS = [
     name: "Polymarket search",
     slug: "polymarket-search",
     category: "crypto",
-    price: "$0.002",
+    price: "$0.001",
     description:
       "Search active Polymarket markets by keyword. Candidates come from Polymarket's own keyword index and from the highest-volume active list, and an exact substring match on the market's question, slug and description decides - so a term that matches nothing returns nothing rather than a loose neighbour. Returns question, current outcome prices (implied probabilities), volume, liquidity, end date, and CLOB token ids for orderbook lookups, plus scannedMarkets and searchExhausted so a zero can be read as \"not listed\" rather than \"not reached\".",
     tags: ["polymarket", "prediction-market", "odds", "search", "betting"],
