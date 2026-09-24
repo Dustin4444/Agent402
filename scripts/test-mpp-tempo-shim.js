@@ -652,21 +652,51 @@ async function withWarnings(fn) {
   server.close();
 }
 
-// Case Q: a client that disconnects while the handler runs is NOT broadcast
-// (charged-but-not-served otherwise; the MCP loopback deadline hits this).
+// Case Q: a client that disconnects while the handler runs is STILL broadcast
+// once the handler produced a <400 (the work was done; skipping it made a
+// hang-up a free run), the credential stays spent so it cannot run the handler
+// again, and the hang-up hook sees a settled-but-undelivered response - the
+// point where server.js books the refund debt.
 {
-  let broadcastCalled = false;
+  const { createHangupSettlementHook } = await import("../src/hangup-settlement.js");
+  let broadcasts = 0, handlerRuns = 0;
+  const undelivered = [];
   const app = express();
-  app.use(createTempoGate({ ...GATE, validate: async () => ({ ok: true, validation: {} }), broadcast: async () => { broadcastCalled = true; return { ok: true, receipt: {} }; } }));
+  app.use(createHangupSettlementHook({ onUndelivered: (req, res, kind) => undelivered.push({ kind, tempoSettled: req.tempoSettled === true, receipt: res.getHeader("Payment-Receipt") || null }) }));
+  app.use(createTempoGate({ ...GATE, replayGuard: createReplayGuard(), validate: async () => ({ ok: true, validation: {} }), broadcast: async () => { broadcasts++; return { ok: true, receipt: { method: "tempo", status: "success", reference: "0x0a", timestamp: new Date().toISOString() } }; } }));
   app.use(paywallStub);
-  app.get("/paid", (req, res) => { setTimeout(() => res.json({ late: true }), 400); });
+  app.get("/paid", (req, res) => { handlerRuns++; setTimeout(() => res.json({ late: true }), 400); });
   const { server, url } = await listen(app);
-  const { warned } = await withWarnings(async () => {
-    await fetch(`${url}/paid`, { headers: { Authorization: buildTempoCredential() }, signal: AbortSignal.timeout(100) }).catch(() => null);
-    await sleep(700);
+  const cred = buildTempoCredential();
+  await fetch(`${url}/paid`, { headers: { Authorization: cred }, signal: AbortSignal.timeout(100) }).catch(() => null);
+  await sleep(700);
+  ok(broadcasts === 1, `case Q: the credential of a client that hung up mid-handler is broadcast once the handler produced a 200 (broadcasts ${broadcasts})`);
+  ok(undelivered.length === 1 && undelivered[0].tempoSettled && undelivered[0].kind === "end", `case Q: the hang-up hook sees the settled response it could not deliver, exactly once (${JSON.stringify(undelivered)})`);
+  const again = await fetch(`${url}/paid`, { headers: { Authorization: cred } });
+  ok(again.status === 402 && handlerRuns === 1 && broadcasts === 1, `case Q: the same credential cannot run the handler again (status ${again.status}, handler runs ${handlerRuns})`);
+  // Control: a client that stays connected is served and nothing is flagged.
+  const served = await fetch(`${url}/paid`, { headers: { Authorization: buildTempoCredential() } });
+  ok(served.status === 200 && undelivered.length === 1, "case Q: a connected client is served and the hook stays quiet");
+  server.close();
+}
+
+// Case R: a broadcast that fails AFTER a successful handler leaves the
+// credential spent - presenting it again answers 402 without re-running the
+// handler.
+{
+  let handlerRuns = 0, calls = 0;
+  const app = express();
+  app.use(createTempoGate({ ...GATE, replayGuard: createReplayGuard(), validate: async () => ({ ok: true, validation: {} }), broadcast: async () => { calls++; return { ok: false, error: "nope", reason: "nope" }; } }));
+  app.use(paywallStub);
+  app.get("/paid", (req, res) => { handlerRuns++; res.json({ ok: 1 }); });
+  const { server, url } = await listen(app);
+  const cred = buildTempoCredential();
+  const { value } = await withWarnings(async () => {
+    const first = await fetch(`${url}/paid`, { headers: { Authorization: cred } });
+    const second = await fetch(`${url}/paid`, { headers: { Authorization: cred } });
+    return [first.status, second.status];
   });
-  ok(broadcastCalled === false, "case Q: the credential of a client that hung up before settlement is never broadcast");
-  ok(warned.some((w) => /refused class=client-gone/.test(w)), "case Q: and the decision is logged");
+  ok(value[0] === 402 && value[1] === 402 && handlerRuns === 1 && calls === 1, `case R: after a failed post-handler broadcast the credential stays spent (statuses ${value}, handler runs ${handlerRuns}, broadcasts ${calls})`);
   server.close();
 }
 

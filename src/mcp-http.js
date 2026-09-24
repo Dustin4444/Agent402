@@ -113,6 +113,22 @@ const MCP_DRAIN_MS = Number(process.env.AGENT402_MCP_DRAIN_MS) || 5_000;
 // A blocking paid call's loopback ends this long before the request deadline,
 // so the tool result (not a transport error) is what the caller sees.
 const PAID_LOOPBACK_TIMEOUT_MS = Math.max(1_000, MCP_REQ_DEADLINE_MS - 2_500);
+// What a caller is told when a PAID call was cut off on this connector. The
+// server-side request keeps running after the connector stops waiting, and
+// every rail settles a <400 once the handler finishes, connected or not - so
+// "not charged" would be false. A charge whose response never reached the
+// buyer is recorded as owed and refunded (src/hangup-settlement.js).
+export const PAID_CUTOFF_TEXT = "The call may still have completed and been charged. If it was, the charge is recorded as owed and refunded automatically. Do not retry blindly: a retry is a new paid call.";
+export const UNPAID_CUTOFF_TEXT = "No payment was presented, so nothing was charged.";
+/** The tool-result text for a call this connector stopped waiting on.
+ *  `paid` = a payment credential rode along on the call; only without one is
+ *  "nothing was charged" certain. */
+export function connectorCutoffText({ label, seconds, paid, route = null, error = null }) {
+  const money = paid ? PAID_CUTOFF_TEXT : UNPAID_CUTOFF_TEXT;
+  const where = route ? `${route} over HTTP` : "the tool's HTTP route directly";
+  if (error != null) return `${label}: the call could not be completed (${String(error).slice(0, 120)}). ${money}${paid ? "" : " Retry shortly."}`;
+  return `${label}: the call did not finish within ${seconds}s on this connector and the connector stopped waiting. ${money} ${paid ? "For long calls, use" : "Retry, or call"} ${where}, which has no connector deadline.`;
+}
 // How long a task-eligible composite may run before we answer with a task
 // handle instead of blocking. Sized well under MCP_REQ_DEADLINE_MS so the
 // synchronous answer always fits, and well over the time a paywall needs to
@@ -524,9 +540,11 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
      *
      *  SETTLEMENT IS UNMOVED. The loopback IS the paid request; a task just lets
      *  it outlive the MCP HTTP response that handed back the handle. Money still
-     *  settles after the handler, only on a <400, on that same request. So a
-     *  failed, cancelled, timed-out or restart-orphaned task produced no 200 and
-     *  therefore CANCELLED settlement: the buyer is not charged. */
+     *  settles after the handler, only on a <400, on that same request. A
+     *  failed or restart-orphaned run produced no 200 and therefore CANCELLED
+     *  settlement. A cancelled or timed-out wait only stops THIS connector
+     *  waiting: the paid request runs on and settles on a <400, and a charge
+     *  that never reached the buyer is owed in the refund ledger. */
     async function payOverMpp(entry, reqParams, args, isNamed, ip, signal) {
       const meta = reqParams?._meta;
       const credentialHeader = credentialHeaderFromMeta(meta);
@@ -558,10 +576,15 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
         const timedOut = err?.name === "TimeoutError" || err?.name === "AbortError";
         onServed(entry.def.slug, { latencyMs: Date.now() - startedAt, errored: true, statusCode: timedOut ? 504 : 502, errorMessage: timedOut ? "paid loopback timed out" : "paid loopback failed", inputKeys: Object.keys(params || {}) });
         console.warn(`[mcp] tools/call failed class=${timedOut ? "paid-timeout" : "paid-loopback-error"} tool=${entry.def.slug} after=${Date.now() - startedAt}ms`);
+        // "Not charged" is only true when no payment credential rode along:
+        // with one, the server-side request may have settled after this
+        // connector stopped waiting.
+        const paid = Boolean(credentialHeader);
         return {
-          content: [{ type: "text", text: timedOut
-            ? `Agent402 (${entry.def.slug}): the paid call did not finish within ${Math.round(PAID_LOOPBACK_TIMEOUT_MS / 1000)}s on this connector and was stopped. A paid call settles only after its result is delivered, so a call stopped before settlement is not charged. Retry, or call ${entry.def.route} over HTTP, which has no connector deadline.`
-            : `Agent402 (${entry.def.slug}): the paid call could not be completed (${String(err?.message || err).slice(0, 120)}). It was not charged. Retry shortly.` }],
+          content: [{ type: "text", text: connectorCutoffText({
+            label: `Agent402 (${entry.def.slug})`, seconds: Math.round(PAID_LOOPBACK_TIMEOUT_MS / 1000), paid,
+            route: entry.def.route, error: timedOut ? null : (err?.message || err),
+          }) }],
           isError: true,
         };
       }
@@ -684,11 +707,12 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
 
       const rec = tasks.create({ slug: entry.def.slug, controller });
       if (!rec) {
-        // Durability failed, so we cannot promise a handle. Abort the run (a
-        // non-200 cancels settlement, nobody is charged) and say so.
+        // Durability failed, so we cannot promise a handle. Stop waiting on the
+        // run and say so. The run has already cleared the paywall and keeps
+        // going server-side, so it may still settle.
         try { controller.abort(); } catch { /* already aborted */ }
         return {
-          content: [{ type: "text", text: `Agent402 could not durably record this ${entry.def.slug} run, so it was cancelled before completing. You were not charged. Retry shortly.` }],
+          content: [{ type: "text", text: `Agent402 could not durably record this ${entry.def.slug} run, so it cannot hand back a result. ${PAID_CUTOFF_TEXT}` }],
           isError: true,
         };
       }
@@ -699,8 +723,8 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           if (aborted && tasks.get(rec.taskId)?.status === "cancelled") return; // cancel() already wrote the terminal state
           onServed(entry.def.slug, { latencyMs: Date.now() - startedAt, errored: true, statusCode: 504, errorMessage: aborted ? "task run aborted" : "task run failed", inputKeys: Object.keys(params || {}) });
           // Never relay an upstream/internal error body to the buyer.
-          tasks.fail(rec.taskId, { code: TASK_INTERNAL_ERROR, message: aborted ? "The run was stopped before it completed." : "The run did not complete." },
-            "The run did not complete. You were not charged: payment settles only on a delivered result.");
+          tasks.fail(rec.taskId, { code: TASK_INTERNAL_ERROR, message: aborted ? "The connector stopped waiting for the run." : "The run did not complete." },
+            `The run's result did not reach this connector. ${PAID_CUTOFF_TEXT}`);
           return;
         }
         let out;
@@ -1320,9 +1344,14 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
         const cls = err.__deadline ? "deadline" : "internal";
         console.warn(`[mcp] ${logSafe(method, 40)} failed class=${cls}${tool ? ` tool=${tool}` : ""}`);
         if (method === "tools/call" && req.body?.id != null) {
+          // Only a call that carried no payment credential is certainly
+          // uncharged; a paid call may have settled server-side.
+          let paid = false;
+          try { paid = Boolean(credentialHeaderFromMeta(req.body?.params?._meta)); } catch { paid = false; }
+          const label = `Agent402${tool ? ` (${tool})` : ""}`;
           const text = err.__deadline
-            ? `Agent402${tool ? ` (${tool})` : ""}: the call did not finish within ${Math.round(MCP_REQ_DEADLINE_MS / 1000)}s on this connector and was stopped. A paid call settles only after its result is delivered, so a call stopped before settlement is not charged. Retry, or call the tool's HTTP route directly, which has no connector deadline.`
-            : `Agent402${tool ? ` (${tool})` : ""}: the connector hit an internal error handling this call (${String(err?.message || err).slice(0, 120)}). It was not charged. Retry shortly.`;
+            ? connectorCutoffText({ label, seconds: Math.round(MCP_REQ_DEADLINE_MS / 1000), paid })
+            : `${label}: the connector hit an internal error handling this call (${String(err?.message || err).slice(0, 120)}). ${paid ? PAID_CUTOFF_TEXT : `${UNPAID_CUTOFF_TEXT} Retry shortly.`}`;
           res.status(200).json({ jsonrpc: "2.0", id: req.body.id, result: { content: [{ type: "text", text }], isError: true } });
         } else {
           res.status(err.__deadline ? 504 : 500).json({ jsonrpc: "2.0", error: { code: -32603, message: err.message }, id: req.body?.id ?? null });

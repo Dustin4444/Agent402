@@ -794,8 +794,10 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
 
       // Claim the credential's identity BEFORE the handler runs — the whole
       // point is to close the concurrent-replay window, not just the
-      // sequential one. Release-on-failure (handler fails, broadcast fails)
-      // so a legitimate retry of the still-valid credential still works.
+      // sequential one. Released only when the handler itself fails (>= 400,
+      // nothing of value produced) so a legitimate retry of the still-valid
+      // credential still works; once a handler has produced a <400 the
+      // credential stays spent whatever happens next.
       // Mark the request as paid over MPP/tempo BEFORE the handler runs, so
       // handlers that route by the buyer's payment rail (route-execute's
       // chain-matched external leg) can see it - a tempo credential carries
@@ -847,13 +849,12 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
       // writeHead threw ERR_HTTP_HEADERS_SENT AFTER broadcast - buyer charged,
       // response never finished (found by the 2026-08-18 security review).
       const originalFlushHeaders = typeof res.flushHeaders === "function" ? res.flushHeaders.bind(res) : null;
-      // A client that hung up while the handler ran can never receive the
-      // answer, so its credential must not be broadcast: charging for a
-      // response nobody can read is charged-but-not-served. The hosted MCP
-      // connector's loopback hits exactly this when its own deadline aborts a
-      // slow paid call. Not broadcasting means not charged.
-      let clientGone = false;
-      res.once("close", () => { if (!res.writableFinished) clientGone = true; });
+      // A client that hangs up while the handler runs is still broadcast once
+      // the handler produced a <400: the work was done, and skipping the
+      // broadcast would make a hang-up a free handler run on this rail. The
+      // buyer who never received the answer is covered by the hang-up hook in
+      // server.js (src/hangup-settlement.js), which records the settled
+      // charge as owed in the refund ledger. Same rule as every other rail.
       let bufferedCalls = [];
       let settled = false;
       let endCalled;
@@ -898,14 +899,6 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
         return;
       }
       const tHandled = Date.now();
-      if (clientGone || res.destroyed || req.socket?.destroyed) {
-        logTempoRefusal(req, { cls: "client-gone", amountAtomic: binding.amountAtomic, timings: { validate: tValidated - t0, handler: tHandled - tValidated, total: tHandled - tStart }, detail: "the client disconnected before settlement; credential not broadcast, not charged" });
-        bufferedCalls = [];
-        restore();
-        releaseReplay();
-        try { if (!res.writableEnded) res.end(); } catch { /* socket already gone */ }
-        return;
-      }
       let b = await broadcast(auth);
       const tBroadcast = Date.now();
       const timing = `validate=${tValidated - t0}ms handler=${tHandled - tValidated}ms broadcast=${tBroadcast - tHandled}ms`;
@@ -954,7 +947,10 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
         const bkind = bc.status === 503 ? "verification-failed" : bc.kind;
         const bdetail = bcls === "unknown" && b.reason ? `Tempo settlement was not accepted (${String(b.reason).slice(0, 160)}).` : `Tempo settlement was not accepted: ${bc.detail.replace(/,? so the credential was not checked and nothing was charged\./, ". Nothing settled that the chain can see.")}`;
         sendMppProblem(res, mppProblem(bkind, bdetail, { hint: bc.status === 503 ? "Request the resource again and pay a fresh challenge in a moment; this credential was not settled." : bc.hint, details: { reason: bcls } }));
-        releaseReplay();
+        // The handler already ran and produced a <400 for this credential, so
+        // it stays spent: presenting it again must not run the handler again.
+        // The 402 above carries a fresh challenge to pay instead.
+        settleReplay();
         return;
       }
       console.log(`[mpp-tempo] settled ${req.method} ${req.path} tx=${b.receipt?.reference || "?"} [${timing}]`);
