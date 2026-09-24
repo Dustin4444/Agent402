@@ -58,7 +58,7 @@ ok(d.indexers[0]?.key === "x402scan" && d.discovery.some((x) => x.key === "/api/
 const cr = d.crawlers;
 ok(cr.some((c) => c.verdict === "catalog-walker" && c.distinctPaths >= 5) && cr.some((c) => c.verdict === "known-indexer (wanted)") && cr.some((c) => c.verdict === "discovery-only" && c.discovery === 2), `the crawler list carries a verdict per ip (${cr.map((c) => c.verdict).join(" | ")})`);
 ok(!JSON.stringify(r).includes("203.0.113.7") && !JSON.stringify(r).includes("0xabc") && r.detection.note.includes("never addresses"), "no raw ip or payer address reaches the report");
-ok(store.persist() === true && existsSync(join(dir, "2026-09-22.json")) && existsSync(join(dir, "payers.json")), "the day and the payer memory persist");
+ok(store.persist(t0) === true && existsSync(join(dir, "2026-09-22.json")) && existsSync(join(dir, "payers.json")), "the day and the payer memory persist");
 const again = createTrafficStore({ dir, crawlerDistinctPaths: 5, salt: "test" }); again.load();
 ok(again.report({ days: 1 }).days[0]?.total === 13 && again._payers.size === 2, "a fresh store warm-starts from disk");
 ok(again.record({ ip: "192.0.2.9", ua: "curl", path: "/api/hash", method: "POST", status: 200, paidReceipt: true, payer: "0xabc", now: t0 }) === "repeat-buyer", "...and remembers the payer across a restart");
