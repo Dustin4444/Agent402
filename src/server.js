@@ -319,6 +319,8 @@ import { DEFI_TOOLS } from "./tools/defi-kit.js";
 import { CRYPTO_SIGNALS_TOOLS } from "./tools/crypto-signals-kit.js";
 import { CRAWL_TOOLS } from "./tools/crawl-kit.js";
 import { X_DATA_TOOLS, xDataEnabled, xDataSpendStatus } from "./tools/x-data-kit.js";
+import { jevSpendStatus, orderByJudgment } from "./tool-judge.js";
+import { noteRouteAnswer, noteRoutePurchase } from "./route-conversion.js";
 import { EXA_TOOLS, exaEnabled, exaSpendStatus, exaAllowanceStatus } from "./tools/exa-kit.js";
 import { upstreamBudgetStatus } from "./upstream-budgets.js";
 import { b2bEnrichEnabled } from "./tools/b2b-enrich-kit.js";
@@ -1354,6 +1356,26 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
       .sort((a, b) => b.settled - a.settled)
       .slice(0, 5);
   }
+  // Judged order over gated candidates (src/tool-judge.js); injection-screened text only.
+  let judgedSelection = null;
+  if (candidates.length) {
+    const hostOfSeller = (u) => { try { return new URL(u).host; } catch { return String(u || ""); } };
+    const ordered = await orderByJudgment(task, candidates, (r) => {
+      const desc = String(r.description || r.name || "");
+      const clean = !looksLikeListingInjection(desc);
+      return { name: `${hostOfSeller(r.seller || r.url)} ${r.slug || ""}`.trim(), description: clean ? desc : "", tags: clean && Array.isArray(r.tags) ? r.tags : [] };
+    });
+    judgedSelection = ordered.selection;
+    if (ordered.refused) {
+      gateDrops.byReason.judged_no_match = candidates.length;
+      const none = [];
+      Object.defineProperty(none, "__gateDrops", { value: gateDrops, enumerable: false });
+      Object.defineProperty(none, "__judgedNoMatch", { value: judgedSelection, enumerable: false });
+      return none;
+    }
+    candidates = ordered.items;
+    if ((judgedSelection?.method === "judged" || judgedSelection?.method === "judged-tie") && candidates[0]) candidates[0] = { ...candidates[0], judgedSelection };
+  }
   const { assertPublicUrl, ssrfDispatcher } = await import("./tools/fetch-guard.js");
   const resolved = [];
   const { sellerRefusedRecently, sellerServesModel } = await import("./x402-buyer.js");
@@ -1540,7 +1562,7 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
     // `wire` rides through: a Tempo candidate settles over MPP and its receipt
     // must say so (the first live Tempo SOR buy labelled it x402, 2026-08-27).
     if (live) {
-      resolved.push({ seller: r.seller, slug: r.slug, url: r.url, method: r.method, price: r.price, priceUsd: r.priceUsd, networks: r.networks, settled: r.settled, wire: r.wire || "x402", provenPayTo: provenPayToByOrigin?.get(norm(r.seller)) || r.chainProvenPayTo || null, route: r.route || null, guaranteedPaths: r.responseContract?.guaranteedPaths || [], ...(r.unproven ? { unproven: true } : {}) });
+      resolved.push({ seller: r.seller, slug: r.slug, url: r.url, method: r.method, price: r.price, priceUsd: r.priceUsd, networks: r.networks, settled: r.settled, wire: r.wire || "x402", provenPayTo: provenPayToByOrigin?.get(norm(r.seller)) || r.chainProvenPayTo || null, route: r.route || null, guaranteedPaths: r.responseContract?.guaranteedPaths || [], ...(r.unproven ? { unproven: true } : {}), ...(r.judgedSelection ? { selection: r.judgedSelection } : {}) });
       // Only PROVEN candidates count toward the limit: an unproven one must
       // never crowd out a proven seller ranked below it.
       if (resolved.filter((x) => !x.unproven).length >= Math.max(1, limit)) break;
@@ -2731,13 +2753,14 @@ app.get("/api/gateway-status", async (req, res) => {
   // The operator sees the real figures; everyone else sees the verdict. The
   // heartbeat reads only `.status` fields, so bucketing costs it nothing.
   const full = operatorAuthed(req);
-  const spend = { xDataSpend: xDataSpendStatus(), exaSpend: exaSpendStatus(), exaAllowance: exaAllowanceStatus() };
+  const spend = { xDataSpend: xDataSpendStatus(), exaSpend: exaSpendStatus(), exaAllowance: exaAllowanceStatus(), jevSpend: jevSpendStatus() };
   const budgets = upstreamBudgetStatus();
   const body = {
     ...gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo, upstreamBuyerSvm, subscriptionFeePayer,
     xDataSpend: full ? spend.xDataSpend : publicBucket(spend.xDataSpend),
     exaSpend: full ? spend.exaSpend : publicBucket(spend.exaSpend),
     exaAllowance: full ? spend.exaAllowance : publicBucket(spend.exaAllowance),
+    jevSpend: full ? spend.jevSpend : publicBucket(spend.jevSpend),
     upstreamBudgets: full ? budgets : publicBudgets(budgets),
     stellarFacilitator, databases, operatorAuth: operatorAuthStatus(full),
     mppEvmDomainFallback: full ? mppFallbackStatus() : publicFallback(mppFallbackStatus()),
@@ -4894,7 +4917,7 @@ async function serveCachedDiscovery(path, policy, input, computeFn, analyticsSlu
         return res.json(hit);
       }
     }
-    const result = computeFn();
+    const result = await computeFn();   // a compute may be async (the /api/route rerank)
     if (policy) {
       noteCacheOutcome(cacheKey ? "miss" : "skip");
       res.setHeader("X-Cache", cacheKey ? "miss" : "skip");
@@ -5838,21 +5861,71 @@ const computeRoute = (q, k, include, net) => {
   }
   return out;
 };
+// /api/route: a confident judged pick moves first; rows are never removed. 2 s limit.
+async function computeRouteJudged(q, k, include, net) {
+  const out = computeRoute(q, k, include, net);
+  const rows = Array.isArray(out.results) ? out.results : [];
+  if (out.indexing || rows.length < 1 || !q) return out;
+  // Shortlist: at most two rows per seller, plus the local catalog's best
+  // matches, so listing count cannot crowd out a tool that does the job.
+  const wide = computeRoute(q, 50, include, net).results || [];
+  const shortlist = [];
+  const perSeller = new Map();
+  for (const r of wide) {
+    const key = String(r.seller || "");
+    if ((perSeller.get(key) || 0) >= 2) continue;
+    perSeller.set(key, (perSeller.get(key) || 0) + 1);
+    shortlist.push(r);
+    if (shortlist.length >= 10) break;
+  }
+  if (include !== "external") {
+    const bySlug = new Map(wide.filter((r) => r.seller === "self").map((r) => [r.slug, r]));
+    const localRoute = computeRoute(q, 50, "local", net).results || [];
+    for (const r of localRoute) if (!bySlug.has(r.slug)) bySlug.set(r.slug, r);
+    for (const f of (findTools(CATALOG, String(q), { k: 3, baseUrl: BASE_URL, powSlugs: POW_SLUGS }).results || [])) {
+      const row = bySlug.get(f.slug);
+      if (row && !shortlist.includes(row)) shortlist.push(row);
+    }
+  }
+  if (shortlist.length < 2) return out;
+  const hostOfSeller = (u) => { try { return new URL(u).host; } catch { return String(u || ""); } };
+  const ordered = await orderByJudgment(String(q), shortlist, (r) => {
+    const desc = String(r.description || r.name || "");
+    const price = r.price != null && r.price !== "" ? ` (${typeof r.price === "number" ? `$${r.price}` : r.price})` : "";
+    const clean = !looksLikeListingInjection(desc);
+    return { name: `${r.seller === "self" ? "agent402" : hostOfSeller(r.seller)} ${r.slug || ""}${price}`.trim(), description: clean ? desc : "", tags: clean && Array.isArray(r.tags) ? r.tags : [] };
+  }, { timeoutMs: 2000 });
+  if (ordered.refused) out.judged = { noMatch: true, confidence: ordered.selection.confidence, note: "a judgment model found none of the shortlisted rows does this task; rows are unchanged" };
+  else if (ordered.selection?.method === "judged" || ordered.selection?.method === "judged-tie") {
+    const pick = ordered.items[0];
+    out.results = [pick, ...rows.filter((r) => !(r.seller === pick.seller && r.slug === pick.slug && r.method === pick.method))].slice(0, Math.max(rows.length, 1));
+    out.judged = { method: ordered.selection.method, confidence: ordered.selection.confidence, ...(ordered.selection.tieBrokenBy ? { tiedWith: ordered.selection.tiedWith, tieBrokenBy: ordered.selection.tieBrokenBy } : {}), note: "the first row is a judgment model's pick from a shortlist capped at two rows per seller (equally fitting rows: the cheapest); the rest keep the lexical order" };
+  }
+  return out;
+}
 const routeCachePath = "/api/route";
 const routeCachePolicy = CACHEABLE_ROUTES[routeCachePath];
+// Remember each /api/route answer briefly so a purchase that follows can be
+// attributed to it (src/route-conversion.js; counts only, hashed caller).
+const withRouteAnswerNote = (req, res) => {
+  const orig = res.json.bind(res);
+  res.json = (body) => { try { if (res.statusCode === 200) noteRouteAnswer(clientIp(req), body); } catch { /* telemetry never breaks a search */ } return orig(body); };
+};
 app.get("/api/route", (req, res) => {
+  withRouteAnswerNote(req, res);
   const q = req.query.q ?? req.query.task ?? req.query.query;
   const top = req.query.top ?? req.query.k;
   const include = req.query.include;
   const net = req.query.network;
-  return serveCachedDiscovery(routeCachePath, routeCachePolicy, { q, task: q, query: q, top, k: top, include, network: net }, () => computeRoute(q, top, include, net), "_route", req, res);
+  return serveCachedDiscovery(routeCachePath, routeCachePolicy, { q, task: q, query: q, top, k: top, include, network: net }, () => computeRouteJudged(q, top, include, net), "_route", req, res);
 });
 app.post("/api/route", (req, res) => {
+  withRouteAnswerNote(req, res);
   const q = req.body?.q ?? req.body?.task ?? req.body?.query;
   const top = req.body?.top ?? req.body?.k;
   const include = req.body?.include;
   const net = req.body?.network;
-  return serveCachedDiscovery(routeCachePath, routeCachePolicy, { q, task: q, query: q, top, k: top, include, network: net }, () => computeRoute(q, top, include, net), "_route", req, res);
+  return serveCachedDiscovery(routeCachePath, routeCachePolicy, { q, task: q, query: q, top, k: top, include, network: net }, () => computeRouteJudged(q, top, include, net), "_route", req, res);
 });
 // Operator-only: why does the SOR external resolver keep/drop each candidate for
 // a task? Explains a prod "no external seller matched" 404 without a paid buy.
@@ -7702,6 +7775,7 @@ app.use((req, res, next) => {
           // "node") so payment_settled can answer "which SDK/client do paying
           // wallets use?". Never the full UA string, never an IP.
           const clientUa = String(req.headers["user-agent"] || "").trim().split(/\s+/)[0].slice(0, 40) || null;
+          if (!synthetic) { try { noteRoutePurchase(clientIp(req), def.slug); } catch { /* telemetry only */ } }
           capturePostHogSettlement({
             slug: def.slug, rail, network, priceUsd, synthetic, payer, clientUa,
             wire: rail === "usdc" ? wireFor() : null,

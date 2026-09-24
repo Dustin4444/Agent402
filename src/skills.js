@@ -532,6 +532,7 @@ export const SKILL_PACKS = [
   {
     slug: "structured-scrape",
     title: "Structured scrape",
+    searchTags: ["web", "page", "structured", "json", "scrape"],
     tagline:
       "Pull structured data out of any web page deterministically - articles to clean text, tables to JSON rows, specific elements via CSS selector - without writing regex against raw HTML.",
     useCase:

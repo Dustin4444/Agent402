@@ -47,7 +47,7 @@ const REGISTER_STEPS = [
   ["01", "Serve a 402", "Return HTTP 402 Payment Required with your price, asset, network and payTo address on the endpoints you want to charge for. Any x402 middleware does this."],
   ["02", "Register the origin", "One POST to /api/index/register. No account, no review queue, no waiting on us."],
   ["03", "Get crawled", "The crawler reads your manifest, records your tools and advertised chains, and probes health hourly. Probes are never paid calls."],
-  ["04", "Get routed", "The Smart Order Router ranks you by match score, then rolling health, then price - and sends matching buyer tasks your way."],
+  ["04", "Get routed", "The Smart Order Router shortlists by match score (at most two rows per seller) and rolling health, then a judgment model picks the listing that actually does the task; equally good options go to the lower price. An accurate description is how you win it."],
   ["05", "Get paid", "Buyers pay your wallet directly in USDC. Your settled volume shows up on the public on-chain leaderboard."],
 ];
 
@@ -261,7 +261,7 @@ x402-pay-to: 0xYourWallet&hellip;</pre>
   <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ POST /api/route</div>
   <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:14px;">
     <h2 style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0;color:var(--ink);">How buyers reach you.</h2>
-    <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">match score → crawl health → price</span>
+    <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">match score → judged fit → price</span>
   </div>
   <p style="font-size:16.5px;line-height:1.6;color:var(--muted);max-width:720px;margin:0 0 28px;">Four surfaces, and the router is the one that matters. A buyer describes a task, the router resolves it to a tool, and it does not care whose tool it is. New sellers get the benefit of the doubt on health rather than being buried until they have a track record.</p>
   <div class="sl-scroll" style="border:1px solid var(--hairline);background:var(--card);">

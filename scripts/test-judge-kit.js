@@ -1,9 +1,8 @@
 // Typed judgment as a paid tool. The assertions that matter are the ones about
 // MONEY and CLAIMS, because both are load-bearing here:
 //
-//   Margin is the input bound. Upstream bills per token, so the margin rule
-//   permits a bounded number of tokens per call at the tool's price. Nothing
-//   downstream can fix that after the call, so the caps are the guard - the same shape as stt-kit's duration cap.
+//   Margin is the input bound: the caps fix the worst-case upstream size before
+//   the call.
 //
 //   It is model-backed and must say so. /api/pricing publishes `modelBacked` on
 //   every row and the x402 manifest names what is excluded from the determinism
@@ -14,8 +13,7 @@ let pass = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { console.error("FAIL:", m); process.exit(1); } };
 
 const { validateJudgeRequest, judge, judgeEnabled, LIMITS, JUDGE_TOOLS } = await import("../src/tools/judge-kit.js");
-const RATE_PER_TOKEN = 0.042 / 1e6;   // operator-supplied 2026-09-21
-const PRICE = 0.001;
+const MAX_TOKENS_PER_CALL = 16_600;   // the per-call token budget the price allows
 
 // --- the caps ARE the margin guard -------------------------------------------
 {
@@ -24,15 +22,12 @@ const PRICE = 0.001;
   const worstStateTokens = LIMITS.stateChars / 3.6;
   const worstQuestionTokens = LIMITS.questions * ((LIMITS.instructionChars + LIMITS.criteriaEntries * LIMITS.criteriaChars) / 3.6);
   const worst = worstStateTokens + worstQuestionTokens;
-  const cost = worst * RATE_PER_TOKEN;
-  ok(cost <= PRICE * 0.7,
-    `the admitted worst case (~${Math.round(worst)} tok) stays inside the margin bound of the $${PRICE} price`);
+  ok(worst <= MAX_TOKENS_PER_CALL, `the admitted worst case stays inside the per-call token budget (~${Math.round(worst)} tok)`);
   ok(LIMITS.stateChars <= 20_000 && LIMITS.questions <= 16,
     "the caps are set at all, so worst-case upstream is knowable before the call");
   // A token can be ONE BYTE (CJK, emoji, base64), so the byte bound is the money
   // bound and the character caps only bound the shape.
-  ok(LIMITS.bodyBytes * RATE_PER_TOKEN <= PRICE * 0.7,
-    `the byte bound holds at one token per byte against the $${PRICE} price`);
+  ok(LIMITS.bodyBytes <= MAX_TOKENS_PER_CALL, `the byte bound holds at one token per byte (${LIMITS.bodyBytes} bytes)`);
 }
 
 // --- validation refuses BEFORE any upstream call ------------------------------

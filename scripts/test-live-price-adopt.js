@@ -92,6 +92,12 @@ try {
   const { carryForwardLearnedQuotes } = await import("../src/x402-index.js");
   const carried = carryForwardLearnedQuotes([{ route: "/health", method: "GET", slug: "health", price: null }], { tools: free })[0];
   ok(carried.quoteSource === "live-200" && carried.freeObservedAt === free[0].freeObservedAt, "the observation survives the next crawl's rebuild");
+
+  // --- 6. a 200 that is an ERROR page is not stamped free
+  globalThis.fetch = async () => new Response(JSON.stringify({ state: "missing_x_agent_id", message: "x-agent-id header is required" }), { status: 200, headers: { "content-type": "application/json" } });
+  const errRow = [{ seller: "example.com", route: "/flips/history", method: "GET", slug: "fh", price: null, networks: [] }];
+  await enrichLiveQuotes(errRow, ORIGIN, { ignoreBudget: true });
+  ok(errRow[0].quoteSource !== "live-200" && !errRow[0].freeObservedAt, "a 200 error body leaves the route price-unknown, not free");
 } finally {
   globalThis.fetch = orig; console.log = origLog;
 }

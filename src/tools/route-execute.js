@@ -20,6 +20,7 @@ import { createHash } from "node:crypto";
 import { paymentHeaderOf, payerFromRequest } from "../payer.js";
 import { maySpend, noteSpend, adjustSpend, resolveSpend } from "../external-spend-guard.js";
 import { findTools } from "../find.js";
+import { judgeTool, decide } from "../tool-judge.js";
 import { observeDelivery } from "../response-observation.js";
 import { isIdentityBoundRoute } from "../payments.js";
 
@@ -223,6 +224,7 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
       // in-budget tool is found (the top hit may be excluded or over-cap).
       let def = null;
       let resolvedBy;
+      let selection = null; // how a task-resolved internal tool was chosen (receipt)
       const bySlug = new Map(Object.values(catalog).map((d) => [d.slug, d]));
       if (input.slug != null) {
         resolvedBy = "slug";
@@ -340,6 +342,9 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           // "other".
           const drops = candidateList.__gateDrops || lastDrops || { total: 0, byReason: {} };
           const gatedOut = Number(drops.byReason?.settlement_required || 0);
+          if (!candidateList.length && Number(drops.byReason?.judged_no_match || 0) > 0) {
+            throw bad(`${drops.byReason.judged_no_match} outside seller(s) matched those words on ${chain}, and none of them does that task (judged). Nothing was spent and nothing is charged. Try /api/route?q=<task>&include=external to see them.`, 404);
+          }
           if (!candidateList.length && gatedOut > 0) {
             throw bad(`No external seller is eligible for this task on ${chain} right now: ${gatedOut} matched it and all of them are below our settlement gate. Nothing was spent and nothing is charged.`, 409);
           }
@@ -519,6 +524,7 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
               settleNetwork: chainCaip2,
               wire: extWire,
               resolvedBy: "task-external",
+              ...(ext.selection ? { selection: ext.selection } : {}),
               // A buyer should know when the seller that served them had no
               // settlement history on this chain when we paid it.
               ...(ext.unproven ? { sellerProof: "unproven" } : {}),
@@ -535,14 +541,38 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
 
         // Default: resolve the best in-budget tool from THIS host's catalog.
         const { results } = findTools(catalog, input.task, { k: 10, baseUrl });
+        // find's eligible candidates, in find's order (top 5 go to the judge).
+        const eligible = [];
         for (const r of results) {
           const candidate = bySlug.get(r.slug);
           if (!candidate) continue;
           if (!dispatchable(candidate).ok) continue;
           if (toUsd(candidate.price) > cap) continue;
-          def = candidate;
-          break;
+          eligible.push(candidate);
+          if (eligible.length >= 5) break;
         }
+        const decision = decide(eligible, await judgeTool(input.task, eligible));
+        selection = decision.selection;
+        if (decision.action === "refuse") {
+          // Nothing affordable fits: point at a pricier tool that does (409, uncharged).
+          const pricier = [];
+          for (const r of results) {
+            const c = bySlug.get(r.slug);
+            if (c && dispatchable(c).ok && toUsd(c.price) > cap) pricier.push(c);
+            if (pricier.length >= 5) break;
+          }
+          const alt = pricier.length ? decide(pricier, await judgeTool(input.task, pricier)) : null;
+          if (alt?.action === "run" && (alt.selection.method === "judged" || alt.selection.method === "judged-tie") && alt.def) {
+            const up = routeExecuteHint(toUsd(alt.def.price));
+            throw bad(`No tool under this endpoint's $${cap} cap does that task; ${alt.def.slug} does, listed at $${toUsd(alt.def.price)} (judged, confidence ${alt.selection.confidence}).${up && up.tool !== tier.slug ? ` Use ${up.tool} (${up.price}) to run it through the router, or call` : " Call"} it directly: ${alt.def.route}${baseUrl ? ` on ${baseUrl}` : ""}. Nothing was run or charged.`, 409);
+          }
+          const hasExternal = externalEnabled() && !!resolveExternal;
+          throw bad(
+            `No tool in this catalog does that task (judged, confidence ${selection.confidence}); nothing was run or charged.${hasExternal ? ' Retry with include:"external" to route to an outside x402 seller,' : ""} or try /api/find?q=<task>.`,
+            404
+          );
+        }
+        def = decision.def;
         if (!def) {
           const hasExternal = externalEnabled() && !!resolveExternal;
           throw bad(
@@ -580,6 +610,7 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           routingFeeUsd: Number((EXEC_PRICE_USD - underlying).toFixed(6)),
           seller: "internal",
           resolvedBy,
+          ...(selection ? { selection } : {}),
           ts,
           ...(callRef ? { callRef } : {}),
         },

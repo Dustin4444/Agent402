@@ -575,8 +575,8 @@ const dataTools = [
     slug: "json-format",
     category: "conversion",
     price: "$0.001",
-    description: "Validate, pretty-print, or minify JSON. Returns parse errors with position when invalid.",
-    tags: ["json", "format", "validate", "minify"],
+    description: "Validate, pretty-print (any indentation, 0-8 spaces), or minify JSON. Returns parse errors with position when invalid.",
+    tags: ["json", "format", "validate", "minify", "pretty-print", "indent"],
     discovery: {
       bodyType: "json",
       input: { json: '{"a":1}', indent: 2 },
