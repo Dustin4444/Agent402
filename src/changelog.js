@@ -5,6 +5,7 @@ const ENTRIES = [
     date: "2026-09-24",
     title: "Integration and learn pages",
     items: [
+      "The four Polymarket tools are retired. Each route answers 410 naming the nearest Kalshi tool: kalshi-markets for search and order books, kalshi-event for one market, kalshi-live-data for price history.",
       "New /integrations pages for every published package and /learn explainers for x402, HTTP 402, MPP and agent payments.",
       "/llms-full.txt lists every catalog route with its price.",
       "Tool pages now show parameters, example requests and responses, and related tools.",

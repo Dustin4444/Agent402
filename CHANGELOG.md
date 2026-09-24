@@ -9,6 +9,9 @@ carries its own version on npm.
 Since v2.4.0 (2026-09-18).
 
 ### 2026-09-24
+- `polymarket-search`, `polymarket-market`, `polymarket-orderbook` and
+  `polymarket-price-history` are retired. Each route answers 410 naming the
+  nearest Kalshi tool (`kalshi-markets`, `kalshi-event` or `kalshi-live-data`).
 - Model gateway: `openai/gpt-6-luna` is the nano default and leads the auto
   router's fast band; `openai/gpt-6-sol` is served on the pro tier;
   `anthropic/claude-opus-5.5`, the Grok 4.5 to 4.7 models and

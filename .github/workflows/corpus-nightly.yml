@@ -4,7 +4,7 @@
 # the answer is populated rather than merely shaped. Tier 0 (pure CPU) also runs
 # on every push in deploy.yml; this run adds tier 1, the free public upstreams
 # (SEC, openFDA, DefiLlama, Hyperliquid, CoinGecko demo, open-meteo, public RPCs,
-# Kalshi, Polymarket), which are rate-limited and belong to a nightly cadence, not
+# Kalshi), which are rate-limited and belong to a nightly cadence, not
 # a per-push one. Costs nothing. Upstream failures are reported, never fatal; only
 # OUR code failing (a hollow 200, a silent fallback, our own 4xx on a valid input,
 # a 500) opens the issue. Heartbeat-style: one issue, closed on the next clean run.
