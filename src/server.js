@@ -120,6 +120,8 @@ import { latest13fFiling, resolveManager as edgarResolveManager } from "./tools/
 import { resolveSpend as resolveExternalSpend } from "./external-spend-guard.js";
 import { registerWellKnown, removeWellKnown, getWellKnown, listWellKnown } from "./well-known-store.js";
 import { backupPlan, backupStatus, runBackup, startBackupScheduler } from "./backup.js";
+import { createSearchData } from "./search-data.js";
+import { operatorSearchPage } from "./operator-search.js";
 import { datasetStatus, datasetRecorded, runDatasetSnapshot, startDatasetScheduler } from "./dataset-snapshot.js";
 import { assertAvmValidityCovers } from "./avm-validity.js";
 import { paymentReplayKey, createReplayGuard } from "./replay-guard.js";
@@ -4313,6 +4315,38 @@ app.get("/__operator/facilitators.json", async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: String(e?.message || e).slice(0, 200) });
   }
+});
+// Search-engine data (GSC + Bing). Operator only; no-op without credentials.
+const searchData = createSearchData();
+app.get("/__operator/search.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  searchData.summary().then(
+    (r) => res.set("Cache-Control", "no-store").json(r),
+    (e) => res.status(500).json({ error: String(e.message).slice(0, 200) })
+  );
+});
+app.get("/__operator/search", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).type("html").send("<p>Not found.</p>");
+  searchData.summary().then(
+    (r) => res.set("Cache-Control", "no-store").type("html").send(operatorSearchPage(BASE_URL, r)),
+    (e) => res.status(500).type("html").send(`<p>${String(e.message).slice(0, 200).replace(/[<>&]/g, "")}</p>`)
+  );
+});
+app.post("/__operator/search/run", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  if (operatorHeavyLimited(req, res)) return;
+  searchData.runOnce().then((r) => res.json(r), (e) => res.status(500).json({ error: String(e.message) }));
+});
+app.post("/__operator/search/inspect", express.json({ limit: "32kb" }), (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  if (operatorHeavyLimited(req, res)) return;
+  const urls = Array.isArray(req.body?.urls) ? req.body.urls : [];
+  searchData.inspectUrls(urls).then((r) => res.json(r), (e) => res.status(500).json({ error: String(e.message) }));
+});
+app.post("/__operator/search/sitemaps/submit", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  if (operatorHeavyLimited(req, res)) return;
+  searchData.submitSitemaps().then((r) => res.json(r), (e) => res.status(500).json({ error: String(e.message) }));
 });
 app.get("/__operator/backup.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
@@ -8655,6 +8689,7 @@ const datasetSources = () => ({
   mppRows: () => mppLeaderboardSnapshot()?.rows || [],
 });
 bootStep("startBackupScheduler", () => startBackupScheduler());
+bootStep("searchData.start", () => searchData.start());
 // Warm the sanctions list at boot so the first buyer does not wait on a 5.7MB
 // download, and refresh on a timer - a stale list answering "no match" is the
 // failure mode this tool exists to avoid.

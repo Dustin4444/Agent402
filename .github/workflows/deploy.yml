@@ -1931,6 +1931,8 @@ jobs:
           t node scripts/test-drain-on-sigterm.js
           t node scripts/test-db-status.js
           t node scripts/test-db-init-retry.js
+          # Search data pipeline: JWT, GSC pagination/backfill, Bing parsing, idempotent upserts, weekly summary, IndexNow helpers, operator routes 404 without auth (stubbed, boots a server)
+          t node scripts/test-search-data.js
           # The Stellar facilitator's fee account is a spending wallet; its low-water alarm must never report "ok" off an unreadable balance or a stranger's /health
           t node scripts/test-stellar-facilitator-status.js
           # Facilitator gate scoping stays honest (its tests import nothing outside facilitator/)
@@ -5541,12 +5543,27 @@ jobs:
             [ "$code" = "200" ] && echo "🌐 CUSTOM DOMAIN LIVE: https://$CUSTOM_DOMAIN" || echo "(not resolving yet — Railway-managed DNS usually completes within minutes)"
           fi
 
+      # The previous run's URL set, so only new URLs from every sitemap are pinged.
+      - name: Restore IndexNow URL state
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .indexnow-state.json
+          key: indexnow-state-${{ github.run_id }}
+          restore-keys: indexnow-state-
+
       - name: Ping IndexNow (instant Bing/Copilot/DDG re-indexing — best-effort, never fails the deploy)
         env:
           INDEXNOW_KEY: ${{ secrets.INDEXNOW_KEY }}
         run: |
           if [ -z "$INDEXNOW_KEY" ]; then echo "INDEXNOW_KEY secret not set — skipping"; exit 0; fi
-          node scripts/indexnow-submit.js || echo "IndexNow ping failed (non-fatal — the sitemap remains the source of truth)"
+          node scripts/indexnow-submit.js --state .indexnow-state.json || echo "IndexNow ping failed (non-fatal — the sitemap remains the source of truth)"
+
+      - name: Save IndexNow URL state
+        if: ${{ hashFiles('.indexnow-state.json') != '' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .indexnow-state.json
+          key: indexnow-state-${{ github.run_id }}
 
       # The moved smoke check runs node against production: demo-payment.js
       # imports @x402/core, @x402/evm, @x402/fetch and viem at call time, and
