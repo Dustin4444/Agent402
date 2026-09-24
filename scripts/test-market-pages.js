@@ -513,5 +513,16 @@ for (const c of NEW_CHAINS) {
   ok(!new RegExp('card-no\\.example[\\s\\S]{0,120}class="mlr-mpp"').test(cardHtml), "chain card view: mpp:false seller gets no badge");
 }
 
+// The local roster row must never render the host-card figures object as its
+// label or seller link (it shipped as ?seller=[object Object] on every chain).
+{
+  const hostFigs = { external30d: { settlements: 3, buyers: 2 }, externalAllTime: { settlements: 9, buyers: 4 } };
+  const EXT = { origin: "https://ext1.example", displayName: "Ext One", homepage: "https://ext1.example", local: false, toolCount: 3, routable: true, networks: ["eip155:8453"] };
+  const html = marketPage("base", "https://agent402.tools", { snapshot: { sellers: [LOCAL, EXT] }, rail: null, activity: null, wallet: "0x1", host: hostFigs });
+  ok(!html.includes("[object Object]") && !html.includes("object%20Object"), "chain page: no [object Object] in roster labels or links");
+  ok(html.includes('href="/base#detail"'), "chain page: the local terminal row links to the chain page itself");
+  ok(html.includes("?seller=ext1.example#detail"), "chain page: external terminal rows link by origin host");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

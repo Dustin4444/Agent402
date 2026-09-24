@@ -141,7 +141,7 @@ export function terminalRoster(rows = [], selectedHost = null) {
     const sel = selectedHost && r.host === selectedHost;
     const share = Math.round(((Number(r.calls) || 0) / maxCalls) * 100);
     return `<a class="t-row${sel ? " is-sel" : ""}" role="row" tabindex="${sel || (!selectedHost && i === 0) ? 0 : -1}"
-       href="?seller=${encodeURIComponent(r.host)}#detail"
+       href="${esc(r.href || `?seller=${encodeURIComponent(r.host)}#detail`)}"
        data-t-row data-host="${esc(r.host)}" data-calls="${Number(r.calls) || 0}" data-usd="${Number(r.usd) || 0}"
        data-buyers="${Number(r.buyers) || 0}" data-tools="${Number(r.tools) || 0}" data-idx="${i}"
        ${sel ? 'aria-current="true"' : ""}>
