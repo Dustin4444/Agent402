@@ -53,7 +53,7 @@ const hangUp = (url, headers, abortAfterMs) => new Promise((resolve) => {
   // Credits settle inside their own close listener; the hook must see it.
   app.get("/credits", (req, res) => {
     res.on("close", () => { if (!res.writableFinished) req.creditsChargedOnClose = 0.01; });
-    setTimeout(() => { try { res.json({ ok: 1 }); } catch { /* gone */ } }, 5_000);
+    setTimeout(() => { try { res.json({ ok: 1 }); } catch { /* gone */ } }, 400);
   });
   const { server, url } = await listen(app);
   await hangUp(`${url}/buffered`, {}, 80);
@@ -68,6 +68,8 @@ const hangUp = (url, headers, abortAfterMs) => new Promise((resolve) => {
   await hangUp(`${url}/credits`, {}, 80);
   await sleep(100);
   ok(seen.length === 2 && seen[1].path === "/credits" && seen[1].kind === "close", `a credits charge taken on close is reported without waiting for the handler (${JSON.stringify(seen)})`);
+  await sleep(500);
+  ok(seen.length === 2, `and the handler ending later does not report the same request a second time - a credits debt has no tx to dedupe on (${seen.length})`);
   server.close();
 }
 
