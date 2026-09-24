@@ -7123,11 +7123,14 @@ if (!FREE_MODE) {
   // finally called, then delegates inward. mppShim's own 402 hook only sets
   // WWW-Authenticate when nothing has set it yet; registering the appender
   // first means mppShim (registered second) runs its evm-challenge logic
-  // FIRST and the appender then APPENDS the tempo challenge to what's
-  // already there, instead of the appender writing first and mppShim's
-  // guard seeing the header already "taken" and skipping evm entirely
-  // (caught live via scripts/test-mpp-tempo-shim.js — the evm challenge was
-  // silently dropped with the mount order reversed).
+  // FIRST and the appender then adds the tempo challenges to what's already
+  // there - in FRONT of it by default (tempoLeads in src/mpp-tempo.js; after
+  // it for a client whose tempo credential was just refused) - instead of
+  // the appender writing first and mppShim's guard seeing the header already
+  // "taken" and skipping evm entirely (caught live via
+  // scripts/test-mpp-tempo-shim.js — the evm challenge was silently dropped
+  // with the mount order reversed). Resulting order: tempo, evm, stripe;
+  // src/mpp-offers.js describes the same order to the discovery surfaces.
   const tempoAppender = createTempoChallengeAppender({
     realm: new URL(BASE_URL).host,
     secretKey: process.env.MPP_SECRET_KEY || "",

@@ -97,6 +97,34 @@ export function mppChallengeRails() {
   return RAILS.filter((r) => typeof r.chainId === "number" && challengeEnabledForChain(r.chainId));
 }
 
+// The token each default MPP chain's evm challenge names: the same asset the
+// x402 accepts entry carries (src/payments.js; Celo's is env-overridable
+// there, so it is here too). Only chains in a stock mppx client's registry.
+const EVM_CHALLENGE_ASSETS = {
+  8453: { key: "base", currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" },
+  42220: { key: "celo", currency: () => (process.env.CELO_USDC_ADDRESS || "0xcebA9300f2b948710d2653dD7B07f33A8B32118C").trim() },
+};
+
+/** EVM rails the 402's evm challenges cover, in accepts order (primary NETWORK
+ *  first, then PAYMENT_NETWORKS order): challenge-enabled AND accepted. For
+ *  discovery documents (src/mpp-offers.js); empty when the shim is off. */
+export function mppEvmDiscoveryRails() {
+  const byChain = new Map(mppChallengeRails().map((r) => [r.chainId, r]));
+  const primary = (process.env.NETWORK || "base").trim().toLowerCase();
+  const names = [primary, ...(process.env.PAYMENT_NETWORKS || primary).split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)];
+  const out = [];
+  const seen = new Set();
+  for (const n of names) {
+    const chainId = Number(Object.keys(EVM_CHALLENGE_ASSETS).find((id) => EVM_CHALLENGE_ASSETS[id].key === n));
+    const rail = byChain.get(chainId);
+    if (!rail || seen.has(chainId)) continue;
+    seen.add(chainId);
+    const a = EVM_CHALLENGE_ASSETS[chainId];
+    out.push({ name: rail.name, chainId, asset: rail.asset, currency: typeof a.currency === "function" ? a.currency() : a.currency });
+  }
+  return out;
+}
+
 /**
  * Builds the Express middleware. Returns null when no secret is configured —
  * caller mounts nothing and the server stays pure-x402.
