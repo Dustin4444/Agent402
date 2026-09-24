@@ -9,11 +9,27 @@ carries its own version on npm.
 Since v2.4.0 (2026-09-18).
 
 ### 2026-09-24
+- Model gateway: `openai/gpt-6-luna` is the nano default and leads the auto
+  router's fast band; `openai/gpt-6-sol` is served on the pro tier;
+  `anthropic/claude-opus-5.5`, the Grok 4.5 to 4.7 models and
+  `qwen/qwen3.8-max-prime` get their own cost and reasoning rows, so a small
+  budget is not spent entirely on reasoning and qwen3.8-max-prime is servable
+  on the metered route. Four DeepSeek ids the upstream removes on 2026-09-28
+  (`deepseek-v3.2`, `-v3.2-exp`, `-v3.1-terminus`, `-r1-distill-llama-70b`)
+  are refused by name with a successor named.
+- `/v1/images/generations` is served by FLUX.2 Pro (GPT-5 Image Mini as the
+  failover) ahead of Gemini 2.5 Flash Image's shutdown on 2026-10-02. The wire
+  is unchanged: one 1024x1024 PNG per call as inline base64.
 - Seller index: a route that is not in the seller's own manifest or OpenAPI
   must answer a live 402 at least every 7 days and leaves the listing when it
   answers 404 or 405 twice at least an hour apart; a 410 removes any route;
   re-registering re-checks every route. `/api/index?seller=` shows
   each route's `declared`, `source` and `lastVerifiedAt`.
+- `kalshi-markets` and `kalshi-event` return `yesBidSize` and `yesAskSize`,
+  the resting contracts at the best yes bid and ask. Kalshi retires its
+  liquidity figure on 2026-10-01 and it already reads zero on live books, so
+  `liquidityUsd` is null with a `liquidityUsdNote` wherever Kalshi publishes
+  no figure.
 - agent402-tollbooth 0.10.2: the Tempo settlement confirm used after a failed
   relay broadcast requires the transfer's MPP memo to be bound to the
   credential's own challenge.

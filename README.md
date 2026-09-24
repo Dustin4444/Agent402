@@ -216,14 +216,14 @@ prepaid credits key, see [For humans](#for-humans-reports-monitors-and-prepaid-c
 | `POST /v1/nano/chat/completions` | $0.003 | nano models - priced for high-frequency agent loops |
 | `POST /v1/auto/chat/completions` | $0.01 | **no model needed** - deterministic eval-ranked routing (code / reasoning / long / general), optional `quality: fast \| balanced \| best` at the same price, decision disclosed via `agent402_router` |
 | `POST /v1/chat/completions` | $0.02 | budget/mid models (gpt-4o-mini, claude haiku, gemini flash, deepseek, llama…) |
-| `POST /v1/pro/chat/completions` | $0.10 | mid-frontier (gpt-4o, gpt-4.1, claude sonnet, gemini pro, grok) |
+| `POST /v1/pro/chat/completions` | $0.10 | mid-frontier (gpt-4o, gpt-4.1, gpt-6 sol, claude sonnet, gemini pro, grok) |
 | `POST /v1/premium/chat/completions` | $0.50 | frontier (gpt-5 and gpt-6 astra, o3 and o4-mini, claude opus and claude fable 5.1) |
 | `POST /v1/grounded/chat/completions` | $0.03 | the auto router plus a live web search on every call - answers carry OpenAI-wire `url_citation` annotations; never cached |
 | `POST /v1/{nano,auto,pro,premium}/messages`, `POST /v1/messages` | tier price | the **Anthropic Messages wire** on every tier (same allowlist, caps and failover as the chat route); `effort` (low to max) is the depth control on Claude 4.7+, older Claude takes `thinking.budget_tokens` |
 | `POST /v1/{nano,auto,pro,premium}/responses`, `POST /v1/responses` | tier price | the **OpenAI Responses wire** on every tier (function tools only, no server state) |
 | `POST /v1/embeddings` | $0.002 | OpenAI embeddings, batch up to 64 inputs - identical repeats are **free** (deterministic output, cache default-on) |
 | `POST /v1/rerank` | $0.002 | Cohere-compatible rerank (`{query, documents[], top_n}`), up to 50 documents, cache default-on |
-| `POST /v1/images/generations` | $0.08 | image generation (Gemini 2.5 Flash Image) - OpenAI images wire, inline base64 out |
+| `POST /v1/images/generations` | $0.08 | image generation (FLUX.2 Pro, 1024x1024 PNG) - OpenAI images wire, inline base64 out |
 | `POST /v1/images/fast` | $0.02 | budget text-to-image, same OpenAI images wire, about two seconds a picture |
 | `POST /v1/images/pro` | $0.05 | higher-fidelity text-to-image, one picture a call |
 | `POST /v1/videos/generations` | $0.20 | text-to-video: one silent 4-second 720p clip, MP4 inline base64, 16:9 or 9:16 |

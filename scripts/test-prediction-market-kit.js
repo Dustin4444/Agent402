@@ -131,6 +131,21 @@ ok(kzero.yesBid === 0 && kzero.volume === 0, "a genuinely untraded market reads 
 const kmissing = shapeKalshiMarket({ ticker: "M-26" });
 ok(kmissing.yesBid === null && kmissing.volume === null, "an absent field is still null, never a fabricated 0");
 
+// Kalshi retires liquidity_dollars on 2026-10-01, and it already reads 0 on
+// markets with a live book. liquidityUsd is Kalshi's own figure only when it
+// carries one; otherwise null with a reason. Depth is the top-of-book size, in
+// contracts, under its own names, never relabelled as "liquidity".
+const kbook = shapeKalshiMarket({ ticker: "B-26", liquidity_dollars: "0.0000", yes_bid_size_fp: "471.53", yes_ask_size_fp: "323.10" });
+ok(kbook.yesBidSize === 471.53 && kbook.yesAskSize === 323.1, "top-of-book sizes come from the *_size_fp fields");
+ok(kbook.liquidityUsd === null && /yesBidSize/.test(kbook.liquidityUsdNote || ""),
+  "a zero liquidity_dollars beside a live book is null with a note, not a false 0");
+const kgone = shapeKalshiMarket({ ticker: "G-26", yes_bid_size_fp: "10.00" });
+ok(kgone.liquidityUsd === null && typeof kgone.liquidityUsdNote === "string", "after removal the field reads null and says why");
+const kempty = shapeKalshiMarket({ ticker: "E-26", liquidity_dollars: "0.0000", yes_bid_size_fp: "0.00", yes_ask_size_fp: "0.00" });
+ok(kempty.liquidityUsd === 0 && kempty.yesBidSize === 0 && !("liquidityUsdNote" in kempty), "an empty book with a zero figure still reads 0");
+ok(kn.liquidityUsdNote === undefined, "a nonzero legacy figure is kept with no note");
+ok(kmissing.yesBidSize === null, "an absent size field is null");
+
 // Polymarket's gamma list endpoints are past their own sunset (deprecation and
 // sunset: Fri, 01 May 2026 in HTTP HEADERS ONLY, nothing in their docs). We
 // call `/markets/keyset`, which returns an OBJECT with a markets array, and we

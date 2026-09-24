@@ -41,7 +41,7 @@
 // the chat tiers). Content is fetched with our key (the unsigned URLs 401
 // without it - measured) and returned inline as base64, never as a URL that
 // would expose our job ids.
-import { bad, fetchOpenRouter, throwUpstreamError, assertUpstreamBody, MARGIN, OPENROUTER_ATTRIBUTION, upstreamUserId } from "./llm-gateway-kit.js";
+import { bad, fetchOpenRouter, throwUpstreamError, assertUpstreamBody, MARGIN, OPENROUTER_ATTRIBUTION, upstreamUserId, IMAGES_PATH, IMAGES_PRICE } from "./llm-gateway-kit.js";
 import { redactSecrets } from "./redact.js";
 
 export const OPENROUTER_IMAGES_URL = "https://openrouter.ai/api/v1/images";
@@ -88,6 +88,24 @@ export const IMAGE_TIERS = {
       // fallback pins 1K).
       { model: "qwen/qwen-image-3", provider: "alibaba", params: { resolution: "1K" }, worstCaseUsd: 0.03,
         listed: { unit: "image", variant: "1k", maxCostUsd: 0.03 } },
+    ],
+  },
+  // The flagship /v1/images/generations route (tool def in llm-gateway-kit.js,
+  // which hands the call to imageTierHandler here). It rode
+  // google/gemini-2.5-flash-image over chat modalities until 2026-09-24; Google
+  // shuts that model down on 2026-10-02. Same two links as the pro tier's
+  // primary and the fast tier's failover, pinned to PNG so the route keeps the
+  // output format it documents (media_type image/png, 1024x1024), and both
+  // decode in Jimp for the products that post-process images.
+  "v1-images": {
+    path: IMAGES_PATH,
+    price: IMAGES_PRICE,
+    chain: [
+      // Per-megapixel pricing, locked 1024x1024 billed as 1 MP (measured live 2026-09-24: $0.03, PNG 1024x1024).
+      { model: "black-forest-labs/flux.2-pro", provider: "black-forest-labs", params: { output_format: "png" }, worstCaseUsd: 0.03,
+        listed: { unit: "megapixel", maxCostUsd: 0.03 } },
+      { model: "openai/gpt-5-image-mini", provider: "openai", params: { quality: "medium" }, worstCaseUsd: 0.013,
+        listed: { unit: "token", maxCostUsd: 0.000008 } },
     ],
   },
 };
@@ -202,7 +220,9 @@ export function _resetListingCacheForTest() { listingCache.clear(); }
 function userOf(req) { try { return req ? upstreamUserId(req) : undefined; } catch { return undefined; } }
 
 // Image handler: walk the chain, first link that returns an image wins.
-async function imageTierHandler(tierSlug, input, req) {
+// `zdr` (the /v1/images/generations route's documented knob) folds into the
+// provider prefs next to the pin, the way the chat wire folds it.
+export async function imageTierHandler(tierSlug, input, req, { zdr = false } = {}) {
   const user = userOf(req);
   const tier = IMAGE_TIERS[tierSlug];
   const { prompt } = validateImageTierRequest(input, tierSlug);
@@ -213,7 +233,7 @@ async function imageTierHandler(tierSlug, input, req) {
       lastErr = bad("Image tier temporarily unavailable - upstream repriced above the bound; the operator has been notified", 503);
       continue;
     }
-    const body = { model: link.model, prompt, n: 1, ...link.params, provider: { only: [link.provider] }, ...(user ? { user } : {}) };
+    const body = { model: link.model, prompt, n: 1, ...link.params, provider: { only: [link.provider], ...(zdr ? { zdr: true } : {}) }, ...(user ? { user } : {}) };
     try {
       const res = await fetchOpenRouter(body, { url: OPENROUTER_IMAGES_URL, timeoutMs: IMAGE_LINK_TIMEOUT_MS });
       if (!res.ok) await throwUpstreamError(res);

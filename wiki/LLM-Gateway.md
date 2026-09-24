@@ -23,13 +23,13 @@ Because tiers are flat-priced while upstream bills per token, every request is a
 
 | Endpoint | Price | Serves | Input cap | Output cap |
 |---|---|---|---|---|
-| `POST /v1/nano/chat/completions` | $0.003 | nano models (gpt-5.6-luna, gpt-5-nano, gemini flash-lite, small llama/ministral/qwen, deepseek-chat, laguna) - priced for high-frequency agent loops | 12k chars | 768 tokens |
+| `POST /v1/nano/chat/completions` | $0.003 | nano models (gpt-6-luna by default, gpt-5.6-luna, gpt-5-nano, gemini flash-lite, small llama/ministral/qwen, deepseek-chat, laguna) - priced for high-frequency agent loops | 12k chars | 768 tokens |
 | `POST /v1/auto/chat/completions` | $0.01 | **model optional** - deterministic eval-ranked routing (see below) | 16k chars | 1,024 tokens |
 | `POST /v1/chat/completions` | $0.02 | budget/mid models (gpt-4o-mini, claude haiku, gemini flash, deepseek, llama, mistral, qwen) | 32k chars | 2,048 tokens |
-| `POST /v1/pro/chat/completions` | $0.10 | mid-frontier (gpt-4o, gpt-4.1, claude sonnet incl. sonnet-5, gemini pro and 3.x flash, grok) | 48k chars | 4,096 tokens |
-| `POST /v1/premium/chat/completions` | $0.50 | frontier (gpt-5 and gpt-6 astra, o3 and o4-mini, claude opus and claude fable 5.1) | 85k chars | 8,192 tokens |
+| `POST /v1/pro/chat/completions` | $0.10 | mid-frontier (gpt-4o, gpt-4.1, gpt-6 sol, claude sonnet incl. sonnet-5, gemini pro and 3.x flash, grok) | 48k chars | 4,096 tokens |
+| `POST /v1/premium/chat/completions` | $0.50 | frontier (gpt-5 and gpt-6 astra, o3 and o4-mini, claude opus incl. opus-5.5, and claude fable 5.1) | 85k chars | 8,192 tokens |
 | `POST /v1/embeddings` | $0.002 | text-embedding-3-small (default), 3-large, ada-002 - batch up to 64 inputs | 16k chars | - |
-| `POST /v1/images/generations` | $0.08 | Gemini 2.5 Flash Image (nano banana) - one image per call, inline base64 out | 4k-char prompt | 1 image |
+| `POST /v1/images/generations` | $0.08 | FLUX.2 Pro with GPT-5 Image Mini as the failover - one 1024x1024 PNG per call, inline base64 out | 4k-char prompt | 1 image |
 | `POST /v1/audio/speech` | $0.06 | a five-model failover chain on OpenRouter's audio API; raw mp3/pcm bytes out, the 11 OpenAI voice names plus each model's native voices | 2k-char input | - |
 
 Bare OpenAI-style names (`gpt-4o-mini`) are accepted and mapped; requesting a model that another flat tier serves is priced at that tier: the 402 quotes its price, the paid call is served under its caps and failover, and the answer says so in `agent402_tier`. All tiers are **wallet-only** - every call burns real upstream credit, so there is no proof-of-work free tier (see [[Security Model]]). The pro and premium chat tiers also accept three upstream server tools under a server-owned bound (`openrouter:web_search`, `openrouter:web_fetch`, `openrouter:datetime`, each with a hard use cap that `GET /v1/models` lists per tier); other server tools are refused by name.
@@ -64,7 +64,7 @@ The field is absent when metered would not be materially cheaper, on the metered
 
 ## Image generation
 
-`POST /v1/images/generations` speaks the OpenAI images wire - any OpenAI SDK's `images.generate()` works by changing `base_url`. Send `{"prompt": "..."}` (up to 4,000 chars) and get `{created, model, data: [{b64_json, media_type}]}` back - one image per call at a flat $0.08, `n` locked to 1, `response_format` is always inline `b64_json` (nothing is hosted). `zdr: true` works here too. Upstream is Gemini 2.5 Flash Image via OpenRouter with server-owned price bounds, same margin discipline as the chat tiers.
+`POST /v1/images/generations` speaks the OpenAI images wire - any OpenAI SDK's `images.generate()` works by changing `base_url`. Send `{"prompt": "..."}` (up to 4,000 chars) and get `{created, model, data: [{b64_json, media_type}]}` back - one image per call at a flat $0.08, `n` locked to 1, `response_format` is always inline `b64_json` (nothing is hosted). `zdr: true` works here too. Upstream is FLUX.2 Pro (GPT-5 Image Mini as the failover) on OpenRouter's Image API, each pinned to one provider with a per-image bound and a live price re-check, same margin discipline as the chat tiers.
 
 ## Text-to-speech
 

@@ -117,7 +117,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       TARGET_URL: https://agent402.tools
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
@@ -143,7 +143,7 @@ jobs:
           LOCKV() { node -p "require('./package-lock.json').packages['node_modules/$1'].version"; }
           VIEM=$(LOCKV viem); STELLAR=$(LOCKV @stellar/stellar-sdk); SOLKIT=$(LOCKV @solana/kit)
           echo "lock-pinned: viem@$VIEM @stellar/stellar-sdk@$STELLAR @solana/kit@$SOLKIT"
-          npm install --no-save --ignore-scripts @x402/fetch@2.26.0 @x402/core@2.26.0 @x402/evm@2.26.0 @x402/svm@2.26.0 @x402/stellar@2.26.0 "@stellar/stellar-sdk@$STELLAR" "@solana/kit@$SOLKIT" "viem@$VIEM"
+          npm install --no-save --ignore-scripts @x402/fetch@2.27.0 @x402/core@2.27.0 @x402/evm@2.27.0 @x402/svm@2.27.0 @x402/stellar@2.27.0 "@stellar/stellar-sdk@$STELLAR" "@solana/kit@$SOLKIT" "viem@$VIEM"
           echo "installed viem: $(node -p "require('viem/package.json').version") mppx: $(node -p "require('./node_modules/mppx/package.json').version")"
       - name: Buy one tool from production (real USDC)
         id: canary

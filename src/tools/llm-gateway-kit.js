@@ -212,14 +212,18 @@ export async function probeOxAlphaAvailability({ fetchImpl } = {}) {
 // gemini-3.1-flash-lite, and the best band with
 // gemini-3.5-flash-lite (priced like the model it replaces). Both were
 // live-verified to answer with no hidden reasoning at a 64-token budget.
+//
+// 2026-09-24: openai/gpt-6-luna leads the fast band. A live call at a
+// 64-token budget with reasoning effort "low" (what the auto tier injects)
+// answered in one sentence with zero reasoning tokens and finish "stop".
 export const AUTO_QUALITIES = ["fast", "balanced", "best"];
 export const AUTO_RANKINGS = {
   // fast — cheapest/snappiest serving; right for high-frequency loop turns.
   fast: {
-    code: ["google/gemini-3.1-flash-lite", "qwen/qwen-2.5-coder-32b-instruct", "openai/gpt-4o-mini"],
-    reasoning: ["google/gemini-3.1-flash-lite", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
-    long: ["google/gemini-3.1-flash-lite", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
-    general: ["google/gemini-3.1-flash-lite", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
+    code: ["openai/gpt-6-luna", "google/gemini-3.1-flash-lite", "qwen/qwen-2.5-coder-32b-instruct", "openai/gpt-4o-mini"],
+    reasoning: ["openai/gpt-6-luna", "google/gemini-3.1-flash-lite", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
+    long: ["openai/gpt-6-luna", "google/gemini-3.1-flash-lite", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
+    general: ["openai/gpt-6-luna", "google/gemini-3.1-flash-lite", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
   },
   // balanced — the default band. deepseek-chat keeps the code head (proven,
   // cheap); gpt-5.6-luna leads the rest (1M ctx covers `long` natively).
@@ -281,7 +285,7 @@ export const TIERS = {
   // (~3k tokens in / 768 out) on budget models. Listed FIRST so tierFor()'s
   // self-correcting 400s and /v1/models lead with the cheapest home.
   "v1-chat-nano": {
-    defaultModel: "openai/gpt-5.6-luna", // gpt-4.1-nano retires 2026-10-23 (OpenAI deprecations, read 2026-08-28); luna is its named successor. served when the caller names no model (2026-08-28: 82 refusals in 30 days for a missing "model")
+    defaultModel: "openai/gpt-6-luna", // 2026-09-24: gpt-6-luna (live call at a 64-token budget, effort low, answered cleanly). Before that gpt-5.6-luna; gpt-4.1-nano retires 2026-10-23 (OpenAI deprecations, read 2026-08-28); luna is its named successor. served when the caller names no model (2026-08-28: 82 refusals in 30 days for a missing "model")
     route: "POST /v1/nano/chat/completions",
     price: 0.003,
     priceSort: true, // cheapest provider under max_price (budget tier: price IS the product)
@@ -300,6 +304,9 @@ export const TIERS = {
       "openai/gpt-5-nano",
       // gpt-5.6-luna: frontier-lab model in the nano class (live-verified 2026-08-04).
       "openai/gpt-5.6-luna",
+      // gpt-6-luna (live 2026-09-24, 1M context): the nano default. The prefix
+      // also admits gpt-6-luna-pro, which lists the same price and efforts.
+      "openai/gpt-6-luna",
       // gemini-2.0-flash-lite was removed here 2026-08-04: the model is gone
       // from OpenRouter entirely (verified against the live models list).
       "google/gemini-2.5-flash-lite", // expires upstream 2026-10-20; ranked/default uses moved to 3.1-flash-lite
@@ -381,6 +388,9 @@ export const TIERS = {
       "google/gemini-2.5-pro", // bare gemini-pro left OpenRouter (2026-08-19)
       "google/gemini-3.1-pro", "google/gemini-3.5-flash", "google/gemini-3.6-flash",
       "x-ai/grok",
+      // gpt-6-sol (live 2026-09-24): fits this tier's bound at its dearest
+      // endpoint; the prefix also admits gpt-6-sol-pro (same price and efforts).
+      "openai/gpt-6-sol",
     ],
   },
   "v1-chat-premium": {
@@ -668,10 +678,27 @@ export function tierPriceLabel(price) {
   return price < 0.01 ? price.toFixed(3) : price.toFixed(2);
 }
 
+/** Ids a family prefix still admits but the upstream has scheduled for removal
+ *  (OpenRouter expiration_date). They are refused by name, never priced: a
+ *  family row does not describe them (deepseek-v3.2 listed endpoints far above
+ *  the deepseek/ row) and a caller building on one would lose it days later.
+ *  Delete an entry once the live guard reports the id gone upstream. */
+export const RETIRING_MODELS = Object.freeze({
+  "deepseek/deepseek-v3.2": { until: "2026-09-28", use: "deepseek/deepseek-v4-flash" },
+  "deepseek/deepseek-v3.2-exp": { until: "2026-09-28", use: "deepseek/deepseek-v4-flash" },
+  "deepseek/deepseek-v3.1-terminus": { until: "2026-09-28", use: "deepseek/deepseek-chat-v3.1" },
+  "deepseek/deepseek-r1-distill-llama-70b": { until: "2026-09-28", use: "deepseek/deepseek-r1" },
+});
+export function retiringModel(model) {
+  const id = canonicalModelRaw(model).toLowerCase().split(":")[0];
+  return Object.hasOwn(RETIRING_MODELS, id) ? { id, ...RETIRING_MODELS[id] } : null;
+}
+
 export function tierAllows(tierSlug, model) {
   const tier = TIERS[tierSlug];
   if (!tier) return false;
   const id = canonicalModel(model).toLowerCase();
+  if (retiringModel(id)) return false;
   // Belt for refuseCostVariants: a "-contributor" listing is never admitted
   // by a family prefix (meta/muse-spark admits meta/muse-spark-1.3-...).
   if (/-contributor(?:$|:)/.test(id)) return false;
@@ -803,6 +830,10 @@ export const MODEL_COST = [
   // GPT-6 Astra (premium, admitted 2026-09-18): the "openai/gpt-5" row would
   // never match it (boundary-aware) so it would have fallen to the tier bound.
   ["openai/gpt-6-astra", { prompt: 11, completion: 55 }],
+  // GPT-6 Luna (nano) and Sol (pro), admitted 2026-09-24: regional endpoints
+  // are the dearest default-tier routes (live endpoints 2026-09-24).
+  ["openai/gpt-6-luna", { prompt: 0.11, completion: 0.55 }],
+  ["openai/gpt-6-sol", { prompt: 2.2, completion: 11 }],
   // Nano-tier small models, live 2026-09-02 (exact rows so the clamp prices
   // them at cost instead of the tier bound).
   ["mistralai/ministral-8b-2512", { prompt: 0.165, completion: 0.165 }], // live endpoints 2026-09-18
@@ -832,6 +863,10 @@ export const MODEL_COST = [
   // Regional endpoints bill above the headline on every Claude model and are
   // inside every tier bound, so the rows carry the regional figure (live
   // endpoints 2026-09-18).
+  // claude-opus-5.5 (listed 2026-09-22) is admitted by the claude-opus prefix;
+  // without its own row the opus-5 row priced it (over, the safe direction,
+  // but its own figure is the honest clamp). Live endpoints 2026-09-24.
+  ["anthropic/claude-opus-5.5", { prompt: 4.4, completion: 22 }],
   ["anthropic/claude-opus-5", { prompt: 5.5, completion: 27.5 }],
   ["anthropic/claude-opus-4.5", { prompt: 5.5, completion: 27.5 }],
   ["anthropic/claude-opus-4.6", { prompt: 5.5, completion: 27.5 }],
@@ -869,13 +904,20 @@ export const MODEL_COST = [
   // provider the tier admits can ever exceed it there; completion covers the
   // observed maximum.
   ["deepseek/deepseek-v4-pro", { prompt: 2.5, completion: 4.95 }], // live endpoints 2026-09-18
-  ["deepseek/deepseek-v3.2", { prompt: 1, completion: 2.5 }], // live endpoints 2026-09-18
+  // deepseek-chat-v3.1: one regional endpoint lists prompt above the family row (live endpoints 2026-09-24).
+  ["deepseek/deepseek-chat-v3.1", { prompt: 0.65, completion: 2.5 }],
   ["deepseek/deepseek-r1", { prompt: 0.8, completion: 2.5 }],
   ["deepseek/", { prompt: 0.6, completion: 2.5 }],
   ["meta-llama/", { prompt: 3.5, completion: 3.5 }],
   ["meta/muse-spark", { prompt: 1.25, completion: 4.25 }], // live 2026-09-23
   ["meta/muse-glimmer", { prompt: 0.35, completion: 1.5 }], // live 2026-09-23
   ["mistralai/", { prompt: 2.2, completion: 7.5 }], // live 2026-08-19
+  // qwen3.8-max-prime (listed 2026-09-23, one endpoint) sits above the family
+  // row. The metered tier sends the row itself as provider.max_price, so with
+  // only the family row every metered call to it was refused upstream. It
+  // does not fit the base tier's bound, so on base it still walks the chain;
+  // the metered tier is its real home. Live endpoints 2026-09-24.
+  ["qwen/qwen3.8-max-prime", { prompt: 4, completion: 12 }],
   ["qwen/", { prompt: 2, completion: 6.4 }], // live 2026-08-19
   ["poolside/", { prompt: 0.15, completion: 0.3 }],
   // Stealth listing: priced zero on the live catalog (verified 2026-08-22).
@@ -1335,6 +1377,8 @@ export function refuseCostVariants(model) {
   const variant = String(model || "").includes(":") ? String(model).slice(String(model).indexOf(":") + 1).toLowerCase() : "";
   if (variant === "online") throw bad(`Model variant ":online" is not offered on this tier. Use "${String(model).slice(0, String(model).indexOf(":"))}" instead (or POST /v1/grounded/chat/completions for grounded answers).`);
   if (/-contributor(?:$|:)/i.test(String(model || ""))) throw bad(`Model "${String(model)}" is not offered - "contributor" listings are priced for the provider's use of the request data, and a buyer's prompt is never routed there. Use "${String(model).replace(/-contributor/i, "")}" instead.`);
+  const retiring = retiringModel(model);
+  if (retiring) throw bad(`Model "${retiring.id}" is not offered - the upstream removes it on ${retiring.until}. Use "${retiring.use}" instead.`);
   if (variant === "batch") throw bad(`Model variant ":batch" is not offered - batch ids are asynchronous (24h window) and not served on a synchronous path. Use "${String(model).slice(0, String(model).indexOf(":"))}" instead.`);
 }
 /** Which routes currently sell a given server tool - used so a refusal on the
@@ -1651,12 +1695,14 @@ export function validateRequest(input, tierSlug, { clamp = true } = {}) {
 // endpoint tag; gpt-4o(-mini)/4.1/o3 did not (flex on those would 404 and
 // cost a round-trip). scripts/test-gateway-model-ids.js checks every entry
 // against /models/{id}/endpoints, so a model that loses flex fails CI instead
-// of burning a failed attempt per call. The image model carries flex
-// endpoints too. OPENROUTER_FLEX=off is the escape hatch.
+// of burning a failed attempt per call. (The images route left this table on
+// 2026-09-24 with its Gemini model.) OPENROUTER_FLEX=off is the escape hatch.
 export const FLEX_MODELS = [
-  "google/gemini-2.5-flash-image", "google/gemini-2.5-flash-lite", "google/gemini-2.5-flash", "google/gemini-2.5-pro",
+  "google/gemini-2.5-flash-lite", "google/gemini-2.5-flash", "google/gemini-2.5-pro",
   "google/gemini-3.1-flash-lite", "google/gemini-3.5-flash-lite", "google/gemini-3.5-flash", "google/gemini-3.6-flash",
   "openai/gpt-5-nano", "openai/gpt-5.6-luna", "openai/gpt-5.6-sol", "openai/gpt-5.6-terra",
+  // Both carry an "openai/flex" endpoint tag (live endpoints 2026-09-24).
+  "openai/gpt-6-luna", "openai/gpt-6-sol",
 ];
 const FLEX_ENABLED = () => String(process.env.OPENROUTER_FLEX || "on").toLowerCase() !== "off";
 export const PROVIDER_SORT_ENABLED = () => String(process.env.OPENROUTER_PROVIDER_SORT || "on").toLowerCase() !== "off";
@@ -1796,6 +1842,22 @@ export const REASONING_MODELS = [
   { id: "google/gemini-3.6-flash", efforts: ["minimal", "low", "medium", "high"] },
   { id: "anthropic/claude-sonnet-5", efforts: ["low", "medium", "high", "xhigh", "max"] },
   { id: "anthropic/claude-opus-5", efforts: ["low", "medium", "high", "xhigh", "max"] },
+  // Claude Opus 5.5: reasoning MANDATORY, default effort high (live catalog
+  // 2026-09-24). Same treatment as opus-5: premium leaves the model default,
+  // metered injects "low". Priced on the newer tokenizer (tokenizerFactor).
+  { id: "anthropic/claude-opus-5.5", efforts: ["low", "medium", "high", "xhigh", "max"] },
+  // GPT-6 Luna and Sol: reasoning default-on at medium, "none" supported
+  // (live catalog 2026-09-24). Prefix rows cover the -pro twins.
+  { prefix: "openai/gpt-6-luna", efforts: ["none", "low", "medium", "high", "xhigh", "max"] },
+  { prefix: "openai/gpt-6-sol", efforts: ["none", "low", "medium", "high", "xhigh", "max"] },
+  // Grok 4.5 / 4.6 / 4.7 (pro, via the x-ai/grok prefix): reasoning MANDATORY,
+  // default effort high (live catalog 2026-09-24). Without a row a small
+  // budget is spent reasoning at "high" and comes back empty.
+  { id: "x-ai/grok-4.5", efforts: ["low", "medium", "high"] },
+  { id: "x-ai/grok-4.6", efforts: ["low", "medium", "high", "xhigh"] },
+  { id: "x-ai/grok-4.7", efforts: ["low", "medium", "high", "xhigh"] },
+  // qwen3.8-max-prime: reasoning MANDATORY, default effort xhigh (live 2026-09-24).
+  { id: "qwen/qwen3.8-max-prime", efforts: ["minimal", "low", "medium", "high", "xhigh"] },
   // GPT-6 Astra: reasoning MANDATORY (no "none"), default effort medium; the
   // prefix covers gpt-6-astra-pro, which the live catalog lists with the same
   // set. Claude Fable 5.1: adaptive thinking mandatory, default effort high.
@@ -2535,33 +2597,23 @@ async function rerankHandler(input, req) {
 
 // ---------------------------------------------------------------------------
 // /v1/images/generations — OpenAI wire-path image generation over OpenRouter.
-// OpenRouter serves image models through chat/completions with
-// modalities: ["image","text"]; this route translates the OpenAI images API
-// to that shape and back, so any OpenAI SDK's images.generate() works by
-// changing base_url. The model is locked and n is locked to 1 — image output
-// is metered upstream, so every knob that multiplies cost is server-owned
-// (same discipline as image-gen's locked size/quality). Sampling is
-// non-deterministic → never cached; no streaming.
-//
-// Margin (two layers, same scheme as the chat tiers): flash-image output is
-// ~1300 completion tokens per image; IMAGES_MAX_TOKENS bounds the response and
-// IMAGES_MAX_PRICE rides upstream as provider.max_price so a repriced or
-// hijacked provider is refused instead of quietly eating the margin. Usage
-// accounting reports the exact bill to PostHog on every call.
+// The flagship images route. It speaks the OpenAI images wire (prompt in,
+// data[0].b64_json out, n locked to 1, response_format b64_json only) and is
+// served through OpenRouter's dedicated Image API by the same link code the
+// /v1/images/fast and /v1/images/pro tiers use (IMAGE_TIERS["v1-images"] and
+// imageTierHandler in llm-images-fast-kit.js): each link is pinned to one
+// provider at a flat per-image bound under MARGIN x price, and a live-listing
+// re-check skips a link whose provider repriced above its bound (an end-to-end
+// reprice answers 503, not charged). Until 2026-09-24 this route rode
+// google/gemini-2.5-flash-image over chat modalities; Google shuts that model
+// down on 2026-10-02. Output stays PNG 1024x1024, decodable by Jimp.
 export const IMAGES_PATH = "/v1/images/generations";
-const IMAGES_MODEL = "google/gemini-2.5-flash-image";
+export const IMAGES_MODEL = "black-forest-labs/flux.2-pro"; // first link; pinned against IMAGE_TIERS in test-images-fast-kit
 export const IMAGES_PRICE = 0.08;
 export const IMAGES_MAX_PROMPT_CHARS = 4_000;
-export const IMAGES_MAX_TOKENS = 1_600; // one image (~1300 tok) + a little text headroom
-// Worst case at these bounds stays within MARGIN x price (pinned in the
-// pricing-margin CI test).
-// `request` is deliberately near-zero: the locked model's providers charge no
-// per-request fee (OpenRouter lists prompt/completion/image-output pricing
-// only), so this bound never rejects a real provider — but a generous value
-// here would be a standing ALLOWANCE for a fee-charging provider to stack
-// a per-request fee on top of the token bill. Exported
-// (with the caps above) for the pricing-margin CI test.
-export const IMAGES_MAX_PRICE = { prompt: 1, completion: 35, image: 0.05, request: 0.005 };
+// Ids a caller may send in `model`: the two links, plus the retired Gemini id
+// so an existing client keeps working (the response names the model served).
+export const IMAGES_ACCEPTED_MODELS = Object.freeze(["black-forest-labs/flux.2-pro", "openai/gpt-5-image-mini", "google/gemini-2.5-flash-image"]);
 
 export function validateImagesRequest(input) {
   if (input == null || typeof input !== "object") throw bad("Request body must be a JSON object");
@@ -2570,7 +2622,7 @@ export function validateImagesRequest(input) {
   if (prompt.length > IMAGES_MAX_PROMPT_CHARS) throw bad(`Prompt too long (${prompt.length} chars). Maximum is ${IMAGES_MAX_PROMPT_CHARS}`);
   if (input.model !== undefined) {
     const m = canonicalModel(input.model);
-    if (m !== IMAGES_MODEL) throw bad(`"model" is fixed to ${IMAGES_MODEL} on this endpoint (omit it, or send that id)`);
+    if (!IMAGES_ACCEPTED_MODELS.includes(m)) throw bad(`"model" is fixed to ${IMAGES_MODEL} on this endpoint (omit it, or send that id)`);
   }
   if (input.n !== undefined && parseInt(input.n, 10) !== 1) {
     throw bad('"n" is locked to 1 - the flat price is per image; call again for more');
@@ -2578,8 +2630,9 @@ export function validateImagesRequest(input) {
   if (input.response_format !== undefined && input.response_format !== "b64_json") {
     throw bad('"response_format" must be "b64_json" - generated images are returned inline, not hosted');
   }
-  // size/quality/style have no upstream meaning for this model and no cost
-  // impact — ignored for drop-in friendliness rather than rejected.
+  // size/quality/style have no upstream meaning here (output is locked to the
+  // size the bound was measured at) and no cost impact - ignored for drop-in
+  // friendliness rather than rejected.
   const body = { prompt };
   if (input.zdr === true || input.provider?.zdr === true) body.zdr = true;
   return body;
@@ -2588,80 +2641,10 @@ export function validateImagesRequest(input) {
 async function imagesHandler(input, req) {
   gatewaySettleBreakerCheck(req);
   const { prompt, zdr } = validateImagesRequest(input);
-  const user = upstreamUserId(req);
-  const upstreamBody = {
-    model: IMAGES_MODEL,
-    messages: [{ role: "user", content: prompt }],
-    modalities: ["image", "text"],
-    max_tokens: IMAGES_MAX_TOKENS,
-    provider: { max_price: IMAGES_MAX_PRICE, ...(zdr ? { zdr: true } : {}) },
-    // OpenRouter documents `usage.include` as a no-op now (full usage is always
-    // returned). KEPT anyway: our margin telemetry and the metered meter read
-    // `usage.cost`, and dropping the field on the strength of a docs line would
-    // fail silently if the always-on behaviour is partial. Harmless if ignored.
-    usage: { include: true },
-
-    ...(user ? { user } : {}),
-  };
-  // Flex first (half price on this model's endpoints, live-verified), default
-  // second: flex never falls back on its own, and an imageless or failed flex
-  // answer must not become the buyer's 502 while the default tier would serve.
-  let data = null, servedTier = "default", lastErr = null;
-  for (const flex of flexEligible(IMAGES_MODEL) ? [true, false] : [false]) {
-    try {
-      const res = await fetchOpenRouter({ ...upstreamBody, ...(flex ? { service_tier: "flex" } : {}) }, { timeoutMs: 120_000 });
-      if (!res.ok) await throwUpstreamError(res);
-      const text = await res.text();
-      let parsed;
-      try { parsed = JSON.parse(text); } catch { throw bad("Upstream returned non-JSON", 502); }
-      assertUpstreamBody(parsed);
-      const imgs = parsed?.choices?.[0]?.message?.images;
-      if (!Array.isArray(imgs) || imgs.length === 0) throw bad("Upstream returned no image - retry, or rephrase the prompt", 502);
-      data = parsed; servedTier = parsed.service_tier || (flex ? "flex" : "default");
-      break;
-    } catch (e) {
-      if (![502, 503, 504].includes(e?.statusCode)) throw e;
-      lastErr = e;
-    }
-  }
-  if (!data) throw lastErr;
-  const images = data.choices[0].message.images;
-
-  // Exact upstream bill → operator telemetry, stripped before the response.
-  const usage = data.usage && typeof data.usage === "object" ? data.usage : null;
-  if (usage) {
-    const upstreamUsd = typeof usage.cost === "number" ? usage.cost : null;
-    delete usage.cost;
-    delete usage.cost_details;
-    delete usage.is_byok;
-    delete usage.cache_discount;
-    try {
-      const { capturePostHogGatewayUsage } = await import("../posthog.js");
-      capturePostHogGatewayUsage({
-        tier: "v1-images",
-        model: data.model || IMAGES_MODEL,
-        priceUsd: IMAGES_PRICE,
-        upstreamUsd,
-        promptTokens: usage.prompt_tokens,
-        completionTokens: usage.completion_tokens,
-        serviceTier: servedTier,
-      });
-    } catch { /* telemetry must never fail a served response */ }
-  }
-
-  // Translate back to the OpenAI images wire: data URI → b64_json.
-  const out = images.map((im) => {
-    const url = typeof im?.image_url?.url === "string" ? im.image_url.url : "";
-    const m = /^data:(image\/[\w.+-]+);base64,(.+)$/s.exec(url);
-    if (!m) throw bad("Upstream returned an image in an unexpected format", 502);
-    return { b64_json: m[2], media_type: m[1] };
-  });
-  return {
-    created: Math.floor(Date.now() / 1000),
-    model: data.model || IMAGES_MODEL,
-    data: out,
-    ...(usage ? { usage } : {}),
-  };
+  // Loaded at call time: the images kit imports this module, so a static
+  // import here would be a cycle.
+  const { imageTierHandler } = await import("./llm-images-fast-kit.js");
+  return imageTierHandler("v1-images", { prompt }, req, { zdr: zdr === true });
 }
 
 // ---------------------------------------------------------------------------
@@ -3280,7 +3263,7 @@ export const LLM_GATEWAY_TOOLS = [
     category: "llm",
     price: "$0.003",
     description:
-      "OpenAI-compatible chat completions, nano tier: gpt-5.6-luna, gpt-5-nano, gemini flash-lite, small llama/ministral/qwen, deepseek-chat - $0.003 per call in USDC over x402, priced for high-frequency agent loops. Same wire format as /v1/chat/completions with loop-sized caps (12k chars in, 768 tokens out). Streaming supported (stream: true). No API key, no signup.",
+      "OpenAI-compatible chat completions, nano tier: gpt-6-luna (the default), gpt-5.6-luna, gpt-5-nano, gemini flash-lite, small llama/ministral/qwen, deepseek-chat - $0.003 per call in USDC over x402, priced for high-frequency agent loops. Same wire format as /v1/chat/completions with loop-sized caps (12k chars in, 768 tokens out). Streaming supported (stream: true). No API key, no signup.",
     tags: SHARED_TAGS,
     discovery: { bodyType: "json", input: { ...EXAMPLE, model: "openai/gpt-5.6-luna" }, inputSchema: INPUT_SCHEMA, output: { example: { ...EXAMPLE_OUT, model: "openai/gpt-5.6-luna" } } },
     handler: makeHandler("v1-chat-nano"),
@@ -3376,7 +3359,7 @@ export const LLM_GATEWAY_TOOLS = [
     category: "llm",
     price: "$0.10",
     description:
-      "OpenAI-compatible chat completions, pro tier: gpt-4o, gpt-4.1, claude sonnet, gemini pro, grok - paid per call in USDC over x402. Same wire format as /v1/chat/completions with higher input/output caps (48k chars in, 4096 tokens out).",
+      "OpenAI-compatible chat completions, pro tier: gpt-4o, gpt-4.1, gpt-6 sol, claude sonnet, gemini pro, grok - paid per call in USDC over x402. Same wire format as /v1/chat/completions with higher input/output caps (48k chars in, 4096 tokens out).",
     tags: SHARED_TAGS,
     discovery: { bodyType: "json", input: { ...EXAMPLE, model: "openai/gpt-4o" }, inputSchema: INPUT_SCHEMA, output: { example: { ...EXAMPLE_OUT, model: "openai/gpt-4o" } } },
     handler: makeHandler("v1-chat-pro"),
@@ -3449,8 +3432,8 @@ export const LLM_GATEWAY_TOOLS = [
     category: "llm",
     price: "$0.080",
     description:
-      "OpenAI-compatible image generation over x402 - point any OpenAI SDK's images.generate() at base_url https://agent402.tools/v1 and pay $0.08 per image in USDC, no API key, no signup. Served by Gemini 2.5 Flash Image (nano banana); prompt in (up to 4k chars), inline base64 image out (response_format b64_json). One image per call (n locked to 1). Optional zdr:true routes only to zero-data-retention providers.",
-    tags: ["image-generation", "images", "text-to-image", "nano-banana", "gemini", ...SHARED_TAGS],
+      "OpenAI-compatible image generation over x402 - point any OpenAI SDK's images.generate() at base_url https://agent402.tools/v1 and pay $0.08 per image in USDC, no API key, no signup. Served by FLUX.2 Pro with GPT-5 Image Mini as the failover; prompt in (up to 4k chars), one 1024x1024 PNG out as inline base64 (response_format b64_json). One image per call (n locked to 1). Optional zdr:true routes only to zero-data-retention providers.",
+    tags: ["image-generation", "images", "text-to-image", "flux", "png", ...SHARED_TAGS],
     discovery: {
       bodyType: "json",
       input: { prompt: "A minimalist watercolor of a fox reading a newspaper in a forest clearing" },
@@ -3461,7 +3444,7 @@ export const LLM_GATEWAY_TOOLS = [
         },
         required: ["prompt"],
       },
-      output: { example: { created: 1750000000, model: IMAGES_MODEL, data: [{ b64_json: "iVBORw0KGgoAAAANSUhEUgAA…", media_type: "image/png" }], usage: { prompt_tokens: 14, completion_tokens: 1290, total_tokens: 1304 } } },
+      output: { example: { created: 1750000000, model: IMAGES_MODEL, data: [{ b64_json: "iVBORw0KGgoAAAANSUhEUgAA…", media_type: "image/png" }], usage: { prompt_tokens: 14, completion_tokens: 4096, total_tokens: 4110 } } },
     },
     handler: imagesHandler,
   },
@@ -3603,7 +3586,7 @@ export function modelsList() {
   data.push({
     id: IMAGES_MODEL,
     object: "model",
-    owned_by: "google",
+    owned_by: IMAGES_MODEL.split("/")[0],
     x402: { tier: "v1-images", endpoint: IMAGES_PATH, priceUsd: IMAGES_PRICE, maxPromptChars: IMAGES_MAX_PROMPT_CHARS, imagesPerCall: 1 },
   });
   // The speech route is registered only under OPENROUTER_TTS_ENABLED=true
