@@ -170,6 +170,14 @@ try {
   ok(bad.length === 0, `no page ships an uninterpolated template placeholder${bad.length ? ` - ${bad.join(" | ")}` : ""}`);
 }
 
+// --- sitemap pages no menu reaches still get a site-wide link ---------------
+{
+  const html = await (await fetch(`${BASE}/pricing`)).text();
+  for (const p of ["/faq", "/compare", "/use-cases", "/community", "/digest", "/shop", "/analytics", "/badges", "/SKILL.md", "/docs/webhooks"]) {
+    ok(html.includes(`href="${p}"`), `footer links ${p}`);
+  }
+}
+
   console.log(`\n${pass} passed (${PAGES.length} pages + error template)`);
   proc.kill("SIGKILL");
   process.exit(0);
