@@ -117,12 +117,14 @@ export function createTrafficStore(opts = {}) {
       }
     } catch { /* unreadable dir: start cold */ }
   }
-  function persist() {
+  // `now` is injectable like record()'s: the test fixture records a fixed day,
+  // and a wall-clock-only persist made it fail from the second day after.
+  function persist(now = Date.now()) {
     if (!dirty) return false;
     try {
       mkdirSync(o.dir, { recursive: true });
-      const today = dayOf();
-      for (const d of [today, dayOf(Date.now() - 864e5)]) {
+      const today = dayOf(now);
+      for (const d of [today, dayOf(now - 864e5)]) {
         const r = days.get(d); if (!r) continue;
         const tmp = join(o.dir, `${d}.json.tmp`); writeFileSync(tmp, JSON.stringify(r)); renameSync(tmp, join(o.dir, `${d}.json`));
       }
