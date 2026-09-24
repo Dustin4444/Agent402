@@ -48,6 +48,7 @@ export const REFUSAL_REASONS = Object.freeze([
   "routing_disabled",     // external routing is off on this host
   "routing_paused",       // a spend ceiling paused routing for now
   "routing_budget_spent", // resolution used the request's time budget
+  "judged_no_match",      // candidates matched the words; the judgment found none does the task
   "other",
 ]);
 
@@ -63,6 +64,9 @@ const RULES = [
   // $X underlying cap" message matches the over_cap rule).
   [/\bno external (x402|MPP|x402 or MPP) seller (matched|is eligible)\b.*\ball of them are below\b/i, "no_seller_eligible"],
   [/\bbelow (our|the) settlement (gate|floor)\b/i, "no_seller_eligible"],
+  // Judgment-step refusals (src/tool-judge.js).
+  [/\bno tool under this endpoint'?s .{0,24}cap does that task\b/i, "underlying_over_cap"],
+  [/\bdoes that task \(judged/i, "judged_no_match"],
   [/\bno external (x402|MPP|x402 or MPP) seller matched\b/i, "no_seller_matched"],
   // NOT \$[0-9.]+ : the real template is `above this endpoint's $${cap}
   // underlying cap`, so the amount is an interpolation and a digit class here

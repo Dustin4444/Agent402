@@ -42,6 +42,7 @@ import { fetchAllBazaarItems, isBazaarDiscoveryUrl } from "./bazaar-pager.js";
 import { RAILS, railKey, truncateCaip2 } from "./rails.js";
 import { CHAIN_PAGES, marketSellers } from "./market-page.js";
 import { WELL_KNOWN_PATH, discoveryNote } from "./discovery-note.js";
+import { judgeFreeResponse } from "./tool-judge.js";
 import { acceptsFromLive402, quoteFromAccepts, probeMethodsFor, probeAttemptsFor, isQuoteResponse } from "./x402-live-quote.js";
 import { evmDomainsOfAccepts, EVM_TOKEN_DOMAINS } from "./evm-usdc-domain.js";
 import { queryTerms, isCjkTerm, splitTokens } from "./query-terms.js";
@@ -3205,9 +3206,17 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
             // probes an hour, 37% of all misses. Stamp it free; the automatic
             // crawl leaves it alone for the quote window, a re-registration
             // re-asks.
-            tool.paid = false;
-            tool.quoteSource = "live-200"; tool.freeObservedAt = Date.now(); tool.quoteObservedAt = Date.now();
-            freeObserved = true;
+            // Only when the body is the route working, not an error page (src/tool-judge.js).
+            const raw = (await res.text().catch(() => "")).slice(0, 2000);
+            const bodyText = looksLikeListingInjection(raw) ? null : raw;   // text written to steer a judgment is not sent
+            const verdict = bodyText == null ? null : await judgeFreeResponse(bodyText, res.headers.get("content-type") || "");
+            if (verdict === "free") {
+              tool.paid = false;
+              tool.quoteSource = "live-200"; tool.freeObservedAt = Date.now(); tool.quoteObservedAt = Date.now();
+              freeObserved = true;
+            } else {
+              note(method, verdict === "error" ? "200-error-body" : "200-unsure");
+            }
           }
           break probe;
         }
