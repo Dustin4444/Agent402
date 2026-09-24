@@ -155,6 +155,17 @@ ok(s.totals.external.sales >= 2, "ledger still readable after garbage rows");
   ok(det.settlements.filter((r) => r.internal).length >= 40, `operator view still lists the internal rows (${det.settlements.length} rows)`);
 }
 
+// --- A tempo/subscription charge is a Tempo settlement too: the /revenue
+// throughput band (mppSales rails.tempo) and the chart's Tempo lane count it.
+{
+  const { tempoDailyRevenue } = await import("../src/sales-ledger.js");
+  const railBefore = mppSales({ limit: 100 }).rails.tempo.count;
+  const laneBefore = tempoDailyRevenue().reduce((n, d) => n + d.extTx, 0);
+  recordSale({ slug: "domain-monitor", priceUsd: 5, rail: "usdc", network: "tempo", payer: "0x2222222222222222222222222222222222222222", tx: "0xsubcharge1", wire: "mpp-tempo-subscription" });
+  ok(mppSales({ limit: 100 }).rails.tempo.count === railBefore + 1, "a tempo/subscription charge is on the tempo rail");
+  ok(tempoDailyRevenue().reduce((n, d) => n + d.extTx, 0) === laneBefore + 1, "and on the chart's Tempo lane");
+}
+
 // --- settle receipt tx parser --------------------------------------------------------
 const rcpt = Buffer.from(JSON.stringify({ transaction: "0xfeed", network: "eip155:8453" })).toString("base64");
 ok(txFromPaymentResponse(rcpt) === "0xfeed", "tx extracted from PAYMENT-RESPONSE receipt");

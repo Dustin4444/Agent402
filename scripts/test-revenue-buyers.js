@@ -19,8 +19,12 @@ import { join } from "node:path";
 const dir = mkdtempSync(join(tmpdir(), "a402-buyers-"));
 process.env.REVENUE_LEDGER_DB = join(dir, "ledger.db");
 process.env.REVENUE_DAILY_START = "2026-06-15";
+// Tempo MPP settlements are folded in from the sales ledger; keep it isolated.
+process.env.SALES_LEDGER_DB = join(dir, "sales.db");
 
-const { recordTransfer, ledgerBuyersDaily, ledgerBuyersWeekly, weekStartOf, ledgerBuyerRetention, ledgerDaily, ledgerSyncState, nextChunkSpan, LEDGER_BLOCK_MS } = await import("../src/revenue-ledger.js");
+const { recordTransfer, ledgerBuyersDaily, ledgerBuyersWeekly, ledgerBuyersMonthly, weekStartOf, ledgerBuyerRetention, ledgerBuyerConcentration, ledgerSummary, ledgerDaily, ledgerSyncState, nextChunkSpan, LEDGER_BLOCK_MS } = await import("../src/revenue-ledger.js");
+const { railThroughput } = await import("../src/revenue-live.js");
+const Database = (await import("better-sqlite3")).default;
 
 const WALLET = "0xwallet";
 const day = (d) => Math.floor(Date.parse(`${d}T12:00:00Z`) / 1000);
@@ -283,6 +287,119 @@ check("retention excludes internal rows and reports an honest zero", () => {
   assert.equal(ledgerBuyerRetention(wallets).buyers, before.buyers, "an internal/canary payer is not a buyer");
 });
 
+// --- Tempo MPP settlements are buyers too ----------------------------------
+// Tempo is not a chain the transfer scan reads, so its external settlements
+// come from the sales ledger. A buyer is a wallet across every rail: an EVM
+// address that pays on Base and on Tempo is ONE buyer. The sales ledger's own
+// `internal` flag decides internal vs external; nothing here re-derives it.
+// Rows are inserted directly so each can carry a chosen date.
+const salesDb = new Database(process.env.SALES_LEDGER_DB);
+let tseq = 0;
+const tempoSale = (d, payer, { internal = 0, wire = "mpp-tempo", network = "tempo", tx = null, usd = 0.01, rail = "usdc" } = {}) =>
+  salesDb.prepare("INSERT INTO sales (ts, slug, price_usd, rail, network, payer, tx, internal, wire) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(Date.parse(`${d}T12:00:00Z`), "hash", usd, rail, network, payer, tx ?? `0xtempo${++tseq}`, internal, wire);
+const TEMPO_ONLY = "0x" + "e".repeat(40);
+const BOTH = "0xDdDd000000000000000000000000000000000004";
+
+check("a Tempo-only external buyer is counted", () => {
+  const before = ledgerBuyersDaily(wallets).at(-1).cumulative;
+  tempoSale("2026-07-20", TEMPO_ONLY);
+  const r = ledgerBuyersDaily(wallets);
+  const d = on(r, "2026-07-20");
+  assert.ok(d, "a day with only a Tempo payment still has a buyer row");
+  assert.equal(d.buyers, 1);
+  assert.equal(d.newBuyers, 1, "first-ever payment, so new");
+  assert.equal(r.at(-1).cumulative, before + 1, "the running union grows by exactly one");
+});
+
+check("a wallet paying on Base and on Tempo the same day is one buyer", () => {
+  give("2026-07-21", BOTH);
+  tempoSale("2026-07-21", `did:pkh:eip155:4217:${BOTH.toLowerCase()}`); // did:pkh form, other case
+  const d = on(ledgerBuyersDaily(wallets), "2026-07-21");
+  assert.equal(d.buyers, 1, `one wallet across two rails (got ${d.buyers})`);
+  assert.equal(d.newBuyers, 1);
+  const w = ledgerBuyersWeekly(wallets).find((x) => x.week === weekStartOf("2026-07-21"));
+  assert.equal(w.newBuyers, w.buyers, "the week's buyers are all first-timers, each counted once");
+});
+
+check("an internal Tempo payer is excluded", () => {
+  tempoSale("2026-07-22", "0x" + "f".repeat(40), { internal: 1 });
+  assert.equal(on(ledgerBuyersDaily(wallets), "2026-07-22"), undefined, "our own Tempo volume is not a buyer");
+});
+
+check("cumulative stays a union when a Tempo buyer returns", () => {
+  const before = ledgerBuyersDaily(wallets).at(-1).cumulative;
+  tempoSale("2026-07-23", TEMPO_ONLY);
+  const r = ledgerBuyersDaily(wallets);
+  const d = on(r, "2026-07-23");
+  assert.equal(d.buyers, 1);
+  assert.equal(d.returningBuyers, 1, "second payment day, so returning");
+  assert.equal(r.at(-1).cumulative, before, "a returning buyer never grows the union");
+  const m = ledgerBuyersMonthly(wallets).find((x) => x.month === "2026-07-01");
+  assert.equal(m.cumulative, r.at(-1).cumulative, "monthly cumulative is the same union");
+});
+
+check("retention sees a wallet that came back on another rail", () => {
+  const before = ledgerBuyerRetention(wallets);
+  const X = "0x" + "9".repeat(40);
+  give("2026-07-24", X);
+  tempoSale("2026-07-25", X);
+  const r = ledgerBuyerRetention(wallets);
+  assert.equal(r.buyers - before.buyers, 1, "one wallet");
+  assert.equal(r.returned - before.returned, 1, "Base one day, Tempo the next: returned");
+});
+
+check("a pre-epoch Tempo row is not charted or counted in concentration", () => {
+  const conc = ledgerBuyerConcentration(wallets);
+  tempoSale("2026-06-01", "0x" + "7".repeat(40));
+  assert.equal(on(ledgerBuyersDaily(wallets), "2026-06-01"), undefined, "no row before the chart epoch");
+  const after = ledgerBuyerConcentration(wallets);
+  assert.equal(after.buyers, conc.buyers, "concentration starts at the epoch");
+  assert.equal(after.payments, conc.payments);
+});
+
+check("concentration counts Tempo payments and one wallet across rails once", () => {
+  const conc = ledgerBuyerConcentration(wallets);
+  tempoSale("2026-07-26", BOTH);
+  const after = ledgerBuyerConcentration(wallets);
+  assert.equal(after.payments - conc.payments, 1, "one more payment");
+  assert.equal(after.buyers, conc.buyers, "BOTH already paid on Base, so no new buyer");
+  assert.match(after.scope.source, /Tempo/, "the scope names Tempo as a source");
+});
+
+check("a Tempo row whose tx is already an on-chain transfer is not counted twice", () => {
+  const conc = ledgerBuyerConcentration(wallets);
+  const sum = ledgerSummary(wallets);
+  recordTransfer({ chain: "base", wallet: WALLET, txid: "dup1", tx_hash: "0xDUPTX", block: 999999, when_ts: day("2026-07-27"), payer: TEMPO_ONLY, usd: 0.01, asset: "USDC", external: 1 });
+  tempoSale("2026-07-27", TEMPO_ONLY, { tx: "0xDUPTX" });
+  const after = ledgerBuyerConcentration(wallets);
+  assert.equal(after.payments - conc.payments, 1, "one payment, not two");
+  const s2 = ledgerSummary(wallets);
+  assert.equal(s2.tempoExternal.count, sum.tempoExternal.count, "the deduped Tempo row adds nothing to the Tempo count");
+  assert.equal(s2.allTimeExternalWithTempoCount - sum.allTimeExternalWithTempoCount, 1, "the combined count grows once");
+});
+
+check("the external payment headline adds Tempo only, never Base/Celo MPP", () => {
+  const sum = ledgerSummary(wallets);
+  tempoSale("2026-07-28", TEMPO_ONLY, { usd: 0.5 });
+  tempoSale("2026-07-28", TEMPO_ONLY, { wire: "mpp-tempo-subscription", usd: 5 });
+  tempoSale("2026-07-28", TEMPO_ONLY, { wire: "mpp", network: "base" });        // already an on-chain transfer
+  tempoSale("2026-07-28", TEMPO_ONLY, { internal: 1, usd: 9 });                 // our own
+  tempoSale("2026-07-28", TEMPO_ONLY, { rail: "pow" });                         // free, not a payment
+  const s2 = ledgerSummary(wallets);
+  assert.equal(s2.tempoExternal.count - sum.tempoExternal.count, 2, "per-call + subscription, external, paid");
+  assert.ok(Math.abs(s2.tempoExternal.usd - sum.tempoExternal.usd - 5.5) < 1e-9, "usd from those two rows");
+  assert.equal(s2.allTimeExternalCount, sum.allTimeExternalCount, "the on-chain field keeps its meaning");
+  assert.equal(s2.allTimeExternalWithTempoCount, s2.allTimeExternalCount + s2.tempoExternal.count);
+  assert.ok(Math.abs(s2.allTimeExternalWithTempoUsd - (s2.allTimeExternalUsd + s2.tempoExternal.usd)) < 1e-6);
+});
+
+check("throughput adds Tempo once and Base/Celo MPP zero extra times", () => {
+  const t = railThroughput({ allTime: { allTimeInboundCount: 10 }, mpp: { rails: { tempo: { count: 3 }, base: { count: 5 }, celo: { count: 2 } } } });
+  assert.deepEqual(t, { onchain: 10, tempoMpp: 3, total: 13 });
+});
+
+salesDb.close();
 rmSync(dir, { recursive: true, force: true });
 console.log(failures ? `\nFAILED (${failures})` : "\nall passed");
 process.exit(failures ? 1 : 0);

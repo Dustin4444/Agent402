@@ -190,7 +190,7 @@ import { priceToMicroUsd } from "./x402-index.js";
 import { allPayToOrigins, indexSnapshot, sellerDetail, sellerEntry, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories, bazaarQualityEntries, bazaarQualityFor, indexWarmStartInProgress, indexReadiness, quoteIsStale, priceDisagreesWithOrigin, networksNeedLiveVerify, looksLikeListingInjection, crawlToolsByOrigin, listSuccessions, revokeSuccession, quoteProbeStatsSnapshot, removeOrigin, restoreOrigin, listRemovedOrigins, isRemovedOrigin, REMOVED_ORIGIN_ERROR } from "./x402-index.js";
 import { startMppCrawler, registerMppOrigin, validateOriginInput as validateMppOriginInput, mppIndexSnapshot } from "./mpp-index.js";
 import { startMppLeaderboard, mppLeaderboardSnapshot } from "./mpp-leaderboard.js";
-import { tempoSelfRecipient, tempoDiscoveryInfo } from "./mpp-tempo.js";
+import { tempoSelfRecipient, tempoDiscoveryInfo, tempoEnabled } from "./mpp-tempo.js";
 import { createMppReconciler, fetchTransfersFromFeed, fetchTransfersFromRpc } from "./mpp-reconcile.js";
 import { tempoDataKey } from "./tempo-transfers.js";
 import { verifyInboundPayment } from "./payment-verify.js";
@@ -369,7 +369,7 @@ import { setOgImageVersion, setNavIndexProvider, ledgerShell, ledgerFooterCompac
 import { ledgerHomePage } from "./ledger-home.js";
 import { ledgerCatalogPage } from "./ledger-catalog.js";
 import { ledgerPricingPage } from "./ledger-pricing.js";
-import { revenueSnapshot, revenuePage, stellarRail, stellarActivity, algorandRail, algorandActivity, evmActivity, solanaActivity, robinhoodActivity, baseActivityViaSql, EVM as EVM_CHAINS, rpcCall, getJsonAcross, ALGORAND_INDEXER_BASES, OUR_EVM_WALLETS, OUR_SOLANA_WALLETS, OUR_STELLAR_WALLETS, OUR_ALGORAND_WALLETS } from "./revenue-live.js";
+import { revenueSnapshot, revenuePage, railThroughput, stellarRail, stellarActivity, algorandRail, algorandActivity, evmActivity, solanaActivity, robinhoodActivity, baseActivityViaSql, EVM as EVM_CHAINS, rpcCall, getJsonAcross, ALGORAND_INDEXER_BASES, OUR_EVM_WALLETS, OUR_SOLANA_WALLETS, OUR_STELLAR_WALLETS, OUR_ALGORAND_WALLETS } from "./revenue-live.js";
 import { stellarPage, stellarSellers } from "./stellar-page.js";
 import { algorandPage, algorandSellers } from "./algorand-page.js";
 import { CHAIN_PAGES, marketSellers, marketOperatorCount, marketPage, marketPanelHtml } from "./market-page.js";
@@ -3120,7 +3120,7 @@ app.get("/revenue", async (_req, res) => {
     // than typed into the copy: a framing paragraph that goes stale is worse
     // than none, because it is the sentence asking to be trusted.
     const idx = getIndexSnapshot()?.totals || {};
-    res.set("Cache-Control", "public, max-age=30").type("html").send(revenuePage(BASE_URL, { ...snap, allTime: ledgerSummary(revenueWallets()), mpp: mppSales({ detailed: false }), card: cardSales({ days: 30 }), agents: ledgerBuyerConcentration(revenueWallets()), standing: { sellers: idx.sellers, listings: idx.tools, rails: RAILS.length } }));
+    res.set("Cache-Control", "public, max-age=30").type("html").send(revenuePage(BASE_URL, { ...snap, allTime: ledgerSummary(revenueWallets()), mpp: mppSales({ detailed: false }), card: cardSales({ days: 30 }), agents: ledgerBuyerConcentration(revenueWallets()), standing: { sellers: idx.sellers, listings: idx.tools, rails: settlementRailCount() } }));
   } catch (e) {
     if (e?.snapshotWarming) {
       res.status(200).type("html").send('<!doctype html><meta http-equiv="refresh" content="6"><title>Transactions</title><body style="font-family:system-ui,sans-serif;max-width:560px;margin:12vh auto;padding:0 24px;color:#14201b"><h2 style="font-weight:500">Warming up…</h2><p style="color:#5d675f">The live on-chain transaction view is loading for the first time since a deploy. It refreshes here automatically in a few seconds.</p><p><a href="/" style="color:#15654a">Home</a></p></body>');
@@ -5198,10 +5198,16 @@ function refreshIndexSnapshotInBackground() {
 // Read from the index totals and the ledger, never typed: a framing paragraph
 // that goes stale is worse than none, because it is the sentence asking to be
 // trusted. standingBand() suppresses itself when the crawl cache is cold.
+// Rails that settle here: the x402 chains plus Tempo when its MPP relay is
+// on. The settled figure beside it (railThroughput) already counts Tempo, so
+// the rail count must too. RAILS itself stays x402-only (accepts, scans).
+function settlementRailCount() {
+  return RAILS.length + (tempoEnabled() ? 1 : 0);
+}
 function standingFigures() {
   try {
     const t = getIndexSnapshot()?.totals || {};
-    return { sellers: t.sellers, listings: t.tools, rails: RAILS.length };
+    return { sellers: t.sellers, listings: t.tools, rails: settlementRailCount() };
   } catch { return {}; }
 }
 
@@ -6819,8 +6825,9 @@ let __settledMemo = { at: 0, n: 0 };
 function settledOnChainCount() {
   if (Date.now() - __settledMemo.at < 60_000) return __settledMemo.n;
   try {
-    const n = Number(ledgerSummary(revenueWallets())?.allTimeInboundCount || 0)
-      + Number(mppSales({ detailed: false })?.rails?.tempo?.count || 0);
+    // railThroughput is the /revenue hero's own arithmetic: on-chain inbound
+    // plus Tempo MPP once, never Base/Celo MPP (already on-chain).
+    const n = railThroughput({ allTime: ledgerSummary(revenueWallets()), mpp: mppSales({ detailed: false }) }).total;
     if (n > 0) __settledMemo = { at: Date.now(), n };
   } catch { /* keep serving the last good count */ }
   return __settledMemo.n;

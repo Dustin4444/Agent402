@@ -26,6 +26,7 @@ import {
   getJsonAcross, ALGORAND_INDEXER_BASES,
 } from "./revenue-live.js";
 import { usdcDeltaForOwner, payerFromMeta, isExternalPayment } from "../scripts/revenue-scan-solana.js";
+import { externalTempoPayments } from "./sales-ledger.js";
 
 const HAS_DATA_DIR = existsSync("/data");
 const DB_PATH = process.env.REVENUE_LEDGER_DB || join(HAS_DATA_DIR ? "/data" : "/tmp", "agent402-revenue.db");
@@ -78,6 +79,9 @@ CREATE INDEX IF NOT EXISTS idx_transfers_ext ON transfers (wallet, external, cha
 -- history: 2.05 s of the boot event loop on prod (first-import CPU profile,
 -- 2026-08-25). This index answers it as an ordered scan of 8 rows.
 CREATE INDEX IF NOT EXISTS idx_transfers_recent ON transfers (chain, wallet, block DESC, when_ts DESC);
+-- The buyer figures fold external Tempo settlements in from the sales ledger
+-- and skip any whose tx is already a transfer here; this answers that lookup.
+CREATE INDEX IF NOT EXISTS idx_transfers_txhash ON transfers (tx_hash);
 CREATE TABLE IF NOT EXISTS cursors (
   chain      TEXT NOT NULL,
   wallet     TEXT NOT NULL,
@@ -686,9 +690,17 @@ export function ledgerSummary(wallets) {
     allTimeInboundUsd += t.usd;
     allTimeInboundCount += t.n;
   }
+  // Tempo is not a scanned chain, so its external settlements come from the
+  // sales ledger (deduped against the transfers above). The on-chain figures
+  // keep their meaning; the combined pair is what /revenue headlines.
+  let tempoCount = 0, tempoUsd = 0;
+  for (const r of tempoExternalRows()) { tempoCount++; tempoUsd += r.usd; }
   return {
     allTimeExternalUsd: Number(allTimeExternalUsd.toFixed(6)),
     allTimeExternalCount,
+    tempoExternal: { count: tempoCount, usd: Number(tempoUsd.toFixed(6)), source: "sales ledger, Tempo MPP settlements (tempo/charge and tempo/subscription), external rows only" },
+    allTimeExternalWithTempoCount: allTimeExternalCount + tempoCount,
+    allTimeExternalWithTempoUsd: Number((allTimeExternalUsd + tempoUsd).toFixed(6)),
     // ALL settled inbound transfers, our own canary/volume/test wallets
     // included — the /revenue throughput band's number. Never presented as
     // revenue: throughput proves the rails, external proves the demand.
@@ -875,17 +887,57 @@ export function weekStartOf(day) {
   return d.toISOString().slice(0, 10);
 }
 
-/** Per-day payer sets + first-seen map + unattributed counts, across ALL
- *  history. Shared by the daily and weekly buyer series so the two can never
- *  disagree about who a buyer is or when they were first seen. */
-function buyerDaySets(wallets) {
-  const rows = db.prepare("SELECT chain, wallet, block, when_ts, usd, external, payer FROM transfers WHERE wallet = ?");
-  const chains = walletPairs(wallets);
-  const byDay = new Map(); // day -> Set(payer)
-  const unattributed = new Map(); // day -> count
-  const firstSeen = new Map(); // payer -> earliest day ever, across ALL history
+/** A payer as one buyer identity across rails: EVM addresses are
+ *  case-insensitive and fold to lowercase (so a wallet paying on Base and on
+ *  Tempo is one buyer); base58/Stellar/Algorand stay case-exact (src/payer.js). */
+function buyerKey(raw) {
+  if (!raw) return null;
+  return /^0x[0-9a-fA-F]{40}$/.test(raw) ? raw.toLowerCase() : raw;
+}
 
-  for (const [chain, wallet] of chains) {
+/** The EVM address inside a Tempo payer, whether stored bare or as a did:pkh
+ *  (`did:pkh:eip155:4217:0x...`). Anything else is unattributable. */
+function tempoPayerKey(raw) {
+  const m = String(raw || "").match(/0x[0-9a-fA-F]{40}/);
+  return m ? m[0].toLowerCase() : null;
+}
+
+/** Lowercased tx hashes from `txs` that already appear in the transfers table. */
+function onchainTxSet(txs) {
+  const found = new Set();
+  if (!txs.length) return found;
+  const q = db.prepare("SELECT 1 FROM transfers WHERE tx_hash = ? OR tx_hash = ? LIMIT 1");
+  for (const tx of txs) {
+    const s = String(tx);
+    if (q.get(s, s.toLowerCase())) found.add(s.toLowerCase());
+  }
+  return found;
+}
+
+/**
+ * External Tempo MPP settlements from the sales ledger (tempo/charge and
+ * tempo/subscription), minus any whose tx is already a transfer in this
+ * ledger, so a payment is never counted by both sources. Only Tempo: MPP over
+ * Base/Celo settles as an ordinary on-chain transfer and is already here.
+ */
+function tempoExternalRows() {
+  const tempo = externalTempoPayments();
+  const onchain = onchainTxSet(tempo.map((r) => r.tx).filter(Boolean));
+  return tempo.filter((r) => !(r.tx && onchain.has(String(r.tx).toLowerCase())));
+}
+
+/**
+ * Every EXTERNAL payment the buyer figures count, as {day, payer|null}: the
+ * on-chain inbound transfers this ledger scans, plus external Tempo MPP
+ * settlements from the sales ledger (Tempo is not a scanned chain). Internal
+ * classification is each source's own, never re-derived here. A Tempo row
+ * whose tx is also in the transfers table is skipped, so no payment is
+ * counted twice. Undateable on-chain rows are skipped rather than guessed.
+ */
+function externalPaymentEvents(wallets) {
+  const out = [];
+  const rows = db.prepare("SELECT chain, wallet, block, when_ts, external, payer FROM transfers WHERE wallet = ?");
+  for (const [chain, wallet] of walletPairs(wallets)) {
     if (!wallet) continue;
     const cur = getCursor.get(chain, wallet);
     const anchorBlock = cur?.next_block ?? null;
@@ -895,18 +947,30 @@ function buyerDaySets(wallets) {
       if (t.chain !== chain || !t.external) continue;
       let ms = t.when_ts ? t.when_ts * 1000 : null;
       if (ms == null && t.block != null && anchorBlock != null) ms = anchorMs - (anchorBlock - t.block) * cadence;
-      if (ms == null) continue; // undateable row — skip rather than guess
-      const day = new Date(ms).toISOString().slice(0, 10);
-      // EVM addresses are case-insensitive; base58/Stellar are NOT (see
-      // src/payer.js — never lowercase those or two buyers merge into one).
-      const raw = t.payer || null;
-      if (!raw) { unattributed.set(day, (unattributed.get(day) || 0) + 1); continue; }
-      const payer = /^0x[0-9a-fA-F]{40}$/.test(raw) ? raw.toLowerCase() : raw;
-      if (!byDay.has(day)) byDay.set(day, new Set());
-      byDay.get(day).add(payer);
-      const prev = firstSeen.get(payer);
-      if (!prev || day < prev) firstSeen.set(payer, day);
+      if (ms == null) continue;
+      out.push({ day: new Date(ms).toISOString().slice(0, 10), payer: buyerKey(t.payer || null) });
     }
+  }
+  for (const r of tempoExternalRows()) {
+    if (!Number.isFinite(r.ts)) continue;
+    out.push({ day: new Date(r.ts).toISOString().slice(0, 10), payer: tempoPayerKey(r.payer) });
+  }
+  return out;
+}
+
+/** Per-day payer sets + first-seen map + unattributed counts, across ALL
+ *  history. Shared by the daily and weekly buyer series so the two can never
+ *  disagree about who a buyer is or when they were first seen. */
+function buyerDaySets(wallets) {
+  const byDay = new Map(); // day -> Set(payer)
+  const unattributed = new Map(); // day -> count
+  const firstSeen = new Map(); // payer -> earliest day ever, across ALL history
+  for (const { day, payer } of externalPaymentEvents(wallets)) {
+    if (!payer) { unattributed.set(day, (unattributed.get(day) || 0) + 1); continue; }
+    if (!byDay.has(day)) byDay.set(day, new Set());
+    byDay.get(day).add(payer);
+    const prev = firstSeen.get(payer);
+    if (!prev || day < prev) firstSeen.set(payer, day);
   }
 
   const start = process.env.REVENUE_DAILY_START || "2026-06-15";
@@ -1066,20 +1130,21 @@ export function ledgerBuyersMonthly(wallets) {
 // day over a different source again (the sales ledger, from 2026-07-03, card
 // and credits included). Three true numbers, three scopes, none stated.
 //
-// Both figures here also read ONLY the on-chain transfers ledger, so they are
+// Both figures here read the on-chain transfers ledger plus the sales ledger's
+// external Tempo MPP settlements (Tempo is not a scanned chain), so they are
 // blind to card and prepaid-credits buyers by construction, and they skip a
-// transfer whose payer the chain does not expose (SVM and Stellar rows carry
-// none) or whose date cannot be established. Every one of those is a reason
+// payment whose payer is not exposed (SVM and Stellar rows carry none) or
+// whose date cannot be established. Every one of those is a reason
 // the number is a floor rather than a total, and a consumer cannot infer any
 // of it from `buyers: 495`. /revenue renders it as "distinct agents have paid
 // us", which is the reading this scope object exists to correct.
 const BUYER_SCOPE = ({ since }) => ({
   scope: {
     since: since || null,
-    source: "on-chain inbound transfers to our own wallets, external rows only",
+    source: "on-chain inbound transfers to our own wallets, plus Tempo MPP settlements (tempo/charge and tempo/subscription) from the sales ledger; external rows only, one buyer per wallet across rails",
     excludes: [
       "card and prepaid-credits buyers (they settle no on-chain transfer to us)",
-      "settlements whose payer the chain does not expose (Solana, Stellar)",
+      "settlements whose payer is not exposed (Solana, Stellar, and any Tempo settlement recorded without a payer)",
       "transfers whose date could not be established",
     ],
     note: since
@@ -1089,27 +1154,13 @@ const BUYER_SCOPE = ({ since }) => ({
 });
 
 export function ledgerBuyerConcentration(wallets) {
-  const rows = db.prepare("SELECT chain, wallet, block, when_ts, external, payer FROM transfers WHERE wallet = ?");
-  const chains = walletPairs(wallets);
   const start = process.env.REVENUE_DAILY_START || "2026-06-15";
   const counts = new Map();
   let payments = 0;
-  for (const [chain, wallet] of chains) {
-    if (!wallet) continue;
-    const cur = getCursor.get(chain, wallet);
-    const anchorBlock = cur?.next_block ?? null;
-    const anchorMs = cur?.updated_ts ? cur.updated_ts * 1000 : Date.now();
-    const cadence = BLOCK_MS[chain] || 2000;
-    for (const t of rows.all(wallet)) {
-      if (t.chain !== chain || !t.external || !t.payer) continue;
-      let ms = t.when_ts ? t.when_ts * 1000 : null;
-      if (ms == null && t.block != null && anchorBlock != null) ms = anchorMs - (anchorBlock - t.block) * cadence;
-      if (ms == null) continue;
-      if (new Date(ms).toISOString().slice(0, 10) < start) continue;
-      const payer = /^0x[0-9a-fA-F]{40}$/.test(t.payer) ? t.payer.toLowerCase() : t.payer;
-      counts.set(payer, (counts.get(payer) || 0) + 1);
-      payments++;
-    }
+  for (const { day, payer } of externalPaymentEvents(wallets)) {
+    if (!payer || day < start) continue;
+    counts.set(payer, (counts.get(payer) || 0) + 1);
+    payments++;
   }
   if (!payments) return { buyers: 0, payments: 0, topSharePct: null, top5SharePct: null, ...BUYER_SCOPE({ since: start }) };
   const sorted = [...counts.values()].sort((a, b) => b - a);
@@ -1154,27 +1205,13 @@ export function ledgerBuyerConcentration(wallets) {
  * percentages only - a roster of who pays us is a customer list.
  */
 export function ledgerBuyerRetention(wallets) {
-  const rows = db.prepare("SELECT chain, wallet, block, when_ts, external, payer FROM transfers WHERE wallet = ?");
-  const chains = walletPairs(wallets);
   const days = new Map();  // payer -> Set(day)
   const calls = new Map(); // payer -> payment count
-  for (const [chain, wallet] of chains) {
-    if (!wallet) continue;
-    const cur = getCursor.get(chain, wallet);
-    const anchorBlock = cur?.next_block ?? null;
-    const anchorMs = cur?.updated_ts ? cur.updated_ts * 1000 : Date.now();
-    const cadence = BLOCK_MS[chain] || 2000;
-    for (const t of rows.all(wallet)) {
-      if (t.chain !== chain || !t.external || !t.payer) continue;
-      let ms = t.when_ts ? t.when_ts * 1000 : null;
-      if (ms == null && t.block != null && anchorBlock != null) ms = anchorMs - (anchorBlock - t.block) * cadence;
-      if (ms == null) continue; // undateable row - skipped, never guessed
-      // EVM is case-insensitive; base58/Stellar are NOT (src/payer.js).
-      const payer = /^0x[0-9a-fA-F]{40}$/.test(t.payer) ? t.payer.toLowerCase() : t.payer;
-      if (!days.has(payer)) days.set(payer, new Set());
-      days.get(payer).add(new Date(ms).toISOString().slice(0, 10));
-      calls.set(payer, (calls.get(payer) || 0) + 1);
-    }
+  for (const { day, payer } of externalPaymentEvents(wallets)) {
+    if (!payer) continue;
+    if (!days.has(payer)) days.set(payer, new Set());
+    days.get(payer).add(day);
+    calls.set(payer, (calls.get(payer) || 0) + 1);
   }
   const buyers = days.size;
   if (!buyers) return { buyers: 0, oneDay: 0, oneDayOneCall: 0, returned: 0, oneDayPct: null, returnedPct: null, ...BUYER_SCOPE({ since: null }) };
