@@ -8,6 +8,13 @@ carries its own version on npm.
 
 Since v2.4.0 (2026-09-18).
 
+### 2026-09-24
+- Seller index: a route that is not in the seller's own manifest or OpenAPI
+  must answer a live 402 at least every 7 days and leaves the listing when it
+  answers 404 or 405 twice at least an hour apart; a 410 removes any route;
+  re-registering re-checks every route. `/api/index?seller=` shows
+  each route's `declared`, `source` and `lastVerifiedAt`.
+
 ### 2026-09-23
 - The model gateway serves Meta's Muse Spark (`meta/muse-spark-1.3`, `-1.2`,
   `-1.1`) and Muse Glimmer 30B (`meta/muse-glimmer-30b`) on the base tier and

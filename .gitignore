@@ -92,3 +92,23 @@ scratchpad/
 
 # Local research notes and screenshots (never committed)
 research/
+
+# Backups, editor and OS junk
+*.bak
+*.orig
+*.rej
+*.swp
+*.swo
+*~
+*.tmp
+Thumbs.db
+.idea/
+.vscode/
+
+# Test and run output
+coverage/
+.nyc_output/
+*.dump
+*.heapsnapshot
+*.cpuprofile
+/sweep.json
