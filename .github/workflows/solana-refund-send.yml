@@ -13,7 +13,7 @@ name: Solana refund send (one-time)
 # that the destination must be PROVEN on-chain to have paid us. `evidence` is a
 # settlement signature, re-derived from the chain against our payTo, which is
 # read from our own live 402 rather than hardcoded. An address that never paid
-# us cannot be refunded, whoever dispatches this. There is also a hard $25
+# us cannot be refunded, whoever dispatches this. There is also a hard
 # ceiling compiled into the script that no input can raise, and every guard
 # runs BEFORE the signing key is read.
 on:
@@ -33,7 +33,7 @@ on:
         required: false
         default: ""
       max_usd:
-        description: "Ceiling for this run (the script refuses anything over $2 regardless)"
+        description: "Ceiling for this run (the script also enforces its own hard ceiling)"
         required: false
         default: "2"
       reclaim_sending:

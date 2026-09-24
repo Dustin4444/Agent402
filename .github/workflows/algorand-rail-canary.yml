@@ -21,7 +21,7 @@ on:
         required: false
         default: "15"
       tool_max_usd:
-        description: "Per-tool price cap — skips pricier tools (default 0.25 covers 502 of 516 routes)"
+        description: "Per-tool price cap — skips pricier tools"
         required: false
         default: "0.25"
       dry:

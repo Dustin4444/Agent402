@@ -2,7 +2,7 @@ name: AgentKit adapter live proof
 
 # Proves agent402-agentkit with a REAL AgentKit wallet provider against
 # production: ViemWalletProvider over the canary burner pays a wallet-only tool
-# ($0.002) over x402 through agent402_call. Installs @coinbase/agentkit from the
+# over x402 through agent402_call. Installs @coinbase/agentkit from the
 # registry (its real dependency tree, ~minutes) in a scratch dir with no secrets
 # beyond the burner key. Dispatch-only.
 on:

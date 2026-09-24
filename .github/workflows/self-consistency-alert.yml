@@ -7,8 +7,8 @@ name: Discovery self-consistency (live)
 # runs this pre-merge against a fresh CI boot (deploy.yml's [test] job), but
 # that only proves the code we SHIPPED was internally consistent — it says
 # nothing about what is actually running on Railway right now. A stale or
-# rolled-back deploy (see the var-upsert race documented in CLAUDE.md, which
-# can leave prod "healthy, wrong version") could silently break
+# rolled-back deploy (a Railway variable write can redeploy an older build and
+# leave prod "healthy, wrong version") could silently break
 # discoverability for real agents with nothing to catch it, the same way
 # #705, the router-alias duplicate, and the priceless-listing bug were all
 # found by outsiders first instead of us.

@@ -552,8 +552,7 @@ jobs:
     # drop out of the missing set, so partial runs can be resumed.
     #
     # Cost is bounded by MAX_SPEND_USD; the script refuses to run if the
-    # estimate exceeds that ceiling. With 42 skill packs ($0.05-$1.50 each)
-    # the missing set can sum to ~$11 on a fresh pass.
+    # estimate exceeds that ceiling.
     #
     # Ordering: buys hit PROD, so when this run also deploys, wait for the
     # deploy — otherwise the sweep buys routes the old build still serves
@@ -593,7 +592,6 @@ jobs:
     # indexes key on. Split into BATCH_COUNT passes (BATCH_INDEX 0..N) so no
     # single pass runs long enough to time out; each pass is bounded by
     # MAX_SPEND_USD (the script refuses to run a batch whose estimate exceeds it).
-    # Full pass ≈ 1,293 routes ≤ $0.01 ≈ $1.75 total; 4 batches ≈ $0.44 each.
     needs: [markers, deploy]
     if: always() && github.event_name == 'workflow_dispatch' && inputs.mode == 'bazaar-sweep' && (needs.deploy.result == 'success' || needs.deploy.result == 'skipped')
     runs-on: ubuntu-24.04
@@ -2438,7 +2436,7 @@ jobs:
           t node scripts/test-usage.js
           # STT margin cap (duration enforced locally before any OpenAI spend — offline)
           t node scripts/test-stt-cap.js
-          # TTS lite tier (Kokoro over OpenRouter at a tenth of the OpenAI tiers): contract parity, the margin bound, refusals (offline)
+          # TTS lite tier (Kokoro over OpenRouter): contract parity, the margin bound, refusals (offline)
           t node scripts/test-tts-lite.js
           # Stellar late-settle confirmation (a confirmed transfer overrides the facilitator; a payment to anyone else never does — offline)
           t node scripts/test-stellar-confirm.js
@@ -2482,7 +2480,7 @@ jobs:
           t node scripts/test-skill-pack-steps.js
           # Refund backfill decides who is OWED money: who is in, who is out, idempotent (offline, temp ledgers)
           t node scripts/test-refund-backfill.js
-          # Upstream-spend meter records with PostHog OFF (the $11-vs-$0.03 shape) and in exact micro-dollars (offline)
+          # Upstream-spend meter records with PostHog OFF and in exact micro-dollars (offline)
           t node scripts/test-upstream-spend.js
           # Analytics redaction (per-tool table never reaches an unauthenticated caller - seeded, DB not required)
           t node scripts/test-analytics-redaction.js

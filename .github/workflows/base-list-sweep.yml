@@ -6,8 +6,7 @@ name: Base list sweep (register the unlisted routes in the Bazaar)
 # bought - the pro/premium model tiers, every report product, video, the X
 # tools. This buys the 37 of them that spend only against our OWN upstream
 # accounts, once each, from the CI burner to our own payTo, so the USDC
-# recycles and the real cost is the upstream bill (~$12, mostly report
-# synthesis). See scripts/base-list-sweep.js for the route list and why the two
+# recycles and the real cost is the upstream calls. See scripts/base-list-sweep.js for the route list and why the two
 # router tiers are excluded.
 #
 # Dispatch only. DRY BY DEFAULT - set dry=false to actually pay.

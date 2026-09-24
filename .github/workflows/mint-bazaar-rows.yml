@@ -12,7 +12,7 @@ name: Mint Bazaar rows (buy + verify the unlisted tools)
 #
 # Dispatch-only, `spending` environment, so each run takes operator approval.
 # Dry by default: `live: true` is what sends money. The two route-execute tiers
-# ($0.55 and $3.30, which also spend the SPENDING wallet at an outside seller)
+# (which also spend the SPENDING wallet at an outside seller)
 # need `expensive: true` on top.
 on:
   workflow_dispatch:
@@ -22,7 +22,7 @@ on:
         type: boolean
         default: false
       expensive:
-        description: "Also buy route-execute-pro ($3.30) and -max ($0.55)"
+        description: "Also buy route-execute-pro and -max"
         type: boolean
         default: false
       only:

@@ -33,9 +33,8 @@ jobs:
           FACILITATOR_URL: https://agent402-facilitator-production.up.railway.app
           FACILITATOR_TOKEN: ${{ secrets.AGENT402_FACILITATOR_AUTH_TOKEN }}
           STELLAR_BURNER_SECRET: ${{ secrets.STELLAR_BURNER_SECRET }}
-          # Default to our own Alchemy key (paid tier, no free-public-endpoint
-          # rate-limit roulette - measured OnFinality's free tier at 1 req/sec,
-          # which a single verify+settle cycle trivially exceeds). rpc_url
+          # Default to our own Alchemy key (public endpoints rate-limit below
+          # what one verify+settle cycle needs). rpc_url
           # input overrides for testing a different provider.
           STELLAR_MAINNET_RPC_URL: ${{ inputs.rpc_url != '' && inputs.rpc_url || format('https://stellar-mainnet.g.alchemy.com/v2/{0}', secrets.ALCHEMY_API_KEY) }}
           # Public Stellar address (our own existing revenue wallet) - not

@@ -2,7 +2,7 @@ name: Paid tool smoke test
 
 # Owner-approved, manually-dispatched: buy ONE tool from production with real
 # USDC on Base to confirm it works end-to-end (render, FRED, any live-data tool).
-# Cost is the tool's own price (typically $0.005-0.025). Marked internal traffic
+# Cost is the tool's own price. Marked internal traffic
 # (X-Heartbeat-Token) so it doesn't pollute the sales ledger. Dispatch only.
 on:
   workflow_dispatch:
