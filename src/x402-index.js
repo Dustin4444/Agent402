@@ -302,25 +302,35 @@ function persistSuccessions() {
   } catch { /* best-effort - no volume in local/dev */ }
 }
 
-// Routes an origin answered 410 Gone. A registry row is minted by a settled
-// payment and the registry never retires it, so a seller who removes a route
-// keeps it in our index through the Bazaar merge, and re-registering cannot
-// clear it. A 410 on the row's own verb is the seller saying the route is gone:
-// the row is dropped and the mark keeps the next crawl's merge from restoring
-// it. The mark lapses after GONE_ROUTE_TTL_MS, so a route that comes back is
-// probed and listed again.
+// What decides that a listed route exists. A seller's listing is merged from
+// their own documents (well-known manifest, OpenAPI, agents.json, llms.txt),
+// registry rows (minted by any past settled payment and never retired
+// upstream) and what earlier live 402s taught us. The merge only adds, so
+// before this a route the seller removed stayed listed through the registry
+// row, and re-registering could not clear it. The rule now:
+//   - a route the seller's own documents declare is listed (row.declared);
+//   - any other route must answer a live 402 (or be observed free) at least
+//     every LIVE_PROOF_MAX_AGE_MS, and is dropped when its own verb answers
+//     404, 405 or 410;
+//   - a 410 on the row's own verb drops even a declared route: the seller is
+//     saying it is gone.
+// A dropped route is remembered so the next crawl's merge cannot restore it.
+// A "miss" mark hides only undeclared rows, so a route the seller declares
+// again is listed again at once; a "410" mark hides the route either way. Both
+// lapse after GONE_ROUTE_TTL_MS, and the route is probed afresh.
 export const GONE_ROUTES_FILE = "/data/x402-gone-routes.json";
 export const GONE_ROUTE_TTL_MS = 30 * 24 * 3600 * 1000;
 const GONE_ROUTES_MAX = 20_000;
-const goneRoutes = new Map(); // "origin METHOD /route" -> observedAt
+const goneRoutes = new Map(); // "origin METHOD /route" -> { at, kind: "410" | "miss" }
+export const LIVE_PROOF_MAX_AGE_MS = 7 * 24 * 3600 * 1000;
 const goneKey = (origin, method, route) => `${origin} ${String(method || "GET").toUpperCase()} ${route}`;
 
 export function loadGoneRoutes() {
   try {
     const obj = JSON.parse(readFileSync(GONE_ROUTES_FILE, "utf8"));
-    for (const [k, at] of Object.entries(obj || {})) {
+    for (const [k, v] of Object.entries(obj || {})) {
       if (goneRoutes.size >= GONE_ROUTES_MAX) break;
-      if (typeof k === "string" && Number(at) > 0) goneRoutes.set(k, Number(at));
+      if (typeof k === "string" && v && Number(v.at) > 0) goneRoutes.set(k, { at: Number(v.at), kind: v.kind === "410" ? "410" : "miss" });
     }
   } catch { /* absent file / no volume - in-memory only */ }
 }
@@ -333,32 +343,79 @@ function persistGoneRoutes() {
   } catch { /* best-effort - no volume in local/dev */ }
 }
 
-export function markRouteGone(origin, method, route, at = Date.now()) {
+export function markRouteGone(origin, method, route, { at = Date.now(), kind = "410" } = {}) {
   const k = goneKey(origin, method, route);
   goneRoutes.delete(k);
   while (goneRoutes.size >= GONE_ROUTES_MAX) goneRoutes.delete(goneRoutes.keys().next().value);
-  goneRoutes.set(k, at);
+  goneRoutes.set(k, { at, kind: kind === "410" ? "410" : "miss" });
   persistGoneRoutes();
 }
 
-export function isRouteGone(origin, method, route, now = Date.now()) {
+/** The live mark for a route, or null. Expired marks are removed. */
+export function goneMark(origin, method, route, now = Date.now()) {
   const k = goneKey(origin, method, route);
-  const at = goneRoutes.get(k);
-  if (!at) return false;
-  if (now - at > GONE_ROUTE_TTL_MS) { goneRoutes.delete(k); return false; }
-  return true;
+  const m = goneRoutes.get(k);
+  if (!m) return null;
+  if (now - m.at > GONE_ROUTE_TTL_MS) { goneRoutes.delete(k); return null; }
+  return m;
 }
+export function isRouteGone(origin, method, route, now = Date.now()) { return goneMark(origin, method, route, now) != null; }
 
 // Removes rows marked gone from `tools` IN PLACE (callers read the array they
-// passed). Returns how many were removed.
+// passed). A "miss" mark hides only a row the seller does not declare.
+// Returns how many were removed.
 export function dropGoneRoutes(tools, origin, now = Date.now()) {
   if (!Array.isArray(tools) || !goneRoutes.size) return 0;
   let n = 0;
   for (let i = tools.length - 1; i >= 0; i--) {
     const t = tools[i];
-    if (t && typeof t.route === "string" && isRouteGone(origin, t.method, t.route, now)) { tools.splice(i, 1); n++; }
+    if (!t || typeof t.route !== "string") continue;
+    const m = goneMark(origin, t.method, t.route, now);
+    if (m && (m.kind === "410" || t.declared === false)) { tools.splice(i, 1); n++; }
   }
   return n;
+}
+
+const pathOf = (r) => String(r || "").split("?")[0];
+const SOURCE_LABELS = { bazaar: "registry", manifest: "manifest" };
+export function listingBasisProjection(t) {
+  const at = liveProofAt(t);
+  return {
+    ...(typeof t?.declared === "boolean" ? { declared: t.declared } : {}),
+    ...(t?.provenance ? { source: SOURCE_LABELS[t.provenance] || t.provenance } : {}),
+    ...(at > 0 ? { lastVerifiedAt: new Date(at).toISOString() } : {}),
+  };
+}
+/** Stamp `declared` on every row: true when the seller's own documents name
+ *  the route (exact path, or an OpenAPI template it instantiates, or the same
+ *  template), false otherwise. `declaredRoutes` is any list of { route }. */
+export function stampDeclared(tools, declaredRoutes = []) {
+  if (!Array.isArray(tools)) return tools;
+  const exact = new Set();
+  const templates = [];
+  for (const d of declaredRoutes || []) {
+    const r = pathOf(d?.route);
+    if (!r) continue;
+    exact.add(r);
+    if (r.includes("{")) templates.push(r);
+  }
+  for (const t of tools) {
+    if (!t || typeof t.route !== "string") continue;
+    const r = pathOf(t.route);
+    t.declared = exact.has(r) || templates.some((tpl) => routeMatchesTemplate(tpl, r));
+  }
+  return tools;
+}
+
+/** When a row last proved it is for sale by answering us: a live 402, a
+ *  live-verified chain list, or an observed free answer. 0 when never. */
+export function liveProofAt(t) {
+  const learnedAt = (t?.quoteSource === "live-402" || t?.quoteSource === "live-200") ? Number(t?.quoteObservedAt) || 0 : 0;
+  return Math.max(Number(t?.liveProvenAt) || 0, Number(t?.networksVerifiedAt) || 0, Number(t?.freeObservedAt) || 0, learnedAt);
+}
+/** An undeclared row whose last live proof is older than the window. */
+export function needsLiveProof(t, now = Date.now()) {
+  return t?.declared === false && now - liveProofAt(t) > LIVE_PROOF_MAX_AGE_MS;
 }
 
 export function _resetGoneRoutes() { goneRoutes.clear(); }
@@ -3074,6 +3131,7 @@ export function carryForwardLearnedQuotes(tools, prev) {
     const exact = learnedExact.get(`${String(t.method || "GET").toUpperCase()} ${t.route}`);
     const hit = exact || learnedByRoute.get(t.route);
     if (!hit) continue;
+    if (exact && Number(hit.liveProvenAt) > 0) t.liveProvenAt = hit.liveProvenAt;
     if (hit.quoteSource === "live-200") {
       // A RETIREMENT is carried the way a quote is: the rebuilt row (which the
       // Bazaar merge may have priced again from its settlement snapshot) reads
@@ -3319,7 +3377,10 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
         // (QUOTE_DRIFT_FACTOR) to stay polite; a seller who re-registers is
         // asking us to look now, and a 1.67x gap is still a wrong price.
         || (ignoreBudget && Number(t.price) > 0 && Number(t.originDeclaredPrice) > 0
-          && priceToMicroUsd(t.price) !== priceToMicroUsd(t.originDeclaredPrice)))
+          && priceToMicroUsd(t.price) !== priceToMicroUsd(t.originDeclaredPrice))
+        // A route the seller's own documents do not declare re-proves itself
+        // with a live answer every LIVE_PROOF_MAX_AGE_MS, or it leaves.
+        || needsLiveProof(t))
       // A route observed free inside the quote window is left alone by the
       // automatic crawl; an explicit re-registration still re-asks it.
       && (ignoreBudget || !isObservedFree(t))
@@ -3354,6 +3415,8 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
     let freeObserved = false;
     let gone = false;
     let firstOutcome = null;
+    const own = String(tool.method || "GET").toUpperCase();
+    const statusByMethod = {};
     const note = (method, outcome) => {
       const k = `${method} ${outcome}`;
       bump(quoteProbeStats.attempts, k);
@@ -3382,6 +3445,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
         // discovers a POST-only seller: a 404 or 405 on GET is expected there
         // and is the whole reason the second method is tried.
         note(method, String(res.status));
+        statusByMethod[method] = res.status;
         if (method === "GET" && res.status === 200) {
           // The route answered WITHOUT a paywall. If the price we hold was
           // learned (a past 402, or a Bazaar settlement snapshot) rather than
@@ -3396,6 +3460,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
             const was = tool.price;
             tool.price = null; tool.paid = false;
             tool.quoteSource = "live-200"; tool.quoteRetiredAt = Date.now(); tool.quoteObservedAt = Date.now();
+            tool.liveProvenAt = Date.now();
             delete tool.quoteCarriedForward;
             console.log(`[x402-index] live-200: ${originUrl}${tool.route} answered GET 200 with no paywall; retired the learned price ${was}`);
           } else if (String(tool.method || "GET").toUpperCase() === "GET" && !(Number(tool.price) > 0) && !(Number(tool.originDeclaredPrice) > 0)) {
@@ -3420,7 +3485,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
           break probe;
         }
         // 410 on the row's own verb: the seller retired this route.
-        if (res.status === 410 && method === String(tool.method || "GET").toUpperCase()) { gone = true; break probe; }
+        if (res.status === 410 && method === own) { gone = true; break probe; }
         if (!isQuoteResponse(res.status)) continue;   // 404 on GET is expected for a POST-only seller
         // The quote lives in the header for x402 v2 and in the body for several
         // real sellers; read a bounded slice of both and let the parser decide.
@@ -3444,10 +3509,36 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
       } catch (err) { note(method, probeFailureCode(err)); /* unreachable, blocked, or malformed - try the next method */ }
     }
     if (gone) {
-      markRouteGone(originUrl, tool.method, tool.route);
+      markRouteGone(originUrl, own, tool.route, { kind: "410" });
       dropped.add(tool);
       quoteProbeStats.probed++;
-      console.log(`[x402-index] live-410: ${originUrl}${tool.route} answered ${String(tool.method || "GET").toUpperCase()} 410 Gone; dropped the row`);
+      console.log(`[x402-index] live-410: ${originUrl}${tool.route} answered ${own} 410 Gone; dropped the row`);
+      continue;
+    }
+    if (learned || freeObserved) tool.liveProvenAt = Date.now();
+    // An undeclared route whose own verb answered "no such route" is not for
+    // sale. Only a definitive answer counts: a timeout, 5xx, 429, 401/403 or a
+    // 400 on our probe body says nothing. A row whose verb was inferred must
+    // miss on every verb tried; a URL template is never probed literally.
+    const MISS = new Set([404, 405, 410]);
+    const missCandidate = !learned && !freeObserved && tool.declared === false && !String(tool.route).includes("{") && MISS.has(statusByMethod[own]);
+    // An inferred POST is only ever probed with POST; before calling a guessed
+    // verb's miss a miss, ask the route once with a read-only GET.
+    if (missCandidate && tool.methodInferred && statusByMethod.GET === undefined) {
+      try {
+        const target = new URL(tool.route, originUrl).toString();
+        await assertPublicUrl(target);
+        const r = await fetch(target, { method: "GET", headers: { Accept: "application/json" }, dispatcher: ssrfDispatcher, redirect: "manual", signal: AbortSignal.timeout(8000) });
+        statusByMethod.GET = r.status;
+        await r.body?.cancel?.().catch?.(() => {});
+      } catch { statusByMethod.GET = 0; }
+    }
+    if (missCandidate
+        && (!tool.methodInferred || Object.values(statusByMethod).every((st) => MISS.has(st)))) {
+      markRouteGone(originUrl, own, tool.route, { kind: "miss" });
+      dropped.add(tool);
+      quoteProbeStats.probed++;
+      console.log(`[x402-index] live-miss: ${originUrl}${tool.route} is not in the seller's documents and answered ${own} ${statusByMethod[own]}; dropped the row`);
       continue;
     }
     noteProbeOutcome(originUrl, `quote:${tool.route}`, Boolean(learned));
@@ -3962,6 +4053,9 @@ async function crawlSeller(originUrl) {
     tools = mergeManifestIntoTools(normaliseManifestTools(manifest, originUrl), tools);
     tools = dropDeclaredFreeEndpoints(tools, manifest);
     tools = dropUnvouchedNonProductRoutes(tools, (bazaarToolsByOrigin.get(originUrl) || []).map((t) => t.route));
+    // Which routes the seller's own documents name; the rest must prove
+    // themselves live (see stampDeclared / needsLiveProof).
+    stampDeclared(tools, [...normaliseManifestTools(manifest, originUrl), ...(openapiRoutes || []), ...(openapiTools || [])]);
     // Keep what earlier crawls already learned, THEN spend the probe budget on
     // routes we still know nothing about.
     tools = carryForwardLearnedQuotes(tools, prev);
@@ -4074,6 +4168,7 @@ async function crawlSeller(originUrl) {
       bazaarTools.map((t) => t.route)
     );
     if (tools.length) {
+      stampDeclared(tools, [...openapiTools, ...(openapi ? openapiAllOperationRoutes(openapi, originUrl) : [])]);
       // Same enrichment as the manifest path. A seller discovered through the
       // FALLBACK surfaces is even less likely to have published a price, so
       // skipping it here would leave the worst-served sellers unpriced.
@@ -5369,6 +5464,7 @@ export function sellerDetail(originOrHost) {
       // otherwise tell a short history from a truncated one.
       history: Array.isArray(v.history) ? v.history.slice(-HEALTH_WINDOW) : [],
       healthWindow: HEALTH_WINDOW,
+      listingLegend: "Per tool: declared = your own manifest, OpenAPI, agents.json or llms.txt names the route; source = manifest, or registry for a row minted by a settled payment (omitted for rows read from your OpenAPI, agents.json or llms.txt); lastVerifiedAt = when the route last answered us live. A route you do not declare must answer a live 402 at least every 7 days, and leaves the listing when its method answers 404, 405 or 410. A 410 removes even a declared route. Re-registering at /sell re-checks every route now.",
       historyLegend: `the last ${HEALTH_WINDOW} crawl outcomes, oldest first: 1 = the manifest parsed, 0 = it did not. Fewer than ${HEALTH_WINDOW} entries means we have crawled this origin that many times, not that entries were dropped. Paywall liveness is measured separately and reported as \`paywall\`.`,
       // THE CAP HAS TO ANNOUNCE ITSELF. This list has been cut at 500 with
       // nothing saying so, on the one surface we tell a seller to use to check
@@ -5412,6 +5508,11 @@ export function sellerDetail(originOrHost) {
         // the observer recorded under.
         ...deliveryProjection(origin, t.method, t.route),
         networks: t.networks || undefined,
+        // Why this row is listed, so a seller can check a listing without
+        // asking us: whether their own documents declare it, where the row
+        // came from, and when it last answered us live. An undeclared row
+        // that stops answering leaves the listing (see stampDeclared).
+        ...listingBasisProjection(t),
       })),
     };
   }

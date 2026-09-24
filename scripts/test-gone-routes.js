@@ -1,14 +1,26 @@
-// A route the seller retired (410 Gone) leaves the index. A registry row is
-// minted by a settled payment and never retired upstream, so before this a
-// seller who removed a route kept it in our listing through the Bazaar merge,
-// and re-registering could not clear it. Pinned offline against a stubbed fetch:
-//   1. a 410 on the row's own verb drops the row and marks it gone;
-//   2. the mark keeps the next crawl's rebuild from restoring it;
-//   3. a 410 on a different verb, a 404 and a 402 drop nothing;
-//   4. the mark lapses after GONE_ROUTE_TTL_MS.
+// Which listed routes exist. A seller's listing merges their own documents with
+// registry rows (minted by any past settled payment, never retired upstream)
+// and earlier live 402s, and the merge only adds - so a route the seller
+// removed stayed listed and re-registering could not clear it. Pinned offline
+// against a stubbed fetch:
+//   1. stampDeclared marks routes the seller's documents name (exact, template);
+//   2. a 410 on the row's own verb drops any row, declared or not, and the mark
+//      keeps the next crawl's merge from restoring it;
+//   3. an UNDECLARED row whose own verb answers 404/405 is dropped; the mark
+//      hides only undeclared rows, so a route the seller declares again returns;
+//   4. an undeclared row that answers a live 402 is kept and stamped;
+//   5. nothing non-definitive drops a row (5xx, 429, 400, a thrown fetch), a
+//      declared row survives a 404, a URL template is never judged, and an
+//      inferred verb must miss on every verb tried;
+//   6. an undeclared row needs a live proof every LIVE_PROOF_MAX_AGE_MS, which
+//      carry-forward preserves across crawls;
+//   7. marks lapse after GONE_ROUTE_TTL_MS.
 import assert from "node:assert/strict";
 process.env.X402_INDEX_CRAWL = "off";
-const { enrichLiveQuotes, dropGoneRoutes, isRouteGone, markRouteGone, _resetGoneRoutes, GONE_ROUTE_TTL_MS } = await import("../src/x402-index.js");
+const {
+  enrichLiveQuotes, dropGoneRoutes, isRouteGone, markRouteGone, _resetGoneRoutes, GONE_ROUTE_TTL_MS,
+  stampDeclared, needsLiveProof, LIVE_PROOF_MAX_AGE_MS, carryForwardLearnedQuotes, listingBasisProjection,
+} = await import("../src/x402-index.js");
 
 let n = 0;
 const ok = (c, m) => { n++; assert.ok(c, m); };
@@ -18,46 +30,100 @@ const header = Buffer.from(JSON.stringify(accepts)).toString("base64");
 const stub = (rules) => async (url, init = {}) => {
   const u = new URL(String(url)); const m = String(init.method || "GET").toUpperCase();
   const status = rules[`${m} ${u.pathname}`] ?? 404;
+  if (status === "throw") throw Object.assign(new Error("connect ETIMEDOUT"), { code: "ETIMEDOUT" });
   const headers = new Headers(status === 402 ? { "payment-required": header } : {});
   return new Response("{}", { status, headers });
 };
-const row = (route, method = "POST", extra = {}) => ({ seller: "example.com", route, method, slug: route.slice(1).replace(/\//g, "-"), price: 0.01, paid: true, networks: ["eip155:8453"], ...extra });
+const row = (route, method = "POST", extra = {}) => ({ seller: "example.com", route, method, slug: route.slice(1).replace(/\//g, "-"), price: 0.01, paid: true, networks: ["eip155:8453"], provenance: "bazaar", ...extra });
+const routes = (arr) => arr.map((t) => t.route).join(",");
 const logs = [];
 const origLog = console.log; console.log = (...a) => { logs.push(a.join(" ")); };
 const orig = globalThis.fetch;
 
 try {
   _resetGoneRoutes();
-  // --- 1. a 410 on the row's own verb drops it (re-registration makes a priced Bazaar row a candidate)
+
+  // --- 1. stampDeclared
+  const st = stampDeclared(
+    [row("/v1/a"), row("/v1/items/42"), row("/v1/b?x=1"), row("/v1/c")],
+    [{ route: "/v1/a" }, { route: "/v1/items/{id}" }, { route: "/v1/b" }],
+  );
+  ok(st[0].declared === true && st[1].declared === true && st[2].declared === true, "exact paths, an instance of a declared template and a path with a query are declared");
+  ok(st[3].declared === false, "a route the documents do not name is undeclared");
+
+  // --- 2. a 410 on the row's own verb drops any row
   globalThis.fetch = stub({ "POST /v1/jobs": 410, "POST /v1/web/read": 402 });
-  const tools = [row("/v1/jobs"), row("/v1/web/read")];
-  const same = tools;
-  await enrichLiveQuotes(tools, ORIGIN, { ignoreBudget: true });
-  ok(same.length === 1 && same[0].route === "/v1/web/read", `the 410 row leaves the array in place (got ${same.map((t) => t.route).join(",")})`);
-  ok(isRouteGone(ORIGIN, "POST", "/v1/jobs"), "and is marked gone");
-  ok(logs.some((l) => /live-410: .*\/v1\/jobs answered POST 410 Gone; dropped the row/.test(l)), "and logged");
-
-  // --- 2. the next crawl's rebuild (the Bazaar row again) does not restore it
+  const t410 = [row("/v1/jobs", "POST", { declared: true }), row("/v1/web/read", "POST", { declared: false })];
+  const same = t410;
+  await enrichLiveQuotes(t410, ORIGIN, { ignoreBudget: true });
+  ok(routes(same) === "/v1/web/read", `a 410 drops even a declared row, in place (got ${routes(same)})`);
+  ok(isRouteGone(ORIGIN, "POST", "/v1/jobs"), "and marks it gone");
+  ok(logs.some((l) => /live-410: .*\/v1\/jobs answered POST 410 Gone; dropped the row/.test(l)), "and logs it");
   globalThis.fetch = async () => { throw new Error("a marked route must not be probed"); };
-  const rebuilt = [row("/v1/jobs"), row("/v1/web/read", "POST", { quoteObservedAt: Date.now() })];
-  await enrichLiveQuotes(rebuilt, ORIGIN);
-  ok(rebuilt.length === 1 && rebuilt[0].route === "/v1/web/read", "a rebuilt registry row for a gone route is dropped before any probe");
-  ok(!isRouteGone("https://other.example", "POST", "/v1/jobs"), "the mark is per origin");
-  ok(!isRouteGone(ORIGIN, "GET", "/v1/jobs"), "and per verb");
+  const rebuilt410 = [row("/v1/jobs", "POST", { declared: true }), row("/v1/web/read", "POST", { declared: false, liveProvenAt: Date.now() })];
+  await enrichLiveQuotes(rebuilt410, ORIGIN);
+  ok(routes(rebuilt410) === "/v1/web/read", "the next crawl's rebuilt row is dropped before any probe, declared or not");
+  ok(!isRouteGone("https://other.example", "POST", "/v1/jobs") && !isRouteGone(ORIGIN, "GET", "/v1/jobs"), "the mark is per origin and per verb");
 
-  // --- 3. nothing else drops a row
-  _resetGoneRoutes();
-  globalThis.fetch = stub({ "GET /v1/a": 410, "POST /v1/a": 402, "POST /v1/b": 404 });
-  const others = [row("/v1/a"), row("/v1/b")];
-  await enrichLiveQuotes(others, ORIGIN, { ignoreBudget: true });
-  ok(others.length === 2, `a 410 on another verb and a 404 drop nothing (got ${others.length} rows)`);
-  ok(!isRouteGone(ORIGIN, "POST", "/v1/a") && !isRouteGone(ORIGIN, "POST", "/v1/b"), "and mark nothing");
+  // --- 3. an undeclared row that answers 404 on its own verb leaves; declaring it again brings it back
+  globalThis.fetch = stub({ "POST /v1/old": 404, "POST /v1/gone405": 405 });
+  const miss = [row("/v1/old", "POST", { declared: false }), row("/v1/gone405", "POST", { declared: false })];
+  await enrichLiveQuotes(miss, ORIGIN);
+  ok(miss.length === 0, `undeclared rows answering 404/405 are dropped by the automatic crawl (left ${routes(miss)})`);
+  ok(logs.some((l) => /live-miss: .*\/v1\/old is not in the seller's documents and answered POST 404/.test(l)), "and logged as a miss");
+  globalThis.fetch = async () => { throw new Error("must not probe"); };
+  const again = [row("/v1/old", "POST", { declared: false })];
+  await enrichLiveQuotes(again, ORIGIN);
+  ok(again.length === 0, "a rebuilt undeclared row for a missed route stays out");
+  const declaredAgain = [row("/v1/old", "POST", { declared: true, quoteSource: "live-402", quoteObservedAt: Date.now() })];
+  dropGoneRoutes(declaredAgain, ORIGIN);
+  ok(declaredAgain.length === 1, "a missed route the seller now declares is listed again");
 
-  // --- 4. the mark lapses
-  markRouteGone(ORIGIN, "POST", "/v1/old", Date.now() - GONE_ROUTE_TTL_MS - 1000);
-  const back = [row("/v1/old")];
+  // --- 4. an undeclared row answering a live 402 is kept and stamped
+  globalThis.fetch = stub({ "POST /v1/live": 402 });
+  const live = [row("/v1/live", "POST", { declared: false })];
+  await enrichLiveQuotes(live, ORIGIN);
+  ok(live.length === 1 && live[0].liveProvenAt > 0, "an undeclared row that answers 402 stays and is stamped live");
+  const basis = listingBasisProjection(live[0]);
+  ok(basis.declared === false && basis.source === "registry" && typeof basis.lastVerifiedAt === "string", `the seller view says why it is listed (${JSON.stringify(basis)})`);
+
+  // --- 5. nothing non-definitive drops a row
+  globalThis.fetch = stub({ "POST /v1/e500": 500, "POST /v1/e429": 429, "POST /v1/e400": 400, "POST /v1/timeout": "throw", "POST /v1/doc": 404, "POST /v1/tpl/{id}": 404 });
+  const keep = [
+    row("/v1/e500", "POST", { declared: false }), row("/v1/e429", "POST", { declared: false }), row("/v1/e400", "POST", { declared: false }),
+    row("/v1/timeout", "POST", { declared: false }), row("/v1/doc", "POST", { declared: true }), row("/v1/tpl/{id}", "POST", { declared: false }),
+  ];
+  await enrichLiveQuotes(keep, ORIGIN, { ignoreBudget: true });
+  ok(keep.length === 6, `5xx, 429, 400, a timeout, a declared 404 and a template drop nothing (left ${routes(keep)})`);
+  globalThis.fetch = stub({ "POST /v1/inf1": 404, "GET /v1/inf1": 402, "POST /v1/inf2": 404, "GET /v1/inf2": 404, "POST /v1/inf3": 405, "GET /v1/inf3": 500 });
+  const inferred = [
+    row("/v1/inf1", "POST", { declared: false, methodInferred: true }),
+    row("/v1/inf2", "POST", { declared: false, methodInferred: true }),
+    row("/v1/inf3", "POST", { declared: false, methodInferred: true }),
+  ];
+  await enrichLiveQuotes(inferred, ORIGIN, { ignoreBudget: true });
+  ok(routes(inferred) === "/v1/inf1,/v1/inf3", `an inferred verb is dropped only when every verb misses (left ${routes(inferred)})`);
+  ok(!isRouteGone(ORIGIN, "POST", "/v1/inf1") && !isRouteGone(ORIGIN, "POST", "/v1/inf3") && isRouteGone(ORIGIN, "POST", "/v1/inf2"), "only the route that missed on every verb is marked");
+  ok(!isRouteGone(ORIGIN, "POST", "/v1/e500"), "no mark for a non-definitive answer");
+
+  // --- 6. the live-proof window, and carry-forward
+  const fresh = row("/v1/p", "POST", { declared: false, liveProvenAt: Date.now() - 60_000 });
+  const stale = row("/v1/p", "POST", { declared: false, liveProvenAt: Date.now() - LIVE_PROOF_MAX_AGE_MS - 60_000 });
+  const never = row("/v1/p", "POST", { declared: false });
+  const docd = row("/v1/p", "POST", { declared: true });
+  const legacy = row("/v1/p", "POST");
+  ok(!needsLiveProof(fresh) && needsLiveProof(stale) && needsLiveProof(never), "an undeclared row needs a proof when it has none or it is older than the window");
+  ok(!needsLiveProof(docd) && !needsLiveProof(legacy), "a declared row, or one crawled before stamping, does not");
+  const prev = { tools: [{ route: "/v1/p", method: "POST", price: 0.01, networks: ["eip155:8453"], quoteSource: "live-402", quoteObservedAt: Date.now() - 60_000, liveProvenAt: Date.now() - 60_000 }] };
+  const next = [row("/v1/p", "POST", { declared: false })];
+  carryForwardLearnedQuotes(next, prev);
+  ok(next[0].liveProvenAt > 0 && !needsLiveProof(next[0]), "carry-forward keeps the proof, so a proven route is not re-probed every crawl");
+
+  // --- 7. marks lapse
+  markRouteGone(ORIGIN, "POST", "/v1/lapsed", { at: Date.now() - GONE_ROUTE_TTL_MS - 1000, kind: "410" });
+  const back = [row("/v1/lapsed", "POST", { declared: true })];
   ok(dropGoneRoutes(back, ORIGIN) === 0 && back.length === 1, "a mark older than the TTL no longer hides the route");
-  markRouteGone(ORIGIN, "POST", "/v1/old");
+  markRouteGone(ORIGIN, "POST", "/v1/lapsed", { kind: "410" });
   ok(dropGoneRoutes(back, ORIGIN) === 1 && back.length === 0, "a fresh mark does");
 } finally {
   globalThis.fetch = orig;
