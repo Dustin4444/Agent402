@@ -447,7 +447,7 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
   ok(p.payload && typeof p.payload.transaction === "string" && p.payload.transaction.length > 0,
     "the payload still carries the signed base64 wire transaction");
   // The v2 wrap must match the STOCK client's: `resource` + `extensions` from
-  // the 402 ride beside `accepted`. blockrun's stock middleware tolerated
+  // the 402 ride beside `accepted`. a seller's stock middleware tolerated
   // their absence; xfuel's own verifier answered payment_payload_invalid to an
   // otherwise identical transaction (2026-09-02).
   const resource = { url: "https://seller.example/v1/chat/completions", description: "chat", mimeType: "application/json" };
@@ -499,7 +499,7 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
   ok((await sellerServesModel(`${base}/v1/chat/completions`, "gpt-4o-mini", t)).verdict === "not-served", "a readable list without the model -> not-served (the xfuel shape)");
   ok((await sellerServesModel(`${base}/v1/chat/completions`, "theta/glm_5_3", t)).verdict === "served", "a listed model -> served");
   ok(hits === 1, "the list was read ONCE for both verdicts (cached per list URL)");
-  ok((await sellerServesModel(`${base}/wide/v1/chat/completions`, "gpt-4o-mini", t)).verdict === "served", "prefix-listed model -> served (the blockrun shape)");
+  ok((await sellerServesModel(`${base}/wide/v1/chat/completions`, "gpt-4o-mini", t)).verdict === "served", "prefix-listed model -> served");
   ok((await sellerServesModel(`${base}/empty/v1/chat/completions`, "gpt-4o-mini", t)).verdict === "unknown", "an EMPTY list is unknown, never a refusal");
   ok((await sellerServesModel(`${base}/html/v1/chat/completions`, "gpt-4o-mini", t)).verdict === "unknown", "an unparseable list is unknown");
   ok((await sellerServesModel(`${base}/nolist/v1/chat/completions`, "gpt-4o-mini", t)).verdict === "unknown", "a 404 list is unknown (fail open)");

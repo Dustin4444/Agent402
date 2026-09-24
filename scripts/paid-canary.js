@@ -1596,7 +1596,7 @@ async function main() {
       avmClient.register("algorand:*", new ExactAvmScheme(signer, { algorandClient }));
       const avmPay = wrapAvm(synthFetch, avmClient);
       // QUOTA-AWARE ROUTE CHOICE (2026-09-22). The AVM facilitator sponsors the
-      // fee on every settlement and gives our payTo 1,000 free sponsored
+      // fee on every settlement and gives our payTo a free sponsored
       // sub-cent settlements a month; at or above $0.01 is unlimited. When the
       // month's allowance is spent - which we did to ourselves in September and
       // chose to wait out rather than buy Settlement Units - a $0.001 buy here

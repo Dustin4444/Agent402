@@ -24,7 +24,7 @@
 // suppressed by the next author and becomes decoration.
 import { execSync } from "node:child_process";
 
-// Naming a seller is not framing: "blockrun's middleware tolerated it" is
+// Naming a seller is not framing: "a seller's middleware tolerated it" is
 // mechanism, and the routing fixes need it. What these match is the ARGUMENT
 // - us measured against them, or the market reasoning behind a decision.
 const RULES = [
@@ -155,7 +155,7 @@ const MUST_FAIL = [
   ["F-2 recommended rotating a key. The owner declined and set a usage alert instead; if the key did leak before the path closed, it is still valid.", "the 2026-09-21 rotation note"],
 ];
 const MUST_PASS = [
-  ["SVM payload builder fetches a blockhash when the accept omits one\n\nblockrun's stock middleware tolerated it; api.xfuel.app's own verifier refused it.", "names sellers as mechanism"],
+  ["SVM payload builder fetches a blockhash when the accept omits one\n\nacme's stock middleware tolerated it; api.xfuel.app's own verifier refused it.", "names sellers as mechanism"],
   ["bound the paywall probe; it was competing with it for the runner's network", "'competing' in the technical sense"],
   ["chain names live in one place (this can't drift into a second, competing list)", "a competing LIST, not a competitor"],
   ["Insider flow report + watch, market/competitor brief; card sales ledgered", "market/competitor brief is a product we sell"],

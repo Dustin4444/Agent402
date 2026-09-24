@@ -37,8 +37,8 @@ jobs:
           COUNT=$(jq '.data | length' /tmp/speech-models.json)
           echo "live speech models: $COUNT"
           [ "$COUNT" -gt 0 ] || { echo "::error::speech model list is empty"; exit 1; }
-          # id | first voice | $/char | worst-case $ at the 2000-char cap
-          jq -r '.data[] | [.id, (.supported_voices[0] // "MISSING"), .pricing.prompt, ((.pricing.prompt | tonumber) * 2000 * 1000 | round / 1000)] | @tsv' /tmp/speech-models.json \
+          # id | first voice
+          jq -r '.data[] | [.id, (.supported_voices[0] // "MISSING")] | @tsv' /tmp/speech-models.json \
             | column -t -s $'\t'
 
       - name: Authenticated probe of /v1/audio/speech (skips without secret)

@@ -296,7 +296,7 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           const refusalBudgetMs = () => Math.max(0, externalDeadlineMs - (Date.now() - startedAt));
           // FALLTHROUGH ON A SELLER 5xx. Resolve up to SOR_MAX_CANDIDATES live
           // sellers (ranked, settled-desc) for the first chain that has any, so
-          // a seller whose OWN upstream is down (sol.blockrun's Pyth feed,
+          // a seller whose OWN upstream is down (a seller's Pyth feed,
           // 2026-09-01) does not fail a route another seller can serve. Only a
           // 5xx from the PAID leg advances - a 4xx cancels settlement and means
           // our request is wrong, and a receipt means we already paid.

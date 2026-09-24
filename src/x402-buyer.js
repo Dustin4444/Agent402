@@ -772,7 +772,7 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
     // Fresh timeout AND a fresh pinned connection for the paid leg. The
     // timeout must not inherit the bare leg's spent budget, and the paid
     // retry must not reuse the bare leg's kept-alive socket: a live seller's
-    // edge corrupts the connection after its 402 (2026-09-01, sol.blockrun -
+    // edge corrupts the connection after its 402 (2026-09-01, a seller -
     // the reused socket died as an uncaught "invalid content-length header"
     // inside undici, with our signed payment never delivered). guardedLookup
     // still pins the IP, so the SSRF discipline is unchanged.
