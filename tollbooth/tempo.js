@@ -340,9 +340,8 @@ export function memoBoundToChallenge(memo, challengeId) {
 /** Did this credential's transaction settle despite the relay's verdict?
  *  Returns { txId } when a candidate receipt exists, succeeded (status 0x1),
  *  and carries the challenge's transfer (currency + recipient + >= amount) as
- *  a TransferWithMemo whose MPP memo is bound to THIS challenge's id, so a
- *  settled transfer made for another purchase cannot be re-attached to a
- *  fresh challenge - else null. Polls briefly (a just-mined tx may not be indexed when the
+ *  a TransferWithMemo whose MPP memo is bound to THIS challenge's id - else
+ *  null. Polls briefly (a just-mined tx may not be indexed when the
  *  relay answers). Never throws. */
 export async function confirmTempoSettlement(credential, { rpcUrl, fetchImpl = globalThis.fetch, attempts = 4, delayMs = 2000 } = {}) {
   try {

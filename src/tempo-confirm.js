@@ -25,15 +25,12 @@
 // (buyer answered 402, exactly as before this module existed).
 //
 // BOUND TO THIS CHALLENGE (2026-09-24). The hash binding says which
-// transaction the credential carries, not that the transaction was made for
-// THIS purchase. A settled transfer's signed bytes could be attached to a
-// fresh challenge: its broadcast fails (already mined) and the receipt still
-// matches currency, recipient and amount. Every mppx charge memo carries a
-// nonce derived from its challenge id (tempo/Attribution.js: TAG, version,
-// server and client fingerprints, keccak256(challengeId)[0..6]), so the
-// transfer must be a TransferWithMemo to our recipient whose memo is bound to
-// the challenge this credential presents. A transaction can match at most one
-// challenge, so the challenge-id replay key is enough.
+// transaction the credential carries; the memo says which purchase it was
+// made for. Every mppx charge memo carries a nonce derived from its challenge
+// id (tempo/Attribution.js: TAG, version, server and client fingerprints,
+// keccak256(challengeId)[0..6]), so the transfer must be a TransferWithMemo
+// to our recipient whose memo is bound to the challenge this credential
+// presents. A transaction matches at most one challenge.
 import { Credential } from "mppx";
 import { keccak256, fromRlp, toBytes } from "viem";
 
