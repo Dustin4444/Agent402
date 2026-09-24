@@ -15,7 +15,7 @@
 // silent green that let every one of those ship.
 import { readFileSync } from "node:fs";
 import {
-  TIERS, AUTO_RANKINGS, SPEECH_MODELS, MODEL_COST, FLEX_MODELS, REASONING_MODELS, reasoningRowMatches, costFor, tierFor, tierAllows, STEALTH_MODEL_IDS, modelsList, PRIORITY_PRICE_FACTOR,
+  TIERS, AUTO_RANKINGS, SPEECH_MODELS, RETIRING_MODELS, MODEL_COST, FLEX_MODELS, REASONING_MODELS, reasoningRowMatches, costFor, tierFor, tierAllows, STEALTH_MODEL_IDS, modelsList, PRIORITY_PRICE_FACTOR,
 } from "../src/tools/llm-gateway-kit.js";
 import { PRIMARY_PREFERENCE } from "../openclaw/models.js";
 
@@ -177,20 +177,25 @@ let endpointReads = 0, headlineOnly = 0, priorityExcluded = 0, priorityChecked =
   const queue = [...admitted];
   const worker = async () => {
     for (let m = queue.shift(); m; m = queue.shift()) {
-      const slug = tierFor(m.id);
-      const tier = TIERS[slug];
       const eps = await endpointPrices(m.id);
+      if (eps) endpointReads++; else headlineOnly++;
+      // Grade the row under EVERY tier that admits the model, each against its
+      // own bound. tierFor() alone returns the FIRST home, and a family prefix
+      // on a budget tier ("qwen/" on base) filtered out an endpoint above that
+      // bound - while the metered tier admits the same id under a far wider
+      // bound and sends the row itself as provider.max_price, so a row under
+      // the dearest endpoint made the model unservable there (qwen3.8-max-prime,
+      // 2026-09-24: every metered call refused upstream).
+      for (const slug of Object.keys(TIERS).filter((s) => tierAllows(s, m.id))) {
+      const tier = TIERS[slug];
       let prices = [];
       let priorityPrices = [];
       if (eps) {
-        endpointReads++;
         // Priority endpoints: bounded by factor x row on the tiers that sell
         // the priority knob, excluded (never routed to) everywhere else.
         if (tier.priority === true) priorityPrices = eps.filter((e) => PRIORITY_TAG.test(e.tag));
         else priorityExcluded += eps.filter((e) => PRIORITY_TAG.test(e.tag)).length;
         prices = eps.filter((e) => !PRIORITY_TAG.test(e.tag));
-      } else {
-        headlineOnly++;
       }
       const hp = Number(m.pricing?.prompt) * 1e6, hc = Number(m.pricing?.completion) * 1e6;
       if (Number.isFinite(hp) && Number.isFinite(hc)) prices.push({ tag: "headline", p: hp, c: hc });
@@ -215,6 +220,7 @@ let endpointReads = 0, headlineOnly = 0, priorityExcluded = 0, priorityChecked =
           under.push(`${m.id} PRIORITY endpoint ${e.tag} $${e.p}/$${e.c} over ${PRIORITY_PRICE_FACTOR}x the table row $${table.prompt}/$${table.completion} (${slug} sells service_tier priority at that factor)`);
         }
       }
+      }
     }
   };
   await Promise.all(Array.from({ length: 6 }, worker));
@@ -230,6 +236,16 @@ const expiryOf = (m) => m.expiration_date || m.deprecation_date || null;
 const watched = new Set([...Object.values(AUTO_RANKINGS).flatMap((b) => Object.values(b).flat()), ...Object.values(TIERS).flatMap((t) => t.fallbacks || [])]);
 const expiring = models.filter((m) => watched.has(m.id) && expiryOf(m) && Date.parse(expiryOf(m)) < soon).map((m) => `${m.id} (${expiryOf(m)})`);
 ok(expiring.length === 0, `no ranked/fallback model expires within 14 days${expiring.length ? ` (${expiring.join(", ")})` : ""}`);
+// 5a. RETIRING_MODELS refuses ids a family prefix would still admit. An entry
+//     must describe an id the upstream really is removing (it carries an
+//     expiration date), and its named successor must be live and admitted; an
+//     id already gone upstream is reported so the entry can be deleted.
+for (const [id, r] of Object.entries(RETIRING_MODELS)) {
+  const m = models.find((x) => x.id === id);
+  if (!m) { warn(`RETIRING_MODELS: ${id} is gone upstream - delete its entry`); continue; }
+  ok(!!expiryOf(m), `RETIRING_MODELS: ${id} carries an upstream expiration date (${expiryOf(m) || "none - a refusal with no retirement behind it"})`);
+  ok(ids.has(r.use) && !!tierFor(r.use), `RETIRING_MODELS: ${id}'s named successor ${r.use} is live and admitted`);
+}
 // 5b. DEFAULTS have no horizon: a tier's defaultModel is what a caller who names
 //     no model is served, and OpenClaw's PRIMARY_PREFERENCE is what `setup`
 //     writes into a user's config. A chain can walk past an expiring link; a

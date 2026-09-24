@@ -23,11 +23,11 @@ Because tiers are flat-priced while upstream bills per token, every request is a
 
 | Endpoint | Price | Serves | Input cap | Output cap |
 |---|---|---|---|---|
-| `POST /v1/nano/chat/completions` | $0.003 | nano models (gpt-5.6-luna, gpt-5-nano, gemini flash-lite, small llama/ministral/qwen, deepseek-chat, laguna) - priced for high-frequency agent loops | 12k chars | 768 tokens |
+| `POST /v1/nano/chat/completions` | $0.003 | nano models (gpt-6-luna by default, gpt-5.6-luna, gpt-5-nano, gemini flash-lite, small llama/ministral/qwen, deepseek-chat, laguna) - priced for high-frequency agent loops | 12k chars | 768 tokens |
 | `POST /v1/auto/chat/completions` | $0.01 | **model optional** - deterministic eval-ranked routing (see below) | 16k chars | 1,024 tokens |
 | `POST /v1/chat/completions` | $0.02 | budget/mid models (gpt-4o-mini, claude haiku, gemini flash, deepseek, llama, mistral, qwen) | 32k chars | 2,048 tokens |
-| `POST /v1/pro/chat/completions` | $0.10 | mid-frontier (gpt-4o, gpt-4.1, claude sonnet incl. sonnet-5, gemini pro and 3.x flash, grok) | 48k chars | 4,096 tokens |
-| `POST /v1/premium/chat/completions` | $0.50 | frontier (gpt-5 and gpt-6 astra, o3 and o4-mini, claude opus and claude fable 5.1) | 85k chars | 8,192 tokens |
+| `POST /v1/pro/chat/completions` | $0.10 | mid-frontier (gpt-4o, gpt-4.1, gpt-6 sol, claude sonnet incl. sonnet-5, gemini pro and 3.x flash, grok) | 48k chars | 4,096 tokens |
+| `POST /v1/premium/chat/completions` | $0.50 | frontier (gpt-5 and gpt-6 astra, o3 and o4-mini, claude opus incl. opus-5.5, and claude fable 5.1) | 85k chars | 8,192 tokens |
 | `POST /v1/embeddings` | $0.002 | text-embedding-3-small (default), 3-large, ada-002 - batch up to 64 inputs | 16k chars | - |
 | `POST /v1/images/generations` | $0.08 | Gemini 2.5 Flash Image (nano banana) - one image per call, inline base64 out | 4k-char prompt | 1 image |
 | `POST /v1/audio/speech` | $0.06 | a five-model failover chain on OpenRouter's audio API; raw mp3/pcm bytes out, the 11 OpenAI voice names plus each model's native voices | 2k-char input | - |
