@@ -191,7 +191,8 @@ try {
   // gated at, so a call priced at its model's home tier is owed at that price.
   const { readFileSync } = await import("node:fs");
   const serverSrc = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
-  const debt = serverSrc.slice(serverSrc.indexOf("const receipt = decodeSettleReceipt(settleReceipt);"), serverSrc.indexOf("recordRefundOwed({"));
+  const debtStart = serverSrc.indexOf("const receipt = decodeSettleReceipt(settleReceipt);");
+  const debt = serverSrc.slice(debtStart, serverSrc.indexOf("recordRefundOwed({", debtStart));
   ok(/const priceUsd = settledPriceUsd\(def, req, res\);/.test(debt) && !/def\.price/.test(debt), "the charged-failure debt is priced by settledPriceUsd (the gated price), never the route's list price");
   ok(/priceFnOf\(def\) && Number\.isFinite\(req\?\.__meteredQuoteUsd\)/.test(serverSrc), "settledPriceUsd honours a flat route's tierQuote stash, so the books record the home-tier price");
   console.log(`\nPASS - ${pass} checks (price by model, booted paid server)`);
