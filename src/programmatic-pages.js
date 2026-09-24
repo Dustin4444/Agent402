@@ -38,6 +38,7 @@ import { probeInsiderFilings, parseForm4 } from "./tools/insider-flow-kit.js";
 import { resolveCompany, resolveManager, edgarGetJson, fetchXmlText, findInformationTable, parse13fInformationTable, latest13fFiling } from "./tools/edgar-kit.js";
 import { SEED_TICKERS, SEED_MANAGERS, seededManager, isSeededTicker } from "./programmatic-seeds.js";
 import { alertFormHtml } from "./free-alerts.js";
+import { fitTitle } from "./seo-meta.js";
 
 // --- validation -------------------------------------------------------------
 // Shape first, upstream second. Anything that fails here costs one regex.
@@ -548,7 +549,7 @@ export function fundPage({ slug, data, baseUrl, degraded = false }) {
   const seed = seededManager(slug);
   const name = data?.name || seed?.name || slugToName(slug);
   const canonical = `${baseUrl}/reports/fund/${slug}`;
-  const title = `${name} 13F holdings: latest portfolio from SEC filings`;
+  const title = fitTitle([`${name} 13F holdings: latest portfolio from SEC filings`, `${name} 13F holdings: latest SEC portfolio`, `${name} 13F holdings`]);
   const description = data
     ? `What ${name} holds: the latest SEC Form 13F-HR, period ending ${data.reportDate}, filed ${data.filedDate}${data.holdingsAvailable ? `, ${fmtInt(data.totalHoldings)} positions worth ${fmtUsd(data.totalValueUsd)}` : ""}. Top holdings shown free.`
     : `What ${name} holds: the latest SEC Form 13F-HR portfolio, position count and top holdings by reported value, straight from EDGAR.`;
@@ -599,7 +600,7 @@ export function dossierPage({ ticker, data, baseUrl, degraded = false }) {
   const family = FAMILIES.dossier;
   const name = data?.name || ticker;
   const canonical = `${baseUrl}/reports/dossier/${ticker}`;
-  const title = `${ticker} due diligence: SEC filing profile for ${name}`;
+  const title = fitTitle([`${ticker} due diligence: SEC filing profile for ${name}`, `${ticker} due diligence: ${name} SEC profile`, `${ticker} due diligence: SEC filing profile`]);
   const description = data
     ? `Due-diligence starting point for ${name} (${ticker}): CIK ${data.cik}${data.industry ? `, ${data.industry}` : ""}${data.latest10K?.filingDate ? `, latest 10-K filed ${data.latest10K.filingDate}` : ""}. Company identity and filing dates from SEC EDGAR, free.`
     : `Due-diligence starting point for ${ticker}: company identity, industry classification and the latest 10-K and 10-Q dates from SEC EDGAR.`;

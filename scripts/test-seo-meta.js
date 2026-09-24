@@ -8,7 +8,9 @@
 //
 //   node scripts/test-seo-meta.js                      # offline unit
 //   TARGET_URL=http://127.0.0.1:3000 node scripts/test-seo-meta.js   # + booted sweep
-import { metaDescription, metaTitle, META_DESCRIPTION_MAX, META_TITLE_MAX } from "../src/seo-meta.js";
+import { metaDescription, metaTitle, fitTitle, trimWords, META_DESCRIPTION_MAX, META_TITLE_MAX, SERP_TITLE_MAX } from "../src/seo-meta.js";
+import { guidePage, guideSlugs } from "../src/guides.js";
+import { sampleMeta, SAMPLES } from "../src/sample-reports.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
@@ -36,6 +38,18 @@ const t = metaTitle("Agent hosts: Claude Code, Cursor, Continue, ElizaOS, any Op
 ok(t.length <= META_TITLE_MAX, `a long title is cut to <= ${META_TITLE_MAX} (got ${t.length}: "${t}")`);
 ok(!/[-:|·]\s*$/.test(t), "a cut title never ends on a dangling separator");
 ok(metaTitle("x".repeat(90)).length <= META_TITLE_MAX, "a title with no separator or space is hard-cut");
+
+// --- guide and report titles fit a search result --------------------------------
+ok(fitTitle(["a".repeat(70), "short one"]) === "short one", "fitTitle picks the first candidate that fits");
+ok(trimWords("Electric Vehicle Fast-Charging Networks in the United States", 46) === "Electric Vehicle Fast-Charging Networks", "trimWords cuts on a word and drops dangling short words");
+for (const slug of guideSlugs()) {
+  const title = (guidePage("https://agent402.tools", slug).match(/<title>([^<]*)/) || [])[1] || "";
+  ok(title.length <= SERP_TITLE_MAX, `guide ${slug}: title <= ${SERP_TITLE_MAX} (${title.length})`);
+}
+for (const product of Object.keys(SAMPLES)) {
+  const t2 = sampleMeta(product, "https://agent402.tools").title;
+  ok(t2.length <= SERP_TITLE_MAX && t2.endsWith("(free sample)"), `sample ${product}: title <= ${SERP_TITLE_MAX} (${t2.length})`);
+}
 
 // --- booted sweep ---------------------------------------------------------------
 const TARGET = (process.env.TARGET_URL || "").replace(/\/$/, "");
