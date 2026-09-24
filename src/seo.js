@@ -229,7 +229,7 @@ export function sitemapXml(baseUrl, catalog) {
     ...skillSlugs().map((s) => ({ loc: `${baseUrl}/skills/${s}`, priority: "0.8" })),
   ];
   const toolUrls = toolList(catalog).map((t) => ({ loc: `${baseUrl}/tools/${t.slug}`, priority: "0.8" }));
-  const entries = [...staticUrls, ...programmaticUrls(baseUrl), ...guideUrls, ...skillUrls, ...toolUrls]
+  const entries = [...staticUrls, ...programmaticUrls(baseUrl), ...guideUrls, ...skillUrls, ...categoryUrls(baseUrl, catalog), ...toolUrls]
     .map((u) => `  <url><loc>${u.loc}</loc><lastmod>${lastmod}</lastmod><changefreq>weekly</changefreq><priority>${u.priority}</priority></url>`)
     .join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -245,9 +245,17 @@ ${entries}
 function subSitemap(urls, lastmod) {
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map((u) => `  <url><loc>${u.loc}</loc><lastmod>${lastmod}</lastmod><changefreq>weekly</changefreq><priority>${u.priority}</priority></url>`).join("\n")}\n</urlset>`;
 }
+/** One /tools/category/<key> page per category the live catalog uses. */
+function categoryUrls(baseUrl, catalog) {
+  const used = new Set(toolList(catalog).map((t) => t.category));
+  return Object.keys(CATEGORIES).filter((k) => used.has(k) && k !== "convert").map((k) => ({ loc: `${baseUrl}/tools/category/${k}`, priority: "0.7" }));
+}
+export function sitemapCategories(baseUrl, catalog) {
+  return subSitemap(categoryUrls(baseUrl, catalog), BOOT_DATE);
+}
 export function sitemapIndex(baseUrl) {
   const lastmod = BOOT_DATE;
-  const subs = ["sitemap-pages.xml", "sitemap-reports.xml", "sitemap-tools.xml", "sitemap-guides.xml", "sitemap-skills.xml"];
+  const subs = ["sitemap-pages.xml", "sitemap-reports.xml", "sitemap-tools.xml", "sitemap-categories.xml", "sitemap-guides.xml", "sitemap-skills.xml"];
   const entries = subs.map((s) => `  <sitemap><loc>${baseUrl}/${s}</loc><lastmod>${lastmod}</lastmod></sitemap>`).join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${entries}\n</sitemapindex>`;
 }
