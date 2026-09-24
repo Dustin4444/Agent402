@@ -57,7 +57,8 @@ const STABLECOIN_DECIMALS = 6;
 // can pay. MPP_CHALLENGE_NETWORKS overrides: "all" (every eip155 accepts
 // entry) or a CSV of chain ids. Call-time read, like other rollout knobs.
 //
-// VERIFIED against the installed mppx@0.8.17 source (2026-08-16, previously
+// VERIFIED against the installed mppx@0.8.17 source (2026-08-16; re-checked
+// on mppx@0.11.0 2026-09-24, Chains/Assets unchanged; previously
 // an unconfirmed in-code claim): `mppx/evm`'s Chains.ts defines exactly four
 // chain ids (base 8453, baseSepolia 84532, celo 42220, celoSepolia
 // 11142220), and Assets.ts's known-USDC registry covers only those same four
