@@ -675,11 +675,10 @@ let liveSubId = null, liveHeader = null, liveToken = null, liveBuyer = null;
 
   // The gas ceiling is not the money bound; maxTotalFee is, and we leave it
   // untouched. Recorded here so a future raise cannot quietly become expensive:
-  // fees settle in USDC.e and gas*price converts at ~1e12 (measured: 46,575 gas
-  // at 0.6 gwei was charged 28 units, $0.000028).
+  // fees settle in USDC.e and gas*price converts at ~1e12.
   const usd = (gas, price) => Number((gas * BigInt(price)) / 1_000_000_000_000n) / 1e6;
   ok(usd(pol.maxGas, 600_000_000) < 0.01,
-    `at the live 0.6 gwei basefee this ceiling is worth $${usd(pol.maxGas, 600_000_000).toFixed(6)} per transaction, well under a cent`);
+    `at the live basefee this ceiling is worth well under a cent per transaction`);
 
   // The helper returning the right number proves nothing about the engine using
   // it, and removing the parameter from the mppx call survived a mutation until

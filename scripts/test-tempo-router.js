@@ -162,8 +162,8 @@ ok(JSON.stringify(externalChainsFor("eip155:137", supported)) === "[]", "unsuppo
 // ---- Tempo time budget on the external leg ----
 // A Tempo buyer's credential expires ~25s after the client signs it and we
 // settle AFTER the handler; an external buy that outlives the window is a
-// paid seller and a refused settle (measured live 2026-08-27: 69s Firecrawl
-// scrape -> $0.002 spent, buyer 402). The leg runs under a budget on Tempo.
+// paid seller and a refused settle (measured live 2026-08-27: a 69s external
+// scrape was paid, buyer 402). The leg runs under a budget on Tempo.
 {
   const tempoReq = () => ({ mppTempoCredential: true, headers: {}, header: () => undefined, ip: "127.0.0.1" });
   const seller = { seller: "https://firecrawl.example", slug: "v1/scrape", url: "https://firecrawl.example/v1/scrape", method: "POST", price: "$0.002", priceUsd: 0.002, networks: [TEMPO_CAIP2], wire: "mpp" };

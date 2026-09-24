@@ -9,8 +9,8 @@
 //
 // All three tiers ride gpt-image-2 since 2026-08-04: OpenAI retires
 // gpt-image-1-mini (the old low/hd model) on 2026-12-01. Upstream cost at
-// 1024x1024 is ~$0.006 (low) / ~$0.053 (medium) — both tiers keep their
-// margin under the 70% bar. hd and premium now differ in prompt cap only;
+// 1024x1024 at low and medium quality keeps both tiers inside the margin
+// rule. hd and premium now differ in prompt cap only;
 // premium's differentiation (higher quality or larger size) is a pricing
 // decision tracked outside this file.
 

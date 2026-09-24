@@ -20,24 +20,23 @@
 // inferred from the index.
 //
 // MONEY. The upstream is the seller's own price, capped by `maxUsd` (default
-// $0.01, hard ceiling MAX_SPEND_USD) and re-checked by payX402 against the
+// DEFAULT_MAX_USD, hard ceiling MAX_SPEND_USD) and re-checked by payX402 against the
 // accept it actually signs, so a seller cannot quote one price and charge
 // another. WE PAY NO GAS: the EIP-3009 transfer is broadcast by the SELLER's
 // facilitator, not by us (an earlier draft of this comment said "plus Base
-// gas" and was wrong). So $0.10 a check against at most $0.02 of upstream,
-// and the margin holds at the 70% bound.
+// gas" and was wrong). So the per-check cap keeps the margin rule.
 //
 // WHY A CALLER CANNOT FARM US - stated with its precondition, because the
 // first version of this paragraph quietly assumed the part that can fail.
 // Pointing the tool at your own endpoint to collect our payment loses money
-// for the attacker ONLY IF our own $0.10 settles: they pay $0.10 to receive at
-// most $0.02. The state worth naming is the one where it does NOT settle -
+// for the attacker ONLY IF our own payment settles: they pay the tool price to
+// receive at most the per-check cap. The state worth naming is the one where it does NOT settle -
 // @x402/express runs this handler and settles afterwards, so a buyer whose
 // payment verifies and then fails to settle gets each check free. Four things
 // bound that, and the 2026-09-11 review exists because three of them were
 // named here before they were actually bound:
 //   - the settle-failure breaker runs BEFORE this handler for every
-//     wallet-only slug and refuses at 3 failures per 15 min, so ~$0.06;
+//     wallet-only slug and refuses after a few failures per window;
 //   - the Base wallet's rolling daily ceiling bounds a caller who rotates
 //     wallets or IPs, which is what defeats every per-payer guard;
 //   - the per-call cap is enforced against the accept actually SIGNED, not
@@ -57,7 +56,7 @@ function bad(message, statusCode = 400) {
 }
 
 /** Hard ceiling on what one check may spend upstream, whatever `maxUsd` asks
- *  for. The price is $0.10; this keeps the worst case inside the margin rule
+ *  for. This keeps the worst case inside the margin rule
  *  even when a caller asks for the maximum. */
 export const MAX_SPEND_USD = 0.02;
 const DEFAULT_MAX_USD = 0.01;
@@ -196,10 +195,10 @@ export function buildSellerPayabilityTool({
     // attribution, NOT a money hole, and the first draft of this comment
     // overstated it. The real bounds on an uncharged spend here were already
     // in place and still are - the settle-failure breaker runs BEFORE this
-    // handler for every wallet-only slug and refuses at 3 failures per 15 min
-    // (so at most ~$0.06), and the Base wallet's $25/day chain ceiling is what
-    // actually bounds a caller rotating wallets or IPs. The per-payer ceiling
-    // is $6 against a $0.02 cap, so it would not have refused until call 301.
+    // handler for every wallet-only slug and refuses after a few failures per
+    // window, and the Base wallet's daily chain ceiling is what actually bounds
+    // a caller rotating wallets or IPs. The per-payer ceiling is far above one
+    // check's cap, so it alone would refuse only after many calls.
     // Keep it anyway: it costs three lines, it puts this route in
     // exposureSnapshot() beside route-execute, and it is the bound that starts
     // mattering the moment the cap is raised or the breaker is retuned.
@@ -295,7 +294,7 @@ export function buildSellerPayabilityTool({
       // No payment was attempted at all - a 200, a non-402, an unreadable
       // challenge or an over-cap quote. This is the COMMON outcome for a tool
       // whose job is diagnosing sellers, and the worst-case booking would
-      // otherwise hold $0.02 of the chain's day for the full window on every
+      // otherwise hold the per-check cap against the chain's day for the full window on every
       // such check, quietly starving route-execute and attest.
       adjustSpend(spendHandle, 0);
     }

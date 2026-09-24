@@ -164,10 +164,10 @@ const nonMetered = readFileSync(new URL("./test-non-metered-examples.js", import
 ok(/"attest",/.test(nonMetered), "attest is in METERED_SLUGS (CI has no wallet)");
 const testAll = readFileSync(new URL("./test-all.js", import.meta.url), "utf8");
 ok(testAll.includes('"/api/attest"'), "attest is in test-all's NETWORK set");
-// The tool's own worst case sits under the 70% rule: $0.005 gas ceiling on a $0.010 price.
+// The tool's own worst case (the gas ceiling) sits under the margin rule.
 eq(tool.price, "$0.050", "priced from the MEASURED 616k-gas attest, not the 150k guess");
-ok(35000 <= (50000 * 7) / 10, "gas ceiling ($0.035) under 70% of price (micro-USD, no float)");
-ok(0.0277 < 0.035, "the first live run's bounded estimate ($0.0277) clears the ceiling");
+ok(35000 <= (50000 * 7) / 10, "gas ceiling under the margin share of price (micro-USD, no float)");
+ok(0.0277 < 0.035, "the first live run's bounded estimate clears the ceiling");
 
 rmSync(dir, { recursive: true, force: true });
 console.log(`test-attest-kit: ${n} assertions ok`);

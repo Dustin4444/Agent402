@@ -100,7 +100,7 @@ function isUsdc(a) {
   // the name convention is an EVM EIP-712 artifact. On Solana the mint
   // address IS the identity, so the one well-known mainnet mint is
   // recognized directly. Without this, every pure-Solana catalog priced as
-  // "networks only" forever (measured 2026-09-01: sol.blockrun's 128 routes).
+  // "networks only" forever (measured 2026-09-01: a seller's 128 routes).
   return String(a?.asset || "") === SVM_USDC_MINT;
 }
 

@@ -36,7 +36,7 @@ import {
   refuseCostVariants, checkBlockCacheControl, meteredQuoteForProbe, costFor,
   assertUpstreamBody, reasoningProfile, REASONING_EFFORTS,
 } from "./llm-gateway-kit.js";
-import { METER_MARKUP, METER_MIN_SETTLE_USD, setMeterSentinel } from "../gateway-meter.js";
+import { METER_MIN_SETTLE_USD, setMeterSentinel } from "../gateway-meter.js";
 import { gatewaySettleBreakerCheck } from "../gateway-settle-breaker.js";
 
 const OPENROUTER_MESSAGES_URL = "https://openrouter.ai/api/v1/messages";
@@ -290,8 +290,8 @@ export function validateMessagesRequest(input, tierSlug) {
     body.effort = effort;
   }
   // `speed: "fast"` (Anthropic's spelling) and `service_tier: "priority"` /
-  // "fast" both request the priority endpoint (anthropic/fast bills 2x the
-  // headline: $10/$50 on opus-5, live endpoints 2026-09-18). Offered on the
+  // "fast" both request the priority endpoint (billed above the headline,
+  // live endpoints 2026-09-18). Offered on the
   // tiers flagged `priority` at the same flat price - the clamp prices the
   // probe at PRIORITY_PRICE_FACTOR - and refused with the reason elsewhere,
   // never dropped. Sent upstream as service_tier (one spelling); OpenRouter
@@ -477,7 +477,7 @@ function describe(tierSlug) {
   const dflt = t.defaultModel ? ` Omit "model" and the tier serves ${t.defaultModel} (named back in agent402_default_model); the price does not change.` : "";
   const price = priceString(tierSlug);
   if (tierSlug === "v1-chat-metered") {
-    return `Anthropic Messages API billed per request from what the call costs: the 402 quotes exact-BPE input (system + messages + tools) plus your max_tokens at the model's list price, times ${METER_MARKUP}, from ${price} up to a $${t.maxQuoteUsd} per-call cap. Point the Anthropic SDK (or any Messages-format client) at base_url https://agent402.tools/v1/metered. Any model from the flat tiers (GET /v1/models). Pay the quote over x402 exact, or authorize it as a ceiling over upto, credits or card and settle actual usage. Up to ${t.maxInputChars.toLocaleString("en-US")} input chars and ${t.maxTokens} output tokens; streaming supported.`;
+    return `Anthropic Messages API billed per request from what the call costs: the 402 quotes exact-BPE input (system + messages + tools) plus your max_tokens, from ${price} up to a $${t.maxQuoteUsd} per-call cap. Point the Anthropic SDK (or any Messages-format client) at base_url https://agent402.tools/v1/metered. Any model from the flat tiers (GET /v1/models). Pay the quote over x402 exact, or authorize it as a ceiling over upto, credits or card and settle actual usage. Up to ${t.maxInputChars.toLocaleString("en-US")} input chars and ${t.maxTokens} output tokens; streaming supported.`;
   }
   const base = `Anthropic Messages API over x402 - point the Anthropic SDK (or Claude Code / the Agent SDK) at base_url https://agent402.tools${MESSAGES_PATH_BY_TIER[tierSlug].replace(/\/messages$/, "")} and pay ${price} per call in USDC, no API key, no signup. Same models, caps and price as this tier's /chat/completions route; any model here is served through the Messages wire (Claude natively, others translated). Depth: \`effort\` (low..max) on Claude 4.7+, thinking.budget_tokens on older Claude. Up to ${t.maxInputChars.toLocaleString("en-US")} input chars and ${t.maxTokens} output tokens; streaming supported.`;
   return tierSlug === "v1-chat-auto"

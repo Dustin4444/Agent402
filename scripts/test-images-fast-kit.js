@@ -39,9 +39,9 @@ for (const [tier, t] of Object.entries(IMAGE_TIERS)) {
   ok(Math.abs(Number(t.price) - Number(String(bySlug(tier).price).replace(/^\$/, ""))) < 1e-9, `${tier}: tool price matches the tier price`);
 }
 const table = mediaMarginTable();
-ok(table.length === 5 && table.every((r) => withinMargin(r.price, r.worst)), `margin: every link's bound is <= ${MARGIN * 100}% of its tier price (${table.map((r) => `${r.model}@$${r.price}:$${r.worst}`).join(", ")})`);
-ok(!withinMargin(0.02, 0.0141) && withinMargin(0.02, 0.014), "withinMargin compares in micro-dollars (70% of $0.02 is exactly $0.014, not a float near-miss)");
-ok(Math.abs(VIDEOS_WORST_CASE_USD - 0.03 * VIDEOS_DURATION_SECONDS) < 1e-9 && VIDEOS_WORST_CASE_USD <= VIDEOS_PRICE * MARGIN + 1e-9, "video bound = listed $0.03/s x locked 4 s = $0.12 under 70% of $0.20");
+ok(table.length === 5 && table.every((r) => withinMargin(r.price, r.worst)), `margin: every link's bound is within the margin share of its tier price (${table.map((r) => `${r.model}@$${r.price}`).join(", ")})`);
+ok(!withinMargin(0.02, 0.0141) && withinMargin(0.02, 0.014), "withinMargin compares in micro-dollars (an exact boundary is equal, not a float near-miss)");
+ok(Math.abs(VIDEOS_WORST_CASE_USD - 0.03 * VIDEOS_DURATION_SECONDS) < 1e-9 && VIDEOS_WORST_CASE_USD <= VIDEOS_PRICE * MARGIN + 1e-9, "video worst case is fixed by the locked 4 s duration and stays within bound");
 
 // ---- image validation ----
 ok(validateImageTierRequest({ prompt: " a fox " }, "v1-images-fast").prompt === "a fox", "prompt trims and validates");

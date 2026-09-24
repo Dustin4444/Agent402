@@ -90,7 +90,7 @@ const reset = () => { calls = []; _exaSpendReset(); process.env.EXA_API_KEY = "t
   eq(after.status, "ok", "and is under the cap");
   // Burn the rest of the cap, then the next call must be refused uncharged.
   _exaSpendBook(0.02);
-  await throws(() => tool("exa-search").handler({ query: "two" }), /spend cap/, "past the cap the tool refuses");
+  await throws(() => tool("exa-search").handler({ query: "two" }), /usage cap/, "past the cap the tool refuses");
   const s = exaSpendStatus();
   eq(s.status, "capped", "status says capped");
   ok(s.refusedToday >= 1, "and the refusal is counted");

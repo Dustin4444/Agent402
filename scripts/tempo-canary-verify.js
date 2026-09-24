@@ -1,7 +1,7 @@
 // One-off LIVE verification: a real mppx client, signed by the existing EVM
 // canary burner (0x902dCf34E53695bDEA2fFB354b1a2e58bD598256 — GitHub Actions
 // secret BURNER_KEY, the SAME wallet paid-canary.js already uses for its
-// other EVM legs, now also funded with 2 PathUSD on Tempo mainnet), makes
+// other EVM legs, now also funded on Tempo mainnet), makes
 // ONE real purchase against agent402.tools's live tempo/charge challenge.
 //
 // This exists because scripts/test-mpp-tempo-shim.js only proves OUR OWN

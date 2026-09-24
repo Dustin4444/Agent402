@@ -7,7 +7,7 @@ name: Algorand external buy
 #
 # THIS MONEY DOES NOT COME BACK. Unlike the canaries (self-buys that recycle to
 # our own payTo), these payments go to third parties with no refund path. That
-# is why this is dispatch-only, defaults to a $1 cap, and defaults to a dry run:
+# is why this is dispatch-only, has a low default cap, and defaults to a dry run:
 # you have to consciously ask for the spend.
 on:
   workflow_dispatch:

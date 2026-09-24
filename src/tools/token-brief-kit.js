@@ -42,9 +42,8 @@ const SYNTH = "anthropic/claude-opus-5";
 export const TOKEN_BRIEF_MODELS = [SYNTH];
 
 // One synthesis call; every other leg is keyless (zero upstream cost). The cap
-// is the MEASURED worst case for an opus-5 synthesis, not a nominal figure:
-// PostHog $ai_generation over 30 days puts opus-5 at avg $0.107, p95 $0.195,
-// max $0.311. A cap below that is fiction, and in research-deep (the one kit
+// is the MEASURED worst case for an opus-5 synthesis, not a nominal figure.
+// A cap below that is fiction, and in research-deep (the one kit
 // that reads its own field) it would also downgrade the model on a normal run.
 export const TOKEN_BRIEF_TIERS = {
   "token-brief": {

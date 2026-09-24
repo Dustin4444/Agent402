@@ -595,7 +595,7 @@ catalog. Selection is deliberate, and it is intentionally boring:
    Marketing claims are worth zero; only receipts count.
 2. **A live probe before commitment.** Even a proven seller's crawled route can
    drift, so the router confirms a live 402 challenge before any money moves.
-3. **A margin guard before signing.** The seller's quote is pinned to the exact
+3. **A price guard before signing.** The seller's quote is pinned to the exact
    accept we validate - network, scheme, asset - and refused above the tier cap.
 
 ## Chain-matched settlement
@@ -607,21 +607,18 @@ you pay on a chain without a spending wallet behind it, you get an honest 409
 naming the supported chains, and **you are not charged** (a rejected request
 cancels x402 settlement by design).
 
-## A real receipt
+## A receipt
 
-This is an actual production receipt - both transactions are on Algorand
-mainnet, same round, verifiable in any explorer:
+A router receipt looks like this (the seller and transaction are placeholders):
 
 \`\`\`json
 {
   "slug": "opportunities/search",
-  "route": "GET https://canix402-api.compx.io/opportunities/search",
-  "underlyingPriceUsd": 0.01,
+  "route": "GET https://seller.example/opportunities/search",
   "paidUsd": 0.55,
-  "routingFeeUsd": 0.54,
-  "seller": "https://canix402-api.compx.io",
+  "seller": "https://seller.example",
   "external": true,
-  "settleTx": "6TLUWU6RNYNZDJTGXZFTLEXTCB2TXKD5N6IJUWRYIXIFZGFEMKAQ",
+  "settleTx": "<algorand transaction id>",
   "settleNetwork": "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=",
   "resolvedBy": "task-external"
 }
@@ -1057,8 +1054,8 @@ key:
 
 - **Models**: an OpenAI-compatible gateway. Point any client that accepts a
   base URL at \`https://agent402.tools/v1/metered\` with a credits key as the API
-  key. Each request is quoted from its own body (input plus your \`max_tokens\`
-  at the model's list price, x1.15) and a card or credits buyer settles what
+  key. Each request is quoted from its own body (input plus your \`max_tokens\`)
+  and a card or credits buyer settles what
   the call actually used, from $${TIERS["v1-chat-metered"].price} a call.
   \`GET https://agent402.tools/v1/models\` lists every id with its price and
   input cap; \`auto\` (routed per prompt, flat
@@ -1532,8 +1529,8 @@ body from $${TIERS["v1-chat-metered"].price}) is the one to point OpenClaw at:
 
 Restart the gateway (\`openclaw gateway restart\`). Every model call now goes to
 \`${TIERS["v1-chat-metered"].route}\` with your credits key, paying what
-that call costs (exact-BPE input plus \`max_tokens\` at the model's list price,
-times 1.15, capped at $${METERED_MAX_QUOTE_USD} per call). Any id from
+that call costs (quoted from input plus \`max_tokens\`, capped at
+$${METERED_MAX_QUOTE_USD} per call). Any id from
 [\`/v1/models\`](https://agent402.tools/v1/models) can take Haiku's place.
 
 ## Explicit models and the other tiers

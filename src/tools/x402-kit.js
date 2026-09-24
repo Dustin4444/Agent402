@@ -230,7 +230,7 @@ export const X402_TOOLS = [
         example: {
           asOf: "2026-07-12T00:00:00.000Z", window: "last 24h", sortedBy: "usd",
           ecosystem: { sellersIndexed: 1479, toolsIndexed: 33779, toolsCapPerSeller: 50 },
-          topProviders: [{ rank: 1, provider: "blockrun.ai", usdSettled: 294.55, calls: 353970, buyers: 163, callsPerBuyer: 2171, homepage: "https://blockrun.ai" }],
+          topProviders: [{ rank: 1, provider: "seller.example", usdSettled: 120.5, calls: 10000, buyers: 250, callsPerBuyer: 40, homepage: "https://seller.example" }],
           topToolCategories: [{ category: "crypto", sellersOffering: 446, tools: 3353 }],
         },
       },

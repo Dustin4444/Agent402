@@ -60,9 +60,8 @@ const EVM_NETWORKS = {
   // but absent from @x402/evm's registry, so it rides the TIER1_USDC parser.
   // Settlement routes to Solvador (the keyed client wired below) — the ONLY
   // facilitator we have that settles eip155:10; CDP/PayAI do not. Solvador
-  // charges $0.001/settlement past 1,000/month, so this chain carries a
-  // NETWORK_PRICE_PREMIUMS entry (eip155:10=0.001) per the fee-charging-
-  // primary pricing rule. OPT-IN via PAYMENT_NETWORKS.
+  // charges per settlement past a free tier, so this chain carries a
+  // NETWORK_PRICE_PREMIUMS entry per the fee-charging-primary pricing rule. OPT-IN via PAYMENT_NETWORKS.
   optimism: "eip155:10",
   "base-sepolia": "eip155:84532",
   // Robinhood Chain (Arbitrum Orbit L2, EVM-equivalent, AI-native RWA chain).
@@ -343,10 +342,10 @@ const UPSTREAM_BUYER_ADDRESS = (process.env.X402_UPSTREAM_BUYER_ADDRESS || "").t
 // ---------------------------------------------------------------------------
 // Per-chain price premiums (Phase B pricing engine, 2026-07-27)
 // ---------------------------------------------------------------------------
-// Mike's binding rule: anything settled through a fee-charging facilitator must
-// be priced to cover the fee — structurally, not by memory. Each 402 accepts
-// entry carries its own price, so a chain whose facilitator charges us (e.g.
-// Solvador at $0.001/settlement as a PRIMARY) quotes tool price + premium
+// The operator's binding rule: anything settled through a fee-charging
+// facilitator must be priced to cover the fee — structurally, not by memory.
+// Each 402 accepts entry carries its own price, so a chain whose facilitator
+// charges per settlement (e.g. Solvador as a PRIMARY) quotes tool price + premium
 // while fee-free rails (CDP on Base) stay at list. Buyers on cheap rails never
 // subsidise expensive ones, and the fee is visible in the quote.
 //
@@ -533,10 +532,10 @@ export const BAZAAR_DESCRIPTIONS = Object.freeze({
   "v1-images-pro": "Higher-fidelity text-to-image on the OpenAI images wire: a prompt in, one 1024x1024 image out as inline base64, served by a pro-grade diffusion model in about ten seconds. Use it when an agent needs a finished picture for a page, a post or a product and quality matters more than the cheapest draft.",
   // 2026-09-22: the metered wires. The feed shows the last buyer's quote as
   // if it were a fixed price, so the copy states the rule.
-  "v1-chat-metered": "OpenAI-compatible chat completions priced from the request itself: the 402 quotes this exact body at the chosen model's list price plus a small markup, from $0.001, and a buyer on the upto scheme settles the tokens actually used under that quote. Use it when an agent sends large or variable prompts and wants to pay for what it sends, not a flat tier.",
-  "v1-chat-metered-messages": "The Anthropic Messages wire priced from the request itself: the 402 quotes this exact body at the model's list price plus a small markup, from $0.001, with upto buyers settling actual usage under the quote. Use it when an agent built on the Anthropic SDK, or Claude Code, needs any supported model paid per call with no account.",
-  "v1-chat-metered-responses": "The OpenAI Responses wire priced from the request itself: each 402 quotes this exact body at the model's list price plus a small markup, from $0.001, and upto buyers settle actual usage under it. Use it when an agent built on the Responses API or the OpenAI Agents SDK wants per-call payment sized to what it sends.",
-  "v1-chat-metered-gemini": "Google's generateContent wire priced from the request itself: the 402 quotes this exact body at the model's list price plus a small markup, from $0.001, with upto buyers settling actual usage. Use it when an agent built on the Gemini SDK needs a supported model paid per call without an API key.",
+  "v1-chat-metered": "OpenAI-compatible chat completions priced from the request itself: the 402 quotes this exact body, from $0.001, and a buyer on the upto scheme settles the tokens actually used under that quote. Use it when an agent sends large or variable prompts and wants to pay for what it sends, not a flat tier.",
+  "v1-chat-metered-messages": "The Anthropic Messages wire priced from the request itself: the 402 quotes this exact body, from $0.001, with upto buyers settling actual usage under the quote. Use it when an agent built on the Anthropic SDK, or Claude Code, needs any supported model paid per call with no account.",
+  "v1-chat-metered-responses": "The OpenAI Responses wire priced from the request itself: each 402 quotes this exact body, from $0.001, and upto buyers settle actual usage under it. Use it when an agent built on the Responses API or the OpenAI Agents SDK wants per-call payment sized to what it sends.",
+  "v1-chat-metered-gemini": "Google's generateContent wire priced from the request itself: the 402 quotes this exact body, from $0.001, with upto buyers settling actual usage. Use it when an agent built on the Gemini SDK needs a supported model paid per call without an API key.",
   "x402-trending": "Momentum across x402 sellers: which sellers are gaining settlements and buyers hour over hour on Base, graded for wash-trade resistance from the on-chain leaderboard. Use it when an agent is routing spend, researching the ecosystem, or deciding which sellers are worth a look this week.",
   // Market-data front door (/markets), 2026-08-27: every keyless market tool gets purpose-written copy.
   "perp-funding-screener": "Every listed perpetual ranked by current funding rate, the most positive and most negative N with open interest and 24h volume beside each, from a live venue feed. Use it when an agent is screening for carry, basis or crowded positioning across the whole perp market in one call instead of polling each contract.",
@@ -813,7 +812,7 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   // unfiltered client would contend for primary routes. Its fallback value is
   // redundancy: the only second facilitator that can settle Celo, Monad and
   // Robinhood. Env-gated on SOLVADOR_KEY (dashboard.solvador.com,
-  // pay-as-you-go: first 1,000 settlements/month free, then $0.001). Used by
+  // pay-as-you-go past a free tier). Used by
   // registerFacilitatorFailureHooks below when PAYMENT_SETTLE_FALLBACK is on.
   let solvadorClient = null;
   if (process.env.SOLVADOR_KEY) {
@@ -831,7 +830,7 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   // without SOLVADOR_KEY drops it from the offer with a loud warning, because
   // an offered accept no facilitator can settle would 500 every 402.
   // Fee-charging-primary rule: every chain routed here must carry a
-  // NETWORK_PRICE_PREMIUMS entry so the $0.001 settlement fee is priced into
+  // NETWORK_PRICE_PREMIUMS entry so the settlement fee is priced into
   // that chain's accepts quote, never eaten silently.
   const SOLVADOR_PRIMARY_CAIP2 = ["eip155:10"];
   class NetworkFilteredFacilitatorClient extends HTTPFacilitatorClient {
@@ -1516,10 +1515,8 @@ function registerWalletBlocklistHook(server) {
  * gate). Never on a timeout/5xx, where the settler may already have broadcast;
  * that rule applies between fallbacks too, so a Solvador timeout stops the
  * chain rather than risking a double-charge via PayAI. Order decided
- * 2026-09-18: PayAI bills gas x 1.3 in prepaid credits per settlement
- * (Base 2.12 credits = $0.002, Polygon 3.98, Arbitrum 6.08) while Solvador's
- * tier is 1,000 settlements a month free, then $0.001 - so the fallback that
- * runs first is the cheaper one. A facilitator is still skipped on a network it
+ * 2026-09-18 on each facilitator's published settlement pricing, so the
+ * fallback that runs first is the cheaper one. A facilitator is still skipped on a network it
  * cannot settle (Celo/Monad/Robinhood reach Solvador only). Left off by
  * default so Base stays purely on CDP (Bazaar discovery + fee-free settlement)
  * unless the operator opts into never-miss-a-sale behavior.
@@ -1712,7 +1709,7 @@ export function registerFacilitatorFailureHooks(server, payAiClient, solvadorCli
     // deterministic lookup), and settle has no transport-error fallback BY
     // DESIGN, because retrying a possibly-broadcast settlement elsewhere is how
     // you double-settle. So a rescued verify on a metered route runs the handler,
-    // spends real upstream money (up to $0.65 on a report tier), then 402s at
+    // spends real upstream money (up to a report tier's cap), then 402s at
     // settle: buyer not charged, gets nothing, retries, and each retry spends
     // again. Before this feature that request 402'd BEFORE the handler, free.
     //
@@ -1931,10 +1928,9 @@ async function resolvePayAIFacilitatorConfig() {
     console.log("Facilitator (Solana): PayAI (authenticated)");
     return createFacilitatorConfig(process.env.PAYAI_API_KEY_ID, process.env.PAYAI_API_KEY_SECRET);
   }
-  // PayAI keyless: from 2026-09-21 the free allowance is 1,000 credits per
-  // receiving wallet, LIFETIME, and a settlement costs the chain's gas x 1.3 in
-  // credits (Avalanche 0.09, Sei 0.43, Base 2.12, Polygon 3.98, Arbitrum 6.08 at
-  // $0.001/credit; docs read 2026-09-18). Past it /settle answers 403
+  // PayAI keyless: from 2026-09-21 the free allowance is a LIFETIME credit
+  // grant per receiving wallet, and each settlement draws credits by chain
+  // (docs read 2026-09-18). Past it /settle answers 403
   // free_tier_exhausted. The keyed branch above bills prepaid credits instead;
   // heartbeat.yml's credit watch counts the draw-down either way.
   const { facilitator } = await import("@payai/facilitator");

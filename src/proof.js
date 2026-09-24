@@ -66,7 +66,7 @@ export function proofPage(baseUrl, feed, standing = null) {
       <a href="/" style="color:var(--muted);text-decoration:none;">agent402</a> / <a href="/why" style="color:var(--muted);text-decoration:none;">why pay here</a> / <span style="color:var(--ink);">receipts</span>
     </nav>
     <h1 style="font-weight:800;font-size:48px;line-height:.98;letter-spacing:-.035em;margin:0 0 20px;color:var(--ink);max-width:900px;">Settled under the ceiling you saw first.</h1>
-    <p style="font-size:17px;line-height:1.6;color:var(--muted);max-width:820px;margin:0;">Every call to the metered route (<code>POST /v1/metered/chat/completions</code>) is quoted from its own body before payment. A buyer whose client speaks the <code>upto</code> scheme, or who pays by card or credits, settles what the call actually used, times 1.15, never more than the quote. The ledger records both numbers per settlement; the settle transaction is on-chain. Machine-readable: <a href="/api/proof" style="color:var(--ink);">/api/proof</a>.</p>
+    <p style="font-size:17px;line-height:1.6;color:var(--muted);max-width:820px;margin:0;">Every call to the metered route (<code>POST /v1/metered/chat/completions</code>) is quoted from its own body before payment. A buyer whose client speaks the <code>upto</code> scheme, or who pays by card or credits, settles what the call actually used, never more than the quote. The ledger records both numbers per settlement; the settle transaction is on-chain. Machine-readable: <a href="/api/proof" style="color:var(--ink);">/api/proof</a>.</p>
   </div>
 </header>
 ${standingBand(standing || {})}

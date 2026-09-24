@@ -3,8 +3,8 @@ name: Cross-chain tool matrix
 # Manually-dispatched proof run: buy the top-N external tools on EACH of the
 # seven rails and print a tools×chains grid of real on-chain settlements. Proves
 # every top tool renders its payload through every chain (settlement → unlock →
-# payload), with a tx receipt per cell. Not scheduled — it spends real money
-# (~$3-5 for the full 15×7 grid), so it runs only when dispatched. Informational:
+# payload), with a tx receipt per cell. Not scheduled — it spends real money,
+# so it runs only when dispatched. Informational:
 # the grid is the job-log output; it never opens an issue or pages.
 on:
   workflow_dispatch:

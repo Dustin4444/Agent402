@@ -2,7 +2,7 @@
 // mainnet, and prove each one settles AND renders its payload.
 //
 // WHY THIS EXISTS (and how it differs from the two scripts next to it)
-//   • scripts/paid-canary.js has ONE Algorand leg (/api/hash, $0.001). It proves
+//   • scripts/paid-canary.js has ONE Algorand leg (/api/hash). It proves
 //     the rail is alive; it cannot prove the rail works for the whole catalog.
 //   • scripts/challenge-sweep.js buys every tool on Algorand but SKIPS anything
 //     already in GoPlausible's catalog — it is a one-shot registration tool, so
@@ -17,10 +17,8 @@
 // Algorand specifically.
 //
 // COST
-//   Self-buys: burner -> our own revenue payTo, so the USDC recycles. The true
-//   cost is the Algorand fee per txn (0.001 ALGO) plus whatever upstream API
-//   spend a given tool triggers. The burner still needs the full in-flight
-//   float (~$11 at the default $0.25/tool cap) before it comes back.
+//   Self-buys: burner -> our own revenue payTo, so the USDC recycles. The
+//   burner still needs the full in-flight float before it comes back.
 //
 // SAFETY / CONTROL
 //   • Pays ONLY on Algorand, ONLY to the accept the live 402 quotes. No EVM.
@@ -96,7 +94,7 @@ const THROTTLE_BACKOFF_MS = Number(process.env.CANARY_THROTTLE_BACKOFF_MS || "80
 const BREAKER_MAX_WAIT_MS = Number(process.env.CANARY_BREAKER_MAX_WAIT_MS || "120000");
 // ...and stop entirely once it is clear nothing more can be measured. On
 // 2026-09-21 an upstream facilitator failed 14 minutes in, after 145 clean
-// settlements, and the sweep spent a further 71 minutes and $1.20 of attempts
+// settlements, and the sweep spent a further 71 minutes of attempts
 // on tools it could not observe, reporting 346 of them as somebody else's
 // throttle. Consecutive is the right trigger rather than a total: an isolated
 // failure among successes is exactly what this alarm exists to catch, while an
@@ -176,10 +174,9 @@ const seen = new Set();
 tools = tools.filter((t) => { const k = `${t.method} ${t.path}`; if (seen.has(k)) return false; seen.add(k); return true; });
 if (ONLY.length) tools = tools.filter((t) => ONLY.includes(t.slug));
 
-// SUB-CENT BUDGET. The facilitator gives our payTo 1,000 free sponsored
-// sub-cent settlements a month and this sweep spent September's on its own;
-// see subcentBudget/rotateSubcent in avm-canary-classify.js. Read the live
-// quota, keep a reserve for real buyers, cap this run, and rotate which
+// SUB-CENT BUDGET. The facilitator's sponsored sub-cent settlements are
+// capped per payTo; see subcentBudget/rotateSubcent in avm-canary-classify.js.
+// Read the live quota, keep a reserve for real buyers, cap this run, and rotate which
 // sub-cent tools get it so the catalog is still covered over a month. Tools at
 // or above $0.01 are unlimited and never budgeted. An explicit --slugs run
 // (re-verifying a fix) is exempt: it is a handful of tools by definition.
@@ -462,7 +459,7 @@ for (const t of tools) {
       report.upstreamFail.push({ key, slug: t.slug, reason: `HTTP ${a.status}: ${a.body.slice(0, 140)}` });
       console.log(`UPSTREAM ${key.padEnd(41)} HTTP ${a.status} (third-party/edge, not charged, twice)`);
     } else {
-      // A >=400 cancels settlement (see the ordering note in CLAUDE.md), so we
+      // A >=400 cancels settlement (x402 settles after the handler), so we
       // were NOT charged - our own handler is the fault, the rail is fine.
       report.toolFail.push({ key, slug: t.slug, reason: `HTTP ${a.status}: ${a.body.slice(0, 160)} (twice)` });
       console.log(`FAIL ${key.padEnd(46)} HTTP ${a.status} (twice)`);

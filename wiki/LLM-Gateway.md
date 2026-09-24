@@ -41,7 +41,7 @@ Bare OpenAI-style names (`gpt-4o-mini`) are accepted and mapped; requesting a mo
 Two ways to pay it:
 
 - **Exact clients** (most stock x402 clients) pay the quote. A short call costs a fraction of a cent; a long one pays for what it asks.
-- **`upto` clients** (an x402 client with the `upto` scheme registered, which on Base needs a one-time USDC approval to Permit2) authorize the quote as a ceiling and settle **actual usage x 1.15** under it. Prepaid-credits buyers get the same treatment automatically: the quote is held, and only actual usage x 1.15 is debited on a `200`.
+- **`upto` clients** (an x402 client with the `upto` scheme registered, which on Base needs a one-time USDC approval to Permit2) authorize the quote as a ceiling and settle **actual usage** under it. Prepaid-credits buyers get the same treatment automatically: the quote is held, and only actual usage is debited on a `200`.
 
 The catalog lists the tier at its $0.001 floor ("from"), and every chat model on `GET /v1/models` carries `meteredFromUsd`. Use the flat tiers when you want a known price per call regardless of length; use the metered tier when calls vary a lot in size and you want to pay for the size you send.
 
@@ -75,9 +75,7 @@ There is no OpenAI TTS model on the upstream, so the tier serves a **five-model 
 Two request fields differ from OpenAI's:
 
 - `instructions` is **rejected** with a self-explaining `400`: no serving model supports it. Pick an expressive native voice instead.
-- `speed` is accepted anywhere in `0.25`–`4`. Upstream bills per **input character**, so speed is cost-neutral here; most serving models ignore it.
-
-Because billing is per input character, the 2,000-char cap makes the worst case deterministic: every link in the chain lands under the $0.06 price.
+- `speed` is accepted anywhere in `0.25`–`4`; most serving models ignore it.
 
 ## The auto tier - routing without picking a model
 
@@ -122,7 +120,7 @@ The paid canary buys from the gateway every day with real USDC: a nano completio
 
 ## Upstream service tiers
 
-Where the upstream offers it (Gemini 2.5/3.x families, gpt-5-nano, gpt-5.6-*, and the image model), the gateway asks for OpenRouter's **flex** service tier first (lower price, higher latency, lower availability) and retries the same model on the default tier if flex has no capacity, before moving to the next failover link. Buyers see the same price either way; the response's `service_tier` field says which tier served.
+Where the upstream offers it (Gemini 2.5/3.x families, gpt-5-nano, gpt-5.6-*, and the image model), the gateway asks for OpenRouter's **flex** service tier first (higher latency, lower availability) and retries the same model on the default tier if flex has no capacity, before moving to the next failover link. Buyers see the same price either way; the response's `service_tier` field says which tier served.
 
 ## Prompt caching
 
@@ -142,6 +140,6 @@ The same five tiers also speak the OpenAI Responses wire: `POST /v1/nano/respons
 
 ## Grounded answers (web search)
 
-`POST /v1/grounded/chat/completions` ($0.03) is the auto router plus a live Exa web search on every call (up to 5 results): the model answers from the results and the reply carries `url_citation` annotations. Omit `model` (or send `auto`) and the gateway picks the model by task type; the response adds `agent402_router`. This is the one place web search is offered - `:online` model variants are refused on the other tiers because search is billed per request on top of tokens, and here that fee is part of the flat price. Never cached.
+`POST /v1/grounded/chat/completions` ($0.03) is the auto router plus a live Exa web search on every call (up to 5 results): the model answers from the results and the reply carries `url_citation` annotations. Omit `model` (or send `auto`) and the gateway picks the model by task type; the response adds `agent402_router`. This is the one place web search is offered - `:online` model variants are refused on the other tiers, and here search is part of the flat price. Never cached.
 
 Other hosts (Claude Code, Cursor, Continue, ElizaOS, AgentCore, any OpenAI SDK): https://agent402.tools/guides/agent-hosts

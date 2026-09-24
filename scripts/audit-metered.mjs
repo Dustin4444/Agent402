@@ -4,10 +4,9 @@
 // against REAL upstreams with its own documented example, and grade what comes
 // back the way the sweeps grade everything else.
 //
-// NOT a CI script. It spends real money (about $11 for a full pass on 2026-08-29,
-// through the dedicated OpenRouter audit key so the spend is labelled) and needs
-// the prod keys in the booting server's environment. Recipe in CLAUDE.md
-// ("Broken-tool audit with PRODUCTION KEYS").
+// NOT a CI script. It spends real money and needs the upstream keys in the
+// booting server's environment (use a dedicated audit key for OpenRouter so
+// the spend is labelled). Boot FREE_MODE with those keys on a free port, then:
 //
 //   TARGET_URL=http://127.0.0.1:PORT node scripts/audit-metered.mjs [--only slug,slug] [--out file.json]
 //

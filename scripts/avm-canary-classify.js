@@ -68,7 +68,7 @@ export const outcomeOf = (a) =>
 
 // ---------------------------------------------------------------------------
 // SUB-CENT BUDGET (2026-09-22). GoPlausible sponsors the Algorand fee on every
-// settlement we serve and gives each payTo 1,000 free sponsored sub-cent
+// settlement we serve and gives each payTo a free sponsored sub-cent
 // (< $0.01) settlements per UTC month; at or above $0.01 is unlimited. The
 // weekly sweep is ~470 sub-cent buys from one wallet, so in September it spent
 // the whole allowance by itself - 1,325 settlements, zero outside buyers - and

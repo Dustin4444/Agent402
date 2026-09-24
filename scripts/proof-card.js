@@ -65,7 +65,7 @@ export function cardSvg(proof, { preview = false, fonts = true } = {}) {
   <text x="96" y="130" font-size="22" font-family=${mono}><tspan font-weight="700" fill="${B.text}">Agent402 /proof</tspan><tspan fill="${B.muted}"> · metered model route · one receipt, on-chain</tspan></text>
   ${okRow(180, "route", "POST /v1/metered/chat/completions", "quoted from the body")}
   ${okRow(214, "pay", "x402 upto, or a credits key", "the quote is a ceiling")}
-  ${okRow(248, "settle", "actual usage x 1.15, under the quote", "receipt on the response")}
+  ${okRow(248, "settle", "actual usage, under the quote", "receipt on the response")}
   ${okRow(282, "fail", "an error cancels settlement", "no receipt = not charged")}
   <rect x="96" y="312" width="1008" height="212" rx="12" fill="${B.inset}" stroke="${B.insetLine}" stroke-width="1"/>
   <text x="126" y="348" font-size="19" font-family=${mono}><tspan fill="${B.muted}">$ </tspan><tspan fill="${B.text}">curl agent402.tools/api/proof</tspan></text>
