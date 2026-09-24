@@ -3377,10 +3377,10 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
         // (QUOTE_DRIFT_FACTOR) to stay polite; a seller who re-registers is
         // asking us to look now, and a 1.67x gap is still a wrong price.
         || (ignoreBudget && Number(t.price) > 0 && Number(t.originDeclaredPrice) > 0
-          && priceToMicroUsd(t.price) !== priceToMicroUsd(t.originDeclaredPrice))
-        // A route the seller's own documents do not declare re-proves itself
-        // with a live answer every LIVE_PROOF_MAX_AGE_MS, or it leaves.
-        || needsLiveProof(t))
+          && priceToMicroUsd(t.price) !== priceToMicroUsd(t.originDeclaredPrice)))
+      // (An undeclared route needs no clause of its own here: the staleness
+      // tests above re-ask every priced row within the same 7 days that
+      // needsLiveProof measures, off the same timestamps.)
       // A route observed free inside the quote window is left alone by the
       // automatic crawl; an explicit re-registration still re-asks it.
       && (ignoreBudget || !isObservedFree(t))

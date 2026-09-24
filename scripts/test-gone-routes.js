@@ -20,6 +20,7 @@ process.env.X402_INDEX_CRAWL = "off";
 const {
   enrichLiveQuotes, dropGoneRoutes, isRouteGone, markRouteGone, _resetGoneRoutes, GONE_ROUTE_TTL_MS,
   stampDeclared, needsLiveProof, LIVE_PROOF_MAX_AGE_MS, carryForwardLearnedQuotes, listingBasisProjection,
+  quoteIsStale, networksNeedLiveVerify,
 } = await import("../src/x402-index.js");
 
 let n = 0;
@@ -114,6 +115,18 @@ try {
   const legacy = row("/v1/p", "POST");
   ok(!needsLiveProof(fresh) && needsLiveProof(stale) && needsLiveProof(never), "an undeclared row needs a proof when it has none or it is older than the window");
   ok(!needsLiveProof(docd) && !needsLiveProof(legacy), "a declared row, or one crawled before stamping, does not");
+  // enrichLiveQuotes has no clause of its own for this: every row that needs a
+  // proof must already be a probe candidate through the staleness tests.
+  const old8 = Date.now() - LIVE_PROOF_MAX_AGE_MS - 60_000;
+  const shapes = [
+    row("/v1/s1", "POST", { declared: false }),
+    row("/v1/s2", "POST", { declared: false, quoteSource: "live-402", quoteObservedAt: old8, networksVerifiedAt: old8 }),
+    row("/v1/s3", "POST", { declared: false, networksVerifiedAt: old8 }),
+    row("/v1/s4", "POST", { declared: false, price: null }),
+    row("/v1/s5", "POST", { declared: false, networks: [] }),
+  ];
+  ok(shapes.every((t) => !needsLiveProof(t) || !(Number(t.price) > 0) || !(t.networks || []).length || quoteIsStale(t) || networksNeedLiveVerify(t)),
+    "every row that needs a live proof is already a probe candidate");
   const prev = { tools: [{ route: "/v1/p", method: "POST", price: 0.01, networks: ["eip155:8453"], quoteSource: "live-402", quoteObservedAt: Date.now() - 60_000, liveProvenAt: Date.now() - 60_000 }] };
   const next = [row("/v1/p", "POST", { declared: false })];
   carryForwardLearnedQuotes(next, prev);
