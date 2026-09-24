@@ -651,6 +651,25 @@ export function mppTxHashes() {
   return out;
 }
 
+// Every MPP-wire row in a time window, for the daily reconciliation job
+// (src/mpp-reconcile.js). Includes the Tempo subscription charges, which pay
+// the same recipient. The payer rides along ONLY because the EVM leg's
+// on-chain check needs it (from == payer); the reconciler never copies it
+// into its summary. Bounded by `limit`.
+const qMppWindow = db.prepare(`
+  SELECT id, ts, slug, price_usd, quote_usd, rail, network, payer, tx, internal, wire
+  FROM sales WHERE wire IN ('mpp', 'mpp-tempo', 'mpp-stripe', 'mpp-tempo-subscription') AND ts >= ? AND ts < ?
+  ORDER BY id ASC LIMIT ?`);
+export function mppLedgerRows(sinceMs, untilMs = Date.now(), { limit = 50_000 } = {}) {
+  try {
+    return qMppWindow.all(Number(sinceMs) || 0, Number(untilMs) || Date.now(), limit).map((r) => ({
+      id: r.id, ts: r.ts, slug: r.slug, priceUsd: Number(r.price_usd) || 0,
+      quoteUsd: r.quote_usd == null ? null : Number(r.quote_usd), rail: r.rail, network: r.network || null,
+      payer: r.payer || null, tx: r.tx || null, internal: !!r.internal, wire: r.wire || null,
+    }));
+  } catch { return []; }
+}
+
 /** Recent MPP-wire settlements (Authorization: Payment) with on-chain tx + payer. */
 export function mppSales({ limit = 30, detailed = false } = {}) {
   const rows = qMppRecent.all(Math.min(Math.max(1, limit | 0), 100));

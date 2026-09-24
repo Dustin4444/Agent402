@@ -190,11 +190,14 @@ import { priceToMicroUsd } from "./x402-index.js";
 import { allPayToOrigins, indexSnapshot, sellerDetail, sellerEntry, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories, bazaarQualityEntries, bazaarQualityFor, indexWarmStartInProgress, indexReadiness, quoteIsStale, priceDisagreesWithOrigin, networksNeedLiveVerify, looksLikeListingInjection, crawlToolsByOrigin, listSuccessions, revokeSuccession, quoteProbeStatsSnapshot, removeOrigin, restoreOrigin, listRemovedOrigins, isRemovedOrigin, REMOVED_ORIGIN_ERROR } from "./x402-index.js";
 import { startMppCrawler, registerMppOrigin, validateOriginInput as validateMppOriginInput, mppIndexSnapshot } from "./mpp-index.js";
 import { startMppLeaderboard, mppLeaderboardSnapshot } from "./mpp-leaderboard.js";
-import { tempoSelfRecipient } from "./mpp-tempo.js";
+import { tempoSelfRecipient, tempoDiscoveryInfo } from "./mpp-tempo.js";
+import { createMppReconciler, fetchTransfersFromFeed, fetchTransfersFromRpc } from "./mpp-reconcile.js";
+import { tempoDataKey } from "./tempo-transfers.js";
+import { verifyInboundPayment } from "./payment-verify.js";
 import { mppMarketPage } from "./mpp-market-page.js";
 import { indexToolsPage, INDEX_TOOLS_PAGE_SIZE } from "./index-tools-page.js";
 import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankBy, CONCENTRATION } from "./leaderboard.js";
-import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus, facilitatorSupportReport, facilitatorsByNetworkPublic, setComputePayablePaths } from "./payments.js";
+import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus, facilitatorSupportReport, facilitatorsByNetworkPublic, setComputePayablePaths, parseNetworkPremiums } from "./payments.js";
 import { createMppShim } from "./mpp-shim.js";
 import { createTempoChallengeAppender, createTempoGate, tempoTxFromReceiptHeader } from "./mpp-tempo.js";
 import { createStripeChallengeAppender, createStripeGate, stripeTxFromReceiptHeader } from "./mpp-stripe.js";
@@ -381,7 +384,7 @@ import { pageSizeOf, pagingEnvelope, pagingNote } from "./index-paging.js";
 import { usdcDomainVerdict, usdcDomainMismatchDetail, unsignableByStockBuyer } from "./evm-usdc-domain.js";
 import { acceptsFromLive402 } from "./x402-live-quote.js";
 import { spend as sharedSpend, refund as sharedRefund, sharedLimitEnabled } from "./shared-limit.js";
-import { recordSale, salesSummary, externalByNetwork, mppSales, cardSales, mppTxHashes, txFromPaymentResponse, tempoDailyRevenue, tempoDailyRecordingSince, proofFeed, externalDailyRevenue, payerUsage, feedbackByTool, badFeedback } from "./sales-ledger.js";
+import { recordSale, salesSummary, externalByNetwork, mppSales, cardSales, mppTxHashes, txFromPaymentResponse, tempoDailyRevenue, tempoDailyRecordingSince, proofFeed, externalDailyRevenue, payerUsage, feedbackByTool, badFeedback, mppLedgerRows } from "./sales-ledger.js";
 import { recordShadowSettlement, startShadowLedger, shadowLedgerReport, shadowLedgerEnabled } from "./stripe-shadow-ledger.js";
 import { reconcileSettlements } from "./settlement-reconcile.js";
 import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
@@ -450,7 +453,7 @@ import { buildSellerPayabilityTool } from "./tools/seller-payability-kit.js";
 import { deliveryObservation } from "./response-observation.js";
 import { payX402, avmBuyerConfigured, avmBuyerStatus, sellerRefusedRecently, sellerDeliveryFailingRecently, sellerDeliveryMemoEntries, DELIVERY_FAIL_STRIKES_REQUIRED, deliveryFailTtlMsNow } from "./x402-buyer.js";
 import { svmBuyerConfigured, svmBuyerStatus, SOLANA_NETWORK_LABELS } from "./solana-buyer.js";
-import { payTempo, tempoBuyerConfigured, tempoBuyerStatus } from "./tempo-buyer.js";
+import { payTempo, tempoBuyerConfigured, tempoBuyerStatus, tempoRpc } from "./tempo-buyer.js";
 import { issueChallenge, verifySolution, isComputePayable, powInfo, POW_DIFFICULTY, WALLET_ONLY_SLUGS, verifyHeartbeatToken } from "./pow.js";
 import { createLimiter as createRateLimiter, LIMITS_LABEL as POW_LIMITS_LABEL } from "./rate-limit.js";
 import { classifyWishes, wishClassifyEnabled } from "./wish-classify.js";
@@ -508,7 +511,7 @@ function trialClientKey(ip) {
 }
 const TRIAL_LIMITS_LABEL = `${TRIAL_PER_TOOL_HOUR} per tool per hour, ${TRIAL_IP_HOUR} per hour per client`;
 const OX_TRIAL_LIMITS_LABEL = `${OX_TRIAL_PER_HOUR} per hour, ${OX_TRIAL_PER_DAY} per day per client`;
-import { recordRefundOwed, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals } from "./refund-ledger.js";
+import { recordRefundOwed, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals, refundsCreatedBetween } from "./refund-ledger.js";
 import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent, getDailyCalls, dailyCallsRecordingSince, getDailyUpstreamCalls, getSellerRegistrations, getDailyUpstreamSpend } from "./stats.js";
 import { timingSafeEqual, createHash, randomUUID, randomBytes } from "node:crypto";
 
@@ -2784,6 +2787,9 @@ app.get("/api/gateway-status", async (req, res) => {
     stellarFacilitator, databases, operatorAuth: operatorAuthStatus(full),
     mppEvmDomainFallback: full ? mppFallbackStatus() : publicFallback(mppFallbackStatus()),
     loopLag: full ? loopLagStatus() : publicLoopLag(loopLagStatus()),
+    // Daily MPP reconciliation (src/mpp-reconcile.js): status words + counts,
+    // never an address; the itemized rows are /__operator/mpp-reconcile.json.
+    mppReconcile: await mppReconciler.status({ full }).catch(() => ({ status: "unknown", chargedFailedStatus: "unknown" })),
   };
   // An operator-authed read must not land in a shared cache.
   res.set("Cache-Control", full ? "private, no-store" : "public, max-age=60").json(body);
@@ -4347,6 +4353,62 @@ app.post("/__operator/search/sitemaps/submit", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   if (operatorHeavyLimited(req, res)) return;
   searchData.submitSitemaps().then((r) => res.json(r), (e) => res.status(500).json({ error: String(e.message) }));
+});
+// Daily MPP reconciliation: chain transfers to our Tempo recipient vs the
+// sales ledger vs the refund ledger, plus the MPP evm leg and Stripe SPT rows
+// (read-only). Every source is injected here; the module is a leaf.
+const MPP_EVM_VERIFY = {
+  "eip155:8453": { asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", rpc: () => process.env.AGENT402_BASE_RPC || "https://mainnet.base.org" },
+  "eip155:42220": { asset: (process.env.CELO_USDC_ADDRESS || "0xcebA9300f2b948710d2653dD7B07f33A8B32118C").trim(), rpc: () => "https://forno.celo.org" },
+};
+// Reasons that mean "we could not look", not "the chain disagrees".
+const MPP_EVM_UNCHECKABLE = /could not read|no RPC|no token address|no EVM payTo|payer is not an EVM|no usable transaction hash|no live payTo/i;
+let _stripeForReconcile = null;
+const mppReconciler = createMppReconciler({
+  ledgerRows: (since, until) => mppLedgerRows(since, until),
+  refunds: (since, until) => refundsCreatedBetween(since, until),
+  recipients: () => [tempoSelfRecipient()].filter(Boolean),
+  currencies: () => tempoDiscoveryInfo()?.currencies || [],
+  premiumUsd: () => (parseNetworkPremiums().get("eip155:4217") || 0) / 1e6,
+  isOwnWallet,
+  fetchTransfers: async ({ recipients, fromMs, toMs }) => {
+    const rpcRead = () => fetchTransfersFromRpc({ rpcFn: (m, p) => tempoRpc(m, p, { timeoutMs: 20_000 }), recipients, fromMs, toMs });
+    if (!tempoDataKey() || String(process.env.MPP_LB_SOURCE || "").toLowerCase() === "rpc") return rpcRead();
+    const feed = await fetchTransfersFromFeed({ apiKey: tempoDataKey(), recipients, fromMs, toMs });
+    if (feed.complete) return feed;
+    console.warn(`[mpp-reconcile] transfer feed read incomplete (${feed.error}) - falling back to the RPC scan`);
+    return rpcRead();
+  },
+  verifyEvm: async (row) => {
+    const cfg = MPP_EVM_VERIFY[String(row.network || "")];
+    if (!cfg) return { checked: false };
+    const v = await verifyInboundPayment({
+      network: row.network, payer: row.payer, amountUsd: row.priceUsd, tx: row.tx, createdAt: row.ts,
+      acceptsFor: () => ({ asset: cfg.asset, payTo: WALLET_ADDRESS }),
+      payToSetFor: () => [WALLET_ADDRESS, process.env.X402_UPSTREAM_BUYER_ADDRESS].filter(Boolean),
+      rpcFor: () => cfg.rpc(),
+    });
+    if (v.verified) return { checked: true, verified: true };
+    return MPP_EVM_UNCHECKABLE.test(String(v.reason || "")) ? { checked: false } : { checked: true, verified: false, reason: v.reason };
+  },
+  stripeLookup: (process.env.STRIPE_SECRET_KEY || "").trim() ? async (pi) => {
+    if (!/^pi_[A-Za-z0-9]+$/.test(String(pi))) return { error: true };
+    _stripeForReconcile ||= new Stripe(process.env.STRIPE_SECRET_KEY.trim());
+    const r = await _stripeForReconcile.paymentIntents.retrieve(pi);
+    return { status: r.status, amountCents: r.amount_received ?? r.amount };
+  } : null,
+});
+app.get("/__operator/mpp-reconcile.json", async (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  res.set("Cache-Control", "no-store").json({ status: await mppReconciler.status({ full: true }).catch(() => null), ...mppReconciler.detail() });
+});
+// Manual run: reads the chain (feed or RPC) and optionally Stripe, so it takes
+// the heavy limiter. ?day=YYYY-MM-DD reconciles that day instead of yesterday.
+app.post("/__operator/mpp-reconcile/run", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  if (operatorHeavyLimited(req, res)) return;
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.day || "")) ? String(req.query.day) : null;
+  mppReconciler.runOnce({ day }).then((r) => res.json(r), (e) => res.status(500).json({ error: String(e.message).slice(0, 200) }));
 });
 app.get("/__operator/backup.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
@@ -7983,6 +8045,7 @@ app.use((req, res, next) => {
             tx: txFromPaymentResponse(settleReceipt),
             httpStatus: res.statusCode,
             synthetic,
+            wire: req.mppCredential ? "mpp" : "x402",
           });
           // Mirror to PostHog with payer attribution so a spike is alertable in
           // near-real-time and traceable to a wallet (the local table keeps only
@@ -7996,6 +8059,25 @@ app.use((req, res, next) => {
             payer,
           });
         }
+      } else if ((req.tempoSettled || req.stripeSettled) && res.statusCode >= 400) {
+        // The MPP Tempo/Stripe gates settle BEFORE replaying the buffered
+        // response and carry no PAYMENT-RESPONSE, so the branch above never saw
+        // them: a replay that threw after settlement (the gate's own
+        // CHARGED-BUT-NOT-SERVED log line, which ends the response 500) left no
+        // debt anywhere. A >= 400 here can only be that path - a handler >= 400
+        // is never broadcast - so the settle is proven and the debt is real.
+        const tx = req.tempoSettled ? tempoTxFromReceiptHeader(res.getHeader("Payment-Receipt")) : stripeTxFromReceiptHeader(res.getHeader("Payment-Receipt"));
+        recordChargedFailure(def.slug, res.statusCode);
+        recordRefundOwed({
+          slug: def.slug,
+          network: req.tempoSettled ? "tempo" : "stripe",
+          payer: req.mppTempoPayer || null,
+          priceUsd: settledPriceUsd(def, req, res),
+          tx,
+          httpStatus: res.statusCode,
+          synthetic: isSyntheticRequest(req),
+          wire: req.tempoSettled ? "mpp-tempo" : "mpp-stripe",
+        });
       }
     });
   }
@@ -8715,6 +8797,7 @@ const datasetSources = () => ({
 });
 bootStep("startBackupScheduler", () => startBackupScheduler());
 bootStep("searchData.start", () => searchData.start());
+bootStep("mppReconciler.start", () => mppReconciler.start());
 // Warm the sanctions list at boot so the first buyer does not wait on a 5.7MB
 // download, and refresh on a timer - a stale list answering "no match" is the
 // failure mode this tool exists to avoid.

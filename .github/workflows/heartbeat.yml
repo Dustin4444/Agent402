@@ -591,6 +591,74 @@ jobs:
             gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: leads=$LEADS analytics=$ANALYTICS at $(date -u +%FT%TZ)."
           fi
 
+      # Daily MPP reconciliation (src/mpp-reconcile.js): chain transfers to our
+      # Tempo recipient vs the sales ledger vs the refund ledger, plus the MPP
+      # evm leg and Stripe SPT rows. The public field carries status WORDS only;
+      # the itemized rows (tx hash, slug, amount, category - never a payer) are
+      # read from the operator route when the token is present. Single retry:
+      # a reading taken inside our own deploy window is {} and reads unknown,
+      # so only a second "mismatch" pages.
+      - name: MPP reconciliation check (alarm when the chain and our books disagree)
+        if: always()
+        continue-on-error: true
+        env:
+          OP_TOKEN: ${{ secrets.AGENT402_OPERATOR_TOKEN }}
+        run: |
+          read_rec() { curl -s --max-time 20 "$PROD/api/gateway-status" 2>/dev/null | jq -r '.mppReconcile.status // "unknown"' 2>/dev/null || echo unknown; }
+          STATUS=$(read_rec)
+          if [ "$STATUS" = "mismatch" ]; then echo "mpp reconcile: first read mismatch - re-reading in 30s before paging"; sleep 30; STATUS=$(read_rec); fi
+          echo "mpp reconcile: $STATUS"
+          TITLE="MPP reconciliation MISMATCH"
+          OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty' 2>/dev/null || true)
+          if [ "$STATUS" = "mismatch" ]; then
+            CATS=$(curl -s --max-time 20 "$PROD/api/gateway-status" | jq -r '[.mppReconcile.categories // {} | to_entries[] | select(.value=="mismatch") | .key] | join(", ")' 2>/dev/null || echo "")
+            DAY=$(curl -s --max-time 20 "$PROD/api/gateway-status" | jq -r '.mppReconcile.day // "?"' 2>/dev/null || echo "?")
+            ROWS=""
+            if [ -n "$OP_TOKEN" ]; then
+              ROWS=$(curl -s --max-time 20 -H "Authorization: Bearer $OP_TOKEN" "$PROD/__operator/mpp-reconcile.json" \
+                | jq -r '[.day.mismatches[]? | select(.category != "charged_failed")] | .[0:15][] | "- \(.category): tx \(.tx // "none") slug \(.slug // "-") $\(.amountUsd // "-") (\(.side))"' 2>/dev/null || echo "")
+            fi
+            BODY=$(printf 'The daily MPP reconciliation for %s found records that disagree (categories: %s). Each category is defined in src/mpp-reconcile.js: served_unpaid = booked as settled over Tempo with no transfer on chain; paid_unrecorded = a transfer to our recipient with no sales row; amount_mismatch / wrong_currency / duplicate_tx / missing_tx / evm_unverified / stripe_mismatch as named.\n\n%s\n\nFull detail: GET /__operator/mpp-reconcile.json (operator token). Re-run a day: POST /__operator/mpp-reconcile/run?day=YYYY-MM-DD. Closes when a reconciliation reads ok.' "$DAY" "${CATS:-see the operator route}" "${ROWS:-(itemized rows need the operator token)}")
+            if [ -z "$OPEN" ]; then
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY"
+            else
+              gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "Still mismatched at $(date -u +%FT%TZ) (day $DAY; categories: ${CATS:-?})."
+            fi
+          elif [ "$STATUS" = "ok" ] && [ -n "$OPEN" ]; then
+            gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: the MPP reconciliation reads ok at $(date -u +%FT%TZ)."
+          fi
+
+      # A paid-but-failed MPP call: settle succeeded and the response was not a
+      # 200, so the refund ledger holds a debt. Read LIVE from the refund ledger
+      # (last 24 h), not from the daily run. Same single retry.
+      - name: MPP paid-but-failed check (alarm on any charged-but-failed MPP call in the last day)
+        if: always()
+        continue-on-error: true
+        env:
+          OP_TOKEN: ${{ secrets.AGENT402_OPERATOR_TOKEN }}
+        run: |
+          read_cf() { curl -s --max-time 20 "$PROD/api/gateway-status" 2>/dev/null | jq -r '.mppReconcile.chargedFailedStatus // "unknown"' 2>/dev/null || echo unknown; }
+          CF=$(read_cf)
+          if [ "$CF" = "charged_failed" ]; then echo "mpp charged-failed: first read positive - re-reading in 30s before paging"; sleep 30; CF=$(read_cf); fi
+          echo "mpp charged-failed: $CF"
+          TITLE="MPP paid-but-failed call"
+          OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty' 2>/dev/null || true)
+          if [ "$CF" = "charged_failed" ]; then
+            ROWS=""
+            if [ -n "$OP_TOKEN" ]; then
+              ROWS=$(curl -s --max-time 20 -H "Authorization: Bearer $OP_TOKEN" "$PROD/__operator/mpp-reconcile.json" \
+                | jq -r '"last 24h: \(.status.chargedFailed24h.total // "?") (\(.status.chargedFailed24h.external // "?") external, \(.status.chargedFailed24h.internal // "?") internal)"' 2>/dev/null || echo "")
+            fi
+            BODY=$(printf 'An MPP call (Tempo, Stripe SPT or the MPP evm wire) settled and was then answered with a non-200 in the last 24 hours, so the buyer paid and did not get their answer. The debt is on the refund ledger; see GET /__operator/refunds.json and the [mpp-tempo]/[mpp-stripe] CHARGED-BUT-NOT-SERVED log line for the cause.\n\n%s\n\nCloses when the 24-hour count is back to zero.' "${ROWS:-(counts need the operator token)}")
+            if [ -z "$OPEN" ]; then
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY"
+            else
+              gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "Still present at $(date -u +%FT%TZ). ${ROWS}"
+            fi
+          elif [ "$CF" = "ok" ] && [ -n "$OPEN" ]; then
+            gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: no charged-but-failed MPP call in the last 24 hours at $(date -u +%FT%TZ)."
+          fi
+
       # The spending wallet should never go DOWN, so a fall is worth more than
       # a floor. Everything that spends from it also settles into it
       # (SELF_FUNDING_SLUGS), and every execution tier charges more than it can
