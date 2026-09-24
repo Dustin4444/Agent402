@@ -48,6 +48,10 @@ try {
   const c = await ask(qs[2]);
   ok(c.status === 200 && Array.isArray(c.body.results) && c.body.results.length >= 2, "over the limit the caller still gets rows, not an error");
   ok(c.body.judged?.skipped === "rate" && /hourly allowance/.test(c.body.judged.note || "") && judgeCalls === 2, `over the limit no model call is made and the answer says why (${JSON.stringify(c.body.judged)}, judge calls ${judgeCalls})`);
+  // The allowance is per caller: another client is still judged.
+  const other = await fetch(`${B}/api/route?q=${encodeURIComponent("resize an image")}&include=local&top=5`, { headers: { "X-Forwarded-For": "203.0.113.9" } });
+  const ob = await other.json();
+  ok(other.status === 200 && ob.judged && !ob.judged.skipped && judgeCalls === 3, `another caller keeps its own allowance (${JSON.stringify(ob.judged)}, judge calls ${judgeCalls})`);
   console.log(`\nPASS - ${pass} checks (route judge limit)`);
   proc.kill("SIGKILL"); judge.close();
   process.exit(0);
