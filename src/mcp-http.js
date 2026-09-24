@@ -970,7 +970,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
             // agent budgeting from a machine surface under-budgets, pays, and
             // is refused. llms.txt was right the whole time because it derives
             // its numbers; this does the same now.
-            reports: { what: `finished, cited report products with a data appendix - ${reportLadder().agentLadder} - the same endpoints over x402/MPP or by card`, human: `${baseUrl}/reports`, humanPricing: `people pay ${reportLadder().cardLadder} by card; the card price includes payment processing (2.9% + $0.30 a charge), so an agent paying per call pays the lower tool price above for the same report`, monitors: `${baseUrl}/monitors`, monitorPricing: reportLadder().monthlySentence },
+            reports: { what: `finished, cited report products with a data appendix - ${reportLadder().agentLadder} - the same endpoints over x402/MPP or by card`, human: `${baseUrl}/reports`, humanPricing: `people pay ${reportLadder().cardLadder} by card; the card price includes payment processing, so an agent paying per call pays the lower tool price above for the same report`, monitors: `${baseUrl}/monitors`, monitorPricing: reportLadder().monthlySentence },
             freeTier: {
               pureCpuToolsFree: freeCount,
               how: "pure-CPU tools run free here (rate-limited); wallet-only tools are payable on this connector over MPP (JSON-RPC -32042 carries the challenges; send the credential in _meta[\"org.paymentauth/credential\"], receipt returns in _meta[\"org.paymentauth/receipt\"] - mppx's McpClient.wrap() handles it) or via the npm server with a wallet",

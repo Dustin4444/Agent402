@@ -111,16 +111,16 @@ curl -X POST https://agent402.tools/api/llm-premium \
 
 All three return `402` without a valid x402 payment header -- the same flow as every other paid tool. See [[Paying with x402]] for how to sign and attach payment.
 
-## Operator caps that protect margins
+## Per-tier caps
 
-The per-tier caps are set so that the worst-case upstream OpenAI cost stays comfortably below the x402 price charged to the caller:
+Each tier bounds what a single call can ask for:
 
 - **Input cap** (chars) limits how much prompt text the caller can send, bounding prompt-token cost.
 - **Output cap** (tokens) hard-limits `max_completion_tokens` sent to OpenAI, bounding completion-token cost.
 - **Model allowlist** per tier prevents a caller from requesting a more expensive model than the tier's price covers (e.g. sending `gpt-4o` to the $0.01 endpoint returns `400`).
 - **Message count** is capped at 50 per request.
 
-These caps are enforced server-side before the upstream call is made -- a misconfigured client cannot cause the operator to lose money.
+These caps are enforced server-side before the upstream call is made.
 
 ## Environment gating
 

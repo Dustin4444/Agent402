@@ -52,7 +52,7 @@ Over the MCP connector, `catalog.find` resolves a task like "audit example.com's
 
 [`/reports`](https://agent402.tools/reports) sells the same products by card through Stripe Checkout: pick a product, type the input (a question, a ticker, a fund, a domain, a recall term, an article topic), pay, and the report renders at a private link `/r/<session>` (also emailed when the instance has email configured). The card price is derived from the agent price: **$2** for the base tier (research, fund report, domain audit, token brief, recall report, insider report), **$3** for the pro tier (research pro, market brief, dossier, fund report deep, domain audit pro, filing report), **$4** for the max tier (research max, dossier max, LinkedIn article) and **$5** for the ticker pack.
 
-The card price is not the agent price, and that is deliberate: Stripe charges 2.9% + $0.30 per charge, so under about a dollar the processing fee costs more than the report. An agent paying per call over x402, MPP or prepaid credits pays the lower tool price in the table above for the same report. The token-risk and IPO reports are agent-facing routes and are not on the card page.
+The card price includes payment processing. An agent paying per call over x402, MPP or prepaid credits pays the lower tool price in the table above for the same report. The token-risk and IPO reports are agent-facing routes and are not on the card page.
 
 Guarantees enforced in code rather than promised in copy:
 

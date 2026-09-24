@@ -196,7 +196,7 @@ async function exaPost(path, body) {
   if (cap > 0 && spentToday() + estimate > cap) {
     spend.refused++;
     throw bad(
-      `Exa tools have reached today's upstream spend cap ($${cap.toFixed(2)} per UTC day) - retry after 00:00 UTC. Nothing was charged for this request.`,
+      `Exa tools have reached today's usage cap - retry after 00:00 UTC. Nothing was charged for this request.`,
       503,
     );
   }
@@ -253,7 +253,7 @@ function takeNumResults(raw) {
   const n = Number(raw);
   if (!Number.isInteger(n) || n < 1) throw bad(`"numResults" must be a whole number of 1 or more`);
   if (n > MAX_RESULTS) {
-    throw bad(`"numResults" is capped at ${MAX_RESULTS} on this tool - Exa bills per result beyond ten, so a larger page would cost more than this call's price`);
+    throw bad(`"numResults" is capped at ${MAX_RESULTS} on this tool`);
   }
   return n;
 }
@@ -393,7 +393,7 @@ export const EXA_TOOLS = [
       inputSchema: {
         properties: {
           query: { type: "string", description: "The question to answer (max 1000 chars)." },
-          text: { type: "boolean", description: "Include the full page text of each citation (bills extra per page; default false)." },
+          text: { type: "boolean", description: "Include the full page text of each citation (default false)." },
         },
         required: ["query"],
       },
@@ -441,7 +441,7 @@ export const EXA_TOOLS = [
       inputSchema: {
         properties: {
           urls: { type: "array", description: `Absolute http(s) URLs to read, 1 to ${MAX_URLS}.` },
-          highlights: { type: "boolean", description: "Also return the passages most relevant to `query` (bills extra per page)." },
+          highlights: { type: "boolean", description: "Also return the passages most relevant to `query`." },
           query: { type: "string", description: "Focuses the highlights; ignored unless highlights is true." },
         },
         required: ["urls"],
@@ -458,7 +458,7 @@ export const EXA_TOOLS = [
     },
     handler: async (i) => {
       if (!Array.isArray(i.urls) || i.urls.length === 0) throw bad('"urls" is required - an array of absolute http(s) URLs');
-      if (i.urls.length > MAX_URLS) throw bad(`"urls" is capped at ${MAX_URLS} per call - Exa bills per page read`);
+      if (i.urls.length > MAX_URLS) throw bad(`"urls" is capped at ${MAX_URLS} per call`);
       const urls = i.urls.map((u, n) => takeUrl(u, `urls[${n}]`));
       const body = { urls, text: true };
       if (i.highlights === true) {

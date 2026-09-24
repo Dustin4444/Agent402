@@ -81,7 +81,7 @@ async function assertAffordable(params, maxUsd = DEFAULT_MAX_QUERY_USD) {
   try {
     const usd = Number(await post("metadata.get_cost", { ...params, mode: "historical" }));
     if (Number.isFinite(usd) && usd > maxUsd) {
-      throw bad(`That request is wider than this endpoint serves (estimated upstream cost $${usd.toFixed(6)}). Narrow the range.`);
+      throw bad(`That request is wider than this endpoint serves. Narrow the range.`);
     }
   } catch (e) {
     if (e?.statusCode === 400) throw e;      // our own refusal, keep it

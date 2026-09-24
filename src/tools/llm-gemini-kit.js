@@ -166,7 +166,7 @@ export function geminiToChat(input, model) {
     ["thinking_config", "reasoning depth is set per tier on this gateway; see GET /v1/models"],
   ]) if (gc?.[k] !== undefined) throw bad(`"generationConfig.${k}" is not supported on this route - ${why}.`);
   const n = gc?.candidateCount ?? gc?.candidate_count;
-  if (n !== undefined && n !== 1) throw bad('"generationConfig.candidateCount" must be 1 on this route - more candidates multiply the upstream cost of one paid call.');
+  if (n !== undefined && n !== 1) throw bad('"generationConfig.candidateCount" must be 1 on this route.');
 
   const chat = { model, messages };
   const maxOut = gc?.maxOutputTokens ?? gc?.max_output_tokens;
