@@ -148,7 +148,7 @@ export const JUDGE_TOOLS = [{
   slug: "judge",
   category: "ai",
   price: "$0.001",
-  description: "Ask a typed question about any content and get an answer your code can branch on, not prose to parse. Three question types: choice (pick one of your named options, with a probability for each and a confidence), score (a position on levels you describe), and noul (a yes/no as a probability from 0 to 1). Up to 8 questions per call, answered in parallel over one piece of state. Model-backed, not deterministic.",
+  description: "Ask a typed question about any content and get an answer your code can branch on, not prose to parse. Send state (the content, a string or object) and questions (your own ids mapped to question objects); get back answers keyed by those ids. Three question types: choice (pick one of your named options: returns choice, probabilities per option and confidence), score (a position on levels you describe, lowest first: returns score as a fractional level index, probabilities per level index, confidence and a legend naming each level), and noul (a yes/no: returns noul, the probability of yes from 0 to 1). Up to 8 questions per call, answered in parallel over one piece of state. Use it for routing, triage, classification and gating decisions. Model-backed, not deterministic.",
   tags: ["ai", "classify", "judgment", "routing", "extraction"],
   discovery: {
     bodyType: "json",
@@ -168,13 +168,20 @@ export const JUDGE_TOOLS = [{
         is_reproducible: { type: "noul", instructions: "Does this report describe steps that would let an engineer reproduce the problem?" },
       },
     },
+    // The live answer shape (read from a real call 2026-09-24): score
+    // probabilities are keyed by level INDEX with a legend beside them, not an
+    // array, and the model echoes its concrete version.
     example: {
-      model: "jev-latest",
+      model: "jev-1.13.0",
       answers: {
-        severity: { type: "score", score: 1.2, probabilities: [0.05, 0.75, 0.2], confidence: 0.75 },
-        is_reproducible: { type: "noul", noul: 0.82 },
+        severity: {
+          type: "score", score: 1.48, confidence: 0.27,
+          legend: { 0: "Cosmetic; no impact to functionality", 1: "Broken or degraded feature, but a workaround exists", 2: "Blocking issue; no workaround exists" },
+          probabilities: { 0: 0, 1: 0.52, 2: 0.48 },
+        },
+        is_reproducible: { type: "noul", noul: 0.3 },
       },
-      usage: { input_tokens: 412, output_tokens: 47 },
+      usage: { input_tokens: 363, output_tokens: 37 },
       note: "Typed judgment. choice/score answers carry `probabilities` and `confidence`; a noul carries `noul`, a probability from 0 to 1, and no confidence. Gate on confidence for choice/score and on distance from 0.5 for a noul.",
     },
   },

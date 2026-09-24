@@ -139,7 +139,7 @@ const encodingTools = [
     slug: "hash",
     category: "encoding",
     price: "$0.001",
-    description: "Cryptographic hash of a text string. Algorithms: sha256 (default), sha512, sha1, md5. Returns hex and base64 digests.",
+    description: "Cryptographic hash of a text string (UTF-8): returns algo, hex and base64 digests. Algorithms: sha256 (default), sha512, sha1, md5. Up to 100KB of text; for every digest (plus CRC32) in one call use checksum.",
     tags: ["hash", "sha256", "checksum", "crypto"],
     discovery: {
       bodyType: "json",
@@ -337,7 +337,7 @@ const encodingTools = [
     slug: "uuid",
     category: "identifiers",
     price: "$0.001",
-    description: "Generate UUIDs. ?version=4 (default, random) or 7 (time-ordered), ?count=1..100.",
+    description: "Generate UUIDs: returns version and uuids[] (lowercase, hyphenated). ?version=4 (default, random) or 7 (time-ordered, sortable by creation time - the better choice for database keys), ?count=1..100.",
     tags: ["uuid", "id", "generator"],
     discovery: {
       input: { version: "7", count: "3" },
@@ -413,7 +413,7 @@ const encodingTools = [
     slug: "random",
     category: "identifiers",
     price: "$0.001",
-    description: "Cryptographically secure randomness. ?bytes=1..1024 returns hex; or ?min=&max= returns a uniform integer; ?count=1..100.",
+    description: "Cryptographically secure random values: ?min=&max= returns integers[], each uniform over the inclusive range; or ?bytes=1..1024 returns hex[], each N random bytes as hex. ?count=1..100 values (default 1). Use it for dice, sampling, lottery-style draws, nonces and keys.",
     tags: ["random", "entropy", "dice"],
     discovery: {
       input: { min: "1", max: "100", count: "3" },
@@ -989,7 +989,7 @@ const textTools = [
     slug: "text-stats",
     category: "text",
     price: "$0.001",
-    description: "Characters, words, sentences, paragraphs, average word length, reading time, and an LLM token estimate for any text.",
+    description: "Counts for any text in one call: characters (Unicode code points), words, sentences, paragraphs, avgWordLength, readingTimeMinutes (200 words a minute) and estimatedTokens, a rough LLM token estimate (about 4 characters a token, one per Chinese or Japanese character). Chinese and Japanese text, which has no spaces, is counted a character per word, and 。！？ end sentences. Use it to budget a prompt or size a document before sending it; for an exact count on one model's tokenizer use a tokenizer tool.",
     tags: ["text", "statistics", "tokens", "reading-time"],
     discovery: {
       bodyType: "json",
@@ -1002,17 +1002,25 @@ const textTools = [
     },
     handler: (input) => {
       const text = capText(need(input, "text"), 500_000);
-      const words = text.split(/\s+/).filter(Boolean);
-      const sentences = (text.match(/[.!?]+(\s|$)/g) || []).length || (words.length ? 1 : 0);
+      // Chinese and Japanese are written without spaces, so splitting on
+      // whitespace counted a whole paragraph as one word and one sentence.
+      // Each Han/kana character counts as a word; a run of anything else
+      // between spaces is a word only if it carries a letter or digit (a
+      // lone "-" or "。" is punctuation, not a word).
+      const CJK = "\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}";
+      const words = (text.match(new RegExp(`[${CJK}]|[^\\s${CJK}]+`, "gu")) || []).filter((w) => /[\p{L}\p{N}]/u.test(w));
+      const cjkChars = (text.match(new RegExp(`[${CJK}]`, "gu")) || []).length;
+      const codePoints = [...text].length;
+      const sentences = (text.match(/[.!?]+(\s|$)|[。！？]+/g) || []).length || (words.length ? 1 : 0);
       const paragraphs = text.split(/\n\s*\n/).filter((p) => p.trim()).length;
       return {
-        characters: text.length,
+        characters: codePoints,
         words: words.length,
         sentences,
         paragraphs,
-        avgWordLength: words.length ? +(words.join("").length / words.length).toFixed(2) : 0,
+        avgWordLength: words.length ? +([...words.join("")].length / words.length).toFixed(2) : 0,
         readingTimeMinutes: +(words.length / 200).toFixed(1),
-        estimatedTokens: Math.round(text.length / 4),
+        estimatedTokens: Math.round((codePoints - cjkChars) / 4 + cjkChars),
       };
     },
   },
@@ -1178,6 +1186,28 @@ function formatInTz(date, tz) {
   }
 }
 
+// The same instant as an ISO 8601 local time with its UTC offset
+// ("2026-06-11T19:00:00+09:00"), which a program can parse back; `local` is a
+// display string whose layout follows the runtime's locale data. Exported for
+// the offline test.
+export function isoInTz(date, tz) {
+  let parts;
+  try {
+    parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+      timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+    }).formatToParts(date).map((x) => [x.type, x.value]));
+  } catch {
+    throw bad(`Unknown timezone: ${tz}`);
+  }
+  const wall = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second);
+  const offMin = Math.round((wall - Math.floor(date.getTime() / 1000) * 1000) / 60000);
+  const sign = offMin < 0 ? "-" : "+";
+  const abs = Math.abs(offMin);
+  const utcOffset = `${sign}${String(Math.floor(abs / 60)).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`;
+  return { localIso: `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}${utcOffset}`, utcOffset };
+}
+
 function parseWhen(value) {
   if (value === undefined || value === null || value === "now") return new Date();
   if (typeof value === "number" || /^\d+$/.test(String(value))) {
@@ -1246,7 +1276,7 @@ const timeTools = [
     slug: "time-convert",
     category: "time",
     price: "$0.001",
-    description: "Convert between epoch (s or ms), ISO 8601, and any IANA timezone. Give a value, get every representation back.",
+    description: "Convert between epoch (s or ms), ISO 8601, and any IANA timezone. Give a value (epoch seconds or milliseconds, an ISO string, or 'now'), get every representation back: utc, epochSeconds, epochMillis and, with tz, timezone, localIso (ISO 8601 with the zone's offset, e.g. 2026-06-11T19:00:00+09:00), utcOffset and local (a display string). A bare number under 1e12 is read as seconds, otherwise as milliseconds.",
     tags: ["time", "epoch", "timezone", "convert", "iso8601"],
     discovery: {
       bodyType: "json",
@@ -1258,7 +1288,7 @@ const timeTools = [
         },
         required: ["value"],
       },
-      output: { example: { utc: "2026-06-11T10:00:00.000Z", epochSeconds: 1781172000, epochMillis: 1781172000000, local: "2026-06-11 19:00:00 JST" } },
+      output: { example: { utc: "2026-06-11T10:00:00.000Z", epochSeconds: 1781172000, epochMillis: 1781172000000, timezone: "Asia/Tokyo", local: "2026-06-11, 19:00:00 GMT+9", localIso: "2026-06-11T19:00:00+09:00", utcOffset: "+09:00" } },
     },
     handler: (input) => {
       const d = parseWhen(input.value);
@@ -1266,6 +1296,7 @@ const timeTools = [
       if (input.tz) {
         out.timezone = input.tz;
         out.local = formatInTz(d, input.tz);
+        Object.assign(out, isoInTz(d, input.tz));
       }
       return out;
     },
