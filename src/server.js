@@ -587,7 +587,7 @@ const CATALOG = {
     slug: "dns",
     category: "network",
     price: "$0.001",
-    description: "DNS lookup for a domain. Supported record types: A, AAAA, MX, TXT, NS, CNAME.",
+    description: "Live DNS lookup for a domain: returns name, type and records[]. Supported record types: A, AAAA (addresses as strings), MX ({exchange, priority} objects), TXT (each record an array of its strings), NS and CNAME (hostnames). For SPF, DMARC or a full mail-security read use spf-check, dmarc-check or email-deliverability.",
     tags: ["dns", "domains", "networking"],
     discovery: {
       input: { name: "example.com", type: "A" },
