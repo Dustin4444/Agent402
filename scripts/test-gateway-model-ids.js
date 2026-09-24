@@ -126,14 +126,12 @@ for (const link of SPEECH_MODELS) ok(speechIds.has(link.id), `speech chain link 
 //    tier's max_price bound (an endpoint above the bound is refused by the
 //    provider.max_price every flat-tier call carries). The catalog HEADLINE is
 //    one endpoint's price and was what this rule compared against until
-//    2026-09-18: gpt-5.6-sol's headline read $2/$10 while its azure/us and
-//    azure/eu endpoints billed $5.5/$33 inside the premium bound, and every
-//    Claude model's regional endpoints bill 10% over the headline - so the
-//    clamp was letting through ~2.75x the tokens the bound allowed on a sol
-//    fallback. Same shape as the speech rule above (1b).
+//    2026-09-18: regional endpoints inside the tier bound billed well above
+//    the headline on some models, so the clamp was letting through more
+//    tokens than the bound allowed on a fallback. Same shape as the speech rule above (1b).
 //
 //    Endpoints tagged "*/fast" or "*/priority" are the PRIORITY service tier
-//    (openai/fast, anthropic/fast: 2x list; google */priority: 1.8x). Since
+//    (billed at a multiple of list). Since
 //    2026-09-18 a wire sends service_tier "priority" ONLY through the shared
 //    serviceTierFor() helper, and only when validateServiceTier() accepted it
 //    on a tier flagged `priority: true` (pro, premium), where the clamp prices

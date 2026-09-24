@@ -51,8 +51,6 @@ const rejects = async (fn, substr, msg) => {
   try { await fn(); ok(false, `${msg} (did not throw)`); }
   catch (e) { ok(String(e.message).includes(substr), `${msg} (got: ${String(e.message).slice(0, 100)})`); }
 };
-const usd = (v) => `$${v.toFixed(6)}`;
-const marginPct = (wc, price) => `${((1 - wc / price) * 100).toFixed(0)}%`;
 
 // Worst realistic BPE density: rare CJK packs ~2 tokens/char in both o200k
 // and cl100k — the exact failure mode the char caps alone can't price.
@@ -110,9 +108,9 @@ for (const [slug, tier] of Object.entries(TIERS)) {
         // QUOTE covers the worst case with the markup on top (an over-cap body never
         // reaches here: validateRequest refused it pre-spend).
         const q = meteredQuoteUsd(v);
-        ok(!q.invalid && q.usd >= wc.totalUsd * METER_MARKUP - 1e-9, `${slug} ${v.model} quote ${usd(q.usd)} covers worst-case ${usd(wc.totalUsd)} x ${METER_MARKUP}`);
+        ok(!q.invalid && q.usd >= wc.totalUsd * METER_MARKUP - 1e-9, `${slug} ${v.model} quote covers worst-case x METER_MARKUP`);
       } else {
-        ok(wc.totalUsd < tier.price, `${slug} ${v.model} worst-case ${usd(wc.totalUsd)} < price $${tier.price}`);
+        ok(wc.totalUsd < tier.price, `${slug} ${v.model} worst-case < price $${tier.price}`);
       }
       if (wc.totalUsd > worst) { worst = wc.totalUsd; worstLabel = v.model; }
       if (!body.n) acceptedFull++;
@@ -134,7 +132,7 @@ console.log("\n# failover chain — every candidate model re-clamped at its own 
   // n=4 × 768 out; that body priced at deepseek's bound busts the price.
   const unclamped = { model: "deepseek/deepseek-chat", messages: [{ role: "user", content: "hi" }], max_tokens: 768, n: 4 };
   const preFix = worstCaseUpstreamCost(unclamped, nano, 0);
-  ok(preFix.totalUsd > nano.price, `documented: UNclamped fallback body would bill ${usd(preFix.totalUsd)} > $${nano.price} price (why the re-clamp exists)`);
+  ok(preFix.totalUsd > nano.price, `documented: UNclamped fallback body would bill over the $${nano.price} price (why the re-clamp exists)`);
 
   // Behavioral: primary 502s, the fallback outbound body must be re-clamped.
   process.env.OPENROUTER_API_KEY = "test-key";
@@ -153,7 +151,7 @@ console.log("\n# failover chain — every candidate model re-clamped at its own 
   const fb = outbounds[1];
   ok(fb.model === "deepseek/deepseek-chat" && fb.max_tokens < 768, `fallback outbound is re-clamped at its own cost (max_tokens ${fb.max_tokens} < 768)`);
   const fbWc = worstCaseUpstreamCost(fb, nano, 0);
-  ok(fbWc.totalUsd < nano.price, `re-clamped fallback worst-case ${usd(fbWc.totalUsd)} < price $${nano.price} (margin +${marginPct(fbWc.totalUsd, nano.price)})`);
+  ok(fbWc.totalUsd < nano.price, `re-clamped fallback worst-case < price $${nano.price}`);
   globalThis.fetch = realFetch;
   delete process.env.OPENROUTER_API_KEY;
 
@@ -169,40 +167,40 @@ console.log("\n# failover chain — every candidate model re-clamped at its own 
       try { clampToMargin(attempt, tier, 0); }
       catch (e) { if (e.statusCode !== 400) throw e; ok(true, `${slug} chain ${model}: clamp-rejected pre-spend`); continue; }
       const wc = worstCaseUpstreamCost(attempt, tier, 0);
-      if (!tier.metered) ok(wc.totalUsd < tier.price, `${slug} chain ${model} re-clamped worst-case ${usd(wc.totalUsd)} < price $${tier.price}`);
+      if (!tier.metered) ok(wc.totalUsd < tier.price, `${slug} chain ${model} re-clamped worst-case < price $${tier.price}`);
     }
   }
 }
 
 // ---------------------------------------------------------------------------
 // 3. /v1/embeddings — the char cap alone couldn't bound the bill (dense CJK
-//    ≈ 2 cl100k tokens/char → 16k chars ≈ 32k tokens: $0.0042 on 3-large vs
-//    the $0.002 price). The token clamp must refuse that BEFORE any spend.
+//    ≈ 2 cl100k tokens/char → 16k chars ≈ 32k tokens, over the price on
+//    3-large). The token clamp must refuse that BEFORE any spend.
 console.log("\n# /v1/embeddings — token-density margin clamp");
 {
   // 64-item batches keep each item under OpenAI's 8,191-token/item limit, so
   // the upstream would ACCEPT (and bill) the dense batch — the clamp is ours.
   const denseBatch = Array.from({ length: 8 }, () => denseText(2000)); // 16k chars ≈ 32k tokens
   const preFix = embeddingsUpstreamCost({ model: "text-embedding-3-large", input: denseBatch });
-  ok(preFix.totalUsd > EMBEDDINGS_PRICE, `documented: dense 16k-char batch would bill ${usd(preFix.totalUsd)} on 3-large > $${EMBEDDINGS_PRICE} price (${preFix.tokens} tokens)`);
+  ok(preFix.totalUsd > EMBEDDINGS_PRICE, `documented: dense 16k-char batch would bill over the $${EMBEDDINGS_PRICE} price on 3-large (${preFix.tokens} tokens)`);
   await rejects(() => validateEmbeddingsRequest({ model: "text-embedding-3-large", input: denseBatch }), "token-dense", "3-large refuses the token-dense batch pre-spend");
   await rejects(() => validateEmbeddingsRequest({ model: "text-embedding-ada-002", input: denseBatch }), "token-dense", "ada-002 refuses the token-dense batch pre-spend");
   const small = validateEmbeddingsRequest({ model: "text-embedding-3-small", input: denseBatch });
   const smallWc = embeddingsUpstreamCost(small);
-  ok(smallWc.totalUsd < EMBEDDINGS_PRICE, `3-small serves the dense batch at ${usd(smallWc.totalUsd)} < $${EMBEDDINGS_PRICE} (margin +${marginPct(smallWc.totalUsd, EMBEDDINGS_PRICE)})`);
+  ok(smallWc.totalUsd < EMBEDDINGS_PRICE, `3-small serves the dense batch under $${EMBEDDINGS_PRICE}`);
   for (const model of ["text-embedding-3-small", "text-embedding-3-large", "text-embedding-ada-002"]) {
     const v = validateEmbeddingsRequest({ model, input: "the quick brown fox. ".repeat(761) }); // ~16k chars of English
     const wc = embeddingsUpstreamCost(v);
-    ok(wc.totalUsd < EMBEDDINGS_PRICE, `${model} full-size English body bills ${usd(wc.totalUsd)} < $${EMBEDDINGS_PRICE}`);
+    ok(wc.totalUsd < EMBEDDINGS_PRICE, `${model} full-size English body bills under $${EMBEDDINGS_PRICE}`);
   }
-  // The clamp's own ceiling is the margin bound: accepted worst ≤ 70% of price.
+  // The clamp's own ceiling is the margin bound: accepted worst ≤ MARGIN x price.
   table.push({ tier: "v1-embeddings", price: EMBEDDINGS_PRICE, worst: EMBEDDINGS_PRICE * MARGIN, model: "any (clamp ceiling)" });
-  // /v1/rerank: caps keep every call at ONE Cohere search unit (live 2026-08-19:
-  // $0.001) - the bound is structural, so the row is the measured unit price.
+  // /v1/rerank: caps keep every call at ONE Cohere search unit (live
+  // 2026-08-19) - the bound is structural, so the row is the measured unit price.
   {
     const { RERANK_PRICE, validateRerankRequest } = await import("../src/tools/llm-gateway-kit.js");
     const RERANK_UNIT_USD = 0.001;
-    ok(RERANK_UNIT_USD <= RERANK_PRICE * MARGIN, `rerank: one search unit (${usd(RERANK_UNIT_USD)}) within the 70% bound of $${RERANK_PRICE}`);
+    ok(RERANK_UNIT_USD <= RERANK_PRICE * MARGIN, `rerank: one search unit within the margin bound of $${RERANK_PRICE}`);
     const maxed = validateRerankRequest({ query: "q".repeat(500), documents: Array.from({ length: 25 }, () => "x".repeat(1600)) });
     ok(maxed.documents.length <= 100 && maxed.documents.every((d) => d.length <= 1600), "rerank: the largest accepted body is still one Cohere search unit (<=100 docs, short docs)");
     table.push({ tier: "v1-rerank", price: RERANK_PRICE, worst: RERANK_UNIT_USD, model: "cohere/rerank-v3.5 (1 search unit)" });
@@ -224,7 +222,7 @@ console.log("\n# /v1/embeddings — token-density margin clamp");
 //    token-metered; the `image` max_price dimension prices INPUT images,
 //    which this route does not accept), plus the prompt at its bound, plus
 //    the per-request fee allowance — which is the regression this test locks
-//    at ≤ $0.005 (it was $0.05: a standing allowance that inverted the sum).
+//    tight (a generous allowance once inverted the sum).
 console.log("\n# /v1/images/generations — provider-bound arithmetic");
 {
   const promptTokens = Math.ceil(countTokens(denseText(IMAGES_MAX_PROMPT_CHARS)) * 1.15);
@@ -232,8 +230,8 @@ console.log("\n# /v1/images/generations — provider-bound arithmetic");
     (promptTokens / 1e6) * IMAGES_MAX_PRICE.prompt +
     (IMAGES_MAX_TOKENS / 1e6) * IMAGES_MAX_PRICE.completion +
     IMAGES_MAX_PRICE.request;
-  ok(worst < IMAGES_PRICE, `images worst-case ${usd(worst)} < price $${IMAGES_PRICE} (dense prompt ${promptTokens} tok + ${IMAGES_MAX_TOKENS} out + request fee bound)`);
-  ok(IMAGES_MAX_PRICE.request <= 0.005, `per-request fee allowance stays tight (${IMAGES_MAX_PRICE.request} ≤ 0.005 — was 0.05, which inverted the sum)`);
+  ok(worst < IMAGES_PRICE, `images worst-case < price $${IMAGES_PRICE} (dense prompt ${promptTokens} tok + ${IMAGES_MAX_TOKENS} out + request fee bound)`);
+  ok(IMAGES_MAX_PRICE.request <= 0.005, `per-request fee allowance stays tight (a generous one once inverted the sum)`);
   table.push({ tier: "v1-images", price: IMAGES_PRICE, worst, model: "google/gemini-2.5-flash-image" });
 
   // Cap-before-spend: over-cap prompt throws with zero fetches.
@@ -265,7 +263,7 @@ console.log("\n# STT — cap-before-spend (local duration probe)");
   let fetches = 0;
   globalThis.fetch = async () => { fetches++; throw new Error("unexpected upstream fetch"); };
   // Caps and rates are READ from the kit (STT_TIERS / UPSTREAM_USD_PER_MINUTE),
-  // never retyped here: this block carried "5 min, $0.003/min" for the standard
+  // never retyped here: this block once carried a stale cap and rate for the standard
   // tier after the kit had moved to gpt-transcribe at 4 min (2026-09-18), and a
   // hand copy of the truth is how a margin guard goes stale in the safe-looking
   // direction. The over-cap probe is the cap plus 20 s; the in-cap probe is 40 s under it.
@@ -289,7 +287,7 @@ console.log("\n# STT — cap-before-spend (local duration probe)");
     const rate = UPSTREAM_USD_PER_MINUTE[t.model];
     ok(Number.isFinite(rate), `${tier}: per-minute rate known for ${t.model}`);
     const r = { tier, price: t.priceUsd, worst: t.maxMinutes * rate };
-    ok(r.worst <= MARGIN * r.price + 1e-12, `${r.tier} worst-case ${usd(r.worst)} <= ${MARGIN * 100}% of $${r.price} (margin +${marginPct(r.worst, r.price)})`);
+    ok(r.worst <= MARGIN * r.price + 1e-12, `${r.tier} worst-case within the margin bound of $${r.price}`);
     table.push({ ...r, model: `openai ${t.model} (per-minute)` });
   }
 }
@@ -364,11 +362,10 @@ console.log("\n# tool_gone — retired-route telemetry");
 
 // ---------------------------------------------------------------------------
 // Pricing table.
-console.log("\n# pricing table — worst-case upstream vs price");
+// Figures stay in the process: CI logs are public, and upstream cost is not.
+console.log(`\n# pricing table — ${table.length} rows checked (worst-case upstream vs price)`);
 for (const r of table) {
-  console.log(
-    `  ${r.tier.padEnd(18)} price $${String(r.price).padEnd(6)} worst-case ${usd(r.worst)}  margin +${marginPct(r.worst, r.price)}  (${r.model})`
-  );
+  console.log(`  ${r.tier.padEnd(18)} price $${String(r.price).padEnd(6)} within bound: ${r.worst < r.price ? "yes" : "NO"}  (${r.model})`);
 }
 
 // ---- price by model keeps every tier's margin bound (2026-09-22) -----------
@@ -402,7 +399,7 @@ for (const r of table) {
   const probe = { model: "anthropic/claude-opus-5", messages: [{ role: "user", content: "x".repeat(4000) }], max_tokens: 8192 };
   clampToMargin(probe, TIERS[servedTierFor("v1-chat", probe.model, { __meteredQuoteUsd: TIERS["v1-chat-premium"].price })], 0);
   const wc = worstCaseUpstreamCost(probe, TIERS["v1-chat-premium"], 0).totalUsd;
-  ok(wc <= MARGIN * TIERS["v1-chat-premium"].price + 1e-9, `a premium model reached through the base route is clamped under the premium bound ($${wc.toFixed(4)} <= $${(MARGIN * TIERS["v1-chat-premium"].price).toFixed(4)})`);
+  ok(wc <= MARGIN * TIERS["v1-chat-premium"].price + 1e-9, `a premium model reached through the base route is clamped under the premium bound`);
 }
 
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);

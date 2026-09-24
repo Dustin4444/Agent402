@@ -572,10 +572,9 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
     const b = { model: "anthropic/claude-sonnet-5", messages: msg1(), max_tokens: 64 };
     const withCache = worstCaseUpstreamCost(b, TIERS["v1-chat-premium"]);
     const plain = (withCache.inTokens / 1e6) * withCache.cost.prompt;
-    // TWO factors, not one. 1.25x is the Anthropic cache-write premium; 1.35x is
-    // the newer tokenizer Claude 4.7 and later use, which their own pricing page
-    // says produces "approximately 30% more tokens for the same text" than the
-    // o200k count this clamp does. Dropping either makes the bound dishonest in
+    // TWO factors, not one: the Anthropic cache-write premium and the newer
+    // tokenizer Claude 4.7 and later use, which counts more tokens for the same
+    // text than the o200k count this clamp does. Dropping either makes the bound dishonest in
     // the unsafe direction.
     ok(Math.abs(withCache.inUsd - plain * 1.25 * NEW_TOKENIZER_FACTOR) < 1e-12, "worst-case input prices BOTH the cache write (1.25x) and the newer tokenizer (the clamp stays an honest bound)");
     ok(tokenizerFactor("anthropic/claude-sonnet-4.6") === 1 && tokenizerFactor("anthropic/claude-opus-4.1") === 1 && tokenizerFactor("openai/gpt-4o") === 1,
@@ -1013,8 +1012,8 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
 }
 
 // Grounded tier (2026-08-19) - the auto router + OpenRouter's web plugin on
-// every call. Search is billed per REQUEST (measured: Exa auto $0.007 in
-// usage.cost, ~700 injected prompt tokens per result), so the tier carries it
+// every call. Search is billed per REQUEST (plus injected prompt tokens per
+// result), so the tier carries it
 // as fixedUpstreamUsd + extraInputTokens in the clamp; never cached.
 {
   const { worstCaseUpstreamCost, promptCacheKey: pck, MARGIN } = await import("../src/tools/llm-gateway-kit.js");
@@ -1025,7 +1024,7 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   const plain = worstCaseUpstreamCost({ model: "openai/gpt-4o-mini", messages: msg1(), max_tokens: 1024 }, TIERS["v1-chat-auto"]);
   ok(wc.fixedUsd === 0.007 && wc.inTokens - plain.inTokens === 4500 && wc.totalUsd > plain.totalUsd + 0.007, "worst-case cost on the grounded tier adds the search fee and the injected-result tokens");
   const big = worstCaseUpstreamCost({ model: "google/gemini-2.5-flash", messages: [{ role: "user", content: "x ".repeat(8000) }], max_tokens: 1024 }, g);
-  ok(big.totalUsd <= g.price * MARGIN, `largest grounded call (16k chars in on the priciest ranked model, 1024 out, 5 results) stays under the 70% bound (${big.totalUsd.toFixed(5)} <= ${(g.price * MARGIN).toFixed(5)})`);
+  ok(big.totalUsd <= g.price * MARGIN, `largest grounded call (16k chars in on the priciest ranked model, 1024 out, 5 results) stays under the margin bound`);
   ok(pck("v1-chat-grounded", { messages: msg1(), cache: true }) === null, "grounded answers are never cacheable (the web moves)");
   ok(tierFor("openai/gpt-4o-mini") === "v1-chat" && tierFor("google/gemini-2.5-flash") !== "v1-chat-grounded", "grounded is listed last: explicit models still resolve to their home tiers");
   process.env.OPENROUTER_API_KEY = "test-key";
@@ -1039,19 +1038,18 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   ok(seen.plugins.length === 2 && seen.plugins[0].id === "web" && seen.plugins[1].id === "response-healing", "web + response-healing plugins merge for structured output");
   let e = null; try { validateRequest({ model: "openai/gpt-4o-mini:online", messages: msg1() }, "v1-chat"); } catch (x) { e = x; }
   ok(e?.statusCode === 400 && /:online/.test(e.message), ":online stays refused on the other tiers (the grounded tier is the sanctioned home)");
-  // Every attempt re-runs the $0.007 search, so the grounded chain is capped
-  // at two attempts (cost audit 2026-08-19): a chain failing end-to-end costs
-  // at most $0.014 in search fees, not 8 x $0.007.
+  // Every attempt re-runs the search, so the grounded chain is capped at two
+  // attempts (cost audit 2026-08-19): a chain failing end-to-end pays for at
+  // most two searches, not eight.
   let tries = 0;
   globalThis.fetch = async () => { tries++; return { ok: false, status: 503, text: async () => JSON.stringify({ error: { message: "capacity" } }) }; };
   let ge = null; try { await grounded.handler({ messages: msg1(), max_tokens: 64 }, { header: () => undefined }); } catch (x) { ge = x; }
   ok(g.maxAttempts === 2 && tries === 2 && ge?.statusCode === 502, `grounded chain makes at most 2 upstream attempts on failure (made ${tries}, surfaced ${ge?.statusCode})`);
   // Engine decision re-measured 2026-09-18 (live, one call per engine on the
-  // same prompt): Parallel turbo is $0.001 against Exa's $0.007 but returned
-  // archive pages for citations and a wrong answer on a non-English prompt
-  // where Exa was right, so the tier keeps Exa. Pinned so a silent switch to
-  // the cheaper engine needs the measurement redone, not just the price read.
-  ok(g.web.engine === "exa" && g.web.max_results === 5 && g.fixedUpstreamUsd === 0.007 && g.extraInputTokens === 4500, "grounded tier stays on Exa (auto, $0.007, 4,500 injected-token headroom) after the 2026-09-18 Parallel comparison");
+  // same prompt): the alternative returned archive pages for citations and a
+  // wrong answer on a non-English prompt where Exa was right, so the tier keeps
+  // Exa. Pinned so a silent switch needs the measurement redone.
+  ok(g.web.engine === "exa" && g.web.max_results === 5 && g.fixedUpstreamUsd === 0.007 && g.extraInputTokens === 4500, "grounded tier stays on Exa (pinned engine, fee and injected-token allowance) after the 2026-09-18 comparison");
   globalThis.fetch = realFetch;
   delete process.env.OPENROUTER_API_KEY;
 }
@@ -1059,15 +1057,15 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
 // ---------------------------------------------------------------------------
 // Priority service tier (2026-09-18): a buyer knob on pro/premium at the same
 // flat price, priced by the margin clamp at PRIORITY_PRICE_FACTOR (the
-// priority endpoints bill 2x the default row - openai/fast and anthropic/fast
-// measured live, google */priority 1.8x). Refused with the routes named on
+// priority endpoints bill a multiple of the default row, measured live).
+// Refused with the routes named on
 // every other tier; "flex" is never a buyer knob; a `:nitro` model's default
 // attempt carries an explicit service_tier "default" because a live
-// luna:nitro call with none was SERVED AT PRIORITY (2x).
+// luna:nitro call with none was SERVED AT PRIORITY.
 {
   const { worstCaseUpstreamCost, PRIORITY_PRICE_FACTOR, PRIORITY_SERVICE_TIER_VALUES, serviceTierFor, attemptsFor, flexAttempts, MARGIN } = await import("../src/tools/llm-gateway-kit.js");
   const pro = TIERS["v1-chat-pro"], premium = TIERS["v1-chat-premium"];
-  ok(PRIORITY_PRICE_FACTOR === 2 && JSON.stringify(PRIORITY_SERVICE_TIER_VALUES) === '["priority","fast"]', "factor 2 (the dearest priority endpoint measured live 2026-09-18) and the two documented spellings");
+  ok(PRIORITY_PRICE_FACTOR === 2 && JSON.stringify(PRIORITY_SERVICE_TIER_VALUES) === '["priority","fast"]', "priority factor (the dearest priority endpoint measured live 2026-09-18) and the two documented spellings");
   ok(JSON.stringify(Object.entries(TIERS).filter(([, t]) => t.priority === true).map(([s]) => s)) === '["v1-chat-pro","v1-chat-premium"]', "the priority tier is offered on pro and premium only");
   // Accepted and normalized (part of the body, so the clamp and the cache key see it).
   const vp = validateRequest({ model: "openai/gpt-4o", messages: msg1(), service_tier: "priority" }, "v1-chat-pro");
@@ -1075,24 +1073,24 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   ok(vp.service_tier === "priority" && vf.service_tier === "priority", 'pro: service_tier "priority" and its alias "fast" both normalize to "priority"');
   ok(validateRequest({ model: "openai/gpt-4o", messages: msg1(), service_tier: "default" }, "v1-chat-pro").service_tier === undefined && validateRequest({ model: "openai/gpt-4o", messages: msg1(), service_tier: "auto" }, "v1-chat-pro").service_tier === undefined, '"default" and "auto" (the OpenAI SDK defaults) are no-ops');
   ok(promptCacheKey("v1-chat-pro", { model: "openai/gpt-4o", messages: msg1(), cache: true, service_tier: "priority" }) !== promptCacheKey("v1-chat-pro", { model: "openai/gpt-4o", messages: msg1(), cache: true }), "a priority answer never shares a cache entry with a default one");
-  // Priced: the token side is exactly factor x the default row (gpt-4o 2.5/10
-  // -> 5/20, under pro's 6/20 bound). Removing the multiplier makes the two
+  // Priced: the token side is exactly factor x the default row (still under
+  // pro's max_price bound). Removing the multiplier makes the two
   // worst cases equal, which fails here.
   const body = { model: "openai/gpt-4o", messages: msg1("x ".repeat(2000)), max_tokens: 1024 };
   const d = worstCaseUpstreamCost(body, pro), p = worstCaseUpstreamCost({ ...body, service_tier: "priority" }, pro);
   // (the field itself is counted as a few input tokens by the body estimate, so the per-token RATE is compared on the input side)
-  ok(p.cost.prompt === 5 && p.cost.completion === 20 && p.inTokens >= d.inTokens && Math.abs(p.inUsd / p.inTokens - (d.inUsd / d.inTokens) * PRIORITY_PRICE_FACTOR) < 1e-12 && Math.abs(p.outUsd - d.outUsd * PRIORITY_PRICE_FACTOR) < 1e-12 && p.totalUsd > d.totalUsd, `priority worst case is ${PRIORITY_PRICE_FACTOR}x the default row on both units (${d.totalUsd.toFixed(5)} -> ${p.totalUsd.toFixed(5)})`);
+  ok(p.cost.prompt === 5 && p.cost.completion === 20 && p.inTokens >= d.inTokens && Math.abs(p.inUsd / p.inTokens - (d.inUsd / d.inTokens) * PRIORITY_PRICE_FACTOR) < 1e-12 && Math.abs(p.outUsd - d.outUsd * PRIORITY_PRICE_FACTOR) < 1e-12 && p.totalUsd > d.totalUsd, `priority worst case is ${PRIORITY_PRICE_FACTOR}x the default row on both units`);
   const astra = worstCaseUpstreamCost({ model: "openai/gpt-6-astra", messages: msg1(), max_tokens: 64, service_tier: "priority" }, premium);
-  ok(astra.cost.prompt === premium.maxPrice.prompt && astra.cost.completion === premium.maxPrice.completion, "the tier's max_price still bounds a priority row (astra 11/55 x 2 -> capped at premium's 20/100, which rides upstream as provider.max_price)");
+  ok(astra.cost.prompt === premium.maxPrice.prompt && astra.cost.completion === premium.maxPrice.completion, "the tier's max_price still bounds a priority row (capped at premium's bound, which rides upstream as provider.max_price)");
   const opus = worstCaseUpstreamCost({ model: "anthropic/claude-opus-5", messages: msg1(), max_tokens: 64, service_tier: "priority" }, premium);
-  ok(opus.cost.prompt === 11 && opus.cost.completion === 55, "opus-5 at priority prices 11/55 (2x the 5.5/27.5 regional row), which covers anthropic/fast's live 10/50");
+  ok(opus.cost.prompt === 11 && opus.cost.completion === 55, "opus-5 at priority prices factor x its regional row, which covers anthropic/fast's live endpoint");
   // Refused where it would breach: a 20k-char CJK prompt on gpt-4o clears the
-  // $0.07 budget at the default rate ($0.05 in, output clamped) and busts it
-  // at priority ($0.10 in) - a 400 before any spend, never a loss-making call.
+  // budget at the default rate (output clamped) and busts it at priority - a
+  // 400 before any spend, never a loss-making call.
   const cjk = { model: "openai/gpt-4o", messages: msg1("漢".repeat(20000)), max_tokens: 4096 };
   const okDefault = validateRequest(cjk, "v1-chat-pro");
-  ok(okDefault.max_tokens < 4096 && worstCaseUpstreamCost(okDefault, pro).totalUsd <= pro.price * MARGIN, "control: the same body at the default tier is accepted with max_tokens clamped under the 70% bound");
-  throws(() => validateRequest({ ...cjk, service_tier: "priority" }, "v1-chat-pro"), "Input is too large", "the same body at priority is refused 400 (input alone over the 70% budget at 2x)");
+  ok(okDefault.max_tokens < 4096 && worstCaseUpstreamCost(okDefault, pro).totalUsd <= pro.price * MARGIN, "control: the same body at the default tier is accepted with max_tokens clamped under the margin bound");
+  throws(() => validateRequest({ ...cjk, service_tier: "priority" }, "v1-chat-pro"), "Input is too large", "the same body at priority is refused 400 (input alone over the margin budget at the priority rate)");
   // Refused on the tiers that do not price it, naming the ones that do.
   for (const slug of ["v1-chat-nano", "v1-chat", "v1-chat-auto", "v1-chat-grounded", "v1-chat-metered"]) {
     const model = slug === "v1-chat-auto" || slug === "v1-chat-grounded" ? undefined : slug === "v1-chat-nano" ? "openai/gpt-5.6-luna" : slug === "v1-chat-metered" ? "openai/gpt-4o" : "openai/gpt-4o-mini";
@@ -1132,8 +1130,8 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
 }
 
 // /v1/rerank (2026-08-19) - Cohere wire over OpenRouter's /rerank, one locked
-// model, caps that keep every call at exactly one Cohere search unit ($0.001
-// upstream vs $0.002 price), default-on cache (deterministic ranker), billing
+// model, caps that keep every call at exactly one Cohere search unit,
+// default-on cache (deterministic ranker), billing
 // fields stripped, telemetry captured.
 {
   const { validateRerankRequest, rerankCacheKey, RERANK_MODEL, RERANK_PRICE, RERANK_PATH } = await import("../src/tools/llm-gateway-kit.js");
@@ -1150,9 +1148,9 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
     ["501-char query", { query: "q".repeat(501), documents: ["a"] }],
     ["structured doc", { query: "q", documents: [{ text: "a" }] }],
     ["other model", { query: "q", documents: ["a"], model: "cohere/rerank-english-v3.0" }],
-    // cohere/rerank-4-fast exists upstream (2026-09-18) at $0.002 per search
-    // unit (a live call: usage.cost 0.002) = 100% of this route's price, so it
-    // is refused by name until the route is repriced; 4-pro is $0.0025.
+    // cohere/rerank-4-fast and 4-pro exist upstream (2026-09-18) but bill
+    // above this route's price bound, so they are refused by name until the
+    // route is repriced.
     ["rerank-4-fast (not offered)", { query: "q", documents: ["a"], model: "cohere/rerank-4-fast" }],
     ["bad top_n", { query: "q", documents: ["a"], top_n: 0 }],
     ["too many chars total", { query: "q", documents: Array.from({ length: 30 }, () => "y".repeat(1500)) }],
@@ -1182,7 +1180,7 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
     const { _testEventsForTest } = await import("../src/posthog.js");
     await new Promise((r) => setTimeout(r, 20));
     const ev = _testEventsForTest().filter((e) => e.event === "gateway_usage").pop();
-    ok(ev?.properties.tier === "v1-rerank" && ev?.properties.upstreamUsd === 0.001 && ev?.properties.priceUsd === 0.002, "rerank margin telemetry captured ($0.001 vs $0.002)");
+    ok(ev?.properties.tier === "v1-rerank" && ev?.properties.upstreamUsd === 0.001 && ev?.properties.priceUsd === 0.002, "rerank margin telemetry captured");
   }
   globalThis.fetch = async () => ({ ok: false, status: 503, text: async () => "down" });
   await rerank.handler({ query: "q", documents: ["a"] }).then(() => ok(false, "upstream 503 must not serve"), (e) => ok(e.statusCode === 502, "upstream 5xx -> 502 (settlement cancelled)"));
@@ -1398,10 +1396,9 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
 }
 
 // ---- GPT-6 Astra + Claude Fable 5.1 on premium (2026-09-18 audit) ----
-// Live (2026-09-18): openai/gpt-6-astra $10/$50 headline, azure/us $11/$55,
-// 1.05M ctx, reasoning mandatory (low..max, no none), no temperature/top_p in
+// Live (2026-09-18): openai/gpt-6-astra 1.05M ctx, reasoning mandatory (low..max, no none), no temperature/top_p in
 // supported_parameters (OpenRouter drops them silently: measured 200 on both).
-// anthropic/claude-fable-5.1 $10/$50 on every endpoint, 1M ctx, reasoning
+// anthropic/claude-fable-5.1 1M ctx, reasoning
 // mandatory, new tokenizer (Claude 4.7+ family).
 {
   const { costFor, noSamplingKnobs, clampToMargin, reasoningProfile, defaultReasoningFor, FLEX_MODELS } = await import("../src/tools/llm-gateway-kit.js");
@@ -1409,11 +1406,11 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   ok(tierFor(A) === "v1-chat-premium" && tierFor(F) === "v1-chat-premium" && tierFor("openai/gpt-6-astra-pro") === "v1-chat-premium" && tierFor("anthropic/claude-fable-5") === null, "astra, astra-pro and fable-5.1 home on premium; fable-5 (a different model) is not admitted");
   ok(tierAllows("v1-chat-metered", A) && tierAllows("v1-chat-metered", F), "the metered tier admits both (union of the flat tiers)");
   const ca = costFor(A), cf = costFor(F);
-  ok(ca.prompt === 11 && ca.completion === 55, `astra has its own cost row at the dearest routable endpoint ($${ca.prompt}/$${ca.completion}); the boundary-aware "openai/gpt-5" row never matched it`);
-  ok(cf.prompt === 10 && cf.completion === 50 && costFor("anthropic/claude-fable-5").prompt === 11, `fable-5.1 has its own row ($${cf.prompt}/$${cf.completion}); the "anthropic/claude" haiku blanket ($1/$5) would have priced it at a tenth`);
-  ok(costFor("anthropic/claude-opus-5").prompt === 5.5 && costFor("openai/gpt-5.6-sol").prompt === 5.5 && costFor("openai/gpt-5.6-sol").completion === 33 && costFor("anthropic/claude-sonnet-5").prompt === 2.2 && costFor("anthropic/claude-haiku-4.5").completion === 5.5, "rows carry the dearest default-tier endpoint price, not the headline (sol 5.5/33, opus-5 5.5/27.5, sonnet-5 2.2/11, haiku-4.5 1.1/5.5)");
+  ok(ca.prompt === 11 && ca.completion === 55, `astra has its own cost row at the dearest routable endpoint; the boundary-aware "openai/gpt-5" row never matched it`);
+  ok(cf.prompt === 10 && cf.completion === 50 && costFor("anthropic/claude-fable-5").prompt === 11, `fable-5.1 has its own row; the "anthropic/claude" haiku blanket would have under-priced it`);
+  ok(costFor("anthropic/claude-opus-5").prompt === 5.5 && costFor("openai/gpt-5.6-sol").prompt === 5.5 && costFor("openai/gpt-5.6-sol").completion === 33 && costFor("anthropic/claude-sonnet-5").prompt === 2.2 && costFor("anthropic/claude-haiku-4.5").completion === 5.5, "rows carry the dearest default-tier endpoint price, not the headline (sol, opus-5, sonnet-5, haiku-4.5)");
   ok(costFor("anthropic/claude-opus-5-fast") === costFor("anthropic/claude-opus-5") && costFor("anthropic/claude-opus-4.7-fast").prompt === 5.5, "the -fast rows are gone (the ids left the catalog 2026-07-24); a stale -fast id falls to its base model's row");
-  ok(tokenizerFactor(F) === NEW_TOKENIZER_FACTOR && tokenizerFactor(A) === 1, "fable-5.1 is priced on the newer tokenizer (x1.35); astra is o200k");
+  ok(tokenizerFactor(F) === NEW_TOKENIZER_FACTOR && tokenizerFactor(A) === 1, "fable-5.1 is priced on the newer tokenizer; astra is o200k");
   ok(reasoningProfile(A)?.prefix === "openai/gpt-6-astra" && !reasoningProfile(A).efforts.includes("none") && reasoningProfile("openai/gpt-6-astra-pro")?.prefix === "openai/gpt-6-astra" && reasoningProfile(F)?.id === F, "reasoning rows: astra (prefix, covers -pro, no none), fable-5.1 (exact)");
   ok(defaultReasoningFor(A, "v1-chat-premium") === null && JSON.stringify(defaultReasoningFor(A, "v1-chat-metered")) === '{"effort":"low"}', "premium leaves the model default; metered injects low");
   // The chat wire refuses what the upstream would drop silently, naming the model.

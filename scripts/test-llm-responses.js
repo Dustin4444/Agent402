@@ -174,7 +174,7 @@ delete process.env.OPENROUTER_API_KEY;
 
 // ---- priority service tier on the Responses wire (2026-09-18) ----
 // service_tier "priority" / "fast" on pro/premium: normalized, carried on the
-// clamp probe (priced at 2x), sent upstream as ONE service_tier with no flex
+// clamp probe (priced at PRIORITY_PRICE_FACTOR), sent upstream as ONE service_tier with no flex
 // attempt; refused with the routes named on the other tiers; "flex" refused.
 {
   const vp = validateResponsesRequest({ model: "openai/gpt-4o", input: "hi", max_output_tokens: 64, service_tier: "fast" }, "v1-chat-pro");

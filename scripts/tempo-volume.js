@@ -19,9 +19,9 @@
 //
 // Exit 0 when >= TEMPO_VOLUME_MIN_SUCCESS (default 80%) settled; 1 otherwise;
 // 2 when the preflight (balance / challenge) refuses to start. Balance
-// guard: refuses to run below TEMPO_VOLUME_MIN_BALANCE_USD (default $2) so a
-// draining wallet is never ground to zero by the volume runner itself - the
-// canary's funding sweep pages at $5 USDC.e (~25 days at 200/day) for the same wallet.
+// guard: refuses to run below TEMPO_VOLUME_MIN_BALANCE_USD so a draining
+// wallet is never ground to zero by the volume runner itself - the canary's
+// funding sweep pages at its own low-water mark for the same wallet.
 import { createHmac } from "node:crypto";
 import { privateKeyToAccount } from "viem/accounts";
 
