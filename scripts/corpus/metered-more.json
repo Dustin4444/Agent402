@@ -1,5 +1,5 @@
 {
-  "about": "Tier 2, the rest: LLM wires on every tier, Alchemy reads, FRED, Brave, report composites and media. Report composites ($0.10-0.65 upstream each) and image/video/TTS links are gated behind CORPUS_REPORTS=1 / CORPUS_MEDIA=1 so a weekly keyed run stays under a couple of dollars unless asked.",
+  "about": "Tier 2, the rest: LLM wires on every tier, Alchemy reads, FRED, Brave, report composites and media. Report composites and image/video/TTS links are gated behind CORPUS_REPORTS=1 / CORPUS_MEDIA=1, since each spends on a paid upstream.",
   "cases": [
     {
       "slug": "attest",

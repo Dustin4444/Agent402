@@ -575,19 +575,21 @@ const dataTools = [
     slug: "json-format",
     category: "conversion",
     price: "$0.001",
-    description: "Validate, pretty-print (any indentation, 0-8 spaces), or minify JSON. Returns parse errors with position when invalid.",
-    tags: ["json", "format", "validate", "minify", "pretty-print", "indent"],
+    description: "Validate, pretty-print (any indentation, 0-8 spaces), or minify JSON, optionally with object keys sorted. canonical: true returns the RFC 8785 (JCS) canonical form - keys sorted, no whitespace, ECMAScript number and string serialization - plus its SHA-256, for hashing and signing. Numbers are read as IEEE-754 doubles and a duplicate key keeps its last value. Returns parse errors with position when invalid.",
+    tags: ["json", "format", "validate", "canonical", "pretty-print", "minify", "sort-keys"],
     discovery: {
       bodyType: "json",
-      input: { json: '{"a":1}', indent: 2 },
+      input: { json: '{"b":2,"a":1}', indent: 2, sortKeys: true },
       inputSchema: {
         properties: {
           json: { type: "string", description: "JSON text to validate/format (max 100KB)" },
-          indent: { type: "number", description: "Spaces of indentation; 0 = minify (default 2)" },
+          indent: { type: "number", description: "Spaces of indentation; 0 = minify (default 2). Ignored when canonical is true." },
+          sortKeys: { type: "boolean", description: "Sort object keys at every depth (default false)." },
+          canonical: { type: "boolean", description: "Return the RFC 8785 canonical form and its sha256 (default false)." },
         },
         required: ["json"],
       },
-      output: { example: { valid: true, formatted: '{\n  "a": 1\n}' } },
+      output: { example: { valid: true, formatted: '{\n  "a": 1,\n  "b": 2\n}' } },
     },
     handler: (input) => {
       const text = capText(need(input, "json"), 100_000, "json");
@@ -597,8 +599,26 @@ const dataTools = [
       } catch (e) {
         return { valid: false, error: e.message };
       }
+      const flag = (v, name) => {
+        if (v === undefined || v === null || v === "") return false;
+        if (v === true || v === "true") return true;
+        if (v === false || v === "false") return false;
+        throw Object.assign(new Error(`"${name}" must be true or false`), { statusCode: 400 });
+      };
+      const canonical = flag(input.canonical, "canonical");
+      const sortKeys = canonical || flag(input.sortKeys, "sortKeys");
+      // Keys sorted by UTF-16 code units (Array.prototype.sort's default), the
+      // order RFC 8785 specifies; JSON.stringify already serializes numbers and
+      // strings the way it requires.
+      const sorted = (v) => Array.isArray(v) ? v.map(sorted)
+        : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sorted(v[k])])) : v;
+      const value = sortKeys ? sorted(parsed) : parsed;
+      if (canonical) {
+        const out = JSON.stringify(value);
+        return { valid: true, formatted: out, canonical: out, sha256: createHash("sha256").update(out, "utf8").digest("hex") };
+      }
       const indent = input.indent === undefined ? 2 : Math.min(Math.max(parseInt(input.indent, 10) || 0, 0), 8);
-      return { valid: true, formatted: JSON.stringify(parsed, null, indent || undefined) };
+      return { valid: true, formatted: JSON.stringify(value, null, indent || undefined), ...(sortKeys ? { sortedKeys: true } : {}) };
     },
   },
   {

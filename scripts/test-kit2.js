@@ -143,13 +143,14 @@ await check("unit-convert", { value: 1, from: "statute miles", to: "kilometers" 
 await check("unit-convert", { value: 1, from: "metre", to: "centimeters" }, (o) => o.result === 100, "British singular: metre → centimeters");
 
 // ...AND A NAME THAT RESOLVES NOWHERE STILL GETS THE HONEST 400. The widening
-// must never turn an unknown unit into a guess. "pood", "verst" and "poundal"
-// are the three from the same buyer that we genuinely do not have.
+// must never turn an unknown unit into a guess. "poundal", "cubit" and "shaku"
+// are units the table does not carry ("pood" and "verst" were on this list
+// until the imperial Russian measures were added on 2026-09-25).
 {
   const { normalizeUnitId } = await import("../src/tools/kit2.js");
   const { UNIT_CATEGORIES } = await import("../src/tools/convert-gen.js");
   const known = new Set(Object.values(UNIT_CATEGORIES).flatMap((c) => Object.keys(c.units)));
-  for (const u of ["pood", "verst", "poundal"]) {
+  for (const u of ["poundal", "cubit", "shaku"]) {
     try { await bySlug["unit-convert"].handler({ value: 1, from: u, to: "kilograms" }); fails.push(`unit-convert: "${u}" should be a 400, it converted`); }
     catch (e) { if (e.statusCode === 400 && /Unknown unit/.test(e.message)) { pass++; console.log(`✓ unit-convert        unknown "${u}" is still a self-explaining 400`); } else fails.push(`unit-convert: "${u}" threw ${e.statusCode} ${e.message}`); }
   }

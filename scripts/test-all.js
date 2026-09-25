@@ -78,6 +78,7 @@ const NETWORK = new Set([
   // 503 is tolerated, exactly like the keyed tools.
   "/api/sanctions/wallet",
   "/api/sanctions/name",
+  "/api/cve-lookup",  // cve-kit.js (NVD + EPSS + CISA KEV)
   "/api/defi-yields", "/api/defi-yield-history", "/api/defi-protocols", "/api/defi-protocol", "/api/defi-chains", "/api/defi-chain-tvl-history", "/api/stablecoins", "/api/stablecoin-supply-history", "/api/defi-fees", "/api/defi-dex-volume",  // defi-kit.js
   "/api/crypto-news", "/api/crypto-indicators", "/api/crypto-market-pulse",  // crypto-signals-kit.js
   "/api/site-map", "/api/site-crawl",  // crawl-kit.js

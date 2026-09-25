@@ -15,6 +15,7 @@
 // and stock-dividends (corporate actions are not market data and Databento
 // does not carry them). Removing beat keeping an unlicensed source.
 import { availableEnd, dailyBars, DATASET, VENUES } from "./databento.js";
+import { computeIndicators } from "./crypto-signals-kit.js";
 
 function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
@@ -33,6 +34,18 @@ function assertSymbol(raw) {
 }
 
 const MAX_DAYS = 250;
+// Indicators stock-history can compute from its daily bars. VWAP is left out:
+// the bars carry four-venue volume, not the consolidated tape.
+const STOCK_INDICATOR_IDS = ["rsi", "macd", "ema", "sma", "bollinger", "atr"];
+function stockIndicatorSet(raw) {
+  if (raw === undefined || raw === null || raw === "" || raw === false || raw === "false") return null;
+  if (raw === true || raw === "true" || raw === "all") return new Set(STOCK_INDICATOR_IDS);
+  const list = Array.isArray(raw) ? raw : String(raw).split(",");
+  const ids = list.map((x) => String(x).trim().toLowerCase()).filter(Boolean);
+  const unknown = ids.filter((x) => !STOCK_INDICATOR_IDS.includes(x));
+  if (!ids.length || unknown.length) throw bad(`"indicators" must be true or a list of: ${STOCK_INDICATOR_IDS.join(", ")}${unknown.length ? ` (unknown: ${unknown.join(", ")})` : ""}.`);
+  return new Set(ids);
+}
 const MAX_QUERY_USD = 0.0035;
 
 export const FINANCE_TOOLS = [
@@ -108,14 +121,16 @@ export const FINANCE_TOOLS = [
     category: "data",
     price: "$0.005",
     description:
-      "Daily OHLCV bars for a US equity: the last `days` sessions, 1 to 250, default 30. Daily only, no intraday. Built from a four-venue consolidation (Databento DBEQ.BASIC), so each bar's high and low are the extremes across those venues, open and close come from the venue that traded the most that session, and venueVolume sums those four venues rather than the consolidated tape. A flat ascending array ready for charting or backtests.",
-    tags: ["finance", "stocks", "history", "ohlcv", "backtest", "charting"],
+      "Daily OHLCV bars for a US equity: the last `days` sessions, 1 to 250, default 30. Daily only, no intraday. Built from a four-venue consolidation (Databento DBEQ.BASIC), so each bar's high and low are the extremes across those venues, open and close come from the venue that traded the most that session, and venueVolume sums those four venues rather than the consolidated tape. A flat ascending array ready for charting or backtests. Set indicators to also get technical analysis computed from the same bars: RSI(14), MACD(12,26,9), EMA 20/50/200, SMA 20/50, Bollinger(20,2) and ATR(14), with a plain summary (close vs EMA50, RSI zone, MACD cross). Indicators need enough sessions (EMA200 needs days >= 200) and are descriptive, not a trading recommendation.",
+    tags: ["finance", "stocks", "history", "ohlcv", "technical-analysis"],
     discovery: {
       input: { symbol: "AAPL", days: 30 },
       inputSchema: {
         properties: {
           symbol: { type: "string", description: "US equity ticker, e.g. AAPL. Indices, FX and crypto are not covered." },
           days: { type: "integer", description: "Trading sessions to return, 1 to 250 (default 30)." },
+          indicators: { description: `true for all, or a list of: ${STOCK_INDICATOR_IDS.join(", ")}. Computed from the returned bars (default none).` },
+          points: { type: "integer", description: "Series points per indicator, newest last (default 5, max 100). Only with indicators." },
         },
         required: ["symbol"],
       },
@@ -146,6 +161,12 @@ export const FINANCE_TOOLS = [
           throw bad(`"days" must be a whole number of sessions from 1 to ${MAX_DAYS} (got ${JSON.stringify(i.days)}).`);
         }
       }
+      const want = stockIndicatorSet(i.indicators);
+      let points = 5;
+      if (i.points !== undefined && i.points !== null && i.points !== "") {
+        points = Number(i.points);
+        if (!Number.isInteger(points) || points < 1 || points > 100) throw bad(`"points" must be a whole number from 1 to 100 (got ${JSON.stringify(i.points)}).`);
+      }
       const end = await availableEnd();
       // N sessions span about 1.4N calendar days once weekends are counted,
       // so the lookback SCALES rather than adding a flat margin: a flat +10
@@ -168,7 +189,16 @@ export const FINANCE_TOOLS = [
         venues: VENUES,
         source: "databento.com " + DATASET,
         note: "Daily bars from a four-venue consolidation; venueVolume counts those venues only, not the consolidated tape.",
+        ...(want && bars.length >= 2 ? { analysis: stockAnalysis(bars, want, points) } : {}),
       };
     },
   },
 ];
+
+// Technical indicators over the returned daily bars, through the same pure
+// arithmetic crypto-indicators uses. No extra market-data read.
+export function stockAnalysis(bars, want, points) {
+  const candles = bars.map((b) => ({ t: Date.parse(`${b.day}T00:00:00Z`), o: b.open, h: b.high, l: b.low, c: b.close, v: b.venueVolume ?? 0 }));
+  const { candles: _n, window: _w, ...rest } = computeIndicators(candles, want, points);
+  return { sessions: candles.length, ...rest, disclaimer: "Technical indicators computed from daily bars. Descriptive only: not investment advice and not a trading signal or recommendation." };
+}
