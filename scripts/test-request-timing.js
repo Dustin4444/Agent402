@@ -15,6 +15,8 @@ ok(row.count === 100 && row.totalMs.p50 === 51 && row.totalMs.p99 === 100, `tota
 ok(row.computeMs.p50 === 25.5 && row.upstreamMs.p95 === 48, `compute = total - upstream (${JSON.stringify(row.computeMs)})`);
 for (let i = 0; i < 400; i++) recordTiming(`GET /k${i}`, 1, 0);
 ok(routeTimings({ top: 1000 }).length <= 301 && routeTimings({ top: 1000 }).some((r) => r.route === "(other)"), "route keys are capped; the overflow folds into (other)");
+recordTiming("POST /api/paid-route", 5, 0, true);
+ok(routeTimings({ top: 1000 }).some((r) => r.route === "POST /api/paid-route"), "a reserved (catalog) route keeps its own ring even when the free slots are full");
 __resetTimingForTest();
 
 // --- end to end through express: upstream wait charged to the right request

@@ -1,7 +1,7 @@
 import "./boot-profile.js"; // diagnostic boot CPU profile - must stay the FIRST import (see the file)
 import { retiredEntryFor, assertRetiredRegistryConsistent } from "./retired-tools.js";
 import { createTrafficStore, trafficMiddleware } from "./traffic-classifier.js";
-import { createUnpaidQuoteBudget, looksLikePayment, unpaidQuoteBudgetPerHour } from "./unpaid-quote-budget.js";
+import { createUnpaidQuoteBudget, looksLikePayment, unpaidQuoteBudgetPerHour, isMcpLoopback, normalizeCatalogPath } from "./unpaid-quote-budget.js";
 import { RAILS_OR, RAILS_SHORT, RAILS } from "./rails.js";
 // Railway's egress has NO working IPv6 (every AAAA is ENETUNREACH). Node's
 // happy-eyeballs races the IPv6 address on dual-stack upstreams and fails ~15% of
@@ -19,8 +19,9 @@ setGlobalDispatcher(new UndiciAgent({ connect: { family: 4 } }));
 // is a TIMER firing, so a blocked loop is indistinguishable from an unreachable
 // upstream - which is what seven CDP verify failures looked like on 2026-08-30
 // while CDP answered from outside in 15-37 ms. See src/loop-lag.js.
-import { loopLagStatus, setStallContext, resetLoopLag } from "./loop-lag.js";
-import { installRequestTimingFetch, requestTimingMiddleware, routeTimings, oldestInFlight, inFlightCount } from "./request-timing.js";
+import { loopLagStatus, setStallContext, resetLoopLag, stallsInWindow } from "./loop-lag.js";
+import { installRequestTimingFetch, requestTimingMiddleware, routeTimings, oldestInFlight, inFlightCount, responseCounts } from "./request-timing.js";
+import { createComputeBudget, shouldShedFree, noteShed, shedStatus, shedResponse, resetShedCounters } from "./load-shed.js";
 import express from "express";
 import compression from "compression";
 import { readFileSync } from "node:fs";
@@ -1947,14 +1948,57 @@ function dropSurface(prefix) { for (const k of surfaceMemo.keys()) if (k.startsW
 // Per-route server time (compute vs upstream wait) and the in-flight list a
 // [loop-lag] line names. Route keys are catalog routes or the first two path
 // segments - never a query string or a value.
+// A request is PAID for these counts when it carries a payment or credits
+// credential to a priced route (either verb) or to the /v1 gateway - the same
+// test the load-shedding gate protects.
+const carriesPaidCredential = (req) => {
+  const path = String(req.path || "/");
+  return looksLikePayment(req.headers) && (path.startsWith("/v1/") || Object.prototype.hasOwnProperty.call(CATALOG, `GET ${path}`) || Object.prototype.hasOwnProperty.call(CATALOG, `POST ${path}`));
+};
+// Bearer-style paths (a report or monitor id IS the credential for it) map to
+// a fixed key so the id never reaches a timing key, a stall line or the
+// operator read.
+const BEARER_PATH_KEYS = [[/^\/r\//, "/r/:session"], [/^\/api\/r\//, "/api/r/:session"], [/^\/m\//, "/m/:report"], [/^\/api\/m\//, "/api/m/:report"], [/^\/reports\/public\//, "/reports/public/:id"], [/^\/api\/reports\/public\//, "/api/reports/public/:id"]];
 app.use(requestTimingMiddleware((req) => {
   const path = String(req.path || "/");
-  const key = `${req.method === "HEAD" ? "GET" : req.method} ${path}`;
-  if (Object.prototype.hasOwnProperty.call(CATALOG, key)) return key;
+  const method = req.method === "HEAD" ? "GET" : req.method;
+  const key = `${method} ${path}`;
+  if (Object.prototype.hasOwnProperty.call(CATALOG, key)) return { key, reserved: true };
+  for (const [re, k] of BEARER_PATH_KEYS) if (re.test(path)) return `${method} ${k}`;
   const segs = path.split("/").filter(Boolean).slice(0, 2);
-  return `${req.method} /${segs.join("/")}`;
-}));
+  return `${method} /${segs.join("/")}`;
+}, carriesPaidCredential));
 setStallContext(() => oldestInFlight(3));
+// Paid calls first (src/load-shed.js). When the event loop is lagging or too
+// many requests are in flight, anything unprotected is refused 503 before it
+// is parsed, so the thread stays free for payment verification and paid
+// handlers. Protected: /health, /__operator, the MCP connector's loopback
+// replay, the Stripe webhook, every priced catalog route and the /v1
+// gateway (paid or not: the unpaid 402 is the first step of a purchase).
+app.use((req, res, next) => {
+  const path = String(req.path || "/");
+  if (path === "/health" || path.startsWith("/__operator") || path === "/api/stripe/webhook") return next();
+  const why = shouldShedFree({ inFlight: inFlightCount() });
+  if (!why) return next();
+  // The MCP connector's paid replay (its marker header AND a local socket).
+  if (isMcpLoopback(req)) return next();
+  // Every priced route (either verb: the method alias serves POST on GET-only
+  // tools) and the /v1 gateway (whose SDK path aliases are rewritten later) is
+  // protected with or without a credential: a stock client opens every
+  // purchase with one bare unpaid request to read the price, so shedding that
+  // 402 would break the purchase it precedes. Floods of unpaid price checks
+  // get a cheap 402 and are bounded per client by the unpaid-quote budget.
+  // The path is normalized the way the paywall resolves it (case, repeated or
+  // trailing slashes, percent-encoding), so no spelling of a priced route is
+  // shed; /v1beta is the Gemini wire's bare path.
+  const cp = normalizeCatalogPath(path);
+  // /api/chain/<verb> is rewritten onto priced tools after this gate, and
+  // /mcp carries paid tool calls in its body (its free tier is bounded per
+  // client by the MCP limiter), so both are protected too.
+  if (cp.startsWith("/v1/") || cp === "/v1" || cp.startsWith("/v1beta/") || cp.startsWith("/api/chain/") || cp === "/mcp" || cp.startsWith("/mcp/") || Object.prototype.hasOwnProperty.call(CATALOG, `GET ${cp}`) || Object.prototype.hasOwnProperty.call(CATALOG, `POST ${cp}`)) return next();
+  noteShed(why);
+  return shedResponse(res, 2);
+});
 // Canonical host: www.<host> answers a 301 to the apex (path + query kept),
 // so a www record on the domain never becomes a second indexed copy of the
 // site. The audit found www.agent402.tools unresolvable (2026-08-28); the
@@ -2349,15 +2393,21 @@ app.all(/^\/e\/(.*)$/, express.raw({ type: () => true, limit: "2mb" }), async (r
     // buffer megabytes. Abort the moment the cap is crossed.
     if (!up.body) return void res.end();
     const out = gzipOut ? createGzip() : res;
-    if (gzipOut) out.pipe(res);
+    // A zlib error must not become an uncaught exception (the process exits on
+    // those), and a client that disconnects mid-stream must not leave this loop
+    // waiting forever on a 'drain' that will never come.
+    if (gzipOut) { out.on("error", () => res.destroy()); out.pipe(res); }
+    let gone = false;
+    const closed = new Promise((r) => res.once("close", () => { gone = true; r(); }));
     let sent = 0;
     const reader = up.body.getReader();
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
+      if (gone) { try { await reader.cancel(); } catch { /* */ } if (gzipOut) out.destroy(); return; }
       sent += value.length;
       if (sent > PH_MAX_RESPONSE_BYTES) { try { await reader.cancel(); } catch { /* */ } res.destroy(); return; }
-      if (!out.write(Buffer.from(value))) await new Promise((r) => out.once("drain", r));
+      if (!out.write(Buffer.from(value))) await Promise.race([new Promise((r) => out.once("drain", r)), closed]);
     }
     out.end();
   } catch {
@@ -4429,6 +4479,40 @@ app.get("/__operator/traffic.json", (req, res) => {
     unpaidQuoteBudget: UNPAID_BUDGET ? UNPAID_BUDGET.stats() : { budget: 0 },
   });
 });
+// Serving health for the heartbeat: one verdict plus the counts behind it,
+// counts only. "degraded" when the event loop is lagging or stalling, paid
+// calls or the whole server are answering 5xx, or free traffic is being shed.
+const SERVING = {
+  loopP99Ms: Number(process.env.ALERT_LOOP_P99_MS) || 250,
+  stalls1h: Number(process.env.ALERT_STALLS_PER_HOUR) || 6,
+  paidErrorRate: Number(process.env.ALERT_PAID_ERROR_RATE) || 0.05,
+  paidMin: 20,
+  s5xxRate: Number(process.env.ALERT_5XX_RATE) || 0.05,
+  totalMin: 100,
+  shed1h: Number(process.env.ALERT_SHED_PER_HOUR) || 200,
+};
+function servingHealth() {
+  const loop = loopLagStatus();
+  const stalls = stallsInWindow(3600_000);
+  const counts = responseCounts(60);
+  const shed = shedStatus();
+  const reasons = [];
+  if ((loop.lastMinute?.p99 ?? 0) > SERVING.loopP99Ms) reasons.push("loop-p99");
+  if (stalls.count > SERVING.stalls1h) reasons.push("stalls");
+  if (counts.paid >= SERVING.paidMin && counts.paid5xx / counts.paid > SERVING.paidErrorRate) reasons.push("paid-errors");
+  if (counts.total >= SERVING.totalMin && counts.s5xx / counts.total > SERVING.s5xxRate) reasons.push("5xx");
+  if (shed.shed > SERVING.shed1h && Date.now() - shed.since < 3600_000) reasons.push("shedding");
+  const paidRoutes = routeTimings({ top: 200, minSamples: 5 }).filter((r) => Object.prototype.hasOwnProperty.call(CATALOG, r.route)).sort((a, b) => b.count - a.count).slice(0, 10)
+    .map((r) => ({ route: r.route, count: r.count, p95Ms: r.totalMs.p95, computeP95Ms: r.computeMs.p95 }));
+  return { status: reasons.length ? "degraded" : "ok", reasons, thresholds: SERVING, loop: { p99LastMinuteMs: loop.lastMinute?.p99 ?? null, maxLastMinuteMs: loop.lastMinute?.max ?? null, stalls1h: stalls.count, maxStall1hMs: stalls.maxMs }, responses1h: counts, shed, paidRoutes };
+}
+// The shed counter is cumulative since boot; reset hourly so "shed in the last
+// hour" means that.
+setInterval(() => { try { resetShedCounters(); } catch { /* best-effort */ } }, 3600_000).unref();
+app.get("/__operator/serving-health.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  res.set("Cache-Control", "no-store").json(servingHealth());
+});
 // Counts-only latency and event-loop read: per-route p50/p95/p99 split into
 // our compute and upstream wait, the last minute's event-loop percentiles,
 // stall totals and in-flight count.
@@ -4436,7 +4520,7 @@ app.get("/__operator/perf.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   // ?reset=1 clears the stall high-water mark first (the load test reads a fresh one per scenario).
   if (req.query.reset === "1") resetLoopLag();
-  res.set("Cache-Control", "no-store").json({ loop: loopLagStatus(), inFlight: inFlightCount(), routes: routeTimings({ top: Math.min(200, parseInt(req.query.top, 10) || 40), minSamples: Math.max(1, parseInt(req.query.min, 10) || 5) }) });
+  res.set("Cache-Control", "no-store").json({ loop: loopLagStatus(), inFlight: inFlightCount(), shed: shedStatus(), discoveryCpuSpentMs: discoveryCpuBudget.spent(), routes: routeTimings({ top: Math.min(200, parseInt(req.query.top, 10) || 40), minSamples: Math.max(1, parseInt(req.query.min, 10) || 5) }) });
 });
 app.get("/__operator/egress.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
@@ -5234,6 +5318,7 @@ const discoveryComputeLimiter = createRateLimiter("discovery-compute", {
   perHour: Number(process.env.DISCOVERY_COMPUTE_PER_HOUR) || 600,
 });
 const isLoopbackIp = (ip) => ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
+const discoveryCpuBudget = createComputeBudget();
 async function serveCachedDiscovery(path, policy, input, computeFn, analyticsSlug, req, res) {
   const startedAt = Date.now();
   const synthetic = isSyntheticRequest(req);
@@ -5261,8 +5346,19 @@ async function serveCachedDiscovery(path, policy, input, computeFn, analyticsSlu
         retryAfterSeconds: 60,
       });
     }
+    // Global CPU budget for uncached searches across every caller (the
+    // per-IP limiter above cannot see many addresses at once). Refused before
+    // computing; cache hits above never reach this.
+    if (!synthetic && !isLoopbackIp(clientIp(req)) && discoveryCpuBudget.over()) {
+      status = 503;
+      noteShed("discovery-budget");
+      return shedResponse(res, 2);
+    }
     const computeStarted = Date.now();
-    const result = await computeFn();   // a compute may be async (the /api/route rerank)
+    const pending = computeFn();   // a compute may be async (the /api/route rerank)
+    // Only the synchronous part holds the thread; the judge wait does not.
+    discoveryCpuBudget.record(Date.now() - computeStarted);
+    const result = await pending;
     const computeMs = Date.now() - computeStarted;
     if (computeMs > 500) console.warn(`[discovery] slow ${analyticsSlug} compute ${computeMs}ms (query ${String(input?.q ?? "").length} chars)`);
     if (policy) {
@@ -8914,6 +9010,13 @@ app.use((err, req, res, _next) => {
 const httpServer = app.listen(PORT, () =>
   console.log(`Agent402 listening on :${PORT} with ${Object.keys(CATALOG).length} paid tools`)
 );
+// Connection timeouts (Node defaults: request 300 s, headers 60 s, keep-alive
+// 5 s). Keep-alive outlives the edge proxy's idle window so it never reuses a
+// socket we just closed (a sporadic edge 502), headers stays above keep-alive
+// as Node requires, and a request body must arrive within two minutes.
+httpServer.keepAliveTimeout = Number(process.env.HTTP_KEEPALIVE_TIMEOUT_MS) || 65_000;
+httpServer.headersTimeout = Number(process.env.HTTP_HEADERS_TIMEOUT_MS) || 70_000;
+httpServer.requestTimeout = Number(process.env.HTTP_REQUEST_TIMEOUT_MS) || 120_000;
 
 // Warm the revenue snapshot at boot (fire-and-forget): revenueSnapshot is
 // stale-while-revalidate, but a COLD cache makes the first post-deploy visitor

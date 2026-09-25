@@ -17,12 +17,37 @@ const MAX_KEYS = 300;
 const routes = new Map(); // key -> { n, total: Float64Array, upstream: Float64Array, i }
 const inflight = new Map(); // id -> { key, at }
 let nextId = 1;
+// Response counts per minute for the last hour: all requests, 5xx, and the
+// paid subset (a payment-bearing request to a priced route) with its 5xx.
+const MINUTES = 60;
+const minuteBuckets = Array.from({ length: MINUTES }, () => ({ at: 0, total: 0, s5xx: 0, paid: 0, paid5xx: 0 }));
+function bucketFor(now) {
+  const m = Math.floor(now / 60_000);
+  const b = minuteBuckets[m % MINUTES];
+  if (b.at !== m) { b.at = m; b.total = 0; b.s5xx = 0; b.paid = 0; b.paid5xx = 0; }
+  return b;
+}
+export function noteResponse(status, paid, now = Date.now(), shed = false) {
+  const b = bucketFor(now);
+  b.total++; if (status >= 500 && !shed) b.s5xx++;
+  if (paid) { b.paid++; if (status >= 500) b.paid5xx++; }
+}
+/** Response counts over the last `minutes` (default 60). */
+export function responseCounts(minutes = 60, now = Date.now()) {
+  const m = Math.floor(now / 60_000);
+  const out = { total: 0, s5xx: 0, paid: 0, paid5xx: 0 };
+  for (const b of minuteBuckets) if (b.at > m - minutes && b.at <= m) { out.total += b.total; out.s5xx += b.s5xx; out.paid += b.paid; out.paid5xx += b.paid5xx; }
+  return out;
+}
 let fetchInstalled = false;
 
-function ringFor(key) {
+// Catalog routes are RESERVED: they always get their own ring, so a caller
+// minting arbitrary paths can fill the free slots but never push a paid route
+// into "(other)".
+function ringFor(key, reserved = false) {
   let r = routes.get(key);
   if (!r) {
-    if (routes.size >= MAX_KEYS) key = "(other)";
+    if (!reserved && routes.size >= MAX_KEYS) key = "(other)";
     r = routes.get(key);
     if (!r) { r = { n: 0, total: new Float64Array(RING), upstream: new Float64Array(RING), i: 0 }; routes.set(key, r); }
   }
@@ -30,8 +55,8 @@ function ringFor(key) {
 }
 
 /** Record one finished request. Exported for the offline test. */
-export function recordTiming(key, totalMs, upstreamMs) {
-  const r = ringFor(key);
+export function recordTiming(key, totalMs, upstreamMs, reserved = false) {
+  const r = ringFor(key, reserved);
   r.total[r.i] = totalMs;
   r.upstream[r.i] = Math.min(upstreamMs, totalMs);
   r.i = (r.i + 1) % RING;
@@ -56,17 +81,23 @@ export function installRequestTimingFetch() {
 }
 
 /** Express middleware. `keyOf(req)` maps a request to its route key. */
-export function requestTimingMiddleware(keyOf) {
+export function requestTimingMiddleware(keyOf, isPaid = () => false) {
   return (req, res, next) => {
     const store = { upstreamMs: 0 };
     const t0 = performance.now();
     const id = nextId++;
-    let key = "(unknown)";
-    try { key = keyOf(req) || "(unknown)"; } catch { /* keep default */ }
+    let key = "(unknown)", reserved = false;
+    try {
+      const k = keyOf(req);
+      if (k && typeof k === "object") { key = k.key || "(unknown)"; reserved = !!k.reserved; } else key = k || "(unknown)";
+    } catch { /* keep default */ }
     inflight.set(id, { key, at: Date.now() });
+    let paid = false;
+    try { paid = !!isPaid(req); } catch { /* keep false */ }
     const end = () => {
       if (!inflight.delete(id)) return;
-      recordTiming(key, performance.now() - t0, store.upstreamMs);
+      recordTiming(key, performance.now() - t0, store.upstreamMs, reserved);
+      noteResponse(res.headersSent ? res.statusCode : 499, paid, Date.now(), !!res.locals?.shed);
     };
     res.on("finish", end);
     res.on("close", end);
@@ -105,4 +136,4 @@ export function oldestInFlight(n = 3) {
 export function inFlightCount() { return inflight.size; }
 
 /** Test hook. */
-export function __resetTimingForTest() { routes.clear(); inflight.clear(); }
+export function __resetTimingForTest() { routes.clear(); inflight.clear(); for (const b of minuteBuckets) b.at = 0; }
