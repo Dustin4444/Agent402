@@ -23,6 +23,7 @@
 //   • Failed crawls log a stale marker; they never crash the process.
 //   • The router uses the same lexical scoring shape as /api/find so rankings
 //     are consistent whether a buyer searches local-only or cross-seller.
+import { resolveLocalRefs } from "./openapi-deref.js";
 import { readFileSync, writeFileSync, renameSync } from "node:fs";
 import { timedSync } from "./boot-timing.js";
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
@@ -1738,7 +1739,7 @@ export function normaliseOpenapiTools(openapi, originUrl) {
         // handler.
         ...(() => {
           try {
-            const packed = packResponseContract(responseContractOf(op));
+            const packed = packResponseContract(responseContractOf(resolveLocalRefs(op, openapi)));
             return packed ? { responseContract: packed } : {};
           } catch { return {}; }
         })(),
@@ -1746,7 +1747,7 @@ export function normaliseOpenapiTools(openapi, originUrl) {
         // must cost this operation its tuple, never the seller their listing.
         ...(() => {
           try {
-            const packed = packRequestContract(requestContractOf(op));
+            const packed = packRequestContract(requestContractOf(resolveLocalRefs(op, openapi)));
             return packed ? { requestContract: packed } : {};
           } catch { return {}; }
         })(),

@@ -8,6 +8,11 @@ carries its own version on npm.
 
 Since v2.4.0 (2026-09-18).
 
+### 2026-09-25
+- Seller index: request and response contracts are read through local OpenAPI
+  references (`#/components/...`), so a FastAPI seller's required fields and
+  guaranteed response paths show as declared instead of partial.
+
 ### 2026-09-24
 - `polymarket-search`, `polymarket-market`, `polymarket-orderbook` and
   `polymarket-price-history` are retired. Each route answers 410 naming the
