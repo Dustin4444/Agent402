@@ -10,12 +10,12 @@
 // How: V8's sampling profiler (node:inspector, in process - no port is opened)
 // runs in rolling windows. At the end of each window the profile is scanned for
 // the longest unbroken run of non-idle samples; a run of at least MIN_RUN_MS is
-// logged as ONE line: its length, and the first-party frames that carried most
+// logged as ONE line (runs of 300 ms and up by default): its length, and the first-party frames that carried most
 // of its samples (function name, file, line). Function names and file paths
 // only - no arguments, no values, nothing a request carried.
 //
 // Bounded: on for STALL_PROFILER_HOURS after boot (default 6), at most
-// MAX_REPORTS lines, then it stops itself and the profiler with it.
+// MAX_REPORTS (400) lines, then it stops itself and the profiler with it.
 // STALL_PROFILER=off disables it. Sampling at 10 ms costs a few percent of one
 // core while it runs.
 
@@ -23,9 +23,9 @@ import inspector from "node:inspector";
 
 const WINDOW_MS = 60_000;
 const SAMPLE_US = 10_000;
-const MIN_RUN_MS = Number(process.env.STALL_PROFILER_MIN_MS) || 800;
+const MIN_RUN_MS = Number(process.env.STALL_PROFILER_MIN_MS) || 300;
 const HOURS = Number(process.env.STALL_PROFILER_HOURS) || 6;
-const MAX_REPORTS = 60;
+const MAX_REPORTS = 400;
 // Only "(idle)" is idle. "(program)" (engine work outside JS) and "(garbage
 // collector)" hold the loop exactly as JS does; counting them as idle splits
 // one long block into short runs that never pass the threshold.
