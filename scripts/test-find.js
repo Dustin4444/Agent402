@@ -385,10 +385,12 @@ JSON.parse(JSON.stringify(findTools(CATALOG, "extract", { baseUrl: "https://agen
     "POST /api/b": { name: "Nano chat", slug: "v1-chat-nano", aliases: ["chat-completions-nano-tier"], category: "ai", price: "$0.003", description: "Nano chat.", tags: ["chat"], discovery: { example: {} } },
     "POST /api/c": { name: "Wayback snapshot", slug: "archive-snapshot", aliases: ["website-history"], category: "web", price: "$0.003", description: "Archived page.", tags: ["archive"], discovery: { example: {} } },
     "POST /api/d": { name: "Crypto history", slug: "crypto-history", category: "crypto", price: "$0.003", description: "Price history for a coin.", tags: ["crypto"], discovery: { example: {} } },
+    "POST /api/e": { name: "Uptime check", slug: "http-check", category: "web", price: "$0.001", description: "Is a website up right now.", tags: ["uptime"], discovery: { example: {} } },
   };
   const top = (q) => findTools(cat, q, { baseUrl: "https://agent402.tools", powSlugs: new Set() }).results?.[0]?.slug;
   ok(top("chat completions pro tier") === "v1-chat-pro", `a partial alias match does not beat the tool's own name (got ${top("chat completions pro tier")})`);
   ok(top("website history") === "archive-snapshot", `a full multi-word alias match counts (got ${top("website history")})`);
+  ok(top("is my website up") === "http-check", `one word of a multi-word alias ("website") earns nothing (got ${top("is my website up")})`);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
