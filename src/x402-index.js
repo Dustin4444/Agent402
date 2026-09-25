@@ -179,6 +179,8 @@ class GuardedMap extends Map {
 // (the alias set, a scored ranking) can be memoized exactly: entries are
 // replaced, never mutated, so an unchanged version means an unchanged cache.
 let cacheVersion = 0;
+/** Changes whenever the crawl cache does; readers memoize derived views on it. */
+export function indexCacheVersion() { return cacheVersion; }
 class IndexCache extends Map {
   set(origin, v) {
     if (isRemovedOrigin(origin)) { this.delete(origin); return this; }
@@ -1033,14 +1035,31 @@ export async function registerOrigin(origin, { crawl, replaces = null } = {}) {
 // so this needs no new payTo-matching plumbing. Best-effort: any shape
 // surprise in the snapshot (still warming, scan error) reads as "not yet
 // observed settling", never a throw.
+// The set of hosts that have settled, built once per leaderboard snapshot
+// object. Each lookup used to walk every leaderboard row and parse every
+// origin in it, once per submitted seed, twice per crawl cycle: measured
+// 0.4-2.5 s of blocked event loop at the 2,000-seed cap (2026-09-25).
+// Keyed on the snapshot's row ARRAY: getLeaderboardSnapshot() spreads a new
+// wrapper object per call, while the rows array is shared until a refresh.
+const settledHostsMemo = new WeakMap(); // leaderboard rows array -> Set<host>
+function settledHostsOf(snap) {
+  const rows = snap?.leaderboard;
+  if (!Array.isArray(rows)) return new Set();
+  let set = settledHostsMemo.get(rows);
+  if (set) return set;
+  set = new Set();
+  for (const row of rows) {
+    if (!((row.callsSettled || 0) > 0)) continue;
+    for (const o of row.origins || []) { const h = canonicalHost(o); if (h) set.add(h); }
+  }
+  settledHostsMemo.set(rows, set);
+  return set;
+}
 function originHasSettled(origin) {
   const host = canonicalHost(origin);
   if (!host) return false;
   try {
-    const snap = getLeaderboardSnapshot();
-    return (snap?.leaderboard || []).some(
-      (row) => (row.callsSettled || 0) > 0 && (row.origins || []).some((o) => canonicalHost(o) === host)
-    );
+    return settledHostsOf(getLeaderboardSnapshot()).has(host);
   } catch {
     return false;
   }
@@ -4391,13 +4410,18 @@ function exactServiceKeyOf(v) {
 // ~150 ms measured per /api/route query). It changes only when the cache does,
 // so for the live cache it is memoized on cacheVersion; the superseded origins
 // depend on the successions map as well and are folded in fresh on each call.
-let aliasBaseMemo = { version: -1, base: null };
+let aliasBaseMemo = { version: -1, base: null, at: 0 };
+const ALIAS_CRAWL_STALE_MS = 60_000;
 export function computeAliasOrigins(cacheMap) {
   let base;
-  if (cacheMap === cache && aliasBaseMemo.version === cacheVersion && aliasBaseMemo.base) base = aliasBaseMemo.base;
+  // While a crawl runs, every cache.set bumps the version and would force a
+  // full walk per reader; the last set (at most ALIAS_CRAWL_STALE_MS old) is
+  // reused until the cycle ends. The superseded fold below is always fresh.
+  const fresh = aliasBaseMemo.base && cacheMap === cache && (aliasBaseMemo.version === cacheVersion || (crawlInFlight && Date.now() - aliasBaseMemo.at < ALIAS_CRAWL_STALE_MS));
+  if (fresh) base = aliasBaseMemo.base;
   else {
     base = computeAliasOriginsBase(cacheMap);
-    if (cacheMap === cache) aliasBaseMemo = { version: cacheVersion, base };
+    if (cacheMap === cache) aliasBaseMemo = { version: cacheVersion, base, at: Date.now() };
   }
   const aliases = new Set(base);
   // A superseded origin hides for the same reason a redirect alias does: it is
@@ -4586,6 +4610,8 @@ export function originsDueThisCycle(origins, cycle = 0, cap = CRAWL_ORIGINS_PER_
   return origins.filter((o) => due.has(o));
 }
 
+/** True while a crawl cycle is running (every entry is being replaced). */
+export function crawlInProgress() { return !!crawlInFlight; }
 async function runCrawl() {
   if (crawlInFlight) return; // overlapping runs would just rate-limit each other
   crawlInFlight = true;

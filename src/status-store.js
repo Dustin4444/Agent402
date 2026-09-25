@@ -45,6 +45,8 @@ function open() {
       );
       CREATE UNIQUE INDEX IF NOT EXISTS status_probes_unique ON status_probes (source, component, ts);
       CREATE INDEX IF NOT EXISTS status_probes_ts ON status_probes (component, ts);
+      -- earliestObservation() reads MIN(ts) across components; without a ts-led index it scanned every probe.
+      CREATE INDEX IF NOT EXISTS status_probes_ts_only ON status_probes (ts);
     `);
   } catch (e) {
     // A status page must never be the reason the server fails to boot.
