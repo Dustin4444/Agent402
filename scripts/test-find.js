@@ -365,5 +365,15 @@ JSON.parse(JSON.stringify(findTools(CATALOG, "extract", { baseUrl: "https://agen
     `"latest news about…" → search-news (got ${top1("latest news about the Federal Reserve")})`);
 }
 
+// A wish-board phrase (2026-09-25) that missed the uuid tool: "time" and
+// "captcha" outranked it until uuid carried its identifier aliases and tags.
+{
+  const { KIT } = await import("../src/tools/kit.js");
+  const kitCatalog = Object.fromEntries(KIT.map((t) => [t.route, t]));
+  const first = (q) => findTools(kitCatalog, q, { baseUrl: "https://agent402.tools", powSlugs: new Set() }).results?.[0]?.slug;
+  ok(first("generate time-ordered unique identifiers") === "uuid", `"generate time-ordered unique identifiers" -> uuid (got ${first("generate time-ordered unique identifiers")})`);
+  ok(first("uuid v7") === "uuid", `"uuid v7" -> uuid (got ${first("uuid v7")})`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

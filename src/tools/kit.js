@@ -333,12 +333,12 @@ const encodingTools = [
   },
   {
     route: "GET /api/uuid",
-    name: "UUID generator",
-    slug: "uuid",
+    name: "Unique ID generator (UUID)",
+    slug: "uuid", aliases: ["unique-id", "unique-identifiers", "time-ordered-id", "sortable-id", "uuid-v7"],
     category: "identifiers",
     price: "$0.001",
     description: "Generate UUIDs: returns version and uuids[] (lowercase, hyphenated). ?version=4 (default, random) or 7 (time-ordered, sortable by creation time - the better choice for database keys), ?count=1..100.",
-    tags: ["uuid", "id", "generator"],
+    tags: ["uuid", "id", "identifier", "unique", "generator"],
     discovery: {
       input: { version: "7", count: "3" },
       inputSchema: {
