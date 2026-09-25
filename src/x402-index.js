@@ -37,7 +37,7 @@ import { parseRobots, robotsAllows } from "./tools/kit.js";
 import { partialFields, clampFields } from "./partial-answer.js";
 import { responseContractOf, packResponseContract, responseContractProjection } from "./response-contract.js";
 import { deliveryProjection } from "./response-observation.js";
-import { requestContractOf, packRequestContract, requestContractProjection } from "./request-contract.js";
+import { requestContractOf, requestContractFromInputSchema, packRequestContract, requestContractProjection } from "./request-contract.js";
 import { toolList } from "./pages.js";
 import { fetchAllBazaarItems, isBazaarDiscoveryUrl } from "./bazaar-pager.js";
 import { RAILS, railKey, truncateCaip2 } from "./rails.js";
@@ -1833,6 +1833,7 @@ function mergeManifestToolRows(a, b) {
   const named = (n, route) => n && n !== route && !String(n).startsWith("/");
   return {
     ...prefer,
+    ...(prefer.requestContract || !other.requestContract ? {} : { requestContract: other.requestContract }),
     name: named(prefer.name, prefer.route) ? prefer.name : (named(other.name, other.route) ? other.name : prefer.name),
     description: prefer.description || other.description || "",
     price: prefer.price || other.price || null,
@@ -2212,7 +2213,7 @@ export function normaliseManifestTools(manifest, originUrl) {
 
   for (const list of catalogues) {
     for (const raw of list.slice(0, 1000)) {
-      let ref = "", name = "", description = "", price = null;
+      let ref = "", name = "", description = "", price = null, inputSchema = null;
       const methodList = [];
       // What this entry says about money, from its own accepts / flat payment
       // fields, falling back to the service-wide block. A thin string entry
@@ -2228,6 +2229,9 @@ export function normaliseManifestTools(manifest, originUrl) {
         name = String(raw.name || raw.title || raw.operationId || "").trim();
         description = String(raw.summary || raw.description || "").trim();
         price = parseManifestPrice(raw);
+        // The input schema a seller declares beside the route (issue #1503).
+        inputSchema = raw.input_schema && typeof raw.input_schema === "object" ? raw.input_schema
+          : (raw.inputSchema && typeof raw.inputSchema === "object" ? raw.inputSchema : null);
         if (raw.method && MANIFEST_HTTP_METHODS.has(String(raw.method).toUpperCase())) {
           methodList.push(String(raw.method).toUpperCase());
         } else if (Array.isArray(raw.methods)) {
@@ -2279,6 +2283,7 @@ export function normaliseManifestTools(manifest, originUrl) {
           // one derived from atomic units: it is the seller's own wording and
           // it is what `originDeclaredPrice` is stamped from below.
           price: price ?? (pay && pay.price != null ? `$${pay.price}` : null),
+          ...(() => { const packed = inputSchema ? packRequestContract(requestContractFromInputSchema(inputSchema, method || "GET")) : null; return packed ? { requestContract: packed } : {}; })(),
           ...(pay ? { networks: pay.networks, stellarPayTo: pay.stellarPayTo,
             algorandPayTo: pay.algorandPayTo, payToByNetwork: pay.payToByNetwork,
             ...(pay.evmDomainByNetwork ? { evmDomainByNetwork: pay.evmDomainByNetwork } : {}) } : {}),
@@ -2520,6 +2525,9 @@ export function mergeManifestIntoTools(manifestTools = [], existing = []) {
     }
     if (!hit.stellarPayTo && m.stellarPayTo) hit.stellarPayTo = m.stellarPayTo;
     if (!hit.algorandPayTo && m.algorandPayTo) hit.algorandPayTo = m.algorandPayTo;
+    // Blank-fill: a contract read from the seller's OpenAPI outranks one read
+    // from a manifest schema.
+    if (!hit.requestContract && m.requestContract) hit.requestContract = m.requestContract;
   };
   for (const [path, entries] of groups) {
     const indices = indicesByPath.get(path) || [];
