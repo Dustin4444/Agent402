@@ -6315,22 +6315,24 @@ export function routeQuery(args) {
 }
 
 const yieldToLoop = () => new Promise((r) => setImmediate(r));
+// `onBusy(ms)` is called once per slice with the time that slice held the
+// thread, so a caller's CPU budget is charged while the query runs, not only
+// when it ends (a burst of queries would otherwise all pass a budget check
+// that none of them had charged yet).
 export async function routeQueryAsync(args, { sliceMs = 8, onBusy = null } = {}) {
   const steps = routeQuerySteps(args);
-  let busy = 0;
   let sliceStart = performance.now();
   let r = steps.next();
   while (!r.done) {
     const now = performance.now();
     if (now - sliceStart >= sliceMs) {
-      busy += now - sliceStart;
+      if (onBusy) onBusy(now - sliceStart);
       await yieldToLoop();
       sliceStart = performance.now();
     }
     r = steps.next();
   }
-  busy += performance.now() - sliceStart;
-  if (onBusy) onBusy(busy);
+  if (onBusy) onBusy(performance.now() - sliceStart);
   return r.value;
 }
 

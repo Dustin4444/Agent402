@@ -5401,6 +5401,13 @@ const discoveryComputeLimiter = createRateLimiter("discovery-compute", {
 });
 const isLoopbackIp = (ip) => ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
 const discoveryCpuBudget = createComputeBudget();
+// Uncached discovery computes running at once. A router query now yields
+// between slices, so several can be in progress together, each holding its
+// scored rows in memory; the CPU budget alone cannot bound that, because a
+// burst passes the budget check before any of it is charged. Past this many,
+// an outside caller is shed like any other over-budget search.
+const DISCOVERY_MAX_INFLIGHT = (() => { const n = Number(process.env.DISCOVERY_MAX_INFLIGHT); return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 4; })();
+let discoveryInFlight = 0;
 async function serveCachedDiscovery(path, policy, input, computeFn, analyticsSlug, req, res) {
   const startedAt = Date.now();
   const synthetic = isSyntheticRequest(req);
@@ -5436,18 +5443,30 @@ async function serveCachedDiscovery(path, policy, input, computeFn, analyticsSlu
       noteShed("discovery-budget");
       return shedResponse(res, 2);
     }
+    if (!synthetic && !isLoopbackIp(clientIp(req)) && discoveryInFlight >= DISCOVERY_MAX_INFLIGHT) {
+      status = 503;
+      noteShed("discovery-inflight");
+      return shedResponse(res, 2);
+    }
     const computeStarted = Date.now();
     // A compute may be async: the router query yields between slices
     // (routeQueryAsync) and /api/route waits on a judgment model. Only the time
     // spent holding the thread is charged to the CPU budget: the synchronous
-    // start here, plus what each sliced router query reports through `meter`.
+    // start here, plus each slice a router query reports through `meter`,
+    // charged as it happens.
     let asyncCpuMs = 0;
-    const meter = (ms) => { asyncCpuMs += ms; };
-    const pending = computeFn(meter);
-    const syncMs = Date.now() - computeStarted;
-    const result = await pending;
+    const meter = (ms) => { asyncCpuMs += ms; discoveryCpuBudget.record(ms); };
+    discoveryInFlight++;
+    let result, syncMs;
+    try {
+      const pending = computeFn(meter);
+      syncMs = Date.now() - computeStarted;
+      discoveryCpuBudget.record(syncMs);
+      result = await pending;
+    } finally {
+      discoveryInFlight--;
+    }
     const cpuMs = Math.round(syncMs + asyncCpuMs);
-    discoveryCpuBudget.record(cpuMs);
     const computeMs = Date.now() - computeStarted;
     if (computeMs > 500) console.warn(`[discovery] slow ${analyticsSlug} compute ${computeMs}ms, cpu ${cpuMs}ms (query ${String(input?.q ?? "").length} chars)`);
     if (policy) {

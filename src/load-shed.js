@@ -38,7 +38,7 @@ export function createComputeBudget({ budgetMs = Number(process.env.DISCOVERY_CP
 
 const LAG_SHED_MS = Number(process.env.SHED_LAG_MS) || 250;
 const INFLIGHT_SHED = Number(process.env.SHED_INFLIGHT) || 400;
-const counters = { shed: 0, shedLag: 0, shedInflight: 0, discoveryBudget: 0, since: Date.now() };
+const counters = { shed: 0, shedLag: 0, shedInflight: 0, discoveryBudget: 0, discoveryInflight: 0, since: Date.now() };
 
 /** Why free traffic should be refused right now, or null. */
 // Lag sheds only while the loop is SATURATED: the smoothed lag is high AND at
@@ -65,6 +65,7 @@ export function noteShed(kind) {
   if (kind === "lag") counters.shedLag++;
   else if (kind === "inflight") counters.shedInflight++;
   else if (kind === "discovery-budget") counters.discoveryBudget++;
+  else if (kind === "discovery-inflight") counters.discoveryInflight++;
 }
 
 /** Counts only, for /__operator/perf.json and the heartbeat. */

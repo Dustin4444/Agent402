@@ -43,8 +43,11 @@ async function worstHold(run) {
 routeQuery({ query: HEAVY, top: 10, include: "external", ...ctx }); // warm statics
 const sync = await worstHold(async () => { routeQuery({ query: HEAVY, top: 10, include: "external", ...ctx }); });
 let busy = 0;
-const asy = await worstHold(() => routeQueryAsync({ query: HEAVY, top: 10, include: "external", ...ctx }, { onBusy: (ms) => { busy = ms; } }));
+const asy = await worstHold(() => routeQueryAsync({ query: HEAVY, top: 10, include: "external", ...ctx }, { onBusy: (ms) => { busy += ms; } }));
 console.log(`# sync hold ${sync.worst.toFixed(1)} ms of ${sync.total.toFixed(1)}; async worst hold ${asy.worst.toFixed(1)} ms over ${asy.total.toFixed(1)} ms, busy ${busy.toFixed(1)} ms`);
 ok(asy.worst < sync.worst * 0.6, `the async query's longest hold (${asy.worst.toFixed(1)} ms) is well under the sync query's (${sync.worst.toFixed(1)} ms)`);
 ok(busy > 0 && busy <= asy.total + 1, "onBusy reports the time the query actually held the thread");
+let calls = 0;
+await routeQueryAsync({ query: HEAVY, top: 10, include: "external", ...ctx }, { onBusy: () => { calls++; } });
+ok(calls > 1, `onBusy is called per slice (${calls} calls), so a budget is charged while the query runs`);
 console.log(`test-route-query-async: ${n} passed`);
