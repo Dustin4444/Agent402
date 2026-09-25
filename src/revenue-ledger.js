@@ -935,18 +935,11 @@ function tempoExternalRows() {
  * counted twice. Undateable on-chain rows are skipped rather than guessed.
  */
 // The daily, weekly and monthly buyer series, concentration and retention
-// each asked for this full history on the same /revenue build: five reads of
-// every external row back to back. One read serves them for a few seconds.
-let paymentEventsMemo = { key: null, at: 0, rows: null };
-const PAYMENT_EVENTS_TTL_MS = 10_000;
-function externalPaymentEvents(wallets) {
-  const key = JSON.stringify(walletPairs(wallets));
-  const now = Date.now();
-  if (paymentEventsMemo.rows && paymentEventsMemo.key === key && now - paymentEventsMemo.at < PAYMENT_EVENTS_TTL_MS) return paymentEventsMemo.rows;
-  const rows = readExternalPaymentEvents(wallets);
-  paymentEventsMemo = { key, at: now, rows };
-  return rows;
-}
+// each read this full history. A caller building several of them at once
+// reads it ONCE (externalPaymentEventsFor) and passes `{ events }` to each;
+// a figure asked for on its own reads fresh.
+export function externalPaymentEventsFor(wallets) { return readExternalPaymentEvents(wallets); }
+function externalPaymentEvents(wallets, events) { return events || readExternalPaymentEvents(wallets); }
 function readExternalPaymentEvents(wallets) {
   const out = [];
   const rows = db.prepare("SELECT chain, wallet, block, when_ts, external, payer FROM transfers WHERE chain = ? AND wallet = ?");
@@ -974,11 +967,11 @@ function readExternalPaymentEvents(wallets) {
 /** Per-day payer sets + first-seen map + unattributed counts, across ALL
  *  history. Shared by the daily and weekly buyer series so the two can never
  *  disagree about who a buyer is or when they were first seen. */
-function buyerDaySets(wallets) {
+function buyerDaySets(wallets, events) {
   const byDay = new Map(); // day -> Set(payer)
   const unattributed = new Map(); // day -> count
   const firstSeen = new Map(); // payer -> earliest day ever, across ALL history
-  for (const { day, payer } of externalPaymentEvents(wallets)) {
+  for (const { day, payer } of externalPaymentEvents(wallets, events)) {
     if (!payer) { unattributed.set(day, (unattributed.get(day) || 0) + 1); continue; }
     if (!byDay.has(day)) byDay.set(day, new Set());
     byDay.get(day).add(payer);
@@ -991,8 +984,8 @@ function buyerDaySets(wallets) {
   return { byDay, unattributed, firstSeen, allDays, start };
 }
 
-export function ledgerBuyersDaily(wallets) {
-  const { byDay, unattributed, firstSeen, allDays, start } = buyerDaySets(wallets);
+export function ledgerBuyersDaily(wallets, { events } = {}) {
+  const { byDay, unattributed, firstSeen, allDays, start } = buyerDaySets(wallets, events);
   const seen = new Set();
   const out = [];
   for (const day of allDays) {
@@ -1028,8 +1021,8 @@ export function ledgerBuyersDaily(wallets) {
  * compare a two-day week against seven-day ones. A buyer is `new` in the week
  * of their first-ever payment across all history, whatever the chart epoch.
  */
-export function ledgerBuyersWeekly(wallets) {
-  const { byDay, unattributed, firstSeen, allDays, start } = buyerDaySets(wallets);
+export function ledgerBuyersWeekly(wallets, { events } = {}) {
+  const { byDay, unattributed, firstSeen, allDays, start } = buyerDaySets(wallets, events);
   const seen = new Set();
   const weeks = new Map(); // monday -> { set, fresh, unattributed, days }
   for (const day of allDays) {
@@ -1080,8 +1073,8 @@ export function ledgerBuyersWeekly(wallets) {
  * full ones. A buyer is `new` in the month of their first-ever payment across
  * all history, whatever the chart epoch.
  */
-export function ledgerBuyersMonthly(wallets) {
-  const { byDay, unattributed, firstSeen, allDays, start } = buyerDaySets(wallets);
+export function ledgerBuyersMonthly(wallets, { events } = {}) {
+  const { byDay, unattributed, firstSeen, allDays, start } = buyerDaySets(wallets, events);
   const seen = new Set();
   const months = new Map();
   for (const day of allDays) {
@@ -1166,11 +1159,11 @@ const BUYER_SCOPE = ({ since }) => ({
   },
 });
 
-export function ledgerBuyerConcentration(wallets) {
+export function ledgerBuyerConcentration(wallets, { events } = {}) {
   const start = process.env.REVENUE_DAILY_START || "2026-06-15";
   const counts = new Map();
   let payments = 0;
-  for (const { day, payer } of externalPaymentEvents(wallets)) {
+  for (const { day, payer } of externalPaymentEvents(wallets, events)) {
     if (!payer || day < start) continue;
     counts.set(payer, (counts.get(payer) || 0) + 1);
     payments++;
@@ -1217,10 +1210,10 @@ export function ledgerBuyerConcentration(wallets) {
  * long-standing buyer as new the moment the window moved. Counts and
  * percentages only - a roster of who pays us is a customer list.
  */
-export function ledgerBuyerRetention(wallets) {
+export function ledgerBuyerRetention(wallets, { events } = {}) {
   const days = new Map();  // payer -> Set(day)
   const calls = new Map(); // payer -> payment count
-  for (const { day, payer } of externalPaymentEvents(wallets)) {
+  for (const { day, payer } of externalPaymentEvents(wallets, events)) {
     if (!payer) continue;
     if (!days.has(payer)) days.set(payer, new Set());
     days.get(payer).add(day);

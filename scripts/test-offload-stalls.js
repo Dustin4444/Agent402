@@ -60,8 +60,7 @@ const digest = (r) => createHash("sha256").update(JSON.stringify([r.total, r.mat
   const fn = srv.slice(srv.indexOf("async function buildRevenueDaily()"), srv.indexOf("// Daily revenue series for the /revenue chart"));
   ok((fn.match(/await turn\(\)/g) || []).length >= 5, "the /revenue series yields the event loop between each figure");
   ok(/memoSurfaceAsync\("revenue:daily"/.test(srv), "the /revenue series is served stale while it rebuilds");
-  const led = readFileSync(new URL("../src/revenue-ledger.js", import.meta.url), "utf8");
-  ok(/paymentEventsMemo\.key === key && now - paymentEventsMemo\.at < PAYMENT_EVENTS_TTL_MS/.test(led), "the buyer figures share one read of the payment history");
+  ok(/const events = externalPaymentEventsFor\(w\)/.test(fn) && (fn.match(/\{ events \}/g) || []).length === 5, "the five buyer figures share one read of the payment history");
   ok(/navChainsMemo\.snapshot === snapshot && navChainsMemo\.board === \(board\?\.leaderboard \|\| null\)/.test(srv), "the chain strip is memoized on the index snapshot and the leaderboard rows");
 }
 

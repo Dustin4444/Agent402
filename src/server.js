@@ -427,7 +427,7 @@ import { algorandPage, algorandSellers } from "./algorand-page.js";
 import { CHAIN_PAGES, marketSellers, marketOperatorCount, marketPage, marketPanelHtml } from "./market-page.js";
 import { sellPage } from "./sell.js";
 import { recordSellerVerification, sellerVerificationStatus } from "./seller-verification.js";
-import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledgerBuyersWeekly, ledgerBuyersMonthly, ledgerBuyerConcentration, ledgerBuyerRetention, ledgerSyncState } from "./revenue-ledger.js";
+import { externalPaymentEventsFor, startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledgerBuyersWeekly, ledgerBuyersMonthly, ledgerBuyerConcentration, ledgerBuyerRetention, ledgerSyncState } from "./revenue-ledger.js";
 import { x402EconomySnapshot, economySnapshotCached, warmEconomySnapshot } from "./x402-economy.js";
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate, sharedPayToClaims } from "./settlement-proof.js";
 import { buildEvidenceBinding, baseLiveGate } from "./evidence-binding.js";
@@ -3207,16 +3207,17 @@ app.get("/api/revenue", async (_req, res) => {
 // The /revenue series, built across event-loop turns: each figure is one
 // synchronous SQLite pass, and together they held the loop 0.6-1.2 s in one
 // turn (production stall profiler, 2026-09-25). The buyer figures share one
-// read of the payment history (externalPaymentEvents' short memo).
+// read of the payment history, passed to each as `events`.
 async function buildRevenueDaily() {
   const turn = () => new Promise((r) => setImmediate(r));
   const w = revenueWallets();
   const daily = ledgerDaily(w, mppTxHashes(), { withScope: true }); await turn();
-  const buyers = ledgerBuyersDaily(w); await turn();
-  const buyersWeekly = ledgerBuyersWeekly(w); await turn();
-  const buyersMonthly = ledgerBuyersMonthly(w); await turn();
-  const concentration = ledgerBuyerConcentration(w); await turn();
-  const retention = ledgerBuyerRetention(w);
+  const events = externalPaymentEventsFor(w); await turn();
+  const buyers = ledgerBuyersDaily(w, { events }); await turn();
+  const buyersWeekly = ledgerBuyersWeekly(w, { events }); await turn();
+  const buyersMonthly = ledgerBuyersMonthly(w, { events }); await turn();
+  const concentration = ledgerBuyerConcentration(w, { events }); await turn();
+  const retention = ledgerBuyerRetention(w, { events });
   return {
     asOf: new Date().toISOString(),
     days: daily.days,

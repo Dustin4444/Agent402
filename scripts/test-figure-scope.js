@@ -370,7 +370,8 @@ const tmp = (p) => { const d = mkdtempSync(join(tmpdir(), "a402-scope-")); dirs.
 // ---------------------------------------------------------------------------
 {
   const srv = await readFile(new URL("../src/server.js", import.meta.url), "utf8");
-  const h = srv.slice(srv.indexOf('app.get("/api/revenue/daily"'), srv.indexOf('app.get("/api/revenue/daily"') + 1200);
+  // The series is built by buildRevenueDaily (split across turns) and served by the route.
+  const h = srv.slice(srv.indexOf("async function buildRevenueDaily()"), srv.indexOf("async function buildRevenueDaily()") + 1600) + srv.slice(srv.indexOf('app.get("/api/revenue/daily"'), srv.indexOf('app.get("/api/revenue/daily"') + 1200);
   ok(/withScope: true/.test(h) && /daysScope: daily\.scope/.test(h),
     "/api/revenue/daily publishes the scope object rather than the bare array");
 
