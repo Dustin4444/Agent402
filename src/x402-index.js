@@ -4913,10 +4913,14 @@ function persistedEntries() {
   return out;
 }
 
-/** Async persist for the crawler's own cycle: the stringify is still one
- *  synchronous pass, but the write no longer blocks, and overlapping cycles
- *  never write twice. */
+/** Async persist for the crawler's own cycle. Each origin is stringified ONCE,
+ *  in batches with an event-loop turn between them, and both files are built
+ *  from those lines: the whole-cache stringify, a second stringify per origin
+ *  to size the log line and a third for the NDJSON lines used to run as one
+ *  synchronous block (~220 ms for 52 MB locally, seconds on the production
+ *  container). Overlapping cycles never write twice. */
 let persistInFlight = false;
+const PERSIST_BATCH = 50;
 export async function persistIndexCacheAsync(file = INDEX_CACHE_FILE) {
   if (persistInFlight) return false;
   persistInFlight = true;
@@ -4924,28 +4928,34 @@ export async function persistIndexCacheAsync(file = INDEX_CACHE_FILE) {
     if (cache.size === 0) return false;
     const entries = persistedEntries();
     if (!entries.length) return false;
+    const savedAt = Date.now();
     const t0 = performance.now();
-    const json = JSON.stringify({ savedAt: Date.now(), entries });
+    const lines = new Array(entries.length);
+    for (let i = 0; i < entries.length; i++) {
+      lines[i] = JSON.stringify(entries[i]);
+      if ((i + 1) % PERSIST_BATCH === 0) await new Promise((r) => setImmediate(r));
+    }
     const ms = Math.round(performance.now() - t0);
+    const bytes = lines.reduce((n, l) => n + l.length + 1, 0);
     // Always say how big it is, and which origins carry it: the file was 91 MB
     // before the slim projection and 48 MB after, and what remains is tool
     // arrays. Naming the five largest origins each cycle is how the next cut
     // gets sized from data instead of a guess.
-    const top = entries.map(([o, v]) => [o, JSON.stringify(v).length]).sort((a, b) => b[1] - a[1]).slice(0, 5);
-    console.log(`[x402-index] persisted ${(json.length / 1_048_576).toFixed(1)} MB for ${entries.length} origins in ${ms}ms; largest: ` +
+    const top = entries.map(([o], i) => [o, lines[i].length]).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    console.log(`[x402-index] persisted ${(bytes / 1_048_576).toFixed(1)} MB for ${entries.length} origins in ${ms}ms; largest: ` +
       top.map(([o, n]) => `${o} ${(n / 1024).toFixed(0)}KB/${(cache.get(o)?.tools || []).length} tools`).join(", "));
     const { writeFile, rename } = await import("node:fs/promises");
     // NDJSON for the incremental loader: header line, then one [origin, entry]
     // per line. Written to a temp path and renamed so a crash mid-write can
     // never leave a half file for the next boot to read.
     const ndFile = file === INDEX_CACHE_FILE ? INDEX_CACHE_NDJSON_FILE : file.replace(/\.json$/, "") + ".ndjson";
-    const lines = [JSON.stringify({ savedAt: Date.now(), format: "ndjson-v1", origins: entries.length })];
-    for (const e of entries) lines.push(JSON.stringify(e));
-    await writeFile(`${ndFile}.tmp`, lines.join("\n") + "\n");
+    const header = JSON.stringify({ savedAt, format: "ndjson-v1", origins: entries.length });
+    await writeFile(`${ndFile}.tmp`, header + "\n" + lines.join("\n") + "\n");
     await rename(`${ndFile}.tmp`, ndFile);
     // The legacy single-JSON file stays current too, for the sync loader and
-    // for anything that copies it (backups exclude cache files anyway).
-    await writeFile(file, json);
+    // for anything that copies it (backups exclude cache files anyway). Built
+    // from the same lines: byte-identical to JSON.stringify({ savedAt, entries }).
+    await writeFile(file, `{"savedAt":${savedAt},"entries":[${lines.join(",")}]}`);
     return true;
   } catch { return false; }
   finally { persistInFlight = false; }

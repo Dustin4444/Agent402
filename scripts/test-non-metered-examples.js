@@ -308,6 +308,29 @@ function isClientTimeoutFlake(status, body, threw) {
   return status === 0 && /timeout|aborted|AbortError|ETIMEDOUT|UND_ERR_CONNECT|ECONNRESET|fetch failed/i.test(errText(body, threw));
 }
 
+// An upstream that stops answering THIS RUNNER (2026-09-25: RugCheck timed out
+// on every GitHub-hosted run for hours while answering production and a local
+// machine in under a second). A tool's own "<Label> upstream timed out" 504
+// counts as that only when the harness, from the same runner, cannot reach the
+// upstream directly either; if the direct probe answers, the tool failing is
+// ours and it fails. One probe per label per run.
+const RUNNER_PROBES = {
+  RugCheck: "https://api.rugcheck.xyz/v1/tokens/So11111111111111111111111111111111111111112/report/summary",
+};
+export function runnerProbeLabel(status, body) {
+  if (status !== 504) return null;
+  const m = /^(\w+) upstream timed out/.exec(String(body?.error || ""));
+  return m && RUNNER_PROBES[m[1]] ? m[1] : null;
+}
+const runnerProbeMemo = new Map();
+function upstreamAnswersRunner(label) {
+  if (!runnerProbeMemo.has(label)) {
+    runnerProbeMemo.set(label, fetch(RUNNER_PROBES[label], { signal: AbortSignal.timeout(10_000) })
+      .then((res) => res.status < 500).catch(() => false));
+  }
+  return runnerProbeMemo.get(label);
+}
+
 // A 5xx RELAYED FROM A THIRD PARTY, as opposed to one of ours. Deliberately
 // does not try to read intent from the message: a rate limit has its own lane
 // above, and everything else in this class is "their host did not answer".
@@ -524,6 +547,10 @@ function runControls() {
     "control: client AbortSignal timeout is a soft-skip");
   ok(isClientTimeoutFlake(504, { error: "timeout" }, null) === false,
     "control: server HTTP 504 timeout is NOT a client-timeout soft-skip");
+  ok(runnerProbeLabel(504, { error: "RugCheck upstream timed out" }) === "RugCheck",
+    "control: a tool's RugCheck timeout is a runner-probe candidate");
+  ok(runnerProbeLabel(504, { error: "data.gov upstream timed out" }) === null && runnerProbeLabel(502, { error: "RugCheck upstream timed out" }) === null,
+    "control: only a listed upstream's 504 is a candidate (an unlisted host, or a 502, still fails)");
   ok(isStrictFailure(503, { error: "capacity" }, null) === true,
     "control: HTTP 503 is a hard fail");
   ok(isStrictFailure(504, { error: "timeout" }, null) === true,
@@ -623,6 +650,7 @@ async function main() {
   let skippedPriceFeed = 0;
   let skippedCertTransparency = 0;
   let skippedClientTimeout = 0;
+  let skippedRunnerUnreachable = 0;
   const liveFails = [];
   // Documented-output-keys check on every strict pass. This used to live only
   // in test-all.js; now that the lenient sweep hands these routes over, the
@@ -714,6 +742,13 @@ async function main() {
       return;
     }
 
+    const probeLabel = runnerProbeLabel(r.status, r.body);
+    if (probeLabel && !(await upstreamAnswersRunner(probeLabel))) {
+      skippedRunnerUnreachable++;
+      console.log(`\nskip - ${t.slug}: ${probeLabel} does not answer this runner directly either (upstream refusing or unreachable from here; not our defect)`);
+      return;
+    }
+
     const err = r.threw || (r.body && r.body.error) || `HTTP ${r.status}`;
     const msg = `${t.method.toUpperCase()} ${t.path} (${t.slug}) → ${r.status || "threw"} ${String(typeof err === "object" ? JSON.stringify(err) : err).slice(0, 160)}`;
     liveFails.push(msg);
@@ -738,8 +773,11 @@ async function main() {
   if (skippedClientTimeout) {
     console.log(`skip - ${skippedClientTimeout} tool(s) soft-skipped after client timeout (retry exhausted)`);
   }
+  if (skippedRunnerUnreachable) {
+    console.log(`skip - ${skippedRunnerUnreachable} tool(s) soft-skipped: their upstream does not answer this runner directly (checked once per upstream)`);
+  }
 
-  const softSkipped = skippedBrowser + skippedRateLimit + skippedMediaSource + skippedPriceFeed + skippedClientTimeout + skippedCertTransparency;
+  const softSkipped = skippedBrowser + skippedRateLimit + skippedMediaSource + skippedPriceFeed + skippedClientTimeout + skippedCertTransparency + skippedRunnerUnreachable;
   const asserted = work.length - softSkipped;
   ok(liveFails.length === 0,
     liveFails.length

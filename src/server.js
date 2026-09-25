@@ -19,7 +19,8 @@ setGlobalDispatcher(new UndiciAgent({ connect: { family: 4 } }));
 // is a TIMER firing, so a blocked loop is indistinguishable from an unreachable
 // upstream - which is what seven CDP verify failures looked like on 2026-08-30
 // while CDP answered from outside in 15-37 ms. See src/loop-lag.js.
-import { loopLagStatus } from "./loop-lag.js";
+import { loopLagStatus, setStallContext, resetLoopLag } from "./loop-lag.js";
+import { installRequestTimingFetch, requestTimingMiddleware, routeTimings, oldestInFlight, inFlightCount } from "./request-timing.js";
 import express from "express";
 import compression from "compression";
 import { readFileSync } from "node:fs";
@@ -1915,6 +1916,8 @@ for (const [route, def] of Object.entries(CATALOG)) {
 installEgressMeter();
 // Composite runs inherit the drain signal on every outbound fetch (src/drain-abort.js).
 installDrainAwareFetch();
+// Outbound wait is charged to the request that made it (src/request-timing.js).
+installRequestTimingFetch();
 
 const app = express();
 // Drop the Express fingerprint header (security audit A402-13): no reason to
@@ -1925,6 +1928,17 @@ app.disable("x-powered-by");
 // attacker-supplied XFF value. This is what the per-IP rate limiters key on,
 // so spoofing it must not mint a fresh bucket. Tune for other topologies.
 app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS) || 1);
+// Per-route server time (compute vs upstream wait) and the in-flight list a
+// [loop-lag] line names. Route keys are catalog routes or the first two path
+// segments - never a query string or a value.
+app.use(requestTimingMiddleware((req) => {
+  const path = String(req.path || "/");
+  const key = `${req.method === "HEAD" ? "GET" : req.method} ${path}`;
+  if (Object.prototype.hasOwnProperty.call(CATALOG, key)) return key;
+  const segs = path.split("/").filter(Boolean).slice(0, 2);
+  return `${req.method} /${segs.join("/")}`;
+}));
+setStallContext(() => oldestInFlight(3));
 // Canonical host: www.<host> answers a 301 to the apex (path + query kept),
 // so a www record on the domain never becomes a second indexed copy of the
 // site. The audit found www.agent402.tools unresolvable (2026-08-28); the
@@ -4383,6 +4397,15 @@ app.get("/__operator/traffic.json", (req, res) => {
     ...TRAFFIC.report({ days: Math.min(14, parseInt(req.query.days, 10) || 2), top: Math.min(100, parseInt(req.query.top, 10) || 15) }),
     unpaidQuoteBudget: UNPAID_BUDGET ? UNPAID_BUDGET.stats() : { budget: 0 },
   });
+});
+// Counts-only latency and event-loop read: per-route p50/p95/p99 split into
+// our compute and upstream wait, the last minute's event-loop percentiles,
+// stall totals and in-flight count.
+app.get("/__operator/perf.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  // ?reset=1 clears the stall high-water mark first (the load test reads a fresh one per scenario).
+  if (req.query.reset === "1") resetLoopLag();
+  res.set("Cache-Control", "no-store").json({ loop: loopLagStatus(), inFlight: inFlightCount(), routes: routeTimings({ top: Math.min(200, parseInt(req.query.top, 10) || 40), minSamples: Math.max(1, parseInt(req.query.min, 10) || 5) }) });
 });
 app.get("/__operator/egress.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });

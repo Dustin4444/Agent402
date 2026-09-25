@@ -9,6 +9,9 @@ carries its own version on npm.
 Since v2.4.0 (2026-09-18).
 
 ### 2026-09-25
+- The index cache is written without blocking the server: each seller is
+  serialized once, in batches, where the whole cache used to be serialized
+  three times in one pass.
 - `/api/route` and `/api/find` answer faster: common words ("to", "for",
   "the") no longer pull most of the index into every search, one request
   scores its query once, and the index rebuild after each crawl runs in the
