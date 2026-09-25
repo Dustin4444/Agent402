@@ -30,6 +30,10 @@ Since v2.4.0 (2026-09-18).
   the RFC 8785 canonical form and its SHA-256.
 - `unit-convert` converts imperial Russian measures: versts, sazhens,
   arshins, vershoks, poods, funts and zolotniks.
+- New `cve-lookup` ($0.005): a CVE by id, or a keyword search, with the NVD
+  description, CVSS, CWE, affected products and references, joined with the
+  EPSS exploitation probability and the CISA KEV entry. This product uses the
+  NVD API but is not endorsed or certified by the NVD.
 - Seller index: request and response contracts are read through local OpenAPI
   references (`#/components/...`), so a FastAPI seller's required fields and
   guaranteed response paths show as declared instead of partial.

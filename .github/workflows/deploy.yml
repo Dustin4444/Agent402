@@ -2857,6 +2857,7 @@ jobs:
           t node scripts/test-solana-intel-kit.js
           # defi kit (offline)
           t node scripts/test-defi-kit.js
+          t node scripts/test-cve-kit.js
           # crypto-signals kit (offline)
           t node scripts/test-crypto-signals-kit.js
           # x402-market-pulse category classifier (path-aware, closed taxonomy)

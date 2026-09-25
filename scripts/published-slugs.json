@@ -107,6 +107,7 @@
     "csv-lint",
     "csv-to-json",
     "csv-to-md",
+    "cve-lookup",
     "date-diff",
     "date-format",
     "day-of-year",
