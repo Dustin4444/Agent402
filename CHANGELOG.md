@@ -9,6 +9,10 @@ carries its own version on npm.
 Since v2.4.0 (2026-09-18).
 
 ### 2026-09-25
+- `/api/route` and `/api/find` answer faster: common words ("to", "for",
+  "the") no longer pull most of the index into every search, one request
+  scores its query once, and the index rebuild after each crawl runs in the
+  background in short slices instead of blocking the server.
 - Seller index: request and response contracts are read through local OpenAPI
   references (`#/components/...`), so a FastAPI seller's required fields and
   guaranteed response paths show as declared instead of partial.
