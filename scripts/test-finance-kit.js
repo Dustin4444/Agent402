@@ -13,7 +13,7 @@
 // into one: extremes across venues, volume SUMMED and labelled partial, and
 // open/close taken from the venue that actually traded the most. Getting that
 // wrong produces a confident-looking quote built on one thin venue.
-import { FINANCE_TOOLS } from "../src/tools/finance-kit.js";
+import { FINANCE_TOOLS, stockAnalysis } from "../src/tools/finance-kit.js";
 import { consolidate, databentoEnabled } from "../src/tools/databento.js";
 
 const h = (slug) => FINANCE_TOOLS.find((t) => t.slug === slug).handler;
@@ -45,9 +45,25 @@ for (const [slug, args, label] of [
   ["stock-history", { symbol: "AAPL", days: 9999 }, "stock-history rejects an over-wide window"],
   ["stock-history", { symbol: "AAPL", days: 251 }, "stock-history rejects one session past the advertised maximum"],
   ["stock-history", { symbol: "AAPL", days: 1.5 }, "stock-history rejects a fractional days"],
+  ["stock-history", { symbol: "AAPL", indicators: ["rsi", "vwap"] }, "stock-history rejects vwap (four-venue volume) and unknown indicators"],
+  ["stock-history", { symbol: "AAPL", indicators: true, points: 0 }, "stock-history rejects points 0"],
 ]) {
   try { await h(slug)(args); ok(false, label); }
   catch (e) { ok(e.statusCode === 400, label + ` (got ${e.statusCode})`); }
+}
+
+// --- stockAnalysis(): indicators over daily bars (pure, offline) ---
+{
+  const bars = Array.from({ length: 60 }, (_, k) => {
+    const c = 100 + k * 0.5 + (k % 3);
+    return { day: new Date(Date.UTC(2026, 5, 1 + k)).toISOString().slice(0, 10), open: c - 0.3, high: c + 1, low: c - 1, close: c, venueVolume: 1000 + k };
+  });
+  const a = stockAnalysis(bars, new Set(["rsi", "macd", "ema", "sma", "bollinger", "atr"]), 3);
+  ok(a.sessions === 60 && a.lastClose === bars.at(-1).close, `analysis reads the returned bars (${a.sessions} sessions, lastClose ${a.lastClose})`);
+  ok(typeof a.indicators.rsi.value === "number" && a.indicators.rsi.series.length === 3 && typeof a.indicators.macd.histogram === "number", "RSI and MACD computed with the requested series points");
+  ok(a.indicators.ema.ema200 === null && (a.notes || []).some((n) => /ema200/.test(n)), "EMA200 on 60 sessions is null and says why");
+  ok(a.summary.trend === "above" && /EMA50/.test(a.summary.text), `a rising series reads above EMA50 (${a.summary.text})`);
+  ok(!("vwap" in a.indicators) && /not investment advice/.test(a.disclaimer), "no VWAP, and the disclaimer rides with it");
 }
 
 // --- consolidate(): the four-venue fold (pure, offline) ---

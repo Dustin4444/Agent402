@@ -1134,6 +1134,7 @@ jobs:
           t node scripts/test-leaderboard-memory.js
           # Conversion tools (~970 endpoints, exact + round-trip)
           t node scripts/test-convert.js
+          t node scripts/test-json-canonical.js
 
   test-unit-a2:
     # Second half of test-unit-a (2026-08-25), split by the seconds each script

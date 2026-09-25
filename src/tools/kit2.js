@@ -1009,6 +1009,7 @@ export const UNIT_ALIASES = {
   s: "seconds", ms: "milliseconds", min: "minutes", h: "hours", d: "days", wk: "weeks", yr: "years",
   mps: "meters-per-second", kph: "kilometers-per-hour", mph: "miles-per-hour", kn: "knots",
   c: "celsius", f: "fahrenheit", k: "kelvin", r: "rankine",
+  verst: "versts", sazhen: "sazhens", arshin: "arshins", vershok: "vershoks", pood: "poods", funt: "funts", zolotnik: "zolotniks",
 };
 // Every unit id the table knows, so a guessed spelling can only ever resolve to
 // a unit that exists - never to something the buyer did not mean.
@@ -1103,7 +1104,7 @@ const math = [
   },
   {
     route: "POST /api/unit-convert", name: "Unit convert", slug: "unit-convert", category: "math", price: "$0.001",
-    description: "Convert a value between units of length, mass, temperature, volume, area, speed, time, data, pressure, energy, power, angle, frequency - every unit the retired convert-* endpoints handled (e.g. miles, kilometers, kilograms, pounds, stones, us-gallons, liters, fahrenheit, psi, bar, kilopascals, kilowatt-hours, joules, btu, horsepower).",
+    description: "Convert a value between units of length, mass, temperature, volume, area, speed, time, data, pressure, energy, power, angle, frequency - every unit the retired convert-* endpoints handled (e.g. miles, kilometers, kilograms, pounds, stones, us-gallons, liters, fahrenheit, psi, bar, kilopascals, kilowatt-hours, joules, btu, horsepower, and imperial Russian versts, sazhens, arshins, poods and funts).",
     // The category tags are joined by the most-queried unit words so lexical
     // search surfaces ("convert miles to kilometers" via /api/find and the MCP
     // search_tools) rank this tool where the retired pairwise convert-* slugs

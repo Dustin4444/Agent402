@@ -23,6 +23,13 @@ Since v2.4.0 (2026-09-18).
 - `jwt-decode` and `unit-convert` descriptions name what they already handle
   (JWT claims and expiration; stones, kilopascals, bar, joules, btu,
   horsepower), so searches in those words find them.
+- `stock-history` takes `indicators` (true or a list of rsi, macd, ema, sma,
+  bollinger, atr) and `points`, and returns technical analysis computed from
+  the same daily bars at the same price, with a plain summary.
+- `json-format` takes `sortKeys` and `canonical`; `canonical: true` returns
+  the RFC 8785 canonical form and its SHA-256.
+- `unit-convert` converts imperial Russian measures: versts, sazhens,
+  arshins, vershoks, poods, funts and zolotniks.
 - Seller index: request and response contracts are read through local OpenAPI
   references (`#/components/...`), so a FastAPI seller's required fields and
   guaranteed response paths show as declared instead of partial.
