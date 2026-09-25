@@ -20,7 +20,7 @@
 // loopback replay, the Stripe webhook, every priced catalog route and the /v1
 // gateway, paid or unpaid - the unpaid 402 is the first step of a purchase.
 
-import { recentLagMs, lastTickLateMs } from "./loop-lag.js";
+import { recentLagMs, lateTicksRecent } from "./loop-lag.js";
 
 const BUDGET_WINDOW_MS = 1000;
 
@@ -41,19 +41,21 @@ const INFLIGHT_SHED = Number(process.env.SHED_INFLIGHT) || 400;
 const counters = { shed: 0, shedLag: 0, shedInflight: 0, discoveryBudget: 0, since: Date.now() };
 
 /** Why free traffic should be refused right now, or null. */
-// Lag sheds only while the loop is lagging NOW: the smoothed lag is high AND
-// the most recent tick also ran late. One freeze that has already ended (the
-// boot stall after every deploy, a GC pause) leaves the next tick on time, so
-// nothing is shed for it.
+// Lag sheds only while the loop is SATURATED: the smoothed lag is high AND at
+// least 3 of the last 4 ticks ran late. A single freeze (a GC pause, one slow
+// build, the boot stall after a deploy) is one late tick, and the requests
+// that queued behind it are served, not refused - on 2026-09-25 a one-off
+// stall refused a /revenue refresh because the old test read only the most
+// recent tick, which is the stall itself for every request queued behind it.
 // Boot runs several blocking steps back to back (x402 init, warm starts), so
-// consecutive ticks run late for the first seconds of every process; lag does
-// not shed during that warm-up, when every request is slow for everyone. The
-// in-flight ceiling still applies from the start.
+// lag does not shed during a warm-up either. The in-flight ceiling still
+// applies from the start.
 const STARTED_AT = Date.now();
 const LAG_WARMUP_MS = Number(process.env.SHED_LAG_WARMUP_MS ?? 60_000);
-export function shouldShedFree({ inFlight = 0, lagMs = recentLagMs(), lastLateMs = lastTickLateMs(), now = Date.now() } = {}) {
+const LATE_TICKS_TO_SHED = 3;
+export function shouldShedFree({ inFlight = 0, lagMs = recentLagMs(), lateTicks = lateTicksRecent(LAG_SHED_MS / 2), now = Date.now() } = {}) {
   if (String(process.env.LOAD_SHED || "").toLowerCase() === "off") return null;
-  if (now - STARTED_AT >= LAG_WARMUP_MS && lagMs >= LAG_SHED_MS && lastLateMs >= LAG_SHED_MS / 2) return "lag";
+  if (now - STARTED_AT >= LAG_WARMUP_MS && lagMs >= LAG_SHED_MS && lateTicks >= LATE_TICKS_TO_SHED) return "lag";
   if (inFlight >= INFLIGHT_SHED) return "inflight";
   return null;
 }

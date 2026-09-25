@@ -16,10 +16,12 @@ Since v2.4.0 (2026-09-18).
   requests are in flight, free and discovery requests get 503 + Retry-After
   before they are parsed, and uncached searches share a per-second CPU
   budget across all callers. Calls to priced routes and the gateway, paid
-  or not, are never shed.
+  or not, are never shed. Lag sheds only while the loop stays saturated;
+  requests queued behind a single slow moment are served.
 - Revenue, sales, status, proof and marketplace pages are built at most once
   a minute on the server instead of on every request, and the revenue series
-  reads one chain at a time; these were the main event-loop stalls.
+  reads one chain at a time; these were the main event-loop stalls. Once
+  built, an expired page is served at once and rebuilt in the background.
 - The index cache is written without blocking the server: each seller is
   serialized once, in batches, where the whole cache used to be serialized
   three times in one pass.
