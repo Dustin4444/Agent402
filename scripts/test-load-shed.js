@@ -28,6 +28,7 @@ const lim = createLimiter("t", { perMin: 1, perHour: 10 });
 ok(!lim.check("2001:db8:1:2::a").limited && lim.check("2001:db8:1:2::b").limited, "rotating addresses inside one /64 shares one budget");
 for (const k of ["1.1.1.1", "2.2.2.2", "3.3.3.3", "4.4.4.4", "5.5.5.5"]) lim.check(k);
 ok(lim.size() <= 3, `the key table is capped (${lim.size()} keys at a cap of 3)`);
+ok(limiterKey("2001:db8:1:2:aaaa::1|hash") === "2001:db8:1:2:aaaa::1|hash", "a composite key (ip|tool) is used as given, never folded into a different bucket");
 
 // --- booted: every free request sheds when the in-flight ceiling is 1; the
 // protected ones do not, and the discovery CPU budget refuses before computing.
@@ -52,6 +53,13 @@ try {
   ok(gw.status !== 503, `a payment-bearing /v1 gateway call (SDK path alias) is not shed (${gw.status})`);
   const forgedFree = await fetch(`${base}/api/find?q=hash`, from("203.0.113.5", { "payment-signature": "x".repeat(40) }));
   ok(forgedFree.status === 503, "a payment header on a FREE route buys nothing: still shed");
+  const chainAlias = await fetch(`${base}/api/chain/eth_blocknumber`, from("203.0.113.5"));
+  ok(chainAlias.status !== 503, `an /api/chain/<verb> alias of a priced tool is not shed (${chainAlias.status})`);
+  const mcp = await fetch(`${base}/mcp`, { method: "POST", ...from("203.0.113.5", { "content-type": "application/json", accept: "application/json, text/event-stream" }), body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });
+  ok(mcp.status !== 503, `/mcp (which carries paid tool calls in its body) is not shed (${mcp.status})`);
+  await fetch(`${base}/r/cs_live_supersecretsessionid`, from("203.0.113.5"));
+  const perfKeys = await (await fetch(`${base}/__operator/perf.json?min=1&top=200`, from("203.0.113.5", { authorization: "Bearer shed-test-operator-token-0123456789" }))).json();
+  ok(!JSON.stringify(perfKeys).includes("supersecretsessionid"), "a report link's id (its credential) never reaches a timing key");
   const unpaidPriced = await fetch(`${base}/api/hash`, { method: "POST", ...from("203.0.113.5", { "content-type": "application/json" }), body: JSON.stringify({ text: "a" }) });
   ok(unpaidPriced.status !== 503, `an UNPAID call to a priced route is not shed either: the 402 is the first step of a purchase (${unpaidPriced.status})`);
   const op = await fetch(`${base}/__operator/perf.json`, from("203.0.113.5", { authorization: "Bearer shed-test-operator-token-0123456789" }));

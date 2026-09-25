@@ -1955,12 +1955,18 @@ const carriesPaidCredential = (req) => {
   const path = String(req.path || "/");
   return looksLikePayment(req.headers) && (path.startsWith("/v1/") || Object.prototype.hasOwnProperty.call(CATALOG, `GET ${path}`) || Object.prototype.hasOwnProperty.call(CATALOG, `POST ${path}`));
 };
+// Bearer-style paths (a report or monitor id IS the credential for it) map to
+// a fixed key so the id never reaches a timing key, a stall line or the
+// operator read.
+const BEARER_PATH_KEYS = [[/^\/r\//, "/r/:session"], [/^\/api\/r\//, "/api/r/:session"], [/^\/m\//, "/m/:report"], [/^\/api\/m\//, "/api/m/:report"], [/^\/reports\/public\//, "/reports/public/:id"], [/^\/api\/reports\/public\//, "/api/reports/public/:id"]];
 app.use(requestTimingMiddleware((req) => {
   const path = String(req.path || "/");
-  const key = `${req.method === "HEAD" ? "GET" : req.method} ${path}`;
-  if (Object.prototype.hasOwnProperty.call(CATALOG, key)) return key;
+  const method = req.method === "HEAD" ? "GET" : req.method;
+  const key = `${method} ${path}`;
+  if (Object.prototype.hasOwnProperty.call(CATALOG, key)) return { key, reserved: true };
+  for (const [re, k] of BEARER_PATH_KEYS) if (re.test(path)) return `${method} ${k}`;
   const segs = path.split("/").filter(Boolean).slice(0, 2);
-  return `${req.method} /${segs.join("/")}`;
+  return `${method} /${segs.join("/")}`;
 }, carriesPaidCredential));
 setStallContext(() => oldestInFlight(3));
 // Paid calls first (src/load-shed.js). When the event loop is lagging or too
@@ -1986,7 +1992,10 @@ app.use((req, res, next) => {
   // trailing slashes, percent-encoding), so no spelling of a priced route is
   // shed; /v1beta is the Gemini wire's bare path.
   const cp = normalizeCatalogPath(path);
-  if (cp.startsWith("/v1/") || cp === "/v1" || cp.startsWith("/v1beta/") || Object.prototype.hasOwnProperty.call(CATALOG, `GET ${cp}`) || Object.prototype.hasOwnProperty.call(CATALOG, `POST ${cp}`)) return next();
+  // /api/chain/<verb> is rewritten onto priced tools after this gate, and
+  // /mcp carries paid tool calls in its body (its free tier is bounded per
+  // client by the MCP limiter), so both are protected too.
+  if (cp.startsWith("/v1/") || cp === "/v1" || cp.startsWith("/v1beta/") || cp.startsWith("/api/chain/") || cp === "/mcp" || cp.startsWith("/mcp/") || Object.prototype.hasOwnProperty.call(CATALOG, `GET ${cp}`) || Object.prototype.hasOwnProperty.call(CATALOG, `POST ${cp}`)) return next();
   noteShed(why);
   return shedResponse(res, 2);
 });

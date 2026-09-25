@@ -41,10 +41,13 @@ export function responseCounts(minutes = 60, now = Date.now()) {
 }
 let fetchInstalled = false;
 
-function ringFor(key) {
+// Catalog routes are RESERVED: they always get their own ring, so a caller
+// minting arbitrary paths can fill the free slots but never push a paid route
+// into "(other)".
+function ringFor(key, reserved = false) {
   let r = routes.get(key);
   if (!r) {
-    if (routes.size >= MAX_KEYS) key = "(other)";
+    if (!reserved && routes.size >= MAX_KEYS) key = "(other)";
     r = routes.get(key);
     if (!r) { r = { n: 0, total: new Float64Array(RING), upstream: new Float64Array(RING), i: 0 }; routes.set(key, r); }
   }
@@ -52,8 +55,8 @@ function ringFor(key) {
 }
 
 /** Record one finished request. Exported for the offline test. */
-export function recordTiming(key, totalMs, upstreamMs) {
-  const r = ringFor(key);
+export function recordTiming(key, totalMs, upstreamMs, reserved = false) {
+  const r = ringFor(key, reserved);
   r.total[r.i] = totalMs;
   r.upstream[r.i] = Math.min(upstreamMs, totalMs);
   r.i = (r.i + 1) % RING;
@@ -83,14 +86,17 @@ export function requestTimingMiddleware(keyOf, isPaid = () => false) {
     const store = { upstreamMs: 0 };
     const t0 = performance.now();
     const id = nextId++;
-    let key = "(unknown)";
-    try { key = keyOf(req) || "(unknown)"; } catch { /* keep default */ }
+    let key = "(unknown)", reserved = false;
+    try {
+      const k = keyOf(req);
+      if (k && typeof k === "object") { key = k.key || "(unknown)"; reserved = !!k.reserved; } else key = k || "(unknown)";
+    } catch { /* keep default */ }
     inflight.set(id, { key, at: Date.now() });
     let paid = false;
     try { paid = !!isPaid(req); } catch { /* keep false */ }
     const end = () => {
       if (!inflight.delete(id)) return;
-      recordTiming(key, performance.now() - t0, store.upstreamMs);
+      recordTiming(key, performance.now() - t0, store.upstreamMs, reserved);
       noteResponse(res.headersSent ? res.statusCode : 499, paid, Date.now(), !!res.locals?.shed);
     };
     res.on("finish", end);

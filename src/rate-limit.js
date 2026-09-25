@@ -1,3 +1,4 @@
+import { isIPv6 } from "node:net";
 // Shared per-IP sliding-window rate limiter used by both the hosted MCP free
 // tier (src/mcp-http.js) and the direct HTTP PoW redemption path
 // (src/server.js). One implementation, one quota: a client that exhausts the
@@ -44,7 +45,8 @@ export const perReplica = (n) => Math.max(1, Math.floor(Number(n) / REPLICAS));
 // to their /64; IPv4 and non-IP keys are used as given.
 export function limiterKey(key) {
   const k = String(key ?? "");
-  if (!k.includes(":") || k.startsWith("::ffff:")) return k;
+  // Only a bare IPv6 address folds; a composite key (ip|tool, ...) is used as given.
+  if (!isIPv6(k.split("%")[0]) || k.startsWith("::ffff:")) return k;
   const parts = k.split("%")[0].split(":");
   // Expand "::" enough to take the first four hextets.
   const gap = parts.indexOf("");
