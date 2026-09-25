@@ -37,7 +37,7 @@ import { parseRobots, robotsAllows } from "./tools/kit.js";
 import { partialFields, clampFields } from "./partial-answer.js";
 import { responseContractOf, packResponseContract, responseContractProjection } from "./response-contract.js";
 import { deliveryProjection } from "./response-observation.js";
-import { requestContractOf, requestContractFromInputSchema, packRequestContract, requestContractProjection } from "./request-contract.js";
+import { requestContractOf, requestContractFromInputSchema, packRequestContract, requestContractProjection, requestContractStrength } from "./request-contract.js";
 import { toolList } from "./pages.js";
 import { fetchAllBazaarItems, isBazaarDiscoveryUrl } from "./bazaar-pager.js";
 import { RAILS, railKey, truncateCaip2 } from "./rails.js";
@@ -1833,7 +1833,7 @@ function mergeManifestToolRows(a, b) {
   const named = (n, route) => n && n !== route && !String(n).startsWith("/");
   return {
     ...prefer,
-    ...(prefer.requestContract || !other.requestContract ? {} : { requestContract: other.requestContract }),
+    ...(requestContractStrength(other.requestContract) > requestContractStrength(prefer.requestContract) ? { requestContract: other.requestContract } : {}),
     name: named(prefer.name, prefer.route) ? prefer.name : (named(other.name, other.route) ? other.name : prefer.name),
     description: prefer.description || other.description || "",
     price: prefer.price || other.price || null,
@@ -2527,7 +2527,9 @@ export function mergeManifestIntoTools(manifestTools = [], existing = []) {
     if (!hit.algorandPayTo && m.algorandPayTo) hit.algorandPayTo = m.algorandPayTo;
     // Blank-fill: a contract read from the seller's OpenAPI outranks one read
     // from a manifest schema.
-    if (!hit.requestContract && m.requestContract) hit.requestContract = m.requestContract;
+    // A manifest's names also fill an OpenAPI "requires nothing": an operation
+    // documented with no parameters says less than a schema listing fields.
+    if (requestContractStrength(m.requestContract) > requestContractStrength(hit.requestContract)) hit.requestContract = m.requestContract;
   };
   for (const [path, entries] of groups) {
     const indices = indicesByPath.get(path) || [];

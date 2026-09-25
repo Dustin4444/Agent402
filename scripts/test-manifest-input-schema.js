@@ -41,6 +41,30 @@ ok(contract(merged.find((t) => t.route === "/buy")).required.body[0] === "fromOp
 const gap = mergeManifestIntoTools(camel, [{ route: "/buy", method: "POST", seller: O }]);
 ok(contract(gap.find((t) => t.route === "/buy"))?.source === "seller_manifest", "a route OpenAPI documents without a body schema takes the manifest's");
 
+// "requires nothing" is published, and only for a real JSON Schema
+const empty = normaliseManifestTools({ resources: [
+  { resource: `${O}/v1/portfolio`, method: "GET", price_usd: 0.01, description: "No inputs", input_schema: { type: "object", properties: { window: { type: "string" } } } },
+  { resource: `${O}/v1/bare`, method: "POST", price_usd: 0.01, description: "Bare object", input_schema: { type: "object" } },
+  { resource: `${O}/v1/prose`, method: "GET", price_usd: 0.01, description: "Prose map", input_schema: { payTo: "string, query param, the wallet to read" } },
+  { resource: `${O}/v1/typed-prose`, method: "GET", price_usd: 0.01, description: "Prose under properties", input_schema: { type: "object", properties: { payTo: "string" } } },
+] }, O);
+const byEmpty = Object.fromEntries(empty.map((t) => [t.route, t]));
+const pf = contract(byEmpty["/v1/portfolio"]);
+ok(pf && pf.state === "absent" && pf.source === "seller_manifest" && Object.keys(pf.required).length === 0, `a JSON Schema with no required list publishes absent (${JSON.stringify(pf)})`);
+ok(contract(byEmpty["/v1/bare"])?.state === "absent", "a bare {type:object} schema is absent too");
+ok(!contract(byEmpty["/v1/prose"]), "a map of field names to prose is not a JSON Schema and publishes nothing (unknown), never absent");
+ok(!contract(byEmpty["/v1/typed-prose"]), "prose values under properties are not JSON Schema either");
+
+// a list of names outranks "requires nothing", whichever side it came from
+const namedManifest = normaliseManifestTools({ resources: [{ resource: `${O}/pick`, method: "POST", price: "0.01 USDC", inputSchema: { type: "object", required: ["need"], properties: { need: { type: "string" } } } }] }, O);
+const overAbsent = mergeManifestIntoTools(namedManifest, [{ route: "/pick", method: "POST", seller: O, requestContract: ["absent", {}] }]);
+ok(JSON.stringify(contract(overAbsent.find((t) => t.route === "/pick"))?.required) === JSON.stringify({ body: ["need"] }), "a manifest's required names fill an OpenAPI operation documented with no parameters");
+const absentManifest = normaliseManifestTools({ resources: [{ resource: `${O}/keep`, method: "POST", price: "0.01 USDC", inputSchema: { type: "object" } }] }, O);
+const keepNamed = mergeManifestIntoTools(absentManifest, [{ route: "/keep", method: "POST", seller: O, requestContract: ["declared", { body: ["fromOpenapi"] }] }]);
+ok(contract(keepNamed.find((t) => t.route === "/keep")).required.body[0] === "fromOpenapi", "a manifest's absent never replaces OpenAPI's names");
+const absentFill = mergeManifestIntoTools(absentManifest, [{ route: "/keep", method: "POST", seller: O }]);
+ok(contract(absentFill.find((t) => t.route === "/keep"))?.state === "absent", "a manifest's absent fills a route with no contract at all");
+
 // the cache tuple stays compatible
 ok(unpackRequestContract({ requestContract: ["declared", { body: ["a"] }] }).source === "seller_openapi", "a two-element tuple (every older cache) still reads as OpenAPI");
 ok(unpackRequestContract({ requestContract: ["declared", { body: ["a"] }, "somewhere_else"] }) === null, "an unknown source is refused on the way out");

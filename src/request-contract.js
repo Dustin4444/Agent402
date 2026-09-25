@@ -141,9 +141,21 @@ export function requestContractOf(operation) {
  * top-level required names are query parameters and any other verb's are the
  * JSON body (nested required objects walked, as on the OpenAPI side).
  */
+function looksLikeJsonSchema(schema) {
+  if (Array.isArray(schema.required)) return true;
+  // A composed schema is still a schema; it reads as partial below.
+  if (Object.keys(schema).some((k) => UNSUPPORTED.has(k))) return true;
+  if (isRecord(schema.properties) && Object.values(schema.properties).every(isRecord)) return true;
+  return typesOf(schema).has("object") && schema.properties === undefined;
+}
+
 export function requestContractFromInputSchema(schema, method = "POST") {
   const unknown = { state: "unknown", source: "seller_manifest", required: {}, runtimeVerified: false };
   if (!isRecord(schema)) return unknown;
+  // Only a JSON Schema is evidence. A map of field names to prose (issue
+  // #1503's first manifest) has no `required` list and would otherwise read
+  // as "requires nothing", which is a claim the seller never made.
+  if (!looksLikeJsonSchema(schema)) return unknown;
   if (hasUnsupported(schema)) return { state: "partial", source: "seller_manifest", required: {}, runtimeVerified: false };
   const required = {};
   let partial = false;
@@ -167,11 +179,16 @@ export function requestContractFromInputSchema(schema, method = "POST") {
 
 const SOURCES = new Set(["seller_openapi", "seller_manifest"]);
 
-/** Compact tuple for the crawl cache. `absent` and `unknown` store nothing:
- *  the projection reconstructs "unknown" from the missing row, which is the
- *  honest default for a row we have no evidence about. */
+/** Compact tuple for the crawl cache. `unknown` stores nothing, so a row with
+ *  no tuple is one we have no evidence about. `absent` IS stored: a route the
+ *  seller declared as needing no input is a different answer from a route the
+ *  seller said nothing about, and a row without the field cannot tell them
+ *  apart. */
 export function packRequestContract(c) {
-  if (!c || c.state === "absent" || c.state === "unknown") return null;
+  if (!c || c.state === "unknown") return null;
+  if (c.state === "absent") {
+    return c.source && c.source !== "seller_openapi" ? ["absent", {}, c.source] : ["absent", {}];
+  }
   // A third element names a source other than OpenAPI; two elements stay the
   // OpenAPI form every cache written before it holds.
   return c.source && c.source !== "seller_openapi" ? [c.state, c.required, c.source] : [c.state, c.required];
@@ -191,7 +208,7 @@ export function unpackRequestContract(t) {
   const [state, required] = v;
   const source = v.length === 3 ? v[2] : "seller_openapi";
   if (!SOURCES.has(source)) return null;
-  if (state !== "declared" && state !== "partial") return null;
+  if (state !== "declared" && state !== "partial" && state !== "absent") return null;
   if (!isRecord(required)) return null;
   const clean = {};
   for (const loc of [...LOCATIONS, "body"]) {
@@ -204,7 +221,18 @@ export function unpackRequestContract(t) {
       .filter(Boolean).slice(0, MAX_PER_LOCATION);
     if (safe.length) clean[loc] = safe;
   }
+  // An absent contract carries no names; one that arrives with names is not
+  // what we wrote.
+  if (state === "absent" && Object.keys(clean).length) return null;
   return { state, source, required: clean, runtimeVerified: false };
+}
+
+/** How much a stored tuple tells a buyer: 0 nothing, 1 "requires nothing",
+ *  2 required names (or a declaration we could only partly read). A merge
+ *  that fills gaps must not let a "requires nothing" block a list of names. */
+export function requestContractStrength(t) {
+  if (!Array.isArray(t)) return 0;
+  return t[0] === "absent" ? 1 : (t[0] === "declared" || t[0] === "partial") ? 2 : 0;
 }
 
 /** Spread into a public tool row, or nothing. */
