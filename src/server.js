@@ -1963,6 +1963,27 @@ function memoSurface(key, ttlMs, build) {
   surfaceMemo.set(key, { at: now, value });
   return value;
 }
+// memoSurface for a builder that yields between steps: the first build is
+// awaited, later ones rebuild in the background while the last value serves.
+const surfaceBuilds = new Map();
+async function memoSurfaceAsync(key, ttlMs, buildAsync) {
+  const hit = surfaceMemo.get(key);
+  const now = Date.now();
+  if (hit && now - hit.at < ttlMs) return hit.value;
+  let pending = surfaceBuilds.get(key);
+  if (!pending) {
+    pending = (async () => {
+      try {
+        const value = await buildAsync();
+        surfaceMemo.set(key, { at: Date.now(), value });
+        return value;
+      } finally { surfaceBuilds.delete(key); }
+    })();
+    surfaceBuilds.set(key, pending);
+    if (hit) pending.catch((e) => console.warn(`[surface-memo] ${key} rebuild failed: ${String(e?.message || e).slice(0, 120)}`));
+  }
+  return hit ? hit.value : pending;
+}
 function dropSurface(prefix) { for (const k of surfaceMemo.keys()) if (k.startsWith(prefix)) surfaceMemo.delete(k); }
 // Per-route server time (compute vs upstream wait) and the in-flight list a
 // [loop-lag] line names. Route keys are catalog routes or the first two path
@@ -3183,38 +3204,50 @@ app.get("/api/revenue", async (_req, res) => {
     res.status(500).json({ error: "revenue snapshot failed", detail: String(e?.message || e).slice(0, 120) });
   }
 });
+// The /revenue series, built across event-loop turns: each figure is one
+// synchronous SQLite pass, and together they held the loop 0.6-1.2 s in one
+// turn (production stall profiler, 2026-09-25). The buyer figures share one
+// read of the payment history (externalPaymentEvents' short memo).
+async function buildRevenueDaily() {
+  const turn = () => new Promise((r) => setImmediate(r));
+  const w = revenueWallets();
+  const daily = ledgerDaily(w, mppTxHashes(), { withScope: true }); await turn();
+  const buyers = ledgerBuyersDaily(w); await turn();
+  const buyersWeekly = ledgerBuyersWeekly(w); await turn();
+  const buyersMonthly = ledgerBuyersMonthly(w); await turn();
+  const concentration = ledgerBuyerConcentration(w); await turn();
+  const retention = ledgerBuyerRetention(w);
+  return {
+    asOf: new Date().toISOString(),
+    days: daily.days,
+    daysScope: daily.scope,
+    // Distinct EXTERNAL buyers per day. Counts only, never addresses:
+    // a per-day roster of who pays us is a customer list.
+    buyers,
+    // The same buyers per ISO week (Monday, UTC). Served, not folded on the
+    // client: a week's distinct count is a union of its days, and only the
+    // ledger can take that union.
+    buyersWeekly,
+    // Monthly is its own server-side union for the same reason weekly is: a
+    // distinct count cannot be folded from finer buckets.
+    buyersMonthly,
+    // "200 buyers" means nothing if one wallet is most of the volume.
+    concentration,
+    // All-time: of everyone who ever paid us, how many came back (see
+    // ledgerBuyerRetention - counted in DAYS, not payments).
+    retention,
+  };
+}
 // Daily revenue series for the /revenue chart — external vs canary-sized
 // internal, per chain per day, straight from the settlement ledger.
-app.get("/api/revenue/daily", (_req, res) => {
+app.get("/api/revenue/daily", async (_req, res) => {
   try {
     // `withScope` because this is the one surface that PUBLISHES the series:
     // it drops undateable rows, internal transfers over maxCallUsd, and
     // everything before the chart epoch, and until 2026-09-22 said none of it -
     // so its own sum disagreed with /api/revenue's allTime by $92.89 with
     // nothing in either response to reconcile them.
-    const body = memoSurface("revenue:daily", 120_000, () => {
-    const daily = ledgerDaily(revenueWallets(), mppTxHashes(), { withScope: true });
-    return {
-      asOf: new Date().toISOString(),
-      days: daily.days,
-      daysScope: daily.scope,
-      // Distinct EXTERNAL buyers per day. Counts only, never addresses:
-      // a per-day roster of who pays us is a customer list.
-      buyers: ledgerBuyersDaily(revenueWallets()),
-      // The same buyers per ISO week (Monday, UTC). Served, not folded on the
-      // client: a week's distinct count is a union of its days, and only the
-      // ledger can take that union.
-      buyersWeekly: ledgerBuyersWeekly(revenueWallets()),
-      // Monthly is its own server-side union for the same reason weekly is: a
-      // distinct count cannot be folded from finer buckets.
-      buyersMonthly: ledgerBuyersMonthly(revenueWallets()),
-      // "200 buyers" means nothing if one wallet is most of the volume.
-      concentration: ledgerBuyerConcentration(revenueWallets()),
-      // All-time: of everyone who ever paid us, how many came back (see
-      // ledgerBuyerRetention - counted in DAYS, not payments).
-      retention: ledgerBuyerRetention(revenueWallets()),
-    };
-    });
+    const body = await memoSurfaceAsync("revenue:daily", 120_000, buildRevenueDaily);
     res.set("Cache-Control", "public, max-age=300").json(body);
   } catch (e) {
     res.status(500).json({ error: "daily series failed", detail: String(e?.message || e).slice(0, 120) });
@@ -5544,8 +5577,16 @@ function getIndexSnapshot() {
 // try/catches the provider, but each chain gets its own guard here too so one
 // chain's failure never blanks the row next to it (honesty rule: that row
 // reads "unavailable", never a fabricated zero).
+// The chain strip renders on every HTML page, and each chain's operator count
+// walks every seller (the production stall profiler caught it at ~1.1 s per
+// render, 2026-09-25). The inputs are replaced wholesale when they change, so
+// the strip is memoized on their identity (the leaderboard getter returns a
+// fresh wrapper per call; its `leaderboard` array is the shared object).
+let navChainsMemo = { snapshot: null, board: null, value: null };
 setNavIndexProvider(() => {
   const snapshot = getIndexSnapshot();
+  const board = getLeaderboardSnapshot();
+  if (navChainsMemo.value && navChainsMemo.snapshot === snapshot && navChainsMemo.board === (board?.leaderboard || null)) return navChainsMemo.value;
   const chain = (label, href, chainKey) => {
     try {
       // sellers = operator count (matches the roster). tools = catalog depth
@@ -5553,7 +5594,7 @@ setNavIndexProvider(() => {
       // are per-endpoint, so no operator-collapse here). Both are the numbers
       // an agent picks a chain on: how many sellers, how much to buy.
       const tools = marketSellers(chainKey, snapshot).reduce((s, x) => s + (x.toolCount || 0), 0);
-      return { label, href, sellers: marketOperatorCount(chainKey, snapshot, getLeaderboardSnapshot()), tools, healthy: true };
+      return { label, href, sellers: marketOperatorCount(chainKey, snapshot, board), tools, healthy: true };
     } catch {
       return { label, href, sellers: null, tools: null, healthy: false };
     }
@@ -5561,9 +5602,12 @@ setNavIndexProvider(() => {
   // Iterates CHAIN_PAGES so a third chain page joins the nav/footer strip
   // with zero server.js edits — add the entry in market-page.js and it
   // appears here automatically.
-  return {
+  const value = {
     chains: Object.keys(CHAIN_PAGES).map((key) => chain(key, `/${key}`, key)),
   };
+  // A chain that failed to count is retried on the next render, not pinned.
+  if (value.chains.every((c) => c.healthy)) navChainsMemo = { snapshot, board: board?.leaderboard || null, value };
+  return value;
 });
 // /index — legacy surface, merged into /marketplace (301 keeps SEO equity).
 app.get("/index", (_req, res) => res.redirect(301, "/marketplace"));

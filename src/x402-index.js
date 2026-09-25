@@ -6834,6 +6834,17 @@ export function sellerEntry(originOrHost) {
  * reachable — the same bar /api/index/register enforces on the way in, so the
  * catalog cannot advertise something registration would have refused.
  */
+// A directory search built each row's lowercase search text on every request
+// (112k rows: ~120 ms per search locally). Rows are rebuilt, never mutated, so
+// the text is kept per row object.
+// A symbol key: never serialized, and a WeakMap over 112k rows measured slower
+// than the rebuild it saves.
+const DIRECTORY_HAY = Symbol("directoryHay");
+function directoryHayOf(t) {
+  let h = t[DIRECTORY_HAY];
+  if (h === undefined) { h = `${t.name} ${t.description} ${t.route} ${t.sellerName} ${(t.tags || []).join(" ")}`.toLowerCase(); t[DIRECTORY_HAY] = h; }
+  return h;
+}
 export function allIndexedTools({ search = "", category = "", network = "", offset = 0, limit = 100, excludeOrigin = "", ourTools = [], source = "" } = {}) {
   // One index of the whole ecosystem WITH provenance on every row. Ours are
   // NOT floated to the top: 515 of them would fill the first six pages and bury
@@ -6857,7 +6868,7 @@ export function allIndexedTools({ search = "", category = "", network = "", offs
     if (cat && String(t.category || "").toLowerCase() !== cat) return false;
     if (net && !(t.networks || []).some((n) => String(n).toLowerCase().includes(net))) return false;
     if (!terms.length) return true;
-    const hay = `${t.name} ${t.description} ${t.route} ${t.sellerName} ${(t.tags || []).join(" ")}`.toLowerCase();
+    const hay = directoryHayOf(t);
     return terms.every((term) => hay.includes(term));
   });
 
@@ -7061,7 +7072,8 @@ function flattenedThirdPartyTools(excludeOrigin = "") {
   return finishFlat(out, self);
 }
 function finishFlat(out, self) {
-  out.sort((a, b) => (b.described - a.described) || collate(a.sellerName, b.sellerName) || collate(a.route, b.route));
+  // No sort: every consumer groups or counts (interleaveBySeller orders the
+  // rows itself), and a 100k-row sort was most of a rebuild's longest turn.
   flatCache = { at: Date.now(), rows: out, self };
   return out;
 }
@@ -7095,6 +7107,7 @@ export function indexedToolCategories(excludeOrigin = "") {
 }
 
 export function _resetFlatCacheForTest() { flatCache = { at: 0, rows: [], self: "" }; }
+export function _resetIndexRowsForTest() { indexRowsMemo = { key: null, at: 0, rows: null }; }
 // KNOWN ROUTER LIMITATION (found 2026-09-01): the resolver's
 // liveness probe sends an empty `{}` and treats only HTTP 402 as "live". A
 // seller that VALIDATES the request body BEFORE issuing its 402 (returning

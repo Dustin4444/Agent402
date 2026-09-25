@@ -934,7 +934,20 @@ function tempoExternalRows() {
  * whose tx is also in the transfers table is skipped, so no payment is
  * counted twice. Undateable on-chain rows are skipped rather than guessed.
  */
+// The daily, weekly and monthly buyer series, concentration and retention
+// each asked for this full history on the same /revenue build: five reads of
+// every external row back to back. One read serves them for a few seconds.
+let paymentEventsMemo = { key: null, at: 0, rows: null };
+const PAYMENT_EVENTS_TTL_MS = 10_000;
 function externalPaymentEvents(wallets) {
+  const key = JSON.stringify(walletPairs(wallets));
+  const now = Date.now();
+  if (paymentEventsMemo.rows && paymentEventsMemo.key === key && now - paymentEventsMemo.at < PAYMENT_EVENTS_TTL_MS) return paymentEventsMemo.rows;
+  const rows = readExternalPaymentEvents(wallets);
+  paymentEventsMemo = { key, at: now, rows };
+  return rows;
+}
+function readExternalPaymentEvents(wallets) {
   const out = [];
   const rows = db.prepare("SELECT chain, wallet, block, when_ts, external, payer FROM transfers WHERE chain = ? AND wallet = ?");
   for (const [chain, wallet] of walletPairs(wallets)) {
