@@ -20,6 +20,18 @@ ok(!/FROM transfers WHERE wallet = \?"/.test(ledger) && (ledger.match(/rows\.all
 const idx = readFileSync(new URL("../src/x402-index.js", import.meta.url), "utf8");
 ok(/settledHostsMemo\.get\(rows\)/.test(idx) && /settledHostsOf\(getLeaderboardSnapshot\(\)\)\.has\(host\)/.test(idx), "originHasSettled is a set lookup memoized on the leaderboard rows array");
 
+// --- the flattened tool directory is built once per cache state
+{
+  process.env.X402_INDEX_CRAWL = "off";
+  const x = await import("../src/x402-index.js");
+  const cache = x._cacheForTests();
+  for (let i = 0; i < 50; i++) cache.set(`https://dir${i}.example`, { manifest: { name: `d${i}` }, tools: [{ seller: `https://dir${i}.example`, route: "/a", slug: "a", name: "A tool", description: "a directory row", price: 0.01 }], fetchedAt: Date.now(), error: null, history: [1] });
+  const a = x.allIndexedTools({ limit: 5 }), b = x.allIndexedTools({ limit: 5, offset: 5 });
+  ok(a.total === b.total && a.total >= 50 && a.results[0] !== b.results[0], `paging reads one memoized directory (${a.total} rows)`);
+  const src = readFileSync(new URL("../src/x402-index.js", import.meta.url), "utf8");
+  ok(/const rows = interleavedIndexRows\(ourTools, excludeOrigin\);/.test(src), "allIndexedTools reads the memoized directory, never re-flattens per request");
+}
+
 // --- booted
 const port = await getFreePort();
 const dir = mkdtempSync(join(tmpdir(), "a402-memo-"));

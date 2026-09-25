@@ -220,6 +220,27 @@ const cache = _cacheForTests();
     ok(!computeAliasOrigins(cache).has(dup), "a deleted origin leaves the memoized alias set");
   }
 
+  // One seller with a very large catalog re-crawled: indexed in background
+  // slices INSIDE the entry (a 4,000-tool seller held production 1.3 s), and a
+  // query arriving mid-index still sees every one of its rows.
+  {
+    const bigEntry = (origin, n) => ({ manifest: { name: "huge", homepage: origin }, tools: Array.from({ length: n }, (_, k) => ({ seller: origin, method: "POST", route: `/r${k}`, slug: `zanzibar-${k}`, name: `Zanzibar ${k}`, description: `zanzibar tool number ${k} quux${k}`, category: "data", tags: [], price: 0.001, networks: ["eip155:8453"] })), fetchedAt: Date.now(), error: null, history: [1, 1, 1] });
+    const big = "https://huge-seller.example";
+    let worst = 0, last = performance.now();
+    const iv = setInterval(() => { const now = performance.now(); worst = Math.max(worst, now - last); last = now; }, 2);
+    cache.set(big, bigEntry(big, 80000));
+    for (let i = 0; i < 400 && (_routeIndexStatsForTest().pending || _routeIndexStatsForTest().partial); i++) await new Promise((r) => setTimeout(r, 5));
+    clearInterval(iv);
+    ok(!_routeIndexStatsForTest().partial && worst < 100, `an 80,000-tool seller indexes in the background without a long event-loop gap (worst ${worst.toFixed(0)} ms)`);
+    ok(routeQuery({ query: "quux79999", top: 5, include: "external", ...ctx }).results.some((x) => x.slug === "zanzibar-79999"), "...and all of its rows are served once indexed");
+    const big2 = "https://huge-seller-2.example";
+    cache.set(big2, bigEntry(big2, 40000));
+    await new Promise((r) => setImmediate(r)); await new Promise((r) => setImmediate(r)); // a slice or two, not the whole entry
+    const midway = routeQuery({ query: "quux39999", top: 5, include: "external", ...ctx }).results;
+    ok(midway.some((x) => x.seller === big2 && x.slug === "zanzibar-39999"), "a query mid-index sees the entry's LAST row (the query finishes a partly indexed seller)");
+    cache.delete(big); cache.delete(big2);
+  }
+
   // A full re-crawl (every entry replaced) rebuilds the index in the background:
   // no single event-loop turn blocks for the rebuild, answers stay right during
   // it, and the rebuilt index carries no stale rows.

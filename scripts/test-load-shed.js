@@ -60,6 +60,9 @@ try {
   await fetch(`${base}/r/cs_live_supersecretsessionid`, from("203.0.113.5"));
   const perfKeys = await (await fetch(`${base}/__operator/perf.json?min=1&top=200`, from("203.0.113.5", { authorization: "Bearer shed-test-operator-token-0123456789" }))).json();
   ok(!JSON.stringify(perfKeys).includes("supersecretsessionid"), "a report link's id (its credential) never reaches a timing key");
+  await fetch(`${base}/tools/some-tool-slug`, from("203.0.113.5"));
+  const keys2 = (await (await fetch(`${base}/__operator/perf.json?min=1&top=200`, from("203.0.113.5", { authorization: "Bearer shed-test-operator-token-0123456789" }))).json()).routes.map((r) => r.route);
+  ok(keys2.includes("GET /tools/*") && !keys2.some((k) => k.includes("some-tool-slug")), "a page outside /api and /v1 collapses to its first segment");
   const unpaidPriced = await fetch(`${base}/api/hash`, { method: "POST", ...from("203.0.113.5", { "content-type": "application/json" }), body: JSON.stringify({ text: "a" }) });
   ok(unpaidPriced.status !== 503, `an UNPAID call to a priced route is not shed either: the 402 is the first step of a purchase (${unpaidPriced.status})`);
   const op = await fetch(`${base}/__operator/perf.json`, from("203.0.113.5", { authorization: "Bearer shed-test-operator-token-0123456789" }));

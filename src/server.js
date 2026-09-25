@@ -1965,8 +1965,11 @@ app.use(requestTimingMiddleware((req) => {
   const key = `${method} ${path}`;
   if (Object.prototype.hasOwnProperty.call(CATALOG, key)) return { key, reserved: true };
   for (const [re, k] of BEARER_PATH_KEYS) if (re.test(path)) return `${method} ${k}`;
-  const segs = path.split("/").filter(Boolean).slice(0, 2);
-  return `${method} /${segs.join("/")}`;
+  // Outside /api and /v1, collapse to the first segment: /tools/<slug> alone is
+  // 600 pages and filled the key table within ten minutes on production.
+  const segs = path.split("/").filter(Boolean);
+  if (segs[0] === "api" || segs[0] === "v1") return `${method} /${segs.slice(0, 2).join("/")}`;
+  return `${method} /${segs[0] || ""}${segs.length > 1 ? "/*" : ""}`;
 }, carriesPaidCredential));
 setStallContext(() => oldestInFlight(3));
 // Paid calls first (src/load-shed.js). When the event loop is lagging or too
@@ -6349,7 +6352,7 @@ const ROUTE_JUDGE_SKIPPED_NOTE = {
   rate: "no judgment model ran for this answer: this caller's hourly allowance of judged answers is spent; rows are in lexical order",
   budget: "no judgment model ran for this answer: the free share of today's judgment budget is spent; rows are in lexical order",
 };
-// /api/route: a confident judged pick moves first; rows are never removed. 2 s limit.
+// /api/route: a confident judged pick moves first; rows are never removed. 800 ms limit.
 async function computeRouteJudged(q, k, include, net, ip = null) {
   // One scored ranking serves both the page and the 50-row shortlist below.
   const scoredMemo = {};
@@ -6385,7 +6388,10 @@ async function computeRouteJudged(q, k, include, net, ip = null) {
     const price = r.price != null && r.price !== "" ? ` (${typeof r.price === "number" ? `$${r.price}` : r.price})` : "";
     const clean = !looksLikeListingInjection(desc);
     return { name: `${r.seller === "self" ? "agent402" : hostOfSeller(r.seller)} ${r.slug || ""}${price}`.trim(), description: clean ? desc : "", tags: clean && Array.isArray(r.tags) ? r.tags : [] };
-  }, { timeoutMs: 2000, pool: "free", admit: routeJudgeAdmit(ip) });
+  // 800 ms bound (was 2 s): production measured the judgment wait at ~150 ms
+  // p95 and never past 800 ms (2026-09-25), so the bound only caps a slow
+  // judge instead of making a free search wait up to 2 s for it.
+  }, { timeoutMs: 800, pool: "free", admit: routeJudgeAdmit(ip) });
   // The judgment is a network call inside a free search: log when it is what
   // the caller waited for, so the slow-compute line can be read as CPU or wait.
   const judgeMs = Date.now() - judgeStarted;

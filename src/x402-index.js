@@ -6003,6 +6003,7 @@ const routeIdx = {
   builds: 0,
   queryStamp: 0, // per-query dedupe stamp written onto toolHome records
   shadow: null, // background rebuild in progress (see routeIndexStartShadow)
+  partial: null, // live entry being indexed across slices { origin, v, pos }
 };
 function routeIndexNoteSet(origin, prev, next) {
   if (prev === next) return;
@@ -6021,15 +6022,18 @@ function routeIndexScheduleDrain() {
   routeDrainScheduled = true;
   setImmediate(function drainSlice() {
     const until = performance.now() + ROUTE_INDEX_SLICE_MS;
-    for (const [origin, v] of routeIdx.pending) {
-      if (performance.now() >= until) break;
-      routeIdx.pending.delete(origin);
-      if (cache.get(origin) !== v || routeIdx.indexed.has(v)) continue;
-      routeIndexAddEntry(origin, v);
-      if (routeIdx.shadow) routeIdx.shadow.late.push([origin, v]);
-      routeIdx.termCache.clear();
+    while (performance.now() < until) {
+      if (!routeIdx.partial) {
+        const first = routeIdx.pending.entries().next().value;
+        if (!first) break;
+        const [origin, v] = first;
+        routeIdx.pending.delete(origin);
+        if (cache.get(origin) !== v || routeIdx.indexed.has(v)) continue;
+        routeIdx.partial = { origin, v, pos: 0 };
+      }
+      if (!routeIndexAdvancePartial(until)) break; // out of time inside one seller
     }
-    if (routeIdx.pending.size) setImmediate(drainSlice);
+    if (routeIdx.partial || routeIdx.pending.size) setImmediate(drainSlice);
     else routeDrainScheduled = false;
   });
 }
@@ -6042,14 +6046,34 @@ function routeIndexReset() {
   routeIdx.pending.clear();
   routeIdx.termCache.clear();
   routeIdx.shadow = null; // an in-flight background rebuild is abandoned
+  routeIdx.partial = null;
+}
+// Continue the live index's partly indexed entry until `until`. Returns true
+// when the entry is finished (or no longer live), false when time ran out.
+function routeIndexAdvancePartial(until = Infinity) {
+  const p = routeIdx.partial;
+  if (!p) return true;
+  if (cache.get(p.origin) !== p.v) { routeIdx.partial = null; return true; }
+  const next = routeIndexAddEntry(p.origin, p.v, routeIdx, p.pos, until);
+  if (next !== -1) { p.pos = next; return false; }
+  routeIdx.partial = null;
+  if (routeIdx.shadow) routeIdx.shadow.late.push([p.origin, p.v]);
+  routeIdx.termCache.clear();
+  return true;
 }
 function newRouteIndexShard() {
   return { postings: new Map(), toolHome: new WeakMap(), indexed: new WeakSet(), indexedTools: 0 };
 }
-function routeIndexAddEntry(origin, v, target = routeIdx) {
+// Index one entry's tools from `from`, stopping (and returning the position to
+// resume at) once `until` passes; returns -1 when the entry is complete. The
+// time check sits inside the entry because one seller can carry thousands of
+// tools: the production stall profiler caught a single 4,000-tool entry
+// holding the loop for 1.3 s (2026-09-25).
+function routeIndexAddEntry(origin, v, target = routeIdx, from = 0, until = Infinity) {
   const pool = decoratedRemoteTools(v);
   const { postings, toolHome } = target;
-  for (let pos = 0; pos < pool.length; pos++) {
+  for (let pos = from; pos < pool.length; pos++) {
+    if (pos > from && (pos & 63) === 0 && until !== Infinity && performance.now() >= until) return pos;
     const t = pool[pos];
     const st = toolStatics(t);
     toolHome.set(t, { origin, v, pos });
@@ -6066,6 +6090,7 @@ function routeIndexAddEntry(origin, v, target = routeIdx) {
   target.indexed.add(v);
   target.indexedTools += pool.length;
   exactServiceKeyOf(v); // primes the alias-set memo off the query path
+  return -1;
 }
 /** Build the /api/route candidate index now instead of on the first query.
  *  On a prod-sized pool the first build is ~1 s of synchronous work; before
@@ -6088,16 +6113,22 @@ const ROUTE_INDEX_SLICE_MS = 12;
 // is complete and swapped in.
 function routeIndexStartShadow() {
   if (routeIdx.shadow) return;
-  const shadow = { ...newRouteIndexShard(), entries: [...cache].filter(([, v]) => v && typeof v === "object"), i: 0, late: [] };
+  const shadow = { ...newRouteIndexShard(), entries: [...cache].filter(([, v]) => v && typeof v === "object"), i: 0, late: [], cur: null };
   routeIdx.shadow = shadow;
   const step = () => {
     if (routeIdx.shadow !== shadow) return; // reset or superseded
     const until = performance.now() + ROUTE_INDEX_SLICE_MS;
-    while (shadow.i < shadow.entries.length && performance.now() < until) {
-      const [origin, v] = shadow.entries[shadow.i++];
-      if (cache.get(origin) === v) routeIndexAddEntry(origin, v, shadow);
+    while (performance.now() < until) {
+      if (!shadow.cur) {
+        if (shadow.i >= shadow.entries.length) break;
+        const [origin, v] = shadow.entries[shadow.i++];
+        if (cache.get(origin) !== v) continue;
+        shadow.cur = { origin, v, pos: 0 };
+      }
+      const next = routeIndexAddEntry(shadow.cur.origin, shadow.cur.v, shadow, shadow.cur.pos, until);
+      if (next === -1) shadow.cur = null; else { shadow.cur.pos = next; break; }
     }
-    if (shadow.i < shadow.entries.length) { setImmediate(step); return; }
+    if (shadow.cur || shadow.i < shadow.entries.length) { setImmediate(step); return; }
     // Entries the current index took from `pending` while the shadow was
     // being filled were set after its snapshot: carry the live ones over.
     for (const [origin, v] of shadow.late) if (cache.get(origin) === v && !shadow.indexed.has(v)) routeIndexAddEntry(origin, v, shadow);
@@ -6127,6 +6158,9 @@ function routeIndexSync({ sync = false } = {}) {
     }
     routeIndexStartShadow();
   }
+  // A query finishes the live index's partly indexed entry first, so it never
+  // ranks a seller with only some of its rows in the postings.
+  if (routeIdx.partial) routeIndexAdvancePartial();
   if (!routeIdx.pending.size) return;
   for (const [origin, v] of routeIdx.pending) {
     if (cache.get(origin) !== v) continue; // replaced again before we got to it
@@ -6157,7 +6191,7 @@ function routeIndexTokensFor(term, short) {
   return out;
 }
 export function _routeIndexStatsForTest() {
-  return { vocabulary: routeIdx.postings.size, indexedTools: routeIdx.indexedTools, staleTools: routeIdx.staleTools, pending: routeIdx.pending.size, builds: routeIdx.builds, rebuilding: !!routeIdx.shadow };
+  return { vocabulary: routeIdx.postings.size, indexedTools: routeIdx.indexedTools, staleTools: routeIdx.staleTools, pending: routeIdx.pending.size, builds: routeIdx.builds, rebuilding: !!routeIdx.shadow, partial: !!routeIdx.partial };
 }
 
 // The local pool is rebuilt from the catalog on every query (buildLocalEntry
@@ -6810,14 +6844,14 @@ export function allIndexedTools({ search = "", category = "", network = "", offs
   // help anyone choose. `excludeOrigin` still drops our crawled self-listing
   // (we publish to the Bazaar, so the crawler finds us) so ours appear exactly
   // once, from the authoritative catalog rather than a stale crawl of it.
-  const rows = interleaveBySeller([...ourTools, ...flattenedThirdPartyTools(excludeOrigin)]);
+  const rows = interleavedIndexRows(ourTools, excludeOrigin);
   const q = String(search || "").trim().toLowerCase();
   const terms = q ? queryTerms(q, { max: 8 }) : [];
   const cat = String(category || "").trim().toLowerCase();
   const net = String(network || "").trim().toLowerCase();
 
   const src = String(source || "").trim().toLowerCase();
-  const filtered = rows.filter((t) => {
+  const filtered = !terms.length && !cat && !net && !src ? rows : rows.filter((t) => {
     if (src === "ours" && !t.ours) return false;
     if (src === "third-party" && t.ours) return false;
     if (cat && String(t.category || "").toLowerCase() !== cat) return false;
@@ -6831,14 +6865,34 @@ export function allIndexedTools({ search = "", category = "", network = "", offs
   const lim = Math.min(Math.max(parseInt(limit, 10) || 100, 1), 500);
   return {
     total: rows.length,
-    ours: rows.filter((t) => t.ours).length,
-    thirdParty: rows.filter((t) => !t.ours).length,
+    ours: rows.oursCount,
+    thirdParty: rows.length - rows.oursCount,
     matched: filtered.length,
     offset: off,
     limit: lim,
     described: filtered.filter((t) => t.described).length,
     results: filtered.slice(off, off + lim),
   };
+}
+
+// The flattened, interleaved directory, rebuilt only when the crawl cache has
+// changed (at most every 2 min while a crawl is replacing entries).
+// /marketplace/tools and /api/index/tools rebuilt it on EVERY page request:
+// the production stall profiler measured 1.4 s per build (2026-09-25), and a
+// crawler walking the pages paid it per page. Only the filter and the slice
+// run per request now.
+let indexRowsMemo = { key: null, at: 0, rows: null };
+function interleavedIndexRows(ourTools, excludeOrigin) {
+  const now = Date.now();
+  const key = `${excludeOrigin}|${ourTools.length}`;
+  const m = indexRowsMemo;
+  // Unchanged cache: reuse for up to 5 min (Bazaar rows can change without a
+  // cache write). Mid-crawl: reuse for up to 2 min whatever the version says.
+  if (m.rows && m.key === key && ((m.version === cacheVersion && now - m.at < 300_000) || (crawlInFlight && now - m.at < 120_000))) return m.rows;
+  const rows = interleaveBySeller([...ourTools, ...flattenedThirdPartyTools(excludeOrigin)]);
+  rows.oursCount = rows.filter((t) => t.ours).length;
+  indexRowsMemo = { key, at: now, rows, version: cacheVersion };
+  return rows;
 }
 
 /** Round-robin the rows across sellers, described first.
