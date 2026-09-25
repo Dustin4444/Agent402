@@ -22,6 +22,9 @@ Since v2.4.0 (2026-09-18).
   a minute on the server instead of on every request, and the revenue series
   reads one chain at a time; these were the main event-loop stalls. Once
   built, an expired page is served at once and rebuilt in the background.
+  The tool directory rebuilds in slices while the previous one serves, the
+  revenue series is built across several turns, and the chain strip on every
+  page is computed once per index change.
 - The index cache is written without blocking the server: each seller is
   serialized once, in batches, where the whole cache used to be serialized
   three times in one pass.

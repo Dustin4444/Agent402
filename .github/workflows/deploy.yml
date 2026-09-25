@@ -2250,6 +2250,7 @@ jobs:
           # Index warm-start is incremental (NDJSON twin parsed a batch per turn; no event-loop hold; legacy fallback — offline)
           t node scripts/test-index-ndjson-warmstart.js
           t node scripts/test-stall-profiler.js
+          t node scripts/test-offload-stalls.js
           t node scripts/test-request-timing.js
           t node scripts/test-surface-memo.js
           t node scripts/test-load-shed.js

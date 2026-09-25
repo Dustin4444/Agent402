@@ -6834,6 +6834,17 @@ export function sellerEntry(originOrHost) {
  * reachable — the same bar /api/index/register enforces on the way in, so the
  * catalog cannot advertise something registration would have refused.
  */
+// A directory search built each row's lowercase search text on every request
+// (112k rows: ~120 ms per search locally). Rows are rebuilt, never mutated, so
+// the text is kept per row object.
+// A symbol key: never serialized, and a WeakMap over 112k rows measured slower
+// than the rebuild it saves.
+const DIRECTORY_HAY = Symbol("directoryHay");
+function directoryHayOf(t) {
+  let h = t[DIRECTORY_HAY];
+  if (h === undefined) { h = `${t.name} ${t.description} ${t.route} ${t.sellerName} ${(t.tags || []).join(" ")}`.toLowerCase(); t[DIRECTORY_HAY] = h; }
+  return h;
+}
 export function allIndexedTools({ search = "", category = "", network = "", offset = 0, limit = 100, excludeOrigin = "", ourTools = [], source = "" } = {}) {
   // One index of the whole ecosystem WITH provenance on every row. Ours are
   // NOT floated to the top: 515 of them would fill the first six pages and bury
@@ -6857,7 +6868,7 @@ export function allIndexedTools({ search = "", category = "", network = "", offs
     if (cat && String(t.category || "").toLowerCase() !== cat) return false;
     if (net && !(t.networks || []).some((n) => String(n).toLowerCase().includes(net))) return false;
     if (!terms.length) return true;
-    const hay = `${t.name} ${t.description} ${t.route} ${t.sellerName} ${(t.tags || []).join(" ")}`.toLowerCase();
+    const hay = directoryHayOf(t);
     return terms.every((term) => hay.includes(term));
   });
 
@@ -6882,6 +6893,11 @@ export function allIndexedTools({ search = "", category = "", network = "", offs
 // crawler walking the pages paid it per page. Only the filter and the slice
 // run per request now.
 let indexRowsMemo = { key: null, at: 0, rows: null };
+// A directory this small rebuilds inline (a few ms); a larger one is served
+// stale while a background rebuild runs in slices (the production build was
+// 1.5-1.8 s of one synchronous turn, 2026-09-25).
+const INDEX_ROWS_INLINE_MAX = 20000;
+let indexRowsRebuild = null;
 function interleavedIndexRows(ourTools, excludeOrigin) {
   const now = Date.now();
   const key = `${excludeOrigin}|${ourTools.length}`;
@@ -6889,11 +6905,31 @@ function interleavedIndexRows(ourTools, excludeOrigin) {
   // Unchanged cache: reuse for up to 5 min (Bazaar rows can change without a
   // cache write). Mid-crawl: reuse for up to 2 min whatever the version says.
   if (m.rows && m.key === key && ((m.version === cacheVersion && now - m.at < 300_000) || (crawlInFlight && now - m.at < 120_000))) return m.rows;
+  if (m.rows && m.key === key && m.rows.length > INDEX_ROWS_INLINE_MAX) {
+    if (!indexRowsRebuild) {
+      const version = cacheVersion;
+      indexRowsRebuild = (async () => {
+        try {
+          const flat = await flattenedThirdPartyToolsAsync(excludeOrigin);
+          await yieldTurn();
+          const rows = interleaveBySeller([...ourTools, ...flat]);
+          rows.oursCount = rows.filter((t) => t.ours).length;
+          if (indexRowsMemo === m) indexRowsMemo = { key, at: Date.now(), rows, version };
+        } catch (e) {
+          console.warn(`[x402-index] directory rebuild failed: ${String(e?.message || e).slice(0, 120)}`);
+        } finally { indexRowsRebuild = null; }
+      })();
+    }
+    return m.rows;
+  }
   const rows = interleaveBySeller([...ourTools, ...flattenedThirdPartyTools(excludeOrigin)]);
   rows.oursCount = rows.filter((t) => t.ours).length;
   indexRowsMemo = { key, at: now, rows, version: cacheVersion };
   return rows;
 }
+const yieldTurn = () => new Promise((r) => setImmediate(r));
+/** Test hook: wait for an in-flight background directory rebuild. */
+export async function _indexRowsSettledForTest() { while (indexRowsRebuild || flatRebuild) await (indexRowsRebuild || flatRebuild); }
 
 /** Round-robin the rows across sellers, described first.
  *
@@ -6906,6 +6942,9 @@ function interleavedIndexRows(ourTools, excludeOrigin) {
  *
  *  Described rows lead: a row with no description cannot help anyone choose,
  *  so those sink rather than being hidden. */
+// One collator instead of String#localeCompare per comparison: same order,
+// a fraction of the cost on a 100k-row sort.
+const collate = new Intl.Collator().compare;
 function interleaveBySeller(rows) {
   const pass = (subset) => {
     const bySeller = new Map();
@@ -6915,8 +6954,8 @@ function interleaveBySeller(rows) {
       bySeller.get(k).push(r);
     }
     const groups = [...bySeller.entries()]
-      .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
-      .map(([, list]) => list.sort((a, b) => String(a.route).localeCompare(String(b.route))));
+      .sort((a, b) => collate(String(a[0]), String(b[0])))
+      .map(([, list]) => list.sort((a, b) => collate(String(a.route), String(b.route))));
     const out = [];
     for (let i = 0; out.length < subset.length; i++) {
       let moved = false;
@@ -6929,6 +6968,69 @@ function interleaveBySeller(rows) {
   };
   return [...pass(rows.filter((r) => r.described)), ...pass(rows.filter((r) => !r.described))];
 }
+
+function flatRowsForEntry(origin, v, self, seen, out) {
+  if (!origin.startsWith("https:")) return; // same bar as /api/index/register
+  const normOrigin = origin.replace(/\/+$/, "").toLowerCase();
+  if (self && normOrigin === self) return;
+  if (normOrigin === "https://agent402.tools") return;
+  if (v?.error) return;
+  if (healthScore(v) <= 0) return;
+  const sellerName = v?.manifest?.name || origin.replace(/^https?:\/\//, "");
+  for (const t of v?.tools || []) {
+    const route = t?.route || "/";
+    const key = `${t?.method || "POST"} ${origin}${route}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const description = String(t?.description || "").trim();
+    out.push({
+      ours: false,
+      seller: origin,
+      sellerName,
+      name: String(t?.name || route),
+      route,
+      method: t?.method || "POST",
+      url: origin + route,
+      description,
+      described: description.length >= 12,
+      category: t?.category || "other",
+      tags: Array.isArray(t?.tags) ? t.tags.slice(0, 6) : [],
+      // Was `typeof t.price === "number" ? t.price : null`, which silently
+      // nulled every price stored as a string - and manifest and llms.txt
+      // catalogues store them as "$0.002". parsePrice is what every other
+      // surface uses; using a different rule here made the same tool look
+      // priced on /api/route and unpriced on /api/index/tools.
+      priceUsd: parsePrice(t?.price),
+      // Both spellings, deliberately. /api/route served `price` and
+      // `priceUsd`, this surface served only `priceUsd`, and /api/find served
+      // only `price`. A consumer that learned one surface got `undefined` on
+      // the next and could not tell it from "no price" - which is exactly how
+      // a measurement taken during this audit came out wrong.
+      price: t?.price ?? null,
+      ...priceKnownProjection(t),
+    ...priceConflictProjection(t),
+      // The identifier a caller needs to actually invoke the tool. Present on
+      // /api/route and /api/find, missing here, on the surface that lists all
+      // 65k third-party rows.
+      slug: t?.slug || null,
+      // Added to /api/route earlier today and to nothing else, which is the
+      // inert-field defect this file's own header warns about, committed the
+      // same afternoon as a fix for it. It belongs wherever a tool row is
+      // served.
+      payable: payabilityOf(t),
+      // Same evidence as seller detail and /api/route. Added to all three at
+      // once on purpose - this file's own header records shipping a field on
+      // two of three surfaces twice, where it is inert on whichever one the
+      // caller happens to read.
+      ...responseContractProjection(t),
+      ...requestContractProjection(t),
+      // The loop's own origin/route, which are what this surface keys on -
+      // t.seller is not set on every row source.
+      ...deliveryProjection(origin, t?.method, route),
+      networks: Array.isArray(t?.networks) ? t.networks : [],
+    });
+  }
+  }
 
 let flatCache = { at: 0, rows: [], self: "" };
 const FLAT_TTL_MS = 60_000;
@@ -6959,74 +7061,43 @@ function flattenedThirdPartyTools(excludeOrigin = "") {
   const self = String(excludeOrigin || "").replace(/\/+$/, "").toLowerCase();
   if (flatCache.self !== self) flatCache = { at: 0, rows: [], self };
   if (Date.now() - flatCache.at < FLAT_TTL_MS && flatCache.rows.length) return flatCache.rows;
+  if (flatCache.self === self && flatCache.rows.length > INDEX_ROWS_INLINE_MAX) {
+    // Large and stale: serve it and rebuild in the background.
+    flattenedThirdPartyToolsAsync(excludeOrigin);
+    return flatCache.rows;
+  }
   const out = [];
   const seen = new Set();
-  for (const [origin, v] of cache.entries()) {
-    if (!origin.startsWith("https:")) continue; // same bar as /api/index/register
-    const normOrigin = origin.replace(/\/+$/, "").toLowerCase();
-    if (self && normOrigin === self) continue;
-    if (normOrigin === "https://agent402.tools") continue;
-    if (v?.error) continue;
-    if (healthScore(v) <= 0) continue;
-    const sellerName = v?.manifest?.name || origin.replace(/^https?:\/\//, "");
-    for (const t of v?.tools || []) {
-      const route = t?.route || "/";
-      const key = `${t?.method || "POST"} ${origin}${route}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const description = String(t?.description || "").trim();
-      out.push({
-        ours: false,
-        seller: origin,
-        sellerName,
-        name: String(t?.name || route),
-        route,
-        method: t?.method || "POST",
-        url: origin + route,
-        description,
-        described: description.length >= 12,
-        category: t?.category || "other",
-        tags: Array.isArray(t?.tags) ? t.tags.slice(0, 6) : [],
-        // Was `typeof t.price === "number" ? t.price : null`, which silently
-        // nulled every price stored as a string - and manifest and llms.txt
-        // catalogues store them as "$0.002". parsePrice is what every other
-        // surface uses; using a different rule here made the same tool look
-        // priced on /api/route and unpriced on /api/index/tools.
-        priceUsd: parsePrice(t?.price),
-        // Both spellings, deliberately. /api/route served `price` and
-        // `priceUsd`, this surface served only `priceUsd`, and /api/find served
-        // only `price`. A consumer that learned one surface got `undefined` on
-        // the next and could not tell it from "no price" - which is exactly how
-        // a measurement taken during this audit came out wrong.
-        price: t?.price ?? null,
-        ...priceKnownProjection(t),
-      ...priceConflictProjection(t),
-        // The identifier a caller needs to actually invoke the tool. Present on
-        // /api/route and /api/find, missing here, on the surface that lists all
-        // 65k third-party rows.
-        slug: t?.slug || null,
-        // Added to /api/route earlier today and to nothing else, which is the
-        // inert-field defect this file's own header warns about, committed the
-        // same afternoon as a fix for it. It belongs wherever a tool row is
-        // served.
-        payable: payabilityOf(t),
-        // Same evidence as seller detail and /api/route. Added to all three at
-        // once on purpose - this file's own header records shipping a field on
-        // two of three surfaces twice, where it is inert on whichever one the
-        // caller happens to read.
-        ...responseContractProjection(t),
-        ...requestContractProjection(t),
-        // The loop's own origin/route, which are what this surface keys on -
-        // t.seller is not set on every row source.
-        ...deliveryProjection(origin, t?.method, route),
-        networks: Array.isArray(t?.networks) ? t.networks : [],
-      });
-    }
-  }
-  out.sort((a, b) => (b.described - a.described) || a.sellerName.localeCompare(b.sellerName) || a.route.localeCompare(b.route));
+  for (const [origin, v] of cache.entries()) flatRowsForEntry(origin, v, self, seen, out);
+  return finishFlat(out, self);
+}
+function finishFlat(out, self) {
+  // No sort: every consumer groups or counts (interleaveBySeller orders the
+  // rows itself), and a 100k-row sort was most of a rebuild's longest turn.
   flatCache = { at: Date.now(), rows: out, self };
   return out;
 }
+// The same flatten, yielding the event loop every few milliseconds.
+let flatRebuild = null;
+function flattenedThirdPartyToolsAsync(excludeOrigin = "") {
+  if (flatRebuild) return flatRebuild;
+  const self = String(excludeOrigin || "").replace(/\/+$/, "").toLowerCase();
+  flatRebuild = (async () => {
+    try {
+      const out = [];
+      const seen = new Set();
+      let until = performance.now() + 8;
+      for (const [origin, v] of [...cache.entries()]) {
+        flatRowsForEntry(origin, v, self, seen, out);
+        if (performance.now() >= until) { await yieldTurn(); until = performance.now() + 8; }
+      }
+      await yieldTurn();
+      return finishFlat(out, self);
+    } finally { flatRebuild = null; }
+  })();
+  return flatRebuild;
+}
+
 
 /** Category rollup for the catalog's filter chips. */
 export function indexedToolCategories(excludeOrigin = "") {
@@ -7036,6 +7107,7 @@ export function indexedToolCategories(excludeOrigin = "") {
 }
 
 export function _resetFlatCacheForTest() { flatCache = { at: 0, rows: [], self: "" }; }
+export function _resetIndexRowsForTest() { indexRowsMemo = { key: null, at: 0, rows: null }; }
 // KNOWN ROUTER LIMITATION (found 2026-09-01): the resolver's
 // liveness probe sends an empty `{}` and treats only HTTP 402 as "live". A
 // seller that VALIDATES the request body BEFORE issuing its 402 (returning
