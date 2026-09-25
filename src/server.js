@@ -1936,10 +1936,29 @@ app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS) || 1);
 // build on a production-sized ledger (2026-09-25). Keys are a fixed set, so
 // the map cannot grow; a failed build is not cached.
 const surfaceMemo = new Map();
+// Stale-while-revalidate: once a surface has a value, an expired read returns
+// it at once and ONE rebuild runs after the response (setImmediate), so no
+// request waits on a slow synchronous build (the /revenue ledger series took
+// up to 1.2 s). A failed rebuild keeps the previous value. Only the first
+// build of a key is paid by a request.
 function memoSurface(key, ttlMs, build) {
   const hit = surfaceMemo.get(key);
   const now = Date.now();
   if (hit && now - hit.at < ttlMs) return hit.value;
+  if (hit) {
+    if (!hit.rebuilding) {
+      hit.rebuilding = true;
+      setImmediate(() => {
+        try {
+          const value = build();
+          if (surfaceMemo.get(key) === hit) surfaceMemo.set(key, { at: Date.now(), value });
+        } catch (e) {
+          console.warn(`[surface-memo] ${key} rebuild failed: ${String(e?.message || e).slice(0, 120)}`);
+        } finally { hit.rebuilding = false; }
+      });
+    }
+    return hit.value;
+  }
   const value = build();
   surfaceMemo.set(key, { at: now, value });
   return value;

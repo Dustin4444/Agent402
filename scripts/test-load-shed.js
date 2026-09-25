@@ -14,11 +14,13 @@ b.record(60, 1000); ok(!b.over(1000), "under budget: not over");
 b.record(50, 1100); ok(b.over(1100), "110 ms of compute inside the window is over a 100 ms budget");
 ok(!b.over(2200), "the window rolls: a second later the budget is free again");
 ok(shouldShedFree({ inFlight: 0, lagMs: 0 }) === null, "a healthy server sheds nothing");
-ok(shouldShedFree({ inFlight: 0, lagMs: 5000, lastLateMs: 400, now: Date.now() + 120_000 }) === "lag", "a lagging event loop sheds free traffic (after the boot warm-up)");
-ok(shouldShedFree({ inFlight: 0, lagMs: 5000, lastLateMs: 400 }) === null, "lag does not shed during the boot warm-up");
-ok(shouldShedFree({ inFlight: 0, lagMs: 5000, lastLateMs: 0, now: Date.now() + 120_000 }) === null, "one freeze that has ended (the next tick on time) sheds nothing: no 503s after a boot stall");
+ok(shouldShedFree({ inFlight: 0, lagMs: 5000, lateTicks: 4, now: Date.now() + 120_000 }) === "lag", "a saturated event loop sheds free traffic (after the boot warm-up)");
+ok(shouldShedFree({ inFlight: 0, lagMs: 5000, lateTicks: 4 }) === null, "lag does not shed during the boot warm-up");
+ok(shouldShedFree({ inFlight: 0, lagMs: 5000, lateTicks: 0, now: Date.now() + 120_000 }) === null, "one freeze that has ended (the next tick on time) sheds nothing: no 503s after a boot stall");
+ok(shouldShedFree({ inFlight: 0, lagMs: 5000, lateTicks: 1, now: Date.now() + 120_000 }) === null, "the requests queued behind ONE stall are served, not shed (the stall tick itself is the only late one)");
+ok(shouldShedFree({ inFlight: 0, lagMs: 5000, lateTicks: 2, now: Date.now() + 120_000 }) === null, "two late ticks are not saturation either");
 ok(shouldShedFree({ inFlight: 10_000, lagMs: 0 }) === "inflight", "too many requests in flight sheds free traffic");
-process.env.LOAD_SHED = "off"; ok(shouldShedFree({ inFlight: 10_000, lagMs: 5000, lastLateMs: 5000 }) === null, "LOAD_SHED=off disables it"); delete process.env.LOAD_SHED;
+process.env.LOAD_SHED = "off"; ok(shouldShedFree({ inFlight: 10_000, lagMs: 5000, lateTicks: 4 }) === null, "LOAD_SHED=off disables it"); delete process.env.LOAD_SHED;
 
 process.env.RATE_LIMIT_MAX_KEYS = "3";
 const { createLimiter, limiterKey } = await import("../src/rate-limit.js?cap");

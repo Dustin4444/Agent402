@@ -36,6 +36,10 @@ let minute = { blocks200: 0, blockedMs: 0 };
 // decays back toward zero as soon as ticks run on time again.
 let lagEwma = 0;
 let lastLate = 0;
+// The last few ticks' lateness, newest last. One stall is one late tick; a
+// loop that is saturated runs every tick late.
+const RECENT_TICKS = 4;
+const recentLate = [];
 // Stalls over WARN_MS in the last hour (bounded), for the heartbeat's alarm.
 const stallTimes = []; // [at, ms]
 export function stallsInWindow(windowMs = 3600_000, now = Date.now()) {
@@ -47,6 +51,8 @@ export function recentLagMs() { return Math.round(lagEwma); }
 /** How late the most recent tick ran. With recentLagMs it separates "lagging
  *  now" (both high) from "one freeze a moment ago" (the next tick on time). */
 export function lastTickLateMs() { return Math.round(lastLate); }
+/** How many of the last RECENT_TICKS ticks ran at least `ms` late. */
+export function lateTicksRecent(ms) { return recentLate.filter((x) => x >= ms).length; }
 const state = { worstMs: 0, worstAt: null, stalls: 0, lastStallMs: 0, lastStallAt: null, startedAt: null };
 
 /** @returns {{worstMs:number, worstAt:string|null, stalls:number, lastStallMs:number, lastStallAt:string|null, watching:boolean}} */
@@ -64,6 +70,7 @@ export function loopLagStatus() {
 
 /** Reset the high-water mark (the operator endpoint offers this; alarms do not). */
 export function resetLoopLag() {
+  recentLate.length = 0;
   state.worstMs = 0; state.worstAt = null; state.stalls = 0; state.lastStallMs = 0; state.lastStallAt = null;
 }
 
@@ -93,6 +100,7 @@ export function startLoopLagMonitor({ tickMs = TICK_MS, warnMs = WARN_MS, statsM
     const late = now - expected;          // how much later than scheduled it ran
     expected = now + tickMs;
     lastLate = Math.max(0, late);
+    recentLate.push(lastLate); if (recentLate.length > RECENT_TICKS) recentLate.shift();
     lagEwma = lagEwma * 0.6 + lastLate * 0.4;
     if (late <= 0) return;
     if (late > state.worstMs) { state.worstMs = late; state.worstAt = new Date(now).toISOString(); }
