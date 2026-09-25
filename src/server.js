@@ -238,7 +238,7 @@ import { findTools, findRelatedSellers } from "./find.js";
 import { recordWish, getWishesAggregate, annotateServed, WISH_SERVED_MIN_SCORE } from "./wish.js";
 import { setAlgorandCrawlSources } from "./algorand-sellers.js";
 import { priceToMicroUsd } from "./x402-index.js";
-import { allPayToOrigins, indexMemoryFigures, indexSnapshot, indexCacheVersion, crawlInProgress, sellerDetail, sellerEntry, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories, bazaarQualityEntries, bazaarQualityFor, indexWarmStartInProgress, indexReadiness, quoteIsStale, priceDisagreesWithOrigin, networksNeedLiveVerify, looksLikeListingInjection, crawlToolsByOrigin, listSuccessions, revokeSuccession, quoteProbeStatsSnapshot, removeOrigin, restoreOrigin, listRemovedOrigins, isRemovedOrigin, REMOVED_ORIGIN_ERROR } from "./x402-index.js";
+import { allPayToOrigins, indexMemoryFigures, indexSnapshot, indexCacheVersion, crawlInProgress, sellerDetail, sellerEntry, routableSellerSummaries, routeQueryAsync, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories, bazaarQualityEntries, bazaarQualityFor, indexWarmStartInProgress, indexReadiness, quoteIsStale, priceDisagreesWithOrigin, networksNeedLiveVerify, looksLikeListingInjection, crawlToolsByOrigin, listSuccessions, revokeSuccession, quoteProbeStatsSnapshot, removeOrigin, restoreOrigin, listRemovedOrigins, isRemovedOrigin, REMOVED_ORIGIN_ERROR } from "./x402-index.js";
 import { startMppCrawler, registerMppOrigin, validateOriginInput as validateMppOriginInput, mppIndexSnapshot } from "./mpp-index.js";
 import { startMppLeaderboard, mppLeaderboardSnapshot } from "./mpp-leaderboard.js";
 import { tempoSelfRecipient, tempoDiscoveryInfo, tempoEnabled } from "./mpp-tempo.js";
@@ -1358,7 +1358,7 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
     // that survived the post-filter were whichever one or two happened to
     // win a tie-break, and a Solana seller with the best-matching name could
     // sit at position 40 and never be tried (2026-09-02).
-    const { results } = routeQuery({ query: task, top: 25, include: "external", networkFilter: "solana", strictNetwork: true, ...indexCtx() });
+    const { results } = await routeQueryAsync({ query: task, top: 25, include: "external", networkFilter: "solana", strictNetwork: true, ...indexCtx() });
     candidates = (results || [])
       .filter((r) => r.seller && r.url && r.priceUsd > 0 && r.priceUsd <= cap && Array.isArray(r.networks)
         && r.networks.some((n) => SOLANA_NETWORK_LABELS.has(String(n || "").toLowerCase())))
@@ -1367,7 +1367,7 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
       .slice(0, 5)
       .map((r) => ({ ...r, networks: r.networks, wire: "x402" }));
   } else {
-    const { results } = routeQuery({ query: task, top: 20, include: "external", ...indexCtx() });
+    const { results } = await routeQueryAsync({ query: task, top: 20, include: "external", ...indexCtx() });
     const settledByOrigin = buildSettledByOrigin();
     const payersByOrigin = buildPayersByOrigin();
     provenPayToByOrigin = buildProvenPayToByOrigin();
@@ -1657,7 +1657,7 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
 // external seller matched") is explainable without firing a paid buy. No money
 // moves here (probe only). Kept behind operatorAuthed.
 async function diagnoseExternalSeller(task, { cap }) {
-  const { results } = routeQuery({ query: task, top: 20, include: "external", ...indexCtx() });
+  const { results } = await routeQueryAsync({ query: task, top: 20, include: "external", ...indexCtx() });
   const settledByOrigin = buildSettledByOrigin();
   // Was read below but never declared here (a ReferenceError on every
   // diagnostic call since the breadth gate landed); declared 2026-09-03.
@@ -5247,7 +5247,7 @@ const wishServedScore = (text) => {
 // scanners loop), and each answer costs a full external route query.
 const EXTERNAL_SERVES_TTL_MS = 10 * 60_000;
 const externalServesMemo = new Map(); // normalized q -> { at, val }
-const externalServes = (q) => {
+const externalServes = async (q, meter = null) => {
   const qStr = String(q ?? "").trim();
   if (!qStr) return false;
   const key = qStr.toLowerCase().replace(/\s+/g, " ").slice(0, 300);
@@ -5255,14 +5255,14 @@ const externalServes = (q) => {
   if (hit && Date.now() - hit.at < EXTERNAL_SERVES_TTL_MS) return hit.val;
   let val = false;
   try {
-    const { results } = routeQuery({ query: qStr, top: 3, include: "external", ...indexCtx() });
+    const { results } = await routeQueryAsync({ query: qStr, top: 3, include: "external", ...indexCtx() }, { onBusy: meter });
     val = (results || []).some((r) => r && r.seller);
   } catch { return false; }
   if (externalServesMemo.size >= 2000) externalServesMemo.delete(externalServesMemo.keys().next().value);
   externalServesMemo.set(key, { at: Date.now(), val });
   return val;
 };
-const computeFind = (q, k) => {
+const computeFind = async (q, k, meter = null) => {
   const result = findTools(CATALOG, q, { k, baseUrl: BASE_URL, powSlugs: POW_SLUGS });
   // The seller bridge: a query that looks like an indexed seller's NAME gets
   // pointed at that seller - /api/find is catalog-only, and 25 recorded
@@ -5300,7 +5300,7 @@ const computeFind = (q, k) => {
       // A seller-name match IS an answer - point at it instead of recording
       // a wish for demand the ecosystem already serves.
       result.hint = "this looks like an indexed seller - see relatedSellers";
-    } else if (externalServes(q)) {
+    } else if (await externalServes(q, meter)) {
       // ...and so is a CAPABILITY match. The seller bridge above only ever
       // matched a query against seller HOST LABELS (findRelatedSellers), so
       // "the ecosystem already serves this" was answerable for a query that
@@ -5437,12 +5437,19 @@ async function serveCachedDiscovery(path, policy, input, computeFn, analyticsSlu
       return shedResponse(res, 2);
     }
     const computeStarted = Date.now();
-    const pending = computeFn();   // a compute may be async (the /api/route rerank)
-    // Only the synchronous part holds the thread; the judge wait does not.
-    discoveryCpuBudget.record(Date.now() - computeStarted);
+    // A compute may be async: the router query yields between slices
+    // (routeQueryAsync) and /api/route waits on a judgment model. Only the time
+    // spent holding the thread is charged to the CPU budget: the synchronous
+    // start here, plus what each sliced router query reports through `meter`.
+    let asyncCpuMs = 0;
+    const meter = (ms) => { asyncCpuMs += ms; };
+    const pending = computeFn(meter);
+    const syncMs = Date.now() - computeStarted;
     const result = await pending;
+    const cpuMs = Math.round(syncMs + asyncCpuMs);
+    discoveryCpuBudget.record(cpuMs);
     const computeMs = Date.now() - computeStarted;
-    if (computeMs > 500) console.warn(`[discovery] slow ${analyticsSlug} compute ${computeMs}ms (query ${String(input?.q ?? "").length} chars)`);
+    if (computeMs > 500) console.warn(`[discovery] slow ${analyticsSlug} compute ${computeMs}ms, cpu ${cpuMs}ms (query ${String(input?.q ?? "").length} chars)`);
     if (policy) {
       noteCacheOutcome(cacheKey ? "miss" : "skip");
       res.setHeader("X-Cache", cacheKey ? "miss" : "skip");
@@ -5474,12 +5481,12 @@ app.get("/api/find", (req, res) => {
   // default and told `count: 5`. Same defect as the index listing taking only
   // `limit` while a consumer guessed `perPage` (2026-09-22).
   const k = req.query.k ?? req.query.top;
-  return serveCachedDiscovery(findCachePath, findCachePolicy, { q, task: q, query: q, k }, () => computeFind(q, k), "_find", req, res);
+  return serveCachedDiscovery(findCachePath, findCachePolicy, { q, task: q, query: q, k }, (meter) => computeFind(q, k, meter), "_find", req, res);
 });
 app.post("/api/find", (req, res) => {
   const q = req.body?.q ?? req.body?.task ?? req.body?.query;
   const k = req.body?.k ?? req.body?.top;
-  return serveCachedDiscovery(findCachePath, findCachePolicy, { q, task: q, query: q, k }, () => computeFind(q, k), "_find", req, res);
+  return serveCachedDiscovery(findCachePath, findCachePolicy, { q, task: q, query: q, k }, (meter) => computeFind(q, k, meter), "_find", req, res);
 });
 
 // Agent wish loop: free, pre-paywall, like /api/find. When an agent needs a
@@ -6408,8 +6415,8 @@ app.post("/api/mpp-index/register", async (req, res) => {
   const result = await registerMppOrigin(v.origin, { path: req.body?.path, method: req.body?.method });
   res.json(result);
 });
-const computeRoute = (q, k, include, net, scoredMemo = null) => {
-  const out = routeQuery({ query: q, top: k, include, networkFilter: net, scoredMemo, ...indexCtx() });
+const computeRoute = async (q, k, include, net, scoredMemo = null, meter = null) => {
+  const out = await routeQueryAsync({ query: q, top: k, include, networkFilter: net, scoredMemo, ...indexCtx() }, { onBusy: meter });
   // Every row says whether the router would pay it and why (the readout's
   // finding: executeVia with no networks in the row read as "dispatchable").
   out.results = (out.results || []).map((r) => withDispatchFields(r, { local: r.seller === "self", rowLevel: true }));
@@ -6443,15 +6450,15 @@ const ROUTE_JUDGE_SKIPPED_NOTE = {
   budget: "no judgment model ran for this answer: the free share of today's judgment budget is spent; rows are in lexical order",
 };
 // /api/route: a confident judged pick moves first; rows are never removed. 800 ms limit.
-async function computeRouteJudged(q, k, include, net, ip = null) {
+async function computeRouteJudged(q, k, include, net, ip = null, meter = null) {
   // One scored ranking serves both the page and the 50-row shortlist below.
   const scoredMemo = {};
-  const out = computeRoute(q, k, include, net, scoredMemo);
+  const out = await computeRoute(q, k, include, net, scoredMemo, meter);
   const rows = Array.isArray(out.results) ? out.results : [];
   if (out.indexing || rows.length < 1 || !q) return out;
   // Shortlist: at most two rows per seller, plus the local catalog's best
   // matches, so listing count cannot crowd out a tool that does the job.
-  const wide = computeRoute(q, 50, include, net, scoredMemo).results || [];
+  const wide = (await computeRoute(q, 50, include, net, scoredMemo, meter)).results || [];
   const shortlist = [];
   const perSeller = new Map();
   for (const r of wide) {
@@ -6463,7 +6470,7 @@ async function computeRouteJudged(q, k, include, net, ip = null) {
   }
   if (include !== "external") {
     const bySlug = new Map(wide.filter((r) => r.seller === "self").map((r) => [r.slug, r]));
-    const localRoute = computeRoute(q, 50, "local", net).results || [];
+    const localRoute = (await computeRoute(q, 50, "local", net, null, meter)).results || [];
     for (const r of localRoute) if (!bySlug.has(r.slug)) bySlug.set(r.slug, r);
     for (const f of (findTools(CATALOG, String(q), { k: 3, baseUrl: BASE_URL, powSlugs: POW_SLUGS }).results || [])) {
       const row = bySlug.get(f.slug);
@@ -6514,7 +6521,7 @@ app.get("/api/route", (req, res) => {
   const top = req.query.top ?? req.query.k;
   const include = req.query.include;
   const net = req.query.network;
-  return serveCachedDiscovery(routeCachePath, routeCachePolicy, { q, task: q, query: q, top, k: top, include, network: net }, () => computeRouteJudged(q, top, include, net, clientIp(req)), "_route", req, res);
+  return serveCachedDiscovery(routeCachePath, routeCachePolicy, { q, task: q, query: q, top, k: top, include, network: net }, (meter) => computeRouteJudged(q, top, include, net, clientIp(req), meter), "_route", req, res);
 });
 app.post("/api/route", (req, res) => {
   withRouteAnswerNote(req, res);
@@ -6522,7 +6529,7 @@ app.post("/api/route", (req, res) => {
   const top = req.body?.top ?? req.body?.k;
   const include = req.body?.include;
   const net = req.body?.network;
-  return serveCachedDiscovery(routeCachePath, routeCachePolicy, { q, task: q, query: q, top, k: top, include, network: net }, () => computeRouteJudged(q, top, include, net, clientIp(req)), "_route", req, res);
+  return serveCachedDiscovery(routeCachePath, routeCachePolicy, { q, task: q, query: q, top, k: top, include, network: net }, (meter) => computeRouteJudged(q, top, include, net, clientIp(req), meter), "_route", req, res);
 });
 // Operator-only: why does the SOR external resolver keep/drop each candidate for
 // a task? Explains a prod "no external seller matched" 404 without a paid buy.

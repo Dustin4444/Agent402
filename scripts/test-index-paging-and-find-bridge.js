@@ -106,10 +106,10 @@ const get = async (p) => (await fetch(`${base}${p}`)).json();
 {
   // The bridge is a HINT, never a result row: /api/find stays catalog-only.
   const src = await (await import("node:fs")).promises.readFile(new URL("../src/server.js", import.meta.url), "utf8");
-  ok(/const externalServes = \(q\) => \{/.test(src), "the miss branch has an external-capability consult");
-  ok(/externalServes\(q\)/.test(src) && src.indexOf("externalServes(q)") > src.indexOf("result.relatedSellers"),
+  ok(/const externalServes = async \(q, meter = null\) => \{/.test(src), "the miss branch has an external-capability consult");
+  ok(/externalServes\(q, meter\)/.test(src) && src.indexOf("externalServes(q, meter)") > src.indexOf("result.relatedSellers"),
      "...consulted AFTER the seller-name bridge, so a name match still wins");
-  const missBranch = src.slice(src.indexOf("} else if (externalServes(q)) {"), src.indexOf('result.hint = "POST /api/wish'));
+  const missBranch = src.slice(src.indexOf("} else if (await externalServes(q, meter)) {"), src.indexOf('result.hint = "POST /api/wish'));
   ok(!/recordWish/.test(missBranch),
      "a query an indexed seller serves records NO wish - a false demand signal steers what we build next");
   ok(/routeAcross/.test(missBranch), "...and the caller is handed the router link instead of being told nothing exists");
