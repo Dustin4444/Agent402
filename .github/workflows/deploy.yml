@@ -2251,6 +2251,7 @@ jobs:
           t node scripts/test-index-ndjson-warmstart.js
           t node scripts/test-stall-profiler.js
           t node scripts/test-request-timing.js
+          t node scripts/test-surface-memo.js
           # Crawl cadence copy is derived (served pages cannot advertise a cadence we do not run — offline)
           t node scripts/test-crawl-cadence.js
           # CI lane gating (every test lane blocks deploy/publish; Chromium only where a script needs it — offline)

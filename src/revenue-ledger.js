@@ -751,7 +751,7 @@ export function ledgerDaily(wallets, mppTx = null, { withScope = false } = {}) {
     if (!mppTx || !mppTx.size || !h) return false;
     return mppTx.has(h) || (/^0x[0-9a-fA-F]+$/.test(h) && mppTx.has(h.toLowerCase()));
   };
-  const rows = db.prepare("SELECT chain, wallet, block, when_ts, usd, external, tx_hash FROM transfers WHERE wallet = ?");
+  const rows = db.prepare("SELECT chain, wallet, block, when_ts, usd, external, tx_hash FROM transfers WHERE chain = ? AND wallet = ?");
   const chains = walletPairs(wallets);
   // Settled-to split: rows received by the SOR spending wallet (self-funding
   // slugs: the route-execute tiers) vs the treasury. On-chain
@@ -768,7 +768,7 @@ export function ledgerDaily(wallets, mppTx = null, { withScope = false } = {}) {
     const anchorBlock = cur?.next_block ?? null;
     const anchorMs = cur?.updated_ts ? cur.updated_ts * 1000 : Date.now();
     const cadence = BLOCK_MS[chain] || 2000;
-    for (const t of rows.all(wallet)) {
+    for (const t of rows.all(chain, wallet)) {
       if (t.chain !== chain) continue;
       let ms = t.when_ts ? t.when_ts * 1000 : null;
       if (ms == null && t.block != null && anchorBlock != null) ms = anchorMs - (anchorBlock - t.block) * cadence;
@@ -936,14 +936,14 @@ function tempoExternalRows() {
  */
 function externalPaymentEvents(wallets) {
   const out = [];
-  const rows = db.prepare("SELECT chain, wallet, block, when_ts, external, payer FROM transfers WHERE wallet = ?");
+  const rows = db.prepare("SELECT chain, wallet, block, when_ts, external, payer FROM transfers WHERE chain = ? AND wallet = ?");
   for (const [chain, wallet] of walletPairs(wallets)) {
     if (!wallet) continue;
     const cur = getCursor.get(chain, wallet);
     const anchorBlock = cur?.next_block ?? null;
     const anchorMs = cur?.updated_ts ? cur.updated_ts * 1000 : Date.now();
     const cadence = BLOCK_MS[chain] || 2000;
-    for (const t of rows.all(wallet)) {
+    for (const t of rows.all(chain, wallet)) {
       if (t.chain !== chain || !t.external) continue;
       let ms = t.when_ts ? t.when_ts * 1000 : null;
       if (ms == null && t.block != null && anchorBlock != null) ms = anchorMs - (anchorBlock - t.block) * cadence;

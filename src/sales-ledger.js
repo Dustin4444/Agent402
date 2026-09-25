@@ -101,6 +101,11 @@ try { db.exec("ALTER TABLE sales ADD COLUMN response_sha256 TEXT"); } catch { /*
 try { db.exec("ALTER TABLE sales ADD COLUMN attest_uid TEXT"); } catch { /* exists */ }
 try { db.exec("ALTER TABLE sales ADD COLUMN attest_tx TEXT"); } catch { /* exists */ }
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_sales_tx ON sales (tx)"); } catch { /* exists */ }
+// wire and ts carried no index of their own, so the MPP/Tempo aggregates
+// (WHERE wire IN ...) and the window totals (WHERE ts >= ?, MIN(ts)) scanned
+// the whole table on every /revenue and /api/stats build (2026-09-25 audit).
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_sales_wire_ts ON sales (wire, ts)"); } catch { /* exists */ }
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_sales_ts ON sales (ts)"); } catch { /* exists */ }
 
 // Boot-time reclassification (2026-08-20): `internal` is decided at record
 // time, so a wallet that JOINS the burner/test set later leaves stale

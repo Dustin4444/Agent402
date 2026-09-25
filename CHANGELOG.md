@@ -9,6 +9,9 @@ carries its own version on npm.
 Since v2.4.0 (2026-09-18).
 
 ### 2026-09-25
+- Revenue, sales, status, proof and marketplace pages are built at most once
+  a minute on the server instead of on every request, and the revenue series
+  reads one chain at a time; these were the main event-loop stalls.
 - The index cache is written without blocking the server: each seller is
   serialized once, in batches, where the whole cache used to be serialized
   three times in one pass.

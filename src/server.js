@@ -237,7 +237,7 @@ import { findTools, findRelatedSellers } from "./find.js";
 import { recordWish, getWishesAggregate, annotateServed, WISH_SERVED_MIN_SCORE } from "./wish.js";
 import { setAlgorandCrawlSources } from "./algorand-sellers.js";
 import { priceToMicroUsd } from "./x402-index.js";
-import { allPayToOrigins, indexSnapshot, sellerDetail, sellerEntry, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories, bazaarQualityEntries, bazaarQualityFor, indexWarmStartInProgress, indexReadiness, quoteIsStale, priceDisagreesWithOrigin, networksNeedLiveVerify, looksLikeListingInjection, crawlToolsByOrigin, listSuccessions, revokeSuccession, quoteProbeStatsSnapshot, removeOrigin, restoreOrigin, listRemovedOrigins, isRemovedOrigin, REMOVED_ORIGIN_ERROR } from "./x402-index.js";
+import { allPayToOrigins, indexSnapshot, indexCacheVersion, crawlInProgress, sellerDetail, sellerEntry, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories, bazaarQualityEntries, bazaarQualityFor, indexWarmStartInProgress, indexReadiness, quoteIsStale, priceDisagreesWithOrigin, networksNeedLiveVerify, looksLikeListingInjection, crawlToolsByOrigin, listSuccessions, revokeSuccession, quoteProbeStatsSnapshot, removeOrigin, restoreOrigin, listRemovedOrigins, isRemovedOrigin, REMOVED_ORIGIN_ERROR } from "./x402-index.js";
 import { startMppCrawler, registerMppOrigin, validateOriginInput as validateMppOriginInput, mppIndexSnapshot } from "./mpp-index.js";
 import { startMppLeaderboard, mppLeaderboardSnapshot } from "./mpp-leaderboard.js";
 import { tempoSelfRecipient, tempoDiscoveryInfo, tempoEnabled } from "./mpp-tempo.js";
@@ -1928,6 +1928,22 @@ app.disable("x-powered-by");
 // attacker-supplied XFF value. This is what the per-IP rate limiters key on,
 // so spoofing it must not mint a fresh bucket. Tune for other topologies.
 app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS) || 1);
+// Server-side memo for public surfaces whose body is built from SQLite
+// aggregates (revenue, sales, status, proof). A Cache-Control header only
+// asks browsers to reuse a response; every crawler and bot hit still rebuilt
+// the body on the one thread, and /api/revenue/daily alone measured ~1.9 s per
+// build on a production-sized ledger (2026-09-25). Keys are a fixed set, so
+// the map cannot grow; a failed build is not cached.
+const surfaceMemo = new Map();
+function memoSurface(key, ttlMs, build) {
+  const hit = surfaceMemo.get(key);
+  const now = Date.now();
+  if (hit && now - hit.at < ttlMs) return hit.value;
+  const value = build();
+  surfaceMemo.set(key, { at: now, value });
+  return value;
+}
+function dropSurface(prefix) { for (const k of surfaceMemo.keys()) if (k.startsWith(prefix)) surfaceMemo.delete(k); }
 // Per-route server time (compute vs upstream wait) and the in-flight list a
 // [loop-lag] line names. Route keys are catalog routes or the first two path
 // segments - never a query string or a value.
@@ -3010,8 +3026,8 @@ app.get("/api/reports/sample/:product", (req, res) => {
 app.get("/markets", (_req, res) => htmlCache(res, 300, 900).send(marketsPage(BASE_URL, CATALOG)));
 // Receipts: the metered tier's settled-under-quote proof, aggregates + one
 // latest external and one latest internal row with settle tx (no payer).
-app.get("/api/proof", (_req, res) => { res.set("Cache-Control", "public, max-age=60"); res.json(proofFeed()); });
-app.get("/proof", (_req, res) => htmlCache(res, 60, 300).send(proofPage(BASE_URL, proofFeed(), standingFigures())));
+app.get("/api/proof", (_req, res) => { res.set("Cache-Control", "public, max-age=60"); res.json(memoSurface("proof:feed", 60_000, () => proofFeed())); });
+app.get("/proof", (_req, res) => htmlCache(res, 60, 300).send(proofPage(BASE_URL, memoSurface("proof:feed", 60_000, () => proofFeed()), standingFigures())));
 app.get("/glossary", (_req, res) => htmlCache(res, 300, 900).send(glossaryPage(BASE_URL)));
 // x402 & MPP 101 - the presenter-mode walkthrough with the live demo (src/x402-101.js).
 app.get("/101", (_req, res) => htmlCache(res, 300, 900).send(x402101Page(BASE_URL)));
@@ -3089,7 +3105,8 @@ if (process.env.X402_SYNC_ON_START !== "false" && GATEWAY_TOOLS_ENABLED.some((t)
 app.get("/api/revenue", async (_req, res) => {
   try {
     const snap = await revenueSnapshot(revenueWallets());
-    res.set("Cache-Control", "public, max-age=30").json({ ...snap, allTime: ledgerSummary(revenueWallets()), sales: salesSummary() });
+    const ledger = memoSurface("revenue:allTime", 60_000, () => ({ allTime: ledgerSummary(revenueWallets()), sales: salesSummary() }));
+    res.set("Cache-Control", "public, max-age=30").json({ ...snap, ...ledger });
   } catch (e) {
     res.status(500).json({ error: "revenue snapshot failed", detail: String(e?.message || e).slice(0, 120) });
   }
@@ -3103,8 +3120,9 @@ app.get("/api/revenue/daily", (_req, res) => {
     // everything before the chart epoch, and until 2026-09-22 said none of it -
     // so its own sum disagreed with /api/revenue's allTime by $92.89 with
     // nothing in either response to reconcile them.
+    const body = memoSurface("revenue:daily", 120_000, () => {
     const daily = ledgerDaily(revenueWallets(), mppTxHashes(), { withScope: true });
-    res.set("Cache-Control", "public, max-age=300").json({
+    return {
       asOf: new Date().toISOString(),
       days: daily.days,
       daysScope: daily.scope,
@@ -3123,7 +3141,9 @@ app.get("/api/revenue/daily", (_req, res) => {
       // All-time: of everyone who ever paid us, how many came back (see
       // ledgerBuyerRetention - counted in DAYS, not payments).
       retention: ledgerBuyerRetention(revenueWallets()),
+    };
     });
+    res.set("Cache-Control", "public, max-age=300").json(body);
   } catch (e) {
     res.status(500).json({ error: "daily series failed", detail: String(e?.message || e).slice(0, 120) });
   }
@@ -3153,11 +3173,11 @@ app.get("/api/calls/daily", (_req, res) => {
 // dollars, unlike the free-tier lane, since a Tempo settlement is real money.
 app.get("/api/revenue/tempo-daily", (_req, res) => {
   try {
-    res.set("Cache-Control", "public, max-age=60").json({
+    res.set("Cache-Control", "public, max-age=60").json(memoSurface("revenue:tempo-daily", 60_000, () => ({
       asOf: new Date().toISOString(),
       recordingSince: tempoDailyRecordingSince(),
       days: tempoDailyRevenue(),
-    });
+    })));
   } catch (e) {
     res.status(500).json({ error: "tempo daily revenue failed", detail: String(e?.message || e).slice(0, 120) });
   }
@@ -3173,7 +3193,7 @@ app.get("/api/revenue/mpp", (req, res) => {
     const authed = operatorAuthed(req);
     res.set("Cache-Control", authed ? "no-store, private" : "public, max-age=60")
       .set("Vary", "Cookie, Authorization")
-      .json(mppSales({ detailed: authed }));
+      .json(authed ? mppSales({ detailed: true }) : memoSurface("revenue:mpp", 60_000, () => mppSales({ detailed: false })));
   } catch (e) {
     res.status(500).json({ error: "mpp settlements failed", detail: String(e?.message || e).slice(0, 120) });
   }
@@ -3185,7 +3205,8 @@ app.get("/revenue", async (_req, res) => {
     // than typed into the copy: a framing paragraph that goes stale is worse
     // than none, because it is the sentence asking to be trusted.
     const idx = getIndexSnapshot()?.totals || {};
-    res.set("Cache-Control", "public, max-age=30").type("html").send(revenuePage(BASE_URL, { ...snap, allTime: ledgerSummary(revenueWallets()), mpp: mppSales({ detailed: false }), card: cardSales({ days: 30 }), agents: ledgerBuyerConcentration(revenueWallets()), standing: { sellers: idx.sellers, listings: idx.tools, rails: settlementRailCount() } }));
+    const ledger = memoSurface("revenue:page-ledger", 60_000, () => ({ allTime: ledgerSummary(revenueWallets()), mpp: mppSales({ detailed: false }), card: cardSales({ days: 30 }), agents: ledgerBuyerConcentration(revenueWallets()) }));
+    res.set("Cache-Control", "public, max-age=30").type("html").send(revenuePage(BASE_URL, { ...snap, ...ledger, standing: { sellers: idx.sellers, listings: idx.tools, rails: settlementRailCount() } }));
   } catch (e) {
     if (e?.snapshotWarming) {
       res.status(200).type("html").send('<!doctype html><meta http-equiv="refresh" content="6"><title>Transactions</title><body style="font-family:system-ui,sans-serif;max-width:560px;margin:12vh auto;padding:0 24px;color:#14201b"><h2 style="font-weight:500">Warming up…</h2><p style="color:#5d675f">The live on-chain transaction view is loading for the first time since a deploy. It refreshes here automatically in a few seconds.</p><p><a href="/" style="color:#15654a">Home</a></p></body>');
@@ -3676,7 +3697,7 @@ app.post("/__operator/monitors/run", (req, res) => {
 // analyzed per-tool layer is the paid bestsellers tool.
 app.get("/api/sales", (_req, res) => {
   try {
-    res.set("Cache-Control", "public, max-age=60").json(salesSummary());
+    res.set("Cache-Control", "public, max-age=60").json(memoSurface("sales:summary", 60_000, () => salesSummary()));
   } catch (err) {
     // Public route: a SQLite failure message names the ledger's absolute
     // path — log it, answer generically (leak audit 2026-08-18).
@@ -3906,13 +3927,22 @@ async function statusLive() {
     return { gateway: gateway?.status || null, upstreamBuyer: upstreamBuyer?.status || null, upstreamBuyerAvm: upstreamBuyerAvm?.status || null, upstreamBuyerTempo: upstreamBuyerTempo?.status || null };
   } catch { return {}; }
 }
+// One status snapshot per 30 s for /status, /api/status and /api/reliability
+// (~170 ms per build on 30 days of probes, polled by our own observers); a new
+// probe write drops it so the next read reflects the observation at once.
+async function cachedStatusSnapshot() {
+  const hit = surfaceMemo.get("status:snapshot");
+  if (hit && Date.now() - hit.at < 30_000) return hit.value;
+  const live = await statusLive();
+  return memoSurface("status:snapshot", 0, () => statusSnapshot({ baseUrl: BASE_URL, live }));
+}
 app.get("/status", async (_req, res) => {
   const stats = getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES });
-  const snap = statusSnapshot({ baseUrl: BASE_URL, live: await statusLive() });
+  const snap = await cachedStatusSnapshot();
   htmlCache(res, 60, 300).send(statusPage(BASE_URL, stats, snap));
 });
 app.get("/api/status", async (_req, res) => {
-  res.set("Cache-Control", "public, max-age=60").json(statusSnapshot({ baseUrl: BASE_URL, live: await statusLive() }));
+  res.set("Cache-Control", "public, max-age=60").json(await cachedStatusSnapshot());
 });
 // Probe intake. Authenticated because it writes the record that /status is
 // built from — an open endpoint would let anyone forge our uptime history.
@@ -3921,6 +3951,7 @@ app.get("/api/status", async (_req, res) => {
 // credential that also reaches /__operator/refunds/update and friends.
 app.post("/api/status/probe", express.json({ limit: "256kb" }), (req, res) => {
   if (!statusProbeAuthed(req)) return res.status(404).json({ error: "Not found" });
+  dropSurface("status:");
   const body = req.body || {};
   const rows = [];
   const push = (component, ok, detail, ts, url) => {
@@ -4961,7 +4992,7 @@ app.get("/api/rails", (_req, res) => {
 app.get("/api/reliability", async (_req, res) =>
   res.json(reliabilityReport({
     baseUrl: BASE_URL, network: NETWORK, wallet: WALLET_ADDRESS,
-    observedStatus: await (async () => { try { return statusSnapshot({ baseUrl: BASE_URL, live: await statusLive() }).overall; } catch { return null; } })(),
+    observedStatus: await (async () => { try { return (await cachedStatusSnapshot()).overall; } catch { return null; } })(),
     stats: getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }),
   }))
 );
@@ -5319,13 +5350,26 @@ const indexCtx = () => ({
 const INDEX_SNAPSHOT_TTL_MS = 30_000;
 let indexSnapshotCache = { at: 0, value: null };
 let indexSnapshotRefreshing = false;
+// Rebuilt only when the crawl cache has changed, and at most every
+// INDEX_SNAPSHOT_CRAWL_TTL_MS while a crawl is replacing entries: each build
+// walks every seller (measured 46-72 ms locally, several times that on the
+// production container) and used to run every 30 s under any page traffic.
+const INDEX_SNAPSHOT_CRAWL_TTL_MS = 120_000;
+function indexSnapshotStale() {
+  const age = Date.now() - indexSnapshotCache.at;
+  if (age < INDEX_SNAPSHOT_TTL_MS) return false;
+  if (indexSnapshotCache.version === indexCacheVersion()) return false;
+  if (crawlInProgress() && age < INDEX_SNAPSHOT_CRAWL_TTL_MS) return false;
+  return true;
+}
 function refreshIndexSnapshotInBackground() {
   if (indexSnapshotRefreshing) return;
   indexSnapshotRefreshing = true;
   // setImmediate so the current request returns before we recompute.
   setImmediate(() => {
     try {
-      indexSnapshotCache = { at: Date.now(), value: indexSnapshot(indexCtx()) };
+      const version = indexCacheVersion();
+      indexSnapshotCache = { at: Date.now(), value: indexSnapshot(indexCtx()), version };
     } catch (e) {
       // Don't poison the cache on a transient error — leave the prior value.
     } finally {
@@ -5358,12 +5402,10 @@ function getIndexSnapshot() {
     // half-loaded ecosystem must never be pinned for half a minute.
     const value = indexSnapshot(indexCtx());
     if (indexWarmStartInProgress()) return value;
-    indexSnapshotCache = { at: Date.now(), value };
+    indexSnapshotCache = { at: Date.now(), value, version: indexCacheVersion() };
     return indexSnapshotCache.value;
   }
-  if (Date.now() - indexSnapshotCache.at >= INDEX_SNAPSHOT_TTL_MS) {
-    refreshIndexSnapshotInBackground();
-  }
+  if (indexSnapshotStale()) refreshIndexSnapshotInBackground();
   return indexSnapshotCache.value;
 }
 // Wire the nav/footer "by chain" dropdown + column to live data — cheap (the
@@ -5748,7 +5790,10 @@ for (const chainKey of Object.keys(SNAPSHOT_RAIL_LABEL)) {
         scanWallet ? getActivityForChain(chainKey, scanWallet, { maxWaitMs: PAGE_ACTIVITY_WAIT_MS }) : Promise.resolve(null),
       ]);
       const rail = revSnap?.rails?.find((r) => r.rail === SNAPSHOT_RAIL_LABEL[chainKey]) || null;
-      htmlCache(res, 120, 600).send(marketPage(chainKey, BASE_URL, { snapshot: withDispatchSnapshot(snapshot), rail, activity, selectedSeller, wallet: rail?.wallet || undefined, leaderboardSnap: getLeaderboardSnapshot(), all: req.query.all === "1" , host: hostEntryFigures(chainKey) }));
+      const render = () => marketPage(chainKey, BASE_URL, { snapshot: withDispatchSnapshot(snapshot), rail, activity, selectedSeller, wallet: rail?.wallet || undefined, leaderboardSnap: getLeaderboardSnapshot(), all: req.query.all === "1" , host: hostEntryFigures(chainKey) });
+      // The rendered page is cached for 60 s (it re-labels and re-renders every
+      // seller); a ?seller= view is caller-keyed and stays per request.
+      htmlCache(res, 120, 600).send(req.query.seller ? render() : memoSurface(`market:${chainKey}:${req.query.all === "1"}`, 60_000, render));
     } catch (e) {
       res.status(500).type("text/plain").send("temporarily unavailable");
     }
@@ -5875,7 +5920,7 @@ app.get("/marketplace", async (req, res) => {
   try { leaderboardSnap = getLeaderboardSnapshot(); } catch { /* directory still renders */ }
   let economySnap = null;
   try { economySnap = await x402EconomySnapshot(); } catch { /* strip omitted */ }
-  htmlCache(res, 120, 600).send(marketPage(null, BASE_URL, { snapshot: withDispatchSnapshot(snapshot), leaderboardSnap, economySnap, all: req.query.all === "1", wallet: WALLET_ADDRESS, host: hostEntryFigures() }));
+  htmlCache(res, 120, 600).send(memoSurface(`market:all:${req.query.all === "1"}`, 60_000, () => marketPage(null, BASE_URL, { snapshot: withDispatchSnapshot(snapshot), leaderboardSnap, economySnap, all: req.query.all === "1", wallet: WALLET_ADDRESS, host: hostEntryFigures() })));
 });
 // The host's own entry for the discovery surfaces: external-only ledger
 // figures, rendered outside every ranking and count (src/host-entry.js).
@@ -6993,7 +7038,8 @@ function settledOnChainCount() {
     // railThroughput is the /revenue hero's own arithmetic: on-chain inbound
     // plus Tempo MPP once, never Base/Celo MPP (already on-chain).
     const n = railThroughput({ allTime: ledgerSummary(revenueWallets()), mpp: mppSales({ detailed: false }) }).total;
-    if (n > 0) __settledMemo = { at: Date.now(), n };
+    // Stored even at 0: an empty ledger used to recompute on every homepage hit.
+    if (n >= 0) __settledMemo = { at: Date.now(), n };
   } catch { /* keep serving the last good count */ }
   return __settledMemo.n;
 }
