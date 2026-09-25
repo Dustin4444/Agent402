@@ -365,5 +365,33 @@ JSON.parse(JSON.stringify(findTools(CATALOG, "extract", { baseUrl: "https://agen
     `"latest news about…" → search-news (got ${top1("latest news about the Federal Reserve")})`);
 }
 
+// A wish-board phrase (2026-09-25) that missed the uuid tool: "time" and
+// "captcha" outranked it until uuid carried its identifier aliases and tags.
+{
+  const { KIT } = await import("../src/tools/kit.js");
+  const kitCatalog = Object.fromEntries(KIT.map((t) => [t.route, t]));
+  const first = (q) => findTools(kitCatalog, q, { baseUrl: "https://agent402.tools", powSlugs: new Set() }).results?.[0]?.slug;
+  ok(first("generate time-ordered unique identifiers") === "uuid", `"generate time-ordered unique identifiers" -> uuid (got ${first("generate time-ordered unique identifiers")})`);
+  ok(first("uuid v7") === "uuid", `"uuid v7" -> uuid (got ${first("uuid v7")})`);
+  // A curated alias scores like a word of the slug (2026-09-25): at +1 in the
+  // haystack "md5" ranked hash below hex/checksum although hash carries it.
+  ok(first("compute md5 hex digest of a string") === "hash", `"compute md5 hex digest of a string" -> hash (got ${first("compute md5 hex digest of a string")})`);
+}
+{
+  // A multi-word alias counts only when EVERY word is in the query: one generic
+  // word ("chat", "image") must not let an alias outrank a tool's own name.
+  const cat = {
+    "POST /api/a": { name: "Chat completions - pro tier", slug: "v1-chat-pro", category: "ai", price: "$0.1", description: "Pro chat.", tags: ["chat"], discovery: { example: {} } },
+    "POST /api/b": { name: "Nano chat", slug: "v1-chat-nano", aliases: ["chat-completions-nano-tier"], category: "ai", price: "$0.003", description: "Nano chat.", tags: ["chat"], discovery: { example: {} } },
+    "POST /api/c": { name: "Wayback snapshot", slug: "archive-snapshot", aliases: ["website-history"], category: "web", price: "$0.003", description: "Archived page.", tags: ["archive"], discovery: { example: {} } },
+    "POST /api/d": { name: "Crypto history", slug: "crypto-history", category: "crypto", price: "$0.003", description: "Price history for a coin.", tags: ["crypto"], discovery: { example: {} } },
+    "POST /api/e": { name: "Uptime check", slug: "http-check", category: "web", price: "$0.001", description: "Is a website up right now.", tags: ["uptime"], discovery: { example: {} } },
+  };
+  const top = (q) => findTools(cat, q, { baseUrl: "https://agent402.tools", powSlugs: new Set() }).results?.[0]?.slug;
+  ok(top("chat completions pro tier") === "v1-chat-pro", `a partial alias match does not beat the tool's own name (got ${top("chat completions pro tier")})`);
+  ok(top("website history") === "archive-snapshot", `a full multi-word alias match counts (got ${top("website history")})`);
+  ok(top("is my website up") === "http-check", `one word of a multi-word alias ("website") earns nothing (got ${top("is my website up")})`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

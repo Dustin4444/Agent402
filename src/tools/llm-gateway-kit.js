@@ -838,6 +838,7 @@ export const MODEL_COST = [
   // them at cost instead of the tier bound).
   ["mistralai/ministral-8b-2512", { prompt: 0.165, completion: 0.165 }], // live endpoints 2026-09-18
   ["mistralai/ministral-3b-2512", { prompt: 0.11, completion: 0.11 }],
+  ["mistralai/mistral-medium-3-5", { prompt: 2.2, completion: 8.25 }], // dearest endpoint (mistral/eu) 2026-09-25
   ["openai/gpt-5.6-luna", { prompt: 0.22, completion: 1.32 }], // live endpoints 2026-09-18
   // gpt-5-pro / gpt-5-image (+ -mini, :batch) sit under the "openai/gpt-5"
   // prefix at far higher rates - explicit so the family rate never prices them

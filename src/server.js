@@ -5022,13 +5022,24 @@ const wishServedScore = (text) => {
 // /api/find stays catalog-only in its `results` by design - external rows are
 // /api/route's job - so this decides a HINT, never a result row. Best-effort:
 // if the router throws, a miss stays a miss.
+// Remembered per normalized query: the same phrasing recurs (agents retry,
+// scanners loop), and each answer costs a full external route query.
+const EXTERNAL_SERVES_TTL_MS = 10 * 60_000;
+const externalServesMemo = new Map(); // normalized q -> { at, val }
 const externalServes = (q) => {
   const qStr = String(q ?? "").trim();
   if (!qStr) return false;
+  const key = qStr.toLowerCase().replace(/\s+/g, " ").slice(0, 300);
+  const hit = externalServesMemo.get(key);
+  if (hit && Date.now() - hit.at < EXTERNAL_SERVES_TTL_MS) return hit.val;
+  let val = false;
   try {
     const { results } = routeQuery({ query: qStr, top: 3, include: "external", ...indexCtx() });
-    return (results || []).some((r) => r && r.seller);
+    val = (results || []).some((r) => r && r.seller);
   } catch { return false; }
+  if (externalServesMemo.size >= 2000) externalServesMemo.delete(externalServesMemo.keys().next().value);
+  externalServesMemo.set(key, { at: Date.now(), val });
+  return val;
 };
 const computeFind = (q, k) => {
   const result = findTools(CATALOG, q, { k, baseUrl: BASE_URL, powSlugs: POW_SLUGS });
@@ -5158,6 +5169,16 @@ function requestShape(req) {
     return [...keys];
   } catch { return []; }
 }
+// Uncached discovery computes (/api/find, /api/route) run on the main thread.
+// A single client firing distinct queries in parallel froze the server for
+// 3-18 s at a time and timed out payment relays (2026-09-25), so each client
+// gets a budget of uncached computes; cache hits never count. Our own signed
+// probes and loopback callers (the MCP connector) are exempt.
+const discoveryComputeLimiter = createRateLimiter("discovery-compute", {
+  perMin: Number(process.env.DISCOVERY_COMPUTE_PER_MIN) || 30,
+  perHour: Number(process.env.DISCOVERY_COMPUTE_PER_HOUR) || 600,
+});
+const isLoopbackIp = (ip) => ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
 async function serveCachedDiscovery(path, policy, input, computeFn, analyticsSlug, req, res) {
   const startedAt = Date.now();
   const synthetic = isSyntheticRequest(req);
@@ -5176,7 +5197,19 @@ async function serveCachedDiscovery(path, policy, input, computeFn, analyticsSlu
         return res.json(hit);
       }
     }
+    if (!synthetic && !isLoopbackIp(clientIp(req)) && discoveryComputeLimiter.check(clientIp(req)).limited) {
+      status = 429;
+      res.set("Retry-After", "60");
+      return res.status(429).json({
+        error: "Too many uncached searches",
+        detail: "Each client gets 30 uncached searches a minute and 600 an hour; repeated queries are served from cache and never count. Slow down and retry shortly.",
+        retryAfterSeconds: 60,
+      });
+    }
+    const computeStarted = Date.now();
     const result = await computeFn();   // a compute may be async (the /api/route rerank)
+    const computeMs = Date.now() - computeStarted;
+    if (computeMs > 500) console.warn(`[discovery] slow ${analyticsSlug} compute ${computeMs}ms (query ${String(input?.q ?? "").length} chars)`);
     if (policy) {
       noteCacheOutcome(cacheKey ? "miss" : "skip");
       res.setHeader("X-Cache", cacheKey ? "miss" : "skip");

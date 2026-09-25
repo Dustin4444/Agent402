@@ -428,5 +428,19 @@ try {
   restore();
 }
 
+// RugCheck answers "unable to generate report" for every mint while its report
+// builder is down (2026-09-25): that is a retryable upstream 503, never a 422
+// blaming the buyer's mint. A genuinely invalid mint still reads 422.
+{
+  const JUPM = "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN";
+  stub(async () => jsonRes({ error: "unable to generate report" }, 400));
+  await throws(h("sol-token-report")({ mint: JUPM }), 503, "rugcheck outage (400 unable to generate report) is upstream, not the mint");
+  stub(async () => jsonRes({ error: "unable to generate report" }, 404));
+  await throws(h("sol-token-report")({ mint: JUPM }), 503, "rugcheck outage (404 unable to generate report) is upstream, not the mint");
+  stub(async () => jsonRes({ error: "invalid token mint" }, 400));
+  await throws(h("sol-token-report")({ mint: JUPM }), 422, "an invalid mint still reads 422");
+  restore();
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

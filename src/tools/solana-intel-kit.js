@@ -118,7 +118,15 @@ async function upstreamJson(url, { label, method = "GET", body, notFound } = {})
   if (res.status === 404 || res.status === 400) {
     // RugCheck answers 400 {"error":"invalid token mint"} for a non-mint
     // pubkey; Jupiter quote answers 400 TOKEN_NOT_TRADABLE. Both are "we
-    // cannot say anything about this input", not a server fault.
+    // cannot say anything about this input", not a server fault. But RugCheck
+    // also answers 400/404 {"error":"unable to generate report"} for EVERY
+    // mint while its report builder is down (measured 2026-09-25 on JUP and
+    // BONK): that is its outage, not the buyer's input, so it is a retryable
+    // 503 rather than a 422 blaming the mint.
+    const errText = await res.text().then((t) => t.slice(0, 500)).catch(() => "");
+    if (/unable to generate|temporarily|try again|timeout/i.test(errText)) {
+      throw bad(`${label} could not produce a report right now (upstream) - retry shortly`, 503);
+    }
     throw bad(notFound || `${label} has no data for that input`, 422);
   }
   if (!res.ok) throw bad(`${label} refused the request (HTTP ${res.status})`, 502);

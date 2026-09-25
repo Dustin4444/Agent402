@@ -241,7 +241,7 @@ export const WEB_TOOLS = [
   {
     route: "POST /api/archive-snapshot",
     name: "Wayback Machine snapshot",
-    slug: "archive-snapshot",
+    slug: "archive-snapshot", aliases: ["wayback", "website-history", "site-history"],
     category: "web",
     price: "$0.003",
     description:

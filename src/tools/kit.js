@@ -136,7 +136,7 @@ const encodingTools = [
   {
     route: "POST /api/hash",
     name: "Hash",
-    slug: "hash",
+    slug: "hash", aliases: ["md5", "sha256", "sha-256", "sha512", "hex-digest"],
     category: "encoding",
     price: "$0.001",
     description: "Cryptographic hash of a text string (UTF-8): returns algo, hex and base64 digests. Algorithms: sha256 (default), sha512, sha1, md5. Up to 100KB of text; for every digest (plus CRC32) in one call use checksum.",
@@ -333,12 +333,12 @@ const encodingTools = [
   },
   {
     route: "GET /api/uuid",
-    name: "UUID generator",
-    slug: "uuid",
+    name: "Unique ID generator (UUID)",
+    slug: "uuid", aliases: ["unique-id", "unique-identifiers", "time-ordered-id", "sortable-id", "uuid-v7"],
     category: "identifiers",
     price: "$0.001",
     description: "Generate UUIDs: returns version and uuids[] (lowercase, hyphenated). ?version=4 (default, random) or 7 (time-ordered, sortable by creation time - the better choice for database keys), ?count=1..100.",
-    tags: ["uuid", "id", "generator"],
+    tags: ["uuid", "id", "identifier", "unique", "generator"],
     discovery: {
       input: { version: "7", count: "3" },
       inputSchema: {

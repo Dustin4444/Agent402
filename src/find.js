@@ -181,6 +181,9 @@ export function findTools(catalog, query, { k = 5, baseUrl = "", powSlugs } = {}
     name: (t.name || "").toLowerCase(),
     segs: new Set(t.slug.toLowerCase().split("-")),
     tagSet: new Set((t.tags || []).map((tg) => String(tg).toLowerCase())),
+    // Each alias as the words it is made of (stopwords and 1-letter parts
+    // dropped, the same filter the query terms go through).
+    aliasWords: (t.aliases || []).map((a) => String(a).toLowerCase().split(/[-\s]+/).filter((w) => w.length > 1 && !STOPWORDS.has(w))).filter((ws) => ws.length),
     // Aliases are in the haystack because /api/route already scores them and
     // the two resolvers disagreeing about the same tool is a defect a buyer
     // meets as "your search cannot find the endpoint your own URL serves".
@@ -200,9 +203,15 @@ export function findTools(catalog, query, { k = 5, baseUrl = "", powSlugs } = {}
     idf.set(term, Math.max(0.25, Math.log((N + 1) / (df + 1))));
   }
 
+  const termSet = new Set(terms);
   const scored = [];
   for (const e of all) {
-    const { t, slug, name, tagSet, hay } = e;
+    const { t, slug, name, tagSet, hay, aliasWords } = e;
+    // An alias counts only when EVERY word of it is in the query: "website
+    // history" hits the alias website-history, but "chat" alone does not hit
+    // chat-completions-nano-tier. Word-by-word credit let generic aliases
+    // outrank a tool's own name.
+    const aliasHitWords = new Set(aliasWords.filter((ws) => ws.every((w) => termSet.has(w))).flat());
     // Slugs are hyphenated words, so a WHOLE segment matching a query term is a
     // real signal while an incidental substring is usually an accident:
     // "check" sits inside "checksum", "data" inside "wikidata-entity", "detect"
@@ -218,9 +227,14 @@ export function findTools(catalog, query, { k = 5, baseUrl = "", powSlugs } = {}
     let score = 0;
     for (const term of terms) {
       let s = 0;
-      if (slug === term) s += 10;
-      else if (segs.has(term)) s += 6;      // a whole word of the slug
-      else if (slug.includes(term)) s += 2; // incidental substring, kept but demoted
+      // A curated alias is a name the tool also answers to (/api/route scores
+      // it like the slug). It scores like a word of the slug, never above the
+      // tool's own exact name, and never ADDED to a slug hit (max, not sum).
+      // At +1 in the haystack an alias moved nothing: "md5" ranked `hash`
+      // below `checksum` although hash carries the alias (2026-09-25).
+      const slugPart = slug === term ? 10 : segs.has(term) ? 6 : slug.includes(term) ? 2 : 0;
+      const aliasPart = aliasHitWords.has(term) ? 6 : 0;
+      s += Math.max(slugPart, aliasPart);
       if (name.includes(term)) s += 2;
       // A curated tag is a stronger signal than a stray hit in the description.
       if (tagSet.has(term)) s += 3;

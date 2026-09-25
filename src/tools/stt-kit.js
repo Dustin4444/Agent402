@@ -217,7 +217,7 @@ export const STT_TOOLS = [
   {
     route: "POST /api/transcribe",
     name: "Speech-to-text",
-    slug: "transcribe",
+    slug: "transcribe", aliases: ["speech-to-text", "stt", "transcription"],
     category: "ai",
     price: "$0.030",
     description:
