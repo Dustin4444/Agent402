@@ -24,7 +24,13 @@ Since v2.4.0 (2026-09-18).
   built, an expired page is served at once and rebuilt in the background.
   The tool directory rebuilds in slices while the previous one serves, the
   revenue series is built across several turns, and the chain strip on every
-  page is computed once per index change.
+  page is computed once per index change. The router holds about a quarter
+  less memory for the same index (shared name tokens), so memory cleanups
+  pause the server for less time.
+- `requestContract` on index rows also reads a JSON Schema the seller declares
+  beside a route in its `/.well-known/x402` manifest (`input_schema` or
+  `inputSchema`), labeled `source: "seller_manifest"`; a contract from the
+  seller's OpenAPI document still wins.
 - The index cache is written without blocking the server: each seller is
   serialized once, in batches, where the whole cache used to be serialized
   three times in one pass.

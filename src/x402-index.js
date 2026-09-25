@@ -37,7 +37,7 @@ import { parseRobots, robotsAllows } from "./tools/kit.js";
 import { partialFields, clampFields } from "./partial-answer.js";
 import { responseContractOf, packResponseContract, responseContractProjection } from "./response-contract.js";
 import { deliveryProjection } from "./response-observation.js";
-import { requestContractOf, packRequestContract, requestContractProjection } from "./request-contract.js";
+import { requestContractOf, requestContractFromInputSchema, packRequestContract, requestContractProjection } from "./request-contract.js";
 import { toolList } from "./pages.js";
 import { fetchAllBazaarItems, isBazaarDiscoveryUrl } from "./bazaar-pager.js";
 import { RAILS, railKey, truncateCaip2 } from "./rails.js";
@@ -1833,6 +1833,7 @@ function mergeManifestToolRows(a, b) {
   const named = (n, route) => n && n !== route && !String(n).startsWith("/");
   return {
     ...prefer,
+    ...(prefer.requestContract || !other.requestContract ? {} : { requestContract: other.requestContract }),
     name: named(prefer.name, prefer.route) ? prefer.name : (named(other.name, other.route) ? other.name : prefer.name),
     description: prefer.description || other.description || "",
     price: prefer.price || other.price || null,
@@ -2212,7 +2213,7 @@ export function normaliseManifestTools(manifest, originUrl) {
 
   for (const list of catalogues) {
     for (const raw of list.slice(0, 1000)) {
-      let ref = "", name = "", description = "", price = null;
+      let ref = "", name = "", description = "", price = null, inputSchema = null;
       const methodList = [];
       // What this entry says about money, from its own accepts / flat payment
       // fields, falling back to the service-wide block. A thin string entry
@@ -2228,6 +2229,9 @@ export function normaliseManifestTools(manifest, originUrl) {
         name = String(raw.name || raw.title || raw.operationId || "").trim();
         description = String(raw.summary || raw.description || "").trim();
         price = parseManifestPrice(raw);
+        // The input schema a seller declares beside the route (issue #1503).
+        inputSchema = raw.input_schema && typeof raw.input_schema === "object" ? raw.input_schema
+          : (raw.inputSchema && typeof raw.inputSchema === "object" ? raw.inputSchema : null);
         if (raw.method && MANIFEST_HTTP_METHODS.has(String(raw.method).toUpperCase())) {
           methodList.push(String(raw.method).toUpperCase());
         } else if (Array.isArray(raw.methods)) {
@@ -2279,6 +2283,7 @@ export function normaliseManifestTools(manifest, originUrl) {
           // one derived from atomic units: it is the seller's own wording and
           // it is what `originDeclaredPrice` is stamped from below.
           price: price ?? (pay && pay.price != null ? `$${pay.price}` : null),
+          ...(() => { const packed = inputSchema ? packRequestContract(requestContractFromInputSchema(inputSchema, method || "GET")) : null; return packed ? { requestContract: packed } : {}; })(),
           ...(pay ? { networks: pay.networks, stellarPayTo: pay.stellarPayTo,
             algorandPayTo: pay.algorandPayTo, payToByNetwork: pay.payToByNetwork,
             ...(pay.evmDomainByNetwork ? { evmDomainByNetwork: pay.evmDomainByNetwork } : {}) } : {}),
@@ -2520,6 +2525,9 @@ export function mergeManifestIntoTools(manifestTools = [], existing = []) {
     }
     if (!hit.stellarPayTo && m.stellarPayTo) hit.stellarPayTo = m.stellarPayTo;
     if (!hit.algorandPayTo && m.algorandPayTo) hit.algorandPayTo = m.algorandPayTo;
+    // Blank-fill: a contract read from the seller's OpenAPI outranks one read
+    // from a manifest schema.
+    if (!hit.requestContract && m.requestContract) hit.requestContract = m.requestContract;
   };
   for (const [path, entries] of groups) {
     const indices = indicesByPath.get(path) || [];
@@ -5860,7 +5868,19 @@ const ROUTE_NETWORKS = {
 // replaced on re-crawl, never mutated. What was tens of thousands of spread
 // copies, regex passes and price parses per query is now a lookup.
 const remotePoolMemo = new WeakMap(); // entry -> decorated paid tools
-const toolStaticsMemo = new WeakMap(); // tool (local or decorated) -> { slug, name, hay, injected, priceRank }
+// Per-tool records live on the tool object under non-enumerable symbol keys
+// (never serialized, never copied by a spread) rather than in WeakMaps keyed
+// by 100k+ tools: V8 marks WeakMap entries as ephemerons, which lengthened
+// every full GC, and a lookup is slower than a property read. A tool that is
+// not extensible (a frozen catalog object) falls back to the WeakMap.
+const TOOL_STATICS = Symbol("toolStatics");
+const TOOL_HOME = Symbol("routeHome");
+const toolStaticsMemo = new WeakMap(); // fallback for non-extensible tools only
+function setHidden(obj, key, value) {
+  if (!Object.isExtensible(obj)) return false;
+  Object.defineProperty(obj, key, { value, writable: true, configurable: true, enumerable: false });
+  return true;
+}
 function decoratedRemoteTools(v) {
   let d = remotePoolMemo.get(v);
   if (d) return d;
@@ -5903,8 +5923,17 @@ function decoratedRemoteTools(v) {
   remotePoolMemo.set(v, d);
   return d;
 }
+const NO_ALIASES = Object.freeze([]); // shared by the 100k+ tools with none
+const tokenIntern = new Map();
+const TOKEN_INTERN_MAX = 500_000; // past it, tokens are kept as they come
+function internToken(tok) {
+  const hit = tokenIntern.get(tok);
+  if (hit !== undefined) return hit;
+  if (tokenIntern.size < TOKEN_INTERN_MAX) tokenIntern.set(tok, tok);
+  return tok;
+}
 function toolStatics(t) {
-  let st = toolStaticsMemo.get(t);
+  let st = t[TOOL_STATICS] || toolStaticsMemo.get(t);
   if (st) return st;
   const hay = `${t.name} ${t.description} ${t.category} ${(t.tags || []).join(" ")}`.toLowerCase();
   st = {
@@ -5929,7 +5958,7 @@ function toolStatics(t) {
     // (max over slug + aliases per term, never additive). Our asn-info IS an IP
     // geolocation tool but its slug says neither word, so "ip geolocation"
     // routed to a $0.05 external seller above our $0.003 one (2026-08-28).
-    aliases: Array.isArray(t.aliases) ? t.aliases.map((a) => String(a).toLowerCase()).filter(Boolean) : [],
+    aliases: Array.isArray(t.aliases) && t.aliases.length ? t.aliases.map((a) => String(a).toLowerCase()).filter(Boolean) : NO_ALIASES,
     // The row's own NAME in slug form ("Cron next runs" -> cron-next-runs) is an
     // implicit alias: a query that covers every word of the name is an exact
     // match for the name. Applied to EVERY row, ours and the index's alike. It
@@ -5942,8 +5971,12 @@ function toolStatics(t) {
   // Every name the slug rule scores: slug, curated aliases, the name in slug
   // form. Built once here rather than per row per query.
   st.names = [st.slug, ...st.aliases, ...(st.nameSlug ? [st.nameSlug] : [])];
-  st.nameToks = st.names.map((n) => splitTokens(n));
-  toolStaticsMemo.set(t, st);
+  // Tokens are interned: the same few thousand words ("json", "price", "api")
+  // repeat across 100k+ tools, and a private copy of each per tool was the
+  // single largest thing the router held (63 MB of 164 MB on the
+  // production-sized fixture, 2026-09-25).
+  st.nameToks = st.names.map((n) => splitTokens(n).map(internToken));
+  if (!setHidden(t, TOOL_STATICS, st)) toolStaticsMemo.set(t, st);
   return st;
 }
 // Whole-token test for a SHORT term (the "ip" rule) without tokenizing the
@@ -5994,14 +6027,13 @@ const ROUTE_INDEX_REBUILD_STALE_SHARE = 0.15;
 const ROUTE_INDEX_TERM_CACHE_MAX = 4096;
 const routeIdx = {
   postings: new Map(), // token -> tool[] (decorated remote pool objects)
-  toolHome: new WeakMap(), // tool -> { origin, v, pos }
   indexed: new WeakSet(), // entries whose pool is in `postings`
   indexedTools: 0,
   staleTools: 0,
   pending: new Map(), // origin -> entry awaiting indexing
   termCache: new Map(), // long term -> matching vocabulary tokens
   builds: 0,
-  queryStamp: 0, // per-query dedupe stamp written onto toolHome records
+  queryStamp: 0, // per-query dedupe stamp written onto each tool's home record
   shadow: null, // background rebuild in progress (see routeIndexStartShadow)
   partial: null, // live entry being indexed across slices { origin, v, pos }
 };
@@ -6039,7 +6071,6 @@ function routeIndexScheduleDrain() {
 }
 function routeIndexReset() {
   routeIdx.postings = new Map();
-  routeIdx.toolHome = new WeakMap();
   routeIdx.indexed = new WeakSet();
   routeIdx.indexedTools = 0;
   routeIdx.staleTools = 0;
@@ -6062,7 +6093,7 @@ function routeIndexAdvancePartial(until = Infinity) {
   return true;
 }
 function newRouteIndexShard() {
-  return { postings: new Map(), toolHome: new WeakMap(), indexed: new WeakSet(), indexedTools: 0 };
+  return { postings: new Map(), indexed: new WeakSet(), indexedTools: 0 };
 }
 // Index one entry's tools from `from`, stopping (and returning the position to
 // resume at) once `until` passes; returns -1 when the entry is complete. The
@@ -6071,12 +6102,14 @@ function newRouteIndexShard() {
 // holding the loop for 1.3 s (2026-09-25).
 function routeIndexAddEntry(origin, v, target = routeIdx, from = 0, until = Infinity) {
   const pool = decoratedRemoteTools(v);
-  const { postings, toolHome } = target;
+  const { postings } = target;
   for (let pos = from; pos < pool.length; pos++) {
     if (pos > from && (pos & 63) === 0 && until !== Infinity && performance.now() >= until) return pos;
     const t = pool[pos];
     const st = toolStatics(t);
-    toolHome.set(t, { origin, v, pos });
+    // The home record is a property of the tool (its entry and position in
+    // that entry's pool), the same whichever shard indexes it.
+    t[TOOL_HOME] ? Object.assign(t[TOOL_HOME], { origin, v, pos }) : setHidden(t, TOOL_HOME, { origin, v, pos });
     // Tokens of the haystack (name, description, category, tags) plus those
     // of every scored name (slug, aliases, name-as-slug), deduplicated per
     // tool so one tool sits once in each posting.
@@ -6137,7 +6170,6 @@ function routeIndexStartShadow() {
       if (shadow.indexed.has(v) && cache.get(origin) !== v) { stale += (remotePoolMemo.get(v) || []).length; shadow.indexed.delete(v); }
     }
     routeIdx.postings = shadow.postings;
-    routeIdx.toolHome = shadow.toolHome;
     routeIdx.indexed = shadow.indexed;
     routeIdx.indexedTools = shadow.indexedTools;
     routeIdx.staleTools = stale;
@@ -6385,7 +6417,7 @@ export function routeQuery({ query, top, include, networkFilter, strictNetwork =
         if (!list) continue;
         for (let i = 0; i < list.length; i++) {
           const t = list[i];
-          const home = routeIdx.toolHome.get(t);
+          const home = t[TOOL_HOME];
           if (!home || home.stamp === stamp) continue;
           home.stamp = stamp;
           let ok = entryOk.get(home.v);
@@ -6409,7 +6441,7 @@ export function routeQuery({ query, top, include, networkFilter, strictNetwork =
       for (const v of cache.values()) {
         const arr = byEntry.get(v);
         if (!arr) continue;
-        if (arr.length > 1) arr.sort((a, b) => routeIdx.toolHome.get(a).pos - routeIdx.toolHome.get(b).pos);
+        if (arr.length > 1) arr.sort((a, b) => a[TOOL_HOME].pos - b[TOOL_HOME].pos);
         for (let i = 0; i < arr.length; i++) scoreRow(arr[i]);
       }
     }
@@ -6779,6 +6811,25 @@ export function whatAgentsBuyHtml(buyRows) {
 
 
 /** Internal helper for tests. */
+/** Counts only (no values): how much crawl data the index holds, for the
+ *  operator heap read. Walks entries once; no stringify. */
+export function indexMemoryFigures() {
+  let entries = 0, tools = 0, openapiTools = 0, openapiRoutes = 0, fullManifests = 0, manifestResources = 0, slimManifests = 0;
+  for (const v of cache.values()) {
+    if (!v || typeof v !== "object") continue;
+    entries++;
+    tools += Array.isArray(v.tools) ? v.tools.length : 0;
+    openapiTools += Array.isArray(v.openapiTools) ? v.openapiTools.length : 0;
+    openapiRoutes += Array.isArray(v.openapiRoutes) ? v.openapiRoutes.length : 0;
+    if (v.manifest?.slimmed) slimManifests++;
+    else if (v.manifest && typeof v.manifest === "object") {
+      fullManifests++;
+      const r = v.manifest.resources || v.manifest.endpoints || v.manifest.tools;
+      if (Array.isArray(r)) manifestResources += r.length;
+    }
+  }
+  return { entries, tools, openapiTools, openapiRoutes, fullManifests, slimManifests, manifestResources, internedTokens: tokenIntern.size, routeIndexedTools: routeIdx.indexedTools };
+}
 export function _cacheForTests() {
   return cache;
 }

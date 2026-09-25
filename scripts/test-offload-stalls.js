@@ -54,6 +54,26 @@ const digest = (r) => createHash("sha256").update(JSON.stringify([r.total, r.mat
   ok(bg === sync, "background and synchronous builds produce the same rows in the same order");
 }
 
+// --- 1b. the router's per-tool records stay hidden, and the heap stays bounded
+{
+  x.warmRouteIndex();
+  const rq = x.routeQuery ? null : null; void rq;
+  const v = [...cache.values()].find((e) => (e.tools || []).length > 3);
+  const snapshot = JSON.stringify(v.tools[0]);
+  ok(!/toolStatics|routeHome/.test(snapshot) && Object.getOwnPropertySymbols(v.tools[0]).length === 0, "the crawled tool objects are untouched by the router");
+  const figs = x.indexMemoryFigures();
+  ok(figs.routeIndexedTools > 100_000 && figs.internedTokens > 0 && figs.internedTokens < figs.routeIndexedTools, `name tokens are interned (${figs.internedTokens} distinct across ${figs.routeIndexedTools} tools)`);
+  {
+    // CI runs without --expose-gc; enable it here so the ceiling is never skipped.
+    const v8 = await import("node:v8"); const vm = await import("node:vm");
+    v8.setFlagsFromString("--expose-gc");
+    const gc = globalThis.gc || vm.runInNewContext("gc");
+    gc(); gc();
+    const heapMb = Math.round(process.memoryUsage().heapUsed / 1048576);
+    ok(heapMb < Number(process.env.OFFLOAD_HEAP_MB || 520), `the production-sized index, router and directory fit under the heap ceiling (${heapMb} MB)`);
+  }
+}
+
 // --- 2 + 3. source pins
 {
   const srv = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
@@ -61,6 +81,9 @@ const digest = (r) => createHash("sha256").update(JSON.stringify([r.total, r.mat
   ok((fn.match(/await turn\(\)/g) || []).length >= 5, "the /revenue series yields the event loop between each figure");
   ok(/memoSurfaceAsync\("revenue:daily"/.test(srv), "the /revenue series is served stale while it rebuilds");
   ok(/const events = externalPaymentEventsFor\(w\)/.test(fn) && (fn.match(/\{ events \}/g) || []).length === 5, "the five buyer figures share one read of the payment history");
+  ok(/app\.get\("\/__operator\/heap\.json"[\s\S]{0,120}operatorAuthed\(req\)/.test(srv), "the heap read is operator-authed");
+  const idx = readFileSync(new URL("../src/x402-index.js", import.meta.url), "utf8");
+  ok(/enumerable: false/.test(idx) && !/toolHome: new WeakMap/.test(idx), "per-tool router records are hidden properties, not WeakMap entries");
   ok(/navChainsMemo\.snapshot === snapshot && navChainsMemo\.board === \(board\?\.leaderboard \|\| null\)/.test(srv), "the chain strip is memoized on the index snapshot and the leaderboard rows");
 }
 

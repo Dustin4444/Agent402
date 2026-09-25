@@ -134,12 +134,47 @@ export function requestContractOf(operation) {
   return { state, source: "seller_openapi", required, runtimeVerified: false };
 }
 
+/**
+ * The same contract, read from a JSON Schema a seller declares beside a route
+ * in its /.well-known/x402 manifest (`input_schema` / `inputSchema`). The
+ * manifest does not say where the fields go, so a GET/HEAD/DELETE route's
+ * top-level required names are query parameters and any other verb's are the
+ * JSON body (nested required objects walked, as on the OpenAPI side).
+ */
+export function requestContractFromInputSchema(schema, method = "POST") {
+  const unknown = { state: "unknown", source: "seller_manifest", required: {}, runtimeVerified: false };
+  if (!isRecord(schema)) return unknown;
+  if (hasUnsupported(schema)) return { state: "partial", source: "seller_manifest", required: {}, runtimeVerified: false };
+  const required = {};
+  let partial = false;
+  if (["GET", "HEAD", "DELETE"].includes(String(method).toUpperCase())) {
+    const names = [];
+    for (const raw of Array.isArray(schema.required) ? schema.required : []) {
+      const n = safeName(typeof raw === "string" ? raw.trim() : "");
+      if (!n) { partial = true; continue; }
+      if (names.length >= MAX_PER_LOCATION) { partial = true; break; }
+      if (!names.includes(n)) names.push(n);
+    }
+    if (names.length) required.query = names;
+  } else {
+    const walk = requiredBodyPaths(schema);
+    if (walk.truncated) partial = true;
+    else if (walk.paths.length) required.body = walk.paths;
+  }
+  const any = Object.keys(required).length > 0;
+  return { state: any ? (partial ? "partial" : "declared") : (partial ? "partial" : "absent"), source: "seller_manifest", required, runtimeVerified: false };
+}
+
+const SOURCES = new Set(["seller_openapi", "seller_manifest"]);
+
 /** Compact tuple for the crawl cache. `absent` and `unknown` store nothing:
  *  the projection reconstructs "unknown" from the missing row, which is the
  *  honest default for a row we have no evidence about. */
 export function packRequestContract(c) {
   if (!c || c.state === "absent" || c.state === "unknown") return null;
-  return [c.state, c.required];
+  // A third element names a source other than OpenAPI; two elements stay the
+  // OpenAPI form every cache written before it holds.
+  return c.source && c.source !== "seller_openapi" ? [c.state, c.required, c.source] : [c.state, c.required];
 }
 
 export function unpackRequestContract(t) {
@@ -152,8 +187,10 @@ export function unpackRequestContract(t) {
     return null;
   }
   const v = descriptor && "value" in descriptor ? descriptor.value : undefined;
-  if (!Array.isArray(v) || v.length !== 2) return null;
+  if (!Array.isArray(v) || (v.length !== 2 && v.length !== 3)) return null;
   const [state, required] = v;
+  const source = v.length === 3 ? v[2] : "seller_openapi";
+  if (!SOURCES.has(source)) return null;
   if (state !== "declared" && state !== "partial") return null;
   if (!isRecord(required)) return null;
   const clean = {};
@@ -167,7 +204,7 @@ export function unpackRequestContract(t) {
       .filter(Boolean).slice(0, MAX_PER_LOCATION);
     if (safe.length) clean[loc] = safe;
   }
-  return { state, source: "seller_openapi", required: clean, runtimeVerified: false };
+  return { state, source, required: clean, runtimeVerified: false };
 }
 
 /** Spread into a public tool row, or nothing. */
