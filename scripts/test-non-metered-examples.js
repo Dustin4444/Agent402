@@ -315,18 +315,24 @@ function isClientTimeoutFlake(status, body, threw) {
 // upstream directly either; if the direct probe answers, the tool failing is
 // ours and it fails. One probe per label per run.
 const RUNNER_PROBES = {
-  RugCheck: "https://api.rugcheck.xyz/v1/tokens/So11111111111111111111111111111111111111112/report/summary",
+  // The exact request sol-token-safety's published example makes (JUP summary).
+  RugCheck: "https://api.rugcheck.xyz/v1/tokens/JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN/report/summary",
 };
 export function runnerProbeLabel(status, body) {
   if (status !== 504) return null;
   const m = /^(\w+) upstream timed out/.exec(String(body?.error || ""));
   return m && RUNNER_PROBES[m[1]] ? m[1] : null;
 }
+const RUNNER_PROBE_UA = "Mozilla/5.0 (compatible; Agent402/1.0; +https://agent402.tools)";
 const runnerProbeMemo = new Map();
 function upstreamAnswersRunner(label) {
   if (!runnerProbeMemo.has(label)) {
-    runnerProbeMemo.set(label, fetch(RUNNER_PROBES[label], { signal: AbortSignal.timeout(10_000) })
-      .then((res) => res.status < 500).catch(() => false));
+    // The same User-Agent the tool sends: an upstream that refuses our
+    // identity from this runner must read as refusing, not as answering.
+    const t0 = Date.now();
+    runnerProbeMemo.set(label, fetch(RUNNER_PROBES[label], { headers: { "User-Agent": RUNNER_PROBE_UA, Accept: "application/json" }, signal: AbortSignal.timeout(10_000) })
+      .then((res) => { console.log(`\n# runner probe ${label}: HTTP ${res.status} in ${Date.now() - t0} ms`); return res.status < 500; })
+      .catch((e) => { console.log(`\n# runner probe ${label}: ${e?.name || "error"} after ${Date.now() - t0} ms`); return false; }));
   }
   return runnerProbeMemo.get(label);
 }
