@@ -136,7 +136,7 @@ const encodingTools = [
   {
     route: "POST /api/hash",
     name: "Hash",
-    slug: "hash",
+    slug: "hash", aliases: ["md5", "sha256", "sha-256", "sha512", "hex-digest"],
     category: "encoding",
     price: "$0.001",
     description: "Cryptographic hash of a text string (UTF-8): returns algo, hex and base64 digests. Algorithms: sha256 (default), sha512, sha1, md5. Up to 100KB of text; for every digest (plus CRC32) in one call use checksum.",

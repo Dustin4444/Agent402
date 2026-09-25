@@ -621,7 +621,7 @@ export const NETWORK_TOOLS2 = [
     route: "POST /api/asn-info",
     name: "ASN + IP geolocation",
     slug: "asn-info",
-    aliases: ["ip-geolocation", "geoip", "ip-lookup"],
+    aliases: ["ip-geolocation", "geoip", "ip-lookup", "geolocate-ip", "ip-location"],
     category: "network",
     price: "$0.001",
     description:

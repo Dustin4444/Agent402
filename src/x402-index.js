@@ -5333,7 +5333,23 @@ export function allSolanaPayToOrigins() {
   return out;
 }
 
+// Rebuilt from the whole crawl cache (alias detection plus a projection of
+// every routable seller), and read two or more times by every /api/find and
+// /api/route call. On production's cache that rebuild is far from free, and a
+// burst of searches spent the event loop on it (2026-09-25: 3-18 s stalls that
+// timed out payment relays). Memoized briefly; a change in the cache size
+// invalidates at once, and the TTL bounds how stale a changed entry can read.
+const ROUTABLE_SUMMARY_TTL_MS = Number(process.env.ROUTABLE_SUMMARY_TTL_MS) || 30_000;
+let routableSummaryMemo = null; // { at, size, out }
 export function routableSellerSummaries() {
+  const now = Date.now();
+  if (routableSummaryMemo && routableSummaryMemo.size === cache.size && now - routableSummaryMemo.at < ROUTABLE_SUMMARY_TTL_MS) return routableSummaryMemo.out;
+  const out = buildRoutableSellerSummaries();
+  routableSummaryMemo = { at: now, size: cache.size, out: Object.freeze(out) };
+  return routableSummaryMemo.out;
+}
+export function __resetRoutableSummaryMemoForTest() { routableSummaryMemo = null; }
+function buildRoutableSellerSummaries() {
   const out = [];
   const aliasOrigins = computeAliasOrigins(cache);
   for (const [origin, v] of cache.entries()) {
