@@ -278,6 +278,20 @@ JSON.parse(JSON.stringify(findTools(CATALOG, "extract", { baseUrl: "https://agen
   ok(viaTag.results[0].slug === "keep", `tag-only query resolves (got ${viaTag.results[0]?.slug})`);
   ok(viaTag.rarestTermCovered === true,
     `a match that lives only in a TAG counts as covered - the check reads the catalog record, not the API response, which omits tags (rarest=${viaTag.rarestTerm})`);
+
+  // An incidental word no tool mentions must not turn a right answer into a
+  // miss. 346 of 359 live board clusters on 2026-09-25 were queries like
+  // "decode jwt token and extract claims" where the top hit was the tool.
+  const J = { ...C, "POST /api/jwt-decode": { name: "JWT decode", slug: "jwt-decode", category: "encoding", price: "$0.001", description: "Decode a JWT and extract its header and payload.", tags: ["jwt", "token"], discovery: {} } };
+  const incidental = findTools(J, "decode jwt token and extract claims", { baseUrl: "https://agent402.tools" });
+  ok(incidental.results[0].slug === "jwt-decode" && incidental.rarestTerm === "claims", `the rarest term is an incidental word (${incidental.rarestTerm})`);
+  ok(incidental.rarestTermCovered === true, `...and the top hit covering most of the query in its own name counts as served (share ${incidental.coverageShare})`);
+  // Description-only overlap is not enough: the covered terms must touch the
+  // top hit's slug or name.
+  const D = { ...C, "POST /api/jobs": { name: "Unemployment rate", slug: "unemployment-rate", category: "macro", price: "$0.005", description: "US jobs data: unemployment rate and payrolls.", tags: ["labor"], discovery: {} } };
+  const descOnly = findTools(D, "excel data jobs", { baseUrl: "https://agent402.tools" });
+  ok(descOnly.rarestTermCovered === false, `a description-only overlap with an uncovered defining word stays a miss (top ${descOnly.results[0]?.slug})`);
+  ok(f("call my mother").rarestTermCovered === false, "one covered word is still a miss (call my mother)");
 }
 
 // --- The catalog must answer in the ASKER's vocabulary ----------------------

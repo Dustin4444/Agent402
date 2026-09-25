@@ -13,6 +13,10 @@ Since v2.4.0 (2026-09-18).
   "the") no longer pull most of the index into every search, one request
   scores its query once, and the index rebuild after each crawl runs in the
   background in short slices instead of blocking the server.
+- `/api/find` no longer flags a correct answer as a miss because the query
+  carries a word no tool mentions ("claims" in "decode jwt token and extract
+  claims"): the top result counts as served when it covers at least two
+  query terms, half the query's weight, and one term in its own slug or name.
 - Seller index: request and response contracts are read through local OpenAPI
   references (`#/components/...`), so a FastAPI seller's required fields and
   guaranteed response paths show as declared instead of partial.
