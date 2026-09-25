@@ -60,6 +60,26 @@ const { longestBusyRun, startStallProfiler } = await import("../src/stall-profil
   process.env.STALL_PROFILER = "off";
   ok(typeof startStallProfiler() === "function", "STALL_PROFILER=off returns a no-op stop");
   delete process.env.STALL_PROFILER;
+  // profileOnce: one short window, one at a time.
+  const { profileOnce } = await import("../src/stall-profiler.js");
+  const logs = [];
+  const keepAlive = setInterval(() => {}, 1000); // the window's own timer is unref'd, as in the server
+  const first = profileOnce({ seconds: 2, log: (l) => logs.push(l) });
+  const second = await profileOnce({ seconds: 2 });
+  ok(second.busy === true, "a second on-demand window is refused while one runs");
+  const one = await first;
+  ok(one.windowMs === 2000 && "run" in one, `profileOnce returns its window and the longest busy run (${one.windowMs} ms)`);
+  ok((await profileOnce({ seconds: 999, log: () => {} })).windowMs === 20000, "the on-demand window is clamped to 20 s");
+  clearInterval(keepAlive);
+}
+
+// --- 2b. continuous profiling is opt-in (it cost a stall a minute on production)
+{
+  const { readFileSync: rf } = await import("node:fs");
+  const boot = rf(new URL("../src/boot-profile.js", import.meta.url), "utf8");
+  ok(/if \(process\.env\.STALL_PROFILER === "on"\) \{[\s\S]*startStallProfiler/.test(boot) && !/RAILWAY_DEPLOYMENT_ID \|\| process\.env\.STALL_PROFILER === "on"\)\) \{\s*const t = setTimeout\(\(\) => \{ import\("\.\/stall-profiler/.test(boot), "rolling stall profiling starts only with STALL_PROFILER=on, never merely because we run on Railway");
+  const srv = rf(new URL("../src/server.js", import.meta.url), "utf8");
+  ok(/app\.post\("\/__operator\/stall-profile"[\s\S]{0,200}operatorAuthed\(req\)/.test(srv), "the on-demand window is operator-authed");
 }
 
 // --- 3. the sliced cache writer
