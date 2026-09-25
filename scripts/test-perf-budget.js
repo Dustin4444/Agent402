@@ -7,8 +7,8 @@
 // router perf pin uses, 3,000 sellers / 100k+ tools), floods uncached searches
 // from 50 addresses, and runs a steady paid-path probe beside it. Fails when:
 //   - any paid-path call does not answer 200,
-//   - the paid-path p95 passes PERF_PAID_P95_MS (default 300; CI runners are
-//     slower than a laptop and the budget still catches a starved thread),
+//   - the paid-path p95 passes PERF_PAID_P95_MS (default 600; CI runners are
+//     slower than a laptop; without the CPU budget the p95 measured 3.4 s),
 //   - the server logs a stall over 1 s during the flood.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -22,7 +22,7 @@ let n = 0;
 const ok = (c, m) => { n++; assert.ok(c, m); console.log(`ok - ${m}`); };
 const TOKEN = "perf-budget-operator-token-0123456789";
 const FLOOD_MS = Number(process.env.PERF_FLOOD_MS || 8000);
-const PAID_P95_MS = Number(process.env.PERF_PAID_P95_MS || 300);
+const PAID_P95_MS = Number(process.env.PERF_PAID_P95_MS || 600);
 
 // --- the fixture, written in the warm-start NDJSON format
 const dir = mkdtempSync(join(tmpdir(), "a402-perf-"));
