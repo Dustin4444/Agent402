@@ -1312,6 +1312,12 @@ jobs:
       # query under the bound and the ranking byte-identical to the full-scan golden (offline, mutation-tested)
       - name: Router perf pin + golden ranking on a prod-sized index (offline)
         run: X402_INDEX_CRAWL=off node scripts/test-route-perf.js
+      # routeQueryAsync answers exactly as routeQuery and hands the event loop back while scoring (offline, mutation-tested)
+      - name: Router async query equals sync and yields the loop (offline)
+        run: X402_INDEX_CRAWL=off node scripts/test-route-query-async.js
+      # The router's short-term whole-token match agrees with the Unicode regex it replaced (20k-case fuzz, offline)
+      - name: Router whole-token matcher equals the regex (offline)
+        run: X402_INDEX_CRAWL=off node scripts/test-whole-token-matcher.js
       # ?network= was echoed and never applied; the Solana SOR branch ranks strictly on-chain rows (offline, mutation-tested)
       - name: Router network filter + strict chain mode (offline)
         run: X402_INDEX_CRAWL=off node scripts/test-route-network-filter.js

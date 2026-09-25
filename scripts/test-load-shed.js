@@ -93,7 +93,7 @@ try {
   // are deliberately not cached, so the ordering is pinned from source instead.
   const src = (await import("node:fs")).readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
   const body = src.slice(src.indexOf("async function serveCachedDiscovery("), src.indexOf('app.get("/api/find"'));
-  ok(body.indexOf("cacheGet(cacheKey)") < body.indexOf("discoveryCpuBudget.over()") && body.indexOf("discoveryCpuBudget.over()") < body.indexOf("computeFn()"), "the CPU budget is checked after the cache lookup and before the compute, so a cache hit is never refused");
+  ok(body.indexOf("cacheGet(cacheKey)") < body.indexOf("discoveryCpuBudget.over()") && body.indexOf("discoveryCpuBudget.over()") < body.indexOf("computeFn("), "the CPU budget is checked after the cache lookup and before the compute, so a cache hit is never refused");
 } finally { proc2.kill("SIGKILL"); }
 
 console.log(`test-load-shed: ${n} passed`);
