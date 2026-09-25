@@ -179,7 +179,12 @@ export function createTrafficStore(opts = {}) {
       c.requests += 1; c.distinctPaths = Math.max(c.distinctPaths, w.paths.size); c.discovery = Math.max(c.discovery, w.discovery.size); if (status === 402) c.c402 += 1;
       if (Object.keys(r.crawlers).length > 2000) delete r.crawlers[Object.keys(r.crawlers)[0]];
     }
-    if (!dayIps.has(day)) dayIps.set(day, new Set());
+    if (!dayIps.has(day)) {
+      // Only today's set is live (distinctIps is already saved on each day's
+      // rollup); older sets used to be kept for the life of the process.
+      for (const k of dayIps.keys()) if (k !== day) dayIps.delete(k);
+      dayIps.set(day, new Set());
+    }
     const di = dayIps.get(day); if (di.size < 200_000) di.add(ipHash); r.distinctIps = di.size;
     dirty = true;
     return cls;
