@@ -16,8 +16,10 @@
 //
 // Bounded: on for STALL_PROFILER_HOURS after boot (default 6), at most
 // MAX_REPORTS (400) lines, then it stops itself and the profiler with it.
-// STALL_PROFILER=off disables it. Sampling at 10 ms costs a few percent of one
-// core while it runs.
+// Rolling windows run ONLY with STALL_PROFILER=on: each window's stop-and-scan
+// is itself synchronous (measured 1.1-1.6 s per 60 s window on production), so
+// continuous profiling added a stall a minute. profileOnce() takes one short
+// window on demand instead (the operator endpoint).
 
 import inspector from "node:inspector";
 
@@ -73,6 +75,32 @@ export function longestBusyRun(profile, { firstParty = /\/src\//, topN = 4 } = {
     at: best.start,
     top: [...best.weights].sort((a, b) => b[1] - a[1]).slice(0, topN).map(([frames, n]) => ({ frames, share: Math.round((n / total) * 100) })),
   };
+}
+
+let oneShotBusy = false;
+/** One profiling window of `seconds` (clamped 2-20), scanned once. Resolves to
+ *  the longest busy run (or null), and logs it when it passes MIN_RUN_MS. One
+ *  window at a time; refuses (resolves {busy:true}) while one is running. */
+export async function profileOnce({ seconds = 10, log = console.warn } = {}) {
+  if (oneShotBusy) return { busy: true };
+  oneShotBusy = true;
+  const session = new inspector.Session();
+  try {
+    session.connect();
+    const post = (method, params = {}) => new Promise((resolve, reject) => session.post(method, params, (err, res) => (err ? reject(err) : resolve(res))));
+    const ms = Math.max(2, Math.min(20, Number(seconds) || 10)) * 1000;
+    await post("Profiler.enable");
+    await post("Profiler.setSamplingInterval", { interval: SAMPLE_US });
+    await post("Profiler.start");
+    await new Promise((r) => { const t = setTimeout(r, ms); if (typeof t.unref === "function") t.unref(); });
+    const { profile } = await post("Profiler.stop");
+    const run = longestBusyRun(profile);
+    if (run && run.ms >= MIN_RUN_MS) log(`[stall-profile] ${run.ms}ms busy run: ${run.top.map((x) => `${x.share}% ${x.frames}`).join(" | ")}`);
+    return { windowMs: ms, run };
+  } finally {
+    try { session.disconnect(); } catch { /* ignore */ }
+    oneShotBusy = false;
+  }
 }
 
 export function startStallProfiler({ log = console.warn } = {}) {

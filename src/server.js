@@ -4544,6 +4544,19 @@ app.get("/__operator/perf.json", (req, res) => {
   if (req.query.reset === "1") resetLoopLag();
   res.set("Cache-Control", "no-store").json({ loop: loopLagStatus(), inFlight: inFlightCount(), shed: shedStatus(), discoveryCpuSpentMs: discoveryCpuBudget.spent(), routes: routeTimings({ top: Math.min(200, parseInt(req.query.top, 10) || 40), minSamples: Math.max(1, parseInt(req.query.min, 10) || 5) }) });
 });
+// One short CPU-profile window on demand (stall attribution without the
+// per-minute cost of continuous profiling). Answers the longest busy run:
+// function names and file lines only.
+app.post("/__operator/stall-profile", async (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  try {
+    const { profileOnce } = await import("./stall-profiler.js");
+    const out = await profileOnce({ seconds: req.query.seconds });
+    res.set("Cache-Control", "no-store").status(out.busy ? 409 : 200).json(out);
+  } catch (e) {
+    res.status(500).json({ error: "profile failed", detail: String(e?.message || e).slice(0, 120) });
+  }
+});
 app.get("/__operator/egress.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   // Cheap read of an in-memory counter - no upstream, so no heavy-route limiter.
