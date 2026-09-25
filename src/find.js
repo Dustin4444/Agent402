@@ -326,7 +326,7 @@ export function findTools(catalog, query, { k = 5, baseUrl = "", powSlugs } = {}
   //
   // This is ADDITIVE. Ranking is untouched and every result is still returned;
   // it only lets the caller tell a real answer from a lexical coincidence.
-  let rarestTerm = null, rarestTermCovered = true;
+  let rarestTerm = null, rarestTermCovered = true, coverageShare = null;
   if (results.length && terms.length) {
     rarestTerm = terms.reduce((a, b) => (idf.get(b) > idf.get(a) ? b : a));
     const top = all.find((e) => e.t.slug === results[0].slug);
@@ -334,9 +334,32 @@ export function findTools(catalog, query, { k = 5, baseUrl = "", powSlugs } = {}
     // which omits `tags` — so tools whose match lives in a tag looked like
     // misses, and the rule appeared to have a 40% false-positive rate it did
     // not have.
-    rarestTermCovered = top
-      ? top.slug.includes(rarestTerm) || top.hay.includes(rarestTerm) || top.tagSet.has(rarestTerm)
-      : false;
+    const covers = (term) => !!top && (top.slug.includes(term) || top.hay.includes(term) || top.tagSet.has(term));
+    rarestTermCovered = covers(rarestTerm);
+    // An uncovered rarest term is often an incidental word that no tool
+    // mentions ("claims" in "decode jwt token and extract claims", "statute" in
+    // "convert statute miles to kilometers"): the top hit IS the answer, yet
+    // every such query was told to file a wish and recorded as a miss - 346 of
+    // the 359 live clusters on the demand board read that way on 2026-09-25.
+    // So the rarest term decides only when the top hit carries little of the
+    // query's weight: to count as served it must cover at least two terms, at
+    // least half the query's idf weight, and at least one term in its own slug
+    // or name (a description-only overlap is how "excel data jobs" reached an
+    // unemployment tool). "call my mother" (covers "call" only) and "order me
+    // a pizza" stay misses.
+    if (!rarestTermCovered && top) {
+      let coveredW = 0, totalW = 0, coveredN = 0, named = false;
+      for (const term of terms) {
+        const w = idf.get(term) || 0;
+        totalW += w;
+        if (covers(term)) {
+          coveredW += w; coveredN++;
+          if (top.slug.includes(term) || top.name.includes(term)) named = true;
+        }
+      }
+      coverageShare = totalW > 0 ? coveredW / totalW : 0;
+      if (coveredN >= 2 && coverageShare >= 0.5 && named) rarestTermCovered = true;
+    }
   }
 
   return {
@@ -354,6 +377,7 @@ export function findTools(catalog, query, { k = 5, baseUrl = "", powSlugs } = {}
     packs,
     rarestTerm,
     rarestTermCovered,
+    ...(coverageShare != null ? { coverageShare: Math.round(coverageShare * 100) / 100 } : {}),
   };
 }
 

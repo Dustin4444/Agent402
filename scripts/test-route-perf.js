@@ -36,7 +36,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 const here = path.dirname(fileURLToPath(import.meta.url));
-const { routeQuery, _cacheForTests, _setBazaarQualityForTest, _routeIndexStatsForTest, warmRouteIndex } = await import("../src/x402-index.js");
+const { routeQuery, _cacheForTests, _setBazaarQualityForTest, _routeIndexStatsForTest, warmRouteIndex, _routeIndexSettledForTest, computeAliasOrigins } = await import("../src/x402-index.js");
 const { buildRoutePerfFixture, GOLDEN_QUERIES } = await import("./lib/route-perf-fixture.js");
 
 let pass = 0, fail = 0;
@@ -179,6 +179,65 @@ const cache = _cacheForTests();
   ok(ext.length === 10 && ext.every((r) => r.seller !== "self"), "include=external answers ten remote rows from the index");
   const strict = routeQuery({ query: "json to csv", top: 10, include: "all", networkFilter: "solana", strictNetwork: true, ...ctx }).results;
   ok(strict.every((r) => r.seller === "self"), "strictNetwork keeps the network filter on the index path (no Base-only remote row survives a Solana filter)");
+
+  // Words that name no capability do not select candidates (they still score).
+  {
+    const withStop = routeQuery({ query: "get the weather forecast for a city", top: 10, include: "all", ...ctx }).results.map((r) => `${r.seller}|${r.slug}`);
+    const bare = routeQuery({ query: "weather forecast city", top: 10, include: "all", ...ctx }).results.map((r) => `${r.seller}|${r.slug}`);
+    ok(withStop.length === 10 && withStop.some((x) => bare.includes(x)), `a query padded with common words still answers the task's rows (${withStop.slice(0, 2).join(" ; ")})`);
+    const t0 = performance.now(); routeQuery({ query: "get the data for a thing from the api", top: 10, include: "all", ...ctx }); const tStop = performance.now() - t0;
+    ok(tStop < ROUTE_PERF_BOUND_MS, `a query of common words plus one term stays under the bound (${tStop.toFixed(1)} ms)`);
+    ok(routeQuery({ query: "the", top: 5, include: "all", ...ctx }).results.length > 0, "a query of only common words still selects on them");
+  }
+
+  // One request's calls share a scored ranking; separate calls do not.
+  {
+    const memo = {};
+    const a = routeQuery({ query: "wallet balance", top: 5, include: "all", scoredMemo: memo, ...ctx });
+    const t0 = performance.now();
+    const b = routeQuery({ query: "wallet balance", top: 25, include: "all", scoredMemo: memo, ...ctx });
+    const tMemo = performance.now() - t0;
+    const plain = routeQuery({ query: "wallet balance", top: 25, include: "all", ...ctx });
+    ok(JSON.stringify(b.results.map((r) => r.slug)) === JSON.stringify(plain.results.map((r) => r.slug)) && a.results[0].slug === plain.results[0].slug, "a shared scoredMemo returns the same ranking as a fresh score");
+    ok(tMemo < 10, `the second call of one request reuses the scored ranking (${tMemo.toFixed(1)} ms)`);
+    const origin = "https://seller9.example";
+    cache.set(origin, { ...cache.get(origin), tools: [{ seller: origin, method: "POST", route: "/w", slug: "wallet-balance-now", name: "Wallet balance", description: "wallet balance", category: "data", tags: [], price: 0.0001, networks: ["eip155:8453"] }] });
+    const c = routeQuery({ query: "wallet balance", top: 25, include: "all", scoredMemo: memo, ...ctx });
+    ok(c.results.some((r) => r.seller === origin), "a cache change between calls invalidates the shared ranking");
+  }
+
+  // The alias set is memoized on the cache version and follows a change.
+  {
+    const a1 = computeAliasOrigins(cache);
+    const dup = "https://seller11-mirror.example";
+    const primary = "https://seller11.example";
+    const pv = cache.get(primary);
+    cache.set(primary, { ...pv, manifest: { ...(pv.manifest || {}), homepage: primary } });
+    cache.set(dup, { ...pv, tools: pv.tools.map((t) => ({ ...t, seller: dup })), manifest: { ...(pv.manifest || {}), homepage: primary } });
+    const a2 = computeAliasOrigins(cache);
+    ok(!a1.has(dup) && a2.has(dup), "an origin added as a mirror of another is in the alias set on the next call (the memo follows cache changes)");
+    cache.delete(dup);
+    ok(!computeAliasOrigins(cache).has(dup), "a deleted origin leaves the memoized alias set");
+  }
+
+  // A full re-crawl (every entry replaced) rebuilds the index in the background:
+  // no single event-loop turn blocks for the rebuild, answers stay right during
+  // it, and the rebuilt index carries no stale rows.
+  {
+    for (const [o, v] of [...cache]) cache.set(o, { ...v, tools: (v.tools || []).map((t) => ({ ...t })) });
+    const during = routeQuery({ query: "json to csv", top: 10, include: "all", ...ctx }).results.map((r) => `${r.seller}|${r.slug}|${r.score}`);
+    ok(_routeIndexStatsForTest().rebuilding, "past the stale share on a prod-sized pool the rebuild runs in the background");
+    let worst = 0, last = performance.now();
+    const iv = setInterval(() => { const now = performance.now(); worst = Math.max(worst, now - last); last = now; }, 2);
+    await _routeIndexSettledForTest();
+    await new Promise((r) => setTimeout(r, 10));
+    clearInterval(iv);
+    const st = _routeIndexStatsForTest();
+    ok(!st.rebuilding && st.staleTools === 0 && st.indexedTools > 100000, `the background rebuild completed with no stale rows (${st.indexedTools} live, ${st.staleTools} stale)`);
+    ok(worst < 150, `no event-loop turn blocked for the rebuild (worst gap ${worst.toFixed(0)} ms; a synchronous rebuild is ~1 s here)`);
+    const after = routeQuery({ query: "json to csv", top: 10, include: "all", ...ctx }).results.map((r) => `${r.seller}|${r.slug}|${r.score}`);
+    ok(JSON.stringify(during) === JSON.stringify(after), "the ranking during the rebuild equals the ranking after it");
+  }
   cache.clear();
 }
 

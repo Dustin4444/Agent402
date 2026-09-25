@@ -295,7 +295,7 @@ const encodingTools = [
     slug: "jwt-decode",
     category: "encoding",
     price: "$0.001",
-    description: "Decode a JWT without verification: header, payload, expiry status, and time remaining. (Decoding only - signatures are NOT verified.)",
+    description: "Decode a JWT without verification: header (algorithm), payload claims (subject, issuer, expiration), expiry status, and time remaining. (Decoding only - signatures are NOT verified.)",
     tags: ["jwt", "token", "auth", "decode"],
     discovery: {
       bodyType: "json",

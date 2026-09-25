@@ -1103,7 +1103,7 @@ const math = [
   },
   {
     route: "POST /api/unit-convert", name: "Unit convert", slug: "unit-convert", category: "math", price: "$0.001",
-    description: "Convert a value between units of length, mass, temperature, volume, area, speed, time, data, pressure, energy, power, angle, frequency - every unit the retired convert-* endpoints handled (e.g. miles, kilograms, us-gallons, fahrenheit, psi, kilowatt-hours).",
+    description: "Convert a value between units of length, mass, temperature, volume, area, speed, time, data, pressure, energy, power, angle, frequency - every unit the retired convert-* endpoints handled (e.g. miles, kilometers, kilograms, pounds, stones, us-gallons, liters, fahrenheit, psi, bar, kilopascals, kilowatt-hours, joules, btu, horsepower).",
     // The category tags are joined by the most-queried unit words so lexical
     // search surfaces ("convert miles to kilometers" via /api/find and the MCP
     // search_tools) rank this tool where the retired pairwise convert-* slugs

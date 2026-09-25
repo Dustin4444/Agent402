@@ -6150,8 +6150,8 @@ app.post("/api/mpp-index/register", async (req, res) => {
   const result = await registerMppOrigin(v.origin, { path: req.body?.path, method: req.body?.method });
   res.json(result);
 });
-const computeRoute = (q, k, include, net) => {
-  const out = routeQuery({ query: q, top: k, include, networkFilter: net, ...indexCtx() });
+const computeRoute = (q, k, include, net, scoredMemo = null) => {
+  const out = routeQuery({ query: q, top: k, include, networkFilter: net, scoredMemo, ...indexCtx() });
   // Every row says whether the router would pay it and why (the readout's
   // finding: executeVia with no networks in the row read as "dispatchable").
   out.results = (out.results || []).map((r) => withDispatchFields(r, { local: r.seller === "self", rowLevel: true }));
@@ -6186,12 +6186,14 @@ const ROUTE_JUDGE_SKIPPED_NOTE = {
 };
 // /api/route: a confident judged pick moves first; rows are never removed. 2 s limit.
 async function computeRouteJudged(q, k, include, net, ip = null) {
-  const out = computeRoute(q, k, include, net);
+  // One scored ranking serves both the page and the 50-row shortlist below.
+  const scoredMemo = {};
+  const out = computeRoute(q, k, include, net, scoredMemo);
   const rows = Array.isArray(out.results) ? out.results : [];
   if (out.indexing || rows.length < 1 || !q) return out;
   // Shortlist: at most two rows per seller, plus the local catalog's best
   // matches, so listing count cannot crowd out a tool that does the job.
-  const wide = computeRoute(q, 50, include, net).results || [];
+  const wide = computeRoute(q, 50, include, net, scoredMemo).results || [];
   const shortlist = [];
   const perSeller = new Map();
   for (const r of wide) {
@@ -6212,12 +6214,17 @@ async function computeRouteJudged(q, k, include, net, ip = null) {
   }
   if (shortlist.length < 2) return out;
   const hostOfSeller = (u) => { try { return new URL(u).host; } catch { return String(u || ""); } };
+  const judgeStarted = Date.now();
   const ordered = await orderByJudgment(String(q), shortlist, (r) => {
     const desc = String(r.description || r.name || "");
     const price = r.price != null && r.price !== "" ? ` (${typeof r.price === "number" ? `$${r.price}` : r.price})` : "";
     const clean = !looksLikeListingInjection(desc);
     return { name: `${r.seller === "self" ? "agent402" : hostOfSeller(r.seller)} ${r.slug || ""}${price}`.trim(), description: clean ? desc : "", tags: clean && Array.isArray(r.tags) ? r.tags : [] };
   }, { timeoutMs: 2000, pool: "free", admit: routeJudgeAdmit(ip) });
+  // The judgment is a network call inside a free search: log when it is what
+  // the caller waited for, so the slow-compute line can be read as CPU or wait.
+  const judgeMs = Date.now() - judgeStarted;
+  if (judgeMs > 800) console.warn(`[route-judge] waited ${judgeMs}ms (${ordered.skipped ? `skipped: ${ordered.skipped}` : ordered.selection?.method || "no selection"})`);
   if (ordered.skipped) {
     out.judged = { skipped: ordered.skipped, note: ROUTE_JUDGE_SKIPPED_NOTE[ordered.skipped] || "no judgment model ran for this answer; rows are in lexical order" };
     // Never cached: the next caller (or this one next hour) may get a judged answer.

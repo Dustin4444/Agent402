@@ -9,6 +9,20 @@ carries its own version on npm.
 Since v2.4.0 (2026-09-18).
 
 ### 2026-09-25
+- `/api/route` and `/api/find` answer faster: common words ("to", "for",
+  "the") no longer pull most of the index into every search, one request
+  scores its query once, and the index rebuild after each crawl runs in the
+  background in short slices instead of blocking the server.
+- `/api/find` no longer flags a correct answer as a miss because the query
+  carries a word no tool mentions ("claims" in "decode jwt token and extract
+  claims"): the top result counts as served when it covers at least two
+  query terms, half the query's weight, and one term in its own slug or name.
+- `crypto-indicators` takes `ohlcv` (0-100) and returns the last N OHLCV
+  candles beside the indicators, so spot close, candles and RSI/EMA arrive in
+  one call at the same price.
+- `jwt-decode` and `unit-convert` descriptions name what they already handle
+  (JWT claims and expiration; stones, kilopascals, bar, joules, btu,
+  horsepower), so searches in those words find them.
 - Seller index: request and response contracts are read through local OpenAPI
   references (`#/components/...`), so a FastAPI seller's required fields and
   guaranteed response paths show as declared instead of partial.

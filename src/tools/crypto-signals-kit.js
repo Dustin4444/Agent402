@@ -585,7 +585,7 @@ export const CRYPTO_SIGNALS_TOOLS = [
     category: "crypto",
     price: "$0.002",
     description:
-      "Technical indicators for one perpetual computed deterministically from Hyperliquid candles: RSI(14), MACD(12,26,9) with signal and histogram, EMA 20/50/200, SMA 20/50, Bollinger(20,2) with bandwidth and %B, ATR(14) and window VWAP. Returns the latest value of each, the last N series points (points, max 100), and a plain summary (trend vs EMA50, RSI zone, MACD cross on the latest bar). interval 1m to 1M, limit = candles used (default 200, max 500). Choose a subset with indicators. No key, no LLM.",
+      "Technical indicators for one perpetual computed deterministically from Hyperliquid candles: RSI(14), MACD(12,26,9) with signal and histogram, EMA 20/50/200, SMA 20/50, Bollinger(20,2) with bandwidth and %B, ATR(14) and window VWAP. Returns the latest close, the latest value of each, the last N series points (points, max 100), and a plain summary (trend vs EMA50, RSI zone, MACD cross on the latest bar). Set ohlcv to also get the last N OHLCV candles (open, high, low, close, volume) in the same call. interval 1m to 1M, limit = candles used (default 200, max 500). Choose a subset with indicators. No key, no LLM.",
     tags: ["crypto", "technical-analysis", "indicators", "rsi", "macd", "ema", "bollinger", "atr", "vwap", "signals", "hyperliquid"],
     discovery: {
       bodyType: "json",
@@ -597,6 +597,7 @@ export const CRYPTO_SIGNALS_TOOLS = [
           limit: { type: "number", description: "Candles to compute over (default 200, max 500). EMA200 needs 200, MACD 34, RSI/ATR 15, SMA/Bollinger 20." },
           indicators: { type: "array", items: { type: "string" }, description: `Optional subset of: ${INDICATOR_IDS.join(", ")} (default all).` },
           points: { type: "number", description: "Series points to return per indicator, newest last (default 20, max 100)." },
+          ohlcv: { type: "number", description: "Also return the last N OHLCV candles, newest last (default 0 = none, max 100)." },
         },
         required: ["coin"],
       },
@@ -625,6 +626,7 @@ export const CRYPTO_SIGNALS_TOOLS = [
     handler: async (i = {}) => {
       const limit = takeInt(i.limit, "limit", 200, 2, MAX_CANDLES);
       const points = takeInt(i.points, "points", 20, 1, MAX_POINTS);
+      const ohlcvN = takeInt(i.ohlcv, "ohlcv", 0, 0, MAX_POINTS);
       const interval = i.interval == null || i.interval === "" ? "1h" : String(i.interval);
       if (!INTERVALS[interval]) throw bad(`"interval" must be one of ${Object.keys(INTERVALS).join(" ")}`);
       const want = new Set(takeList(i.indicators, "indicators", INDICATOR_IDS, INDICATOR_IDS.length) || INDICATOR_IDS);
@@ -637,7 +639,10 @@ export const CRYPTO_SIGNALS_TOOLS = [
         .map((c) => ({ t: num(c.t), o: num(c.o), h: num(c.h), l: num(c.l), c: num(c.c), v: num(c.v) ?? 0 }))
         .filter((c) => c.t != null && c.o != null && c.h != null && c.l != null && c.c != null);
       if (candles.length < 2) throw bad("Hyperliquid returned too few candles for that coin/interval", 502);
-      return { source: "hyperliquid", coin, interval, ...computeIndicators(candles, want, points), fetchedAt: nowIso(),
+      // The candles are already in hand for the indicators, so returning the
+      // latest bars costs no extra upstream read.
+      const ohlcv = ohlcvN > 0 ? candles.slice(-ohlcvN).map((c) => ({ t: new Date(c.t).toISOString(), open: c.o, high: c.h, low: c.l, close: c.c, volume: c.v })) : undefined;
+      return { source: "hyperliquid", coin, interval, ...computeIndicators(candles, want, points), ...(ohlcv ? { ohlcv } : {}), fetchedAt: nowIso(),
         disclaimer: "Technical indicators computed from public market data. Not investment advice and not a trading signal or recommendation." };
     },
   },

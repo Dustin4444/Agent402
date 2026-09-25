@@ -175,13 +175,18 @@ class GuardedMap extends Map {
   set(k, v) { return isRemovedOrigin(k) ? this : super.set(k, v); }
 }
 
+// Bumped on every cache mutation, so per-query derivations of the whole cache
+// (the alias set, a scored ranking) can be memoized exactly: entries are
+// replaced, never mutated, so an unchanged version means an unchanged cache.
+let cacheVersion = 0;
 class IndexCache extends Map {
   set(origin, v) {
     if (isRemovedOrigin(origin)) { this.delete(origin); return this; }
+    cacheVersion++;
     routeIndexNoteSet(origin, super.get(origin), v); return super.set(origin, v);
   }
-  delete(origin) { if (super.has(origin)) routeIndexNoteSet(origin, super.get(origin), null); return super.delete(origin); }
-  clear() { super.clear(); routeIndexReset(); }
+  delete(origin) { if (super.has(origin)) { cacheVersion++; routeIndexNoteSet(origin, super.get(origin), null); } return super.delete(origin); }
+  clear() { cacheVersion++; super.clear(); routeIndexReset(); }
 }
 const cache = new IndexCache();
 // Set of origins auto-discovered from public x402 registries (distinct from
@@ -4355,7 +4360,54 @@ function isRoutable(entry) {
 // key, and a dropped entry's memo goes with it.
 const slugSetMemo = new WeakMap();
 const serviceKeyMemo = new WeakMap();
+const canonicalPayeesOf = (tools) => Object.entries(allPayTosByNetwork(tools))
+  .sort(([a], [b]) => a.localeCompare(b))
+  .map(([network, values]) => [network, [...values].map((value) => String(value).toLowerCase()).sort()]);
+// The full tool contract + payees of one entry, memoized by identity. Built
+// here rather than inside computeAliasOriginsBase so the route index can
+// prime it in the background as each re-crawled entry lands.
+function exactServiceKeyOf(v) {
+  if (!v || typeof v !== "object") return null;
+  if (serviceKeyMemo.has(v)) return serviceKeyMemo.get(v);
+  const tools = v.tools || [];
+  const payees = canonicalPayeesOf(tools);
+  let key = null;
+  if (tools.length && payees.length) {
+    const contracts = tools.map((t) => [
+      String(t.method || "GET").toUpperCase(),
+      String(t.route || ""),
+      String(t.slug || ""),
+      String(t.price ?? ""),
+      t.paid === false ? "free" : "paid-or-unknown",
+      [...(t.networks || [])].map(String).sort(),
+    ]).map((c) => [JSON.stringify(c), c]).sort((a, b) => a[0].localeCompare(b[0])).map((p) => p[1]);
+    key = JSON.stringify({ payees, contracts });
+  }
+  serviceKeyMemo.set(v, key);
+  return key;
+}
+
+// The cache-derived part of the alias set walks every entry (4,360 on prod,
+// ~150 ms measured per /api/route query). It changes only when the cache does,
+// so for the live cache it is memoized on cacheVersion; the superseded origins
+// depend on the successions map as well and are folded in fresh on each call.
+let aliasBaseMemo = { version: -1, base: null };
 export function computeAliasOrigins(cacheMap) {
+  let base;
+  if (cacheMap === cache && aliasBaseMemo.version === cacheVersion && aliasBaseMemo.base) base = aliasBaseMemo.base;
+  else {
+    base = computeAliasOriginsBase(cacheMap);
+    if (cacheMap === cache) aliasBaseMemo = { version: cacheVersion, base };
+  }
+  const aliases = new Set(base);
+  // A superseded origin hides for the same reason a redirect alias does: it is
+  // the same seller counted twice. Folded in here so the four consumers of this
+  // set (index listing, remote pool, route query, seller roster) all honour it
+  // without a second exclusion to keep in step.
+  for (const o of supersededOrigins(cacheMap)) aliases.add(o);
+  return aliases;
+}
+function computeAliasOriginsBase(cacheMap) {
   const byHost = new Map(); // canonical host -> { origin, v }
   for (const [origin, v] of cacheMap) {
     const h = canonicalHost(origin);
@@ -4394,29 +4446,7 @@ export function computeAliasOrigins(cacheMap) {
   // one non-Railway origin has the same complete tool contract and the same
   // payees as one or more `*.up.railway.app` origins. Shared wallets alone do
   // not collapse anything, and two custom origins remain distinct.
-  const canonicalPayees = (tools) => Object.entries(allPayTosByNetwork(tools))
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([network, values]) => [network, [...values].map((value) => String(value).toLowerCase()).sort()]);
-  const exactServiceKey = (v) => {
-    if (!v || typeof v !== "object") return null;
-    if (serviceKeyMemo.has(v)) return serviceKeyMemo.get(v);
-    const tools = v.tools || [];
-    const payees = canonicalPayees(tools);
-    let key = null;
-    if (tools.length && payees.length) {
-      const contracts = tools.map((t) => [
-        String(t.method || "GET").toUpperCase(),
-        String(t.route || ""),
-        String(t.slug || ""),
-        String(t.price ?? ""),
-        t.paid === false ? "free" : "paid-or-unknown",
-        [...(t.networks || [])].map(String).sort(),
-      ]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-      key = JSON.stringify({ payees, contracts });
-    }
-    serviceKeyMemo.set(v, key);
-    return key;
-  };
+  const exactServiceKey = exactServiceKeyOf;
   const railwayDeploymentOrigin = (origin) => {
     try { return new URL(origin).hostname.toLowerCase().endsWith(".up.railway.app"); }
     catch { return false; }
@@ -4436,11 +4466,6 @@ export function computeAliasOrigins(cacheMap) {
       if (origin !== durable[0] && railwayDeploymentOrigin(origin)) aliases.add(origin);
     }
   }
-  // A superseded origin hides for the same reason a redirect alias does: it is
-  // the same seller counted twice. Folded in here so the four consumers of this
-  // set (index listing, remote pool, route query, seller roster) all honour it
-  // without a second exclusion to keep in step.
-  for (const o of supersededOrigins(cacheMap)) aliases.add(o);
   return aliases;
 }
 
@@ -5929,7 +5954,7 @@ function wholeTokenMatcher(term) {
 // share passes ROUTE_INDEX_REBUILD_STALE_SHARE - a few hundred milliseconds
 // a few times per crawl cycle, instead of on every query.
 // ---------------------------------------------------------------------------
-const ROUTE_INDEX_REBUILD_STALE_SHARE = 0.3;
+const ROUTE_INDEX_REBUILD_STALE_SHARE = 0.15;
 const ROUTE_INDEX_TERM_CACHE_MAX = 4096;
 const routeIdx = {
   postings: new Map(), // token -> tool[] (decorated remote pool objects)
@@ -5941,12 +5966,36 @@ const routeIdx = {
   termCache: new Map(), // long term -> matching vocabulary tokens
   builds: 0,
   queryStamp: 0, // per-query dedupe stamp written onto toolHome records
+  shadow: null, // background rebuild in progress (see routeIndexStartShadow)
 };
 function routeIndexNoteSet(origin, prev, next) {
   if (prev === next) return;
   if (prev && routeIdx.indexed.has(prev)) { routeIdx.staleTools += (remotePoolMemo.get(prev) || []).length; routeIdx.indexed.delete(prev); }
-  if (next && typeof next === "object") routeIdx.pending.set(origin, next);
+  if (next && typeof next === "object") { routeIdx.pending.set(origin, next); routeIndexScheduleDrain(); }
   else routeIdx.pending.delete(origin);
+}
+// The crawler replaces entries one at a time as its fetches land. Draining
+// them in the background, in short slices, keeps the pending queue near empty,
+// so a query rarely has to index a backlog inline (a full cycle's backlog was
+// ~1 s on the query that met it). A query still drains whatever is left, so a
+// result never misses a seller that was set before it.
+let routeDrainScheduled = false;
+function routeIndexScheduleDrain() {
+  if (routeDrainScheduled) return;
+  routeDrainScheduled = true;
+  setImmediate(function drainSlice() {
+    const until = performance.now() + ROUTE_INDEX_SLICE_MS;
+    for (const [origin, v] of routeIdx.pending) {
+      if (performance.now() >= until) break;
+      routeIdx.pending.delete(origin);
+      if (cache.get(origin) !== v || routeIdx.indexed.has(v)) continue;
+      routeIndexAddEntry(origin, v);
+      if (routeIdx.shadow) routeIdx.shadow.late.push([origin, v]);
+      routeIdx.termCache.clear();
+    }
+    if (routeIdx.pending.size) setImmediate(drainSlice);
+    else routeDrainScheduled = false;
+  });
 }
 function routeIndexReset() {
   routeIdx.postings = new Map();
@@ -5956,10 +6005,14 @@ function routeIndexReset() {
   routeIdx.staleTools = 0;
   routeIdx.pending.clear();
   routeIdx.termCache.clear();
+  routeIdx.shadow = null; // an in-flight background rebuild is abandoned
 }
-function routeIndexAddEntry(origin, v) {
+function newRouteIndexShard() {
+  return { postings: new Map(), toolHome: new WeakMap(), indexed: new WeakSet(), indexedTools: 0 };
+}
+function routeIndexAddEntry(origin, v, target = routeIdx) {
   const pool = decoratedRemoteTools(v);
-  const { postings, toolHome } = routeIdx;
+  const { postings, toolHome } = target;
   for (let pos = 0; pos < pool.length; pos++) {
     const t = pool[pos];
     const st = toolStatics(t);
@@ -5974,8 +6027,9 @@ function routeIndexAddEntry(origin, v) {
       if (list) list.push(t); else postings.set(tok, [t]);
     }
   }
-  routeIdx.indexed.add(v);
-  routeIdx.indexedTools += pool.length;
+  target.indexed.add(v);
+  target.indexedTools += pool.length;
+  exactServiceKeyOf(v); // primes the alias-set memo off the query path
 }
 /** Build the /api/route candidate index now instead of on the first query.
  *  On a prod-sized pool the first build is ~1 s of synchronous work; before
@@ -5983,22 +6037,73 @@ function routeIndexAddEntry(origin, v) {
  *  outside review, 2026-09-18). startCrawler schedules it 30 s after the
  *  warm start, past the post-listen stall. Idempotent: a built index is a
  *  no-op here, and a later mutation still drains on the next query. */
-export function warmRouteIndex() { routeIndexSync(); return routeIdx.indexedTools; }
-function routeIndexSync() {
+export function warmRouteIndex() { routeIndexSync({ sync: true }); return routeIdx.indexedTools; }
+// A pool this small rebuilds inline (a few ms); a larger one rebuilds in the
+// background, in slices, while the current index keeps answering.
+const ROUTE_INDEX_INLINE_REBUILD_MAX_TOOLS = 20000;
+const ROUTE_INDEX_SLICE_MS = 12;
+// Every crawl cycle (30 min) replaces every entry, so the stale share passes
+// its threshold three or four times per cycle. A synchronous rebuild of the
+// prod pool is ~1 s here and 2 s+ on prod, and it ran INSIDE whichever buyer
+// query tripped it - blocking every other request, payment relays included,
+// for that long. The rebuild now runs as a shadow index filled in slices of
+// ~12 ms between event-loop turns; queries keep reading the current index
+// (its stale postings are filtered by liveness, as always) until the shadow
+// is complete and swapped in.
+function routeIndexStartShadow() {
+  if (routeIdx.shadow) return;
+  const shadow = { ...newRouteIndexShard(), entries: [...cache].filter(([, v]) => v && typeof v === "object"), i: 0, late: [] };
+  routeIdx.shadow = shadow;
+  const step = () => {
+    if (routeIdx.shadow !== shadow) return; // reset or superseded
+    const until = performance.now() + ROUTE_INDEX_SLICE_MS;
+    while (shadow.i < shadow.entries.length && performance.now() < until) {
+      const [origin, v] = shadow.entries[shadow.i++];
+      if (cache.get(origin) === v) routeIndexAddEntry(origin, v, shadow);
+    }
+    if (shadow.i < shadow.entries.length) { setImmediate(step); return; }
+    // Entries the current index took from `pending` while the shadow was
+    // being filled were set after its snapshot: carry the live ones over.
+    for (const [origin, v] of shadow.late) if (cache.get(origin) === v && !shadow.indexed.has(v)) routeIndexAddEntry(origin, v, shadow);
+    let stale = 0;
+    for (const [origin, v] of [...shadow.entries, ...shadow.late]) {
+      if (shadow.indexed.has(v) && cache.get(origin) !== v) { stale += (remotePoolMemo.get(v) || []).length; shadow.indexed.delete(v); }
+    }
+    routeIdx.postings = shadow.postings;
+    routeIdx.toolHome = shadow.toolHome;
+    routeIdx.indexed = shadow.indexed;
+    routeIdx.indexedTools = shadow.indexedTools;
+    routeIdx.staleTools = stale;
+    routeIdx.termCache.clear();
+    routeIdx.shadow = null;
+    routeIdx.builds++;
+  };
+  setImmediate(step);
+}
+function routeIndexSync({ sync = false } = {}) {
   const total = routeIdx.indexedTools + routeIdx.staleTools;
   if (routeIdx.staleTools > 0 && routeIdx.staleTools >= total * ROUTE_INDEX_REBUILD_STALE_SHARE) {
-    routeIndexReset();
-    routeIdx.builds++;
-    for (const [origin, v] of cache) if (v && typeof v === "object") routeIndexAddEntry(origin, v);
-    return;
+    if (sync || total <= ROUTE_INDEX_INLINE_REBUILD_MAX_TOOLS) {
+      routeIndexReset();
+      routeIdx.builds++;
+      for (const [origin, v] of cache) if (v && typeof v === "object") routeIndexAddEntry(origin, v);
+      return;
+    }
+    routeIndexStartShadow();
   }
   if (!routeIdx.pending.size) return;
   for (const [origin, v] of routeIdx.pending) {
     if (cache.get(origin) !== v) continue; // replaced again before we got to it
+    if (routeIdx.indexed.has(v)) continue; // already indexed (a swapped-in shadow took it)
     routeIndexAddEntry(origin, v);
+    if (routeIdx.shadow) routeIdx.shadow.late.push([origin, v]);
   }
   routeIdx.pending.clear();
   routeIdx.termCache.clear(); // new vocabulary may match a cached term
+}
+/** Test hook: resolves once no background rebuild is in flight. */
+export async function _routeIndexSettledForTest() {
+  while (routeIdx.shadow) await new Promise((r) => setImmediate(r));
 }
 // Vocabulary tokens a term selects: itself for a short term (whole-token rule),
 // every token containing it for a long one (substring rule). Candidate
@@ -6016,7 +6121,7 @@ function routeIndexTokensFor(term, short) {
   return out;
 }
 export function _routeIndexStatsForTest() {
-  return { vocabulary: routeIdx.postings.size, indexedTools: routeIdx.indexedTools, staleTools: routeIdx.staleTools, pending: routeIdx.pending.size, builds: routeIdx.builds };
+  return { vocabulary: routeIdx.postings.size, indexedTools: routeIdx.indexedTools, staleTools: routeIdx.staleTools, pending: routeIdx.pending.size, builds: routeIdx.builds, rebuilding: !!routeIdx.shadow };
 }
 
 // The local pool is rebuilt from the catalog on every query (buildLocalEntry
@@ -6046,7 +6151,24 @@ function localPoolFor(args) {
 // publishing it beside the rows is what stops the ceiling reading as the count.
 export const ROUTE_TOP_MAX = 25;
 
-export function routeQuery({ query, top, include, networkFilter, strictNetwork = false, baseUrl, catalog, prices, network, toolCount, walletName }) {
+// Words that carry no capability. They still SCORE (every rule below reads
+// every term), but they do not SELECT candidates when the query has any other
+// term: "to", "for" and "the" sit in most of the 110k+ descriptions ("for" and
+// "the" by substring - format, forecast, ethereum), so selecting on them put
+// tens of thousands of rows through scoring on every query, measured 0.5-3 s
+// per /api/route on prod. A row that matches ONLY such words is not an answer
+// to a task that names anything else. A query made of nothing but these words
+// selects on all of them, as before.
+const ROUTE_NONSELECTING_TERMS = new Set([
+  "a", "an", "the", "to", "of", "for", "in", "on", "at", "by", "and", "or", "with", "from", "into", "via", "as",
+  "is", "are", "be", "it", "its", "this", "that", "i", "me", "my", "we", "our", "you", "your",
+  "get", "do", "does", "can", "how", "what", "want", "need", "please", "some", "any", "all", "using", "use",
+]);
+// A caller that asks the same query several times in one synchronous turn
+// (/api/route: its page, then a 50-row shortlist) passes one `scoredMemo`
+// object to every call and the ranking is scored once. Scoped to the caller,
+// so nothing a later request sees can be stale.
+export function routeQuery({ query, top, include, networkFilter, strictNetwork = false, baseUrl, catalog, prices, network, toolCount, walletName, scoredMemo = null }) {
   const q = String(query || "").slice(0, 500);
   // Unicode-aware (src/query-terms.js): a CJK query used to tokenize to
   // nothing and answer zero rows (reported from outside 2026-09-10).
@@ -6073,9 +6195,8 @@ export function routeQuery({ query, top, include, networkFilter, strictNetwork =
   // seller's tools — but only from sellers whose last crawl succeeded. A buyer
   // routed to a currently-broken seller would just lose the call, so we'd
   // rather rank fewer trustworthy options than more flaky ones.
-  const localPool = inc === "external"
-    ? []
-    : localPoolFor({ baseUrl, catalog, prices, network, toolCount, walletName }).pool;
+  const localRef = inc === "external" ? null : localPoolFor({ baseUrl, catalog, prices, network, toolCount, walletName });
+  const localPool = localRef ? localRef.pool : [];
   const aliasOrigins = inc === "local" ? null : computeAliasOrigins(cache);
   // Same self-exclusion as indexSnapshot/routableSellerSummaries: the crawler
   // can discover and cache the real agent402.tools origin regardless of this
@@ -6127,7 +6248,9 @@ export function routeQuery({ query, top, include, networkFilter, strictNetwork =
     if (p === undefined) { p = bazaarQualityFor(seller)?.payers30d ?? null; payersBySeller.set(seller, p); }
     return p;
   };
-  const scored = [];
+  const memoKey = scoredMemo ? JSON.stringify([q, inc, wantNet, !!strictNetwork, baseUrl, cacheVersion]) : null;
+  const memoHit = !!scoredMemo && scoredMemo.key === memoKey && scoredMemo.local === localRef;
+  const scored = memoHit ? scoredMemo.scored : [];
   // The four text-match rules, per row. Same rules and weights as before the
   // candidate index; the index only decides which rows are worth asking.
   const scoreRow = (t) => {
@@ -6173,8 +6296,10 @@ export function routeQuery({ query, top, include, networkFilter, strictNetwork =
   // same way. A candidate is a tool whose entry is the LIVE one for its origin
   // (a stale posting from a replaced entry is skipped here) and whose seller
   // passes the same routable / alias / self filters as before.
-  for (const t of localPool) scoreRow(t);
-  if (inc !== "local") {
+  const selecting = Array.from({ length: nTerms }, (_, k) => !ROUTE_NONSELECTING_TERMS.has(terms[k]));
+  if (!selecting.some(Boolean)) selecting.fill(true);
+  if (!memoHit) for (const t of localPool) scoreRow(t);
+  if (!memoHit && inc !== "local") {
     routeIndexSync();
     // Which entries are in the pool this query: the routable / alias / self
     // filters, decided once per ENTRY (a seller's 500 candidate rows used to
@@ -6184,6 +6309,7 @@ export function routeQuery({ query, top, include, networkFilter, strictNetwork =
     const entryOk = new Map();
     const byEntry = new Map(); // live entry -> candidate tools (unordered)
     for (let k = 0; k < nTerms; k++) {
+      if (!selecting[k]) continue;
       for (const tok of routeIndexTokensFor(terms[k], shortTerm[k])) {
         const list = routeIdx.postings.get(tok);
         if (!list) continue;
@@ -6251,7 +6377,10 @@ export function routeQuery({ query, top, include, networkFilter, strictNetwork =
   // the comparison sequence, and a different array shape gives a different
   // sequence. Keeping the exact call the ranking was pinned on keeps the
   // published order byte-identical; the sort is a few ms of the query.
-  scored.sort((a, b) => (b[0] !== a[0] ? b[0] - a[0] : tiebreak(a, b)));
+  if (!memoHit) {
+    scored.sort((a, b) => (b[0] !== a[0] ? b[0] - a[0] : tiebreak(a, b)));
+    if (scoredMemo) Object.assign(scoredMemo, { key: memoKey, scored, local: localRef });
+  }
 
   // Per-seller diversity cap (M6, "Five Attacks on x402" Attack IV — Sybil /
   // metadata capture). Ranking is already sorted best-first; naively taking the
