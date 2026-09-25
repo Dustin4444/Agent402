@@ -12,6 +12,11 @@ Since v2.4.0 (2026-09-18).
 - The tool directory (`/marketplace/tools`, `/api/index/tools`) is built once
   per index change instead of on every page request, and the search index
   indexes a large seller in slices; both showed as event-loop stalls.
+- Paid calls come first under load: when the event loop lags or too many
+  requests are in flight, free and discovery requests get 503 + Retry-After
+  before they are parsed, and uncached searches share a per-second CPU
+  budget across all callers. Calls to priced routes and the gateway, paid
+  or not, are never shed.
 - Revenue, sales, status, proof and marketplace pages are built at most once
   a minute on the server instead of on every request, and the revenue series
   reads one chain at a time; these were the main event-loop stalls.

@@ -32,6 +32,21 @@ const STATS_MS = 60_000;
 let stallContext = null;
 export function setStallContext(fn) { stallContext = typeof fn === "function" ? fn : null; }
 let minute = { blocks200: 0, blockedMs: 0 };
+// Smoothed recent lag (EWMA over ticks), read by the load-shedding gate. It
+// decays back toward zero as soon as ticks run on time again.
+let lagEwma = 0;
+let lastLate = 0;
+// Stalls over WARN_MS in the last hour (bounded), for the heartbeat's alarm.
+const stallTimes = []; // [at, ms]
+export function stallsInWindow(windowMs = 3600_000, now = Date.now()) {
+  while (stallTimes.length && now - stallTimes[0][0] > 3600_000) stallTimes.shift();
+  const rows = stallTimes.filter(([at]) => now - at <= windowMs);
+  return { count: rows.length, maxMs: rows.reduce((m, [, ms]) => Math.max(m, ms), 0) };
+}
+export function recentLagMs() { return Math.round(lagEwma); }
+/** How late the most recent tick ran. With recentLagMs it separates "lagging
+ *  now" (both high) from "one freeze a moment ago" (the next tick on time). */
+export function lastTickLateMs() { return Math.round(lastLate); }
 const state = { worstMs: 0, worstAt: null, stalls: 0, lastStallMs: 0, lastStallAt: null, startedAt: null };
 
 /** @returns {{worstMs:number, worstAt:string|null, stalls:number, lastStallMs:number, lastStallAt:string|null, watching:boolean}} */
@@ -77,11 +92,14 @@ export function startLoopLagMonitor({ tickMs = TICK_MS, warnMs = WARN_MS, statsM
     if (now >= statsDue) { statsDue = now + statsMs; try { emitStats(); } catch { /* stats are best-effort */ } }
     const late = now - expected;          // how much later than scheduled it ran
     expected = now + tickMs;
+    lastLate = Math.max(0, late);
+    lagEwma = lagEwma * 0.6 + lastLate * 0.4;
     if (late <= 0) return;
     if (late > state.worstMs) { state.worstMs = late; state.worstAt = new Date(now).toISOString(); }
     if (late >= COUNT_MS) { minute.blocks200++; minute.blockedMs += late; }
     if (late >= warnMs) {
       state.stalls++; state.lastStallMs = late; state.lastStallAt = new Date(now).toISOString();
+      stallTimes.push([now, Math.round(late)]); if (stallTimes.length > 1000) stallTimes.shift();
       // One line, with the number, so it can be correlated against a payment
       // failure by timestamp. The in-flight list names what was being served;
       // the stall profiler (src/stall-profiler.js) names the code.

@@ -548,6 +548,35 @@ jobs:
             gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: wrong-credential rate back under the threshold at $(date -u +%FT%TZ)." >/dev/null 2>&1 || true
           fi
 
+      # Serving health: event-loop stalls, 5xx and paid-call error rates, and
+      # load shedding, from /__operator/serving-health.json (counts only). Two
+      # readings 30 s apart must agree, because a deploy's no-container window
+      # produces one bad reading on its own.
+      - name: Serving health check (alarm on stalls, paid-call errors, 5xx or shedding)
+        if: always()
+        continue-on-error: true
+        env:
+          OP_TOKEN: ${{ secrets.AGENT402_OPERATOR_TOKEN }}
+        run: |
+          if [ -z "$OP_TOKEN" ]; then echo "no operator token; skipping"; exit 0; fi
+          read1() { curl -s --max-time 15 -H "Authorization: Bearer $OP_TOKEN" "$PROD/__operator/serving-health.json"; }
+          J=$(read1); S1=$(echo "$J" | jq -r '.status // "unknown"' 2>/dev/null || echo unknown)
+          if [ "$S1" = "degraded" ]; then sleep 30; J=$(read1); fi
+          STATUS=$(echo "$J" | jq -r '.status // "unknown"' 2>/dev/null || echo unknown)
+          SUMMARY=$(echo "$J" | jq -r '"reasons=\(.reasons|join(",")) loopP99=\(.loop.p99LastMinuteMs)ms stalls1h=\(.loop.stalls1h) maxStall=\(.loop.maxStall1hMs)ms responses1h=\(.responses1h.total) 5xx=\(.responses1h.s5xx) paid=\(.responses1h.paid) paid5xx=\(.responses1h.paid5xx) shed=\(.shed.shed)"' 2>/dev/null || echo "unreadable")
+          echo "serving health: $STATUS ($SUMMARY)"
+          TITLE="Serving health DEGRADED"
+          OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty' 2>/dev/null || echo "")
+          if [ "$STATUS" = "degraded" ]; then
+            if [ -z "$OPEN" ]; then
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "/__operator/serving-health.json reported degraded on two readings 30 s apart: $SUMMARY. Thresholds are in the response. Check [loop-stats], [loop-lag] and [stall-profile] lines in the Railway log. Auto-closes when it reads ok." >/dev/null 2>&1 || echo "issue create failed"
+            else
+              gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "Still degraded at $(date -u +%FT%TZ): $SUMMARY" >/dev/null 2>&1 || true
+            fi
+          elif [ "$STATUS" = "ok" ] && [ -n "$OPEN" ]; then
+            gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered at $(date -u +%FT%TZ): $SUMMARY" >/dev/null 2>&1 || true
+          fi
+
       # Postgres reachability (leads + analytics). Both databases were DOWN from
       # 2026-07-02 to 2026-08-25 and nothing paged: the app degrades quietly when
       # they are gone, which is right for buyers and exactly why it went
