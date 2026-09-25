@@ -9,6 +9,9 @@ carries its own version on npm.
 Since v2.4.0 (2026-09-18).
 
 ### 2026-09-25
+- The tool directory (`/marketplace/tools`, `/api/index/tools`) is built once
+  per index change instead of on every page request, and the search index
+  indexes a large seller in slices; both showed as event-loop stalls.
 - Revenue, sales, status, proof and marketplace pages are built at most once
   a minute on the server instead of on every request, and the revenue series
   reads one chain at a time; these were the main event-loop stalls.
