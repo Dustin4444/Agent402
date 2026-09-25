@@ -52,12 +52,29 @@ export function resetLoopLag() {
   state.worstMs = 0; state.worstAt = null; state.stalls = 0; state.lastStallMs = 0; state.lastStallAt = null;
 }
 
-export function startLoopLagMonitor({ tickMs = TICK_MS, warnMs = WARN_MS, log = console.warn, statsLog = console.log } = {}) {
+export function startLoopLagMonitor({ tickMs = TICK_MS, warnMs = WARN_MS, statsMs = STATS_MS, log = console.warn, statsLog = console.log } = {}) {
   if (state.startedAt) return () => {};
   state.startedAt = Date.now();
+  // One [loop-stats] line a minute, from this same timer (one timer total):
+  // event-loop delay percentiles from the runtime's own histogram, how many
+  // blocks passed COUNT_MS and their total, and heap/RSS, so a slow drift is
+  // visible as well as a spike.
+  let hist = null;
+  try { hist = monitorEventLoopDelay({ resolution: 10 }); hist.enable(); } catch { hist = null; }
+  let statsDue = Date.now() + statsMs;
+  const emitStats = () => {
+    const mem = process.memoryUsage();
+    const ms = (ns) => Math.round(ns / 1e6);
+    const h = hist ? `p50=${ms(hist.percentile(50))}ms p99=${ms(hist.percentile(99))}ms max=${ms(hist.max)}ms` : "hist=n/a";
+    state.lastMinute = { p50: hist ? ms(hist.percentile(50)) : null, p99: hist ? ms(hist.percentile(99)) : null, max: hist ? ms(hist.max) : null, blocks200: minute.blocks200, blockedMs: Math.round(minute.blockedMs), heapMb: Math.round(mem.heapUsed / 1048576), rssMb: Math.round(mem.rss / 1048576), at: new Date().toISOString() };
+    statsLog(`[loop-stats] ${h} blocks>=${COUNT_MS}ms=${minute.blocks200} blocked=${Math.round(minute.blockedMs)}ms heap=${state.lastMinute.heapMb}MB rss=${state.lastMinute.rssMb}MB`);
+    minute = { blocks200: 0, blockedMs: 0 };
+    if (hist) hist.reset();
+  };
   let expected = Date.now() + tickMs;
   const timer = setInterval(() => {
     const now = Date.now();
+    if (now >= statsDue) { statsDue = now + statsMs; try { emitStats(); } catch { /* stats are best-effort */ } }
     const late = now - expected;          // how much later than scheduled it ran
     expected = now + tickMs;
     if (late <= 0) return;
@@ -75,20 +92,5 @@ export function startLoopLagMonitor({ tickMs = TICK_MS, warnMs = WARN_MS, log = 
   }, tickMs);
   // Never hold the process open: a diagnostic must not change shutdown.
   if (typeof timer.unref === "function") timer.unref();
-  // One [loop-stats] line a minute: event-loop delay percentiles from the
-  // runtime's own histogram, how many blocks passed COUNT_MS and their total,
-  // and heap/RSS, so a slow drift is visible as well as a spike.
-  let hist = null;
-  try { hist = monitorEventLoopDelay({ resolution: 10 }); hist.enable(); } catch { hist = null; }
-  const stats = setInterval(() => {
-    const mem = process.memoryUsage();
-    const ms = (ns) => Math.round(ns / 1e6);
-    const h = hist ? `p50=${ms(hist.percentile(50))}ms p99=${ms(hist.percentile(99))}ms max=${ms(hist.max)}ms` : "hist=n/a";
-    state.lastMinute = { p50: hist ? ms(hist.percentile(50)) : null, p99: hist ? ms(hist.percentile(99)) : null, max: hist ? ms(hist.max) : null, blocks200: minute.blocks200, blockedMs: Math.round(minute.blockedMs), heapMb: Math.round(mem.heapUsed / 1048576), rssMb: Math.round(mem.rss / 1048576), at: new Date().toISOString() };
-    statsLog(`[loop-stats] ${h} blocks>=${COUNT_MS}ms=${minute.blocks200} blocked=${Math.round(minute.blockedMs)}ms heap=${state.lastMinute.heapMb}MB rss=${state.lastMinute.rssMb}MB`);
-    minute = { blocks200: 0, blockedMs: 0 };
-    if (hist) hist.reset();
-  }, STATS_MS);
-  if (typeof stats.unref === "function") stats.unref();
-  return () => { clearInterval(timer); clearInterval(stats); if (hist) hist.disable(); state.startedAt = null; };
+  return () => { clearInterval(timer); if (hist) hist.disable(); state.startedAt = null; };
 }

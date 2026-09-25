@@ -51,6 +51,12 @@ await new Promise((r) => setTimeout(r, 60));
 stop();
 ok(lines.some((l) => /\[loop-lag\] event loop blocked \d+ms .* in-flight: POST \/api\/x 900ms/.test(l)), `a stall line names the in-flight requests (${lines.find((l) => l.includes("loop-lag"))})`);
 ok(loopLagStatus().stalls >= 1, "the stall is counted");
+const statLines = [];
+const stop2 = startLoopLagMonitor({ tickMs: 20, statsMs: 100, log: () => {}, statsLog: (l) => statLines.push(l) });
+await new Promise((r) => setTimeout(r, 260));
+stop2();
+ok(statLines.some((l) => /^\[loop-stats\] p50=\d+ms p99=\d+ms max=\d+ms blocks>=\d+ms=\d+ blocked=\d+ms heap=\d+MB rss=\d+MB$/.test(l)), `the minute line carries loop percentiles, block count and memory (${statLines[0]})`);
+ok(loopLagStatus().lastMinute && typeof loopLagStatus().lastMinute.p99 === "number", "the last minute's numbers are on loopLagStatus for the operator read");
 
 console.log(`test-request-timing: ${n} passed`);
 process.exit(0);

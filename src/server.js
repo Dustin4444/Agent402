@@ -19,7 +19,7 @@ setGlobalDispatcher(new UndiciAgent({ connect: { family: 4 } }));
 // is a TIMER firing, so a blocked loop is indistinguishable from an unreachable
 // upstream - which is what seven CDP verify failures looked like on 2026-08-30
 // while CDP answered from outside in 15-37 ms. See src/loop-lag.js.
-import { loopLagStatus, setStallContext } from "./loop-lag.js";
+import { loopLagStatus, setStallContext, resetLoopLag } from "./loop-lag.js";
 import { installRequestTimingFetch, requestTimingMiddleware, routeTimings, oldestInFlight, inFlightCount } from "./request-timing.js";
 import express from "express";
 import compression from "compression";
@@ -4403,6 +4403,8 @@ app.get("/__operator/traffic.json", (req, res) => {
 // stall totals and in-flight count.
 app.get("/__operator/perf.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  // ?reset=1 clears the stall high-water mark first (the load test reads a fresh one per scenario).
+  if (req.query.reset === "1") resetLoopLag();
   res.set("Cache-Control", "no-store").json({ loop: loopLagStatus(), inFlight: inFlightCount(), routes: routeTimings({ top: Math.min(200, parseInt(req.query.top, 10) || 40), minSamples: Math.max(1, parseInt(req.query.min, 10) || 5) }) });
 });
 app.get("/__operator/egress.json", (req, res) => {
