@@ -37,7 +37,7 @@ import { parseRobots, robotsAllows } from "./tools/kit.js";
 import { partialFields, clampFields } from "./partial-answer.js";
 import { responseContractOf, packResponseContract, responseContractProjection } from "./response-contract.js";
 import { deliveryProjection } from "./response-observation.js";
-import { requestContractOf, requestContractFromInputSchema, packRequestContract, requestContractProjection } from "./request-contract.js";
+import { requestContractOf, requestContractFromInputSchema, packRequestContract, requestContractProjection, requestContractStrength } from "./request-contract.js";
 import { toolList } from "./pages.js";
 import { fetchAllBazaarItems, isBazaarDiscoveryUrl } from "./bazaar-pager.js";
 import { RAILS, railKey, truncateCaip2 } from "./rails.js";
@@ -1833,7 +1833,7 @@ function mergeManifestToolRows(a, b) {
   const named = (n, route) => n && n !== route && !String(n).startsWith("/");
   return {
     ...prefer,
-    ...(prefer.requestContract || !other.requestContract ? {} : { requestContract: other.requestContract }),
+    ...(requestContractStrength(other.requestContract) > requestContractStrength(prefer.requestContract) ? { requestContract: other.requestContract } : {}),
     name: named(prefer.name, prefer.route) ? prefer.name : (named(other.name, other.route) ? other.name : prefer.name),
     description: prefer.description || other.description || "",
     price: prefer.price || other.price || null,
@@ -2527,7 +2527,9 @@ export function mergeManifestIntoTools(manifestTools = [], existing = []) {
     if (!hit.algorandPayTo && m.algorandPayTo) hit.algorandPayTo = m.algorandPayTo;
     // Blank-fill: a contract read from the seller's OpenAPI outranks one read
     // from a manifest schema.
-    if (!hit.requestContract && m.requestContract) hit.requestContract = m.requestContract;
+    // A manifest's names also fill an OpenAPI "requires nothing": an operation
+    // documented with no parameters says less than a schema listing fields.
+    if (requestContractStrength(m.requestContract) > requestContractStrength(hit.requestContract)) hit.requestContract = m.requestContract;
   };
   for (const [path, entries] of groups) {
     const indices = indicesByPath.get(path) || [];
@@ -5983,10 +5985,37 @@ function toolStatics(t) {
 // row: `splitTokens(str).includes(term)` is true exactly when `str` carries the
 // term bounded by non-token characters or the string's ends, because a term
 // is itself one run of token characters. Compiled once per term per query.
-function wholeTokenMatcher(term) {
-  const esc = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const re = new RegExp(`(?:^|[^\\p{L}\\p{N}])${esc}(?:$|[^\\p{L}\\p{N}])`, "u");
-  return (str) => re.test(str);
+//
+// Implemented as indexOf plus a boundary check rather than the equivalent
+// `(?:^|[^\p{L}\p{N}])term(?:$|[^\p{L}\p{N}])` Unicode regex: same answer,
+// but the regex was 15% of routeQuery's CPU on a stopword-heavy query, run
+// against every candidate's full description (2026-09-25).
+const TOKEN_CHAR = /[\p{L}\p{N}]/u;
+function isTokenCodePoint(cp) {
+  if (cp < 128) return (cp >= 48 && cp <= 57) || (cp >= 65 && cp <= 90) || (cp >= 97 && cp <= 122);
+  return TOKEN_CHAR.test(String.fromCodePoint(cp));
+}
+function tokenCharBefore(str, i) {
+  if (i <= 0) return false;
+  const lo = str.charCodeAt(i - 1);
+  if (lo >= 0xdc00 && lo <= 0xdfff && i >= 2) {
+    const hi = str.charCodeAt(i - 2);
+    if (hi >= 0xd800 && hi <= 0xdbff) return isTokenCodePoint(str.codePointAt(i - 2));
+  }
+  return isTokenCodePoint(lo);
+}
+function tokenCharAt(str, i) {
+  return i < str.length && isTokenCodePoint(str.codePointAt(i));
+}
+export function wholeTokenMatcher(term) {
+  const len = term.length;
+  if (!len) return () => false;
+  return (str) => {
+    for (let i = str.indexOf(term); i !== -1; i = str.indexOf(term, i + 1)) {
+      if (!tokenCharBefore(str, i) && !tokenCharAt(str, i + len)) return true;
+    }
+    return false;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -6270,7 +6299,48 @@ const ROUTE_NONSELECTING_TERMS = new Set([
 // (/api/route: its page, then a 50-row shortlist) passes one `scoredMemo`
 // object to every call and the ranking is scored once. Scoped to the caller,
 // so nothing a later request sees can be stale.
-export function routeQuery({ query, top, include, networkFilter, strictNetwork = false, baseUrl, catalog, prices, network, toolCount, walletName, scoredMemo = null }) {
+// routeQuery runs synchronously; routeQueryAsync runs the SAME steps and hands
+// the event loop back every few milliseconds while it scores candidates. A
+// query whose words are common in seller descriptions scores tens of thousands
+// of rows, which held the thread 0.5-2 s on prod (2026-09-25); the free
+// discovery surfaces use the async form so one such query no longer stalls
+// every other request. Both drive routeQuerySteps, so their answers cannot
+// differ. Yields happen only after candidates are collected from the index
+// (collection stamps shared per-tool records and must not interleave).
+export function routeQuery(args) {
+  const steps = routeQuerySteps(args);
+  let r = steps.next();
+  while (!r.done) r = steps.next();
+  return r.value;
+}
+
+const yieldToLoop = () => new Promise((r) => setImmediate(r));
+// `onBusy(ms)` is called once per slice with the time that slice held the
+// thread, so a caller's CPU budget is charged while the query runs, not only
+// when it ends (a burst of queries would otherwise all pass a budget check
+// that none of them had charged yet).
+export async function routeQueryAsync(args, { sliceMs = 8, onBusy = null } = {}) {
+  const steps = routeQuerySteps(args);
+  let sliceStart = performance.now();
+  let r = steps.next();
+  while (!r.done) {
+    const now = performance.now();
+    if (now - sliceStart >= sliceMs) {
+      if (onBusy) onBusy(now - sliceStart);
+      await yieldToLoop();
+      sliceStart = performance.now();
+    }
+    r = steps.next();
+  }
+  if (onBusy) onBusy(performance.now() - sliceStart);
+  return r.value;
+}
+
+// Rows scored between chances to yield. Small enough that a slice overruns
+// its budget by well under a millisecond, large enough that the generator
+// hop is noise.
+const ROUTE_SCORE_YIELD_ROWS = 256;
+function* routeQuerySteps({ query, top, include, networkFilter, strictNetwork = false, baseUrl, catalog, prices, network, toolCount, walletName, scoredMemo = null }) {
   const q = String(query || "").slice(0, 500);
   // Unicode-aware (src/query-terms.js): a CJK query used to tokenize to
   // nothing and answer zero rows (reported from outside 2026-09-10).
@@ -6438,11 +6508,22 @@ export function routeQuery({ query, top, include, networkFilter, strictNetwork =
       }
     }
     if (byEntry.size) {
+      // Cache order is fixed here, before any yield: the async driver may let
+      // a crawl write the cache between slices, and the order rows are pushed
+      // in decides how ties resolve.
+      const ordered = [];
       for (const v of cache.values()) {
         const arr = byEntry.get(v);
         if (!arr) continue;
         if (arr.length > 1) arr.sort((a, b) => a[TOOL_HOME].pos - b[TOOL_HOME].pos);
-        for (let i = 0; i < arr.length; i++) scoreRow(arr[i]);
+        ordered.push(arr);
+      }
+      let sinceYield = 0;
+      for (const arr of ordered) {
+        for (let i = 0; i < arr.length; i++) {
+          scoreRow(arr[i]);
+          if (++sinceYield >= ROUTE_SCORE_YIELD_ROWS) { sinceYield = 0; yield; }
+        }
       }
     }
   }

@@ -18,7 +18,7 @@ const ok = (c, m) => { n++; assert.ok(c, m); console.log(`ok - ${m}`); };
 const src = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
 const body = src.slice(src.indexOf("async function serveCachedDiscovery("), src.indexOf('app.get("/api/find"'));
 ok(body.indexOf("cacheGet(cacheKey)") > 0 && body.indexOf("discoveryComputeLimiter.check(") > body.indexOf("cacheGet(cacheKey)"), "the compute limiter runs after the cache lookup, so a cache hit never counts");
-ok(body.indexOf("discoveryComputeLimiter.check(") < body.indexOf("computeFn()"), "...and before the compute");
+ok(body.indexOf("discoveryComputeLimiter.check(") < body.indexOf("computeFn("), "...and before the compute");
 
 // --- 4. memo
 process.env.X402_INDEX_CRAWL = "off";

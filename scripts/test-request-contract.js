@@ -127,7 +127,11 @@ for (const kw of ["$ref", "allOf", "oneOf", "not"]) {
   const back = unpackRequestContract({ requestContract: packRequestContract(c) });
   ok(back.required.path.join() === "id", "the compact tuple round-trips");
   ok(packRequestContract(requestContractOf({})) === null, "unknown stores nothing");
-  ok(packRequestContract(requestContractOf({ parameters: [] })) === null, "absent stores nothing either");
+  const absentTuple = packRequestContract(requestContractOf({ parameters: [] }));
+  ok(JSON.stringify(absentTuple) === JSON.stringify(["absent", {}]), "absent IS stored, so a row can say \"requires nothing\" rather than nothing at all");
+  const absentBack = unpackRequestContract({ requestContract: absentTuple });
+  ok(absentBack.state === "absent" && absentBack.source === "seller_openapi" && Object.keys(absentBack.required).length === 0, "an absent tuple round-trips as absent, with no names");
+  ok(unpackRequestContract({ requestContract: ["absent", { body: ["x"] }] }) === null, "an absent tuple carrying names is not what we wrote, and reads as no contract");
 
   // A cache file is state we persist and reload. A value that was safe when
   // written is not self-evidently safe when read back by a later version.

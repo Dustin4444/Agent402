@@ -93,7 +93,15 @@ try {
   // are deliberately not cached, so the ordering is pinned from source instead.
   const src = (await import("node:fs")).readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
   const body = src.slice(src.indexOf("async function serveCachedDiscovery("), src.indexOf('app.get("/api/find"'));
-  ok(body.indexOf("cacheGet(cacheKey)") < body.indexOf("discoveryCpuBudget.over()") && body.indexOf("discoveryCpuBudget.over()") < body.indexOf("computeFn()"), "the CPU budget is checked after the cache lookup and before the compute, so a cache hit is never refused");
+  ok(body.indexOf("cacheGet(cacheKey)") < body.indexOf("discoveryCpuBudget.over()") && body.indexOf("discoveryCpuBudget.over()") < body.indexOf("computeFn("), "the CPU budget is checked after the cache lookup and before the compute, so a cache hit is never refused");
+  // The in-flight ceiling: sliced router queries can overlap, and a burst
+  // passes the CPU budget before any of it is charged, so a count of computes
+  // in progress bounds them. Checked after the cache, before the compute; the
+  // count is released in a finally so a throwing compute cannot leak a slot.
+  const inflightCheck = body.indexOf("discoveryInFlight >= DISCOVERY_MAX_INFLIGHT");
+  ok(inflightCheck > body.indexOf("cacheGet(cacheKey)") && inflightCheck < body.indexOf("computeFn("), "the in-flight ceiling is checked after the cache lookup and before the compute");
+  ok(/discoveryInFlight\+\+;\s*let result, syncMs;\s*try \{[\s\S]*?\} finally \{\s*discoveryInFlight--;/.test(body), "...and the in-flight count is released in a finally");
+  ok(/const meter = \(ms\) => \{[^}]*discoveryCpuBudget\.record\(ms\)/.test(body), "each router slice is charged to the CPU budget as it runs");
 } finally { proc2.kill("SIGKILL"); }
 
 console.log(`test-load-shed: ${n} passed`);
