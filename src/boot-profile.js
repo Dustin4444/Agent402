@@ -54,3 +54,11 @@ if (on) {
     stop.unref();
   } catch (e) { console.warn("[boot] cpu profile unavailable:", String(e?.message || e).slice(0, 120)); }
 }
+
+// Stall attribution for the hours after boot (src/stall-profiler.js): same
+// gate as the boot profile (Railway, or STALL_PROFILER=on locally), started
+// once the boot profile above has finished with the profiler.
+if (process.env.STALL_PROFILER !== "off" && (process.env.RAILWAY_DEPLOYMENT_ID || process.env.STALL_PROFILER === "on")) {
+  const t = setTimeout(() => { import("./stall-profiler.js").then((m) => m.startStallProfiler()).catch(() => {}); }, 90_000);
+  t.unref();
+}

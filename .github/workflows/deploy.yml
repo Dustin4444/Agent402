@@ -2249,6 +2249,7 @@ jobs:
           t node scripts/test-crawl-politeness.js
           # Index warm-start is incremental (NDJSON twin parsed a batch per turn; no event-loop hold; legacy fallback — offline)
           t node scripts/test-index-ndjson-warmstart.js
+          t node scripts/test-stall-profiler.js
           # Crawl cadence copy is derived (served pages cannot advertise a cadence we do not run — offline)
           t node scripts/test-crawl-cadence.js
           # CI lane gating (every test lane blocks deploy/publish; Chromium only where a script needs it — offline)
