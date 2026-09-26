@@ -2,7 +2,7 @@
 
 OpenAI Agents SDK tools for [Agent402](https://agent402.tools) - the open-source
 x402 + MCP server with 500+ pay-per-call web tools (browser, web search,
-OCR, PDFs, durable memory, 200+ pure-CPU utilities) **and** the cross-seller
+OCR, PDFs, durable memory, 150+ pure-CPU utilities) **and** the cross-seller
 [Smart Order Router](https://agent402.tools/index) that ranks tools across the
 whole x402 ecosystem.
 

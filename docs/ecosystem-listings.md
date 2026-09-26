@@ -8,7 +8,7 @@ claim below is served live; verify prices against `/api/pricing` before pasting.
 - **Catalog:** 500+ pay-per-call endpoints for AI agents (500+ tools and
   70+ skill packs): live web search and cited answers, headless browser, PDFs, OCR,
   financial / SEC EDGAR / macro / on-chain data, an OpenAI-compatible LLM gateway
-  (`/v1`), durable wallet-keyed memory, 200+ pure-CPU utilities.
+  (`/v1`), durable wallet-keyed memory, 150+ pure-CPU utilities.
 - **Market and onchain intel (keyless, deterministic, per call):** live perpetuals
   (`perp-markets`, `perp-funding`, `perp-funding-screener`, `perp-basis`,
   `perp-open-interest`, `perp-klines`, `perp-orderbook`, $0.001 to $0.003) and the
@@ -77,7 +77,7 @@ alphabetical by repo name; legend: 📇 = TypeScript/JavaScript, ☁️ = cloud/
 2. In the Aggregators section, insert alphabetically:
 
 ```markdown
-- [MikeyPetrillo/Agent402](https://github.com/MikeyPetrillo/Agent402) 📇 ☁️ 🏠 - The applied layer of Agentic Finance (AIFI): the headless browser, live web search, OCR, and durable wallet-keyed memory an agent's sandbox doesn't have - a catalog of 500+: 500+ pay-per-call tools and curated skill packs, every one tested, priced, and settled on-chain - rented per call via x402 (USDC on Base + 10 more chains (Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar, Algorand), or USDG on Robinhood Chain - 12 chains) or free with proof-of-work on the 200+ pure-CPU tools; every paid endpoint also accepts MPP (Machine Payments Protocol) clients, settling on Base/Celo or natively on Tempo. Also an x402 Index + Smart Order Router that finds the cheapest healthy tool across the whole ecosystem, and an MPP marketplace of live-verified MPP sellers. Hosted remote connector at agent402.tools/mcp.
+- [MikeyPetrillo/Agent402](https://github.com/MikeyPetrillo/Agent402) 📇 ☁️ 🏠 - The applied layer of Agentic Finance (AIFI): the headless browser, live web search, OCR, and durable wallet-keyed memory an agent's sandbox doesn't have - a catalog of 500+: 500+ pay-per-call tools and curated skill packs, every one tested, priced, and settled on-chain - rented per call via x402 (USDC on Base + 10 more chains (Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar, Algorand), or USDG on Robinhood Chain - 12 chains) or free with proof-of-work on the 150+ pure-CPU tools; every paid endpoint also accepts MPP (Machine Payments Protocol) clients, settling on Base/Celo or natively on Tempo. Also an x402 Index + Smart Order Router that finds the cheapest healthy tool across the whole ecosystem, and an MPP marketplace of live-verified MPP sellers. Hosted remote connector at agent402.tools/mcp.
 ```
 
 3. PR title: `Add Agent402 (aggregator: 500+ x402 pay-per-call tools and skill packs)`
@@ -218,7 +218,7 @@ that takes a GitHub repo URL; no PR, no fork.
      regex, compression, forecasting, statistics, finance math, etc.) - paid per
      call in USDC on Base (or Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar,
      Algorand) - plus USDG on Robinhood Chain - 12 chains total via the x402
-     protocol, or free via built-in proof-of-work for the 200+ pure-CPU tools.
+     protocol, or free via built-in proof-of-work for the 150+ pure-CPU tools.
 
      The catalog is 500+ strong - tools and curated multi-tool skill packs
      (published as MCP prompts); every one is tested against its own example on

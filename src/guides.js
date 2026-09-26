@@ -181,7 +181,7 @@ POST /api/memory/recall    {"query":"why did the deploy break?","k":3}
 \`\`\`
 
 Store prose now, search it by meaning later. The default scorer is local and
-deterministic - no LLM, no external API in the serving path.
+deterministic: it calls no model and no external API.
 
 ## Why not just use a database?
 
@@ -1585,8 +1585,7 @@ stays the simplest path for a credits key.
 ## What you get that a plain router does not
 
 The same key and the same base URL reach the rest of the catalog: 500+
-deterministic tools (search, extract, render, PDF, EDGAR, openFDA, on-chain
-data), the [smart order router](https://agent402.tools/guides/smart-order-router)
+tools (search, extract, render, PDF, EDGAR, openFDA, on-chain data), the [smart order router](https://agent402.tools/guides/smart-order-router)
 that pays other x402 sellers on your agent's behalf, and receipts for every
 call. Every price on this page is rendered from the live gateway configuration.
 

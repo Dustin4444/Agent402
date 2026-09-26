@@ -27,6 +27,7 @@
 // are strings that state their own scope (a boolean cannot), and the phrasings
 // that were wrong are forbidden outright in served copy.
 import { readFileSync, readdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -53,20 +54,22 @@ function walk(rel, out, depth = 0) {
   }
   return out;
 }
-const files = [];
-for (const d of ["src", "wiki", "docs", "adapters", "openclaw"]) walk(d, files);
-// The package roots carry served/published prose; their source is tested by
-// their own suites, so only the docs are swept here.
-for (const d of ["mcp", "client", "tollbooth"]) {
-  for (const f of walk(d, [])) if (f.endsWith(".md")) files.push(f);
-}
-files.push("README.md");
-// Card generators render PUBLIC artifacts (submission cards, announcement
-// images), so their copy is a surface even though the rest of scripts/ is not.
-// A challenge-submission card carried both the count-as-deterministic claim and
-// the retired pack ceiling, invisible to a sweep scoped to pages and docs.
-for (const f of walk("scripts", [])) if (/card.*\.js$/.test(f) && !/^scripts\/test-/.test(f)) files.push(f);
-
+// EVERY tracked text file, not a list of folders. The folder list certified
+// its own gap twice: skills/openclaw/agent402/SKILL.md (displayed in full by a
+// plugin registry) and .cursor-plugin/plugin.json (a published manifest) both
+// carried forbidden claims for months because neither folder was on the list.
+// What is left out is named, with the reason.
+const NOT_SURFACES = [
+  [/^scripts\/(?!.*card.*\.js$)/, "tests and ops scripts quote the forbidden sentences as fixtures; card generators ARE surfaces and stay in"],
+  [/^\.github\//, "CI configuration, not copy"],
+  [/^CLAUDE\.md$/, "the rulebook quotes the forbidden sentences to forbid them"],
+  [/(^|\/)CHANGELOG\.md$/, "dated history records what shipped when, including the old wording"],
+  [/(^|\/)package-lock\.json$|(^|\/)node_modules\//, "generated"],
+  [/^facilitator\/test|\.test\.js$|(^|\/)test[^/]*\.js$/, "test fixtures"],
+];
+const TEXT = /\.(?:js|mjs|cjs|md|json|toml|txt|ya?ml|html)$/;
+const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }).split("\0").filter(Boolean);
+const files = tracked.filter((f) => TEXT.test(f) && !NOT_SURFACES.some(([re]) => re.test(f)));
 const read = (rel) => { try { return readFileSync(join(root, rel), "utf8"); } catch { return null; } };
 
 const FORBIDDEN = [
@@ -100,7 +103,10 @@ const FORBIDDEN = [
     // hand-written /why copy did not, and said the service runs no model at all.
     re: /\bno (?:model|LLM)\b[^.]{0,30}serving path/i,
     why: "the /v1 tiers, the reports and the media tools run models; scope the claim to the utility or deterministic tools",
-    scopedBy: /utility|deterministic|these tools|those tools|this kit|pure[- ]CPU/i,
+    // A scope names WHICH tools. A bare "deterministic" was accepted here, and a
+    // file whose neighbouring line was the false count claim ("500+ deterministic
+    // web tools") had its no-model claim certified by that very claim.
+    scopedBy: /\b(?:the|these|those|our|its|each|every) (?:utility|deterministic|pure[- ]CPU)\b|\butility tools?\b|\b(?:deterministic )?utilities\b|\bthese tools\b|\bthose tools\b|\bthis kit\b|\bpure[- ]CPU tools\b/i,
     scopeWindow: 3,
   },
   {
@@ -116,7 +122,9 @@ const FORBIDDEN = [
     why: "scope it: say what does not happen on THIS rail",
   },
   {
-    re: /(?:\d|\}|\b[Aa]ll|\b[Ee]very) deterministic (?:\w+ )?tools\b/,
+    // "500+ deterministic web tools" slipped past this for months: the "+"
+    // between the count and the word broke the old digit-then-space match.
+    re: /(?:\d\+?|\}\+?|\b[Aa]ll|\b[Ee]very) deterministic (?:\w+ )?tools\b/,
     why: "the catalog count includes model-backed entries; say priced endpoints",
   },
   {
@@ -330,6 +338,9 @@ ok(files.some((f) => /^scripts\/.*card.*\.js$/.test(f)),
 // to pass; otherwise the next author suppresses it and the guard is decoration.
 {
   const MUST_FAIL = [
+    // The two sentences a plugin registry displayed in full from SKILL.md.
+    "500+ deterministic web tools an agent can call over plain HTTP, paid per call.\nNo LLM sits in the serving path on Agent402's side; every response is a",
+    "Pay-per-call access to Agent402.Tools: 500+ deterministic web tools (browser rendering",
     "Only sellers with proven on-chain settlement are routable.",
     "Only sellers with proven settlement are routable.",
     "it routes only to sellers with proven on-chain settled volume",

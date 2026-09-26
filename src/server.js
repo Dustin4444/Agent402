@@ -453,8 +453,8 @@ const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZ
 // reads. Wrapped in place so _premiumHandlers below sees the wrapped one.
 // MODEL-BACKED, marked once so no sentence has to count them by hand.
 //
-// Four public surfaces claimed "tools are deterministic: no model in the
-// serving path" as an unqualified absolute, and the x402 manifest published it
+// Four public surfaces claimed, unqualified, that every tool was deterministic and
+// served without a model, and the x402 manifest published it
 // as `deterministic: true`. It was never true of the whole catalog: the /v1
 // gateway tiers, every report product, and the image, speech, transcription,
 // embedding, moderation and AI-answer tools all run a model. The claim that IS

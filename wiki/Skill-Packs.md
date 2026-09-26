@@ -184,7 +184,7 @@ When an agent says *"audit a domain"*, picking one tool (whois? dns? tls-cert? c
 - **The plan is in the template, not in the model.** Same pack, same plan, every time - no token-spending discovery loop.
 - **The tools are pinned.** When a new better tool ships, the pack template gets updated server-side; agents calling `prompts/get` always get the current best plan.
 - **Pricing is transparent.** Each tool's price is deterministic; the pack template lists every call so total cost is predictable before the first call.
-- **No LLM in the serving path.** The pack rendering itself is deterministic - no hidden inference, no surprise dependencies.
+- **No hidden inference.** Rendering a pack template runs no model, so the plan an agent receives is the same every time; a pack step that calls a model-backed tool says so.
 
 ## Adding a pack
 

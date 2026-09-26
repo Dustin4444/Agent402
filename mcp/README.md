@@ -43,7 +43,7 @@ With prepaid card credits (no wallet) - buy a pack at https://agent402.tools/cre
 }
 ```
 
-Without a wallet or credits key - the 200+ pure-CPU tools work free via proof-of-work (the network/browser/memory tools will ask for a wallet or a credits key):
+Without a wallet or credits key - the 150+ pure-CPU tools work free via proof-of-work (the network/browser/memory tools will ask for a wallet or a credits key):
 
 ```json
 {

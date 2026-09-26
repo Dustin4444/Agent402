@@ -82,7 +82,7 @@ Operated by [Havok Holdings LLC](https://havok.holdings) · [Live](https://agent
 [![npm](https://img.shields.io/npm/v/agent402-agentkit?label=agentkit)](https://www.npmjs.com/package/agent402-agentkit)
 
 **500+ strong - live web search and cited answers as the MCP front door, then ready-to-use web tools and multi-tool skill packs for your AI agent, from one server. Every one tested, priced, and settled on-chain; every one earns its place. Browser
-rendering, web search, PDFs, images, OCR, live financial/crypto/macro data, SEC EDGAR, deterministic stats, forecasting, and options/bond pricing (Black-Scholes, YTM), compression, and 200+ pure-CPU utilities.** Run it yourself for free in 30 seconds (MCP **or**
+rendering, web search, PDFs, images, OCR, live financial/crypto/macro data, SEC EDGAR, deterministic stats, forecasting, and options/bond pricing (Black-Scholes, YTM), compression, and 150+ pure-CPU utilities.** Run it yourself for free in 30 seconds (MCP **or**
 plain HTTP, no API keys, no signup - the free tier and x402/MPP payments never
 need a key; only the optional prepaid card credits use one bearer key), connect
 it to Claude/ChatGPT/any MCP client, and add your own tools in a few lines.
@@ -198,7 +198,7 @@ More: [Paying with MPP](https://github.com/MikeyPetrillo/Agent402/wiki/Paying-wi
 | **Chain reads** | `block-number`, `chain-info`, `block-info`, `contract-code`, `erc721-owner`, `event-logs` - keyless JSON-RPC reads with multi-endpoint failover on Ethereum/Base/Polygon/Arbitrum/Optimism, from $0.001 |
 | **SQL policy** | `sql-guard` ($0.004 - pass/warn/block verdict with named risks on a SQL statement, plus an Ed25519 execution certificate when a signing key is configured), `sql-cert-verify` ($0.001 - verifies that certificate against the exact statement) |
 | **x402 seller intelligence** | Three rungs on the same question, cheapest first. `seller-trust` (`GET /api/x402/seller-trust`, $0.005) - the router's gate field by field: indexed, manifest parses, chains advertised, settled calls observed, would we spend buyer money there. `seller-dossier` (`POST /api/seller-dossier`, $0.05) - the assembled record: every price with its provenance, advertised wallets against the wallets actually paid, settlement evidence per source, the dispatch verdict per chain with its reason, and what happened the times our router paid it. `seller-payability` (`POST /api/seller-payability`, $0.10) - buys one real call right now and reports every leg, including whether the accept's EIP-712 domain matches the token it names. The first two are offline reads of what we already know; the third spends USDC to find out |
-| **200+ pure-CPU utilities** | hashing, JWT, base58, JSON⇄CSV/YAML, `token-count`, `text-chunk`, `json-validate`, text stats, cron math, validators, unit conversions across 13 categories (one parametric tool) |
+| **150+ pure-CPU utilities** | hashing, JWT, base58, JSON⇄CSV/YAML, `token-count`, `text-chunk`, `json-validate`, text stats, cron math, validators, unit conversions across 13 categories (one parametric tool) |
 
 Full schemas live in [`/openapi.json`](https://agent402.tools/openapi.json); a
 machine-readable catalog is at [`/api/pricing`](https://agent402.tools/api/pricing)
@@ -592,7 +592,7 @@ translated to `PAYMENT-SIGNATURE` and handed to the same verifier.
 | Path | What |
 |---|---|
 | `src/server.js` | Express app + the tool catalog (routes, prices, schemas, discovery) |
-| `src/tools/` | The tool kits (web, PDF, media, images, live data, crypto/x402, 200+ pure-CPU utilities) - **add tools here** |
+| `src/tools/` | The tool kits (web, PDF, media, images, live data, crypto/x402, 150+ pure-CPU utilities) - **add tools here** |
 | `src/mcp-http.js` | Hosted MCP connector (streamable HTTP, authless free tier) |
 | `src/pow.js` | Proof-of-work tier (signed, single-use, slug-scoped challenges) |
 | `src/payments.js` | Optional x402 v2 wiring: USDC on Base/Solana/Polygon/Arbitrum/Monad/Celo/Avalanche/Sei/Optimism/Stellar/Algorand + USDG on Robinhood Chain (12 chains), CDP facilitator, Bazaar discovery |
