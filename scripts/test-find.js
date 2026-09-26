@@ -407,5 +407,33 @@ JSON.parse(JSON.stringify(findTools(CATALOG, "extract", { baseUrl: "https://agen
   ok(top("is my website up") === "http-check", `one word of a multi-word alias ("website") earns nothing (got ${top("is my website up")})`);
 }
 
+// The demand board's most repeated find-miss (2026-09-20..25): price, OHLCV
+// candles and RSI/EMA for BTC and ETH in one call. crypto-indicators answers
+// all of it (ohlcv option), but its name said none of those words and the
+// searches were recorded as misses. Driven against the REAL crypto kits so a
+// description or tag edit that loses the match fails here.
+{
+  const { CRYPTO_SIGNALS_TOOLS } = await import("../src/tools/crypto-signals-kit.js");
+  const { DERIVATIVES_TOOLS } = await import("../src/tools/derivatives-kit.js");
+  const { CRYPTO_MARKETS_TOOLS } = await import("../src/tools/crypto-markets-kit.js");
+  const { PRICE_FEED_TOOLS } = await import("../src/tools/price-feed-kit.js");
+  const real = {};
+  for (const t of [...CRYPTO_TOOLS, ...CRYPTO_SIGNALS_TOOLS, ...DERIVATIVES_TOOLS, ...CRYPTO_MARKETS_TOOLS, ...PRICE_FEED_TOOLS]) real[`${t.method || "POST"} ${t.route}`] = t;
+  const find = (q) => findTools(real, q, {});
+  for (const q of [
+    "btc eth cryptocurrency price ohlcv candles rsi ema",
+    "get bitcoin and ethereum live spot price and ohlcv candles for rsi ema",
+    "get live bitcoin and ethereum spot price and rsi ema indicators",
+    "btc eth crypto spot price and ohlcv candles rsi ema indicators",
+  ]) {
+    const r = find(q);
+    ok(r.results[0]?.slug === "crypto-indicators" && r.rarestTermCovered, `"${q}" -> crypto-indicators, served (got ${r.results[0]?.slug}, covered=${r.rarestTermCovered})`);
+  }
+  const plain = find("get live bitcoin and ethereum cryptocurrency spot price usd");
+  ok(plain.results[0]?.slug === "crypto-price" && plain.rarestTermCovered, `a price-only ask stays on crypto-price, served (got ${plain.results[0]?.slug})`);
+  ok(find("bitcoin price").results[0]?.slug === "crypto-price", "a bare price ask is not pulled onto the indicators tool");
+  ok(find("perp klines for btc 1h").results[0]?.slug === "perp-klines", "a klines ask still reaches perp-klines");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -340,7 +340,9 @@ export const TIERS = {
       // off the base tier rather than raising the bound, which is the belt that
       // catches a model repriced upward: a buyer naming it now gets a
       // self-explaining 400 instead of a silent failover.
-      "anthropic/claude-haiku", "anthropic/claude-3-haiku", // claude-3.5-haiku left OpenRouter (live-verified 2026-08-19)
+      // claude-3.5-haiku left OpenRouter (live-verified 2026-08-19) and
+      // claude-3-haiku followed on 2026-09-26 (the live model-id guard failed on it).
+      "anthropic/claude-haiku",
       // gemini-flash (bare) and gemini-2.0-flash left OpenRouter (live-verified
       // 2026-08-19, scripts/test-gateway-model-ids.js); 2.5 + 3.x remain.
       "google/gemini-2.5-flash",
