@@ -5454,13 +5454,17 @@ async function serveCachedDiscovery(path, policy, input, computeFn, analyticsSlu
     // spent holding the thread is charged to the CPU budget: the synchronous
     // start here, plus each slice a router query reports through `meter`,
     // charged as it happens.
+    // The first router slice runs inside computeFn's synchronous start and is
+    // also reported through `meter`, so only the part of the start the meter
+    // did not already charge is added here (else that slice counted twice).
     let asyncCpuMs = 0;
     const meter = (ms) => { asyncCpuMs += ms; discoveryCpuBudget.record(ms); };
     discoveryInFlight++;
     let result, syncMs;
     try {
       const pending = computeFn(meter);
-      syncMs = Date.now() - computeStarted;
+      const meteredInStart = asyncCpuMs;
+      syncMs = Math.max(0, Date.now() - computeStarted - meteredInStart);
       discoveryCpuBudget.record(syncMs);
       result = await pending;
     } finally {
