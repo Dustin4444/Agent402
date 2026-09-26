@@ -12,7 +12,6 @@ Operated by [Havok Holdings LLC](https://havok.holdings) · [Live](https://agent
 
 [![Live](https://img.shields.io/website?url=https%3A%2F%2Fagent402.tools%2Fhealth&label=agent402.tools&up_message=live)](https://agent402.tools)
 [![Wellknown](https://wellknown.network/agents/agent402-mcp/badge.svg)](https://wellknown.network/agents/agent402-mcp)
-[![HOL Registry](https://img.shields.io/endpoint?url=https%3A%2F%2Fhol.org%2Fapi%2Fregistry%2Fbadges%2Fplugin%3Fslug%3Dmikeypetrillo%252Fagent402%26metric%3Dstatus%26style%3Dflat)](https://hol.org/registry/plugins/mikeypetrillo%2Fagent402)
 [![MCP Queen operational grade](https://mcpqueen.com/badge/io.github.MikeyPetrillo/agent402.svg)](https://mcpqueen.com/s/io.github.MikeyPetrillo/agent402)
 [![CodeQL](https://github.com/MikeyPetrillo/Agent402/actions/workflows/codeql.yml/badge.svg)](https://github.com/MikeyPetrillo/Agent402/actions/workflows/codeql.yml)
 [![Secret scan](https://github.com/MikeyPetrillo/Agent402/actions/workflows/secret-scan.yml/badge.svg)](https://github.com/MikeyPetrillo/Agent402/actions/workflows/secret-scan.yml)
@@ -99,6 +98,8 @@ quoted ceiling, or flat tiers) and the finished report products (`/v1/research`,
 > **by default everything runs free.**
 
 🟢 **Hosted demo: [agent402.tools](https://agent402.tools)** · 📖 **[Wiki](https://github.com/MikeyPetrillo/Agent402/wiki)** · 📦 **[npm](https://www.npmjs.com/package/agent402-mcp)** · 🔌 **[MCP Registry](https://registry.modelcontextprotocol.io/v0/servers?search=io.github.MikeyPetrillo/agent402)** · 🧩 **[Smithery](https://smithery.ai/servers/mike-kq9d/agent402)**
+
+[![HOL Registry](https://img.shields.io/endpoint?url=https%3A%2F%2Fhol.org%2Fapi%2Fregistry%2Fbadges%2Fplugin%3Fslug%3Dmikeypetrillo%252Fagent402%26metric%3Dstatus%26style%3Dflat)](https://hol.org/registry/plugins/mikeypetrillo%2Fagent402)
 
 ## Run it yourself in 30 seconds
 
