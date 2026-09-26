@@ -208,7 +208,14 @@ for (const [name, html] of [["/reports", humanReportsPage("https://agent402.tool
     }
     return out;
   };
-  const files = [...walk("src"), ...walk("wiki"), ...walk("docs"), ...walk("mcp"), ...walk("client"), "README.md"];
+  // Every tracked text file, not a folder list: a folder list missed
+  // skills/openclaw/agent402/SKILL.md and .cursor-plugin/plugin.json, both
+  // public and both stale (2026-09-26). What is left out is named.
+  const { execFileSync } = await import("node:child_process");
+  const NOT_SURFACES = [/^scripts\/(?!.*card.*\.js$)/, /^\.github\//, /^CLAUDE\.md$/, /(^|\/)CHANGELOG\.md$/, /(^|\/)package-lock\.json$/, /\.test\.js$|(^|\/)test[^/]*\.js$/];
+  const files = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
+    .split("\0").filter((f) => f && /\.(?:js|mjs|md|json|toml|txt|ya?ml|html)$/.test(f) && !NOT_SURFACES.some((re) => re.test(f)));
+  void walk;
   ok(files.length >= 200, `sweeping ${files.length} surfaces for retired price figures`);
 
   const { PACK_PRICE_RANGE } = await import("../src/skills.js");
@@ -218,6 +225,10 @@ for (const [name, html] of [["/reports", humanReportsPage("https://agent402.tool
     ["$0.20–$1.10", "the agent report ladder is $0.60-$2.00; derive it from REPORT_TIERS"],
     ["$1 to $2 by card", "the card ladder is $2 to $5; derive it from HUMAN_PRODUCTS"],
     ["$0.55 (`route-execute-max`)", "route-execute-pro is $3.30, so the routing tiers do not top out there"],
+    ["200+ pure-CPU", "the proof-of-work tier is the eligible list at /api/pow (166 tools on 2026-09-26); do not type a count"],
+    ["Over\n200 of the 500+ tools", "the proof-of-work tier is the eligible list at /api/pow; do not type a count"],
+    ["100 skill packs", "the pack count is live on /skills; the public copy says 70+"],
+    ["Base + 4 more chains", "the payment rails are the networks in /api/pricing, not a typed count"],
   ];
   // Control first: the sweep must report a planted figure through this path.
   const scan = (entries) => {

@@ -100,7 +100,7 @@ The simplest home for a pure-CPU tool is `AGENT_TOOLS` in
 
 ### Ground rules (a tool ships only if it can be served *honestly*)
 
-1. **Deterministic** - no LLM in the serving path; same input, same output.
+1. **Deterministic** - a utility tool runs no model: same input, same output.
    (The `/v1` gateway and the finished report products under `src/tools/*-report-kit.js`,
    `research-deep-kit.js`, `dossier-kit.js`, `token-risk-kit.js` are the explicit
    exceptions: priced as LLM surfaces, wallet-only, never proof-of-work.)

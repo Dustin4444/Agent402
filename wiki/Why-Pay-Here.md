@@ -49,7 +49,7 @@ Route-and-execute resolves a task to the best seller across the whole ecosystem,
 
 ## 07 / Proof - Everything is checkable.
 
-Uptime is observed by two probes outside production, a real-money canary buys through every rail daily, transactions are published by rail and by wire, and the whole server is open source and self-hostable. Tools are deterministic: no model in the serving path.
+Uptime is observed by two probes outside production, a real-money canary buys through every rail daily, transactions are published by rail and by wire, and the whole server is open source and self-hostable. Utility tools are deterministic: no model in the serving path.
 
 - Status: https://agent402.tools/status
 - Transactions: https://agent402.tools/revenue

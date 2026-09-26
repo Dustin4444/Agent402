@@ -24,10 +24,10 @@ Agent402 accepts USDC payments on Stellar via the x402 protocol through its own 
 
 ## Product Scope
 
-- **500+ tools** - web search, browser rendering, PDFs, OCR, finance/EDGAR data, crypto market data, DNS/security, text processing, and 200+ pure-CPU utilities
+- **500+ tools** - web search, browser rendering, PDFs, OCR, finance/EDGAR data, crypto market data, DNS/security, text processing, and 150+ pure-CPU utilities
 - **80+ skill packs** - multi-tool workflows that solve entire agent jobs in one call (company research dossiers, domain security audits, crypto market briefs, financial analysis)
 - **12 payment chains** - Base, Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar, Algorand (USDC) and Robinhood Chain (USDG)
-- **Free tier** - 200+ pure-CPU tools available via proof-of-work (no wallet needed)
+- **Free tier** - 150+ pure-CPU tools available via proof-of-work (no wallet needed)
 - **MCP native** - works with Claude Code, Cursor, and any MCP-compatible agent
 - **Open source** - https://github.com/MikeyPetrillo/Agent402
 - **Buyer SDK** - `agent402-client` (npm) with auto-payment via PoW or x402
