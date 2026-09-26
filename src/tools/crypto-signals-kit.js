@@ -586,7 +586,11 @@ export const CRYPTO_SIGNALS_TOOLS = [
     price: "$0.002",
     description:
       "Technical indicators for one perpetual computed deterministically from Hyperliquid candles: RSI(14), MACD(12,26,9) with signal and histogram, EMA 20/50/200, SMA 20/50, Bollinger(20,2) with bandwidth and %B, ATR(14) and window VWAP. Returns the latest close, the latest value of each, the last N series points (points, max 100), and a plain summary (trend vs EMA50, RSI zone, MACD cross on the latest bar). Set ohlcv to also get the last N OHLCV candles (open, high, low, close, volume) in the same call. interval 1m to 1M, limit = candles used (default 200, max 500). Choose a subset with indicators. No key, no LLM.",
-    tags: ["crypto", "technical-analysis", "indicators", "rsi", "macd", "ema", "bollinger", "atr", "vwap", "signals", "hyperliquid"],
+    tags: ["crypto", "technical-analysis", "indicators", "rsi", "macd", "ema", "bollinger", "atr", "vwap", "signals", "hyperliquid", "ohlcv", "candles", "cryptocurrency", "bitcoin", "ethereum", "btc", "eth", "price"],
+    // Price, candles and RSI/EMA in one call is the most repeated find-miss on
+    // the demand board (2026-09-20..25); this tool answers it with ohlcv set,
+    // but its name says none of those words, so the searches landed elsewhere.
+    aliases: ["crypto-ohlcv", "crypto-candles", "crypto-rsi", "crypto-ema", "crypto-technical-analysis"],
     discovery: {
       bodyType: "json",
       input: { coin: "BTC", interval: "1h", limit: 200, points: 5 },
