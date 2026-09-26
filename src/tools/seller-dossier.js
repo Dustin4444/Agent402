@@ -34,7 +34,7 @@ function iso(ms) {
 // host-entry.js on 2026-08-28; it surfaced here when the operator evidence
 // route added a second caller-controlled path into this tool, on top of the
 // paid tool's own `origin` parameter.
-function hostOf(raw) {
+export function hostOf(raw) {
   let v = String(raw || "").trim().slice(0, 300).toLowerCase();
   for (const scheme of ["https://", "http://"]) {
     if (v.startsWith(scheme)) { v = v.slice(scheme.length); break; }

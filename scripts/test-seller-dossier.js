@@ -15,8 +15,7 @@
 //
 //   node scripts/test-seller-dossier.js
 import { strict as assert } from "node:assert";
-import { readFileSync } from "node:fs";
-import { buildSellerDossierTool, composeSellerDossier } from "../src/tools/seller-dossier.js";
+import { buildSellerDossierTool, composeSellerDossier, hostOf } from "../src/tools/seller-dossier.js";
 
 let passed = 0, failed = 0;
 const check = (name, fn) => {
@@ -330,8 +329,6 @@ check("a delivery failure publishes the chain and the date, never the status or 
 // into this tool. The bound is asserted in TIME, because a correctness-only
 // check passes against the regex too and would not have caught it.
 check("hostOf is linear on a pathological input", () => {
-  const src = readFileSync(new URL("../src/tools/seller-dossier.js", import.meta.url), "utf8");
-  const hostOf = new Function("return " + src.match(/function hostOf[\s\S]*?\n}/)[0].replace(/^function hostOf/, "function"))();
   assert.equal(hostOf("https://Proof.Example.com/x/y"), "proof.example.com");
   assert.equal(hostOf("a.b/c"), "a.b");
   assert.equal(hostOf(""), "");

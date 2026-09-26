@@ -22,7 +22,7 @@
 // string match found one of them. And every rule is pinned in BOTH
 // directions below, because a rule that flags honest engineering prose gets
 // suppressed by the next author and becomes decoration.
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
 // Naming a seller is not framing: "a seller's middleware tolerated it" is
 // mechanism, and the routing fixes need it. What these match is the ARGUMENT
@@ -109,7 +109,9 @@ export function subjectTooLong(message) {
 function messages(range) {
   // \x00 between commits: a message body contains blank lines, so no
   // line-based separator can split them reliably.
-  const raw = execSync(`git log --format=%B%x00 ${range}`, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  // The range is passed as an argument, never through a shell: it arrives from
+  // the environment (COMMIT_RANGE) and a shell would expand anything in it.
+  const raw = execFileSync("git", ["log", "--format=%B%x00", range], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   return raw.split("\0").map((m) => m.trim()).filter(Boolean);
 }
 
