@@ -742,6 +742,122 @@ const page = (results, extra = {}) =>
       await enrichLiveQuotes(declared, ORIGIN);
       check(`control: beside the origin's own price the stamp defers the read (asked ${asked})`, asked === 1 && networksNeedLiveVerify(declared[0]) === false);
     }
+
+    // A declared sibling verb whose own verb does not answer a quote is left
+    // exactly as it was, unless that verb refused definitively (404/405/410 on
+    // every attempt). The case: the seller declares POST (read on an earlier
+    // crawl: a learned quote on Base) and GET, the GET origin-priced with a
+    // chain of its own and validating its input before the paywall, so an
+    // unpaid GET answers 400 while the POST answers 402. Carry-forward no
+    // longer stamps the GET from the POST's read, which makes the GET a probe
+    // candidate of its own, and until 2026-09-28 the probe then dropped it
+    // after ANY non-402 on GET. The drop writes no gone mark, so the declared
+    // GET product left the index on every crawl and came back on every rebuild.
+    {
+      const BASE = "eip155:8453", OP = "eip155:10";
+      const PREV_PAYTO = "0x1111111111111111111111111111111111111111";
+      const NOW_PAYTO = "0x5555555555555555555555555555555555555555";
+      const readAt = Date.now() - 86_400_000;
+      // `get` answers the GET: a status, "throw" (a network failure), or a
+      // function of the URL (a route tried with placeholder query params and
+      // then bare). The POST answers 402 on the bare path only.
+      const answers = (route, get) => async (url, init = {}) => {
+        const u = new URL(String(url));
+        const m = String(init.method || "GET").toUpperCase();
+        if (u.pathname !== route) return new Response("{}", { status: 404 });
+        if (m === "POST") {
+          if (u.search) return new Response("{}", { status: 400, headers: { "content-type": "application/json" } });
+          return new Response("{}", { status: 402, headers: { "payment-required": header([accept({ payTo: NOW_PAYTO })]), "content-type": "application/json" } });
+        }
+        const a = typeof get === "function" ? get(u) : get;
+        if (a === "throw") throw new TypeError("fetch failed");
+        return new Response("{}", { status: a, headers: { "content-type": "application/json" } });
+      };
+      const readN = (route) => [{
+        seller: ORIGIN, route, method: "POST", slug: "v-post", price: 0.032, quoteSource: "live-402", quoteObservedAt: readAt,
+        networks: [BASE], networksVerifiedAt: readAt, liveProvenAt: readAt, payToByNetwork: { [BASE]: PREV_PAYTO },
+      }];
+      const crawl = (route, prevRows, getOver = {}) => carryForwardLearnedQuotes([
+        { seller: ORIGIN, route, method: "POST", slug: "v-post", quoteSource: "openapi" },
+        { seller: ORIGIN, route, method: "GET", slug: "v-get", price: 0.01, originDeclaredPrice: 0.01, quoteSource: "openapi", networks: [OP], ...getOver },
+      ], { tools: prevRows });
+      const untouched = (g) => g?.method === "GET" && g.networks?.length === 1 && g.networks[0] === OP && !(Number(g.networksVerifiedAt) > 0)
+        && !g.payToByNetwork && !g.evmDomainByNetwork && !(Number(g.liveProvenAt) > 0) && g.price === 0.01 && g.quoteSource === "openapi";
+
+      for (const get of [400, 401, 403, 500, 503, "throw"]) {
+        const route = `/x402/validates-first-${get}`;
+        globalThis.fetch = answers(route, get);
+        const rows = crawl(route, readN(route));
+        check(`GET ${get}: before the crawl the GET is a probe candidate of its own`, networksNeedLiveVerify(rows.find((r) => r.method === "GET")) === true);
+        await enrichLiveQuotes(rows, ORIGIN);
+        const g = rows.find((r) => r.method === "GET"), p = rows.find((r) => r.method === "POST");
+        check(`GET ${get}, POST 402: the declared GET stays in the index (rows ${rows.length})`, rows.length === 2 && Boolean(g));
+        check(`GET ${get}: the GET row keeps nothing from the POST's read (got ${JSON.stringify({ n: g?.networks, v: g?.networksVerifiedAt, p: g?.payToByNetwork, l: g?.liveProvenAt, price: g?.price, s: g?.quoteSource })})`, untouched(g));
+        check(`GET ${get}: the POST row takes the read (got ${JSON.stringify({ v: p?.networksVerifiedAt > readAt, l: p?.liveProvenAt > readAt, p: p?.payToByNetwork })})`,
+          Number(p?.networksVerifiedAt) > readAt && Number(p?.liveProvenAt) > readAt && p?.payToByNetwork?.[BASE] === NOW_PAYTO);
+      }
+
+      // A verb is "refused" only when EVERY attempt on it said so: a route
+      // declaring a required query parameter is tried with placeholders and
+      // then bare, and one definitive answer among others is not a refusal.
+      // A network failure on one attempt counts against it too.
+      const withQuery = { requestContract: ["declared", { query: ["url"] }] };
+      for (const [route, label, get] of [
+        ["/x402/mixed-404-400", "404 with placeholders, 400 bare", (u) => (u.search ? 404 : 400)],
+        ["/x402/mixed-throw-404", "a network failure with placeholders, 404 bare", (u) => (u.search ? "throw" : 404)],
+      ]) {
+        globalThis.fetch = answers(route, get);
+        const rows = crawl(route, readN(route), withQuery);
+        await enrichLiveQuotes(rows, ORIGIN);
+        const g = rows.find((r) => r.method === "GET");
+        check(`GET ${label}: not a refusal, the GET stays as it was (rows ${rows.length})`, rows.length === 2 && untouched(g));
+      }
+
+      // Contrast: the stated verb refusing definitively (the seller declares a
+      // verb it does not honour) still drops the stated row, and the POST
+      // takes the read. 410 is the gone path and is pinned elsewhere.
+      for (const get of [404, 405]) {
+        const route = `/x402/refuses-${get}`;
+        globalThis.fetch = answers(route, get);
+        const rows = crawl(route, readN(route));
+        await enrichLiveQuotes(rows, ORIGIN);
+        check(`GET ${get}, POST 402: the refused GET row is dropped and the POST takes the read (rows ${rows.length})`,
+          rows.length === 1 && rows[0].method === "POST" && Number(rows[0].networksVerifiedAt) > readAt && rows[0].payToByNetwork?.[BASE] === NOW_PAYTO);
+      }
+      {
+        const route = "/x402/refuses-every";
+        globalThis.fetch = answers(route, () => 404);
+        const rows = crawl(route, readN(route), withQuery);
+        await enrichLiveQuotes(rows, ORIGIN);
+        check(`GET 404 on every attempt (placeholders and bare) is a refusal: dropped (rows ${rows.length})`, rows.length === 1 && rows[0].method === "POST");
+      }
+
+      // Rebuild after rebuild the kept GET stays, and the route backs off like
+      // any probe that learned nothing for the row it probed, instead of asking
+      // both verbs on every crawl.
+      {
+        const route = "/x402/validates-first-repeat";
+        let gets = 0;
+        const inner = answers(route, 400);
+        globalThis.fetch = async (url, init = {}) => {
+          if (String(init.method || "GET").toUpperCase() === "GET" && new URL(String(url)).pathname === route) gets++;
+          return inner(url, init);
+        };
+        let rows = readN(route);
+        const perCrawl = [];
+        let stayed = true;
+        for (let i = 1; i <= 6; i++) {
+          rows = crawl(route, rows);
+          const before = gets;
+          await enrichLiveQuotes(rows, ORIGIN);
+          perCrawl.push(gets - before);
+          stayed = stayed && untouched(rows.find((r) => r.method === "GET"));
+        }
+        check("six crawls: the declared GET is indexed, untouched, after every one", stayed);
+        check(`six crawls: the GET re-asks back off (GET probes per crawl ${JSON.stringify(perCrawl)})`,
+          perCrawl[0] === 1 && perCrawl.slice(4).every((n) => n === 0) && perCrawl.reduce((a, b) => a + b, 0) <= 4);
+      }
+    }
   } finally {
     globalThis.fetch = origFetch;
   }

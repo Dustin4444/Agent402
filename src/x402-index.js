@@ -3559,6 +3559,9 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
     let firstOutcome = null;
     const own = String(tool.method || "GET").toUpperCase();
     const statusByMethod = {};
+    // Every answer per verb, a thrown attempt recorded as 0: a verb "refused"
+    // only when every attempt on it said so (see the sibling branch below).
+    const answersByMethod = {};
     const note = (method, outcome) => {
       const k = `${method} ${outcome}`;
       bump(quoteProbeStats.attempts, k);
@@ -3588,6 +3591,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
         // and is the whole reason the second method is tried.
         note(method, String(res.status));
         statusByMethod[method] = res.status;
+        (answersByMethod[method] ||= []).push(res.status);
         if (method === "GET" && res.status === 200) {
           // The route answered WITHOUT a paywall. If the price we hold was
           // learned (a past 402, or a Bazaar settlement snapshot) rather than
@@ -3648,7 +3652,11 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
         const mppOnly = /^Payment\b/i.test(String(res.headers.get("www-authenticate") || "").trim());
         note(method, mppOnly ? "402-mpp-only" : "402-unreadable");
         if (!mppOnly) sampleUnreadable402(originUrl, tool.route, res.headers.get("payment-required"), body);
-      } catch (err) { note(method, probeFailureCode(err)); /* unreachable, blocked, or malformed - try the next method */ }
+      } catch (err) {
+        note(method, probeFailureCode(err));
+        (answersByMethod[method] ||= []).push(0);
+        /* unreachable, blocked, or malformed - try the next method */
+      }
     }
     if (gone) {
       markRouteGone(originUrl, own, tool.route, { kind: "410" });
@@ -3657,12 +3665,28 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
       console.log(`[x402-index] live-410: ${originUrl}${tool.route} answered ${own} 410 Gone; dropped the row`);
       continue;
     }
-    if (learned || freeObserved) { tool.liveProvenAt = Date.now(); clearGoneMark(originUrl, own, tool.route); }
     // An undeclared route whose own verb answered "no such route" is not for
     // sale. Only a definitive answer counts: a timeout, 5xx, 429, 401/403 or a
     // 400 on our probe body says nothing. A row whose verb was inferred must
     // miss on every verb tried; a URL template is never probed literally.
     const MISS = new Set([404, 405, 410]);
+    // The quote belongs to the row of the verb that answered. When that is not
+    // the stated verb and the seller ALSO declares the answering verb on this
+    // route, the declared sibling takes the read, and the stated row keeps
+    // nothing from it (see the sibling branch below).
+    const answered = learned?.method ? String(learned.method).toUpperCase() : own;
+    const sibling = learned && answered !== own
+      ? tools.find((o) => o !== tool && o.route === tool.route && String(o.method || "").toUpperCase() === answered)
+      : null;
+    // Did the stated verb itself refuse, definitively, on every attempt? Only
+    // then does the sibling branch drop the stated row.
+    const statedRefused = Boolean(sibling) && (answersByMethod[own] || []).length > 0
+      && answersByMethod[own].every((st) => MISS.has(st));
+    if (learned || freeObserved) {
+      const proven = sibling || tool;
+      proven.liveProvenAt = Date.now();
+      clearGoneMark(originUrl, sibling ? answered : own, tool.route);
+    }
     const missCandidate = !learned && !freeObserved && tool.declared === false && !String(tool.route).includes("{") && MISS.has(statusByMethod[own]);
     // An inferred POST is only ever probed with POST; before calling a guessed
     // verb's miss a miss, ask the route once with a read-only GET.
@@ -3693,12 +3717,43 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
       console.log(`[x402-index] live-miss: ${originUrl}${tool.route} is not in the seller's documents and answered ${own} ${statusByMethod[own]}; dropped the row`);
       continue;
     }
-    noteProbeOutcome(originUrl, `quote:${tool.route}`, Boolean(learned));
+    // A quote that went to a declared sibling taught the stated row nothing
+    // about itself, so the route backs off like any probe that learned nothing
+    // (the stated row stays a candidate, and without this it would be asked
+    // again, both verbs, on every crawl). The sibling was just read and is not
+    // due again for days; a successful read of its own clears the backoff.
+    noteProbeOutcome(originUrl, `quote:${tool.route}`, Boolean(learned) && !sibling);
     quoteProbeStats.probed++;
     if (learned) quoteProbeStats.learned++;
     else if (freeObserved) quoteProbeStats.free++;
     else { quoteProbeStats.missed++; bump(quoteProbeStats.missByFirst, firstOutcome || "none"); }
     if (!learned) continue;
+    if (sibling) {
+      // The stated verb did not answer a quote, and the seller ALSO declares
+      // the verb that did on this route: the read is the sibling's, and only
+      // the sibling is written. The stated row is dropped only when its own
+      // verb refused definitively (404/405/410 on every attempt): an OpenAPI
+      // that lists GET and POST on one path where only POST is real, a
+      // declaration the seller does not honour, which would send buyers a verb
+      // that 405s. Any other answer (a 400 from a route that validates its
+      // input before the paywall, 401/403, 5xx, a timeout) says nothing about
+      // whether the stated verb is for sale, so the row stays exactly as it
+      // was. Until 2026-09-28 any non-402 dropped it, and the drop writes no
+      // gone mark, so a declared product left the index on every crawl and
+      // came back on every rebuild.
+      adoptLivePrice(sibling, learned.price, originUrl);
+      if (learned.networks?.length) sibling.networks = [...new Set([...(sibling.networks || []), ...learned.networks])];
+      if (learned.evmDomainByNetwork) sibling.evmDomainByNetwork = { ...learned.evmDomainByNetwork };
+      applyLivePayTo(sibling, learned.payToByNetwork);
+      sibling.networksVerifiedAt = Date.now();
+      if (statedRefused) {
+        dropped.add(tool);
+        console.log(`[x402-index] live-402: ${originUrl}${tool.route} refuses ${own} and answers ${answered}; the seller declares both, dropping the ${own} row (sibling kept; ${own} answered ${answersByMethod[own].join(",")})`);
+      } else {
+        console.log(`[x402-index] live-402: ${originUrl}${tool.route} answers ${answered}, not ${own} (${(answersByMethod[own] || []).map((st) => st || "failed").join(",") || "not asked"}); the quote went to the declared ${answered} row and the ${own} row was left as it was`);
+      }
+      continue;
+    }
     // Price may be null for an asset we refuse to guess at; the networks alone
     // still move the row from payable:"unknown" to payable:"x402", which is the
     // honest and useful half of the answer.
@@ -3727,28 +3782,13 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
     // the manifest claimed (the union above never drops a manifest chain).
     tool.networksVerifiedAt = Date.now();
     if (learned.method && learned.method !== tool.method) {
-      // The stated verb did not answer a quote and this one did. When the
-      // seller ALSO declares the answering verb on this route (an OpenAPI that
-      // lists GET and POST on one path, where only POST is real), the stated
-      // row is a declaration the seller does not honour: correcting it would
-      // leave two identical rows on the path, and keeping it would send buyers
-      // a verb that 405s. Drop it; the sibling already represents the route.
-      const stated = String(tool.method || "GET").toUpperCase();
-      const sibling = tools.find((o) => o !== tool && o.route === tool.route && String(o.method || "").toUpperCase() === learned.method);
-      if (sibling) {
-        adoptLivePrice(sibling, learned.price, originUrl);
-        if (learned.networks?.length) sibling.networks = [...new Set([...(sibling.networks || []), ...learned.networks])];
-        if (learned.evmDomainByNetwork) sibling.evmDomainByNetwork = { ...learned.evmDomainByNetwork };
-        applyLivePayTo(sibling, learned.payToByNetwork);
-        sibling.networksVerifiedAt = Date.now();
-        dropped.add(tool);
-        console.log(`[x402-index] live-402: ${originUrl}${tool.route} refuses ${stated} and answers ${learned.method}; the seller declares both, dropping the ${stated} row (sibling kept)`);
-        continue;
-      }
-      // Otherwise a CORRECTION, recorded as such so the next crawl's
+      // The stated verb did not answer a quote and this one did, and no
+      // sibling row declares the answering verb (that case took the branch
+      // above): a CORRECTION, recorded as such so the next crawl's
       // carry-forward can re-apply it to the freshly rebuilt row (which will
       // state the wrong verb again) without ever touching a row whose own verb
       // was never probed.
+      const stated = own;
       tool.methodCorrectedFrom = stated;
       tool.method = learned.method; tool.methodInferred = false;
     }

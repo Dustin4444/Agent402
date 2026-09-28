@@ -45,6 +45,24 @@ try {
   ok(tools[0].networks.includes("eip155:8453") && tools[0].networksVerifiedAt > 0, "sibling networks verified");
   ok(logs.some((l) => /refuses GET and answers POST.*dropping the GET row/.test(l)), "the drop is logged with both verbs");
 
+  // --- 1b. declared GET answers 400 (it validates its input before the
+  // paywall), declared POST answers 402: a 400 is not a refusal, so the GET row
+  // stays exactly as it was and only the POST row takes the read. Until
+  // 2026-09-28 any non-402 on the stated verb dropped it.
+  seen.length = 0; logs.length = 0;
+  globalThis.fetch = stub({ "GET /x402/check": 400, "POST /x402/check": 402 });
+  const validates = [
+    { seller: "example.com", route: "/x402/check", method: "GET", slug: "x402_check_get", price: 0.01, originDeclaredPrice: 0.01, networks: ["eip155:10"] },
+    { seller: "example.com", route: "/x402/check", method: "POST", slug: "x402_check_post", networks: [] },
+  ];
+  await enrichLiveQuotes(validates, ORIGIN, { ignoreBudget: true });
+  eq(validates.length, 2, "a 400 on the stated verb keeps its row");
+  const vGet = validates.find((t) => t.method === "GET"), vPost = validates.find((t) => t.method === "POST");
+  ok(vGet.networks.length === 1 && vGet.networks[0] === "eip155:10" && vGet.price === 0.01, "the GET row keeps its own chain and price");
+  ok(!vGet.networksVerifiedAt && !vGet.payToByNetwork && !vGet.liveProvenAt, "the GET row takes no stamp, payTo or proof from the POST's read");
+  ok(vPost.price === 0.5 && vPost.networks.includes("eip155:8453") && vPost.networksVerifiedAt > 0 && vPost.liveProvenAt > 0, "the POST row takes the read");
+  ok(logs.some((l) => /answers POST, not GET \(400\).*GET row was left as it was/.test(l)), "the kept row is logged with the answer");
+
   // --- 2. control: the seller honours both verbs -> both rows stay, both priced
   seen.length = 0; logs.length = 0;
   globalThis.fetch = stub({ "GET /x402/time": 402, "POST /x402/time": 402 });
