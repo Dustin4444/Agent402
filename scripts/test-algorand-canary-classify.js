@@ -19,6 +19,17 @@ ok(outcomeOf(R(402, "{}", 5629)) === "slow-402", "a 5.6s 402 is slow-402 (a genu
 ok(outcomeOf(R(402, '{"error":"Payment rejected","reason":"requirements-mismatch","hint":"..."}', 40)) === "slow-402",
   "a FAST 402 carrying our gate's own named refusal is a rail verdict, never a throttle (metered Messages, 2026-08-31 + 09-07)");
 ok(outcomeOf(R(402, '{"error":"Payment required"}', 40)) === "fast-402", "a fast bare 402 with no named refusal is still fast-402");
+// The 402 body now also carries the PaymentRequired offer, mirrored from the
+// PAYMENT-REQUIRED header: `error` is the header's sentence, and the offer's
+// extensions can hold a `reason` of their own inside an example.
+ok(outcomeOf(R(402, JSON.stringify({ error: "No matching payment requirements", reason: "requirements-mismatch", hint: "...", retry: "rebuild-payment", x402Version: 2, resource: {}, accepts: [], extensions: {} }), 40)) === "slow-402",
+  "a FAST gate refusal in the mirrored shape (the header's error, our reason first) is still a rail verdict");
+ok(outcomeOf(R(402, JSON.stringify({ x402Version: 2, error: "Payment required", resource: {}, accepts: [], extensions: { bazaar: { info: { output: { example: { reason: "requirements-mismatch" } } } } } }), 40)) === "fast-402",
+  "a fast mirrored unpaid 402 whose only `reason` is nested in an extension example is still fast-402");
+ok(outcomeOf(R(402, JSON.stringify({ error: "Payment rail temporarily unavailable", reason: "facilitator-quota", retry: "other-network" }), 40)) === "fast-402",
+  "a fast settle refusal on OUR billing quota (facilitator-quota) is not a gate refusal");
+ok(outcomeOf(R(402, '<html>"reason": "requirements-mismatch"</html>', 40)) === "fast-402",
+  "a fast non-JSON 402 is never read as a gate refusal, whatever text it holds");
 ok(outcomeOf(R(429, "rate limited")) === "throttle", "429 is throttle");
 ok(outcomeOf(R(503, "rate limit exceeded")) === "throttle", "503 that says rate-limit is throttle");
 ok(outcomeOf(R(502, "upstream error")) === "other", "a 502 is 'other' (handed to the upstream-vs-tool split)");

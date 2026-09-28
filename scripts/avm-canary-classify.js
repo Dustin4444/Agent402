@@ -3,6 +3,7 @@
 // booting the sweep (the canary self-runs on import). See
 // scripts/test-algorand-canary-classify.js.
 import { railsReportSubcentPause, sponsorshipRowMonth } from "../src/avm-sponsorship.js";
+import { REJECTION_REASONS } from "../src/payment-reject.js";
 
 /**
  * What a SUB-CENT route's missing Algorand accept means (the paid canary's
@@ -59,14 +60,26 @@ export const isUpstreamOutage = (status, body) =>
   /Seller rejected the paid retry|upstream error|operation was aborted|aborted due to timeout|ECONNRESET|ETIMEDOUT|socket hang up|Bad Gateway|Gateway Time-?out|fetch failed/i.test(String(body || ""));
 
 // OUR OWN gate refusing the credential before any facilitator is asked: the
-// body carries the gate's "Payment rejected" with a named reason (requirements-
-// mismatch, replay, expired ...). It is fast BECAUSE nothing went to the chain,
-// and that speed used to read as "throttle" - the metered Messages wire failed
-// this way for two weekly runs (2026-08-31, 09-07) and was filed as our own
-// wallet being rate-limited. A named refusal is a rail verdict whatever its
-// latency.
-export const isGateRefusal = (status, body) =>
-  status === 402 && /"error"\s*:\s*"Payment rejected"/.test(String(body || "")) && /"reason"\s*:\s*"/.test(String(body || ""));
+// body names the refusal class in a top-level `reason` (requirements-mismatch,
+// unsupported-network, authorization-expired ...). It is fast BECAUSE nothing
+// went to the chain, and that speed used to read as "throttle" - the metered
+// Messages wire failed this way for two weekly runs (2026-08-31, 09-07) and
+// was filed as our own wallet being rate-limited. A named refusal is a rail
+// verdict whatever its latency.
+//
+// Read as parsed JSON, keyed on the reason the classifier publishes. The 402
+// body also carries the full offer (it mirrors the PAYMENT-REQUIRED header),
+// so its `error` is the header's sentence rather than "Payment rejected", and
+// a substring match could hit a `reason` nested in an extension's example.
+// facilitator-quota is left out: it comes from a SETTLE refusal, which was
+// never a gate refusal.
+const GATE_REASONS = new Set(REJECTION_REASONS.map((r) => r.reason).filter((r) => r !== "facilitator-quota"));
+export const isGateRefusal = (status, body) => {
+  if (status !== 402) return false;
+  let d;
+  try { d = JSON.parse(String(body || "")); } catch { return false; }
+  return !!d && typeof d === "object" && !Array.isArray(d) && GATE_REASONS.has(d.reason);
+};
 
 // Terminal shape of one paid attempt:
 // "ok" | "empty" | "breaker" | "fast-402" | "throttle" | "slow-402" | "other".
