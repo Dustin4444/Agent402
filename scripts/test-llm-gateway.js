@@ -1544,6 +1544,18 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   }
   ok(!K.MODEL_COST.some(([p]) => Object.hasOwn(RETIRING_MODELS, p)), "no MODEL_COST row prices a retiring id");
   ok(tierFor("deepseek/deepseek-chat") === "v1-chat-nano" && tierAllows("v1-chat", "deepseek/deepseek-v4-flash"), "the deepseek family is otherwise unchanged");
+  // deepseek-v3.2 left RETIRING_MODELS when its upstream expiration date was
+  // withdrawn: sold again on base and metered, priced by its own row.
+  {
+    const id = "deepseek/deepseek-v3.2";
+    ok(!retiringModel(id) && tierFor(id) === "v1-chat" && tierAllows("v1-chat-metered", id), "deepseek-v3.2: admitted again on base (its home) and metered");
+    ok(cf(id).prompt === 3 && cf(id).completion === 4.5 && cf("deepseek/deepseek-v4-flash").prompt === cf("deepseek/").prompt, "deepseek-v3.2 has its own row; the deepseek/ family row still prices the rest");
+    let e = null; try { validateRequest({ model: id, messages: [{ role: "user", content: "hi" }] }, "v1-chat"); } catch (x) { e = x; }
+    ok(e === null, "deepseek-v3.2 validates on the base tier (no retirement refusal)");
+    const body = { model: id, messages: [{ role: "user", content: "hi" }], max_tokens: 64 };
+    const base = K.worstCaseUpstreamCost(body, TIERS["v1-chat"]).cost, metered = K.worstCaseUpstreamCost(body, TIERS["v1-chat-metered"]).cost;
+    ok(base.prompt === TIERS["v1-chat"].maxPrice.prompt && base.completion === 4.5 && metered.prompt === 3 && metered.completion === 4.5, "deepseek-v3.2: base clamps at min(row, tier bound); metered prices the row it sends as provider.max_price");
+  }
   // Opus 5.5 and Grok 4.5-4.7: own rows / reasoning rows.
   ok(tierFor("anthropic/claude-opus-5.5") === "v1-chat-premium" && cf("anthropic/claude-opus-5.5").prompt === 4.4 && cf("anthropic/claude-opus-5.5").completion === 22 && cf("anthropic/claude-opus-5").prompt === 5.5, "opus-5.5 homes on premium with its own row; opus-5 keeps its row");
   ok(tokenizerFactor("anthropic/claude-opus-5.5") === NEW_TOKENIZER_FACTOR && rp("anthropic/claude-opus-5.5")?.id === "anthropic/claude-opus-5.5" && dr("anthropic/claude-opus-5.5", "v1-chat-premium") === null && JSON.stringify(dr("anthropic/claude-opus-5.5", "v1-chat-metered")) === '{"effort":"low"}', "opus-5.5: newer tokenizer, reasoning row (premium leaves the default, metered injects low)");
