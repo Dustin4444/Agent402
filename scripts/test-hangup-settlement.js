@@ -31,7 +31,10 @@
 //   g. the reviewers' R2 (ten concurrent hang-ups): in-flight runs count;
 //   h. rotating wallets AND IPs: the service-wide budget binds;
 //   i. close AFTER the whole answer arrived: an ordinary settled sale;
-//   j. no hang-up feeds the settle breaker or the composite guard.
+//   j. no hang-up feeds the settle breaker or the composite guard;
+//   k. (runs after h) with the wallet's budget spent, a close during verify
+//      runs nothing and charges nothing, on the generic binder and on the
+//      memory family.
 import { spawn } from "node:child_process";
 import { createServer, request as httpRequest } from "node:http";
 import { mkdtempSync, rmSync, readFileSync } from "node:fs";
@@ -261,6 +264,9 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
   ok(reserve > 0 && x402At > 0 && reserve > x402At && reserve < firstHandler, "the ticket is reserved after every payment gate and before every paid handler");
   const mw = server.slice(server.lastIndexOf("app.use((req, res, next) => {", reserve), reserve);
   ok(/if \(clientGoneBeforeFirstByte\(req\)\) \{\s*\n\s*try \{ res\.status\(499\)/.test(mw) && /X-Pow-Accepted/.test(mw) && /req\.__a402Dispatched = true;/.test(mw), "that middleware answers 499 for a buyer already gone, skips proof-of-work and trial calls, and marks the request dispatched");
+  // A request whose payment settled before its handler (a Tempo push
+  // credential) is owed if undelivered, so it must not spend the budget.
+  ok(/if \(req\.tempoSettled\) return next\(\);\s*\n\s*reserveHangupForgiveness\(/.test(server), "a request already settled before its handler (Tempo push) takes no ticket");
   ok(/res\.once\("close", \(\) => settleHangupTicket\(req, \{ abandoned: clientGoneBeforeFirstByte\(req\) \}\)\);/.test(server), "the ticket is settled on close (abandoned when gone before the first byte)");
   ok(/const who = payer \|\| \(req\.mppTempoSender \? `tempo:\$\{req\.mppTempoSender\}` : req\.creditsKeyId \? `credits:\$\{req\.creditsKeyId\}` : null\);\s*\n\s*return \[who, `ip:\$\{clientIp\(req\)\}`\];/.test(server), "ticket keys: the verified payer (never the Tempo source hint) AND always the client IP");
   ok(!/mppTempoPayer/.test(server.slice(server.indexOf("function hangupForgivenessKeys("), server.indexOf("function hangupForgivenessKeys(") + 600)), "the ticket keys never read the client-supplied Tempo payer hint");
@@ -570,6 +576,28 @@ try {
     or.imagesDelayMs = 0;
     const r = await pay(PRO, wallet(0x73), "10.0.4.3");
     ok(r.status === 200, `h. and nobody is refused: a connected buyer is served (${r.status})`);
+  }
+
+  // k. With the wallet's budget spent (WE, from e), a buyer who leaves while the
+  // payment is being verified still costs nothing and is charged nothing: the
+  // post-paywall middleware answers 499 before any handler, on the generic
+  // binder (nano) and on a route outside it (the memory family). Without that
+  // 499 the memory handler would run, answer 200, and - no ticket left - be
+  // settled and booked as owed.
+  {
+    const MEM = { path: "/api/memory", method: "POST", body: JSON.stringify({ key: "hangup-k", value: "v" }) };
+    fac.verifyDelayMs = 1_200;
+    const s0 = fac.settle, owed0 = (await refunds()).length, c0 = or.chat;
+    for (const [t, ip] of [[MEM, "10.0.7.1"], [CHAT, "10.0.7.2"]]) {
+      const v0 = fac.verify;
+      const verifySeen = waitFor(() => fac.verify > v0, 5000);
+      await hangUp(`${B}${t.path}`, { method: "POST", headers: await headersFor(t, wallet(0xe1), ip), body: t.body, abortWhen: verifySeen.then(() => sleep(150)) });
+      await sleep(1_600);
+    }
+    fac.verifyDelayMs = 0;
+    ok(fac.settle === s0 && (await refunds()).length === owed0 && or.chat === c0, `k. gone during verify with the wallet's budget spent: nothing ran, nothing settled, nothing owed (settles +${fac.settle - s0}, owed +${(await refunds()).length - owed0}, chat stub +${or.chat - c0})`);
+    const r = await pay(MEM, wallet(0xe1), "10.0.7.3");
+    ok(r.status === 200 && fac.settle === s0 + 1, `k. control: the same memory write from a connected buyer is served and settles (${r.status})`);
   }
 
   // i. Control: the buyer reads the WHOLE answer, then drops the socket. An
