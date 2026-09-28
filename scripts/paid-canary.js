@@ -20,7 +20,8 @@
 //   · 5 = partial-rail (tools settled; one or more chain rail legs failed)
 import { legRefusalVerdict } from "./canary-refusal-classify.js";
 import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
-import { isSponsorshipRowFromEarlierMonth, sponsorshipRowUpdatedAt } from "../src/avm-sponsorship.js";
+import { isSponsorshipRowEvidence, sponsorshipRowMonth, sponsorshipRowUpdatedAt } from "../src/avm-sponsorship.js";
+import { subcentAcceptVerdict } from "./avm-canary-classify.js";
 import { readFileSync, existsSync, appendFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createHmac } from "node:crypto";
@@ -1615,8 +1616,12 @@ async function main() {
       // the SERVER withdraws Algorand from sub-cent 402s (src/avm-sponsorship.js),
       // so /api/hash has no Algorand accept to read it from. That withdrawal is
       // the server's own verdict on the quota, and counts as exhausted even
-      // when the facilitator's status cannot be read from here.
-      let quota = null, subcentWithdrawn = false;
+      // when the facilitator's status cannot be read from here - but ONLY when
+      // the server SAYS it withdrew it: GET /api/rails carries the restriction
+      // {network:"algorand", status:"paused"}. A sub-cent 402 without Algorand
+      // and no such restriction (or an unreadable /api/rails) is the rail
+      // dropping out of the sub-cent offer, and pages.
+      let quota = null, subcentWithdrawn = false, subcentMissing = null;
       try {
         const avmAccept = async (path) => {
           const bare = await synthFetch(`${TARGET}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
@@ -1625,27 +1630,38 @@ async function main() {
         };
         const centAccept = await avmAccept("/api/solidity-scan");
         const payTo = centAccept?.payTo;
-        subcentWithdrawn = !!centAccept && !(await avmAccept("/api/hash"));
+        const subcentAccept = centAccept ? await avmAccept("/api/hash") : null;
+        let rails = null;
+        if (centAccept && !subcentAccept) {
+          try { rails = await (await synthFetch(`${TARGET}/api/rails`, { signal: AbortSignal.timeout(10000) })).json(); } catch { rails = null; }
+        }
+        const offerVerdict = subcentAcceptVerdict({ centAccept, subcentAccept, rails });
+        subcentWithdrawn = offerVerdict === "withdrawn";
+        if (offerVerdict === "missing") subcentMissing = "the $0.001 route's 402 carries no Algorand accept while the $0.01 route's does, and GET /api/rails reports no Algorand sub-cent pause (or could not be read) - the rail has dropped out of the sub-cent offer without the server saying why";
         if (payTo) {
           const st = await (await fetch(`${FACIL}/sponsorship/status?wallet=${payTo}`, { signal: AbortSignal.timeout(10000) })).json();
           quota = (st.chains || []).find((c) => c.chain === "algorand") || null;
         }
       } catch { quota = null; }
+      if (subcentMissing) { railFail("algorand", subcentMissing); return; }
       // A status row last written in an EARLIER UTC month is last month's
       // count, not this one's (the document has no month field and its
-      // counter may only roll over on the facilitator's next write) - the
-      // server's own rule (src/avm-sponsorship.js). Taken at its word it would
-      // route around a reset that never gets a sub-cent settle to happen on;
-      // ignored, the $0.001 buy below IS that settle, and pages if refused.
-      const quotaFromEarlierMonth = !!quota && isSponsorshipRowFromEarlierMonth(quota);
-      const exhausted = subcentWithdrawn || (!!quota && !quotaFromEarlierMonth && Number(quota.usedMonth) >= Number(quota.quota) && Number(quota.suBalance || 0) <= 0);
-      const quotaText = quota ? `${quota.usedMonth}/${quota.quota} used, SU ${quota.suBalance}${quotaFromEarlierMonth ? `, row last updated ${new Date(sponsorshipRowUpdatedAt(quota)).toISOString()}, before this month` : ""}` : "facilitator status unreadable";
+      // counter may only roll over on the facilitator's next write), and one
+      // whose updatedTs is not a readable time cannot name its month at all -
+      // the server's own rule (src/avm-sponsorship.js sponsorshipRowMonth).
+      // Taken at its word it would route around a reset that never gets a
+      // sub-cent settle to happen on; ignored, the $0.001 buy below IS that
+      // settle, and pages if refused.
+      const quotaMonth = quota ? sponsorshipRowMonth(quota) : null;
+      const quotaNotThisMonth = !!quota && !isSponsorshipRowEvidence(quota);
+      const exhausted = subcentWithdrawn || (!!quota && !quotaNotThisMonth && Number(quota.usedMonth) >= Number(quota.quota) && Number(quota.suBalance || 0) <= 0);
+      const quotaText = quota ? `${quota.usedMonth}/${quota.quota} used, SU ${quota.suBalance}${quotaMonth === "earlier-month" ? `, row last updated ${new Date(sponsorshipRowUpdatedAt(quota)).toISOString()}, before this month` : quotaMonth === "unreadable" ? `, row's updatedTs ${JSON.stringify(String(quota.updatedTs)).slice(0, 40)} is not a readable time` : ""}` : "facilitator status unreadable";
       // The allowance resets on the 1st. A pause still up on the 2nd or 3rd
       // (the 3rd so one skipped daily run cannot hide it), or one the server
       // holds while the facilitator's row is still last month's, is the reset
       // not reaching somewhere - said loudly, never excused as "resets on the 1st".
       const dayOfMonth = new Date().getUTCDate();
-      const pauseOutlivedReset = exhausted && (dayOfMonth === 2 || dayOfMonth === 3 || (subcentWithdrawn && quotaFromEarlierMonth));
+      const pauseOutlivedReset = exhausted && (dayOfMonth === 2 || dayOfMonth === 3 || (subcentWithdrawn && quotaMonth === "earlier-month"));
       const resetNote = pauseOutlivedReset
         ? `still paused on day ${dayOfMonth} of the UTC month, after the reset on the 1st - check the facilitator's sponsorship status for our payTo`
         : "resets on the 1st";

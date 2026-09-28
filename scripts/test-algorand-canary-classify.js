@@ -145,6 +145,28 @@ ok(outcomeOf({ status: 429, body: BREAKER_BODY, elapsedMs: 50 }) === "breaker", 
     ok(b1.budget === 150 && b1.remaining === 1000 && /earlier month/.test(b1.source), `a September row read in October is budgeted as reset (got ${JSON.stringify(b1)})`);
     ok(subcentBudget({ status: sepRow, max: 150, reserve: 300, now: Date.UTC(2026, 8, 28, 6, 41) }).budget === 0, "...and is still exhausted in September");
     ok(subcentBudget({ status: { ...sepRow, updatedTs: Date.UTC(2026, 9, 5, 6) }, max: 150, reserve: 300, now: oct5 }).budget === 0, "a row the facilitator rewrote this month is taken at its word");
+    // A PRESENT updatedTs that is not a readable time (0, negative, small)
+    // cannot name its month: budgeted as reset like an earlier month (fail
+    // open - the first sub-cent buy tells the truth), never by the accident
+    // of Date.parse reading "0" as January 2000.
+    for (const v of [0, -5, "0", 7]) {
+      const b = subcentBudget({ status: { ...sepRow, updatedTs: v }, max: 150, reserve: 300, now: Date.UTC(2026, 8, 28, 6, 41) });
+      ok(b.budget === 150 && /not a readable time/.test(b.source), `updatedTs ${JSON.stringify(v)}: not evidence, budgeted as reset (got ${JSON.stringify(b)})`);
+    }
+    ok(subcentBudget({ status: { quota: 1000, usedMonth: 1013, suBalance: 0 }, max: 150, reserve: 300, now: oct5 }).budget === 0, "a row with NO updatedTs is taken at its word (the documented rule)");
+  }
+
+  // The one predicate both canaries excuse a missing sub-cent accept on: the
+  // restriction /api/rails publishes, nothing else.
+  {
+    const { railsReportSubcentPause, avmSubcentOfferStatus, noteAvmSettleRefusal, _resetAvmSponsorshipForTest } = await import("../src/avm-sponsorship.js");
+    ok(railsReportSubcentPause({ restrictions: [{ network: "algorand", status: "paused", scope: "routes priced under one cent" }] }), "a published Algorand pause is reported");
+    ok(!railsReportSubcentPause({ restrictions: [] }) && !railsReportSubcentPause(null) && !railsReportSubcentPause({}) && !railsReportSubcentPause({ restrictions: "paused" }), "no restriction, an unreadable or malformed document: nothing is reported");
+    ok(!railsReportSubcentPause({ restrictions: [{ network: "base", status: "paused" }] }) && !railsReportSubcentPause({ restrictions: [{ network: "algorand", status: "open" }] }), "another network, or another status, is not the Algorand pause");
+    _resetAvmSponsorshipForTest({ logger: () => {} });
+    noteAvmSettleRefusal({ network: "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=", payTo: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY5HFKQ", reason: "subcent_quota_exceeded" });
+    ok(railsReportSubcentPause({ restrictions: avmSubcentOfferStatus() }), "...and it reads exactly the shape the server publishes on /api/rails");
+    _resetAvmSponsorshipForTest({ logger: () => {} });
   }
 
   // Rotation: this week's window, and the next, cover the catalog in turn.
@@ -179,7 +201,7 @@ ok(outcomeOf({ status: 429, body: BREAKER_BODY, elapsedMs: 50 }) === "breaker", 
   // excuse a sub-cent tool's missing accept ONLY on the server's own word.
   ok(/fetch\(`\$\{TARGET\}\/api\/solidity-scan`, \{ method: "POST"/.test(src) && !/fetch\(`\$\{TARGET\}\/api\/uuid`/.test(src), "the payTo is read from the one-cent route, not a sub-cent one that may carry no Algorand accept");
   ok(/subcentPlan = \(await subcentWithdrawnNow\(\)\)\s*\? \{ budget: 0/.test(src), "a server-withdrawn sub-cent offer buys zero sub-cent tools");
-  ok(/r\?\.network === "algorand" && r\?\.status === "paused"/.test(src) && /\/api\/rails/.test(src), "the withdrawal is read from /api/rails, the server's own published state");
+  ok(/import \{ railsReportSubcentPause \} from "\.\.\/src\/avm-sponsorship\.js"/.test(src) && /subcentWithdrawnSeen = railsReportSubcentPause\(rails\)/.test(src) && /fetch\(`\$\{TARGET\}\/api\/rails`/.test(src), "the withdrawal is read from /api/rails, the server's own published state, by the server's own predicate");
   ok(/const withdrawn = !expectedNoAvm && t\.priceUsd < 0\.01 && \(await subcentWithdrawnNow\(\)\)/.test(src), "only a SUB-CENT tool's missing accept is excused, and only while the server says so - anything else is still a regression");
 }
 

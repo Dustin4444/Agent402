@@ -2,7 +2,25 @@
 // Extracted into a side-effect-free module so they can be unit-tested without
 // booting the sweep (the canary self-runs on import). See
 // scripts/test-algorand-canary-classify.js.
-import { isSponsorshipRowFromEarlierMonth } from "../src/avm-sponsorship.js";
+import { railsReportSubcentPause, sponsorshipRowMonth } from "../src/avm-sponsorship.js";
+
+/**
+ * What a SUB-CENT route's missing Algorand accept means (the paid canary's
+ * Algorand leg). While the facilitator's sponsored sub-cent allowance is spent
+ * the server withdraws Algorand from sub-cent 402s and says so on GET
+ * /api/rails; that is the only excuse. Returns:
+ *   "offered"   the sub-cent 402 carries Algorand;
+ *   "withdrawn" it does not, and /api/rails reports the Algorand pause;
+ *   "missing"   it does not and /api/rails reports no pause (or could not be
+ *               read): the rail dropped out of the sub-cent offer - a failure;
+ *   "no-rail"   the one-cent route carries no Algorand accept either, so there
+ *               is nothing to compare (the leg's own buy decides).
+ */
+export function subcentAcceptVerdict({ centAccept, subcentAccept, rails } = {}) {
+  if (subcentAccept) return "offered";
+  if (!centAccept) return "no-rail";
+  return railsReportSubcentPause(rails) ? "withdrawn" : "missing";
+}
 
 // A 402 that comes back faster than this never reached the chain (real Algorand
 // round trips measured 5s+): the AVM-specific shape of a throttle/burst reject.
@@ -96,12 +114,17 @@ export function subcentBudget({ status, max, reserve, now = Date.now() }) {
   // the next write. Budget it as reset (the server's rule, src/avm-sponsorship.js);
   // if the facilitator has NOT reset, the first sub-cent buy is refused and
   // that is a rail failure the run reports, instead of a zero budget that
-  // excuses it every week.
-  const earlierMonth = isSponsorshipRowFromEarlierMonth(status, now);
-  const quota = Number(status.quota), used = earlierMonth ? 0 : (Number(status.usedMonth) || 0), su = Number(status.suBalance) || 0;
+  // excuses it every week. A row whose updatedTs is present but not a
+  // readable time cannot name its month either: the same (fail open), by the
+  // server's one definition.
+  const month = sponsorshipRowMonth(status, now);
+  const notThisMonth = month === "earlier-month" || month === "unreadable";
+  const quota = Number(status.quota), used = notThisMonth ? 0 : (Number(status.usedMonth) || 0), su = Number(status.suBalance) || 0;
   const remaining = Math.max(0, quota - used) + Math.max(0, su);
   const spendable = Math.max(0, remaining - Math.max(0, Number(reserve) || 0));
-  return { budget: Math.min(cap, spendable), source: earlierMonth ? "live (row from an earlier month, counted as reset)" : "live", remaining };
+  const source = month === "earlier-month" ? "live (row from an earlier month, counted as reset)"
+    : month === "unreadable" ? "live (row's updatedTs is not a readable time, counted as reset)" : "live";
+  return { budget: Math.min(cap, spendable), source, remaining };
 }
 
 /** Order the sweep's tools so that this week's window of sub-cent tools comes
