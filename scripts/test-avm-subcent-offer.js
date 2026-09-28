@@ -69,9 +69,17 @@ const base = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: "0x8
   ok(logs.some((l) => /PAUSED/.test(l) && /1013\/1000/.test(l) && !l.includes(PAYTO)), "the log names the facilitator's own figures and masks the payTo");
   ok(g.noteSponsorshipStatus(PAYTO, null, { now: t0 + 120_000 }) === "unreadable" && g.isSubcentPaused(PAYTO, t0 + 120_000), "an unreadable read keeps fresh evidence");
   ok(!g.isSubcentPaused(PAYTO, t0 + 60_000 + g.STALE_MS + 1), "evidence older than the stale window offers the rail again (fail open)");
-  ok(!g.isSubcentPaused(PAYTO, Date.UTC(2026, 9, 1, 0, 0, 1)), "the UTC month turning offers it again (the allowance resets on the 1st)");
+  {
+    // Crossed while the evidence is still FRESH (40 s old), so only the month
+    // rule can reopen it: a check days later would pass on staleness alone.
+    const lastSecond = Date.UTC(2026, 8, 30, 23, 59, 30);
+    g.noteSponsorshipStatus(OTHER, exhaustedRow, { now: lastSecond });
+    ok(g.isSubcentPaused(OTHER, lastSecond + 20_000), "paused in the month's last minute");
+    ok(!g.isSubcentPaused(OTHER, Date.UTC(2026, 9, 1, 0, 0, 10)), "the UTC month turning offers it again at once, on fresh evidence (the allowance resets on the 1st)");
+    g.noteSponsorshipStatus(OTHER, headroomRow, { now: lastSecond + 60_000 });
+  }
   ok(g.noteSponsorshipStatus(PAYTO, headroomRow, { now: t0 + 180_000 }) === "headroom" && !g.isSubcentPaused(PAYTO, t0 + 180_000), "a status read showing headroom clears the pause");
-  ok(logs.filter((l) => /OFFERED again/.test(l) && /headroom/.test(l)).length === 1, "...and says so, once");
+  ok(logs.filter((l) => /OFFERED again/.test(l) && /headroom/.test(l) && l.includes("AAAAAA…HFKQ")).length === 1, "...and says so, once");
 
   // The settle refusal itself pauses at once, and a read that began BEFORE it cannot clear it.
   const t1 = t0 + 300_000;
