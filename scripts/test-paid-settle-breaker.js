@@ -116,6 +116,10 @@ try {
     const before = settles;
     const r = await pay(WALLET_ONLY, PAYER_A);
     ok(r.status === 402 && settles === before + 1, `wallet A call ${i}: handler ran, settle refused -> 402 (status ${r.status}, settles ${settles})`);
+    // A settle refusal carries PAYMENT-RESPONSE and no PAYMENT-REQUIRED, so the
+    // 402 body mirror (src/payment-required-body.js) adds no offer to it.
+    const body = await r.json().catch(() => ({}));
+    if (i === 1) ok(!r.headers.get("payment-required") && !("x402Version" in body) && !("accepts" in body), `wallet A call 1: the settle-refusal 402 states no offer (keys: ${Object.keys(body).join(",") || "none"})`);
   }
   // The next is refused BEFORE the handler: no settle attempt, 429, Retry-After, nothing charged.
   {

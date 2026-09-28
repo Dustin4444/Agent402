@@ -122,6 +122,9 @@ try {
   const challenges = soft._meta?.["org.paymentauth/payment-required"]?.challenges;
   ok(Array.isArray(challenges) && challenges.length >= 1 && challenges.some((c) => c.method === "evm" && c.intent === "charge") && soft._meta["org.paymentauth/payment-required"].httpStatus === 402, `the result carries _meta payment-required with httpStatus 402 + challenges (${(challenges || []).map((c) => c.method).join(",")})`);
   ok(challenges.every((c) => typeof c.id === "string" && c.realm && c.request?.amount), "each challenge is a full MPP challenge object (id, realm, request.amount)");
+  // The loopback 402's body now mirrors the PAYMENT-REQUIRED offer; a plain
+  // unpaid 402 is still not a problem document, so a first ask carries none.
+  ok(soft._meta["org.paymentauth/payment-required"].problem === undefined, "a first ask's _meta carries no problem (a plain unpaid 402 is not a problem document)");
 
   // 4. Free tool untouched
   const free = await plain.callTool({ name: "catalog.call", arguments: { slug: "uuid", params: {} } });
@@ -150,6 +153,13 @@ try {
     await plain.callTool({ name: "catalog.call", arguments: { slug: "memory-write", params: { key: "k2", value: 1 } }, _meta: { [MCP_CREDENTIAL_META]: tampered } });
   } catch (e) { rejected = e; }
   ok(rejected && rejected.code === -32043 && rejected.data?.problem?.type === "https://paymentauth.org/problems/invalid-challenge" && Array.isArray(rejected.data.challenges) && rejected.data.challenges.length >= 1, `a tampered credential -> -32043 with problem invalid-challenge + fresh challenges (got ${rejected?.data?.problem?.type})`);
+  // The 402's problem body also carries the mirrored PaymentRequired offer
+  // (src/payment-required-body.js). The JSON-RPC error carries the RFC 9457
+  // members only: the offer reaches an MPP client as the challenges beside it.
+  {
+    const p = rejected?.data?.problem || {};
+    ok(typeof p.title === "string" && typeof p.detail === "string" && ["x402Version", "accepts", "resource", "extensions"].every((k) => !(k in p)), `-32043 data.problem holds RFC 9457 members only (keys: ${Object.keys(p).join(",")})`);
+  }
   // sanity: the test's own serializer agrees with the wire
   ok(typeof Credential.serialize(tampered) === "string", "Credential.serialize round-trips the tampered object (test harness sanity)");
 

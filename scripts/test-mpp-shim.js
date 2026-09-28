@@ -34,6 +34,14 @@ let facilitator = null;
 const fail = (m) => { console.error("FAIL:", m); proc?.kill("SIGKILL"); facilitator?.close(); process.exit(1); };
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else fail(m); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// The 402 body carries every key of the decoded PAYMENT-REQUIRED header,
+// deep-equal (the header stays authoritative; see src/payment-required-body.js).
+const mirrorsHeader = (res, body) => {
+  const h = res.headers.get("payment-required");
+  if (!h || !body || typeof body !== "object") return false;
+  const pr = JSON.parse(Buffer.from(h, "base64").toString("utf8"));
+  return Object.keys(pr).length > 0 && Object.keys(pr).every((k) => isDeepStrictEqual(body[k], pr[k]));
+};
 
 // ---- stub facilitator: records every verify/settle body ----
 const facCalls = { verify: [], settle: [] };
@@ -306,9 +314,12 @@ try {
     const body = await r.json().catch(() => ({}));
     ok(r.status === 402 && /application\/problem\+json/.test(ct) && body.type === `https://paymentauth.org/problems/${kind}` && body.status === 402 && re.test(body.detail || ""), `wire: ${label} credential -> 402 problem+json ${kind} (got ${r.status} ${ct} ${body.type})`);
     ok(/^Payment /i.test(r.headers.get("www-authenticate") || "") && !!r.headers.get("payment-required"), `wire: ${label} rejection still carries FRESH MPP challenges and the x402 PAYMENT-REQUIRED header`);
+    ok(mirrorsHeader(r, body), `wire: ${label} problem document also carries the header's PaymentRequired object, key for key (src/payment-required-body.js)`);
   }
   const plain = await fetch(`${B}/api/uuid`);
   ok(plain.status === 402 && !/problem\+json/.test(plain.headers.get("content-type") || ""), "wire: a bare unpaid 402 (no credential) is NOT a problem document - only rejections are");
+  const plainBody = await plain.json().catch(() => ({}));
+  ok(mirrorsHeader(plain, plainBody) && plainBody.type === undefined, "wire: the bare 402's JSON body mirrors its PAYMENT-REQUIRED header and carries no problem type");
 
   console.log(`\nPASS - ${pass} checks (MPP dual-stack shim round trip)`);
   proc.kill("SIGKILL");

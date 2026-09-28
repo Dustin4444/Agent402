@@ -9,6 +9,8 @@ import { createCredits, CREDIT_PACKS, KEY_RE, usdToMicro, microToUsd } from "../
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
+import express from "express";
+import { paymentRequiredBodyMiddleware, PAYMENT_REQUIRED_OFFER_KEYS } from "../src/payment-required-body.js";
 
 const DIR = join("/tmp", `test-credits-${process.pid}`);
 try { rmSync(DIR, { recursive: true, force: true }); } catch { /* first run */ }
@@ -137,6 +139,23 @@ nexted = false; res = fakeRes();
 const priceFor2 = (m, p) => (p === "/v1/big" ? { priceUsd: 25, slug: "big" } : priceFor(m, p));
 cr.gate(priceFor2)({ method: "POST", path: "/v1/big", headers: { authorization: `Bearer ${KEY}` } }, res, () => { nexted = true; });
 ok(!nexted && res.statusCode === 402 && res.body.reason === "insufficient" && res.body.balanceUsd === 19.997 && /\/credits$/.test(res.body.topup), "gate: insufficient balance -> 402 with balance + top-up link, handler never runs");
+// A credits 402 is not a paywall 402: it sets no PAYMENT-REQUIRED header, so
+// the 402 body mirror (src/payment-required-body.js) leaves it exactly as the
+// gate wrote it - no x402 offer beside the balance.
+ok(!res.headers["PAYMENT-REQUIRED"] && !res.headers["payment-required"] && PAYMENT_REQUIRED_OFFER_KEYS.every((k) => !(k in res.body)), "gate: a credits 402 sets no PAYMENT-REQUIRED header and carries no x402 offer");
+{
+  const app = express();
+  app.use(paymentRequiredBodyMiddleware()); // prod order: the mirror is mounted before the credits gate
+  app.use(cr.gate(priceFor2));
+  app.use((req, r) => r.status(200).json({ served: true }));
+  const server = app.listen(0);
+  await new Promise((r) => server.once("listening", r));
+  const r = await fetch(`http://127.0.0.1:${server.address().port}/v1/big`, { method: "POST", headers: { authorization: `Bearer ${KEY}` } });
+  const body = await r.json();
+  server.close();
+  ok(r.status === 402 && !r.headers.get("payment-required") && body.reason === "insufficient" && body.balanceUsd === 19.997 && /\/credits$/.test(body.topup) && PAYMENT_REQUIRED_OFFER_KEYS.every((k) => !(k in body)),
+    `wire: behind the 402 body mirror, a credits 402 is unchanged: reason/balanceUsd/topup, no x402Version or accepts (keys: ${Object.keys(body).join(",")})`);
+}
 nexted = false; res = fakeRes();
 gate({ method: "GET", path: "/api/whois", headers: { authorization: "Bearer a402_" + "y".repeat(32) } }, res, () => { nexted = true; });
 ok(!nexted && res.statusCode === 402 && res.body.reason === "unknown", "gate: an unknown key -> 402, handler never runs");

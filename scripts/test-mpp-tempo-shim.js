@@ -25,6 +25,8 @@ import { createTempoGate, createTempoChallengeAppender, mintTempoChallenge, temp
 import { Transaction as TempoTransaction } from "viem/tempo";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { createReplayGuard } from "../src/replay-guard.js";
+import { paymentRequiredBodyMiddleware, PAYMENT_REQUIRED_OFFER_KEYS } from "../src/payment-required-body.js";
+import { isDeepStrictEqual } from "node:util";
 
 let pass = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { console.error("FAIL:", m); process.exit(1); } };
@@ -143,6 +145,23 @@ try {
   ok(refused.status === 402 && relayHits.length === hits0 && /runs longer than a Tempo credential stays valid/.test(rb.detail || "") && rb.type === "https://paymentauth.org/problems/method-unsupported", `a $2.00 tempo challenge is refused on a composite before any relay call (status ${refused.status}, relay calls +${relayHits.length - hits0}, ${rb.type}: ${String(rb.detail).slice(0, 90)})`);
   const control = await fetch(`${B}/api/uuid`, { headers: { Authorization: bigCred } });
   ok(control.status === 402 && relayHits.length > hits0, `control: the same credential on an ordinary route reaches the relay (relay calls +${relayHits.length - hits0})`);
+  // A tempo credential whose challenge we never minted (wrong HMAC secret)
+  // is refused at the binding check and FALLS THROUGH to the paywall's 402.
+  // That 402 carries PAYMENT-REQUIRED, so its RFC 9457 problem body also
+  // carries the same PaymentRequired object as the header, key for key.
+  {
+    const forged = Challenge.from({
+      realm: tempoCh.realm, method: "tempo", intent: "charge", expires: new Date(Date.now() + 60_000),
+      request: { amount: "1000", currency: TEMPO_CURRENCY, decimals: 6, recipient: TREASURY, methodDetails: { chainId: 4217 } },
+      secretKey: "not-the-server-secret",
+    });
+    const r = await fetch(`${B}/api/uuid`, { headers: { Authorization: Credential.serialize({ challenge: forged, payload: { hash: `0x${"ab".repeat(32)}`, type: "hash" } }) } });
+    const body = await r.json().catch(() => ({}));
+    const hdr = r.headers.get("payment-required");
+    const pr = hdr ? JSON.parse(Buffer.from(hdr, "base64").toString("utf8")) : null;
+    ok(r.status === 402 && /problem\+json/.test(r.headers.get("content-type") || "") && /^https:\/\/paymentauth\.org\/problems\//.test(body.type || "") && typeof body.detail === "string", `a forged tempo challenge falls through to a 402 problem (${body.type})`);
+    ok(!!pr && Object.keys(pr).every((k) => isDeepStrictEqual(body[k], pr[k])), "that fall-through problem body mirrors the PAYMENT-REQUIRED header, key for key");
+  }
 } finally {
   proc.kill("SIGKILL");
 }
@@ -291,6 +310,7 @@ async function listen(app) {
 // Case C: valid credential, handler succeeds, broadcast FAILS -> 402, not a 200 with a broken receipt.
 {
   const app = express();
+  app.use(paymentRequiredBodyMiddleware()); // prod mount order: before the gate
   app.use(createTempoGate({
     ...GATE,
     validate: async () => ({ ok: true, validation: {} }),
@@ -314,6 +334,7 @@ async function listen(app) {
   ok(body.result === undefined, "case C: the handler's original body is discarded, never leaked to the buyer");
   ok(typeof body.detail === "string" && body.detail.includes("unavailable"), "case C: the failure reason is surfaced (RFC 9457 detail)");
   ok(body.type === "https://paymentauth.org/problems/verification-failed" && body.status === 402 && /application\/problem\+json/.test(res.headers.get("content-type") || ""), `case C: settle failure is an RFC 9457 problem (type=${body.type}, ct=${res.headers.get("content-type")})`);
+  ok(!res.headers.get("payment-required") && PAYMENT_REQUIRED_OFFER_KEYS.every((k) => !(k in body)), "case C: a direct problem has no PAYMENT-REQUIRED header, so its body states no offer");
   const line = warned.find((w) => w.includes("[mpp-tempo] broadcast failed"));
   ok(!!line && line.includes("unavailable"), "case C: the broadcast failure is LOGGED with the relay's reason (was a silent 402 before 2026-08-18)");
   ok(!!line && /validate=\d+ms handler=\d+ms broadcast=\d+ms/.test(line), "case C: the log line carries per-phase timing (validBefore is 25s on this rail; latency vs verdict must be distinguishable)");
@@ -349,6 +370,20 @@ async function listen(app) {
   okBody = await (await fetch(`${s2.url}/paid`, { headers: { Authorization: buildTempoCredential() } })).json();
   ok(okBody.free === true, "case D: a non-402 downstream response is never rewritten (only the 402 body becomes the problem)");
   s2.server.close();
+  // Prod mount order: the body mirror sits BEFORE the gate, so the problem
+  // patch delegates to it. When the paywall's 402 carries PAYMENT-REQUIRED,
+  // the problem document also carries the same PaymentRequired object.
+  const OFFER = { x402Version: 2, error: "Payment required", resource: { url: "http://x/paid", description: "paid", mimeType: "application/json" }, accepts: [{ scheme: "exact", network: "eip155:8453", amount: "50000", asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", payTo: TREASURY, maxTimeoutSeconds: 300, extra: { name: "USD Coin", version: "2" } }] };
+  const app3 = express();
+  app3.use(paymentRequiredBodyMiddleware());
+  app3.use(createTempoGate({ ...GATE, validate: async () => ({ ok: false, error: "expired", reason: "expired" }), broadcast: async () => ({ ok: true, receipt: {} }) }));
+  app3.use((req, res) => { res.setHeader("PAYMENT-REQUIRED", Buffer.from(JSON.stringify(OFFER)).toString("base64")); res.status(402).json({}); });
+  const s3 = await listen(app3);
+  const r3 = await fetch(`${s3.url}/paid`, { headers: { Authorization: buildTempoCredential() } });
+  const b3 = await r3.json();
+  ok(r3.status === 402 && b3.type === "https://paymentauth.org/problems/verification-failed" && /expired/.test(b3.detail || "") && /problem\+json/.test(r3.headers.get("content-type") || ""), `case D: with the header present the fall-through body is still the problem (${b3.type})`);
+  ok(Object.keys(OFFER).every((k) => isDeepStrictEqual(b3[k], OFFER[k])), "case D: ...and it mirrors the PAYMENT-REQUIRED header, key for key");
+  s3.server.close();
   server.close();
 }
 
@@ -384,6 +419,7 @@ async function listen(app) {
   // gate's own direct 402s (replay, settle failure) carry a fresh tempo
   // challenge at writeHead - the spec's "402 + fresh challenge + problem".
   app.use(createTempoChallengeAppender(GATE));
+  app.use(paymentRequiredBodyMiddleware());
   app.use(createTempoGate({
     ...GATE,
     validate: async () => ({ ok: true, validation: {} }),
@@ -409,6 +445,7 @@ async function listen(app) {
   const replayBody = await replayRes.json().catch(() => ({}));
   ok(replayBody.type === "https://paymentauth.org/problems/invalid-challenge" && /problem\+json/.test(replayRes.headers.get("content-type") || "") && /already used|in flight/.test(replayBody.detail || ""), `case F: the replay's body is an RFC 9457 invalid-challenge problem (${replayBody.type})`);
   ok(/method="tempo"|method=tempo|tempo/.test(replayRes.headers.get("www-authenticate") || ""), "case F: the replay 402 carries a FRESH tempo challenge (WWW-Authenticate: Payment)");
+  ok(!replayRes.headers.get("payment-required") && PAYMENT_REQUIRED_OFFER_KEYS.every((k) => !(k in replayBody)), "case F: the direct replay problem has no PAYMENT-REQUIRED header, so its body states no offer");
   server.close();
 }
 

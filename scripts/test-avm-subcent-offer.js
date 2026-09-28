@@ -448,7 +448,8 @@ const base = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: "0x8
   const offer402At = async (B, t) => {
     const r = await fetch(`${B}${t.path}`, { method: "POST", headers: { "content-type": "application/json" }, body: t.body });
     const pr = r.status === 402 ? JSON.parse(Buffer.from(r.headers.get("payment-required") || "", "base64").toString("utf8")) : null;
-    return { status: r.status, pr, avm: (pr?.accepts || []).find((a) => String(a.network).startsWith("algorand:")) || null };
+    let body = null; try { body = await r.json(); } catch { body = null; }
+    return { status: r.status, pr, body, avm: (pr?.accepts || []).find((a) => String(a.network).startsWith("algorand:")) || null };
   };
   let n = 0;
   const payAvmAt = async (B, t, accepted) => fetch(`${B}${t.path}`, {
@@ -482,6 +483,10 @@ const base = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: "0x8
       const parsed = parsePaymentRequired(h1.pr);
       ok(parsed.success && h1.pr.accepts[0]?.outputSchema !== undefined, `the withdrawn 402 is still valid under the protocol's own schema, first accept still carrying outputSchema (${parsed.success ? "valid" : parsed.error.issues[0]?.message})`);
     }
+    // The 402 body mirrors the FINAL header (src/payment-required-body.js):
+    // what the sub-cent gate withdrew from the header is gone from the body too.
+    ok(Array.isArray(h1.body?.accepts) && JSON.stringify(h1.body.accepts) === JSON.stringify(h1.pr.accepts) && !h1.body.accepts.some((a) => String(a.network).startsWith("algorand:")),
+      `the withdrawn 402's JSON body carries the filtered accepts, no Algorand entry (body networks: ${(h1.body?.accepts || []).map((a) => a.network).join(",")})`);
     ok(!!c1.avm, "the $0.01 route keeps its Algorand accept");
     const rails1 = await (await fetch(`${B}/api/rails`)).json();
     ok(rails1.restrictions?.[0]?.network === "algorand" && rails1.restrictions[0].status === "paused" && !JSON.stringify(rails1).includes(PAYTO), "/api/rails publishes the pause, status words only");

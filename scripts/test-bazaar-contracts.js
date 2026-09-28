@@ -3,6 +3,7 @@
 // Boots the real server against a local /supported stub: no payment is made,
 // but every catalog route builds the same x402 v2 challenge as production.
 import { createServer } from "node:http";
+import { isDeepStrictEqual } from "node:util";
 import { spawn } from "node:child_process";
 import { getFreePorts } from "./lib/free-port.js";
 import { parsePaymentRequired, ResourceInfoSchema } from "@x402/core/schemas";
@@ -11,8 +12,14 @@ import {
   validateDiscoveryExtensionSpec,
 } from "@x402/extensions/bazaar";
 import { boundedSchemaFromExample, SHAPE_HAPPY_PATH_ONLY } from "../src/openapi-schema.js";
+import { gradeX402Response } from "../src/tools/x402-kit.js";
 
 const MAX_CHALLENGE_BYTES = 12_000;
+// The JSON body mirrors the header's PaymentRequired object (see
+// src/payment-required-body.js). Nobody echoes the body back, so this is not
+// the header's echo ceiling; it is a ratchet so a mirrored body cannot grow
+// without anyone noticing.
+const MAX_BODY_BYTES = 12_000;
 const CURRENT_PRODUCTION_ROUTE_FLOOR = 560;
 const CONCURRENCY = 12;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -106,7 +113,8 @@ try {
           signal: AbortSignal.timeout(20_000),
         });
         const encoded = response.headers.get("payment-required") || "";
-        rows.push({ endpoint, route, status: response.status, encoded });
+        const bodyText = await response.text();
+        rows.push({ endpoint, route, status: response.status, encoded, bodyText, cacheControl: response.headers.get("cache-control") || "" });
       } catch (error) {
         fail(route, `request failed: ${error?.message || error}`);
       }
@@ -117,10 +125,11 @@ try {
   let variableRoutes = 0;
   let rawRoutes = 0;
   let largest = { route: "", bytes: 0 };
+  let largestBody = { route: "", bytes: 0 };
   let speechSeen = false;
   let specificTagSeen = false;
 
-  for (const { endpoint, route, status, encoded } of rows) {
+  for (const { endpoint, route, status, encoded, bodyText, cacheControl } of rows) {
     if (status !== 402) { fail(route, `expected 402, got ${status}`); continue; }
     if (!encoded) { fail(route, "missing PAYMENT-REQUIRED header"); continue; }
     if (encoded.length > largest.bytes) largest = { route, bytes: encoded.length };
@@ -132,6 +141,24 @@ try {
 
     const parsed = parsePaymentRequired(paymentRequired);
     if (!parsed.success) fail(route, `PaymentRequiredSchema: ${parsed.error.issues[0]?.message || "invalid"}`);
+
+    // The body carries the same object as the header, key for key.
+    const bodyBytes = Buffer.byteLength(bodyText || "");
+    if (bodyBytes > largestBody.bytes) largestBody = { route, bytes: bodyBytes };
+    if (bodyBytes > MAX_BODY_BYTES) fail(route, `${bodyBytes}-byte 402 body exceeds ${MAX_BODY_BYTES}`);
+    let body = null;
+    try { body = JSON.parse(bodyText); } catch { fail(route, `402 body is not JSON: ${String(bodyText).slice(0, 80)}`); }
+    if (body) {
+      const differs = Object.keys(paymentRequired).filter((k) => !isDeepStrictEqual(body[k], paymentRequired[k]));
+      if (differs.length) fail(route, `402 body does not mirror the header on: ${differs.join(",")}`);
+      const bodyParsed = parsePaymentRequired(body);
+      if (!bodyParsed.success) fail(route, `402 body PaymentRequiredSchema: ${bodyParsed.error.issues[0]?.message || "invalid"}`);
+      // Our own grader, run on our own mirrored body: no tool description or
+      // example may make it read as an internal-error leak.
+      const graded = gradeX402Response({ href: `${base}${endpoint.path}`, protocol: "https:", status, cacheControl, bodyText, paymentRequiredHeader: encoded });
+      const hygiene = (graded.checks || []).find((c) => c.id === "error-hygiene");
+      if (!hygiene || hygiene.status !== "pass") fail(route, `402 body fails error-hygiene: ${hygiene?.detail || "check missing"}`);
+    }
     const resource = ResourceInfoSchema.safeParse(paymentRequired.resource);
     if (!resource.success) fail(route, `ResourceInfoSchema: ${resource.error.issues[0]?.message || "invalid"}`);
     const tags = paymentRequired.resource?.tags;
@@ -196,6 +223,7 @@ try {
   console.log(`catalog routes: ${endpoints.length}`);
   console.log(`route-aware required schemas: ${requiredRoutes}; variable schemas without required: ${variableRoutes}; raw/array schemas: ${rawRoutes}`);
   console.log(`largest challenge: ${largest.route} at ${largest.bytes} bytes`);
+  console.log(`largest 402 body: ${largestBody.route} at ${largestBody.bytes} bytes`);
   if (failures.length) {
     for (const problem of failures.slice(0, 40)) console.error(`FAIL - ${problem}`);
     if (failures.length > 40) console.error(`... ${failures.length - 40} more failure(s)`);
