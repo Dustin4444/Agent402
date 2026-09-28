@@ -560,8 +560,8 @@ const near = (a, b) => Math.abs(a - b) < 1e-9;
   ok(/e\?\.paidUnanswered === true \? "; no other seller is tried for this request" : ""/.test(katch), "route-execute's own error names the no-second-seller rule for an unanswered paid request");
   ok(/!spentMaybe && !unanswered && chain !== "tempo"/.test(katch), "route-execute falls through only when the attempt is neither committed nor unanswered");
   const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
-  ok(/payExternal: \(url, opts\) => \(opts\?\.chain === "tempo" \? payTempo\(url, opts\) : payX402\(url, \{ \.\.\.opts, memoizeDelivery: true \}\)\)/.test(server),
-    "only the router's own purchases opt into the memos (server.js payExternal)");
+  ok(/payExternal: \(url, opts\) => \{ const o = \{ \.\.\.opts, memoizeDelivery: true \}; return opts\?\.chain === "tempo" \? payTempo\(url, o\) : payX402\(url, o\); \}/.test(server),
+    "only the router's own purchases opt into the memos, on both rails (server.js payExternal)");
   const pay = readFileSync(new URL("../src/x402-buyer.js", import.meta.url), "utf8");
   ok(/if \(memoizeDelivery\) noteSellerRefusal\(url, chain, 402\)/.test(pay) && /const memoize = memoizeDelivery && \(paid\.status === 402 \|\| paid\.status === 401\) && paidRefusalCarriesChallenge\(paid\.headers, refusalText\);\n\s*if \(memoize\) noteSellerRefusal\(url, chain, paid\.status\)/.test(pay),
     "both refusal-memo writes in the payer are gated on the router's opt-in and keyed by the route; the paid-retry one also on a 402/401 carrying the seller's offer");
