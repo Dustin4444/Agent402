@@ -57,7 +57,9 @@ const app = express();
 app.use(express.json());
 // server.js's finish path, reduced to what matters here: a settled 200 is a
 // sale, and a served push claim voids its debt.
-app.use((req, res, next) => { res.on("finish", () => { if (res.statusCode === 200 && req.tempoSettled) { sales.push(req.mppTempoPushHash); debts.served(req, res); } }); next(); });
+// served() is called on EVERY finish here (server.js calls it on a 200 only):
+// its own guard must refuse to void anything that was not a served claim.
+app.use((req, res, next) => { res.on("finish", () => { if (res.statusCode === 200 && req.tempoSettled) sales.push(req.mppTempoPushHash); debts.served(req, res); }); next(); });
 app.use(createTempoGate({
   secretKey: SECRET, realm: REALM, priceFor, replayGuard: createReplayGuard(),
   preValidate: (req) => (req.body?.text ? null : { status: 400, body: { error: "Missing required parameter: text" } }),
@@ -69,7 +71,7 @@ app.use(createTempoGate({
   pushClaimAllowed: (hash) => !["sending", "paid"].includes(ledger.refundByEvidence(hash)?.status),
 }));
 app.use((req, res, next) => (req.tempoSettling ? next() : res.status(402).json({ error: "Payment Required" })));
-app.post("/paid", (req, res) => res.json({ ok: true }));
+app.post("/paid", (req, res) => (req.body?.text === "boom" ? res.status(500).json({ error: "handler failed" }) : res.json({ ok: true })));
 const server = app.listen(0);
 await new Promise((r) => server.once("listening", r));
 const url = `http://127.0.0.1:${server.address().port}/paid`;
@@ -111,6 +113,16 @@ const rowsFor = (hash) => ledger.listRefunds({ status: "all", limit: 1000 }).fil
   // replay guard refuses it before the input check.
   const again = await post(cred, {});
   ok(again.status === 402 && rowsFor(h).length === 1 && rowsFor(h)[0].status === "void", "the claimed credential presented again is a replay, and the void row stays void");
+}
+
+// Refused on input, then claimed on retry but the handler FAILED: the debt
+// stands (the transfer is claimed and nothing was delivered).
+{
+  const h = hashFor(9);
+  const cred = pushCred(h);
+  await post(cred, {});
+  const r = await post(cred, { text: "boom" });
+  ok(r.status === 500 && rowsFor(h).length === 1 && rowsFor(h)[0].status === "owed" && sales.every((s) => s !== h), `refused, then claimed but the handler failed: the debt stays owed (${r.status}, ${rowsFor(h)[0]?.status})`);
 }
 
 // Finalize refused: owed and counted as a genuine charged failure, once.
