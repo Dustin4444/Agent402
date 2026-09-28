@@ -249,6 +249,11 @@ export function composeSellerDossier(a) {
       ownEvidence: { settled: ownSettled, payers: ownPayers === undefined ? null : ownPayers, note: "chain join on this origin's OWN advertised address" },
       evidenceByWallet: byWallet,
       evidenceByWalletNote: byWallet.length ? "settlement evidence credited to this origin, per wallet it was measured at; the router pays only a wallet whose own figures clear the floor, and only when the live 402 names it" : null,
+      // Figures at wallets this host lists as shared settlement contracts:
+      // credited to no seller, reported so their absence is never read as zero.
+      withheldAtSharedWallets: evidenceBinding?.withheld?.byWallet instanceof Map
+        ? [...evidenceBinding.withheld.byWallet].map(([wallet, v]) => ({ wallet, settled: Number(v?.settled) || 0, payers: v?.payers === undefined ? null : Number(v.payers) }))
+        : [],
       inheritedFrom: inherited.length ? inherited : [],
       inheritedNote: inherited.length ? "evidence counted for this origin came partly from wallets other listings also name; the router requires the live 402 to pay one of them" : null,
       sharedWithOrigins: Array.isArray(claimsFor) ? claimsFor.filter((o) => String(o).toLowerCase() !== String(origin).toLowerCase()) : [],
@@ -258,6 +263,7 @@ export function composeSellerDossier(a) {
   if (wallets.base.sharedWithOrigins.length) flags.push(`the advertised Base wallet is also advertised by ${wallets.base.sharedWithOrigins.length} other origin(s); chain evidence for it is withheld from all of them`);
   if (baseDetail === "evidence_payto_mismatch") flags.push("the settlement evidence that clears the floor for this origin was measured at a wallet its live 402 does not pay; the router will not spend on it");
   if (baseDetail === "evidence_payto_unverified") flags.push("the router could not read a live 402 payTo to bind the settlement evidence to");
+  if (baseDetail === "evidence_payto_shared" || wallets.base.withheldAtSharedWallets.length) flags.push("settlement history at a wallet this host lists as a settlement contract shared by many sellers is credited to none of them; only settlement measured on this origin's own URLs counts for it");
 
   // Concentration reads as a sentence here, like every other dossier flag: a
   // buyer deciding whether to route to this seller wants "most of their volume

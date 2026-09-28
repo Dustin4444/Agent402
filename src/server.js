@@ -472,6 +472,7 @@ import { externalPaymentEventsFor, startRevenueLedger, ledgerSummary, ledgerDail
 import { x402EconomySnapshot, economySnapshotCached, warmEconomySnapshot } from "./x402-economy.js";
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate, sharedPayToClaims } from "./settlement-proof.js";
 import { buildEvidenceBinding, baseLiveGate } from "./evidence-binding.js";
+import { createSharedPayToStore, parseSharedPayTosEnv } from "./shared-paytos.js";
 import { dispatchEligibility, dispatchLegend } from "./dispatch-eligibility.js";
 import { pageSizeOf, pagingEnvelope, pagingNote } from "./index-paging.js";
 import { usdcDomainVerdict, usdcDomainMismatchDetail, unsignableByStockBuyer } from "./evm-usdc-domain.js";
@@ -1127,6 +1128,20 @@ const norm = (u) => String(u || "").replace(/\/+$/, "").toLowerCase();
 // counts folded here let a fresh origin clear the Base floor by naming someone
 // else's Solana payTo (security review 2026-09-02). Solana proven-ness is read
 // from the chain at pay time against the accept's own payTo.
+// Wallets the operator lists as SHARED (split / settlement contracts many
+// sellers are paid through, src/shared-paytos.js): their leaderboard and
+// chain-join history credits nobody. SOR_MULTI_TENANT_PAYTOS is the boot
+// floor; POST /__operator/shared-paytos lists or unlists one at runtime,
+// persisted on the volume, applied from the next evidence read.
+let sharedPayToStoreInstance = null;
+function sharedPayToStore() {
+  if (!sharedPayToStoreInstance) {
+    const env = parseSharedPayTosEnv(process.env.SOR_MULTI_TENANT_PAYTOS, { log: (m) => console.warn(m) });
+    sharedPayToStoreInstance = createSharedPayToStore({ file: process.env.SOR_SHARED_PAYTOS_FILE || "/data/sor-shared-paytos.json", envWallets: env.wallets, log: (m) => console.warn(m) });
+    sharedPayToStoreInstance.load();
+  }
+  return sharedPayToStoreInstance;
+}
 function buildChainProven() {
   const econ = economySnapshotCached();
   return econ?.topMerchants?.length ? provenByChain({ sellers: routableSellerSummaries(), merchants: econ.topMerchants }) : new Map();
@@ -1150,6 +1165,7 @@ function buildEvidenceBindingByOrigin({ chainProven }) {
     walletEvidence: getLeaderboardWalletEvidence(),
     bazaarQuality: bazaarQualityEntries(),
     chainProven,
+    sharedWallets: sharedPayToStore(),
     minSettled: SOR_MIN_SETTLED_TX,
     minPayers: SOR_MIN_DISTINCT_PAYERS,
   });
@@ -4855,6 +4871,44 @@ app.post("/__operator/successions/revoke", express.json(), (req, res) => {
   if (!from) return res.status(400).json({ error: 'pass {"from":"<the retired origin>"}' });
   const revoked = revokeSuccession(from);
   res.set("Cache-Control", "no-store").json({ revoked, from, note: revoked ? "the origin is listed again from the next read" : "no succession was recorded for that origin" });
+});
+// SHARED payTo wallets, the operator's lever (src/shared-paytos.js): a listed
+// wallet credits nobody with its leaderboard or chain-join history, and origins
+// paid at it keep only their own per-resource Bazaar evidence. Exact wallet
+// only. Applied from the next evidence read (the minute memo is dropped), and
+// persisted on the volume so a restart keeps it.
+app.get(["/__operator/shared-paytos", "/__operator/shared-paytos.json"], (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  const store = sharedPayToStore();
+  const wallet = String(req.query?.wallet || "").trim().toLowerCase();
+  if (wallet) {
+    if (!/^0x[0-9a-f]{40}$/.test(wallet)) return res.status(400).json({ error: "wallet must be a 0x address" });
+    // Which origins the evidence map credits with this wallet's figures, and
+    // which it withholds them from, as of the current read.
+    const creditedTo = [], withheldFrom = [];
+    for (const [origin, e] of dispatchEvidence().binding) {
+      if (e.byWallet?.has(wallet)) creditedTo.push(origin);
+      if (e.withheld?.byWallet?.has(wallet)) withheldFrom.push(origin);
+    }
+    const entry = store.list().find((x) => x.wallet === wallet) || null;
+    return res.set("Cache-Control", "no-store").json({ wallet, listed: store.has(wallet), entry, creditedTo: creditedTo.sort(), withheldFrom: withheldFrom.sort() });
+  }
+  res.set("Cache-Control", "no-store").json({ ...store.counts(), wallets: store.list(), note: `GET ?wallet=0x... for who that wallet's history is credited to; POST {"action":"add"|"remove","wallet":"0x...","note":"..."} to change it` });
+});
+app.post("/__operator/shared-paytos", express.json(), (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  const { action, wallet, note } = req.body || {};
+  const store = sharedPayToStore();
+  let r;
+  try {
+    if (action === "add") r = store.add(wallet, { note: typeof note === "string" ? note : "" });
+    else if (action === "remove") r = store.remove(wallet);
+    else return res.status(400).json({ error: 'pass {"action":"add"|"remove","wallet":"0x...","note":"optional"}' });
+  } catch (e) {
+    return res.status(e?.statusCode || 400).json({ error: String(e?.message || e).slice(0, 200) });
+  }
+  if (r.changed) dispatchEvidenceCache = null;
+  res.set("Cache-Control", "no-store").json({ ok: true, ...r });
 });
 // Remove ONE seller origin from the index and the router, permanently (until
 // restored). Exact origin only - no name matching, no wildcards - so a typo

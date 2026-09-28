@@ -10,6 +10,12 @@
 //     the scan's per-wallet evidence beside them (getLeaderboardWalletEvidence);
 //   - the Bazaar's per-resource quality counts, measured on the origin's own
 //     URLs and split by the Base payTo each resource declares.
+// A wallet the operator LISTS as shared (a split or settlement contract many
+// sellers are paid through, src/shared-paytos.js) credits nobody with its
+// leaderboard or chain-join history: those figures count payments forwarded
+// to every seller behind it. An origin paid there keeps only the Bazaar
+// evidence measured on its own URLs. What is not credited is reported as
+// withheld, never as absent.
 // Every figure is kept against the wallet it was measured at, and a wallet's
 // figures count only for that wallet. The gate asks ONE question of the address
 // the origin's live 402 asks to be paid at: does THAT wallet's own evidence
@@ -85,15 +91,20 @@ export function rowWalletFigures(row, walletEvidence = null) {
  *   ownSettled, ownPayers    the chain join alone (evidence on the origin's own
  *                             advertised address), for reporting
  *   seedSettled              the committed seed's count for the origin (no wallet)
+ *   withheld     { byWallet, payTos }  leaderboard / chain-join figures at wallets
+ *                             the operator lists as shared: credited to nobody
  * }
+ *
+ * `sharedWallets`: anything with has(wallet) (src/shared-paytos.js), or null.
  */
-export function buildEvidenceBinding({ seedOrigins = {}, leaderboardRows = [], walletEvidence = null, bazaarQuality = [], chainProven = null, minSettled = 50, minPayers = 3 } = {}) {
+export function buildEvidenceBinding({ seedOrigins = {}, leaderboardRows = [], walletEvidence = null, bazaarQuality = [], chainProven = null, sharedWallets = null, minSettled = 50, minPayers = 3 } = {}) {
   const m = new Map();
   const ent = (o) => {
     const k = norm(o);
-    if (!m.has(k)) m.set(k, { byWallet: new Map(), ownSettled: 0, ownPayers: undefined, seedSettled: 0 });
+    if (!m.has(k)) m.set(k, { byWallet: new Map(), heldByWallet: new Map(), ownSettled: 0, ownPayers: undefined, seedSettled: 0 });
     return m.get(k);
   };
+  const isShared = (w) => !!(sharedWallets && typeof sharedWallets.has === "function" && sharedWallets.has(w));
   for (const [o, c] of Object.entries(seedOrigins || {})) {
     if (!o) continue;
     const e = ent(o);
@@ -106,7 +117,7 @@ export function buildEvidenceBinding({ seedOrigins = {}, leaderboardRows = [], w
     for (const o of origins) {
       if (!o) continue;
       const e = ent(o);
-      for (const [w, v] of figures) put(e.byWallet, w, v.settled, v.payers);
+      for (const [w, v] of figures) put(isShared(w) ? e.heldByWallet : e.byWallet, w, v.settled, v.payers);
     }
   }
   for (const [o, q] of Array.isArray(bazaarQuality) ? bazaarQuality : []) {
@@ -122,6 +133,7 @@ export function buildEvidenceBinding({ seedOrigins = {}, leaderboardRows = [], w
       const w = evmKey(ev?.payTo);
       if (!o || !ev || !w) continue;
       const e = ent(o);
+      if (isShared(w)) { put(e.heldByWallet, w, ev.settled, ev.payers); continue; }
       put(e.byWallet, w, ev.settled, ev.payers);
       e.ownSettled = Math.max(e.ownSettled, Number(ev.settled) || 0);
       if (ev.payers != null) e.ownPayers = Math.max(Number(e.ownPayers ?? 0), Number(ev.payers) || 0);
@@ -150,6 +162,7 @@ export function buildEvidenceBinding({ seedOrigins = {}, leaderboardRows = [], w
       ownSettled: e.ownSettled,
       ownPayers: e.ownPayers,
       seedSettled: e.seedSettled,
+      withheld: { byWallet: e.heldByWallet, payTos: new Set(e.heldByWallet.keys()) },
     });
   }
   return out;

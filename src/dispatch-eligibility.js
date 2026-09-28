@@ -60,6 +60,7 @@ const REASON_PRECEDENCE = ["crawl_failed", "network_unknown", "no_supported_rout
 export const DISPATCH_DETAILS = Object.freeze({
   evidence_payto_mismatch: "the settlement history that clears the floor for this origin was measured at a wallet its own 402 does not ask to be paid at; each wallet's history counts only where that wallet is paid, so it does not count for this origin",
   evidence_payto_unverified: "the settlement history that clears the floor for this origin was measured at a specific wallet and the origin's own Base payTo could not be read, so it does not count until the live 402 names that wallet",
+  evidence_payto_shared: "the wallet this origin's 402 asks to be paid at is listed by this host as a settlement contract shared by many sellers, so that wallet's own settlement history is credited to none of them; only settlement measured on this origin's own URLs counts toward the floor",
 });
 
 const evmKey = (a) => (typeof a === "string" && /^0x[0-9a-f]{40}$/i.test(a) ? a.toLowerCase() : null);
@@ -108,6 +109,24 @@ export function evidencePayToVerdict({ evidence, livePayTo, minSettled = 50, min
   if (!live) return { bound: true, ok: false, verdict: "evidence_payto_unverified", payTos };
   if (!payTos.includes(live)) return { bound: true, ok: false, verdict: "evidence_payto_mismatch", payTos, livePayTo: live };
   return { bound: true, ok: true, verdict: "evidence_payto_match", payTos, livePayTo: live };
+}
+
+/** Would the history WITHHELD at a listed shared wallet (plus what is credited
+ *  there) have cleared the floor? At the live wallet when it is known, else at
+ *  the wallet with the largest withheld history. Label wording only: it never
+ *  makes anything eligible. */
+function sharedHistoryWouldClear({ evidence, livePayTo, minSettled, minPayers }) {
+  const held = evidence?.withheld?.byWallet;
+  if (!(held instanceof Map) || !held.size) return false;
+  const live = evmKey(livePayTo);
+  const candidates = live ? (held.has(live) ? [live] : []) : [...held.keys()];
+  for (const w of candidates) {
+    const h = held.get(w) || {};
+    const own = evidence.byWallet instanceof Map ? evidence.byWallet.get(w) : null;
+    const payers = [h.payers, own?.payers].filter((p) => p !== undefined && p !== null).map(Number);
+    if (meetsRouterGate({ settled: Math.max(Number(h.settled) || 0, Number(own?.settled) || 0), payers: payers.length ? Math.max(...payers) : undefined, minSettled, minPayers }).ok) return true;
+  }
+  return false;
 }
 
 /** The spending chains a seller's advertised networks map to (deduped, ordered by first appearance). */
@@ -195,12 +214,17 @@ export function dispatchEligibility({ routable, networks = [], settled = 0, paye
       if (domain.verdict === "wrong_domain") { byChain[c] = { eligible: false, reason: "usdc_domain_mismatch", detail: usdcDomainMismatchDetail(domain), advertisedName: domain.advertisedName, expectedName: domain.expectedName }; continue; }
       const gate = meetsRouterGate({ settled: basis.settled, payers, minSettled, minPayers });
       byChain[c] = gate.ok ? { eligible: true, reason: "eligible" } : { eligible: false, reason: "settlement_required", detail: gate.reason };
+      // A wallet listed as shared credits nobody with its own history. Say so
+      // rather than let "below the settlement floor" read as "never paid", but
+      // only when that withheld history would have cleared the floor at the
+      // wallet this origin's 402 names (the largest one when unknown).
+      if (!gate.ok && sharedHistoryWouldClear({ evidence, livePayTo, minSettled, minPayers })) byChain[c].detail = "evidence_payto_shared";
       // Evidence counts only where the money goes: a gate cleared on a
       // wallet's history needs the origin's own 402 to pay THAT wallet, and
       // that wallet's own evidence has to clear the floor.
       if (gate.ok && evidence !== undefined && evidence !== null) {
         const v = evidencePayToVerdict({ evidence, livePayTo, minSettled, minPayers });
-        if (v.bound && !v.ok) byChain[c] = { eligible: false, reason: "settlement_required", detail: v.verdict };
+        if (v.bound && !v.ok) byChain[c] = { eligible: false, reason: "settlement_required", detail: v.verdict === "evidence_payto_mismatch" && sharedHistoryWouldClear({ evidence, livePayTo, minSettled, minPayers }) ? "evidence_payto_shared" : v.verdict };
       }
     } else {
       // solana / algorand / tempo: the router TRIES these; proven-ness is a
@@ -238,7 +262,7 @@ export function dispatchLegend({ spendChains = ["base"] } = {}) {
     routerDispatchEligible: "true when this host's Smart Order Router will pay the seller on a buyer's behalf right now on at least one chain it holds a spending wallet for.",
     routerDispatchReason: DISPATCH_REASONS,
     evmDomainByNetwork: "the EIP-712 domain (asset + extra.name) each of the seller's EVM accepts advertised on its 402; the router label refuses a Base accept whose name is not the token's own (usdc_domain_mismatch) because no stock x402 signature under it can verify.",
-    routerDispatchDetail: { ...DISPATCH_DETAILS, _note: "settlement_required may carry one of these in routerDispatchByChain.base.detail beside the gate's own sentence; settlement history is kept per wallet and counts for an origin only when the wallet its own 402 asks to be paid at clears the floor on that wallet's own history, which the router checks live before it signs and again on the payment it signs" },
+    routerDispatchDetail: { ...DISPATCH_DETAILS, _note: "settlement_required may carry one of these in routerDispatchByChain.base.detail beside the gate's own sentence; settlement history is kept per wallet and counts for an origin only when the wallet its own 402 asks to be paid at clears the floor on that wallet's own history, which the router checks live before it signs and again on the payment it signs; a wallet this host lists as a settlement contract shared by many sellers credits its own history to none of them" },
     executeVia: "present only on a row the router will pay right now: the route-execute tier (and price) that runs it. Its absence on a priced row is deliberate.",
     executeViaWhenEligible: "the route-execute tier this row WOULD run under once its seller is dispatch-eligible; not callable through the router today.",
     executeViaCallableNow: "true on rows carrying executeVia, false on rows carrying executeViaWhenEligible. A buyer agent should key on this, never on the presence of a tier name.",
