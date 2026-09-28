@@ -30,7 +30,7 @@ import { timedSync } from "./boot-timing.js";
 import { fetchAllBazaarItems as walkBazaar } from "./bazaar-pager.js";
 import { EVM, OUR_EVM_WALLETS } from "./revenue-live.js";
 import { redactSecrets } from "./tools/redact.js";
-import { FUNDING_DEFAULTS, posOf, endOfBlock, circularWalletsFrom, readSellerFunding, readPayerHistory, readFundingGaps, newFundingReadControl, processSellerFunding, sellerFundingFigures, createFundingState, serializeFundingState, parseFundingState, pruneFundingState, fundingPairCount, fundingKnownCount, historyFromBlockFor, isScannableWallet } from "./seller-funding.js";
+import { FUNDING_DEFAULTS, posOf, endOfBlock, circularWalletsFrom, readSellerFunding, readPayerHistory, readFundingGaps, newFundingReadControl, fundingDayCalls, processSellerFunding, sellerFundingFigures, createFundingState, serializeFundingState, parseFundingState, pruneFundingState, fundingPairCount, fundingKnownCount, historyFromBlockFor, isScannableWallet } from "./seller-funding.js";
 import { NETWORKS } from "./payments.js";
 import { CHROME_HEAD_LINKS, CHROME_CSS, renderHeader, renderFooter } from "./chrome.js";
 import { applyMetaTrims } from "./seo-meta.js";
@@ -812,10 +812,13 @@ export function finalizeLeaderboard(byWallet, { maxCallUsd = DEFAULTS.maxCallUsd
 export function fundingReadNotes(f) {
   if (!f) return "";
   const parts = [];
-  if (f.historyWalletsOverShare) parts.push(`${f.historyWalletsOverShare} over their share of the scan`);
+  if (f.historyWalletsOverShare) parts.push(`${f.historyWalletsOverShare} over their share of the reads`);
   if (f.historyWalletsGaveUp) parts.push(`${f.historyWalletsGaveUp} refused at the narrowest range`);
-  if (f.historyWalletsWaiting) parts.push(`${f.historyWalletsWaiting} waiting a day to retry`);
-  if (f.historyWalletsTooLarge) parts.push(`${f.historyWalletsTooLarge} too large for one scan (FUNDING_HISTORY_CHUNK_BLOCKS)`);
+  if (f.historyWalletsCutShort) parts.push(`${f.historyWalletsCutShort} cut short when the budget ran out`);
+  if (f.historyWalletsWaiting) parts.push(`${f.historyWalletsWaiting} waiting to retry`);
+  if (f.historyWalletsTooLarge) parts.push(`${f.historyWalletsTooLarge} too large to read in a scan (FUNDING_HISTORY_CHUNK_BLOCKS, or widths they learned)`);
+  if (f.historyReadsResumed) parts.push(`${f.historyReadsResumed} read(s) resumed`);
+  if (f.dayCapReached) parts.push(`the day's history calls are spent (LEADERBOARD_FUNDING_DAY_MAX_CALLS)`);
   if (f.readStopped) parts.push(`stopped: ${f.readStopped}${f.readStopped === "range-limited" ? " (this RPC limits eth_getLogs ranges: set FUNDING_HISTORY_CHUNK_BLOCKS under its limit, or turn the reader off)" : ""}`);
   return parts.length ? `; ${parts.join(", ")}` : "";
 }
@@ -1122,7 +1125,7 @@ export async function runLeaderboard(overrides = {}) {
       // One control for the whole scan: its timeouts, its stop, and each
       // wallet's share of the history and gap reads (src/seller-funding.js).
       const ctl = newFundingReadControl();
-      const share = { ctl, scanMaxCalls: maxCalls, now: nowMs, ...(Number.isFinite(opts.fundingWalletMaxCalls) ? { walletMaxCalls: opts.fundingWalletMaxCalls } : {}) };
+      const share = { ctl, scanMaxCalls: maxCalls, now: nowMs, ...(Number.isFinite(opts.fundingWalletMaxCalls) ? { walletMaxCalls: opts.fundingWalletMaxCalls } : {}), ...(Number.isFinite(opts.fundingDayMaxCalls) ? { dayMaxCalls: opts.fundingDayMaxCalls } : {}) };
       const facts = await readSellerFunding({
         rpc: fundingRpc,
         token: chain.token, state,
@@ -1152,15 +1155,22 @@ export async function runLeaderboard(overrides = {}) {
         return (priceMatches(micro, row?.prices) && usd <= opts.priceMatchMaxUsd) || usd <= opts.maxCallUsd ? 1 : 2;
       };
       processSellerFunding(state, byWallet, { throughFor, windowStartBlock: start, gaps: gapRead.gaps, histories: history.histories, classify });
-      pruneFundingState(state, { now: nowMs, latest });
+      const pruned = {};
+      pruneFundingState(state, { now: nowMs, latest, counts: pruned });
       const h = history.stats;
+      const g = gapRead.stats;
       fundingScan = {
         calls: facts.calls + h.calls + gapRead.stats.calls, refusals: facts.refusals + h.refusals + (gapRead.stats.refusals || 0), wallets: facts.wallets,
         historyCalls: h.calls, historyWallets: h.wallets, historyWalletsRead: h.read, historyWalletsFailed: h.failed, historyPayers: h.payers, historyPayersFunded: h.funded, creditReads: h.creditReads,
-        // Counts only: wallets whose reads went past their share of this scan,
-        // were refused over the narrowest range, could never fit one scan's
-        // budget, or are waiting out a day after one of the first two.
-        historyWalletsOverShare: h.overShare + (gapRead.stats.overShare || 0), historyWalletsGaveUp: h.gaveUp + (gapRead.stats.gaveUp || 0), historyWalletsTooLarge: h.tooLarge, historyWalletsWaiting: h.waiting + (gapRead.stats.waiting || 0),
+        // Counts only: wallets whose reads went past their share, were refused
+        // over the narrowest range, need more calls than a scan has (or lost
+        // their progress to its cap), or are waiting after one of those.
+        historyWalletsOverShare: h.overShare + (g.overShare || 0), historyWalletsGaveUp: h.gaveUp + (g.gaveUp || 0), historyWalletsTooLarge: h.tooLarge + (g.tooLarge || 0) + (pruned.progressDropped || 0), historyWalletsWaiting: h.waiting + (g.waiting || 0),
+        // Cut short when the scan's or the day's budget ran out; reads that
+        // resumed an earlier scan's progress; history and gap calls in the
+        // rolling day, and whether the day's allowance stopped this scan.
+        historyWalletsCutShort: h.cutShort + (g.cutShort || 0), historyReadsResumed: h.resumed + (g.resumed || 0),
+        historyCallsDay: fundingDayCalls(state, nowMs), ...(h.dayCapReached || g.dayCapReached ? { dayCapReached: true } : {}),
         ...(ctl.stop ? { readStopped: ctl.stop } : {}),
         gapWallets: gapRead.stats.wallets, gapWalletsRead: gapRead.stats.read, gapCalls: gapRead.stats.calls,
         walletsCaughtUp: facts.caughtUp, walletsBehind: facts.behind, walletsStuck: facts.stuck, walletsTruncated: facts.truncated, walletsNew: facts.fresh,
@@ -1636,7 +1646,7 @@ export function sellerFundingStatus({ wallet = null, now = Date.now() } = {}) {
       cleared: !!cleared?.has?.(w),
       lastCircularAt: e?.lastCircularAt || ws?.lastCircularAt || null,
       evidence: e ? { callsSettled: e.callsSettled, uniqueBuyers: e.uniqueBuyers, grossCallsSettled: e.grossCallsSettled ?? null, grossUniqueBuyers: e.grossUniqueBuyers ?? null, selfFundedCalls: e.selfFundedCalls ?? null, selfFundedPayers: e.selfFundedPayers ?? null, selfFundedUsd: e.selfFundedUsd ?? null, grossUsd: e.grossUsd ?? null, selfFundedCalls30d: e.selfFundedCalls30d ?? null, selfFundedPayers30d: e.selfFundedPayers30d ?? null, fundingRead: e.fundingRead ?? null, fundingPending: !!e.fundingPending, fundingTruncated: !!e.fundingTruncated } : null,
-      state: ws ? { cursor: ws.cursor, since: ws.since, pools: ws.pairs.size, openPools: [...ws.pairs.values()].filter((p) => p.pool > 0).length, knownPayers: ws.known.size, truncated: ws.truncated, retryAt: ws.retryAt > 0 ? new Date(ws.retryAt).toISOString() : null } : null,
+      state: ws ? { cursor: ws.cursor, since: ws.since, pools: ws.pairs.size, openPools: [...ws.pairs.values()].filter((p) => p.pool > 0).length, knownPayers: ws.known.size, truncated: ws.truncated, retryAt: ws.retryAt > 0 ? new Date(ws.retryAt).toISOString() : null, waits: ws.st || 0, readsInProgress: ws.hp?.length || 0, episodeCalls: ws.ep ? ws.ep.sp : 0 } : null,
     };
   };
   if (wallet) return { ...one(String(wallet).toLowerCase()), switch: sellerFundingSwitch() };

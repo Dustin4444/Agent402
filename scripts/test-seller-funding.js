@@ -248,7 +248,7 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
   ok(r.ev[W].selfFundedCalls === 60 && r.ev[W].callsSettled === 0 && r.ev[W].circular === true && r.ev[W].fundingRead === true, "funded ~37 days before its fleet bought: all 60 payments netted, circular");
   ok(histCall && parseInt(histCall.fromBlock, 16) === 2_797_221 && parseInt(histCall.toBlock, 16) === latest, "...found by a history read from the token's deployment block to the latest block");
   const chunked = await scanOnce({ sellers: [seller(W, "seller-a.example")], pays: p, outs: o, state: createFundingState(USDC), latest, span: SPAN, historyFrom: 2_797_221, readOpts: { historyChunkBlocks: 20_000_000 } });
-  ok(chunked.ev[W].selfFundedCalls === 60 && chunked.calls.filter((c) => Array.isArray(c.topics[2])).every((c) => c.span <= 20_000_000) && chunked.stats.history.calls === 8, `...and with a bounded history range (FUNDING_HISTORY_CHUNK_BLOCKS) the same 60 are found, each read at most 20M blocks (${chunked.stats.history.calls} calls)`);
+  ok(chunked.ev[W].selfFundedCalls === 60 && chunked.calls.filter((c) => Array.isArray(c.topics[2])).every((c) => c.span <= 20_000_000) && chunked.stats.history.calls === 6, `...and with a bounded history range (FUNDING_HISTORY_CHUNK_BLOCKS) the same 60 are found, each read at most 20M blocks, front to back: three calls each way (${chunked.stats.history.calls} calls)`);
   // The same seller, known to us for months before its fleet is funded: the
   // incremental read catches funding of a payer that already paid once.
   const st = createFundingState(USDC);
@@ -298,7 +298,7 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
     "with a budget of one call, the one history read goes to the wallets that clear the floor on gross first (the busiest one included), the rest are behind, and the read says so");
 }
 {
-  // ONE WALLET CANNOT SPEND THE SCAN (review, 2026-09-28). A payTo whose
+  // ONE WALLET CANNOT SPEND THE READS (review, 2026-09-28). A payTo whose
   // outbound history to its payers is so dense the provider answers it only
   // over narrow ranges (a busy contract's shape: size refusals down to about
   // 10,000 blocks, all the way through the token's history) sorts FIRST, as
@@ -325,12 +325,16 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
   const st = createFundingState(USDC);
   const d1 = await scanOnce({ sellers: sells, pays: dPays, outs: dOuts, state: st, latest, span: SPAN, historyFrom: 2_797_221, rpcOpts: denseRpc });
   const circ = lights.filter((w) => d1.ev[w].circular === true);
-  ok(d1.stats.history.read === 20 && d1.stats.history.overShare === 1 && !d1.stats.history.budgetExhausted && d1.stats.history.calls <= 60,
-    `the dense wallet first in line: all 20 other wallets' histories read in ${d1.stats.history.calls} call(s) of the 400, the dense one stopped at its share (read ${d1.stats.history.read}, over share ${d1.stats.history.overShare})`);
+  ok(d1.stats.history.read === 20 && d1.stats.history.overShare + d1.stats.history.tooLarge === 1 && !d1.stats.history.budgetExhausted && d1.stats.history.calls <= 30,
+    `the dense wallet first in line: all 20 other wallets' histories read in ${d1.stats.history.calls} call(s) of the 400, the dense one stopped once the width it learned left more reads than a scan has (read ${d1.stats.history.read}, stopped ${d1.stats.history.overShare + d1.stats.history.tooLarge})`);
   ok(circ.length === 4 && circ.every((w) => lights.indexOf(w) < 4) && d1.ev[lights[4]].circular === false && d1.ev[lights[0]].selfFundedCalls === 60,
     `...and the circular wallets behind it are found (${circ.length} of 4)`);
   ok(d1.ev[D].fundingRead === false && d1.ev[D].callsSettled === 100 && d1.ev[D].circular === false,
     "the dense wallet itself is behind: its payments count as they are (the behaviour without the reader), never netted blind");
+  ok(d1.calls.filter(touchesD).length <= 16,
+    `...and it narrowed the width it reads before splitting its 20 payers: ${d1.calls.filter(touchesD).length} call(s) touch it (each payer split first doubles them)`);
+  ok(lights.every((w) => !st.wallets.get(w).hp.length && !st.wallets.get(w).ep && !st.wallets.get(w).st) && st.wallets.get(D).hp.length === 1,
+    "a wallet read and worked keeps no progress and no read accounting; the stopped one keeps where it got to");
   const retryAt = st.wallets.get(D).retryAt;
   ok(retryAt === NOW + 86_400_000 && parseFundingState(serializeFundingState(st), USDC).wallets.get(D).retryAt === retryAt && lights.every((w) => st.wallets.get(w).retryAt === 0),
     "its retry is a day away, persisted with the state (every other wallet has none)");
@@ -338,10 +342,14 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
   const d2 = await scanOnce({ sellers: sells, pays: dPays, outs: dOuts, state: st, latest: latest + 1_800, span: SPAN, historyFrom: 2_797_221, rpcOpts: denseRpc, now: NOW + 3_600_000 });
   ok(d2.stats.history.waiting === 1 && d2.calls.filter((c) => touchesD(c) && Array.isArray(c.topics[2])).length === 0 && d2.ev[D].callsSettled === 100,
     `an hour later the dense wallet waits: no history read touches it (${d2.calls.filter(touchesD).length} call(s) touching it at all)`);
-  // A day later it is tried again, within its share again.
+  // A day later it is tried again where it stopped, at twice the width it
+  // learned: one probe, refused, and it waits again - twice as long.
+  const learned = { ...st.wallets.get(D).hp[0] };
   const d3 = await scanOnce({ sellers: sells, pays: dPays, outs: dOuts, state: st, latest: latest + 45_000, span: SPAN, historyFrom: 2_797_221, rpcOpts: denseRpc, now: NOW + 90_000_000 });
-  ok(d3.stats.history.waiting === 0 && d3.stats.history.overShare === 1 && d3.calls.filter(touchesD).length > 0 && d3.calls.filter(touchesD).length <= 40,
-    `a day later it is tried again, once more within its share (${d3.calls.filter(touchesD).length} call(s))`);
+  const probe = d3.calls.find(touchesD);
+  ok(probe && parseInt(probe.fromBlock, 16) === learned.lo && probe.span === 2 * learned.w, `...its probe starts at the block it had reached (${learned.lo}) and reads twice the width it had learned (${probe?.span} = 2 x ${learned.w})`);
+  ok(d3.stats.history.waiting === 0 && d3.stats.history.resumed === 1 && d3.calls.filter(touchesD).length > 0 && d3.calls.filter(touchesD).length <= 3 && st.wallets.get(D).retryAt === NOW + 90_000_000 + 2 * 86_400_000,
+    `a day later it resumes where it stopped: ${d3.calls.filter(touchesD).length} call(s), then it waits again, two days this time`);
 
   // Several such wallets on a tight budget: the reads go to the jobs whose
   // wallets have overrun least, so every light wallet is read before any
@@ -352,8 +360,8 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
   Ds.forEach((d, n) => { for (let k = 0; k < 20; k++) for (let c = 0; c < 6; c++) manyPays.push({ wallet: d, payer: P(5100 + n * 20 + k), usd: 0.01, pos: posOf(latest - 4_000 + k * 6 + c, 2) }); });
   const manyRpc = { refuse: (p, span) => (Array.isArray(p.topics?.[1]) && Ds.some((d) => p.topics[1].includes(topic(d))) && span > 10_000 ? SIZE_REFUSAL : false) };
   const many = await scanOnce({ sellers: [...Ds.map((d, n) => seller(d, `dense-${n}.example`)), ...sells.slice(1)], pays: manyPays, outs: dOuts, state: createFundingState(USDC), latest, span: SPAN, historyFrom: 2_797_221, rpcOpts: manyRpc, readOpts: { maxCalls: 60, walletChunk: 8 } });
-  ok(lights.every((w) => many.ev[w].fundingRead === true) && lights.slice(0, 4).every((w) => many.ev[w].circular === true) && many.stats.history.budgetExhausted,
-    `three dense wallets first, a 60-call budget: every one of the 20 light wallets is read (${lights.filter((w) => many.ev[w].fundingRead).length}) and the four circular ones found; the dense ones share what is left`);
+  ok(lights.every((w) => many.ev[w].fundingRead === true) && lights.slice(0, 4).every((w) => many.ev[w].circular === true) && many.stats.history.overShare + many.stats.history.tooLarge + many.stats.history.cutShort === 3 && many.stats.history.calls <= 60,
+    `three dense wallets first, a 60-call budget: every one of the 20 light wallets is read (${lights.filter((w) => many.ev[w].fundingRead).length}) and the four circular ones found; the dense ones stop on what is left (${many.stats.history.calls} calls)`);
 
   // AN RPC THAT LIMITS THE BLOCK RANGE (a public endpoint: "eth_getLogs is
   // limited to a 2,000 range"): no split fits a whole history under it.
@@ -390,6 +398,82 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
   const o2 = await readPayerHistory({ rpc: hang, token: USDC, state: tState, wallets: wl, windowStartBlock: start, historyFromBlock: 2_797_221, minRangeBlocks: 100, ctl: shared });
   const o3 = await readFundingGaps({ rpc: hang, token: USDC, state: tState, wallets: [W1], windowStartBlock: start, ctl: shared });
   ok(o1.calls + o2.stats.calls + o3.stats.calls === 4 && shared.stop === "timeouts" && o2.stats.failed === 1, `an RPC that times out on everything: ${o1.calls + o2.stats.calls + o3.stats.calls} calls across the three passes, then stopped (was a few per pass)`);
+}
+// --- 3c. A read resumes where it stopped; its calls count across scans --------------
+{
+  // LEADERBOARD_FUNDING_WALLET_MAX_CALLS=0 is "no calls past the planned
+  // ones", not "read nothing": light wallets are read in full, and a wallet
+  // whose first read is refused stops after the calls it was planned.
+  const SPAN = 302_400, latest = 60_000_000, start = latest - SPAN;
+  const lights = Array.from({ length: 20 }, (_, i) => "0x" + (0x3000 + i).toString(16).padStart(40, "0"));
+  const lp = [], lo = [];
+  lights.forEach((w, i) => { for (let j = 0; j < 5; j++) { const p = P(6200 + i * 5 + j); if (i < 4) lo.push(log(w, p, usd(0.2), start - 2_000_000, j)); for (let k = 0; k < 12; k++) lp.push({ wallet: w, payer: p, usd: 0.01, pos: posOf(latest - 20_000 + k, j) }); } });
+  const sells = lights.map((w, i) => seller(w, `z-${i}.example`));
+  const z = await scanOnce({ sellers: sells, pays: lp, outs: lo, state: createFundingState(USDC), latest, span: SPAN, historyFrom: 2_797_221, readOpts: { walletMaxCalls: 0 } });
+  ok(z.stats.history.read === 20 && lights.slice(0, 4).every((w) => z.ev[w].circular === true) && lights.slice(4).every((w) => z.ev[w].circular === false),
+    `walletMaxCalls 0: every light wallet is still read (${z.stats.history.read} of 20) and the four paid with their own money found`);
+  const D = addr("e7");
+  const dp = [];
+  for (let k = 0; k < 20; k++) for (let c = 0; c < 5; c++) dp.push({ wallet: D, payer: P(6400 + k), usd: 0.01, pos: posOf(latest - 5_000 + k * 5 + c, 1) });
+  const dcalls = [];
+  const zd = await scanOnce({ sellers: [seller(D, "zd.example")], pays: dp, outs: [], state: createFundingState(USDC), latest, span: SPAN, historyFrom: 2_797_221, rpcOpts: { refuse: (p, span) => (Array.isArray(p.topics?.[1]) && p.topics[1].includes(topic(D)) && span > 10_000 ? SIZE_REFUSAL : false) }, readOpts: { walletMaxCalls: 0 } });
+  for (const c of zd.calls) if (Array.isArray(c.topics[2])) dcalls.push(c);
+  ok(dcalls.length === 1 && zd.stats.history.overShare === 1, `...and a wallet refused on its first read stops after the one call it was planned (${dcalls.length} call, over its share ${zd.stats.history.overShare})`);
+
+  // RESUMES: a wallet whose history holds a dense stretch, on a budget too
+  // small to finish it in one scan, is cut short; a day later it resumes at
+  // the block it had reached (nothing below it is read again), and what it
+  // read before still counts: all 60 of its funded payers' payments netted.
+  const R = addr("e8");
+  const ro = [], rp = [];
+  for (let j = 0; j < 5; j++) { const p = P(6500 + j); ro.push(log(R, p, usd(0.2), start - 2_000_000, j)); for (let k = 0; k < 12; k++) rp.push({ wallet: R, payer: p, usd: 0.01, pos: posOf(latest - 30_000 + k, j) }); }
+  for (let i = 0; i < 25_000; i++) ro.push(log(R, P(6500), 1000 + i, start - 5_000_000 + i * 80, i % 1000));
+  let rst = createFundingState(USDC);
+  const r1 = await scanOnce({ sellers: [seller(R, "resume.example")], pays: rp, outs: ro, state: rst, latest, span: SPAN, historyFrom: 2_797_221, readOpts: { maxCalls: 6 } });
+  const saved = rst.wallets.get(R).hp.find((g) => g.k === "o");
+  ok(r1.stats.history.cutShort === 1 && r1.ev[R].fundingRead === false && saved && saved.lo > 2_797_221 && rst.wallets.get(R).retryAt === NOW + 86_400_000,
+    `a budget of 6 calls: the dense-history wallet is cut short at block ${saved?.lo}, keeps where it got to, and waits a day (${r1.stats.history.calls} calls)`);
+  rst = parseFundingState(serializeFundingState(rst), USDC);
+  const back = rst.wallets.get(R).hp.find((g) => g.k === "o");
+  ok(back && back.lo === saved.lo && back.w === saved.w && back.l.length === saved.l.length && back.pg === saved.pg && rst.wallets.get(R).st === 1,
+    "its progress round-trips through the volume: the next block, the width it learned, the transfers below it, and how many times it has waited");
+  const r2 = await scanOnce({ sellers: [seller(R, "resume.example")], pays: rp, outs: ro, state: rst, latest: latest + 45_000, span: SPAN, historyFrom: 2_797_221, now: NOW + 90_000_000 });
+  const outCalls = r2.calls.filter((c) => Array.isArray(c.topics[2]) && c.topics[1].includes(topic(R)));
+  ok(r2.stats.history.resumed >= 1 && outCalls.length && outCalls.every((c) => parseInt(c.fromBlock, 16) >= saved.lo), `a day later it resumes at block ${saved.lo}: none of its ${outCalls.length} outbound history call(s) reads below it`);
+  ok(r2.ev[R].fundingRead === true && r2.ev[R].circular === true && r2.ev[R].selfFundedCalls === 60 && !rst.wallets.get(R).hp.length && !rst.wallets.get(R).st,
+    "...and what it read before still counts: all 60 payments netted, circular; its progress and its waits are cleared once it is worked");
+
+  // ITS CALLS COUNT ACROSS SCANS: a read resumed within the same episode is
+  // not planned again, so a wallet cannot draw a fresh allowance every hour.
+  // The same wallet, stopped in the middle of its dense stretch an hour ago
+  // with 9 calls spent against 3 planned: on a share of 8 it has 2 left.
+  const E = addr("e9");
+  const eo = ro.map((l) => (l.topics[1] === topic(R) ? { ...l, topics: [l.topics[0], topic(E), l.topics[2]] } : l));
+  const ep = rp.map((t) => ({ ...t, wallet: E }));
+  const midway = (episode) => parseFundingState(JSON.stringify({ v: 2, token: USDC, wallets: { [E]: { c: latest, t: posOf(latest - SPAN, 0) - 1, s: latest - SPAN, x: 0, seen: NOW, lc: null, ...(episode ? { ep: episode } : {}), hp: [["o", -1, [P(6500), P(6501), P(6502), P(6503), P(6504)], start - 5_000_000, 447_571, [], 1]], p: {}, k: {}, b: {} } } }), USDC);
+  const eCalls = (r) => r.calls.filter((c) => Array.isArray(c.topics[2]) && (c.topics[1].includes(topic(E)) || c.topics[2].includes(topic(E)))).length;
+  const e1 = await scanOnce({ sellers: [seller(E, "episode.example")], pays: ep, outs: eo, state: midway([3, 9, NOW - 3_600_000]), latest, span: SPAN, historyFrom: 2_797_221, readOpts: { walletMaxCalls: 8 } });
+  ok(e1.stats.history.overShare === 1 && eCalls(e1) === 2 && e1.ev[E].fundingRead === false, `resumed on the same episode it is planned nothing more: 2 calls left of its share (3 planned + 8 - 9 spent), and it stops there (${eCalls(e1)} made)`);
+  const e2 = await scanOnce({ sellers: [seller(E, "episode.example")], pays: ep, outs: eo, state: midway(null), latest, span: SPAN, historyFrom: 2_797_221, readOpts: { walletMaxCalls: 8 } });
+  ok(e2.ev[E].fundingRead === true && e2.ev[E].circular === true && eCalls(e2) > 2, `(control: the same progress on a new episode is planned what it needs, and read in full on the same share, ${eCalls(e2)} calls)`);
+
+  // A STALE EPISODE starts over: one that nothing was charged to for a day
+  // does not count against a wallet's next read.
+  const S = addr("ea");
+  const sst = parseFundingState(JSON.stringify({ v: 2, token: USDC, wallets: { [S]: { c: latest, t: posOf(latest - SPAN, 0) - 1, s: latest - SPAN, x: 0, seen: NOW, lc: null, ep: [1, 40, NOW - 2 * 86_400_000], p: {}, k: {}, b: {} } } }), USDC);
+  const sp_ = [];
+  for (let k = 0; k < 12; k++) sp_.push({ wallet: S, payer: P(6600), usd: 0.01, pos: posOf(latest - 1_000 + k, 0) });
+  const sr = await scanOnce({ sellers: [seller(S, "stale.example")], pays: sp_, outs: [], state: sst, latest, span: SPAN, historyFrom: 2_797_221 });
+  ok(sr.ev[S].fundingRead === true && sr.stats.history.overShare === 0, "an episode idle for a day starts over: 40 calls spent two days ago do not stop today's read");
+
+  // THE PROGRESS IS CAPPED: past its per-wallet cap a wallet loses it and waits.
+  const C = addr("eb");
+  const cst = parseFundingState(JSON.stringify({ v: 2, token: USDC, wallets: { [C]: { c: latest, t: posOf(latest, 0), s: start, x: 0, seen: NOW, lc: null, hp: [["o", -1, [P(6700)], 5_000_000, 1000, [0, posOf(4_000_000, 0), 5, 0, posOf(4_000_001, 0), 6], 1]], p: {}, k: {}, b: {} } } }), USDC);
+  ok(SF.fundingPartialLogCount(cst) === 2, "(a wallet holding two transfers of an unfinished read)");
+  const counts = {};
+  pruneFundingState(cst, { now: NOW, latest, maxPartialLogsPerWallet: 1, counts });
+  ok(counts.progressDropped === 1 && !cst.wallets.get(C).hp.length && cst.wallets.get(C).retryAt === NOW + 86_400_000, "progress over its cap (two transfers held, a cap of one) is dropped, and that wallet waits");
+  ok(SF.fundingPartialLogCount(cst) === 0, "...so the state holds none of it");
 }
 {
   // A transient refusal splits only its own job; a transport failure stops the read.
