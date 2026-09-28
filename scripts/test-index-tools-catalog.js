@@ -833,6 +833,99 @@ const page = (results, extra = {}) =>
       check(`control: beside the origin's own price the stamp defers the read (asked ${asked})`, asked === 1 && networksNeedLiveVerify(declared[0]) === false);
     }
 
+    // A chain the seller WITHDRAWS from its 402 leaves the row, with its
+    // payTo, on the next live read; a chain the seller's own document names
+    // never does. Carry-forward records which chains the documents named
+    // (documentedNetworks) whenever remembered chains join them, and the read
+    // keeps those and takes the 402's current set for the rest. Until
+    // 2026-09-28 the read was a pure union, so a withdrawn chain and its old
+    // wallet stayed listed for as long as the route was indexed.
+    {
+      const BASE = "eip155:8453", POLY = "eip155:137", OP = "eip155:10";
+      const DOC = "0x3333333333333333333333333333333333333333";
+      const OLD = "0x1111111111111111111111111111111111111111";
+      const POLY_PAYTO = "0x4444444444444444444444444444444444444444";
+      const NOW_PAYTO = "0x5555555555555555555555555555555555555555";
+      const ROUTE = "/x402/withdrawn";
+      const staleAt = Date.now() - 8 * 86_400_000;   // past the weekly re-read
+      globalThis.fetch = stub({ [`GET ${ROUTE}`]: [accept({ payTo: NOW_PAYTO })] });   // today's 402: Base only
+      const crawlN = [{
+        seller: ORIGIN, method: "GET", route: ROUTE, slug: "withdrawn", price: 0.032, originDeclaredPrice: 0.032,
+        networks: [OP, BASE, POLY], networksVerifiedAt: staleAt, networksVerifiedMethod: "GET", quoteSource: "live-402", quoteObservedAt: staleAt,
+        payToByNetwork: { [OP]: DOC, [BASE]: OLD, [POLY]: POLY_PAYTO },
+      }];
+      // Every rebuild: the document prices the route and names Optimism, with its wallet.
+      const rebuild = () => [{ seller: ORIGIN, method: "GET", route: ROUTE, slug: "withdrawn", price: 0.032, originDeclaredPrice: 0.032, networks: [OP], payToByNetwork: { [OP]: DOC } }];
+      const rows = carryForwardLearnedQuotes(rebuild(), { tools: crawlN });
+      check(`carry-forward records the chains the document named before the read's joined them (got ${JSON.stringify(rows[0].documentedNetworks)})`,
+        JSON.stringify(rows[0].documentedNetworks) === JSON.stringify([OP]) && rows[0].networks.length === 3);
+      await enrichLiveQuotes(rows, ORIGIN);
+      const r = rows[0];
+      check(`the read withdraws the chain the 402 no longer offers and keeps the documented one (got ${JSON.stringify(r.networks)})`,
+        r.networks.length === 2 && r.networks.includes(OP) && r.networks.includes(BASE) && !r.networks.includes(POLY));
+      check(`the withdrawn chain's payTo goes with it, the documented chain's stays, the offered chain's is today's (got ${JSON.stringify(r.payToByNetwork)})`,
+        r.payToByNetwork?.[POLY] === undefined && r.payToByNetwork?.[OP] === DOC && r.payToByNetwork?.[BASE] === NOW_PAYTO);
+      const next = carryForwardLearnedQuotes(rebuild(), { tools: carryForwardLearnedQuotes(rebuild(), { tools: rows }) })[0];
+      check(`two rebuilds later the withdrawn chain is still gone (got ${JSON.stringify({ n: next.networks, p: next.payToByNetwork })})`,
+        next.networks.length === 2 && !next.networks.includes(POLY) && next.payToByNetwork?.[POLY] === undefined && next.payToByNetwork?.[BASE] === NOW_PAYTO);
+
+      // Two reads with no rebuild between them (a re-registration, or a row
+      // object reused unchanged from the last crawl): the first read records
+      // which chains the row held before it, so the second can withdraw what
+      // the first added.
+      const TWICE = "/x402/read-twice";
+      globalThis.fetch = stub({ [`GET ${TWICE}`]: [accept({ payTo: NOW_PAYTO }), accept({ network: POLY, payTo: POLY_PAYTO })] });
+      const twice = [{ seller: ORIGIN, method: "GET", route: TWICE, slug: "twice", price: null, networks: [OP], payToByNetwork: { [OP]: DOC } }];
+      await enrichLiveQuotes(twice, ORIGIN, { ignoreBudget: true });
+      check(`the first read adds its chains and records the row's own (got ${JSON.stringify({ n: twice[0].networks, d: twice[0].documentedNetworks })})`,
+        twice[0].networks.length === 3 && JSON.stringify(twice[0].documentedNetworks) === JSON.stringify([OP]));
+      globalThis.fetch = stub({ [`GET ${TWICE}`]: [accept({ payTo: NOW_PAYTO })] });
+      await enrichLiveQuotes(twice, ORIGIN, { ignoreBudget: true });
+      check(`the second read withdraws what the first added and the 402 no longer offers (got ${JSON.stringify({ n: twice[0].networks, p: twice[0].payToByNetwork })})`,
+        twice[0].networks.length === 2 && !twice[0].networks.includes(POLY) && twice[0].payToByNetwork?.[POLY] === undefined && twice[0].payToByNetwork?.[OP] === DOC);
+      // Carry-forward keeps a record the row already holds: a reused row
+      // object states its document's chains plus earlier live ones, so
+      // recomputing the record from it would count live chains as documented.
+      const held = carryForwardLearnedQuotes(
+        [{ seller: ORIGIN, method: "GET", route: TWICE, slug: "twice", price: 0.032, originDeclaredPrice: 0.032, documentedNetworks: [OP], networks: [OP, BASE] }],
+        { tools: [{ method: "GET", route: TWICE, price: 0.032, quoteSource: "live-402", networks: [OP, BASE, POLY], networksVerifiedAt: Date.now(), networksVerifiedMethod: "GET" }] })[0];
+      check(`carry-forward keeps an existing documented-chains record (got ${JSON.stringify({ d: held.documentedNetworks, n: held.networks })})`,
+        JSON.stringify(held.documentedNetworks) === JSON.stringify([OP]) && held.networks.length === 3);
+
+      // A row with no record of its documented chains (persisted before the
+      // record existed) keeps everything it holds: nothing on it is known not
+      // to be the seller's own claim.
+      const LEGACY = "/x402/legacy-row";
+      globalThis.fetch = stub({ [`GET ${LEGACY}`]: [accept({ payTo: NOW_PAYTO })] });
+      const legacy = [{ seller: ORIGIN, method: "GET", route: LEGACY, slug: "legacy", price: null, networks: [BASE, POLY], payToByNetwork: { [BASE]: OLD, [POLY]: POLY_PAYTO } }];
+      await enrichLiveQuotes(legacy, ORIGIN, { ignoreBudget: true });
+      check(`a row without the record keeps every chain it held (got ${JSON.stringify(legacy[0].networks)})`,
+        legacy[0].networks.length === 2 && legacy[0].networks.includes(POLY) && legacy[0].payToByNetwork?.[POLY] === POLY_PAYTO && legacy[0].payToByNetwork?.[BASE] === NOW_PAYTO);
+
+      // A 402 whose accepts name no chain says nothing about chains.
+      const NONET = "/x402/no-network";
+      globalThis.fetch = stub({ [`GET ${NONET}`]: [accept({ network: undefined, payTo: NOW_PAYTO })] });
+      const nonet = [{ seller: ORIGIN, method: "GET", route: NONET, slug: "nonet", price: null, documentedNetworks: [], networks: [BASE, POLY], payToByNetwork: { [BASE]: OLD, [POLY]: POLY_PAYTO } }];
+      await enrichLiveQuotes(nonet, ORIGIN, { ignoreBudget: true });
+      check(`a read that names no chain withdraws none (got ${JSON.stringify({ n: nonet[0].networks, p: nonet[0].payToByNetwork, q: nonet[0].quoteSource })})`,
+        nonet[0].quoteSource === "live-402" && nonet[0].networks.length === 2 && nonet[0].payToByNetwork?.[POLY] === POLY_PAYTO);
+
+      // The sibling write withdraws the same way: the stated GET is refused,
+      // the declared POST answers with Base only, and the POST row had taken
+      // Base and Polygon earlier (its own verified read, so the automatic
+      // crawl does not probe it itself).
+      const SIB = "/x402/sibling-withdrawn";
+      globalThis.fetch = stub({ [`POST ${SIB}`]: [accept({ payTo: NOW_PAYTO })] });
+      const sib = [
+        { seller: ORIGIN, route: SIB, method: "GET", slug: "sib-get", price: null, networks: [] },
+        { seller: ORIGIN, route: SIB, method: "POST", slug: "sib-post", price: 0.032, originDeclaredPrice: 0.032, documentedNetworks: [], networks: [BASE, POLY], networksVerifiedAt: Date.now(), networksVerifiedMethod: "POST", payToByNetwork: { [BASE]: OLD, [POLY]: POLY_PAYTO } },
+      ];
+      await enrichLiveQuotes(sib, ORIGIN);
+      const post = sib.find((x) => x.method === "POST");
+      check(`the sibling write withdraws the chain its 402 no longer offers (got ${JSON.stringify({ rows: sib.length, n: post?.networks, p: post?.payToByNetwork })})`,
+        sib.length === 1 && post?.networks?.length === 1 && post.networks[0] === BASE && post.payToByNetwork?.[POLY] === undefined && post.payToByNetwork?.[BASE] === NOW_PAYTO);
+    }
+
     // A declared sibling verb whose own verb does not answer a quote is left
     // exactly as it was, unless that verb refused definitively (404/405/410 on
     // every attempt). The case: the seller declares POST (read on an earlier

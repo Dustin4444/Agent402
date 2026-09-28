@@ -3361,6 +3361,9 @@ export function carryForwardLearnedQuotes(tools, prev) {
     // older price-and-networks rule); the domain and payTo below describe those
     // chains, so they ride with them.
     let tookChains = false;
+    // The chains this crawl's own documents named for the row, before any
+    // remembered chain joins them (see the record after these branches).
+    const ownChains = Array.isArray(t.networks) ? [...t.networks] : [];
     if (!rowHasChains && Array.isArray(hit.networks) && hit.networks.length) {
       t.networks = [...hit.networks];
       tookChains = true;
@@ -3385,6 +3388,13 @@ export function carryForwardLearnedQuotes(tools, prev) {
       t.networksVerifiedAt = hit.networksVerifiedAt;
       t.networksVerifiedMethod = hit.networksVerifiedMethod.toUpperCase();
     }
+    // Remember which of the row's chains its documents named, whenever a
+    // remembered chain has joined them: a later live re-read keeps those and
+    // replaces the rest with what the 402 offers then (applyLiveNetworks), so
+    // a chain the seller withdraws from its 402 leaves the row instead of
+    // being carried forever. Kept when already present: a row object reused
+    // unchanged from an earlier crawl (an OpenAPI 304) already holds its own.
+    if (!Array.isArray(t.documentedNetworks) && (t.networks || []).some((n) => !ownChains.includes(n))) t.documentedNetworks = ownChains;
     // The domain observation and the payTo describe the chains of the read
     // they came from, so they ride only where those chains do: onto the read's
     // own row, or onto a row that just took the hit's chains.
@@ -3513,7 +3523,8 @@ export function quoteProbeCapFor(tools) {
  * Write the payTo a live 402 named, per network, onto an index row. The live
  * read REPLACES what the row held for each network it names (the 402 is the
  * current word on where the origin is paid) and leaves networks it does not
- * name alone, the same way the networks union never drops a manifest chain.
+ * name alone; a network the read withdrew from the row loses its payTo in
+ * applyLiveNetworks, which runs first.
  * Always a fresh object: manifest rows on one path can share one
  * payToByNetwork, and writing into it would move a sibling's address too.
  */
@@ -3522,6 +3533,33 @@ function applyLivePayTo(row, payToByNetwork) {
   const live = Object.entries(payToByNetwork).filter(([net, addr]) => typeof net === "string" && net && typeof addr === "string" && addr);
   if (!live.length) return;
   row.payToByNetwork = { ...(row.payToByNetwork || {}), ...Object.fromEntries(live) };
+}
+
+/**
+ * Write the chains a live 402 offered onto an index row. The row keeps every
+ * chain its own documents name (`documentedNetworks`, recorded by
+ * carryForwardLearnedQuotes; a row without the record holds only documented
+ * chains and live reads already folded in, all of which are kept) and takes
+ * the offered set for the rest: a chain an earlier read found and this one
+ * does not is withdrawn, with its payTo. Until 2026-09-28 the read was a pure
+ * union, so a chain the seller removed from its 402 stayed listed, with its
+ * old wallet, for as long as the route was indexed. A read that names no
+ * chain says nothing about chains and changes none. Fresh objects only, like
+ * applyLivePayTo: rows on one path can share their arrays.
+ */
+function applyLiveNetworks(row, liveNetworks) {
+  if (!row || !Array.isArray(liveNetworks) || !liveNetworks.length) return;
+  const before = Array.isArray(row.networks) ? row.networks : [];
+  const documented = Array.isArray(row.documentedNetworks) ? row.documentedNetworks : before;
+  const after = [...new Set([...documented, ...liveNetworks])];
+  row.networks = after;
+  if (!Array.isArray(row.documentedNetworks) && after.some((n) => !documented.includes(n))) row.documentedNetworks = [...documented];
+  const withdrawn = before.filter((n) => !after.includes(n));
+  if (withdrawn.length && row.payToByNetwork && typeof row.payToByNetwork === "object") {
+    const kept = { ...row.payToByNetwork };
+    for (const n of withdrawn) delete kept[n];
+    row.payToByNetwork = kept;
+  }
 }
 
 // WHY a live-402 read learned nothing, counted. Across the index about half of
@@ -3859,7 +3897,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
       // gone mark, so a declared product left the index on every crawl and
       // came back on every rebuild.
       adoptLivePrice(sibling, learned.price, originUrl);
-      if (learned.networks?.length) sibling.networks = [...new Set([...(sibling.networks || []), ...learned.networks])];
+      applyLiveNetworks(sibling, learned.networks);
       if (learned.evmDomainByNetwork) sibling.evmDomainByNetwork = { ...learned.evmDomainByNetwork };
       applyLivePayTo(sibling, learned.payToByNetwork);
       // The stamp names the verb whose 402 was read (stampIsOwn), here the
@@ -3885,7 +3923,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
     // #1460, 2026-09-23: a seller re-registered at $0.005 and seven routes
     // still showed the $0.003 learned earlier).
     adoptLivePrice(tool, learned.price, originUrl);
-    if (learned.networks?.length) tool.networks = [...new Set([...(tool.networks || []), ...learned.networks])];
+    applyLiveNetworks(tool, learned.networks);
     // The live 402 is the current word on which EIP-712 domain each EVM
     // accept advertises: it replaces any older observation on the row.
     if (learned.evmDomainByNetwork) tool.evmDomainByNetwork = { ...learned.evmDomainByNetwork };
@@ -3899,7 +3937,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
     // (src/evidence-binding.js binds only registry and leaderboard wallets).
     applyLivePayTo(tool, learned.payToByNetwork);
     // The live 402 was read: the row's chains are verified as of now, whatever
-    // the manifest claimed (the union above never drops a manifest chain).
+    // the manifest claimed (applyLiveNetworks never drops a documented chain).
     // The stamp names the verb that answered, which is this row's verb once
     // the correction below applies (stampIsOwn).
     tool.networksVerifiedAt = Date.now();
