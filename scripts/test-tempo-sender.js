@@ -12,15 +12,22 @@
 //      names someone else's account, a multisig envelope, an address placed in
 //      the fee-payer slot and a p256 envelope carrying someone else's public
 //      key never yield a verified sender.
-//   B. tempoAccessKeyActive (one eth_call to the AccountKeychain precompile)
-//      and its cached verifier, against a stubbed RPC: fails closed.
+//      An access key on its FIRST use carries the account's authorization of
+//      it inline (viem's KeyAuthorizationManager flow); that authorization is
+//      checked offline and counts only when it is the account's own signature
+//      over exactly that key, on this chain, unexpired.
+//   B. tempoAccessKeyState / tempoAccessKeyActive (one eth_call to the
+//      AccountKeychain precompile) and the cached verifier, against a stubbed
+//      RPC: fails closed; an inline authorization is accepted only while the
+//      chain holds no record of the key (never a revoked or expired one).
 //   C. The gate in-process: a route that requires a verified sender refuses an
 //      unproven pull credential BEFORE validate(); an ordinary route serves it
 //      and keys its bounds on the client IP.
 //   D. The real server: an unproven credential on route-execute and on
 //      seller-payability is refused before any relay call; a proven one
-//      (plain key, or an access key the stubbed RPC reports active) reaches
-//      the relay; an ordinary route still reaches the relay.
+//      (plain key, an access key the stubbed RPC reports active, or a new
+//      access key carrying the account's authorization) reaches the relay; an
+//      ordinary route still reaches the relay.
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import express from "express";
@@ -29,7 +36,7 @@ import { Account as TempoAccount, Abis, Addresses } from "viem/tempo";
 import { encodeFunctionResult, decodeFunctionData } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { P256, Secp256k1 } from "ox";
-import { TxEnvelopeTempo, SignatureEnvelope } from "ox/tempo";
+import { TxEnvelopeTempo, SignatureEnvelope, KeyAuthorization } from "ox/tempo";
 import { getFreePorts } from "./lib/free-port.js";
 
 let pass = 0;
@@ -59,6 +66,27 @@ const victim = lc(privateKeyToAccount(generatePrivateKey()).address);
 const attackerKey = generatePrivateKey();
 const attacker = lc(privateKeyToAccount(attackerKey).address);
 const forger = TempoAccount.fromSecp256k1(attackerKey, { access: victim });
+// Access keys on their FIRST use (not yet on chain): the transaction carries
+// the account's authorization of the key inline, as viem's
+// KeyAuthorizationManager attaches it. One key per case, so no server-side
+// cache entry is shared between cases.
+const EXPIRY_S = Math.floor(Date.now() / 1000) + 3600;
+const freshAgent = (access = root) => TempoAccount.fromSecp256k1(generatePrivateKey(), { access });
+const newAgent = freshAgent();
+const newP256RootKey = P256.randomPrivateKey();
+const newP256Root = TempoAccount.fromP256(newP256RootKey);
+const newP256Agent = TempoAccount.fromP256(P256.randomPrivateKey(), { access: newP256Root });
+const newWebAuthnAgent = TempoAccount.fromHeadlessWebAuthn(P256.randomPrivateKey(), { access: root, rpId: "wallet.example", origin: "https://wallet.example" });
+const attackerRoot = TempoAccount.fromSecp256k1(attackerKey);
+const forgerNew = TempoAccount.fromSecp256k1(generatePrivateKey(), { access: victim });
+/** A key authorization built and signed with ox, for shapes viem does not emit. */
+function oxKeyAuthorization(fields, privateKey) {
+  const ka = KeyAuthorization.from(fields);
+  return KeyAuthorization.from(ka, { signature: SignatureEnvelope.from(Secp256k1.sign({ payload: KeyAuthorization.getSignPayload(ka), privateKey })) });
+}
+async function firstUse(agentAccount, keyAuthorization) {
+  return agentAccount.signTransaction({ ...TX, type: "tempo", nonce: 0, keyAuthorization });
+}
 
 async function signWith(account) {
   return account.signTransaction({ ...TX, type: "tempo", nonce: 0 });
@@ -108,7 +136,7 @@ const env = {
 process.env.TEMPO_API_KEY = "test-tempo-key";
 process.env.TEMPO_RECIPIENT_ADDRESS = TREASURY;
 process.env.TEMPO_CURRENCY = CURRENCY;
-const { inspectTempoSender, tempoSenderOf, tempoAccessKeyActive, createKeychainSenderVerifier, createTempoGate, checkTempoCredentialBinding, TEMPO_SENDER_UNVERIFIED } = await import("../src/mpp-tempo.js");
+const { inspectTempoSender, tempoSenderOf, tempoAccessKeyActive, tempoAccessKeyState, createKeychainSenderVerifier, createTempoGate, checkTempoCredentialBinding, TEMPO_SENDER_UNVERIFIED } = await import("../src/mpp-tempo.js");
 const { gatewaySettleBreakerKey } = await import("../src/gateway-settle-breaker.js");
 
 // Signed transactions, one per shape.
@@ -125,6 +153,36 @@ const TX_FEE_SLOT_SELF = oxSigned({ sender: attacker });
 const victimP256 = P256.getPublicKey({ privateKey: P256.randomPrivateKey() });
 const TX_KEYCHAIN_FORGED_P256 = oxKeychainForgedP256({ account: lc(root.address), publicKey: P256.getPublicKey({ privateKey: p256AccessKey }) });
 const TX_P256_FORGED = oxSigned({ envelope: () => SignatureEnvelope.from({ type: "p256", publicKey: victimP256, prehash: true, signature: { r: 1n, s: 1n, yParity: 0 } }) });
+const TX_FIRST_USE = await firstUse(newAgent, await root.signKeyAuthorization(newAgent, { chainId: 4217, expiry: EXPIRY_S }));
+const TX_FIRST_USE_P256_ROOT = await firstUse(newP256Agent, await newP256Root.signKeyAuthorization(newP256Agent, { chainId: 4217, expiry: EXPIRY_S }));
+const TX_FIRST_USE_WEBAUTHN_KEY = await firstUse(newWebAuthnAgent, await root.signKeyAuthorization(newWebAuthnAgent, { chainId: 4217 }));
+const anyChainAgent = freshAgent();
+const TX_FIRST_USE_ANY_CHAIN = await firstUse(anyChainAgent, oxKeyAuthorization({ address: anyChainAgent.accessKeyAddress, chainId: 0n, type: "secp256k1" }, rootKey));
+const otherChainAgent = freshAgent();
+const TX_FIRST_USE_OTHER_CHAIN = await firstUse(otherChainAgent, await root.signKeyAuthorization(otherChainAgent, { chainId: 42431, expiry: EXPIRY_S }));
+const expiredAgent = freshAgent();
+const TX_FIRST_USE_EXPIRED = await firstUse(expiredAgent, await root.signKeyAuthorization(expiredAgent, { chainId: 4217, expiry: EXPIRY_S - 7200 }));
+// Signed by the attacker's own root for a key the attacker holds, in a
+// transaction that names the victim's account.
+const TX_FIRST_USE_FORGED = await firstUse(forgerNew, await attackerRoot.signKeyAuthorization(forgerNew, { chainId: 4217, expiry: EXPIRY_S }));
+// The account's real authorization, but of a DIFFERENT key than the one that signed.
+const otherKeyAgent = freshAgent();
+const TX_FIRST_USE_OTHER_KEY = await firstUse(otherKeyAgent, await root.signKeyAuthorization(freshAgent(), { chainId: 4217, expiry: EXPIRY_S }));
+const typeAgent = freshAgent();
+const TX_FIRST_USE_WRONG_TYPE = await firstUse(typeAgent, oxKeyAuthorization({ address: typeAgent.accessKeyAddress, chainId: 4217n, type: "p256", expiry: EXPIRY_S }, rootKey));
+const boundAgent = freshAgent();
+const TX_FIRST_USE_BOUND_ELSEWHERE = await firstUse(boundAgent, oxKeyAuthorization({ address: boundAgent.accessKeyAddress, chainId: 4217n, type: "secp256k1", account: victim, isAdmin: true }, rootKey));
+// Carries the p256 account's PUBLIC key (public once used) with a signature
+// that key never made: the address it names is the account's, the signature
+// is not.
+const p256ForgedAgent = TempoAccount.fromP256(P256.randomPrivateKey(), { access: newP256Root });
+const p256ForgedAuth = KeyAuthorization.from(
+  { address: p256ForgedAgent.accessKeyAddress, chainId: 4217n, type: "p256", expiry: EXPIRY_S },
+  { signature: SignatureEnvelope.from({ type: "p256", publicKey: P256.getPublicKey({ privateKey: newP256RootKey }), prehash: true, signature: { r: 1n, s: 1n, yParity: 0 } }) },
+);
+const TX_FIRST_USE_P256_FORGED_AUTH = await firstUse(p256ForgedAgent, p256ForgedAuth);
+const oxAgent = freshAgent();
+const TX_FIRST_USE_OX = await firstUse(oxAgent, oxKeyAuthorization({ address: oxAgent.accessKeyAddress, chainId: 4217n, type: "secp256k1", expiry: EXPIRY_S }, rootKey));
 
 // ---------------------------------------------------------------------------
 // A. inspectTempoSender
@@ -164,6 +222,33 @@ const TX_P256_FORGED = oxSigned({ envelope: () => SignatureEnvelope.from({ type:
   ok(fsSelf.claimed === attacker && fsSelf.verified === attacker, "A: control - the fee-payer slot naming the real signer is proven by the signature");
   const pf = inspectTempoSender(credential(TX_P256_FORGED));
   ok(pf.claimed !== null && pf.verified === null, `A: a p256 envelope carrying someone else's public key with a signature that does not verify is not a sender (${pf.reason})`);
+  // First use of an access key: the account's own authorization rides inline.
+  for (const [name, raw, acct, key] of [
+    ["a secp256k1 root", TX_FIRST_USE, root.address, newAgent.accessKeyAddress],
+    ["a p256 root (p256 access key)", TX_FIRST_USE_P256_ROOT, newP256Root.address, newP256Agent.accessKeyAddress],
+    ["a webAuthn access key", TX_FIRST_USE_WEBAUTHN_KEY, root.address, newWebAuthnAgent.accessKeyAddress],
+    ["chain 0 (every chain) and no expiry", TX_FIRST_USE_ANY_CHAIN, root.address, anyChainAgent.accessKeyAddress],
+    ["an ox-built authorization (control for the shapes below)", TX_FIRST_USE_OX, root.address, oxAgent.accessKeyAddress],
+  ]) {
+    const s = inspectTempoSender(credential(raw));
+    ok(s.verified === null && s.keychain?.account === lc(acct) && s.keychain?.accessKey === lc(key) && s.keychain?.inlineAuthorization === true,
+      `A: first use of an access key under ${name}: the inline authorization proves the account, pending the chain read (${s.reason})`);
+  }
+  ok(inspectTempoSender(credential(TX_AGENT)).keychain?.inlineAuthorization === false, "A: an access key used without an inline authorization reads inlineAuthorization false");
+  ok(inspectTempoSender(credential(TX_FIRST_USE), { now: (EXPIRY_S + 10) * 1000 }).keychain?.inlineAuthorization === false, "A: the inline authorization's expiry is read at the time of the request");
+  for (const [name, raw] of [
+    ["signed by the attacker's own root in a transaction naming the victim's account", TX_FIRST_USE_FORGED],
+    ["authorizing a different key than the one that signed", TX_FIRST_USE_OTHER_KEY],
+    ["for another chain", TX_FIRST_USE_OTHER_CHAIN],
+    ["that has expired", TX_FIRST_USE_EXPIRED],
+    ["for a different key type than the signature", TX_FIRST_USE_WRONG_TYPE],
+    ["bound to another account", TX_FIRST_USE_BOUND_ELSEWHERE],
+    ["carrying the p256 account's public key with a signature that key never made", TX_FIRST_USE_P256_FORGED_AUTH],
+  ]) {
+    const s = inspectTempoSender(credential(raw));
+    ok(s.verified === null && s.keychain !== null && s.keychain.inlineAuthorization === false, `A: an inline authorization ${name} proves nothing (${s.reason})`);
+  }
+  ok(inspectTempoSender(credential(TX_FIRST_USE_FORGED)).keychain?.account === victim, "A: ...the forged one names the victim's account, which is what it fails to prove");
   ok(inspectTempoSender(credential(null, { push: true })).verified === null && inspectTempoSender("Payment junk").verified === null && inspectTempoSender(credential("0x76deadbeef")).verified === null && inspectTempoSender(credential(`0x02${TX_PLAIN.slice(4)}`)).verified === null,
     "A: a push credential, junk, an undecodable transaction and a non-Tempo type byte yield nothing (never throws)");
 }
@@ -191,6 +276,7 @@ const activeRec = (key, extra = {}) => ({ signatureType: 0, keyId: key, expiry: 
     [`${lc(root.address)}:${attacker}`, activeRec(attacker, { isRevoked: true })],
     [`${victim}:${agentKeyAddress}`, activeRec(agentKeyAddress, { expiry: BigInt(NOW_S - 10) })],
     [`${victim}:${attacker}`, activeRec(victim)], // keyId names a different key
+    [`${victim}:${lc(plain.address)}`, { signatureType: 0, keyId: "0x0000000000000000000000000000000000000000", expiry: 0n, enforceLimits: false, isRevoked: true }], // revoked, record cleared
   ]);
   const handle = keychainRpc(keys, calls);
   const fetchImpl = async (_url, init) => new Response(JSON.stringify(handle(JSON.parse(init.body))), { status: 200, headers: { "content-type": "application/json" } });
@@ -199,7 +285,17 @@ const activeRec = (key, extra = {}) => ({ signatureType: 0, keyId: key, expiry: 
   ok(await tempoAccessKeyActive({ account: root.address, accessKey: attacker }, opts) === false, "B: a revoked key reads inactive");
   ok(await tempoAccessKeyActive({ account: victim, accessKey: agentKeyAddress }, opts) === false, "B: an expired key reads inactive");
   ok(await tempoAccessKeyActive({ account: victim, accessKey: attacker }, opts) === false, "B: a record for a different key id reads inactive");
-  ok(await tempoAccessKeyActive({ account: victim, accessKey: lc(plain.address) }, opts) === false, "B: no such key (the empty record) reads inactive");
+  ok(await tempoAccessKeyActive({ account: root.address, accessKey: lc(plain.address) }, opts) === false, "B: no such key (the empty record) reads inactive");
+  const states = [
+    [root.address, agentKeyAddress, "active"], [root.address, attacker, "revoked"], [victim, agentKeyAddress, "expired"],
+    [victim, attacker, "mismatch"], [root.address, lc(plain.address), "absent"], [victim, lc(plain.address), "revoked"],
+  ];
+  for (const [account, key, want] of states) {
+    const got = await tempoAccessKeyState({ account, accessKey: key }, opts);
+    ok(got === want, `B: tempoAccessKeyState reads ${want} (got ${got})`);
+  }
+  ok(await tempoAccessKeyState({ account: root.address, accessKey: agentKeyAddress }, { ...opts, fetchImpl: async () => new Response("nope", { status: 502 }) }) === "unreadable"
+    && await tempoAccessKeyState({ account: "nope", accessKey: agentKeyAddress }, opts) === "unreadable", "B: an RPC error or a malformed address reads unreadable, never absent");
   ok(await tempoAccessKeyActive({ account: root.address, accessKey: agentKeyAddress }, { ...opts, fetchImpl: async () => new Response("nope", { status: 502 }) }) === false, "B: an RPC error status fails closed");
   ok(await tempoAccessKeyActive({ account: root.address, accessKey: agentKeyAddress }, { ...opts, fetchImpl: async () => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, error: { message: "x" } })) }) === false, "B: a JSON-RPC error fails closed");
   ok(await tempoAccessKeyActive({ account: root.address, accessKey: agentKeyAddress }, { ...opts, fetchImpl: async () => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x1234" })) }) === false, "B: an unreadable result fails closed");
@@ -231,6 +327,28 @@ const activeRec = (key, extra = {}) => ({ signatureType: 0, keyId: key, expiry: 
   ok(reads === before + 1, "B: an expired cache entry is read again");
   const throwing = createKeychainSenderVerifier({ check: async () => { throw new Error("rpc down"); } });
   ok((await throwing({ account: root.address, accessKey: agentKeyAddress })) === null, "B: a check that throws resolves to null (unverified), never rejects");
+  ok((await throwing({ account: root.address, accessKey: agentKeyAddress, inlineAuthorization: true })) === null, "B: ...even for a credential carrying an inline authorization (an unreadable chain is not an absent key)");
+
+  // Inline authorization: accepted only while the chain holds no record of the key.
+  for (const state of ["absent", "revoked", "expired", "mismatch", "unreadable", "active"]) {
+    const v = createKeychainSenderVerifier({ check: async () => state });
+    const withInline = await v({ account: root.address, accessKey: agentKeyAddress, inlineAuthorization: true });
+    const without = await createKeychainSenderVerifier({ check: async () => state })({ account: root.address, accessKey: agentKeyAddress, inlineAuthorization: false });
+    const want = state === "active" || state === "absent" ? lc(root.address) : null;
+    ok(withInline === want && without === (state === "active" ? lc(root.address) : null),
+      `B: chain state ${state}: with an inline authorization -> ${withInline}, without -> ${without}`);
+  }
+  // A remembered "absent" is reused for a credential carrying the authorization,
+  // and read again for one without it (the key may have landed since).
+  let absentReads = 0;
+  let chainState = "absent";
+  const landing = createKeychainSenderVerifier({ check: async () => { absentReads++; return chainState; } });
+  const kcNew = { account: root.address, accessKey: agentKeyAddress };
+  ok((await landing({ ...kcNew, inlineAuthorization: true })) === lc(root.address) && absentReads === 1, "B: first use with an inline authorization while the key is absent: accepted");
+  await sleep(0);
+  ok((await landing({ ...kcNew, inlineAuthorization: true })) === lc(root.address) && absentReads === 1, "B: ...a second inline-authorized use reuses the remembered absent state");
+  chainState = "active";
+  ok((await landing({ ...kcNew, inlineAuthorization: false })) === lc(root.address) && absentReads === 2, "B: the next use WITHOUT the authorization (the key has landed) reads the chain again rather than reuse the remembered absent state");
 }
 
 // ---------------------------------------------------------------------------
@@ -291,6 +409,22 @@ async function listen(app) {
   v0 = seen.validate;
   r = await get("/spend", TX_AGENT);
   ok(r.status === 402 && seen.validate === v0 && r.body.details?.reason === "sender-unverified", "C: ...and is refused when the chain read does not vouch (fail closed)");
+  // First use of an access key, through the real verifier over a chain that
+  // holds no record of the key.
+  keychainAnswer = createKeychainSenderVerifier({ check: async () => "absent" });
+  v0 = seen.validate;
+  r = await get("/spend", TX_FIRST_USE);
+  ok(r.status === 200 && r.body.sender === lc(root.address) && r.body.key === `tempo:${lc(root.address)}` && seen.validate === v0 + 1, `C: an access key on its first use (inline authorization, key absent on chain) reaches a spending route, keyed on the account (${JSON.stringify(r.body)})`);
+  v0 = seen.validate;
+  r = await get("/spend", TX_FIRST_USE_FORGED);
+  ok(r.status === 402 && seen.validate === v0 && r.body.details?.reason === "sender-unverified", "C: a first-use credential whose authorization is not the named account's own is refused before validate");
+  v0 = seen.validate;
+  r = await get("/spend", TX_AGENT);
+  ok(r.status === 402 && seen.validate === v0 && r.body.details?.reason === "sender-unverified", "C: an access key with no inline authorization and no record on chain is refused before validate");
+  keychainAnswer = createKeychainSenderVerifier({ check: async () => "revoked" });
+  v0 = seen.validate;
+  r = await get("/spend", TX_FIRST_USE);
+  ok(r.status === 402 && seen.validate === v0 && r.body.details?.reason === "sender-unverified", "C: a first-use credential for a key the chain reports revoked is refused before validate");
   // A push credential's transfer is on chain before the handler: not refused.
   v0 = seen.validate;
   r = await get("/spend", null, { push: true });
@@ -362,7 +496,15 @@ async function listen(app) {
   await new Promise((r) => relay.listen(0, "127.0.0.1", r));
   const rpcCalls = [];
   const p256AgentKeyAddress = lc(p256Agent.accessKeyAddress);
-  const rpcKeys = new Map([[`${lc(root.address)}:${agentKeyAddress}`, activeRec(agentKeyAddress)], [`${lc(root.address)}:${p256AgentKeyAddress}`, activeRec(p256AgentKeyAddress, { signatureType: 1 })]]);
+  const revokedAgent = freshAgent();
+  const expiredRecordAgent = freshAgent();
+  const TX_FIRST_USE_REVOKED = await firstUse(revokedAgent, await root.signKeyAuthorization(revokedAgent, { chainId: 4217, expiry: EXPIRY_S }));
+  const TX_FIRST_USE_EXPIRED_RECORD = await firstUse(expiredRecordAgent, await root.signKeyAuthorization(expiredRecordAgent, { chainId: 4217, expiry: EXPIRY_S }));
+  const rpcKeys = new Map([
+    [`${lc(root.address)}:${agentKeyAddress}`, activeRec(agentKeyAddress)], [`${lc(root.address)}:${p256AgentKeyAddress}`, activeRec(p256AgentKeyAddress, { signatureType: 1 })],
+    [`${lc(root.address)}:${lc(revokedAgent.accessKeyAddress)}`, activeRec(lc(revokedAgent.accessKeyAddress), { isRevoked: true })],
+    [`${lc(root.address)}:${lc(expiredRecordAgent.accessKeyAddress)}`, activeRec(lc(expiredRecordAgent.accessKeyAddress), { expiry: BigInt(NOW_S - 10) })],
+  ]);
   const rpcHandle = keychainRpc(rpcKeys, rpcCalls);
   const rpc = createServer((req, res) => {
     let b = ""; req.on("data", (c) => { b += c; });
@@ -426,6 +568,24 @@ async function listen(app) {
     h0 = relayHits.length;
     r = await post("/api/route/execute", TX_P256_AGENT, "10000", exec);
     ok(relayHits.length === h0 + 1 && r.body.details?.reason !== "sender-unverified", `D: control - a genuine p256 access-key credential the chain reports active reaches the relay (relay +${relayHits.length - h0})`);
+    // First use of a new access key (the stubbed RPC holds no record of it).
+    for (const [name, raw, tier, amount] of [["route-execute", TX_FIRST_USE, "/api/route/execute", "10000"], ["the max tier, p256 root", TX_FIRST_USE_P256_ROOT, "/api/route/execute-max", "550000"], ["a webAuthn access key", TX_FIRST_USE_WEBAUTHN_KEY, "/api/route/execute", "10000"]]) {
+      h0 = relayHits.length;
+      r = await post(tier, raw, amount, exec);
+      ok(relayHits.length === h0 + 1 && r.body.details?.reason !== "sender-unverified", `D: an access key on its first use, carrying the account's authorization, reaches the relay on ${name} (relay +${relayHits.length - h0})`);
+    }
+    for (const [name, raw] of [["an authorization signed by someone else's root", TX_FIRST_USE_FORGED], ["a key the chain reports revoked", TX_FIRST_USE_REVOKED], ["a key the chain reports expired", TX_FIRST_USE_EXPIRED_RECORD], ["an authorization for another chain", TX_FIRST_USE_OTHER_CHAIN]]) {
+      h0 = relayHits.length;
+      r = await post("/api/route/execute", raw, "10000", exec);
+      ok(r.status === 402 && relayHits.length === h0 && r.body.details?.reason === "sender-unverified", `D: a first-use credential with ${name} is refused before any relay call (relay +${relayHits.length - h0})`);
+    }
+    // Once a transaction carrying the authorization lands, the key is on chain
+    // and the buyer's next credential carries no authorization: served, even
+    // though the server remembered the key as absent a moment ago.
+    rpcKeys.set(`${lc(root.address)}:${lc(newAgent.accessKeyAddress)}`, activeRec(lc(newAgent.accessKeyAddress)));
+    h0 = relayHits.length;
+    r = await post("/api/route/execute", await signWith(newAgent), "10000", exec);
+    ok(relayHits.length === h0 + 1 && r.body.details?.reason !== "sender-unverified", `D: after the key lands, the same key without the authorization reaches the relay at once (relay +${relayHits.length - h0})`);
     h0 = relayHits.length;
     const plainRoute = await fetch(`${B}/api/uuid`, { headers: { Authorization: cred(TX_FORGED_KEYCHAIN, "1000") } });
     ok(plainRoute.status === 402 && relayHits.length === h0 + 1, `D: an ordinary route is not refused for the sender: the same forged keychain credential reaches the relay there (relay +${relayHits.length - h0})`);

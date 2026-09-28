@@ -39,7 +39,7 @@ import { mppProblem, markMppProblem, sendMppProblem } from "./mpp-problem.js";
 import { Challenge, Credential, Method, Receipt } from "mppx";
 import { tempo } from "mppx/server";
 import { mppChallengesSuppressed, clientFingerprint } from "./mpp-fallback.js";
-import { TxEnvelopeTempo, SignatureEnvelope } from "ox/tempo";
+import { TxEnvelopeTempo, SignatureEnvelope, KeyAuthorization } from "ox/tempo";
 import { encodeFunctionData, decodeFunctionResult } from "viem";
 import { Abis, Addresses } from "viem/tempo";
 import { chargeCancelledForClientGone, CLIENT_GONE_TEXT } from "./hangup-settlement.js";
@@ -547,7 +547,9 @@ export function checkTempoCredentialBinding(authorizationHeader, { secretKey, re
 //     that key);
 //   - for a keychain envelope, the account the envelope NAMES (the signature
 //     is by an access key; the account is proven only if that key is active
-//     for it on chain);
+//     for it on chain, or if the transaction itself carries the account's
+//     own authorization of that key and the chain holds no record of the key:
+//     the first use of a new access key, before any transaction installed it);
 //   - for a multisig envelope, the account it names;
 //   - and, whatever the envelope, an address placed in the fee-payer slot,
 //     taken as written.
@@ -559,16 +561,43 @@ const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const lcAddress = (a) => (typeof a === "string" && ADDRESS_RE.test(a) ? a.toLowerCase() : null);
 const PRIMITIVE_ENVELOPES = new Set(["secp256k1", "p256", "webAuthn"]);
 
+/** Does a key authorization carried inline by a keychain transaction prove
+ *  that `account` authorized `accessKey`? It must authorize exactly that key,
+ *  for the key type that signed, on Tempo mainnet (or chain 0, which the
+ *  protocol reads as every chain), unexpired at `now`, bound to no other
+ *  account, and be signed by the account's OWN key (a primitive signature
+ *  that recovers to the account and verifies). Offline; never throws. */
+function inlineAuthorizationProves(ka, { account, accessKey, keyType, now }) {
+  try {
+    if (!ka || lcAddress(ka.address) !== accessKey || ka.type !== keyType) return false;
+    const chainId = BigInt(ka.chainId);
+    if (chainId !== BigInt(TEMPO_MAINNET_CHAIN_ID) && chainId !== 0n) return false;
+    if (ka.expiry != null && !(Number(ka.expiry) > Math.floor(now / 1000))) return false;
+    if (ka.account !== undefined && lcAddress(ka.account) !== account) return false;
+    const s = ka.signature;
+    if (!s || !PRIMITIVE_ENVELOPES.has(s.type)) return false;
+    const payload = KeyAuthorization.getSignPayload(ka);
+    if (lcAddress(SignatureEnvelope.extractAddress({ payload, signature: s })) !== account) return false;
+    return SignatureEnvelope.verify(s, { address: account, payload }) === true;
+  } catch {
+    return false;
+  }
+}
+
 /** Who a pull credential says paid, and what its signature proves.
  *  Returns { claimed, verified, envelope, keychain, reason }:
  *    claimed  - the sender the transaction names (NEVER a key for a bound);
  *    verified - the same address once the signature proves it, else null;
- *    keychain - { account, accessKey } for a keychain envelope whose access
- *               key signature verifies; whether that key is authorized for
- *               the account is an on-chain read (verifyTempoKeychainSender),
- *               so the account is not verified here. Else null.
+ *    keychain - { account, accessKey, inlineAuthorization } for a keychain
+ *               envelope whose access key signature verifies; whether that
+ *               key is authorized for the account is an on-chain read
+ *               (verifyTempoKeychainSender), so the account is not verified
+ *               here. inlineAuthorization is true when the transaction also
+ *               carries the account's own authorization of that key
+ *               (inlineAuthorizationProves), which the read accepts only
+ *               while the chain holds no record of the key. Else null.
  *  Offline and synchronous; never throws. Exported for tests. */
-export function inspectTempoSender(authorizationHeader) {
+export function inspectTempoSender(authorizationHeader, { now = Date.now() } = {}) {
   const out = { claimed: null, verified: null, envelope: null, keychain: null, reason: "" };
   let payload;
   try { payload = Credential.deserialize(authorizationHeader)?.payload; } catch { return { ...out, reason: "credential does not decode" }; }
@@ -602,7 +631,9 @@ export function inspectTempoSender(authorizationHeader) {
       if (!accessKey || !SignatureEnvelope.verify(inner, { address: accessKey, payload: keyPayload })) return { ...out, reason: "the access key signature does not verify" };
       // Signed by the account's own key: that proves the account outright.
       if (accessKey === account) return { ...out, verified: account, reason: "signature" };
-      return { ...out, keychain: { account, accessKey }, reason: "access key authorization not checked" };
+      if (!tx.keyAuthorization) return { ...out, keychain: { account, accessKey, inlineAuthorization: false }, reason: "access key authorization not checked" };
+      const inlineAuthorization = inlineAuthorizationProves(tx.keyAuthorization, { account, accessKey, keyType: inner.type, now });
+      return { ...out, keychain: { account, accessKey, inlineAuthorization }, reason: inlineAuthorization ? "access key authorized in this transaction" : "the key authorization it carries does not prove the account" };
     }
   } catch {
     return { ...out, reason: "the signature does not verify" };
@@ -625,12 +656,16 @@ function accessKeyTimeoutMs() {
   return Number.isFinite(n) && n > 0 ? Math.min(n, 10_000) : 2500;
 }
 
-/** Is `accessKey` an active (present, unrevoked, unexpired) access key of
- *  `account` on Tempo? One eth_call to the AccountKeychain precompile
- *  (getKey), the check mppx's own isActiveAccessKey makes. Fails closed:
- *  false on a timeout, an RPC error or anything unreadable. Exported for
- *  tests. */
-export async function tempoAccessKeyActive({ account, accessKey } = {}, {
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
+/** What the AccountKeychain precompile holds for `accessKey` on `account`:
+ *  one eth_call (getKey), the read mppx's own isActiveAccessKey makes.
+ *    "active"     - present, unrevoked, unexpired;
+ *    "absent"     - no record at all (an empty key id, not revoked);
+ *    "revoked", "expired", "mismatch" (a record for another key id);
+ *    "unreadable" - a timeout, an RPC error, a malformed address or result.
+ *  Never throws. Exported for tests. */
+export async function tempoAccessKeyState({ account, accessKey } = {}, {
   rpcUrl = process.env.TEMPO_RPC_URL || "https://rpc.tempo.xyz",
   fetchImpl = globalThis.fetch,
   timeoutMs = accessKeyTimeoutMs(),
@@ -638,7 +673,7 @@ export async function tempoAccessKeyActive({ account, accessKey } = {}, {
 } = {}) {
   const acct = lcAddress(account);
   const key = lcAddress(accessKey);
-  if (!acct || !key) return false;
+  if (!acct || !key) return "unreadable";
   try {
     const data = encodeFunctionData({ abi: Abis.accountKeychain, functionName: "getKey", args: [acct, key] });
     const res = await fetchImpl(rpcUrl, {
@@ -647,44 +682,65 @@ export async function tempoAccessKeyActive({ account, accessKey } = {}, {
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: Addresses.accountKeychain, data }, "latest"] }),
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (!res.ok) return false;
+    if (!res.ok) return "unreadable";
     const body = await res.json();
-    if (!body || body.error || typeof body.result !== "string") return false;
+    if (!body || body.error || typeof body.result !== "string") return "unreadable";
     const k = decodeFunctionResult({ abi: Abis.accountKeychain, functionName: "getKey", data: body.result });
-    return lcAddress(k?.keyId) === key && k.isRevoked === false && BigInt(k.expiry) > BigInt(Math.floor(now / 1000));
+    const keyId = lcAddress(k?.keyId);
+    if (!keyId || typeof k.isRevoked !== "boolean") return "unreadable";
+    if (k.isRevoked) return "revoked";
+    if (keyId === key) return BigInt(k.expiry) > BigInt(Math.floor(now / 1000)) ? "active" : "expired";
+    return keyId === ZERO_ADDRESS ? "absent" : "mismatch";
   } catch {
-    return false;
+    return "unreadable";
   }
 }
 
+/** Is `accessKey` an active (present, unrevoked, unexpired) access key of
+ *  `account` on Tempo? tempoAccessKeyState read as a yes/no; fails closed.
+ *  Exported for tests. */
+export async function tempoAccessKeyActive(keychain = {}, opts = {}) {
+  return (await tempoAccessKeyState(keychain, opts)) === "active";
+}
+
 /** A cached, deduplicated and concurrency-bounded keychain check. Resolves to
- *  the account (lowercased) when its access key is active on chain, else
- *  null; never rejects. An active key is remembered for `ttlMs`, an inactive
- *  or unreadable one for `negativeTtlMs`; past `maxInFlight` concurrent reads
- *  the answer is null without a read (unverified, never a guess). Exported
- *  for tests. */
-export function createKeychainSenderVerifier({ check = tempoAccessKeyActive, ttlMs = 60_000, negativeTtlMs = 15_000, maxInFlight = 16, maxEntries = 5000 } = {}) {
-  const cache = new Map(); // "account:key" -> { active, until }
-  const inFlight = new Map(); // "account:key" -> Promise<boolean>
+ *  the account (lowercased) when its access key is active on chain, or when
+ *  the chain holds no record of the key and the credential carries the
+ *  account's own authorization of it (keychain.inlineAuthorization, checked
+ *  offline by inspectTempoSender); else null. A revoked, expired or
+ *  unreadable key is never accepted. Never rejects. `check` resolves to a
+ *  tempoAccessKeyState word (true reads as "active"). An active key is
+ *  remembered for `ttlMs`, any other state for `negativeTtlMs`; a remembered
+ *  "absent" is not reused for a credential WITHOUT an inline authorization
+ *  (the key may have been installed since), which reads again. Past
+ *  `maxInFlight` concurrent reads the answer is null without a read
+ *  (unverified, never a guess). Exported for tests. */
+export function createKeychainSenderVerifier({ check = tempoAccessKeyState, ttlMs = 60_000, negativeTtlMs = 15_000, maxInFlight = 16, maxEntries = 5000 } = {}) {
+  const cache = new Map(); // "account:key" -> { state, until }
+  const inFlight = new Map(); // "account:key" -> Promise<state>
+  const stateOf = (v) => (v === true || v === "active" ? "active" : typeof v === "string" ? v : "inactive");
   return async function verifyKeychainSender(keychain, now = Date.now()) {
     const account = lcAddress(keychain?.account);
     const accessKey = lcAddress(keychain?.accessKey);
     if (!account || !accessKey) return null;
+    const inline = keychain.inlineAuthorization === true;
+    const decide = (state) => (state === "active" || (state === "absent" && inline) ? account : null);
     const k = `${account}:${accessKey}`;
     const hit = cache.get(k);
-    if (hit && hit.until > now) return hit.active ? account : null;
+    if (hit && hit.until > now && (hit.state !== "absent" || inline)) return decide(hit.state);
     let p = inFlight.get(k);
     if (!p) {
       if (inFlight.size >= maxInFlight) return null;
-      p = Promise.resolve().then(() => check({ account, accessKey })).then((v) => v === true, () => false);
+      p = Promise.resolve().then(() => check({ account, accessKey })).then(stateOf, () => "unreadable");
       inFlight.set(k, p);
-      p.then((active) => {
+      p.then((state) => {
         inFlight.delete(k);
+        cache.delete(k);
         if (cache.size >= maxEntries) cache.delete(cache.keys().next().value);
-        cache.set(k, { active, until: Date.now() + (active ? ttlMs : negativeTtlMs) });
+        cache.set(k, { state, until: Date.now() + (state === "active" ? ttlMs : negativeTtlMs) });
       });
     }
-    return (await p) ? account : null;
+    return decide(await p);
   };
 }
 const verifyTempoKeychainSenderDefault = createKeychainSenderVerifier();
@@ -721,8 +777,8 @@ export function bindingRefusal(reason) {
 export const TEMPO_SENDER_UNVERIFIED = Object.freeze({
   cls: "sender-unverified",
   kind: "verification-failed",
-  detail: "This route accepts a Tempo pull credential only when its signature proves the paying account: signed by the account's own key, or by an access key that is active for that account on Tempo. This credential's signer could not be verified, so it was not sent for validation and nothing was charged.",
-  hint: "Pay with a credential signed by the account's key or by an access key already active on chain, or pay this route over another method offered in the WWW-Authenticate header.",
+  detail: "This route accepts a Tempo pull credential only when its signature proves the paying account: signed by the account's own key, or by an access key that is active for that account on Tempo or that the transaction authorizes with the account's own key. This credential's signer could not be verified, so it was not sent for validation and nothing was charged.",
+  hint: "Pay with a credential signed by the account's key, or by an access key that is active on chain or carries the account's authorization for it, or pay this route over another method offered in the WWW-Authenticate header.",
 });
 
 /** Best-effort amount (base units) from a credential, for the refusal log only. */
@@ -973,7 +1029,8 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
     // WHO PAID (pull credentials only; a push transfer is on chain before
     // this request and is finalized before the handler). The signature proves
     // a primitive-key sender outright. A keychain sender is proven by an
-    // on-chain read of its access key, started here beside relay validation.
+    // on-chain read of its access key (active, or absent with the account's
+    // own authorization carried inline), started here beside relay validation.
     // A route that spends before the buyer's payment settles
     // (verifiedSenderRequired) waits for that proof and refuses a pull
     // credential without it, before any relay call. Every other route keys its
@@ -996,7 +1053,7 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
       : Promise.resolve(true);
     senderGate.then((allowed) => {
       if (!allowed) {
-        logTempoRefusal(req, { cls: TEMPO_SENDER_UNVERIFIED.cls, amountAtomic: binding.amountAtomic, timings: { total: Date.now() - tStart }, detail: `before validate: ${senderInfo?.envelope || "?"} envelope, ${senderInfo?.reason || "no sender"}` });
+        logTempoRefusal(req, { cls: TEMPO_SENDER_UNVERIFIED.cls, amountAtomic: binding.amountAtomic, timings: { total: Date.now() - tStart }, detail: `before validate: ${senderInfo?.envelope || "?"} envelope, ${senderInfo?.reason || "no sender"}${keychainRead ? "; the chain read did not vouch for the key" : ""}` });
         noteTempoRefusal(req);
         markMppProblem(req, res, mppProblem(TEMPO_SENDER_UNVERIFIED.kind, TEMPO_SENDER_UNVERIFIED.detail, { hint: TEMPO_SENDER_UNVERIFIED.hint, details: { reason: TEMPO_SENDER_UNVERIFIED.cls, charged: false } }));
         next();
