@@ -172,15 +172,22 @@ export function overallState(components, railComponents = []) {
 // STRIP_DAYS must stay a key of WINDOWS - the footer reads windows[`${STRIP_DAYS}d`]
 // and a value with no matching row renders undefined. Pinned in test-status-store.
 export const STRIP_DAYS = 30;
-export function statusSnapshot({ baseUrl = "", nowMs = Date.now(), historyDays = STRIP_DAYS, live = {} } = {}) {
-  const latest = new Map(latestByComponent().map((r) => [r.component, r]));
+// The store reads a snapshot is built from. Injectable so a test can build the
+// same page from a reference implementation of the reads and compare the two
+// (scripts/test-status-store-scale.js); production always uses the store.
+const STORE_READS = Object.freeze({ probeRows, latestByComponent, latestBySource, earliestObservation, totalObservations, statusPersistent });
+export function statusSnapshot({ baseUrl = "", nowMs = Date.now(), historyDays = STRIP_DAYS, live = {}, store = STORE_READS } = {}) {
+  const latest = new Map(store.latestByComponent().map((r) => [r.component, r]));
   const since = nowMs - historyDays * DAY;
+  // Rows read once per component and render; the incidents below reuse api's.
+  const rowsByKey = new Map();
 
   // Shared shape between the core components and the per-rail breakdown below
   // - same store functions, same windows, same daily-bar computation, so a
   // rail row means exactly the same thing as any other component row.
   const toComponent = (c) => {
-    const rows = probeRows(c.key, since);
+    const rows = store.probeRows(c.key, since);
+    rowsByKey.set(c.key, rows);
     const windows = {};
     for (const w of WINDOWS) windows[w.key] = uptimeFrom(rows.filter((r) => r.ts >= nowMs - w.ms));
     return {
@@ -189,7 +196,7 @@ export function statusSnapshot({ baseUrl = "", nowMs = Date.now(), historyDays =
       blurb: c.blurb,
       observed: rows.length,
       current: c.perSource
-        ? stateFromSources(latestBySource(c.key), { nowMs, staleAfterMs: c.staleAfterMs, sourceStaleAfterMs: c.sourceStaleAfterMs })
+        ? stateFromSources(store.latestBySource(c.key), { nowMs, staleAfterMs: c.staleAfterMs, sourceStaleAfterMs: c.sourceStaleAfterMs })
         : stateFrom(latest.get(c.key), { nowMs, staleAfterMs: c.staleAfterMs }),
       // Newest first, last five: lets a prober apply a consecutive-failure rule
       // without any state of its own.
@@ -206,8 +213,8 @@ export function statusSnapshot({ baseUrl = "", nowMs = Date.now(), historyDays =
   const railComponents = RAIL_COMPONENTS.map(toComponent);
 
   // Incidents come from the availability component: the one with full history.
-  const incidents = incidentsFrom(probeRows("api", since)).slice(0, 25);
-  const firstObs = earliestObservation();
+  const incidents = incidentsFrom(rowsByKey.get("api") ?? store.probeRows("api", since)).slice(0, 25);
+  const firstObs = store.earliestObservation();
 
   return {
     service: "Agent402.Tools",
@@ -218,8 +225,8 @@ export function statusSnapshot({ baseUrl = "", nowMs = Date.now(), historyDays =
       cadence: "every 5 minutes (Cloudflare), plus the GitHub heartbeat",
       verify: HEARTBEAT_RUNS,
       measuringSince: firstObs ? new Date(firstObs).toISOString() : null,
-      totalObservations: totalObservations(),
-      persistent: statusPersistent(),
+      totalObservations: store.totalObservations(),
+      persistent: store.statusPersistent(),
       note:
         "Availability is what an outside observer recorded, not a self-report. A day with no " +
         "observation is reported as no data rather than uptime, and a component whose latest " +

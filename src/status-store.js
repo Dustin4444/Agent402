@@ -47,7 +47,22 @@ function open() {
       CREATE INDEX IF NOT EXISTS status_probes_ts ON status_probes (component, ts);
       -- earliestObservation() reads MIN(ts) across components; without a ts-led index it scanned every probe.
       CREATE INDEX IF NOT EXISTS status_probes_ts_only ON status_probes (ts);
+      CREATE TABLE IF NOT EXISTS status_meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL);
     `);
+    // The row count the page prints, kept by triggers so a render never counts
+    // the table. Created with its starting value in ONE transaction, so no
+    // insert can land between the count and the first trigger firing. An
+    // ignored duplicate fires no AFTER INSERT trigger, so the figure is exactly
+    // COUNT(*).
+    db.transaction(() => {
+      db.exec(`
+        CREATE TRIGGER IF NOT EXISTS status_probes_count_ins AFTER INSERT ON status_probes
+          BEGIN UPDATE status_meta SET value = value + 1 WHERE key = 'probe_count'; END;
+        CREATE TRIGGER IF NOT EXISTS status_probes_count_del AFTER DELETE ON status_probes
+          BEGIN UPDATE status_meta SET value = value - 1 WHERE key = 'probe_count'; END;
+      `);
+      db.prepare("INSERT OR IGNORE INTO status_meta (key, value) SELECT 'probe_count', COUNT(*) FROM status_probes").run();
+    }).immediate();
   } catch (e) {
     // A status page must never be the reason the server fails to boot.
     console.error("[status-store] disabled (cannot open DB):", e?.message || e);
@@ -106,55 +121,93 @@ export function probeRows(component, sinceMs) {
     .all(String(component), Math.floor(sinceMs));
 }
 
-/** Components we have ever observed, plus their most recent observation.
+// THE READS BELOW COST THE SAME ON ANY SIZE OF HISTORY. status_probes is never
+// pruned (the page prints its whole span and count), the Cloudflare observer
+// adds a row per component every 5 minutes, and /status rebuilds after every
+// probe write, synchronously. So nothing a render runs may scan the table:
+// each statement is an index SEARCH that returns one row, and the loops walk
+// the few distinct components or sources one index step at a time (the
+// loose-index-scan idiom: MIN(x) WHERE x > previous). Only probeRows reads
+// many rows, and it is bounded by the window the page shows, not by history.
+// scripts/test-status-store-scale.js pins the query plans and the results
+// against the whole-table queries these replace, on two million rows.
+let reads = null;
+function readStatements(d) {
+  if (reads?.db === d) return reads;
+  reads = {
+    db: d,
+    firstComponent: d.prepare("SELECT MIN(component) AS v FROM status_probes"),
+    nextComponent: d.prepare("SELECT MIN(component) AS v FROM status_probes WHERE component > ?"),
+    // Newest by ts; among rows sharing that ts (two observers in the same
+    // millisecond), the one recorded last.
+    newestOfComponent: d.prepare("SELECT component, ts, ok, detail, url FROM status_probes WHERE component = ? ORDER BY ts DESC, id DESC LIMIT 1"),
+    firstSource: d.prepare("SELECT MIN(source) AS v FROM status_probes"),
+    nextSource: d.prepare("SELECT MIN(source) AS v FROM status_probes WHERE source > ?"),
+    // (source, component, ts) is unique, so there is exactly one newest row.
+    newestOfSource: d.prepare("SELECT source, ts, ok, detail, url FROM status_probes WHERE source = ? AND component = ? ORDER BY ts DESC LIMIT 1"),
+    earliest: d.prepare("SELECT MIN(ts) AS ts FROM status_probes"),
+    count: d.prepare("SELECT value AS n FROM status_meta WHERE key = 'probe_count'"),
+    countAll: d.prepare("SELECT COUNT(*) AS n FROM status_probes"),
+  };
+  return reads;
+}
+/** Each distinct value of an indexed column, ascending, one index step each. */
+function* distinctValues(first, next) {
+  for (let v = first.get()?.v; v != null; v = next.get(v)?.v) yield v;
+}
+
+/** Components we have ever observed, plus their most recent observation,
+ *  ordered by component.
  *
  *  Keyed on MAX(ts), deliberately NOT MAX(id): the backfill inserts historical
  *  observations after live ones, so insertion order does not track time. Using
  *  the newest id would let a backfilled row from weeks ago present itself as
- *  the current state of a component. */
+ *  the current state of a component. The id only breaks a tie between rows
+ *  with the same ts. */
 export function latestByComponent() {
   const d = open();
   if (!d) return [];
-  return d
-    .prepare(
-      `SELECT component, ts, ok, detail, url FROM status_probes p
-       WHERE ts = (SELECT MAX(ts) FROM status_probes q WHERE q.component = p.component)
-       GROUP BY component
-       ORDER BY component ASC`,
-    )
-    .all();
+  const s = readStatements(d);
+  const out = [];
+  for (const component of distinctValues(s.firstComponent, s.nextComponent)) {
+    const row = s.newestOfComponent.get(component);
+    if (row) out.push(row);
+  }
+  return out;
 }
 
 /** The newest observation of ONE component from EACH source that has observed
- *  it. Same MAX(ts) rule as latestByComponent, taken per (component, source).
- *  Read by the components whose observers walk different paths (see
- *  stateFromSources), where one source's newest row says nothing about the
- *  path another source walks. */
+ *  it, ordered by source. Same MAX(ts) rule as latestByComponent, taken per
+ *  (component, source). Read by the components whose observers walk different
+ *  paths (see stateFromSources), where one source's newest row says nothing
+ *  about the path another source walks. */
 export function latestBySource(component) {
   const d = open();
   if (!d) return [];
-  return d
-    .prepare(
-      `SELECT source, ts, ok, detail, url FROM status_probes p
-       WHERE component = ?
-         AND ts = (SELECT MAX(ts) FROM status_probes q WHERE q.component = p.component AND q.source = p.source)
-       GROUP BY source
-       ORDER BY source ASC`,
-    )
-    .all(String(component));
+  const s = readStatements(d);
+  const out = [];
+  for (const source of distinctValues(s.firstSource, s.nextSource)) {
+    const row = s.newestOfSource.get(source, String(component));
+    if (row) out.push(row);
+  }
+  return out;
 }
 
 export function earliestObservation() {
   const d = open();
   if (!d) return null;
-  const r = d.prepare("SELECT MIN(ts) AS ts FROM status_probes").get();
+  const r = readStatements(d).earliest.get();
   return r?.ts ?? null;
 }
 
+/** Every observation ever recorded. Read from the trigger-kept count (see
+ *  open()); a store without that row counts the table instead. */
 export function totalObservations() {
   const d = open();
   if (!d) return 0;
-  return d.prepare("SELECT COUNT(*) AS n FROM status_probes").get()?.n ?? 0;
+  const s = readStatements(d);
+  const kept = s.count.get()?.n;
+  return Number.isInteger(kept) ? kept : (s.countAll.get()?.n ?? 0);
 }
 
 // ── Pure aggregation (exported for scripts/test-status-store.js) ─────────────
@@ -262,7 +315,25 @@ export function stateFromSources(rows, { nowMs, staleAfterMs = 45 * 60_000, sour
   return { state: "unknown", reason: "no recent observation", ageMs: sources[0].ageMs, sources: view };
 }
 
+/** EXPLAIN QUERY PLAN for each history-independent read, from the store's own
+ *  prepared statements (scripts/test-status-store-scale.js asserts every one is
+ *  an index search). The COUNT(*) fallback is left out: it only runs on a store
+ *  with no kept count. */
+export function _statusReadPlansForTest() {
+  const d = open();
+  if (!d) return {};
+  const s = readStatements(d);
+  const out = {};
+  for (const [name, stmt] of Object.entries(s)) {
+    if (name === "db" || name === "countAll") continue;
+    const params = (stmt.source.match(/\?/g) || []).map(() => "x");
+    out[name] = d.prepare(`EXPLAIN QUERY PLAN ${stmt.source}`).all(...params).map((r) => r.detail);
+  }
+  return out;
+}
+
 export function _resetForTest() {
   if (db) { try { db.close(); } catch { /* ignore */ } }
   db = null;
+  reads = null;
 }

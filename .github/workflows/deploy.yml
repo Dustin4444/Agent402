@@ -2404,6 +2404,8 @@ jobs:
           t node scripts/test-route-execute.js
           # Status page store (unobserved days are never uptime; stale is never operational — offline)
           t node scripts/test-status-store.js
+          # Status page reads at scale (two million rows: the page is byte-identical to the whole-table reads, every history-independent read is an index search, the kept count equals COUNT(*) - offline)
+          t node scripts/test-status-store-scale.js
           # /llms.txt route-execute tier pricing derived from EXEC_TIERS (a future 5th tier can't go silently missing — offline)
           t node scripts/test-llms-route-execute-tiers.js
           # Status probe worker (Cloudflare cron observer mapping; stubbed fetch — offline)
