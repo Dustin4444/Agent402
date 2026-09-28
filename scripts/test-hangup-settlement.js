@@ -50,6 +50,7 @@ import { createHangupSettlementHook, clientGoneBeforeFirstByte, chargeCancelledF
 import { reserveHangupForgiveness, settleHangupTicket, hangupForgiven, hangupForgivenessStatus, hangupForgivenessConfig, hangupTicketDenial, hasLastingEffect, LASTING_EFFECT_SLUG_LIST, _resetHangupForgiveness, hangupKeyDigest, persistPath, persistNow, flushHangupForgiveness, loadHangupForgiveness } from "../src/hangup-forgiveness.js";
 import { createCredits } from "../src/credits.js";
 import { getFreePorts } from "./lib/free-port.js";
+import { planRefunds, REPEAT_HANGUP_HOLD } from "./refund-run.js";
 let pass = 0, proc = null, facilitator = null, orStub = null;
 const serverLog = [];
 const TMP = mkdtempSync(join(tmpdir(), "hangup-"));
@@ -374,7 +375,7 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
     ok(check > 0 && src.indexOf(call) > check && src.indexOf(call) - check < 1200, `${name}: the cancelled-charge check precedes the ${call.includes("broadcast") ? "broadcast" : "capture"}`);
   }
   ok(/\} else if \(req\.creditsSettled && Number\(req\.creditsChargedOnClose\) > 0\) \{/.test(server), "the debt recorder books a credits hold settled on an abandoned run");
-  ok(/const denied = hangupTicketDenial\(req\);[\s\S]{0,400}\$\{denied \? `; not forgiven: \$\{denied\}` : ""\}/.test(server), "the owed line names why the run was not forgiven");
+  ok(/const denied = hangupTicketDenial\(req\);[\s\S]{0,800}\$\{denied \? `; not forgiven: \$\{denied\}` : ""\}/.test(server), "the owed line names why the run was not forgiven");
   ok(/priceFor: \(method, path, req\) => \{[\s\S]{0,700}longRunning: isLongRunningSlug\(def\.slug\) \} : null;\s*\n\s*\},\s*\n\s*\/\/ Input check before the relay round trip/.test(server), "the Tempo GATE's priceFor carries longRunning (not only the challenge appender)");
   // The composite's client-gone signal aborts only when the charge is cancelled.
   ok(/\? await runInAbortableScope\(\(\) => tool\.handler\(input, req\), \{ signal: clientGoneCtl\.signal \}\)/.test(server), "the dispatcher runs a composite with the client-gone signal ({ signal })");
@@ -579,6 +580,7 @@ try {
     ok(rows.length === 1, `b. exactly one debt is recorded for the charge the buyer never received (${rows.length})`);
     ok(rows[0].evidence === fac.lastTx && rows[0].wire === "x402" && rows[0].httpStatus === 499 && (rows[0].network === "base" || rows[0].network === "eip155:8453") && rows[0].status === "owed",
       `b. the debt carries the settle tx, rail and a 499 marker (${JSON.stringify(rows[0])})`);
+    ok(rows[0].hangupReason === "settled in flight", `b. the debt records that a granted ticket lost the race to the settle (${rows[0].hangupReason})`);
     ok(/\[hangup\] CHARGED-BUT-NOT-SERVED/.test(logSince(logAt)), "b. the log says CHARGED-BUT-NOT-SERVED");
     const again = await fetch(`${B}/api/uuid`, { headers: { [mintedHeader]: minted } });
     ok(again.status !== 200 && fac.settle - settlesBefore === 1, `b. re-sending the spent credential is refused (${again.status}), no second settle`);
@@ -658,6 +660,7 @@ try {
     ok(fac.settle === s0 + 1, `e3. ... and the payment SETTLES: a hang-up is not a free run once the budget is spent (settles +${fac.settle - s0})`);
     const rows = (await refunds()).filter((row) => row.slug === "v1-images-pro");
     ok((await refunds()).length === owed0 + 1 && rows.length === 1 && rows[0].httpStatus === 499 && rows[0].status === "owed" && rows[0].priceUsd === 0.05, `e3. ... and the undelivered charge is booked as owed once (${JSON.stringify(rows)})`);
+    ok(rows[0]?.hangupReason === "payer budget", `e3. ... and the debt records the wallet's spent budget as the reason (${rows[0]?.hangupReason})`);
     ok(/\[hangup\] CHARGED-BUT-NOT-SERVED: [^\n]*POST \/v1\/images\/pro/.test(logSince(logAt)), "e3. the log says CHARGED-BUT-NOT-SERVED");
     or.imagesDelayMs = 0;
     const s2 = fac.settle;
@@ -670,6 +673,8 @@ try {
     or.imagesDelayMs = 1_500;
     const s0 = fac.settle, owed0 = (await refunds()).length, e0 = or.imagesClosedEarly;
     for (let i = 1; i <= 3; i++) { await hangUpMidRun(PRO, wallet(0xf0 + i), "10.0.2.1"); await sleep(2_300); }
+    const newest = (await refunds()).slice(0, (await refunds()).length - owed0);
+    ok(newest.length === 1 && newest[0].hangupReason === "ip budget", `f. the owed run records the IP's spent budget as the reason (${newest.map((r) => r.hangupReason)})`);
     ok(or.imagesClosedEarly - e0 === 2 && fac.settle - s0 === 1 && (await refunds()).length === owed0 + 1, `f. three wallets from one IP: two forgiven and cut off, the third settled and owed (cut +${or.imagesClosedEarly - e0}, settles +${fac.settle - s0}, owed +${(await refunds()).length - owed0})`);
     or.imagesDelayMs = 0;
   }
@@ -745,6 +750,7 @@ try {
       ok(all.length === owed0 + 1 && rows.length === 1 && rows[0].httpStatus === 499 && rows[0].status === "owed" && rows[0].evidence === fac.lastTx, `${label}. ${slug}: the undelivered answer is booked as owed once (${all.length - owed0} new; ${JSON.stringify(rows)})`);
       const line = lineOf();
       ok(/not forgiven: lasting effect/.test(line), `${label}. ${slug}: the log says it was not forgiven for a lasting effect (...${line.slice(-60)})`);
+      ok(rows[0]?.hangupReason === "lasting effect", `${label}. ${slug}: the debt records the lasting effect as the reason (${rows[0]?.hangupReason})`);
     };
 
     // l1. The memory family: the write happened, so the charge stands.
@@ -800,6 +806,15 @@ try {
     await hangUpMidRun(PRO, wallet(0x72), "10.0.4.2"); await sleep(2_300);
     ok(or.imagesClosedEarly - e0 === 1 && fac.settle === s0 + 1 && (await refunds()).length === owed0 + 1, `h. the next fresh wallet on a fresh IP is past the global budget: settled and owed (settles +${fac.settle - s0})`);
     ok(serverLog.some((l) => /\[hangup\] forgiveness budget for the whole service is spent/.test(l)), "h. the server says the service-wide budget is spent");
+    const owedNow = await refunds();
+    ok(owedNow[0]?.hangupReason === "global budget", `h. the owed run records the service's spent budget as the reason (${owedNow[0]?.hangupReason})`);
+    // End to end: the refund planner reads these very rows. Every budget
+    // denial is held for review; the in-flight race (b) is an ordinary debt.
+    const plan = planRefunds(owedNow.filter((r) => r.status === "owed"), { senders: { evm: true } });
+    const heldIds = new Set((plan.held[REPEAT_HANGUP_HOLD] || []).map((r) => r.id));
+    const budgetRows = owedNow.filter((r) => ["payer budget", "ip budget", "global budget"].includes(r.hangupReason));
+    ok(budgetRows.length >= 8 && budgetRows.every((r) => heldIds.has(r.id)), `h. the planner holds every budget-denied debt for review (${budgetRows.length} rows, ${heldIds.size} held)`);
+    ok(plan.send.some((r) => r.slug === "uuid" && r.hangupReason === "settled in flight"), "h. ... and still plans the in-flight race as an ordinary refund");
     or.imagesDelayMs = 0;
     const r = await pay(PRO, wallet(0x73), "10.0.4.3");
     ok(r.status === 200, `h. and nobody is refused: a connected buyer is served (${r.status})`);

@@ -165,10 +165,13 @@ function recordHangupDebt(req, res) {
     };
   }
   if (!row) return null;
-  const created = recordRefundOwed({ slug: def.slug, ...row, httpStatus: 499, synthetic });
   // Why it was not forgiven, when a ticket was refused ("lasting effect",
   // "payer budget", ...); nothing for the residual window, where it was.
+  // Stored on the row: the refund planner holds a budget denial (a repeat
+  // hang-up) for review instead of repaying it as an ordinary debt.
   const denied = hangupTicketDenial(req);
+  const hangupReason = denied || (hangupForgiven(req) ? "settled in flight" : "no ticket");
+  const created = recordRefundOwed({ slug: def.slug, ...row, httpStatus: 499, synthetic, hangupReason });
   console.warn(`[hangup] CHARGED-BUT-NOT-SERVED: client disconnected before the settled response was delivered (${req.method} ${req.path} rail=${row.wire} tx=${row.tx || "?"}) - ${created ? "recorded as owed in the refund ledger" : "already on the books"}${denied ? `; not forgiven: ${denied}` : ""}`);
   return row;
 }

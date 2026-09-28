@@ -7,7 +7,7 @@
 // case-folding an address on a case-sensitive rail.
 process.env.REFUND_DB_DIR = process.env.TMPDIR || "/tmp";
 import { recordRefundOwed, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals, __resetRefunds } from "../src/refund-ledger.js";
-import { planRefunds, familyOf, ourPayToSet, LASTING_HANGUP_HOLD, isLastingEffectHangup } from "./refund-run.js";
+import { planRefunds, familyOf, ourPayToSet, LASTING_HANGUP_HOLD, isLastingEffectHangup, REPEAT_HANGUP_HOLD, isRepeatHangup } from "./refund-run.js";
 import { LASTING_EFFECT_SLUG_LIST } from "../src/hangup-forgiveness.js";
 import { readFileSync } from "node:fs";
 
@@ -344,8 +344,8 @@ const SENDERS = { evm: true, stellar: true, algorand: true, solana: false };
   const honest = planRefunds([
     mk({ id: 10, slug: "route-execute", httpStatus: 500, payer: "0xH1", priceUsd: 0.01 }),  // an answer that failed
     mk({ id: 11, slug: "route-execute", payer: "0xH2", priceUsd: 0.01 }),                   // no status recorded
-    hang({ id: 12, slug: "hash", payer: "0xH3" }),                                          // a disconnect on an ordinary route
-    hang({ id: 13, slug: "memory-read", payer: "0xH4" }),                                   // a reader leaves nothing behind
+    hang({ id: 12, slug: "hash", payer: "0xH3", hangupReason: "settled in flight" }),       // a disconnect on an ordinary route
+    hang({ id: 13, slug: "memory-read", payer: "0xH4", hangupReason: "no ticket" }),        // a reader leaves nothing behind
   ], { senders: SENDERS });
   ok(honest.send.map((r) => r.id).join(",") === "10,11,12,13" && !honest.held[LASTING_HANGUP_HOLD],
     `a failed answer, an unrecorded status and a disconnect on an ordinary route all plan to send (${honest.send.map((r) => r.id)})`);
@@ -374,6 +374,68 @@ const SENDERS = { evm: true, stellar: true, algorand: true, solana: false };
   ], { senders: SENDERS, maxPerPayerUsd: 0.25, maxTotalUsd: 0.25 });
   ok(budget.send.map((r) => r.id).join(",") === "41",
     "a held disconnect does not use up the wallet's or the run's budget for an honest debt");
+}
+
+// 23. A REPEAT HANG-UP IS A REVIEW, NOT A REFUND. A disconnect is booked as
+//     owed (http 499) only when no forgiveness ticket covered it; when the
+//     reason is a spent budget (this wallet, this IP, the whole service), the
+//     caller had already abandoned its window's worth of runs, and repaying
+//     each debt would make every further abandoned run free. Held in its own
+//     bucket, before the caps, released only by an explicit opt-in.
+{
+  const hang = (over) => mk({ status: "owed", httpStatus: 499, ...over });
+  const p = planRefunds([
+    hang({ id: 1, slug: "v1-images-pro", priceUsd: 0.05, payer: "0xP1", hangupReason: "payer budget" }),
+    hang({ id: 2, slug: "v1-images-pro", priceUsd: 0.05, payer: "0xP2", hangupReason: "ip budget" }),
+    hang({ id: 3, slug: "hash", priceUsd: 0.001, payer: "0xP3", hangupReason: "global budget" }),
+    hang({ id: 4, slug: "hash", priceUsd: 0.001, payer: "0xP4" }),   // booked before the reason was stored
+  ], { senders: SENDERS });
+  ok(p.send.length === 0 && (p.held[REPEAT_HANGUP_HOLD] || []).map((r) => r.id).join(",") === "1,2,3,4",
+    `budget-denied and reasonless disconnects are held in their own bucket (sent ${p.send.map((r) => r.id)}, held ${(p.held[REPEAT_HANGUP_HOLD] || []).map((r) => r.id)})`);
+  ok(/include_repeat_hangups/.test(REPEAT_HANGUP_HOLD), "the bucket names the input that releases it");
+  ok(!isRepeatHangup({ httpStatus: 500, hangupReason: "payer budget" }), "only a disconnect (499) can be a repeat hang-up");
+
+  // Controls: every other disconnect is an ordinary debt, as before.
+  const honest = planRefunds([
+    hang({ id: 10, slug: "hash", payer: "0xH1", hangupReason: "settled in flight" }),
+    hang({ id: 11, slug: "hash", payer: "0xH2", hangupReason: "no ticket" }),
+    hang({ id: 12, slug: "v1-images-pro", priceUsd: 0.05, payer: "0xH3", hangupReason: "over per-key budget" }),
+    hang({ id: 13, slug: "hash", payer: "0xH4", hangupReason: "disabled" }),
+    mk({ id: 14, slug: "hash", httpStatus: 502, payer: "0xH5" }),
+  ], { senders: SENDERS });
+  ok(honest.send.map((r) => r.id).join(",") === "10,11,12,13,14" && !honest.held[REPEAT_HANGUP_HOLD],
+    `in-flight, ticketless, over-key, disabled and failed-answer debts all plan to send (${honest.send.map((r) => r.id)})`);
+
+  // A lasting-effect disconnect stays in its own bucket whatever its reason.
+  const lasting = planRefunds([hang({ id: 20, slug: "route-execute", payer: "0xL1", hangupReason: "lasting effect" }),
+    hang({ id: 21, slug: "memory-write", payer: "0xL2" })], { senders: SENDERS });
+  ok((lasting.held[LASTING_HANGUP_HOLD] || []).length === 2 && !lasting.held[REPEAT_HANGUP_HOLD],
+    "a lasting-effect disconnect is held under its own reason, not counted twice");
+
+  // Opted in, they plan to send, still under every cap; lifting a cap alone does not.
+  const optIn = planRefunds([
+    hang({ id: 30, slug: "hash", payer: "0xO1", hangupReason: "payer budget" }),
+    hang({ id: 31, slug: "v1-images-pro", priceUsd: 0.5, payer: "0xO2", hangupReason: "ip budget" }),
+  ], { senders: SENDERS, includeRepeatHangups: true, maxEachUsd: 0.25 });
+  ok(optIn.send.map((r) => r.id).join(",") === "30" && (optIn.held["over per-refund cap $0.25"] || []).length === 1,
+    "with include_repeat_hangups they plan to send, and the per-refund cap still applies");
+  const lifted = planRefunds([hang({ id: 40, slug: "hash", payer: "0xM1", hangupReason: "global budget" })],
+    { senders: SENDERS, maxEachUsd: 1, maxTotalUsd: 100, maxPerPayerUsd: 100 });
+  ok((lifted.held[REPEAT_HANGUP_HOLD] || []).length === 1, "raising the caps does not release a repeat hang-up");
+  const shared = planRefunds([
+    hang({ id: 50, slug: "hash", priceUsd: 0.25, payer: "0xSAME", hangupReason: "payer budget" }),
+    mk({ id: 51, slug: "hash", httpStatus: 502, priceUsd: 0.25, payer: "0xSAME" }),
+  ], { senders: SENDERS, maxPerPayerUsd: 0.25, maxTotalUsd: 0.25 });
+  ok(shared.send.map((r) => r.id).join(",") === "51", "a held repeat hang-up takes no share of the wallet's or the run's budget");
+
+  // The ledger stores the reason, and only a bounded string.
+  __resetRefunds();
+  recordRefundOwed({ slug: "hash", network: "eip155:8453", payer: "0xRR", priceUsd: 0.001, tx: "0xreason1", httpStatus: 499, hangupReason: "payer budget" });
+  recordRefundOwed({ slug: "hash", network: "eip155:8453", payer: "0xRR", priceUsd: 0.001, tx: "0xreason2", httpStatus: 502 });
+  const stored = listRefunds({ status: "owed" });
+  ok(stored.find((r) => r.evidence === "0xreason1")?.hangupReason === "payer budget"
+    && stored.find((r) => r.evidence === "0xreason2")?.hangupReason === null,
+    "the ledger keeps a disconnect's reason and leaves every other debt's NULL");
 }
 
 __resetRefunds();
