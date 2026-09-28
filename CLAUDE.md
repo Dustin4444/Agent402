@@ -166,6 +166,10 @@ whose effect outlives the answer never takes a ticket (`hasLastingEffect`: the m
   `AVM_SPONSORSHIP_REFUSAL_HOLD_MS`; published on `/api/rails`, the only excuse the canaries
   accept for a missing sub-cent accept; `AVM_SUBCENT_GATE=off`).
 - **External spend guard:** `src/external-spend-guard.js` (per payer and per chain wallet).
+- **Router evidence:** `src/evidence-binding.js` keeps settlement evidence per wallet;
+  `src/seller-funding.js` nets payments made with USDC the paid wallet itself sent the payer
+  (incremental, state on `/data`); `src/shared-paytos.js` lists shared settlement contracts.
+  Operator levers: `/__operator/shared-paytos`, `/__operator/seller-funding`.
 - **Report products:** kits under `src/tools/*-report-kit.js`, `src/report-tiers.js`,
   house style in `src/house-style.js`, samples in `src/sample-reports.js`.
 - **Facilitators:** boot guard in `src/payments.js` and `src/x402-boot-init.js`; diagnostics in

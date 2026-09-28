@@ -504,9 +504,10 @@ function paymentsOf(v) {
  * through) and the wallet's cursor. Mutates `state`. Payments already worked
  * through in an earlier scan are not touched again: their result is in `recs`.
  */
-export function processSellerFunding(state, byWallet, { throughFor = () => Infinity, windowStartBlock = 0, gaps = new Map(), classify = () => 1, maxRecordsPerWallet = FUNDING_DEFAULTS.maxRecordsPerWallet, maxPairsPerWallet = FUNDING_DEFAULTS.maxPairsPerWallet } = {}) {
+export function processSellerFunding(state, byWallet, { throughFor = () => Infinity, windowStartBlock = 0, gaps = new Map(), classify = () => 1, maxRecordsPerWallet = FUNDING_DEFAULTS.maxRecordsPerWallet, maxPairsPerWallet = FUNDING_DEFAULTS.maxPairsPerWallet, maxPairsTotal = FUNDING_DEFAULTS.maxPairsTotal } = {}) {
   const rows = new Map();
   for (const row of byWallet.values()) rows.set(lower(row.wallet), row);
+  const total = { n: fundingPairCount(state), max: maxPairsTotal };
   for (const [w, ws] of state.wallets) {
     // A wallet this scan did not look at has payments we have not seen: its
     // pools are not worked, only its remembered payments are trimmed below.
@@ -516,12 +517,12 @@ export function processSellerFunding(state, byWallet, { throughFor = () => Infin
     // has been read (readFundingGaps): otherwise the wallet stays behind.
     const need = gapNeeded(ws, windowStartBlock);
     const gap = need ? gaps.get(w) : null;
-    if (row && limit > ws.through && (!need || (gap && gap.toBlock >= need.to))) workPools(ws, row, limit, { maxPairsPerWallet, gapIns: gap?.ins || null, classify: (micro) => classify(w, micro) });
+    if (row && limit > ws.through && (!need || (gap && gap.toBlock >= need.to))) workPools(ws, row, limit, { maxPairsPerWallet, total, gapIns: gap?.ins || null, classify: (micro) => classify(w, micro) });
     trimWallet(ws, windowStartBlock, maxRecordsPerWallet);
   }
   return state;
 }
-function workPools(ws, row, limit, { maxPairsPerWallet = FUNDING_DEFAULTS.maxPairsPerWallet, gapIns = null, classify = () => 1 } = {}) {
+function workPools(ws, row, limit, { maxPairsPerWallet = FUNDING_DEFAULTS.maxPairsPerWallet, total = { n: 0, max: Infinity }, gapIns = null, classify = () => 1 } = {}) {
   const from = ws.through;
   const inWindow = ([pos]) => pos > from && pos <= limit;
   const byPayer = new Map();
@@ -539,8 +540,9 @@ function workPools(ws, row, limit, { maxPairsPerWallet = FUNDING_DEFAULTS.maxPai
     const ins = paymentsOf({ ...v, calls: v.pos.length }).filter(inWindow);
     if (!ins.length) continue;
     if (!ws.pairs.has(p)) {
-      if (ws.pairs.size >= maxPairsPerWallet) continue; // credit is a courtesy to the seller; losing it only nets more
+      if (ws.pairs.size >= maxPairsPerWallet || total.n >= total.max) continue; // credit is a courtesy to the seller; losing it only nets more
       ws.pairs.set(p, newPair());
+      total.n++;
     }
     uncounted.set(p, ins);
   }
