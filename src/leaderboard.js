@@ -496,6 +496,11 @@ export function initWalletAccumulator(sellers) {
  * caller passes OUR_EVM_WALLETS. Omitted, behaviour is byte-identical to
  * before, which keeps every existing test honest.
  */
+/** Over-ceiling inbound payments held for the funding pass: per wallet and in
+ *  total across one scan's fold. */
+export const UNCOUNTED_IN_MAX_PER_WALLET = 20_000;
+export const UNCOUNTED_IN_MAX_TOTAL = 200_000;
+const UNCOUNTED_HELD = Symbol("uncountedHeld");
 export function foldTransfers(byWallet, transfers, maxCallUsd = DEFAULTS.maxCallUsd, ourWallets = null, priceMatchMaxUsd = DEFAULTS.priceMatchMaxUsd) {
   // ALWAYS normalize, including when a Set is passed. The first cut took a Set
   // as-is on the assumption it was already lowercase, which OUR_EVM_WALLETS is
@@ -523,7 +528,14 @@ export function foldTransfers(byWallet, transfers, maxCallUsd = DEFAULTS.maxCall
       // wallet: the seller-funding pass lets it offset a later refund and pay
       // back a pool (src/seller-funding.js). Kept only with a chain position,
       // and never for our own wallets or the wallet itself.
+      // Bounded per wallet and across the scan (every chunk folds into the same
+      // map): a listing can name any busy wallet as its payTo, and an exchange
+      // hot wallet's inbound would otherwise be held whole for the scan. Past
+      // either cap the credit is dropped and counted, which only nets more.
       if (Number.isFinite(t.pos) && t.payer && !ours.has(String(t.payer).toLowerCase()) && String(t.payer).toLowerCase() !== String(t.wallet).toLowerCase()) {
+        const held = byWallet[UNCOUNTED_HELD] || (byWallet[UNCOUNTED_HELD] = { n: 0 });
+        if ((row.uncountedInHeld || 0) >= UNCOUNTED_IN_MAX_PER_WALLET || held.n >= UNCOUNTED_IN_MAX_TOTAL) { row.uncountedInDropped = (row.uncountedInDropped || 0) + 1; continue; }
+        row.uncountedInHeld = (row.uncountedInHeld || 0) + 1; held.n++;
         const u = (row.uncountedIn ||= new Map()).get(t.payer) || { pos: [], micro: [] };
         u.pos.push(t.pos); u.micro.push(Math.round(t.usd * 1e6));
         row.uncountedIn.set(t.payer, u);
