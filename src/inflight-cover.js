@@ -12,9 +12,10 @@
 // after the work is done.
 //
 // Scope and cost:
-//   - Only an EVM EIP-3009 payment (the signed payer is known); every
-//     expensive route is EVM exact only. Credits holds its price at authorize
-//     and needs nothing here.
+//   - Only an EVM payment whose signed payer is known: an EIP-3009
+//     authorization or a Permit2 authorization, the two shapes the exact
+//     scheme's verify accepts; every expensive route is EVM exact only.
+//     Credits holds its price at authorize and needs nothing here.
 //   - The first run in flight needs no read: verify already proved the
 //     balance covers it. A later one reads balanceOf once, cached for a few
 //     seconds and shared by concurrent callers, so a burst costs one read.
@@ -22,6 +23,11 @@
 //     INFLIGHT_COVER_UNREAD_MAX runs in flight (default 4) and refuses beyond.
 //   - A run leaves the ledger when its response ends, however it ends
 //     (src/hangup-settlement.js onResponseEnd), which is after settlement.
+//   - Between its handler's return and its response's end a run is SETTLING:
+//     its payment may already be taken on chain, so a balance read then can
+//     reflect it while the ledger still counts it. A run the balance would
+//     not cover while another is settling waits for that one to leave the
+//     ledger (at most SETTLE_WAIT_MS) and is judged again.
 // INFLIGHT_COVER=off disables the check.
 
 import { paymentHeaderOf } from "./payer.js";
@@ -36,14 +42,16 @@ const CAIP2_BY_NAME = Object.freeze(Object.fromEntries(Object.entries(CHAIN_BY_C
 const CACHE_MS = 10_000;
 const READ_TIMEOUT_MS = 2_500;
 const MAX_READS_IN_FLIGHT = 8;
+const SETTLE_WAIT_MS = 5_000;
 const HEX_ADDR = /^0x[0-9a-fA-F]{40}$/;
 const UINT = /^\d{1,78}$/;
 
-const ledger = new Map(); // coverKey -> { count, atomic: bigint }
+const ledger = new Map(); // coverKey -> { count, atomic: bigint, settling }
+const waiters = new Map(); // coverKey -> Set<() => void>, woken when a run leaves
 const balances = new Map(); // coverKey -> { atomic: bigint, at }
 const pendingReads = new Map(); // coverKey -> Promise<bigint|null>
 let readsInFlight = 0;
-const stats = { admitted: 0, admittedByRead: 0, admittedUnread: 0, refused: 0, refusedUnread: 0 };
+const stats = { admitted: 0, admittedByRead: 0, admittedUnread: 0, refused: 0, refusedUnread: 0, settleWaits: 0 };
 
 function unreadMax() {
   const n = Number(process.env.INFLIGHT_COVER_UNREAD_MAX);
@@ -55,18 +63,23 @@ export function inflightCoverEnabled() {
 
 /**
  * What an x402 payment header commits: { payer, network, asset, atomic }, all
- * from the signed EIP-3009 authorization and the accept it answered, or null
- * when the header is not an EVM EIP-3009 payment. Read after the paywall
- * verified it. Pure; exported for the test.
+ * from the signed authorization (EIP-3009, or Permit2 with its permitted
+ * amount) and the accept it answered, or null when the header is neither.
+ * Read after the paywall verified it. Pure; exported for the test.
  */
 export function coverTermsOf(headerValue) {
   if (typeof headerValue !== "string" || !headerValue) return null;
   let p;
   try { p = JSON.parse(Buffer.from(headerValue, "base64").toString("utf8")); } catch { return null; }
-  const auth = p?.payload?.authorization;
-  if (!auth || typeof auth !== "object") return null;
-  const payer = String(auth.from || "");
-  const value = String(auth.value ?? "");
+  const inner = p?.payload;
+  let payer, value;
+  if (inner?.authorization && typeof inner.authorization === "object") {
+    payer = String(inner.authorization.from || "");
+    value = String(inner.authorization.value ?? "");
+  } else if (inner?.permit2Authorization && typeof inner.permit2Authorization === "object") {
+    payer = String(inner.permit2Authorization.from || "");
+    value = String(inner.permit2Authorization.permitted?.amount ?? "");
+  } else return null;
   if (!HEX_ADDR.test(payer) || !UINT.test(value)) return null;
   const network = typeof p?.accepted?.network === "string" ? p.accepted.network
     : (CAIP2_BY_NAME[String(p?.network || "").toLowerCase()] || null);
@@ -115,59 +128,98 @@ async function balanceFor(coverKey, terms, now) {
   return p;
 }
 
+/** Resolves when a run leaves `coverKey`'s ledger, or after `ms`. */
+function nextRelease(coverKey, ms) {
+  return new Promise((resolve) => {
+    const set = waiters.get(coverKey) || new Set();
+    waiters.set(coverKey, set);
+    const done = () => {
+      clearTimeout(timer);
+      set.delete(done);
+      if (!set.size && waiters.get(coverKey) === set) waiters.delete(coverKey);
+      resolve();
+    };
+    const timer = setTimeout(done, Math.max(0, ms));
+    set.add(done);
+  });
+}
+
 /**
  * Admit a paid run into this wallet's in-flight ledger, or refuse it.
  * Resolves to a release function (call it once when the response ends), or to
  * null when the payment is not one this check covers. Throws a 429 when the
  * wallet's balance does not cover this run on top of its runs in flight.
+ * The release function carries settling(): call it when the run's handler has
+ * returned and its settlement is under way.
  */
-export async function admitCoveredRun(req, { now = Date.now() } = {}) {
+export async function admitCoveredRun(req, { now = Date.now(), settleWaitMs = SETTLE_WAIT_MS } = {}) {
   if (!inflightCoverEnabled()) return null;
   const terms = coverTermsOf(paymentHeaderOf(req));
   if (!terms) return null;
   const coverKey = `${terms.network}|${terms.asset || "-"}|${terms.payer}`;
-  const held = ledger.get(coverKey);
-  if (held && held.count > 0) {
-    const balance = await balanceFor(coverKey, terms, now);
+  const waitUntil = Date.now() + settleWaitMs;
+  let at = now;
+  for (;;) {
+    const held = ledger.get(coverKey);
+    if (!held || held.count <= 0) break;
+    const balance = await balanceFor(coverKey, terms, at);
     // Re-read the ledger AFTER the await: other runs may have been admitted
     // meanwhile, and the check and the admission must see the same numbers.
-    const cur = ledger.get(coverKey) || { count: 0, atomic: 0n };
-    if (cur.count > 0) {
-      const need = cur.atomic + terms.atomic;
-      const unread = balance === null;
-      const covered = unread ? cur.count < unreadMax() : balance >= need;
-      if (!covered) {
-        stats.refused++;
-        if (unread) stats.refusedUnread++;
-        const e = new Error(unread
-          ? `This wallet already has ${cur.count} paid runs in progress here, and its balance could not be read to confirm it also covers this one. Retry when one of them finishes. You have not been charged.`
-          : `This wallet already has ${cur.count} paid runs in progress here, and its balance does not cover this one as well. Each payment is checked on its own, but settling them all needs the sum. Retry when one of them finishes, or add funds. You have not been charged.`);
-        e.statusCode = 429;
-        e.retryAfter = 30;
-        throw e;
-      }
+    const cur = ledger.get(coverKey) || { count: 0, atomic: 0n, settling: 0 };
+    if (cur.count <= 0) break;
+    const need = cur.atomic + terms.atomic;
+    const unread = balance === null;
+    const covered = unread ? cur.count < unreadMax() : balance >= need;
+    if (covered) {
       if (unread) stats.admittedUnread++; else stats.admittedByRead++;
+      break;
     }
+    // A settling run may already be paid for on chain while it still counts
+    // here: wait for it to leave, then judge again against a fresh read.
+    if (!unread && cur.settling > 0 && Date.now() < waitUntil) {
+      stats.settleWaits++;
+      await nextRelease(coverKey, waitUntil - Date.now());
+      at = Date.now();
+      continue;
+    }
+    stats.refused++;
+    if (unread) stats.refusedUnread++;
+    const e = new Error(unread
+      ? `This wallet already has ${cur.count} paid runs in progress here, and its balance could not be read to confirm it also covers this one. Retry when one of them finishes. You have not been charged.`
+      : `This wallet already has ${cur.count} paid runs in progress here, and its balance does not cover this one as well. Each payment is checked on its own, but settling them all needs the sum. Retry when one of them finishes, or add funds. You have not been charged.`);
+    e.statusCode = 429;
+    e.retryAfter = 30;
+    throw e;
   }
-  const entry = ledger.get(coverKey) || { count: 0, atomic: 0n };
+  const entry = ledger.get(coverKey) || { count: 0, atomic: 0n, settling: 0 };
   entry.count += 1;
   entry.atomic += terms.atomic;
   ledger.set(coverKey, entry);
   stats.admitted++;
-  let released = false;
-  return () => {
+  let released = false, settling = false;
+  const release = () => {
     if (released) return;
     released = true;
     const e = ledger.get(coverKey);
     if (e) {
       e.count -= 1;
       e.atomic -= terms.atomic;
+      if (settling) e.settling -= 1;
       if (e.count <= 0) ledger.delete(coverKey);
     }
     // The balance has likely moved (this run settled, or failed to): the next
     // concurrent check reads it again.
     balances.delete(coverKey);
+    const set = waiters.get(coverKey);
+    if (set) for (const wake of [...set]) wake();
   };
+  release.settling = () => {
+    if (released || settling) return;
+    settling = true;
+    const e = ledger.get(coverKey);
+    if (e) e.settling += 1;
+  };
+  return release;
 }
 
 /** Counts only - never a wallet. */
@@ -180,5 +232,7 @@ export function inflightCoverStatus() {
 /** Test-only. */
 export function _resetInflightCoverForTest() {
   ledger.clear(); balances.clear(); pendingReads.clear(); readsInFlight = 0; reader = readTokenBalance;
+  for (const set of waiters.values()) for (const wake of [...set]) wake();
+  waiters.clear();
   for (const k of Object.keys(stats)) stats[k] = 0;
 }

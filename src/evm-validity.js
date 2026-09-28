@@ -15,22 +15,26 @@
 //   - the report composites finished in 38 to 139 s, and the storefront says
 //     one to three minutes: 180 s;
 //   - v1-videos 38 to 40 s, image-gen-premium 37 to 46 s (60 s upstream cap):
-//     60 s each;
-//   - seller-payability runs to its own 55 s deadline and pays an outside
-//     seller from this server's wallet before the buyer settles: 55 s.
+//     60 s each.
 // Every other route has no floor. Short windows are an honest pattern there -
 // this server's own router signs 30 s authorizations - and a fast handler
-// settles well inside them.
+// settles well inside them. A handler that pays an outside seller before the
+// buyer settles (route-execute's external leg, seller-payability) bounds that
+// work by the buyer's own authorization instead (evmCredentialBudgetMs), so a
+// short window gets a shorter run rather than a refusal.
 //
-// NEVER ABOVE WHAT AN HONEST CLIENT CARRIES. The stock x402 EVM client signs
+// NEVER ABOVE WHAT A STOCK CLIENT CARRIES. The stock x402 EVM client signs
 // validBefore = now + maxTimeoutSeconds (300 s on every route here) at the
 // moment it pays, and a native MPP evm client signs the challenge's expiry,
 // minted at the same 300 s. The floor is therefore capped at maxTimeoutSeconds
 // minus CLIENT_SLACK_SECONDS (60), so a stock client, and an MPP client that
 // pays within a minute of its 402, always passes whatever a route's run time.
+// A client that signs a shorter window of its own choosing, or an MPP client
+// that pays later than that, is below the floor on these routes.
 //
-// EVM_VALIDITY_FLOOR=log records what would have been refused and refuses
-// nothing; =off disables the check.
+// MODES. EVM_VALIDITY_FLOOR unset or =log records what would have been refused
+// and refuses nothing, so the floors can be sized from logged arrivals before
+// any buyer meets them; =enforce refuses with the 422; =off disables the check.
 
 import { paymentHeaderOf } from "./payer.js";
 import { EXPENSIVE_COMPOSITE_SLUGS } from "./composite-spend-guard.js";
@@ -48,7 +52,6 @@ export const EVM_RUN_SECONDS = Object.freeze({
   ...Object.fromEntries([...EXPENSIVE_COMPOSITE_SLUGS].filter((s) => !MEDIA_SLUGS.has(s)).map((s) => [s, 180])),
   "v1-videos": 60,
   "image-gen-premium": 60,
-  "seller-payability": 55,
 });
 
 const UINT = /^\d{1,20}$/;
@@ -93,7 +96,7 @@ export function requiredEvmSecondsFor(slug, maxTimeoutSeconds = DEFAULT_MAX_TIME
 
 export function evmValidityMode() {
   const v = String(process.env.EVM_VALIDITY_FLOOR || "").trim().toLowerCase();
-  return v === "off" ? "off" : v === "log" ? "log" : "enforce";
+  return v === "off" ? "off" : v === "enforce" ? "enforce" : "log";
 }
 
 /**
@@ -119,27 +122,43 @@ export function evmValidityShortfall(headerValue, slug, { nowMs = Date.now() } =
 export const SETTLE_MARGIN_SECONDS = 4;
 
 /**
+ * Milliseconds until this request's EVM authorization meets the facilitator's
+ * settle-time rule (validBefore less 6 s), after which it can no longer
+ * settle; null when the request carries no EVM authorization. May be zero or
+ * negative.
+ */
+export function evmCredentialSettleableMs(req, { nowMs = Date.now() } = {}) {
+  const exp = evmCredentialExpiry(paymentHeaderOf(req));
+  if (!exp) return null;
+  return exp.expiresAt * 1000 - nowMs - SETTLE_RULE_SECONDS * 1000;
+}
+
+/** A handler that pays an outside seller on a buyer's behalf pays only while
+ *  the buyer's authorization keeps at least this much settleable life: the
+ *  seller's answer, then the settlement. */
+export const EVM_SELLER_ALLOWANCE_MS = 3000;
+
+/**
  * Milliseconds of this request's EVM authorization left for work that must end
  * before its settlement can happen (validBefore, less the facilitator's rule
  * and the settle margin), or null when the request carries no EVM
  * authorization. May be zero or negative. A handler that spends before the
- * buyer settles (route-execute's external leg) bounds that spend by it.
+ * buyer settles bounds its own deadlines by it.
  */
 export function evmCredentialBudgetMs(req, { nowMs = Date.now() } = {}) {
-  const exp = evmCredentialExpiry(paymentHeaderOf(req));
-  if (!exp) return null;
-  return exp.expiresAt * 1000 - nowMs - (SETTLE_RULE_SECONDS + SETTLE_MARGIN_SECONDS) * 1000;
+  const ms = evmCredentialSettleableMs(req, { nowMs });
+  return ms == null ? null : ms - SETTLE_MARGIN_SECONDS * 1000;
 }
 
 /** Express-side entry, called by the dispatcher before the handler. Throws a
- *  422 (nothing runs, nothing is charged) unless the mode is log or off. */
+ *  422 (nothing runs, nothing is charged) only when the mode is enforce. */
 export function assertEvmValidityCovers(req, slug, { nowMs = Date.now() } = {}) {
   const mode = evmValidityMode();
   if (mode === "off") return;
   const short = evmValidityShortfall(paymentHeaderOf(req), slug, { nowMs });
   if (!short) return;
   if (mode === "log") {
-    console.warn(`[evm-validity] would refuse ${slug}: ${Math.max(0, Math.floor(short.remaining))} s of validity left, ${short.required} s needed (EVM_VALIDITY_FLOOR=log)`);
+    console.warn(`[evm-validity] would refuse ${slug}: ${Math.max(0, Math.floor(short.remaining))} s of validity left, ${short.required} s needed (EVM_VALIDITY_FLOOR is log; enforce refuses)`);
     return;
   }
   throw Object.assign(new Error(short.message), { statusCode: 422 });

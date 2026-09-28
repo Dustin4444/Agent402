@@ -9064,11 +9064,12 @@ for (const tool of ALL_KIT) {
       // explains the fix. Fail-open: non-AVM and unreadable payments pass.
       await assertAvmValidityCovers(req, tool.slug);
       // The same rule for EVM authorizations on routes whose measured run is
-      // long (reports, video, the premium image tier, seller-payability): a
-      // credential that expires before the work ends can never settle, so it
-      // is refused here, 422 and uncharged, rather than run for nothing. The
-      // floor never exceeds what a stock client or a prompt MPP client
-      // carries (src/evm-validity.js).
+      // long (reports, video, the premium image tier): a credential that
+      // expires before the work ends can never settle, so under
+      // EVM_VALIDITY_FLOOR=enforce it is refused here, 422 and uncharged,
+      // rather than run for nothing; by default it is logged. The floor never
+      // exceeds what a stock client or a prompt MPP client carries
+      // (src/evm-validity.js).
       assertEvmValidityCovers(req, tool.slug);
 
       // Settle-failure breaker for EVERY wallet-only tool (2026-09-06; the /v1
@@ -9090,11 +9091,13 @@ for (const tool of ALL_KIT) {
       // A wallet's concurrent runs on the expensive routes must be covered by
       // its balance together (verify checks each authorization alone). A run
       // the balance cannot also cover is refused 429 before it starts
-      // (src/inflight-cover.js); it leaves the ledger when its response ends.
+      // (src/inflight-cover.js); it leaves the ledger when its response ends,
+      // and counts as settling once its handler has returned.
       // Before the client-gone belt, because the balance read can wait.
+      let coverRelease = null;
       if (!FREE_MODE && EXPENSIVE_COMPOSITE_SLUGS.has(tool.slug)) {
-        const release = await admitCoveredRun(req);
-        if (release && !onResponseEnd(req, res, release)) release();
+        coverRelease = await admitCoveredRun(req);
+        if (coverRelease && !onResponseEnd(req, res, coverRelease)) coverRelease();
       }
 
       // The buyer's connection is already gone (it closed while the payment
@@ -9119,6 +9122,7 @@ for (const tool of ALL_KIT) {
       const result = EXPENSIVE_COMPOSITE_SLUGS.has(tool.slug)
         ? await runInAbortableScope(() => tool.handler(input, req), { signal: clientGoneCtl.signal })
         : await tool.handler(input, req);
+      coverRelease?.settling?.();
 
       // A handler that spent real money upstream (external route-execute) leaves
       // a handle on the request. Resolve it against the FINAL response, not the

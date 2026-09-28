@@ -10,10 +10,12 @@
 //      onSettleOutcome). A charge cancelled for a buyer who left inside the
 //      forgiveness budget stays uncounted.
 //   2. On a route whose measured run is long, an EVM authorization must
-//      outlive the run or it is refused before the handler
-//      (src/evm-validity.js); the floor never exceeds what a stock client
-//      carries. route-execute's external leg runs inside the buyer's own
-//      authorization when that is the tighter bound.
+//      outlive the run or, under EVM_VALIDITY_FLOOR=enforce, it is refused
+//      before the handler (src/evm-validity.js; the default logs); the floor
+//      never exceeds what a stock client carries. route-execute's external
+//      leg and seller-payability pay an outside seller only while the
+//      buyer's authorization can still settle after the seller answers, and
+//      the seller call keeps the payer's own timeout.
 //   3. The composite guard's service-wide pause takes at most three failures
 //      from any one buyer.
 //   4. On the expensive routes a wallet's concurrent runs must be covered by
@@ -31,7 +33,7 @@ import { join } from "node:path";
 import express from "express";
 import { createHangupSettlementHook, onSettleOutcome, onResponseEnd } from "../src/hangup-settlement.js";
 import { reserveHangupForgiveness, _resetHangupForgiveness } from "../src/hangup-forgiveness.js";
-import { evmCredentialExpiry, requiredEvmSecondsFor, evmValidityShortfall, assertEvmValidityCovers, EVM_RUN_SECONDS, CLIENT_SLACK_SECONDS, SETTLE_RULE_SECONDS } from "../src/evm-validity.js";
+import { evmCredentialExpiry, requiredEvmSecondsFor, evmValidityShortfall, assertEvmValidityCovers, evmValidityMode, evmCredentialSettleableMs, evmCredentialBudgetMs, EVM_RUN_SECONDS, CLIENT_SLACK_SECONDS, SETTLE_RULE_SECONDS, EVM_SELLER_ALLOWANCE_MS } from "../src/evm-validity.js";
 import { coverTermsOf, admitCoveredRun, inflightCoverStatus, _setBalanceReaderForTest, _resetInflightCoverForTest } from "../src/inflight-cover.js";
 import { buildRouteExecuteTool } from "../src/tools/route-execute.js";
 import { getFreePorts } from "./lib/free-port.js";
@@ -117,8 +119,9 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
   ok(evmCredentialExpiry("not base64 json") === null && evmCredentialExpiry("") === null && evmCredentialExpiry(eip("1e9")) === null && evmCredentialExpiry(eip("-5")) === null, "garbage, an empty header and a non-integer validBefore read as nothing");
 
   ok(requiredEvmSecondsFor("research") === 180 + SETTLE_RULE_SECONDS && requiredEvmSecondsFor("ticker-pack") === 186 && requiredEvmSecondsFor("linkedin-article") === 186, "report composites need their measured run (180 s) plus the facilitator's 6 s");
-  ok(requiredEvmSecondsFor("v1-videos") === 66 && requiredEvmSecondsFor("image-gen-premium") === 66 && requiredEvmSecondsFor("seller-payability") === 61, "the video, premium image and seller-payability floors");
+  ok(requiredEvmSecondsFor("v1-videos") === 66 && requiredEvmSecondsFor("image-gen-premium") === 66, "the video and premium image floors");
   ok(["uuid", "hash", "v1-images-fast", "v1-images-pro", "v1-chat", "v1-chat-nano", "v1-chat-metered", "route-execute"].every((sl) => requiredEvmSecondsFor(sl) === 0), "fast routes have no floor: short windows are an honest pattern there");
+  ok(requiredEvmSecondsFor("seller-payability") === 0 && requiredEvmSecondsFor("route-execute-pro") === 0, "the routes that pay an outside seller have no floor: they bound their own run by the buyer's authorization instead");
   ok(requiredEvmSecondsFor("research", 200) === 200 - CLIENT_SLACK_SECONDS, "the floor is capped at maxTimeoutSeconds minus the client slack");
   // Honest clients: the stock client signs now + maxTimeoutSeconds when it
   // pays; a native MPP client signs the challenge expiry (mint + 300 s).
@@ -134,14 +137,22 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
   ok(evmValidityShortfall(permit2(Math.floor(t / 1000) + 30), "v1-videos", { nowMs: t })?.message.includes("deadline"), "a Permit2 deadline is judged the same way and named as such");
   ok(evmValidityShortfall(b64({ x402Version: 2, accepted: { network: "solana:x" }, payload: { transaction: "AA" } }), "research", { nowMs: t }) === null, "a non-EVM payment is left to its own rail's rules");
   const req = { header: (n) => (String(n).toLowerCase() === "payment-signature" ? at(7) : undefined) };
+  const savedMode = process.env.EVM_VALIDITY_FLOOR;
+  process.env.EVM_VALIDITY_FLOOR = "enforce";
   let threw = null; try { assertEvmValidityCovers(req, "research", { nowMs: t }); } catch (e) { threw = e; }
-  ok(threw?.statusCode === 422, "the express entry throws a 422 (uncharged: >= 400 cancels settlement)");
+  ok(threw?.statusCode === 422, "under EVM_VALIDITY_FLOOR=enforce the express entry throws a 422 (uncharged: >= 400 cancels settlement)");
+  let threwStock = null; try { assertEvmValidityCovers({ header: (n) => (String(n).toLowerCase() === "payment-signature" ? at(299) : undefined) }, "research", { nowMs: t }); } catch (e) { threwStock = e; }
+  ok(threwStock === null, "control: under enforce a stock authorization passes");
+  delete process.env.EVM_VALIDITY_FLOOR;
+  let threwDefault = null; try { assertEvmValidityCovers(req, "research", { nowMs: t }); } catch (e) { threwDefault = e; }
+  ok(evmValidityMode() === "log" && threwDefault === null, "unset, the floor logs and refuses nothing: it is sized from logged arrivals before it is enforced");
   process.env.EVM_VALIDITY_FLOOR = "log";
   let threwLog = null; try { assertEvmValidityCovers(req, "research", { nowMs: t }); } catch (e) { threwLog = e; }
   process.env.EVM_VALIDITY_FLOOR = "off";
   let threwOff = null; try { assertEvmValidityCovers(req, "research", { nowMs: t }); } catch (e) { threwOff = e; }
-  delete process.env.EVM_VALIDITY_FLOOR;
+  if (savedMode === undefined) delete process.env.EVM_VALIDITY_FLOOR; else process.env.EVM_VALIDITY_FLOOR = savedMode;
   ok(threwLog === null && threwOff === null, "EVM_VALIDITY_FLOOR=log and =off refuse nothing");
+  ok(evmCredentialSettleableMs(req, { nowMs: t }) <= 1000 && evmCredentialSettleableMs(req, { nowMs: t }) > 0 && evmCredentialBudgetMs(req, { nowMs: t }) < 0 && evmCredentialSettleableMs({ header: () => undefined }) === null, "settleable time is validBefore less the facilitator's 6 s; the work budget takes a further margin; no header reads as nothing");
 }
 
 // 1c. The composite guard's service-wide pause: each buyer adds at most its
@@ -173,7 +184,10 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
   const hdr = (from, value = "600000", network = "eip155:8453") => b64({ x402Version: 2, accepted: { scheme: "exact", network, asset: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" }, payload: { signature: "0x11", authorization: { from, to: "0x" + "cd".repeat(20), value, validAfter: "0", validBefore: "9999999999", nonce: "0x01" } } });
   const reqFor = (h) => ({ header: (n) => (String(n).toLowerCase() === "payment-signature" ? h : undefined) });
   const A = "0x" + "a1".repeat(20);
-  ok(coverTermsOf(hdr(A))?.atomic === 600000n && coverTermsOf(hdr(A)).payer === A && coverTermsOf(b64({ payload: { transaction: "x" } })) === null, "cover terms come from the signed authorization; a non-EIP-3009 payment is not covered here");
+  ok(coverTermsOf(hdr(A))?.atomic === 600000n && coverTermsOf(hdr(A)).payer === A && coverTermsOf(b64({ payload: { transaction: "x" } })) === null, "cover terms come from the signed authorization; a Solana payment is not covered here");
+  const p2 = (from, amount = "600000") => b64({ x402Version: 2, accepted: { scheme: "exact", network: "eip155:8453", asset: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" }, payload: { signature: "0x11", permit2Authorization: { from, permitted: { token: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", amount }, spender: "0x" + "44".repeat(20), nonce: "1", deadline: "9999999999", witness: { to: "0x" + "cd".repeat(20), validAfter: "0" } } } });
+  const t2 = coverTermsOf(p2(A));
+  ok(t2?.payer === A && t2.atomic === 600000n && t2.network === "eip155:8453", "a Permit2 authorization on the exact scheme is covered too: its signed owner and permitted amount");
   const r1 = await admitCoveredRun(reqFor(hdr(A)));
   ok(typeof r1 === "function" && reads === 0, "a wallet's first run in flight needs no read: verify already proved its balance");
   const burst = await Promise.allSettled(Array.from({ length: 9 }, () => admitCoveredRun(reqFor(hdr(A)))));
@@ -217,6 +231,41 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
   const d2 = await admitCoveredRun(reqFor(hdr(D, "600000", "eip155:137")));
   ok(typeof d1 === "function" && typeof d2 === "function", "the same wallet on two chains is two balances");
   d1(); d2();
+  // Permit2 and EIP-3009 payments from one wallet share one ledger.
+  _setBalanceReaderForTest(async () => 600000n);
+  const P = "0x" + "9f".repeat(20);
+  const pf = await admitCoveredRun(reqFor(p2(P)));
+  let pSecond = null; try { await admitCoveredRun(reqFor(hdr(P))); } catch (e) { pSecond = e; }
+  ok(typeof pf === "function" && pSecond?.statusCode === 429, "a Permit2 run counts against the wallet's balance like an EIP-3009 one");
+  pf();
+  // A run whose handler has returned is SETTLING: its payment may already be
+  // off the wallet while it still counts here. A wallet funded for exactly
+  // two runs starts its second while its first is settling: admitted once the
+  // first leaves the ledger, not refused.
+  let bal2 = 1_200_000n;
+  _setBalanceReaderForTest(async () => bal2);
+  const S = "0x" + "5e".repeat(20);
+  const s1 = await admitCoveredRun(reqFor(hdr(S)));
+  s1.settling();
+  bal2 = 600_000n; // run 1's settlement has landed on chain; its response has not ended
+  const t0s = Date.now();
+  const s2p = admitCoveredRun(reqFor(hdr(S)));
+  setTimeout(() => s1(), 150);
+  const s2 = await s2p.catch((e) => e);
+  ok(typeof s2 === "function" && Date.now() - t0s >= 100 && inflightCoverStatus().settleWaits === 1, `a wallet funded for two starts its second run while the first settles: it waits for the first to leave, then runs (${typeof s2 === "function" ? "admitted" : s2?.statusCode})`);
+  s2();
+  // Controls: a run still WORKING is not waited for (the refusal is at once),
+  // and a settling run that does not leave within the wait is refused.
+  bal2 = 600_000n;
+  const w1 = await admitCoveredRun(reqFor(hdr(S)));
+  const tw = Date.now();
+  let wErr = null; try { await admitCoveredRun(reqFor(hdr(S))); } catch (e) { wErr = e; }
+  ok(wErr?.statusCode === 429 && Date.now() - tw < 100, "control: while the first run is still working, a second the balance cannot also cover is refused at once");
+  w1.settling();
+  const tl = Date.now();
+  let lErr = null; try { await admitCoveredRun(reqFor(hdr(S)), { settleWaitMs: 200 }); } catch (e) { lErr = e; }
+  ok(lErr?.statusCode === 429 && Date.now() - tl >= 150, "a settling run that does not leave within the wait: refused after it");
+  w1();
   process.env.INFLIGHT_COVER = "off";
   ok(await admitCoveredRun(reqFor(hdr(A))) === null, "INFLIGHT_COVER=off disables the check");
   delete process.env.INFLIGHT_COVER;
@@ -224,31 +273,80 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
 }
 
 // 1d2. route-execute's external leg pays an outside seller before the buyer
-// settles, so an EVM buyer whose own authorization is the tighter bound gets
-// the Tempo buyer's rule: refused before any spend when too little is left,
-// otherwise the seller call is bounded by what is left. A stock client is
-// unchanged.
+// settles. An EVM buyer's seller is paid only while its authorization keeps
+// EVM_SELLER_ALLOWANCE_MS of settleable life (validBefore less the
+// facilitator's 6 s); the seller call keeps the payer's own timeout, and only
+// the refusal wait is bounded by the authorization. The clock is moved by the
+// stubs, and the stub payer honours opts.timeoutMs the way payX402's
+// per-fetch timeout does: a cut after the header went out throws a raw error.
 {
-  const EXT = { seller: "https://ext.example", slug: "zk-prove", url: "https://ext.example/api/zk-prove", method: "POST", price: "$0.12", networks: ["eip155:8453"] };
+  const realNow = Date.now;
+  let skew = 0;
+  Date.now = () => realNow() + skew;
+  const seller = (name, net = "eip155:8453") => ({ seller: `https://${name}.example`, slug: "zk-prove", url: `https://${name}.example/api/zk-prove`, method: "POST", price: "$0.12", networks: [net] });
   const calls = [];
-  const payExternal = async (url, opts) => { calls.push(opts); return { result: { ok: 1 }, quote: { usd: 0.12, network: "eip155:8453" }, receipt: { transaction: "0xTX", network: "eip155:8453" } }; };
-  const tool = buildRouteExecuteTool({ getCatalog: () => ({}), tier: { slug: "route-execute-max", execPriceUsd: 0.55, underlyingMaxUsd: 0.5 }, resolveExternal: async () => EXT, payExternal, externalEnabled: () => true });
+  let candidates = [seller("ext")], resolveMs = 0, delays = {};
+  const payExternal = async (url, opts) => {
+    calls.push({ url, ...opts });
+    const d = delays[url] ?? 0;
+    if (opts.timeoutMs != null && opts.timeoutMs < d) { skew += opts.timeoutMs; throw new Error("The operation was aborted due to timeout"); }
+    skew += d;
+    return { result: { ok: 1 }, quote: { usd: 0.12, network: opts.chain === "tempo" ? "eip155:4217" : "eip155:8453" }, receipt: { transaction: "0xTX", network: "eip155:8453" } };
+  };
+  const toolFor = (chains = ["base"]) => buildRouteExecuteTool({ getCatalog: () => ({}), tier: { slug: "route-execute-max", execPriceUsd: 0.55, underlyingMaxUsd: 0.5 }, resolveExternal: async () => { skew += resolveMs; return candidates; }, payExternal, externalEnabled: () => true, externalChains: () => chains });
+  const tool = toolFor();
   const hdr = (validBefore) => b64({ x402Version: 2, accepted: { scheme: "exact", network: "eip155:8453", maxTimeoutSeconds: 300 }, payload: { signature: "0x11", authorization: { from: "0x" + "ab".repeat(20), to: "0x" + "cd".repeat(20), value: "550000", validAfter: "0", validBefore: String(validBefore), nonce: "0x01" } } });
   const reqWith = (h) => ({ ip: "203.0.113.9", header: (n) => (String(n).toLowerCase() === "payment-signature" ? h : undefined) });
-  const run = async (req) => { try { return { out: await tool.handler({ task: "prove a circuit", include: "external", params: {} }, req) }; } catch (e) { return { err: e }; } };
-  const tooShort = await run(reqWith(hdr(nowS() + 12)));
-  ok(tooShort.err?.statusCode === 504 && calls.length === 0 && /too little of your payment authorization/.test(tooShort.err.message) && /nothing was spent/.test(tooShort.err.message), `a 12 s authorization: refused 504 before any seller is paid (${tooShort.err?.statusCode}, paid ${calls.length})`);
+  const run = async (req, t = tool) => { try { return { out: await t.handler({ task: "prove a circuit", include: "external", params: {} }, req) }; } catch (e) { return { err: e }; } };
+  // Seconds left at settle-time verify, the moment the handler returns.
+  const leftAtSettle = (validBefore) => validBefore - Date.now() / 1000;
+  const reset = ({ list = [seller("ext")], resolve = 0, d = {} } = {}) => { candidates = list; resolveMs = resolve; delays = d; calls.length = 0; };
+
+  reset();
+  const tooShort = await run(reqWith(hdr(nowS() + 8)));
+  ok(tooShort.err?.statusCode === 504 && calls.length === 0 && /Too little of your payment authorization/.test(tooShort.err.message) && /Nothing was spent/.test(tooShort.err.message), `an 8 s authorization (2 s past the settle rule, under the ${EVM_SELLER_ALLOWANCE_MS} ms allowance): refused 504 before any seller is paid (${tooShort.err?.statusCode}, paid ${calls.length})`);
+
+  for (const w of [12, 13]) {
+    reset({ d: { "https://ext.example/api/zk-prove": 1000 } });
+    const vb = nowS() + w;
+    const r = await run(reqWith(hdr(vb)));
+    const left = leftAtSettle(vb);
+    ok(!r.err && calls.length === 1 && calls[0].timeoutMs === undefined && left >= SETTLE_RULE_SECONDS, `a ${w} s authorization, a 1 s seller: served with the payer's own seller timeout, ${left.toFixed(1)} s left at settle (${r.err?.statusCode ?? "ok"})`);
+  }
+
+  reset({ resolve: 17_000, d: { "https://ext.example/api/zk-prove": 1000 } });
+  const vb17 = nowS() + 30;
+  const slowResolve = await run(reqWith(hdr(vb17)));
+  ok(!slowResolve.err && calls.length === 1 && leftAtSettle(vb17) >= SETTLE_RULE_SECONDS, `a 30 s authorization, 17 s of resolution, a 1 s seller: served (${slowResolve.err?.statusCode ?? "ok"}, ${leftAtSettle(vb17).toFixed(1)} s left at settle)`);
+
+  reset({ list: [seller("a"), seller("b")], resolve: 12_000, d: { "https://a.example/api/zk-prove": 8000, "https://b.example/api/zk-prove": 1000 } });
+  const vbAB = nowS() + 30;
+  const ab = await run(reqWith(hdr(vbAB)));
+  ok(!ab.err && calls.length === 1 && calls[0].url === "https://a.example/api/zk-prove" && calls[0].timeoutMs === undefined && leftAtSettle(vbAB) >= SETTLE_RULE_SECONDS, `a 30 s authorization, 12 s of resolution, an 8 s first seller: served by that seller with exactly one paid call (paid ${calls.map((c) => c.url.split("/")[2]).join(",")}, ${leftAtSettle(vbAB).toFixed(1)} s left at settle)`);
+
+  reset();
   const short = await run(reqWith(hdr(nowS() + 30)));
-  const sc = calls.at(-1);
-  ok(!short.err && calls.length === 1 && sc.timeoutMs > 0 && sc.timeoutMs <= 20_000 && sc.refusalMaxWaitMs <= 20_000, `a 30 s authorization: the seller call and the refusal wait fit inside it (timeout ${sc?.timeoutMs} ms, wait ${sc?.refusalMaxWaitMs} ms)`);
+  ok(!short.err && calls.length === 1 && calls[0].timeoutMs === undefined && calls[0].refusalMaxWaitMs > 0 && calls[0].refusalMaxWaitMs <= 20_000, `a 30 s authorization: the refusal wait ends inside it (wait ${calls[0]?.refusalMaxWaitMs} ms)`);
+  reset();
   const mid = await run(reqWith(hdr(nowS() + 120)));
-  const mc = calls.at(-1);
-  ok(!mid.err && calls.length === 2 && mc.timeoutMs === 20_000 && mc.refusalMaxWaitMs > 100_000 && mc.refusalMaxWaitMs <= 110_000, `a 120 s authorization: the refusal wait fits inside it and the seller call is never looser than the buyer's own 20 s default (timeout ${mc?.timeoutMs} ms, wait ${mc?.refusalMaxWaitMs} ms)`);
+  ok(!mid.err && calls.length === 1 && calls[0].timeoutMs === undefined && calls[0].refusalMaxWaitMs > 100_000 && calls[0].refusalMaxWaitMs <= 110_000, `a 120 s authorization: the refusal wait ends inside it, the seller call keeps the payer's own timeout (wait ${calls[0]?.refusalMaxWaitMs} ms)`);
+  reset();
   const stock = await run(reqWith(hdr(nowS() + 299)));
-  const st = calls.at(-1);
-  ok(!stock.err && calls.length === 3 && st.timeoutMs === undefined && st.refusalMaxWaitMs > 200_000 && st.refusalMaxWaitMs <= 240_000, `control: a stock 300 s authorization is unchanged (no seller timeout override, wait ${st?.refusalMaxWaitMs} ms of the default 240 s)`);
+  ok(!stock.err && calls.length === 1 && calls[0].timeoutMs === undefined && calls[0].refusalMaxWaitMs > 200_000 && calls[0].refusalMaxWaitMs <= 240_000, `control: a stock 300 s authorization is unchanged (no seller timeout override, wait ${calls[0]?.refusalMaxWaitMs} ms of the default 240 s)`);
+  reset();
   const unpaid = await run({});
-  ok(!unpaid.err && calls.length === 4 && calls.at(-1).timeoutMs === undefined, "control: a request with no payment header is unchanged");
+  ok(!unpaid.err && calls.length === 1 && calls[0].timeoutMs === undefined && calls[0].refusalMaxWaitMs > 200_000, "control: a request with no payment header is unchanged");
+
+  // Controls on the other rails: Solana keeps the defaults; Tempo keeps its
+  // own 16 s budget for both the seller call and the wait.
+  reset({ list: [seller("sol", "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp")] });
+  const solReq = { ip: "203.0.113.9", header: (n) => (String(n).toLowerCase() === "payment-signature" ? b64({ x402Version: 2, accepted: { scheme: "exact", network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp" }, payload: { transaction: "AAAA" } }) : undefined) };
+  const sol = await run(solReq, toolFor(["solana"]));
+  ok(!sol.err && calls.length === 1 && calls[0].timeoutMs === undefined && calls[0].refusalMaxWaitMs > 200_000, `control: a Solana buyer keeps the default seller timeout and wait (${sol.err?.message || "ok"})`);
+  reset({ list: [seller("mpp", "eip155:4217")], resolve: 2000 });
+  const tempo = await run({ ip: "203.0.113.9", mppTempoCredential: { challenge: {} }, mppTempoSender: "0x" + "ee".repeat(20), header: () => undefined }, toolFor(["tempo"]));
+  ok(!tempo.err && calls.length === 1 && calls[0].timeoutMs > 13_000 && calls[0].timeoutMs <= 14_000 && calls[0].refusalMaxWaitMs > 13_000 && calls[0].refusalMaxWaitMs <= 14_000, `control: a Tempo buyer keeps its 16 s budget for the seller call and the wait (timeout ${calls[0]?.timeoutMs} ms, wait ${calls[0]?.refusalMaxWaitMs} ms; ${tempo.err?.message || "ok"})`);
+  Date.now = realNow;
 }
 
 // 1e. Source pins for the seams the booted part exercises end to end.
@@ -261,11 +359,12 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
   ok(/onSettleOutcome\(req, res, \(\) => \{/.test(breaker) && !/res\.once\("finish"/.test(breaker), "the gateway and catalog breakers hear settlement through onSettleOutcome, not finish");
   const avm = server.indexOf("await assertAvmValidityCovers(req, tool.slug);");
   const evm = server.indexOf("assertEvmValidityCovers(req, tool.slug);");
-  const cover = server.indexOf("const release = await admitCoveredRun(req);");
+  const cover = server.indexOf("coverRelease = await admitCoveredRun(req);");
   const belt = server.indexOf("if (clientGoneBeforeFirstByte(req)) throw clientGoneError(");
   const handler = server.indexOf("? await runInAbortableScope(() => tool.handler(input, req)");
   ok(avm > 0 && evm > avm && cover > evm && belt > cover && handler > belt, "the dispatcher runs the EVM floor, then the concurrency cover, then the client-gone belt, then the handler");
-  ok(/if \(!FREE_MODE && EXPENSIVE_COMPOSITE_SLUGS\.has\(tool\.slug\)\) \{\s*\n\s*const release = await admitCoveredRun\(req\);\s*\n\s*if \(release && !onResponseEnd\(req, res, release\)\) release\(\);/.test(server), "the cover covers the expensive routes and releases when the response ends, however it ends");
+  ok(/if \(!FREE_MODE && EXPENSIVE_COMPOSITE_SLUGS\.has\(tool\.slug\)\) \{\s*\n\s*coverRelease = await admitCoveredRun\(req\);\s*\n\s*if \(coverRelease && !onResponseEnd\(req, res, coverRelease\)\) coverRelease\(\);/.test(server), "the cover covers the expensive routes and releases when the response ends, however it ends");
+  ok(/: await tool\.handler\(input, req\);\s*\n\s*coverRelease\?\.settling\?\.\(\);/.test(server), "the covered run counts as settling from the moment its handler returns");
 }
 
 // ---------------------------------------------------------------- part 2
@@ -343,7 +442,7 @@ proc = spawn("node", ["--import", "./scripts/lib/openrouter-stub-preload.js", "s
     OPENROUTER_API_KEY: "test-key-never-used", OPENROUTER_MANAGEMENT_KEY: "", OPENROUTER_STUB_URL: `http://127.0.0.1:${OR_PORT}`, OPENROUTER_FLEX: "off",
     GATEWAY_SETTLE_BREAKER_MAX: "3", GATEWAY_SETTLE_BREAKER_WINDOW_MS: "600000", GATEWAY_SETTLE_BREAKER_GLOBAL_MAX: "50",
     COMPOSITE_GUARD_MAX_FAILS: "3", COMPOSITE_GUARD_GLOBAL_MAX_FAILS: "50",
-    HANGUP_FORGIVE: "", HANGUP_FORGIVE_KEY_USD: "0.005", HANGUP_FORGIVE_GLOBAL_USD: "1", HANGUP_FORGIVE_FILE: "off", EVM_VALIDITY_FLOOR: "", INFLIGHT_COVER: "",
+    HANGUP_FORGIVE: "", HANGUP_FORGIVE_KEY_USD: "0.005", HANGUP_FORGIVE_GLOBAL_USD: "1", HANGUP_FORGIVE_FILE: "off", EVM_VALIDITY_FLOOR: "enforce", INFLIGHT_COVER: "",
     X402_INDEX_CRAWL: "off", MPP_INDEX_CRAWL: "off", MONITOR_SCHEDULER: "off", FREE_ALERTS: "off", FOLLOWUPS: "off", WALLET_DIGEST: "off",
     AGENT402_OPERATOR_TOKEN: OP, REFUND_DB_DIR: TMP, SALES_LEDGER_DB: join(TMP, "sales.db") },
   stdio: ["ignore", "pipe", "pipe"],
@@ -461,8 +560,9 @@ try {
     fac.refuse.delete(W.toLowerCase());
   }
 
-  // 2e. The EVM floor: a 7 s authorization on the video tier is refused 422
-  // before the handler (no upstream call); a stock authorization reaches it.
+  // 2e. The EVM floor, enforced (this server runs EVM_VALIDITY_FLOOR=enforce):
+  // a 7 s authorization on the video tier is refused 422 before the handler
+  // (no upstream call); a stock authorization reaches it.
   // A 7 s authorization on a fast route is served: no floor there.
   {
     const v0 = or.videos;

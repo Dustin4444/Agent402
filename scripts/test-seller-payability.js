@@ -192,6 +192,31 @@ function toolWith({ bare, pay, spendOk = true } = {}) {
   const rw = bounded.spent.payOpts[0]?.refusalMaxWaitMs;
   ok(Number.isFinite(rw) && rw > 0 && rw <= 55_000, `the payer is handed the request's remaining deadline, never the 90 s default (got ${rw})`);
 
+  // 4. THE CHECK RUNS INSIDE THE BUYER'S OWN AUTHORIZATION. Settlement runs
+  //    after this handler, so a check that outlives the buyer's validBefore
+  //    (less the facilitator's 6 s rule) paid a seller for a payment that can
+  //    no longer settle. A short window gets a shorter check; too short a
+  //    window pays nobody (504, uncharged); a stock window is unchanged.
+  const NOW_S = 1_757_000_000;
+  const evmReq = (validBefore) => ({ ip: "203.0.113.9", header: (n) => (String(n).toLowerCase() === "payment-signature" ? Buffer.from(JSON.stringify({ x402Version: 2, accepted: { scheme: "exact", network: "eip155:8453", maxTimeoutSeconds: 300 }, payload: { signature: "0x11", authorization: { from: "0x" + "ab".repeat(20), to: "0x" + "cd".repeat(20), value: "100000", validAfter: "0", validBefore: String(validBefore), nonce: "0x01" } } })).toString("base64") : undefined) });
+  const stockW = toolWith();
+  await stockW.tool.handler({ url: "https://s.example" }, evmReq(NOW_S + 299));
+  ok(stockW.spent.payOpts[0]?.timeoutMs === 45_000 && stockW.spent.payOpts[0]?.refusalMaxWaitMs === 55_000, `control: a stock 300 s authorization keeps the full check (timeout ${stockW.spent.payOpts[0]?.timeoutMs}, wait ${stockW.spent.payOpts[0]?.refusalMaxWaitMs})`);
+  const noHdr = toolWith();
+  await noHdr.tool.handler({ url: "https://s.example" }, {});
+  ok(noHdr.spent.payOpts[0]?.timeoutMs === 45_000 && noHdr.spent.payOpts[0]?.refusalMaxWaitMs === 55_000, "control: a request with no EVM authorization keeps the full check");
+  const shortW = toolWith();
+  const rShort = await shortW.tool.handler({ url: "https://s.example" }, evmReq(NOW_S + 30));
+  ok(rShort.payable === true && shortW.spent.payOpts[0]?.timeoutMs === 20_000 && shortW.spent.payOpts[0]?.refusalMaxWaitMs === 20_000, `a 30 s authorization: the paid leg and its wait end inside it, and a fast seller is still checked in full (timeout ${shortW.spent.payOpts[0]?.timeoutMs}, wait ${shortW.spent.payOpts[0]?.refusalMaxWaitMs})`);
+  const cut = toolWith({ pay: async () => { throw Object.assign(new Error("The operation was aborted due to timeout"), { statusCode: 504 }); } });
+  const rCut = await cut.tool.handler({ url: "https://s.example" }, evmReq(NOW_S + 30));
+  ok(rCut.flags.some((f) => /remaining life/.test(f) && /300 s/.test(f)), "a paid leg that fails inside a shortened check says the buyer's window shortened it");
+  const rCutStock = await toolWith({ pay: async () => { throw Object.assign(new Error("The operation was aborted due to timeout"), { statusCode: 504 }); } }).tool.handler({ url: "https://s.example" }, evmReq(NOW_S + 299));
+  ok(!rCutStock.flags.some((f) => /remaining life/.test(f)), "control: the same failure under a stock window carries no such flag");
+  const tiny = toolWith();
+  let eTiny = null; try { await tiny.tool.handler({ url: "https://s.example" }, evmReq(NOW_S + 8)); } catch (x) { eTiny = x; }
+  ok(eTiny?.statusCode === 504 && /Nothing was spent/.test(eTiny.message) && tiny.spent.payOpts.length === 0 && tiny.spent.adjust.at(-1) === 0, `an 8 s authorization: no seller is paid, the day's booking is given back, 504 uncharged (${eTiny?.statusCode})`);
+
   ok(LONG_RUNNING_SLUGS.has("seller-payability"),
     "and the slug is long-running, so the paywall offers EVM exact only - the short-lived rails cannot settle a 55 s handler that already paid a seller");
   ok(requiredSecondsFor("seller-payability") >= 55,
