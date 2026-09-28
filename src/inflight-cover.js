@@ -27,8 +27,16 @@
 //     used for the decision nor cached.
 //   - An unreadable balance (RPC down, the read lane full) admits up to
 //     INFLIGHT_COVER_UNREAD_MAX runs in flight (default 4) and refuses beyond.
-//   - A run leaves the ledger when its response ends, however it ends
-//     (src/hangup-settlement.js onResponseEnd), which is after settlement.
+//   - A run leaves the ledger when its settlement SUCCEEDS (the x402
+//     afterSettle hook with a success result, markCoveredRunSettled in
+//     src/payments.js): its payment is then off the wallet, so the balance
+//     reflects it and counting it too would ask the wallet for it twice. A
+//     slow response body after that (a large report to a slow client) must
+//     not hold a run the balance already covers. A run whose settlement
+//     failed, or that settled by a path that fires no afterSettle hook (a
+//     recovered fallback settle), leaves when its response ends, however it
+//     ends (src/hangup-settlement.js onResponseEnd). Whichever comes first
+//     releases; the second is a no-op.
 //   - Between its handler's return and its response's end a run is SETTLING:
 //     its payment may already be taken on chain, so a balance read then can
 //     reflect it while the ledger still counts it. A run the balance would
@@ -61,6 +69,9 @@ const balances = new Map(); // coverKey -> { atomic: bigint, at }
 const pendingReads = new Map(); // coverKey -> { p: Promise<bigint|null> }
 const judging = new Map(); // coverKey -> Set<{ left }>, runs being judged; release() counts in `left`
 let readsInFlight = 0;
+// The settled-release of an admitted run, kept on its request (own,
+// non-enumerable) for the settle hook, which sees only the request.
+const SETTLED = Symbol("a402.inflightCoverSettled");
 const stats = { admitted: 0, admittedByRead: 0, admittedUnread: 0, refused: 0, refusedUnread: 0, settleWaits: 0 };
 
 function unreadMax() {
@@ -256,7 +267,25 @@ export async function admitCoveredRun(req, { now = Date.now(), settleWaitMs = SE
     const e = ledger.get(coverKey);
     if (e) e.settling += 1;
   };
+  // Settlement succeeded: the payment is off the wallet, so the run leaves
+  // the ledger now rather than when its response ends. Same release, once.
+  release.settled = () => release();
+  try { Object.defineProperty(req, SETTLED, { value: release.settled, configurable: true }); } catch { /* the response-end release still applies */ }
   return release;
+}
+
+/**
+ * Called when a request's settlement has SUCCEEDED on chain. Releases that
+ * request's in-flight reservation at once (a no-op when it holds none or has
+ * already left). Never call it for a failed or pending settlement: a run whose
+ * payment is not taken must keep counting against the balance.
+ */
+export function markCoveredRunSettled(req) {
+  if (!req || typeof req !== "object" || !Object.hasOwn(req, SETTLED)) return false;
+  const fn = req[SETTLED];
+  if (typeof fn !== "function") return false;
+  fn();
+  return true;
 }
 
 /** Counts only - never a wallet. */

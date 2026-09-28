@@ -35,7 +35,8 @@ import express from "express";
 import { createHangupSettlementHook, onSettleOutcome, onResponseEnd } from "../src/hangup-settlement.js";
 import { reserveHangupForgiveness, _resetHangupForgiveness } from "../src/hangup-forgiveness.js";
 import { evmCredentialExpiry, requiredEvmSecondsFor, evmValidityShortfall, assertEvmValidityCovers, evmValidityMode, evmCredentialSettleableMs, evmCredentialBudgetMs, EVM_RUN_SECONDS, CLIENT_SLACK_SECONDS, SETTLE_RULE_SECONDS, EVM_SELLER_ALLOWANCE_MS } from "../src/evm-validity.js";
-import { coverTermsOf, admitCoveredRun, inflightCoverStatus, _setBalanceReaderForTest, _resetInflightCoverForTest } from "../src/inflight-cover.js";
+import { coverTermsOf, admitCoveredRun, inflightCoverStatus, markCoveredRunSettled, _setBalanceReaderForTest, _resetInflightCoverForTest } from "../src/inflight-cover.js";
+import { registerInflightCoverSettleHook } from "../src/payments.js";
 import { buildRouteExecuteTool } from "../src/tools/route-execute.js";
 import { getFreePorts } from "./lib/free-port.js";
 
@@ -328,6 +329,70 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
   let lErr = null; try { await admitCoveredRun(reqFor(hdr(S)), { settleWaitMs: 200 }); } catch (e) { lErr = e; }
   ok(lErr?.statusCode === 429 && Date.now() - tl >= 150, "a settling run that does not leave within the wait: refused after it");
   w1();
+  {
+  // A run that has SETTLED leaves the ledger at settlement, not at response
+  // end: its payment is off the wallet, so the balance already reflects it.
+  // The settle hook is the x402 afterSettle hook (src/payments.js), driven
+  // here through a stub resource server holding only that registration.
+  let afterSettle = null;
+  registerInflightCoverSettleHook({ onAfterSettle: (fn) => { afterSettle = fn; } });
+  ok(/\n\s*registerClientGoneSettleHook\(server\);\n\s*registerInflightCoverSettleHook\(server\);/.test(readFileSync(new URL("../src/payments.js", import.meta.url), "utf8")), "the settle hook is registered on the live resource server, beside the client-gone hook");
+  const settleCtx = (req, success) => ({ result: { success }, transportContext: { request: { adapter: { req } } } });
+  // The scenario: a wallet funded for exactly three runs. Run 1 settles on
+  // chain and its response then stalls past the wait; run 3 arrives.
+  let bal3r = 1_800_000n;
+  _setBalanceReaderForTest(async () => bal3r);
+  const R = "0x" + "6e".repeat(20);
+  const r1req = reqFor(hdr(R)), r2req = reqFor(hdr(R));
+  const r1 = await admitCoveredRun(r1req);
+  const r2 = await admitCoveredRun(r2req);
+  r1.settling();
+  bal3r = 1_200_000n; // run 1 paid on chain
+  afterSettle(settleCtx(r1req, true)); // its response has not ended
+  const t3 = Date.now();
+  let r3 = null; try { r3 = await admitCoveredRun(reqFor(hdr(R)), { settleWaitMs: 200 }); } catch (e) { r3 = e; }
+  ok(typeof r3 === "function" && Date.now() - t3 < 150 && inflightCoverStatus().runsInFlight === 2, `a wallet funded for three: run 1 settled, its response still open, run 3 is admitted at once, not refused 429 (${typeof r3 === "function" ? "admitted" : r3?.statusCode})`);
+  // No double release: run 1's response now ends; runs 2 and 3 still count.
+  r1();
+  ok(inflightCoverStatus().runsInFlight === 2, `run 1's response end after its settlement releases nothing more (in flight ${inflightCoverStatus().runsInFlight})`);
+  ok(markCoveredRunSettled(r1req) === true && inflightCoverStatus().runsInFlight === 2, "a second settle signal for run 1 releases nothing more either");
+  r2(); r3();
+  ok(inflightCoverStatus().runsInFlight === 0, "the three runs leave the ledger");
+  // Settlement landing WHILE run 3 waits: it is judged again at once.
+  bal3r = 1_800_000n;
+  const w1req = reqFor(hdr(R)), w2req = reqFor(hdr(R));
+  const ww1 = await admitCoveredRun(w1req);
+  const ww2 = await admitCoveredRun(w2req);
+  ww1.settling();
+  bal3r = 1_200_000n;
+  const tw3 = Date.now();
+  const ww3p = admitCoveredRun(reqFor(hdr(R)), { settleWaitMs: 5_000 });
+  setTimeout(() => afterSettle(settleCtx(w1req, true)), 100);
+  const ww3 = await ww3p.catch((e) => e);
+  ok(typeof ww3 === "function" && Date.now() - tw3 < 1_000, `run 1 settles while run 3 waits: run 3 is admitted when the settlement lands, not when run 1's response ends (${typeof ww3 === "function" ? "admitted" : ww3?.statusCode})`);
+  ww1(); ww2(); ww3();
+  // Controls. Two UNSETTLED runs on a balance for two: a third is refused.
+  bal3r = 1_200_000n;
+  const u1 = await admitCoveredRun(reqFor(hdr(R)));
+  const u2 = await admitCoveredRun(reqFor(hdr(R)));
+  let u3 = null; try { await admitCoveredRun(reqFor(hdr(R))); } catch (e) { u3 = e; }
+  ok(u3?.statusCode === 429, "control: two unsettled runs still count, and a third the balance cannot also cover is refused");
+  u1(); u2();
+  // A FAILED settlement keeps the run counted until its response ends.
+  bal3r = 1_200_000n;
+  const f1req = reqFor(hdr(R));
+  const f1 = await admitCoveredRun(f1req);
+  const f2 = await admitCoveredRun(reqFor(hdr(R)));
+  f1.settling();
+  afterSettle(settleCtx(f1req, false));
+  afterSettle({ result: { success: true } }); // a success with no request releases nothing
+  let f3 = null; try { await admitCoveredRun(reqFor(hdr(R)), { settleWaitMs: 150 }); } catch (e) { f3 = e; }
+  ok(f3?.statusCode === 429 && inflightCoverStatus().runsInFlight === 2, `control: a run whose settlement failed still counts, so a third run is refused (${typeof f3 === "function" ? "admitted" : f3?.statusCode})`);
+  f1();
+  ok(inflightCoverStatus().runsInFlight === 1, "the failed run leaves when its response ends");
+  f2();
+  ok(inflightCoverStatus().runsInFlight === 0 && markCoveredRunSettled({}) === false && markCoveredRunSettled(null) === false, "a request the cover never admitted is not a release");
+  }
   process.env.INFLIGHT_COVER = "off";
   ok(await admitCoveredRun(reqFor(hdr(A))) === null, "INFLIGHT_COVER=off disables the check");
   delete process.env.INFLIGHT_COVER;
