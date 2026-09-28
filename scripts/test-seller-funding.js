@@ -449,6 +449,10 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
   const ieCtl = SF.newFundingReadControl();
   const ieOut = await readSellerFunding({ rpc: fakeRpc(dOuts, { refuse: () => INTERNAL }), token: USDC, state: ieKnown, wallets: [{ wallet: lights[0], payers: new Set([P(6000)]) }, { wallet: lights[1], payers: new Set([P(6005)]) }], latest, windowStartBlock: start, ctl: ieCtl });
   ok(ieOut.calls === 4 && ieCtl.stop === "errors" && ieOut.behind === 2, `...and the outbound read the same (${ieOut.calls} calls, then stopped; both wallets left at their cursors)`);
+  let flakyOut = 0;
+  const ieMany = knownState(Object.fromEntries(lights.slice(0, 5).map((w, i) => [w, [P(6000 + i * 5)]])), start - 1);
+  const ieOut2 = await readSellerFunding({ rpc: fakeRpc(dOuts, { refuse: () => (++flakyOut <= 8 && flakyOut % 2 === 1 ? INTERNAL : false) }), token: USDC, state: ieMany, wallets: lights.slice(0, 5).map((w, i) => ({ wallet: w, payers: new Set([P(6000 + i * 5)]) })), latest, windowStartBlock: start, walletChunk: 1, ctl: SF.newFundingReadControl() });
+  ok(ieOut2.caughtUp === 5 && !ieOut2.transportError && ieOut2.refusals === 4, `...where, as in the history read, errors each followed by an answer do not add up (${ieOut2.refusals} split, all 5 caught up)`);
   let flaky = 0;
   const onceEach = await scanOnce({ sellers: sells.slice(1), pays: dPays, outs: dOuts, state: createFundingState(USDC), latest, span: SPAN, historyFrom: 2_797_221, rpcOpts: { refuse: () => (++flaky <= 8 && flaky % 2 === 1 ? INTERNAL : false) } });
   ok(onceEach.stats.history.read === 20 && !onceEach.stats.history.stopped && onceEach.stats.history.refusals === 4, `(four such errors, each followed by an answer, are split as before - only errors in a row count: all 20 read, ${onceEach.stats.history.refusals} refusals)`);
