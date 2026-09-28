@@ -382,5 +382,28 @@ delete process.env.OPENAI_API_KEY;
   ok(!throws402(kit) && !throws402(msg) && !throws402(rsp), "no gateway kit throws a 402 of its own - a post-arm 402 is a settlement failure, which the finish listener relies on");
 }
 
+// --- the listener's scope: a later global consult upgrades, never downgrades ----
+// (The HTTP twin, through a booted paid server's /v1 route, is in
+// scripts/test-paid-settle-breaker.js.) The dispatcher arms with global:false
+// for every wallet-only slug, and every /v1 slug is one, so the /v1 handler's
+// own global:true consult arrives SECOND on the same request.
+{
+  b._gatewaySettleBreakerReset();
+  const failOnce = (consults) => {
+    const req = fakeReq({ from: ADDR });
+    for (const g of consults) b.armGatewaySettleBreaker(req, "0xscope", { global: g });
+    req.res.statusCode = 402;
+    req.res.emit("finish");
+  };
+  failOnce([false]);
+  ok(b.gatewaySettleBreakerStatus().globalFailsInWindow === 0, "a catalog-only consult (global:false) feeds nothing global");
+  failOnce([false, true]);
+  ok(b.gatewaySettleBreakerStatus().globalFailsInWindow === 1, "catalog consult first, /v1 consult second: the failure reaches the global count");
+  failOnce([true, false]);
+  ok(b.gatewaySettleBreakerStatus().globalFailsInWindow === 2, "a later global:false consult never downgrades an armed global listener");
+  ok(b.gatewaySettleBreakerBlocked("0xscope").fails === 3, "one listener per request: three requests, three wallet failures, none double-counted");
+  b._gatewaySettleBreakerReset();
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

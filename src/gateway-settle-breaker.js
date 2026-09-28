@@ -146,13 +146,29 @@ function decodeReceipt(res) {
 }
 
 /** Arm ONE finish listener per request on `req.res`, recording the FINAL
- *  outcome under `key`. Exported for the test; the check below calls it. */
+ *  outcome under `key`. Exported for the test; the check below calls it.
+ *
+ *  A LATER consult that takes part in the global pause UPGRADES the listener
+ *  already armed (2026-09-28). Every /v1 slug is wallet-only, so the
+ *  dispatcher's catalog consult (global:false) arms first and the /v1
+ *  handler's own consult (global:true) arrives second; when the second could
+ *  not re-arm, no /v1 settle failure ever reached the global count and the
+ *  /v1 pause could never trip. Never the other way round: a later
+ *  global:false consult does not downgrade. */
 export function armGatewaySettleBreaker(req, key, { global = true } = {}) {
-  if (!req || typeof req !== "object" || req.__gatewaySettleBreakerArmed) return false;
+  if (!req || typeof req !== "object") return false;
+  if (req.__gatewaySettleBreakerArmed) {
+    if (global && req.__gatewaySettleBreakerState) req.__gatewaySettleBreakerState.global = true;
+    return false;
+  }
   const res = req.res;
   if (!res || typeof res.once !== "function") return false;
   req.__gatewaySettleBreakerArmed = true;
+  // Read at finish time, so an upgrade after arming counts.
+  const state = { global };
+  Object.defineProperty(req, "__gatewaySettleBreakerState", { value: state, enumerable: false, configurable: true });
   res.once("finish", () => {
+    const global = state.global;
     try {
       const st = res.statusCode;
       const receipt = decodeReceipt(res);
