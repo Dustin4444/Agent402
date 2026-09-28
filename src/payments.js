@@ -1551,11 +1551,23 @@ export function registerClientGoneSettleHook(server) {
  * response-end release still applies.
  */
 export function registerInflightCoverSettleHook(server) {
-  server.onAfterSettle((ctx) => {
-    if (ctx?.result?.success !== true) return;
-    const req = ctx?.transportContext?.request?.adapter?.req;
-    try { markCoveredRunSettled(req); } catch { /* never break a settlement */ }
-  });
+  server.onAfterSettle((ctx) => releaseCoverOnSettled(ctx, ctx?.result));
+}
+
+/**
+ * The one release every successful settlement path calls. The vendor fires
+ * afterSettle only for a settlement the facilitator client itself returned as
+ * a success; a settlement RECOVERED by an onSettleFailure hook (the
+ * PAYMENT_SETTLE_FALLBACK chain below) is returned straight to the middleware
+ * with no afterSettle, so that hook calls this itself. The Stellar
+ * confirm/fallback runs INSIDE its facilitator client's settle(), so it
+ * reaches afterSettle like any other success. Idempotent: a run releases once
+ * (markCoveredRunSettled), whichever signal arrives first, and the
+ * response-end release after it is a no-op.
+ */
+export function releaseCoverOnSettled(ctx, result) {
+  if (result?.success !== true) return false;
+  try { return markCoveredRunSettled(ctx?.transportContext?.request?.adapter?.req); } catch { return false; /* never break a settlement */ }
 }
 
 /**
@@ -1867,6 +1879,9 @@ export function registerFacilitatorFailureHooks(server, payAiClient, solvadorCli
     for (const { name, client } of candidates) {
       try {
         const result = await client.settle(ctx.paymentPayload, ctx.requirements);
+        // A recovered settlement fires no afterSettle hook (the vendor returns
+        // it as-is), so the in-flight cover's release is called here.
+        releaseCoverOnSettled(ctx, result);
         console.warn(
           `[payments] recovered ${ctx?.requirements?.network} settlement via ${name} fallback ` +
             "(PAYMENT_SETTLE_FALLBACK=true; primary rejected pre-broadcast)"

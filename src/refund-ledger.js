@@ -57,10 +57,18 @@ db.exec(`
 // (src/mpp-reconcile.js) counts paid-but-failed MPP calls from it; a NULL is
 // a row recorded before the column existed.
 try { db.exec("ALTER TABLE refunds ADD COLUMN wire TEXT"); } catch { /* exists */ }
+// Additive column: on a disconnect debt (http 499), why the run was not
+// forgiven - the forgiveness ticket's denial reason ("payer budget", "ip
+// budget", "global budget", "lasting effect", ...), "settled in flight" when a
+// granted ticket lost the race to a settle already under way, "no ticket" when
+// none was reserved. The refund planner holds the budget denials for review
+// (scripts/refund-run.js). NULL on every other debt and on rows written before
+// the column existed.
+try { db.exec("ALTER TABLE refunds ADD COLUMN hangupReason TEXT"); } catch { /* exists */ }
 
 const insertOwed = db.prepare(`
-  INSERT OR IGNORE INTO refunds (evidence, slug, network, payer, priceUsd, httpStatus, synthetic, createdAt, wire)
-  VALUES (@evidence, @slug, @network, @payer, @priceUsd, @httpStatus, @synthetic, @createdAt, @wire)
+  INSERT OR IGNORE INTO refunds (evidence, slug, network, payer, priceUsd, httpStatus, synthetic, createdAt, wire, hangupReason)
+  VALUES (@evidence, @slug, @network, @payer, @priceUsd, @httpStatus, @synthetic, @createdAt, @wire, @hangupReason)
 `);
 const selectByStatus = db.prepare("SELECT * FROM refunds WHERE status = ? ORDER BY id DESC LIMIT ?");
 const selectAll = db.prepare("SELECT * FROM refunds ORDER BY id DESC LIMIT ?");
@@ -99,7 +107,7 @@ export function receiptProvesCharge(receipt) {
 /** Record a debt. Returns true when a NEW row was created (false = duplicate
  *  evidence, already on the books). Addresses are stored exactly as given -
  *  base58/base32 rails are case-sensitive and must never be folded. */
-export function recordRefundOwed({ slug, network, payer, priceUsd, tx, httpStatus, synthetic, wire } = {}) {
+export function recordRefundOwed({ slug, network, payer, priceUsd, tx, httpStatus, synthetic, wire, hangupReason } = {}) {
   try {
     const evidence = (typeof tx === "string" && tx.trim())
       ? tx.trim()
@@ -114,6 +122,7 @@ export function recordRefundOwed({ slug, network, payer, priceUsd, tx, httpStatu
       synthetic: synthetic ? 1 : 0,
       createdAt: Date.now(),
       wire: wire ? String(wire).slice(0, 40) : null,
+      hangupReason: hangupReason ? String(hangupReason).slice(0, 40) : null,
     });
     return info.changes > 0;
   } catch {
