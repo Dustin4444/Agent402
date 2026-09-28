@@ -43,7 +43,6 @@ import {
   renameSync, statSync, unlinkSync, writeFileSync, writeSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { tmpdir } from "node:os";
 import { X_TWEETS_URL, missingXCredentials, oauthHeader, xCredentialsFromEnv } from "./x-oauth.js";
 
 export const DEFAULT_CATCHUP_HOURS = 12;
@@ -69,7 +68,7 @@ const CONNECT_CODES = new Set(["ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "UND_ER
 export const hourOf = (ms) => new Date(ms).toISOString().slice(0, 13);
 
 export function defaultStatePath() {
-  return join(existsSync("/data") ? "/data" : tmpdir(), "tweet-queue-state.json");
+  return join(existsSync("/data") ? "/data" : "/tmp", "tweet-queue-state.json");
 }
 
 /** Epoch ms of a `when` that names a whole UTC hour, else null. */
