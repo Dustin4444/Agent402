@@ -3153,7 +3153,8 @@ let crawlCycle = 0;   // rotates the per-cycle visiting order so the budget is f
  * probe that cannot produce a quote leaves the row exactly as it was.
  */
 /**
- * Carry forward quotes we already learned from a live 402.
+ * Carry forward quotes (and verified chain reads) we already learned from a
+ * live 402.
  *
  * Every crawl REBUILDS `tools` from the seller's catalogue, and the catalogue is
  * exactly the surface that has no price - that is the whole reason the live
@@ -3163,9 +3164,9 @@ let crawlCycle = 0;   // rotates the per-cycle visiting order so the budget is f
  * zero forever and the feature looked like it worked while achieving nothing.
  * Observed live - two routes priced, then zero after the next crawl.
  *
- * Keyed by ROUTE only, deliberately: learning a quote can CORRECT the method
- * (a catalogue that said GET for a POST-only endpoint), so a method-qualified
- * key would miss the row it just fixed.
+ * Learning a quote can CORRECT the method (a catalogue that said GET for a
+ * POST-only endpoint), which is why a route-only fallback sits beside the
+ * method-qualified key: without it the key would miss the row it just fixed.
  */
 export function carryForwardLearnedQuotes(tools, prev) {
   // Keyed by METHOD + route, with a route-only fallback for the price and
@@ -3177,18 +3178,51 @@ export function carryForwardLearnedQuotes(tools, prev) {
   // be recorded as broken by us. A remembered verb may only replace a verb
   // the current row INFERRED (a manifest or llms.txt entry that named none);
   // a declared verb is the seller's own statement and stands.
+  //
+  // Two kinds of remembered row. A LEARNED QUOTE (live-402, or the live-200
+  // retirement of one) carries its price, chains, payTo and verb. A VERIFIED
+  // READ is a row whose chains a live 402 confirmed (networksVerifiedAt) while
+  // its PRICE stayed the origin's own declaration: such a row is deliberately
+  // never re-stamped live-402 (the 2026-08-29 ratchet fix), so until
+  // 2026-09-28 the first probe-less rebuild after the read copied its chains
+  // and payTo once, without the verification stamp, and the second rebuild
+  // found nothing "learned" to carry at all. Every origin-priced seller whose
+  // document names no chains flapped between settlement_required and
+  // network_unknown, and the payTo the Base scan reads flapped with it. A
+  // verified read now carries its chains, payTo, domain observation, verb
+  // correction and verification stamp - never a price, never a quoteSource -
+  // so the origin's price still wins and the weekly re-verify
+  // (networksNeedLiveVerify) keeps its own clock.
+  const learnedQuote = (r) => r?.quoteSource === "live-402" || r?.quoteSource === "live-200";
+  const verifiedRead = (r) => Number(r?.networksVerifiedAt) > 0 && Array.isArray(r?.networks) && r.networks.length > 0;
   const learnedExact = new Map();
   const learnedByRoute = new Map();
   for (const t of prev?.tools || []) {
-    if ((t?.quoteSource !== "live-402" && t?.quoteSource !== "live-200") || typeof t.route !== "string") continue;
-    learnedExact.set(`${String(t.method || "GET").toUpperCase()} ${t.route}`, t);
-    if (!learnedByRoute.has(t.route)) learnedByRoute.set(t.route, t);
+    if (typeof t?.route !== "string" || !(learnedQuote(t) || verifiedRead(t))) continue;
+    // A learned quote is never displaced by a verified read on the same key,
+    // so admitting verified reads cannot change which row the older rules
+    // pick; among learned quotes the previous order stands (last wins on the
+    // exact key, first wins on the route).
+    const key = `${String(t.method || "GET").toUpperCase()} ${t.route}`;
+    const heldExact = learnedExact.get(key);
+    if (!heldExact || learnedQuote(t) || !learnedQuote(heldExact)) learnedExact.set(key, t);
+    const heldRoute = learnedByRoute.get(t.route);
+    if (!heldRoute || (!learnedQuote(heldRoute) && learnedQuote(t))) learnedByRoute.set(t.route, t);
   }
   if (!learnedExact.size) return tools;
   for (const t of tools) {
     const exact = learnedExact.get(`${String(t.method || "GET").toUpperCase()} ${t.route}`);
     const hit = exact || learnedByRoute.get(t.route);
     if (!hit) continue;
+    const fromQuote = learnedQuote(hit);
+    // A route-level hit may change a current row's verb in exactly two cases:
+    // the row INFERRED its verb (named none), or the hit is a recorded
+    // CORRECTION of this very verb (the probe saw it fail and the other answer).
+    const correctsVerb = !exact && hit.method && hit.method !== t.method
+      && (t.methodInferred === true || hit.methodCorrectedFrom === String(t.method || "GET").toUpperCase());
+    // A verified read is evidence about ITS OWN row: the same verb, or the verb
+    // it recorded correcting. A sibling verb on the path was never read.
+    if (!fromQuote && !exact && !correctsVerb) continue;
     if (exact && Number(hit.liveProvenAt) > 0) t.liveProvenAt = hit.liveProvenAt;
     if (hit.quoteSource === "live-200") {
       // A RETIREMENT is carried the way a quote is: the rebuilt row (which the
@@ -3214,13 +3248,21 @@ export function carryForwardLearnedQuotes(tools, prev) {
     // amount was filling the fresh row and then being re-stamped "live-402",
     // which made a nine-day-old price look freshly observed).
     const originPricedThisCrawl = Number(t.originDeclaredPrice) > 0;
-    if (!(Number(t.price) > 0) && !originPricedThisCrawl && Number(hit.price) > 0) {
+    // Only a learned QUOTE fills a price: a verified read's price was the
+    // origin's own declaration, and if the origin has stopped declaring it the
+    // honest state is "unpriced" (a probe candidate), not a remembered figure
+    // relabelled as learned.
+    if (fromQuote && !(Number(t.price) > 0) && !originPricedThisCrawl && Number(hit.price) > 0) {
       t.price = hit.price;
       t.quoteCarriedForward = true;
       if (hit.quoteObservedAt) t.quoteObservedAt = hit.quoteObservedAt;
     }
     if (!(Array.isArray(t.networks) && t.networks.length) && Array.isArray(hit.networks) && hit.networks.length) {
       t.networks = [...hit.networks];
+      // The verification stamp travels with the chains it verified, onto the
+      // row it belongs to (same verb, or the verb it recorded correcting). This
+      // branch used to drop it, so the next rebuild saw an unverified row.
+      if (Number(hit.networksVerifiedAt) > 0 && (exact || correctsVerb)) t.networksVerifiedAt = hit.networksVerifiedAt;
     } else if (Number(hit.networksVerifiedAt) > 0 && Array.isArray(hit.networks) && hit.networks.length) {
       // A VERIFIED live read outranks a manifest claim: union the chains the
       // 402 actually offered into the freshly rebuilt (manifest-shaped) row,
@@ -3245,19 +3287,17 @@ export function carryForwardLearnedQuotes(tools, prev) {
       // other, so a test could not tell either of them from a no-op.
       if (remembered.length) t.payToByNetwork = { ...Object.fromEntries(remembered), ...(t.payToByNetwork || {}) };
     }
-    // A route-level hit may change a current row's verb in exactly two cases:
-    // the row INFERRED its verb (named none), or the hit is a recorded
-    // CORRECTION of this very verb (the probe saw it fail and the other answer).
-    // A learned verb that simply answered on its own row is not evidence about
-    // a sibling verb - that reading is what mislabelled one seller's POST rows.
-    if (!exact && hit.method && hit.method !== t.method
-        && (t.methodInferred === true || hit.methodCorrectedFrom === String(t.method || "GET").toUpperCase())) {
+    // Verb change: see correctsVerb above. A learned verb that simply answered
+    // on its own row is not evidence about a sibling verb - that reading is
+    // what mislabelled one seller's POST rows.
+    if (correctsVerb) {
       if (hit.methodCorrectedFrom) t.methodCorrectedFrom = hit.methodCorrectedFrom;
       t.method = hit.method; t.methodInferred = false;
     }
     // Only claim "live-402" for a price this crawl is actually standing behind:
-    // a row the origin priced today is origin-declared, not live-learned.
-    if (!originPricedThisCrawl) t.quoteSource = "live-402";
+    // a row the origin priced today is origin-declared, not live-learned, and a
+    // verified read never carried a learned price at all.
+    if (fromQuote && !originPricedThisCrawl) t.quoteSource = "live-402";
   }
   return tools;
 }

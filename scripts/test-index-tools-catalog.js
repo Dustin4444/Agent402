@@ -185,6 +185,92 @@ const page = (results, extra = {}) =>
   check(`a remembered row that was never VERIFIED does not add chains to a row that already has them (the old fill-a-gap rule stands)`, unverified.networks.length === 1 && unverified.networks[0] === "eip155:8453");
 }
 
+// A verified live read on an ORIGIN-PRICED row must survive every probe-less
+// rebuild (2026-09-28). Such a row is never re-stamped live-402 (the origin's
+// price is not a learned quote), so the first rebuild after the read copied
+// its chains and payTo once WITHOUT the verification stamp, and the second
+// rebuild found nothing remembered at all: chains [] and payTo gone, the
+// dispatch label flapping between settlement_required and network_unknown,
+// and the wallet the Base scan reads flapping with it. Three rebuilds in a
+// row, because the defect only shows on the second.
+{
+  const { carryForwardLearnedQuotes, networksNeedLiveVerify } = await import("../src/x402-index.js");
+  const day = 86_400_000, now = Date.now();
+  const NETS = ["eip155:8453", "eip155:143", "eip155:137"];
+  const PAYTO = "0x3aEDB825B264e82676A42B1a6d12EA253c0Ce852";
+  const ROUTE = "/api/v1/preflight";
+  // Crawl N: the probe read the route's 402. It adopted the live amount (0.015,
+  // under the drift factor) and stamped the row live-402, as enrichLiveQuotes does.
+  const readAt = now - 2 * day;
+  const crawlN = (over = {}) => [{
+    method: "GET", route: ROUTE, slug: "preflight", price: 0.015, originDeclaredPrice: 0.01,
+    networks: [...NETS], networksVerifiedAt: readAt, liveProvenAt: readAt,
+    quoteSource: "live-402", quoteObservedAt: readAt, payToByNetwork: { "eip155:8453": PAYTO }, ...over,
+  }];
+  // Every later crawl rebuilds the row from the origin's own document: the
+  // declared price, no chains, no wallet.
+  const rebuild = (over = {}) => [{ method: "GET", route: ROUTE, slug: "preflight", price: 0.01, originDeclaredPrice: 0.01, quoteSource: "openapi", ...over }];
+
+  let prev = crawlN();
+  for (let i = 1; i <= 3; i++) {
+    const row = carryForwardLearnedQuotes(rebuild(), { tools: prev })[0];
+    check(`rebuild ${i}: the verified chains survive (got ${JSON.stringify(row.networks)})`,
+      Array.isArray(row.networks) && row.networks.length === 3 && NETS.every((n) => row.networks.includes(n)));
+    check(`rebuild ${i}: the payTo the live 402 named survives (got ${JSON.stringify(row.payToByNetwork)})`, row.payToByNetwork?.["eip155:8453"] === PAYTO);
+    check(`rebuild ${i}: the verification stamp is carried, not reset or lost (got ${row.networksVerifiedAt})`, row.networksVerifiedAt === readAt);
+    check(`rebuild ${i}: the live proof keeps its own timestamp`, row.liveProvenAt === readAt);
+    check(`rebuild ${i}: the origin's declared price still wins over the learned amount (got ${row.price})`, row.price === 0.01 && row.quoteCarriedForward !== true);
+    check(`rebuild ${i}: an origin-priced row is not relabelled live-402 (got ${row.quoteSource})`, row.quoteSource !== "live-402");
+    check(`rebuild ${i}: a fresh verification is left alone by the weekly re-read`, networksNeedLiveVerify(row, now) === false);
+    prev = [row];
+  }
+  // The clock is the READ's, not the rebuild's: a week past the read, the same
+  // carried row asks for a live re-read.
+  check("a week after the read the carried row is re-verified (the clock was never reset)",
+    networksNeedLiveVerify(prev[0], readAt + 8 * day) === true);
+  let aged = crawlN({ networksVerifiedAt: now - 8 * day });
+  for (let i = 1; i <= 3; i++) aged = carryForwardLearnedQuotes(rebuild(), { tools: aged });
+  check(`an EXPIRED verification still carries its chains but asks for a re-read (got needVerify ${networksNeedLiveVerify(aged[0], now)})`,
+    aged[0].networks?.length === 3 && aged[0].networksVerifiedAt === now - 8 * day && networksNeedLiveVerify(aged[0], now) === true);
+
+  // A manifest chain the 402 did not offer is never dropped (union), rebuild after rebuild.
+  let withManifest = crawlN();
+  for (let i = 1; i <= 3; i++) withManifest = carryForwardLearnedQuotes(rebuild({ networks: ["eip155:10"] }), { tools: withManifest });
+  check(`a manifest chain and the verified chains are unioned across rebuilds (got ${JSON.stringify(withManifest[0].networks)})`,
+    withManifest[0].networks.length === 4 && withManifest[0].networks.includes("eip155:10") && NETS.every((n) => withManifest[0].networks.includes(n)));
+
+  // A verified read never becomes a learned PRICE: if the origin stops
+  // declaring one, the row is unpriced (a probe candidate), not carried.
+  let settled = crawlN();
+  settled = carryForwardLearnedQuotes(rebuild(), { tools: settled });
+  const undeclared = carryForwardLearnedQuotes([{ method: "GET", route: ROUTE, slug: "preflight" }], { tools: settled })[0];
+  check(`an origin that stops declaring its price leaves the row unpriced, chains kept (price ${undeclared.price}, source ${undeclared.quoteSource})`,
+    !(Number(undeclared.price) > 0) && undeclared.quoteSource !== "live-402" && undeclared.networks?.length === 3);
+
+  // A verified read is evidence about its own verb: a declared sibling on the
+  // path that was never read gets no chains and no stamp from it. (On the
+  // first rebuild the sibling may take the learned QUOTE's chains through the
+  // route fallback, as before - but never the stamp, which would hide it from
+  // its own weekly read.)
+  const firstPair = carryForwardLearnedQuotes([...rebuild(), { method: "POST", route: ROUTE, slug: "preflight-post", price: 0.01, originDeclaredPrice: 0.01 }], { tools: crawlN() });
+  const firstPost = firstPair.find((r) => r.method === "POST");
+  check(`first rebuild: a declared sibling is not stamped verified by the learned quote's read (got ${firstPost?.networksVerifiedAt})`,
+    firstPost && !(Number(firstPost.networksVerifiedAt) > 0) && networksNeedLiveVerify(firstPost, now) === !!firstPost.networks?.length);
+  let pair = crawlN();
+  pair = carryForwardLearnedQuotes(rebuild(), { tools: pair });
+  pair = carryForwardLearnedQuotes([...rebuild(), { method: "POST", route: ROUTE, slug: "preflight-post", price: 0.01, originDeclaredPrice: 0.01 }], { tools: pair });
+  const post = pair.find((r) => r.method === "POST");
+  check(`a declared sibling verb is not stamped verified by another verb's read (got ${JSON.stringify({ n: post?.networks, v: post?.networksVerifiedAt })})`,
+    post && !(Number(post.networksVerifiedAt) > 0) && !(post.networks?.length));
+
+  // A recorded verb CORRECTION on an origin-priced row survives too: the
+  // document keeps stating GET, the route answers only POST.
+  let corrected = crawlN({ method: "POST", methodCorrectedFrom: "GET" });
+  for (let i = 1; i <= 3; i++) corrected = carryForwardLearnedQuotes(rebuild(), { tools: corrected });
+  check(`a verb correction on an origin-priced row survives three rebuilds (got ${corrected[0].method}, ${JSON.stringify(corrected[0].networks)})`,
+    corrected[0].method === "POST" && corrected[0].methodCorrectedFrom === "GET" && corrected[0].networksVerifiedAt === readAt && corrected[0].networks?.length === 3);
+}
+
 // The reporter's own row is discovered via /.well-known/x402, NOT OpenAPI, and
 // a manifest price is a display STRING ("$0.05"). The first cut of the #1043
 // fix marked only OpenAPI prices as origin-declared and guarded with a bare
