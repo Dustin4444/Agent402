@@ -426,6 +426,40 @@ ok(lc.eligible === true && b.get("https://seller-c.example").byWallet.get(MIXED)
   ok(rankingPayersOf(split, circular) === 6, "with a per-wallet split only the circular wallet's slice is left out");
   const index = readFileSync(new URL("../src/x402-index.js", import.meta.url), "utf8");
   ok(/p = rankingPayersOf\(bazaarQualityFor\(seller\), circular\.wallets\)/.test(index) && /cacheVersion, circular\.version\]\)/.test(index), "routeQuery reads it for every seller, and its scoring memo is keyed on the circular set's version");
+  // ANOTHER WALLET'S VERDICT NEVER MOVES AN HONEST SELLER'S RANK. The review
+  // measured the first cut: a seller with a Solana resource at 200 payers and
+  // a Base resource at 5 ranked on 200 until any unrelated wallet was found
+  // circular, then on 5.
+  const { foldBazaarQuality } = await import("../src/x402-index.js");
+  const W2 = addr("d2"), W3 = addr("d3"), UNRELATED = addr("d9");
+  const fold = (rows) => { const m = new Map(); for (const [q, pay] of rows) foldBazaarQuality(m, "https://seller-s.example", q, pay); return m.get("https://seller-s.example"); };
+  const qs = fold([[{ l30DaysTotalCalls: 900, l30DaysUniquePayers: 200 }, null], [{ l30DaysTotalCalls: 40, l30DaysUniquePayers: 5 }, W2]]);
+  ok(rankingPayersOf(qs, new Set()) === 200 && rankingPayersOf(qs, new Set([UNRELATED])) === 200, "an origin with no circular wallet ranks on its own payers30d (200) whatever other wallet is circular");
+  ok(rankingPayersOf(qs, new Set([W2])) === 200 && !Object.keys(qs).includes("payersOffBase"), "its OWN Base wallet circular: the 5 measured there leave, the 200 on a resource with no Base payTo stay (and that figure is not a public column)");
+  const qb = fold([[{ l30DaysTotalCalls: 40, l30DaysUniquePayers: 30 }, W2], [{ l30DaysTotalCalls: 10, l30DaysUniquePayers: 4 }, W3]]);
+  ok(rankingPayersOf(qb, new Set([UNRELATED])) === 30 && rankingPayersOf(qb, new Set([W2])) === 4, "a split origin untouched by an unrelated verdict (30), and only its own circular slice left out when it has one (4)");
+  // Past the per-origin wallet cap a resource's payers are in payers30d and in
+  // no split: an unrelated verdict must not drop them either.
+  const capped = fold([...Array.from({ length: 8 }, (_, i) => [{ l30DaysTotalCalls: 3, l30DaysUniquePayers: 1 }, "0x" + (0xe00 + i).toString(16).padStart(40, "0")]), [{ l30DaysTotalCalls: 300, l30DaysUniquePayers: 100 }, addr("e9")]]);
+  ok(Object.keys(capped.byPayTo).length === 8 && rankingPayersOf(capped, new Set([UNRELATED])) === 100, "a resource past the 8-wallet cap keeps its 100 payers in the tie-break beside an unrelated circular wallet");
+  // Through routeQuery itself: two equal matches, the one with more payers
+  // first, with an unrelated circular wallet on the leaderboard.
+  const { routeQuery, _cacheForTests, _setBazaarQualityForTest } = await import("../src/x402-index.js");
+  LB._resetLeaderboardCacheForTests();
+  writeFileSync(process.env.LEADERBOARD_SNAPSHOT_FILE, JSON.stringify({ spec: "x402-leaderboard/1", asOf: new Date(NOW).toISOString(), leaderboard: [{ rank: 1, homepage: "https://seller-z.example", origins: ["https://seller-z.example"], wallet: UNRELATED, wallets: [UNRELATED], callsSettled: 90, uniqueBuyers: 9 }], walletEvidence: { [UNRELATED]: { callsSettled: 1, uniqueBuyers: 1, grossCallsSettled: 90, grossUniqueBuyers: 9, selfFundedCalls: 89, circular: true, lastCircularAt: new Date().toISOString(), origins: [] } } }));
+  LB.startLeaderboardRefresh({ intervalMs: 3_600_000, firstDelayMs: 3_600_000 });
+  ok(LB.getLeaderboardCircularWallets().wallets.has(UNRELATED), "(the leaderboard holds one unrelated circular wallet)");
+  const cache = _cacheForTests(); cache.clear();
+  const seedTool = (origin) => cache.set(origin, { manifest: { name: origin, homepage: origin }, openapiSummary: null, tools: [{ seller: origin, method: "POST", route: "/api/ocr", slug: "ocr", name: "ocr", description: "ocr a thing", category: "vision", tags: ["ocr"], price: 0.003 }], fetchedAt: Date.now(), error: null, history: [1, 1, 1, 1, 1] });
+  seedTool("https://seller-s.example"); seedTool("https://seller-t.example");
+  _setBazaarQualityForTest("https://seller-s.example", qs);
+  _setBazaarQualityForTest("https://seller-t.example", fold([[{ l30DaysTotalCalls: 400, l30DaysUniquePayers: 50 }, W3]]));
+  const ctx = { baseUrl: "https://agent402.tools", catalog: {}, prices: {}, network: "base", toolCount: 0, walletName: "agent402.base.eth" };
+  const order = routeQuery({ query: "ocr", top: 10, include: "external", ...ctx }).results.filter((x) => /seller-[st]\.example/.test(x.seller)).map((x) => x.seller);
+  ok(order[0] === "https://seller-s.example" && order.length === 2, `routeQuery: the seller with 200 payers (one Solana resource) still ranks first beside an unrelated circular wallet (got ${order.join(", ")})`);
+  cache.clear(); _setBazaarQualityForTest("https://seller-s.example", null); _setBazaarQualityForTest("https://seller-t.example", null);
+  LB.stopLeaderboardRefresh();
+  LB._resetLeaderboardCacheForTests();
 }
 
 // --- 9. The operator's clearance, through the leaderboard's getters -----------------

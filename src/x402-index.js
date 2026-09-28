@@ -1101,18 +1101,29 @@ export function bazaarQualityFor(origin) {
  * self-funded (src/seller-funding.js) those counts are the same self-payments,
  * so the slice measured at that wallet is left out. Null when nothing measured
  * remains: unmeasured, never zero.
+ *
+ * ONLY AN ORIGIN MEASURED AT A CIRCULAR WALLET IS TOUCHED. Every other origin
+ * reads its payers30d exactly as before, whatever other wallets are circular:
+ * another seller's verdict must never move this one's rank (the first cut
+ * replaced every split origin's figure with its Base split, which dropped the
+ * payers of its non-Base resources as soon as any wallet anywhere was
+ * circular). For an origin that IS measured at a circular wallet, what stays
+ * is the largest figure measured anywhere else: its other Base wallets, and
+ * its resources declaring no Base payTo at all (`payersOffBase`), which cannot
+ * be paid at that wallet.
  */
 export function rankingPayersOf(q, circular = null) {
   if (!q || typeof q !== "object") return null;
-  const isCircular = (w) => !!(circular && typeof circular.has === "function" && circular.has(String(w).toLowerCase()));
-  if (!circular || !circular.size) return q.payers30d ?? null;
-  const split = q.byPayTo && typeof q.byPayTo === "object" ? Object.entries(q.byPayTo) : null;
-  if (split && split.length) {
-    let best = null;
-    for (const [w, v] of split) if (!isCircular(w)) best = Math.max(best ?? 0, Number(v?.payers) || 0);
-    return best;
-  }
-  return (Array.isArray(q.payTos) ? q.payTos : []).some(isCircular) ? null : (q.payers30d ?? null);
+  if (!circular || typeof circular.has !== "function" || !circular.size) return q.payers30d ?? null;
+  const isCircular = (w) => circular.has(String(w).toLowerCase());
+  const split = q.byPayTo && typeof q.byPayTo === "object" ? Object.entries(q.byPayTo) : [];
+  const measuredAtCircular = split.some(([w]) => isCircular(w)) || (Array.isArray(q.payTos) ? q.payTos : []).some(isCircular);
+  if (!measuredAtCircular) return q.payers30d ?? null;
+  let best = null;
+  for (const [w, v] of split) if (!isCircular(w)) best = Math.max(best ?? 0, Number(v?.payers) || 0);
+  const off = Number(q.payersOffBase);
+  if (off > 0) best = Math.max(best ?? 0, off);
+  return best;
 }
 export function bazaarQualityEntries() { return [...bazaarQualityByOrigin.entries()]; }
 export function _setBazaarQualityForTest(origin, q) { if (q) bazaarQualityByOrigin.set(origin, q); else bazaarQualityByOrigin.delete(origin); }
@@ -1130,6 +1141,11 @@ export function _setBazaarQualityForTest(origin, q) { if (q) bazaarQualityByOrig
 // the floor for a payment to another. NON-ENUMERABLE on purpose: this object
 // is served as-is as `bazaar` on public index and route rows, and the split is
 // router input, not a column.
+//
+// `payersOffBase` (2026-09-28, non-enumerable for the same reason): the largest
+// payer count among the origin's resources that declare NO Base payTo. Those
+// cannot be paid at any Base wallet, so no Base wallet's verdict applies to
+// them (rankingPayersOf).
 export const BAZAAR_QUALITY_MAX_PAYTOS = 8;
 export function foldBazaarQuality(map, origin, q, basePayTo = null) {
   if (!q || typeof q !== "object") return;
@@ -1137,10 +1153,12 @@ export function foldBazaarQuality(map, origin, q, basePayTo = null) {
   const last = typeof q.lastCalledAt === "string" ? q.lastCalledAt : null;
   const cur = map.get(origin) || { calls30d: 0, payers30d: 0, lastCalledAt: null, payTos: [] };
   if (!cur.byPayTo || typeof cur.byPayTo !== "object") Object.defineProperty(cur, "byPayTo", { value: {}, enumerable: false, writable: true, configurable: true });
+  if (!Object.hasOwn(cur, "payersOffBase")) Object.defineProperty(cur, "payersOffBase", { value: 0, enumerable: false, writable: true, configurable: true });
   cur.calls30d += calls;
   cur.payers30d = Math.max(cur.payers30d, payers);
   if (last && (!cur.lastCalledAt || last > cur.lastCalledAt)) cur.lastCalledAt = last;
   const w = typeof basePayTo === "string" && /^0x[0-9a-f]{40}$/i.test(basePayTo) ? basePayTo.toLowerCase() : null;
+  if (!w) cur.payersOffBase = Math.max(cur.payersOffBase, payers);
   if (!Array.isArray(cur.payTos)) cur.payTos = [];
   if (w && !cur.payTos.includes(w) && cur.payTos.length < BAZAAR_QUALITY_MAX_PAYTOS) cur.payTos.push(w);
   if (w && calls > 0 && (Object.hasOwn(cur.byPayTo, w) || Object.keys(cur.byPayTo).length < BAZAAR_QUALITY_MAX_PAYTOS)) {
