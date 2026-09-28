@@ -368,18 +368,25 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
   const tooShort = await run(reqWith(hdr(nowS() + 8)));
   ok(tooShort.err?.statusCode === 504 && calls.length === 0 && /Too little of your payment authorization/.test(tooShort.err.message) && /Nothing was spent/.test(tooShort.err.message), `an 8 s authorization (2 s past the settle rule, under the ${EVM_SELLER_ALLOWANCE_MS} ms allowance): refused 504 before any seller is paid (${tooShort.err?.statusCode}, paid ${calls.length})`);
 
-  for (const w of [12, 13]) {
+  for (const w of [15, 16]) {
     reset({ d: { "https://ext.example/api/zk-prove": 1000 } });
     const vb = nowS() + w;
     const r = await run(reqWith(hdr(vb)));
     const left = leftAtSettle(vb);
-    ok(!r.err && calls.length === 1 && calls[0].timeoutMs === undefined && left >= SETTLE_RULE_SECONDS, `a ${w} s authorization, a 1 s seller: served with the payer's own seller timeout, ${left.toFixed(1)} s left at settle (${r.err?.statusCode ?? "ok"})`);
+    ok(!r.err && calls.length === 1 && calls[0].timeoutMs === undefined && left >= SETTLE_RULE_SECONDS && Math.abs(calls[0].signBy - ((vb - SETTLE_RULE_SECONDS) * 1000 - EVM_SELLER_ALLOWANCE_MS)) < 50, `a ${w} s authorization, a 1 s seller: served with the payer's own seller timeout, ${left.toFixed(1)} s left at settle (${r.err?.statusCode ?? "ok"})`);
   }
 
-  reset({ resolve: 17_000, d: { "https://ext.example/api/zk-prove": 1000 } });
+  // 12 s: 6 s of settleable life, under the allowance (the settle margin plus a
+  // seller's answer) - refused before any seller is signed for.
+  reset({ d: { "https://ext.example/api/zk-prove": 3000 } });
+  const vb12 = nowS() + 12;
+  const tight = await run(reqWith(hdr(vb12)));
+  ok(tight.err?.statusCode === 504 && calls.length === 0, `a 12 s authorization, a 3 s seller: refused 504 with nothing paid (a seller that takes 3 s would leave the payment unsettleable) (${tight.err?.statusCode ?? "ok"}, paid ${calls.length})`);
+
+  reset({ resolve: 15_000, d: { "https://ext.example/api/zk-prove": 1000 } });
   const vb17 = nowS() + 30;
   const slowResolve = await run(reqWith(hdr(vb17)));
-  ok(!slowResolve.err && calls.length === 1 && leftAtSettle(vb17) >= SETTLE_RULE_SECONDS, `a 30 s authorization, 17 s of resolution, a 1 s seller: served (${slowResolve.err?.statusCode ?? "ok"}, ${leftAtSettle(vb17).toFixed(1)} s left at settle)`);
+  ok(!slowResolve.err && calls.length === 1 && leftAtSettle(vb17) >= SETTLE_RULE_SECONDS, `a 30 s authorization, 15 s of resolution, a 1 s seller: served (${slowResolve.err?.statusCode ?? "ok"}, ${leftAtSettle(vb17).toFixed(1)} s left at settle)`);
 
   reset({ list: [seller("a"), seller("b")], resolve: 12_000, d: { "https://a.example/api/zk-prove": 8000, "https://b.example/api/zk-prove": 1000 } });
   const vbAB = nowS() + 30;

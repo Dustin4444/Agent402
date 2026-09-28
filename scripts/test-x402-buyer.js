@@ -109,6 +109,22 @@ ok(t3 && /no \w+\/exact\/USDC accept/i.test(t3.message), "F2: non-mainnet-USDC a
   ok(raw && !raw.message.includes("0xAbCdEfAbCdEfAbCdEfAbCdEfAbCdEfAbCdEfAbCd"),
     "payTo binding: the refusal never echoes the seller's raw payTo string back (injection surface)");
 
+  // signBy: a payment the buyer could no longer settle is never signed. The
+  // bound is re-checked after the bare 402 read, just before signing.
+  {
+    let fetches = 0;
+    globalThis.fetch = async () => { fetches++; return challenge([payToEntry(PROVEN)]); };
+    let late = null;
+    try { await payX402("https://seller.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, signBy: Date.now() - 1 }); } catch (e) { late = e; }
+    ok(late && late.statusCode === 504 && /Nothing was signed/.test(late.message) && fetches === 1, `signBy: past its sign-by moment the payer refuses 504 after the bare 402 and sends no paid request (fetches ${fetches}, ${late?.statusCode})`);
+    ok(_spentThisWindow() === 0n, "signBy: a refused late signature holds no spend budget");
+    fetches = 0;
+    let slow = null;
+    globalThis.fetch = async () => { fetches++; await new Promise((r) => setTimeout(r, 60)); return challenge([payToEntry(PROVEN)]); };
+    try { await payX402("https://seller.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, signBy: Date.now() + 20 }); } catch (e) { slow = e; }
+    ok(slow && slow.statusCode === 504 && fetches === 1, `signBy: a seller whose bare 402 takes past the sign-by moment is not paid (fetches ${fetches}, ${slow?.statusCode})`);
+  }
+
   // MATCH (case-insensitive, EVM): must NOT be refused for payTo reasons.
   globalThis.fetch = async () => challenge([payToEntry(PROVEN.toUpperCase().replace("0X", "0x"))]);
   let ma = null;

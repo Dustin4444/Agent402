@@ -135,10 +135,20 @@ export function evmCredentialSettleableMs(req, { nowMs = Date.now() } = {}) {
   return exp.expiresAt * 1000 - nowMs - SETTLE_RULE_SECONDS * 1000;
 }
 
-/** A handler that pays an outside seller on a buyer's behalf pays only while
+/** A handler that pays an outside seller on a buyer's behalf SIGNS only while
  *  the buyer's authorization keeps at least this much settleable life: the
- *  seller's answer, then the settlement. */
-export const EVM_SELLER_ALLOWANCE_MS = 3000;
+ *  settle margin (SETTLE_MARGIN_SECONDS) plus a few seconds for the seller to
+ *  answer. Checked before resolution AND again at the moment of signing
+ *  (evmSellerSignBy), so time spent reading the seller's bare 402 cannot push
+ *  a signature past it. */
+export const EVM_SELLER_ALLOWANCE_MS = 8000;
+
+/** The epoch ms after which a seller payment made for this request must not be
+ *  signed (null when the request carries no EVM authorization). */
+export function evmSellerSignBy(req, { nowMs = Date.now() } = {}) {
+  const ms = evmCredentialSettleableMs(req, { nowMs });
+  return ms == null ? null : nowMs + ms - EVM_SELLER_ALLOWANCE_MS;
+}
 
 /**
  * Milliseconds of this request's EVM authorization left for work that must end

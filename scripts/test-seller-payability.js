@@ -231,11 +231,11 @@ function toolWith({ bare, pay, spendOk = true, bareDelayMs = 0, bareAdvanceMs = 
   ok(eTiny?.statusCode === 504 && /Nothing was spent/.test(eTiny.message) && tiny.spent.payOpts.length === 0 && tiny.spent.adjust.at(-1) === 0, `an 8 s authorization: no seller is paid, the day's booking is given back, 504 uncharged (${eTiny?.statusCode})`);
   // Only the PAID leg is bounded by the buyer's authorization. The unpaid
   // call spends nothing, so it keeps its own timeout: a seller that takes 3 s
-  // to answer it under a 12 s window is checked in full, and the paid leg
-  // still ends inside the window.
+  // to answer it under a 16 s window is checked in full, and the paid leg
+  // still ends inside the window and must be signed by its sign-by moment.
   const slowProbe = toolWith({ bareDelayMs: 3_000 });
-  const rSlow = await slowProbe.tool.handler({ url: "https://s.example" }, evmReq(NOW_S + 12));
-  ok(rSlow.unpaidCall.status === 402 && !rSlow.unpaidCall.error && rSlow.payable === true && slowProbe.spent.payOpts[0]?.timeoutMs === 2_000, `a 12 s authorization and a seller that answers the unpaid call in 3 s: checked in full, the paid leg bounded by the window (unpaid ${rSlow.unpaidCall.status ?? rSlow.unpaidCall.error}, payable ${rSlow.payable}, paid timeout ${slowProbe.spent.payOpts[0]?.timeoutMs})`);
+  const rSlow = await slowProbe.tool.handler({ url: "https://s.example" }, evmReq(NOW_S + 16));
+  ok(rSlow.unpaidCall.status === 402 && !rSlow.unpaidCall.error && rSlow.payable === true && slowProbe.spent.payOpts[0]?.timeoutMs === 6_000 && slowProbe.spent.payOpts[0]?.signBy === (NOW_S + 16 - 6) * 1000 - 8_000, `a 16 s authorization and a seller that answers the unpaid call in 3 s: checked in full, the paid leg bounded by the window (unpaid ${rSlow.unpaidCall.status ?? rSlow.unpaidCall.error}, payable ${rSlow.payable}, paid timeout ${slowProbe.spent.payOpts[0]?.timeoutMs}, signBy ${slowProbe.spent.payOpts[0]?.signBy})`);
   // Control: an unpaid call that uses up the window still pays nobody.
   const spentProbe = toolWith({ bareAdvanceMs: 5_000 });
   let eSpent = null; try { await spentProbe.tool.handler({ url: "https://s.example" }, evmReq(NOW_S + 12)); } catch (x) { eSpent = x; }

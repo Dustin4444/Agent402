@@ -628,7 +628,7 @@ export function neverLeftUs(err) {
  * A 200 on the bare request means the endpoint is free — returned with no
  * spend. Only a 402 triggers a payment; anything else is a 502.
  */
-export async function payX402(url, { maxAtomic, method = "GET", body, headers = {}, timeoutMs = 20000, maxBytes = DEFAULT_MAX_BYTES, trusted = false, chain = "base", provenPayTo = null, evidenceWallets = null, sellerProof = null, notDebited = null, allowUnproven = false, refusalMaxWaitMs = refusalMaxWaitMsDefault(), memoizeDelivery = false, slug = null } = {}) {
+export async function payX402(url, { maxAtomic, method = "GET", body, headers = {}, timeoutMs = 20000, maxBytes = DEFAULT_MAX_BYTES, trusted = false, chain = "base", provenPayTo = null, evidenceWallets = null, sellerProof = null, notDebited = null, allowUnproven = false, refusalMaxWaitMs = refusalMaxWaitMsDefault(), memoizeDelivery = false, slug = null, signBy = null } = {}) {
   assertSigningAllowed("an external x402 payment");
   if (maxAtomic == null) throw bad("payX402 requires maxAtomic (the margin-guard ceiling)", 500);
   const chainCfg = BUYER_CHAINS[chain];
@@ -879,6 +879,11 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
     // own entry below - the facilitator deep-equals the echo against the
     // seller's requirements, and maxTimeoutSeconds is one of the compared
     // fields, while the signature itself covers only the authorization.
+    // signBy: the caller's buyer can no longer settle a payment signed after
+    // this moment (route-execute / seller-payability hand in the EVM buyer's
+    // validBefore less the settle rule and the seller allowance). Refused
+    // before anything is signed, so nothing is committed and the hold goes back.
+    if (Number.isFinite(signBy) && Date.now() > signBy) throw bad("Too little of the buyer's payment authorization is left to pay this seller and still settle. Nothing was signed.", 504);
     const signAccept = chain === "base" ? capEvmValidity(signable) : signable;
     const payload = chain === "solana"
       ? await (await import("./solana-buyer.js")).createSvmPaymentPayload(buyer.signer, { ...paymentRequired, accepts: [signable] })

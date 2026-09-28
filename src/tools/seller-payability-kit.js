@@ -46,7 +46,7 @@
 // The target must also pass the SSRF guard and answer a real 402. The seller's
 // response body is third-party text, so it is truncated and marked untrusted.
 import { markUntrusted } from "./provenance.js";
-import { evmCredentialBudgetMs, evmCredentialSettleableMs, EVM_SELLER_ALLOWANCE_MS } from "../evm-validity.js";
+import { evmCredentialBudgetMs, evmCredentialSettleableMs, evmSellerSignBy, EVM_SELLER_ALLOWANCE_MS } from "../evm-validity.js";
 import { maySpend as realMaySpend, noteSpend as realNoteSpend, adjustSpend as realAdjustSpend } from "../external-spend-guard.js";
 import { usdcDomainVerdict, usdcDomainMismatchDetail } from "../evm-usdc-domain.js";
 import { payerFromRequest } from "../payer.js";
@@ -286,6 +286,7 @@ export function buildSellerPayabilityTool({
           // payer can push the handler past its deadline.
           timeoutMs: Math.max(1_000, Math.min(PAY_TIMEOUT_MS, deadlineMs - (now() - t0))),
           refusalMaxWaitMs: Math.max(0, deadlineMs - (now() - t0)),
+          ...(evmSellerSignBy(req, { nowMs: now() }) != null ? { signBy: evmSellerSignBy(req, { nowMs: now() }) } : {}),
         });
         paid = { status: 200 };
         receipt = out?.receipt ?? null;

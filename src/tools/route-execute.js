@@ -23,7 +23,7 @@ import { findTools } from "../find.js";
 import { judgeTool, decide } from "../tool-judge.js";
 import { observeDelivery } from "../response-observation.js";
 import { isIdentityBoundRoute } from "../payments.js";
-import { evmCredentialBudgetMs, evmCredentialSettleableMs, EVM_SELLER_ALLOWANCE_MS } from "../evm-validity.js";
+import { evmCredentialBudgetMs, evmCredentialSettleableMs, evmSellerSignBy, EVM_SELLER_ALLOWANCE_MS } from "../evm-validity.js";
 
 // Two execution tiers, both from buildRouteExecuteTool. The tier a buyer needs
 // is quoted by /api/route (routeExecuteHint below), so there's no guessing:
@@ -402,10 +402,12 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           // least 6 s ahead (src/evm-validity.js), so a seller is paid only
           // while at least EVM_SELLER_ALLOWANCE_MS more remains; below that
           // the buy is refused here, before any booking or signature, 504 and
-          // uncharged. The seller call itself keeps the payer's own timeout:
-          // once the payment header has gone out a shorter cut prevents no
-          // payment, it only discards the answer. A stock client (300 s)
-          // never meets this.
+          // uncharged. The same bound is handed to the payer as `signBy`, which
+          // re-checks it at the moment of signing, so a slow bare 402 from the
+          // seller cannot push the signature past it. The seller call itself
+          // keeps the payer's own timeout: once the payment header has gone out
+          // a shorter cut prevents no payment, it only discards the answer. A
+          // stock client (300 s) never meets this.
           if (tempoBudgetMs == null) {
             const settleableMs = evmCredentialSettleableMs(req);
             if (settleableMs != null && settleableMs < EVM_SELLER_ALLOWANCE_MS) {
@@ -476,7 +478,7 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
               // which is the thing being bounded.
               throw lastErr || bad(`Tried ${__paidAttempts} paid seller(s) for this task without a delivered answer. Refusing to sign another payment for one request.`, 502);
             }
-            paid = await payExternal(extUrl, { method: extMethod, body: extBody, maxAtomic: BigInt(Math.round(cap * 1e6)), chain, provenPayTo: ext.provenPayTo || null, evidenceWallets: ext.evidenceWallets || null, allowUnproven: ext.unproven === true, refusalMaxWaitMs: refusalBudgetMs(), ...(tempoBudgetMs != null ? { timeoutMs: Math.max(3000, remainingMs()) } : {}) });
+            paid = await payExternal(extUrl, { method: extMethod, body: extBody, maxAtomic: BigInt(Math.round(cap * 1e6)), chain, provenPayTo: ext.provenPayTo || null, evidenceWallets: ext.evidenceWallets || null, allowUnproven: ext.unproven === true, refusalMaxWaitMs: refusalBudgetMs(), ...(tempoBudgetMs == null && evmSellerSignBy(req) != null ? { signBy: evmSellerSignBy(req) } : {}), ...(tempoBudgetMs != null ? { timeoutMs: Math.max(3000, remainingMs()) } : {}) });
           } catch (e) {
             // WHAT STAYS BOOKED IS WHAT MAY HAVE LEFT THE WALLET. The payer
             // stamps `committed:true` on every failure after the payment
