@@ -110,7 +110,7 @@ ok(r.checked === 5, "checked count matches requested slugs");
   for (let i = 0; i < 12; i++) { t += 5 * 60 * 1000 / 2; await pub(); } // every 2.5 min for 30 min
   ok(runs === 1 || runs === 2, `a public poller every 2.5 minutes for 30 minutes causes at most one more run (runs=${runs})`);
   const before = runs;
-  t += 60 * 1000;
+  t += 6 * 60 * 1000; // past the operator floor, inside the public window
   await pub({ fresh: "1" });
   ok(runs === before, "?fresh=1 from an unauthenticated caller is ignored (served from cache)");
   const c = await pub();
