@@ -4627,11 +4627,20 @@ jobs:
             # ClawHub's reusable workflow, whose actions are tag-pinned, and this
             # repository requires full-SHA pinning for every action - so the token
             # path stays until ClawHub pins its workflow.
-            npx -y clawhub@0.23.3 package publish ./openclaw \
+            # A version still under ClawHub review is hidden from inspect, so a
+            # re-run reaches publish and is refused "already exists": that is
+            # the no-op the check above means, not a failure (run 36433008854).
+            if OUT=$(npx -y clawhub@0.23.3 package publish ./openclaw \
               --manual-override-reason "repository policy requires SHA-pinned actions; ClawHub's reusable OIDC workflow is tag-pinned" \
               --source-repo "$GITHUB_REPOSITORY" --source-commit "$GITHUB_SHA" --source-ref "$GITHUB_REF_NAME" --source-path openclaw \
-              --changelog "agent402-openclaw $VERSION (see the package README and CHANGELOG at https://agent402.tools/changelog)"
-            echo "published agent402-openclaw@$VERSION → https://clawhub.ai/plugins/agent402-openclaw (hidden until ClawHub review completes)"
+              --changelog "agent402-openclaw $VERSION (see the package README and CHANGELOG at https://agent402.tools/changelog)" 2>&1); then
+              printf '%s\n' "$OUT"
+              echo "published agent402-openclaw@$VERSION → https://clawhub.ai/plugins/agent402-openclaw (hidden until ClawHub review completes)"
+            elif printf '%s' "$OUT" | grep -q "already exists"; then
+              echo "agent402-openclaw@$VERSION is already on ClawHub (hidden while under review) — nothing to do"
+            else
+              printf '%s\n' "$OUT"; rm -f "$CLAWHUB_CONFIG_PATH"; exit 1
+            fi
           fi
           rm -f "$CLAWHUB_CONFIG_PATH"
 
