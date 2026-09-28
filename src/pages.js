@@ -810,7 +810,7 @@ export function openapiSpec(baseUrl, catalog) {
                 : { schema: responseSchemaFor(path, discovery?.output?.example), example: discovery?.output?.example ?? {} },
           },
         },
-        402: { description: "Payment Required - x402 payment requirements (PAYMENT-REQUIRED header) and MPP challenges (WWW-Authenticate: Payment)" },
+        402: { description: "Payment Required - x402 payment requirements in the PAYMENT-REQUIRED header, mirrored in the JSON body, and MPP challenges (WWW-Authenticate: Payment)" },
         400: { description: "Invalid input" },
       },
       "x-price": tool.price,

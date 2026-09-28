@@ -13,8 +13,12 @@ The payer needs **only USDC on Base, Solana, Polygon, Arbitrum, Monad, Celo, Ava
 
 ## What the 402 carries
 
-The payment requirements ride in the `PAYMENT-REQUIRED` response header (base64 JSON);
-the body is `{}` by design, so read the header, never the body. Every route's challenge is
+The payment requirements ride in the `PAYMENT-REQUIRED` response header (base64 JSON),
+which is where the x402 v2 spec puts them and where clients should keep reading them: the
+header is authoritative. The JSON body carries the same PaymentRequired object (`x402Version`,
+`error`, `resource`, `accepts`, `extensions`) beside our own fields (`altPayment` on tools that
+take proof-of-work, and `reason`, `hint` and `retry` when a payment was refused), so a reader of
+either finds the offer and the two never disagree. Every route's challenge is
 valid under `@x402/core`'s own schemas (CI runs all 500+ routes through the official parser),
 and it carries a typed output schema twice: inside the `bazaar` discovery extension (with the
 input schema and an example) and as `accepts[0].outputSchema` on the first accept, so a client

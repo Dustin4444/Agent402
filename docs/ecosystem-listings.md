@@ -244,7 +244,7 @@ that takes a GitHub repo URL; no PR, no fork.
 Merit Systems' x402 ecosystem explorer; solana.com/x402 points buyers here.
 Registration is self-serve and automatic: submit a URL, and if it returns a
 valid x402 payment-required response it is indexed. Our 402s are v2
-(base64 PAYMENT-REQUIRED header) and advertise all twelve chains (Base, Solana,
+(base64 PAYMENT-REQUIRED header, mirrored in the JSON body) and advertise all twelve chains (Base, Solana,
 Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar, Algorand, Robinhood Chain), so a re-crawl also refreshes any stale listing.
 
 **Steps**

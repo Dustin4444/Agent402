@@ -2,7 +2,9 @@
 //
 // @x402/express answers every rejected payment with a bare `res.status(402)
 // .json({})` - the reason is discarded inside the middleware and never reaches
-// us or the buyer. Our only hooks (onVerifyFailure / onAfterVerify) fire at the
+// us or the buyer. (This server then copies the PAYMENT-REQUIRED offer into
+// that body, src/payment-required-body.js, so it carries the offer; it still
+// carries no reason unless src/verify-hint.js names one.) Our only hooks (onVerifyFailure / onAfterVerify) fire at the
 // FACILITATOR stage, so anything refused before that - a header that will not
 // decode, a scheme or chain we do not sell on, an amount under the price, an
 // expired authorization, a payload built against different requirements - is
@@ -113,6 +115,8 @@ const RAIL_FAMILY_NAMES = { algorand: "Algorand", solana: "Solana", stellar: "St
  * blamed their wallet ("Recent payments from this wallet failed to settle") -
  * measured 2026-09-28: one outside buyer served 175 times, refused 325 times,
  * with nothing wrong on their side. Null for every other settle outcome.
+ * A settle refusal carries PAYMENT-RESPONSE and no PAYMENT-REQUIRED header,
+ * so the 402 body mirror (src/payment-required-body.js) adds no offer to it.
  */
 export function classifySettlementRefusal(paymentResponseHeader) {
   const receipt = decodeB64Json(paymentResponseHeader);
