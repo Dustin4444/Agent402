@@ -205,8 +205,8 @@ export function buildSellerPayabilityTool({
     //
     // Tempo buyers have no x402 header (the gate strips it), hence the
     // fallback chain; the IP last so nobody is unkeyed. The Tempo key is the
-    // sender recovered from the signed transaction, never the credential's
-    // client-supplied `source`.
+    // sender the gate VERIFIED (null when unproven, so the IP applies), never
+    // the credential's client-supplied `source`.
     const spendPayer = payerFromRequest(req)
       || (req?.mppTempoSender ? `tempo:${req.mppTempoSender}` : null)
       || (req?.ip ? `ip:${req.ip}` : null);
@@ -326,6 +326,9 @@ export function buildSellerPayabilityTool({
     slug: "seller-payability",
     aliases: ["payability-check", "can-i-pay-this", "seller-payment-check", "x402-payability"],
     category: "x402",
+    // Pays the seller from our own Base wallet inside the handler, before the
+    // buyer's payment settles. Read by spendsBeforeSettlement.
+    spendsOwnWallet: true,
     price: "$0.10",
     description:
       "Buy one call from an x402 seller endpoint right now and report exactly what happened: the unpaid call's status, the 402 decoded (accepts, chains, payTo, asset, price), whether the accept's EIP-712 domain name matches the token it names (the defect that silently makes a whole catalog unpayable), whether a stock client's signed payment was accepted, the settlement receipt and transaction, a slice of the response body, and the time each leg took. Ends in plain-English flags, never a score. This is the live counterpart to seller-dossier, which reports what we already know: this one spends real USDC from our own wallet to find out. Point it at your own endpoint before you launch, or at a seller you are about to route money to. Up to $0.02 of the seller's price per check.",

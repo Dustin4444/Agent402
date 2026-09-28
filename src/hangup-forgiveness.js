@@ -28,8 +28,8 @@
 //     this module; running out of budget only puts the cost back on the
 //     buyer, where the refund pipeline's own caps and human review apply.
 //
-// Keys are verified identities only: the signed EIP-3009 payer, the sender
-// RECOVERED from a Tempo transaction's signature, or the credits key, plus
+// Keys are verified identities only: the signed EIP-3009 payer, the Tempo
+// sender the gate VERIFIED (req.mppTempoSender), or the credits key, plus
 // always the client IP. A client-supplied field (a Tempo credential's
 // `source`) is never a key, because choosing a fresh key per request is how a
 // per-key bound is walked around. A key is held only as a keyed digest of that

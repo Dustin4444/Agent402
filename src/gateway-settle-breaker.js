@@ -64,9 +64,10 @@ let globalTrips = 0;
 
 /** The identity a gateway call is counted under. Same derivation as the
  *  composite guard in server.js: the signed EVM payer, else the Tempo sender
- *  RECOVERED from the signed transaction (src/mpp-tempo.js sets
- *  req.mppTempoSender; the credential's own `source` is client-supplied and a
- *  caller could name a fresh one per request, so it is never a key), else the
+ *  the gate VERIFIED (src/mpp-tempo.js sets req.mppTempoSender, null for a
+ *  sender neither the signature nor the chain proved; the credential's own
+ *  `source` is client-supplied and a caller could name a fresh one per
+ *  request, so it is never a key), else the
  *  credits key, else the client IP. Null only for an in-process caller with no
  *  request (route-execute dispatching a flat tier), which the global breaker
  *  still covers. */

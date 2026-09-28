@@ -84,6 +84,16 @@ export function isLongRunningSlug(slug) {
   return EXPENSIVE_COMPOSITE_SLUGS.has(slug) || LONG_RUNNING_SLUGS.has(slug);
 }
 
+/** True when a route's handler spends before the buyer's own payment settles:
+ *  it pays an outside seller from one of this server's wallets (the tool def
+ *  carries `spendsOwnWallet: true` - route-execute's tiers, seller-payability)
+ *  or it is long-running composite work (above). A Tempo pull credential
+ *  reaches such a route only when the gate has verified its sender
+ *  (src/mpp-tempo.js, verifiedSenderRequired). */
+export function spendsBeforeSettlement(def) {
+  return !!def && (def.spendsOwnWallet === true || isLongRunningSlug(def.slug));
+}
+
 /** True if this payer is currently blocked (checked BEFORE the handler spends). */
 export function compositeGuardBlocked(payer) {
   if (!payer) return false;

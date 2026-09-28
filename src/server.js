@@ -40,7 +40,7 @@ import { payerFromRequest, payerFromPaymentResponse, paymentHeaderOf, paymentIde
 import { runInAbortableScope, abortInFlightComposites, installDrainAwareFetch, isDrainAbort } from "./drain-abort.js";
 import { startSolanaLeaderboard, getSolanaLeaderboardSnapshot, solanaEvidenceByOrigin, SOLANA_WINDOWS } from "./solana-leaderboard.js";
 import { creditFromTx as solanaCreditFromTx } from "./solana-buyer.js";
-import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpendFailure, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS, isLongRunningSlug, _compositeGuardState, compositeUsageSnapshot, withCompositeContext } from "./composite-spend-guard.js";
+import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpendFailure, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS, isLongRunningSlug, spendsBeforeSettlement, _compositeGuardState, compositeUsageSnapshot, withCompositeContext } from "./composite-spend-guard.js";
 import { gatewaySettleBreakerCheck } from "./gateway-settle-breaker.js";
 // Single-upstream-call routes that run long (40 s+): EVM exact only, like the
 // composites (settle-after on SVM/AVM/Tempo is work done, never charged), but
@@ -190,8 +190,9 @@ function recordHangupOutcome(req, res) {
   console.warn(`[hangup] NOT CHARGED: client closed the connection before the answer was ready (${req.method} ${req.path} rail=${rail} ${work}) - payment not settled; ${why}`);
 }
 // The keys a forgiveness ticket is counted under: the verified payer (signed
-// EIP-3009 payer, the sender recovered from a Tempo transaction's signature,
-// or the credits key) and ALWAYS the client IP. Never a client-supplied field.
+// EIP-3009 payer, the Tempo sender the gate VERIFIED - see inspectTempoSender
+// in mpp-tempo.js - or the credits key) and ALWAYS the client IP. Never a
+// client-supplied field and never an unverified sender.
 function hangupForgivenessKeys(req) {
   const payer = payerFromRequest(req);
   const who = payer || (req.mppTempoSender ? `tempo:${req.mppTempoSender}` : req.creditsKeyId ? `credits:${req.creditsKeyId}` : null);
@@ -7726,7 +7727,8 @@ if (!FREE_MODE) {
       // path-bound, so the binding check has to know the route it is paying
       // for: checkTempoCredentialBinding refuses a long-running route over
       // Tempo (its run outlives the credential), whatever challenge it answers.
-      return priceUsd ? { priceUsd, identityBound: isIdentityBoundRoute(def), longRunning: isLongRunningSlug(def.slug) } : null;
+      // verifiedSenderRequired: see spendsBeforeSettlement.
+      return priceUsd ? { priceUsd, identityBound: isIdentityBoundRoute(def), verifiedSenderRequired: spendsBeforeSettlement(def), longRunning: isLongRunningSlug(def.slug) } : null;
     },
     // Input check before the relay round trip (see createTempoGate). Same
     // envelope the dispatcher's 400 carries, so the caller corrects itself.
@@ -8941,8 +8943,9 @@ for (const tool of ALL_KIT) {
           throw e;
         }
         // Guard key: the signed EVM payer when present; otherwise the Tempo
-        // sender RECOVERED from the signed transaction (never the credential's
-        // client-supplied `source`, which a caller can vary per request), the
+        // sender the gate VERIFIED (never the credential's client-supplied
+        // `source`, and never an unverified sender - mppTempoSender is null
+        // then), the
         // credits key, or the client IP (card/SPT buyers and any rail whose
         // payer is only known post-settlement) - nobody is unkeyed.
         const guardKey = payer || (req.mppTempoSender ? `tempo:${req.mppTempoSender}` : req.creditsKeyId ? `credits:${req.creditsKeyId}` : `ip:${clientIp(req)}`);

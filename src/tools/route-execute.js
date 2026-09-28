@@ -181,6 +181,10 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
     slug: tier.slug,
     category: "agent",
     price: `$${EXEC_PRICE_USD}`,
+    // Pays an outside seller from one of this server's own wallets inside the
+    // handler, i.e. before the buyer's own payment settles. Read by
+    // spendsBeforeSettlement (composite-spend-guard.js).
+    spendsOwnWallet: true,
     description:
       `Describe a task (or name a slug) and the Smart Order Router resolves the best-matching tool and RUNS it in the same call - flat $${EXEC_PRICE_USD} covering any tool listed at $${UNDERLYING_MAX_USD} or less, from THIS host's catalog or any external seller in the open index - x402 sellers, or MPP sellers on Tempo (paid on your behalf over x402 or MPP, result relayed). One payment, one request, result + receipt. /api/route quotes which tier a task needs; pricier tools return a self-correcting 409 with their direct route.`,
     // Tags are the discoverability surface: a tag hit scores +3 in the ranker
@@ -402,9 +406,11 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           // MPP/Tempo buyer and an unkeyed payer was exempt from the ceiling -
           // found in the 2026-08-27 review, the first day the Tempo leg
           // resolved anything), else the client IP so nobody is unkeyed. The
-          // Tempo key is the sender RECOVERED from the signed transaction, not
-          // the credential's client-supplied `source`: a caller naming a fresh
-          // source per request would get a fresh ceiling each time.
+          // Tempo key is the sender the gate VERIFIED, not the credential's
+          // client-supplied `source`: a caller naming a fresh source per
+          // request would get a fresh ceiling each time. A Tempo pull
+          // credential reaches this handler only with a verified sender (the
+          // gate refuses it otherwise; see spendsBeforeSettlement).
           const spendPayer = payerFromRequest(req)
             || (req?.mppTempoSender ? `tempo:${req.mppTempoSender}` : null)
             || (req?.ip ? `ip:${req.ip}` : null);
