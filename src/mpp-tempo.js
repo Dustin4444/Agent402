@@ -39,7 +39,9 @@ import { mppProblem, markMppProblem, sendMppProblem } from "./mpp-problem.js";
 import { Challenge, Credential, Method, Receipt } from "mppx";
 import { tempo } from "mppx/server";
 import { mppChallengesSuppressed, clientFingerprint } from "./mpp-fallback.js";
-import { Transaction } from "viem/tempo";
+import { TxEnvelopeTempo, SignatureEnvelope, KeyAuthorization } from "ox/tempo";
+import { encodeFunctionData, decodeFunctionResult } from "viem";
+import { Abis, Addresses } from "viem/tempo";
 import { chargeCancelledForClientGone, CLIENT_GONE_TEXT } from "./hangup-settlement.js";
 
 const DEFAULT_DECIMALS = 6; // matches every other stablecoin rail this repo settles (unconfirmed specifically for pathUSD — decimals() unread, this is the USDC-family convention, not a live lookup)
@@ -518,32 +520,233 @@ export function checkTempoCredentialBinding(authorizationHeader, { secretKey, re
   // it to a burner address only hides the spoofer's own purchases from OUR
   // revenue stats; identity-bound routes refuse tempo credentials outright,
   // so it can never touch memory/my-usage; and every per-buyer bound keys on
-  // tempoSenderOf() below instead. Same trust tier as the facilitator settle
-  // receipt fallback in payer.js. Added 2026-08-20 — before this, tempo sales
-  // recorded payer null and a self-funded test wallet classified as external.
+  // the verified sender (inspectTempoSender below) instead. Same trust tier as
+  // the facilitator settle receipt fallback in payer.js. Added 2026-08-20 —
+  // before this, tempo sales recorded payer null and a self-funded test wallet
+  // classified as external.
   const src = String(credential?.source || "");
   const m = /^did:pkh:eip155:\d+:(0x[0-9a-fA-F]{40})$/.exec(src);
   const payerHint = m ? m[1].toLowerCase() : null;
-  return { ok: true, challenge: ch, amountAtomic: amount, expectedAtomic: expected, payerHint, payloadType };
+  // A route whose handler spends before the buyer's payment settles (it pays
+  // an outside seller from our own wallet, or runs long upstream work) takes a
+  // pull credential only from a sender the gate can verify (see the gate).
+  const verifiedSenderRequired = item.verifiedSenderRequired === true;
+  return { ok: true, challenge: ch, amountAtomic: amount, expectedAtomic: expected, payerHint, payloadType, verifiedSenderRequired };
 }
 
-/** The sender of a pull credential, RECOVERED from its signed Tempo
- *  transaction (the signature commits to the sender; the relay refuses a
- *  transaction whose signature does not hold). Unlike the credential's
- *  `source`, a caller cannot pick this per request without holding a funded
- *  account for each one, so it is what per-buyer bounds key on (the settle
- *  breaker, the hang-up forgiveness budget, the external spend ceiling).
- *  Lowercased address, or null for a push credential or anything that does
- *  not decode. Never throws. Exported for tests. */
-export function tempoSenderOf(authorizationHeader) {
+// ---------------------------------------------------------------------------
+// The sender of a pull credential, and whether it is VERIFIED.
+//
+// A Tempo transaction names its sender in more than one way, and only some of
+// them are proven by the signature. Decoding the transaction (ox
+// TxEnvelopeTempo.deserialize) yields a `from` that is:
+//   - for a secp256k1 envelope, the address recovered from the signature over
+//     the sender's sign payload (proven);
+//   - for a p256 / webAuthn envelope, the address of the public key the
+//     envelope CARRIES (proven only once that signature is checked against
+//     that key);
+//   - for a keychain envelope, the account the envelope NAMES (the signature
+//     is by an access key; the account is proven only if that key is active
+//     for it on chain, or if the transaction itself carries the account's
+//     own authorization of that key and the chain holds no record of the key:
+//     the first use of a new access key, before any transaction installed it);
+//   - for a multisig envelope, the account it names;
+//   - and, whatever the envelope, an address placed in the fee-payer slot,
+//     taken as written.
+// A per-buyer bound keys on a sender only when it is VERIFIED here; otherwise
+// it keys on the client IP (the callers' own fallback), never on an
+// unverified sender.
+// ---------------------------------------------------------------------------
+const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+const lcAddress = (a) => (typeof a === "string" && ADDRESS_RE.test(a) ? a.toLowerCase() : null);
+const PRIMITIVE_ENVELOPES = new Set(["secp256k1", "p256", "webAuthn"]);
+
+/** Does a key authorization carried inline by a keychain transaction prove
+ *  that `account` authorized `accessKey`? It must authorize exactly that key,
+ *  for the key type that signed, on Tempo mainnet (or chain 0, which the
+ *  protocol reads as every chain), unexpired at `now`, bound to no other
+ *  account, and be signed by the account's OWN key (a primitive signature
+ *  that recovers to the account and verifies). Offline; never throws. */
+function inlineAuthorizationProves(ka, { account, accessKey, keyType, now }) {
   try {
-    const payload = Credential.deserialize(authorizationHeader)?.payload;
-    if (payload?.type !== "transaction" || typeof payload.signature !== "string") return null;
-    const from = Transaction.deserialize(payload.signature)?.from;
-    return typeof from === "string" && /^0x[0-9a-fA-F]{40}$/.test(from) ? from.toLowerCase() : null;
+    if (!ka || lcAddress(ka.address) !== accessKey || ka.type !== keyType) return false;
+    const chainId = BigInt(ka.chainId);
+    if (chainId !== BigInt(TEMPO_MAINNET_CHAIN_ID) && chainId !== 0n) return false;
+    if (ka.expiry != null && !(Number(ka.expiry) > Math.floor(now / 1000))) return false;
+    if (ka.account !== undefined && lcAddress(ka.account) !== account) return false;
+    const s = ka.signature;
+    if (!s || !PRIMITIVE_ENVELOPES.has(s.type)) return false;
+    const payload = KeyAuthorization.getSignPayload(ka);
+    if (lcAddress(SignatureEnvelope.extractAddress({ payload, signature: s })) !== account) return false;
+    return SignatureEnvelope.verify(s, { address: account, payload }) === true;
   } catch {
-    return null;
+    return false;
   }
+}
+
+/** Who a pull credential says paid, and what its signature proves.
+ *  Returns { claimed, verified, envelope, keychain, reason }:
+ *    claimed  - the sender the transaction names (NEVER a key for a bound);
+ *    verified - the same address once the signature proves it, else null;
+ *    keychain - { account, accessKey, inlineAuthorization } for a keychain
+ *               envelope whose access key signature verifies; whether that
+ *               key is authorized for the account is an on-chain read
+ *               (verifyTempoKeychainSender), so the account is not verified
+ *               here. inlineAuthorization is true when the transaction also
+ *               carries the account's own authorization of that key
+ *               (inlineAuthorizationProves), which the read accepts only
+ *               while the chain holds no record of the key. Else null.
+ *  Offline and synchronous; never throws. Exported for tests. */
+export function inspectTempoSender(authorizationHeader, { now = Date.now() } = {}) {
+  const out = { claimed: null, verified: null, envelope: null, keychain: null, reason: "" };
+  let payload;
+  try { payload = Credential.deserialize(authorizationHeader)?.payload; } catch { return { ...out, reason: "credential does not decode" }; }
+  if (payload?.type !== "transaction" || typeof payload.signature !== "string") return { ...out, reason: "not a pull credential" };
+  const raw = payload.signature;
+  if (!/^0x7[68](?:[0-9a-fA-F]{2})+$/.test(raw)) return { ...out, reason: "not a Tempo transaction" };
+  let tx;
+  try { tx = TxEnvelopeTempo.deserialize(raw); } catch { return { ...out, reason: "transaction does not decode" }; }
+  const sig = tx?.signature;
+  out.claimed = lcAddress(tx?.from);
+  out.envelope = typeof sig?.type === "string" ? sig.type : null;
+  if (!out.claimed || !sig) return { ...out, reason: "transaction names no sender" };
+  try {
+    const signPayload = TxEnvelopeTempo.getSignPayload(TxEnvelopeTempo.from(tx));
+    if (PRIMITIVE_ENVELOPES.has(sig.type)) {
+      // SignatureEnvelope.verify binds the address itself for all three types
+      // (recovery for secp256k1, the carried key's address for p256/webAuthn);
+      // the recovered-signer compare is kept beside it as a belt.
+      const signer = lcAddress(SignatureEnvelope.extractAddress({ payload: signPayload, signature: sig }));
+      if (signer === out.claimed && SignatureEnvelope.verify(sig, { address: out.claimed, payload: signPayload })) return { ...out, verified: out.claimed, reason: "signature" };
+      return { ...out, reason: "the signature does not prove the named sender" };
+    }
+    if (sig.type === "keychain") {
+      const account = lcAddress(sig.userAddress);
+      if (account !== out.claimed) return { ...out, reason: "the keychain account is not the named sender" };
+      const inner = sig.inner;
+      if (!inner || !PRIMITIVE_ENVELOPES.has(inner.type)) return { ...out, reason: "unsupported access key signature" };
+      // Keychain V2 binds the account into what the access key signs; V1 does not.
+      const keyPayload = sig.version === "v1" ? signPayload : TxEnvelopeTempo.getSignPayload(TxEnvelopeTempo.from(tx), { from: account });
+      const accessKey = lcAddress(SignatureEnvelope.extractAddress({ payload: keyPayload, signature: inner }));
+      if (!accessKey || !SignatureEnvelope.verify(inner, { address: accessKey, payload: keyPayload })) return { ...out, reason: "the access key signature does not verify" };
+      // Signed by the account's own key: that proves the account outright.
+      if (accessKey === account) return { ...out, verified: account, reason: "signature" };
+      if (!tx.keyAuthorization) return { ...out, keychain: { account, accessKey, inlineAuthorization: false }, reason: "access key authorization not checked" };
+      const inlineAuthorization = inlineAuthorizationProves(tx.keyAuthorization, { account, accessKey, keyType: inner.type, now });
+      return { ...out, keychain: { account, accessKey, inlineAuthorization }, reason: inlineAuthorization ? "access key authorized in this transaction" : "the key authorization it carries does not prove the account" };
+    }
+  } catch {
+    return { ...out, reason: "the signature does not verify" };
+  }
+  return { ...out, reason: `${out.envelope || "unknown"} envelope` };
+}
+
+/** The VERIFIED sender of a pull credential when its signature alone proves
+ *  it (lowercased address), else null: a push credential, anything that does
+ *  not decode, a keychain or multisig envelope, or a sender the signature
+ *  does not prove. A keychain sender is verified only through
+ *  verifyTempoKeychainSender (an on-chain read). Never throws. Exported for
+ *  tests. */
+export function tempoSenderOf(authorizationHeader) {
+  return inspectTempoSender(authorizationHeader).verified;
+}
+
+function accessKeyTimeoutMs() {
+  const n = Number(process.env.TEMPO_ACCESS_KEY_CHECK_TIMEOUT_MS);
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 10_000) : 2500;
+}
+
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
+/** What the AccountKeychain precompile holds for `accessKey` on `account`:
+ *  one eth_call (getKey), the read mppx's own isActiveAccessKey makes.
+ *    "active"     - present, unrevoked, unexpired;
+ *    "absent"     - no record at all (an empty key id, not revoked);
+ *    "revoked", "expired", "mismatch" (a record for another key id);
+ *    "unreadable" - a timeout, an RPC error, a malformed address or result.
+ *  Never throws. Exported for tests. */
+export async function tempoAccessKeyState({ account, accessKey } = {}, {
+  rpcUrl = process.env.TEMPO_RPC_URL || "https://rpc.tempo.xyz",
+  fetchImpl = globalThis.fetch,
+  timeoutMs = accessKeyTimeoutMs(),
+  now = Date.now(),
+} = {}) {
+  const acct = lcAddress(account);
+  const key = lcAddress(accessKey);
+  if (!acct || !key) return "unreadable";
+  try {
+    const data = encodeFunctionData({ abi: Abis.accountKeychain, functionName: "getKey", args: [acct, key] });
+    const res = await fetchImpl(rpcUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: Addresses.accountKeychain, data }, "latest"] }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) return "unreadable";
+    const body = await res.json();
+    if (!body || body.error || typeof body.result !== "string") return "unreadable";
+    const k = decodeFunctionResult({ abi: Abis.accountKeychain, functionName: "getKey", data: body.result });
+    const keyId = lcAddress(k?.keyId);
+    if (!keyId || typeof k.isRevoked !== "boolean") return "unreadable";
+    if (k.isRevoked) return "revoked";
+    if (keyId === key) return BigInt(k.expiry) > BigInt(Math.floor(now / 1000)) ? "active" : "expired";
+    return keyId === ZERO_ADDRESS ? "absent" : "mismatch";
+  } catch {
+    return "unreadable";
+  }
+}
+
+/** Is `accessKey` an active (present, unrevoked, unexpired) access key of
+ *  `account` on Tempo? tempoAccessKeyState read as a yes/no; fails closed.
+ *  Exported for tests. */
+export async function tempoAccessKeyActive(keychain = {}, opts = {}) {
+  return (await tempoAccessKeyState(keychain, opts)) === "active";
+}
+
+/** A cached, deduplicated and concurrency-bounded keychain check. Resolves to
+ *  the account (lowercased) when its access key is active on chain, or when
+ *  the chain holds no record of the key and the credential carries the
+ *  account's own authorization of it (keychain.inlineAuthorization, checked
+ *  offline by inspectTempoSender); else null. A revoked, expired or
+ *  unreadable key is never accepted. Never rejects. `check` resolves to a
+ *  tempoAccessKeyState word (true reads as "active"). An active key is
+ *  remembered for `ttlMs`, any other state for `negativeTtlMs`; a remembered
+ *  "absent" is not reused for a credential WITHOUT an inline authorization
+ *  (the key may have been installed since), which reads again. Past
+ *  `maxInFlight` concurrent reads the answer is null without a read
+ *  (unverified, never a guess). Exported for tests. */
+export function createKeychainSenderVerifier({ check = tempoAccessKeyState, ttlMs = 60_000, negativeTtlMs = 15_000, maxInFlight = 16, maxEntries = 5000 } = {}) {
+  const cache = new Map(); // "account:key" -> { state, until }
+  const inFlight = new Map(); // "account:key" -> Promise<state>
+  const stateOf = (v) => (v === true || v === "active" ? "active" : typeof v === "string" ? v : "inactive");
+  return async function verifyKeychainSender(keychain, now = Date.now()) {
+    const account = lcAddress(keychain?.account);
+    const accessKey = lcAddress(keychain?.accessKey);
+    if (!account || !accessKey) return null;
+    const inline = keychain.inlineAuthorization === true;
+    const decide = (state) => (state === "active" || (state === "absent" && inline) ? account : null);
+    const k = `${account}:${accessKey}`;
+    const hit = cache.get(k);
+    if (hit && hit.until > now && (hit.state !== "absent" || inline)) return decide(hit.state);
+    let p = inFlight.get(k);
+    if (!p) {
+      if (inFlight.size >= maxInFlight) return null;
+      p = Promise.resolve().then(() => check({ account, accessKey })).then(stateOf, () => "unreadable");
+      inFlight.set(k, p);
+      p.then((state) => {
+        inFlight.delete(k);
+        cache.delete(k);
+        if (cache.size >= maxEntries) cache.delete(cache.keys().next().value);
+        cache.set(k, { state, until: Date.now() + (state === "active" ? ttlMs : negativeTtlMs) });
+      });
+    }
+    return decide(await p);
+  };
+}
+const verifyTempoKeychainSenderDefault = createKeychainSenderVerifier();
+/** The production keychain check (TEMPO_RPC_URL, cached). */
+export function verifyTempoKeychainSender(keychain) {
+  return verifyTempoKeychainSenderDefault(keychain);
 }
 
 /** Reason class + buyer words for a binding refusal (checked before any relay
@@ -566,6 +769,17 @@ export function bindingRefusal(reason) {
   if (/no price/.test(r)) return { cls: "no-price", kind: "invalid-challenge", detail: `Challenge is invalid: ${r}.`, hint: "This route is free; call it without a payment." };
   return { cls: "invalid-challenge", kind: "invalid-challenge", detail: `Challenge is invalid: ${r}. Request the resource again for a fresh challenge.`, hint: undefined };
 }
+
+/** The refusal a pull credential meets on a route that requires a verified
+ *  sender (checkTempoCredentialBinding's verifiedSenderRequired) when its
+ *  signer is not proven. Answered before any relay call; nothing charged.
+ *  Exported for tests. */
+export const TEMPO_SENDER_UNVERIFIED = Object.freeze({
+  cls: "sender-unverified",
+  kind: "verification-failed",
+  detail: "This route accepts a Tempo pull credential only when its signature proves the paying account: signed by the account's own key, or by an access key that is active for that account on Tempo or that the transaction authorizes with the account's own key. This credential's signer could not be verified, so it was not sent for validation and nothing was charged.",
+  hint: "Pay with a credential signed by the account's key, or by an access key that is active on chain or carries the account's authorization for it, or pay this route over another method offered in the WWW-Authenticate header.",
+});
 
 /** Best-effort amount (base units) from a credential, for the refusal log only. */
 function amountOfCredential(authorizationHeader) {
@@ -748,7 +962,7 @@ export function createTempoChallengeAppender({ realm, secretKey, priceFor }) {
  *  free handler executions before Tempo's relay rejects the (N-1) duplicate
  *  broadcasts at settlement time — the same "Five Attacks on x402" Attack II
  *  class replay-guard.js documents, just unguarded on this second path. */
-export function createTempoGate({ validate = validateTempoCredential, broadcast = broadcastTempoCredential, confirmSettlement = null, replayGuard, secretKey, realm, priceFor, preValidate = null } = {}) {
+export function createTempoGate({ validate = validateTempoCredential, broadcast = broadcastTempoCredential, confirmSettlement = null, replayGuard, secretKey, realm, priceFor, preValidate = null, verifyKeychainSender = verifyTempoKeychainSender } = {}) {
   if (!tempoEnabled()) return null;
   // Fail CLOSED on the binding inputs: a gate that cannot verify "we minted
   // this challenge for this price" must not exist, because its existence is
@@ -812,8 +1026,43 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
       }
     }
 
-    const t0 = Date.now();
-    validate(auth).then(async (v) => {
+    // WHO PAID (pull credentials only; a push transfer is on chain before
+    // this request and is finalized before the handler). The signature proves
+    // a primitive-key sender outright. A keychain sender is proven by an
+    // on-chain read of its access key (active, or absent with the account's
+    // own authorization carried inline), started here beside relay validation.
+    // A route that spends before the buyer's payment settles
+    // (verifiedSenderRequired) waits for that proof and refuses a pull
+    // credential without it, before any relay call. Every other route keys its
+    // bounds on the keychain account only if the read has answered by the time
+    // validation has, else on the client IP: no added latency, and never an
+    // unverified sender.
+    const isPull = binding.payloadType === "transaction";
+    const senderInfo = isPull ? inspectTempoSender(auth) : null;
+    const signedSender = senderInfo?.verified || null;
+    let keychainSender = null;
+    let keychainRead = null;
+    if (isPull && !signedSender && senderInfo.keychain && typeof verifyKeychainSender === "function") {
+      keychainRead = Promise.resolve().then(() => verifyKeychainSender(senderInfo.keychain)).then((a) => lcAddress(a), () => null);
+      keychainRead.then((a) => { keychainSender = a; });
+    }
+    const SENDER_REFUSED = Symbol("sender-refused");
+    let t0 = Date.now();
+    const senderGate = isPull && binding.verifiedSenderRequired && !signedSender
+      ? (keychainRead || Promise.resolve(null)).then((a) => !!a)
+      : Promise.resolve(true);
+    senderGate.then((allowed) => {
+      if (!allowed) {
+        logTempoRefusal(req, { cls: TEMPO_SENDER_UNVERIFIED.cls, amountAtomic: binding.amountAtomic, timings: { total: Date.now() - tStart }, detail: `before validate: ${senderInfo?.envelope || "?"} envelope, ${senderInfo?.reason || "no sender"}${keychainRead ? "; the chain read did not vouch for the key" : ""}` });
+        noteTempoRefusal(req);
+        markMppProblem(req, res, mppProblem(TEMPO_SENDER_UNVERIFIED.kind, TEMPO_SENDER_UNVERIFIED.detail, { hint: TEMPO_SENDER_UNVERIFIED.hint, details: { reason: TEMPO_SENDER_UNVERIFIED.cls, charged: false } }));
+        next();
+        return SENDER_REFUSED;
+      }
+      t0 = Date.now();
+      return validate(auth);
+    }).then(async (v) => {
+      if (v === SENDER_REFUSED) return;
       const tValidated = Date.now();
       if (!v.ok) {
         // Loud on ambiguity, same doctrine as facilitator-diagnostics.js —
@@ -853,9 +1102,11 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
       // Classification-grade payer for the sales ledger (see the binding
       // check's payerHint comment) — read at the recordSale site in server.js.
       req.mppTempoPayer = binding.payerHint || null;
-      // The VERIFIED sender (recovered from the signed transaction; null for a
-      // push credential), which per-buyer bounds key on instead of the hint.
-      req.mppTempoSender = tempoSenderOf(auth);
+      // The VERIFIED sender (see inspectTempoSender; null for a push
+      // credential and for any sender the signature or the chain did not
+      // prove), which per-buyer bounds key on instead of the hint. With null,
+      // every bound falls back to the client IP.
+      req.mppTempoSender = signedSender || keychainSender || null;
       const replayKey = replayGuard ? tempoReplayKey(auth) : null;
       if (replayGuard && replayKey) {
         const verdict = await replayGuard.begin(replayKey);

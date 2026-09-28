@@ -40,7 +40,7 @@ import { payerFromRequest, payerFromPaymentResponse, paymentHeaderOf, paymentIde
 import { runInAbortableScope, abortInFlightComposites, installDrainAwareFetch, isDrainAbort } from "./drain-abort.js";
 import { startSolanaLeaderboard, getSolanaLeaderboardSnapshot, solanaEvidenceByOrigin, SOLANA_WINDOWS } from "./solana-leaderboard.js";
 import { creditFromTx as solanaCreditFromTx } from "./solana-buyer.js";
-import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpendFailure, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS, isLongRunningSlug, _compositeGuardState, compositeUsageSnapshot, withCompositeContext } from "./composite-spend-guard.js";
+import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpendFailure, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS, isLongRunningSlug, spendsBeforeSettlement, _compositeGuardState, compositeUsageSnapshot, withCompositeContext } from "./composite-spend-guard.js";
 import { gatewaySettleBreakerCheck } from "./gateway-settle-breaker.js";
 // Single-upstream-call routes that run long (40 s+): EVM exact only, like the
 // composites (settle-after on SVM/AVM/Tempo is work done, never charged), but
@@ -190,8 +190,9 @@ function recordHangupOutcome(req, res) {
   console.warn(`[hangup] NOT CHARGED: client closed the connection before the answer was ready (${req.method} ${req.path} rail=${rail} ${work}) - payment not settled; ${why}`);
 }
 // The keys a forgiveness ticket is counted under: the verified payer (signed
-// EIP-3009 payer, the sender recovered from a Tempo transaction's signature,
-// or the credits key) and ALWAYS the client IP. Never a client-supplied field.
+// EIP-3009 payer, the Tempo sender the gate VERIFIED - see inspectTempoSender
+// in mpp-tempo.js - or the credits key) and ALWAYS the client IP. Never a
+// client-supplied field and never an unverified sender.
 function hangupForgivenessKeys(req) {
   const payer = payerFromRequest(req);
   const who = payer || (req.mppTempoSender ? `tempo:${req.mppTempoSender}` : req.creditsKeyId ? `credits:${req.creditsKeyId}` : null);
@@ -213,6 +214,8 @@ import { createSearchData } from "./search-data.js";
 import { operatorSearchPage } from "./operator-search.js";
 import { datasetStatus, datasetRecorded, runDatasetSnapshot, startDatasetScheduler } from "./dataset-snapshot.js";
 import { assertAvmValidityCovers } from "./avm-validity.js";
+import { assertEvmValidityCovers } from "./evm-validity.js";
+import { admitCoveredRun } from "./inflight-cover.js";
 import { paymentReplayKey, createReplayGuard } from "./replay-guard.js";
 import { statusPage, statusSnapshot } from "./status.js";
 import { recordProbes } from "./status-store.js";
@@ -249,6 +252,7 @@ import { createFreeAlerts, alertFormHtml, ALERT_KIND_FOR_REPORT_KIND } from "./f
 import { createWalletDigest } from "./wallet-digest.js";
 import { digestPage } from "./digest-page.js";
 import { createFollowups } from "./followups.js";
+import { createTweetQueue, tweetQueueOptionsFromEnv } from "./tweet-queue.js";
 import { monitorForKind as fuMonitorForKind } from "./report-upgrade.js";
 import { SAMPLES as fuSamples } from "./sample-reports.js";
 import { probeInsiderFilings as faProbeInsider } from "./tools/insider-flow-kit.js";
@@ -285,7 +289,7 @@ import { tempoDataKey } from "./tempo-transfers.js";
 import { verifyInboundPayment } from "./payment-verify.js";
 import { mppMarketPage } from "./mpp-market-page.js";
 import { indexToolsPage, INDEX_TOOLS_PAGE_SIZE } from "./index-tools-page.js";
-import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankBy, CONCENTRATION } from "./leaderboard.js";
+import { getLeaderboardSnapshot, getLeaderboardWalletEvidence, getLeaderboardCircularWallets, startLeaderboardRefresh, leaderboardPage, rankBy, CONCENTRATION, configureSellerFunding, sellerFundingStatus, setSellerFundingEnabled } from "./leaderboard.js";
 import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus, facilitatorSupportReport, facilitatorsByNetworkPublic, setComputePayablePaths, parseNetworkPremiums } from "./payments.js";
 import { createMppShim } from "./mpp-shim.js";
 import { createTempoChallengeAppender, createTempoGate, tempoTxFromReceiptHeader } from "./mpp-tempo.js";
@@ -472,6 +476,7 @@ import { externalPaymentEventsFor, startRevenueLedger, ledgerSummary, ledgerDail
 import { x402EconomySnapshot, economySnapshotCached, warmEconomySnapshot } from "./x402-economy.js";
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate, sharedPayToClaims } from "./settlement-proof.js";
 import { buildEvidenceBinding, baseLiveGate } from "./evidence-binding.js";
+import { createSharedPayToStore, parseSharedPayTosEnv } from "./shared-paytos.js";
 import { dispatchEligibility, dispatchLegend } from "./dispatch-eligibility.js";
 import { pageSizeOf, pagingEnvelope, pagingNote } from "./index-paging.js";
 import { usdcDomainVerdict, usdcDomainMismatchDetail, unsignableByStockBuyer } from "./evm-usdc-domain.js";
@@ -545,9 +550,10 @@ import { buildSellerDossierTool } from "./tools/seller-dossier.js";
 import { buildSellerPayabilityTool } from "./tools/seller-payability-kit.js";
 import { deliveryObservation } from "./response-observation.js";
 import { payX402, avmBuyerConfigured, avmBuyerStatus, sellerRefusedRecently, sellerDeliveryFailingRecently, sellerDeliveryMemoEntries, DELIVERY_FAIL_STRIKES_REQUIRED, deliveryFailTtlMsNow } from "./x402-buyer.js";
+import { readTextCapped } from "./capped-body.js";
 import { svmBuyerConfigured, svmBuyerStatus, SOLANA_NETWORK_LABELS } from "./solana-buyer.js";
 import { payTempo, tempoBuyerConfigured, tempoBuyerStatus, tempoRpc } from "./tempo-buyer.js";
-import { issueChallenge, verifySolution, isComputePayable, powInfo, POW_DIFFICULTY, WALLET_ONLY_SLUGS, verifyHeartbeatToken } from "./pow.js";
+import { issueChallenge, verifySolution, isComputePayable, powInfo, POW_DIFFICULTY, WALLET_ONLY_SLUGS, verifyHeartbeatToken, PROBE_POW_SLUG } from "./pow.js";
 import { createLimiter as createRateLimiter, LIMITS_LABEL as POW_LIMITS_LABEL } from "./rate-limit.js";
 import { classifyWishes, wishClassifyEnabled } from "./wish-classify.js";
 import { rerankMisses, rerankEnabled } from "./discovery-rerank.js";
@@ -604,7 +610,7 @@ function trialClientKey(ip) {
 }
 const TRIAL_LIMITS_LABEL = `${TRIAL_PER_TOOL_HOUR} per tool per hour, ${TRIAL_IP_HOUR} per hour per client`;
 const OX_TRIAL_LIMITS_LABEL = `${OX_TRIAL_PER_HOUR} per hour, ${OX_TRIAL_PER_DAY} per day per client`;
-import { createHangupSettlementHook, clientGoneBeforeFirstByte, chargeCancelledForClientGone, clientGoneError, isClientGoneAbort } from "./hangup-settlement.js";
+import { createHangupSettlementHook, clientGoneBeforeFirstByte, chargeCancelledForClientGone, clientGoneError, isClientGoneAbort, onSettleOutcome, onResponseEnd } from "./hangup-settlement.js";
 import { hangupForgiven, hangupTicketDenial, reserveHangupForgiveness, settleHangupTicket, hangupForgivenessStatus, loadHangupForgiveness, flushHangupForgiveness } from "./hangup-forgiveness.js";
 import { recordRefundOwed, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals, refundsCreatedBetween } from "./refund-ledger.js";
 import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent, getDailyCalls, dailyCallsRecordingSince, getDailyUpstreamCalls, getSellerRegistrations, getDailyUpstreamSpend } from "./stats.js";
@@ -1071,146 +1077,132 @@ const SOR_MIN_SETTLED_TX = Number(process.env.SOR_MIN_SETTLED_TX || "50");
 // breadth.
 //
 // Deliberately LOW (3). This defeats the single-wallet loop, which is the cheap
-// attack; it does not defeat a funded fleet of wallets, which needs
-// funding-graph analysis we do not do here. Claiming otherwise would be the
-// overclaim this codebase keeps having to walk back.
+// attack. A fleet of wallets the seller funds DIRECTLY from the payTo it is
+// paid at (USDC sent to each buyer before it pays) is netted out one hop deep
+// since 2026-09-28, up to the amount it sent (src/seller-funding.js). A fleet
+// funded from another of the seller's wallets, through an intermediary, an
+// exchange withdrawal, or on another chain is not; claiming otherwise would be
+// the overclaim this codebase keeps having to walk back.
 //
 // Enforced ONLY where payer data exists. An origin proven by a source that
 // cannot report distinct payers is unknown, not failing, and keeps the old
 // behaviour - same rule as the payTo match: refuse on positive evidence
 // against, never on absence of evidence.
 const SOR_MIN_DISTINCT_PAYERS = Number(process.env.SOR_MIN_DISTINCT_PAYERS || "3");
-// Durable proven-seller FLOOR for the reliability gate (scripts/gen-sor-seed.js).
-// The live leaderboard snapshot is empty for the minutes its first on-chain scan
-// takes after a boot, and /data warm-start only helps once a file exists — so on
-// a fresh clone / wiped volume / very first deploy the resolver would still go
-// blind. This committed seed (origin -> callsSettled, from a real scan) is the
-// baseline the live/persisted snapshot is layered onto, so a proven seller is
-// ALWAYS resolvable. Loaded once; empty object if the file is somehow missing.
+// The committed seed of once-proven origins (scripts/gen-sor-seed.js): a
+// DISCOVERY HINT, NOT EVIDENCE (2026-09-28). It used to be the gate's floor, a
+// map of origin NAMES to counts attributable to no wallet, so a seeded origin
+// cleared the Base floor with no binding to where the money goes and no payer
+// figure at all. The leaderboard warm-starts from the volume, so a boot is not
+// blind without it. Read only by the operator diagnostic below, which says
+// whether a candidate is on the list. Loaded once; empty if the file is missing.
 const SOR_SEED_ORIGINS = (() => {
   try { return JSON.parse(readFileSync(new URL("./sor-seed-sellers.json", import.meta.url), "utf8")).origins || {}; }
   catch { return {}; }
 })();
 const norm = (u) => String(u || "").replace(/\/+$/, "").toLowerCase();
-// origin -> proven settled-tx count: committed seed as the floor, then the live
-// (or /data warm-started) leaderboard overlaid, max per origin (counts only
-// grow, so max is the best known and can't be regressed by a stale source).
+// ONE EVIDENCE MAP (2026-09-28). Everything the Base gate reads about an origin
+// - settled calls, distinct payers, the wallets that evidence was measured at
+// and the chain-join address - comes out of ONE buildEvidenceBinding call
+// (src/evidence-binding.js), rebuilt at most once a minute by dispatchEvidence()
+// below. The label on every public row and the resolver's decision read the
+// same object, so they cannot disagree about what counts.
+//
+// Every figure is kept against the WALLET it was measured at, and the gate asks
+// whether the wallet the origin's live 402 names clears the floor on its own:
+//   - the x402 leaderboard scan: per payTo wallet (getLeaderboardWalletEvidence),
+//     credited to every origin on the wallet's row, and counting only where
+//     that wallet is paid;
+//   - the Bazaar's per-origin quality: measured on the origin's own URLs, split
+//     by the payTo those resources declare;
+//   - the chain join (provenByChain, the busiest Base merchants we observed
+//     settling), kept against the origin's own advertised address.
+// A payment made with USDC its payTo had sent the payer is not evidence: the
+// scan nets those out per wallet, the Bazaar and chain-join figures at that
+// wallet are reduced by what it netted over the days they cover, and a wallet
+// whose received dollars are MOSTLY self-funded has them disregarded outright
+// (src/seller-funding.js, src/evidence-binding.js).
+// The committed seed is not evidence (see SOR_SEED_ORIGINS above).
+// `settled` and `payers` are projections of the binding: the best single
+// wallet's figures, never a MAX of one wallet's calls beside another wallet's
+// payers.
+//
+// READ THE CHAIN-JOIN BOUND BEFORE RELYING ON IT (2026-09-19): topMerchants
+// comes from a query that ends `ORDER BY payments DESC LIMIT 12`
+// (x402-economy.js), so the join only ever sees the twelve busiest x402
+// merchants on Base. What covers the tail is the leaderboard fold, whose scan
+// seeds its wallet set from our own crawl's payTos (mergeCrawledWallets) and
+// keeps a row per wallet with no rank cap.
+//
+// NOT folded anywhere here: the Solana SPL leaderboard's evidence
+// (solanaEvidenceByOrigin). It attributes a payTo's on-chain credits to every
+// origin whose crawled tools ADVERTISE that payTo, and these maps feed the
+// BASE gate, whose binding can only be satisfied by a BASE address; Solana
+// counts folded here let a fresh origin clear the Base floor by naming someone
+// else's Solana payTo (security review 2026-09-02). Solana proven-ness is read
+// from the chain at pay time against the accept's own payTo.
+// Wallets the operator lists as SHARED (split / settlement contracts many
+// sellers are paid through, src/shared-paytos.js): their leaderboard and
+// chain-join history credits nobody. SOR_MULTI_TENANT_PAYTOS is the boot
+// floor; POST /__operator/shared-paytos lists or unlists one at runtime,
+// persisted on the volume, applied from the next evidence read.
+let sharedPayToStoreInstance = null;
+function sharedPayToStore() {
+  if (!sharedPayToStoreInstance) {
+    const env = parseSharedPayTosEnv(process.env.SOR_MULTI_TENANT_PAYTOS, { log: (m) => console.warn(m) });
+    sharedPayToStoreInstance = createSharedPayToStore({ file: process.env.SOR_SHARED_PAYTOS_FILE || "/data/sor-shared-paytos.json", envWallets: env.wallets, log: (m) => console.warn(m) });
+    sharedPayToStoreInstance.load();
+  }
+  return sharedPayToStoreInstance;
+}
+// Wallets whose self-funded verdict the OPERATOR has cleared (the rule's own
+// lever, src/leaderboard.js configureSellerFunding): a cleared wallet's
+// evidence reads gross and it is never treated as circular while listed. For a
+// wallet whose outbound transfers to its buyers are real business (rewards,
+// payouts to partners who also buy). SOR_SELF_FUNDING_CLEARED is the boot
+// floor; POST /__operator/seller-funding clears or restores one at runtime.
+let selfFundingClearedInstance = null;
+function selfFundingClearedStore() {
+  if (!selfFundingClearedInstance) {
+    const label = "self-funding-cleared", envName = "SOR_SELF_FUNDING_CLEARED";
+    const env = parseSharedPayTosEnv(process.env.SOR_SELF_FUNDING_CLEARED, { log: (m) => console.warn(m), label, envName });
+    selfFundingClearedInstance = createSharedPayToStore({ file: process.env.SOR_SELF_FUNDING_CLEARED_FILE || "/data/sor-self-funding-cleared.json", envWallets: env.wallets, log: (m) => console.warn(m), label, envName });
+    selfFundingClearedInstance.load();
+  }
+  return selfFundingClearedInstance;
+}
+// The shared settlement contracts' outbound is never read (they credit nobody,
+// and they pay out on every payment they forward).
+configureSellerFunding({ cleared: selfFundingClearedStore(), skip: (w) => sharedPayToStore().has(w) });
+function buildChainProven() {
+  const econ = economySnapshotCached();
+  return econ?.topMerchants?.length ? provenByChain({ sellers: routableSellerSummaries(), merchants: econ.topMerchants }) : new Map();
+}
 // origin -> the address whose observed settlements earned that origin its
-// chain-derived proven-ness. Used at probe time to check the seller then asks
-// for payment AT that address; without it, trust earned by one wallet could be
-// spent at another.
-// origin -> distinct payers observed. Two sources, max-merged: the leaderboard
-// exposes uniqueBuyers per operator, and the chain join carries payers per
-// merchant address. An origin absent from both has no payer evidence, which is
-// different from having zero payers.
-// NOT folded here: the Solana SPL leaderboard's evidence (solanaEvidenceByOrigin).
-// It attributes a payTo's on-chain credits to every origin whose crawled tools
-// ADVERTISE that payTo - a claim the seller writes into its own manifest, with
-// no ownership check - and these maps feed the BASE router gate, whose only
-// belt against "name a heavily-settled wallet, inherit its history, get paid
-// somewhere else" is provenPayToMatches on a BASE address. A cross-chain
-// address can never satisfy that binding, so Solana counts folded here let a
-// fresh origin clear the Base floor by naming someone else's Solana payTo
-// (security review 2026-09-02). Solana proven-ness is read from the chain at
-// pay time against the accept's own payTo; the board only primes that read.
-function buildPayersByOrigin() {
+// chain-derived proven-ness. Used at probe time and again at pay time to check
+// the seller asks for payment AT that address; without it, trust earned by one
+// wallet could be spent at another.
+function buildProvenPayToByOrigin(chainProven) {
   const m = new Map();
-  for (const row of (getLeaderboardSnapshot()?.leaderboard || [])) {
-    const n = Number(row.uniqueBuyers || 0);
-    if (!n) continue;
-    for (const o of (Array.isArray(row.origins) ? row.origins : [row.homepage])) {
-      if (o) m.set(norm(o), Math.max(m.get(norm(o)) || 0, n));
-    }
+  for (const [origin, ev] of (chainProven || new Map())) {
+    if (ev?.payTo) m.set(norm(origin), ev.payTo);
   }
-  // Coinbase-measured 30-day distinct payers from the Bazaar feed (x402-index
-  // bazaarQualityEntries): an independent observer of the same settlements,
-  // folded as a MAX - positive evidence only, never lowers ours.
-  for (const [o, q] of bazaarQualityEntries()) if (q?.payers30d > 0) m.set(norm(o), Math.max(m.get(norm(o)) || 0, q.payers30d));
-  try {
-    const econ = economySnapshotCached();
-    if (econ?.topMerchants?.length) {
-      for (const [origin, ev] of provenByChain({ sellers: routableSellerSummaries(), merchants: econ.topMerchants })) {
-        if (ev?.payers) m.set(norm(origin), Math.max(m.get(norm(origin)) || 0, ev.payers));
-      }
-    }
-  } catch { /* additive evidence; never break routing */ }
   return m;
 }
-
-function buildProvenPayToByOrigin() {
-  const m = new Map();
-  try {
-    const econ = economySnapshotCached();
-    if (econ?.topMerchants?.length) {
-      for (const [origin, ev] of provenByChain({ sellers: routableSellerSummaries(), merchants: econ.topMerchants })) {
-        if (ev?.payTo) m.set(norm(origin), ev.payTo);
-      }
-    }
-  } catch { /* evidence is additive; never break routing */ }
-  return m;
-}
-
-function buildSettledByOrigin() {
-  const m = new Map();
-  // Solana credits are deliberately NOT folded here - see buildPayersByOrigin.
-  for (const [o, c] of Object.entries(SOR_SEED_ORIGINS)) m.set(norm(o), Number(c) || 0);
-  for (const row of (getLeaderboardSnapshot()?.leaderboard || [])) {
-    for (const o of (Array.isArray(row.origins) ? row.origins : [row.homepage])) {
-      if (o) m.set(norm(o), Math.max(m.get(norm(o)) || 0, row.callsSettled || 0));
-    }
-  }
-  // Bazaar 30-day settled calls (Coinbase-measured) - same MAX fold as payers.
-  for (const [o, q] of bazaarQualityEntries()) if (q?.calls30d > 0) m.set(norm(o), Math.max(m.get(norm(o)) || 0, q.calls30d));
-  // Third source, and the only one that does not depend on a registry listing
-  // us a seller: join each CRAWLED origin's advertised Base payTo against the
-  // merchants we ourselves observed settling on-chain. The two sources above
-  // both derive from the Bazaar, so before this an unregistered seller scored
-  // 0 settled calls however much money it actually moved — "unproven" where the
-  // truth was "unlooked". Max-merged, so this can only ever widen the evidence.
-  //
-  // READ THE BOUND BEFORE RELYING ON IT (2026-09-19): topMerchants comes from a
-  // query that ends `ORDER BY payments DESC LIMIT 12` (x402-economy.js), so
-  // this source can only ever see the twelve busiest x402 merchants on all of
-  // Base. It does NOT do what the paragraph above implies for an ordinary
-  // seller - a seller with a handful of settlements is outside the twelve and
-  // scores 0 here, forever. What actually covers the tail is the leaderboard
-  // fold above, whose scan seeds its wallet set from our own crawl's payTos
-  // (mergeCrawledWallets) and keeps a row per wallet with no rank cap
-  // (measured: 1,624 rows over 1,778 wallets queried). Widen the LIMIT only
-  // with the CDP SQL cost in hand; until then this is a top-of-market belt.
-  try {
-    const econ = economySnapshotCached();
-    if (econ?.topMerchants?.length) {
-      for (const [origin, ev] of provenByChain({ sellers: routableSellerSummaries(), merchants: econ.topMerchants })) {
-        m.set(norm(origin), Math.max(m.get(norm(origin)) || 0, ev.settled || 0));
-      }
-    }
-  } catch { /* evidence is additive; never break routing when a source is down */ }
-  return m;
-}
-// origin -> { payTos, ownSettled, ownPayers }: the SAME sources as the two maps
-// above, with the WALLETS kept beside the counts (src/evidence-binding.js).
-// The leaderboard and Bazaar folds above credit an origin with a wallet's
-// history because a registry listing NAMED that wallet, and a listing is
-// written by whoever lists - so a fresh origin naming a heavily paid
-// third-party wallet cleared the Base floor and, having no address of its own
-// for provenPayToMatches to bind, was paid wherever its live 402 pointed
-// (security review 2026-09-03). The resolver's post-probe gate (baseLiveGate)
-// and the public label (withDispatchFields) both read this map, so inherited
-// history counts for an origin only when the origin's own 402 pays one of the
-// wallets it was inherited from; the seed and the chain join are the origin's
-// OWN evidence and keep today's behavior.
-function buildEvidenceBindingByOrigin() {
-  let chainProven = null;
-  try {
-    const econ = economySnapshotCached();
-    if (econ?.topMerchants?.length) chainProven = provenByChain({ sellers: routableSellerSummaries(), merchants: econ.topMerchants });
-  } catch { /* additive; an unreadable chain join leaves only shared evidence, which is then bound */ }
+// origin -> { byWallet, clearing, settled, payers, payTos, ownSettled, ownPayers, withheld }.
+function buildEvidenceBindingByOrigin({ chainProven }) {
   return buildEvidenceBinding({
-    seedOrigins: SOR_SEED_ORIGINS,
     leaderboardRows: getLeaderboardSnapshot()?.leaderboard || [],
+    walletEvidence: getLeaderboardWalletEvidence(),
     bazaarQuality: bazaarQualityEntries(),
     chainProven,
+    sharedWallets: sharedPayToStore(),
+    // Wallets whose settled evidence was mostly self-funded: their Bazaar and
+    // chain-join figures count the same payments and are disregarded (at any
+    // other wallet they are reduced by what its own scan netted).
+    circularWallets: getLeaderboardCircularWallets().wallets,
+    minSettled: SOR_MIN_SETTLED_TX,
+    minPayers: SOR_MIN_DISTINCT_PAYERS,
   });
 }
 // origin -> the Base payTo the CRAWL saw the origin advertise (registry items
@@ -1229,18 +1221,25 @@ function buildAdvertisedBasePayToByOrigin() {
 // Dispatch labelling for the public surfaces (src/dispatch-eligibility.js):
 // the SAME function the resolver's Base gate runs, applied to /api/index
 // sellers, /api/route rows and the marketplace roster, so "routable" can no
-// longer be read as "the router will pay this seller". The settlement
-// evidence maps are the resolver's own builders, memoized for a minute: they
-// walk the leaderboard, the Bazaar feed and the economy snapshot, which is
-// fine once per resolve and not fine once per crawler-hit page render.
+// longer be read as "the router will pay this seller". The evidence is built
+// once a minute, never per row or per page render: the chain join once, the
+// binding once, and `settled` / `payers` are projections of that binding. The
+// resolver reads the same object.
 const DISPATCH_EVIDENCE_TTL_MS = 60_000;
 let dispatchEvidenceCache = null;
 function dispatchEvidence() {
   if (dispatchEvidenceCache && Date.now() - dispatchEvidenceCache.at < DISPATCH_EVIDENCE_TTL_MS) return dispatchEvidenceCache;
-  let settled = new Map(), payers = new Map(), binding = new Map(), advertised = new Map();
-  try { settled = buildSettledByOrigin(); payers = buildPayersByOrigin(); } catch { /* evidence is additive; an unreadable source labels nothing eligible on Base */ }
-  try { binding = buildEvidenceBindingByOrigin(); advertised = buildAdvertisedBasePayToByOrigin(); } catch { /* an unreadable binding leaves the label unbound, the resolver still binds live */ }
-  dispatchEvidenceCache = { at: Date.now(), settled, payers, binding, advertised };
+  let chainProven = new Map(), binding = new Map(), advertised = new Map();
+  try { chainProven = buildChainProven(); } catch { /* additive; an unreadable chain join credits nothing */ }
+  try { binding = buildEvidenceBindingByOrigin({ chainProven }); } catch { /* an unreadable binding labels nothing eligible on Base */ }
+  try { advertised = buildAdvertisedBasePayToByOrigin(); } catch { /* label-time only */ }
+  const settled = new Map(), payers = new Map();
+  for (const [origin, e] of binding) {
+    if (e.settled > 0) settled.set(origin, e.settled);
+    if (e.payers !== undefined) payers.set(origin, e.payers);
+  }
+  const provenPayTo = buildProvenPayToByOrigin(chainProven);
+  dispatchEvidenceCache = { at: Date.now(), settled, payers, binding, provenPayTo, advertised };
   return dispatchEvidenceCache;
 }
 function spendChainsConfigured() {
@@ -1410,13 +1409,12 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
       .map((r) => ({ ...r, networks: r.networks, wire: "x402" }));
   } else {
     const { results } = await routeQueryAsync({ query: task, top: 20, include: "external", ...indexCtx() });
-    const settledByOrigin = buildSettledByOrigin();
-    const payersByOrigin = buildPayersByOrigin();
-    provenPayToByOrigin = buildProvenPayToByOrigin();
-    // The wallets each origin's settled/payers evidence was INHERITED from
-    // (shared leaderboard rows, Bazaar-listed payTos), read once per resolve
-    // and re-checked against the live 402 below (baseLiveGate).
-    const bindingByOrigin = buildEvidenceBindingByOrigin();
+    // The SAME evidence object every public label reads (dispatchEvidence):
+    // settled and payers (the best single wallet's figures), the chain-join
+    // address and the binding (every figure kept against the wallet it was
+    // measured at, re-checked against the live 402 below by baseLiveGate).
+    const ev = dispatchEvidence();
+    provenPayToByOrigin = ev.provenPayTo;
     candidates = (results || [])
       .filter((r) => r.seller && r.url && r.priceUsd > 0 && r.priceUsd <= cap && Array.isArray(r.networks) && r.networks.includes("eip155:8453"))
       // Never SPEND against an unsubstituted OpenAPI path template
@@ -1425,7 +1423,7 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
       // `urlTemplate`, because an agent that knows the parameter can use them.
       .filter((r) => !r.urlTemplate)
       .filter((r) => hostOf(r.url) && hostOf(r.url) !== ourHost)
-      .map((r) => ({ ...r, settled: settledByOrigin.get(norm(r.seller)) || 0, payers: payersByOrigin.get(norm(r.seller)), binding: bindingByOrigin.get(norm(r.seller)) || null }))
+      .map((r) => ({ ...r, settled: ev.settled.get(norm(r.seller)) || 0, payers: ev.payers.get(norm(r.seller)), binding: ev.binding.get(norm(r.seller)) || null }))
       // Count AND breadth. One implementation, shared with the test, so the
       // rule cannot drift from what is asserted about it.
       // The SAME function that labels every public row (dispatch-eligibility.js),
@@ -1480,14 +1478,20 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
   }
   const { assertPublicUrl, ssrfDispatcher } = await import("./tools/fetch-guard.js");
   const resolved = [];
-  const { sellerRefusedRecently, sellerServesModel } = await import("./x402-buyer.js");
+  const { sellerRouteRefusedRecently, sellerServesModel } = await import("./x402-buyer.js");
   for (const r of candidates) {
     let live = false;
-    // A seller that refused our payment on this chain (paid retry 402/401,
-    // chain showed no debit) is skipped until its memo expires - otherwise it
-    // keeps ranking first and every call burns a full round trip on it.
-    const refusal = sellerRefusedRecently(r.seller, chain);
-    if (refusal) { console.log(`[sor] skipping ${chain} candidate ${r.seller}: refused a payment ${Math.round((Date.now() - refusal.at) / 60000)} min ago (HTTP ${refusal.status})`); continue; }
+    // The wallets this candidate's INHERITED evidence belongs to, when that
+    // binding is what made it eligible. Set by the Base binding gate below and
+    // carried to the payer, which re-checks the accept it SIGNS against them.
+    let evidenceWallets = null;
+    // A route whose payment layer refused our payment on this chain twice
+    // (paid retry 402/401 carrying the seller's offer, chain showed no debit)
+    // is skipped until its memo expires - otherwise it keeps ranking first
+    // and every call burns a full round trip on it. The seller's other routes
+    // are asked about separately.
+    const refusal = sellerRouteRefusedRecently(r.url, chain);
+    if (refusal) { console.log(`[sor] skipping ${chain} candidate ${r.url}: refused a payment ${Math.round((Date.now() - refusal.at) / 60000)} min ago (HTTP ${refusal.status}, ${refusal.strikes} times)`); continue; }
     // ...and a seller whose last PAID call did not deliver (5xx with no
     // receipt, or no answer at all) is skipped the same way. The gate above is
     // built from settlement history, which is evidence about the past: a
@@ -1544,7 +1548,7 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
         // stays as the belt against a seller serving the probe a clean
         // address and the payer a different one.
         let probeBody = "";
-        try { probeBody = (await probe.text()).slice(0, 4000); } catch { /* header-only */ }
+        try { probeBody = await readTextCapped(probe, 4000); } catch { /* header-only */ }
         const { passesSolanaResolveGate } = await import("./solana-buyer.js");
         const gate = await passesSolanaResolveGate({ header: probe.headers.get("payment-required"), body: probeBody });
         if (!gate.ok) {
@@ -1581,7 +1585,7 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
           if (liveRead) return livePayTo;
           liveRead = true;
           let body = "";
-          try { body = (await probe.text()).slice(0, 4000); } catch { /* header-only quote */ }
+          try { body = await readTextCapped(probe, 4000); } catch { /* header-only quote */ }
           livePayTo = payToFromLive402({ header: probe.headers.get("payment-required"), body });
           liveAccepts = acceptsFromLive402({ header: probe.headers.get("payment-required"), body });
           return livePayTo;
@@ -1634,19 +1638,28 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
             live = false;
           }
         }
-        // SHARED-WALLET EVIDENCE COUNTS ONLY WHERE THE MONEY GOES (2026-09-03).
-        // The pre-probe filter cleared this candidate on settled/payers that may
-        // have been INHERITED from a leaderboard row keyed by someone else's
-        // wallet, or from a Bazaar listing naming one. Re-run the SAME labelled
+        // EVIDENCE COUNTS ONLY WHERE THE MONEY GOES (2026-09-03), ONE WALLET AT
+        // A TIME (2026-09-28). The pre-probe filter cleared this candidate on
+        // the best single wallet's settled/payers. Re-run the SAME labelled
         // gate with the origin's binding and the address its live 402 actually
-        // asks us to pay: inherited history counts only when that address is
-        // one of the wallets it came from; unreadable is not a match. An origin
-        // whose own evidence clears the floor is untouched by this.
+        // asks us to pay: it counts only when THAT wallet's own evidence clears
+        // the floor; unreadable is not a match.
         if (live && chain === "base" && r.binding) {
-          const gate = baseLiveGate({ networks: r.networks, settled: r.settled, payers: r.payers, priceUsd: r.priceUsd, urlTemplate: !!r.urlTemplate, minSettled: SOR_MIN_SETTLED_TX, minPayers: SOR_MIN_DISTINCT_PAYERS, binding: r.binding, livePayTo: await readLivePayTo() });
+          const livePayTo = await readLivePayTo();
+          const gate = baseLiveGate({ networks: r.networks, settled: r.settled, payers: r.payers, priceUsd: r.priceUsd, urlTemplate: !!r.urlTemplate, minSettled: SOR_MIN_SETTLED_TX, minPayers: SOR_MIN_DISTINCT_PAYERS, binding: r.binding, livePayTo });
           if (!gate.ok) {
             console.warn(`[sor] refusing ${r.seller}: ${gate.detail} (evidence wallets ${gate.payTos.length ? gate.payTos.join(",") : "none"}, live ${gate.livePayTo || "unreadable"})`);
             live = false;
+          } else {
+            // THE PROBE IS NOT THE PAYMENT (2026-09-28). The gate above read the
+            // PROBE's 402. payX402 makes its own unpaid request and signs whatever
+            // THAT 402 names, and the seller answers both, so a seller could show
+            // a clearing wallet to the probe and another address to the payment.
+            // The wallets whose OWN evidence clears the floor ride with the
+            // candidate, and the payer refuses an accept naming any other
+            // address - never the union of every wallet the origin was credited
+            // with, which would let a thin wallet ride on a busy one's history.
+            evidenceWallets = gate.evidenceWallets;
           }
         }
       }
@@ -1664,7 +1677,7 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
     // `wire` rides through: a Tempo candidate settles over MPP and its receipt
     // must say so (the first live Tempo SOR buy labelled it x402, 2026-08-27).
     if (live) {
-      resolved.push({ seller: r.seller, slug: r.slug, url: r.url, method: r.method, price: r.price, priceUsd: r.priceUsd, networks: r.networks, settled: r.settled, wire: r.wire || "x402", provenPayTo: provenPayToByOrigin?.get(norm(r.seller)) || r.chainProvenPayTo || null, route: r.route || null, guaranteedPaths: r.responseContract?.guaranteedPaths || [], ...(r.unproven ? { unproven: true } : {}), ...(r.judgedSelection ? { selection: r.judgedSelection } : {}) });
+      resolved.push({ seller: r.seller, slug: r.slug, url: r.url, method: r.method, price: r.price, priceUsd: r.priceUsd, networks: r.networks, settled: r.settled, wire: r.wire || "x402", provenPayTo: provenPayToByOrigin?.get(norm(r.seller)) || r.chainProvenPayTo || null, evidenceWallets, route: r.route || null, guaranteedPaths: r.responseContract?.guaranteedPaths || [], ...(r.unproven ? { unproven: true } : {}), ...(r.judgedSelection ? { selection: r.judgedSelection } : {}) });
       // Only PROVEN candidates count toward the limit: an unproven one must
       // never crowd out a proven seller ranked below it.
       if (resolved.filter((x) => !x.unproven).length >= Math.max(1, limit)) break;
@@ -1700,10 +1713,9 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
 // moves here (probe only). Kept behind operatorAuthed.
 async function diagnoseExternalSeller(task, { cap }) {
   const { results } = await routeQueryAsync({ query: task, top: 20, include: "external", ...indexCtx() });
-  const settledByOrigin = buildSettledByOrigin();
-  // Was read below but never declared here (a ReferenceError on every
-  // diagnostic call since the breadth gate landed); declared 2026-09-03.
-  const payersByOrigin = buildPayersByOrigin();
+  // The resolver's own evidence object, so the diagnosis cannot disagree with
+  // the decision it explains.
+  const { settled: settledByOrigin, payers: payersByOrigin } = dispatchEvidence();
   const ourHost = (() => { try { return new URL(BASE_URL).host.toLowerCase(); } catch { return ""; } })();
   const hostOf = (u) => { try { return new URL(u).host.toLowerCase(); } catch { return ""; } };
   const { assertPublicUrl, ssrfDispatcher } = await import("./tools/fetch-guard.js");
@@ -1733,7 +1745,10 @@ async function diagnoseExternalSeller(task, { cap }) {
         probe = { status: p.status, live: p.status === 402 };
       } catch (e) { probe = { error: String(e?.message || e).slice(0, 120) }; }
     }
-    rows.push({ seller: r.seller, url: r.url, priceUsd: r.priceUsd, networks: r.networks, settled, payers: payers ?? null, withinCap, hasBase, isSelf, meetsThreshold: settled >= SOR_MIN_SETTLED_TX, meetsBreadth, passesFilters, probe });
+    // On the committed seed list: a discovery hint for the operator, never
+    // evidence (it counts toward nothing above).
+    const seedHint = Object.hasOwn(SOR_SEED_ORIGINS, norm(r.seller));
+    rows.push({ seller: r.seller, url: r.url, priceUsd: r.priceUsd, networks: r.networks, settled, payers: payers ?? null, withinCap, hasBase, isSelf, meetsThreshold: settled >= SOR_MIN_SETTLED_TX, meetsBreadth, passesFilters, probe, seedHint });
   }
   return { task, cap, threshold: SOR_MIN_SETTLED_TX, minDistinctPayers: SOR_MIN_DISTINCT_PAYERS, snapshotOrigins: settledByOrigin.size, rawResults: (results || []).length, candidates: rows };
 }
@@ -1763,14 +1778,14 @@ for (const tier of EXEC_TIERS) {
 
 // Seller trust check — the same evidence the router above gates on, sold as a
 // read. Both accessors are injected so the tool stays pure and testable: the
-// crawler cache (sellerDetail) and the on-chain settlement counts
-// (buildSettledByOrigin, which already merges the committed seed floor with the
-// live leaderboard). Thresholds come from the router's own constants, so the
-// tool can never disagree with what the router actually does.
+// crawler cache (sellerDetail) and the settlement counts the router gates on
+// (dispatchEvidence().settled, the best single wallet's figures). Thresholds
+// come from the router's own constants, so the tool can never disagree with
+// what the router actually does.
 {
   const tool = buildSellerTrustTool({
     getSellerDetail: (host) => sellerDetail(host),
-    getSettledCalls: (origin) => buildSettledByOrigin().get(norm(origin)) || 0,
+    getSettledCalls: (origin) => dispatchEvidence().settled.get(norm(origin)) || 0,
     // Evidence for the address the seller ADVERTISES, from the cached on-chain
     // merchant scan. Never fetches — a cold cache reports "not checked", never
     // a clean bill.
@@ -2284,6 +2299,20 @@ app.post("/followups/stop", (req, res) => { const r = _followups.stop(String(req
 app.get("/__operator/followups.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   res.set("Cache-Control", "no-store").json(_followups.stats());
+});
+// The approved tweet queue, posted from here on the hour (src/tweet-queue.js).
+// Off unless the Railway variable TWEET_QUEUE is set; TWEET_QUEUE_POSTING=off
+// keeps it read-only (the operator read below still previews the next item).
+// Only the production server posts: a FREE_MODE boot, a process without
+// NODE_ENV=production and a process with no /data volume stay read-only, so a
+// local boot that copies the production variables never becomes a second
+// poster. It replaces .github/workflows/tweet-queue.yml, which is disabled at
+// cutover so exactly one poster runs. `draining` is read at tick time.
+const _tweetQueue = createTweetQueue({ ...tweetQueueOptionsFromEnv(process.env), isDraining: () => draining });
+_tweetQueue.start();
+app.get("/__operator/tweet-queue.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  res.set("Cache-Control", "no-store").json(_tweetQueue.status());
 });
 const alertsSignupLimiter = createRateLimiter("alerts-signup", { perMin: 6, perHour: 40 });
 // A second bound keyed on the ADDRESS (hashed), so a distributed source cannot
@@ -3015,6 +3044,10 @@ app.get("/api/gateway-status", async (req, res) => {
     // Daily MPP reconciliation (src/mpp-reconcile.js): status words + counts,
     // never an address; the itemized rows are /__operator/mpp-reconcile.json.
     mppReconcile: await mppReconciler.status({ full }).catch(() => ({ status: "unknown", chargedFailedStatus: "unknown" })),
+    // The server tweet queue (src/tweet-queue.js): one word publicly, so the
+    // status Worker can page on halted / no_credentials / refused / in_doubt;
+    // the operator also gets the mode and counts. Never an id or text.
+    tweetQueue: (() => { try { return _tweetQueue.alarmStatus({ full }); } catch { return { status: "unknown" }; } })(),
   };
   // An operator-authed read must not land in a shared cache.
   res.set("Cache-Control", full ? "private, no-store" : "public, max-age=60").json(body);
@@ -4271,10 +4304,37 @@ function statusProbeAuthed(req) {
   // The narrow credential first, so an observer carrying only it never touches
   // the operator limiter or the guessing counter.
   const presented = getOperatorToken(req);
+  // An IP whose operator budget is spent gets no comparison at all, of either
+  // token (a refused probe is a gap on /status, never a recorded outage).
+  if (presented && operatorAttemptLimiter.peek(operatorAttemptIp(req)).limited) return false;
   if (presented && statusProbeTokenOk(presented)) return true;
   // Otherwise the operator token still works, and a WRONG credential is
   // rate-limited and counted exactly as it was before.
   return operatorAuthed(req);
+}
+// The one other thing STATUS_PROBE_TOKEN does: on GET /api/pow/challenge for
+// PROBE_POW_SLUG it gets the status Worker a low-difficulty challenge it can
+// solve inside the tightest Workers CPU limit, and the call that challenge
+// unlocks is booked as internal (see the status-probe note in src/pow.js). It
+// opens no other slug, no paid route and no operator surface, and the operator
+// token does NOT work here - the root credential has no business on a public
+// route. Timing-safe compare, unset = off, as on the probe route. Read from
+// X-Operator-Token ONLY, never Authorization: on this API a Bearer is a
+// payment or credits credential, and a client that attaches one to every
+// request must not read as somebody guessing a token. A WRONG X-Operator-Token
+// is charged to the operator attempt limiter and counted by the guessing pager,
+// so this public route is no better a place to guess the token from than the
+// probe route is.
+function statusProbeChallengeAuthed(req) {
+  const presented = req.headers["x-operator-token"];
+  if (typeof presented !== "string" || !presented) return false;
+  if (operatorAttemptLimiter.peek(operatorAttemptIp(req)).limited) return false;
+  if (statusProbeTokenOk(presented)) return true;
+  if (STATUS_PROBE_TOKEN) {
+    operatorAttemptLimiter.check(operatorAttemptIp(req));
+    noteOperatorAuthFailure();
+  }
+  return false;
 }
 const getOperatorToken = (req) => {
   const auth = req.headers["authorization"];
@@ -4896,6 +4956,94 @@ app.post("/__operator/successions/revoke", express.json(), (req, res) => {
   const revoked = revokeSuccession(from);
   res.set("Cache-Control", "no-store").json({ revoked, from, note: revoked ? "the origin is listed again from the next read" : "no succession was recorded for that origin" });
 });
+// SHARED payTo wallets, the operator's lever (src/shared-paytos.js): a listed
+// wallet credits nobody with its leaderboard or chain-join history, and origins
+// paid at it keep only their own per-resource Bazaar evidence. Exact wallet
+// only. Applied from the next evidence read (the minute memo is dropped), and
+// persisted on the volume so a restart keeps it.
+app.get(["/__operator/shared-paytos", "/__operator/shared-paytos.json"], (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  const store = sharedPayToStore();
+  const wallet = String(req.query?.wallet || "").trim().toLowerCase();
+  if (wallet) {
+    if (!/^0x[0-9a-f]{40}$/.test(wallet)) return res.status(400).json({ error: "wallet must be a 0x address" });
+    // Which origins the evidence map credits with this wallet's figures, and
+    // which it withholds them from, as of the current read.
+    const creditedTo = [], withheldFrom = [];
+    for (const [origin, e] of dispatchEvidence().binding) {
+      if (e.byWallet?.has(wallet)) creditedTo.push(origin);
+      if (e.withheld?.byWallet?.has(wallet)) withheldFrom.push(origin);
+    }
+    const entry = store.list().find((x) => x.wallet === wallet) || null;
+    return res.set("Cache-Control", "no-store").json({ wallet, listed: store.has(wallet), entry, creditedTo: creditedTo.sort(), withheldFrom: withheldFrom.sort() });
+  }
+  res.set("Cache-Control", "no-store").json({ ...store.counts(), wallets: store.list(), note: `GET ?wallet=0x... for who that wallet's history is credited to; POST {"action":"add"|"remove","wallet":"0x...","note":"..."} to change it` });
+});
+app.post("/__operator/shared-paytos", express.json(), (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  const { action, wallet, note } = req.body || {};
+  const store = sharedPayToStore();
+  let r;
+  try {
+    if (action === "add") r = store.add(wallet, { note: typeof note === "string" ? note : "" });
+    else if (action === "remove") r = store.remove(wallet);
+    else return res.status(400).json({ error: 'pass {"action":"add"|"remove","wallet":"0x...","note":"optional"}' });
+  } catch (e) {
+    return res.status(e?.statusCode || 400).json({ error: String(e?.message || e).slice(0, 200) });
+  }
+  if (r.changed) dispatchEvidenceCache = null;
+  res.set("Cache-Control", "no-store").json({ ok: true, ...r });
+});
+// The SELF-FUNDED rule's operator view and lever (src/seller-funding.js): the
+// last funding read's counts, the wallets currently judged circular, and the
+// operator's clearances. POST {"action":"clear","wallet"} makes a wallet's
+// evidence read gross and never circular while listed (the measurement goes
+// on); {"action":"restore"} undoes it. POST {"action":"disable"} turns the
+// whole reader off - gross per-wallet evidence, no netting, no verdict, the
+// same as LEADERBOARD_FUNDING_SCAN=off but with no redeploy - and
+// {"action":"enable"} turns it back on (the env's "off" still wins).
+// Persisted on the volume, applied from the next evidence read. Counts and
+// verdicts only: no payer is ever listed.
+app.get(["/__operator/seller-funding", "/__operator/seller-funding.json"], (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  const store = selfFundingClearedStore();
+  const wallet = String(req.query?.wallet || "").trim().toLowerCase();
+  if (wallet) {
+    if (!/^0x[0-9a-f]{40}$/.test(wallet)) return res.status(400).json({ error: "wallet must be a 0x address" });
+    // creditedTo: what each origin IS credited with at this wallet (netted).
+    // notCounted: what each origin WOULD have been credited with had the
+    // self-funded payments counted - gross figures, most of them the payers'
+    // own money, never "the self-funded part". What was actually netted is
+    // under evidence (selfFunded*).
+    const creditedTo = [], notCounted = [];
+    for (const [origin, e] of dispatchEvidence().binding) {
+      if (e.byWallet?.has(wallet)) creditedTo.push({ origin, settled: e.byWallet.get(wallet).settled, payers: e.byWallet.get(wallet).payers ?? null });
+      if (e.selfFunded?.byWallet?.has(wallet)) notCounted.push({ origin, grossSettled: e.selfFunded.byWallet.get(wallet).settled, grossPayers: e.selfFunded.byWallet.get(wallet).payers ?? null });
+    }
+    return res.set("Cache-Control", "no-store").json({ ...sellerFundingStatus({ wallet }), entry: store.list().find((x) => x.wallet === wallet) || null, creditedTo, notCounted, notCountedNote: "per origin, the figures at this wallet that would have been credited had the self-funded payments counted (gross: they include the payers' own money); what was netted is evidence.selfFunded*" });
+  }
+  res.set("Cache-Control", "no-store").json({ ...sellerFundingStatus(), cleared: store.list(), note: 'GET ?wallet=0x... for one wallet; POST {"action":"clear"|"restore","wallet":"0x...","note":"..."} to change it; POST {"action":"disable"|"enable","note":"..."} turns the whole reader off or on' });
+});
+app.post("/__operator/seller-funding", express.json(), (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  const { action, wallet, note } = req.body || {};
+  if (action === "disable" || action === "enable") {
+    const r = setSellerFundingEnabled(action === "enable", { note: typeof note === "string" ? note : "" });
+    dispatchEvidenceCache = null;
+    return res.set("Cache-Control", "no-store").json({ ok: true, ...r });
+  }
+  const store = selfFundingClearedStore();
+  let r;
+  try {
+    if (action === "clear") r = store.add(wallet, { note: typeof note === "string" ? note : "" });
+    else if (action === "restore") r = store.remove(wallet);
+    else return res.status(400).json({ error: 'pass {"action":"clear"|"restore","wallet":"0x...","note":"optional"} or {"action":"disable"|"enable"}' });
+  } catch (e) {
+    return res.status(e?.statusCode || 400).json({ error: String(e?.message || e).slice(0, 200) });
+  }
+  if (r.changed) dispatchEvidenceCache = null;
+  res.set("Cache-Control", "no-store").json({ ok: true, wallet: r.wallet, cleared: r.listed, source: r.source ?? null, changed: r.changed });
+});
 // Remove ONE seller origin from the index and the router, permanently (until
 // restored). Exact origin only - no name matching, no wildcards - so a typo
 // cannot take out a neighbour. Restore only lifts the block; the owner can
@@ -5420,8 +5568,11 @@ function isOwnWallet(payer) {
   const p = String(payer);
   return OUR_EVM_WALLETS.has(p.toLowerCase()) || OUR_SOLANA_WALLETS.has(p) || OUR_STELLAR_WALLETS.has(p) || OUR_ALGORAND_WALLETS.has(p);
 }
+// Also true for the status Worker's paid-call, which carries no heartbeat token
+// (it does not hold POW_SECRET): the PoW gate sets statusProbePow only after
+// verifying a status-probe challenge, whose mark is inside the signature.
 function isSyntheticRequest(req) {
-  try { return !!(req && verifyHeartbeatToken(req.header("x-heartbeat-token"))); }
+  try { return !!(req && (ownTrue(req, "statusProbePow") || verifyHeartbeatToken(req.header("x-heartbeat-token")))); }
   catch { return false; }
 }
 function requestShape(req) {
@@ -7292,12 +7443,22 @@ app.get("/api/pow/challenge", (req, res) => {
   if (!POW_SLUGS.has(requested)) {
     return res.status(404).json({ error: `Unknown or wallet-only tool "${requested}". Compute-payable slugs: GET /api/pow` });
   }
+  // The status Worker's challenge: low difficulty, marked as the probe's inside
+  // the signature, for PROBE_POW_SLUG only. Any other slug, a missing or wrong
+  // token, or no STATUS_PROBE_TOKEN on this server gets the normal challenge.
+  const probe = requested === PROBE_POW_SLUG && statusProbeChallengeAuthed(req);
   // Funnel stage 2b — a free-tier challenge was issued (agent asked how to pay
   // for free). Paired with payment_settled{rail=pow} this is the free-tier
   // take rate. Only genuine issuances count (past the 429/404 guards above).
-  capturePostHogPowChallenge({ slug: requested, synthetic: isSyntheticRequest(req) });
-  res.json(issueChallenge(requested));
+  capturePostHogPowChallenge({ slug: requested, synthetic: probe || isSyntheticRequest(req) });
+  res.json(issueChallenge(requested, { probe }));
 });
+// The status Worker's check depends on this slug staying proof-of-work
+// eligible; if it ever moves to WALLET_ONLY_SLUGS the probe challenge 404s and
+// /status records the paid-call path as down. Say so at boot, not there.
+if (!POW_SLUGS.has(PROBE_POW_SLUG)) {
+  console.warn(`[status-probe] "${PROBE_POW_SLUG}" is not proof-of-work eligible: the status Worker's paid-call check will fail until PROBE_POW_SLUG in src/pow.js names an eligible slug`);
+}
 
 // Live machine-to-machine economy stats (free). Money is provable on-chain at
 // the wallet; this also tallies calls served and how they were paid for.
@@ -7726,7 +7887,8 @@ if (!FREE_MODE) {
       // path-bound, so the binding check has to know the route it is paying
       // for: checkTempoCredentialBinding refuses a long-running route over
       // Tempo (its run outlives the credential), whatever challenge it answers.
-      return priceUsd ? { priceUsd, identityBound: isIdentityBoundRoute(def), longRunning: isLongRunningSlug(def.slug) } : null;
+      // verifiedSenderRequired: see spendsBeforeSettlement.
+      return priceUsd ? { priceUsd, identityBound: isIdentityBoundRoute(def), verifiedSenderRequired: spendsBeforeSettlement(def), longRunning: isLongRunningSlug(def.slug) } : null;
     },
     // Input check before the relay round trip (see createTempoGate). Same
     // envelope the dispatcher's 400 carries, so the caller corrects itself.
@@ -8228,6 +8390,10 @@ if (FREE_MODE) {
             });
           }
           res.setHeader("X-Pow-Accepted", "true");
+          // The status Worker's call: booked as internal, like the heartbeat's.
+          // Set here and only here, from a solution whose probe mark was
+          // verified inside the signature (src/pow.js).
+          if (result.probe === true) req.statusProbePow = true;
           return next(); // work accepted — skip the USDC paywall
         }
         res.setHeader("X-Pow-Error", result.reason);
@@ -8458,7 +8624,9 @@ app.use((req, res, next) => {
       if (res.statusCode === 200) {
         const powAccepted = res.getHeader("X-Pow-Accepted") === "true";
         const trialAccepted = res.getHeader("X-Trial-Accepted") === "true";
-        const isHeartbeat = powAccepted && verifyHeartbeatToken(req.header("x-heartbeat-token"));
+        // The status Worker's paid-call (statusProbePow, set by the PoW gate
+        // from a verified status-probe challenge) is booked the same way.
+        const isHeartbeat = powAccepted && (verifyHeartbeatToken(req.header("x-heartbeat-token")) || ownTrue(req, "statusProbePow"));
         // "usdc" is the ELSE branch, so any free path that forgets to name
         // itself here is booked as a sale. A trial moves no money.
         const method = isHeartbeat ? "heartbeat" : powAccepted ? "pow" : trialAccepted ? "trial" : req.creditsSettled ? "credits" : "usdc";
@@ -8941,8 +9109,9 @@ for (const tool of ALL_KIT) {
           throw e;
         }
         // Guard key: the signed EVM payer when present; otherwise the Tempo
-        // sender RECOVERED from the signed transaction (never the credential's
-        // client-supplied `source`, which a caller can vary per request), the
+        // sender the gate VERIFIED (never the credential's client-supplied
+        // `source`, and never an unverified sender - mppTempoSender is null
+        // then), the
         // credits key, or the client IP (card/SPT buyers and any rail whose
         // payer is only known post-settlement) - nobody is unkeyed.
         const guardKey = payer || (req.mppTempoSender ? `tempo:${req.mppTempoSender}` : req.creditsKeyId ? `credits:${req.creditsKeyId}` : `ip:${clientIp(req)}`);
@@ -8956,7 +9125,10 @@ for (const tool of ALL_KIT) {
           e.statusCode = 429;
           throw e;
         }
-        res.on("finish", () => {
+        // onSettleOutcome reports the final outcome whether or not the buyer
+        // stayed connected (src/hangup-settlement.js), so a settlement that
+        // fails after the buyer left counts here too.
+        onSettleOutcome(req, res, () => {
           try {
             // A settled 200 clears the key. A spend-then-fail is a 402 (the
             // settlement-failure rewrite) or a 5xx AFTER the run (empty
@@ -8994,6 +9166,14 @@ for (const tool of ALL_KIT) {
       // spend burned. The thrown 422 cancels settlement (never charged) and
       // explains the fix. Fail-open: non-AVM and unreadable payments pass.
       await assertAvmValidityCovers(req, tool.slug);
+      // The same rule for EVM authorizations on routes whose measured run is
+      // long (reports, video, the premium image tier): a credential that
+      // expires before the work ends can never settle, so under
+      // EVM_VALIDITY_FLOOR=enforce it is refused here, 422 and uncharged,
+      // rather than run for nothing; by default it is logged. The floor never
+      // exceeds what a stock client or a prompt MPP client carries
+      // (src/evm-validity.js).
+      assertEvmValidityCovers(req, tool.slug);
 
       // Settle-failure breaker for EVERY wallet-only tool (2026-09-06; the /v1
       // tiers consult it inside their handlers already and the call is
@@ -9010,6 +9190,18 @@ for (const tool of ALL_KIT) {
       // cent; pausing every paid tool over twelve of them would be a lever, not
       // a guard. The /v1 tiers keep their own global pause inside their handlers.
       if (!FREE_MODE && WALLET_ONLY_SLUGS.has(tool.slug)) gatewaySettleBreakerCheck(req, { global: false });
+
+      // A wallet's concurrent runs on the expensive routes must be covered by
+      // its balance together (verify checks each authorization alone). A run
+      // the balance cannot also cover is refused 429 before it starts
+      // (src/inflight-cover.js); it leaves the ledger when its response ends,
+      // and counts as settling once its handler has returned.
+      // Before the client-gone belt, because the balance read can wait.
+      let coverRelease = null;
+      if (!FREE_MODE && EXPENSIVE_COMPOSITE_SLUGS.has(tool.slug)) {
+        coverRelease = await admitCoveredRun(req);
+        if (coverRelease && !onResponseEnd(req, res, coverRelease)) coverRelease();
+      }
 
       // The buyer's connection is already gone (it closed while the payment
       // was being verified): nothing could be delivered, so nothing runs and
@@ -9033,6 +9225,7 @@ for (const tool of ALL_KIT) {
       const result = EXPENSIVE_COMPOSITE_SLUGS.has(tool.slug)
         ? await runInAbortableScope(() => tool.handler(input, req), { signal: clientGoneCtl.signal })
         : await tool.handler(input, req);
+      coverRelease?.settling?.();
 
       // A handler that spent real money upstream (external route-execute) leaves
       // a handle on the request. Resolve it against the FINAL response, not the

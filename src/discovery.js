@@ -324,10 +324,14 @@ export function reliabilityReport({ baseUrl, network, wallet, stats, observedSta
         // and a Cloudflare cron), which is the part actually worth claiming,
         // and the measured rate is better than the number we advertised.
         // Measured over 24h at the time of writing: 378 observations for
-        // health/catalog/MCP/paywall/rails (~3.8 min apart) and 90 for the
-        // proof-of-work paid path (~16 min apart), the latter lower because
-        // only the GitHub observer holds the credentials to make a paid call.
-        claim: "Two independent observers outside production (a GitHub schedule and a Cloudflare cron on separate infrastructure) probe the live instance - health, catalog, MCP, the 402 paywall, rails - and file a public issue on failure. Measured over 24h: ~378 observations per component, about one every 4 minutes; the proof-of-work paid path is probed by the GitHub observer alone at ~16 minute intervals. Per-component uptime and observation counts are published at /api/status.",
+        // health/catalog/MCP/paywall/rails (~3.8 min apart). The proof-of-work
+        // paid path was then observed by the GitHub heartbeat alone; since
+        // 2026-09-28 the Cloudflare cron walks it too, with a probe-only
+        // challenge (src/pow.js), so the claim names both and quotes that
+        // cadence as a schedule, not as a measurement. The two walk different
+        // challenges, which is why /status judges paid-call per observer
+        // (stateFromSources in src/status-store.js) and the claim says so.
+        claim: "Two independent observers outside production (a GitHub schedule and a Cloudflare cron on separate infrastructure) probe the live instance - health, catalog, MCP, the 402 paywall, rails and the proof-of-work paid path - and file a public issue on failure. Measured over 24h: ~378 observations for each of the first five, about one every 4 minutes; the paid path is walked end to end by both observers, the GitHub schedule on the challenge a buyer is issued and the Cloudflare cron on a low-difficulty probe challenge every 5 minutes, and a failure either records stands until that same observer sees the path work again. Per-component uptime and observation counts are published at /api/status.",
         verify: `${baseUrl}/health`,
         evidence: `${REPO}/issues?q=label%3Aheartbeat`,
       },

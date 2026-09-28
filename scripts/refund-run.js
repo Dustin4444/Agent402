@@ -24,6 +24,11 @@
 //     never silently skipped.
 //   * synthetic rows (canary/heartbeat self-harm) are held by default -
 //     refunding our own burner is churn. REFUND_INCLUDE_SYNTHETIC=true opts in.
+//   * a buyer who disconnected (http 499) on a route whose effect outlives the
+//     answer (hasLastingEffect in src/hangup-forgiveness.js: the route-execute
+//     tiers, memory writes, attest, feedback) is held for review by default:
+//     the effect was delivered before the socket closed. A reviewer who has
+//     read those rows releases them with REFUND_INCLUDE_LASTING_HANGUPS=true.
 //   * a chain without an implemented sender or a configured key HOLDS its
 //     rows and says so. The debt stays on the ledger; nothing is written off.
 //   * marking paid requires the outbound tx hash, enforced server-side too.
@@ -36,6 +41,7 @@
 // sender lands with the planned Solana spending wallet.
 
 import { createHash, createHmac } from "node:crypto";
+import { hasLastingEffect } from "../src/hangup-forgiveness.js";
 
 // This repo is PUBLIC, so every Actions log is world-readable. The project's
 // standing rule for buyer identities is "counts only, never addresses - a
@@ -137,6 +143,18 @@ export function familyOf(network) {
   return "unknown";
 }
 
+// The status the serving code books a disconnect under (recordHangupDebt in
+// src/server.js). A debt recorded on it is a buyer who left before the first
+// byte; every other status is an answer that failed.
+export const HANGUP_STATUS = 499;
+export const LASTING_HANGUP_HOLD =
+  "disconnected after a route whose effect was already delivered - review, then set include_lasting_hangups to repay";
+
+/** A disconnect on a route whose effect outlives the answer (see planRefunds). */
+export function isLastingEffectHangup(row) {
+  return Number(row?.httpStatus) === HANGUP_STATUS && hasLastingEffect(row?.slug);
+}
+
 /**
  * Pure planner: decide what to send and what to hold, with reasons. Exported
  * for the offline test - the dangerous mistakes (skipping caps, refunding the
@@ -149,6 +167,7 @@ export function planRefunds(rawRows, {
   minRefundUsd = MIN_REFUND,
   onlyChain = "",
   includeSynthetic = false,
+  includeLastingHangups = false,
   senders = {},              // family -> truthy when a key+implementation exists
 } = {}) {
   // Normalized ONCE at intake so familyOf, the accepts lookup and the row the
@@ -165,6 +184,14 @@ export function planRefunds(rawRows, {
     if (row.status && row.status !== "owed") continue;
     if (onlyChain && row.network !== onlyChain) { hold("filtered by chain", row); continue; }
     if (row.synthetic && !includeSynthetic) { hold("synthetic (our own canary - opt in to refund it)", row); continue; }
+    // A disconnect on a route whose effect outlives the answer: the handler
+    // had already acted (a purchase from an outside seller on our wallet, a
+    // memory write, an attestation, a stored verdict) when the socket closed,
+    // the same reason the serving side never forgives these hang-ups. Repaying
+    // one is a reviewer's decision, so these rows stay owed, are listed in
+    // their own bucket, and are repaid only when the run opts in. Held before
+    // the caps, so they take no share of this run's budget.
+    if (!includeLastingHangups && isLastingEffectHangup(row)) { hold(LASTING_HANGUP_HOLD, row); continue; }
     if (!row.payer) { hold("no payer recorded - resolve manually (void with a note)", row); continue; }
     const usd = Number(row.priceUsd) || 0;
     if (usd <= 0) { hold("zero amount - void with a note", row); continue; }
@@ -359,14 +386,19 @@ async function main() {
     maxPerPayerUsd: MAX_PER_PAYER,
     minRefundUsd: MIN_REFUND,
     includeSynthetic: /^(1|true|yes)$/i.test(process.env.REFUND_INCLUDE_SYNTHETIC || ""),
+    includeLastingHangups: /^(1|true|yes)$/i.test((process.env.REFUND_INCLUDE_LASTING_HANGUPS || "").trim()),
     senders,
   });
+  // Each line names the response status the debt was recorded on, so a
+  // reviewer reading the dry run can tell a failed answer from a buyer who
+  // disconnected (499) before approving a live run.
+  const what = (r) => `${r.slug}${r.httpStatus ? `, http ${r.httpStatus}` : ""}`;
   for (const [reason, rows] of Object.entries(plan.held)) {
     console.log(`\nHELD (${reason}): ${rows.length}`);
-    for (const r of rows) console.log(`   #${r.id} ${r.network} $${r.priceUsd} -> ${tag(r.payer)} (${r.slug})`);
+    for (const r of rows) console.log(`   #${r.id} ${r.network} $${r.priceUsd} -> ${tag(r.payer)} (${what(r)})`);
   }
   console.log(`\nTO SEND: ${plan.send.length} refund(s), $${plan.totalUsd} total`);
-  for (const r of plan.send) console.log(`   #${r.id} ${r.network} $${r.priceUsd} -> ${tag(r.payer)} (${r.slug})`);
+  for (const r of plan.send) console.log(`   #${r.id} ${r.network} $${r.priceUsd} -> ${tag(r.payer)} (${what(r)})`);
 
   if (!LIVE) { console.log("\nDRY RUN - no money moved. Set REFUND_LIVE=true to execute."); return; }
   if (!plan.send.length) { console.log("nothing to send."); return; }

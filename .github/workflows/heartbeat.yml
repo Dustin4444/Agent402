@@ -548,6 +548,33 @@ jobs:
             gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: wrong-credential rate back under the threshold at $(date -u +%FT%TZ)." >/dev/null 2>&1 || true
           fi
 
+      # Server tweet queue (src/tweet-queue.js): one word on /api/gateway-status.
+      # halted / no_credentials / refused / in_doubt page; ok and off close;
+      # retrying and unknown do neither. The status Worker runs the same check
+      # every five minutes under the same title, so the two never duplicate.
+      - name: Tweet queue check (alarm when the server poster needs attention)
+        if: always()
+        continue-on-error: true
+        run: |
+          WORD=$(curl -s --max-time 15 "$PROD/api/gateway-status" | jq -r '.tweetQueue.status // "unknown"' 2>/dev/null || echo unknown)
+          echo "tweet queue: $WORD"
+          TITLE="Tweet queue needs attention (server poster)"
+          OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty' 2>/dev/null || echo "")
+          case "$WORD" in
+            halted|no_credentials|refused|in_doubt)
+              if [ -z "$OPEN" ]; then
+                gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "/api/gateway-status reports tweetQueue.status=$WORD. in_doubt: a post may not have reached X and its one retry is used - read /__operator/tweet-queue.json for the ids, check X, re-queue a missing post under a new id and remove the old id from TWEET_QUEUE. refused: X answered 401/402/403 (credentials or API balance). no_credentials: an X_* key is missing on Railway. halted: TWEET_QUEUE is not a JSON array, the state file on /data cannot be read, or there is no volume. Auto-closes when the word is ok." >/dev/null 2>&1 || echo "issue create failed"
+              else
+                gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "Still $WORD at $(date -u +%FT%TZ)." >/dev/null 2>&1 || true
+              fi
+              ;;
+            ok|off)
+              if [ -n "$OPEN" ]; then
+                gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: tweet queue reads $WORD at $(date -u +%FT%TZ)." >/dev/null 2>&1 || true
+              fi
+              ;;
+          esac
+
       # Serving health: event-loop stalls, 5xx and paid-call error rates, and
       # load shedding, from /__operator/serving-health.json (counts only). Two
       # readings 30 s apart must agree, because a deploy's no-container window

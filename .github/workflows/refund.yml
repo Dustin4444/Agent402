@@ -42,6 +42,10 @@ on:
         description: "Also refund canary self-harm rows (churn - normally leave false)"
         type: boolean
         default: false
+      include_lasting_hangups:
+        description: "Also repay disconnects on routes whose effect was delivered (route-execute, memory writes, attest, feedback) - read those held rows first"
+        type: boolean
+        default: false
 
 # One refund run at a time, repo-wide. Two concurrent dispatches would each
 # read the same owed rows; the ledger's claim step makes a double-send unlikely,
@@ -83,7 +87,19 @@ jobs:
           REFUND_MAX_EACH_USD: ${{ inputs.max_each_usd }}
           REFUND_ONLY_CHAIN: ${{ inputs.only_chain }}
           REFUND_INCLUDE_SYNTHETIC: ${{ inputs.include_synthetic && 'true' || 'false' }}
+          # Held by default and listed in their own bucket on every run, dry or
+          # live (planRefunds in scripts/refund-run.js); repaid only when the
+          # dispatch opts in after reading them.
+          REFUND_INCLUDE_LASTING_HANGUPS: ${{ inputs.include_lasting_hangups && 'true' || 'false' }}
           REFUND_EVM_KEY: ${{ secrets.REFUND_EVM_KEY != '' && secrets.REFUND_EVM_KEY || secrets.BURNER_KEY }}
           REFUND_STELLAR_SECRET: ${{ secrets.REFUND_STELLAR_SECRET != '' && secrets.REFUND_STELLAR_SECRET || secrets.STELLAR_BURNER_SECRET }}
           REFUND_ALGORAND_MNEMONIC: ${{ secrets.REFUND_ALGORAND_MNEMONIC != '' && secrets.REFUND_ALGORAND_MNEMONIC || secrets.ALGORAND_BURNER_MNEMONIC }}
+          # The router tiers settle to our spending wallets, not the treasury
+          # (src/payments.js), so the pre-send proof must count those public
+          # addresses as ours (ourPayToSet in scripts/refund-run.js). Repository
+          # VARIABLES, the same ones deploy.yml passes: addresses only, no key.
+          # scripts/test-refund-run-self-funding.js keeps this list in step
+          # with payments.js.
+          X402_UPSTREAM_BUYER_ADDRESS: ${{ vars.X402_UPSTREAM_BUYER_ADDRESS }}
+          ALGORAND_UPSTREAM_BUYER_ADDRESS: ${{ vars.ALGORAND_UPSTREAM_BUYER_ADDRESS }}
         run: node scripts/refund-run.js

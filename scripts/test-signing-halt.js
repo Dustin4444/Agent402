@@ -146,7 +146,7 @@ ok(after?.ok === false, "after a RESTART the day is still spent - the ceiling di
   // over cap) signed nothing, and counting it would let two cheap misses starve
   // a legitimate retry. The first cut of this patch got that wrong and
   // test-route-execute caught it.
-  ok(/if \(spentMaybe\) __paidAttempts\+\+/.test(src),
+  ok(/if \(spentMaybe \|\| unanswered\) __paidAttempts\+\+/.test(src),
     "only a COMMITTED payment increments the counter (pre-payment failures are free)");
   ok(!/__paidAttempts\+\+[\s\S]{0,200}?paid = await payExternal/.test(src),
     "the counter is not incremented before the pay call");

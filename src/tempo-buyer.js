@@ -26,6 +26,7 @@ import { assertSigningAllowed } from "./signing-halt.js";
 import { ROUTER_UA } from "./x402-buyer.js";
 import { recordUpstreamSpend } from "./stats.js";
 import { assertPublicUrl, ssrfDispatcher } from "./tools/fetch-guard.js";
+import { readBytesCapped, decodeUtf8 } from "./capped-body.js";
 
 export const TEMPO_CHAIN_ID = 4217;
 export const TEMPO_CAIP2 = "eip155:4217";
@@ -182,20 +183,33 @@ export async function payTempo(url, {
   const mint = createCredential || (await defaultCredentialFactory());
   const credential = await mint(new Response(null, { status: 402, headers: { "WWW-Authenticate": Challenge.serialize(ch) } }));
   if (typeof credential !== "string" || !/^Payment\s/i.test(credential)) throw bad("Could not create an MPP credential", 502);
-  const paid = await fetch(url, init({ Authorization: credential }));
-  if (paid.status === 402 || paid.status === 401) throw bad(`Seller rejected the paid retry (HTTP ${paid.status})`, 502);
-  if (paid.status >= 400) throw bad(`Seller failed after payment (HTTP ${paid.status})`, paid.status >= 500 ? 502 : 502);
-  let reference = null;
-  const receiptHdr = paid.headers.get("payment-receipt");
-  if (receiptHdr) {
-    try { const { Receipt } = await import("mppx"); reference = Receipt.deserialize(receiptHdr)?.reference || null; } catch { /* best-effort */ }
+  // From here the credential has been handed to the seller, and nothing on
+  // this rail can prove afterwards that it was not broadcast: every failure
+  // below is stamped `committed`, with the amount the credential carries
+  // (`signedUsd`), so a caller keeps that spend booked against the wallet
+  // (route-execute) instead of treating it as nothing spent.
+  try {
+    const paid = await fetch(url, init({ Authorization: credential }));
+    if (paid.status === 402 || paid.status === 401) throw bad(`Seller rejected the paid retry (HTTP ${paid.status})`, 502);
+    if (paid.status >= 400) throw bad(`Seller failed after payment (HTTP ${paid.status})`, paid.status >= 500 ? 502 : 502);
+    let reference = null;
+    const receiptHdr = paid.headers.get("payment-receipt");
+    if (receiptHdr) {
+      try { const { Receipt } = await import("mppx"); reference = Receipt.deserialize(receiptHdr)?.reference || null; } catch { /* best-effort */ }
+    }
+    recordUpstreamSpend("tempo-buyer", Number(quotedAtomic) / 1e6);
+    return {
+      result: await readCapped(paid, maxBytes),
+      quote: { atomic: String(quotedAtomic), usd: Number(quotedAtomic) / 1e6, network: TEMPO_CAIP2 },
+      receipt: { transaction: reference, network: TEMPO_CAIP2, wire: "mpp" },
+    };
+  } catch (err) {
+    const e = err && typeof err === "object" ? err : bad(String(err), 502);
+    e.committed = true;
+    // The credential carries the quote and nothing more: the most it moves.
+    e.signedUsd = Number(quotedAtomic) / 1e6;
+    throw e;
   }
-  recordUpstreamSpend("tempo-buyer", Number(quotedAtomic) / 1e6);
-  return {
-    result: await readCapped(paid, maxBytes),
-    quote: { atomic: String(quotedAtomic), usd: Number(quotedAtomic) / 1e6, network: TEMPO_CAIP2 },
-    receipt: { transaction: reference, network: TEMPO_CAIP2, wire: "mpp" },
-  };
 }
 
 async function defaultCredentialFactory() {
@@ -206,11 +220,13 @@ async function defaultCredentialFactory() {
   return (res402) => client.createCredential(res402);
 }
 
+// Streams and stops at `maxBytes` (src/capped-body.js), so a seller's body is
+// never held in full. `sha256` is over the bytes read; `truncated` says when
+// that is a prefix.
 async function readCapped(res, maxBytes) {
-  const buf = Buffer.from(await res.arrayBuffer());
-  const slice = buf.length > maxBytes ? buf.subarray(0, maxBytes) : buf;
-  const text = slice.toString("utf8");
+  const { bytes: buf, truncated } = await readBytesCapped(res, maxBytes);
+  const text = decodeUtf8(buf);
   const ct = res.headers.get("content-type") || "";
   if (/json/i.test(ct)) { try { return JSON.parse(text); } catch { /* fall through */ } }
-  return { text, truncated: buf.length > maxBytes, contentType: ct, sha256: createHash("sha256").update(buf).digest("hex") };
+  return { text, truncated, contentType: ct, sha256: createHash("sha256").update(buf).digest("hex") };
 }

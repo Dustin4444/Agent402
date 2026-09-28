@@ -73,6 +73,9 @@ commits = [
 ]
 # Matched against each finding's captured secret.
 regexes = [
+  # scripts/test-tempo-sender.js: an IDENTIFIER, not a value - the variable
+  # holding a p256 key generated at runtime (P256.randomPrivateKey()).
+  '''^newP256RootKey$''',
   # EVM contract/wallet addresses are public identifiers, never secrets. This
   # is 40 hex chars precisely; a real EVM private key is 64 hex and is NOT
   # covered here, so it would still fire.

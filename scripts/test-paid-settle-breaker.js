@@ -11,6 +11,15 @@
 // Handler execution is observed through the stub's settle counter: the vendor
 // only calls /settle for a < 400 handler response, so "settles advanced" means
 // the handler ran and "settles did not advance" means the refusal came first.
+//
+// And the /v1 GLOBAL pause, through a real HTTP /v1 request (2026-09-28): every
+// /v1 slug is wallet-only, so the dispatcher's catalog consult (global:false)
+// armed the outcome listener first and the /v1 handler's own consult
+// (global:true) could not re-arm it - no /v1 settle failure ever reached the
+// global count. The server boots under scripts/lib/upstream-stub-preload.js so
+// /v1/embeddings runs to a 200 with no key and nothing spent, then settlement
+// fails; GLOBAL_MAX of them across different wallets must pause every /v1 tier,
+// and one wallet's concurrent burst, however large, must not.
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { getFreePorts } from "./lib/free-port.js";
@@ -47,9 +56,9 @@ facilitator = createServer((req, res) => {
 });
 await new Promise((r) => facilitator.listen(FAC_PORT, "127.0.0.1", r));
 
-proc = spawn("node", ["src/server.js"], {
+proc = spawn("node", ["--import", "./scripts/lib/upstream-stub-preload.js", "src/server.js"], {
   env: {
-    ...process.env, PORT: String(PORT), FREE_MODE: "",
+    ...process.env, PORT: String(PORT), FREE_MODE: "", OPENAI_API_KEY: "test-key-never-used",
     WALLET_ADDRESS: "0x000000000000000000000000000000000000dEaD", NETWORK: "base",
     FACILITATOR_URL: `http://127.0.0.1:${FAC_PORT}`, AGENT402_BASE_RPC: `http://127.0.0.1:${FAC_PORT}/rpc`,
     CDP_API_KEY_ID: "", CDP_API_KEY_SECRET: "", PAYMENT_NETWORKS: "base", MPP_SECRET_KEY: "",
@@ -161,6 +170,47 @@ try {
     const before = settles;
     const r = await pay(WALLET_ONLY, "0x00000000000000000000000000000000000000c3");
     ok(r.status === 402 && settles === before + 1, `no global pause from catalog failures: a third wallet still reaches the handler (status ${r.status})`);
+  }
+  // THE /v1 GLOBAL PAUSE, through HTTP. The catalog failures above (well past
+  // GLOBAL_MAX, across three wallets) fed nothing global.
+  const V1 = (i) => ({ path: "/v1/embeddings", method: "POST", body: JSON.stringify({ input: `settle breaker probe ${i}` }) });
+  const wallet = (i) => "0x" + "e".repeat(38) + i.toString(16).padStart(2, "0");
+  const GLOBAL_MAX = 4; // GATEWAY_SETTLE_BREAKER_GLOBAL_MAX below
+  // ONE wallet, a concurrent burst: every call passes the per-wallet check
+  // before any of the burst's failures lands, so well over GLOBAL_MAX handlers
+  // run and fail to settle. That wallet is the per-wallet bound's business; it
+  // must not pause every /v1 buyer (the global pause counts distinct buyers).
+  {
+    await acceptFor(V1(0));
+    const before = settles;
+    const burst = await Promise.all(Array.from({ length: 10 }, (_, k) => pay(V1(100 + k), wallet(0x90))));
+    const ran = settles - before;
+    ok(ran >= GLOBAL_MAX && burst.every((r) => r.status === 402 || r.status === 429), `one wallet's burst of 10 concurrent /v1 calls: ${ran} handlers ran and failed to settle (>= GLOBAL_MAX ${GLOBAL_MAX}, so the old per-failure count would have paused /v1)`);
+    const b0 = settles;
+    const r = await pay(V1(200), wallet(0x91));
+    ok(r.status === 402 && settles === b0 + 1, `...and a DIFFERENT wallet's /v1 call still reaches its handler: one buyer cannot pause every /v1 tier (status ${r.status}, settles ${settles})`);
+  }
+  // Now /v1 calls from DIFFERENT fresh wallets (one failure each, far under
+  // the per-wallet MAX) run the handler and fail to settle. Two buyers failed
+  // above; GLOBAL_MAX - 2 more reach the threshold, and the next /v1 call, from
+  // yet another wallet, must be refused 503 before the handler.
+  {
+    for (let i = 1; i <= GLOBAL_MAX - 2; i++) {
+      const before = settles;
+      const r = await pay(V1(i), wallet(i));
+      ok(r.status === 402 && settles === before + 1, `/v1 call ${i} from its own wallet: the handler ran (upstream stubbed), settlement failed -> 402 (status ${r.status}, settles ${settles})`);
+    }
+    const before = settles;
+    const r = await pay(V1(99), wallet(99));
+    const body = await r.json().catch(() => ({}));
+    ok(r.status === 503 && settles === before && /briefly paused/.test(body.error || "") && r.headers.get("retry-after"), `after /v1 settle failures from ${GLOBAL_MAX} different wallets the NEXT /v1 call is paused 503 before the handler (status ${r.status}, settles ${settles} == ${before})`);
+    const g = await (await fetch(`${B}/api/gateway-status`)).json().catch(() => ({}));
+    const txt = JSON.stringify(g);
+    ok(!txt.includes(wallet(1)), "the pause is reported without naming a wallet");
+    // The catalog neither honours nor feeds the /v1 pause: a fresh wallet still reaches a wallet-only catalog tool.
+    const c = settles;
+    const cat = await pay(WALLET_ONLY, "0x00000000000000000000000000000000000000f6");
+    ok(cat.status === 402 && settles === c + 1, `the /v1 pause does not reach the catalog: a wallet-only catalog tool still runs its handler (status ${cat.status})`);
   }
   // Status surface stays counts-only.
   {

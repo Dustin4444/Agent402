@@ -48,7 +48,10 @@ ok(credentialHeaderFromMeta({ [MCP_CREDENTIAL_META]: "Payment abc" }) === "Payme
   const paid = connectorCutoffText({ label: "Agent402 (x)", seconds: 27, paid: true, route: "POST /v1/x" });
   const unpaid = connectorCutoffText({ label: "Agent402 (x)", seconds: 27, paid: false, route: "POST /v1/x" });
   const paidErr = connectorCutoffText({ label: "Agent402 (x)", seconds: 27, paid: true, error: "socket hang up" });
-  ok(/may still have completed and been charged/.test(paid) && /owed and refunded/.test(paid) && /Do not retry blindly/.test(paid) && !/nothing was charged|not charged/.test(paid), "paid cut-off text: may have been charged, owed back, do not retry blindly");
+  ok(/may still have completed and been charged/.test(paid) && /recorded as owed in our refund ledger and repaid after review/.test(paid) && /Do not retry blindly/.test(paid) && !/nothing was charged|not charged/.test(paid), "paid cut-off text: may have been charged, owed back after review, do not retry blindly");
+  // Repayment on these rails runs through the reviewed refund job, so the text
+  // must not promise that it happens by itself.
+  ok(!/automatic|auto-refund/i.test(paid) && !/automatic|auto-refund/i.test(paidErr), "paid cut-off text says the charge is repaid after review, not automatically");
   ok(/nothing was charged/.test(unpaid) && !/may still have/.test(unpaid) && /Retry/.test(unpaid), "unpaid cut-off text: nothing was charged, retry is fine");
   ok(/could not be completed/.test(paidErr) && /may still have completed and been charged/.test(paidErr), "a paid loopback error is told the same money story");
 }
@@ -179,7 +182,7 @@ try {
   // A credential was presented, and a close that lands while the settle call
   // itself is in flight is still charged (then booked as owed), so the
   // connector cannot promise "not charged" at the moment it stops waiting.
-  ok(!/not charged|nothing was charged/i.test(slowText) && /may still have completed and been charged/.test(slowText) && /owed and refunded/.test(slowText) && /Do not retry blindly/.test(slowText),
+  ok(!/not charged|nothing was charged/i.test(slowText) && /may still have completed and been charged/.test(slowText) && /recorded as owed in our refund ledger and repaid after review/.test(slowText) && !/automatic/i.test(slowText) && /Do not retry blindly/.test(slowText),
     `a PAID cut-off says it may have been charged, that a charge is owed back, and not to retry blindly (${slowText.slice(0, 200)})`);
   // Here the loopback closed while the payment was still being VERIFIED, i.e.
   // before the first byte (src/hangup-settlement.js): once verify returns the

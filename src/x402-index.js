@@ -33,6 +33,7 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 // ever re-enabled. Only http(s) becomes a link; anything else renders inert.
 const safeHref = (u) => (/^https?:\/\//i.test(String(u || "")) ? esc(u) : "#");
 import { safeFetch } from "./tools/fetch-guard.js";
+import { readTextCapped } from "./capped-body.js";
 import { parseRobots, robotsAllows } from "./tools/kit.js";
 import { partialFields, clampFields } from "./partial-answer.js";
 import { responseContractOf, packResponseContract, responseContractProjection } from "./response-contract.js";
@@ -48,7 +49,7 @@ import { acceptsFromLive402, quoteFromAccepts, probeMethodsFor, probeAttemptsFor
 import { evmDomainsOfAccepts, EVM_TOKEN_DOMAINS } from "./evm-usdc-domain.js";
 import { queryTerms, isCjkTerm, splitTokens } from "./query-terms.js";
 import { summarize, fmtUsd, fmtPct } from "./economy.js";
-import { rankBy, canonicalHost, getLeaderboardSnapshot } from "./leaderboard.js";
+import { rankBy, canonicalHost, getLeaderboardSnapshot, getLeaderboardCircularWallets } from "./leaderboard.js";
 import { routeExecuteHint } from "./tools/route-execute.js";
 import { sellerRegistrationFirstSeen, recordSellerRegistrationSeen, getSellerRegistrations, deleteSellerRegistration } from "./stats.js";
 
@@ -1094,6 +1095,37 @@ const bazaarQualityByOrigin = new GuardedMap();
 export function bazaarQualityFor(origin) {
   return bazaarQualityByOrigin.get(String(origin || "").replace(/\/$/, "")) || null;
 }
+/**
+ * The Bazaar payer count a ranking tie-break may read for one origin
+ * (2026-09-28). The Bazaar counts every settled payment, including the ones a
+ * seller funded itself; at a wallet whose received dollars were mostly
+ * self-funded (src/seller-funding.js) those counts are the same self-payments,
+ * so the slice measured at that wallet is left out. Null when nothing measured
+ * remains: unmeasured, never zero.
+ *
+ * ONLY AN ORIGIN MEASURED AT A CIRCULAR WALLET IS TOUCHED. Every other origin
+ * reads its payers30d exactly as before, whatever other wallets are circular:
+ * another seller's verdict must never move this one's rank (the first cut
+ * replaced every split origin's figure with its Base split, which dropped the
+ * payers of its non-Base resources as soon as any wallet anywhere was
+ * circular). For an origin that IS measured at a circular wallet, what stays
+ * is the largest figure measured anywhere else: its other Base wallets, and
+ * its resources declaring no Base payTo at all (`payersOffBase`), which cannot
+ * be paid at that wallet.
+ */
+export function rankingPayersOf(q, circular = null) {
+  if (!q || typeof q !== "object") return null;
+  if (!circular || typeof circular.has !== "function" || !circular.size) return q.payers30d ?? null;
+  const isCircular = (w) => circular.has(String(w).toLowerCase());
+  const split = q.byPayTo && typeof q.byPayTo === "object" ? Object.entries(q.byPayTo) : [];
+  const measuredAtCircular = split.some(([w]) => isCircular(w)) || (Array.isArray(q.payTos) ? q.payTos : []).some(isCircular);
+  if (!measuredAtCircular) return q.payers30d ?? null;
+  let best = null;
+  for (const [w, v] of split) if (!isCircular(w)) best = Math.max(best ?? 0, Number(v?.payers) || 0);
+  const off = Number(q.payersOffBase);
+  if (off > 0) best = Math.max(best ?? 0, off);
+  return best;
+}
 export function bazaarQualityEntries() { return [...bazaarQualityByOrigin.entries()]; }
 export function _setBazaarQualityForTest(origin, q) { if (q) bazaarQualityByOrigin.set(origin, q); else bazaarQualityByOrigin.delete(origin); }
 // `basePayTo` (2026-09-03): the Base-mainnet payTo the counted resource
@@ -1102,18 +1134,40 @@ export function _setBazaarQualityForTest(origin, q) { if (q) bazaarQualityByOrig
 // a quality count is Coinbase's measurement of settlements at that resource's
 // payTo, and it must not clear the Base floor for an origin whose live 402
 // asks to be paid somewhere else.
-const BAZAAR_QUALITY_MAX_PAYTOS = 8;
-function foldBazaarQuality(map, origin, q, basePayTo = null) {
+//
+// `byPayTo` (2026-09-28): the same counts split by the Base payTo each
+// counted resource declares, under the same cap: calls summed, payers the MAX
+// across that wallet's resources. The router keeps its evidence PER WALLET
+// (src/evidence-binding.js), so a count measured at one wallet can never clear
+// the floor for a payment to another. NON-ENUMERABLE on purpose: this object
+// is served as-is as `bazaar` on public index and route rows, and the split is
+// router input, not a column.
+//
+// `payersOffBase` (2026-09-28, non-enumerable for the same reason): the largest
+// payer count among the origin's resources that declare NO Base payTo. Those
+// cannot be paid at any Base wallet, so no Base wallet's verdict applies to
+// them (rankingPayersOf).
+export const BAZAAR_QUALITY_MAX_PAYTOS = 8;
+export function foldBazaarQuality(map, origin, q, basePayTo = null) {
   if (!q || typeof q !== "object") return;
   const calls = Number(q.l30DaysTotalCalls) || 0, payers = Number(q.l30DaysUniquePayers) || 0;
   const last = typeof q.lastCalledAt === "string" ? q.lastCalledAt : null;
   const cur = map.get(origin) || { calls30d: 0, payers30d: 0, lastCalledAt: null, payTos: [] };
+  if (!cur.byPayTo || typeof cur.byPayTo !== "object") Object.defineProperty(cur, "byPayTo", { value: {}, enumerable: false, writable: true, configurable: true });
+  if (!Object.hasOwn(cur, "payersOffBase")) Object.defineProperty(cur, "payersOffBase", { value: 0, enumerable: false, writable: true, configurable: true });
   cur.calls30d += calls;
   cur.payers30d = Math.max(cur.payers30d, payers);
   if (last && (!cur.lastCalledAt || last > cur.lastCalledAt)) cur.lastCalledAt = last;
   const w = typeof basePayTo === "string" && /^0x[0-9a-f]{40}$/i.test(basePayTo) ? basePayTo.toLowerCase() : null;
+  if (!w) cur.payersOffBase = Math.max(cur.payersOffBase, payers);
   if (!Array.isArray(cur.payTos)) cur.payTos = [];
   if (w && !cur.payTos.includes(w) && cur.payTos.length < BAZAAR_QUALITY_MAX_PAYTOS) cur.payTos.push(w);
+  if (w && calls > 0 && (Object.hasOwn(cur.byPayTo, w) || Object.keys(cur.byPayTo).length < BAZAAR_QUALITY_MAX_PAYTOS)) {
+    const at = cur.byPayTo[w] || { calls: 0, payers: 0 };
+    at.calls += calls;
+    at.payers = Math.max(at.payers, payers);
+    cur.byPayTo[w] = at;
+  }
   map.set(origin, cur);
 }
 
@@ -3307,6 +3361,9 @@ export function carryForwardLearnedQuotes(tools, prev) {
     // older price-and-networks rule); the domain and payTo below describe those
     // chains, so they ride with them.
     let tookChains = false;
+    // The chains this crawl's own documents named for the row, before any
+    // remembered chain joins them (see the record after these branches).
+    const ownChains = Array.isArray(t.networks) ? [...t.networks] : [];
     if (!rowHasChains && Array.isArray(hit.networks) && hit.networks.length) {
       t.networks = [...hit.networks];
       tookChains = true;
@@ -3331,6 +3388,13 @@ export function carryForwardLearnedQuotes(tools, prev) {
       t.networksVerifiedAt = hit.networksVerifiedAt;
       t.networksVerifiedMethod = hit.networksVerifiedMethod.toUpperCase();
     }
+    // Remember which of the row's chains its documents named, whenever a
+    // remembered chain has joined them: a later live re-read keeps those and
+    // replaces the rest with what the 402 offers then (applyLiveNetworks), so
+    // a chain the seller withdraws from its 402 leaves the row instead of
+    // being carried forever. Kept when already present: a row object reused
+    // unchanged from an earlier crawl (an OpenAPI 304) already holds its own.
+    if (!Array.isArray(t.documentedNetworks) && (t.networks || []).some((n) => !ownChains.includes(n))) t.documentedNetworks = ownChains;
     // The domain observation and the payTo describe the chains of the read
     // they came from, so they ride only where those chains do: onto the read's
     // own row, or onto a row that just took the hit's chains.
@@ -3459,7 +3523,8 @@ export function quoteProbeCapFor(tools) {
  * Write the payTo a live 402 named, per network, onto an index row. The live
  * read REPLACES what the row held for each network it names (the 402 is the
  * current word on where the origin is paid) and leaves networks it does not
- * name alone, the same way the networks union never drops a manifest chain.
+ * name alone; a network the read withdrew from the row loses its payTo in
+ * applyLiveNetworks, which runs first.
  * Always a fresh object: manifest rows on one path can share one
  * payToByNetwork, and writing into it would move a sibling's address too.
  */
@@ -3468,6 +3533,33 @@ function applyLivePayTo(row, payToByNetwork) {
   const live = Object.entries(payToByNetwork).filter(([net, addr]) => typeof net === "string" && net && typeof addr === "string" && addr);
   if (!live.length) return;
   row.payToByNetwork = { ...(row.payToByNetwork || {}), ...Object.fromEntries(live) };
+}
+
+/**
+ * Write the chains a live 402 offered onto an index row. The row keeps every
+ * chain its own documents name (`documentedNetworks`, recorded by
+ * carryForwardLearnedQuotes; a row without the record holds only documented
+ * chains and live reads already folded in, all of which are kept) and takes
+ * the offered set for the rest: a chain an earlier read found and this one
+ * does not is withdrawn, with its payTo. Until 2026-09-28 the read was a pure
+ * union, so a chain the seller removed from its 402 stayed listed, with its
+ * old wallet, for as long as the route was indexed. A read that names no
+ * chain says nothing about chains and changes none. Fresh objects only, like
+ * applyLivePayTo: rows on one path can share their arrays.
+ */
+function applyLiveNetworks(row, liveNetworks) {
+  if (!row || !Array.isArray(liveNetworks) || !liveNetworks.length) return;
+  const before = Array.isArray(row.networks) ? row.networks : [];
+  const documented = Array.isArray(row.documentedNetworks) ? row.documentedNetworks : before;
+  const after = [...new Set([...documented, ...liveNetworks])];
+  row.networks = after;
+  if (!Array.isArray(row.documentedNetworks) && after.some((n) => !documented.includes(n))) row.documentedNetworks = [...documented];
+  const withdrawn = before.filter((n) => !after.includes(n));
+  if (withdrawn.length && row.payToByNetwork && typeof row.payToByNetwork === "object") {
+    const kept = { ...row.payToByNetwork };
+    for (const n of withdrawn) delete kept[n];
+    row.payToByNetwork = kept;
+  }
 }
 
 // WHY a live-402 read learned nothing, counted. Across the index about half of
@@ -3678,7 +3770,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
             // crawl leaves it alone for the quote window, a re-registration
             // re-asks.
             // Only when the body is the route working, not an error page (src/tool-judge.js).
-            const raw = (await res.text().catch(() => "")).slice(0, 2000);
+            const raw = (await readTextCapped(res, 2000).catch(() => "")).slice(0, 2000);
             const bodyText = looksLikeListingInjection(raw) ? null : raw;   // text written to steer a judgment is not sent
             const verdict = bodyText == null ? null : await judgeFreeResponse(bodyText, res.headers.get("content-type") || "");
             if (verdict === "free") {
@@ -3696,7 +3788,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
         if (!isQuoteResponse(res.status)) continue;   // 404 on GET is expected for a POST-only seller
         // The quote lives in the header for x402 v2 and in the body for several
         // real sellers; read a bounded slice of both and let the parser decide.
-        const body = await res.text().catch(() => "");
+        const body = await readTextCapped(res, 64_000).catch(() => "");
         // Networks normalised ONCE, as paymentFieldsFromAccepts does for a
         // manifest or registry row: a v1-style 402 that names "base" must key
         // its payTo under eip155:8453, or allPayToOrigins (which reads that
@@ -3805,7 +3897,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
       // gone mark, so a declared product left the index on every crawl and
       // came back on every rebuild.
       adoptLivePrice(sibling, learned.price, originUrl);
-      if (learned.networks?.length) sibling.networks = [...new Set([...(sibling.networks || []), ...learned.networks])];
+      applyLiveNetworks(sibling, learned.networks);
       if (learned.evmDomainByNetwork) sibling.evmDomainByNetwork = { ...learned.evmDomainByNetwork };
       applyLivePayTo(sibling, learned.payToByNetwork);
       // The stamp names the verb whose 402 was read (stampIsOwn), here the
@@ -3831,7 +3923,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
     // #1460, 2026-09-23: a seller re-registered at $0.005 and seven routes
     // still showed the $0.003 learned earlier).
     adoptLivePrice(tool, learned.price, originUrl);
-    if (learned.networks?.length) tool.networks = [...new Set([...(tool.networks || []), ...learned.networks])];
+    applyLiveNetworks(tool, learned.networks);
     // The live 402 is the current word on which EIP-712 domain each EVM
     // accept advertises: it replaces any older observation on the row.
     if (learned.evmDomainByNetwork) tool.evmDomainByNetwork = { ...learned.evmDomainByNetwork };
@@ -3845,7 +3937,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
     // (src/evidence-binding.js binds only registry and leaderboard wallets).
     applyLivePayTo(tool, learned.payToByNetwork);
     // The live 402 was read: the row's chains are verified as of now, whatever
-    // the manifest claimed (the union above never drops a manifest chain).
+    // the manifest claimed (applyLiveNetworks never drops a documented chain).
     // The stamp names the verb that answered, which is this row's verb once
     // the correction below applies (stampIsOwn).
     tool.networksVerifiedAt = Date.now();
@@ -6608,12 +6700,14 @@ function* routeQuerySteps({ query, top, include, networkFilter, strictNetwork = 
   // (a regex + map read) hundreds of thousands of times per query.
   const selfQuality = (bazaarQualityFor(baseUrl) || bazaarQualityFor(SELF_BAZAAR_ORIGIN))?.payers30d ?? null;
   const payersBySeller = new Map();
+  // Self-funded Bazaar counts never break a tie (rankingPayersOf above).
+  const circular = getLeaderboardCircularWallets();
   const payersOf = (seller) => {
     let p = payersBySeller.get(seller);
-    if (p === undefined) { p = bazaarQualityFor(seller)?.payers30d ?? null; payersBySeller.set(seller, p); }
+    if (p === undefined) { p = rankingPayersOf(bazaarQualityFor(seller), circular.wallets); payersBySeller.set(seller, p); }
     return p;
   };
-  const memoKey = scoredMemo ? JSON.stringify([q, inc, wantNet, !!strictNetwork, baseUrl, cacheVersion]) : null;
+  const memoKey = scoredMemo ? JSON.stringify([q, inc, wantNet, !!strictNetwork, baseUrl, cacheVersion, circular.version]) : null;
   const memoHit = !!scoredMemo && scoredMemo.key === memoKey && scoredMemo.local === localRef;
   const scored = memoHit ? scoredMemo.scored : [];
   // The four text-match rules, per row. Same rules and weights as before the

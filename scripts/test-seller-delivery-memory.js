@@ -208,11 +208,14 @@ const { dispatchEligibility, DISPATCH_REASONS, dispatchLegend } = await import("
   noteSellerDeliveryFailure("https://refuser.example", "base", { status: 500 });
   noteSellerDeliveryFailure("https://refuser.example", "base", { status: 500 });
   ok(sellerDeliveryFailingRecently("https://refuser.example", "base"), "seeded as failing");
-  globalThis.fetch = sellerThat(() => ({ status: 402, headers: hdrs({ "content-type": "application/json" }), clone: () => ({ text: async () => "{}" }), text: async () => JSON.stringify({ error: "payment_verification_failed" }), json: async () => ({}) }));
-  await payX402("https://refuser.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, chain: "base", memoizeDelivery: true, notDebited: async () => ({ debited: false, observed: 1, expired: true }) }).catch(() => {});
+  // The seller's payment layer refusing: its offer comes back with the 402.
+  globalThis.fetch = sellerThat(() => ({ status: 402, headers: hdrs({ "content-type": "application/json", "payment-required": hdr }), clone: () => ({ text: async () => "{}" }), text: async () => JSON.stringify({ error: "payment_verification_failed" }), json: async () => ({}) }));
+  const refuse = () => payX402("https://refuser.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, chain: "base", memoizeDelivery: true, notDebited: async () => ({ debited: false, observed: 1, expired: true }) }).catch(() => {});
+  await refuse();
   eq(sellerDeliveryFailingRecently("https://refuser.example", "base"), null,
      "a refusal the CHAIN proves was uncharged retracts the delivery memo: nobody paid, so it is a refusal and carries the refusal's shorter penalty, not both");
-  ok(sellerRefusedRecently("https://refuser.example", "base"), "...and is filed as the refusal it is");
+  await refuse();
+  ok(sellerRefusedRecently("https://refuser.example", "base"), "...and is filed as the refusal it is (benching the route on its second strike)");
 
   // (e) only a SETTLED 200 clears. A bare 200 proves the route answers; it does
   //     not prove the seller takes payment and delivers, and the weaker rule
@@ -278,11 +281,11 @@ const { dispatchEligibility, DISPATCH_REASONS, dispatchLegend } = await import("
      "the recording rule is opt-in AND 5xx AND no receipt, read from the response itself");
   ok(!/noteSellerDeliveryFailure\(sellerOrigin, chain, \{ status: null/.test(buyer),
      "a TIMEOUT is never recorded: route-execute forwards the caller's params as the seller's request body, so a caller can hand a seller a URL that never answers, and our own slow egress produces the identical error");
-  ok(/memoizeDelivery && tx\) clearSellerDeliveryFailure/.test(buyer),
+  ok(/memoizeDelivery && tx\) \{ clearSellerDeliveryFailure\(sellerOrigin, chain\);/.test(buyer),
      "and the CLEAR needs a settle receipt, so the memo cannot be bought off through a route the seller knows works");
   ok(/deliveryFailures\.delete\(key\);\n  if \(deliveryFailures\.size >= DELIVERY_FAIL_MAX\)/.test(buyer),
      "eviction deletes before it sets, so a repeat strike moves to the tail and the most-broken seller is not the first one evicted");
-  ok(buyer.indexOf("noteSellerDeliveryFailure(sellerOrigin, chain, { status: paid.status") < buyer.indexOf("const evmAuth = chain === \"base\""),
+  ok(buyer.indexOf("noteSellerDeliveryFailure(sellerOrigin, chain, { status: paid.status") < buyer.indexOf("if (chainCheckable) {"),
      "recorded BEFORE the Base/Solana chain-truth checks, so a Tempo or Algorand seller that fails after payment is recorded too");
 }
 

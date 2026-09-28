@@ -28,6 +28,7 @@ import { declarePaymentIdentifierExtension, PAYMENT_IDENTIFIER } from "@x402/ext
 import { normalizePayerAddress } from "./payer.js";
 import { installFacilitatorDiagnostics, labelFacilitatorErrors } from "./facilitator-diagnostics.js";
 import { chargeCancelledForClientGone, CLIENT_GONE_TEXT } from "./hangup-settlement.js";
+import { markCoveredRunSettled } from "./inflight-cover.js";
 
 // Supported networks. EVM chains use eip155: CAIP-2 IDs; Solana uses the
 // solana: genesis-hash CAIP-2. Adding a chain = register its scheme + list
@@ -1205,6 +1206,7 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   registerFacilitatorFailureHooks(server, payAiClient, solvadorClient);
   registerWalletBlocklistHook(server);
   registerClientGoneSettleHook(server);
+  registerInflightCoverSettleHook(server);
   // Log the OFFERED set, not the requested one: the drop-don't-break guards
   // above (Robinhood/Monad/Celo/Solvador-primary) may have removed EVM chains,
   // and a boot log claiming an unoffered rail sends the next debugger the
@@ -1535,6 +1537,24 @@ export function registerClientGoneSettleHook(server) {
     // usual; the hang-up hook books the undelivered charge as owed.
     if (!req || !chargeCancelledForClientGone(req)) return;
     return { abort: true, reason: "client_disconnected", message: CLIENT_GONE_TEXT };
+  });
+}
+
+/**
+ * A settled run leaves the in-flight cover's ledger at SETTLEMENT, not when
+ * its response ends (src/inflight-cover.js): once the facilitator reports
+ * success the payment is off the wallet, and a slow response body must not
+ * keep counting it against the balance a concurrent run is judged on. Only a
+ * success result releases; a failed or aborted settlement keeps the run
+ * counted until its response ends. Same request path as the client-gone hook
+ * (transportContext.request.adapter.req); if a vendor bump moves it, the
+ * response-end release still applies.
+ */
+export function registerInflightCoverSettleHook(server) {
+  server.onAfterSettle((ctx) => {
+    if (ctx?.result?.success !== true) return;
+    const req = ctx?.transportContext?.request?.adapter?.req;
+    try { markCoveredRunSettled(req); } catch { /* never break a settlement */ }
   });
 }
 

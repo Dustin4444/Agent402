@@ -688,8 +688,6 @@ export function tierPriceLabel(price) {
  *  upstream. An id whose expiration date is withdrawn upstream leaves this
  *  table and is priced by its own MODEL_COST row (deepseek-v3.2, 2026-09-28). */
 export const RETIRING_MODELS = Object.freeze({
-  "deepseek/deepseek-v3.2-exp": { until: "2026-09-28", use: "deepseek/deepseek-v4-flash" },
-  "deepseek/deepseek-v3.1-terminus": { until: "2026-09-28", use: "deepseek/deepseek-chat-v3.1" },
   "deepseek/deepseek-r1-distill-llama-70b": { until: "2026-09-28", use: "deepseek/deepseek-r1" },
 });
 export function retiringModel(model) {

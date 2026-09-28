@@ -154,10 +154,11 @@ whose effect outlives the answer never takes a ticket (`hasLastingEffect`: the m
   tier whose 402 is a per-request quote. `handlerInputOf(req)` (`src/handler-input.js`) is the
   one input object for pricing and serving. Streams commit 200 only on the first `data:` frame.
 - **Settle-failure breakers:** `src/gateway-settle-breaker.js` (per wallet and global on `/v1`,
-  per wallet on other wallet-only tools). Only a refusal whose offer the next 402 withdraws
-  (`isWithdrawnSubcentRefusal`) stays off the buyer's count, and it still feeds the `/v1`
-  global pause; every other facilitator billing refusal (`src/payment-reject.js`) counts in
-  both breakers and the composite guard, with a 429 that names it instead of the wallet.
+  per wallet on other wallet-only tools). The `/v1` global pause counts distinct buyers, not
+  failures. Only a refusal whose offer the next 402 withdraws (`isWithdrawnSubcentRefusal`)
+  stays off the buyer's count, and it still feeds the `/v1` global pause, each one counted on
+  its own; every other facilitator billing refusal (`src/payment-reject.js`) counts in both
+  breakers and the composite guard, with a 429 that names it instead of the wallet.
 - **Algorand sub-cent offer gate:** `src/avm-sponsorship.js` drops the Algorand accept from
   sub-cent 402s while the facilitator's sponsored sub-cent allowance is spent (fails open;
   a status row last updated in an earlier UTC month, or with an unreadable `updatedTs`, is
@@ -165,6 +166,18 @@ whose effect outlives the answer never takes a ticket (`hasLastingEffect`: the m
   `AVM_SPONSORSHIP_REFUSAL_HOLD_MS`; published on `/api/rails`, the only excuse the canaries
   accept for a missing sub-cent accept; `AVM_SUBCENT_GATE=off`).
 - **External spend guard:** `src/external-spend-guard.js` (per payer and per chain wallet).
+- **Router evidence:** `src/evidence-binding.js` keeps settlement evidence per wallet;
+  `src/seller-funding.js` nets payments made with USDC the paid wallet itself sent the payer
+  (each payer's history read once when it first pays, then incremental; state on `/data`);
+  `src/shared-paytos.js` lists shared settlement contracts.
+  Operator levers: `/__operator/shared-paytos`, `/__operator/seller-funding`. The funding
+  reader's switch is `LEADERBOARD_FUNDING_SCAN=off` or `POST /__operator/seller-funding
+  {"action":"disable"}` (runtime, persisted); off, the router reads gross per-wallet evidence
+  with no netting and no verdict. Each wallet's history reads get a bounded share, kept with
+  their progress across scans; retries past a wallet's planned reads are capped per rolling
+  day (`LEADERBOARD_FUNDING_DAY_MAX_CALLS`), first reads are not. A wallet whose reads cannot
+  finish waits (see `src/seller-funding.js`). The scan's counts and log line name why a wallet
+  was not read.
 - **Report products:** kits under `src/tools/*-report-kit.js`, `src/report-tiers.js`,
   house style in `src/house-style.js`, samples in `src/sample-reports.js`.
 - **Facilitators:** boot guard in `src/payments.js` and `src/x402-boot-init.js`; diagnostics in
@@ -186,8 +199,16 @@ whose effect outlives the answer never takes a ticket (`hasLastingEffect`: the m
   no `error`, so `error`-first clients read the explanation. Keyed on the header, so
   settle-failure, credits and Tempo/Stripe direct 402s are untouched. It wraps `res.send`, so it
   is mounted before the MPP shim and the Tempo/Stripe gates.
-- **X posting:** `announce.yml` / `scripts/tweet.js`, dispatched via Actions only; tweet copy is
-  never committed.
+- **X posting:** one-off posts go through `announce.yml` / `scripts/tweet.js` (dispatched via
+  Actions). The approved queue posts from the server (`src/tweet-queue.js`, Railway `TWEET_QUEUE`,
+  off unless set, `TWEET_QUEUE_POSTING=off` read-only, `GET /__operator/tweet-queue.json`): one
+  post per clock hour, recorded before it is sent; a post in doubt (5xx, timeout) gets one retry
+  ten minutes later (X's duplicate refusal records it posted), then never. `tweetQueue` on
+  `/api/gateway-status` is one word the status Worker pages on. Only the
+  production server posts: FREE_MODE, no `NODE_ENV=production` (`TWEET_QUEUE_FORCE=true`
+  overrides that check only) or no `/data` volume keeps it read-only. It replaces
+  `tweet-queue.yml`, which is disabled at cutover so exactly one poster runs. Both sign through
+  `src/x-oauth.js`. Tweet copy is never committed.
 
 ## Environment
 Configuration and secrets are set on Railway (and, where a workflow needs them, as GitHub
