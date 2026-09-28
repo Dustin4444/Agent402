@@ -102,9 +102,11 @@ async function scanOnce({ sellers, pays, outs, state, latest, span, historyFrom 
   const paid = paidInOrder(acc);
   const maxCalls = readOpts.maxCalls ?? 400;
   const stats = await readSellerFunding({ rpc, token: USDC, state, wallets: paid, latest, windowStartBlock: start, now, ...readOpts });
-  const hist = history ? await readPayerHistory({ rpc, token: USDC, state, wallets: paid, windowStartBlock: start, historyFromBlock: historyFrom, now, ...readOpts, maxCalls: Math.max(0, maxCalls - stats.calls) }) : { histories: new Map(), stats: { calls: 0 } };
+  // As runLeaderboard: each later pass spends what the earlier ones left, and
+  // a wallet's reads may plan up to the scan's whole budget.
+  const hist = history ? await readPayerHistory({ rpc, token: USDC, state, wallets: paid, windowStartBlock: start, historyFromBlock: historyFrom, now, scanMaxCalls: maxCalls, ...readOpts, maxCalls: Math.max(0, maxCalls - stats.calls) }) : { histories: new Map(), stats: { calls: 0 } };
   stats.history = hist.stats;
-  const gapRead = gaps ? await readFundingGaps({ rpc, token: USDC, state, wallets: paid.map((w) => w.wallet), windowStartBlock: start, now, maxCalls: Math.max(0, maxCalls - stats.calls - hist.stats.calls) }) : { gaps: new Map(), stats: {} };
+  const gapRead = gaps ? await readFundingGaps({ rpc, token: USDC, state, wallets: paid.map((w) => w.wallet), windowStartBlock: start, now, scanMaxCalls: maxCalls, maxCalls: Math.max(0, maxCalls - stats.calls - hist.stats.calls) }) : { gaps: new Map(), stats: {} };
   stats.gap = gapRead.stats;
   processSellerFunding(state, acc, { windowStartBlock: start, gaps: gapRead.gaps, histories: hist.histories, classify: (w, micro) => (micro <= 750_000 ? 1 : 2), ...(readOpts.maxPairsTotal ? { maxPairsTotal: readOpts.maxPairsTotal } : {}) });
   pruneFundingState(state, { now, latest });
@@ -490,6 +492,45 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
   const h2st = createFundingState(USDC);
   const h2 = await scanOnce({ sellers: [seller(H2, "heavy2.example"), ...sells], pays: h2p, outs: lo, state: h2st, latest, span: SPAN, historyFrom: 2_797_221, rpcOpts: { refuse: (p, span) => (Array.isArray(p.topics?.[1]) && p.topics[1].includes(topic(H2)) && span > 10_000 ? SIZE_REFUSAL : false) }, readOpts: { maxCalls: 4 } });
   ok(h2.stats.history.budgetExhausted && lights.every((w) => !h2st.wallets.get(w).retryAt), `four calls, spent isolating the heavy wallet in the packed job: no light wallet waits for it (${lights.filter((w) => h2st.wallets.get(w).retryAt).length} waiting)`);
+
+  // A GAP READ RESUMES the same way. A wallet funded one payer $1; the payer
+  // then made 12,000 payments of $0.0001 before the next scan's window, which
+  // spend what was left of that dollar. Cut short half-way through that gap,
+  // the next attempt resumes where it stopped and still sees the first half:
+  // the payer's later payments are its own money (nothing netted). Losing the
+  // first half would leave part of the dollar and net them.
+  const G = addr("ed"), GP = P(6900);
+  const gOuts = [log(G, GP, usd(1), 100, 0)];
+  const gPays = [];
+  for (let k = 0; k < 12; k++) gPays.push({ wallet: G, payer: GP, usd: 0.01, pos: posOf(900 + k, 0) });
+  for (let i = 0; i < 12_000; i++) gPays.push({ wallet: G, payer: GP, usd: 0.0001, pos: posOf(1_001 + i * 4, 1) });
+  for (let k = 0; k < 12; k++) gPays.push({ wallet: G, payer: GP, usd: 0.01, pos: posOf(49_500 + k, 0) });
+  const gst = createFundingState(USDC);
+  await scanOnce({ sellers: [seller(G, "gap.example")], pays: gPays, outs: gOuts, state: gst, latest: 1_000, span: 500 });
+  const gb = await scanOnce({ sellers: [seller(G, "gap.example")], pays: gPays, outs: gOuts, state: gst, latest: 50_000, span: 1_000, readOpts: { maxCalls: 3 } });
+  const gseg = gst.wallets.get(G).hp.find((g) => g.k === "g");
+  ok(gb.stats.gap.calls === 2 && gb.stats.gap.cutShort === 1 && gseg && gseg.lo > 1_000 && gseg.l.length > 0 && gb.ev[G].fundingRead === false,
+    `a gap read cut short (${gb.stats.gap.calls} calls): it keeps where it got to (block ${gseg?.lo}) and the ${gseg ? gseg.l.length / 3 : 0} payments below it, and the wallet counts as it is`);
+  const afterGb = serializeFundingState(gst);
+  const lost = parseFundingState(afterGb, USDC);
+  lost.wallets.get(G).hp.find((g) => g.k === "g").l = [];
+  const gc = await scanOnce({ sellers: [seller(G, "gap.example")], pays: gPays, outs: gOuts, state: gst, latest: 50_000, span: 1_000, now: NOW + 90_000_000 });
+  const gapCalls = gc.calls.filter((c) => Array.isArray(c.topics[2]) && c.topics[2].includes(topic(G)) && c.topics[1].includes(topic(GP)));
+  ok(gc.stats.gap.resumed === 1 && gapCalls.length && gapCalls.every((c) => parseInt(c.fromBlock, 16) >= gseg.lo) && gc.ev[G].fundingRead === true && gc.ev[G].selfFundedCalls === 0,
+    `a day later the gap read resumes at block ${gseg.lo} (none of its ${gapCalls.length} call(s) below it), and with the first half kept the payer's window payments are its own money (${gc.ev[G].selfFundedCalls} netted)`);
+  const gl = await scanOnce({ sellers: [seller(G, "gap.example")], pays: gPays, outs: gOuts, state: lost, latest: 50_000, span: 1_000, now: NOW + 90_000_000 });
+  ok(gl.ev[G].selfFundedCalls === 12, `(control: the same resume with the first half's payments lost would net all ${gl.ev[G].selfFundedCalls} of them)`);
+
+  // Gap progress saved for a gap that no longer starts where it did (the
+  // wallet's pools have moved since) is not resumed: that gap is read whole.
+  const stale = parseFundingState(afterGb, USDC);
+  const sw = stale.wallets.get(G);
+  sw.hp = [{ k: "g", h: 777, p: [GP], lo: 40_000, w: 0, l: [], pg: 1 }];
+  const sc = [];
+  const sg = await readFundingGaps({ rpc: fakeRpc([...gOuts, ...gPays.map(payLog)], { calls: sc }), token: USDC, state: stale, wallets: [G], windowStartBlock: 49_000, now: NOW + 90_000_000 });
+  const need = Math.floor((sw.through + 1) / 1e6);
+  ok(sg.stats.resumed === 0 && sc.length && Math.min(...sc.map((c) => parseInt(c.fromBlock, 16))) === need && !sw.hp.some((g) => g.h === 777),
+    `progress kept for another gap (it started at block 777) is dropped: the gap is read from its own start, block ${need}`);
 
   // A STALE EPISODE starts over: one that nothing was charged to for a day
   // does not count against a wallet's next read.
