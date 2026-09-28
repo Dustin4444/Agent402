@@ -135,6 +135,12 @@ function tempoLedgerPayer(req) {
   const p = Object.hasOwn(req, "mppTempoLedgerPayer") ? req.mppTempoLedgerPayer : null;
   return typeof p === "string" && p ? p : null;
 }
+// The hash a Tempo push credential named (src/mpp-tempo.js, lowercased), own
+// property only; null for a pull credential.
+function tempoPushHashOf(req) {
+  const h = Object.hasOwn(req, "mppTempoPushHash") ? req.mppTempoPushHash : null;
+  return typeof h === "string" && h ? h : null;
+}
 function recordHangupDebt(req, res) {
   const def = CATALOG[`${req.method} ${req.path}`];
   if (!def) return null;
@@ -145,7 +151,10 @@ function recordHangupDebt(req, res) {
     row = {
       network: req.tempoSettled ? "tempo" : "stripe",
       payer: req.tempoSettled ? tempoLedgerPayer(req) : null,
-      tx: req.tempoSettled ? tempoTxFromReceiptHeader(res.getHeader("Payment-Receipt")) : stripeTxFromReceiptHeader(res.getHeader("Payment-Receipt")),
+      // A push credential's debts are keyed on the hash the credential names
+      // (pushHashOf, lowercased), so the disconnect row lands on the same
+      // evidence as an earlier input-refused row for that transfer.
+      tx: req.tempoSettled ? (tempoPushHashOf(req) || tempoTxFromReceiptHeader(res.getHeader("Payment-Receipt"))) : stripeTxFromReceiptHeader(res.getHeader("Payment-Receipt")),
       wire: req.tempoSettled ? "mpp-tempo" : "mpp-stripe",
       priceUsd: settledPriceUsd(def, req, res),
     };
@@ -178,7 +187,11 @@ function recordHangupDebt(req, res) {
   // hang-up) for review instead of repaying it as an ordinary debt.
   const denied = hangupTicketDenial(req);
   const hangupReason = denied || (hangupForgiven(req) ? "settled in flight" : "no ticket");
-  const created = recordRefundOwed({ slug: def.slug, ...row, httpStatus: 499, synthetic, hangupReason });
+  let created = recordRefundOwed({ slug: def.slug, ...row, httpStatus: 499, synthetic, hangupReason });
+  // The same push transfer was refused on input earlier and booked as owed
+  // under its hash; INSERT OR IGNORE kept that 400 row. It is a disconnect
+  // now: promote it, or the hang-up holds never see it.
+  if (!created && req.tempoSettled && tempoPushHashOf(req) === row.tx) created = tempoPushDebts?.hungUp(row.tx, hangupReason) === true;
   console.warn(`[hangup] CHARGED-BUT-NOT-SERVED: client disconnected before the settled response was delivered (${req.method} ${req.path} rail=${row.wire} tx=${row.tx || "?"}) - ${created ? "recorded as owed in the refund ledger" : "already on the books"}${denied ? `; not forgiven: ${denied}` : ""}`);
   return row;
 }
@@ -623,7 +636,7 @@ const OX_TRIAL_LIMITS_LABEL = `${OX_TRIAL_PER_HOUR} per hour, ${OX_TRIAL_PER_DAY
 import { createHangupSettlementHook, clientGoneBeforeFirstByte, chargeCancelledForClientGone, clientGoneError, isClientGoneAbort, onSettleOutcome, onResponseEnd } from "./hangup-settlement.js";
 import { hangupForgiven, hangupTicketDenial, reserveHangupForgiveness, settleHangupTicket, hangupForgivenessStatus, loadHangupForgiveness, flushHangupForgiveness } from "./hangup-forgiveness.js";
 import { createTempoPushDebts } from "./tempo-push-debts.js";
-import { recordRefundOwed, refundByEvidence, voidOwedOnClaim, renoteOwedRefund, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals, refundsCreatedBetween } from "./refund-ledger.js";
+import { recordRefundOwed, refundByEvidence, voidOwedOnClaim, renoteOwedRefund, promoteOwedToHangup, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals, refundsCreatedBetween } from "./refund-ledger.js";
 import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent, getDailyCalls, dailyCallsRecordingSince, getDailyUpstreamCalls, getSellerRegistrations, getDailyUpstreamSpend } from "./stats.js";
 import { timingSafeEqual, createHash, randomUUID, randomBytes } from "node:crypto";
 
@@ -7888,7 +7901,7 @@ if (!FREE_MODE) {
   // at least this route's price" before a single relay call. Without them
   // createTempoGate refuses to mount (fail closed).
   tempoPushDebts = createTempoPushDebts({
-    recordOwed: recordRefundOwed, voidOnClaim: voidOwedOnClaim, renoteOwed: renoteOwedRefund, refundByEvidence,
+    recordOwed: recordRefundOwed, voidOnClaim: voidOwedOnClaim, renoteOwed: renoteOwedRefund, promoteToHangup: promoteOwedToHangup, refundByEvidence,
     recordChargedFailure, isSynthetic: isSyntheticRequest,
     slugOf: (req) => CATALOG[`${req.method} ${req.path}`]?.slug,
   });
@@ -8825,7 +8838,10 @@ app.use((req, res, next) => {
         // it before the handler, and the handler then failed. A pull handler
         // >= 400 is never broadcast. Either way the settle is proven and the
         // debt is real.
-        const tx = req.tempoSettled ? tempoTxFromReceiptHeader(res.getHeader("Payment-Receipt")) : stripeTxFromReceiptHeader(res.getHeader("Payment-Receipt"));
+        // A push transfer's debt is keyed on the hash its credential named, as
+        // the input-refused row was: one transfer, one row, whatever case the
+        // relay's receipt reference comes back in.
+        const tx = req.tempoSettled ? (tempoPushHashOf(req) || tempoTxFromReceiptHeader(res.getHeader("Payment-Receipt"))) : stripeTxFromReceiptHeader(res.getHeader("Payment-Receipt"));
         recordChargedFailure(def.slug, res.statusCode);
         recordRefundOwed({
           slug: def.slug,

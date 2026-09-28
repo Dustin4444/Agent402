@@ -77,6 +77,14 @@ const voidOwedByEvidence = db.prepare(`
   WHERE evidence = @evidence AND status = 'owed'
 `);
 const renoteOwed = db.prepare("UPDATE refunds SET note = @to WHERE evidence = @evidence AND status = 'owed' AND note = @from");
+// A push debt booked as "input refused" whose transfer was then claimed on a
+// retry that the buyer hung up on: the same evidence, now a disconnect. Owed
+// rows only, and only while the note still reads the input refusal.
+const promoteHangup = db.prepare(`
+  UPDATE refunds SET httpStatus = 499, hangupReason = @hangupReason,
+    note = CASE WHEN note IS NULL OR note = '' THEN @append ELSE note || '; ' || @append END
+  WHERE evidence = @evidence AND status = 'owed' AND note = @from
+`);
 const selectByStatus = db.prepare("SELECT * FROM refunds WHERE status = ? ORDER BY id DESC LIMIT ?");
 const selectAll = db.prepare("SELECT * FROM refunds ORDER BY id DESC LIMIT ?");
 const resolveRow = db.prepare(`
@@ -208,6 +216,17 @@ export function voidOwedOnClaim(evidence, note) {
  *  when it did (so a caller can act once per transition). */
 export function renoteOwedRefund(evidence, from, to) {
   try { return renoteOwed.run({ evidence: String(evidence || "").trim(), from, to }).changes > 0; } catch { return false; }
+}
+
+/** Turn an OWED row whose note reads `from` into a disconnect debt (http 499,
+ *  `hangupReason`, `append` added to the note), so the refund planner's
+ *  hang-up holds apply to it. Never touches a sending, paid or void row.
+ *  Returns true when it did. */
+export function promoteOwedToHangup(evidence, { from, hangupReason, append } = {}) {
+  if (typeof evidence !== "string" || !evidence.trim() || !from || !append) return false;
+  try {
+    return promoteHangup.run({ evidence: evidence.trim(), from, append: String(append).slice(0, 120), hangupReason: hangupReason ? String(hangupReason).slice(0, 40) : null }).changes > 0;
+  } catch { return false; }
 }
 
 export function refundTotals() {
