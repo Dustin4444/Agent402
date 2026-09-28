@@ -464,6 +464,24 @@ export function noteSellerDeliveryFailure(origin, chain, { status = null, ms = n
   });
 }
 
+/**
+ * A charged 4xx the BUYER's own input can produce (2026-09-28). route-execute
+ * forwards the caller's params as the seller's request body, and a seller that
+ * settles before its handler (stock mppx, an upfront x402 flow) takes the
+ * payment and then answers 400 for a malformed body. Striking on those would
+ * let anyone bench an honest seller with two bad bodies, at our expense: the
+ * attacker's own settlement is cancelled by our 502 and we pay the seller
+ * twice. So a charged 400/413/415/422 is the seller answering the request we
+ * forwarded, not a delivery failure. A 404, 403, 405 or a charged 402/401 is
+ * about the seller's route or payment layer, which no buyer input selects
+ * (the path and method come from the index), and still strikes; a 5xx always
+ * does.
+ */
+export const CALLER_INPUT_STATUSES = Object.freeze([400, 413, 415, 422]);
+export function isCallerInputStatus(status) {
+  return CALLER_INPUT_STATUSES.includes(Number(status));
+}
+
 /** A DELIVERED, SETTLED call is proof the seller works; forget the memo. */
 export function clearSellerDeliveryFailure(origin, chain) {
   if (!origin || !chain) return;
@@ -503,6 +521,15 @@ export const DELIVERY_FAIL_STRIKES_REQUIRED = DELIVERY_FAIL_MIN_STRIKES;
 /** The live TTL, for the operator surface. 0 = disarmed. */
 export const deliveryFailTtlMsNow = () => deliveryFailTtlMs();
 export function __resetSellerDeliveryFailuresForTest() { deliveryFailures.clear(); }
+
+/** Does a response carry a settle receipt that says the payment SETTLED
+ *  (`success: true`)? A receipt with no success flag, or one that fails to
+ *  decode, says nothing. */
+export function receiptSaysSettled(headers) {
+  const raw = headers?.get?.("payment-response") || headers?.get?.("x-payment-response");
+  if (!raw) return false;
+  try { return JSON.parse(Buffer.from(raw, "base64").toString("utf8"))?.success === true; } catch { return false; }
+}
 
 // Resolve-time "does this seller serve the requested model" check. An LLM
 // task carries a model id in its params, and the model namespace is
@@ -1127,6 +1154,31 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
         });
         console.warn(`[x402-buyer] ${where} failed to deliver after payment (HTTP ${paid.status}, no receipt, ${Date.now() - sentAtMs}ms) - memoized as failing on ${chain}, the resolver will skip it`);
       }
+      // A 4xx AFTER A CHARGE (2026-09-28). The memo above sees only a 5xx, so a
+      // seller that took the payment and answered 400 (or 402) wrote nothing,
+      // and every buyer the router sent next paid for the same answer. A stock
+      // x402 seller never settles a >= 400, so a charge beside a 4xx is either
+      // the seller saying so (a success receipt on the 4xx, any chain) or the
+      // chain saying so (the EIP-3009 nonce we signed was consumed, Base, read
+      // below). Both are exact about THIS payment. A Solana debit is not: that
+      // read is our wallet's movement in a window, which a concurrent buy can
+      // produce, so it records nothing here. A 4xx with neither is the seller
+      // answering the request our caller wrote, and records nothing. So is a
+      // CHARGED 400/413/415/422 (isCallerInputStatus): an upfront-settling
+      // seller takes the payment before reading the body the caller wrote.
+      let deliveryStruck = false;
+      const strikeChargedFailure = (how) => {
+        if (!memoizeDelivery || deliveryStruck || !(paid.status >= 400 && paid.status < 500) || isCallerInputStatus(paid.status)) return;
+        deliveryStruck = true;
+        noteSellerDeliveryFailure(sellerOrigin, chain, { status: paid.status, ms: Date.now() - sentAtMs });
+        recordOutbound({
+          chain, payTo: payable?.payTo ?? null, amountAtomic: quotedAtomic,
+          asset: payable?.asset ?? null, usd: Number(quotedAtomic) / 1e6,
+          slug: slug || null, origin: sellerOrigin, result: "undelivered", tx: null,
+        });
+        console.warn(`[x402-buyer] ${where} took the payment and answered HTTP ${paid.status} (${how}) - memoized as failing on ${chain}`);
+      };
+      if (receiptSaysSettled(paid.headers)) strikeChargedFailure("its own settle receipt");
       // A 402/401 on the PAID retry is the seller refusing the payment; a 4xx/5xx
       // is the seller failing after it. Their word alone is not proof we were
       // not charged (they control the status line), but on Solana the CHAIN is: if our wallet's USDC did not move
@@ -1156,6 +1208,7 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
       if (chainCheckable) {
         const maxWaitMs = Math.max(0, Number(refusalMaxWaitMs) || 0);
         const verdict = await readChainVerdict(where);
+        if (evmCheckable && verdict && verdict.debited === true) strikeChargedFailure("the signed authorization was consumed on chain");
         if (verdict && verdict.debited === false && verdict.expired === true) {
           committed = false; // provably unpaid: the finally releases the hold
           // The chain just PROVED nobody was charged, so this is a refusal and

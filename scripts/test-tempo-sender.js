@@ -368,12 +368,18 @@ async function listen(app) {
   const seen = { validate: 0, keychain: [] };
   let keychainAnswer = async () => null;
   let validateDelayMs = 0;
+  let broadcastDelayMs = 0;
+  const ledger = [];
   const app = express();
+  // What the sales ledger / refund rows would book this request under (read
+  // at finish, where server.js reads it).
+  app.use((req, res, next) => { res.on("finish", () => ledger.push(Object.hasOwn(req, "mppTempoLedgerPayer") ? req.mppTempoLedgerPayer : "unset")); next(); });
   app.use(createTempoGate({
     secretKey: SECRET, realm: REALM, priceFor,
     validate: async () => { seen.validate++; if (validateDelayMs) await sleep(validateDelayMs); return { ok: true, validation: {} }; },
-    broadcast: async () => ({ ok: true, receipt: { method: "tempo", status: "success", reference: "0x0t", timestamp: new Date().toISOString() } }),
+    broadcast: async () => { if (broadcastDelayMs) await sleep(broadcastDelayMs); return { ok: true, receipt: { method: "tempo", status: "success", reference: "0x0t", timestamp: new Date().toISOString() } }; },
     verifyKeychainSender: async (kc) => { seen.keychain.push(kc); return keychainAnswer(kc); },
+    pushSender: async () => null, // offline: never the real Tempo RPC
   }));
   app.use(paywallStub);
   const handler = (req, res) => res.json({ sender: req.mppTempoSender ?? null, key: gatewaySettleBreakerKey({ ...req, headers: {}, header: () => undefined, ip: "198.51.100.7", mppTempoSender: req.mppTempoSender }) });
@@ -386,6 +392,7 @@ async function listen(app) {
   let v0 = seen.validate;
   let r = await get("/spend", TX_PLAIN);
   ok(r.status === 200 && r.body.sender === lc(plain.address) && seen.validate === v0 + 1, `C: a plain-key credential reaches a spending route, keyed on its proven sender (${JSON.stringify(r.body)})`);
+  ok(ledger.at(-1) === lc(plain.address), `C: ...and the ledger books it under that proven sender (${ledger.at(-1)})`);
   for (const [name, raw] of [["a keychain envelope naming someone else's account", TX_FORGED_KEYCHAIN], ["a multisig envelope", TX_MULTISIG], ["a fee-payer-slot sender", TX_FEE_SLOT_VICTIM], ["a p256 envelope with someone else's key", TX_P256_FORGED]]) {
     v0 = seen.validate;
     r = await get("/spend", raw);
@@ -444,6 +451,14 @@ async function listen(app) {
   const t = Date.now();
   r = await get("/plain", TX_AGENT);
   ok(r.status === 200 && r.body.sender === null && Date.now() - t < 280, `C: a chain read slower than validation is not waited for on an ordinary route: served at once, keyed on the IP (${Date.now() - t} ms)`);
+  ok(ledger.at(-1) === null, `C: ...and a read still pending at settlement is not waited for by the ledger either: the row names nobody (${ledger.at(-1)})`);
+  // The read answers after validation but before the broadcast returns: the
+  // bounds already keyed on the IP, the ledger books the proven account.
+  keychainAnswer = () => new Promise((resolve) => setTimeout(() => resolve(lc(root.address)), 120));
+  broadcastDelayMs = 300;
+  r = await get("/plain", TX_AGENT);
+  broadcastDelayMs = 0;
+  ok(r.status === 200 && r.body.sender === null && ledger.at(-1) === lc(root.address), `C: a keychain read that answers before settlement attributes the sale to the proven account (bounds: ${r.body.key}, ledger: ${ledger.at(-1)})`);
   server.close();
 }
 

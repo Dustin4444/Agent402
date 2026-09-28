@@ -43,6 +43,7 @@ import { TxEnvelopeTempo, SignatureEnvelope, KeyAuthorization } from "ox/tempo";
 import { encodeFunctionData, decodeFunctionResult } from "viem";
 import { Abis, Addresses } from "viem/tempo";
 import { chargeCancelledForClientGone, CLIENT_GONE_TEXT } from "./hangup-settlement.js";
+import { tempoPushSender } from "./tempo-confirm.js";
 
 const DEFAULT_DECIMALS = 6; // matches every other stablecoin rail this repo settles (unconfirmed specifically for pathUSD — decimals() unread, this is the USDC-family convention, not a live lookup)
 
@@ -434,6 +435,22 @@ export function tempoReplayKey(authorizationHeader) {
     const credential = Credential.deserialize(authorizationHeader);
     const id = credential?.challenge?.id;
     return typeof id === "string" && id ? `tempo:${id}` : null;
+  } catch {
+    return null;
+  }
+}
+
+/** How long a push credential's sender read may take before it names
+ *  nobody (the same bound tempoPushSender applies to its RPC call). */
+export const PUSH_SENDER_WAIT_MS = 3000;
+
+/** The transaction hash a PUSH credential names (lowercased), else null.
+ *  The evidence a refund-owed row for an unclaimed push transfer is keyed on. */
+export function pushHashOf(authorizationHeader) {
+  try {
+    const p = Credential.deserialize(authorizationHeader)?.payload;
+    const h = p?.type === "hash" ? String(p.hash || "").toLowerCase() : "";
+    return /^0x[0-9a-f]{64}$/.test(h) ? h : null;
   } catch {
     return null;
   }
@@ -962,7 +979,7 @@ export function createTempoChallengeAppender({ realm, secretKey, priceFor }) {
  *  free handler executions before Tempo's relay rejects the (N-1) duplicate
  *  broadcasts at settlement time — the same "Five Attacks on x402" Attack II
  *  class replay-guard.js documents, just unguarded on this second path. */
-export function createTempoGate({ validate = validateTempoCredential, broadcast = broadcastTempoCredential, confirmSettlement = null, replayGuard, secretKey, realm, priceFor, preValidate = null, verifyKeychainSender = verifyTempoKeychainSender } = {}) {
+export function createTempoGate({ validate = validateTempoCredential, broadcast = broadcastTempoCredential, confirmSettlement = null, replayGuard, secretKey, realm, priceFor, preValidate = null, verifyKeychainSender = verifyTempoKeychainSender, pushSender = tempoPushSender, onPushNotClaimed = null, onPushInputRefused = null, pushClaimAllowed = null } = {}) {
   if (!tempoEnabled()) return null;
   // Fail CLOSED on the binding inputs: a gate that cannot verify "we minted
   // this challenge for this price" must not exist, because its existence is
@@ -1014,8 +1031,8 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
     // order as x402, where an unpaid bad body is a 402 and a paid one reaches
     // the handler's 400. Answered here: nothing validated, nothing broadcast.
     // Not for a PUSH credential: its transfer is already on chain, so "not
-    // charged" would be false. It takes the path below (validated, finalized,
-    // then the handler's own 400 is booked as owed).
+    // charged" would be false. It is input-checked below, after the relay has
+    // confirmed the transfer and BEFORE the hash is claimed.
     if (typeof preValidate === "function" && binding.payloadType !== "hash") {
       let bad = null;
       try { bad = preValidate(req); } catch { bad = null; }
@@ -1107,6 +1124,12 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
       // prove), which per-buyer bounds key on instead of the hint. With null,
       // every bound falls back to the client IP.
       req.mppTempoSender = signedSender || keychainSender || null;
+      // The payer the sales ledger and a refund-owed row name: a sender the
+      // signature, the keychain read or (push) the chain proved, never the
+      // client-written `source` hint. Filled in once the payment settles;
+      // null when nothing proved one (the row then names nobody, and a manual
+      // refund reads the payer off the transaction the row records).
+      req.mppTempoLedgerPayer = req.mppTempoSender;
       const replayKey = replayGuard ? tempoReplayKey(auth) : null;
       if (replayGuard && replayKey) {
         const verdict = await replayGuard.begin(replayKey);
@@ -1146,6 +1169,54 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
       // this, such a credential was never finalized and never booked: a real
       // transfer with no record, and a buyer told nothing was charged.
       if (binding.payloadType === "hash") {
+        // The input check, now that the relay has confirmed the transfer and
+        // BEFORE finalize claims it. A body the handler would refuse used to
+        // be finalized first and then booked as a charged failure and an owed
+        // refund. Nothing is claimed yet, so the same credential still pays
+        // for this request once the body is corrected (until the challenge
+        // expires): say so, and release the replay key so it can.
+        // Bounded here as well as inside tempoPushSender: an injected reader
+        // gets the same ceiling, and a read past it names nobody.
+        const readPushSender = async () => {
+          if (typeof pushSender !== "function") return null;
+          let timer = null;
+          try {
+            const bound = new Promise((resolve) => { timer = setTimeout(() => resolve(null), PUSH_SENDER_WAIT_MS); timer.unref?.(); });
+            return lcAddress(await Promise.race([Promise.resolve().then(() => pushSender(auth)), bound]));
+          } catch { return null; } finally { if (timer) clearTimeout(timer); }
+        };
+        const pushHash = pushHashOf(auth);
+        req.mppTempoPushHash = pushHash;
+        const pushAmountUsd = Number(binding.amountAtomic) / 10 ** envDecimals();
+        if (typeof preValidate === "function") {
+          let bad = null;
+          try { bad = preValidate(req); } catch { bad = null; }
+          if (bad && bad.status >= 400 && bad.status < 500) {
+            releaseReplay();
+            // Until it is claimed we hold the buyer's money for nothing, and
+            // they may never come back: book it as owed now. A later claim
+            // that is served voids the row (see src/tempo-push-debts.js).
+            let owed = false;
+            if (typeof onPushInputRefused === "function") {
+              const payer = await readPushSender();
+              try { owed = (await onPushInputRefused(req, { hash: pushHash, payer, amountAtomic: String(binding.amountAtomic), amountUsd: pushAmountUsd, status: bad.status })) === true; } catch { owed = false; }
+            }
+            logTempoRefusal(req, { cls: "input-invalid", amountAtomic: binding.amountAtomic, timings: { validate: tValidated - t0, total: Date.now() - tStart }, detail: `push credential, transfer not claimed (${owed ? "booked as owed until claimed" : "no debt booked"}): ${String(bad.body?.error || "").slice(0, 160)}` });
+            res.setHeader("Cache-Control", "no-store");
+            return res.status(bad.status).json({ ...bad.body, charged: false, transferClaimed: false, payment: `The transfer you sent has not been claimed. Send this request again with a corrected body and the same credential before the challenge expires (${binding.challenge?.expires || "see the challenge"}) and it pays for that request.${owed ? " Until then it is recorded as owed to the sender." : ""}` });
+          }
+        }
+        // A transfer whose debt is already being refunded (or was) no longer
+        // pays for a request: claiming it now would serve AND refund it.
+        if (typeof pushClaimAllowed === "function" && pushHash) {
+          let allowed = true;
+          try { allowed = (await pushClaimAllowed(pushHash)) !== false; } catch { allowed = true; }
+          if (!allowed) {
+            settleReplay();
+            logTempoRefusal(req, { cls: "push-refunded", amountAtomic: binding.amountAtomic, timings: { validate: tValidated - t0, total: Date.now() - tStart }, detail: `push transfer ${pushHash} is refunded or being refunded` });
+            return sendMppProblem(res, mppProblem("invalid-challenge", "The transfer this credential names has been refunded (or is being refunded), so it no longer pays for a request.", { status: 402, hint: "Request the resource again and pay the fresh challenge.", details: { reason: "refunded", transferClaimed: false } }));
+          }
+        }
         const tFinal0 = Date.now();
         const f = await broadcast(auth);
         if (!f.ok) {
@@ -1160,10 +1231,34 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
             return sendMppProblem(res, mppProblem(fc.kind, "The Tempo payment relay could not be reached to claim the transfer you sent. It has not been claimed, so it still pays for this request.", { status: 503, hint: "Retry the same request with the same credential in a few seconds.", details: { reason: fcls, transferClaimed: false } }));
           }
           settleReplay();
-          return sendMppProblem(res, mppProblem(fc.kind, `The transfer this credential names could not be claimed for this request: ${fc.detail}`, { status: 402, hint: fc.hint, details: { reason: fcls } }));
+          // The relay confirmed a transfer paying this challenge to our
+          // recipient, and it was not claimed for this request. Unless the
+          // relay says the hash was already claimed (it paid for an earlier
+          // request), that transfer is money we hold for nothing delivered:
+          // book it as owed before answering, keyed on the hash.
+          let owed = false;
+          if (fcls !== "replay" && typeof onPushNotClaimed === "function") {
+            const payer = await readPushSender();
+            const hash = pushHash;
+            try { owed = (await onPushNotClaimed(req, { hash, payer, amountAtomic: String(binding.amountAtomic), amountUsd: pushAmountUsd, cls: fcls })) === true; } catch { owed = false; }
+            console.warn(`[mpp-tempo] CHARGED-BUT-NOT-SERVED: push transfer confirmed by the relay could not be claimed (${req.method} ${req.path} tx=${hash || "?"} reason=${fcls}) - ${owed ? "recorded as owed in the refund ledger" : "NOT recorded"}`);
+          }
+          return sendMppProblem(res, mppProblem(fc.kind, `The transfer this credential names could not be claimed for this request: ${fc.detail}${owed ? " The transfer was received and is recorded as owed to the sender." : ""}`, { status: 402, hint: fc.hint, details: { reason: fcls, ...(owed ? { refundOwed: true } : {}) } }));
         }
         const receiptHeader = tempoReceiptHeader(f.receipt);
         if (receiptHeader) res.setHeader("Payment-Receipt", receiptHeader);
+        // THE HANDLER NEVER WAITS ON THE SENDER READ (2026-09-28). It is one
+        // Tempo RPC round trip (bounded at PUSH_SENDER_WAIT_MS) and was awaited
+        // here, so an honest buyer waited on it whenever the RPC was slow. It
+        // now runs beside the handler; only the bookings that name the payer
+        // (the sale, a debt) wait for it, at finish (server.js
+        // whenTempoLedgerPayerKnown). A read that fails or times out leaves
+        // the payer null, as before.
+        req.mppTempoLedgerPayerRead = readPushSender().then((p) => {
+          if (p) req.mppTempoLedgerPayer = p;
+          req.mppTempoLedgerPayerReadDone = true;
+          return p;
+        });
         settleReplay();
         req.tempoSettled = true;
         console.log(`[mpp-tempo] settled push credential before the handler ${req.method} ${req.path} tx=${f.receipt?.reference || "?"} [validate=${tValidated - t0}ms finalize=${Date.now() - tFinal0}ms]`);
@@ -1305,6 +1400,11 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
         return;
       }
       console.log(`[mpp-tempo] settled ${req.method} ${req.path} tx=${b.receipt?.reference || "?"} [${timing}]`);
+      // A keychain sender whose chain read had not answered when the bounds
+      // were keyed has usually answered by now (the handler and the broadcast
+      // took longer): the ledger takes it. Never waited for, so no added
+      // latency; a read still pending leaves the row naming nobody.
+      if (!req.mppTempoLedgerPayer && keychainSender) req.mppTempoLedgerPayer = keychainSender;
       const receiptHeader = tempoReceiptHeader(b.receipt);
       restore();
       if (receiptHeader) res.setHeader("Payment-Receipt", receiptHeader);

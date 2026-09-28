@@ -2,6 +2,18 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 
 const ENTRIES = [
   {
+    date: "2026-09-30",
+    title: "Live transfers on /revenue, and tighter proof for the sellers the router pays",
+    items: [
+      "/revenue, /api/revenue and the chain pages read their recent transfers from the settlement ledger on every load, so a new settlement shows on the first refresh once the ledger has recorded it (it reads the chains every five minutes). Wallet balances still refresh hourly, and the page says so.",
+      "The router counts a seller's buyers without the payers whose every payment was refunded, and an MPP seller on Tempo needs three distinct outside payers as well as its transfer count, the same bar as Base. Transfers a seller sends itself and our own payments never count.",
+      "A seller that takes the router's payment and then does not deliver is recorded as failing on that route, on Tempo as well as x402, and a later settled answer clears it.",
+      "A Tempo payment's payer on sales and refund records is the sender the signature or the chain proves, never a name the client wrote. A push payment whose request is refused before it is served is recorded as owed, and cleared if the same payment is retried and served.",
+      "Repeat disconnects past the forgiveness budget are held for review in the refund run instead of planned as ordinary refunds, and a settlement recovered through a backup facilitator frees the wallet's in-flight balance at once.",
+      "Re-registering an origin re-checks its routes at once, then at most once every ten minutes; the answer says when the next re-check opens. /api/selfcheck serves a cached run to anyone and a fresh one at most every thirty minutes.",
+    ],
+  },
+  {
     date: "2026-09-29",
     title: "Purchases from other sellers run inside the buyer's authorization, and the paid path has two observers",
     items: [

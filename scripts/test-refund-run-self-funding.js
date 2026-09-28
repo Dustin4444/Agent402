@@ -36,7 +36,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { load } from "js-yaml";
-import { LASTING_HANGUP_HOLD } from "./refund-run.js";
+import { LASTING_HANGUP_HOLD, REPEAT_HANGUP_HOLD } from "./refund-run.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -52,6 +52,7 @@ const BUYER_B = "0xBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBb";
 const BUYER_C = "0xCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCc";
 const BUYER_D = "0xDdDdDdDdDdDdDdDdDdDdDdDdDdDdDdDdDdDdDdDd";
 const BUYER_E = "0xEeEeEeEeEeEeEeEeEeEeEeEeEeEeEeEeEeEeEeEe";
+const BUYER_F = "0xF0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0";
 const ALGO_NET = "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=";
 const TREASURY_ALGO = "TREASURYALGOTREASURYALGOTREASURYALGOTREASURYALGOTREASURYA";
 const SPEND_ALGO = "SPENDALGOSPENDALGOSPENDALGOSPENDALGOSPENDALGOSPENDALGOSPE"; // case preserved on this rail
@@ -62,7 +63,7 @@ const REPO_VARIABLES = {
 };
 
 const hex64 = (c) => `0x${c.repeat(64)}`;
-const TX = { reBase: hex64("a"), hash: hex64("b"), stranger: hex64("c"), reHangup: hex64("d"), hashHangup: hex64("e") };
+const TX = { reBase: hex64("a"), hash: hex64("b"), stranger: hex64("c"), reHangup: hex64("d"), hashHangup: hex64("e"), repeatHangup: hex64("f") };
 const ALGO_TXID = "REALGOTXIDREALGOTXIDREALGOTXIDREALGOTXIDREALGOTXIDREALG";
 const TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 const topic = (a) => `0x${"0".repeat(24)}${a.slice(2).toLowerCase()}`;
@@ -73,6 +74,7 @@ const receipts = {
   [TX.stranger]: { status: "0x1", logs: [{ address: USDC_BASE, topics: [TRANSFER, topic(BUYER_C), topic(STRANGER_EVM)], data: amt(10_000) }] },
   [TX.reHangup]: { status: "0x1", logs: [{ address: USDC_BASE, topics: [TRANSFER, topic(BUYER_D), topic(SPEND_EVM)], data: amt(50_000) }] },
   [TX.hashHangup]: { status: "0x1", logs: [{ address: USDC_BASE, topics: [TRANSFER, topic(BUYER_E), topic(TREASURY_EVM)], data: amt(1_000) }] },
+  [TX.repeatHangup]: { status: "0x1", logs: [{ address: USDC_BASE, topics: [TRANSFER, topic(BUYER_F), topic(TREASURY_EVM)], data: amt(1_000) }] },
 };
 
 const ROWS = [
@@ -83,7 +85,10 @@ const ROWS = [
   // A disconnect on a router tier, paid to the spending wallet: held for review.
   { id: 5, slug: "route-execute-plus", network: "eip155:8453", payer: BUYER_D, priceUsd: 0.05, evidence: TX.reHangup, status: "owed", synthetic: 0, createdAt: Date.now() - 60_000, httpStatus: 499 },
   // A disconnect on an ordinary route, paid to the treasury: repaid as before.
-  { id: 6, slug: "hash", network: "eip155:8453", payer: BUYER_E, priceUsd: 0.001, evidence: TX.hashHangup, status: "owed", synthetic: 0, createdAt: Date.now() - 60_000, httpStatus: 499 },
+  { id: 6, slug: "hash", network: "eip155:8453", payer: BUYER_E, priceUsd: 0.001, evidence: TX.hashHangup, status: "owed", synthetic: 0, createdAt: Date.now() - 60_000, httpStatus: 499, hangupReason: "settled in flight" },
+  // A disconnect booked because the wallet's forgiveness budget was spent (a
+  // repeat hang-up): held for review, released only by its own input.
+  { id: 7, slug: "hash", network: "eip155:8453", payer: BUYER_F, priceUsd: 0.001, evidence: TX.repeatHangup, status: "owed", synthetic: 0, createdAt: Date.now() - 60_000, httpStatus: 499, hangupReason: "payer budget" },
 ];
 
 // ---- one stub server: operator ledger, our 402, Base RPC, Algorand indexer ----
@@ -164,6 +169,12 @@ ok(lastingInput?.type === "boolean" && lastingInput?.default === false,
 ok(stepEnvFor({ include_lasting_hangups: true }).REFUND_INCLUDE_LASTING_HANGUPS === "true"
    && stepEnvFor({}).REFUND_INCLUDE_LASTING_HANGUPS === "false",
   "the step passes that input to the job as REFUND_INCLUDE_LASTING_HANGUPS");
+const repeatInput = declaredInputs.include_repeat_hangups;
+ok(repeatInput?.type === "boolean" && repeatInput?.default === false,
+  "refund.yml declares include_repeat_hangups as a boolean that defaults to false");
+ok(stepEnvFor({ include_repeat_hangups: true }).REFUND_INCLUDE_REPEAT_HANGUPS === "true"
+   && stepEnvFor({}).REFUND_INCLUDE_REPEAT_HANGUPS === "false",
+  "the step passes that input to the job as REFUND_INCLUDE_REPEAT_HANGUPS");
 
 // The spending wallets the server settles to, as payments.js reads them; the
 // ones the refund job knows how to use, as refund-run.js reads them; and what
@@ -248,6 +259,15 @@ ok(confirmed(shipped.out, 6) && shipped.claimed.has(6),
   "control: a disconnect on an ordinary route verifies and is claimed for repayment, as before");
 ok(shipped.claimed.has(1) && shipped.claimed.has(3),
   "control: a failed answer on a router tier and a treasury-paid debt are claimed for repayment, as before");
+ok(heldIds(dry.out, REPEAT_HANGUP_HOLD).join(",") === "7" && heldIds(shipped.out, REPEAT_HANGUP_HOLD).join(",") === "7"
+   && !confirmed(shipped.out, 7) && !shipped.claimed.has(7),
+  `a disconnect booked past the forgiveness budget is held in its own bucket and never claimed by default (${heldIds(shipped.out, REPEAT_HANGUP_HOLD)})`);
+ok(/#7 eip155:8453 \$0\.001 -> payer:[0-9a-f]{8} \(hash, http 499, payer budget\)/.test(shipped.out),
+  "the plan names why that disconnect was not forgiven");
+const repeatIn = await runWithClaims(stepEnvFor({ live: true, include_repeat_hangups: true }));
+ok(!heldIds(repeatIn.out, REPEAT_HANGUP_HOLD).length && confirmed(repeatIn.out, 7) && repeatIn.claimed.has(7)
+   && heldIds(repeatIn.out, LASTING_HANGUP_HOLD).join(",") === "5",
+  "with include_repeat_hangups set it verifies and is claimed, and the lasting-effect hold is untouched");
 const optIn = await runWithClaims(stepEnvFor({ live: true, include_lasting_hangups: true }));
 ok(!heldIds(optIn.out, LASTING_HANGUP_HOLD).length && confirmed(optIn.out, 5) && optIn.claimed.has(5),
   "with include_lasting_hangups set, the reviewed disconnect verifies and is claimed for repayment");

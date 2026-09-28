@@ -46,6 +46,10 @@ on:
         description: "Also repay disconnects on routes whose effect was delivered (route-execute, memory writes, attest, feedback) - read those held rows first"
         type: boolean
         default: false
+      include_repeat_hangups:
+        description: "Also repay disconnects booked past the hang-up forgiveness budget (and older disconnects with no recorded reason) - read those held rows first"
+        type: boolean
+        default: false
 
 # One refund run at a time, repo-wide. Two concurrent dispatches would each
 # read the same owed rows; the ledger's claim step makes a double-send unlikely,
@@ -91,6 +95,9 @@ jobs:
           # live (planRefunds in scripts/refund-run.js); repaid only when the
           # dispatch opts in after reading them.
           REFUND_INCLUDE_LASTING_HANGUPS: ${{ inputs.include_lasting_hangups && 'true' || 'false' }}
+          # Same rule for a disconnect booked because the forgiveness budget
+          # was spent (a repeat hang-up), or one with no recorded reason.
+          REFUND_INCLUDE_REPEAT_HANGUPS: ${{ inputs.include_repeat_hangups && 'true' || 'false' }}
           REFUND_EVM_KEY: ${{ secrets.REFUND_EVM_KEY != '' && secrets.REFUND_EVM_KEY || secrets.BURNER_KEY }}
           REFUND_STELLAR_SECRET: ${{ secrets.REFUND_STELLAR_SECRET != '' && secrets.REFUND_STELLAR_SECRET || secrets.STELLAR_BURNER_SECRET }}
           REFUND_ALGORAND_MNEMONIC: ${{ secrets.REFUND_ALGORAND_MNEMONIC != '' && secrets.REFUND_ALGORAND_MNEMONIC || secrets.ALGORAND_BURNER_MNEMONIC }}

@@ -36,7 +36,8 @@ import { createHangupSettlementHook, onSettleOutcome, onResponseEnd } from "../s
 import { reserveHangupForgiveness, _resetHangupForgiveness } from "../src/hangup-forgiveness.js";
 import { evmCredentialExpiry, requiredEvmSecondsFor, evmValidityShortfall, assertEvmValidityCovers, evmValidityMode, evmCredentialSettleableMs, evmCredentialBudgetMs, EVM_RUN_SECONDS, CLIENT_SLACK_SECONDS, SETTLE_RULE_SECONDS, EVM_SELLER_ALLOWANCE_MS } from "../src/evm-validity.js";
 import { coverTermsOf, admitCoveredRun, inflightCoverStatus, markCoveredRunSettled, _setBalanceReaderForTest, _resetInflightCoverForTest } from "../src/inflight-cover.js";
-import { registerInflightCoverSettleHook } from "../src/payments.js";
+import { registerInflightCoverSettleHook, registerFacilitatorFailureHooks } from "../src/payments.js";
+import { x402ResourceServer } from "@x402/core/server";
 import { buildRouteExecuteTool } from "../src/tools/route-execute.js";
 import { getFreePorts } from "./lib/free-port.js";
 
@@ -392,6 +393,87 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
   ok(inflightCoverStatus().runsInFlight === 1, "the failed run leaves when its response ends");
   f2();
   ok(inflightCoverStatus().runsInFlight === 0 && markCoveredRunSettled({}) === false && markCoveredRunSettled(null) === false, "a request the cover never admitted is not a release");
+  }
+  {
+  // A settlement RECOVERED through the PAYMENT_SETTLE_FALLBACK chain releases
+  // the run at settlement too. The vendor returns a recovered result from its
+  // onSettleFailure hooks WITHOUT running afterSettle, so this drives the REAL
+  // x402ResourceServer.settlePayment with the real hook registrations and
+  // stub facilitator clients: a primary that rejects pre-broadcast (402) and
+  // a fallback that settles.
+  const prevFallback = process.env.PAYMENT_SETTLE_FALLBACK;
+  process.env.PAYMENT_SETTLE_FALLBACK = "true";
+  const rejection402 = () => Object.assign(new Error("settle failed (402): payment-method-required"), { status: 402 });
+  const serverWith = (primarySettle, fallbackSettle) => {
+    const primary = { getSupported: async () => ({ kinds: [] }), verify: async () => ({ isValid: true }), settle: primarySettle };
+    const srv = new x402ResourceServer(primary);
+    const fb = { settle: fallbackSettle };
+    registerFacilitatorFailureHooks(srv, fb, null);   // fallback as the PayAI slot
+    registerInflightCoverSettleHook(srv);
+    return srv;
+  };
+  const settleFor = (srv, req) => srv.settlePayment({ x402Version: 2, payload: {} }, { scheme: "exact", network: "eip155:8453", amount: "600000" }, {}, { request: { adapter: { req } } })
+    .catch((e) => ({ success: false, thrown: String(e?.message || e) }));
+  const ok200 = async () => ({ success: true, transaction: "0x" + "fa".repeat(32), network: "eip155:8453" });
+  const logW = console.warn; console.warn = () => {};
+  try {
+    let balF = 1_800_000n;
+    _setBalanceReaderForTest(async () => balF);
+    const F = "0x" + "7f".repeat(20);
+    // The scenario: a wallet funded for three. Run 1 settles through the
+    // fallback and its response stays open; run 3 arrives.
+    const a1req = reqFor(hdr(F));
+    const a1 = await admitCoveredRun(a1req);
+    const a2 = await admitCoveredRun(reqFor(hdr(F)));
+    a1.settling();
+    let fallbackCalls = 0;
+    const recovered = await settleFor(serverWith(async () => { throw rejection402(); }, async () => { fallbackCalls++; return ok200(); }), a1req);
+    ok(recovered.success === true && fallbackCalls === 1, `the primary rejected pre-broadcast and the fallback settled (${JSON.stringify(recovered).slice(0, 80)})`);
+    ok(inflightCoverStatus().runsInFlight === 1, `a run settled through the fallback leaves the ledger at settlement, its response still open (in flight ${inflightCoverStatus().runsInFlight})`);
+    balF = 1_200_000n; // run 1 paid on chain
+    let a3 = null; try { a3 = await admitCoveredRun(reqFor(hdr(F)), { settleWaitMs: 150 }); } catch (e) { a3 = e; }
+    ok(typeof a3 === "function", `so a third run the balance covers is admitted, not refused (${typeof a3 === "function" ? "admitted" : a3?.statusCode})`);
+    // Exactly once: the response end and a second settle signal release nothing more.
+    a1();
+    ok(markCoveredRunSettled(a1req) === true && inflightCoverStatus().runsInFlight === 2, `run 1's response end and a repeat signal release nothing more (in flight ${inflightCoverStatus().runsInFlight})`);
+    a2(); a3();
+
+    // Controls. A fallback that ALSO fails (gracefully, or by throwing) releases nothing.
+    balF = 1_200_000n;
+    const c1req = reqFor(hdr(F));
+    const c1 = await admitCoveredRun(c1req);
+    const c2 = await admitCoveredRun(reqFor(hdr(F)));
+    const graceful = await settleFor(serverWith(async () => { throw rejection402(); }, async () => ({ success: false, errorReason: "insufficient_funds", transaction: "", network: "eip155:8453" })), c1req);
+    ok(graceful.success !== true && inflightCoverStatus().runsInFlight === 2, `control: a fallback answering success:false leaves the run counted (in flight ${inflightCoverStatus().runsInFlight})`);
+    const thrown = await settleFor(serverWith(async () => { throw rejection402(); }, async () => { throw rejection402(); }), c1req);
+    ok(thrown.success !== true && inflightCoverStatus().runsInFlight === 2, "control: a fallback that throws leaves the run counted");
+    // A timeout on the primary may have broadcast: no fallback runs, nothing releases.
+    let tried = 0;
+    await settleFor(serverWith(async () => { throw Object.assign(new Error("ETIMEDOUT"), { code: "ETIMEDOUT" }); }, async () => { tried++; return ok200(); }), c1req);
+    ok(tried === 0 && inflightCoverStatus().runsInFlight === 2, "control: a primary timeout tries no fallback and releases nothing");
+    c1(); c2();
+    ok(inflightCoverStatus().runsInFlight === 0, "the unsettled runs leave when their responses end");
+
+    // The ordinary path through the same real server: a primary success
+    // releases once via afterSettle, and the fallback is never asked.
+    const d1req = reqFor(hdr(F));
+    const d1 = await admitCoveredRun(d1req);
+    const d2 = await admitCoveredRun(reqFor(hdr(F)));
+    let fbAsked = 0;
+    await settleFor(serverWith(ok200, async () => { fbAsked++; return ok200(); }), d1req);
+    ok(fbAsked === 0 && inflightCoverStatus().runsInFlight === 1, "a primary success releases the run once through afterSettle");
+    // A client that recovers INSIDE its own settle() (the Stellar confirm /
+    // fallback shape) returns a success to the vendor, so afterSettle fires.
+    const e1req = reqFor(hdr(F));
+    const e1 = await admitCoveredRun(e1req);
+    await settleFor(serverWith(async () => { try { throw rejection402(); } catch { return ok200(); } }, async () => ok200()), e1req);
+    ok(inflightCoverStatus().runsInFlight === 1, "a settlement recovered inside the facilitator client releases through afterSettle too");
+    d1(); d2(); e1();
+    ok(inflightCoverStatus().runsInFlight === 0, "every run leaves the ledger");
+  } finally {
+    console.warn = logW;
+    if (prevFallback === undefined) delete process.env.PAYMENT_SETTLE_FALLBACK; else process.env.PAYMENT_SETTLE_FALLBACK = prevFallback;
+  }
   }
   process.env.INFLIGHT_COVER = "off";
   ok(await admitCoveredRun(reqFor(hdr(A))) === null, "INFLIGHT_COVER=off disables the check");

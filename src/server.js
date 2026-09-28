@@ -128,17 +128,39 @@ function cardPriceUsd(def, req) {
 // settlement; credits set creditsChargedOnClose only when the abandoned hold
 // was actually debited. Returns the row it wrote (or null) so the test can see
 // exactly what was booked.
+// The payer a Tempo sale or debt is booked under: the sender the gate proved
+// (src/mpp-tempo.js sets req.mppTempoLedgerPayer), never the credential's
+// client-written `source` hint (req.mppTempoPayer). Own property only.
+function tempoLedgerPayer(req) {
+  const p = Object.hasOwn(req, "mppTempoLedgerPayer") ? req.mppTempoLedgerPayer : null;
+  return typeof p === "string" && p ? p : null;
+}
+// The hash a Tempo push credential named (src/mpp-tempo.js, lowercased), own
+// property only; null for a pull credential.
+function tempoPushHashOf(req) {
+  const h = Object.hasOwn(req, "mppTempoPushHash") ? req.mppTempoPushHash : null;
+  return typeof h === "string" && h ? h : null;
+}
 function recordHangupDebt(req, res) {
   const def = CATALOG[`${req.method} ${req.path}`];
   if (!def) return null;
+  // The debt names the chain-read sender: book it once that read is done.
+  // Truthy meanwhile, so recordHangupOutcome does not log it as uncharged.
+  if (req.tempoSettled && tempoLedgerPayerPending(req)) {
+    whenTempoLedgerPayerKnown(req, "hangup", () => { recordHangupDebt(req, res); });
+    return { deferred: true };
+  }
   const synthetic = isSyntheticRequest(req);
   let row = null;
   const settleReceipt = res.getHeader("PAYMENT-RESPONSE") || res.getHeader("X-PAYMENT-RESPONSE");
   if (req.tempoSettled || req.stripeSettled) {
     row = {
       network: req.tempoSettled ? "tempo" : "stripe",
-      payer: req.mppTempoPayer || null,
-      tx: req.tempoSettled ? tempoTxFromReceiptHeader(res.getHeader("Payment-Receipt")) : stripeTxFromReceiptHeader(res.getHeader("Payment-Receipt")),
+      payer: req.tempoSettled ? tempoLedgerPayer(req) : null,
+      // A push credential's debts are keyed on the hash the credential names
+      // (pushHashOf, lowercased), so the disconnect row lands on the same
+      // evidence as an earlier input-refused row for that transfer.
+      tx: req.tempoSettled ? (tempoPushHashOf(req) || tempoTxFromReceiptHeader(res.getHeader("Payment-Receipt"))) : stripeTxFromReceiptHeader(res.getHeader("Payment-Receipt")),
       wire: req.tempoSettled ? "mpp-tempo" : "mpp-stripe",
       priceUsd: settledPriceUsd(def, req, res),
     };
@@ -165,10 +187,17 @@ function recordHangupDebt(req, res) {
     };
   }
   if (!row) return null;
-  const created = recordRefundOwed({ slug: def.slug, ...row, httpStatus: 499, synthetic });
   // Why it was not forgiven, when a ticket was refused ("lasting effect",
   // "payer budget", ...); nothing for the residual window, where it was.
+  // Stored on the row: the refund planner holds a budget denial (a repeat
+  // hang-up) for review instead of repaying it as an ordinary debt.
   const denied = hangupTicketDenial(req);
+  const hangupReason = denied || (hangupForgiven(req) ? "settled in flight" : "no ticket");
+  let created = recordRefundOwed({ slug: def.slug, ...row, httpStatus: 499, synthetic, hangupReason });
+  // The same push transfer was refused on input earlier and booked as owed
+  // under its hash; INSERT OR IGNORE kept that 400 row. It is a disconnect
+  // now: promote it, or the hang-up holds never see it.
+  if (!created && req.tempoSettled && tempoPushHashOf(req) === row.tx) created = tempoPushDebts?.hungUp(row.tx, hangupReason) === true;
   console.warn(`[hangup] CHARGED-BUT-NOT-SERVED: client disconnected before the settled response was delivered (${req.method} ${req.path} rail=${row.wire} tx=${row.tx || "?"}) - ${created ? "recorded as owed in the refund ledger" : "already on the books"}${denied ? `; not forgiven: ${denied}` : ""}`);
   return row;
 }
@@ -273,7 +302,7 @@ import { learnPage, learnIndex } from "./learn.js";
 import { skillMd } from "./skill-md.js";
 import { createMcpMppLoopback } from "./mcp-mpp.js";
 import { serviceManifest, reliabilityReport } from "./discovery.js";
-import { runSelfCheck } from "./selfcheck.js";
+import { runSelfCheck, createSelfCheckRoute } from "./selfcheck.js";
 import { installEgressMeter, egressReport } from "./egress-meter.js";
 import { acpFeed, acpManifest } from "./acp.js";
 import { findTools, findRelatedSellers } from "./find.js";
@@ -466,13 +495,13 @@ import { setOgImageVersion, setNavIndexProvider, ledgerShell, ledgerFooterCompac
 import { ledgerHomePage } from "./ledger-home.js";
 import { ledgerCatalogPage } from "./ledger-catalog.js";
 import { ledgerPricingPage } from "./ledger-pricing.js";
-import { revenueSnapshot, revenuePage, railThroughput, stellarRail, stellarActivity, algorandRail, algorandActivity, evmActivity, solanaActivity, robinhoodActivity, baseActivityViaSql, EVM as EVM_CHAINS, rpcCall, getJsonAcross, ALGORAND_INDEXER_BASES, OUR_EVM_WALLETS, OUR_SOLANA_WALLETS, OUR_STELLAR_WALLETS, OUR_ALGORAND_WALLETS } from "./revenue-live.js";
+import { revenueSnapshot, withFreshRecent, revenuePage, railThroughput, stellarRail, stellarActivity, algorandRail, algorandActivity, evmActivity, solanaActivity, robinhoodActivity, baseActivityViaSql, EVM as EVM_CHAINS, rpcCall, getJsonAcross, ALGORAND_INDEXER_BASES, OUR_EVM_WALLETS, OUR_SOLANA_WALLETS, OUR_STELLAR_WALLETS, OUR_ALGORAND_WALLETS } from "./revenue-live.js";
 import { stellarPage, stellarSellers } from "./stellar-page.js";
 import { algorandPage, algorandSellers } from "./algorand-page.js";
 import { CHAIN_PAGES, marketSellers, marketOperatorCount, marketPage, marketPanelHtml } from "./market-page.js";
 import { sellPage } from "./sell.js";
 import { recordSellerVerification, sellerVerificationStatus } from "./seller-verification.js";
-import { externalPaymentEventsFor, startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledgerBuyersWeekly, ledgerBuyersMonthly, ledgerBuyerConcentration, ledgerBuyerRetention, ledgerSyncState } from "./revenue-ledger.js";
+import { externalPaymentEventsFor, startRevenueLedger, ledgerRecent, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledgerBuyersWeekly, ledgerBuyersMonthly, ledgerBuyerConcentration, ledgerBuyerRetention, ledgerSyncState } from "./revenue-ledger.js";
 import { x402EconomySnapshot, economySnapshotCached, warmEconomySnapshot } from "./x402-economy.js";
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate, sharedPayToClaims } from "./settlement-proof.js";
 import { buildEvidenceBinding, baseLiveGate } from "./evidence-binding.js";
@@ -554,7 +583,7 @@ import { readTextCapped } from "./capped-body.js";
 import { svmBuyerConfigured, svmBuyerStatus, SOLANA_NETWORK_LABELS } from "./solana-buyer.js";
 import { payTempo, tempoBuyerConfigured, tempoBuyerStatus, tempoRpc } from "./tempo-buyer.js";
 import { issueChallenge, verifySolution, isComputePayable, powInfo, POW_DIFFICULTY, WALLET_ONLY_SLUGS, verifyHeartbeatToken, PROBE_POW_SLUG } from "./pow.js";
-import { createLimiter as createRateLimiter, LIMITS_LABEL as POW_LIMITS_LABEL } from "./rate-limit.js";
+import { createLimiter as createRateLimiter, LIMITS_LABEL as POW_LIMITS_LABEL, limiterKey } from "./rate-limit.js";
 import { classifyWishes, wishClassifyEnabled } from "./wish-classify.js";
 import { rerankMisses, rerankEnabled } from "./discovery-rerank.js";
 import { JUDGE_TOOLS, judgeEnabled } from "./tools/judge-kit.js";
@@ -612,7 +641,8 @@ const TRIAL_LIMITS_LABEL = `${TRIAL_PER_TOOL_HOUR} per tool per hour, ${TRIAL_IP
 const OX_TRIAL_LIMITS_LABEL = `${OX_TRIAL_PER_HOUR} per hour, ${OX_TRIAL_PER_DAY} per day per client`;
 import { createHangupSettlementHook, clientGoneBeforeFirstByte, chargeCancelledForClientGone, clientGoneError, isClientGoneAbort, onSettleOutcome, onResponseEnd } from "./hangup-settlement.js";
 import { hangupForgiven, hangupTicketDenial, reserveHangupForgiveness, settleHangupTicket, hangupForgivenessStatus, loadHangupForgiveness, flushHangupForgiveness } from "./hangup-forgiveness.js";
-import { recordRefundOwed, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals, refundsCreatedBetween } from "./refund-ledger.js";
+import { createTempoPushDebts, tempoLedgerPayerPending, whenTempoLedgerPayerKnown } from "./tempo-push-debts.js";
+import { recordRefundOwed, refundByEvidence, voidOwedOnClaim, renoteOwedRefund, promoteOwedToHangup, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals, refundsCreatedBetween } from "./refund-ledger.js";
 import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent, getDailyCalls, dailyCallsRecordingSince, getDailyUpstreamCalls, getSellerRegistrations, getDailyUpstreamSpend } from "./stats.js";
 import { timingSafeEqual, createHash, randomUUID, randomBytes } from "node:crypto";
 
@@ -1763,8 +1793,8 @@ for (const tier of EXEC_TIERS) {
     // method and body the CALLER chose, so an unguarded write was a paid
     // routing ban against any origin, on demand. Default false, opted into
     // here, where the seller was resolved by US from a task and not named by
-    // the buyer.
-    payExternal: (url, opts) => (opts?.chain === "tempo" ? payTempo(url, opts) : payX402(url, { ...opts, memoizeDelivery: true })),
+    // the buyer. Both rails: payTempo keeps the same memo since 2026-09-28.
+    payExternal: (url, opts) => { const o = { ...opts, memoizeDelivery: true }; return opts?.chain === "tempo" ? payTempo(url, o) : payX402(url, o); },
     externalEnabled: () => SOR_EXTERNAL_ENABLED,
     // Chains external routing can SETTLE on: Base always (the proven path);
     // Algorand only once the dedicated AVM spending wallet is configured;
@@ -3272,7 +3302,9 @@ if (process.env.X402_SYNC_ON_START !== "false" && GATEWAY_TOOLS_ENABLED.some((t)
 }
 app.get("/api/revenue", async (_req, res) => {
   try {
-    const snap = await revenueSnapshot(revenueWallets());
+    // Recent rows are re-read from the ledger per request (withFreshRecent);
+    // only the balances ride the hourly background snapshot.
+    const snap = withFreshRecent(await revenueSnapshot(revenueWallets()), ledgerRecent);
     const ledger = memoSurface("revenue:allTime", 60_000, () => ({ allTime: ledgerSummary(revenueWallets()), sales: salesSummary() }));
     res.set("Cache-Control", "public, max-age=30").json({ ...snap, ...ledger });
   } catch (e) {
@@ -3381,7 +3413,9 @@ app.get("/api/revenue/mpp", (req, res) => {
 });
 app.get("/revenue", async (_req, res) => {
   try {
-    const snap = await revenueSnapshot(revenueWallets());
+    // Recent rows are re-read from the ledger per request (withFreshRecent);
+    // only the balances ride the hourly background snapshot.
+    const snap = withFreshRecent(await revenueSnapshot(revenueWallets()), ledgerRecent);
     // `standing` is what the page is MEASURING, read from the index totals rather
     // than typed into the copy: a framing paragraph that goes stale is worse
     // than none, because it is the sentence asking to be trusted.
@@ -5362,27 +5396,14 @@ app.get("/api/reliability", async (_req, res) =>
 );
 // Synthetic self-check — runs a curated set of high-value tools' own examples
 // live (see src/selfcheck.js) so a paid tool that breaks in prod is caught even
-// with zero organic traffic. Cached 5 min + single-flighted so repeated polls
-// (and any abuse) can't hammer the upstreams; the tool-alert.yml Action polls
-// this and opens an issue on failure, mirroring the heartbeat. Free/unpaywalled.
-const SELFCHECK_TTL_MS = 5 * 60 * 1000;
-let selfCheckCache = { at: 0, value: null };
-let selfCheckInFlight = null;
-app.get("/api/selfcheck", async (_req, res) => {
-  if (selfCheckCache.value && Date.now() - selfCheckCache.at < SELFCHECK_TTL_MS) {
-    return res.json({ ...selfCheckCache.value, cached: true });
-  }
-  if (!selfCheckInFlight) {
-    selfCheckInFlight = runSelfCheck(CATALOG)
-      .then((v) => { selfCheckCache = { at: Date.now(), value: v }; return v; })
-      .finally(() => { selfCheckInFlight = null; });
-  }
-  try {
-    res.json({ ...(await selfCheckInFlight), cached: false });
-  } catch {
-    res.status(500).json({ ok: false, error: "selfcheck failed to run" });
-  }
-});
+// with zero organic traffic. Free/unpaywalled, so a public caller is served a
+// cached answer and can never cause a run more often than once per 30 minutes
+// (the cadence tool-alert.yml polls at); the operator may force a fresher one
+// with ?fresh=1, still no more than once per 5 minutes (createSelfCheckRoute).
+app.get("/api/selfcheck", createSelfCheckRoute({
+  run: () => runSelfCheck(CATALOG),
+  isOperator: (req) => operatorAuthed(req),
+}));
 // Stripe Agentic Commerce Protocol (ACP) — lets AI agents on Stripe's payment
 // rails discover and browse our tool catalog. Free, unpaywalled discovery surface.
 app.get("/acp/feed", (_req, res) =>
@@ -6206,7 +6227,7 @@ for (const chainKey of Object.keys(SNAPSHOT_RAIL_LABEL)) {
       const snapshot = getIndexSnapshot();
       const { selectedSeller, scanWallet } = resolveMarketSeller(chainKey, snapshot, req.query.seller);
       const [revSnap, activity] = await Promise.all([
-        revenueSnapshot(revenueWallets()),
+        revenueSnapshot(revenueWallets()).then((snap) => withFreshRecent(snap, ledgerRecent)),
         scanWallet ? getActivityForChain(chainKey, scanWallet, { maxWaitMs: PAGE_ACTIVITY_WAIT_MS }) : Promise.resolve(null),
       ]);
       const rail = revSnap?.rails?.find((r) => r.rail === SNAPSHOT_RAIL_LABEL[chainKey]) || null;
@@ -6575,7 +6596,9 @@ setInterval(() => {
 }, 60_000);
 app.post("/api/index/register", async (req, res) => {
   const now = Date.now();
-  const ip = req.ip || "?";
+  // An IPv6 client is keyed on its /64: one host is routinely assigned a whole
+  // /64, so a full-address key gave it a fresh 5/hour per address.
+  const ip = limiterKey(req.ip || "?");
   if (regByIp.size > RL_MAP_MAX_KEYS) sweepStaleTsMap(regByIp, REG_WINDOW_MS, now);
   const mine = (regByIp.get(ip) || []).filter((t) => now - t < REG_WINDOW_MS);
   if (mine.length >= 5) return res.status(429).json({ error: "rate limit: 5 submissions per hour per IP" });
@@ -6590,8 +6613,9 @@ app.post("/api/index/register", async (req, res) => {
     // for the rest of the hour, and a first-time seller got "registration is
     // busy" with nothing they could do. Measured 2026-08-31 from the mailbox:
     // three sellers hit this in one week and two gave up and emailed instead -
-    // the growth funnel refusing the people it exists to serve. Re-registering a
-    // KNOWN origin short-circuits before this cap, so only new sellers were hit.
+    // the growth funnel refusing the people it exists to serve. A re-registration
+    // of a known origin that fetches nothing (inside both of that origin's
+    // windows) gives its slot back below, so such calls cannot fill this cap.
     if (!regGlobalTripped || now - regGlobalTripped > 600_000) {
       console.warn(`[index-register] GLOBAL cap hit (${regGlobal.length}/${REG_GLOBAL_MAX} in the last hour) - NEW sellers are being refused`);
       regGlobalTripped = now;
@@ -6613,6 +6637,14 @@ app.post("/api/index/register", async (req, res) => {
     replaces = rv.origin;
   }
   const result = await registerOrigin(v.origin, { replaces });
+  // A re-registration that landed inside both of the origin's windows fetched
+  // nothing, so it gives back its slot in the GLOBAL budget: repeated calls
+  // about one known origin must not use up the hour for new sellers. (The
+  // per-IP count stands - that is the caller's own limit.)
+  if (!replaces && result?.reverify && !result.reverify.documentsReread && !result.reverify.routesRechecked) {
+    const i = regGlobal.lastIndexOf(now);
+    if (i >= 0) regGlobal.splice(i, 1);
+  }
   res.json(result);
 });
 // MPP self-serve listing: same shape/limits as /api/index/register above -
@@ -7772,6 +7804,9 @@ app.get("/api/cache-stats", (_req, res) => res.json(cacheCounters()));
 // @x402/express) reads the same header it always has — settlement authority
 // stays solely with the paywall. Env-gated: no MPP_SECRET_KEY (or FREE_MODE)
 // → not mounted, server stays pure-x402.
+// Tempo push-transfer debts (src/tempo-push-debts.js), built with the Tempo
+// gate below; read again at finish to void a debt whose transfer was served.
+let tempoPushDebts = null;
 if (!FREE_MODE) {
   // A buyer who hangs up before the first byte is not charged, within the
   // hang-up forgiveness budget (src/hangup-settlement.js,
@@ -7871,6 +7906,11 @@ if (!FREE_MODE) {
   // appender mints with, so the gate can prove "we minted this challenge for
   // at least this route's price" before a single relay call. Without them
   // createTempoGate refuses to mount (fail closed).
+  tempoPushDebts = createTempoPushDebts({
+    recordOwed: recordRefundOwed, voidOnClaim: voidOwedOnClaim, renoteOwed: renoteOwedRefund, promoteToHangup: promoteOwedToHangup, refundByEvidence,
+    recordChargedFailure, isSynthetic: isSyntheticRequest,
+    slugOf: (req) => CATALOG[`${req.method} ${req.path}`]?.slug,
+  });
   const tempoGate = createTempoGate({
     replayGuard: tempoReplayGuard,
     // Chain-truth fallback on relay broadcast failure (2026-08-20): a relay
@@ -7893,6 +7933,14 @@ if (!FREE_MODE) {
     // Input check before the relay round trip (see createTempoGate). Same
     // envelope the dispatcher's 400 carries, so the caller corrects itself.
     preValidate: (req) => preValidateInput(CATALOG[`${req.method} ${req.path}`], req),
+    // A push transfer the relay confirmed pays this challenge but that could
+    // not be claimed for the request (and was not already claimed for an
+    // earlier one): nothing was delivered, the money is ours, book it owed.
+    // Push transfers that reach us unclaimed are booked as owed (see
+    // src/tempo-push-debts.js); a served claim voids the debt.
+    onPushNotClaimed: (req, info) => tempoPushDebts.notClaimed(req, info),
+    onPushInputRefused: (req, info) => tempoPushDebts.inputRefused(req, info),
+    pushClaimAllowed: (hash) => !["sending", "paid"].includes(refundByEvidence(hash)?.status),
   });
   if (tempoGate) {
     app.use(tempoGate);
@@ -8658,7 +8706,7 @@ app.use((req, res, next) => {
         // Funnel stage 3 — the gate accepted payment and the tool answered.
         // Mirrors the stats attribution above. Skipped in FREE_MODE — nothing
         // was paid, so a "settlement" event would be a lie.
-        if (!FREE_MODE) {
+        if (!FREE_MODE) whenTempoLedgerPayerKnown(req, "sales", () => {
           const rail = method;
           const network = method === "usdc" ? networkFor() : method === "credits" ? "stripe" : null;
           const priceUsd = settledPriceUsd(def, req, res);
@@ -8667,16 +8715,15 @@ app.use((req, res, next) => {
           // SVM/Stellar payloads carry no such field, so fall back to the
           // facilitator-verified payer in the settle receipt — otherwise every
           // Solana/Stellar buyer records as null in PostHog and the sales ledger.
-          // Tempo settles carry the credential's did:pkh `source`, extracted
-          // by the gate as req.mppTempoPayer — CLASSIFICATION-GRADE only
-          // (client-supplied, unrecovered), same trust tier as the
-          // facilitator-receipt fallback: sales ledger + telemetry, never
-          // identity. Before 2026-08-20 tempo payers recorded null and a
-          // self-funded test wallet's buy classified as external revenue.
+          // Tempo settles record the sender the gate PROVED (the signature,
+          // the keychain read, or for a push credential the chain) - never
+          // the credential's client-written did:pkh `source`, which let any
+          // caller name a fresh "outside buyer" per purchase or file its own
+          // purchases under one of our wallets. Null when nothing proved one.
           // Stripe settles carry no wallet payer (the payer is a Stripe
           // customer behind the SPT, not an on-chain address) — record null,
           // like a Solana buyer with no server-visible payer.
-          const payer = req.creditsSettled ? (req.creditsKeyId || null) : (req.tempoSettled || req.stripeSettled) ? (req.mppTempoPayer || null) : payerFromRequest(req) || payerFromPaymentResponse(settleReceipt);
+          const payer = req.creditsSettled ? (req.creditsKeyId || null) : req.tempoSettled ? tempoLedgerPayer(req) : req.stripeSettled ? null : payerFromRequest(req) || payerFromPaymentResponse(settleReceipt);
           // Client attribution: the User-Agent PRODUCT TOKEN only (first
           // whitespace-delimited token, ≤40 chars — e.g. "agent402-client/0.6.1",
           // "node") so payment_settled can answer "which SDK/client do paying
@@ -8705,6 +8752,9 @@ app.use((req, res, next) => {
             // can bind a settlement to the bytes the buyer received.
             responseSha256: req.__responseSha256 || null,
           });
+          // A Tempo push transfer booked as owed when its first request was
+          // refused on input is now claimed and served: void that debt.
+          if (req.tempoSettled) tempoPushDebts?.served(req, res);
           // Stripe SHADOW ledger - a read-only mirror of this on-chain settlement
           // into Stripe, so card and crypto revenue can eventually be read from
           // one set of books. LAST on purpose: it runs after the response is
@@ -8714,7 +8764,7 @@ app.use((req, res, next) => {
           // can change what the buyer was charged, what was served, or what
           // /revenue reports - see src/stripe-shadow-ledger.js.
           recordShadowSettlement({ slug: def.slug, priceUsd, rail, network, tx: settleTx, synthetic });
-        }
+        });
       } else if (settleReceipt) {
         // A non-200 carrying the settle-receipt header. The receipt's `success`
         // field decides which incident this is: the middleware attaches the
@@ -8794,18 +8844,21 @@ app.use((req, res, next) => {
         // it before the handler, and the handler then failed. A pull handler
         // >= 400 is never broadcast. Either way the settle is proven and the
         // debt is real.
-        const tx = req.tempoSettled ? tempoTxFromReceiptHeader(res.getHeader("Payment-Receipt")) : stripeTxFromReceiptHeader(res.getHeader("Payment-Receipt"));
+        // A push transfer's debt is keyed on the hash its credential named, as
+        // the input-refused row was: one transfer, one row, whatever case the
+        // relay's receipt reference comes back in.
+        const tx = req.tempoSettled ? (tempoPushHashOf(req) || tempoTxFromReceiptHeader(res.getHeader("Payment-Receipt"))) : stripeTxFromReceiptHeader(res.getHeader("Payment-Receipt"));
         recordChargedFailure(def.slug, res.statusCode);
-        recordRefundOwed({
+        whenTempoLedgerPayerKnown(req, "refund-ledger", () => recordRefundOwed({
           slug: def.slug,
           network: req.tempoSettled ? "tempo" : "stripe",
-          payer: req.mppTempoPayer || null,
+          payer: req.tempoSettled ? tempoLedgerPayer(req) : null,
           priceUsd: settledPriceUsd(def, req, res),
           tx,
           httpStatus: res.statusCode,
           synthetic: isSyntheticRequest(req),
           wire: req.tempoSettled ? "mpp-tempo" : "mpp-stripe",
-        });
+        }));
       }
     });
   }

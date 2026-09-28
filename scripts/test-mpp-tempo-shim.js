@@ -25,6 +25,7 @@ import { createTempoGate, createTempoChallengeAppender, mintTempoChallenge, temp
 import { Transaction as TempoTransaction } from "viem/tempo";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { createReplayGuard } from "../src/replay-guard.js";
+import { whenTempoLedgerPayerKnown } from "../src/tempo-push-debts.js";
 import { paymentRequiredBodyMiddleware, PAYMENT_REQUIRED_OFFER_KEYS } from "../src/payment-required-body.js";
 import { isDeepStrictEqual } from "node:util";
 
@@ -793,6 +794,9 @@ async function withWarnings(fn) {
   let broadcasts = 0, failNext = null;
   const undelivered = [];
   const seenSettled = [];
+  const seenLedger = [];
+  const notClaimed = [];
+  const PUSH_FROM = "0x5555555555555555555555555555555555555555";
   const app = express();
   app.use(express.json());
   app.use(createHangupSettlementHook({ onUndelivered: (req, res) => undelivered.push({ tempoSettled: req.tempoSettled === true, receipt: res.getHeader("Payment-Receipt") || null, status: res.statusCode }) }));
@@ -801,25 +805,38 @@ async function withWarnings(fn) {
     preValidate: (req) => (req.body?.text ? null : { status: 400, body: { error: "Missing required parameter: text" } }),
     validate: async () => { order.push("validate"); return { ok: true, validation: {} }; },
     broadcast: async () => { order.push("broadcast"); broadcasts++; if (failNext) { const f = failNext; failNext = null; return f; } return { ok: true, receipt: { method: "tempo", status: "success", reference: `0xpush${broadcasts}`, timestamp: new Date().toISOString() } }; },
+    // The transfer's sender as the chain reports it (stubbed: offline).
+    pushSender: async () => PUSH_FROM,
+    onPushNotClaimed: async (_req, info) => { notClaimed.push(info); return true; },
   }));
   app.use(paywallStub);
   app.post("/paid", (req, res) => {
     order.push("handler");
     seenSettled.push(req.tempoSettled === true);
+    // The sender read runs beside the handler; a booking waits for it.
+    whenTempoLedgerPayerKnown(req, "test", () => seenLedger.push(req.mppTempoLedgerPayer ?? null));
     if (!req.body?.text || req.body.text === "bad") return res.status(400).json({ error: "handler refused the input" });
     if (req.body?.text === "slow") return setTimeout(() => res.json({ late: true }), 400);
     res.json({ ok: 1 });
   });
   const { server, url } = await listen(app);
   const post = (cred, text, extra = {}) => fetch(`${url}/paid`, { method: "POST", headers: { "content-type": "application/json", Authorization: cred }, body: JSON.stringify(text === undefined ? {} : { text }), ...extra });
-  const r1 = await post(buildTempoCredential({ push: true }), "x");
+  const r1 = await post(buildTempoCredential({ push: true, source: "did:pkh:eip155:4217:0x1111111111111111111111111111111111111111" }), "x");
   ok(r1.status === 200 && !!r1.headers.get("payment-receipt") && isDeepOrderOk(order, ["validate", "broadcast", "handler"]) && seenSettled[0] === true, `case S: a push credential is finalized BEFORE the handler, which sees the request settled (order ${order.join(",")})`);
+  for (let i = 0; i < 50 && seenLedger.length === 0; i++) await new Promise((r) => setTimeout(r, 10));
+  ok(seenLedger[0] === PUSH_FROM, `case S: a push sale is booked under the sender the chain reports, never the client-written source (${seenLedger[0]})`);
   order.length = 0;
   const r2 = await post(buildTempoCredential({ push: true }), "bad");
   ok(r2.status === 400 && !!r2.headers.get("payment-receipt") && order.join(",") === "validate,broadcast,handler", `case S: a push credential whose handler refuses keeps its receipt (the finish path books it as owed) (status ${r2.status})`);
   order.length = 0;
-  const r3 = await post(buildTempoCredential({ push: true }), undefined);
-  ok(r3.status === 400 && order.join(",") === "validate,broadcast,handler", `case S: a push credential is NOT answered by the pre-validation "charged: false" 400 (its transfer is on chain); it is finalized and the handler's 400 carries the receipt (order ${order.join(",")})`);
+  const typo = buildTempoCredential({ push: true });
+  const r3 = await post(typo, undefined);
+  const b3 = await r3.json();
+  ok(r3.status === 400 && order.join(",") === "validate" && !r3.headers.get("payment-receipt") && b3.transferClaimed === false && /not been claimed/.test(b3.payment || "") && b3.error === "Missing required parameter: text",
+    `case S: a push credential whose body the handler would refuse is answered by the input check AFTER the relay confirms the transfer and BEFORE it is claimed: no finalize, no handler, no receipt (order ${order.join(",")}, ${JSON.stringify(b3)})`);
+  order.length = 0;
+  const r3b = await post(typo, "x");
+  ok(r3b.status === 200 && !!r3b.headers.get("payment-receipt") && order.join(",") === "validate,broadcast,handler", `case S: ...and the same credential with a corrected body is then served and claimed (${r3b.status}, order ${order.join(",")})`);
   order.length = 0;
   await post(buildTempoCredential({ push: true }), "slow", { signal: AbortSignal.timeout(100) }).catch(() => null);
   await sleep(700);
@@ -838,7 +855,16 @@ async function withWarnings(fn) {
   order.length = 0;
   failNext = { ok: false, cls: "replay", error: "Transaction hash has already been used", reason: "Transaction hash has already been used" };
   const r6 = await post(buildTempoCredential({ push: true }), "x");
-  ok(r6.status === 402 && !order.includes("handler"), `case S: a push hash the relay already claimed is refused before the handler (${r6.status})`);
+  ok(r6.status === 402 && !order.includes("handler") && notClaimed.length === 0, `case S: a push hash the relay already claimed is refused before the handler, and books no debt (it paid for an earlier request) (${r6.status})`);
+  // Any other finalize refusal: the relay confirmed the transfer pays this
+  // challenge, it was not claimed, nothing was delivered. Booked as owed
+  // BEFORE the answer, keyed on the hash, under the chain-reported sender.
+  order.length = 0;
+  failNext = { ok: false, cls: "unknown", error: "relay said no", reason: "relay said no" };
+  const r7 = await post(buildTempoCredential({ push: true }), "x");
+  const b7 = await r7.json();
+  ok(r7.status === 402 && !order.includes("handler") && notClaimed.length === 1 && notClaimed[0].hash === `0x${"ab".repeat(32)}` && notClaimed[0].payer === PUSH_FROM && notClaimed[0].amountUsd === 0.05 && b7.details?.refundOwed === true,
+    `case S: a push transfer the relay confirmed but could not claim is booked as owed (hash, chain sender, amount) before the 402 (${JSON.stringify(notClaimed)} ${JSON.stringify(b7.details)})`);
   server.close();
 }
 
@@ -876,10 +902,11 @@ async function withWarnings(fn) {
   const app2 = express();
   app2.use(createTempoGate({ ...GATE, validate: async () => ({ ok: true, validation: {} }), broadcast: async () => ({ ok: true, receipt: { method: "tempo", status: "success", reference: "0x0t", timestamp: new Date().toISOString() } }) }));
   app2.use(paywallStub);
-  app2.get("/paid", (req, res) => res.json({ sender: req.mppTempoSender ?? null, hint: req.mppTempoPayer ?? null }));
+  app2.get("/paid", (req, res) => res.json({ sender: req.mppTempoSender ?? null, hint: req.mppTempoPayer ?? null, ledger: req.mppTempoLedgerPayer ?? null }));
   const s2 = await listen(app2);
   const j = await (await fetch(`${s2.url}/paid`, { headers: { Authorization: spoofA } })).json();
   ok(j.sender === PULL_SIGNER.address.toLowerCase() && j.hint === "0x1111111111111111111111111111111111111111", `case T: an accepted pull request carries the recovered sender beside the classification hint (${JSON.stringify(j)})`);
+  ok(j.ledger === PULL_SIGNER.address.toLowerCase(), `case T: the ledger payer of a pull sale is the recovered sender, never the spoofed source (${j.ledger})`);
   s2.server.close();
   server.close();
 }
@@ -930,6 +957,17 @@ async function withWarnings(fn) {
 
 facilitator.close();
 relayStub.close();
+// Wiring pin: server.js books every Tempo sale and debt under the payer the
+// gate PROVED (tempoLedgerPayer), never the client-written source hint, and
+// books an unclaimed push transfer as owed.
+{
+  const srv = (await import("node:fs")).readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+  const hintReads = srv.split("\n").filter((l) => /req\.mppTempoPayer/.test(l) && !/^\s*\/\//.test(l));
+  ok(hintReads.length === 0, `server.js never reads the Tempo source hint as a payer (${hintReads.join(" | ")})`);
+  ok((srv.match(/tempoLedgerPayer\(req\)/g) || []).length >= 3, "server.js books Tempo sales, hang-up debts and charged-failure debts under tempoLedgerPayer(req)");
+  ok(/onPushNotClaimed: \(req, info\) => tempoPushDebts\.notClaimed\(req, info\)/.test(srv), "server.js books an unclaimed push transfer through tempoPushDebts (scripts/test-tempo-push-debts.js drives it on the real ledger)");
+}
+
 console.log(`\n${pass} passed, 0 failed`);
 
 // ---- tempo refusal demotes the tempo challenge for that client -------------

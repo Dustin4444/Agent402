@@ -1516,6 +1516,7 @@ jobs:
           t node scripts/test-query-terms.js
           # Revenue ledger unit tests (all-time external accounting, idempotent rescans, CI self-gate)
           t node scripts/test-revenue-ledger.js
+          t node scripts/test-revenue-fresh-recent.js
           # Settle-fallback chain (Solvador first on its advertised networks -> PayAI -> Solvador last resort; double-settle gate between fallbacks - offline)
           t node scripts/test-settle-fallback.js
           # Render actual-byte budget (F03 — chunked/streamed/headerless/WebSocket bytes counted via CDP, cap not bypassable — offline)
@@ -2174,6 +2175,8 @@ jobs:
           t node scripts/test-data-kit.js
           # Index self-serve registration tests (offline)
           t node scripts/test-index-register.js
+          # re-registration re-check: per-origin window + hourly route allowance
+          t node scripts/test-register-recheck-cooldown.js
           # Settlement-derived proven-ness + discovery-gap honesty
           t node scripts/test-settlement-proof.js
           # "A venue with many payees is not one seller (multi-payTo index — offline)"
@@ -4184,6 +4187,7 @@ jobs:
           t node scripts/test-loop-lag.js
           # Tempo MPP settlement (native tempo/charge via Tempo's relay — challenge wiring + settlement-ordering proof — offline)
           t node scripts/test-mpp-tempo-shim.js
+          t node scripts/test-tempo-push-debts.js
           # Tempo pull credentials: per-buyer bounds key only on a sender the signature (or the chain, for an access key) proves; routes that spend before settlement refuse an unproven one before any relay call (real Tempo transactions, stubbed relay + RPC, boots paid mode, offline)
           t node scripts/test-tempo-sender.js
           # MPP discovery parity: every paid route's 402 challenges == its /openapi.json offers; /llms.txt + /.well-known/x402 agree (boots paid mode, offline)

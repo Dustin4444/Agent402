@@ -132,3 +132,52 @@ export async function confirmTempoSettlement(authorizationHeader, {
     return null;
   }
 }
+
+/** The account that sent a PUSH credential's transfer, read from the chain:
+ *  the `from` of the TransferWithMemo log in the named transaction that pays
+ *  the challenge's recipient at least the challenge's amount in the
+ *  challenge's currency, with a memo bound to this challenge (the same match
+ *  confirmTempoSettlement makes). A push credential carries no signature this
+ *  server can recover, and its `source` field is whatever the client wrote,
+ *  so this is the only sender of a push payment we can vouch for: the sales
+ *  ledger and a refund-owed row name it, or name nobody. One read, bounded by
+ *  `timeoutMs`. Returns the lowercased address, or null on any uncertainty.
+ *  Never throws. */
+export async function tempoPushSender(authorizationHeader, {
+  rpcUrl = process.env.TEMPO_RPC_URL || "https://rpc.tempo.xyz",
+  fetchImpl = fetch,
+  timeoutMs = 3000,
+} = {}) {
+  try {
+    const credential = Credential.deserialize(authorizationHeader);
+    const ch = credential?.challenge;
+    const payload = credential?.payload;
+    if (!ch || ch.method !== "tempo" || payload?.type !== "hash") return null;
+    const hash = String(payload.hash || "").toLowerCase();
+    if (!/^0x[0-9a-f]{64}$/.test(hash)) return null;
+    const r = ch.request || {};
+    const currency = String(r.currency || "").toLowerCase();
+    const recipient = String(r.recipient || "").toLowerCase();
+    let minAmount;
+    try { minAmount = BigInt(String(r.amount)); } catch { return null; }
+    if (!currency.startsWith("0x") || !recipient.startsWith("0x") || !(minAmount > 0n)) return null;
+    const bounded = (url, init) => fetchImpl(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+    const receipt = await rpcCall(bounded, rpcUrl, "eth_getTransactionReceipt", [hash]);
+    if (!receipt || receipt.status !== "0x1") return null;
+    for (const log of receipt.logs || []) {
+      if (String(log.address || "").toLowerCase() !== currency) continue;
+      const topics = log.topics || [];
+      if (topics[0] !== TRANSFER_WITH_MEMO_TOPIC) continue;
+      if (`0x${String(topics[2] || "").slice(-40)}`.toLowerCase() !== recipient) continue;
+      if (!memoBoundToChallenge(topics[3], ch.id)) continue;
+      let value;
+      try { value = BigInt(log.data); } catch { continue; }
+      if (value < minAmount) continue;
+      const from = `0x${String(topics[1] || "").slice(-40)}`.toLowerCase();
+      return /^0x[0-9a-f]{40}$/.test(from) && from !== "0x0000000000000000000000000000000000000000" ? from : null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}

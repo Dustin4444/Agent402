@@ -194,3 +194,46 @@ export async function runSelfCheck(catalog, slugs = selfcheckSlugs(), { timeoutM
     at: new Date().toISOString(),
   };
 }
+
+// The HTTP surface's cache, kept here so it can be tested without booting the
+// server. /api/selfcheck is free and unauthenticated, and a fresh run drives
+// metered upstreams (the CoinGecko Demo key's monthly quota, billed Databento
+// queries, public RPCs). So a public caller can never cause a run more often
+// than once per `publicTtlMs`, however often it polls: the one scheduled
+// consumer (tool-alert.yml) polls every 30 minutes, so a 30-minute cache costs
+// it nothing. The operator may ask for a fresher answer with `?fresh=1`, but
+// even then no more than once per `operatorFloorMs`. Every run is single-
+// flighted, so a burst of callers shares one run.
+export const SELFCHECK_PUBLIC_TTL_MS = 30 * 60 * 1000;
+export const SELFCHECK_OPERATOR_FLOOR_MS = 5 * 60 * 1000;
+export function createSelfCheckRoute({
+  run,
+  isOperator = () => false,
+  publicTtlMs = SELFCHECK_PUBLIC_TTL_MS,
+  operatorFloorMs = SELFCHECK_OPERATOR_FLOOR_MS,
+  now = () => Date.now(),
+} = {}) {
+  let cache = { at: 0, value: null };
+  let inFlight = null;
+  return async function selfCheckRoute(req, res) {
+    const wantsFresh = String(req?.query?.fresh || "") === "1" && isOperator(req);
+    const ttl = wantsFresh ? operatorFloorMs : publicTtlMs;
+    const age = now() - cache.at;
+    const meta = (a) => ({ cacheTtlSeconds: Math.round(ttl / 1000), ageSeconds: Math.max(0, Math.round(a / 1000)) });
+    if (cache.value && age < ttl) {
+      return res.json({ ...cache.value, cached: true, ...meta(age) });
+    }
+    if (!inFlight) {
+      inFlight = Promise.resolve()
+        .then(() => run())
+        .then((v) => { cache = { at: now(), value: v }; return v; })
+        .finally(() => { inFlight = null; });
+    }
+    try {
+      const v = await inFlight;
+      res.json({ ...v, cached: false, ...meta(now() - cache.at) });
+    } catch {
+      res.status(500).json({ ok: false, error: "selfcheck failed to run" });
+    }
+  };
+}

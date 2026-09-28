@@ -1162,6 +1162,34 @@ const SELF_FLAG = /USDC this seller's wallet had sent its payers|USDC that walle
   }
 }
 
+// --- 7a2. Refunded PAYERS leave third-party payer counts too (2026-09-28) -----------
+{
+  // A wallet with two genuine buyers pads the Bazaar's payer figure with four
+  // wallets that each paid once and were refunded in full. The scan removes
+  // those payments and does not count those payers; the Bazaar's payer count
+  // of the same wallet must lose them as well, or four refunded $0.01 calls
+  // buy the missing payers back.
+  const build = async (tag, genuine) => {
+    const W = addr(tag);
+    const sp = [], so = [];
+    for (let i = 0; i < genuine; i++) for (let k = 0; k < 30; k++) sp.push({ wallet: W, payer: P(1700 + i), usd: 0.01, pos: posOf(1000 + i * 40 + k, 0) });
+    for (let j = 0; j < 4; j++) { sp.push({ wallet: W, payer: P(1800 + j), usd: 0.01, pos: posOf(1300 + j * 5, 0) }); so.push(log(W, P(1800 + j), usd(0.01), 1302 + j * 5)); }
+    const r = await scanOnce({ sellers: [seller(W, `seller-${tag}.example`)], pays: sp, outs: so, state: createFundingState(USDC), latest: 2000, span: 2000 });
+    const bz = [[`https://seller-${tag}.example`, { calls30d: genuine * 30 + 4, payers30d: genuine + 4, payTos: [W] }]];
+    const bind = buildEvidenceBinding({ walletEvidence: r.ev, bazaarQuality: bz, circularWallets: circularWalletsFrom(r.ev, { now: NOW }), ...FLOORS });
+    return { W, r, bind, origin: `https://seller-${tag}.example` };
+  };
+  const pad = await build("d1", 2);
+  ok(pad.r.ev[pad.W].refundedCalls === 4 && pad.r.ev[pad.W].refundedPayers === 4 && pad.r.ev[pad.W].uniqueBuyers === 2, "the scan removes the four refunded payments and reports their four payers as refunded (2 genuine buyers)");
+  const e = pad.bind.get(pad.origin).byWallet.get(pad.W);
+  ok(e.payers === 2 && label(pad.bind, pad.origin, pad.W).eligible === false, `REFUNDED PAYERS: the Bazaar's 6 payers lose the 4 whose every payment was refunded (got ${e.payers}), under the floor of 3: refused`);
+  const cj = buildEvidenceBinding({ walletEvidence: pad.r.ev, chainProven: new Map([[pad.origin, { settled: 64, payers: 6, payTo: pad.W }]]), ...FLOORS }).get(pad.origin).byWallet.get(pad.W);
+  ok(cj.payers === 2, "...and the chain join's wallet-wide payer figure loses them too (6 -> 2)");
+  const honest = await build("d2", 3);
+  const h = honest.bind.get(honest.origin).byWallet.get(honest.W);
+  ok(h.payers === 3 && h.settled === 90 && label(honest.bind, honest.origin, honest.W).eligible === true, `CONTROL: three genuine buyers beside the same four refunds keep 90 calls / 3 payers and stay eligible (got ${h.settled} / ${h.payers})`);
+}
+
 // --- 7b. Refund-and-retry: a refund gives back genuine payments first -------------
 {
   const run = async (pays0, outs0, w) => {
@@ -1207,8 +1235,8 @@ const SELF_FLAG = /USDC this seller's wallet had sent its payers|USDC that walle
     const st = createFundingState(USDC);
     const r = await scanOnce({ sellers: [seller(W, "seller-cy.example")], pays: sp, outs: so, state: st, latest: 2000, span: 2000 });
     const bind = buildEvidenceBinding({ leaderboardRows: r.ranked, walletEvidence: r.ev, bazaarQuality: [["https://seller-cy.example", { calls30d: 180, payers30d: 3, payTos: [W] }]], circularWallets: circularWalletsFrom(r.ev, { now: NOW }), ...FLOORS });
-    ok(r.ev[W].grossCallsSettled === 180 && r.ev[W].callsSettled === 0 && r.ev[W].refundedCalls === 180 && label(bind, "https://seller-cy.example", W).eligible === false && bind.get("https://seller-cy.example").byWallet.get(W)?.settled === 0,
-      "CYCLING $1 across three wallets for 180 payments: every one refunded, 0 counted, the Bazaar's 180 reduced to 0, and the floor of 50 is never reached");
+    ok(r.ev[W].grossCallsSettled === 180 && r.ev[W].callsSettled === 0 && r.ev[W].refundedCalls === 180 && label(bind, "https://seller-cy.example", W).eligible === false && (bind.get("https://seller-cy.example").byWallet.get(W)?.settled ?? 0) === 0 && (bind.get("https://seller-cy.example").byWallet.get(W)?.payers ?? 0) === 0,
+      "CYCLING $1 across three wallets for 180 payments: every one refunded, 0 counted, the Bazaar's 180 calls and 3 payers reduced to 0 (no evidence left at the wallet), and the floor of 50 is never reached");
   }
   {
     // Fund first, then pay: still the seller's money.
