@@ -215,6 +215,11 @@ const base = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: "0x8
     ok(await waitFor(async () => !(await offer402(HASH)).avm), "exhausted status: the $0.001 route stops offering Algorand");
     const h1 = await offer402(HASH), c1 = await offer402(CENT);
     ok(h1.pr.accepts.some((a) => a.network === "eip155:8453"), "...and still offers Base");
+    {
+      const { parsePaymentRequired } = await import("@x402/core/schemas");
+      const parsed = parsePaymentRequired(h1.pr);
+      ok(parsed.success && h1.pr.accepts[0]?.outputSchema !== undefined, `the withdrawn 402 is still valid under the protocol's own schema, first accept still carrying outputSchema (${parsed.success ? "valid" : parsed.error.issues[0]?.message})`);
+    }
     ok(!!c1.avm, "the $0.01 route keeps its Algorand accept");
     const rails1 = await (await fetch(`${B}/api/rails`)).json();
     ok(rails1.restrictions?.[0]?.network === "algorand" && rails1.restrictions[0].status === "paused" && !JSON.stringify(rails1).includes(PAYTO), "/api/rails publishes the pause, status words only");
