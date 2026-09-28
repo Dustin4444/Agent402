@@ -48,6 +48,8 @@ import { gatewaySettleBreakerCheck } from "./gateway-settle-breaker.js";
 import Stripe from "stripe";
 import { REPORT_TIERS } from "./report-tiers.js";
 import { verifyHintMiddleware } from "./verify-hint.js";
+import { isBillingRefusalReceipt, settleReceiptOf } from "./payment-reject.js";
+import { avmSubcentOfferStatus } from "./avm-sponsorship.js";
 import { translateV1Accepts, v1AcceptsTranslationEnabled } from "./x402-v1-accepts.js";
 import { mountShortlinks } from "./shortlinks.js";
 import { withHouseStyle } from "./house-style.js";
@@ -5156,6 +5158,11 @@ app.get("/api/rails", (_req, res) => {
     degraded: rails.length - offered.length,
     note: "A configured rail that is not offered was dropped deliberately so the other rails keep settling.",
     rails,
+    // A rail still offered, but not on every route: the Algorand accept is
+    // withdrawn from sub-cent routes while the facilitator's sponsored
+    // sub-cent allowance is spent (src/avm-sponsorship.js). Status words and
+    // times only. Empty when nothing is restricted.
+    restrictions: avmSubcentOfferStatus(),
   });
 });
 app.get("/api/reliability", async (_req, res) =>
@@ -8831,9 +8838,12 @@ for (const tool of ALL_KIT) {
             // synthesis, upstream outage): both burned upstream with no revenue.
             // A 4xx input/evidence error happens before meaningful spend and is
             // NOT counted - three typos must not block a legitimate buyer.
+            // A 402 whose settle receipt says the FACILITATOR refused on a
+            // billing quota of ours is not this buyer's doing either: never
+            // counted against them (same rule as the settle breaker).
             const st = res.statusCode;
             if (st === 200) recordCompositeSpendSuccess(guardKey);
-            else if (st === 402 || st >= 500) recordCompositeSpendFailure(guardKey);
+            else if ((st === 402 && !isBillingRefusalReceipt(settleReceiptOf(res))) || st >= 500) recordCompositeSpendFailure(guardKey);
           } catch { /* never break a response */ }
         });
       }

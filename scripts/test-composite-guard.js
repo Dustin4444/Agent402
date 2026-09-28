@@ -67,6 +67,21 @@ const fast = acceptsForItem({ slug: "uuid", price: "$0.001" }, rails);
 ok(slow.every((a) => a.network.startsWith("eip155:")) && slow.length === 1, "a longRunning composite advertises EVM exact only");
 ok(fast.some((a) => a.network.startsWith("solana:")) && fast.some((a) => a.network.startsWith("algorand:")), "a normal tool still advertises every configured rail");
 
+// A 402 whose settle receipt says the FACILITATOR refused on a billing quota of
+// ours (free_tier_exhausted on a composite's EVM rail) is not the buyer's doing:
+// the composite guard never counts it, same rule as the settle breaker.
+{
+  const { isBillingRefusalReceipt, settleReceiptOf } = await import("../src/payment-reject.js");
+  const resWith = (receipt) => ({ getHeader: (k) => (/^payment-response$/i.test(k) && receipt ? Buffer.from(JSON.stringify(receipt)).toString("base64") : undefined) });
+  ok(isBillingRefusalReceipt(settleReceiptOf(resWith({ success: false, errorReason: "free_tier_exhausted" }))), "a free_tier_exhausted receipt is a billing refusal");
+  ok(isBillingRefusalReceipt(settleReceiptOf(resWith({ success: false, errorReason: "subcent_quota_exceeded" }))), "so is subcent_quota_exceeded");
+  ok(!isBillingRefusalReceipt(settleReceiptOf(resWith({ success: false, errorReason: "insufficient_funds" }))), "insufficient_funds is the buyer's, and still counts");
+  ok(!isBillingRefusalReceipt(settleReceiptOf(resWith({ success: true, errorReason: "free_tier_exhausted" }))) && !isBillingRefusalReceipt(settleReceiptOf(resWith(null))), "a settled or absent receipt is never one");
+  const { readFileSync } = await import("node:fs");
+  const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+  ok(/else if \(\(st === 402 && !isBillingRefusalReceipt\(settleReceiptOf\(res\)\)\) \|\| st >= 500\) recordCompositeSpendFailure\(guardKey\);/.test(server), "the composite finish listener skips a billing-refusal 402 and still counts every other 402 and 5xx");
+}
+
 await new Promise((r) => setTimeout(r, 700));
 ok(!g.compositeGuardBlocked(P), "the block lifts after BLOCK_MS (temporary, not permanent)");
 

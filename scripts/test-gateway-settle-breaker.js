@@ -209,6 +209,39 @@ const chatBody = { model: "mistralai/ministral-8b-2512", messages: [{ role: "use
     req.res.emit("finish");
     ok(b.gatewaySettleBreakerBlocked(key).fails === 0, "a settled 200 clears the wallet's count");
   }
+  // The FACILITATOR refusing on a billing quota of OURS is not the buyer's
+  // settle failure (2026-09-28: one buyer refused 325 calls for the Algorand
+  // facilitator's spent sub-cent allowance). Neither counted nor cleared, and
+  // never fed to the global pause - on the exact final shape the vendor
+  // writes: 402 + PAYMENT-RESPONSE {success:false, errorReason}.
+  {
+    const receipt = (errorReason, extra = {}) => Buffer.from(JSON.stringify({ success: false, errorReason, errorMessage: errorReason, network: "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=", transaction: "", ...extra })).toString("base64");
+    const finishWith = async (errorReason, extra) => {
+      const req = fakeReq({ from: ADDR });
+      await nano.handler(chatBody, req);
+      req.res.statusCode = 402;
+      req.res.setHeader("PAYMENT-RESPONSE", receipt(errorReason, extra));
+      req.res.emit("finish");
+    };
+    b._gatewaySettleBreakerReset();
+    for (let i = 0; i < 5; i++) await finishWith("subcent_quota_exceeded");
+    ok(b.gatewaySettleBreakerBlocked(key).fails === 0 && !b.gatewaySettleBreakerBlocked(key).blocked, "five served-then-refused subcent_quota_exceeded settles leave the wallet uncounted and unblocked");
+    ok(b.gatewaySettleBreakerStatus().globalFailsInWindow === 0, "...and feed nothing to the global pause");
+    await finishWith("free_tier_exhausted");
+    await finishWith("unexpected_settle_error", { errorMessage: "Facilitator settle failed (403): payment required: buy more credits" });
+    ok(b.gatewaySettleBreakerBlocked(key).fails === 0 && b.gatewaySettleBreakerStatus().globalFailsInWindow === 0, "the other billing shapes (free_tier_exhausted, a credits wall named only in errorMessage) are skipped the same way");
+    b.recordGatewaySettleFailure(key);
+    await finishWith("subcent_quota_exceeded");
+    ok(b.gatewaySettleBreakerBlocked(key).fails === 1, "a billing refusal does not CLEAR a real earlier failure either");
+    // Control: the same final shape with a buyer-side reason still counts.
+    await finishWith("insufficient_funds");
+    ok(b.gatewaySettleBreakerBlocked(key).fails === 2, "a genuine settle failure (insufficient_funds) on the same 402 shape still counts");
+    await finishWith("insufficient_funds");
+    let err = null;
+    try { await nano.handler(chatBody, fakeReq({ from: ADDR })); } catch (e) { err = e; }
+    ok(err?.statusCode === 429, `...and three genuine failures still trip the 429 exactly as before (got ${err?.statusCode})`);
+    b._gatewaySettleBreakerReset();
+  }
   // A handler-side 502 (never settled, not the wallet's doing) neither counts nor clears.
   {
     b.recordGatewaySettleFailure(key);

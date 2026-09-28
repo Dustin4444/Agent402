@@ -23,7 +23,7 @@
 // 2026-08-28). Only the exact retried header sees its own hint; telemetry
 // gets a BUCKET, never an address.
 import { createHash } from "node:crypto";
-import { classifyPaymentRejection, unclassifiedPaymentShape, unclassifiedPaymentHint } from "./payment-reject.js";
+import { classifyPaymentRejection, classifySettlementRefusal, unclassifiedPaymentShape, unclassifiedPaymentHint } from "./payment-reject.js";
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const BASE_RPC = () => process.env.AGENT402_BASE_RPC || "https://mainnet.base.org";
 const BALANCE_TTL_MS = 60_000;
@@ -164,6 +164,20 @@ export function verifyHintMiddleware() {
     const origJson = res.json.bind(res);
     res.json = function hintedJson(body) {
       if (res.statusCode === 402 && body && typeof body === "object" && !Array.isArray(body)) {
+        // SETTLEMENT refused on OUR billing quota: the payment verified, the
+        // call ran, and the facilitator would not settle it. The buyer's
+        // wallet is fine and another listed network will settle, so say
+        // exactly that, read from the settle receipt @x402/express has
+        // already set on this response. No Retry-After: retrying the same
+        // rail is the one thing that will not help.
+        const settled = typeof res.getHeader === "function"
+          ? (res.getHeader("PAYMENT-RESPONSE") || res.getHeader("X-PAYMENT-RESPONSE"))
+          : null;
+        const refused = settled ? classifySettlementRefusal(settled) : null;
+        if (refused) {
+          req.__paymentRejectReason = refused.reason; // for the paywall rollup
+          return origJson({ ...body, error: body.error || "Payment rail temporarily unavailable", reason: refused.reason, ...(refused.network ? { network: refused.network } : {}), hint: refused.detail, retry: refused.retry });
+        }
         const h = hintForCredential(credentialKeyFromHeader(header));
         if (h) {
           if (!res.headersSent) res.setHeader("Retry-After", h.retry === "fund-wallet" ? "60" : "5");

@@ -160,6 +160,14 @@ ok(outcomeOf({ status: 429, body: BREAKER_BODY, elapsedMs: 50 }) === "breaker", 
   ok(src.indexOf("if (t.subcentSkip)") < src.indexOf("const bareFetch = () => fetch("), "...and the skip happens BEFORE the bare 402 fetch, so it costs the seller nothing either");
   ok(/sponsorship\/status\?wallet=\$\{payTo\}/.test(src), "the budget is read from the facilitator's LIVE quota for our payTo, not a constant");
   ok(/if \(!ONLY\.length\)/.test(src), "an explicit --slugs run is exempt (a handful of tools by definition)");
+  // While the allowance is spent the server withdraws Algorand from sub-cent
+  // 402s (src/avm-sponsorship.js) and publishes it on /api/rails. The sweep
+  // must read the payTo from a one-cent route, buy no sub-cent tool, and
+  // excuse a sub-cent tool's missing accept ONLY on the server's own word.
+  ok(/fetch\(`\$\{TARGET\}\/api\/solidity-scan`, \{ method: "POST"/.test(src) && !/fetch\(`\$\{TARGET\}\/api\/uuid`/.test(src), "the payTo is read from the one-cent route, not a sub-cent one that may carry no Algorand accept");
+  ok(/subcentPlan = \(await subcentWithdrawnNow\(\)\)\s*\? \{ budget: 0/.test(src), "a server-withdrawn sub-cent offer buys zero sub-cent tools");
+  ok(/r\?\.network === "algorand" && r\?\.status === "paused"/.test(src) && /\/api\/rails/.test(src), "the withdrawal is read from /api/rails, the server's own published state");
+  ok(/const withdrawn = !expectedNoAvm && t\.priceUsd < 0\.01 && \(await subcentWithdrawnNow\(\)\)/.test(src), "only a SUB-CENT tool's missing accept is excused, and only while the server says so - anything else is still a regression");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

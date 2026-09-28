@@ -1610,21 +1610,32 @@ async function main() {
       // /status detail. An unreadable quota keeps the $0.001 leg, which pages
       // on a real refusal like any other day.
       const FACIL = (process.env.ALGORAND_FACILITATOR_URL || "https://facilitator.goplausible.xyz").replace(/\/$/, "");
-      let quota = null;
+      // The payTo comes from the one-cent route: while the allowance is spent
+      // the SERVER withdraws Algorand from sub-cent 402s (src/avm-sponsorship.js),
+      // so /api/hash has no Algorand accept to read it from. That withdrawal is
+      // the server's own verdict on the quota, and counts as exhausted even
+      // when the facilitator's status cannot be read from here.
+      let quota = null, subcentWithdrawn = false;
       try {
-        const bare = await synthFetch(`${TARGET}/api/hash`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-        const pr = JSON.parse(Buffer.from(bare.headers.get("payment-required") || "", "base64").toString("utf8"));
-        const payTo = (pr.accepts || []).find((a) => String(a.network || "").startsWith("algorand:"))?.payTo;
+        const avmAccept = async (path) => {
+          const bare = await synthFetch(`${TARGET}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+          const pr = JSON.parse(Buffer.from(bare.headers.get("payment-required") || "", "base64").toString("utf8"));
+          return (pr.accepts || []).find((a) => String(a.network || "").startsWith("algorand:")) || null;
+        };
+        const centAccept = await avmAccept("/api/solidity-scan");
+        const payTo = centAccept?.payTo;
+        subcentWithdrawn = !!centAccept && !(await avmAccept("/api/hash"));
         if (payTo) {
           const st = await (await fetch(`${FACIL}/sponsorship/status?wallet=${payTo}`, { signal: AbortSignal.timeout(10000) })).json();
           quota = (st.chains || []).find((c) => c.chain === "algorand") || null;
         }
       } catch { quota = null; }
-      const exhausted = !!quota && Number(quota.usedMonth) >= Number(quota.quota) && Number(quota.suBalance || 0) <= 0;
+      const exhausted = subcentWithdrawn || (!!quota && Number(quota.usedMonth) >= Number(quota.quota) && Number(quota.suBalance || 0) <= 0);
+      const quotaText = quota ? `${quota.usedMonth}/${quota.quota} used, SU ${quota.suBalance}` : "facilitator status unreadable";
       const leg = exhausted
         ? { path: "/api/solidity-scan", usd: "0.01", body: { source: "pragma solidity ^0.8.0;\ncontract C { function f() external {} }" }, ok: (b) => Array.isArray(b.findings) }
         : { path: "/api/hash", usd: "0.001", body: { text: "algorand-canary" }, ok: (b) => typeof b.hex === "string" };
-      if (exhausted) console.log(`\nalgorand leg: sub-cent sponsored quota exhausted this month (${quota.usedMonth}/${quota.quota} used, SU ${quota.suBalance}) - proving the rail at $0.01 instead; sub-cent buys resume on the 1st`);
+      if (exhausted) console.log(`\nalgorand leg: sub-cent sponsored quota exhausted this month (${quotaText}${subcentWithdrawn ? "; the server has withdrawn Algorand from sub-cent routes" : ""}) - proving the rail at $0.01 instead; sub-cent buys resume on the 1st`);
       const res = await avmPay(`${TARGET}${leg.path}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(leg.body),
@@ -1637,7 +1648,7 @@ async function main() {
           try { tx = JSON.parse(Buffer.from(receiptHdr, "base64").toString("utf8"))?.transaction || null; } catch { /* best-effort */ }
         }
         console.log(`\nOK    algorand   ${leg.path}  → settled $${leg.usd} USDC on Algorand (payer ${address})${exhausted ? " [sub-cent quota exhausted; rail proven at one cent]" : ""}${tx ? `\n      tx: https://allo.info/tx/${tx}` : "\n      (no settle receipt header found — settlement claimed by 200 only)"}`);
-        noteRail("algorand", true, exhausted ? `settled at $0.01; sub-cent sponsored quota exhausted this month (${quota.usedMonth}/${quota.quota}), resets on the 1st` : undefined);
+        noteRail("algorand", true, exhausted ? `settled at $0.01; sub-cent sponsored quota exhausted this month (${quotaText}), resets on the 1st` : undefined);
       } else if (res.status === 402) {
         const reason = settleRejectReason(res.headers);
         // WARN only for the failure the design was about (our own burner

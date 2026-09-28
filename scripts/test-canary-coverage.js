@@ -203,7 +203,13 @@ if (sd) {
   // says nothing true about the rail. It reads the live quota, proves the
   // rail at $0.01 when exhausted, says so, and still pages when that fails.
   ok(/sponsorship\/status\?wallet=\$\{payTo\}/.test(canarySrc), "the Algorand leg reads the facilitator's live sub-cent quota for our payTo");
-  ok(/const exhausted = !!quota && Number\(quota\.usedMonth\) >= Number\(quota\.quota\)/.test(canarySrc), "...and treats the month as exhausted only when used >= quota with no purchased SUs");
+  ok(/const exhausted = subcentWithdrawn \|\| \(!!quota && Number\(quota\.usedMonth\) >= Number\(quota\.quota\) && Number\(quota\.suBalance \|\| 0\) <= 0\)/.test(canarySrc), "...and treats the month as exhausted when used >= quota with no purchased SUs, or when the server itself has withdrawn Algorand from sub-cent routes");
+  // While the allowance is spent the server withdraws Algorand from sub-cent
+  // 402s (src/avm-sponsorship.js), so the payTo must come from a one-cent route
+  // or the leg reads nothing, takes the $0.001 path and pages on a rail that
+  // is fine.
+  ok(/const centAccept = await avmAccept\("\/api\/solidity-scan"\)/.test(canarySrc) && /subcentWithdrawn = !!centAccept && !\(await avmAccept\("\/api\/hash"\)\)/.test(canarySrc),
+    "the Algorand payTo is read from the one-cent route, and a sub-cent 402 without Algorand counts as the server's own exhausted verdict");
   ok(/exhausted\s*\?\s*\{ path: "\/api\/solidity-scan", usd: "0\.01"/.test(canarySrc), "when exhausted it proves the rail at $0.01 on the one pure-CPU tool at that price");
   ok(/: \{ path: "\/api\/hash", usd: "0\.001"/.test(canarySrc), "...and otherwise keeps the $0.001 sub-cent buy, which is the path real buyers take");
   ok(/sub-cent sponsored quota exhausted this month/.test(canarySrc), "the exhaustion is SAID, in the log and on the /status detail - re-routing must never hide it");

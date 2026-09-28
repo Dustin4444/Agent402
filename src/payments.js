@@ -4,6 +4,8 @@ import { paymentMiddlewareFromHTTPServer, x402HTTPResourceServer } from "@x402/e
 import { createGuardedInit, withGuardedInit } from "./x402-boot-init.js";
 import { HTTPFacilitatorClient, x402ResourceServer } from "@x402/core/server";
 import { installAcceptOutputSchema, withOutputSchemaOnFirstAccept, outputSchemaFromExtensions, acceptOutputSchemaEnabled } from "./accept-output-schema.js";
+import { avmSubcentGateEnabled, installAvmSubcentGate, noteAvmSettleRefusal, startAvmSponsorshipRefresher, REFRESH_MS as AVM_SPONSORSHIP_REFRESH_MS } from "./avm-sponsorship.js";
+import { isFacilitatorBillingRefusal } from "./payment-reject.js";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
 import { UptoEvmScheme } from "@x402/evm/upto/server";
 import { ExactSvmScheme } from "@x402/svm/exact/server";
@@ -1144,6 +1146,20 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   // declares it, this patch carries it onto the requirement the core builds -
   // the one object that is both the 402 and what verify matches against.
   installAcceptOutputSchema(x402ResourceServer);
+  // While the Algorand facilitator's sponsored sub-cent allowance for our
+  // payTo is spent, a sub-cent route stops offering Algorand (it would be
+  // served and then refused at settle) - src/avm-sponsorship.js. Installed
+  // after the outputSchema patch, so it filters the finished list. The status
+  // read is a boot timer, never a request; it is skipped for offline boots
+  // (X402_SYNC_ON_START=false) unless a facilitator URL is named explicitly,
+  // and the settle-refusal flip below works either way.
+  if (algorandEnabled && avmCaip2.length && avmSubcentGateEnabled()) {
+    installAvmSubcentGate(x402ResourceServer);
+    if (syncOnStart || process.env.ALGORAND_FACILITATOR_URL) {
+      startAvmSponsorshipRefresher({ facilitatorUrl: algorandFacilitatorUrl, payTos: [algorandWallet] });
+      console.log(`Algorand sub-cent offer gate: on (sponsorship status re-read every ${Math.round(AVM_SPONSORSHIP_REFRESH_MS / 1000)} s; AVM_SUBCENT_GATE=off disarms)`);
+    }
+  }
   let server = new x402ResourceServer(facilitatorClients)
     .registerExtension(bazaarResourceServerExtension)
     .registerExtension(builderCodeResourceServerExtension);
@@ -1773,12 +1789,18 @@ export function registerFacilitatorFailureHooks(server, payAiClient, solvadorCli
     // A facilitator QUOTA refusal is not an outage and must not read as one:
     // PayAI answers 403 free_tier_exhausted once the free monthly settlements
     // are spent (1,000 per receiving wallet). Say so in the log so the alarm
-    // and the operator reach for credits, not for a status page.
-    if (/free_tier_exhausted|quota[_ ]exceeded|payment[_ ]required.*credit/i.test(failure)) {
+    // and the operator reach for credits, not for a status page. The same
+    // predicate keeps it off the buyer's record (src/payment-reject.js).
+    if (isFacilitatorBillingRefusal(`${failure} ${ctx?.error?.errorReason || ""}`)) {
       console.warn(
         `[payments] facilitator QUOTA exhausted on ${ctx?.requirements?.network} ` +
           `${ctx?.requirements?.scheme}: ${failure} - top up the facilitator account; this is billing, not an outage`
       );
+      // The Algorand sub-cent allowance: withdraw the offer from the next
+      // sub-cent 402 at once rather than serving the next buyer for free.
+      // (@x402/core 2.26 routes a graceful `success:false` here too, as a
+      // SettleError carrying the facilitator's errorReason.)
+      noteAvmSettleRefusal({ network: ctx?.requirements?.network, payTo: ctx?.requirements?.payTo, reason: `${failure} ${ctx?.error?.errorReason || ""}` });
     }
     console.warn(
       `[payments] facilitator SETTLE failed on ${ctx?.requirements?.network} ` +

@@ -39,6 +39,7 @@
 // external-spend guards); tune via env. Not a reputation system: a settled
 // call clears the wallet's count at once.
 import { payerFromRequest } from "./payer.js";
+import { isBillingRefusalReceipt } from "./payment-reject.js";
 
 const num = (v, d) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : d; };
 /** Settle failures a wallet may accumulate inside the window before it is refused. */
@@ -137,6 +138,15 @@ export function armGatewaySettleBreaker(req, key, { global = true } = {}) {
     try {
       const st = res.statusCode;
       const receipt = decodeReceipt(res);
+      // The FACILITATOR refused to settle on a billing quota of OURS
+      // (subcent_quota_exceeded, free_tier_exhausted): the buyer did nothing
+      // wrong and their wallet would have settled. Neither counted nor
+      // cleared, per wallet or globally - counting it is how one outside
+      // buyer was refused 325 calls on 2026-09-28 with a message blaming
+      // their wallet. The loop it could otherwise open (served, never
+      // charged) is closed where the quota lives: src/avm-sponsorship.js
+      // withdraws the refused offer from the next 402.
+      if (isBillingRefusalReceipt(receipt)) return;
       if (st === 402 || receipt?.success === false) recordGatewaySettleFailure(key, Date.now(), { global });
       else if (st === 200) recordGatewaySettleSuccess(key);
       // Anything else (a 4xx/5xx the handler threw) was never settled and is

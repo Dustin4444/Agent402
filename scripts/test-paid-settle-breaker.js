@@ -35,6 +35,10 @@ facilitator = createServer((req, res) => {
     if (req.url === "/settle") {
       settles++;
       if (settleMode === "fail") return reply(200, { success: false, errorReason: "insufficient_funds", transaction: "", network: "eip155:8453", payer });
+      // A facilitator refusing on a billing quota of OURS, both shapes: the
+      // graceful 200 {success:false} and a thrown non-2xx settle response.
+      if (settleMode === "quota") return reply(200, { success: false, errorReason: "free_tier_exhausted", transaction: "", network: "eip155:8453", payer });
+      if (settleMode === "quota-thrown") return reply(403, { success: false, errorReason: "free_tier_exhausted", errorMessage: "free tier exhausted", transaction: "", network: "eip155:8453", payer });
       return reply(200, { success: true, transaction: "0x" + "cd".repeat(32), network: "eip155:8453", payer });
     }
     if (req.url === "/rpc") return reply(200, { jsonrpc: "2.0", id: 1, result: "0x0" });
@@ -81,6 +85,33 @@ const pay = async (t, payer) => fetch(`${B}${t.path}`, { method: t.method, heade
 
 try {
   for (let i = 0; i < 120; i++) { try { if ((await fetch(`${B}/health`)).ok) break; } catch { /* booting */ } await sleep(500); }
+
+  // A FACILITATOR billing refusal is not the buyer's settle failure
+  // (2026-09-28: one buyer refused 325 calls, told "Recent payments from this
+  // wallet failed to settle", for a quota on OUR facilitator account). Well
+  // past MAX such refusals from one wallet, it is still served, and each 402
+  // names the rail instead of the wallet.
+  {
+    const PAYER_Q = "0x00000000000000000000000000000000000000d4";
+    for (let i = 1; i <= MAX + 2; i++) {
+      settleMode = i % 2 ? "quota" : "quota-thrown";
+      const before = settles;
+      const r = await pay(WALLET_ONLY, PAYER_Q);
+      const body = await r.json().catch(() => ({}));
+      ok(r.status === 402 && settles === before + 1, `quota refusal ${i} (${settleMode}): the call is served, never refused by the breaker (status ${r.status}, settles ${settles})`);
+      if (i <= 2) ok(body.reason === "facilitator-quota" && body.retry === "other-network" && /not because of your wallet/.test(body.hint || "") && !/failed to settle/.test(body.error || ""), `quota refusal ${i}: the 402 names the rail, not the wallet (got ${body.reason}: ${String(body.error).slice(0, 50)})`);
+    }
+    // Control on the SAME wallet: genuine settle failures still count from zero
+    // (the quota refusals added nothing) and still trip the 429 at MAX.
+    settleMode = "fail";
+    for (let i = 1; i <= MAX; i++) {
+      const r = await pay(WALLET_ONLY, PAYER_Q);
+      ok(r.status === 402, `genuine failure ${i} after the quota refusals is still served (status ${r.status})`);
+    }
+    const r = await pay(WALLET_ONLY, PAYER_Q);
+    ok(r.status === 429, `...and the next genuine one is refused 429, exactly as before (got ${r.status})`);
+  }
+  settleMode = "fail";
 
   // MAX failed settlements from wallet A: each one ran the handler (settles advanced) and ended 402.
   for (let i = 1; i <= MAX; i++) {

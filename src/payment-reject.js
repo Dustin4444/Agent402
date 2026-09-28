@@ -60,7 +60,55 @@ export const REJECTION_REASONS = Object.freeze([
   { reason: "wrong-recipient", means: "The authorization pays an address this route did not advertise." },
   { reason: "authorization-expired", means: "validBefore has already passed. Signing well ahead of sending, or a clock adrift, will do it." },
   { reason: "unclassified", means: "It decoded and still matched nothing, in a way this server has no name for. The refusal lists the field NAMES received so you can compare them yourself, and we would like to hear about it: an unclassified refusal is as likely to be our defect as yours." },
+  { reason: "facilitator-quota", means: "The payment verified and the call ran, then the facilitator for that network refused to settle it under a billing quota on this server's own account. Nothing was charged and nothing is wrong with your wallet. Ask the route for a fresh 402 without paying and pay on another network it lists." },
 ]);
+
+/**
+ * A facilitator refusing to SETTLE for a quota or billing reason on OUR
+ * account: PayAI's `free_tier_exhausted`, the Algorand facilitator's
+ * `subcent_quota_exceeded` (its monthly allowance of sponsored sub-cent
+ * settlements for our payTo), a prepaid-credits wall. Such a refusal says
+ * nothing about the buyer's wallet, so nothing that judges a buyer by its
+ * settle failures (src/gateway-settle-breaker.js, the composite guard) may
+ * count it. ONE definition: payments.js logs with it, the breakers skip with
+ * it, and the 402 body below names it.
+ */
+export const FACILITATOR_BILLING_REFUSAL = /free_tier_exhausted|subcent_quota_exceeded|quota[_ ]exceeded|payment[_ ]required.*credit/i;
+export function isFacilitatorBillingRefusal(text) {
+  return FACILITATOR_BILLING_REFUSAL.test(String(text || ""));
+}
+
+/** A decoded settle receipt (PAYMENT-RESPONSE) that failed on billing grounds. */
+export function isBillingRefusalReceipt(receipt) {
+  return !!receipt && typeof receipt === "object" && receipt.success === false &&
+    isFacilitatorBillingRefusal(`${receipt.errorReason || ""} ${receipt.errorMessage || ""}`);
+}
+
+/** The settle receipt a response carries, decoded; null when absent or unreadable. */
+export function settleReceiptOf(res) {
+  try {
+    const h = typeof res?.getHeader === "function" ? (res.getHeader("PAYMENT-RESPONSE") || res.getHeader("X-PAYMENT-RESPONSE")) : null;
+    return h ? decodeB64Json(h) : null;
+  } catch { return null; }
+}
+
+const RAIL_FAMILY_NAMES = { algorand: "Algorand", solana: "Solana", stellar: "Stellar" };
+
+/**
+ * The 402 a buyer gets when settlement failed on OUR billing quota, said in
+ * their terms. Before this the body was `{}` and the settle breaker then
+ * blamed their wallet ("Recent payments from this wallet failed to settle") -
+ * measured 2026-09-28: one outside buyer served 175 times, refused 325 times,
+ * with nothing wrong on their side. Null for every other settle outcome.
+ */
+export function classifySettlementRefusal(paymentResponseHeader) {
+  const receipt = decodeB64Json(paymentResponseHeader);
+  if (!isBillingRefusalReceipt(receipt)) return null;
+  const network = typeof receipt.network === "string" && receipt.network ? receipt.network : null;
+  const name = network ? (RAIL_FAMILY_NAMES[network.split(":")[0]] || network) : "this network's";
+  return { reason: "facilitator-quota", retry: "other-network", network,
+    detail: `The ${name} facilitator refused to settle this payment under a billing quota on this server's account, not because of your wallet. Nothing was charged. Request this route again without payment for its current accepts and pay on another network listed there.` };
+}
 
 export function advertisedAccepts(paymentRequiredHeader) {
   const env = decodeB64Json(paymentRequiredHeader);
