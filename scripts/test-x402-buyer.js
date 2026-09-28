@@ -40,7 +40,7 @@ process.env.X402_UPSTREAM_BUYER_KEY = "0x" + randomBytes(32).toString("hex");
 const USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 const origFetch = globalThis.fetch;
 const v1entry = (over) => ({ scheme: over.scheme ?? "exact", network: over.network ?? "base", asset: over.asset ?? USDC, maxAmountRequired: over.amt ?? "1000", payTo: "0xabc", resource: "https://seller.example/x", description: "d", maxTimeoutSeconds: 60 });
-const challenge = (accepts) => ({ status: 402, headers: { get: () => null }, json: async () => ({ x402Version: 1, accepts }), text: async () => "" });
+const challenge = (accepts) => ({ status: 402, headers: { get: () => null }, json: async () => ({ x402Version: 1, accepts }), text: async () => JSON.stringify({ x402Version: 1, accepts }) });
 const { payX402 } = await import("../src/x402-buyer.js");
 
 // decoy: cheap non-exact first, expensive exact/USDC behind → must refuse (cap)

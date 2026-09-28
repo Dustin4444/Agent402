@@ -33,6 +33,7 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 // ever re-enabled. Only http(s) becomes a link; anything else renders inert.
 const safeHref = (u) => (/^https?:\/\//i.test(String(u || "")) ? esc(u) : "#");
 import { safeFetch } from "./tools/fetch-guard.js";
+import { readTextCapped } from "./capped-body.js";
 import { parseRobots, robotsAllows } from "./tools/kit.js";
 import { partialFields, clampFields } from "./partial-answer.js";
 import { responseContractOf, packResponseContract, responseContractProjection } from "./response-contract.js";
@@ -3678,7 +3679,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
             // crawl leaves it alone for the quote window, a re-registration
             // re-asks.
             // Only when the body is the route working, not an error page (src/tool-judge.js).
-            const raw = (await res.text().catch(() => "")).slice(0, 2000);
+            const raw = (await readTextCapped(res, 2000).catch(() => "")).slice(0, 2000);
             const bodyText = looksLikeListingInjection(raw) ? null : raw;   // text written to steer a judgment is not sent
             const verdict = bodyText == null ? null : await judgeFreeResponse(bodyText, res.headers.get("content-type") || "");
             if (verdict === "free") {
@@ -3696,7 +3697,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
         if (!isQuoteResponse(res.status)) continue;   // 404 on GET is expected for a POST-only seller
         // The quote lives in the header for x402 v2 and in the body for several
         // real sellers; read a bounded slice of both and let the parser decide.
-        const body = await res.text().catch(() => "");
+        const body = await readTextCapped(res, 64_000).catch(() => "");
         // Networks normalised ONCE, as paymentFieldsFromAccepts does for a
         // manifest or registry row: a v1-style 402 that names "base" must key
         // its payTo under eip155:8453, or allPayToOrigins (which reads that

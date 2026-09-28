@@ -20,6 +20,7 @@ import { recordUpstreamSpend } from "./stats.js";
 import { provenPayToMatches } from "./settlement-proof.js";
 import { usdcDomainVerdict, unsignableByStockBuyer } from "./evm-usdc-domain.js";
 import { disableVendorSpendControls } from "./x402-spend-controls.js";
+import { readBytesCapped, readTextCapped, declaredLength, discardBody } from "./capped-body.js";
 
 function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
@@ -59,6 +60,10 @@ export const BUYER_CHAINS = {
   },
 };
 const DEFAULT_MAX_BYTES = 512 * 1024;
+// Seller-written bodies we read only to learn something small: a 402's accepts
+// and the reason a paid retry was refused (logged, never relayed).
+const MAX_402_BODY_BYTES = 256 * 1024;
+const MAX_REFUSAL_BODY_BYTES = 4 * 1024;
 
 /** Pin the exact accept the client will sign for `chain` — right network label,
  *  scheme "exact", and the chain's mainnet USDC asset — or null. Pure; exported
@@ -194,10 +199,13 @@ export async function avmBuyerStatus() {
 
 // Pre-payment read (bare 200 = free tool, no spend yet): a bad body can throw
 // safely because nothing was paid.
+// Both readers stream and stop at `maxBytes` (src/capped-body.js): a seller's
+// body is never held in full before its size is known.
 async function readCapped(res, maxBytes) {
-  const text = await res.text();
-  if (text.length > maxBytes) throw bad("Upstream response exceeded the size cap", 502);
-  try { return JSON.parse(text); } catch { throw bad("Upstream returned non-JSON", 502); }
+  if ((declaredLength(res) ?? 0) > maxBytes) { discardBody(res); throw bad("Upstream response exceeded the size cap", 502); }
+  const { bytes, truncated } = await readBytesCapped(res, maxBytes);
+  if (truncated) throw bad("Upstream response exceeded the size cap", 502);
+  try { return JSON.parse(bytes.toString("utf8")); } catch { throw bad("Upstream returned non-JSON", 502); }
 }
 // F3: POST-payment read. Once we've spent, throwing a 4xx/5xx would cancel the
 // BUYER's settlement (@x402/express settles after the handler) — so we'd pay
@@ -205,10 +213,10 @@ async function readCapped(res, maxBytes) {
 // buyer. So NEVER throw here: oversize → truncated, non-JSON → wrapped string.
 // The buyer gets a 200 (is charged, covering our spend) with a best-effort body.
 export async function readAfterSpend(res, maxBytes) {
-  let text;
-  try { text = await res.text(); } catch { return { relayError: "upstream body unreadable" }; }
-  const truncated = text.length > maxBytes;
-  const body = truncated ? text.slice(0, maxBytes) : text;
+  let read;
+  try { read = await readBytesCapped(res, maxBytes); } catch { return { relayError: "upstream body unreadable" }; }
+  const truncated = read.truncated;
+  const body = read.bytes.toString("utf8");
   try { const j = JSON.parse(body); return truncated ? { ...(j && typeof j === "object" && !Array.isArray(j) ? j : { value: j }), _truncated: true } : j; }
   catch { return { raw: body.slice(0, 4000), ...(truncated ? { _truncated: true } : {}) }; }
 }
@@ -461,7 +469,7 @@ async function readModelList(modelsUrl, { fetchImpl, trusted }) {
       signal: AbortSignal.timeout(5000),
     });
     if (!r.ok) return null;
-    const text = (await r.text()).slice(0, MODEL_LIST_MAX_BYTES);
+    const text = await readTextCapped(r, MODEL_LIST_MAX_BYTES);
     const j = JSON.parse(text);
     const list = Array.isArray(j?.data) ? j.data : Array.isArray(j?.models) ? j.models : Array.isArray(j) ? j : null;
     if (!list) return null;
@@ -590,7 +598,10 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
 
   let paymentRequired;
   try {
-    const bareBody = await bare.json().catch(() => undefined);
+    // A bounded prefix of the seller's 402 body. v2 carries the challenge in
+    // the header, so a body past the cap only loses the v1 body form.
+    let bareBody;
+    try { bareBody = JSON.parse(await readTextCapped(bare, MAX_402_BODY_BYTES)); } catch { bareBody = undefined; }
     paymentRequired = http.getPaymentRequiredResponse((n) => bare.headers.get(n), bareBody);
   } catch { throw bad("Seller sent an unparseable 402 challenge", 502); }
 
@@ -854,7 +865,7 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
     // it. Same credential, so no second authorization exists to double-spend.
     if ((paid.status === 402 || paid.status === 401) && payHeaders["PAYMENT-SIGNATURE"] && !paidHeaders["X-PAYMENT"]) {
       let sniff = "";
-      try { sniff = (await paid.clone().text()).slice(0, 2000); } catch { sniff = ""; }
+      try { sniff = (await readTextCapped(paid.clone(), MAX_REFUSAL_BODY_BYTES)).slice(0, 2000); } catch { sniff = ""; }
       if (/x-payment/i.test(sniff)) {
         const host = (() => { try { return new URL(url).host; } catch { return "seller"; } })();
         console.warn(`[x402-buyer] ${host} asked for X-PAYMENT by name on a v2 challenge - resending the same credential under both header names (once)`);
@@ -890,7 +901,7 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
       // buyers is the leak the 2026-08-19 review closed for the MPP relay.
       let why = "";
       try {
-        const raw = (await paid.text()).slice(0, 400);
+        const raw = (await readTextCapped(paid, MAX_REFUSAL_BODY_BYTES)).slice(0, 400);
         why = raw.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
       } catch { why = "(body unreadable)"; }
       const where = (() => { try { return new URL(url).host; } catch { return "seller"; } })();

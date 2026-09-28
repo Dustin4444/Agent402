@@ -51,6 +51,7 @@ import { maySpend as realMaySpend, noteSpend as realNoteSpend, adjustSpend as re
 import { usdcDomainVerdict, usdcDomainMismatchDetail } from "../evm-usdc-domain.js";
 import { payerFromRequest } from "../payer.js";
 import { acceptsFromLive402, quoteFromAccepts } from "../x402-live-quote.js";
+import { readTextCapped } from "../capped-body.js";
 
 function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
@@ -63,6 +64,10 @@ export const MAX_SPEND_USD = 0.02;
 const DEFAULT_MAX_USD = 0.01;
 const BODY_SLICE = 2000;
 const PROBE_TIMEOUT_MS = 15_000;
+// The unpaid call's body is read to decode a v1 402 and to show a slice. The
+// URL is the caller's choice, so the body's size is too: it is streamed and
+// reading stops here, whatever the endpoint sends.
+const BARE_BODY_MAX_BYTES = 256 * 1024;
 const PAY_TIMEOUT_MS = 45_000;
 // The whole handler's budget, threaded into the payer as both its per-fetch
 // timeout and its refusal wait (2026-09-11 review).
@@ -243,7 +248,7 @@ export function buildSellerPayabilityTool({
         redirect: "manual",
         signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
       });
-      const text = await res.text().catch(() => "");
+      const text = await readTextCapped(res, BARE_BODY_MAX_BYTES).catch(() => "");
       bare = { status: res.status, contentType: (res.headers.get("content-type") || "").slice(0, 80) || null, error: null };
       if (res.status === 402) challenge = readChallenge({ header: res.headers.get("payment-required"), body: text.slice(0, 64_000) });
       bare.bodySlice = text.slice(0, 400);

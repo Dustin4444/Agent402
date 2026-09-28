@@ -549,6 +549,7 @@ import { buildSellerDossierTool } from "./tools/seller-dossier.js";
 import { buildSellerPayabilityTool } from "./tools/seller-payability-kit.js";
 import { deliveryObservation } from "./response-observation.js";
 import { payX402, avmBuyerConfigured, avmBuyerStatus, sellerRefusedRecently, sellerDeliveryFailingRecently, sellerDeliveryMemoEntries, DELIVERY_FAIL_STRIKES_REQUIRED, deliveryFailTtlMsNow } from "./x402-buyer.js";
+import { readTextCapped } from "./capped-body.js";
 import { svmBuyerConfigured, svmBuyerStatus, SOLANA_NETWORK_LABELS } from "./solana-buyer.js";
 import { payTempo, tempoBuyerConfigured, tempoBuyerStatus, tempoRpc } from "./tempo-buyer.js";
 import { issueChallenge, verifySolution, isComputePayable, powInfo, POW_DIFFICULTY, WALLET_ONLY_SLUGS, verifyHeartbeatToken, PROBE_POW_SLUG } from "./pow.js";
@@ -1548,7 +1549,7 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
         // stays as the belt against a seller serving the probe a clean
         // address and the payer a different one.
         let probeBody = "";
-        try { probeBody = (await probe.text()).slice(0, 4000); } catch { /* header-only */ }
+        try { probeBody = await readTextCapped(probe, 4000); } catch { /* header-only */ }
         const { passesSolanaResolveGate } = await import("./solana-buyer.js");
         const gate = await passesSolanaResolveGate({ header: probe.headers.get("payment-required"), body: probeBody });
         if (!gate.ok) {
@@ -1585,7 +1586,7 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
           if (liveRead) return livePayTo;
           liveRead = true;
           let body = "";
-          try { body = (await probe.text()).slice(0, 4000); } catch { /* header-only quote */ }
+          try { body = await readTextCapped(probe, 4000); } catch { /* header-only quote */ }
           livePayTo = payToFromLive402({ header: probe.headers.get("payment-required"), body });
           liveAccepts = acceptsFromLive402({ header: probe.headers.get("payment-required"), body });
           return livePayTo;

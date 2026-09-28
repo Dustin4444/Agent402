@@ -26,6 +26,7 @@ import { assertSigningAllowed } from "./signing-halt.js";
 import { ROUTER_UA } from "./x402-buyer.js";
 import { recordUpstreamSpend } from "./stats.js";
 import { assertPublicUrl, ssrfDispatcher } from "./tools/fetch-guard.js";
+import { readBytesCapped } from "./capped-body.js";
 
 export const TEMPO_CHAIN_ID = 4217;
 export const TEMPO_CAIP2 = "eip155:4217";
@@ -206,11 +207,13 @@ async function defaultCredentialFactory() {
   return (res402) => client.createCredential(res402);
 }
 
+// Streams and stops at `maxBytes` (src/capped-body.js), so a seller's body is
+// never held in full. `sha256` is over the bytes read; `truncated` says when
+// that is a prefix.
 async function readCapped(res, maxBytes) {
-  const buf = Buffer.from(await res.arrayBuffer());
-  const slice = buf.length > maxBytes ? buf.subarray(0, maxBytes) : buf;
-  const text = slice.toString("utf8");
+  const { bytes: buf, truncated } = await readBytesCapped(res, maxBytes);
+  const text = buf.toString("utf8");
   const ct = res.headers.get("content-type") || "";
   if (/json/i.test(ct)) { try { return JSON.parse(text); } catch { /* fall through */ } }
-  return { text, truncated: buf.length > maxBytes, contentType: ct, sha256: createHash("sha256").update(buf).digest("hex") };
+  return { text, truncated, contentType: ct, sha256: createHash("sha256").update(buf).digest("hex") };
 }
