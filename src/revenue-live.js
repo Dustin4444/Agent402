@@ -511,6 +511,35 @@ async function evmRail(name, wallet) {
   return out;
 }
 
+/**
+ * The snapshot's recent-transfer rows, re-read from the ledger at request time.
+ * The snapshot is cached for an hour and refreshed in the background (the
+ * balances cost chain calls), so rows read inside it could be an hour old and
+ * the first page load after a refresh started still showed them. Only rails
+ * whose rows came from the ledger are re-read; that read is one indexed
+ * SQLite query per rail. Returns a new snapshot object, never mutating the
+ * cached one. `ledgerRecentFn` is revenue-ledger's ledgerRecent (passed in:
+ * a static import would close the module cycle described in evmRail).
+ */
+export function withFreshRecent(snap, ledgerRecentFn) {
+  if (!snap || !Array.isArray(snap.rails) || typeof ledgerRecentFn !== "function") return snap;
+  const byLabel = new Map(Object.entries(EVM).map(([name, c]) => [c.label, [name, c]]));
+  let changed = false;
+  const rails = snap.rails.map((rail) => {
+    if (!rail || rail.recentSource !== "ledger" || !rail.wallet) return rail;
+    const hit = byLabel.get(rail.rail);
+    if (!hit) return rail;
+    const [name, c] = hit;
+    let rows;
+    try { rows = ledgerRecentFn(c.ledgerChain || name, rail.wallet, { limit: 8 }); } catch { return rail; }
+    if (!Array.isArray(rows) || !rows.length) return rail;
+    changed = true;
+    const recent = rows.map((t) => ({ ...t, tx: t.txHash ? c.tx(t.txHash) : null }));
+    return { ...rail, recent, externalUsd: Number(recent.filter((t) => t.external).reduce((sum, t) => sum + t.usd, 0).toFixed(6)) };
+  });
+  return changed ? { ...snap, rails } : snap;
+}
+
 // The EVM rails bound "recent" by a block window; Solana (last 6 signatures)
 // and Stellar (Horizon's last 10 payment ops) are bounded by COUNT — entries
 // can be arbitrarily old. The per-rail externalUsd (and therefore the site
@@ -1679,7 +1708,7 @@ export function revenuePage(baseUrl, snap) {
     ${standing}
     ${hero}
     <p style="font-size:12px;line-height:1.55;color:var(--muted);margin:2px 0 14px;max-width:72ch;">${agents ? `The wallet count is read from on-chain transfers plus Tempo MPP settlements${snap.agents?.scope?.since ? ` from ${esc(snap.agents.scope.since)}` : ""}, one wallet counted once across rails: it is a floor, not a lifetime total, and it cannot see card or prepaid-credits buyers, or a settlement whose payer is not exposed. ` : ""}Published so these rails can be checked against the chain. Operating history for a payments service, stated for transparency: information only, not an offer, a solicitation, a recommendation or investment advice, and not a projection. <a href="/transparency#revenue-figures">How each figure is derived</a>.</p>
-    <p style="font-family:var(--font-mono);font-size:12px;color:var(--muted);margin:0 0 28px;">as of ${esc(snap.asOf)} · 60s cache · <a href="/api/revenue">/api/revenue</a> · <a href="/api/revenue/mpp">/api/revenue/mpp</a> · <a href="/api/revenue/daily">/api/revenue/daily</a></p>
+    <p style="font-family:var(--font-mono);font-size:12px;color:var(--muted);margin:0 0 28px;">balances as of ${esc(snap.asOf)}, refreshed hourly · recent transfers read from the ledger on each load · <a href="/api/revenue">/api/revenue</a> · <a href="/api/revenue/mpp">/api/revenue/mpp</a> · <a href="/api/revenue/daily">/api/revenue/daily</a></p>
     </section>
     <section>
     ${revenueChartSection()}
