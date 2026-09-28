@@ -3679,7 +3679,9 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
       ? tools.find((o) => o !== tool && o.route === tool.route && String(o.method || "").toUpperCase() === answered)
       : null;
     // Did the stated verb itself refuse, definitively, on every attempt? Only
-    // then does the sibling branch drop the stated row.
+    // then does the sibling branch drop the stated row. The length test is a
+    // belt: probeMethodsFor always tries the stated verb first, so no current
+    // path reaches it, but an empty list would otherwise read as a refusal.
     const statedRefused = Boolean(sibling) && (answersByMethod[own] || []).length > 0
       && answersByMethod[own].every((st) => MISS.has(st));
     if (learned || freeObserved) {
