@@ -24,12 +24,19 @@
 //   - a treasury-paid debt verifies with or without the spending addresses;
 //   - a route-execute debt whose payment went to a stranger stays unverified;
 //   - the addresses come from repository VARIABLES, never from secrets.
+//
+// A disconnect (http 499) on a route whose effect outlives the answer - the
+// router tiers among them - is held for review before verification, on the
+// dry run and the live run alike, and only the workflow's
+// include_lasting_hangups input releases it. A disconnect on an ordinary
+// route and a failed answer on a router tier are repaid as before.
 import http from "node:http";
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { load } from "js-yaml";
+import { LASTING_HANGUP_HOLD } from "./refund-run.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -43,6 +50,8 @@ const STRANGER_EVM = "0x9999999999999999999999999999999999999999";
 const BUYER_A = "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa";
 const BUYER_B = "0xBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBb";
 const BUYER_C = "0xCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCc";
+const BUYER_D = "0xDdDdDdDdDdDdDdDdDdDdDdDdDdDdDdDdDdDdDdDd";
+const BUYER_E = "0xEeEeEeEeEeEeEeEeEeEeEeEeEeEeEeEeEeEeEeEe";
 const ALGO_NET = "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=";
 const TREASURY_ALGO = "TREASURYALGOTREASURYALGOTREASURYALGOTREASURYALGOTREASURYA";
 const SPEND_ALGO = "SPENDALGOSPENDALGOSPENDALGOSPENDALGOSPENDALGOSPENDALGOSPE"; // case preserved on this rail
@@ -53,7 +62,7 @@ const REPO_VARIABLES = {
 };
 
 const hex64 = (c) => `0x${c.repeat(64)}`;
-const TX = { reBase: hex64("a"), hash: hex64("b"), stranger: hex64("c") };
+const TX = { reBase: hex64("a"), hash: hex64("b"), stranger: hex64("c"), reHangup: hex64("d"), hashHangup: hex64("e") };
 const ALGO_TXID = "REALGOTXIDREALGOTXIDREALGOTXIDREALGOTXIDREALGOTXIDREALG";
 const TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 const topic = (a) => `0x${"0".repeat(24)}${a.slice(2).toLowerCase()}`;
@@ -62,17 +71,23 @@ const receipts = {
   [TX.reBase]: { status: "0x1", logs: [{ address: USDC_BASE, topics: [TRANSFER, topic(BUYER_A), topic(SPEND_EVM)], data: amt(10_000) }] },
   [TX.hash]: { status: "0x1", logs: [{ address: USDC_BASE, topics: [TRANSFER, topic(BUYER_B), topic(TREASURY_EVM)], data: amt(1_000) }] },
   [TX.stranger]: { status: "0x1", logs: [{ address: USDC_BASE, topics: [TRANSFER, topic(BUYER_C), topic(STRANGER_EVM)], data: amt(10_000) }] },
+  [TX.reHangup]: { status: "0x1", logs: [{ address: USDC_BASE, topics: [TRANSFER, topic(BUYER_D), topic(SPEND_EVM)], data: amt(50_000) }] },
+  [TX.hashHangup]: { status: "0x1", logs: [{ address: USDC_BASE, topics: [TRANSFER, topic(BUYER_E), topic(TREASURY_EVM)], data: amt(1_000) }] },
 };
 
 const ROWS = [
-  { id: 1, slug: "route-execute", network: "eip155:8453", payer: BUYER_A, priceUsd: 0.01, evidence: TX.reBase, status: "owed", synthetic: 0, createdAt: Date.now() - 60_000, httpStatus: 499 },
+  { id: 1, slug: "route-execute", network: "eip155:8453", payer: BUYER_A, priceUsd: 0.01, evidence: TX.reBase, status: "owed", synthetic: 0, createdAt: Date.now() - 60_000, httpStatus: 500 },
   { id: 2, slug: "route-execute", network: ALGO_NET, payer: BUYER_ALGO, priceUsd: 0.01, evidence: ALGO_TXID, status: "owed", synthetic: 0, createdAt: Date.now() - 60_000 },
   { id: 3, slug: "hash", network: "eip155:8453", payer: BUYER_B, priceUsd: 0.001, evidence: TX.hash, status: "owed", synthetic: 0, createdAt: Date.now() - 60_000, httpStatus: 502 },
   { id: 4, slug: "route-execute", network: "eip155:8453", payer: BUYER_C, priceUsd: 0.01, evidence: TX.stranger, status: "owed", synthetic: 0, createdAt: Date.now() - 60_000 },
+  // A disconnect on a router tier, paid to the spending wallet: held for review.
+  { id: 5, slug: "route-execute-plus", network: "eip155:8453", payer: BUYER_D, priceUsd: 0.05, evidence: TX.reHangup, status: "owed", synthetic: 0, createdAt: Date.now() - 60_000, httpStatus: 499 },
+  // A disconnect on an ordinary route, paid to the treasury: repaid as before.
+  { id: 6, slug: "hash", network: "eip155:8453", payer: BUYER_E, priceUsd: 0.001, evidence: TX.hashHangup, status: "owed", synthetic: 0, createdAt: Date.now() - 60_000, httpStatus: 499 },
 ];
 
 // ---- one stub server: operator ledger, our 402, Base RPC, Algorand indexer ----
-const seen = { claims: 0, updatesOtherThanClaim: 0, rpcMethods: [], sendRaw: 0 };
+const seen = { claims: 0, claimIds: new Set(), updatesOtherThanClaim: 0, rpcMethods: [], sendRaw: 0 };
 const accepts = [
   { scheme: "exact", network: "eip155:8453", payTo: TREASURY_EVM, asset: USDC_BASE, amount: "1000" },
   { scheme: "exact", network: ALGO_NET, payTo: TREASURY_ALGO, asset: "31566704", amount: "1000" },
@@ -87,8 +102,8 @@ const server = http.createServer(async (req, res) => {
     return json(200, { refunds: ROWS, totals: { owed: { n: ROWS.length } } });
   }
   if (url.pathname === "/__operator/refunds/update") {
-    const action = (() => { try { return JSON.parse(body).action; } catch { return null; } })();
-    if (action === "claim") seen.claims++; else seen.updatesOtherThanClaim++;
+    const upd = (() => { try { return JSON.parse(body); } catch { return {}; } })();
+    if (upd.action === "claim") { seen.claims++; seen.claimIds.add(upd.id); } else seen.updatesOtherThanClaim++;
     return json(409, { ok: false });   // never let a send begin
   }
   if (url.pathname === "/api/hash" || url.pathname === "/api/solidity-scan") {
@@ -127,6 +142,28 @@ for (const [k, v] of Object.entries(stepEnv)) {
   const m = /^\$\{\{\s*vars\.([A-Z0-9_]+)\s*\}\}$/.exec(String(v).trim());
   if (m) fromVars[k] = REPO_VARIABLES[m[1]] ?? "";
 }
+// The whole step environment for a dispatch with these inputs: repository
+// variables resolved from the fixture, inputs from the dispatch or the
+// workflow's own declared defaults. Secrets are left to runJob's dummies.
+const declaredInputs = (wf.on || wf[true] || {}).workflow_dispatch?.inputs || {};
+function stepEnvFor(inputs = {}) {
+  const val = (name) => (Object.hasOwn(inputs, name) ? inputs[name] : declaredInputs[name]?.default);
+  const out = {};
+  for (const [k, v] of Object.entries(stepEnv)) {
+    const t = String(v).trim();
+    let m;
+    if ((m = /^\$\{\{\s*vars\.([A-Z0-9_]+)\s*\}\}$/.exec(t))) out[k] = REPO_VARIABLES[m[1]] ?? "";
+    else if ((m = /^\$\{\{\s*inputs\.([a-z0-9_]+)\s*&&\s*'true'\s*\|\|\s*'false'\s*\}\}$/.exec(t))) out[k] = val(m[1]) === true ? "true" : "false";
+    else if ((m = /^\$\{\{\s*inputs\.([a-z0-9_]+)\s*\}\}$/.exec(t))) out[k] = String(val(m[1]) ?? "");
+  }
+  return out;
+}
+const lastingInput = declaredInputs.include_lasting_hangups;
+ok(lastingInput?.type === "boolean" && lastingInput?.default === false,
+  "refund.yml declares include_lasting_hangups as a boolean that defaults to false");
+ok(stepEnvFor({ include_lasting_hangups: true }).REFUND_INCLUDE_LASTING_HANGUPS === "true"
+   && stepEnvFor({}).REFUND_INCLUDE_LASTING_HANGUPS === "false",
+  "the step passes that input to the job as REFUND_INCLUDE_LASTING_HANGUPS");
 
 // The spending wallets the server settles to, as payments.js reads them; the
 // ones the refund job knows how to use, as refund-run.js reads them; and what
@@ -169,6 +206,20 @@ function runJob(extraEnv) {
   });
 }
 const confirmed = (out, id) => new RegExp(`#${id} inbound payment confirmed on-chain`).test(out);
+// The row ids a plan printed under one HELD bucket.
+function heldIds(out, reason) {
+  const lines = out.split("\n");
+  const at = lines.findIndex((l) => l.startsWith(`HELD (${reason}): `));
+  if (at < 0) return [];
+  const ids = [];
+  for (const l of lines.slice(at + 1)) { const m = /^\s+#(\d+) /.exec(l); if (!m) break; ids.push(Number(m[1])); }
+  return ids;
+}
+async function runWithClaims(env) {
+  seen.claimIds = new Set();
+  const r = await runJob(env);
+  return { ...r, claimed: new Set(seen.claimIds) };
+}
 const unverified = (out, id) => new RegExp(`HOLD\\s+#${id} .*UNVERIFIED`).test(out);
 
 // Control first: with no spending addresses the job must still reach its
@@ -178,17 +229,36 @@ ok(confirmed(bare.out, 3), "control: a treasury-paid debt verifies with no spend
 ok(unverified(bare.out, 1) && unverified(bare.out, 2),
   "control: without the spending addresses a route-execute debt cannot be proven, on Base or Algorand");
 
-const shipped = await runJob(fromVars);
+const shipped = await runWithClaims(stepEnvFor({ live: true }));
 ok(confirmed(shipped.out, 1), "with refund.yml's environment, a route-execute debt paid to the Base spending wallet verifies");
 ok(confirmed(shipped.out, 2), "...and one paid to the Algorand spending wallet verifies (address case preserved)");
 ok(confirmed(shipped.out, 3), "the treasury-paid debt still verifies (honest path unchanged)");
 ok(unverified(shipped.out, 4) && !confirmed(shipped.out, 4),
   "a route-execute debt paid to a stranger is still held: the set grew by our own wallets only");
 
+// A disconnect on a router tier is held for review before verification, on
+// the dry run a reviewer reads and on the live run alike; a disconnect on an
+// ordinary route is repaid as before.
+const dry = await runWithClaims(stepEnvFor({}));
+ok(/DRY RUN/.test(dry.out) && heldIds(dry.out, LASTING_HANGUP_HOLD).join(",") === "5",
+  `the dry run lists the router-tier disconnect in its own held bucket (${heldIds(dry.out, LASTING_HANGUP_HOLD)})`);
+ok(heldIds(shipped.out, LASTING_HANGUP_HOLD).join(",") === "5" && !confirmed(shipped.out, 5) && !unverified(shipped.out, 5) && !shipped.claimed.has(5),
+  "on a live run with the default inputs it is never verified or claimed");
+ok(confirmed(shipped.out, 6) && shipped.claimed.has(6),
+  "control: a disconnect on an ordinary route verifies and is claimed for repayment, as before");
+ok(shipped.claimed.has(1) && shipped.claimed.has(3),
+  "control: a failed answer on a router tier and a treasury-paid debt are claimed for repayment, as before");
+const optIn = await runWithClaims(stepEnvFor({ live: true, include_lasting_hangups: true }));
+ok(!heldIds(optIn.out, LASTING_HANGUP_HOLD).length && confirmed(optIn.out, 5) && optIn.claimed.has(5),
+  "with include_lasting_hangups set, the reviewed disconnect verifies and is claimed for repayment");
+ok(confirmed(optIn.out, 6) && optIn.claimed.has(1) && optIn.claimed.has(3) && optIn.claimed.has(6),
+  "...and the other debts are claimed exactly as without it");
+
 // A route-execute row can now pass verification, so the plan a reviewer reads
 // before approving a live run names the status each debt was recorded on: a
 // 499 is a buyer who disconnected, not an answer that failed.
-ok(/#1 eip155:8453 \$0\.01 -> payer:[0-9a-f]{8} \(route-execute, http 499\)/.test(shipped.out)
+ok(/#5 eip155:8453 \$0\.05 -> payer:[0-9a-f]{8} \(route-execute-plus, http 499\)/.test(shipped.out)
+   && /#1 eip155:8453 \$0\.01 -> payer:[0-9a-f]{8} \(route-execute, http 500\)/.test(shipped.out)
    && /#3 eip155:8453 \$0\.001 -> payer:[0-9a-f]{8} \(hash, http 502\)/.test(shipped.out)
    && /#2 \S+ \$0\.01 -> payer:[0-9a-f]{8} \(route-execute\)/.test(shipped.out),
    "the plan names each row's recorded status, and a row with none prints as before");

@@ -7,7 +7,8 @@
 // case-folding an address on a case-sensitive rail.
 process.env.REFUND_DB_DIR = process.env.TMPDIR || "/tmp";
 import { recordRefundOwed, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals, __resetRefunds } from "../src/refund-ledger.js";
-import { planRefunds, familyOf, ourPayToSet } from "./refund-run.js";
+import { planRefunds, familyOf, ourPayToSet, LASTING_HANGUP_HOLD, isLastingEffectHangup } from "./refund-run.js";
+import { LASTING_EFFECT_SLUG_LIST } from "../src/hangup-forgiveness.js";
 import { readFileSync } from "node:fs";
 
 let pass = 0, fail = 0;
@@ -315,6 +316,64 @@ const SENDERS = { evm: true, stellar: true, algorand: true, solana: false };
   ok([...s2.get("eip155:8453")].includes("0x7706d81e18ad403bcd6e9a0616b288e16744121a"),
     "the EVM spending wallet is folded");
   ok(s2.get("eip155:8453").size === 2, "both EVM wallets are accepted, not one replacing the other");
+}
+
+// 22. A DISCONNECT ON A ROUTE WHOSE EFFECT WAS DELIVERED IS A REVIEW, NOT A
+//     REFUND. The serving side books a buyer who closed the socket before the
+//     first byte as http 499 (recordHangupDebt), and never forgives one on a
+//     route whose effect outlives the answer (hasLastingEffect): the router
+//     tiers had already paid an outside seller from our wallet, a memory write
+//     or an attestation had already landed. Those rows stay owed and are
+//     listed in their own bucket; only an explicit opt-in repays them.
+{
+  const hang = (over) => mk({ status: "owed", httpStatus: 499, ...over });
+  const p = planRefunds([
+    hang({ id: 1, slug: "route-execute-plus", priceUsd: 0.05, payer: "0xR1" }),
+    hang({ id: 2, slug: "route-execute", priceUsd: 0.01, payer: "0xR2" }),
+  ], { senders: SENDERS });
+  ok(p.send.length === 0 && (p.held[LASTING_HANGUP_HOLD] || []).length === 2,
+    `a route-execute disconnect is held in its own bucket by default (sent ${p.send.length}, held ${(p.held[LASTING_HANGUP_HOLD] || []).length})`);
+  ok(/include_lasting_hangups/.test(LASTING_HANGUP_HOLD), "the bucket names the input that releases it");
+
+  const every = planRefunds(LASTING_EFFECT_SLUG_LIST.map((slug, i) => hang({ id: 100 + i, slug, payer: `0xL${i}`, priceUsd: 0.001 })), { senders: SENDERS });
+  ok(every.send.length === 0 && (every.held[LASTING_HANGUP_HOLD] || []).length === LASTING_EFFECT_SLUG_LIST.length,
+    `every lasting-effect slug is held on a disconnect (${LASTING_EFFECT_SLUG_LIST.length} slugs, one list shared with the serving side)`);
+  ok(isLastingEffectHangup({ slug: "route-execute", httpStatus: "499" }), "a status that arrives as text still reads as a disconnect");
+
+  // Controls: the honest paths are exactly as before.
+  const honest = planRefunds([
+    mk({ id: 10, slug: "route-execute", httpStatus: 500, payer: "0xH1", priceUsd: 0.01 }),  // an answer that failed
+    mk({ id: 11, slug: "route-execute", payer: "0xH2", priceUsd: 0.01 }),                   // no status recorded
+    hang({ id: 12, slug: "hash", payer: "0xH3" }),                                          // a disconnect on an ordinary route
+    hang({ id: 13, slug: "memory-read", payer: "0xH4" }),                                   // a reader leaves nothing behind
+  ], { senders: SENDERS });
+  ok(honest.send.map((r) => r.id).join(",") === "10,11,12,13" && !honest.held[LASTING_HANGUP_HOLD],
+    `a failed answer, an unrecorded status and a disconnect on an ordinary route all plan to send (${honest.send.map((r) => r.id)})`);
+
+  // Opted in, the same rows plan to send, still under every cap.
+  const optIn = planRefunds([
+    hang({ id: 20, slug: "route-execute-plus", priceUsd: 0.05, payer: "0xO1" }),
+    hang({ id: 21, slug: "memory-write", payer: "0xO2" }),
+  ], { senders: SENDERS, includeLastingHangups: true });
+  ok(optIn.send.length === 2 && !optIn.held[LASTING_HANGUP_HOLD], "with include_lasting_hangups the held rows plan to send");
+  const optInCapped = planRefunds([hang({ id: 22, slug: "route-execute-max", priceUsd: 0.55, payer: "0xO3" })],
+    { senders: SENDERS, includeLastingHangups: true, maxEachUsd: 0.25 });
+  ok(optInCapped.send.length === 0 && (optInCapped.held["over per-refund cap $0.25"] || []).length === 1,
+    "opting in does not lift the per-refund cap");
+
+  // Lifting a cap does not release them: the hold is its own rule.
+  const lifted = planRefunds([hang({ id: 30, slug: "route-execute-max", priceUsd: 0.55, payer: "0xM1" })],
+    { senders: SENDERS, maxEachUsd: 1, maxTotalUsd: 100, maxPerPayerUsd: 100 });
+  ok(lifted.send.length === 0 && (lifted.held[LASTING_HANGUP_HOLD] || []).length === 1,
+    "raising max_each_usd does not release a held disconnect");
+
+  // Held before the caps, so a held row takes no share of the budget.
+  const budget = planRefunds([
+    hang({ id: 40, slug: "route-execute", priceUsd: 0.25, payer: "0xSAME" }),
+    mk({ id: 41, slug: "hash", httpStatus: 502, priceUsd: 0.25, payer: "0xSAME" }),
+  ], { senders: SENDERS, maxPerPayerUsd: 0.25, maxTotalUsd: 0.25 });
+  ok(budget.send.map((r) => r.id).join(",") === "41",
+    "a held disconnect does not use up the wallet's or the run's budget for an honest debt");
 }
 
 __resetRefunds();
