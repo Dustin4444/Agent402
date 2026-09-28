@@ -63,8 +63,10 @@ export const FUNDING_DEFAULTS = {
   minRangeBlocks: 1000,
   walletChunk: 200,
   payerChunk: 200,
-  // Recipients (pools) kept per wallet and in total. Beyond them new funding
-  // is not recorded and the wallet is flagged truncated.
+  // Recipients (pools) kept per wallet and in total. Beyond them, dust pools
+  // are dropped first; a recipient that already pays the wallet is always
+  // recorded; any other new funding is not, and the wallet is flagged
+  // truncated.
   maxPairsPerWallet: 20_000,
   maxPairsTotal: 300_000,
   // Funded payments remembered per wallet (the window's netted payments).
@@ -113,6 +115,19 @@ function newWalletState(freshFrom, now) {
   return { cursor: freshFrom - 1, through: posOf(freshFrom, 0) - 1, since: freshFrom, truncated: false, lastSeenAt: now, lastCircularAt: null, pairs: new Map() };
 }
 function newPair() { return { pool: 0, credit: 0, at: 0, recs: [], pend: [] }; }
+// Below this a pool is dust (token units: $0.01 of USDC).
+const DUST_UNITS = 10_000;
+/** Drop the wallet's pools that hold less than DUST_UNITS, net nothing yet,
+ *  and belong to no current payer. Returns how many were dropped. */
+function dropDustPairs(ws, payers) {
+  let n = 0;
+  for (const [p, pair] of ws.pairs) {
+    if (payers?.has(p) || pair.recs.length || pair.credit > 0) continue;
+    const held = pair.pool + pair.pend.reduce((a, [, v]) => a + v, 0);
+    if (held < DUST_UNITS) { ws.pairs.delete(p); n++; }
+  }
+  return n;
+}
 export function fundingPairCount(state) {
   let n = 0;
   for (const ws of state?.wallets?.values?.() || []) n += ws.pairs.size;
@@ -259,7 +274,15 @@ export async function readSellerFunding({ rpc, token, state, wallets = [], lates
       const ws = state.wallets.get(from);
       let pair = ws.pairs.get(to);
       if (!pair) {
-        if (ws.pairs.size >= maxPairsPerWallet || totalPairs >= maxPairsTotal) { ws.truncated = true; continue; }
+        // Past a cap, a recipient that already pays this wallet is still
+        // recorded (it is what the rule is for); for any other, the wallet's
+        // dust pools are dropped first, so a seller spraying tiny transfers
+        // cannot fill the caps and stop its real funding being recorded.
+        const full = () => ws.pairs.size >= maxPairsPerWallet || totalPairs >= maxPairsTotal;
+        if (full() && !payersOf.get(from)?.has(to)) {
+          totalPairs -= dropDustPairs(ws, payersOf.get(from));
+          if (full()) { ws.truncated = true; continue; }
+        }
         pair = newPair();
         ws.pairs.set(to, pair);
         totalPairs++;

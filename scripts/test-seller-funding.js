@@ -270,6 +270,24 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
   const st5 = createFundingState(USDC);
   const ts2 = await readSellerFunding({ rpc: async () => { throw new Error("The operation was aborted due to timeout"); }, token: USDC, state: st5, wallets: [{ wallet: W1, payers: new Set([P(400)]) }, { wallet: W2, payers: new Set([P(401)]) }], latest: 1000, freshFrom: 100, minRangeBlocks: 100 });
   ok(ts2.calls === 4 && ts2.behind === 2 && /timeout/.test(ts2.transportError || ""), `an RPC that times out on everything stops after a few (${ts2.calls} calls), not after the budget`);
+  // The pool caps cannot be filled cheaply. Zero-value logs are never
+  // recorded; dust pools make way; a recipient that pays the wallet is always
+  // recorded.
+  const W3 = addr("93");
+  const spray = [];
+  for (let i = 0; i < 30; i++) spray.push(log(W3, P(3000 + i), 0, 100, i), log(W3, P(3100 + i), 1, 101, i));
+  spray.push(log(W3, P(3200), usd(2), 150, 0), log(W3, P(3201), usd(2), 151, 0));
+  const st6 = createFundingState(USDC);
+  await readSellerFunding({ rpc: fakeRpc(spray), token: USDC, state: st6, wallets: [{ wallet: W3, payers: new Set([P(3201)]) }], latest: 1000, freshFrom: 50, maxPairsPerWallet: 10 });
+  const pairs6 = st6.wallets.get(W3).pairs;
+  const zeroKept = Array.from({ length: 30 }, (_, i) => P(3000 + i)).some((p) => pairs6.has(p));
+  ok(!zeroKept && !st6.wallets.get(W3).truncated && pairs6.has(P(3200)) && pairs6.has(P(3201)), `SPRAY: 30 zero-value and 30 one-unit transfers do not fill a 10-pool cap; the real $2 fundings are recorded (${pairs6.size} pools, truncated ${st6.wallets.get(W3).truncated})`);
+  const st7 = createFundingState(USDC);
+  const big = [];
+  for (let i = 0; i < 15; i++) big.push(log(W3, P(3300 + i), usd(0.5), 100, i));
+  big.push(log(W3, P(3400), usd(2), 150, 0));
+  await readSellerFunding({ rpc: fakeRpc(big), token: USDC, state: st7, wallets: [{ wallet: W3, payers: new Set([P(3400)]) }], latest: 1000, freshFrom: 50, maxPairsPerWallet: 10 });
+  ok(st7.wallets.get(W3).truncated === true && st7.wallets.get(W3).pairs.has(P(3400)), "past the cap with real pools, the wallet is flagged truncated, and a recipient that pays it is still recorded");
   // A single wallet refused even over the narrowest range is read targeted at its own payers.
   const st3 = createFundingState(USDC);
   const g = await scanOnce({ sellers: [seller(W1, "seller-x.example")], pays: sp.slice(0, 1), outs: so, state: st3, latest: 1000, span: 500, rpcOpts: { refuse: (p) => p.topics[2] === null } , readOpts: { minRangeBlocks: 2000 } });
